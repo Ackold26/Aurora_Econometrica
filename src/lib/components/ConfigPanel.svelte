@@ -212,6 +212,14 @@
     </div>
   {/if}
 
+  <!-- PSY: Commitment summary — user sees what THEY configured (IKEA Effect + Commitment) -->
+  {#if selectedKpi && Object.values(channelEnabled).filter(Boolean).length > 0}
+    <div class="config-summary">
+      <span class="summary-label">Конфигурация:</span>
+      KPI: <strong>{selectedKpi}</strong> | {Object.values(channelEnabled).filter(Boolean).length} каналов | Adstock: авто
+    </div>
+  {/if}
+
   <!-- Run button -->
   <button
     class="run-btn"
@@ -278,6 +286,19 @@
   }
 
   .config-select-sm { padding: 4px 8px; font-size: 12px; }
+
+  .config-summary {
+    padding: 8px 12px;
+    background: rgba(59, 130, 246, 0.06);
+    border: 1px solid rgba(59, 130, 246, 0.12);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.5;
+  }
+
+  .config-summary strong { color: var(--text-primary, #e2e8f0); }
+  .summary-label { color: var(--accent-primary, #3b82f6); font-weight: 500; }
 
   .channels-grid {
     display: flex;

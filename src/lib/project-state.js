@@ -68,6 +68,22 @@ export const isComputing = writable(false);
 /** @type {import('svelte/store').Writable<string>} Current computation status message */
 export const computeStatus = writable('');
 
+/** @type {import('svelte/store').Writable<boolean>} Project completion ceremony active */
+export const showCompletion = writable(false);
+
+/** @type {import('svelte/store').Writable<{startTime: number|null, tokensUsed: number, scenarioCount: number}>} Session stats for completion */
+export const sessionStats = writable({ startTime: null, tokensUsed: 0, scenarioCount: 0 });
+
+/**
+ * Trigger completion ceremony (Peak-End Rule: beautiful ending = positive memory).
+ * Call after /mmm-export or /executive completes.
+ */
+export function triggerCompletion() {
+  showCompletion.set(true);
+  // Auto-dismiss after 8 seconds
+  setTimeout(() => showCompletion.set(false), 8000);
+}
+
 /**
  * Reset pipeline state (when switching projects).
  */
