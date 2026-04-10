@@ -1,0 +1,7 @@
+fastapi>=0.100
+uvicorn>=0.20
+aiohttp>=3.9
+telethon>=1.36
+feedparser>=6.0
+google-api-python-client>=2.100
+pydantic>=2.0

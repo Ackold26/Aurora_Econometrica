@@ -1,0 +1,175 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Test & Lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Svelte Check
+        run: npx svelte-check --tsconfig ./jsconfig.json
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+
+  release:
+    name: Build Release
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Enable .NET 3.5 for WiX
+        run: |
+          DISM /Online /Enable-Feature /FeatureName:NetFx3 /All /NoRestart || echo "Feature may already be enabled"
+        shell: cmd
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build release
+        run: cargo tauri build
+
+      - name: Compute SHA256 checksums
+        run: |
+          Get-ChildItem -Path src-tauri/target/release/bundle/nsis/*.exe, src-tauri/target/release/bundle/msi/*.msi -ErrorAction SilentlyContinue |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } |
+            Tee-Object -FilePath checksums.txt
+        shell: pwsh
+
+      - name: Upload artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            checksums.txt
+          body_path: checksums.txt
+          draft: true
+
+      - name: Update manifest (rosst-updates)
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.ROSST_UPDATES_TOKEN }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $product = (Get-Content src-tauri/Cargo.toml -Raw | Select-String 'name\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $exe = Get-ChildItem -Path src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $checksum = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($exe.Name)"
+
+          $manifest = @{
+            version = $version
+            download_url = $downloadUrl
+            checksum = "sha256:$checksum"
+            release_notes = "Release $version"
+            mandatory = $false
+            min_version = "0.1.0"
+          } | ConvertTo-Json
+
+          $manifestB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($manifest))
+          $path = "$product/latest.json"
+
+          # Get current file SHA (if exists)
+          $existingSha = $null
+          try {
+            $existing = gh api "repos/ackold26/rosst-updates/contents/$path" 2>$null | ConvertFrom-Json
+            $existingSha = $existing.sha
+          } catch {}
+
+          $body = @{ message = "Update $product to $version"; content = $manifestB64 }
+          if ($existingSha) { $body.sha = $existingSha }
+
+          gh api -X PUT "repos/ackold26/rosst-updates/contents/$path" --input - <<< ($body | ConvertTo-Json)
+          Write-Host "Manifest updated: $product v$version"
+        shell: pwsh
+
+      - name: Update Supabase app_versions
+        if: success()
+        env:
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $product = (Get-Content src-tauri/Cargo.toml -Raw | Select-String 'name\s*=\s*"([^"]+)"').Matches[0].Groups[1].Value
+          $exe = Get-ChildItem -Path src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $checksum = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$($exe.Name)"
+
+          $body = @{
+            product = $product
+            version = $version
+            download_url = $downloadUrl
+            checksum = "sha256:$checksum"
+            release_notes = "Release $version"
+            mandatory = $false
+            min_version = "0.1.0"
+            updated_at = (Get-Date -Format "o")
+          } | ConvertTo-Json
+
+          $headers = @{
+            "apikey" = $env:SUPABASE_SERVICE_KEY
+            "Authorization" = "Bearer $($env:SUPABASE_SERVICE_KEY)"
+            "Content-Type" = "application/json"
+            "Prefer" = "resolution=merge-duplicates"
+          }
+
+          Invoke-RestMethod -Uri "https://quzhkfvglqmppxcrindh.supabase.co/rest/v1/app_versions" `
+            -Method Post -Headers $headers -Body $body
+
+          Write-Host "Supabase app_versions updated: $product v$version"
+        shell: pwsh

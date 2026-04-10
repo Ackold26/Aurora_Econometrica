@@ -1,0 +1,18 @@
+{
+  "id": "legal-audit",
+  "name": "Юридический аудит",
+  "description": "Параллельная проверка: контракты + NDA + реклама",
+  "category": "legal",
+  "icon": "⚖️",
+  "estimated_time_minutes": 45,
+  "steps": [
+    {
+      "type": "parallel", "id": "p1", "status": "idle",
+      "branches": [
+        [{ "type": "single", "id": "s1", "cabinet_id": "lawyer-contracts", "command": "/qa", "label": "Проверка контрактов", "status": "idle" }],
+        [{ "type": "single", "id": "s2", "cabinet_id": "lawyer-claims", "command": null, "label": "Проверка NDA и претензий", "status": "idle" }],
+        [{ "type": "single", "id": "s3", "cabinet_id": "lawyer-advertising", "command": "/qa", "label": "Проверка рекламы", "status": "idle" }]
+      ]
+    }
+  ]
+}

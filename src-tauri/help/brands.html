@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Управление брендами — Aurora AI Creative Hub</title>
+<script src="nav.js"></script>
+<style>
+:root { --bg: #0C0C12; --bg2: #141420; --bg3: #1E1E2C; --text: #EAEAF0; --text2: #9898A8; --text3: #5C5C70; --accent: #A855F7; --accent2: #CCFF00; --green: #10B981; --blue: #2E5BFF; --orange: #F59E0B; --red: #F87171; --border: rgba(255,255,255,0.12); }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+.hero { background: linear-gradient(135deg, #110820 0%, #0d0a1d 50%, #0C0C12 100%); padding: 48px 32px 36px; text-align: center; border-bottom: 2px solid var(--accent); }
+.hero h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.hero h1 span { background: linear-gradient(135deg, var(--accent) 0%, #C084FC 40%, var(--accent2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.hero .sub { font-size: 15px; color: var(--text2); margin-top: 8px; }
+.hero .badges { display: flex; justify-content: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.badge { background: rgba(255,255,255,0.06); border: 1px solid var(--border); border-radius: 20px; padding: 5px 14px; font-size: 12.5px; color: var(--text2); }
+.badge.accent { border-color: var(--accent); color: var(--accent); }
+.container { max-width: 780px; margin: 0 auto; padding: 40px 32px 80px; }
+h2 { font-size: 20px; font-weight: 700; margin-top: 44px; margin-bottom: 16px; color: var(--accent2); }
+h2:first-child { margin-top: 0; }
+h3 { font-size: 16px; font-weight: 600; margin-top: 28px; margin-bottom: 10px; color: var(--text); }
+p { font-size: 14.5px; margin-bottom: 14px; }
+.lead { font-size: 15.5px; line-height: 1.75; }
+.highlight { background: rgba(168,85,247,0.07); border-left: 3px solid var(--accent); padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 24px 0; }
+.highlight p { margin-bottom: 0; }
+
+/* Feature cards */
+.features { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin: 24px 0; }
+.feat { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+.feat .feat-icon { font-size: 22px; margin-bottom: 10px; }
+.feat h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.feat p { font-size: 13px; color: var(--text2); margin: 0; }
+
+/* Brand structure */
+.brand-anatomy { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; }
+.anatomy-row { display: flex; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.anatomy-row:last-child { border: none; }
+.anatomy-key { font-weight: 600; width: 160px; flex-shrink: 0; color: var(--accent); }
+.anatomy-val { color: var(--text2); }
+
+/* Tips */
+.tips { list-style: none; margin: 16px 0; }
+.tips li { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; display: flex; gap: 10px; }
+.tips li:last-child { border: none; }
+.tips li::before { content: '→'; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+/* Warning */
+.warn { background: rgba(248,113,113,0.07); border-left: 3px solid var(--red); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 20px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1>Управление <span>брендами</span></h1>
+  <p class="sub">Brand Layer — контекст бренда передаётся каждому кабинету и Pipeline-шагу автоматически</p>
+  <div class="badges">
+    <span class="badge accent">Creative Hub</span>
+    <span class="badge">Filesystem-first</span>
+    <span class="badge">RAG опционально</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <h2>Зачем нужен бренд</h2>
+  <p class="lead">Бренд — это профиль с тоном коммуникации, маркерами, стоп-словами и документами. Когда вы открываете кабинет с активным брендом, вся эта информация автоматически добавляется в контекст Claude — кабинеты "знают", для кого работают.</p>
+
+  <div class="highlight">
+    <p>В <strong>Pipeline</strong> бренд-контекст передаётся каждому шагу вместе с брифом. Все кабинеты цепочки работают в едином голосе бренда.</p>
+  </div>
+
+  <h2>Что хранит профиль бренда</h2>
+  <div class="brand-anatomy">
+    <div class="anatomy-row"><div class="anatomy-key">Название</div><div class="anatomy-val">Имя бренда, передаётся в каждый кабинет</div></div>
+    <div class="anatomy-row"><div class="anatomy-key">Описание</div><div class="anatomy-val">Краткое позиционирование — что делает, для кого</div></div>
+    <div class="anatomy-row"><div class="anatomy-key">Тон коммуникации</div><div class="anatomy-val">Официальный / дружелюбный / экспертный / дерзкий…</div></div>
+    <div class="anatomy-row"><div class="anatomy-key">Маркеры бренда</div><div class="anatomy-val">Ключевые слова, фразы и ценности, которые нужно использовать</div></div>
+    <div class="anatomy-row"><div class="anatomy-key">Стоп-слова</div><div class="anatomy-val">Слова и клише, которые нельзя использовать</div></div>
+    <div class="anatomy-row"><div class="anatomy-key">Документы</div><div class="anatomy-val">Брендбук, стратегии, исследования в форматах .pdf, .docx, .md, .txt</div></div>
+  </div>
+
+  <h2>Возможности бренд-страницы</h2>
+  <div class="features">
+    <div class="feat">
+      <div class="feat-icon">✏️</div>
+      <h4>Inline-редактирование</h4>
+      <p>Нажмите «Редактировать» — все поля становятся редактируемыми без перехода на другую страницу.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">📄</div>
+      <h4>Документы бренда</h4>
+      <p>Загружайте PDF, DOCX, MD, TXT. Кабинеты получат их содержимое через RAG-поиск.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">🖱️</div>
+      <h4>Drag &amp; Drop</h4>
+      <p>Перетащите файлы прямо в секцию документов — они загрузятся автоматически.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">🔍</div>
+      <h4>Семантический поиск</h4>
+      <p>Спросите что-то о бренде — система найдёт релевантные фрагменты из загруженных документов.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">📊</div>
+      <h4>Статистика</h4>
+      <p>Сколько документов, взаимодействий с кабинетами и последние активные кабинеты.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-icon">⚡</div>
+      <h4>Быстрое переключение</h4>
+      <p>Dropdown в шапке главного экрана — смените активный бренд в 1 клик.</p>
+    </div>
+  </div>
+
+  <h2>Как создать бренд</h2>
+  <ul class="tips">
+    <li>Перейдите в <strong>Бренды</strong> из главного экрана или через BrandSelector в шапке</li>
+    <li>Нажмите «Новый бренд» и введите название — бренд создаётся моментально</li>
+    <li>Откройте бренд → кнопка «Редактировать» → заполните тон, маркеры, стоп-слова</li>
+    <li>Загрузите документы (drag-drop или кнопка «Загрузить документ»)</li>
+    <li>Нажмите «Активировать» — бренд будет передаваться во все кабинеты</li>
+  </ul>
+
+  <h2>Рекомендации по документам</h2>
+  <ul class="tips">
+    <li>Брендбук, стайлгайд, brand book — самые полезные источники</li>
+    <li>Стратегия коммуникаций, GTM-документы, tone of voice гайды</li>
+    <li>Исследования аудитории, анализ конкурентов</li>
+    <li>Примеры лучших материалов бренда (кейсы, пресс-релизы)</li>
+    <li>Один документ — до 50 МБ. Итого рекомендуется не более 10-15 файлов на бренд</li>
+  </ul>
+
+  <div class="warn">
+    <strong>Удаление бренда</strong> — необратимая операция. Все документы и история активности будут удалены. Pipeline и Workflow с этим брендом станут недействительными.
+  </div>
+
+  <h2>RAG-поиск по документам</h2>
+  <p>Если запущен RAG-сервер (<kbd>brand-hub/start-servers.bat</kbd>), кабинеты могут семантически искать по загруженным документам. Без сервера — работают только профильные данные бренда (тон, маркеры, стоп-слова).</p>
+  <ul class="tips">
+    <li>Установите зависимости: <kbd>brand-hub/install-deps.bat</kbd></li>
+    <li>Запустите серверы: <kbd>brand-hub/start-servers.bat</kbd></li>
+    <li>RAG-сервер: порт 7420 | Parser-сервер: порт 7421</li>
+    <li>Требуется Python ≥ 3.10</li>
+  </ul>
+
+</div>
+</body>
+</html>

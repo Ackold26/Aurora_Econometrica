@@ -1,0 +1,2222 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aurora AI Agency -- Руководство по идеальному использованию</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #181b24;
+    --surface2: #1e2230;
+    --border: #2a2e3d;
+    --text: #e0e0e8;
+    --text-dim: #8b8fa3;
+    --accent: #7c6aef;
+    --accent-glow: rgba(124, 106, 239, .25);
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --orange: #fb923c;
+    --pink: #f472b6;
+    --cyan: #22d3ee;
+    --card-radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* ---- TOP NAV ---- */
+  .top-bar {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(15,17,23,.85);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+  }
+  .top-bar-inner {
+    max-width: 1260px; margin: 0 auto;
+    display: flex; align-items: center; gap: 18px;
+    height: 56px; overflow-x: auto;
+  }
+  .top-bar .logo {
+    font-weight: 700; font-size: 16px; white-space: nowrap;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-right: 12px; flex-shrink: 0;
+  }
+  .top-bar a {
+    color: var(--text-dim); text-decoration: none; font-size: 13px;
+    white-space: nowrap; padding: 6px 10px; border-radius: 6px;
+    transition: .2s;
+  }
+  .top-bar a:hover { color: #fff; background: var(--surface2); }
+  .top-bar a.cat-legal { border-left: 3px solid var(--blue); }
+  .top-bar a.cat-creative { border-left: 3px solid var(--pink); }
+  .top-bar a.cat-media { border-left: 3px solid var(--cyan); }
+  .top-bar a.cat-workflow { border-left: 3px solid var(--orange); }
+
+  /* ---- LAYOUT ---- */
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* ---- HERO ---- */
+  .hero {
+    text-align: center; padding: 60px 0 40px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 5vw, 42px); font-weight: 800;
+    background: linear-gradient(135deg, #fff 30%, var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 12px;
+  }
+  .hero .version {
+    display: inline-block; background: var(--surface2); color: var(--text-dim);
+    font-size: 12px; padding: 4px 12px; border-radius: 20px; margin-bottom: 20px;
+  }
+  .hero p { color: var(--text-dim); max-width: 640px; margin: 0 auto; font-size: 15px; }
+
+  /* ---- GENERAL RULES ---- */
+  .rules-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 24px 28px;
+    margin: 32px 0 48px;
+  }
+  .rules-box h3 { font-size: 16px; margin-bottom: 14px; color: var(--accent); }
+  .rules-box ul { list-style: none; }
+  .rules-box li {
+    position: relative; padding-left: 22px; margin-bottom: 8px; color: var(--text-dim); font-size: 14px;
+  }
+  .rules-box li::before {
+    content: ''; position: absolute; left: 0; top: 9px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* ---- SECTION HEADERS ---- */
+  .section-header {
+    margin: 56px 0 28px;
+    padding: 20px 28px;
+    border-radius: var(--card-radius);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .section-header.legal { background: linear-gradient(135deg, rgba(96,165,250,.12), rgba(96,165,250,.04)); border-left: 4px solid var(--blue); }
+  .section-header.creative { background: linear-gradient(135deg, rgba(244,114,182,.12), rgba(244,114,182,.04)); border-left: 4px solid var(--pink); }
+  .section-header.media { background: linear-gradient(135deg, rgba(34,211,238,.12), rgba(34,211,238,.04)); border-left: 4px solid var(--cyan); }
+  .section-header.strategy { background: linear-gradient(135deg, rgba(251,191,36,.12), rgba(251,191,36,.04)); border-left: 4px solid var(--yellow); }
+  .section-header.focus { background: linear-gradient(135deg, rgba(52,211,153,.12), rgba(52,211,153,.04)); border-left: 4px solid var(--green); }
+  .section-header.workflow { background: linear-gradient(135deg, rgba(251,146,60,.12), rgba(251,146,60,.04)); border-left: 4px solid var(--orange); }
+  .section-header .icon { font-size: 28px; }
+  .section-header h2 { font-size: 22px; font-weight: 700; }
+  .section-header .subtitle { font-size: 13px; color: var(--text-dim); }
+
+  /* ---- COMMAND CARDS ---- */
+  .cmd-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    margin-bottom: 20px;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .cmd-card:hover { border-color: rgba(124,106,239,.4); }
+  .cmd-card-head {
+    padding: 18px 24px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer; user-select: none;
+  }
+  .cmd-card-head .cmd-name {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-weight: 700; font-size: 15px; color: var(--accent);
+  }
+  .cmd-card-head .cmd-desc {
+    font-size: 14px; color: var(--text-dim); margin-left: auto; text-align: right;
+  }
+  .cmd-card-head .arrow {
+    transition: transform .25s; color: var(--text-dim); font-size: 18px; flex-shrink: 0;
+  }
+  .cmd-card.open .cmd-card-head .arrow { transform: rotate(180deg); }
+  .cmd-card-body {
+    max-height: 0; overflow: hidden; transition: max-height .35s ease;
+  }
+  .cmd-card.open .cmd-card-body { max-height: 3000px; }
+  .cmd-card-body-inner { padding: 0 24px 24px; }
+
+  .cmd-card-body h4 { font-size: 13px; font-weight: 700; color: var(--text); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .5px; }
+  .cmd-card-body ul { list-style: disc; padding-left: 20px; margin-bottom: 8px; }
+  .cmd-card-body li { font-size: 14px; color: var(--text-dim); margin-bottom: 4px; }
+  .cmd-card-body p { font-size: 14px; color: var(--text-dim); margin-bottom: 8px; }
+  .cmd-card-body ol { padding-left: 20px; margin-bottom: 8px; }
+  .cmd-card-body ol li { font-size: 14px; color: var(--text-dim); margin-bottom: 4px; }
+
+  /* code blocks */
+  .cmd-example {
+    background: #12141c;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 13px;
+    color: var(--green);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    margin: 8px 0 12px;
+  }
+
+  .tip {
+    background: rgba(124,106,239,.08);
+    border-left: 3px solid var(--accent);
+    padding: 10px 16px;
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 10px 0;
+  }
+  .tip strong { color: var(--accent); }
+
+  .warn {
+    background: rgba(251,191,36,.08);
+    border-left: 3px solid var(--yellow);
+    padding: 10px 16px;
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 10px 0;
+  }
+  .warn strong { color: var(--yellow); }
+
+  /* cross-links */
+  .cross-link {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: 3px 10px; border-radius: 6px;
+    font-size: 13px; color: var(--accent);
+    text-decoration: none; transition: .2s;
+    margin: 2px 2px;
+  }
+  .cross-link:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .cross-link.legal { color: var(--blue); }
+  .cross-link.legal:hover { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .cross-link.creative { color: var(--pink); }
+  .cross-link.creative:hover { background: var(--pink); color: #fff; border-color: var(--pink); }
+  .cross-link.media { color: var(--cyan); }
+  .cross-link.media:hover { background: var(--cyan); color: #fff; border-color: var(--cyan); }
+  .cross-link.strategy { color: var(--yellow); }
+  .cross-link.strategy:hover { background: var(--yellow); color: #000; border-color: var(--yellow); }
+  .cross-link.focus { color: var(--green); }
+  .cross-link.focus:hover { background: var(--green); color: #000; border-color: var(--green); }
+
+  /* WORKFLOW DIAGRAM */
+  .wf-steps { margin: 16px 0; }
+  .wf-step {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 12px 0;
+    position: relative;
+  }
+  .wf-step::before {
+    content: ''; position: absolute; left: 17px; top: 36px;
+    width: 2px; height: calc(100% - 24px);
+    background: var(--border);
+  }
+  .wf-step:last-child::before { display: none; }
+  .wf-num {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--surface2); border: 2px solid var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; flex-shrink: 0;
+    color: var(--accent); z-index: 1;
+  }
+  .wf-content { flex: 1; }
+  .wf-content .wf-cabin { font-weight: 700; font-size: 14px; color: var(--text); }
+  .wf-content .wf-cmd { font-family: monospace; color: var(--accent); font-size: 13px; }
+  .wf-content .wf-desc { font-size: 13px; color: var(--text-dim); }
+
+  /* FOOTER */
+  footer {
+    text-align: center; padding: 40px 0 24px;
+    color: var(--text-dim); font-size: 12px;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  @media (max-width: 640px) {
+    .container { padding: 20px 14px 60px; }
+    .section-header { padding: 14px 18px; }
+    .cmd-card-head { padding: 14px 16px; flex-wrap: wrap; }
+    .cmd-card-head .cmd-desc { margin-left: 0; text-align: left; width: 100%; }
+    .cmd-card-body-inner { padding: 0 16px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== TOP NAV ===== -->
+<nav class="top-bar">
+  <div class="top-bar-inner">
+    <span class="logo">Aurora AI</span>
+    <a href="#legal-contracts" class="cat-legal">Договоры</a>
+    <a href="#legal-claims" class="cat-legal">Претензии &amp; NDA</a>
+    <a href="#legal-ads" class="cat-legal">Реклама (юрист)</a>
+    <a href="#creative" class="cat-creative">Креативный директор</a>
+    <a href="#copywriter" class="cat-creative">Копирайтер</a>
+    <a href="#art-director" class="cat-creative">Арт-директор</a>
+    <a href="#strategist" class="cat-creative">Стратег</a>
+    <a href="#media-analyst" class="cat-media">Медиа-аналитик</a>
+    <a href="#comm-analyst" class="cat-media">Комм. аналитик</a>
+    <a href="#focus-groups" class="cat-media">Фокус-группы</a>
+    <a href="#social-listening" class="cat-media">Social Listening</a>
+    <a href="#econometrist" class="cat-media">Эконометрист</a>
+    <a href="#doc-master" class="cat-legal">Доку-мастер</a>
+    <a href="#workflows" class="cat-workflow">Workflow</a>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- ===== HERO ===== -->
+<div class="hero">
+  <h1>Aurora AI Agency</h1>
+  <div class="version">v0.3.3 &middot; Апрель 2026</div>
+  <p>Руководство по идеальному использованию: как подготовить документы, сформулировать запрос, что делать в процессе и после получения результата.</p>
+</div>
+
+<!-- ===== GENERAL RULES ===== -->
+<div class="rules-box">
+  <h3>Общие правила для всех кабинетов</h3>
+  <ul>
+    <li>Файлы загружаются в папку <code>inbox</code> кабинета (перетаскиванием или через интерфейс)</li>
+    <li>Результаты автоматически сохраняются в папку <code>exports</code> кабинета</li>
+    <li>Файлы из <code>exports</code> одного кабинета можно перенести в <code>inbox</code> другого для сквозного workflow</li>
+    <li>Команду можно ввести текстом (с контекстом) или нажать кнопку в панели команд</li>
+    <li>Текстовый ввод команды с пояснением <strong>всегда даёт лучший результат</strong>, чем нажатие кнопки без контекста</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<!--  1. ЮРИСТ -- ДОГОВОРЫ                                        -->
+<!-- ============================================================ -->
+<div class="section-header legal" id="legal-contracts">
+  <span class="icon">&#9878;</span>
+  <div>
+    <h2>1. Юрист &mdash; Договоры</h2>
+    <div class="subtitle">lawyer-contracts &middot; Анализ, шаблоны, протоколы разногласий</div>
+  </div>
+</div>
+
+<!-- /contract -->
+<div class="cmd-card" id="cmd-contract">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract</span>
+    <span class="cmd-desc">Полный анализ договора</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Файл договора в формате PDF или DOCX. Скан &rarr; предварительно OCR</li>
+      <li>Все приложения (спецификации, ТЗ, тарифы) &mdash; отдельными файлами или единым документом</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract
+Мы — исполнитель. Договор пришёл на шаблоне заказчика.
+Сумма контракта: 4,5 млн руб. Заказчик — крупный ритейлер.
+Наша переговорная позиция средняя — клиент важный, но не единственный.
+Особое внимание: сроки и ответственность за просрочку.</div>
+    <div class="tip"><strong>Совет:</strong> AI учитывает переговорную позицию (заказчик/исполнитель, чей шаблон), приоритеты и финансовый масштаб рисков. Без контекста анализ будет общим.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Проверить Risk Heatmap &mdash; начать с &laquo;красных&raquo; зон (Critical)</li>
+      <li>Для каждого критического риска решить: принять, обсудить или отклонить</li>
+      <li>Если нужен протокол разногласий &rarr; <a href="#cmd-contract-counter" class="cross-link legal">/contract-counter</a> или <a href="#cmd-contract-counter-docx" class="cross-link legal">/contract-counter-docx</a></li>
+      <li>Если контрагент пришлёт новую версию &rarr; <a href="#cmd-contract-compare" class="cross-link legal">/contract-сравнить</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-checklist -->
+<div class="cmd-card" id="cmd-contract-checklist">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-checklist</span>
+    <span class="cmd-desc">Экспресс-проверка по 25 пунктам IACCM</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul><li>Файл договора (PDF/DOCX)</li></ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract-checklist
+Мы — заказчик. Нужна быстрая оценка: можно ли подписывать как есть.</div>
+    <h4>Когда использовать вместо /contract</h4>
+    <p>Когда нужна быстрая оценка (да/нет/с оговорками) &mdash; предварительный скрининг перед передачей юристу.</p>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Все 25 пунктов зелёные &rarr; можно подписывать</li>
+      <li>Есть Critical/Important &rarr; передать на полный <a href="#cmd-contract" class="cross-link legal">/contract</a></li>
+      <li>Таблицу чеклиста удобно вложить в письмо юристу или руководителю</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-counter -->
+<div class="cmd-card" id="cmd-contract-counter">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-counter</span>
+    <span class="cmd-desc">Протокол разногласий</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Файл договора (PDF/DOCX)</li>
+      <li>Можно указать конкретные пункты, которые хотите оспорить</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract-counter
+Спорные пункты: п. 5.3 (ответственность исполнителя без ограничений),
+п. 7.1 (автопролонгация без уведомления), п. 9.2 (односторонний отказ заказчика).
+Мы — исполнитель, переговорная позиция слабая (крупный клиент).
+Цель: максимальная защита при сохранении отношений.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>По каждому пункту выбрать один из 3 вариантов защиты</li>
+      <li>Использовать BATNA/ZOPA-анализ для переговоров</li>
+      <li>Для документа &rarr; <a href="#cmd-contract-counter-docx" class="cross-link legal">/contract-counter-docx</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-counter-docx -->
+<div class="cmd-card" id="cmd-contract-counter-docx">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-counter-docx</span>
+    <span class="cmd-desc">Протокол разногласий в Word</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Файл договора (PDF/DOCX)</li>
+      <li>Желательно: предварительно пройти <a href="#cmd-contract-counter" class="cross-link legal">/contract-counter</a></li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract-counter-docx
+По результатам предыдущего анализа: выбираем вариант B (сбалансированный)
+по пп. 5.3 и 7.1, вариант A (максимальная защита) по п. 9.2.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Открыть DOCX из exports</li>
+      <li>Проверить формулировки</li>
+      <li>Отправить контрагенту</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-template -->
+<div class="cmd-card" id="cmd-contract-template">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-template</span>
+    <span class="cmd-desc">Генерация шаблона договора</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <p>Ничего загружать не нужно &mdash; работает по описанию.</p>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract-template
+Тип: договор оказания рекламных услуг.
+Мы — исполнитель (рекламное агентство).
+Заказчик — юрлицо.
+Уровень защиты: максимальный.
+Особенности: предоплата 50%, IP передаётся после полной оплаты,
+ограничение ответственности суммой договора.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Получить DOCX-шаблон с полями [ПЕРЕМЕННАЯ]</li>
+      <li>Заполнить переменные конкретными данными</li>
+      <li>Проверить через <a href="#cmd-contract" class="cross-link legal">/contract</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-batch -->
+<div class="cmd-card" id="cmd-contract-batch">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-batch</span>
+    <span class="cmd-desc">Пакетный анализ</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul><li>Несколько файлов договоров (PDF/DOCX) &mdash; все в inbox</li></ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract-batch
+Мы — исполнитель по всем договорам.
+Приоритет: выявить наиболее рисковые из пакета.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Сводная таблица рисков &mdash; определить критичные</li>
+      <li>По критичным &rarr; <a href="#cmd-contract" class="cross-link legal">/contract</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-deadlines -->
+<div class="cmd-card" id="cmd-contract-deadlines">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-deadlines</span>
+    <span class="cmd-desc">Контроль сроков</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul><li>Файл договора (PDF/DOCX)</li></ul>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Получить хронологический список всех дедлайнов, платежей, обязательств</li>
+      <li>Перенести критические даты в календарь команды</li>
+      <li>Обратить внимание на автопролонгации</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-сравнить -->
+<div class="cmd-card" id="cmd-contract-compare">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-сравнить</span>
+    <span class="cmd-desc">Сравнение двух версий</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul><li>Два файла: исходная и новая версия договора</li></ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract-сравнить
+Первый файл — наша версия (отправляли контрагенту).
+Второй файл — версия контрагента (получили сегодня).</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Таблица покажет: что изменилось, улучшилось или ухудшилось</li>
+      <li>По ухудшениям &rarr; <a href="#cmd-contract-counter" class="cross-link legal">/contract-counter</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /contract-риски -->
+<div class="cmd-card" id="cmd-contract-risks">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-риски</span>
+    <span class="cmd-desc">Экспресс-анализ рисков</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/contract-риски
+Мы — заказчик. Интересуют только красные флаги.</div>
+    <p>Когда время ограничено и нужен быстрый ответ: &laquo;подписывать или нет&raquo;.</p>
+    <h4>Что делать после</h4>
+    <ul>
+      <li>Нет красных флагов &rarr; можно подписывать (но лучше потом <a href="#cmd-contract" class="cross-link legal">/contract</a>)</li>
+      <li>Есть &rarr; передать на детальный анализ</li>
+    </ul>
+  </div></div>
+</div>
+
+<!-- /contract-add-notes -->
+<div class="cmd-card" id="cmd-contract-notes">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-add-notes</span>
+    <span class="cmd-desc">Заметки к договору</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/contract-add-notes
+Простым языком: для чего каждый пункт, какие подводные камни,
+на что обратить внимание при подписании.</div>
+    <p>Для руководителя или аккаунт-менеджера, который не является юристом.</p>
+  </div></div>
+</div>
+
+<!-- /contract-агентский -->
+<div class="cmd-card" id="cmd-contract-agent">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-агентский</span>
+    <span class="cmd-desc">Анализ агентского договора</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/contract-агентский
+Мы — агент. Принципал — производитель FMCG.
+Модель: агент действует от своего имени, но за счёт принципала.</div>
+    <div class="tip"><strong>Почему отдельная команда:</strong> агентские договоры (ст. 1005-1011 ГК) имеют специфику: полномочия агента, порядок отчётности, ответственность перед третьими лицами.</div>
+  </div></div>
+</div>
+
+<!-- /contract-услуги -->
+<div class="cmd-card" id="cmd-contract-services">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-услуги</span>
+    <span class="cmd-desc">Анализ договора оказания услуг</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/contract-услуги
+Мы — исполнитель (агентство). Услуга: разработка рекламной кампании.
+Результат: стратегия + креативные материалы.</div>
+    <p>Проверяет по ст. 779-783 ГК &mdash; чёткость описания услуг, критерии приёмки, момент перехода рисков.</p>
+  </div></div>
+</div>
+
+<!-- /contract-подрядчик -->
+<div class="cmd-card" id="cmd-contract-contractor">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/contract-подрядчик</span>
+    <span class="cmd-desc">Анализ договора подряда</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/contract-подрядчик
+Мы — подрядчик. Работа: производство рекламных конструкций.
+Сдача по КС-2/КС-3.</div>
+    <p>Проверяет по ст. 702-768 ГК &mdash; описание работ, приёмка, гарантийные обязательства, риск случайной гибели.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  2. ЮРИСТ -- ПРЕТЕНЗИИ И NDA                                 -->
+<!-- ============================================================ -->
+<div class="section-header legal" id="legal-claims">
+  <span class="icon">&#9878;</span>
+  <div>
+    <h2>2. Юрист &mdash; Претензии и NDA</h2>
+    <div class="subtitle">lawyer-claims &middot; Составление, анализ претензий, NDA</div>
+  </div>
+</div>
+
+<!-- /pretension-write -->
+<div class="cmd-card" id="cmd-pretension-write">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/pretension-write</span>
+    <span class="cmd-desc">Составление претензии</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Договор, по которому возник спор (PDF/DOCX)</li>
+      <li>Подтверждающие документы: акты, переписка, платёжки</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/pretension-write
+Контрагент (ООО "Медиа Групп") нарушил сроки по п. 3.2 договора.
+Срок: 15 февраля, услуга не оказана до сих пор.
+Сумма: 1,2 млн руб. Предоплата: 600 тыс. руб. (оплачена 20 января).
+Хотим: возврат предоплаты + неустойка по п. 6.1 (0,1% за день просрочки).
+Досудебный порядок обязателен по п. 10.2 договора.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Проверить расчёт неустойки (AI предупредит о ст. 333 ГК)</li>
+      <li>Проверить ссылки на статьи ГК и пункты договора</li>
+      <li>Оформить на бланке, подписать, отправить заказным письмом</li>
+      <li>Зафиксировать дату отправки &mdash; старт 30-дневного досудебного срока</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /pretension-analyze -->
+<div class="cmd-card" id="cmd-pretension-analyze">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/pretension-analyze</span>
+    <span class="cmd-desc">Анализ полученной претензии</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Текст претензии (PDF/DOCX/TXT)</li>
+      <li>Договор, на который ссылается контрагент</li>
+      <li>Документы, опровергающие требования</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/pretension-analyze
+Получили претензию от заказчика на 3,5 млн руб. за якобы некачественные услуги.
+Наша позиция: услуги оказаны в полном объёме, акт подписан без замечаний.
+Загружаю претензию, договор и подписанный акт.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Decision Tree: 4 сценария с финансовой оценкой</li>
+      <li>Выбрать стратегию: отказ / частичное признание / мировое</li>
+      <li><a href="#cmd-pretension-reply" class="cross-link legal">/pretension-reply</a> для ответа</li>
+      <li><a href="#cmd-settlement-plan" class="cross-link legal">/settlement-plan</a> для плана урегулирования</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /pretension-reply -->
+<div class="cmd-card" id="cmd-pretension-reply">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/pretension-reply</span>
+    <span class="cmd-desc">Ответ на претензию</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/pretension-reply
+Стратегия: частичное признание.
+Признаём задержку в 5 дней (не 30, как заявляет контрагент).
+Готовы компенсировать неустойку за 5 дней = 60 тыс. руб.
+Остальные требования необоснованны.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Проверить, что ответ адресует каждый пункт претензии</li>
+      <li>Проверить ссылки на Постановления Пленума ВС</li>
+      <li>Отправить в установленный договором срок (обычно 30 дней)</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /pretension-timeline -->
+<div class="cmd-card" id="cmd-pretension-timeline">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/pretension-timeline</span>
+    <span class="cmd-desc">Хронология спора</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Загрузить все документы по спору: договор, переписка, акты, претензии, платёжки.</p>
+    <p>Восстановить хронологию событий и не пропустить критические даты (истечение сроков давности, дедлайны по досудебному порядку).</p>
+  </div></div>
+</div>
+
+<!-- /settlement-plan -->
+<div class="cmd-card" id="cmd-settlement-plan">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/settlement-plan</span>
+    <span class="cmd-desc">План урегулирования</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/settlement-plan
+Наша BATNA: судебное взыскание, перспектива 70%.
+Их BATNA: затяжной суд, репутационные потери.
+Бюджет на юристов: до 200 тыс. руб.
+Предпочтительный исход: мировое до 500 тыс. руб.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>5 путей урегулирования с оценкой вероятности, сроков и стоимости</li>
+      <li>Выбрать оптимальный с учётом бюджета</li>
+      <li>Подготовить переговорную позицию на основе BATNA</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /nda-draft -->
+<div class="cmd-card" id="cmd-nda-draft">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/nda-draft</span>
+    <span class="cmd-desc">Составление NDA</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/nda-draft
+Отрасль: IT/рекламные технологии.
+Стороны: наше агентство (раскрывает) и клиент (получает).
+Конфиденциальная информация: стратегия, бюджеты, креативные концепции.
+Уровень жёсткости: высокий (крупный тендер).
+Срок конфиденциальности: 3 года.
+Санкции: штраф 5 млн руб. + возмещение убытков.</div>
+  </div></div>
+</div>
+
+<!-- /nda-analyze -->
+<div class="cmd-card" id="cmd-nda-analyze">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/nda-analyze</span>
+    <span class="cmd-desc">Анализ полученного NDA</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/nda-analyze
+Мы — получающая сторона. NDA прислал клиент перед тендером.
+Нас беспокоит: слишком широкое определение конфиденциальной информации.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Таблица параметров со статусом (OK / Warning / Critical)</li>
+      <li>По проблемным &rarr; <a href="#cmd-nda-counter" class="cross-link legal">/nda-counter</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /nda-counter -->
+<div class="cmd-card" id="cmd-nda-counter">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/nda-counter</span>
+    <span class="cmd-desc">Контрпредложение по NDA</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/nda-counter
+Хотим изменить: определение конф. информации (сузить),
+добавить исключения (публичная информация, известная до раскрытия),
+снизить штраф с 10 млн до 3 млн руб.</div>
+  </div></div>
+</div>
+
+<!-- /nda-counter-docx -->
+<div class="cmd-card" id="cmd-nda-counter-docx">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/nda-counter-docx</span>
+    <span class="cmd-desc">Редлайн NDA в Word</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Желательно предварительно пройти <a href="#cmd-nda-counter" class="cross-link legal">/nda-counter</a>. Результат &mdash; DOCX с протоколом разногласий.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  3. ЮРИСТ -- РЕКЛАМНАЯ БЕЗОПАСНОСТЬ                          -->
+<!-- ============================================================ -->
+<div class="section-header legal" id="legal-ads">
+  <span class="icon">&#9878;</span>
+  <div>
+    <h2>3. Юрист &mdash; Рекламная безопасность</h2>
+    <div class="subtitle">lawyer-advertising &middot; Аудит рекламных материалов, отраслевые проверки</div>
+  </div>
+</div>
+
+<!-- /qa -->
+<div class="cmd-card" id="cmd-qa">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa</span>
+    <span class="cmd-desc">Полный аудит рекламного материала</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Текст (DOCX/TXT) или скриншот (PNG/JPG)</li>
+      <li>Видео &rarr; загрузить скрипт / расшифровку</li>
+      <li>Информацию о продукте: категория, лицензии, ЦА</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/qa
+Продукт: БАД для укрепления иммунитета.
+Канал: Telegram, таргетированная реклама.
+ЦА: женщины 30-50.
+Есть: СГР. Нет: клинических исследований.
+Проверить: текст поста + баннер.</div>
+    <div class="warn"><strong>Важно:</strong> без указания категории продукта AI может пропустить отраслевые требования (фарма, финансы, алкоголь).</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Начать с Critical-нарушений (штрафы от ФАС)</li>
+      <li>Проверить Financial Risk Score</li>
+      <li>По каждому нарушению AI предложит исправление</li>
+      <li>Если много нарушений &rarr; <a href="#cmd-qa-fix" class="cross-link legal">/qa-fix</a></li>
+      <li>После исправлений &mdash; повторная <a href="#cmd-qa" class="cross-link legal">/qa</a></li>
+    </ol>
+    <p style="margin-top:8px">
+      <strong>Связь с креативом:</strong>
+      <a href="#cmd-cycle" class="cross-link creative">/cycle</a>
+      <a href="#cmd-ad-variants" class="cross-link creative">/ad-variants</a>
+      &mdash; финальные материалы из креатива всегда проверяйте здесь
+    </p>
+  </div></div>
+</div>
+
+<!-- /qa-batch -->
+<div class="cmd-card" id="cmd-qa-batch">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-batch</span>
+    <span class="cmd-desc">Пакетный аудит</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/qa-batch
+Кампания: запуск нового продукта (косметика, "уход за кожей").
+Канал: VK + Telegram + наружная реклама.
+8 материалов: 4 текста VK, 2 текста Telegram, 2 скрипта OOH.
+Есть: декларация ТР ТС 009/2011.</div>
+  </div></div>
+</div>
+
+<!-- /qa-fix -->
+<div class="cmd-card" id="cmd-qa-fix">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-fix</span>
+    <span class="cmd-desc">Исправление нарушений</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/qa-fix
+Сохранить рекламный посыл и тон.
+Исправить все нарушения. Не менять структуру текста.</div>
+    <p>После &mdash; прогнать через <a href="#cmd-qa" class="cross-link legal">/qa</a> для контрольной проверки.</p>
+  </div></div>
+</div>
+
+<!-- /qa-fix-docx, /qa-stats -->
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-fix-docx</span>
+    <span class="cmd-desc">Исправления в Word</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>В exports &mdash; исправленный DOCX + лог изменений. Передать копирайтеру для финальной полировки.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-stats</span>
+    <span class="cmd-desc">Статистика проверок</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Для отчёта руководству: количество проверенных материалов, процент прохождения, частые нарушения, динамика.</p>
+  </div></div>
+</div>
+
+<!-- /qa-фарма -->
+<div class="cmd-card" id="cmd-qa-pharma">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-фарма</span>
+    <span class="cmd-desc">Аудит фармацевтической рекламы</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/qa-фарма
+Подкатегория: БАД.
+Название: [название]. Действующее вещество: [вещество].
+Есть: СГР №[номер]. Нет: регистрационного удостоверения ЛС.
+Канал: digital (Яндекс.Директ + VK).</div>
+    <div class="warn"><strong>Подкатегория критична!</strong> 6 подкатегорий с разными требованиями: ЛС рецептурные (реклама запрещена), ЛС безрецептурные, БАД, медизделия, лечебное питание, косметика.</div>
+  </div></div>
+</div>
+
+<!-- /qa-финансы, /qa-fmcg, /qa-b2b, /qa-манифест, /qa-template -->
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-финансы</span>
+    <span class="cmd-desc">Аудит финансовой рекламы</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Проверяет: раскрытие ПСК, отсутствие гарантий доходности, дисклеймеры ЦБ, лицензии.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-fmcg</span>
+    <span class="cmd-desc">Аудит рекламы FMCG</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Проверяет заявления типа &laquo;удаляет 99% пятен&raquo; &mdash; наличие протоколов испытаний.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-b2b</span>
+    <span class="cmd-desc">Аудит B2B-рекламы</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Проверяет: обоснованность сравнительных заявлений, сертификаты и награды, гос. символы.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-манифест</span>
+    <span class="cmd-desc">Аудит имиджевой рекламы</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Проверяет: антидискриминационные нормы, ценностные заявления, использование чужих образов.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/qa-template</span>
+    <span class="cmd-desc">Шаблоны безопасных формулировок</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Справочная таблица: опасная формулировка &rarr; безопасная альтернатива. Раздать копирайтерам как чеклист.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  4. КРЕАТИВНЫЙ ДИРЕКТОР                                      -->
+<!-- ============================================================ -->
+<div class="section-header creative" id="creative">
+  <span class="icon">&#10024;</span>
+  <div>
+    <h2>4. Креативный директор</h2>
+    <div class="subtitle">creative-director &middot; Концепции, форматы, Brand DNA</div>
+  </div>
+</div>
+
+<!-- /cycle -->
+<div class="cmd-card" id="cmd-cycle">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/cycle</span>
+    <span class="cmd-desc">Полный креативный цикл</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Креативный бриф (MD/DOCX/TXT) &mdash; идеально из <a href="#cmd-brief" class="cross-link strategy">/brief</a></li>
+      <li>Brand Memory (<code>brand-memory.md</code>) &mdash; из <a href="#cmd-brand-memory" class="cross-link creative">/brand-memory</a></li>
+      <li>Референсы (опционально)</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/cycle
+Бриф: запуск линейки органической косметики для женщин 25-40.
+Инсайт: "Женщины устали от guilt-маркетинга — хотят заботу, а не нравоучения".
+Бюджет на продакшн: средний.
+Платформы: VK, Telegram, YouTube Shorts.
+Ограничения: нельзя использовать медицинские заявления.
+Конкуренты: [бренд 1], [бренд 2].</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Top-3 концепции с калиброванной оценкой (Score + HumanKind)</li>
+      <li>Проверить Newspaper Test и Competitor Test</li>
+      <li>Выбрать 1-2 для тестирования</li>
+      <li>Тестирование &rarr; <a href="#cmd-creative-fg" class="cross-link focus">/creative-fg</a></li>
+      <li>Правовая проверка &rarr; <a href="#cmd-qa" class="cross-link legal">/qa</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /creative -->
+<div class="cmd-card" id="cmd-creative">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/creative</span>
+    <span class="cmd-desc">Быстрая генерация концепций</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/creative
+Нужна идея для партизанской акции: привлечь внимание к новому
+кофейному бренду в Москве, бюджет минимальный, эффект вирусный.
+ЦА: молодёжь 18-30, городские, любят мемы.</div>
+    <p>Когда нужно быстро набросать 5 концепций без полного стратегического цикла.</p>
+  </div></div>
+</div>
+
+<!-- /ad-variants -->
+<div class="cmd-card" id="cmd-ad-variants">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/ad-variants</span>
+    <span class="cmd-desc">Варианты рекламных объявлений</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/ad-variants
+Продукт: онлайн-курс по управлению проектами.
+УТП: практика на реальных кейсах, сертификат.
+ЦА: менеджеры 28-40, хотят карьерный рост.
+Платформа: VK (текст + баннер) + Telegram (пост).
+Количество: по 5 вариантов на платформу.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>10+ вариантов с оценкой hook (1-5)</li>
+      <li>Отобрать для A/B-тестирования</li>
+      <li>Финалистов &rarr; <a href="#cmd-qa" class="cross-link legal">/qa</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /format-creative -->
+<div class="cmd-card" id="cmd-format-creative">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/format-creative</span>
+    <span class="cmd-desc">Креатив под конкретный формат</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/format-creative
+Формат: YouTube Shorts (до 60 сек).
+Задача: анонс акции "чёрная пятница" для интернет-магазина электроники.
+Tone of Voice: энергичный, но не крикливый.
+Особенность: Sound-Off Design (должно работать без звука).</div>
+    <div class="tip"><strong>Специфика форматов:</strong> ТВ &mdash; Attention Economics таймлайн; OOH &mdash; макс. 7 слов, 3 секунды; Digital &mdash; Sound-Off Design; Печатная &mdash; Z-паттерн; Stories &mdash; вертикальный, свайп.</div>
+  </div></div>
+</div>
+
+<!-- /brand-memory -->
+<div class="cmd-card" id="cmd-brand-memory">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/brand-memory</span>
+    <span class="cmd-desc">Работа с Brand DNA</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Гайдлайны, примеры рекламы, позиционирование, ToV, тексты с сайта, посты</li>
+      <li>Чем больше &mdash; тем точнее Brand Memory</li>
+    </ul>
+    <div class="cmd-example">/brand-memory
+Загружаю гайдлайн бренда + 10 последних постов +
+описание с сайта + бриф от клиента.
+Задача: сформировать Brand DNA.</div>
+    <div class="warn"><strong>Ключевой актив:</strong> сохраните <code>brand-memory.md</code> и загружайте перед каждой работой с этим брендом: <a href="#cmd-cycle" class="cross-link creative">/cycle</a>, <a href="#cmd-ad-variants" class="cross-link creative">/ad-variants</a>, <a href="#cmd-creative-fg" class="cross-link focus">/creative-fg</a></div>
+  </div></div>
+</div>
+
+<!-- /strategy (creative), /comm-audit (creative) -->
+<div class="cmd-card" id="cmd-strategy-creative">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/strategy</span>
+    <span class="cmd-desc">Стратегический анализ для креатива</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Мост между стратегом и креативным процессом &mdash; преобразует стратегический бриф в формат для <a href="#cmd-cycle" class="cross-link creative">/cycle</a>.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card" id="cmd-comm-audit-creative">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/comm-audit</span>
+    <span class="cmd-desc">Аудит коммуникаций бренда</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Результат: реальный ToV vs. заявленный, сравнение с конкурентами, незанятые территории. Использовать как вход для <a href="#cmd-cycle" class="cross-link creative">/cycle</a> или <a href="#cmd-positioning" class="cross-link strategy">/positioning</a>.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  4b. КОПИРАЙТЕР                                              -->
+<!-- ============================================================ -->
+<div class="section-header creative" id="copywriter">
+  <span class="icon">&#9998;</span>
+  <div>
+    <h2>4b. Копирайтер</h2>
+    <div class="subtitle">copywriter &middot; Генерация и адаптация текстов голосом бренда</div>
+  </div>
+</div>
+
+<!-- /write -->
+<div class="cmd-card" id="cmd-write">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/write</span>
+    <span class="cmd-desc">Написать текст для канала</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Тема, канал, целевая аудитория</li>
+      <li>Brand voice (из <code>/brand-setup</code> или брендбук в inbox)</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/write
+Канал: Telegram
+Тема: запуск новой коллекции осень-зима
+Аудитория: женщины 25-35, средний+
+Тон: тёплый, вдохновляющий, без навязчивости</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Проверить текст на соответствие брендбуку</li>
+      <li>Адаптировать под другие каналы &rarr; <code>/adapt</code></li>
+      <li>Юридическая проверка &rarr; <a href="#cmd-qa" class="cross-link legal">/qa</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /adapt (copy) -->
+<div class="cmd-card" id="cmd-adapt-copy">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/adapt</span>
+    <span class="cmd-desc">Адаптировать текст под другой канал</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Берёт готовый текст и адаптирует его под другой канал или формат, сохраняя ключевые сообщения и тональность бренда. Учитывает ограничения целевой платформы по длине и формату.</p>
+  </div></div>
+</div>
+
+<!-- /audit -->
+<div class="cmd-card" id="cmd-audit-copy">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/audit</span>
+    <span class="cmd-desc">Проверить текст на соответствие бренду</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Аудит текста на соответствие голосу бренда: тональность, лексика, структура, читаемость. Выдаёт оценку и рекомендации по доработке.</p>
+  </div></div>
+</div>
+
+<!-- /pack (copy) -->
+<div class="cmd-card" id="cmd-pack-copy">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/pack</span>
+    <span class="cmd-desc">Мультиформатный пакет текстов</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Один бриф &mdash; тексты для нескольких каналов одновременно (соцсети, email, лендинг, реклама). Каждый текст адаптирован под ограничения платформы.</p>
+  </div></div>
+</div>
+
+<!-- /mine -->
+<div class="cmd-card" id="cmd-mine">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/mine</span>
+    <span class="cmd-desc">Message Mining из отзывов</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Извлекает ключевые сообщения и формулировки из клиентских отзывов и комментариев. Находит «живой язык» аудитории для использования в текстах.</p>
+  </div></div>
+</div>
+
+<!-- /brand-setup -->
+<div class="cmd-card" id="cmd-brand-setup">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/brand-setup</span>
+    <span class="cmd-desc">Настройка голоса бренда</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Создаёт профиль brand voice из загруженного брендбука или примеров текстов. Профиль используется во всех последующих командах для единообразия.</p>
+  </div></div>
+</div>
+
+<!-- /format-add -->
+<div class="cmd-card" id="cmd-format-add">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/format-add</span>
+    <span class="cmd-desc">Добавить пользовательский формат</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Добавляет нестандартный текстовый формат в библиотеку кабинета (например, «карточка для маркетплейса»). Формат доступен в <code>/write</code> и <code>/pack</code>.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  4c. АРТ-ДИРЕКТОР                                            -->
+<!-- ============================================================ -->
+<div class="section-header creative" id="art-director">
+  <span class="icon">&#127912;</span>
+  <div>
+    <h2>4c. Арт-директор</h2>
+    <div class="subtitle">art-director &middot; Визуалы, макеты, адаптация под форматы</div>
+  </div>
+</div>
+
+<!-- /visual -->
+<div class="cmd-card" id="cmd-visual">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/visual</span>
+    <span class="cmd-desc">Создать визуал</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Описание задачи: формат, тема, стиль</li>
+      <li>Брендбук или визуальные референсы (если есть)</li>
+      <li>Текст для макета (заголовок, слоган &mdash; если есть)</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/visual
+Формат: баннер 1080x1080
+Тема: запуск летней коллекции одежды
+Стиль: минимализм, светлые тона
+Текст на макете: "Новая коллекция уже в магазинах"
+Режим: описание + промпт для Midjourney</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Передать описание дизайнеру или вставить промпт в Midjourney/DALL-E</li>
+      <li>Адаптировать под другие форматы &rarr; <code>/adapt</code></li>
+      <li>Правовая проверка &rarr; <a href="#cmd-qa" class="cross-link legal">/qa</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /adapt (art) -->
+<div class="cmd-card" id="cmd-adapt-art">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/adapt</span>
+    <span class="cmd-desc">Адаптировать визуал под формат</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Адаптация визуала под другой формат или платформу: перекомпоновка, safe zone, размещение текста. Обновляет описание и AI-промпт.</p>
+  </div></div>
+</div>
+
+<!-- /pack (art) -->
+<div class="cmd-card" id="cmd-pack-art">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/pack</span>
+    <span class="cmd-desc">Мультиформатный пакет визуалов</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Один бриф &mdash; визуалы для нескольких форматов одновременно (баннер, сторис, пост, OOH) с единой визуальной концепцией.</p>
+  </div></div>
+</div>
+
+<!-- /edit (art) -->
+<div class="cmd-card" id="cmd-edit-art">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/edit</span>
+    <span class="cmd-desc">Редактировать визуал</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Корректировка существующего визуала по замечаниям: палитра, композиция, элементы. Обновляет описание и AI-промпт.</p>
+  </div></div>
+</div>
+
+<!-- /logo -->
+<div class="cmd-card" id="cmd-logo">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/logo</span>
+    <span class="cmd-desc">Концепция логотипа</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>3-5 концепций логотипа с описанием символики, типографики, цветовой палитры и AI-промптами для генерации.</p>
+  </div></div>
+</div>
+
+<!-- /identity -->
+<div class="cmd-card" id="cmd-identity">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/identity</span>
+    <span class="cmd-desc">Полная айдентика бренда</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Комплексная визуальная система: логотип, палитра, типографика, паттерны, правила применения на носителях. Основа для брендбука.</p>
+  </div></div>
+</div>
+
+<!-- /packaging -->
+<div class="cmd-card" id="cmd-packaging">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/packaging</span>
+    <span class="cmd-desc">Дизайн упаковки</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Концепция дизайна упаковки: визуальная иерархия, цветовая схема, лицевая и оборотная стороны. Промпты для AI-визуализации.</p>
+  </div></div>
+</div>
+
+<!-- /brand-visual -->
+<div class="cmd-card" id="cmd-brand-visual">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/brand-visual</span>
+    <span class="cmd-desc">Визуальный DNA бренда</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Извлечение визуальной ДНК бренда из материалов: палитра (HEX/RGB), шрифты, стилистические правила, moodboard-описание.</p>
+  </div></div>
+</div>
+
+<!-- /storyboard -->
+<div class="cmd-card" id="cmd-storyboard">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/storyboard</span>
+    <span class="cmd-desc">Раскадровка видеоролика</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Покадровый сценарий: описание каждого кадра, действия, текст, закадровый голос, музыка. AI-промпт для визуализации каждого кадра.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  5. КОММУНИКАЦИОННЫЙ СТРАТЕГ                                 -->
+<!-- ============================================================ -->
+<div class="section-header strategy" id="strategist">
+  <span class="icon">&#9881;</span>
+  <div>
+    <h2>5. Коммуникационный стратег</h2>
+    <div class="subtitle">communication-strategist &middot; Позиционирование, messaging, брифы</div>
+  </div>
+</div>
+
+<!-- /strategy (strat) -->
+<div class="cmd-card" id="cmd-strategy-strat">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/strategy</span>
+    <span class="cmd-desc">Полный стратегический цикл</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Brand Memory &mdash; из <a href="#cmd-brand-memory" class="cross-link creative">/brand-memory</a></li>
+      <li>Коммуникационный аудит &mdash; из <a href="#cmd-comm-audit-creative" class="cross-link creative">/comm-audit</a></li>
+      <li>Бриф от клиента (DOCX/PDF/TXT)</li>
+      <li>Рыночные данные (опционально)</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/strategy
+Бизнес-задача: увеличить долю рынка с 12% до 18% за 12 месяцев.
+Категория: FMCG, молочная продукция.
+ЦА: женщины 25-45 с детьми, доход средний+.
+Конкуренты: [бренд 1] (28%), [бренд 2] (15%), [бренд 3] (10%).
+Бюджет: 50 млн руб. на год.
+Загружаю: brand-memory.md, communication-audit.md, бриф, отчёт Nielsen.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>3 документа: STRATEGY.md, messaging-framework.md, creative-brief.md</li>
+      <li>creative-brief.md &rarr; <a href="#cmd-cycle" class="cross-link creative">/cycle</a></li>
+      <li>messaging &rarr; <a href="#cmd-strategy-fg" class="cross-link focus">/strategy-fg ВАЛИДАЦИЯ</a></li>
+      <li>Measurement Framework для KPI</li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /positioning -->
+<div class="cmd-card" id="cmd-positioning">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/positioning</span>
+    <span class="cmd-desc">Позиционирование</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/positioning
+Бренд: [название], категория: [категория].
+Текущее позиционирование: [если есть].
+Конкуренты и их позиционирование:
+- [бренд 1]: "доступный для всех"
+- [бренд 2]: "премиум качество"
+Задача: найти устойчивую позицию, которую не скопируют за год.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>CEP Analysis, аудит Distinctive Brand Assets, Territory Map</li>
+      <li>Durability Test (1-3-5 лет)</li>
+      <li>Тестирование &rarr; <a href="#cmd-strategy-fg" class="cross-link focus">/strategy-fg ВАЛИДАЦИЯ</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /messages -->
+<div class="cmd-card" id="cmd-messages">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/messages</span>
+    <span class="cmd-desc">Messaging Framework</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/messages
+Позиционирование: [формулировка].
+Сегменты:
+1. Молодые мамы 25-35 (JTBD: быстрая покупка без чувства вины)
+2. Осознанные потребители 30-45 (JTBD: экологичный выбор)
+3. Ценочувствительные 40-55 (JTBD: экономия без потери качества)
+Каналы: ТВ, digital (VK, Telegram), наружная, POS.</div>
+    <p>Результат: Message Hierarchy + Customer Journey матрица &mdash; основа для креативных брифов.</p>
+  </div></div>
+</div>
+
+<!-- /brief -->
+<div class="cmd-card" id="cmd-brief">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/brief</span>
+    <span class="cmd-desc">Креативный бриф</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/brief
+Задача кампании: запуск нового продукта в категории [X].
+ЦА: [описание]. Период: [даты]. Бюджет: [сумма].
+Каналы: [список]. Ограничения: [что нельзя]. Обязательно: [что должно быть].</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>10-секционный бриф с SMP (Single-Minded Proposition)</li>
+      <li>Brief Stress Test (5 проверок)</li>
+      <li>Передать бриф &rarr; <a href="#cmd-cycle" class="cross-link creative">/cycle</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /quick-diagnostics, /comm-audit (strat) -->
+<div class="cmd-card" id="cmd-quick-diagnostics">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/quick-diagnostics</span>
+    <span class="cmd-desc">Экспресс-диагностика</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Быстрый снимок за 15 минут вместо полной стратегии. Для первичной оценки нового клиента.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/comm-audit</span>
+    <span class="cmd-desc">Коммуникационный аудит (стратег)</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Реальный ToV vs. заявленный, сравнение с конкурентами, белые пятна. Вход для <a href="#cmd-strategy-strat" class="cross-link strategy">/strategy</a> или <a href="#cmd-positioning" class="cross-link strategy">/positioning</a>.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  6. МЕДИА-АНАЛИТИК                                          -->
+<!-- ============================================================ -->
+<div class="section-header media" id="media-analyst">
+  <span class="icon">&#128202;</span>
+  <div>
+    <h2>6. Медиа-аналитик</h2>
+    <div class="subtitle">media-analyst &middot; Комментарии к презентациям, верификация данных</div>
+  </div>
+</div>
+
+<!-- /analytics -->
+<div class="cmd-card" id="cmd-analytics">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/analytics</span>
+    <span class="cmd-desc">Комментарии к презентации</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>PPTX с данными и графиками</li>
+      <li>Дополнительные данные в XLSX</li>
+      <li>Бенчмарки категории, данные прошлого периода</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/analytics [CEO]
+Презентация: квартальный отчёт по медиаразмещениям для [клиент].
+Аудитория: CEO клиента — стратегические выводы, не детали.
+Данные: ТВ-отчёт (Mediascope), digital-отчёт (внутренний).
+Бенчмарк: FMCG молочка, Q3 2025 vs Q3 2024.
+Цель: обосновать продление контракта.</div>
+    <div class="tip"><strong>Аудитория:</strong> [CEO] &mdash; стратегический, [CMO] &mdash; тактический, [BM] &mdash; операционный. Без указания &mdash; комментарии будут &laquo;средними&raquo;.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Маркировка источников: [A] точные, [B] открытые, [C] расчётные, [D] экспертные</li>
+      <li>Формула: Факт + Benchmark + Причина + Влияние + Рекомендация</li>
+      <li>Верификация &rarr; <a href="#cmd-check" class="cross-link media">/check</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /action-title -->
+<div class="cmd-card" id="cmd-action-title">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/action-title</span>
+    <span class="cmd-desc">Заголовки-действия для слайдов</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/action-title [CMO]
+Для каждого слайда — 3 варианта:
+1. Operational (что произошло)
+2. Tactical (что это значит)
+3. Strategic (что с этим делать)</div>
+    <div class="tip"><strong>Правило:</strong> заголовок = ДЕЙСТВИЕ, не описание. Не &laquo;Динамика продаж&raquo;, а &laquo;Рост продаж +12% за счёт прайм-тайма требует фиксации аллокации на Q1&raquo;.</div>
+  </div></div>
+</div>
+
+<!-- /executive-summary -->
+<div class="cmd-card" id="cmd-executive-summary">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/executive-summary</span>
+    <span class="cmd-desc">Executive Summary</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/executive-summary [CEO]
+Контекст: годовой отчёт по медиаэффективности.
+Ключевой вопрос: "Стоит ли увеличивать медиабюджет на 20%?"</div>
+    <p>2 формата: Pyramid (вывод + аргументы) и SCR (Situation-Complication-Resolution). + Traffic Light Summary.</p>
+  </div></div>
+</div>
+
+<!-- /bridges, /check, /batch-analytics -->
+<div class="cmd-card" id="cmd-bridges">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/bridges</span>
+    <span class="cmd-desc">Нарративные мосты</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Связать блоки презентации так, чтобы она читалась как история. Каждый мост: Setup &rarr; Tension &rarr; Resolution.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card" id="cmd-check">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/check</span>
+    <span class="cmd-desc">Верификация презентации</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Проверяет: корректность цифр, качество комментариев, Action Titles, отсутствие &laquo;кладбищ данных&raquo;. Каждый слайд: OK / Weak / Needs Fix.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/batch-analytics</span>
+    <span class="cmd-desc">Пакетная обработка</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Несколько PPTX/PDF &mdash; комментарии к каждой + сводная таблица ключевых выводов.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  7. КОММУНИКАЦИОННЫЙ АНАЛИТИК                                -->
+<!-- ============================================================ -->
+<div class="section-header media" id="comm-analyst">
+  <span class="icon">&#128225;</span>
+  <div>
+    <h2>7. Коммуникационный аналитик</h2>
+    <div class="subtitle">communication-analyst &middot; Мониторинг, тональность, кризисы</div>
+  </div>
+</div>
+
+<!-- /media-monitor -->
+<div class="cmd-card" id="cmd-media-monitor">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/media-monitor</span>
+    <span class="cmd-desc">Полный анализ медиаполя</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Выгрузка мониторинга (XLSX/CSV) &mdash; обязательно</li>
+      <li>Данные по конкурентам</li>
+    </ul>
+    <div class="cmd-example">/media-monitor
+Бренд: [название]. Период: 01.01.2026 — 31.03.2026.
+Конкуренты: [A], [B].
+Ключевые события: запуск продукта (15 февраля), пресс-конференция CEO (3 марта).
+Предыдущий период для сравнения: Q4 2025.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Executive Summary, PESO Breakdown, Narrative Analysis</li>
+      <li>Рекомендации: Urgent / Planned / Strategic</li>
+      <li>Оценка эффективности &rarr; <a href="#cmd-effectiveness" class="cross-link media">/effectiveness</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /sentiment -->
+<div class="cmd-card" id="cmd-sentiment">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/sentiment</span>
+    <span class="cmd-desc">Анализ тональности</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Таблица: источник, тональность, интенсивность 1-5, аспект, эмоция, ключевая фраза. Использовать для корректировки <a href="#cmd-messages" class="cross-link strategy">/messages</a>.</p>
+  </div></div>
+</div>
+
+<!-- /crisis-analysis -->
+<div class="cmd-card" id="cmd-crisis-analysis">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/crisis-analysis</span>
+    <span class="cmd-desc">Кризисный анализ</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/crisis-analysis
+Бренд: [название].
+Триггер: публикация в [издание] от [дата] о [суть].
+Стадия: острая (распространение по соцсетям).
+Наша реакция: [что сделали / ничего].
+Загружаю: выгрузку за 72 часа + оригинальную публикацию.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Стадия по Fink Model &rarr; стратегия по SCCT</li>
+      <li>Карта стейкхолдеров</li>
+      <li>Антикризисные сообщения &rarr; <a href="#cmd-creative" class="cross-link creative">/creative</a></li>
+      <li>Проверка сообщений &rarr; <a href="#cmd-qa" class="cross-link legal">/qa</a></li>
+      <li>Мониторинг через 48-72 часа &rarr; <a href="#cmd-media-monitor" class="cross-link media">/media-monitor</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /effectiveness -->
+<div class="cmd-card" id="cmd-effectiveness">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/effectiveness</span>
+    <span class="cmd-desc">Эффективность PR</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <div class="cmd-example">/effectiveness
+Кампания: пресс-тур для [бренд], [даты].
+Цели: 15 публикаций в Tier-1, охват 2 млн, рост Wordstat +30%.
+Бюджет PR: 1,5 млн руб.
+Загружаю: мониторинг + Wordstat + продажи.</div>
+    <div class="warn"><strong>AMEC Barcelona Principles 3.0:</strong> AVE запрещён. Используется цепочка Output &rarr; Outtake &rarr; Outcome &rarr; Impact.</div>
+  </div></div>
+</div>
+
+<!-- /competitors, /key-messages -->
+<div class="cmd-card" id="cmd-competitors">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/competitors</span>
+    <span class="cmd-desc">Анализ конкурентов</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Comparative matrix, Media Index, white spaces. Результат &mdash; корректировка стратегии.</p>
+  </div></div>
+</div>
+
+<div class="cmd-card" id="cmd-key-messages">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/key-messages</span>
+    <span class="cmd-desc">Трекинг ключевых сообщений</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <p>Какие из 3-7 ключевых тезисов прошли в медиа, какие нет. Конкретные цитаты из публикаций.</p>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  8. СИНТЕТИЧЕСКИЕ ФОКУС-ГРУППЫ                               -->
+<!-- ============================================================ -->
+<div class="section-header focus" id="focus-groups">
+  <span class="icon">&#128101;</span>
+  <div>
+    <h2>8. Синтетические фокус-группы</h2>
+    <div class="subtitle">focus-groups &middot; Исследование, валидация, ценообразование, инсайты</div>
+  </div>
+</div>
+
+<!-- /strategy-fg -->
+<div class="cmd-card" id="cmd-strategy-fg">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/strategy-fg</span>
+    <span class="cmd-desc">Стратегическая фокус-группа (4 режима)</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>ИССЛЕДОВАНИЕ</h4>
+    <div class="cmd-example">/strategy-fg ИССЛЕДОВАНИЕ
+Категория: [X]. Продукт: [Y].
+ЦА: женщины 25-40, доход средний+, городские.
+Вопросы: JTBD, барьеры к покупке, культурные напряжения.
+Количество персон: 15.</div>
+    <p>Результат: 15 персон, Hierarchical Value Map, барьеры/драйверы. Вход для <a href="#cmd-positioning" class="cross-link strategy">/positioning</a>.</p>
+
+    <h4>ВАЛИДАЦИЯ</h4>
+    <div class="cmd-example">/strategy-fg ВАЛИДАЦИЯ
+Тестируем позиционирование: "[формулировка]".
+ЦА: [описание].
+Критерии: не менее 70% зелёных, Brand Linkage > 50%.</div>
+    <p>&gt;30% жёлтых/красных &rarr; вернуться к <a href="#cmd-positioning" class="cross-link strategy">/positioning</a>.</p>
+
+    <h4>ЦЕНООБРАЗОВАНИЕ</h4>
+    <div class="cmd-example">/strategy-fg ЦЕНООБРАЗОВАНИЕ
+Продукт: [описание]. ЦА: [включая доход].
+Конкурентные цены: [A] = 500 руб., [B] = 750 руб.
+Наш диапазон: 400-900 руб.</div>
+    <div class="warn"><strong>VALIDATE:</strong> все ценовые выводы &mdash; гипотезы. Обязательно проверить на реальных потребителях!</div>
+
+    <h4>ИНСАЙТЫ</h4>
+    <p>Means-End Chain (laddering), культурные напряжения, скрытые барьеры. Вход для инсайтов в <a href="#cmd-cycle" class="cross-link creative">/cycle</a> и messaging в <a href="#cmd-messages" class="cross-link strategy">/messages</a>.</p>
+  </div></div>
+</div>
+
+<!-- /creative-fg -->
+<div class="cmd-card" id="cmd-creative-fg">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/creative-fg</span>
+    <span class="cmd-desc">Креативная фокус-группа</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Описание 1-3 концепций (визуал, текст, сценарий)</li>
+      <li>Brand Memory &mdash; из <a href="#cmd-brand-memory" class="cross-link creative">/brand-memory</a></li>
+      <li>Описание ЦА</li>
+    </ul>
+    <div class="cmd-example">/creative-fg
+Тестируем 3 концепции для [бренд]:
+
+Концепция A: "[название]"
+Описание: [подробно: визуал, текст, механика]
+Формат: 30 сек YouTube + VK Stories
+
+Концепция B: "[название]"
+Описание: [подробно]
+Формат: серия из 5 постов Telegram
+
+Концепция C: "[название]"
+Описание: [подробно]
+Формат: OOH + digital
+
+ЦА: женщины 25-40, доход средний+.
+Критерии: AIDA > 7, Brand Linkage > 60%.</div>
+    <div class="tip"><strong>Подробность критична:</strong> &laquo;Весёлый ролик про йогурт&raquo; даст поверхностный результат. Детальное описание сцены &mdash; глубокий AIDA-скоринг.</div>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>Ранжирование: AIDA + ELM + Brand Linkage</li>
+      <li>Доработать победителя &rarr; <a href="#cmd-cycle" class="cross-link creative">/cycle</a> или <a href="#cmd-format-creative" class="cross-link creative">/format-creative</a></li>
+      <li>Финальную версию &rarr; <a href="#cmd-qa" class="cross-link legal">/qa</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  9. SOCIAL LISTENING                                          -->
+<!-- ============================================================ -->
+<div class="section-header media" id="social-listening">
+  <span class="icon">&#128266;</span>
+  <div>
+    <h2>9. Social Listening</h2>
+    <div class="subtitle">social-listening &middot; Анализ отзывов, мониторинг упоминаний, репутационные риски</div>
+  </div>
+</div>
+
+<div class="tip"><strong>Источники данных:</strong> кабинет не имеет доступа к интернету. Загружайте выгрузки отзывов (xlsx, csv, txt), скриншоты или скопированный текст через inbox или чат.</div>
+
+<!-- /search-reviews -->
+<div class="cmd-card" id="cmd-search-reviews">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/search-reviews</span>
+    <span class="cmd-desc">Поиск и анализ отзывов</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Выгрузки отзывов (xlsx/csv) с маркетплейсов, отзовиков, соцсетей</li>
+      <li>Или скриншоты отзывов &mdash; AI распознает текст</li>
+      <li>Или скопированный текст отзывов прямо в чат</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/search-reviews
+Бренд: &laquo;НашПродукт&raquo;, площадка: Wildberries.
+Период: март 2026. Фокус: основные жалобы и что хвалят.
+В inbox — выгрузка 200 отзывов в CSV.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Таблица: каждый отзыв с тональностью, оценкой, ключевой темой и цитатой</li>
+      <li>Распределение тональности (% и абс.), средняя оценка</li>
+      <li>Топ-5 тем, топ-3 претензии, топ-3 похвалы</li>
+      <li>Рекомендации: что ответить, что исправить, что использовать в маркетинге</li>
+    </ul>
+    <h4>Что делать после</h4>
+    <ol>
+      <li>По критичным претензиям &rarr; шаблоны ответов для маркетплейса</li>
+      <li>Для глубокого анализа эмоций &rarr; <a href="#cmd-analyze-sentiment" class="cross-link media">/analyze-sentiment</a></li>
+      <li>Для сравнения с конкурентами &rarr; <a href="#cmd-competitors-buzz" class="cross-link media">/competitors-buzz</a></li>
+      <li>Для итогового отчёта &rarr; <a href="#cmd-sl-report" class="cross-link media">/report</a></li>
+    </ol>
+  </div></div>
+</div>
+
+<!-- /analyze-sentiment -->
+<div class="cmd-card" id="cmd-analyze-sentiment">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/analyze-sentiment</span>
+    <span class="cmd-desc">Детальный анализ тональности</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul><li>Тексты для анализа (отзывы, комментарии, упоминания) &mdash; через inbox или чат</li></ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/analyze-sentiment
+Проанализируй тональность отзывов из inbox.
+Интересуют триггеры негатива — что именно вызывает гнев клиентов.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Каждый текст: тональность + интенсивность (1-5) + эмоция (гнев/разочарование/радость...)</li>
+      <li>Распределение тональности с процентами</li>
+      <li>Триггеры негатива и позитива с частотностью</li>
+      <li>Рекомендации по реагированию: гнев &rarr; извинение + решение, разочарование &rarr; эмпатия и т.д.</li>
+    </ul>
+    <div class="tip"><strong>Совет:</strong> комбинируйте с <a href="#cmd-search-reviews" class="cross-link media">/search-reviews</a> &mdash; сначала классификация, потом глубокий sentiment.</div>
+  </div></div>
+</div>
+
+<!-- /track-mentions -->
+<div class="cmd-card" id="cmd-track-mentions">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/track-mentions</span>
+    <span class="cmd-desc">Карта упоминаний бренда</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul><li>Данные с упоминаниями бренда: выгрузки из систем мониторинга, скриншоты, тексты</li></ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/track-mentions
+Бренд: &laquo;НашПродукт&raquo;. В inbox — выгрузка из Brand Analytics за неделю.
+Нужна карта: где упоминают, в каком контексте, что требует реакции.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Карта упоминаний: источник &rarr; тип &rarr; тональность &rarr; охват &rarr; приоритет</li>
+      <li>Группировка по кластерам (одна проблема на нескольких площадках)</li>
+      <li>Рекомендации: что требует ответа, что можно использовать как UGC, что мониторить</li>
+    </ul>
+  </div></div>
+</div>
+
+<!-- /competitors-buzz -->
+<div class="cmd-card" id="cmd-competitors-buzz">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/competitors-buzz</span>
+    <span class="cmd-desc">Сравнительный анализ с конкурентами</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Отзывы/упоминания по вашему бренду и 2-5 конкурентам</li>
+      <li>Желательно одинаковые площадки и период</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/competitors-buzz
+Наш бренд: &laquo;НашПродукт&raquo;. Конкуренты: &laquo;Бренд А&raquo;, &laquo;Бренд Б&raquo;.
+Площадка: Ozon, период: февраль-март 2026.
+В inbox — 3 файла CSV с отзывами по каждому бренду.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Сравнительная таблица: объём, средняя оценка, % позитива/негатива, топ-темы</li>
+      <li>Конкурентные преимущества и точки отставания глазами клиентов</li>
+      <li>Рекомендации: что усилить в коммуникации, что улучшить, что адаптировать от конкурентов</li>
+    </ul>
+  </div></div>
+</div>
+
+<!-- /crisis-alert -->
+<div class="cmd-card" id="cmd-crisis-alert">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/crisis-alert</span>
+    <span class="cmd-desc">Экспресс-оценка репутационного риска</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul><li>Данные о проблеме: вирусный отзыв, всплеск негатива, скандал &mdash; скриншоты, ссылки, тексты</li></ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/crisis-alert
+Вирусный негативный отзыв на Ozon (2000+ лайков, 150 комментариев).
+Клиент утверждает, что продукт вызвал аллергическую реакцию.
+Тема подхвачена в Telegram-каналах. Нужна срочная оценка.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Уровень угрозы: &#x1F7E2; Низкий / &#x1F7E1; Средний / &#x1F7E0; Высокий / &#x1F534; Критический</li>
+      <li>План реагирования: приоритет &rarr; действие &rarr; ответственный &rarr; срок</li>
+      <li>Шаблоны ответов: для соцсетей, маркетплейса, официальное заявление</li>
+      <li>Что мониторить дальше и когда провести повторную оценку</li>
+    </ul>
+    <div class="warn"><strong>Важно:</strong> при критическом уровне &mdash; немедленно передайте план в PR-отдел и юристам. AI даёт рекомендации, но решение принимает команда.</div>
+  </div></div>
+</div>
+
+<!-- /report (social listening) -->
+<div class="cmd-card" id="cmd-sl-report">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/report</span>
+    <span class="cmd-desc">Сводный отчёт мониторинга</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Когда использовать</h4>
+    <p>После работы с другими командами Social Listening &mdash; собирает все результаты сессии в единый отчёт.</p>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/report
+Сформируй итоговый отчёт по результатам мониторинга.
+Период: март 2026. Клиент: &laquo;НашПродукт&raquo;.</div>
+    <h4>Структура отчёта</h4>
+    <ol>
+      <li><strong>Executive Summary</strong> &mdash; главные выводы в 3-5 предложениях</li>
+      <li><strong>Объём и источники</strong> &mdash; таблица по площадкам</li>
+      <li><strong>Тональность</strong> &mdash; распределение с визуализацией</li>
+      <li><strong>Ключевые темы</strong> &mdash; топ-5 с частотностью и примерами</li>
+      <li><strong>Проблемные зоны</strong> &mdash; упорядочены по серьёзности</li>
+      <li><strong>Точки роста</strong> &mdash; что хвалят и как усилить</li>
+      <li><strong>Конкуренты</strong> &mdash; если были данные</li>
+      <li><strong>Рекомендации</strong> &mdash; срочно / важно / возможности</li>
+    </ol>
+    <div class="tip"><strong>Совет:</strong> отчёт в markdown — экспортируйте из exports и используйте для презентации клиенту или руководству.</div>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  10. ЭКОНОМЕТРИСТ                                              -->
+<!-- ============================================================ -->
+<div class="section-header media" id="econometrist">
+  <span class="icon">&#128208;</span>
+  <div>
+    <h2>10. Эконометрист</h2>
+    <div class="subtitle">econometrist &middot; Marketing Mix Modeling, декомпозиция продаж, оптимизация бюджета</div>
+  </div>
+</div>
+
+<p>Кабинет для математического моделирования вклада медиаканалов в бизнес-результат. Строит байесовскую модель (PyMC-Marketing), разделяет продажи на базовые и принесённые рекламой, находит оптимальное распределение бюджета, прогнозирует динамику awareness.</p>
+
+<table>
+<tr><th>Команда</th><th>Описание</th></tr>
+<tr><td><code>/mmm-prepare</code></td><td>Проверка данных: формат, пропуски, достаточность, корреляции. Выдаёт вердикт: готов / требует доработки</td></tr>
+<tr><td><code>/mmm-model</code></td><td>Обучение модели: Adstock + Hill function + байесовский MCMC. Оценка качества (MQS 1-10)</td></tr>
+<tr><td><code>/mmm-decomposition</code></td><td>Waterfall-декомпозиция: кто сколько принёс. ROI каналов с доверительными интервалами</td></tr>
+<tr><td><code>/mmm-optimize</code></td><td>Оптимальное распределение бюджета с учётом ваших ограничений (min/max по каналам)</td></tr>
+<tr><td><code>/mmm-scenarios</code></td><td>Сценарии &laquo;что-если&raquo;: смоделировать изменения бюджета до реальных трат</td></tr>
+<tr><td><code>/awareness-forecast</code></td><td>Прогноз awareness от медиа-затрат (ESOV, natural decay)</td></tr>
+<tr><td><code>/awareness-to-sales</code></td><td>S-кривая зависимости продаж от уровня знания бренда</td></tr>
+<tr><td><code>/mmm-report</code></td><td>Комплексный отчёт: Excel (multi-sheet) + Word для руководства</td></tr>
+</table>
+
+<div class="tip-box">
+<strong>Требуется Python 3.10+.</strong> При первом запуске система проверит наличие и установит пакеты автоматически. Подробная справка: <a href="econometrist.html">Справка Эконометриста</a>.
+</div>
+
+<!-- ============================================================ -->
+<!--  11. ДОКУ-МАСТЕР                                              -->
+<!-- ============================================================ -->
+<div class="section-header legal" id="doc-master">
+  <span class="icon">&#128196;</span>
+  <div>
+    <h2>11. Доку-мастер</h2>
+    <div class="subtitle">doc-master &middot; Генерация документов из медиапланов, шаблонов и реквизитов</div>
+  </div>
+</div>
+
+<div class="tip"><strong>Гибкость:</strong> система работает с любыми форматами медиапланов и шаблонов. Предварительная регистрация не требуется &mdash; загрузите файлы в inbox, и система разберёт структуру автоматически.</div>
+
+<!-- /plan-to-doc -->
+<div class="cmd-card" id="cmd-plan-to-doc">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/plan-to-doc</span>
+    <span class="cmd-desc">Медиаплан &rarr; Приложение к договору</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Медиаплан (.xlsx) &mdash; обязательно</li>
+      <li>Шаблон приложения (.doc/.docx) &mdash; если не предоставлен, используется стандартная структура</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/plan-to-doc
+Все условия из медиаплана. Предоплата и сроки — по договору с клиентом.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Заполненное приложение к договору (.docx) в exports</li>
+      <li>Таблица медиаплана с группировкой по уровням воронки</li>
+      <li>График оплат с помесячной разбивкой</li>
+      <li>Отчёт 5-ступенчатой верификации: построчная сверка сумм, итоги, график, мета-данные</li>
+    </ul>
+    <div class="tip"><strong>Совет:</strong> система автоматически извлекает АВ и менеджмент из медиаплана (включая разные проценты по площадкам). Спрашивает только то, чего не нашла.</div>
+  </div></div>
+</div>
+
+<!-- /doc-batch -->
+<div class="cmd-card" id="cmd-doc-batch">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/doc-batch</span>
+    <span class="cmd-desc">Массовая генерация комплектов документов</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Шаблоны документов (.doc/.docx) с плейсхолдерами</li>
+      <li><strong>Режим A:</strong> таблица подрядчиков (.xlsx/.csv) &mdash; один подрядчик на строку</li>
+      <li><strong>Режим B:</strong> разрозненные файлы реквизитов (.docx, .pdf, .jpg, .png) &mdash; карточки ИП, выписки, фото/сканы</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/doc-batch
+Нумерация договоров: с 001. Дата всех договоров: 01.04.2026.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Папка на каждого подрядчика в exports с комплектом документов</li>
+      <li>Сводная таблица: ФИО, НДС-статус, сумма, количество документов, статус</li>
+      <li>Автоматический выбор шаблона (с НДС / без НДС)</li>
+    </ul>
+    <div class="tip"><strong>Совет:</strong> режимы можно комбинировать &mdash; таблица как основа, файлы для дополнения недостающих данных.</div>
+  </div></div>
+</div>
+
+<!-- /plan-check -->
+<div class="cmd-card" id="cmd-plan-check">
+  <div class="cmd-card-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="cmd-name">/plan-check</span>
+    <span class="cmd-desc">Проверка расчётов в медиаплане</span>
+    <span class="arrow">&#9662;</span>
+  </div>
+  <div class="cmd-card-body"><div class="cmd-card-body-inner">
+    <h4>Что подготовить</h4>
+    <ul>
+      <li>Медиаплан (.xlsx)</li>
+    </ul>
+    <h4>Идеальный запрос</h4>
+    <div class="cmd-example">/plan-check
+Проверь медиаплан перед отправкой клиенту.</div>
+    <h4>Что получите</h4>
+    <ul>
+      <li>Построчная проверка: бюджет = объём &times; цена, сумма недель = итого</li>
+      <li>Сверка сводных KPI: CPM, CPC, CTR, VTR</li>
+      <li>Проверка сплита бюджета и процентных долей</li>
+      <li>Вердикт: КОРРЕКТЕН / ПРЕДУПРЕЖДЕНИЯ / ОШИБКИ</li>
+    </ul>
+    <div class="tip"><strong>Совет:</strong> проверяйте медиаплан через /plan-check <em>перед</em> генерацией приложения через /plan-to-doc &mdash; это сэкономит время на исправлениях.</div>
+  </div></div>
+</div>
+
+<!-- ============================================================ -->
+<!--  СКВОЗНЫЕ WORKFLOW                                            -->
+<!-- ============================================================ -->
+<div class="section-header workflow" id="workflows">
+  <span class="icon">&#128736;</span>
+  <div>
+    <h2>Workflow Builder &amp; Pipeline</h2>
+    <div class="subtitle">Визуальный конструктор + автономное выполнение</div>
+  </div>
+</div>
+
+<h3 style="margin: 24px 0 12px; color: var(--orange);">Workflow Builder</h3>
+<p>Визуальный конструктор позволяет соединить кабинеты в цепочку из шагов трёх типов: последовательный, параллельный и цикл. Пять готовых шаблонов — Полная кампания (~120 мин), Ребрендинг (~150 мин), Креативная петля (~90 мин), Юридический аудит (~45 мин), Быстрый контент (~40 мин).</p>
+<p>Доступ: кнопка «Создать контент» на главной или раздел Workflows.</p>
+
+<h3 style="margin: 24px 0 12px; color: var(--orange);">Pipeline (контекстная цепочка)</h3>
+<p>Расширенный режим Workflow. Каждый шаг получает:</p>
+<ul style="margin: 8px 0 16px 20px; font-size: 14px; color: var(--text2);">
+  <li>Текст брифа (из секции «Бриф задачи»)</li>
+  <li>Контекст активного бренда (тон, маркеры, стоп-слова)</li>
+  <li>Резюме результатов предыдущих шагов</li>
+  <li>Файлы из экспорта предыдущего кабинета</li>
+</ul>
+<p>После завершения: экспорт ZIP, открытие папки с результатами, desktop-уведомление.</p>
+
+<h3 style="margin: 28px 0 12px; color: var(--orange);">Ручные Workflow (примеры цепочек)</h3>
+
+<!-- Workflow 1 -->
+<h3 style="margin: 28px 0 16px; color: var(--orange);">Workflow 1: Полный цикл создания кампании</h3>
+<div class="wf-steps">
+  <div class="wf-step"><div class="wf-num">1</div><div class="wf-content"><span class="wf-cabin">Комм. стратег</span> <span class="wf-cmd">/comm-audit</span><br><span class="wf-desc">Материалы бренда + конкурентов &rarr; communication-audit.md</span></div></div>
+  <div class="wf-step"><div class="wf-num">2</div><div class="wf-content"><span class="wf-cabin">Креативный директор</span> <span class="wf-cmd">/brand-memory</span><br><span class="wf-desc">Гайдлайны бренда &rarr; brand-memory.md (сохранить!)</span></div></div>
+  <div class="wf-step"><div class="wf-num">3</div><div class="wf-content"><span class="wf-cabin">Комм. стратег</span> <span class="wf-cmd">/strategy</span><br><span class="wf-desc">audit + brand-memory + бриф &rarr; strategy.md + messaging + creative-brief</span></div></div>
+  <div class="wf-step"><div class="wf-num">4</div><div class="wf-content"><span class="wf-cabin">Фокус-группы</span> <span class="wf-cmd">/strategy-fg ВАЛИДАЦИЯ</span><br><span class="wf-desc">Стресс-тест messaging &rarr; корректировка</span></div></div>
+  <div class="wf-step"><div class="wf-num">5</div><div class="wf-content"><span class="wf-cabin">Креативный директор</span> <span class="wf-cmd">/cycle</span><br><span class="wf-desc">creative-brief + brand-memory &rarr; 3 концепции</span></div></div>
+  <div class="wf-step"><div class="wf-num">6</div><div class="wf-content"><span class="wf-cabin">Фокус-группы</span> <span class="wf-cmd">/creative-fg</span><br><span class="wf-desc">3 концепции &rarr; ранжирование &rarr; победитель</span></div></div>
+  <div class="wf-step"><div class="wf-num">7</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Реклама</span> <span class="wf-cmd">/qa</span><br><span class="wf-desc">Финальные материалы &rarr; правовая проверка</span></div></div>
+  <div class="wf-step"><div class="wf-num">8</div><div class="wf-content"><span class="wf-cabin" style="color:var(--green)">Запуск кампании</span></div></div>
+  <div class="wf-step"><div class="wf-num">9</div><div class="wf-content"><span class="wf-cabin">Медиа-аналитик</span> <span class="wf-cmd">/analytics</span><br><span class="wf-desc">PPTX с данными &rarr; комментарии для клиента</span></div></div>
+  <div class="wf-step"><div class="wf-num">10</div><div class="wf-content"><span class="wf-cabin">Комм. аналитик</span> <span class="wf-cmd">/effectiveness</span><br><span class="wf-desc">Мониторинг + KPI &rarr; оценка эффективности</span></div></div>
+</div>
+
+<!-- Workflow 2 -->
+<h3 style="margin: 36px 0 16px; color: var(--blue);">Workflow 2: Работа с новым договором</h3>
+<div class="wf-steps">
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--blue)">1</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Договоры</span> <span class="wf-cmd">/contract-риски</span><br><span class="wf-desc">Быстрый скрининг: подписывать или нет</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--blue)">2</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Договоры</span> <span class="wf-cmd">/contract</span><br><span class="wf-desc">Полный анализ с Risk Heatmap</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--blue)">3</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Договоры</span> <span class="wf-cmd">/contract-counter</span><br><span class="wf-desc">Протокол разногласий</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--blue)">4</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Договоры</span> <span class="wf-cmd">/contract-counter-docx</span><br><span class="wf-desc">DOCX для отправки</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--blue)">5</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Договоры</span> <span class="wf-cmd">/contract-сравнить</span><br><span class="wf-desc">Сравнение с новой версией контрагента</span></div></div>
+</div>
+
+<!-- Workflow 3 -->
+<h3 style="margin: 36px 0 16px; color: var(--red);">Workflow 3: Кризисные коммуникации</h3>
+<div class="wf-steps">
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--red)">1</div><div class="wf-content"><span class="wf-cabin">Social Listening</span> <span class="wf-cmd">/crisis-alert</span><br><span class="wf-desc">Экспресс-оценка уровня угрозы + план реагирования</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--red)">2</div><div class="wf-content"><span class="wf-cabin">Комм. аналитик</span> <span class="wf-cmd">/crisis-analysis</span><br><span class="wf-desc">Стадия кризиса + стратегия + план</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--red)">3</div><div class="wf-content"><span class="wf-cabin">Комм. аналитик</span> <span class="wf-cmd">/sentiment</span><br><span class="wf-desc">Эмоции, аспекты, ключевые фразы</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--red)">4</div><div class="wf-content"><span class="wf-cabin">Креативный директор</span> <span class="wf-cmd">/creative</span><br><span class="wf-desc">3-5 вариантов антикризисных сообщений</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--red)">5</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Реклама</span> <span class="wf-cmd">/qa</span><br><span class="wf-desc">Правовая проверка сообщений</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--red)">6</div><div class="wf-content"><span class="wf-cabin">Social Listening</span> <span class="wf-cmd">/track-mentions</span><br><span class="wf-desc">Мониторинг упоминаний через 48-72 часа</span></div></div>
+</div>
+
+<!-- Workflow 4 -->
+<h3 style="margin: 36px 0 16px; color: var(--accent);">Workflow 4: Документооборот — от медиаплана до подписания</h3>
+<div class="wf-steps">
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--accent)">1</div><div class="wf-content"><span class="wf-cabin">Доку-мастер</span> <span class="wf-cmd">/plan-check</span><br><span class="wf-desc">Аудит расчётов в медиаплане перед отправкой клиенту</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--accent)">2</div><div class="wf-content"><span class="wf-cabin">Доку-мастер</span> <span class="wf-cmd">/plan-to-doc</span><br><span class="wf-desc">Медиаплан (.xlsx) + шаблон &rarr; заполненное приложение к договору (.docx)</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--accent)">3</div><div class="wf-content"><span class="wf-cabin">Юрист &mdash; Контракты</span> <span class="wf-cmd">/contract</span><br><span class="wf-desc">Юридическая проверка сгенерированного приложения</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--accent)">4</div><div class="wf-content"><span class="wf-cabin">Доку-мастер</span> <span class="wf-cmd">/doc-batch</span><br><span class="wf-desc">Массовая генерация комплектов документов для подрядчиков/блогеров</span></div></div>
+  <div class="wf-step"><div class="wf-num" style="border-color:var(--accent)">5</div><div class="wf-content"><span class="wf-cabin" style="color:var(--green)">Документы готовы к подписанию</span></div></div>
+</div>
+
+<!-- ---- RECOMMENDATIONS ---- -->
+<div class="rules-box" style="margin-top: 48px; border-color: var(--orange);">
+  <h3 style="color: var(--orange);">7 правил максимального качества</h3>
+  <ul>
+    <li><strong>Всегда указывайте контекст</strong> &mdash; текст с деталями даёт на порядок лучший результат, чем нажатие кнопки</li>
+    <li><strong>Загружайте все релевантные документы</strong> &mdash; незагруженный документ = несуществующий документ</li>
+    <li><strong>Используйте результаты предыдущих команд</strong> &mdash; exports &rarr; inbox следующего кабинета</li>
+    <li><strong>Brand Memory &mdash; главный актив</strong> &mdash; создайте один раз, загружайте перед каждой работой с брендом</li>
+    <li><strong>Проверяйте цифры</strong> &mdash; AI верифицирует, но финальная ответственность на аналитике</li>
+    <li><strong>Фокус-группы = гипотезы</strong> &mdash; выводы [LOW] и ценовые данные [VALIDATE] проверять на реальных потребителях</li>
+    <li><strong>Правовая проверка &mdash; последний шаг</strong> &mdash; финальные материалы всегда через <a href="#cmd-qa" class="cross-link legal" style="font-size:12px">/qa</a></li>
+  </ul>
+</div>
+
+</div><!-- /container -->
+
+<footer>Aurora AI Agency &middot; User Guide v0.3.3 &middot; Апрель 2026</footer>
+
+<script>
+// Open card if navigated to by hash
+document.addEventListener('DOMContentLoaded', () => {
+  const hash = location.hash;
+  if (hash) {
+    const el = document.querySelector(hash);
+    if (el && el.classList.contains('cmd-card')) {
+      el.classList.add('open');
+      setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    }
+  }
+});
+// Handle cross-link clicks to open cards
+document.querySelectorAll('.cross-link').forEach(link => {
+  link.addEventListener('click', e => {
+    const href = link.getAttribute('href');
+    if (href && href.startsWith('#cmd-')) {
+      setTimeout(() => {
+        const target = document.querySelector(href);
+        if (target && target.classList.contains('cmd-card')) {
+          target.classList.add('open');
+        }
+      }, 50);
+    }
+  });
+});
+</script>
+<script src="nav.js"></script>
+</body>
+</html>

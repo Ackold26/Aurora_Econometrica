@@ -1,0 +1,67 @@
+use log::info;
+use serde::Serialize;
+use std::sync::Mutex;
+
+static AUDIT_LOG: Mutex<Vec<AuditEntry>> = Mutex::new(Vec::new());
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditEntry {
+    pub timestamp: String,
+    pub event: String,
+    pub details: String,
+    pub success: bool,
+}
+
+/// Record an audit event (license check, vault open, session activity, etc.)
+pub fn log_event(event: &str, details: &str, success: bool) {
+    let timestamp = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S%.3f").to_string();
+    let entry = AuditEntry {
+        timestamp: timestamp.clone(),
+        event: event.to_string(),
+        details: details.to_string(),
+        success,
+    };
+
+    info!("[AUDIT] {event} | {details} | success={success}");
+
+    if let Ok(mut log) = AUDIT_LOG.lock() {
+        log.push(entry);
+        // Keep last 1000 entries in memory
+        if log.len() > 1000 {
+            let excess = log.len() - 1000;
+        log.drain(..excess);
+        }
+    }
+
+    // Also persist to file (best-effort)
+    let _ = append_to_file(event, details, success, &timestamp);
+}
+
+fn append_to_file(event: &str, details: &str, success: bool, timestamp: &str) -> std::io::Result<()> {
+    let app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    if app_data.is_empty() {
+        return Ok(());
+    }
+    let audit_dir = std::path::PathBuf::from(app_data).join("AIAgency");
+    std::fs::create_dir_all(&audit_dir)?;
+    let audit_file = audit_dir.join("audit.log");
+
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&audit_file)?;
+    writeln!(file, "{}\t{}\t{}\t{}", timestamp, event, if success { "OK" } else { "FAIL" }, details)?;
+    Ok(())
+}
+
+/// Get recent audit entries (for diagnostics).
+pub fn get_recent(limit: usize) -> Vec<AuditEntry> {
+    AUDIT_LOG
+        .lock()
+        .map(|log| {
+            let start = log.len().saturating_sub(limit);
+            log[start..].to_vec()
+        })
+        .unwrap_or_default()
+}

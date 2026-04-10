@@ -1,0 +1,240 @@
+use anyhow::Result;
+use chrono::NaiveDate;
+use log::warn;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+use crate::crypto::{ed25519, fingerprint};
+use crate::errors::{coded, coded_err, ErrorCode};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct License {
+    pub license_id: String,
+    pub issued_to: String,
+    pub expires_at: String,
+    pub machine_fingerprint_hash: String,
+    pub cabinets: Vec<String>,
+    pub salt: String,       // base64-encoded
+    pub signature: String,  // base64-encoded Ed25519 signature
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LicenseStatus {
+    pub valid: bool,
+    pub issued_to: String,
+    pub expires_at: String,
+    pub days_remaining: i64,
+    pub cabinets: Vec<String>,
+    pub machine_id: String,
+    pub error: Option<String>,
+}
+
+impl License {
+    /// Load license from the per-app config directory.
+    /// Primary: <app_config_dir>/license.json (per-app, Tauri v2 idiomatic)
+    /// Fallback: legacy shared paths for migration
+    pub fn load(app_config_dir: &Path) -> Result<Self> {
+        let path = Self::resolve_license_path(app_config_dir)
+            .ok_or_else(|| coded_err(ErrorCode::LI001, "License file not found. Please import your license in Settings."))?;
+        let data = std::fs::read_to_string(&path)
+            .map_err(|_| coded_err(ErrorCode::LI002, &format!("Cannot read license file at {}", path.display())))?;
+        let license: License = serde_json::from_str(&data)?;
+
+        // Migrate: if loaded from legacy path, copy to per-app dir
+        let per_app_path = Self::license_path(app_config_dir);
+        if path != per_app_path {
+            if let Some(parent) = per_app_path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    warn!("Failed to create license dir {}: {e}", parent.display());
+                }
+            }
+            if let Err(e) = std::fs::copy(&path, &per_app_path) {
+                warn!("Failed to migrate license from {} to {}: {e}", path.display(), per_app_path.display());
+            }
+        }
+
+        Ok(license)
+    }
+
+    /// Returns the path where license is currently stored (per-app first, then legacy fallbacks).
+    fn resolve_license_path(app_config_dir: &Path) -> Option<PathBuf> {
+        // 1. Per-app directory (Tauri v2 idiomatic)
+        let primary = Self::license_path(app_config_dir);
+        if primary.exists() {
+            return Some(primary);
+        }
+        // 2. Legacy: %APPDATA%\AIAgency\license.json
+        let app_data = std::env::var("APPDATA")
+            .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Roaming".to_string());
+        let legacy_appdata = PathBuf::from(app_data).join("AIAgency").join("license.json");
+        if legacy_appdata.exists() {
+            return Some(legacy_appdata);
+        }
+        // 3. Legacy: %PROGRAMDATA%\AIAgency\license.json
+        let program_data = std::env::var("PROGRAMDATA")
+            .unwrap_or_else(|_| "C:\\ProgramData".to_string());
+        let legacy_programdata = PathBuf::from(program_data).join("AIAgency").join("license.json");
+        if legacy_programdata.exists() {
+            return Some(legacy_programdata);
+        }
+        None
+    }
+
+    /// Per-app license path — <app_config_dir>/license.json
+    pub fn license_path(app_config_dir: &Path) -> PathBuf {
+        app_config_dir.join("license.json")
+    }
+
+    /// Get the salt as raw bytes.
+    pub fn salt_bytes(&self) -> Result<Vec<u8>> {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(&self.salt)
+            .map_err(|e| coded_err(ErrorCode::LI004, &format!("Invalid salt base64: {e}")))
+    }
+
+    /// Canonical JSON for signature verification (all fields except signature).
+    fn canonical_json(&self) -> String {
+        // Deterministic JSON: sorted keys, no signature field
+        format!(
+            r#"{{"cabinets":{cabinets},"expires_at":"{expires}","issued_to":"{issued}","license_id":"{id}","machine_fingerprint_hash":"{fp}","salt":"{salt}"}}"#,
+            cabinets = serde_json::to_string(&self.cabinets).unwrap_or_else(|_| "[]".to_string()),
+            expires = self.expires_at,
+            issued = self.issued_to,
+            id = self.license_id,
+            fp = self.machine_fingerprint_hash,
+            salt = self.salt,
+        )
+    }
+
+    /// Validate the license: signature, machine fingerprint, expiry.
+    pub fn validate(&self) -> Result<LicenseStatus> {
+        let machine_fp = fingerprint::get_machine_fingerprint()?;
+        let machine_fp_hash = fingerprint::hash_fingerprint(&machine_fp);
+        let machine_id_short = machine_fp_hash[..12].to_string();
+
+        // Parse expiry early so days_remaining is available in all branches
+        let expires = NaiveDate::parse_from_str(&self.expires_at, "%Y-%m-%d")
+            .map_err(|_| coded_err(ErrorCode::LI008, "Invalid expiry date format"))?;
+        let today = chrono::Local::now().date_naive();
+        let days_remaining = (expires - today).num_days();
+
+        // Check machine binding
+        if self.machine_fingerprint_hash != machine_fp_hash {
+            return Ok(LicenseStatus {
+                valid: false,
+                issued_to: self.issued_to.clone(),
+                expires_at: self.expires_at.clone(),
+                days_remaining,
+                cabinets: vec![],
+                machine_id: machine_id_short,
+                error: Some(coded(ErrorCode::LI006, "License is bound to a different machine")),
+            });
+        }
+
+        // Sanity check: system clock must not be earlier than the build date
+        const BUILD_TS: &str = env!("BUILD_TIMESTAMP");
+        if let Ok(ts) = BUILD_TS.parse::<i64>() {
+            if let Some(build_dt) = chrono::DateTime::from_timestamp(ts, 0) {
+                let build_date = build_dt.date_naive();
+                if today < build_date {
+                    return Ok(LicenseStatus {
+                        valid: false,
+                        issued_to: self.issued_to.clone(),
+                        expires_at: self.expires_at.clone(),
+                        days_remaining,
+                        cabinets: vec![],
+                        machine_id: machine_id_short,
+                        error: Some(coded(ErrorCode::LI009, "Системные часы выставлены некорректно. Проверьте дату и время.")),
+                    });
+                }
+            }
+        }
+
+        if today > expires {
+            return Ok(LicenseStatus {
+                valid: false,
+                issued_to: self.issued_to.clone(),
+                expires_at: self.expires_at.clone(),
+                days_remaining,
+                cabinets: vec![],
+                machine_id: machine_id_short,
+                error: Some(coded(ErrorCode::LI005, "License has expired")),
+            });
+        }
+
+        // Check Ed25519 signature
+        let canonical = self.canonical_json();
+        let sig_bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            &self.signature,
+        )
+        .map_err(|e| coded_err(ErrorCode::LI007, &format!("Invalid signature base64: {e}")))?;
+
+        let sig_valid = ed25519::verify_signature(canonical.as_bytes(), &sig_bytes)
+            .unwrap_or(false);
+        if !sig_valid {
+            return Ok(LicenseStatus {
+                valid: false,
+                issued_to: self.issued_to.clone(),
+                expires_at: self.expires_at.clone(),
+                days_remaining,
+                cabinets: vec![],
+                machine_id: machine_id_short,
+                error: Some(coded(ErrorCode::LI007, "License signature is invalid")),
+            });
+        }
+
+        Ok(LicenseStatus {
+            valid: true,
+            issued_to: self.issued_to.clone(),
+            expires_at: self.expires_at.clone(),
+            days_remaining,
+            cabinets: self.cabinets.clone(),
+            machine_id: machine_id_short,
+            error: None,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn license_verify_signature_invalid() {
+        // Подпись неправильной длины — ed25519::verify_signature вернёт ошибку
+        let garbage_short: &[u8] = b"not-a-real-signature";
+        let result = crate::crypto::ed25519::verify_signature(b"test data", garbage_short);
+        assert!(result.is_err(), "Garbage signature of wrong length should return Err");
+
+        // Подпись правильной длины (64 байта), но невалидная — вернёт Ok(false)
+        let garbage_64 = [0xABu8; 64];
+        let result = crate::crypto::ed25519::verify_signature(b"test data", &garbage_64);
+        assert!(result.is_ok(), "64-byte garbage should not cause Err");
+        assert!(!result.unwrap(), "64-byte garbage signature should not verify as valid");
+    }
+}
+
+/// Import a license file from a given path into the per-app config directory.
+/// Verifies the license signature and machine binding before saving.
+pub fn import_license(source_path: &str, app_config_dir: &Path) -> Result<()> {
+    let source = PathBuf::from(source_path);
+    let dest = License::license_path(app_config_dir);
+
+    let data = std::fs::read_to_string(&source)?;
+    let license: License = serde_json::from_str(&data)
+        .map_err(|e| coded_err(ErrorCode::LI003, &format!("Invalid license file: {e}")))?;
+
+    // Verify signature and machine binding before saving
+    let status = license.validate()
+        .map_err(|e| coded_err(ErrorCode::LI010, &format!("License validation error: {e}")))?;
+    if !status.valid {
+        let reason = status.error.unwrap_or("Unknown error".to_string());
+        return Err(coded_err(ErrorCode::LI010, &format!("License is not valid: {reason}")));
+    }
+
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::copy(&source, &dest)?;
+    Ok(())
+}

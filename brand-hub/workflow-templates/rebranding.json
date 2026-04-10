@@ -1,0 +1,22 @@
+{
+  "id": "rebranding",
+  "name": "Ребрендинг",
+  "description": "Глубокий анализ → новая стратегия → концепция → все креативные кабинеты",
+  "category": "campaign",
+  "icon": "🔄",
+  "estimated_time_minutes": 150,
+  "steps": [
+    { "type": "single", "id": "s1", "cabinet_id": "communication-analyst", "command": null, "label": "Анализ текущего бренда", "status": "idle" },
+    { "type": "single", "id": "s2", "cabinet_id": "media-analyst", "command": null, "label": "Медиа-аудит", "status": "idle" },
+    { "type": "single", "id": "s3", "cabinet_id": "communication-strategist", "command": "/strategy", "label": "Новая стратегия", "status": "idle" },
+    { "type": "single", "id": "s4", "cabinet_id": "creative-director", "command": null, "label": "Новая концепция", "status": "idle" },
+    {
+      "type": "parallel", "id": "p1", "status": "idle",
+      "branches": [
+        [{ "type": "single", "id": "s5", "cabinet_id": "copywriter", "command": null, "label": "Новый ToV и тексты", "status": "idle" }],
+        [{ "type": "single", "id": "s6", "cabinet_id": "art-director", "command": null, "label": "Новый визуальный стиль", "status": "idle" }]
+      ]
+    },
+    { "type": "single", "id": "s7", "cabinet_id": "focus-groups", "command": null, "label": "Тестирование нового бренда", "status": "idle" }
+  ]
+}

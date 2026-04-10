@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AURORA AI AGENCY - ROSST — Удаление</title>
+<style>
+  :root {
+    --red: #EF4444;
+    --red-dark: #991B1B;
+    --amber: #F59E0B;
+    --green: #10B981;
+    --text: #1F2937;
+    --text-light: #6B7280;
+    --bg: #F9FAFB;
+    --card: #FFFFFF;
+    --border: #E5E7EB;
+    --code-bg: #F3F4F6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.7; color: var(--text); background: var(--bg); }
+  .container { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  .header { background: linear-gradient(135deg, #7F1D1D 0%, #991B1B 60%, #B91C1C 100%); color: white; padding: 48px 40px; border-radius: 16px; margin-bottom: 40px; }
+  .header h1 { font-size: 26px; font-weight: 700; margin-bottom: 6px; }
+  .header .subtitle { font-size: 14px; opacity: 0.75; }
+  .header .badge { display: inline-block; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); padding: 4px 14px; border-radius: 20px; font-size: 12px; margin-top: 14px; }
+
+  .section { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 32px; margin-bottom: 24px; }
+  .section-num { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; font-size: 14px; font-weight: 700; margin-right: 12px; flex-shrink: 0; }
+  .section-header { display: flex; align-items: center; margin-bottom: 20px; }
+  .section-header h2 { font-size: 18px; font-weight: 700; }
+  .num-primary { background: #EF4444; color: white; }
+  .num-secondary { background: #F3F4F6; color: #374151; border: 1px solid #D1D5DB; }
+
+  ol.steps { padding-left: 0; list-style: none; counter-reset: step; }
+  ol.steps li { counter-increment: step; display: flex; gap: 14px; margin-bottom: 14px; }
+  ol.steps li::before { content: counter(step); display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; border-radius: 50%; background: #FEE2E2; color: #991B1B; font-size: 12px; font-weight: 700; margin-top: 2px; flex-shrink: 0; }
+  .step-text { flex: 1; }
+  .step-text strong { display: block; margin-bottom: 2px; }
+
+  .path { display: inline-block; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; color: #374151; word-break: break-all; }
+
+  .warning-box { background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; display: flex; gap: 12px; }
+  .warning-box .icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+  .warning-box p { font-size: 14px; color: #92400E; }
+
+  .info-box { background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 10px; padding: 16px 20px; margin-top: 20px; }
+  .info-box p { font-size: 14px; color: #1D4ED8; }
+
+  .file-list { margin: 12px 0; padding-left: 0; list-style: none; }
+  .file-list li { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+  .file-list li::before { content: "•"; color: var(--text-light); flex-shrink: 0; }
+  .file-list .location { color: var(--text-light); font-size: 12px; margin-top: 1px; display: block; }
+
+  .cmd-block { background: #111827; color: #F9FAFB; border-radius: 10px; padding: 16px 20px; margin: 16px 0; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.6; overflow-x: auto; }
+  .cmd-block .comment { color: #6B7280; }
+
+  footer { text-align: center; color: var(--text-light); font-size: 12px; margin-top: 48px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>AURORA AI AGENCY – ROSST</h1>
+    <div class="subtitle">Инструкция по удалению приложения</div>
+    <div class="badge">Версия 1.0</div>
+  </div>
+
+  <!-- Шаг 1: Стандартное удаление Windows -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num num-primary">1</span>
+      <h2>Удаление через Windows</h2>
+    </div>
+    <p style="margin-bottom:16px; color: var(--text-light);">Основной способ — стандартные средства Windows. Удаляет приложение и регистрационные записи.</p>
+    <ol class="steps">
+      <li>
+        <div class="step-text">
+          <strong>Откройте Настройки Windows</strong>
+          Нажмите <kbd>Win + I</kbd> или через меню Пуск
+        </div>
+      </li>
+      <li>
+        <div class="step-text">
+          <strong>Перейдите в раздел Приложения</strong>
+          Выберите «Приложения» → «Установленные приложения»
+        </div>
+      </li>
+      <li>
+        <div class="step-text">
+          <strong>Найдите приложение в списке</strong>
+          В поиске введите <span class="path">AURORA AI AGENCY</span> или <span class="path">ROSST</span>
+        </div>
+      </li>
+      <li>
+        <div class="step-text">
+          <strong>Нажмите «⋯» → «Удалить»</strong>
+          Подтвердите удаление и следуйте инструкциям деинсталлятора
+        </div>
+      </li>
+    </ol>
+    <div class="info-box">
+      <p>После этого шага приложение удалено. Но некоторые файлы данных остаются на диске — для их удаления выполните Шаг 2.</p>
+    </div>
+  </div>
+
+  <!-- Шаг 2: Очистка остаточных файлов -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num num-secondary">2</span>
+      <h2>Очистка остаточных файлов <span style="font-weight:400; color:var(--text-light)">(необязательно)</span></h2>
+    </div>
+
+    <div class="warning-box">
+      <span class="icon">⚠️</span>
+      <p>Выполняйте только <strong>после</strong> удаления приложения через Windows (Шаг 1). Действие необратимо — vault-файлы, лицензия и временные данные будут удалены безвозвратно.</p>
+    </div>
+
+    <p style="margin-bottom:14px;">Следующие файлы НЕ удаляются стандартным деинсталлятором:</p>
+    <ul class="file-list">
+      <li>
+        <div>
+          <strong>Vault-файлы кабинетов</strong>
+          <span class="location"><span class="path">C:\ProgramData\AIAgency\vaults\</span></span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Лицензионный файл</strong>
+          <span class="location"><span class="path">%APPDATA%\AIAgency\license.json</span></span>
+        </div>
+      </li>
+      <li>
+        <div>
+          <strong>Временные файлы сессий</strong>
+          <span class="location"><span class="path">%LOCALAPPDATA%\AIAgency\sessions\</span></span>
+        </div>
+      </li>
+    </ul>
+
+    <p style="margin-top:20px; margin-bottom:12px;">Для очистки: запустите скрипт <span class="path">uninstall-cleanup.ps1</span> из этой же папки (правой кнопкой → «Выполнить с помощью PowerShell»):</p>
+    <div class="cmd-block">
+      <span class="comment"># Путь к скрипту в папке с программой:</span><br>
+      C:\Program Files\AURORA AI AGENCY - ROSST\resources\help\uninstall-cleanup.ps1
+    </div>
+  </div>
+
+  <!-- Если что-то пошло не так -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num num-secondary">?</span>
+      <h2>Если приложение не удаляется стандартным способом</h2>
+    </div>
+    <p style="margin-bottom:14px;">Попробуйте найти деинсталлятор вручную:</p>
+    <div class="cmd-block">
+      <span class="comment"># Найти деинсталлятор в Проводнике:</span><br>
+      C:\Program Files\AURORA AI AGENCY - ROSST\<br>
+      <span class="comment"># Запустить файл: Uninstall AURORA AI AGENCY - ROSST.exe</span>
+    </div>
+    <p style="margin-top:14px; color: var(--text-light); font-size:14px;">Или используйте сторонние инструменты очистки, например <strong>Revo Uninstaller</strong>.</p>
+  </div>
+
+  <footer>
+    AURORA AI AGENCY – ROSST &nbsp;|&nbsp; www.sipovich.pro
+  </footer>
+</div>
+</body>
+</html>

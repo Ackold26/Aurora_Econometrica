@@ -1,0 +1,327 @@
+<script>
+  /**
+   * Scenario comparison panel.
+   * - Budget sliders (what-if: TV ±30%)
+   * - Upload mediaplan xlsx
+   * - Side-by-side comparison table
+   *
+   * @component ScenarioCompare
+   */
+  import { invoke } from '@tauri-apps/api/core';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import { activeProjectId, pipelineState, isComputing, computeStatus, chartImages } from '$lib/project-state.js';
+  import DataTable from './DataTable.svelte';
+
+  /** @type {{ channels?: string[], optimization?: any }} */
+  let { channels = [], optimization } = $props();
+
+  // ── Sliders state ──
+  /** @type {Record<string, number>} Channel budget multiplier (100 = unchanged) */
+  let sliders = $state(/** @type {Record<string, number>} */ ({}));
+  let sliderPrediction = $state('');
+
+  $effect(() => {
+    if (channels.length && Object.keys(sliders).length === 0) {
+      /** @type {Record<string, number>} */
+      const init = {};
+      for (const ch of channels) init[ch] = 100;
+      sliders = init;
+    }
+  });
+
+  /** @type {any[]} Saved scenarios for comparison */
+  let scenarios = $state([]);
+  let comparison = $state(/** @type {any} */ (null));
+
+  // ── Slider what-if (instant predict) ──
+  /** @param {string} channel */
+  async function onSliderChange(channel) {
+    const projectId = $activeProjectId;
+    if (!projectId) return;
+
+    // Build media plan from sliders (relative to current spend)
+    /** @type {Record<string, number[]>} */
+    const plan = {};
+    for (const ch of channels) {
+      const mult = (sliders[ch] || 100) / 100;
+      // Single period prediction
+      plan[ch] = [mult];
+    }
+
+    try {
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const result = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir,
+        scenarioName: 'slider-preview',
+        mediaPlan: plan,
+      }));
+      if (result.status === 'ok') {
+        sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}% продаж`;
+      }
+    } catch { /* silent */ }
+  }
+
+  // ── Upload mediaplan ──
+  async function uploadMediaplan() {
+    const projectId = $activeProjectId;
+    if (!projectId) return;
+
+    const filePath = await open({
+      filters: [{ name: 'Excel', extensions: ['xlsx', 'xls', 'csv'] }],
+      multiple: false,
+    });
+    if (!filePath) return;
+
+    isComputing.set(true);
+    computeStatus.set('Загружаю медиаплан...');
+
+    try {
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const result = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir,
+        scenarioName: `mediaplan-${Date.now()}`,
+        mediaPlanFile: filePath,
+      }));
+
+      if (result.status === 'ok') {
+        computeStatus.set(`Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}% продаж`);
+        await loadComparison();
+      } else {
+        computeStatus.set(`Ошибка: ${result.message}`);
+      }
+    } catch (e) {
+      computeStatus.set(`Ошибка: ${e}`);
+    }
+
+    setTimeout(() => { isComputing.set(false); computeStatus.set(''); }, 3000);
+  }
+
+  // ── Load comparison ──
+  async function loadComparison() {
+    const projectId = $activeProjectId;
+    if (!projectId) return;
+
+    try {
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const result = /** @type {any} */ (await invoke('econ_compare', { projectDir }));
+      if (result.status === 'ok') {
+        scenarios = result.scenarios || [];
+        comparison = result.comparison || null;
+      }
+    } catch { /* silent */ }
+  }
+
+  // ── Generate chart ──
+  async function loadResponseCurves() {
+    const projectId = $activeProjectId;
+    if (!projectId) return;
+
+    try {
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const result = /** @type {any} */ (await invoke('econ_chart', { projectDir, chartType: 'response_curves' }));
+      if (result.status === 'ok' && result.chart) {
+        chartImages.update(/** @param {any} c */ (c) => ({ ...c, response_curves: result.chart }));
+      }
+    } catch { /* silent */ }
+  }
+</script>
+
+<div class="scenario-panel">
+  <!-- Sliders section -->
+  <div class="section">
+    <h4 class="section-title">Бюджетные сценарии</h4>
+    <p class="section-hint">Перетащите ползунок — прогноз обновится мгновенно</p>
+
+    <div class="sliders">
+      {#each channels as ch}
+        <div class="slider-row">
+          <span class="slider-label">{ch}</span>
+          <input
+            type="range"
+            min="0" max="200" step="5"
+            bind:value={sliders[ch]}
+            oninput={() => onSliderChange(ch)}
+            class="slider"
+          />
+          <span class="slider-value" class:positive={sliders[ch] > 100} class:negative={sliders[ch] < 100}>
+            {sliders[ch] > 100 ? '+' : ''}{sliders[ch] - 100}%
+          </span>
+        </div>
+      {/each}
+    </div>
+
+    {#if sliderPrediction}
+      <div class="slider-result">{sliderPrediction}</div>
+    {/if}
+  </div>
+
+  <!-- Upload mediaplan -->
+  <div class="section">
+    <h4 class="section-title">Загрузить медиаплан</h4>
+    <button class="upload-btn" onclick={uploadMediaplan} disabled={$isComputing}>
+      📎 Загрузить xlsx с медиапланом
+    </button>
+    <p class="section-hint">Формат: дата | канал1 | канал2 | ... (бюджеты в руб.)</p>
+  </div>
+
+  <!-- Response curves -->
+  {#if $chartImages.response_curves}
+    <div class="section">
+      <h4 class="section-title">Response Curves</h4>
+      <img
+        class="chart-img"
+        src="data:image/png;base64,{$chartImages.response_curves}"
+        alt="Response Curves по каналам"
+      />
+    </div>
+  {:else if optimization}
+    <button class="chart-btn" onclick={loadResponseCurves}>Показать Response Curves</button>
+  {/if}
+
+  <!-- Comparison table -->
+  {#if comparison}
+    <div class="section">
+      <DataTable
+        mode="scenario"
+        title="Сравнение сценариев"
+        headers={comparison.headers}
+        rows={comparison.rows}
+        highlightColumn={comparison.headers?.[1]}
+      />
+    </div>
+  {:else if scenarios.length === 0}
+    <button class="chart-btn" onclick={loadComparison}>Загрузить сценарии</button>
+  {/if}
+</div>
+
+<style>
+  .scenario-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .section {
+    background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 12px;
+    padding: 16px;
+  }
+
+  .section-title {
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+  }
+
+  .section-hint {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+  }
+
+  .sliders {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .slider-label {
+    min-width: 120px;
+    font-size: 12px;
+    color: var(--text-primary, #e2e8f0);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .slider {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent-primary, #3b82f6);
+    cursor: pointer;
+  }
+
+  .slider-value {
+    min-width: 48px;
+    text-align: right;
+    font-size: 12px;
+    font-family: monospace;
+    color: var(--text-secondary, #94a3b8);
+  }
+
+  .slider-value.positive { color: var(--success, #22c55e); }
+  .slider-value.negative { color: var(--error, #ef4444); }
+
+  .slider-result {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+    color: var(--accent-primary, #3b82f6);
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .upload-btn {
+    width: 100%;
+    padding: 12px;
+    background: rgba(0,0,0,0.2);
+    border: 2px dashed rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .upload-btn:hover:not(:disabled) {
+    border-color: var(--accent-primary, #3b82f6);
+    color: var(--text-primary, #e2e8f0);
+  }
+
+  .upload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .chart-img {
+    width: 100%;
+    border-radius: 8px;
+    margin-top: 8px;
+  }
+
+  .chart-btn {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .chart-btn:hover {
+    border-color: var(--accent-primary, #3b82f6);
+    color: var(--text-primary, #e2e8f0);
+  }
+</style>

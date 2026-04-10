@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Справка — Social Listening</title>
+<style>
+:root { --bg: #1a1a2e; --bg2: #16213e; --bg3: #24243a; --text: #e0e0e0; --text2: #a0a0b0; --accent: #06B6D4; --border: #2a2a4a; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 0; }
+nav { position: sticky; top: 0; background: var(--bg2); border-bottom: 2px solid var(--accent); padding: 16px 32px; z-index: 10; text-align: center; }
+nav a { color: var(--accent); text-decoration: none; margin-right: 16px; font-size: 14px; }
+nav a:hover { text-decoration: underline; }
+.container { max-width: 800px; margin: 0 auto; padding: 32px; }
+h1 { font-size: 28px; margin-bottom: 8px; color: var(--accent); }
+h2 { font-size: 20px; margin-top: 40px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--accent); }
+h3 { font-size: 16px; margin-top: 24px; margin-bottom: 8px; color: var(--text); }
+p, li { font-size: 14px; margin-bottom: 8px; }
+ul, ol { padding-left: 24px; margin-bottom: 16px; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); font-size: 13px; }
+th { background: var(--bg3); color: var(--accent); }
+tr:hover { background: var(--bg3); }
+code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: var(--accent); }
+.subtitle { color: var(--text2); font-size: 16px; margin-bottom: 32px; }
+.step { background: var(--bg3); padding: 16px; border-radius: 8px; margin-bottom: 12px; border-left: 3px solid var(--accent); }
+.step-num { font-weight: 700; color: var(--accent); margin-right: 8px; }
+.faq dt { font-weight: 600; margin-top: 16px; color: var(--text); }
+.faq dd { margin-left: 0; margin-bottom: 12px; color: var(--text2); }
+.copy-text { background: var(--bg3); padding: 8px 12px; border-radius: 6px; margin: 4px 0; font-family: monospace; font-size: 13px; }
+.command-detail { background: var(--bg3); padding: 20px; border-radius: 8px; margin: 16px 0 32px; border-left: 3px solid var(--accent); }
+.command-detail h4 { font-size: 14px; margin-top: 16px; margin-bottom: 8px; color: var(--accent); }
+.cmd-desc { font-size: 14px; color: var(--text); margin-bottom: 12px; }
+@media print { body { background: #fff; color: #000; } nav { display: none; } h2 { color: #06B6D4; } th { background: #f0f0f0; } }
+</style>
+</head>
+<body>
+<nav>
+<a href="#about">О кабинете</a>
+<a href="#start">Быстрый старт</a>
+<a href="#commands">Команды</a>
+<a href="#guide">Руководство</a>
+<a href="#difference">Отличия от Комм. аналитика</a>
+<a href="#large-data">Большие массивы</a>
+<a href="#faq">FAQ</a>
+<a href="#formats">Форматы</a>
+<a href="#methods">Методологии</a>
+</nav>
+
+<div class="container">
+
+<h1>Social Listening</h1>
+<p class="subtitle">Мониторинг и анализ отзывов, комментариев на маркетплейсах, YouTube, сайтах-отзовиках</p>
+
+<h2 id="about">О кабинете</h2>
+<p>Кабинет Social Listening предназначен для систематического мониторинга и анализа пользовательских отзывов, комментариев и упоминаний бренда в интернете. Анализ строится на многоуровневой классификации тональности с учётом модели эмоций Plutchik Wheel и методов обнаружения фейковых отзывов (Luca & Zervas). Работает в связке с Коммуникационным аналитиком для формирования полной картины медиаполя.</p>
+
+<h3>Возможности</h3>
+<ul>
+<li>Поиск и систематизация отзывов с маркетплейсов</li>
+<li>Анализ тональности комментариев (позитив/негатив/нейтрал)</li>
+<li>Отслеживание упоминаний бренда и конкурентов</li>
+<li>Формирование сводных отчётов с рекомендациями</li>
+<li>Кризисные сигналы при резком росте негатива</li>
+</ul>
+
+<h2 id="start">Быстрый старт</h2>
+<div class="step"><span class="step-num">1.</span> Скопируйте отзывы, комментарии или скриншоты в чат</div>
+<div class="step"><span class="step-num">2.</span> Используйте команду <code>/search-reviews</code> для анализа</div>
+<div class="step"><span class="step-num">3.</span> Получите структурированный отчёт с тональностью и рекомендациями</div>
+
+<h2 id="commands">Команды</h2>
+<table>
+<tr><th>Команда</th><th>Описание</th><th>Группа</th></tr>
+<tr><td><code>/search-reviews</code></td><td>Поиск и анализ отзывов — загрузите текст или скриншоты</td><td>Основные</td></tr>
+<tr><td><code>/analyze-sentiment</code></td><td>Анализ тональности — определение позитива/негатива/нейтрала</td><td>Основные</td></tr>
+<tr><td><code>/report</code></td><td>Сводный отчёт по собранным данным с рекомендациями</td><td>Основные</td></tr>
+<tr><td><code>/track-mentions</code></td><td>Отслеживание упоминаний бренда — структурирование по источникам</td><td>Мониторинг</td></tr>
+<tr><td><code>/competitors-buzz</code></td><td>Анализ конкурентов — сравнение тональности и объёмов</td><td>Мониторинг</td></tr>
+<tr><td><code>/crisis-alert</code></td><td>Кризисный сигнал — оценка потенциальных репутационных рисков</td><td>Мониторинг</td></tr>
+<tr><td><code>/jtbd-extraction</code></td><td>Извлечение задач потребителя (JTBD) из отзывов</td><td>Аналитика</td></tr>
+<tr><td><code>/trend-detection</code></td><td>Раннее обнаружение новых тем и трендов</td><td>Мониторинг</td></tr>
+<tr><td><code>/batch-analysis</code></td><td>Мета-анализ результатов по блокам</td><td>Аналитика</td></tr>
+</table>
+
+<h2 id="guide">Руководство</h2>
+
+<h3>/search-reviews — Поиск отзывов</h3>
+<div class="command-detail">
+<p class="cmd-desc">Загрузите отзывы (текст, скриншоты, ссылки) и получите структурированный анализ. Система классифицирует отзывы по тональности, выделяет задачи потребителя в логике Jobs-to-be-Done (Christensen) и проверяет подлинность по методике Authenticity Score.</p>
+<h4>Что подавать на вход</h4>
+<ul>
+<li>Текст отзывов (скопированный или скриншоты)</li>
+<li>Название площадки (Wildberries, Ozon, YouTube, Google Maps и т.д.)</li>
+<li>Название бренда или продукта</li>
+</ul>
+<h4>Что получите</h4>
+<ul>
+<li>Классификация по тональности</li>
+<li>Ключевые темы и паттерны</li>
+<li>Рекомендации по работе с обратной связью</li>
+</ul>
+</div>
+
+<h3>/analyze-sentiment — Анализ тональности</h3>
+<div class="command-detail">
+<p class="cmd-desc">Детальный анализ эмоциональной окраски текстов с использованием пятиуровневой шкалы тональности и эмоциональной разметки по модели Plutchik (8 базовых эмоций).</p>
+<h4>Метрики</h4>
+<ul>
+<li>Процент позитивных / негативных / нейтральных</li>
+<li>Ключевые триггеры негатива</li>
+<li>Динамика тональности (если предоставлены данные за период)</li>
+</ul>
+</div>
+
+<h3>/report — Сводный отчёт</h3>
+<div class="command-detail">
+<p class="cmd-desc">Формирует итоговый отчёт для руководства или клиента.</p>
+<h4>Содержание отчёта</h4>
+<ul>
+<li>Executive summary</li>
+<li>Тональность по площадкам</li>
+<li>Основные темы и тренды</li>
+<li>Рекомендации к действию</li>
+</ul>
+</div>
+
+<h2 id="difference">Чем отличается от Коммуникационного аналитика</h2>
+
+<p>Social Listening и Коммуникационный аналитик работают на разных уровнях анализа. Понимание разницы поможет выбрать нужный кабинет.</p>
+
+<table>
+<tr><th></th><th>Social Listening (этот кабинет)</th><th>Коммуникационный аналитик</th></tr>
+<tr><td><strong>Уровень</strong></td><td>Микроуровень — голос конкретного потребителя</td><td>Макроуровень — медиаполе, СМИ, PR</td></tr>
+<tr><td><strong>Что анализирует</strong></td><td>Отзывы, комментарии, упоминания покупателей</td><td>Публикации СМИ, Telegram-каналы, ТВ-сюжеты</td></tr>
+<tr><td><strong>Источники</strong></td><td>Маркетплейсы, отзовики, YouTube, Google Maps</td><td>Онлайн-СМИ, ТВ, печатные, Telegram, медиамониторинг</td></tr>
+<tr><td><strong>Единица анализа</strong></td><td>Отзыв, комментарий</td><td>Публикация, сюжет, нарратив</td></tr>
+<tr><td><strong>Ключевой вопрос</strong></td><td>«Что потребители думают о нашем продукте?»</td><td>«Как нас освещают СМИ и лидеры мнений?»</td></tr>
+<tr><td><strong>Кому нужен</strong></td><td>Маркетолог, продакт-менеджер, клиентский сервис</td><td>PR-менеджер, коммуникационный директор</td></tr>
+<tr><td><strong>Выход</strong></td><td>Инсайты для продукта и сервиса</td><td>Оценка PR-эффективности, корректировка коммуникации</td></tr>
+</table>
+
+<h3>Примеры: когда какой кабинет</h3>
+
+<div class="command-detail">
+<h4>Задача: «Узнать, почему упали продажи нового SKU»</h4>
+<p><strong>→ Social Listening.</strong> Загрузите отзывы с маркетплейсов → <code>/search-reviews</code>. Вы получите: «72% негатива связаны с упаковкой — товар приходит повреждённым. Задача потребителя (JTBD): получить продукт в целости.» Это микроуровень — голос покупателя о конкретной проблеме.</p>
+</div>
+
+<div class="command-detail">
+<h4>Задача: «Оценить эффект пресс-конференции на медиаполе»</h4>
+<p><strong>→ Коммуникационный аналитик.</strong> Загрузите выгрузку медиамониторинга → <code>/media-monitor</code>. Вы получите: «127 публикаций, охват 4.2 млн, тональность 68% нейтрал / 24% позитив. Ключевой нарратив: "компания выходит на новые рынки" (Earned, 78% упоминаний).» Это макроуровень — реакция медиаполя.</p>
+</div>
+
+<div class="command-detail">
+<h4>Задача: «Репутационный кризис — негатив растёт»</h4>
+<p><strong>→ Оба кабинета последовательно.</strong> Сначала Social Listening (<code>/crisis-alert</code>) — понять масштаб негатива среди потребителей и конкретные претензии. Затем Коммуникационный аналитик (<code>/crisis-analysis</code>) — оценить медийный резонанс, определить тип кризиса по SCCT и выбрать стратегию ответа.</p>
+</div>
+
+<h3>Как кабинеты работают вместе</h3>
+<p>Social Listening → собирает потребительские инсайты (JTBD, тренды, болевые точки) → результаты загружаются в Коммуникационного аналитика → для стратегической оценки и формирования PR-рекомендаций. Это два этажа одного процесса: от «что люди говорят» к «как нам реагировать».</p>
+
+<h3>/jtbd-extraction — Извлечение JTBD</h3>
+<div class="command-detail">
+<p class="cmd-desc">Выявляет неявные задачи потребителей (Jobs-to-be-Done) из массива отзывов по фреймворку Clayton Christensen. Для каждого отзыва определяет: функциональную, эмоциональную и социальную задачу. Формула: «Когда [ситуация], я хочу [мотивация], чтобы [результат]».</p>
+<h4>Что подавать на вход</h4>
+<ul>
+<li>Отзывы (текст, скриншоты, выгрузки) — чем больше, тем точнее паттерны</li>
+<li>Название продукта или категории</li>
+</ul>
+<h4>Что получите</h4>
+<ul>
+<li>Карта JTBD — иерархия задач по частоте и важности</li>
+<li>Классификация по Kano Model: must-have / performance / delight</li>
+<li>Готовый вход для стратега (<code>/strategy</code>) и креативного директора (<code>/cycle</code>)</li>
+</ul>
+</div>
+
+<h3>/trend-detection — Детекция трендов</h3>
+<div class="command-detail">
+<p class="cmd-desc">Раннее обнаружение изменений в потребительском восприятии. Каждая тема получает статус: Emerging (новая) → Growing (набирает силу) → Stable (устойчивая) → Declining (угасает). Автоматический алерт при intensity &gt; 3 и упоминаниях &gt; 5.</p>
+<h4>Что подавать на вход</h4>
+<ul>
+<li>Массив отзывов за период (идеально — за несколько месяцев для сравнения динамики)</li>
+</ul>
+<h4>Что получите</h4>
+<ul>
+<li>Радар трендов: таблица тем с траекторией и интенсивностью</li>
+<li>Алерты по темам, требующим немедленного внимания</li>
+<li>Рекомендации по реагированию</li>
+</ul>
+</div>
+
+<h3>/batch-analysis — Мета-анализ блоков</h3>
+<div class="command-detail">
+<p class="cmd-desc">Пирамидальный мета-анализ: сводит результаты нескольких блоков (по 300-500 отзывов каждый) в единый аналитический отчёт. Загрузите отчёты предыдущих анализов как входящие файлы.</p>
+<h4>Что получите</h4>
+<ul>
+<li>Сводная тональность (взвешенная по блокам)</li>
+<li>Сквозные темы (повторяются в 3+ блоках = системные)</li>
+<li>Расхождения между блоками и их причины</li>
+<li>Executive Summary с приоритетными рекомендациями</li>
+</ul>
+</div>
+
+<h2 id="large-data">Анализ больших массивов данных</h2>
+<p>При работе с массивами более 500 отзывов рекомендуется пирамидальный подход — разбивка на блоки с последующим сведением результатов.</p>
+
+<h3>Метод Pyramid Analysis</h3>
+<div class="step"><span class="step-num">1.</span> <strong>Нарезка на блоки по 300–500 материалов.</strong> Критерии: по источнику (Wildberries, Ozon, YouTube), по периоду (месяц), по продукту/SKU. Если нет логического деления — по порядку.</div>
+<div class="step"><span class="step-num">2.</span> <strong>Анализ каждого блока отдельно.</strong> Загрузите блок → <code>/search-reviews</code> или <code>/analyze-sentiment</code>. Получите структурированный отчёт: тональность, топ-тем, ключевые цитаты, аномалии.</div>
+<div class="step"><span class="step-num">3.</span> <strong>Мета-анализ.</strong> Загрузите все отчёты по блокам как входящие файлы → <code>/report</code> или <code>/batch-analysis</code>. Система сведёт выводы: сравнит площадки, найдёт сквозные темы, сформирует единый Executive Summary.</div>
+
+<h3>Для очень больших массивов (10 000+)</h3>
+<p>Добавляется промежуточный уровень: 10 000 отзывов → 20 блоков → 20 отчётов → 4 группы по 5 отчётов → 4 мета-отчёта → 1 финальный отчёт.</p>
+
+<table>
+<tr><th>Массив</th><th>Подход</th><th>Количество итераций</th></tr>
+<tr><td>до 500</td><td>Одна загрузка</td><td>1</td></tr>
+<tr><td>500–2 000</td><td>2–4 блока → мета-анализ</td><td>3–5</td></tr>
+<tr><td>2 000–10 000</td><td>5–20 блоков → мета-анализ</td><td>6–21</td></tr>
+<tr><td>10 000+</td><td>Пирамида: блоки → группы → финал</td><td>По ситуации</td></tr>
+</table>
+
+<h2 id="faq">FAQ</h2>
+<dl class="faq">
+<dt>Кабинет работает с реальными данными из интернета?</dt>
+<dd>Кабинет анализирует данные, которые вы ему предоставляете — тексты отзывов, скриншоты, выгрузки. Он не имеет прямого доступа к интернету.</dd>
+
+<dt>Какие площадки поддерживаются?</dt>
+<dd>Любые — маркетплейсы (Wildberries, Ozon, Amazon), отзовики (Отзовик, IRecommend), YouTube, Google Maps, соцсети. Формат подачи данных — текст или скриншоты.</dd>
+
+<dt>Как связан с Коммуникационным аналитиком?</dt>
+<dd>Social Listening собирает и анализирует сырые данные из отзывов. Коммуникационный аналитик использует эти данные для стратегического анализа медиаполя.</dd>
+</dl>
+
+<h2 id="formats">Форматы результатов</h2>
+<p>Результаты работы автоматически сохраняются в папку «Экспорт» на рабочем столе в нескольких форматах:</p>
+<table>
+<tr><th>Формат</th><th>Описание</th><th>Требования</th></tr>
+<tr><td><strong>.md</strong></td><td>Основной формат — Markdown с полным текстом ответа</td><td>Нет (всегда создаётся)</td></tr>
+<tr><td><strong>.docx</strong></td><td>Word-документ, автоматическая конвертация из .md</td><td>Pandoc</td></tr>
+<tr><td><strong>.pdf</strong></td><td>PDF-документ, автоматическая конвертация из .md</td><td>Pandoc + wkhtmltopdf</td></tr>
+<tr><td><strong>.xlsx</strong></td><td>Excel-таблица — создаётся, если в ответе есть таблицы</td><td>Нет (встроенный конвертер)</td></tr>
+</table>
+<p>Входящие файлы для анализа загружаются через панель «Входящие» (поддерживаются .docx, .pdf, .xlsx, .pptx и текстовые форматы).</p>
+
+<h2 id="methods">Методологическая основа</h2>
+<p>Работа кабинета построена с учётом принципов и подходов, описанных в перечисленных ниже научных и профессиональных источниках. Перечисленные методологии, стандарты и фреймворки используются как ориентиры при анализе и формировании рекомендаций. Результаты работы кабинета не являются заменой профессиональной экспертизы и должны верифицироваться специалистом.</p>
+<table>
+<tr><th>Методология / Стандарт</th><th>Автор / Организация</th><th>Применение</th></tr>
+<tr><td>Jobs-to-be-Done (JTBD)</td><td>Clayton Christensen</td><td>Выявление задач потребителя из отзывов</td></tr>
+<tr><td>Plutchik Wheel of Emotions</td><td>Robert Plutchik</td><td>8-эмоциональная классификация тональности</td></tr>
+<tr><td>Fake Review Detection</td><td>Luca & Zervas</td><td>Проверка подлинности отзывов (Authenticity Score)</td></tr>
+<tr><td>Kano Model</td><td>Noriaki Kano</td><td>Классификация ожиданий: must-have / performance / delight</td></tr>
+<tr><td>Aspect-Based Sentiment Analysis (ABSA)</td><td>NLP Research</td><td>Разбор тональности по отдельным аспектам продукта</td></tr>
+<tr><td>Net Promoter Score (NPS)</td><td>Fred Reichheld</td><td>Метрика лояльности в отчётах</td></tr>
+<tr><td>Netnography</td><td>Robert Kozinets</td><td>Этнографический анализ онлайн-сообществ</td></tr>
+<tr><td>Customer Effort Score (CES)</td><td>Gartner</td><td>Оценка усилий клиента при взаимодействии</td></tr>
+</table>
+
+<div style="margin-top:32px; padding:16px 20px; background:rgba(46,91,255,0.05); border:1px solid rgba(46,91,255,0.15); border-radius:10px; text-align:center;">
+  <p style="font-size:13px; color:var(--text2, #9898A8); margin-bottom:8px;">Этот кабинет — часть единого рабочего процесса Aurora AI</p>
+  <a href="pipeline.html" style="display:inline-flex; align-items:center; gap:6px; color:var(--accent, #2E5BFF); font-size:14px; font-weight:600; text-decoration:none;">
+    Полный пайплайн: от данных до публикации →
+  </a>
+</div>
+
+</div>
+<script src="nav.js"></script>
+</body>
+</html>

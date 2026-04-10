@@ -1,0 +1,21 @@
+{
+  "id": "creative-loop",
+  "name": "Креативная петля",
+  "description": "Итеративная доработка: креатив → тест → доработка (макс. 3 итерации)",
+  "category": "content",
+  "icon": "🔁",
+  "estimated_time_minutes": 90,
+  "steps": [
+    { "type": "single", "id": "s1", "cabinet_id": "communication-strategist", "command": "/brief", "label": "Креативный бриф", "status": "idle" },
+    {
+      "type": "loop", "id": "l1", "max_iterations": 3, "status": "idle",
+      "body": [
+        { "type": "single", "id": "s2", "cabinet_id": "creative-director", "command": null, "label": "Разработка концепции", "status": "idle" },
+        { "type": "single", "id": "s3", "cabinet_id": "copywriter", "command": "/write", "label": "Написание текстов", "status": "idle" }
+      ],
+      "review": [
+        { "type": "single", "id": "s4", "cabinet_id": "focus-groups", "command": null, "label": "Тестирование", "status": "idle" }
+      ]
+    }
+  ]
+}

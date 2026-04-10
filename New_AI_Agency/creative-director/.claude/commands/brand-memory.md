@@ -1,0 +1,1 @@
+Деконструируй ДНК бренда из материалов в inbox. Определи: Personality (архетип, характер), Voice & Tone (стиль речи, примеры фраз), Visual DNA (описание), Positioning (территория), Values & Beliefs.

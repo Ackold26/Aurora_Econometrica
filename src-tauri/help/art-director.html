@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Справка — Арт-директор</title>
+<style>
+:root { --bg: #1a1a2e; --bg2: #16213e; --bg3: #24243a; --text: #e0e0e0; --text2: #a0a0b0; --accent: #A855F7; --border: #2a2a4a; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 0; }
+nav { position: sticky; top: 0; background: var(--bg2); border-bottom: 2px solid var(--accent); padding: 16px 32px; z-index: 10; text-align: center; }
+nav a { color: var(--accent); text-decoration: none; margin-right: 16px; font-size: 14px; }
+nav a:hover { text-decoration: underline; }
+.container { max-width: 800px; margin: 0 auto; padding: 32px; }
+h1 { font-size: 28px; margin-bottom: 8px; color: var(--accent); }
+h2 { font-size: 20px; margin-top: 40px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--accent); }
+h3 { font-size: 16px; margin-top: 24px; margin-bottom: 8px; color: var(--text); }
+p, li { font-size: 14px; margin-bottom: 8px; }
+ul, ol { padding-left: 24px; margin-bottom: 16px; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); font-size: 13px; }
+th { background: var(--bg3); color: var(--accent); }
+tr:hover { background: var(--bg3); }
+code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: var(--accent); }
+.subtitle { color: var(--text2); font-size: 16px; margin-bottom: 32px; }
+.step { background: var(--bg3); padding: 16px; border-radius: 8px; margin-bottom: 12px; border-left: 3px solid var(--accent); }
+.step-num { font-weight: 700; color: var(--accent); margin-right: 8px; }
+.faq dt { font-weight: 600; margin-top: 16px; color: var(--text); }
+.faq dd { margin-left: 0; margin-bottom: 12px; color: var(--text2); }
+.copy-text { background: var(--bg3); padding: 8px 12px; border-radius: 6px; margin: 4px 0; font-family: monospace; font-size: 13px; }
+.command-detail { background: var(--bg3); padding: 20px; border-radius: 8px; margin: 16px 0 32px; border-left: 3px solid var(--accent); }
+.command-detail h4 { font-size: 14px; margin-top: 16px; margin-bottom: 8px; color: var(--accent); }
+.cmd-desc { font-size: 14px; color: var(--text); margin-bottom: 12px; }
+.mode-box { background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.2); border-radius: 8px; padding: 16px 20px; margin: 16px 0; }
+.mode-box h4 { color: var(--accent); margin-bottom: 8px; font-size: 14px; }
+.mode-box p { font-size: 13px; color: var(--text2); margin-bottom: 4px; }
+@media print { body { background: #fff; color: #000; } nav { display: none; } h2 { color: #A855F7; } th { background: #f0f0f0; } }
+</style>
+</head>
+<body>
+<nav>
+<a href="#about">О кабинете</a>
+<a href="#start">Быстрый старт</a>
+<a href="#modes">Режимы</a>
+<a href="#commands">Команды</a>
+<a href="#guide">Руководство</a>
+<a href="#files">Файлы</a>
+<a href="#results">Результаты</a>
+<a href="#examples">Примеры</a>
+<a href="#faq">FAQ</a>
+<a href="#limits">Ограничения</a>
+<a href="#related">Связанные кабинеты</a>
+</nav>
+
+<div class="container">
+<h1>Арт-директор</h1>
+<p class="subtitle">Генерация визуалов, макетов, адаптация под форматы</p>
+
+<h2 id="about">1. О кабинете</h2>
+<p>Кабинет «Арт-директор» помогает в разработке визуальных решений: от отдельных макетов и логотипов до полной айдентики бренда. Генерирует детальные описания для дизайнера и готовые промпты для AI-генераторов изображений (Midjourney, DALL-E, Stable Diffusion). Работает с брендбуком и референсами, адаптирует визуалы под разные форматы и платформы, создаёт раскадровки для видеороликов.</p>
+
+<h2 id="start">2. Быстрый старт</h2>
+<div class="step"><span class="step-num">1.</span> Загрузите референсы или брендбук в inbox</div>
+<div class="step"><span class="step-num">2.</span> Выберите <code>/visual</code> или другую команду</div>
+<div class="step"><span class="step-num">3.</span> Опишите задачу</div>
+<div class="step"><span class="step-num">4.</span> Получите описание + AI-промпт</div>
+
+<h2 id="modes">3. Два режима работы</h2>
+
+<div class="mode-box">
+<h4>Режим 1: Текстовое описание для дизайнера</h4>
+<p>Подробное техническое задание с описанием композиции, цветовой палитры, типографики, стиля и всех элементов макета. Готовый документ для передачи дизайнеру или дизайн-студии.</p>
+</div>
+
+<div class="mode-box">
+<h4>Режим 2: AI-промпт для генерации</h4>
+<p>Оптимизированный промпт для Midjourney, DALL-E или Stable Diffusion с учётом специфики каждой платформы: правильные модификаторы стиля, параметры качества, соотношение сторон. Можно скопировать и вставить напрямую в генератор.</p>
+</div>
+
+<p>По умолчанию кабинет выдаёт оба варианта. Вы можете запросить только один из них, указав это в задаче.</p>
+
+<h2 id="commands">4. Команды</h2>
+<table>
+<tr><th>Кнопка</th><th>Команда</th><th>Описание</th></tr>
+<tr><td>Создать визуал</td><td><code>/visual</code></td><td>Генерация визуальной концепции для любого формата</td></tr>
+<tr><td>Адаптировать формат</td><td><code>/adapt</code></td><td>Адаптация визуала под другой формат или платформу</td></tr>
+<tr><td>Мультиформатный пакет</td><td><code>/pack</code></td><td>Пакет визуалов для нескольких форматов одновременно</td></tr>
+<tr><td>Редактировать</td><td><code>/edit</code></td><td>Корректировка и доработка существующего визуала</td></tr>
+<tr><td>Логотип</td><td><code>/logo</code></td><td>Разработка концепции логотипа</td></tr>
+<tr><td>Полная айдентика</td><td><code>/identity</code></td><td>Разработка визуальной системы бренда</td></tr>
+<tr><td>Дизайн упаковки</td><td><code>/packaging</code></td><td>Концепция дизайна упаковки продукта</td></tr>
+<tr><td>Визуальный DNA</td><td><code>/brand-visual</code></td><td>Извлечение и фиксация визуальной ДНК бренда</td></tr>
+<tr><td>Раскадровка</td><td><code>/storyboard</code></td><td>Создание покадрового сценария для видеоролика</td></tr>
+</table>
+
+<h2 id="guide">4a. Подробное руководство по командам</h2>
+
+<h3 id="cmd-visual">«Создать визуал» — <code>/visual</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Основная команда кабинета. Генерирует визуальную концепцию для любого формата: баннер, пост в соцсетях, наружная реклама, печатный макет, digital-креатив. Выдаёт подробное описание для дизайнера и оптимизированный промпт для AI-генератора.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Описание задачи: что изображено, для чего, какой формат</li>
+    <li>Брендбук или визуальные референсы (если есть)</li>
+    <li>Текст для макета (заголовок, слоган — если есть)</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Детальное описание визуала (композиция, палитра, стиль, элементы) + промпт для Midjourney/DALL-E.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Создай визуал для баннера 1080x1080: запуск летней коллекции одежды, стиль минимализм</div>
+  <div class="copy-text">Визуал для OOH 6x3: энергетический напиток, молодёжная аудитория, яркий и динамичный</div>
+</div>
+
+<h3 id="cmd-adapt">«Адаптировать формат» — <code>/adapt</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Берёт существующий визуал и адаптирует его под другой формат или платформу. Учитывает требования к размерам, safe zone, размещение текста и ключевые элементы, которые должны сохраниться при перекомпоновке.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Описание или файл исходного визуала</li>
+    <li>Целевой формат и размеры</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Описание адаптированного макета с учётом особенностей целевого формата.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Адаптируй баннер 1080x1080 в сторис 1080x1920 и горизонтальный 1200x628</div>
+  <div class="copy-text">Перекомпонуй OOH-макет в формат для цифрового экрана в ТЦ</div>
+</div>
+
+<h3 id="cmd-pack">«Мультиформатный пакет» — <code>/pack</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Генерирует пакет визуалов для нескольких форматов одновременно из одного брифа. Один запрос — и вы получаете описания и промпты для всех необходимых размеров и платформ с единой визуальной концепцией.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Описание визуальной концепции</li>
+    <li>Список форматов (или оставить стандартный набор)</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Комплект описаний и промптов для 4-8 форматов с единым визуальным языком.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Пакет визуалов для рекламной кампании: баннер, сторис, пост VK, OOH</div>
+</div>
+
+<h3 id="cmd-edit">«Редактировать» — <code>/edit</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Корректирует и дорабатывает существующий визуал по замечаниям. Можно изменить цветовую палитру, композицию, добавить или убрать элементы, изменить стиль — система обновит и описание, и AI-промпт.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Исходный визуал (описание или файл)</li>
+    <li>Список замечаний и правок</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Обновлённое описание и промпт с учётом всех правок.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Измени палитру на более холодную, добавь элемент воды, убери фоновый градиент</div>
+</div>
+
+<h3 id="cmd-logo">«Логотип» — <code>/logo</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Разрабатывает концепцию логотипа: несколько вариантов с описанием идеи, символики, типографики и цветовой палитры. Выдаёт промпты для AI-генерации и ТЗ для дизайнера-финалиста.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Название бренда/компании</li>
+    <li>Сфера деятельности и ценности бренда</li>
+    <li>Референсы или стилевые предпочтения (опционально)</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>3-5 концепций логотипа с описанием символики, типографики, цветовой палитры и AI-промптами.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Разработай концепции логотипа для fintech-стартапа «PayBridge», стиль — минималистичный, технологичный</div>
+</div>
+
+<h3 id="cmd-identity">«Полная айдентика» — <code>/identity</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Разрабатывает полную визуальную систему бренда: логотип, цветовая палитра, типографика, паттерны, правила использования на разных носителях. Результат — основа для брендбука.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Бриф: позиционирование бренда, ценности, аудитория</li>
+    <li>Референсы (если есть)</li>
+    <li>Список носителей (визитки, соцсети, упаковка и т.д.)</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Комплексное описание визуальной системы: логотип, палитра, шрифтовая пара, иконография, паттерны, правила применения.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Разработай айдентику для сети кофеен: лого, цвета, шрифты, паттерн для стаканов и мерча</div>
+</div>
+
+<h3 id="cmd-packaging">«Дизайн упаковки» — <code>/packaging</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Создаёт концепцию дизайна упаковки продукта с учётом требований полки, конкурентного окружения и целевой аудитории. Описывает лицевую и оборотную стороны, боковые панели и крышку.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Описание продукта и тип упаковки</li>
+    <li>Брендбук (если есть)</li>
+    <li>Конкуренты и полочное окружение</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Детальное описание дизайна упаковки с визуальной иерархией, цветовой схемой и промптами для AI-генерации.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Дизайн упаковки для линейки соков: картонная пачка 1л, 3 вкуса, премиальный сегмент</div>
+</div>
+
+<h3 id="cmd-brand-visual">«Визуальный DNA» — <code>/brand-visual</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Извлекает и структурирует визуальную ДНК бренда из загруженных материалов. Фиксирует цветовые коды, типографику, стилистические приёмы и визуальные константы для использования во всех последующих задачах.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Брендбук или визуальные материалы бренда</li>
+    <li>Примеры рекламных макетов, упаковки, сайта</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Файл визуальной ДНК бренда: палитра (HEX/RGB), шрифты, стилистические правила, moodboard-описание.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Извлеки визуальную ДНК бренда из загруженного брендбука и рекламных макетов</div>
+</div>
+
+<h3 id="cmd-storyboard">«Раскадровка» — <code>/storyboard</code></h3>
+<div class="command-detail">
+  <p class="cmd-desc">Создаёт покадровый сценарий для видеоролика: описание каждого кадра, действия, текст на экране, закадровый голос, музыкальное сопровождение. Для каждого кадра генерирует промпт для AI-визуализации.</p>
+  <h4>Что подготовить</h4>
+  <ul>
+    <li>Сценарий или концепция ролика</li>
+    <li>Хронометраж и формат (TV, digital, соцсети)</li>
+    <li>Brand voice и визуальный стиль</li>
+  </ul>
+  <h4>Что получите</h4>
+  <p>Покадровая раскадровка с описанием визуала, действий, текста, звука и AI-промптами для каждого кадра.</p>
+  <h4>Примеры использования</h4>
+  <div class="copy-text">Раскадровка для 30-секундного ролика: запуск мобильного приложения банка, аудитория 25-40</div>
+  <div class="copy-text">Storyboard для серии из 3 коротких видео для Reels: фитнес-продукт</div>
+</div>
+
+<h2 id="files">5. Входящие файлы</h2>
+<ul>
+<li><strong>Форматы:</strong> .docx, .pdf, .pptx, .xlsx, .txt, .png, .jpg</li>
+<li><strong>Что загружать:</strong> брендбук, визуальные референсы, макеты, мудборды, креативные брифы</li>
+<li><strong>Ссылки:</strong> можно добавить URL с визуальными примерами</li>
+</ul>
+
+<h2 id="results">6. Результаты</h2>
+<ul>
+<li>Описания визуалов и техзадания для дизайнера в .docx и .md</li>
+<li>Оптимизированные промпты для Midjourney/DALL-E/Stable Diffusion</li>
+<li>Раскадровки и описания айдентики</li>
+<li>Папка: <code>Desktop/AI Agency/Арт-директор/exports/</code></li>
+</ul>
+
+<h2 id="examples">7. Примеры запросов</h2>
+<div class="copy-text">Создай визуал для баннера: новогодняя акция интернет-магазина электроники</div>
+<div class="copy-text">Разработай логотип для кофейни в стиле modern minimalism</div>
+<div class="copy-text">Пакет визуалов для запуска бренда: лого, визитка, пост VK, баннер сайта</div>
+<div class="copy-text">Раскадровка 15-секундного ролика для YouTube Shorts: доставка еды</div>
+
+<h2 id="faq">8. FAQ</h2>
+<dl class="faq">
+<dt>Кабинет создаёт готовые изображения?</dt>
+<dd>Нет. Кабинет генерирует детальные описания и промпты. Для создания изображений скопируйте промпт в Midjourney, DALL-E или другой генератор, либо передайте описание дизайнеру.</dd>
+<dt>Какой AI-генератор лучше подходит?</dt>
+<dd>Промпты оптимизированы для Midjourney v6+, DALL-E 3 и Stable Diffusion XL. Для каждого генератора система подбирает оптимальные модификаторы.</dd>
+<dt>Можно ли использовать без брендбука?</dt>
+<dd>Да, но с брендбуком или визуальными референсами результат будет точнее. Запустите <code>/brand-visual</code> для создания визуальной ДНК.</dd>
+</dl>
+
+<h2 id="limits">9. Ограничения</h2>
+<ul>
+<li>Не генерирует изображения напрямую — выдаёт описания и промпты</li>
+<li>Не имеет доступа к интернету — загружайте референсы через inbox</li>
+<li>Для юридической проверки рекламных макетов используйте кабинет «Юрист — Реклама»</li>
+<li>Для текстов к визуалам используйте кабинет «Копирайтер»</li>
+</ul>
+
+<h2 id="related">10. Связанные кабинеты</h2>
+<table>
+<tr><th>Кабинет</th><th>Как связан</th></tr>
+<tr><td><a href="creative-director.html" style="color:var(--accent)">Креативный директор</a></td><td>Большие креативные концепции, которые арт-директор визуализирует</td></tr>
+<tr><td><a href="copywriter.html" style="color:var(--accent)">Копирайтер</a></td><td>Тексты для размещения на визуалах и макетах</td></tr>
+<tr><td><a href="focus-groups.html" style="color:var(--accent)">Фокус-группы</a></td><td>Тестирование визуалов и макетов на целевой аудитории</td></tr>
+<tr><td><a href="lawyer-advertising.html" style="color:var(--accent)">Юрист — Реклама</a></td><td>Юридическая проверка рекламных визуалов перед публикацией</td></tr>
+</table>
+
+<div style="margin-top:32px; padding:16px 20px; background:rgba(46,91,255,0.05); border:1px solid rgba(46,91,255,0.15); border-radius:10px; text-align:center;">
+  <p style="font-size:13px; color:var(--text2, #9898A8); margin-bottom:8px;">Этот кабинет — часть единого рабочего процесса Aurora AI</p>
+  <a href="pipeline.html" style="display:inline-flex; align-items:center; gap:6px; color:var(--accent, #2E5BFF); font-size:14px; font-weight:600; text-decoration:none;">
+    Полный пайплайн: от данных до публикации →
+  </a>
+</div>
+
+</div>
+<script src="nav.js"></script>
+</body>
+</html>

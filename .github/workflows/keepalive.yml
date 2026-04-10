@@ -1,0 +1,35 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    # Every 6 days at midnight UTC — prevents Supabase free tier from sleeping (7-day inactivity limit)
+    - cron: '0 0 */6 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /auth
+        run: |
+          CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{"fingerprint_hash":"keepalive","instance_id":"gh-actions","app_version":"0.0.0","content_version":"c0","hostname":"github","product":"agency"}' \
+            'https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/auth' || true)
+          echo "Auth endpoint responded: $CODE"
+
+      - name: Ping /heartbeat
+        run: |
+          CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{"fingerprint_hash":"keepalive","instance_id":"gh-actions"}' \
+            'https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/heartbeat' || true)
+          echo "Heartbeat endpoint responded: $CODE"
+
+      - name: Ping /content
+        run: |
+          CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
+            'https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/content?fingerprint_hash=keepalive&product=agency&version=c0&file=ping' || true)
+          echo "Content endpoint responded: $CODE"
