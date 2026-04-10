@@ -325,7 +325,7 @@
         <code>{machineId}</code>
       </div>
       <button class="copy-hash-btn" onclick={copyAllFingerprints}>
-        {allCopied ? '✓ Скопировано!' : 'Скопировать все данные (ID + Hash + Raw)'}
+        {allCopied ? '✓ Скопировано!' : 'Скопировать Hash для лицензии'}
       </button>
     </section>
 
