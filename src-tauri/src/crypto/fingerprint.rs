@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::info;
 use sha2::{Digest, Sha256};
 
 use crate::errors::{coded_err, ErrorCode};
@@ -45,27 +46,32 @@ fn collect_hw_ids_inner() -> Result<Vec<String>> {
     if let Ok(results) = wmi_con.raw_query::<CsProduct>("SELECT UUID FROM Win32_ComputerSystemProduct") {
         if let Some(item) = results.first() {
             let uuid = item.uuid.trim();
+            info!("WMI UUID: {:?}", uuid);
             if !uuid.is_empty() {
                 ids.push(format!("machine-uuid:{uuid}"));
             }
         }
     }
 
-    // Disk serial
+    // Disk serial (sorted by Index for deterministic selection across processes)
     #[derive(Deserialize)]
     #[serde(rename_all = "PascalCase")]
     struct DiskDrive {
         serial_number: Option<String>,
+        index: u32,
     }
 
-    if let Ok(results) = wmi_con.raw_query::<DiskDrive>("SELECT SerialNumber FROM Win32_DiskDrive") {
-        if let Some(item) = results.first() {
-            if let Some(ref serial) = item.serial_number {
-                let serial = serial.trim();
-                if !serial.is_empty() {
-                    ids.push(format!("disk-serial:{serial}"));
-                }
-            }
+    if let Ok(mut results) = wmi_con.raw_query::<DiskDrive>("SELECT SerialNumber, Index FROM Win32_DiskDrive") {
+        results.sort_by_key(|d| d.index);
+        info!("WMI Win32_DiskDrive: {} disk(s)", results.len());
+        for (i, d) in results.iter().enumerate() {
+            info!("  disk[{}]: Index={}, serial={:?}", i, d.index, d.serial_number);
+        }
+        if let Some(item) = results.iter().find(|d| {
+            d.serial_number.as_ref().map_or(false, |s| !s.trim().is_empty())
+        }) {
+            let serial = item.serial_number.as_ref().unwrap().trim();
+            ids.push(format!("disk-serial:{serial}"));
         }
     }
 
@@ -80,6 +86,7 @@ fn collect_hw_ids_inner() -> Result<Vec<String>> {
         if let Some(item) = results.first() {
             if let Some(ref serial) = item.serial_number {
                 let serial = serial.trim();
+                info!("WMI BaseBoard serial: {:?}", serial);
                 if !serial.is_empty() {
                     ids.push(format!("board-serial:{serial}"));
                 }
@@ -91,6 +98,7 @@ fn collect_hw_ids_inner() -> Result<Vec<String>> {
         return Err(coded_err(ErrorCode::FP001, "Failed to collect any hardware identifiers"));
     }
 
+    info!("Fingerprint components ({}): {:?}", ids.len(), ids);
     Ok(ids)
 }
 
