@@ -128,13 +128,21 @@ export function getRecentCommands(cabinetId, limit = 4) {
     return (all[cabinetId] || []).slice(0, limit);
 }
 
-/** Toggle between dark and light theme. Shared across components. */
-export function toggleTheme() {
-    const next = get(theme) === 'dark' ? 'light' : 'dark';
+/** Cycle through 3 themes: dark → light → fun → dark. */
+export function cycleTheme() {
+    const current = get(theme);
+    const next = current === 'dark' ? 'light' : current === 'light' ? 'fun' : 'dark';
     theme.set(next);
-    if (next === 'light') {
-        document.documentElement.setAttribute('data-theme', 'light');
-    } else {
-        document.documentElement.removeAttribute('data-theme');
-    }
+    document.documentElement.setAttribute('data-theme', next);
 }
+
+/** @deprecated Use cycleTheme() instead. */
+export function toggleTheme() {
+    cycleTheme();
+}
+
+/** @type {Record<string, string>} */
+export const THEME_LABELS = { dark: 'Dark', light: 'Light', fun: 'Fun' };
+
+/** @type {Record<string, string>} */
+export const THEME_ICONS = { dark: '\u{1F319}', light: '\u{2600}', fun: '\u{1F308}' };
