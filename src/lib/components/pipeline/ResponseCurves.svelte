@@ -7,7 +7,7 @@
    * @component ResponseCurves
    */
   import { onMount } from 'svelte';
-  import { hillFunction, marginalROI } from '$lib/hill.js';
+  import { hillFunction } from '$lib/hill.js';
   import { CHANNEL_COLORS } from '$lib/hill.js';
 
   /**
@@ -27,6 +27,8 @@
   let chart;
   /** @type {ResizeObserver | null} */
   let ro = null;
+  /** True while user is dragging a point — suppresses $effect graphic rebuilds */
+  let dragging = false;
 
   /**
    * Compute Y value on the curve at given spend X.
@@ -52,21 +54,25 @@
       const px = chart.convertToPixel('grid', [x, y]);
       if (!px) return null;
       const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length];
+      const curve = responseCurves[ch];
+      const maxSpend = curve ? Math.max(...curve.spend) : (channelBudgets[ch] ?? 0) * 2.5;
       return {
         type: 'circle',
         id: `drag-${ch}`,
+        // Reset position offset — prevents drag offset accumulation on rebuild
+        position: [0, 0],
         shape: { cx: px[0], cy: px[1], r: 8 },
         style: { fill: color, stroke: '#fff', lineWidth: 2, opacity: 0.9 },
         draggable: 'horizontal',
         z: 100,
+        ondragstart: () => { dragging = true; },
         ondrag: (/** @type {any} */ e) => {
-          const curve = responseCurves[ch];
-          const maxSpend = curve ? Math.max(...curve.spend) : (channelBudgets[ch] ?? 0) * 2.5;
           const dataCoord = chart.convertFromPixel('grid', [e.offsetX, e.offsetY]);
           // A3: clamp to [0, maxSpend]
           const newSpend = Math.max(0, Math.min(dataCoord[0], maxSpend));
           onBudgetChange(ch, newSpend);
         },
+        ondragend: () => { dragging = false; },
       };
     }).filter(Boolean);
   }
@@ -164,11 +170,13 @@
   });
 
   // Reactive: when budgets change from sliders → update graphic positions
+  // Skip during drag — the user is moving the point, don't snap it back
   $effect(() => {
     // Access channelBudgets to create dependency
     const _ = JSON.stringify(channelBudgets);
-    if (!chart) return;
+    if (!chart || dragging) return;
     requestAnimationFrame(() => {
+      if (dragging) return;
       const graphic = buildGraphic();
       if (graphic.length) chart.setOption({ graphic });
     });

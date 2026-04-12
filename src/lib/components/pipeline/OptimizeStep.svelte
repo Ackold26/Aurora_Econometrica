@@ -67,6 +67,7 @@
   let optimalBudgets = $state(/** @type {Record<string, number> | null} */ (null));
 
   // Init channelBudgets when optData arrives
+  // IMPORTANT: don't read stepState here — it would create a recursive dependency
   $effect(() => {
     const data = $optimizeData;
     if (data?.channels && channels.length > 0) {
@@ -74,7 +75,6 @@
       for (const ch of data.channels) init[ch.name] = ch.current_spend;
       channelBudgets = init;
       totalBudgetInput = data.total_budget ?? null;
-      stepState = stepState === 'idle' ? 'done' : stepState;
     }
   });
 
@@ -99,13 +99,12 @@
 
       if (result.status === 'ok') {
         optimizeData.set(result);
+        stepState = 'done';
 
         // Build optimalBudgets for slider animation targets
         const ob = /** @type {Record<string, number>} */ ({});
         for (const ch of (result.channels ?? [])) ob[ch.name] = ch.optimal_spend;
         optimalBudgets = ob;
-
-        stepState = 'done';
       } else {
         handleError(result.message || 'Ошибка оптимизации');
       }
@@ -199,7 +198,9 @@
       <span class="insight-icon">🎯</span>
       <p class="insight-text">{optData.insight}</p>
       {#if optData.expected_lift_pct != null}
-        <span class="lift-badge">+{optData.expected_lift_pct.toFixed(1)}%</span>
+        <span class="lift-badge" class:negative-lift={optData.expected_lift_pct < 0}>
+          {optData.expected_lift_pct >= 0 ? '+' : ''}{optData.expected_lift_pct.toFixed(1)}%
+        </span>
       {/if}
     </div>
   {/if}
@@ -251,6 +252,7 @@
           {channels}
           {scaledParams}
           {channelBudgets}
+          initialSpend={currentSpend}
           currentKPI={currentKPI}
           locked={budgetLocked}
           onBudgetChange={handleBudgetChange}
@@ -363,6 +365,11 @@
     font-size: 13px;
     font-weight: 700;
     font-family: monospace;
+  }
+  .lift-badge.negative-lift {
+    background: rgba(239,68,68,0.15);
+    border-color: rgba(239,68,68,0.3);
+    color: #ef4444;
   }
 
   .controls-card {

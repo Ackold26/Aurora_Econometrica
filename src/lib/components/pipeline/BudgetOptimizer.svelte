@@ -12,6 +12,7 @@
    *   channels: string[],
    *   scaledParams: Record<string, {alpha: number, gammaScaled: number, beta: number}>,
    *   channelBudgets: Record<string, number>,
+   *   initialSpend: Record<string, number>,
    *   currentKPI: number,
    *   locked: boolean,
    *   onBudgetChange: (ch: string, val: number) => void,
@@ -25,6 +26,7 @@
     channels,
     scaledParams,
     channelBudgets,
+    initialSpend,
     currentKPI,
     locked,
     onBudgetChange,
@@ -89,7 +91,7 @@
       {@const cur = channelBudgets[ch] ?? 0}
       {@const opt = optimalBudgets?.[ch]}
       {@const delta = opt != null ? ((opt - cur) / Math.max(cur, 1) * 100) : null}
-      {@const maxVal = cur * 2.5 || 1}
+      {@const maxVal = (initialSpend[ch] ?? cur) * 2.5 || 1}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
 
       <div class="slider-row">

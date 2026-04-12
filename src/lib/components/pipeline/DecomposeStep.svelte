@@ -60,8 +60,7 @@
     errorMessage = msg;
     stepState = 'error';
     setStepError(3, msg);
-    isComputing.set(false);
-    computeStatus.set('');
+    // isComputing/computeStatus cleared in finally block
   }
 
   // B2: auto-run on mount if no data yet
