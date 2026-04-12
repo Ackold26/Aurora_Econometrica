@@ -6,37 +6,22 @@
    *     CLAUDE.md Rule 14: visibility/opacity, not display:none.
    */
   import StepWrapper from '$lib/components/pipeline/StepWrapper.svelte';
-  import { pipelineCurrentStep, pipelineStepMeta, completeStep } from '$lib/project-state.js';
+  import ImportStep from '$lib/components/pipeline/ImportStep.svelte';
+  import ValidateStep from '$lib/components/pipeline/ValidateStep.svelte';
+  import { completeStep } from '$lib/project-state.js';
 </script>
 
 <!-- A3: Single route, all steps present in DOM, visibility controlled by StepWrapper -->
 <div class="pipeline-page">
 
-  <!-- Step 0: Import -->
+  <!-- Step 0: Import — Phase 2 -->
   <StepWrapper step={0}>
-    <div class="step-placeholder">
-      <div class="placeholder-icon">📥</div>
-      <h3>Импорт данных</h3>
-      <p>Загрузите Excel (.xlsx) или CSV файл с маркетинговыми данными.</p>
-      <p class="note">Визуальный импорт с drag-drop — Фаза 2 (DataImport.svelte)</p>
-      <!-- Dev shortcut: mark step complete for testing -->
-      <button class="dev-btn" onclick={() => completeStep(0)}>
-        Dev: отметить готово →
-      </button>
-    </div>
+    <ImportStep />
   </StepWrapper>
 
-  <!-- Step 1: Validate -->
+  <!-- Step 1: Validate — Phase 2 -->
   <StepWrapper step={1}>
-    <div class="step-placeholder">
-      <div class="placeholder-icon">✅</div>
-      <h3>Валидация данных</h3>
-      <p>Проверка качества, маппировка колонок (KPI / Media / Control / Date).</p>
-      <p class="note">Column Mapper с drag-drop + Traffic Light — Фаза 2</p>
-      <button class="dev-btn" onclick={() => completeStep(1)}>
-        Dev: отметить готово →
-      </button>
-    </div>
+    <ValidateStep />
   </StepWrapper>
 
   <!-- Step 2: Model -->

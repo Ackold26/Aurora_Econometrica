@@ -1,0 +1,342 @@
+<script>
+  /**
+   * ValidateStep — Step 1 of the pipeline.
+   * Runs econ_validate on the imported file, then shows:
+   *   - TrafficLight for validation status / issues
+   *   - ColumnMapper for role assignment (drag-drop)
+   *   - CorrelationHeatmap for multicollinearity analysis
+   *
+   * Calls completeStep(1) when status is 'ok' or 'warning'.
+   * Reads importData store to get the file path.
+   *
+   * @component ValidateStep
+   */
+  import { invoke } from '@tauri-apps/api/core';
+  import ColumnMapper from '$lib/components/pipeline/ColumnMapper.svelte';
+  import TrafficLight from '$lib/components/pipeline/TrafficLight.svelte';
+  import CorrelationHeatmap from '$lib/components/pipeline/CorrelationHeatmap.svelte';
+  import {
+    importData, validateData, completeStep, setStepError,
+    activeProjectId,
+  } from '$lib/project-state.js';
+  import { get } from 'svelte/store';
+
+  // ── State ──────────────────────────────────────────
+  let loading = $state(false);
+  let errorMsg = $state('');
+
+  /** @type {any | null} */
+  let result = $state(null);
+
+  // Restore from store if already validated this session
+  const storedValidate = get(validateData);
+  if (storedValidate.result) {
+    result = storedValidate.result;
+  }
+
+  // ── Reactive store reads (Svelte 5 auto-subscribe) ─
+  // $importData is auto-subscribed in .svelte context
+  let hasFile = $derived(!!$importData?.file);
+
+  let statusLabel = $derived(
+    !result ? '' :
+    result.status === 'ok'      ? 'Валидация пройдена' :
+    result.status === 'warning' ? 'Готово с предупреждениями' :
+                                  'Обнаружены критические проблемы'
+  );
+
+  // ── Validate ───────────────────────────────────────
+  async function runValidate() {
+    const imp = get(importData);
+    if (!imp.file) {
+      errorMsg = 'Сначала загрузите файл на шаге Импорт';
+      return;
+    }
+
+    loading = true;
+    errorMsg = '';
+    result = null;
+
+    try {
+      const projectId = get(activeProjectId);
+
+      /** @type {any} */
+      const res = await invoke('econ_validate', {
+        filePath: imp.file,
+        projectDir: projectId || null,
+      });
+
+      // Hard error (file not found, parse failure)
+      if (res.status === 'error' && !res.columns) {
+        errorMsg = res.message ?? 'Ошибка валидации';
+        setStepError(1, errorMsg);
+        return;
+      }
+
+      result = res;
+
+      // Save full result to memory store (A4)
+      validateData.set({
+        result: res,
+        correlationMatrix: res.full_correlation_matrix ?? null,
+        columnHistograms: null,
+      });
+
+      // Auto-complete if no critical issues
+      if (res.status !== 'error') {
+        completeStep(1);
+      }
+    } catch (e) {
+      errorMsg = `Ошибка: ${e}`;
+      setStepError(1, String(e));
+    } finally {
+      loading = false;
+    }
+  }
+
+  /** @param {any} mapping */
+  function onMappingChange(mapping) {
+    // Future: persist mapping to project config via project_update command
+    // For now just keep in memory
+  }
+</script>
+
+<div class="validate-step">
+
+  <!-- Action bar -->
+  <div class="action-bar">
+    {#if !hasFile}
+      <p class="no-file-hint">Сначала загрузите файл на шаге «Импорт»</p>
+    {:else}
+      <button
+        class="run-btn"
+        disabled={loading}
+        onclick={runValidate}
+      >
+        {#if loading}
+          <span class="btn-spinner"></span>
+          Анализирую…
+        {:else if result}
+          🔄 Перезапустить валидацию
+        {:else}
+          ▶ Запустить валидацию
+        {/if}
+      </button>
+
+      {#if result}
+        <span class="status-pill status-{result.status}">{statusLabel}</span>
+      {/if}
+    {/if}
+  </div>
+
+  <!-- Error -->
+  {#if errorMsg}
+    <div class="error-banner">⚠️ {errorMsg}</div>
+  {/if}
+
+  <!-- Results -->
+  {#if result}
+    <div class="results-grid">
+
+      <!-- TrafficLight -->
+      <section class="section">
+        <h4 class="section-title">Результат валидации</h4>
+        <TrafficLight
+          status={result.status}
+          verdict={result.verdict}
+          issues={result.issues ?? []}
+          warnings={result.warnings ?? []}
+          file={result.file ?? null}
+          detected={result.detected ?? null}
+          columns={result.columns ?? []}
+        />
+      </section>
+
+      <!-- ColumnMapper -->
+      <section class="section">
+        <h4 class="section-title">Назначение столбцов</h4>
+        <p class="section-hint">
+          Роли определены автоматически. Перетащите для коррекции.
+          Двойной клик по назначенному — убрать.
+        </p>
+        <ColumnMapper
+          columns={result.columns ?? []}
+          detected={result.detected ?? {}}
+          onmappingchange={onMappingChange}
+        />
+      </section>
+
+      <!-- Correlation heatmap -->
+      {#if result.full_correlation_matrix?.labels?.length >= 2}
+        <section class="section section-wide">
+          <CorrelationHeatmap
+            correlationMatrix={result.full_correlation_matrix}
+            highCorrelations={result.high_correlations ?? []}
+          />
+        </section>
+      {/if}
+
+    </div>
+
+  {:else if !loading && hasFile}
+    <!-- Idle -->
+    <div class="idle-state">
+      <div class="idle-icon">🔍</div>
+      <p class="idle-text">Нажмите «Запустить валидацию» для анализа данных</p>
+      <p class="idle-hint">
+        Автоматическое определение KPI, медиа-каналов и дат.
+        Проверка качества, мультиколлинеарности, соотношения данных.
+      </p>
+    </div>
+  {/if}
+
+</div>
+
+<style>
+  .validate-step {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 24px;
+    height: 100%;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+
+  /* ── Action bar ── */
+  .action-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+
+  .no-file-hint {
+    font-size: 13px;
+    color: rgba(148, 163, 184, 0.5);
+    margin: 0;
+    font-style: italic;
+  }
+
+  .run-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 20px;
+    background: linear-gradient(135deg, rgba(59,130,246,0.3), rgba(99,102,241,0.3));
+    border: 1px solid rgba(59, 130, 246, 0.45);
+    border-radius: 10px;
+    color: #93c5fd;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  }
+
+  .run-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(59,130,246,0.45), rgba(99,102,241,0.45));
+    border-color: #3b82f6;
+    color: #bfdbfe;
+  }
+
+  .run-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(147, 197, 253, 0.2);
+    border-top-color: #93c5fd;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .status-pill {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 20px;
+  }
+
+  .status-ok      { background: rgba(34,197,94,0.12);  color: #86efac; border: 1px solid rgba(34,197,94,0.25); }
+  .status-warning { background: rgba(245,158,11,0.12); color: #fcd34d; border: 1px solid rgba(245,158,11,0.25); }
+  .status-error   { background: rgba(239,68,68,0.12);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.25); }
+
+  /* ── Error ── */
+  .error-banner {
+    padding: 10px 16px;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 10px;
+    font-size: 13px;
+    color: #fca5a5;
+    flex-shrink: 0;
+  }
+
+  /* ── Results grid ── */
+  .results-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .section-wide {
+    grid-column: 1 / -1;
+  }
+
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-secondary, #94a3b8);
+    margin: 0;
+  }
+
+  .section-hint {
+    font-size: 11px;
+    color: rgba(148, 163, 184, 0.5);
+    margin: 0;
+    font-style: italic;
+    line-height: 1.5;
+  }
+
+  /* ── Idle ── */
+  .idle-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 48px 32px;
+    text-align: center;
+    flex: 1;
+  }
+
+  .idle-icon { font-size: 48px; line-height: 1; filter: grayscale(0.4); }
+
+  .idle-text {
+    font-size: 14px;
+    color: var(--text-secondary, #94a3b8);
+    margin: 0;
+  }
+
+  .idle-hint {
+    font-size: 12px;
+    color: rgba(148, 163, 184, 0.5);
+    margin: 0;
+    max-width: 380px;
+    line-height: 1.6;
+  }
+</style>

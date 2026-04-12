@@ -2335,6 +2335,7 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_awareness_forecast,
             commands::econometrica::econ_awareness_sales,
             commands::econometrica::econ_chart,
+            commands::econometrica::econ_data_preview,
         ])
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::Destroyed = event {

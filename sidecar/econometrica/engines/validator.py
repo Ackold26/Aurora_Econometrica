@@ -18,17 +18,43 @@ CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'price', 'distribution', 
 
 
 def detect_column_role(col_name: str) -> str:
-    """Auto-detect column role from name."""
+    """Auto-detect column role from name (backward-compatible)."""
+    role, _ = detect_column_role_with_confidence(col_name)
+    return role
+
+
+def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
+    """Auto-detect column role + confidence score (0.0–1.0).
+
+    Returns:
+        (role, confidence) where role is 'kpi'|'media'|'control'|'date'|'unknown'
+    """
     lower = col_name.lower()
+
+    # Date: high confidence for exact names
+    date_exact = ['date', 'week', 'month', 'period', 'quarter']
+    if lower in date_exact or any(lower.startswith(p) for p in date_exact):
+        return 'date', 0.97
     if any(p in lower for p in DATE_PATTERNS):
-        return 'date'
-    if any(p in lower for p in KPI_PATTERNS):
-        return 'kpi'
-    if any(p in lower for p in MEDIA_PATTERNS):
-        return 'media'
-    if any(p in lower for p in CONTROL_PATTERNS):
-        return 'control'
-    return 'unknown'
+        return 'date', 0.80
+
+    # Count pattern matches per category
+    kpi_matches = sum(1 for p in KPI_PATTERNS if p in lower)
+    media_matches = sum(1 for p in MEDIA_PATTERNS if p in lower)
+    control_matches = sum(1 for p in CONTROL_PATTERNS if p in lower)
+
+    max_matches = max(kpi_matches, media_matches, control_matches)
+    if max_matches == 0:
+        return 'unknown', 0.0
+
+    if kpi_matches == max_matches and kpi_matches >= media_matches:
+        conf = min(0.55 + kpi_matches * 0.15, 0.95)
+        return 'kpi', round(conf, 2)
+    if media_matches == max_matches and media_matches >= control_matches:
+        conf = min(0.55 + media_matches * 0.15, 0.95)
+        return 'media', round(conf, 2)
+    conf = min(0.50 + control_matches * 0.15, 0.90)
+    return 'control', round(conf, 2)
 
 
 def detect_adstock_type(col_name: str) -> str:
@@ -37,6 +63,93 @@ def detect_adstock_type(col_name: str) -> str:
     if any(k in lower for k in ['tv', 'television', 'radio', 'ooh', 'outdoor', 'offline', 'press']):
         return 'weibull'
     return 'geometric'
+
+
+def detect_date_frequency(series: 'pd.Series') -> str:
+    """Detect time series frequency from a date column.
+
+    Returns: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'unknown'
+    """
+    try:
+        dates = pd.to_datetime(series.dropna()).sort_values()
+        if len(dates) < 3:
+            return 'unknown'
+        diffs = dates.diff().dropna().dt.days
+        median_diff = float(diffs.median())
+        if median_diff <= 1.5:
+            return 'daily'
+        elif 5 <= median_diff <= 9:
+            return 'weekly'
+        elif 28 <= median_diff <= 32:
+            return 'monthly'
+        elif 85 <= median_diff <= 95:
+            return 'quarterly'
+        return 'unknown'
+    except Exception:
+        return 'unknown'
+
+
+def compute_histogram(series: 'pd.Series', bins: int = 10) -> dict:
+    """Compute histogram for a numeric series."""
+    clean = series.dropna()
+    if len(clean) == 0:
+        return {'counts': [], 'edges': []}
+    counts, edges = np.histogram(clean, bins=bins)
+    return {
+        'counts': counts.tolist(),
+        'edges': [round(float(e), 4) for e in edges],
+    }
+
+
+def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
+    """Read first n_rows of a file and return preview data.
+
+    Args:
+        file_path: Path to xlsx or csv file
+        n_rows: Number of rows to preview (default 20)
+
+    Returns:
+        {status, headers, rows, dtypes, shape}
+    """
+    path = Path(file_path)
+    if not path.exists():
+        return {'status': 'error', 'message': f'Файл не найден: {file_path}'}
+
+    try:
+        if path.suffix in ('.xlsx', '.xls'):
+            df = pd.read_excel(path)
+        elif path.suffix == '.csv':
+            df = pd.read_csv(path)
+        else:
+            return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}'}
+    except Exception as e:
+        return {'status': 'error', 'message': f'Ошибка чтения файла: {e}'}
+
+    preview_df = df.head(n_rows)
+
+    # Convert to JSON-safe format
+    def safe_val(v: Any) -> Any:
+        if pd.isna(v) if not isinstance(v, (list, dict)) else False:
+            return None
+        if isinstance(v, (np.integer,)):
+            return int(v)
+        if isinstance(v, (np.floating,)):
+            return round(float(v), 4)
+        return str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
+
+    headers = list(df.columns)
+    rows = [[safe_val(cell) for cell in row] for row in preview_df.itertuples(index=False)]
+    dtypes = {col: str(df[col].dtype) for col in df.columns}
+
+    return {
+        'status': 'ok',
+        'headers': headers,
+        'rows': rows,
+        'dtypes': dtypes,
+        'shape': [int(df.shape[0]), int(df.shape[1])],
+        'file_name': path.name,
+        'size_kb': round(path.stat().st_size / 1024, 1),
+    }
 
 
 def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, Any]:
@@ -76,10 +189,11 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     control_cols = []
 
     for col in df.columns:
-        role = detect_column_role(col)
-        col_info = {
+        role, confidence = detect_column_role_with_confidence(col)
+        col_info: dict[str, Any] = {
             'name': col,
             'role': role,
+            'confidence': confidence,
             'dtype': str(df[col].dtype),
         }
 
@@ -93,19 +207,21 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         elif role == 'control':
             control_cols.append(col)
 
-        # Stats for numeric columns
+        # Stats + histogram for numeric columns
         if pd.api.types.is_numeric_dtype(df[col]):
             col_series = df[col].fillna(0)
             zeros_pct = round((col_series == 0).sum() / len(col_series) * 100, 1)
             col_info['stats'] = {
-                'min': round(float(col_series.min()), 2),
-                'max': round(float(col_series.max()), 2),
-                'mean': round(float(col_series.mean()), 2),
-                'std': round(float(col_series.std()), 2),
+                'min': round(float(col_series.min()), 4),
+                'max': round(float(col_series.max()), 4),
+                'mean': round(float(col_series.mean()), 4),
+                'std': round(float(col_series.std()), 4),
                 'zeros_pct': zeros_pct,
                 'nulls': int(df[col].isna().sum()),
                 'cv': round(float(col_series.std() / col_series.mean() * 100), 1) if col_series.mean() != 0 else 0,
             }
+            col_info['histogram'] = compute_histogram(df[col])
+
             if zeros_pct > 60:
                 warnings.append({
                     'column': col,
@@ -163,10 +279,10 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'severity': 'warning',
         })
 
-    # ── Period check ──
-    if date_col and pd.api.types.is_datetime64_any_dtype(df[date_col]):
-        pass  # already datetime
-    elif date_col:
+    # ── Date frequency + period check ──
+    date_frequency = 'unknown'
+    if date_col:
+        date_frequency = detect_date_frequency(df[date_col])
         try:
             df[date_col] = pd.to_datetime(df[date_col])
         except Exception:
@@ -184,19 +300,29 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'severity': 'warning',
         })
 
-    # ── Correlation matrix (top pairs) ──
+    # ── Full correlation matrix ──
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     high_correlations = []
+    full_correlation_matrix: dict[str, Any] = {'labels': [], 'matrix': []}
+
     if len(numeric_cols) >= 2:
-        corr_matrix = df[numeric_cols].corr()
+        corr_df = df[numeric_cols].corr()
+        # Replace NaN with 0 for JSON serialization
+        corr_clean = corr_df.fillna(0)
+
+        full_correlation_matrix = {
+            'labels': numeric_cols,
+            'matrix': [[round(float(v), 3) for v in row] for row in corr_clean.values],
+        }
+
         for i, c1 in enumerate(numeric_cols):
             for j, c2 in enumerate(numeric_cols):
                 if i < j:
-                    r = abs(corr_matrix.loc[c1, c2])
-                    if r > 0.8:
+                    r = abs(corr_df.loc[c1, c2])
+                    if not np.isnan(r) and r > 0.8:
                         high_correlations.append({
                             'col1': c1, 'col2': c2,
-                            'correlation': round(float(corr_matrix.loc[c1, c2]), 3),
+                            'correlation': round(float(corr_df.loc[c1, c2]), 3),
                             'risk': 'Мультиколлинеарность — один из столбцов может быть избыточен',
                         })
 
@@ -207,7 +333,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         'ГОТОВ К МОДЕЛИРОВАНИЮ (с оговорками)' if warnings else 'ГОТОВ К МОДЕЛИРОВАНИЮ'
     )
 
-    result = {
+    result: dict[str, Any] = {
         'status': status,
         'verdict': verdict,
         'file': {
@@ -224,10 +350,12 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'control': control_cols,
             'n_predictors': n_predictors,
             'ratio': round(ratio, 1),
+            'date_frequency': date_frequency,
         },
         'issues': issues,
         'warnings': warnings,
         'high_correlations': high_correlations,
+        'full_correlation_matrix': full_correlation_matrix,
     }
 
     # Save to project dir if provided

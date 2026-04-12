@@ -1,0 +1,548 @@
+<script>
+  /**
+   * ColumnMapper — HTML5 drag-drop column role assignment.
+   * Shows all columns on the left, 4 drop zones on the right (KPI/Media/Control/Date).
+   * Auto-populated from validator's detected roles.
+   * Emits {onmappingchange} when user reassigns a column.
+   *
+   * @component ColumnMapper
+   */
+
+  /**
+   * @type {{
+   *   columns?: any[],
+   *   detected?: {kpi?: string[], media?: string[], control?: string[], date?: string|null},
+   *   onmappingchange?: (mapping: {kpi: string[], media: string[], control: string[], date: string|null, unknown: string[]}) => void,
+   * }}
+   */
+  let {
+    columns = [],
+    detected = {},
+    onmappingchange = () => {},
+  } = $props();
+
+  // ── Zones ──────────────────────────────────────────
+  const ZONES = [
+    { id: 'kpi',     label: 'KPI',           icon: '📈', desc: 'Целевой показатель (продажи, конверсии)' },
+    { id: 'media',   label: 'Медиа',         icon: '📺', desc: 'Расходы, контакты, показы по каналам' },
+    { id: 'control', label: 'Контроль',      icon: '🎛', desc: 'Внешние факторы (сезонность, цены)' },
+    { id: 'date',    label: 'Дата',          icon: '📅', desc: 'Столбец с датой/периодом' },
+  ];
+
+  // ── Mapping state ──────────────────────────────────
+  /** @type {{kpi: string[], media: string[], control: string[], date: string|null, unknown: string[]}} */
+  let mapping = $state({
+    kpi: [],
+    media: [],
+    control: [],
+    date: null,
+    unknown: [],
+  });
+
+  // Init from detected props
+  $effect(() => {
+    if (!columns.length) return;
+
+    const kpi   = /** @type {string[]} */ ([...(detected?.kpi ?? [])]);
+    const media  = /** @type {string[]} */ ([...(detected?.media ?? [])]);
+    const ctrl   = /** @type {string[]} */ ([...(detected?.control ?? [])]);
+    const date   = detected?.date ?? null;
+    const assigned = new Set([...kpi, ...media, ...ctrl, ...(date ? [date] : [])]);
+    const unknown = columns
+      .map(c => c.name)
+      .filter(n => !assigned.has(n));
+
+    mapping = { kpi, media, control: ctrl, date, unknown };
+  });
+
+  // Emit on every change
+  $effect(() => {
+    // Snapshot to avoid proxy issues
+    onmappingchange({
+      kpi:     [...mapping.kpi],
+      media:   [...mapping.media],
+      control: [...mapping.control],
+      date:    mapping.date,
+      unknown: [...mapping.unknown],
+    });
+  });
+
+  // ── Drag state ─────────────────────────────────────
+  /** @type {string | null} */
+  let dragging = $state(null);
+  /** @type {string | null} */
+  let dragOver = $state(null);
+
+  /** @param {DragEvent} e @param {string} colName */
+  function onDragstart(e, colName) {
+    dragging = colName;
+    e.dataTransfer?.setData('text/plain', colName);
+    e.dataTransfer && (e.dataTransfer.effectAllowed = 'move');
+  }
+
+  function onDragend() {
+    dragging = null;
+    dragOver = null;
+  }
+
+  /** @param {DragEvent} e @param {string} zoneId */
+  function onZoneDragover(e, zoneId) {
+    e.preventDefault();
+    e.dataTransfer && (e.dataTransfer.dropEffect = 'move');
+    dragOver = zoneId;
+  }
+
+  function onZoneDragleave() {
+    dragOver = null;
+  }
+
+  /** @param {DragEvent} e @param {string} zoneId */
+  function onZoneDrop(e, zoneId) {
+    e.preventDefault();
+    dragOver = null;
+    const colName = e.dataTransfer?.getData('text/plain') || dragging;
+    if (!colName) return;
+
+    moveColumn(colName, zoneId);
+    dragging = null;
+  }
+
+  // ── Move logic ─────────────────────────────────────
+  /**
+   * Remove colName from all lists in mapping.
+   * @param {{kpi: string[], media: string[], control: string[], date: string|null, unknown: string[]}} m
+   * @param {string} colName
+   */
+  function removeFromAll(m, colName) {
+    m.kpi = m.kpi.filter(/** @param {string} c */ c => c !== colName);
+    m.media = m.media.filter(/** @param {string} c */ c => c !== colName);
+    m.control = m.control.filter(/** @param {string} c */ c => c !== colName);
+    if (m.date === colName) m.date = null;
+    m.unknown = m.unknown.filter(/** @param {string} c */ c => c !== colName);
+  }
+
+  /** @param {string} colName @param {string} targetZone */
+  function moveColumn(colName, targetZone) {
+    const m = {
+      kpi:     [...mapping.kpi],
+      media:   [...mapping.media],
+      control: [...mapping.control],
+      date:    mapping.date,
+      unknown: [...mapping.unknown],
+    };
+    removeFromAll(m, colName);
+
+    if (targetZone === 'kpi')     m.kpi.push(colName);
+    else if (targetZone === 'media')   m.media.push(colName);
+    else if (targetZone === 'control') m.control.push(colName);
+    else if (targetZone === 'date') {
+      // date is single — push old date to unknown if exists
+      if (m.date && m.date !== colName) m.unknown.push(m.date);
+      m.date = colName;
+    } else {
+      m.unknown.push(colName);
+    }
+
+    mapping = m;
+  }
+
+  /** @param {string} colName */
+  function returnToUnassigned(colName) {
+    moveColumn(colName, 'unknown');
+  }
+
+  /** Helper: get assigned zone for a column
+   * @param {string} colName
+   */
+  function getZone(colName) {
+    if (mapping.kpi.includes(colName)) return 'kpi';
+    if (mapping.media.includes(colName)) return 'media';
+    if (mapping.control.includes(colName)) return 'control';
+    if (mapping.date === colName) return 'date';
+    return 'unknown';
+  }
+
+  /** @param {any} col */
+  function confidenceLabel(col) {
+    if (!col.confidence) return '';
+    const pct = Math.round(col.confidence * 100);
+    return `${pct}%`;
+  }
+
+  /** @param {any} col */
+  function confidenceClass(col) {
+    if (!col.confidence) return 'conf-unknown';
+    if (col.confidence >= 0.8) return 'conf-high';
+    if (col.confidence >= 0.5) return 'conf-mid';
+    return 'conf-low';
+  }
+
+  // Zone items derived
+  let zoneItems = $derived({
+    kpi:     mapping.kpi,
+    media:   mapping.media,
+    control: mapping.control,
+    date:    mapping.date ? [mapping.date] : [],
+    unknown: mapping.unknown,
+  });
+
+  // Column meta lookup
+  /** @param {string} colName */
+  function colMeta(colName) {
+    return columns.find(c => c.name === colName) ?? { name: colName };
+  }
+</script>
+
+<div class="column-mapper">
+
+  <!-- Unassigned columns -->
+  <div class="unassigned-section">
+    <div class="section-header">
+      <span class="section-title">Столбцы</span>
+      <span class="section-hint">Перетащите в нужную категорию</span>
+    </div>
+    <div class="columns-list">
+      {#each columns as col (col.name)}
+        {@const zone = getZone(col.name)}
+        {#if zone === 'unknown'}
+          <div
+            class="col-chip unassigned"
+            class:dragging={dragging === col.name}
+            draggable="true"
+            role="button"
+            tabindex="0"
+            title="{col.name} · {col.dtype}"
+            ondragstart={(e) => onDragstart(e, col.name)}
+            ondragend={onDragend}
+          >
+            <span class="chip-name">{col.name}</span>
+            <span class="chip-dtype">{col.dtype}</span>
+          </div>
+        {:else}
+          <!-- Assigned — shown in zone, greyed out here -->
+          <div class="col-chip assigned" title="Назначен: {zone}">
+            <span class="chip-name">{col.name}</span>
+            <span class="chip-zone-badge zone-{zone}">{ZONES.find(z => z.id === zone)?.icon}</span>
+          </div>
+        {/if}
+      {/each}
+
+      {#if columns.length === 0}
+        <p class="empty-cols">Загрузите файл на шаге Импорт</p>
+      {/if}
+    </div>
+  </div>
+
+  <!-- Drop zones -->
+  <div class="zones-grid">
+    {#each ZONES as zone (zone.id)}
+      {@const items = /** @type {string[]} */ ((/** @type {Record<string, string[]>} */(zoneItems))[zone.id] ?? [])}
+      <div
+        class="zone"
+        class:drag-over={dragOver === zone.id}
+        role="group"
+        aria-label="Зона {zone.label}"
+        ondragover={(e) => onZoneDragover(e, zone.id)}
+        ondragleave={onZoneDragleave}
+        ondrop={(e) => onZoneDrop(e, zone.id)}
+      >
+        <div class="zone-header">
+          <span class="zone-icon">{zone.icon}</span>
+          <div>
+            <div class="zone-label">{zone.label}</div>
+            <div class="zone-desc">{zone.desc}</div>
+          </div>
+          <span class="zone-count">{items.length}</span>
+        </div>
+
+        <div class="zone-items">
+          {#each items as name (name)}
+            {@const meta = colMeta(name)}
+            <div
+              class="zone-chip"
+              class:dragging={dragging === name}
+              draggable="true"
+              role="button"
+              tabindex="0"
+              title="Двойной клик — вернуть в неназначенные"
+              ondragstart={(e) => onDragstart(e, name)}
+              ondragend={onDragend}
+              ondblclick={() => returnToUnassigned(name)}
+            >
+              <span class="chip-name">{name}</span>
+              {#if meta.confidence}
+                <span class="conf-badge {confidenceClass(meta)}">{confidenceLabel(meta)}</span>
+              {/if}
+              <button
+                class="remove-btn"
+                aria-label="Убрать {name}"
+                onclick={() => returnToUnassigned(name)}
+              >×</button>
+            </div>
+          {/each}
+
+          {#if items.length === 0}
+            <div class="zone-empty">Перетащите сюда</div>
+          {/if}
+        </div>
+      </div>
+    {/each}
+  </div>
+
+</div>
+
+<style>
+  .column-mapper {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ── Unassigned ── */
+  .unassigned-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary, #94a3b8);
+  }
+
+  .section-hint {
+    font-size: 11px;
+    color: rgba(148, 163, 184, 0.5);
+    font-style: italic;
+  }
+
+  .columns-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px;
+    background: rgba(15, 23, 42, 0.35);
+    border-radius: 10px;
+    min-height: 46px;
+    border: 1px solid rgba(71, 85, 105, 0.25);
+  }
+
+  .empty-cols {
+    font-size: 12px;
+    color: rgba(148, 163, 184, 0.4);
+    margin: 0;
+    align-self: center;
+    font-style: italic;
+  }
+
+  /* ── Chips ── */
+  .col-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: grab;
+    user-select: none;
+    transition: opacity 0.15s, transform 0.12s;
+  }
+
+  .col-chip.unassigned {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    color: #93c5fd;
+  }
+
+  .col-chip.unassigned:hover {
+    background: rgba(59, 130, 246, 0.18);
+    border-color: rgba(59, 130, 246, 0.45);
+  }
+
+  .col-chip.assigned {
+    background: rgba(71, 85, 105, 0.2);
+    border: 1px solid rgba(71, 85, 105, 0.25);
+    color: rgba(148, 163, 184, 0.6);
+    cursor: default;
+  }
+
+  .col-chip.dragging {
+    opacity: 0.45;
+    transform: scale(0.95);
+    cursor: grabbing;
+  }
+
+  .chip-name {
+    font-weight: 500;
+  }
+
+  .chip-dtype {
+    font-size: 10px;
+    opacity: 0.6;
+  }
+
+  .chip-zone-badge {
+    font-size: 12px;
+  }
+
+  /* ── Zones grid ── */
+  .zones-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .zone {
+    background: rgba(15, 23, 42, 0.4);
+    border: 1.5px dashed rgba(71, 85, 105, 0.35);
+    border-radius: 12px;
+    padding: 12px;
+    min-height: 100px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .zone.drag-over {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.08);
+    border-style: solid;
+  }
+
+  .zone-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .zone-icon {
+    font-size: 18px;
+    line-height: 1;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .zone-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+  }
+
+  .zone-desc {
+    font-size: 10px;
+    color: rgba(148, 163, 184, 0.55);
+    margin-top: 1px;
+  }
+
+  .zone-count {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(148, 163, 184, 0.6);
+    background: rgba(71, 85, 105, 0.25);
+    border-radius: 10px;
+    padding: 1px 7px;
+  }
+
+  .zone-items {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .zone-empty {
+    font-size: 11px;
+    color: rgba(148, 163, 184, 0.3);
+    text-align: center;
+    padding: 8px 0;
+    font-style: italic;
+  }
+
+  /* ── Zone chips ── */
+  .zone-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(71, 85, 105, 0.3);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-primary, #e2e8f0);
+    cursor: grab;
+    user-select: none;
+    transition: background 0.12s;
+  }
+
+  .zone-chip:hover {
+    background: rgba(51, 65, 85, 0.6);
+  }
+
+  .zone-chip.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+  }
+
+  .zone-chip .chip-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .remove-btn {
+    background: none;
+    border: none;
+    color: rgba(148, 163, 184, 0.5);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 2px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: color 0.12s;
+  }
+
+  .remove-btn:hover {
+    color: #ef4444;
+  }
+
+  /* ── Confidence badge ── */
+  .conf-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 10px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .conf-high {
+    background: rgba(34, 197, 94, 0.15);
+    color: #86efac;
+    border: 1px solid rgba(34, 197, 94, 0.25);
+  }
+
+  .conf-mid {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fcd34d;
+    border: 1px solid rgba(251, 191, 36, 0.2);
+  }
+
+  .conf-low {
+    background: rgba(239, 68, 68, 0.1);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.2);
+  }
+
+  .conf-unknown {
+    display: none;
+  }
+</style>

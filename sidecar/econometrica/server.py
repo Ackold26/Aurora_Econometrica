@@ -40,6 +40,11 @@ class ValidateRequest(BaseModel):
     project_dir: str | None = None
 
 
+class PreviewRequest(BaseModel):
+    file_path: str
+    n_rows: int = 20
+
+
 class TrainRequest(BaseModel):
     project_dir: str
     data_file: str
@@ -117,6 +122,17 @@ def validate_data(req: ValidateRequest):
     """Validate dataset for MMM readiness."""
     from engines.validator import validate_data as _validate
     result = _validate(req.file_path, req.project_dir)
+    return JSONResponse(content=result)
+
+
+@app.post('/compute/validate/preview')
+def validate_preview(req: PreviewRequest):
+    """Read first N rows of a file for preview in Import step UI.
+
+    Returns {status, headers, rows, dtypes, shape, file_name, size_kb}.
+    """
+    from engines.validator import data_preview as _preview
+    result = _preview(req.file_path, req.n_rows)
     return JSONResponse(content=result)
 
 

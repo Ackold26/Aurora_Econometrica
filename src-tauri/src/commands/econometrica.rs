@@ -104,6 +104,18 @@ pub async fn econ_awareness_sales(config: Value) -> Result<Value, String> {
     post_json("/compute/awareness/sales", &config, QUICK_TIMEOUT_SECS).await
 }
 
+// ── Data Preview ─────────────────────────────────────
+
+#[tauri::command]
+pub async fn econ_data_preview(file_path: String, n_rows: Option<u32>) -> Result<Value, String> {
+    info!("econ_data_preview: {file_path}");
+    let body = serde_json::json!({
+        "file_path": file_path,
+        "n_rows": n_rows.unwrap_or(20),
+    });
+    post_json("/compute/validate/preview", &body, QUICK_TIMEOUT_SECS).await
+}
+
 // ── Charts ───────────────────────────────────────────
 
 #[tauri::command]
