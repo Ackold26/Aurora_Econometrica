@@ -113,7 +113,7 @@ async def health():
 # ── Compute endpoints ────────────────────────────────
 
 @app.post('/compute/validate')
-async def validate_data(req: ValidateRequest):
+def validate_data(req: ValidateRequest):
     """Validate dataset for MMM readiness."""
     from engines.validator import validate_data as _validate
     result = _validate(req.file_path, req.project_dir)
@@ -121,8 +121,9 @@ async def validate_data(req: ValidateRequest):
 
 
 @app.post('/compute/train')
-async def train_model(req: TrainRequest):
-    """Train Bayesian MMM model. Long-running (3-15 min)."""
+def train_model(req: TrainRequest):
+    """Train Bayesian MMM model. Long-running (3-15 min).
+    sync def — FastAPI runs in thread pool, event loop stays free for /health polling."""
     from engines.modeler import train_model as _train
     config = req.model_dump()
     project_dir = config.pop('project_dir')
@@ -131,7 +132,7 @@ async def train_model(req: TrainRequest):
 
 
 @app.post('/compute/decompose')
-async def decompose_sales(req: DecomposeRequest):
+def decompose_sales(req: DecomposeRequest):
     """Decompose sales into baseline + channel contributions."""
     from engines.decomposer import decompose as _decompose
     result = _decompose(req.project_dir)
@@ -139,7 +140,7 @@ async def decompose_sales(req: DecomposeRequest):
 
 
 @app.post('/compute/optimize')
-async def optimize_budget(req: OptimizeRequest):
+def optimize_budget(req: OptimizeRequest):
     """Optimize budget allocation across channels."""
     from engines.optimizer import optimize as _optimize
     config = {'total_budget': req.total_budget, 'min_pct': req.min_pct, 'max_pct': req.max_pct}
@@ -148,7 +149,7 @@ async def optimize_budget(req: OptimizeRequest):
 
 
 @app.post('/compute/scenario')
-async def predict_scenario(req: ScenarioRequest):
+def predict_scenario(req: ScenarioRequest):
     """Predict KPI for a media plan scenario."""
     from engines.scenario import predict_scenario as _predict
     config = req.model_dump()
@@ -158,7 +159,7 @@ async def predict_scenario(req: ScenarioRequest):
 
 
 @app.post('/compute/compare')
-async def compare_scenarios(req: DecomposeRequest):
+def compare_scenarios(req: DecomposeRequest):
     """Compare all saved scenarios side-by-side."""
     from engines.scenario import compare_scenarios as _compare
     result = _compare(req.project_dir)
@@ -166,7 +167,7 @@ async def compare_scenarios(req: DecomposeRequest):
 
 
 @app.post('/compute/awareness/forecast')
-async def awareness_forecast(req: AwarenessRequest):
+def awareness_forecast(req: AwarenessRequest):
     """Forecast brand awareness."""
     from engines.awareness import forecast_awareness as _forecast
     config = req.model_dump()
@@ -176,7 +177,7 @@ async def awareness_forecast(req: AwarenessRequest):
 
 
 @app.post('/compute/awareness/sales')
-async def awareness_to_sales(req: AwarenessSalesRequest):
+def awareness_to_sales(req: AwarenessSalesRequest):
     """Model awareness → sales S-curve."""
     from engines.awareness import awareness_to_sales as _a2s
     config = req.model_dump()
@@ -188,7 +189,7 @@ async def awareness_to_sales(req: AwarenessSalesRequest):
 # ── Chart endpoints ──────────────────────────────────
 
 @app.post('/chart')
-async def generate_chart(req: ChartRequest):
+def generate_chart(req: ChartRequest):
     """Generate matplotlib chart as base64 PNG.
 
     chart_type: 'waterfall', 'response_curves', 'awareness', 's_curve', 'mqs'

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod crypto;
+pub mod econ_sidecar;
 pub mod errors;
 pub mod metrics;
 pub mod session;
@@ -2037,41 +2038,12 @@ static RAG_PROCESS: std::sync::OnceLock<Mutex<Option<std::process::Child>>> =
 static PARSER_PROCESS: std::sync::OnceLock<Mutex<Option<std::process::Child>>> =
     std::sync::OnceLock::new();
 
-fn start_econometrica_sidecar() {
-    let sidecar_dir = if cfg!(debug_assertions) {
-        std::env::var("CARGO_MANIFEST_DIR")
-            .ok()
-            .map(|d| std::path::PathBuf::from(d).join("..").join("sidecar").join("econometrica"))
-    } else {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .map(|p| p.join("sidecar").join("econometrica"))
-    };
+// Econometrica sidecar lifecycle is managed by econ_sidecar.rs module.
+// start/stop called from build_app() setup hook and on_window_event respectively.
 
-    if let Some(dir) = sidecar_dir {
-        let server_py = dir.join("server.py");
-        if !server_py.exists() {
-            warn!("Econometrica sidecar not found at {}", server_py.display());
-            return;
-        }
-
-        let python = if cfg!(windows) { "python" } else { "python3" };
-        let mut cmd = std::process::Command::new(python);
-        cmd.arg("server.py")
-            .current_dir(&dir)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        }
-        match cmd.spawn() {
-            Ok(_child) => info!("Econometrica sidecar started on :7430"),
-            Err(e) => warn!("Failed to start Econometrica sidecar: {e}"),
-        }
-    }
+#[tauri::command]
+async fn econ_sidecar_wait_ready() -> bool {
+    econ_sidecar::wait_for_sidecar_ready().await
 }
 
 fn start_rag_server() {
@@ -2235,6 +2207,14 @@ fn build_app() -> Result<(), String> {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(state.clone())
+        .setup(|app| {
+            // Start Econometrica Python sidecar on app launch
+            if commands::online_auth::is_econometrica() {
+                let app_handle = app.handle().clone();
+                econ_sidecar::start_sidecar(&app_handle);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_cabinets,
             get_license_status,
@@ -2343,7 +2323,8 @@ fn build_app() -> Result<(), String> {
             commands::project::project_activate,
             commands::project::project_get_active,
             commands::project::project_stats,
-            // Econometrica: compute sidecar proxy
+            // Econometrica: sidecar lifecycle + compute proxy
+            econ_sidecar_wait_ready,
             commands::econometrica::econ_health,
             commands::econometrica::econ_validate,
             commands::econometrica::econ_train,
@@ -2362,6 +2343,7 @@ fn build_app() -> Result<(), String> {
                 // Idempotent shutdown — safe to call even if never started
                 stop_rag_server();
                 stop_parser_server();
+                econ_sidecar::stop_sidecar();
             }
         })
         .run(tauri::generate_context!())
@@ -2379,10 +2361,7 @@ pub fn run() {
         start_parser_server();
     }
 
-    // Auto-start Econometrica Python sidecar
-    if online_auth::is_econometrica() {
-        start_econometrica_sidecar();
-    }
+    // Econometrica sidecar is now started in build_app().setup() with app_handle context.
 
     match build_app() {
         Ok(()) => {}

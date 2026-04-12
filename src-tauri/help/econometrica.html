@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Справка — Aurora AI Econometrica</title>
+<style>
+:root { --bg: #1a1a2e; --bg2: #16213e; --bg3: #24243a; --text: #e0e0e0; --text2: #a0a0b0; --accent: #0EA5E9; --border: #2a2a4a; --green: #10B981; --amber: #F59E0B; --red: #EF4444; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+nav { position: sticky; top: 0; background: var(--bg2); border-bottom: 2px solid var(--accent); padding: 16px 32px; z-index: 10; text-align: center; }
+nav a { color: var(--accent); text-decoration: none; margin-right: 16px; font-size: 14px; }
+nav a:hover { text-decoration: underline; }
+.container { max-width: 840px; margin: 0 auto; padding: 32px; }
+h1 { font-size: 28px; margin-bottom: 8px; color: var(--accent); }
+h2 { font-size: 20px; margin-top: 40px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--accent); }
+h3 { font-size: 16px; margin-top: 24px; margin-bottom: 8px; }
+p, li { font-size: 14px; margin-bottom: 8px; }
+ul, ol { padding-left: 24px; margin-bottom: 16px; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); font-size: 13px; }
+th { background: var(--bg3); color: var(--accent); }
+tr:hover { background: var(--bg3); }
+code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: var(--accent); }
+.subtitle { color: var(--text2); font-size: 16px; margin-bottom: 32px; }
+.step { background: var(--bg3); padding: 16px; border-radius: 8px; margin-bottom: 12px; border-left: 3px solid var(--accent); }
+.step-num { display: inline-block; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: white; text-align: center; line-height: 28px; font-weight: 700; margin-right: 10px; font-size: 13px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-left: 8px; }
+.badge-green { background: rgba(16,185,129,.15); color: var(--green); border: 1px solid rgba(16,185,129,.3); }
+.badge-amber { background: rgba(245,158,11,.15); color: var(--amber); border: 1px solid rgba(245,158,11,.3); }
+.faq dt { font-weight: 600; margin-top: 16px; color: var(--text); }
+.faq dd { margin-left: 0; margin-bottom: 12px; color: var(--text2); }
+.tip { background: rgba(14,165,233,.1); border: 1px solid rgba(14,165,233,.3); border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="index.html">← Главная</a>
+  <a href="user-guide.html">Руководство</a>
+  <a href="econometrist.html">Кабинет эконометриста</a>
+  <a href="pipeline.html">Pipeline</a>
+  <a href="about.html">О продукте</a>
+</nav>
+<div class="container">
+
+<h1>Aurora AI Econometrica</h1>
+<p class="subtitle">Marketing Mix Modeling — визуальная рабочая среда для анализа эффективности медиа</p>
+
+<h2>Что такое Aurora AI Econometrica</h2>
+<p>Aurora AI Econometrica — десктопное приложение для <strong>Marketing Mix Modeling (MMM)</strong>. Байесовская модель (PyMC-Marketing) считается локально на вашем компьютере — данные не уходят в интернет.</p>
+<p>Приложение состоит из двух рабочих режимов:</p>
+<ul>
+  <li><strong>Visual Pipeline</strong> — 6-шаговый интерактивный процесс: Import → Validate → Model → Decompose → Optimize → Report</li>
+  <li><strong>Кабинет эконометриста</strong> — чат-интерфейс для power users и нестандартных запросов</li>
+</ul>
+
+<h2>Быстрый старт</h2>
+<div class="step"><span class="step-num">1</span><strong>Подготовьте данные</strong> — Excel-файл (.xlsx) с колонками: дата, KPI (продажи), медиарасходы, контрольные переменные (сезонность, цена). Минимум 52 недели.</div>
+<div class="step"><span class="step-num">2</span><strong>Создайте проект</strong> — кнопка «Новый проект» на главной. Дайте проекту название.</div>
+<div class="step"><span class="step-num">3</span><strong>Загрузите данные</strong> — перетащите xlsx-файл в зону Import или нажмите «Выбрать файл».</div>
+<div class="step"><span class="step-num">4</span><strong>Настройте колонки</strong> — укажите, какие колонки содержат KPI, медиа и контрольные переменные. Приложение определяет роли автоматически.</div>
+<div class="step"><span class="step-num">5</span><strong>Обучите модель</strong> — настройте параметры (или оставьте defaults) и нажмите «Обучить». Процесс занимает 5–30 минут в зависимости от объёма данных.</div>
+<div class="step"><span class="step-num">6</span><strong>Исследуйте результаты</strong> — Decompose показывает вклад каждого канала, Optimize — оптимальное распределение бюджета.</div>
+<div class="step"><span class="step-num">7</span><strong>Создайте отчёт</strong> — экспортируйте результаты в PPTX или DOCX.</div>
+
+<h2>Требования к данным</h2>
+<table>
+  <tr><th>Параметр</th><th>Требование</th><th>Рекомендация</th></tr>
+  <tr><td>Формат файла</td><td>Excel (.xlsx)</td><td>Один лист, без объединённых ячеек</td></tr>
+  <tr><td>Период</td><td>Минимум 52 точки</td><td>2+ года для надёжной модели</td></tr>
+  <tr><td>Гранулярность</td><td>Недельная или месячная</td><td>Недельные данные предпочтительны</td></tr>
+  <tr><td>KPI</td><td>Числовой, без пропусков</td><td>Продажи в штуках или деньгах</td></tr>
+  <tr><td>Медиаколонки</td><td>Минимум 2</td><td>Расходы в одинаковой валюте</td></tr>
+  <tr><td>Пропуски</td><td>Допускаются (≤20%)</td><td>Заполните нулями для медиа</td></tr>
+</table>
+
+<h2>Visual Pipeline — 6 шагов</h2>
+
+<h3>Шаг 1: Import (Импорт)</h3>
+<p>Загрузите xlsx-файл. После загрузки отображается превью первых строк для проверки.</p>
+
+<h3>Шаг 2: Validate (Валидация)</h3>
+<p>Автоматическая проверка данных:</p>
+<ul>
+  <li>Определение ролей колонок (KPI, медиа, контроль, дата)</li>
+  <li>Светофор качества: <span class="badge badge-green">Зелёный</span> — готово к обучению, <span class="badge badge-amber">Жёлтый</span> — есть предупреждения, проверьте</li>
+  <li>Матрица корреляций — выявляет мультиколлинеарность</li>
+</ul>
+
+<h3>Шаг 3: Model (Обучение)</h3>
+<p>Настройте параметры и запустите MCMC-обучение:</p>
+<ul>
+  <li><strong>Adstock</strong> — тип эффекта накопления рекламы (geometric / weibull)</li>
+  <li><strong>MCMC samples</strong> — больше выборок = точнее, но дольше (default: 1000)</li>
+  <li>Прогресс-бар обновляется в реальном времени каждые 2 секунды</li>
+  <li><strong>MQS</strong> (Model Quality Score) — итоговая оценка качества модели от 0 до 10</li>
+</ul>
+<div class="tip">💡 R-hat &lt; 1.05 = хорошая сходимость. R-hat &gt; 1.1 = попробуйте увеличить количество выборок.</div>
+
+<h3>Шаг 4: Decompose (Декомпозиция)</h3>
+<p>Waterfall-диаграмма показывает вклад каждого канала в итоговый KPI:</p>
+<ul>
+  <li>Baseline — органические продажи без рекламы</li>
+  <li>Каждый медиаканал — инкрементальный вклад</li>
+  <li>ROI по каждому каналу (отдача на вложенный рубль)</li>
+</ul>
+
+<h3>Шаг 5: Optimize (Оптимизация)</h3>
+<p>Интерактивный оптимизатор бюджета:</p>
+<ul>
+  <li>Слайдеры для каждого канала — перемещайте для изменения аллокации</li>
+  <li>Кривые насыщения (response curves) — видно, где бюджет перераспределить</li>
+  <li>Кнопка «Оптимизировать» — автоматический поиск оптимального распределения</li>
+  <li>Сценарии — сохраняйте и сравнивайте варианты аллокации</li>
+</ul>
+
+<h3>Шаг 6: Report (Отчёт)</h3>
+<p>Генерация executive-отчёта с интерпретацией результатов. Форматы: PPTX, DOCX.</p>
+
+<h2>Кабинет эконометриста</h2>
+<p>Чат-режим для продвинутых запросов. Доступные команды:</p>
+<table>
+  <tr><th>Команда</th><th>Описание</th></tr>
+  <tr><td>/validate</td><td>Валидация и анализ загруженных данных</td></tr>
+  <tr><td>/train</td><td>Запуск обучения MMM-модели</td></tr>
+  <tr><td>/decompose</td><td>Декомпозиция продаж по каналам</td></tr>
+  <tr><td>/optimize</td><td>Оптимизация бюджетных аллокаций</td></tr>
+  <tr><td>/scenario</td><td>Моделирование медиаплана</td></tr>
+  <tr><td>/compare</td><td>Сравнение сценариев</td></tr>
+  <tr><td>/awareness-forecast</td><td>Прогноз знания марки</td></tr>
+  <tr><td>/awareness-sales</td><td>S-кривая знание → продажи</td></tr>
+</table>
+
+<h2>Часто задаваемые вопросы</h2>
+<dl class="faq">
+  <dt>Сколько времени занимает обучение модели?</dt>
+  <dd>5–30 минут в зависимости от количества данных и параметров MCMC. Прогресс отображается в реальном времени. Не закрывайте приложение во время обучения.</dd>
+
+  <dt>Что такое Adstock и какой тип выбрать?</dt>
+  <dd><strong>Geometric</strong> — экспоненциальное затухание, подходит для большинства медиаканалов (ТВ, digital). <strong>Weibull</strong> — более гибкая форма кривой, используйте для каналов с нелинейным carry-over (например, OOH).</dd>
+
+  <dt>Модель обучилась, но MQS низкий. Что делать?</dt>
+  <dd>Проверьте качество данных (нет ли пропусков, аномалий). Попробуйте увеличить количество MCMC-выборок. Убедитесь, что период данных охватывает разные уровни медиаактивности.</dd>
+
+  <dt>Можно ли использовать ежемесячные данные?</dt>
+  <dd>Да, но недельные данные дают более надёжную модель. При месячных данных рекомендуется минимум 36 точек (3 года).</dd>
+
+  <dt>Приложение показывает «Compute engine: unavailable»</dt>
+  <dd>Python-движок запускается автоматически при старте приложения. Если статус не меняется на «ready» в течение 30 секунд — перезапустите приложение. Убедитесь, что Python 3.10+ установлен в системе (или используйте установщик с bundled engine).</dd>
+
+  <dt>Как экспортировать данные для другого аналитика?</dt>
+  <dd>Результаты хранятся в папке проекта (раздел «Настройки» → «Папки проектов»). JSON-файлы с результатами можно передать напрямую.</dd>
+</dl>
+
+<h2>Технические детали</h2>
+<p>Aurora AI Econometrica работает полностью локально:</p>
+<ul>
+  <li>Данные обрабатываются только на вашем компьютере</li>
+  <li>Python-движок (FastAPI) запускается как фоновый процесс на порту 7430</li>
+  <li>MCMC-вычисления: PyMC-Marketing (Bayesian MMM)</li>
+  <li>Оптимизация бюджета: scipy SLSQP</li>
+  <li>Кривые насыщения: Hill function с параметрами alpha, gamma из обученной модели</li>
+</ul>
+
+<p style="margin-top:40px; color:var(--text2); font-size:12px;">Aurora AI Econometrica — часть Aurora AI Platform. Версия 1.0.0</p>
+</div>
+</body>
+</html>
