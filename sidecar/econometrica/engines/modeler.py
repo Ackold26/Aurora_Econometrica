@@ -42,7 +42,7 @@ def get_mcmc_params(has_compiler: bool) -> dict:
     return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'Metropolis'}
 
 
-def train_model(config: dict, project_dir: str) -> dict[str, Any]:
+def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[str, Any]:
     """Train a Bayesian MMM model.
 
     Args:
@@ -60,11 +60,21 @@ def train_model(config: dict, project_dir: str) -> dict[str, Any]:
     Returns:
         JSON-serializable result with diagnostics
     """
+    def report(phase: str, pct: int = 0, **_kw):
+        """A1: phase-level progress — no per-draw callback instability."""
+        if progress_callback:
+            try:
+                progress_callback({'phase': phase, 'pct': pct})
+            except Exception:
+                pass  # never crash training due to callback error
+
     project_path = Path(project_dir)
     models_dir = project_path / 'models'
     results_dir = project_path / 'results'
     models_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
+
+    report('loading', pct=10)
 
     # Read data
     data_file = config['data_file']
@@ -114,6 +124,8 @@ def train_model(config: dict, project_dir: str) -> dict[str, Any]:
     draws = mcmc.get('draws', 1000)
     tune = mcmc.get('tune', 500)
 
+    report('compiling', pct=20)
+
     logger.info(f"Training MMM: {n_obs} obs, {len(media_cols)} media, {len(control_cols)} control, "
                 f"MCMC: {chains} chains × {draws} draws (compiler={'yes' if has_compiler else 'no'})")
 
@@ -155,22 +167,48 @@ def train_model(config: dict, project_dir: str) -> dict[str, Any]:
             sigma = pm.HalfNormal('sigma', sigma=0.5)
             pm.Normal('obs', mu=mu, sigma=sigma, observed=y_norm)
 
-            # Sample
-            trace = pm.sample(
-                draws=draws,
-                tune=tune,
-                chains=chains,
-                cores=1,  # Windows compatibility
-                return_inferencedata=True,
-                progressbar=True,
-            )
+            # A1: report sampling start — pct stays at 25 during 3-15 min MCMC
+            # elapsed timer in UI shows progress is alive
+            report('sampling', pct=25)
+
+            # A1 bonus: try per-draw callback; fallback if PyMC API unavailable/broken
+            try:
+                def _draw_cb(trace_slice, draw):
+                    pass  # Phase 3 uses phase-level only; per-draw in Phase 4 if needed
+                trace = pm.sample(
+                    draws=draws,
+                    tune=tune,
+                    chains=chains,
+                    cores=1,
+                    return_inferencedata=True,
+                    progressbar=True,
+                    callback=_draw_cb,
+                )
+            except TypeError:
+                # Older PyMC version without callback param
+                trace = pm.sample(
+                    draws=draws,
+                    tune=tune,
+                    chains=chains,
+                    cores=1,
+                    return_inferencedata=True,
+                    progressbar=True,
+                )
+
+        report('diagnostics', pct=90)
 
         # Diagnostics
         r_hat_values = []
+        per_param_rhat = {}
         try:
             import arviz as az
             summary = az.summary(trace)
             r_hat_values = summary['r_hat'].values.tolist()
+            # C1: filter to key params only (intercept, sigma, media_betas[i])
+            key_params = {'intercept', 'sigma'} | {f'media_betas[{i}]' for i in range(len(media_cols))}
+            for param in summary.index:
+                if param in key_params:
+                    per_param_rhat[param] = round(float(summary.loc[param, 'r_hat']), 4)
         except Exception:
             pass
 
@@ -182,6 +220,14 @@ def train_model(config: dict, project_dir: str) -> dict[str, Any]:
 
         y_pred_norm = ppc.posterior_predictive['obs'].mean(dim=['chain', 'draw']).values
         y_pred = y_pred_norm * y_std + y_mean
+
+        # C2: actual_vs_predicted with dates
+        dates_list = None
+        if date_col in df.columns:
+            try:
+                dates_list = df[date_col].dt.strftime('%Y-%m-%d').tolist()
+            except Exception:
+                dates_list = None
 
         # Metrics
         from utils.diagnostics import compute_r_squared, compute_mape, compute_rmse, generate_diagnostics_summary
@@ -195,6 +241,13 @@ def train_model(config: dict, project_dir: str) -> dict[str, Any]:
             r_hat_max=r_hat_max, divergences=divergences,
             n_obs=n_obs, n_params=n_params,
         )
+        # Enrich diagnostics with per-param R-hat and actual_vs_predicted
+        diagnostics['per_param_rhat'] = per_param_rhat
+        diagnostics['actual_vs_predicted'] = {
+            'actual': [round(float(v), 4) for v in y.tolist()],
+            'predicted': [round(float(v), 4) for v in y_pred.tolist()],
+            'dates': dates_list,
+        }
 
         # Extract posterior means for channel contributions
         media_beta_means = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values.tolist()
@@ -209,6 +262,8 @@ def train_model(config: dict, project_dir: str) -> dict[str, Any]:
                 'gamma': round(gamma_means[i], 4),
                 'adstock': adstock_params_used[col],
             }
+
+        report('saving', pct=95)
 
         # Save model
         model_data = {
@@ -245,6 +300,8 @@ def train_model(config: dict, project_dir: str) -> dict[str, Any]:
         result_path = results_dir / 'model-diagnostics.json'
         with open(result_path, 'w', encoding='utf-8') as f:
             json.dump(diagnostics, f, ensure_ascii=False, indent=2)
+
+        report('complete', pct=100)
 
         return {
             'status': 'ok',

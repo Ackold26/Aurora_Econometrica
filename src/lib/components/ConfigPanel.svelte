@@ -8,9 +8,24 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { activeProjectId, pipelineState, isComputing, computeStatus } from '$lib/project-state.js';
+  import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
-  /** @type {{ validation: any, onModelTrained?: (diagnostics: any) => void }} */
-  let { validation, onModelTrained } = $props();
+  /**
+   * @type {{
+   *   validation: any,
+   *   onModelTrained?: (diagnostics: any) => void,
+   *   useAsyncTraining?: boolean,
+   *   onTrainingStarted?: (taskId: string) => void,
+   *   lastConfig?: any,
+   * }}
+   */
+  let {
+    validation,
+    onModelTrained,
+    useAsyncTraining = false,
+    onTrainingStarted,
+    lastConfig = $bindable(null),
+  } = $props();
 
   let showAdvanced = $state(false);
 
@@ -86,22 +101,32 @@
         },
       });
 
+      const config = {
+        project_dir: projectDir,
+        data_file: $pipelineState?.data?.file || '',
+        kpi_column: selectedKpi,
+        media_columns: enabledChannels,
+        control_columns: controlColumns,
+        date_column: validation?.detected?.date || 'date',
+        adstock_config: Object.fromEntries(
+          enabledChannels.map(ch => [ch, channelAdstock[ch] || 'geometric'])
+        ),
+        mcmc_override: showAdvanced ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune } : null,
+      };
+
+      // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)
+      if (useAsyncTraining) {
+        lastConfig = config;
+        const start = await invoke('econ_train_start', { config });
+        onTrainingStarted?.(start.task_id);
+        // isComputing stays true — TrainingProgress component takes over
+        return;
+      }
+
+      // ── Original sync flow (chat-first cabinet) — UNTOUCHED ──
       computeStatus.set('Обучаю модель (MCMC сэмплирование)...');
 
-      const result = await invoke('econ_train', {
-        config: {
-          project_dir: projectDir,
-          data_file: validation?.detected?.kpi ? $pipelineState.data.file : '',
-          kpi_column: selectedKpi,
-          media_columns: enabledChannels,
-          control_columns: controlColumns,
-          date_column: validation?.detected?.date || 'date',
-          adstock_config: Object.fromEntries(
-            enabledChannels.map(ch => [ch, channelAdstock[ch] || 'geometric'])
-          ),
-          mcmc_override: showAdvanced ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune } : null,
-        },
-      });
+      const result = await invoke('econ_train', { config });
 
       if (result.status === 'ok') {
         computeStatus.set('Модель готова!');
@@ -161,22 +186,25 @@
     </div>
   </div>
 
-  <!-- Adstock (inline, minimal) -->
+  <!-- Adstock (inline, minimal) + AdstockPreview -->
   <div class="config-group">
     <label class="config-label">
       Adstock
       <span class="config-hint">Тип отложенного эффекта</span>
     </label>
-    <select class="config-select" onchange={(e) => {
-      const val = /** @type {HTMLSelectElement} */ (e.target).value;
-      const updated = {...channelAdstock};
-      for (const ch of Object.keys(updated)) updated[ch] = val;
-      channelAdstock = updated;
-    }}>
-      <option value="auto">Авто (digital=мгновенный, TV=отложенный)</option>
-      <option value="geometric">Geometric (все каналы)</option>
-      <option value="weibull">Weibull (все каналы)</option>
-    </select>
+    <div class="adstock-with-preview">
+      <select class="config-select" onchange={(e) => {
+        const val = /** @type {HTMLSelectElement} */ (e.target).value;
+        const updated = {...channelAdstock};
+        for (const ch of Object.keys(updated)) updated[ch] = val;
+        channelAdstock = updated;
+      }}>
+        <option value="auto">Авто (digital=мгновенный, TV=отложенный)</option>
+        <option value="geometric">Geometric (все каналы)</option>
+        <option value="weibull">Weibull (все каналы)</option>
+      </select>
+      <AdstockPreview type={Object.values(channelAdstock)[0] === 'weibull' ? 'weibull' : 'geometric'} />
+    </div>
   </div>
 
   <!-- Advanced (collapsible) -->
@@ -321,6 +349,12 @@
   .channel-item.disabled { opacity: 0.5; }
   .channel-item input[type="checkbox"] { width: 14px; height: 14px; }
   .channel-warn { color: var(--warning, #f59e0b); font-size: 10px; }
+
+  .adstock-with-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
 
   .advanced-toggle {
     background: transparent;

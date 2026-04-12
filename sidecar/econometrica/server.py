@@ -6,6 +6,9 @@ Port: 7430
 import json
 import logging
 import sys
+import threading
+import uuid
+import time
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +59,17 @@ class TrainRequest(BaseModel):
     mcmc_override: dict | None = None
 
 
+class TrainStartRequest(BaseModel):
+    project_dir: str
+    data_file: str
+    kpi_column: str
+    media_columns: list[str]
+    control_columns: list[str] = []
+    date_column: str = 'date'
+    adstock_config: dict[str, str] = {}
+    mcmc_override: dict | None = None
+
+
 class DecomposeRequest(BaseModel):
     project_dir: str
 
@@ -92,6 +106,12 @@ class AwarenessSalesRequest(BaseModel):
 class ChartRequest(BaseModel):
     project_dir: str
     chart_type: str  # 'waterfall', 'response_curves', 'awareness', 's_curve', 'mqs'
+
+
+# ── Async training state ─────────────────────────────
+# task_id → {status, phase, pct, elapsed_sec, result, error, started_at}
+_training_tasks: dict[str, dict] = {}
+_training_lock = threading.Lock()
 
 
 # ── Health ───────────────────────────────────────────
@@ -145,6 +165,85 @@ def train_model(req: TrainRequest):
     project_dir = config.pop('project_dir')
     result = _train(config, project_dir)
     return JSONResponse(content=result)
+
+
+@app.post('/compute/train/start')
+def train_start(req: TrainStartRequest):
+    """Start async training. Returns task_id immediately."""
+    task_id = str(uuid.uuid4())
+    config = req.model_dump()
+    config.pop('project_dir')
+    project_dir = req.project_dir
+
+    with _training_lock:
+        _training_tasks[task_id] = {
+            'status': 'running',
+            'phase': 'loading',
+            'pct': 0,
+            'elapsed_sec': 0,
+            'started_at': time.time(),
+            'result': None,
+            'error': None,
+        }
+
+    def run():
+        from engines.modeler import train_model as _train
+
+        def progress_callback(info: dict):
+            with _training_lock:
+                task = _training_tasks.get(task_id)
+                if task:
+                    task['phase'] = info.get('phase', task['phase'])
+                    task['pct'] = info.get('pct', task['pct'])
+                    task['elapsed_sec'] = round(time.time() - task['started_at'], 1)
+
+        try:
+            result = _train(config, project_dir, progress_callback=progress_callback)
+            with _training_lock:
+                task = _training_tasks.get(task_id)
+                if task:
+                    task['status'] = 'done' if result.get('status') == 'ok' else 'error'
+                    task['pct'] = 100
+                    task['elapsed_sec'] = round(time.time() - task['started_at'], 1)
+                    task['result'] = result
+                    task['error'] = result.get('message') if result.get('status') == 'error' else None
+        except Exception as e:
+            logger.exception('Async training failed')
+            with _training_lock:
+                task = _training_tasks.get(task_id)
+                if task:
+                    task['status'] = 'error'
+                    task['error'] = str(e)
+
+    threading.Thread(target=run, daemon=True).start()
+    return {'task_id': task_id, 'status': 'running'}
+
+
+@app.get('/compute/train/progress')
+def train_progress():
+    """Get current training progress (latest task)."""
+    with _training_lock:
+        if not _training_tasks:
+            return {'status': 'idle', 'pct': 0}
+        # Return the most recently started task
+        task_id = max(_training_tasks, key=lambda k: _training_tasks[k]['started_at'])
+        task = _training_tasks[task_id].copy()
+        task['elapsed_sec'] = round(time.time() - task['started_at'], 1)
+    return {'task_id': task_id, **{k: v for k, v in task.items() if k not in ('result', 'error', 'started_at')}}
+
+
+@app.get('/compute/train/result/{task_id}')
+def train_result(task_id: str):
+    """Get training result. C3: cleans up task after consumption."""
+    with _training_lock:
+        task = _training_tasks.get(task_id)
+        if not task:
+            return {'status': 'not_found'}
+        if task['status'] in ('done', 'error'):
+            result = task.get('result') or {'status': 'error', 'message': task.get('error', 'Unknown error')}
+            del _training_tasks[task_id]  # C3: cleanup after consumption
+            return result
+    return {'status': 'pending'}
 
 
 @app.post('/compute/decompose')

@@ -8,6 +8,7 @@
   import StepWrapper from '$lib/components/pipeline/StepWrapper.svelte';
   import ImportStep from '$lib/components/pipeline/ImportStep.svelte';
   import ValidateStep from '$lib/components/pipeline/ValidateStep.svelte';
+  import ModelTrainingStep from '$lib/components/pipeline/ModelTrainingStep.svelte';
   import { completeStep } from '$lib/project-state.js';
 </script>
 
@@ -24,17 +25,9 @@
     <ValidateStep />
   </StepWrapper>
 
-  <!-- Step 2: Model -->
+  <!-- Step 2: Model — Phase 3 -->
   <StepWrapper step={2}>
-    <div class="step-placeholder">
-      <div class="placeholder-icon">🧠</div>
-      <h3>Обучение модели</h3>
-      <p>Bayesian Marketing Mix Model (PyMC-Marketing) с adstock и saturation.</p>
-      <p class="note">ConfigPanel + ConvergenceDashboard (ECharts) — Фаза 3</p>
-      <button class="dev-btn" onclick={() => completeStep(2)}>
-        Dev: отметить готово →
-      </button>
-    </div>
+    <ModelTrainingStep />
   </StepWrapper>
 
   <!-- Step 3: Decompose -->

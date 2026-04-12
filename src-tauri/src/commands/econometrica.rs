@@ -104,6 +104,39 @@ pub async fn econ_awareness_sales(config: Value) -> Result<Value, String> {
     post_json("/compute/awareness/sales", &config, QUICK_TIMEOUT_SECS).await
 }
 
+// ── Async training ───────────────────────────────────
+
+#[tauri::command]
+pub async fn econ_train_start(config: Value) -> Result<Value, String> {
+    info!("econ_train_start: {:?}", config.get("kpi_column"));
+    post_json("/compute/train/start", &config, QUICK_TIMEOUT_SECS).await
+}
+
+#[tauri::command]
+pub async fn econ_train_progress() -> Result<Value, String> {
+    client(5)
+        .get(format!("{ECON_BASE}/compute/train/progress"))
+        .send()
+        .await
+        .map_err(|e| format!("Вычислительный модуль недоступен: {e}"))?
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Ошибка парсинга ответа: {e}"))
+}
+
+#[tauri::command]
+pub async fn econ_train_result(task_id: String) -> Result<Value, String> {
+    info!("econ_train_result: {task_id}");
+    client(QUICK_TIMEOUT_SECS)
+        .get(format!("{ECON_BASE}/compute/train/result/{task_id}"))
+        .send()
+        .await
+        .map_err(|e| format!("Вычислительный модуль недоступен: {e}"))?
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Ошибка парсинга ответа: {e}"))
+}
+
 // ── Data Preview ─────────────────────────────────────
 
 #[tauri::command]
