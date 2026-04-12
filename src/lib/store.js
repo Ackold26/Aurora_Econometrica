@@ -61,7 +61,7 @@ export const panelWidth = createPersistentStore('ai-agency-panel-width', 240);
 /** @type {import('svelte/store').Writable<boolean>} */
 export const hasCompletedOnboarding = createPersistentStore('ai-agency-onboarding-complete', false);
 
-/** @type {import('svelte/store').Writable<'dark'|'light'>} */
+/** @type {import('svelte/store').Writable<'dark'|'light'|'fun'>} */
 export const theme = createPersistentStore('ai-agency-theme', 'dark');
 
 /**
