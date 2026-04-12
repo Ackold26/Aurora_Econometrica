@@ -3,166 +3,400 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Справка — Aurora AI Econometrica</title>
+<title>Visual Pipeline — Aurora AI Econometrica</title>
+<script src="nav.js" defer></script>
 <style>
-:root { --bg: #1a1a2e; --bg2: #16213e; --bg3: #24243a; --text: #e0e0e0; --text2: #a0a0b0; --accent: #0EA5E9; --border: #2a2a4a; --green: #10B981; --amber: #F59E0B; --red: #EF4444; }
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
+  --text: #e6edf3; --text2: #8b949e; --text3: #58a6ff;
+  --accent: #58a6ff; --border: #30363d;
+  --green: #3fb950; --amber: #d29922; --red: #f85149;
+  --purple: #bc8cff; --teal: #39d0d8;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
-nav { position: sticky; top: 0; background: var(--bg2); border-bottom: 2px solid var(--accent); padding: 16px 32px; z-index: 10; text-align: center; }
-nav a { color: var(--accent); text-decoration: none; margin-right: 16px; font-size: 14px; }
-nav a:hover { text-decoration: underline; }
-.container { max-width: 840px; margin: 0 auto; padding: 32px; }
-h1 { font-size: 28px; margin-bottom: 8px; color: var(--accent); }
-h2 { font-size: 20px; margin-top: 40px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--accent); }
-h3 { font-size: 16px; margin-top: 24px; margin-bottom: 8px; }
-p, li { font-size: 14px; margin-bottom: 8px; }
-ul, ol { padding-left: 24px; margin-bottom: 16px; }
-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-th, td { padding: 10px 12px; text-align: left; border: 1px solid var(--border); font-size: 13px; }
-th { background: var(--bg3); color: var(--accent); }
-tr:hover { background: var(--bg3); }
-code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: var(--accent); }
-.subtitle { color: var(--text2); font-size: 16px; margin-bottom: 32px; }
-.step { background: var(--bg3); padding: 16px; border-radius: 8px; margin-bottom: 12px; border-left: 3px solid var(--accent); }
-.step-num { display: inline-block; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: white; text-align: center; line-height: 28px; font-weight: 700; margin-right: 10px; font-size: 13px; }
-.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-left: 8px; }
-.badge-green { background: rgba(16,185,129,.15); color: var(--green); border: 1px solid rgba(16,185,129,.3); }
-.badge-amber { background: rgba(245,158,11,.15); color: var(--amber); border: 1px solid rgba(245,158,11,.3); }
-.faq dt { font-weight: 600; margin-top: 16px; color: var(--text); }
-.faq dd { margin-left: 0; margin-bottom: 12px; color: var(--text2); }
-.tip { background: rgba(14,165,233,.1); border: 1px solid rgba(14,165,233,.3); border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 13px; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+.container { max-width: 860px; margin: 0 auto; padding: 40px 32px 80px; }
+
+h1 { font-size: 30px; font-weight: 700; color: var(--text); margin-bottom: 6px; letter-spacing: -0.02em; }
+h2 { font-size: 20px; font-weight: 700; color: var(--text); margin: 48px 0 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; color: var(--text); margin: 24px 0 8px; }
+p  { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Cascadia Code', 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 8px 12px; text-align: left; border: 1px solid var(--border); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; }
+td { padding: 9px 12px; border: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+td:first-child { color: var(--text); font-weight: 500; }
+tr:hover td { background: var(--bg3); }
+
+/* Hero */
+.hero-sub { font-size: 16px; color: var(--text2); margin-bottom: 32px; }
+.mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 24px 0; }
+.mode-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+.mode-card.primary { border-color: rgba(88,166,255,0.35); background: rgba(88,166,255,0.05); }
+.mode-card h3 { margin: 0 0 6px; font-size: 15px; color: var(--text); }
+.mode-card p { margin: 0; font-size: 13px; }
+.mode-badge { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 10px; margin-left: 8px; font-weight: 700; vertical-align: middle; }
+.badge-new { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+.badge-adv { background: rgba(188,140,255,0.12); color: var(--purple); border: 1px solid rgba(188,140,255,0.25); }
+
+/* Pipeline overview */
+.pipeline-bar { display: flex; gap: 0; margin: 24px 0; overflow-x: auto; }
+.p-step { display: flex; align-items: center; flex: 1; min-width: 90px; }
+.p-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; text-align: center; flex: 1; }
+.p-box.done { border-color: rgba(63,185,80,0.4); background: rgba(63,185,80,0.06); }
+.p-box.active { border-color: rgba(88,166,255,0.5); background: rgba(88,166,255,0.07); }
+.p-box .num { font-size: 10px; font-weight: 700; color: var(--text2); }
+.p-box .name { font-size: 12px; font-weight: 600; color: var(--text); margin-top: 2px; }
+.p-box .stat { font-size: 10px; color: var(--green); margin-top: 1px; }
+.p-arrow { color: var(--border); font-size: 16px; margin: 0 4px; flex-shrink: 0; }
+
+/* Step sections */
+.step-section { margin-bottom: 40px; }
+.step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.step-badge { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+.step-badge.done { background: rgba(63,185,80,0.15); color: var(--green); border: 1.5px solid rgba(63,185,80,0.4); }
+.step-badge.upcoming { background: var(--bg3); color: var(--text2); border: 1.5px solid var(--border); }
+.step-title { font-size: 18px; font-weight: 700; color: var(--text); }
+.step-sub { font-size: 12px; color: var(--text2); margin-left: 2px; }
+
+/* Action boxes */
+.action-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin: 12px 0; display: flex; gap: 14px; align-items: flex-start; }
+.action-box .icon { font-size: 22px; flex-shrink: 0; margin-top: 1px; }
+.action-box .content h4 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.action-box .content p { font-size: 13px; margin: 0; }
+
+/* Tip / warn / note */
+.tip  { background: rgba(88,166,255,0.07); border: 1px solid rgba(88,166,255,0.2); border-radius: 8px; padding: 12px 16px; margin: 14px 0; font-size: 13px; color: var(--text2); }
+.tip strong  { color: var(--accent); }
+.warn { background: rgba(210,153,34,0.08); border: 1px solid rgba(210,153,34,0.25); border-radius: 8px; padding: 12px 16px; margin: 14px 0; font-size: 13px; color: var(--text2); }
+.warn strong { color: var(--amber); }
+.good { background: rgba(63,185,80,0.07); border: 1px solid rgba(63,185,80,0.2); border-radius: 8px; padding: 12px 16px; margin: 14px 0; font-size: 13px; color: var(--text2); }
+.good strong { color: var(--green); }
+
+/* Traffic light inline */
+.tl { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; }
+.tl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.tl-green { background: var(--green); box-shadow: 0 0 6px rgba(63,185,80,0.5); }
+.tl-yellow { background: var(--amber); box-shadow: 0 0 6px rgba(210,153,34,0.5); }
+.tl-red    { background: var(--red);   box-shadow: 0 0 6px rgba(248,81,73,0.5); }
+
+/* Naming table */
+.naming-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
+.naming-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.naming-card .zone { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px; }
+.naming-card.kpi .zone     { color: var(--green); }
+.naming-card.media .zone   { color: var(--accent); }
+.naming-card.ctrl .zone    { color: var(--purple); }
+.naming-card.date .zone    { color: var(--teal); }
+.naming-card .examples     { font-size: 12px; color: var(--text2); line-height: 1.7; }
+.naming-card .examples code { font-size: 11.5px; }
+
+/* FAQ */
+.faq dt { font-size: 14px; font-weight: 600; color: var(--text); margin-top: 20px; padding-left: 12px; border-left: 2px solid var(--accent); }
+.faq dd { font-size: 13px; color: var(--text2); margin: 6px 0 0 14px; }
+
+/* Coming soon */
+.coming-soon { background: var(--bg2); border: 1px dashed var(--border); border-radius: 10px; padding: 20px 24px; text-align: center; }
+.coming-soon .cs-icon { font-size: 32px; margin-bottom: 8px; }
+.coming-soon .cs-text { font-size: 13px; color: var(--text2); }
+.coming-soon .cs-text strong { color: var(--text); }
+
+/* Footer */
+.page-footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); flex-wrap: wrap; gap: 8px; }
+
+@media print { body { background: #fff; color: #000; } h2 { color: #0EA5E9; } th { background: #f0f0f0; } }
 </style>
 </head>
 <body>
-<nav>
-  <a href="index.html">← Главная</a>
-  <a href="user-guide.html">Руководство</a>
-  <a href="econometrist.html">Кабинет эконометриста</a>
-  <a href="pipeline.html">Pipeline</a>
-  <a href="about.html">О продукте</a>
-</nav>
 <div class="container">
 
-<h1>Aurora AI Econometrica</h1>
-<p class="subtitle">Marketing Mix Modeling — визуальная рабочая среда для анализа эффективности медиа</p>
+<h1>Visual Pipeline</h1>
+<p class="hero-sub">Пошаговое руководство по Aurora AI Econometrica — от данных до отчёта</p>
 
-<h2>Что такое Aurora AI Econometrica</h2>
-<p>Aurora AI Econometrica — десктопное приложение для <strong>Marketing Mix Modeling (MMM)</strong>. Байесовская модель (PyMC-Marketing) считается локально на вашем компьютере — данные не уходят в интернет.</p>
-<p>Приложение состоит из двух рабочих режимов:</p>
-<ul>
-  <li><strong>Visual Pipeline</strong> — 6-шаговый интерактивный процесс: Import → Validate → Model → Decompose → Optimize → Report</li>
-  <li><strong>Кабинет эконометриста</strong> — чат-интерфейс для power users и нестандартных запросов</li>
-</ul>
+<!-- Two modes -->
+<div class="mode-cards">
+  <div class="mode-card primary">
+    <h3>Visual Pipeline <span class="mode-badge badge-new">Рекомендуется</span></h3>
+    <p>Интерактивный 6-шаговый процесс с визуализациями. Drag-drop импорт, автоопределение колонок, корреляционная матрица, прогресс обучения, оптимизатор бюджета.</p>
+  </div>
+  <div class="mode-card">
+    <h3>Кабинет эконометриста <span class="mode-badge badge-adv">Продвинутый</span></h3>
+    <p>Чат-режим для нестандартных запросов и сценарного моделирования. Используйте после первого прохода через pipeline. <a href="econometrist.html">Подробная справка →</a></p>
+  </div>
+</div>
 
-<h2>Быстрый старт</h2>
-<div class="step"><span class="step-num">1</span><strong>Подготовьте данные</strong> — Excel-файл (.xlsx) с колонками: дата, KPI (продажи), медиарасходы, контрольные переменные (сезонность, цена). Минимум 52 недели.</div>
-<div class="step"><span class="step-num">2</span><strong>Создайте проект</strong> — кнопка «Новый проект» на главной. Дайте проекту название.</div>
-<div class="step"><span class="step-num">3</span><strong>Загрузите данные</strong> — перетащите xlsx-файл в зону Import или нажмите «Выбрать файл».</div>
-<div class="step"><span class="step-num">4</span><strong>Настройте колонки</strong> — укажите, какие колонки содержат KPI, медиа и контрольные переменные. Приложение определяет роли автоматически.</div>
-<div class="step"><span class="step-num">5</span><strong>Обучите модель</strong> — настройте параметры (или оставьте defaults) и нажмите «Обучить». Процесс занимает 5–30 минут в зависимости от объёма данных.</div>
-<div class="step"><span class="step-num">6</span><strong>Исследуйте результаты</strong> — Decompose показывает вклад каждого канала, Optimize — оптимальное распределение бюджета.</div>
-<div class="step"><span class="step-num">7</span><strong>Создайте отчёт</strong> — экспортируйте результаты в PPTX или DOCX.</div>
+<!-- Pipeline overview bar -->
+<div class="pipeline-bar">
+  <div class="p-step"><div class="p-box done"><div class="num">01</div><div class="name">Import</div><div class="stat">✓ готово</div></div></div>
+  <div class="p-arrow">›</div>
+  <div class="p-step"><div class="p-box done"><div class="num">02</div><div class="name">Validate</div><div class="stat">✓ готово</div></div></div>
+  <div class="p-arrow">›</div>
+  <div class="p-step"><div class="p-box active"><div class="num">03</div><div class="name">Model</div><div class="stat">скоро</div></div></div>
+  <div class="p-arrow">›</div>
+  <div class="p-step"><div class="p-box"><div class="num">04</div><div class="name">Decompose</div></div></div>
+  <div class="p-arrow">›</div>
+  <div class="p-step"><div class="p-box"><div class="num">05</div><div class="name">Optimize</div></div></div>
+  <div class="p-arrow">›</div>
+  <div class="p-step"><div class="p-box"><div class="num">06</div><div class="name">Report</div></div></div>
+</div>
 
-<h2>Требования к данным</h2>
-<table>
-  <tr><th>Параметр</th><th>Требование</th><th>Рекомендация</th></tr>
-  <tr><td>Формат файла</td><td>Excel (.xlsx)</td><td>Один лист, без объединённых ячеек</td></tr>
-  <tr><td>Период</td><td>Минимум 52 точки</td><td>2+ года для надёжной модели</td></tr>
-  <tr><td>Гранулярность</td><td>Недельная или месячная</td><td>Недельные данные предпочтительны</td></tr>
-  <tr><td>KPI</td><td>Числовой, без пропусков</td><td>Продажи в штуках или деньгах</td></tr>
-  <tr><td>Медиаколонки</td><td>Минимум 2</td><td>Расходы в одинаковой валюте</td></tr>
-  <tr><td>Пропуски</td><td>Допускаются (≤20%)</td><td>Заполните нулями для медиа</td></tr>
-</table>
 
-<h2>Visual Pipeline — 6 шагов</h2>
+<!-- ═══════════════════════════════════════════════
+     STEP 1: IMPORT
+═══════════════════════════════════════════════ -->
+<h2>Шаг 1: Импорт данных</h2>
 
-<h3>Шаг 1: Import (Импорт)</h3>
-<p>Загрузите xlsx-файл. После загрузки отображается превью первых строк для проверки.</p>
+<div class="step-section">
+  <div class="step-header">
+    <div class="step-badge done">1</div>
+    <div><div class="step-title">Загрузите файл с данными</div>
+    <div class="step-sub">Поддерживаются форматы .xlsx, .xls, .csv</div></div>
+  </div>
 
-<h3>Шаг 2: Validate (Валидация)</h3>
-<p>Автоматическая проверка данных:</p>
-<ul>
-  <li>Определение ролей колонок (KPI, медиа, контроль, дата)</li>
-  <li>Светофор качества: <span class="badge badge-green">Зелёный</span> — готово к обучению, <span class="badge badge-amber">Жёлтый</span> — есть предупреждения, проверьте</li>
-  <li>Матрица корреляций — выявляет мультиколлинеарность</li>
-</ul>
+  <h3>Как загрузить файл</h3>
 
-<h3>Шаг 3: Model (Обучение)</h3>
-<p>Настройте параметры и запустите MCMC-обучение:</p>
-<ul>
-  <li><strong>Adstock</strong> — тип эффекта накопления рекламы (geometric / weibull)</li>
-  <li><strong>MCMC samples</strong> — больше выборок = точнее, но дольше (default: 1000)</li>
-  <li>Прогресс-бар обновляется в реальном времени каждые 2 секунды</li>
-  <li><strong>MQS</strong> (Model Quality Score) — итоговая оценка качества модели от 0 до 10</li>
-</ul>
-<div class="tip">💡 R-hat &lt; 1.05 = хорошая сходимость. R-hat &gt; 1.1 = попробуйте увеличить количество выборок.</div>
+  <div class="action-box">
+    <div class="icon">🖱️</div>
+    <div class="content">
+      <h4>Способ 1 — Перетащить файл</h4>
+      <p>Перетащите файл прямо на зону импорта (серая область с иконкой 📂). Зона подсветится синим при наведении — отпустите файл.</p>
+    </div>
+  </div>
 
-<h3>Шаг 4: Decompose (Декомпозиция)</h3>
-<p>Waterfall-диаграмма показывает вклад каждого канала в итоговый KPI:</p>
-<ul>
-  <li>Baseline — органические продажи без рекламы</li>
-  <li>Каждый медиаканал — инкрементальный вклад</li>
-  <li>ROI по каждому каналу (отдача на вложенный рубль)</li>
-</ul>
+  <div class="action-box">
+    <div class="icon">📁</div>
+    <div class="content">
+      <h4>Способ 2 — Выбрать через проводник</h4>
+      <p>Нажмите на зону импорта или нажмите <strong>Enter</strong>, когда зона в фокусе — откроется диалог выбора файла.</p>
+    </div>
+  </div>
 
-<h3>Шаг 5: Optimize (Оптимизация)</h3>
-<p>Интерактивный оптимизатор бюджета:</p>
-<ul>
-  <li>Слайдеры для каждого канала — перемещайте для изменения аллокации</li>
-  <li>Кривые насыщения (response curves) — видно, где бюджет перераспределить</li>
-  <li>Кнопка «Оптимизировать» — автоматический поиск оптимального распределения</li>
-  <li>Сценарии — сохраняйте и сравнивайте варианты аллокации</li>
-</ul>
+  <h3>После загрузки</h3>
+  <p>Приложение автоматически считывает первые <strong>20 строк</strong> и показывает таблицу предпросмотра. Проверьте, что данные отображаются корректно — правильные заголовки, числа не перепутаны с текстом.</p>
+  <p>Если нужно заменить файл — нажмите снова на зону импорта. <strong>Важно:</strong> при замене файла результаты предыдущей валидации и обучения сбрасываются автоматически.</p>
 
-<h3>Шаг 6: Report (Отчёт)</h3>
-<p>Генерация executive-отчёта с интерпретацией результатов. Форматы: PPTX, DOCX.</p>
+  <div class="tip">
+    <strong>Подготовка файла:</strong> первая строка — заголовки колонок, далее — данные. Один лист, никаких объединённых ячеек. Дата в одной колонке, числа без пробелов и символов валюты.
+  </div>
 
-<h2>Кабинет эконометриста</h2>
-<p>Чат-режим для продвинутых запросов. Доступные команды:</p>
-<table>
-  <tr><th>Команда</th><th>Описание</th></tr>
-  <tr><td>/validate</td><td>Валидация и анализ загруженных данных</td></tr>
-  <tr><td>/train</td><td>Запуск обучения MMM-модели</td></tr>
-  <tr><td>/decompose</td><td>Декомпозиция продаж по каналам</td></tr>
-  <tr><td>/optimize</td><td>Оптимизация бюджетных аллокаций</td></tr>
-  <tr><td>/scenario</td><td>Моделирование медиаплана</td></tr>
-  <tr><td>/compare</td><td>Сравнение сценариев</td></tr>
-  <tr><td>/awareness-forecast</td><td>Прогноз знания марки</td></tr>
-  <tr><td>/awareness-sales</td><td>S-кривая знание → продажи</td></tr>
-</table>
+  <h3>Требования к данным</h3>
+  <table>
+    <tr><th>Параметр</th><th>Минимум</th><th>Рекомендация</th></tr>
+    <tr><td>Период наблюдений</td><td>52 точки</td><td>104+ (2 года) для надёжной модели</td></tr>
+    <tr><td>Гранулярность</td><td>Недельная или месячная</td><td>Недельные данные точнее</td></tr>
+    <tr><td>Медиаканалы</td><td>Минимум 2</td><td>4–8 каналов оптимально</td></tr>
+    <tr><td>KPI</td><td>Числовой, без пропусков</td><td>Продажи в штуках или деньгах</td></tr>
+    <tr><td>Пропуски в медиа</td><td>≤20% нулей</td><td>Заполните нулями недели без активности</td></tr>
+    <tr><td>Формат</td><td>.xlsx / .csv</td><td>.xlsx (надёжнее)</td></tr>
+  </table>
 
+  <h3>Как называть колонки</h3>
+  <p>Приложение автоматически определяет роли колонок по их названиям. Чем понятнее название — тем точнее определение.</p>
+
+  <div class="naming-grid">
+    <div class="naming-card kpi">
+      <div class="zone">📈 KPI</div>
+      <div class="examples">
+        <code>sales</code>, <code>revenue</code>, <code>units</code>,<br>
+        <code>conversions</code>, <code>som</code>, <code>volume</code>
+      </div>
+    </div>
+    <div class="naming-card media">
+      <div class="zone">📺 Медиа</div>
+      <div class="examples">
+        <code>tv_spend</code>, <code>digital_budget</code>,<br>
+        <code>radio_trp</code>, <code>ooh_impressions</code>,<br>
+        <code>search_clicks</code>, <code>social_views</code>
+      </div>
+    </div>
+    <div class="naming-card ctrl">
+      <div class="zone">🎛 Контроль</div>
+      <div class="examples">
+        <code>price</code>, <code>promo</code>, <code>seasonality</code>,<br>
+        <code>competitor</code>, <code>holiday</code>, <code>weather</code>
+      </div>
+    </div>
+    <div class="naming-card date">
+      <div class="zone">📅 Дата</div>
+      <div class="examples">
+        <code>date</code>, <code>week</code>, <code>month</code>,<br>
+        <code>period</code>, <code>quarter</code>
+      </div>
+    </div>
+  </div>
+
+  <div class="warn">
+    <strong>Если автоопределение ошиблось</strong> — не переименовывайте файл. На следующем шаге (Validate) вы сможете вручную перетащить любую колонку в нужную категорию.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     STEP 2: VALIDATE
+═══════════════════════════════════════════════ -->
+<h2>Шаг 2: Валидация данных</h2>
+
+<div class="step-section">
+  <div class="step-header">
+    <div class="step-badge done">2</div>
+    <div><div class="step-title">Проверьте качество и назначьте роли</div>
+    <div class="step-sub">Автоматический анализ + ручная коррекция</div></div>
+  </div>
+
+  <h3>Как запустить</h3>
+  <p>Нажмите кнопку <strong>▶ Запустить валидацию</strong>. Анализ занимает несколько секунд. После завершения откроются три панели: Column Mapper, Traffic Light и Correlation Heatmap.</p>
+
+  <h3>Column Mapper — назначение ролей колонок</h3>
+  <p>Главный инструмент шага. Слева — все колонки файла. Справа — четыре зоны:</p>
+
+  <table>
+    <tr><th>Зона</th><th>Что туда входит</th></tr>
+    <tr><td>📈 KPI</td><td>Целевой показатель, который объясняет модель (продажи, выручка, конверсии). Как правило — одна колонка.</td></tr>
+    <tr><td>📺 Медиа</td><td>Расходы или контакты по каждому рекламному каналу. Именно они и влияют на KPI.</td></tr>
+    <tr><td>🎛 Контроль</td><td>Внешние факторы: сезонность, цены, промо, конкуренты. Нужны для изоляции чистого медиаэффекта.</td></tr>
+    <tr><td>📅 Дата</td><td>Временная метка периода. Одна колонка — один период.</td></tr>
+  </table>
+
+  <h3>Как перераспределить колонку</h3>
+  <ol>
+    <li>Возьмите чип с названием колонки (левая колонка — «Столбцы»).</li>
+    <li>Перетащите его в нужную зону справа.</li>
+    <li>Чтобы убрать колонку из зоны — <strong>дважды кликните</strong> по ней или нажмите <code>×</code>.</li>
+  </ol>
+
+  <div class="tip">
+    <strong>Значки уверенности</strong> (зелёный / жёлтый / красный) рядом с колонкой в зоне показывают, насколько уверенно система определила роль. Зелёный (≥80%) — всё хорошо. Жёлтый (50–80%) — стоит проверить. Красный (&lt;50%) — переназначьте вручную.
+  </div>
+
+  <h3>Traffic Light — светофор качества</h3>
+  <p>Итоговая оценка готовности данных к обучению модели:</p>
+  <ul>
+    <li><span class="tl"><span class="tl-dot tl-green"></span> Зелёный</span> — данные готовы к моделированию. Можно переходить к шагу 3.</li>
+    <li><span class="tl"><span class="tl-dot tl-yellow"></span> Жёлтый</span> — есть предупреждения (много нулей, низкая вариативность, короткий период). Модель построится, но с оговорками. Прочитайте предупреждения.</li>
+    <li><span class="tl"><span class="tl-dot tl-red"></span> Красный</span> — критические проблемы: нет KPI / медиа / даты, слишком мало данных. Исправьте до перехода дальше.</li>
+  </ul>
+
+  <p>Нажмите <strong>«Статистика по столбцам»</strong> для детальной таблицы: min, max, среднее, коэффициент вариации (CV%), процент нулей, пропуски.</p>
+
+  <table>
+    <tr><th>Что проверяет</th><th>Норма</th><th>Проблема</th></tr>
+    <tr><td>Соотношение данных (ratio)</td><td>≥ 10:1</td><td>&lt;4:1 — критически мало наблюдений на переменную</td></tr>
+    <tr><td>Нули в медиаканале</td><td>≤ 30%</td><td>&gt;60% — канал неинформативен для модели</td></tr>
+    <tr><td>Вариативность (CV)</td><td>≥ 20%</td><td>&lt;5% у медиаканала — недостаточно разброса</td></tr>
+    <tr><td>Длина ряда</td><td>≥ 52 точки</td><td>&lt;52 — предупреждение о рисках</td></tr>
+    <tr><td>Пропуски</td><td>0</td><td>Любые пропуски в KPI или дате — ошибка</td></tr>
+  </table>
+
+  <h3>Корреляционная матрица</h3>
+  <p>Тепловая карта показывает степень взаимосвязи между всеми числовыми колонками.</p>
+  <ul>
+    <li><strong>Наведите курсор</strong> на любую ячейку — увидите r-значение и названия двух переменных.</li>
+    <li><strong>Красные ячейки</strong> — пары с |r| &gt; 0.8 (мультиколлинеарность). Два таких канала несут похожую информацию.</li>
+    <li><strong>Синие ячейки</strong> — положительная корреляция, <strong>фиолетовые</strong> — отрицательная.</li>
+  </ul>
+
+  <div class="warn">
+    <strong>Что делать при мультиколлинеарности (|r| &gt; 0.8):</strong> если два медиаканала сильно скоррелированы, рассмотрите объединение в один суммарный показатель или исключение менее важного. Иначе модель не сможет разделить их вклады надёжно.
+  </div>
+
+  <div class="good">
+    <strong>Можно переходить к обучению</strong>, если: светофор зелёный или жёлтый, KPI и как минимум 2 медиаканала назначены, дата определена.
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     STEPS 3–6: UPCOMING
+═══════════════════════════════════════════════ -->
+<h2>Шаг 3: Обучение модели</h2>
+
+<div class="coming-soon">
+  <div class="cs-icon">🧠</div>
+  <p class="cs-text">
+    <strong>Реализуется в ближайшем обновлении.</strong><br>
+    Настройка adstock (geometric / weibull) с визуальным превью кривой. Real-time прогресс MCMC. Оценка качества модели (R-hat, MQS).
+  </p>
+</div>
+
+<div class="tip"><strong>Уже сейчас</strong> — обучение доступно через <a href="econometrist.html">кабинет эконометриста</a> командой <code>/train</code>.</div>
+
+<h2>Шаги 4–6: Декомпозиция, Оптимизация, Отчёт</h2>
+
+<div class="coming-soon">
+  <div class="cs-icon">🔬 📊 📋</div>
+  <p class="cs-text">
+    <strong>Следующие фазы разработки.</strong><br>
+    Waterfall-диаграмма вкладов каналов · Интерактивный оптимизатор бюджета с кривыми насыщения · Экспорт в PPTX и DOCX с AI-интерпретацией.
+  </p>
+</div>
+
+<div class="tip"><strong>Уже сейчас</strong> — декомпозиция <code>/decompose</code>, оптимизация <code>/optimize</code>, сценарии <code>/scenario</code> и отчёты доступны через кабинет эконометриста.</div>
+
+
+<!-- ═══════════════════════════════════════════════
+     FAQ
+═══════════════════════════════════════════════ -->
 <h2>Часто задаваемые вопросы</h2>
+
 <dl class="faq">
-  <dt>Сколько времени занимает обучение модели?</dt>
-  <dd>5–30 минут в зависимости от количества данных и параметров MCMC. Прогресс отображается в реальном времени. Не закрывайте приложение во время обучения.</dd>
 
-  <dt>Что такое Adstock и какой тип выбрать?</dt>
-  <dd><strong>Geometric</strong> — экспоненциальное затухание, подходит для большинства медиаканалов (ТВ, digital). <strong>Weibull</strong> — более гибкая форма кривой, используйте для каналов с нелинейным carry-over (например, OOH).</dd>
+  <dt>Приложение показывает «Compute engine: unavailable» в статусной строке</dt>
+  <dd>Python-движок запускается автоматически при старте. Если через 30 секунд статус не изменился на «ready» — перезапустите приложение. При использовании установщика с bundled engine отдельная установка Python не нужна.</dd>
 
-  <dt>Модель обучилась, но MQS низкий. Что делать?</dt>
-  <dd>Проверьте качество данных (нет ли пропусков, аномалий). Попробуйте увеличить количество MCMC-выборок. Убедитесь, что период данных охватывает разные уровни медиаактивности.</dd>
+  <dt>Загрузил файл, но таблица превью выглядит неправильно — числа в текстовых колонках</dt>
+  <dd>Проверьте формат ячеек в Excel: числовые колонки должны быть в формате «Число», а не «Текст». Сохраните файл заново и загрузите снова.</dd>
+
+  <dt>Автоопределение назначило колонку не в ту категорию</dt>
+  <dd>Перетащите её вручную в нужную зону на шаге Validate → Column Mapper. Переименовывать файл не нужно.</dd>
+
+  <dt>Нужно ли включать все колонки файла в зоны?</dt>
+  <dd>Нет. Колонки, оставшиеся в «неназначенных», просто не войдут в модель. Включайте только те, которые аналитически обоснованы.</dd>
+
+  <dt>Светофор красный — «недостаточно данных». Что делать?</dt>
+  <dd>Увеличьте период (добавьте данные за прошлые периоды) или уменьшите количество медиапеременных. Ориентир: минимум 4 наблюдения на каждую переменную в модели, рекомендуется 10+.</dd>
+
+  <dt>Два канала подсвечены красным в матрице корреляций</dt>
+  <dd>Значит |r| &gt; 0.8 между ними. Рассмотрите объединение в один суммарный канал или исключение менее значимого. Сильно скоррелированные каналы мешают модели разделить их вклады.</dd>
 
   <dt>Можно ли использовать ежемесячные данные?</dt>
-  <dd>Да, но недельные данные дают более надёжную модель. При месячных данных рекомендуется минимум 36 точек (3 года).</dd>
+  <dd>Да. Укажите минимум 36 точек (3 года). Система автоматически определит частоту (ежедневно / еженедельно / ежемесячно / ежеквартально) и покажет её в блоке валидации.</dd>
 
-  <dt>Приложение показывает «Compute engine: unavailable»</dt>
-  <dd>Python-движок запускается автоматически при старте приложения. Если статус не меняется на «ready» в течение 30 секунд — перезапустите приложение. Убедитесь, что Python 3.10+ установлен в системе (или используйте установщик с bundled engine).</dd>
+  <dt>Где хранятся результаты?</dt>
+  <dd>В папке проекта — <strong>Настройки → Папки проектов</strong>. JSON-файлы с результатами: <code>validation.json</code>, <code>model.json</code>, <code>decomposition.json</code> и т.д.</dd>
 
-  <dt>Как экспортировать данные для другого аналитика?</dt>
-  <dd>Результаты хранятся в папке проекта (раздел «Настройки» → «Папки проектов»). JSON-файлы с результатами можно передать напрямую.</dd>
+  <dt>Данные уходят в интернет?</dt>
+  <dd>Нет. Все вычисления происходят локально на вашем компьютере. Python-движок работает на порту 7430 (только localhost). Для работы pipeline интернет не нужен.</dd>
+
 </dl>
 
-<h2>Технические детали</h2>
-<p>Aurora AI Econometrica работает полностью локально:</p>
-<ul>
-  <li>Данные обрабатываются только на вашем компьютере</li>
-  <li>Python-движок (FastAPI) запускается как фоновый процесс на порту 7430</li>
-  <li>MCMC-вычисления: PyMC-Marketing (Bayesian MMM)</li>
-  <li>Оптимизация бюджета: scipy SLSQP</li>
-  <li>Кривые насыщения: Hill function с параметрами alpha, gamma из обученной модели</li>
-</ul>
 
-<p style="margin-top:40px; color:var(--text2); font-size:12px;">Aurora AI Econometrica — часть Aurora AI Platform. Версия 1.0.0</p>
+<!-- ═══════════════════════════════════════════════
+     TECHNICAL
+═══════════════════════════════════════════════ -->
+<h2>Технические детали</h2>
+
+<table>
+  <tr><th>Компонент</th><th>Технология</th></tr>
+  <tr><td>Интерфейс</td><td>Tauri v2 + SvelteKit 5 (WebView2 на Windows)</td></tr>
+  <tr><td>Вычислительный движок</td><td>Python FastAPI, порт 7430 (только localhost)</td></tr>
+  <tr><td>MMM-модель</td><td>PyMC-Marketing — Bayesian Marketing Mix Model</td></tr>
+  <tr><td>MCMC-семплер</td><td>PyMC (NUTS, по умолчанию 1000 draws × 4 chains)</td></tr>
+  <tr><td>Оптимизация бюджета</td><td>scipy SLSQP (client-side Hill function)</td></tr>
+  <tr><td>Кривые насыщения</td><td>Hill function: <code>f(x) = α · x^γ / (β^γ + x^γ)</code></td></tr>
+  <tr><td>Хранение данных</td><td>Локально в папке проекта, без облака</td></tr>
+</table>
+
+<div class="page-footer">
+  <span>Aurora AI Econometrica · Visual Pipeline</span>
+  <span><a href="econometrist.html">Справка по кабинету эконометриста →</a></span>
+</div>
+
 </div>
 </body>
 </html>

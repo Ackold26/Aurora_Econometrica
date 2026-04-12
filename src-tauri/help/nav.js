@@ -16,7 +16,8 @@
     { id: 'social-listening',       title: 'Social Listening',        group: 'insights', keywords: 'мониторинг отзывы упоминания соцсети бренд' },
     { id: 'media-analyst',          title: 'Медиа-аналитик',          group: 'insights', keywords: 'медиа аналитика презентации tier-1 данные' },
     { id: 'communication-analyst',  title: 'Комм. аналитик',          group: 'insights', keywords: 'медиаполе PR коммуникации анализ' },
-    { id: 'econometrist',            title: 'Эконометрист',             group: 'insights', keywords: 'MMM эконометрика ROI декомпозиция бюджет оптимизация awareness' },
+    { id: 'econometrica',             title: 'Visual Pipeline (MMM)',    group: 'insights', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица heatmap KPI медиа adstock обучение модель декомпозиция оптимизация отчёт' },
+    { id: 'econometrist',            title: 'Эконометрист (чат)',       group: 'insights', keywords: 'MMM эконометрика ROI декомпозиция бюджет оптимизация awareness validate train чат команды' },
 
     { id: 'communication-strategist', title: 'Комм. стратег',         group: 'creative', keywords: 'стратегия позиционирование бриф платформа бренда' },
     { id: 'creative-director',        title: 'Креативный директор',    group: 'creative', keywords: 'креатив концепции идеи реклама кампания' },
