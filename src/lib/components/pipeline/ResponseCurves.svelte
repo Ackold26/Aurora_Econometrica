@@ -1,0 +1,184 @@
+<script>
+  /**
+   * Response curves with draggable budget points — KILLER FEATURE.
+   * A2: ResizeObserver recomputes graphic positions after chart.resize().
+   * A3: clamp convertFromPixel to [0, maxSpend].
+   * Bidirectional sync: sliders ↔ draggable points.
+   * @component ResponseCurves
+   */
+  import { onMount } from 'svelte';
+  import { hillFunction, marginalROI } from '$lib/hill.js';
+  import { CHANNEL_COLORS } from '$lib/hill.js';
+
+  /**
+   * @type {{
+   *   responseCurves: Record<string, {spend: number[], response: number[], current_x: number, optimal_x: number}>,
+   *   channelBudgets: Record<string, number>,
+   *   scaledParams: Record<string, {alpha: number, gammaScaled: number, beta: number}>,
+   *   channels: string[],
+   *   onBudgetChange: (ch: string, val: number) => void,
+   * }}
+   */
+  let { responseCurves, channelBudgets, scaledParams, channels, onBudgetChange } = $props();
+
+  /** @type {HTMLDivElement} */
+  let container;
+  /** @type {any} */
+  let chart;
+  /** @type {ResizeObserver | null} */
+  let ro = null;
+
+  /**
+   * Compute Y value on the curve at given spend X.
+   * @param {string} ch
+   * @param {number} x
+   * @returns {number}
+   */
+  function responseAt(ch, x) {
+    const p = scaledParams[ch];
+    if (!p) return 0;
+    return p.beta * hillFunction(x, p.alpha, p.gammaScaled);
+  }
+
+  /**
+   * Build graphic elements (draggable points) for all channels.
+   * @returns {any[]}
+   */
+  function buildGraphic() {
+    if (!chart) return [];
+    return channels.map((ch, idx) => {
+      const x = channelBudgets[ch] ?? 0;
+      const y = responseAt(ch, x);
+      const px = chart.convertToPixel('grid', [x, y]);
+      if (!px) return null;
+      const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length];
+      return {
+        type: 'circle',
+        id: `drag-${ch}`,
+        shape: { cx: px[0], cy: px[1], r: 8 },
+        style: { fill: color, stroke: '#fff', lineWidth: 2, opacity: 0.9 },
+        draggable: 'horizontal',
+        z: 100,
+        ondrag: (/** @type {any} */ e) => {
+          const curve = responseCurves[ch];
+          const maxSpend = curve ? Math.max(...curve.spend) : (channelBudgets[ch] ?? 0) * 2.5;
+          const dataCoord = chart.convertFromPixel('grid', [e.offsetX, e.offsetY]);
+          // A3: clamp to [0, maxSpend]
+          const newSpend = Math.max(0, Math.min(dataCoord[0], maxSpend));
+          onBudgetChange(ch, newSpend);
+        },
+      };
+    }).filter(Boolean);
+  }
+
+  /**
+   * Rebuild and set full chart option.
+   */
+  function rebuildChart() {
+    if (!chart) return;
+
+    const seriesList = channels.map((ch, idx) => {
+      const curve = responseCurves?.[ch];
+      const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length];
+      const data = curve
+        ? curve.spend.map((s, i) => [s, curve.response[i]])
+        : [];
+
+      return {
+        name: ch,
+        type: 'line',
+        data,
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 2, color },
+        itemStyle: { color },
+        emphasis: { focus: 'none' },
+      };
+    });
+
+    chart.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'none',
+      },
+      legend: {
+        type: 'scroll',
+        textStyle: { color: '#94a3b8', fontSize: 11 },
+        top: 4,
+        pageTextStyle: { color: '#94a3b8' },
+      },
+      grid: { left: 16, right: 16, top: 44, bottom: 32, containLabel: true },
+      xAxis: {
+        type: 'value',
+        name: 'Бюджет',
+        nameTextStyle: { color: '#64748b', fontSize: 10 },
+        axisLabel: {
+          color: '#94a3b8', fontSize: 10,
+          formatter: (/** @type {number} */ v) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v),
+        },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+      },
+      yAxis: {
+        type: 'value',
+        name: 'Эффект',
+        nameTextStyle: { color: '#64748b', fontSize: 10 },
+        axisLabel: {
+          color: '#94a3b8', fontSize: 10,
+          formatter: (/** @type {number} */ v) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v),
+        },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.04)' } },
+      },
+      series: seriesList,
+    }, true);
+
+    // Set graphic after chart renders
+    requestAnimationFrame(() => {
+      const graphic = buildGraphic();
+      chart.setOption({ graphic });
+    });
+  }
+
+  onMount(() => {
+    (async () => {
+      const { echarts } = await import('$lib/echarts-setup.js');
+      if (!container) return;
+      chart = echarts.init(container, 'dark');
+
+      rebuildChart();
+
+      // A2: recompute graphic positions after resize
+      ro = new ResizeObserver(() => {
+        chart?.resize();
+        requestAnimationFrame(() => {
+          const graphic = buildGraphic();
+          if (chart && graphic.length) chart.setOption({ graphic });
+        });
+      });
+      ro.observe(container);
+    })();
+    return () => {
+      ro?.disconnect();
+      chart?.dispose();
+    };
+  });
+
+  // Reactive: when budgets change from sliders → update graphic positions
+  $effect(() => {
+    // Access channelBudgets to create dependency
+    const _ = JSON.stringify(channelBudgets);
+    if (!chart) return;
+    requestAnimationFrame(() => {
+      const graphic = buildGraphic();
+      if (graphic.length) chart.setOption({ graphic });
+    });
+  });
+
+  // Reactive: when responseCurves data changes → rebuild series
+  $effect(() => {
+    const _ = responseCurves;
+    if (chart) rebuildChart();
+  });
+</script>
+
+<div bind:this={container} style="width:100%;height:320px"></div>

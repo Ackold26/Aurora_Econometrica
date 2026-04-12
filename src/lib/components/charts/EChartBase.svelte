@@ -9,8 +9,8 @@
    */
   import { onMount } from 'svelte';
 
-  /** @type {{ option: any, height?: string }} */
-  let { option, height = '300px' } = $props();
+  /** @type {{ option: any, height?: string, onInit?: (chart: any) => void }} */
+  let { option, height = '300px', onInit } = $props();
 
   /** @type {HTMLDivElement} */
   let container;
@@ -24,6 +24,7 @@
       if (!container) return;
       chart = echarts.init(container, 'dark');
       chart.setOption(option);
+      onInit?.(chart);
       const ro = new ResizeObserver(() => chart?.resize());
       ro.observe(container);
     })();

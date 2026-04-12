@@ -85,6 +85,36 @@ def decompose(project_dir: str) -> dict[str, Any]:
             lift = abs(worst['efficiency_gap']) * 0.5
             insight += f" Перераспределение {abs(worst['efficiency_gap']):.0f}% бюджета из {worst['name']} в {top['name']} даст ожидаемый прирост +{lift:.1f}% продаж."
 
+    # Per-period time series contributions
+    date_col = config.get('date_column', 'date')
+    if date_col in df.columns:
+        dates = [str(d)[:10] for d in df[date_col].tolist()]
+    else:
+        dates = [str(i + 1) for i in range(len(df))]
+
+    n_periods = len(df)
+    y_arr = y_actual[:n_periods] if len(y_actual) >= n_periods else y_actual
+
+    # Per-period channel contributions (proportional to spend in each period)
+    time_series_channels = {}
+    for ch in channels:
+        col = ch['name']
+        total_ch_spend = ch['spend']
+        ch_contribution = ch['contribution']
+        if total_ch_spend > 0:
+            spend_per_period = df[col].fillna(0).values[:n_periods]
+            ts_contrib = [(float(s) / total_ch_spend * ch_contribution) for s in spend_per_period]
+        else:
+            ts_contrib = [0.0] * n_periods
+        time_series_channels[col] = [round(v, 1) for v in ts_contrib]
+
+    # Baseline per period: residual = actual - sum(channel contributions per period)
+    baseline_ts = []
+    for t in range(n_periods):
+        ch_total_t = sum(time_series_channels[ch['name']][t] for ch in channels)
+        b_t = float(y_arr[t]) - ch_total_t if t < len(y_arr) else 0.0
+        baseline_ts.append(round(b_t, 1))
+
     result = {
         'status': 'ok',
         'total_sales': round(total_sales, 0),
@@ -97,6 +127,11 @@ def decompose(project_dir: str) -> dict[str, Any]:
             'labels': ['Baseline'] + [c['name'] for c in channels] + ['Итого'],
             'values': [round(baseline, 0)] + [round(c['contribution'], 0) for c in channels] + [round(total_sales, 0)],
             'types': ['baseline'] + ['channel'] * len(channels) + ['total'],
+        },
+        'time_series': {
+            'dates': dates,
+            'baseline': baseline_ts,
+            'channels': time_series_channels,
         },
     }
 

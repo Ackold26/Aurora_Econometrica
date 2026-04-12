@@ -9,7 +9,8 @@
   import ImportStep from '$lib/components/pipeline/ImportStep.svelte';
   import ValidateStep from '$lib/components/pipeline/ValidateStep.svelte';
   import ModelTrainingStep from '$lib/components/pipeline/ModelTrainingStep.svelte';
-  import { completeStep } from '$lib/project-state.js';
+  import DecomposeStep from '$lib/components/pipeline/DecomposeStep.svelte';
+  import OptimizeStep from '$lib/components/pipeline/OptimizeStep.svelte';
 </script>
 
 <!-- A3: Single route, all steps present in DOM, visibility controlled by StepWrapper -->
@@ -30,30 +31,14 @@
     <ModelTrainingStep />
   </StepWrapper>
 
-  <!-- Step 3: Decompose -->
+  <!-- Step 3: Decompose — Phase 4A -->
   <StepWrapper step={3}>
-    <div class="step-placeholder">
-      <div class="placeholder-icon">🔬</div>
-      <h3>Декомпозиция</h3>
-      <p>Waterfall: разбивка продаж по каналам, базовому уровню и контрольным переменным.</p>
-      <p class="note">ECharts waterfall + channel contribution bar — Фаза 3</p>
-      <button class="dev-btn" onclick={() => completeStep(3)}>
-        Dev: отметить готово →
-      </button>
-    </div>
+    <DecomposeStep />
   </StepWrapper>
 
-  <!-- Step 4: Optimize -->
+  <!-- Step 4: Optimize — Phase 4B -->
   <StepWrapper step={4}>
-    <div class="step-placeholder">
-      <div class="placeholder-icon">🎯</div>
-      <h3>Оптимизация бюджета</h3>
-      <p>Интерактивный оптимизатор с draggable слайдерами и marginal ROI кривыми.</p>
-      <p class="note">Hill function client-side + ECharts graphic draggable — Фаза 4 (аудит B1)</p>
-      <button class="dev-btn" onclick={() => completeStep(4)}>
-        Dev: отметить готово →
-      </button>
-    </div>
+    <OptimizeStep />
   </StepWrapper>
 
   <!-- Step 5: Report -->
