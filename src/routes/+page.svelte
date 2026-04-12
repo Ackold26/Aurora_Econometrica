@@ -47,6 +47,7 @@
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
   // Cabinets filtered by product type (Legal=3, Creative=5, Agency=all)
   const cabinets = $derived(filterCabinetsByProduct($layoutCabinets, $productType));
+  const isEconometrica = $derived($productType === 'econometrica');
   /** @type {string|null} */
   let licenseError = $state(null);
   let loading = $derived($layoutCabinets.length === 0 && !licenseError);
@@ -314,6 +315,22 @@
               {creatingBrand ? '...' : 'Создать'}
             </button>
           </div>
+        </div>
+      {/if}
+
+      <!-- Start Pipeline CTA — Econometrica only (Phase 1) -->
+      {#if isEconometrica}
+        <div class="pipeline-cta">
+          <div class="pipeline-cta-content">
+            <span class="pipeline-cta-icon">⚡</span>
+            <div class="pipeline-cta-text">
+              <span class="pipeline-cta-title">Visual Pipeline</span>
+              <span class="pipeline-cta-desc">6-шаговый MMM-анализ с интерактивными графиками</span>
+            </div>
+          </div>
+          <button class="pipeline-cta-btn" onclick={() => goto('/pipeline')}>
+            Открыть Pipeline →
+          </button>
         </div>
       {/if}
 
@@ -611,6 +628,56 @@
   .qa-icon { font-size: 22px; }
   .qa-label { font-size: 13px; font-weight: 600; }
   .qa-desc { font-size: 10px; color: var(--text-muted); }
+
+  /* Pipeline CTA (Econometrica only) */
+  .pipeline-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 20px;
+    background: rgba(59,130,246,0.08);
+    border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 960px;
+    box-sizing: border-box;
+    margin-bottom: 8px;
+  }
+  .pipeline-cta-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .pipeline-cta-icon { font-size: 22px; }
+  .pipeline-cta-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pipeline-cta-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-primary, #3b82f6);
+  }
+  .pipeline-cta-desc {
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+  }
+  .pipeline-cta-btn {
+    padding: 8px 20px;
+    background: var(--accent-primary, #3b82f6);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .pipeline-cta-btn:hover { background: #2563eb; }
 
   .cabinets-section {
     width: 100%;

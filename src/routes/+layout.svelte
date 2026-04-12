@@ -156,27 +156,33 @@
 
   <div class="main-content">
     <!-- Econometrica: Project selector + Pipeline breadcrumbs -->
-    {#if isEconometrica && $activeCabinet}
+    {#if isEconometrica}
       <div class="econometrica-bar">
         <div class="econ-project">
           <ProjectSelector />
         </div>
-        <nav class="econ-pipeline">
-          {#each pipelineSteps as step, i}
-            <span
-              class="pipeline-step"
-              class:done={i < $pipelineStep}
-              class:active={$activeCabinet?.id === step.id}
-              class:future={i > $pipelineStep}
-            >
-              {step.icon} {step.label}
-              {#if i < $pipelineStep}✓{/if}
-            </span>
-            {#if i < pipelineSteps.length - 1}
-              <span class="pipeline-arrow">→</span>
-            {/if}
-          {/each}
-        </nav>
+        {#if $activeCabinet}
+          <nav class="econ-pipeline">
+            {#each pipelineSteps as step, i}
+              <span
+                class="pipeline-step"
+                class:done={i < $pipelineStep}
+                class:active={$activeCabinet?.id === step.id}
+                class:future={i > $pipelineStep}
+              >
+                {step.icon} {step.label}
+                {#if i < $pipelineStep}✓{/if}
+              </span>
+              {#if i < pipelineSteps.length - 1}
+                <span class="pipeline-arrow">→</span>
+              {/if}
+            {/each}
+          </nav>
+        {/if}
+        <!-- C1: Pipeline nav — only for econometrica -->
+        <button class="pipeline-nav-btn" onclick={() => goto('/pipeline')} title="Открыть Visual Pipeline">
+          ⚡ Pipeline
+        </button>
       </div>
     {/if}
 
@@ -282,5 +288,24 @@
     color: var(--text-secondary, #94a3b8);
     opacity: 0.3;
     font-size: 12px;
+  }
+
+  .pipeline-nav-btn {
+    margin-left: auto;
+    padding: 5px 14px;
+    background: rgba(59,130,246,0.12);
+    border: 1px solid rgba(59,130,246,0.3);
+    border-radius: 6px;
+    color: var(--accent-primary, #3b82f6);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .pipeline-nav-btn:hover {
+    background: rgba(59,130,246,0.2);
+    border-color: var(--accent-primary, #3b82f6);
   }
 </style>
