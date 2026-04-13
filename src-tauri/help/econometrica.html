@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Visual Pipeline — Aurora AI Econometrica</title>
-<script src="nav.js" defer></script>
+<script src="econ-nav.js" defer></script>
 <style>
 :root {
   --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
@@ -137,13 +137,13 @@ tr:hover td { background: var(--bg3); }
   <div class="p-arrow">›</div>
   <div class="p-step"><div class="p-box done"><div class="num">02</div><div class="name">Validate</div><div class="stat">✓ готово</div></div></div>
   <div class="p-arrow">›</div>
-  <div class="p-step"><div class="p-box active"><div class="num">03</div><div class="name">Model</div><div class="stat">скоро</div></div></div>
+  <div class="p-step"><div class="p-box done"><div class="num">03</div><div class="name">Model</div><div class="stat">✓ готово</div></div></div>
   <div class="p-arrow">›</div>
-  <div class="p-step"><div class="p-box"><div class="num">04</div><div class="name">Decompose</div></div></div>
+  <div class="p-step"><div class="p-box done"><div class="num">04</div><div class="name">Decompose</div><div class="stat">✓ готово</div></div></div>
   <div class="p-arrow">›</div>
-  <div class="p-step"><div class="p-box"><div class="num">05</div><div class="name">Optimize</div></div></div>
+  <div class="p-step"><div class="p-box done"><div class="num">05</div><div class="name">Optimize</div><div class="stat">✓ готово</div></div></div>
   <div class="p-arrow">›</div>
-  <div class="p-step"><div class="p-box"><div class="num">06</div><div class="name">Report</div></div></div>
+  <div class="p-step"><div class="p-box done"><div class="num">06</div><div class="name">Report</div><div class="stat">✓ готово</div></div></div>
 </div>
 
 
@@ -316,27 +316,121 @@ tr:hover td { background: var(--bg3); }
 ═══════════════════════════════════════════════ -->
 <h2>Шаг 3: Обучение модели</h2>
 
-<div class="coming-soon">
-  <div class="cs-icon">🧠</div>
-  <p class="cs-text">
-    <strong>Реализуется в ближайшем обновлении.</strong><br>
-    Настройка adstock (geometric / weibull) с визуальным превью кривой. Real-time прогресс MCMC. Оценка качества модели (R-hat, MQS).
-  </p>
+<div class="step-section">
+  <div class="step-header">
+    <div class="step-badge done">3</div>
+    <div><div class="step-title">Байесовское MMM-моделирование</div>
+    <div class="step-sub">PyMC-Marketing · NUTS · adstock · Hill saturation</div></div>
+  </div>
+
+  <p>После успешной валидации (зелёный или жёлтый светофор) запустите обучение нажатием <strong>▶ Обучить модель</strong>. Система запускает байесовскую модель Marketing Mix Modeling.</p>
+
+  <h3>Что происходит при обучении</h3>
+  <div class="action-box">
+    <div class="icon">⚙️</div>
+    <div class="content">
+      <h4>Adstock трансформация</h4>
+      <p>Каждый медиаканал проходит adstock: эффект рекламы не заканчивается немедленно, а затухает со временем. Поддерживается geometric (простой) и weibull (сложный с задержкой) decay.</p>
+    </div>
+  </div>
+  <div class="action-box">
+    <div class="icon">🔄</div>
+    <div class="content">
+      <h4>MCMC-семплирование (NUTS)</h4>
+      <p>По умолчанию 1 000 draws × 4 chains. Real-time прогресс обучения отображается в интерфейсе. Время: 2–10 минут в зависимости от объёма данных и числа каналов.</p>
+    </div>
+  </div>
+  <div class="action-box">
+    <div class="icon">📊</div>
+    <div class="content">
+      <h4>Оценка качества: MQS и R-hat</h4>
+      <p><strong>MQS (Model Quality Score)</strong> — композитный балл качества модели (0–100): учитывает R², MAPE, R-hat сходимость цепей. Оценки: Excellent (85+), Good (70–84), Fair (55–69), Poor (&lt;55).</p>
+      <p><strong>R-hat</strong> — диагностика сходимости. R-hat &lt; 1.01 = хорошо, &gt; 1.1 = проблема (увеличьте draws).</p>
+    </div>
+  </div>
+
+  <div class="tip"><strong>Альтернативно</strong> — обучение через <a href="econometrist.html">кабинет эконометриста</a> командой <code>/train</code> для нестандартных конфигураций.</div>
 </div>
 
-<div class="tip"><strong>Уже сейчас</strong> — обучение доступно через <a href="econometrist.html">кабинет эконометриста</a> командой <code>/train</code>.</div>
+<h2>Шаг 4: Декомпозиция продаж</h2>
 
-<h2>Шаги 4–6: Декомпозиция, Оптимизация, Отчёт</h2>
+<div class="step-section">
+  <div class="step-header">
+    <div class="step-badge done">4</div>
+    <div><div class="step-title">Waterfall-диаграмма вкладов каналов</div>
+    <div class="step-sub">Базовые продажи · Медиаэффект · Контрольные переменные</div></div>
+  </div>
 
-<div class="coming-soon">
-  <div class="cs-icon">🔬 📊 📋</div>
-  <p class="cs-text">
-    <strong>Следующие фазы разработки.</strong><br>
-    Waterfall-диаграмма вкладов каналов · Интерактивный оптимизатор бюджета с кривыми насыщения · Экспорт в PPTX и DOCX с AI-интерпретацией.
-  </p>
+  <p>После обучения модели запустите <strong>Декомпозицию</strong> — система разделит все продажи на составляющие.</p>
+
+  <h3>Структура декомпозиции</h3>
+  <table>
+    <tr><th>Компонент</th><th>Описание</th></tr>
+    <tr><td><strong>Базовые продажи</strong></td><td>Объём, который был бы без рекламы (органический спрос, лояльность, сезонность)</td></tr>
+    <tr><td><strong>Медиаэффект</strong></td><td>Вклад каждого рекламного канала в продажи — «чистый» эффект рекламы</td></tr>
+    <tr><td><strong>Контрольные факторы</strong></td><td>Влияние цен, промо-акций, внешних событий</td></tr>
+  </table>
+
+  <p>Результат: waterfall-диаграмма и таблица с абсолютными и процентными вкладами. Экспорт в JSON и через кабинет эконометриста (<code>/decompose</code>).</p>
 </div>
 
-<div class="tip"><strong>Уже сейчас</strong> — декомпозиция <code>/decompose</code>, оптимизация <code>/optimize</code>, сценарии <code>/scenario</code> и отчёты доступны через кабинет эконометриста.</div>
+<h2>Шаг 5: Оптимизация бюджета</h2>
+
+<div class="step-section">
+  <div class="step-header">
+    <div class="step-badge done">5</div>
+    <div><div class="step-title">Интерактивный оптимизатор с кривыми насыщения</div>
+    <div class="step-sub">Hill function · SLSQP · сценарное моделирование</div></div>
+  </div>
+
+  <p>Введите <strong>общий бюджет</strong> и нажмите «Оптимизировать» — система найдёт распределение, максимизирующее отдачу.</p>
+
+  <h3>Как работает оптимизация</h3>
+  <ul>
+    <li><strong>Кривые насыщения</strong> — Hill function: <code>f(x) = α · x^γ / (β^γ + x^γ)</code>. Каждый канал имеет свою точку насыщения.</li>
+    <li><strong>Оптимизатор SLSQP</strong> (scipy) — перераспределяет бюджет с учётом ограничений: min/max по каждому каналу, общий бюджет.</li>
+    <li><strong>Прирост от оптимизации</strong> — сравнение текущего распределения vs оптимального: % прироста KPI при том же бюджете.</li>
+  </ul>
+
+  <div class="tip"><strong>Сценарное моделирование</strong> — через кабинет эконометриста: <code>/scenario</code> или <code>/optimize</code> с произвольными параметрами.</div>
+</div>
+
+<h2>Шаг 6: AI-отчёт</h2>
+
+<div class="step-section">
+  <div class="step-header">
+    <div class="step-badge done">6</div>
+    <div><div class="step-title">Автоматическая генерация отчёта</div>
+    <div class="step-sub">Markdown + XLSX · 4 листа · уровни уверенности</div></div>
+  </div>
+
+  <p>Финальный шаг — нажмите <strong>Сгенерировать отчёт</strong>. Система собирает данные из всех шагов pipeline и создаёт готовый аналитический документ.</p>
+
+  <h3>Что входит в отчёт</h3>
+  <div class="action-box">
+    <div class="icon">📝</div>
+    <div class="content">
+      <h4>Markdown-отчёт (AI-интерпретация)</h4>
+      <p>Executive Summary · Декомпозиция продаж с интерпретацией · ROI каналов с бенчмарками · Рекомендации по перераспределению бюджета. Каждая рекомендация сопровождается уровнем уверенности: <strong>[ВЫСОКАЯ]</strong>, <strong>[СРЕДНЯЯ]</strong>, <strong>[НИЗКАЯ]</strong>.</p>
+    </div>
+  </div>
+  <div class="action-box">
+    <div class="icon">📊</div>
+    <div class="content">
+      <h4>XLSX-экспорт (4 листа)</h4>
+      <ul>
+        <li><strong>Executive Summary</strong> — MQS Score, R², общий бюджет, прирост от оптимизации</li>
+        <li><strong>Декомпозиция</strong> — вклады каналов по периодам</li>
+        <li><strong>ROI каналов</strong> — эффективность каждого канала</li>
+        <li><strong>Оптимизация</strong> — текущее vs оптимальное распределение</li>
+      </ul>
+    </div>
+  </div>
+
+  <p>Summary-карточки в интерфейсе: MQS Score, R², прирост от оптимизации, общий бюджет. Кнопка <strong>«Открыть папку»</strong> — мгновенный доступ к экспортированным файлам.</p>
+
+  <div class="good"><strong>Pipeline завершён</strong> — все 6 шагов пройдены. Файлы сохранены в папке проекта (Настройки → Папки проектов).</div>
+</div>
 
 
 <!-- ═══════════════════════════════════════════════
