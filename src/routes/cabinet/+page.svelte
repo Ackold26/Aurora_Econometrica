@@ -2,21 +2,32 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand } from '$lib/store.js';
-  import { getProductName } from '$lib/command-meta.js';
+  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding } from '$lib/store.js';
+  import { getProductName, getCommandBrief } from '$lib/command-meta.js';
+  import CommandBrief from '$lib/components/CommandBrief.svelte';
   import { productType, activeBrand, isCreativeHub } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
-  import { endSession, pluralRu } from '$lib/psy.js';
-  import { parseResponseSections, isSlideDeckResponse, splitSlideSections } from '$lib/response-parser.js';
+  import { endSession, pluralRu, milestones, getCabinetMastery } from '$lib/psy.js';
+  import { parseResponseSections, isSlideDeckResponse, splitSlideSections, groupSlidesByBlocks } from '$lib/response-parser.js';
   import ChatPanel from '$lib/components/ChatPanel.svelte';
   import FileList from '$lib/components/FileList.svelte';
   import SlidePanel from '$lib/components/SlidePanel.svelte';
   import CommandGrid from '$lib/components/CommandGrid.svelte';
+  import CabinetOnboarding from '$lib/components/CabinetOnboarding.svelte';
+  import { shouldShowOnboarding, completeOnboarding, getOnboardingConfig } from '$lib/onboarding-config.js';
 
   // Redirect if no active cabinet
   if (!$activeCabinet) {
     goto('/');
   }
+
+  // C4: Cabinet Mastery Badge (Self-Determination Theory)
+  // $milestones читается для реактивности — пересчитывается при каждом запросе
+  const masteryBadge = $derived.by(() => {
+    if (!$activeCabinet) return null;
+    void $milestones; // подписка для реактивного пересчёта
+    return getCabinetMastery($activeCabinet.id);
+  });
 
   // ── Workspace mode: selection (command grid) / execution (chat) ──
   /** @type {'selection' | 'execution'} */
@@ -30,15 +41,6 @@
       workspaceMode = 'selection';
     }
   });
-
-  /** @param {string} command */
-  function executeCommand(command) {
-    if ($activeCabinet) {
-      recordRecentCommand($activeCabinet.id, command);
-    }
-    pendingCommand.set(command);
-    workspaceMode = 'execution';
-  }
 
   /** Selection mode input */
   let selectionInput = $state('');
@@ -59,6 +61,70 @@
     }
   }
 
+  // ── CommandBrief: pending brief state ──
+  /** @type {string|null} */
+  let pendingBriefCommand = $state(null);
+  /** @type {import('$lib/command-meta.js').BriefField[]|null} */
+  let pendingBriefFields = $state(null);
+
+  /**
+   * Called when user clicks a command card.
+   * Commands with briefFields → show brief panel; others → execute immediately.
+   * @param {string} command
+   */
+  function executeCommand(command) {
+    if ($activeCabinet) recordRecentCommand($activeCabinet.id, command);
+    const brief = getCommandBrief(command);
+    if (brief) {
+      pendingBriefCommand = command;
+      pendingBriefFields = brief.fields;
+    } else {
+      pendingCommand.set(command);
+      workspaceMode = 'execution';
+    }
+  }
+
+  /** Run command with built brief text. */
+  function runWithBrief(/** @type {string} */ text) {
+    pendingBriefCommand = null;
+    pendingBriefFields = null;
+    pendingCommand.set(text);
+    workspaceMode = 'execution';
+  }
+
+  /** Cancel brief → return to CommandGrid. */
+  function cancelBrief() {
+    pendingBriefCommand = null;
+    pendingBriefFields = null;
+  }
+
+  // Reset brief when cabinet changes (NavRail switch without remount)
+  $effect(() => {
+    void $activeCabinet?.id;
+    pendingBriefCommand = null;
+    pendingBriefFields = null;
+  });
+
+  // ── Onboarding ──
+  const showOnboarding = $derived.by(() => {
+    if (!$activeCabinet) return false;
+    return shouldShowOnboarding(
+      $activeCabinet.id,
+      $milestones.cabinetRequests || {},
+      $cabinetOnboarding
+    );
+  });
+
+  const noviceCommands = $derived.by(() => {
+    if (!$activeCabinet) return undefined;
+    const uses = ($milestones.cabinetRequests || {})[$activeCabinet.id] || 0;
+    if (uses < 5) {
+      const config = getOnboardingConfig($activeCabinet.id);
+      return config?.noviceCommands || undefined;
+    }
+    return undefined;
+  });
+
   // PSY-7: Zen Mode
   let zenMode = $state(false);
 
@@ -74,7 +140,8 @@
       if (msgs[i].role !== 'assistant') continue;
       const sections = parseResponseSections(msgs[i].content);
       if (isSlideDeckResponse(sections)) {
-        return { slides: splitSlideSections(sections).slides, messageIndex: i };
+        const { slides, synthesis } = splitSlideSections(sections);
+        return { slides, synthesis, messageIndex: i };
       }
     }
     return null;
@@ -87,7 +154,8 @@
       if (msgs[activeSlideIdx]?.role === 'assistant') {
         const sections = parseResponseSections(msgs[activeSlideIdx].content);
         if (isSlideDeckResponse(sections)) {
-          return { slides: splitSlideSections(sections).slides, messageIndex: activeSlideIdx };
+          const { slides, synthesis } = splitSlideSections(sections);
+          return { slides, synthesis, messageIndex: activeSlideIdx };
         }
       }
     }
@@ -112,6 +180,7 @@
     }
     // Escape → execution→selection → zen off → back to home
     if (e.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(/** @type {HTMLElement} */ (e.target)?.tagName)) {
+      if (pendingBriefCommand) { cancelBrief(); return; }
       if (workspaceMode === 'execution') { workspaceMode = 'selection'; return; }
       if (zenMode) { zenMode = false; return; }
       goBack();
@@ -175,12 +244,17 @@
         </button>
 
         <div class="breadcrumb">
-          <span class="breadcrumb-root">AURORA</span>
+          <span class="breadcrumb-root">AURORA AI</span>
           <svg class="breadcrumb-sep" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M9 18l6-6-6-6"/>
           </svg>
           <span class="breadcrumb-icon">{$activeCabinet.icon}</span>
           <span class="breadcrumb-name">{$activeCabinet.name}</span>
+          {#if masteryBadge?.current}
+            <span class="mastery-badge" title="{masteryBadge.uses} запросов{masteryBadge.next ? ` · до «${masteryBadge.next.title}»: ${masteryBadge.next.threshold - masteryBadge.uses}` : ''}">
+              {masteryBadge.current.icon} {masteryBadge.current.title}
+            </span>
+          {/if}
         </div>
 
         {#if $activeBrand}
@@ -221,13 +295,30 @@
         {#if slidePanelVisible && activeSlideData && workspaceMode === 'execution'}
           <SlidePanel
             sections={activeSlideData.slides}
+            synthesis={activeSlideData.synthesis}
             onClose={() => { slidePanelVisible = false; }}
           />
         {/if}
 
-        <!-- Selection mode: Command Grid -->
+        <!-- Selection mode: Command Grid / CommandBrief -->
         <div class="selection-panel" class:hidden={workspaceMode === 'execution'}>
-          <CommandGrid cabinetId={$activeCabinet?.id} onExecute={executeCommand} />
+          {#if pendingBriefCommand && pendingBriefFields}
+            <CommandBrief
+              command={pendingBriefCommand}
+              fields={pendingBriefFields}
+              onRun={runWithBrief}
+              onCancel={cancelBrief}
+            />
+          {:else if showOnboarding}
+            <CabinetOnboarding
+              cabinetId={$activeCabinet?.id ?? ''}
+              onExecuteCommand={executeCommand}
+              onComplete={() => completeOnboarding($activeCabinet?.id ?? '')}
+            />
+          {:else}
+            <CommandGrid cabinetId={$activeCabinet?.id} onExecute={executeCommand} visibleCommands={noviceCommands} />
+          {/if}
+          <!-- FileList sidebar stays visible during onboarding -->
           <div class="selection-input-area">
             <textarea
               class="selection-input"
@@ -348,6 +439,19 @@
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.01em;
+  }
+
+  .mastery-badge {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--accent-primary);
+    background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.08);
+    border: 1px solid rgba(var(--accent-primary-rgb, 99, 102, 241), 0.2);
+    padding: 2px 7px;
+    border-radius: 10px;
+    cursor: default;
+    user-select: none;
+    white-space: nowrap;
   }
 
   .brand-badge {
