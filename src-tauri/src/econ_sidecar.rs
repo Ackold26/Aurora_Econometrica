@@ -45,7 +45,7 @@ fn spawn_bundled_exe(app_handle: &tauri::AppHandle) -> Result<Child, String> {
     let exe_path = app_handle
         .path()
         .resolve(
-            "sidecar/econometrica-sidecar.exe",
+            "sidecar/econometrica/econometrica-sidecar.exe",
             tauri::path::BaseDirectory::Resource,
         )
         .map_err(|e| format!("Resource path error: {e}"))?;

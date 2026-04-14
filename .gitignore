@@ -35,3 +35,9 @@ brand-hub/parser/build/
 brand-hub/parser/dist/
 brand-hub/parser/*.spec
 brand-hub/dist/
+
+# Sidecar built artifacts (large binaries, not for git)
+sidecar/econometrica/econometrica-sidecar.exe
+sidecar/econometrica/_internal/
+sidecar/econometrica/dist/
+sidecar/econometrica/build_tmp/
