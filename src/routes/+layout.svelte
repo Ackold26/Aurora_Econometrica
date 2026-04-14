@@ -11,16 +11,7 @@
   import Toast from '$lib/components/Toast.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import NavRail from '$lib/components/NavRail.svelte';
-  import ProjectSelector from '$lib/components/ProjectSelector.svelte';
-  import { pipelineStep, activeProject } from '$lib/project-state.js';
   let { children } = $props();
-
-  const isEconometrica = $derived($productType === 'econometrica');
-  const pipelineSteps = [
-    { id: 'data-model', label: 'Данные и Модель', icon: '📊' },
-    { id: 'analysis', label: 'Анализ', icon: '📐' },
-    { id: 'reporting', label: 'Отчёты', icon: '📋' },
-  ];
 
   let paletteOpen = $state(false);
 
@@ -81,10 +72,10 @@
 
     // Apply saved theme on mount
     const unsub = theme.subscribe(t => {
-      if (t === 'light') {
-        document.documentElement.setAttribute('data-theme', 'light');
-      } else {
+      if (t === 'dark') {
         document.documentElement.removeAttribute('data-theme');
+      } else {
+        document.documentElement.setAttribute('data-theme', t);
       }
     });
 
@@ -153,39 +144,7 @@
       onToggleCollapse={() => navCollapsed.update(v => !v)}
     />
   {/if}
-
   <div class="main-content">
-    <!-- Econometrica: Project selector + Pipeline breadcrumbs -->
-    {#if isEconometrica}
-      <div class="econometrica-bar">
-        <div class="econ-project">
-          <ProjectSelector />
-        </div>
-        {#if $activeCabinet}
-          <nav class="econ-pipeline">
-            {#each pipelineSteps as step, i}
-              <span
-                class="pipeline-step"
-                class:done={i < $pipelineStep}
-                class:active={$activeCabinet?.id === step.id}
-                class:future={i > $pipelineStep}
-              >
-                {step.icon} {step.label}
-                {#if i < $pipelineStep}✓{/if}
-              </span>
-              {#if i < pipelineSteps.length - 1}
-                <span class="pipeline-arrow">→</span>
-              {/if}
-            {/each}
-          </nav>
-        {/if}
-        <!-- C1: Pipeline nav — only for econometrica -->
-        <button class="pipeline-nav-btn" onclick={() => goto('/pipeline')} title="Открыть Visual Pipeline">
-          ⚡ Pipeline
-        </button>
-      </div>
-    {/if}
-
     {#key $page.url.pathname}
       <div class="page-transition">
         {@render children()}
@@ -236,76 +195,5 @@
   @keyframes pageFadeIn {
     from { opacity: 0.6; }
     to { opacity: 1; }
-  }
-
-  /* Econometrica pipeline bar */
-  .econometrica-bar {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 8px 16px;
-    background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
-    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
-    flex-shrink: 0;
-  }
-
-  .econ-project {
-    min-width: 200px;
-    max-width: 260px;
-  }
-
-  .econ-pipeline {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-    justify-content: center;
-  }
-
-  .pipeline-step {
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    color: var(--text-secondary, #94a3b8);
-    white-space: nowrap;
-  }
-
-  .pipeline-step.done {
-    color: var(--success, #22c55e);
-  }
-
-  .pipeline-step.active {
-    color: var(--accent-primary, #3b82f6);
-    background: rgba(59, 130, 246, 0.1);
-    font-weight: 600;
-  }
-
-  .pipeline-step.future {
-    opacity: 0.4;
-  }
-
-  .pipeline-arrow {
-    color: var(--text-secondary, #94a3b8);
-    opacity: 0.3;
-    font-size: 12px;
-  }
-
-  .pipeline-nav-btn {
-    margin-left: auto;
-    padding: 5px 14px;
-    background: rgba(59,130,246,0.12);
-    border: 1px solid rgba(59,130,246,0.3);
-    border-radius: 6px;
-    color: var(--accent-primary, #3b82f6);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .pipeline-nav-btn:hover {
-    background: rgba(59,130,246,0.2);
-    border-color: var(--accent-primary, #3b82f6);
   }
 </style>

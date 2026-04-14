@@ -9,7 +9,7 @@
   </head>
   <body data-sveltekit-preload-data="hover">
     <script>
-      try { const t = JSON.parse(localStorage.getItem('ai-agency-theme')); if (t === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch {}
+      try{var t=JSON.parse(localStorage.getItem('ai-agency-theme'));if(t&&t!=='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}
     </script>
     <div style="display: contents">%sveltekit.body%</div>
   </body>

@@ -133,10 +133,9 @@ export function cycleTheme() {
     const current = get(theme);
     const next = current === 'dark' ? 'light' : current === 'light' ? 'fun' : 'dark';
     theme.set(next);
-    document.documentElement.setAttribute('data-theme', next);
 }
 
-/** @deprecated Use cycleTheme() instead. */
+/** @deprecated Use cycleTheme() instead. Kept for backward compatibility. */
 export function toggleTheme() {
     cycleTheme();
 }
@@ -146,3 +145,7 @@ export const THEME_LABELS = { dark: 'Dark', light: 'Light', fun: 'Fun' };
 
 /** @type {Record<string, string>} */
 export const THEME_ICONS = { dark: '\u{1F319}', light: '\u{2600}', fun: '\u{1F308}' };
+
+/** Cabinet-specific onboarding state: {cabinetId: {step: number, completed: boolean}}
+ * @type {import('svelte/store').Writable<Record<string, {step: number, completed: boolean}>>} */
+export const cabinetOnboarding = createPersistentStore('ai-agency-cabinet-onboarding', {});
