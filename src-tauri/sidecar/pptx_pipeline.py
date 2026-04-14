@@ -730,12 +730,103 @@ def generate_docx_with_synthesis(input_path, notes_path, styles_path, synthesis_
     }, ensure_ascii=False))
 
 
+# ─── INJECT SUMMARY SLIDES ─────────────────────────────────────────────
+
+def parse_synthesis_sections(text):
+    """Парсит synthesis markdown в список секций {title, body}."""
+    sections = []
+    current = None
+
+    for line in text.split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('## '):
+            if current:
+                sections.append(current)
+            title = stripped[3:].strip()
+            current = {'title': title, 'body': []}
+        elif current is not None:
+            if stripped:
+                clean = stripped.lstrip('- •*').strip()
+                if clean:
+                    current['body'].append(clean)
+
+    if current:
+        sections.append(current)
+
+    return sections
+
+
+def inject_summary_slides(input_pptx, synthesis_md_path, styles_json_path, slides_json_path, output_pptx):
+    """Добавить summary-слайды в PPTX из synthesis markdown."""
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+
+    if not os.path.exists(synthesis_md_path):
+        print(json.dumps({"status": "skipped", "reason": "synthesis.md not found"}))
+        return
+
+    prs = Presentation(input_pptx)
+
+    styles = {}
+    if os.path.exists(styles_json_path):
+        with open(styles_json_path, 'r', encoding='utf-8') as f:
+            styles = json.load(f)
+
+    with open(synthesis_md_path, 'r', encoding='utf-8') as f:
+        synthesis = f.read()
+
+    sections = parse_synthesis_sections(synthesis)
+    if not sections:
+        print(json.dumps({"status": "skipped", "reason": "no sections in synthesis"}))
+        return
+
+    slide_width = prs.slide_width
+    slide_height = prs.slide_height
+
+    font_name = 'Calibri'
+    if styles.get('fonts'):
+        font_name = styles['fonts'][0].get('name', 'Calibri')
+
+    blank_layout = prs.slide_layouts[-1]
+
+    for section in sections:
+        slide = prs.slides.add_slide(blank_layout)
+
+        left = Inches(0.5)
+        top = Inches(0.3)
+        width = slide_width - Inches(1)
+
+        title_box = slide.shapes.add_textbox(left, top, width, Inches(0.8))
+        tf = title_box.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = section['title']
+        p.font.size = Pt(24)
+        p.font.bold = True
+        p.font.name = font_name
+        p.font.color.rgb = RGBColor(0x1E, 0x3A, 0x5F)
+
+        body_box = slide.shapes.add_textbox(left, Inches(1.3), width, slide_height - Inches(1.8))
+        tf = body_box.text_frame
+        tf.word_wrap = True
+
+        for i, line in enumerate(section['body']):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            p.text = line
+            p.font.size = Pt(14)
+            p.font.name = font_name
+            p.space_after = Pt(4)
+
+    prs.save(output_pptx)
+    print(json.dumps({"status": "ok", "slides_added": len(sections)}))
+
+
 # ─── MAIN ──────────────────────────────────────────────────────────────
 
 def main():
     if len(sys.argv) < 2:
         print("Usage: pptx_pipeline.py <mode> [args...]", file=sys.stderr)
-        print("Modes: preprocess, inject-notes, generate-docx", file=sys.stderr)
+        print("Modes: preprocess, inject-notes, generate-docx, inject-summary-slides", file=sys.stderr)
         sys.exit(1)
 
     mode = sys.argv[1]
@@ -763,6 +854,12 @@ def main():
             print("Usage: pptx_pipeline.py generate-docx-with-synthesis <input.pptx> <notes.json> <styles.json> <synthesis.md> <output.docx>", file=sys.stderr)
             sys.exit(1)
         generate_docx_with_synthesis(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
+
+    elif mode == "inject-summary-slides":
+        if len(sys.argv) != 7:
+            print("Usage: pptx_pipeline.py inject-summary-slides <input.pptx> <synthesis.md> <styles.json> <slides.json> <output.pptx>", file=sys.stderr)
+            sys.exit(1)
+        inject_summary_slides(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6])
 
     else:
         print(f"Unknown mode: {mode}", file=sys.stderr)

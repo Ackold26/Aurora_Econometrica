@@ -566,7 +566,7 @@ async fn send_message(
                         let overview = commands::pptx_processor::generate_overview(&slides);
                         let preprocessed_dir = work_dir.join("preprocessed");
                         // 80KB per chunk — prompt piped via temp file, no cmd line limit
-                                match commands::pptx_processor::split_into_chunks(&slides, &preprocessed_dir, 80_000) {
+                                match commands::pptx_processor::split_into_chunks(&slides, &preprocessed_dir, 80_000, None) {
                             Ok(chunk_split) => {
                                 let pipeline_result = run_analytics_pipeline(
                                     &work_dir, &overview, &chunk_split,
@@ -618,6 +618,16 @@ async fn send_message(
                                                 }
                                             } else if let Err(e) = commands::pptx_processor::generate_docx_with_synthesis(&pptx_path, &notes_json_path, &styles_json, &synthesis_path, &commentary_docx) {
                                                 warn!("Pipeline generate_docx_with_synthesis failed: {e}");
+                                            }
+                                            // Add summary slides from synthesis
+                                            if !synthesis_md.trim().is_empty() {
+                                                let slides_json_path = preprocessed_dir.join("slides.json");
+                                                match commands::pptx_processor::inject_summary_slides(
+                                                    &commented_pptx, &synthesis_path, &styles_json, &slides_json_path, &commented_pptx
+                                                ) {
+                                                    Ok(_) => info!("Summary slides added to {}", commented_pptx.display()),
+                                                    Err(e) => warn!("inject_summary_slides failed (non-critical): {e}"),
+                                                }
                                             }
                                         }
 
@@ -789,6 +799,14 @@ async fn send_message(
                         match commands::pptx_processor::generate_docx_with_synthesis(&pptx_path, &notes_json_path, &styles_json, &synthesis_path, &commentary_docx) {
                             Ok(_) => info!("Auto-postprocess: created {} (with synthesis)", commentary_docx.display()),
                             Err(e) => warn!("Auto-postprocess generate_docx_with_synthesis failed: {e}"),
+                        }
+                        // Add summary slides from synthesis
+                        let slides_json_path = preprocessed_dir.join("slides.json");
+                        match commands::pptx_processor::inject_summary_slides(
+                            &commented_pptx, &synthesis_path, &styles_json, &slides_json_path, &commented_pptx
+                        ) {
+                            Ok(_) => info!("Auto-postprocess: summary slides added to {}", commented_pptx.display()),
+                            Err(e) => warn!("inject_summary_slides failed (non-critical): {e}"),
                         }
                     }
                 }

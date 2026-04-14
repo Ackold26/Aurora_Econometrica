@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 #[cfg(windows)]
@@ -251,6 +252,33 @@ pub fn generate_docx_with_synthesis(
     Ok(())
 }
 
+/// Add summary slides to PPTX from synthesis markdown sections.
+pub fn inject_summary_slides(
+    pptx_path: &Path,
+    synthesis_md: &Path,
+    styles_json: &Path,
+    slides_json: &Path,
+    output_path: &Path,
+) -> Result<()> {
+    info!("PPTX inject summary slides: {} → {}", pptx_path.display(), output_path.display());
+
+    let result = run_pipeline("inject-summary-slides", &[
+        &pptx_path.to_string_lossy(),
+        &synthesis_md.to_string_lossy(),
+        &styles_json.to_string_lossy(),
+        &slides_json.to_string_lossy(),
+        &output_path.to_string_lossy(),
+    ])?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&result) {
+        let added = json["slides_added"].as_u64().unwrap_or(0);
+        let status = json["status"].as_str().unwrap_or("?");
+        info!("inject_summary_slides: status={status}, slides_added={added}");
+    }
+
+    Ok(())
+}
+
 /// Split a full analytics response into slide notes + synthesis sections.
 /// Slide notes = everything under `## Слайд N:` headers.
 /// Synthesis = everything under `## EXECUTIVE SUMMARY`, `## БЛОК:`, `## МОСТЫ`, `## РЕКОМЕНДАЦИИ`.
@@ -341,10 +369,21 @@ pub fn split_into_chunks(
     slides: &[serde_json::Value],
     output_dir: &Path,
     max_chunk_bytes: usize,
+    selected_slides: Option<&[u32]>,
 ) -> Result<ChunkSplit> {
     let data_slides: Vec<&serde_json::Value> = slides
         .iter()
         .filter(|s| s["type"] == "data")
+        .filter(|s| {
+            match selected_slides {
+                Some(nums) => {
+                    s["slide_num"].as_u64()
+                        .map(|n| nums.contains(&(n as u32)))
+                        .unwrap_or(false)
+                }
+                None => true,
+            }
+        })
         .collect();
 
     if data_slides.is_empty() {
@@ -397,9 +436,20 @@ pub fn merge_chunk_notes(chunk_markdowns: &[String]) -> Vec<serde_json::Value> {
 
     for md in chunk_markdowns {
         let notes = parse_response_to_notes(md);
+        use std::collections::hash_map::Entry;
         for note in notes {
             if let Some(num) = note["slide_num"].as_u64() {
-                all_notes.insert(num as u32, note);
+                match all_notes.entry(num as u32) {
+                    Entry::Vacant(e) => { e.insert(note); }
+                    Entry::Occupied(mut e) => {
+                        let existing_len = e.get()["text"].as_str().map_or(0, |s| s.len());
+                        let new_len = note["text"].as_str().map_or(0, |s| s.len());
+                        if new_len > existing_len {
+                            debug!("merge_chunk_notes: slide {} overwritten ({}→{} chars)", num, existing_len, new_len);
+                            e.insert(note);
+                        }
+                    }
+                }
             }
         }
     }
@@ -438,13 +488,19 @@ pub fn generate_recap(chunk_markdowns: &[String]) -> String {
         let last = notes.last().and_then(|n| n["slide_num"].as_u64()).unwrap_or(0);
         recap.push_str(&format!("Чанк {} (слайды {}-{}): ", i + 1, first, last));
 
-        // Extract ACTION TITLEs as key findings
+        // Extract slide headline as key findings (supports both "ЗАГОЛОВОК:" and legacy "ACTION TITLE:")
         let mut titles: Vec<String> = Vec::new();
         for note in &notes {
             if let Some(text) = note["text"].as_str() {
                 for line in text.lines() {
-                    if line.starts_with("ACTION TITLE:") {
-                        let title = line.trim_start_matches("ACTION TITLE:").trim();
+                    let title_opt = if line.starts_with("ЗАГОЛОВОК:") {
+                        Some(line.trim_start_matches("ЗАГОЛОВОК:").trim())
+                    } else if line.starts_with("ACTION TITLE:") {
+                        Some(line.trim_start_matches("ACTION TITLE:").trim())
+                    } else {
+                        None
+                    };
+                    if let Some(title) = title_opt {
                         if !title.is_empty() && titles.len() < 3 {
                             titles.push(title.to_string());
                         }
@@ -462,6 +518,604 @@ pub fn generate_recap(chunk_markdowns: &[String]) -> String {
         recap.push('\n');
     }
     recap
+}
+
+// ─── Aurora Index: precompute analytics ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricPoint {
+    pub name: String,
+    pub values: Vec<Option<f64>>,
+    pub categories: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrendInfo {
+    pub metric_name: String,
+    pub direction: String, // "up" | "down" | "flat"
+    pub change_pct: f64,
+    pub slope: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnomalyInfo {
+    pub slide_num: u32,
+    pub metric_name: String,
+    pub category: String,
+    pub value: f64,
+    pub expected: f64,
+    pub deviation_pct: f64,
+    pub severity: String, // "high" (>30%) | "medium" (>15%)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossSlideLink {
+    pub from_slide: u32,
+    pub to_slide: u32,
+    pub link_type: String, // "same_metric" | "inverse" | "causal_candidate"
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThematicBlock {
+    pub name: String,
+    pub slides: Vec<u32>,
+    pub health: String, // "good" | "warning" | "critical"
+    pub anomaly_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthSummary {
+    pub data_coverage: f64,
+    pub anomaly_count: usize,
+    pub high_severity_count: usize,
+    pub block_count: usize,
+    pub cross_link_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PresentationAnalytics {
+    pub blocks: Vec<ThematicBlock>,
+    pub anomalies: Vec<AnomalyInfo>,
+    pub trends: Vec<TrendInfo>,
+    pub cross_links: Vec<CrossSlideLink>,
+    pub health: HealthSummary,
+}
+
+pub fn compute_analytics(slides: &[serde_json::Value]) -> PresentationAnalytics {
+    let data_slides: Vec<&serde_json::Value> = slides
+        .iter()
+        .filter(|s| s["type"] == "data")
+        .collect();
+
+    // 1. Extract numeric series from all charts
+    let mut all_series: Vec<(u32, MetricPoint)> = Vec::new();
+    for slide in &data_slides {
+        let slide_num = slide["slide_num"].as_u64().unwrap_or(0) as u32;
+        if let Some(charts) = slide["charts"].as_array() {
+            for chart in charts {
+                if let Some(series) = chart["series"].as_array() {
+                    let categories: Vec<String> = chart["categories"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    for s in series {
+                        let name = s["name"].as_str().unwrap_or("").to_string();
+                        let values: Vec<Option<f64>> = s["values"]
+                            .as_array()
+                            .map(|a| a.iter().map(|v| v.as_f64()).collect())
+                            .unwrap_or_default();
+                        if !values.is_empty() && !name.is_empty() {
+                            all_series.push((
+                                slide_num,
+                                MetricPoint {
+                                    name,
+                                    values,
+                                    categories: categories.clone(),
+                                },
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let trends = compute_trends(&all_series);
+    let anomalies = detect_anomalies(&all_series);
+    let blocks = group_thematic_blocks(&data_slides, &anomalies);
+    let cross_links = find_cross_slide_links(&all_series);
+
+    let health = HealthSummary {
+        data_coverage: data_slides.len() as f64 / slides.len().max(1) as f64,
+        anomaly_count: anomalies.len(),
+        high_severity_count: anomalies.iter().filter(|a| a.severity == "high").count(),
+        block_count: blocks.len(),
+        cross_link_count: cross_links.len(),
+    };
+
+    PresentationAnalytics {
+        blocks,
+        anomalies,
+        trends,
+        cross_links,
+        health,
+    }
+}
+
+fn compute_trends(all_series: &[(u32, MetricPoint)]) -> Vec<TrendInfo> {
+    let mut trends = Vec::new();
+    for (_slide_num, metric) in all_series {
+        let valid: Vec<(f64, f64)> = metric
+            .values
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| v.map(|val| (i as f64, val)))
+            .collect();
+        if valid.len() < 3 {
+            continue;
+        }
+
+        let n = valid.len() as f64;
+        let sum_x: f64 = valid.iter().map(|(x, _)| x).sum();
+        let sum_y: f64 = valid.iter().map(|(_, y)| y).sum();
+        let sum_xy: f64 = valid.iter().map(|(x, y)| x * y).sum();
+        let sum_x2: f64 = valid.iter().map(|(x, _)| x * x).sum();
+
+        let denom = n * sum_x2 - sum_x * sum_x;
+        if denom.abs() < 1e-10 {
+            continue;
+        }
+
+        let slope = (n * sum_xy - sum_x * sum_y) / denom;
+        let mean_y = sum_y / n;
+        let normalized_slope = if mean_y.abs() > 1e-10 {
+            slope / mean_y
+        } else {
+            0.0
+        };
+
+        let first_val = valid.first().map(|(_, y)| *y).unwrap_or(0.0);
+        let last_val = valid.last().map(|(_, y)| *y).unwrap_or(0.0);
+        let change_pct = if first_val.abs() > 1e-10 {
+            (last_val - first_val) / first_val * 100.0
+        } else {
+            0.0
+        };
+
+        let direction = if normalized_slope > 0.01 {
+            "up"
+        } else if normalized_slope < -0.01 {
+            "down"
+        } else {
+            "flat"
+        };
+
+        trends.push(TrendInfo {
+            metric_name: metric.name.clone(),
+            direction: direction.to_string(),
+            change_pct,
+            slope: normalized_slope,
+        });
+    }
+    trends
+}
+
+fn detect_anomalies(all_series: &[(u32, MetricPoint)]) -> Vec<AnomalyInfo> {
+    let mut anomalies = Vec::new();
+    for (slide_num, metric) in all_series {
+        let valid: Vec<(usize, f64)> = metric
+            .values
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| v.map(|val| (i, val)))
+            .collect();
+        if valid.len() < 3 {
+            continue;
+        }
+
+        let n = valid.len() as f64;
+        let sum_x: f64 = valid.iter().map(|(x, _)| *x as f64).sum();
+        let sum_y: f64 = valid.iter().map(|(_, y)| y).sum();
+        let sum_xy: f64 = valid.iter().map(|(x, y)| *x as f64 * y).sum();
+        let sum_x2: f64 = valid.iter().map(|(x, _)| (*x as f64) * (*x as f64)).sum();
+
+        let denom = n * sum_x2 - sum_x * sum_x;
+        if denom.abs() < 1e-10 {
+            continue;
+        }
+
+        let slope = (n * sum_xy - sum_x * sum_y) / denom;
+        let intercept = (sum_y - slope * sum_x) / n;
+
+        for (i, val) in &valid {
+            let expected = intercept + slope * (*i as f64);
+            if expected.abs() < 1e-10 {
+                continue;
+            }
+            let deviation_pct = ((val - expected) / expected * 100.0).abs();
+
+            if deviation_pct > 15.0 {
+                let category = metric
+                    .categories
+                    .get(*i)
+                    .cloned()
+                    .unwrap_or_else(|| format!("point {}", i));
+                let severity = if deviation_pct > 30.0 { "high" } else { "medium" };
+                anomalies.push(AnomalyInfo {
+                    slide_num: *slide_num,
+                    metric_name: metric.name.clone(),
+                    category,
+                    value: *val,
+                    expected,
+                    deviation_pct,
+                    severity: severity.to_string(),
+                });
+            }
+        }
+    }
+    anomalies.sort_by(|a, b| {
+        b.severity
+            .cmp(&a.severity)
+            .then(b.deviation_pct.partial_cmp(&a.deviation_pct).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    anomalies.truncate(15);
+    anomalies
+}
+
+fn group_thematic_blocks(
+    data_slides: &[&serde_json::Value],
+    anomalies: &[AnomalyInfo],
+) -> Vec<ThematicBlock> {
+    let keyword_map: &[(&[&str], &str)] = &[
+        (
+            &["инвестиц", "бюджет", "spend", "затрат"],
+            "Инвестиции",
+        ),
+        (
+            &["медиа", "канал", "mix", "микс", "split"],
+            "Медиамикс",
+        ),
+        (
+            &["конкурент", "sov", "share of voice", "доля"],
+            "Конкуренты",
+        ),
+        (
+            &["потребит", "brand pulse", "знание", "aware", "лояльн"],
+            "Потребитель",
+        ),
+        (
+            &["digital", "диджитал", "cpm", "ctr", "cpc", "онлайн"],
+            "Digital",
+        ),
+        (&["продаж", "sales", "выручк", "revenue"], "Продажи"),
+        (
+            &["grp", "trp", "рейтинг", "охват", "reach", "частот"],
+            "Медиадавление",
+        ),
+    ];
+
+    let mut blocks: Vec<ThematicBlock> = Vec::new();
+
+    for slide in data_slides {
+        let slide_num = slide["slide_num"].as_u64().unwrap_or(0) as u32;
+        let title = slide["title"].as_str().unwrap_or("").to_lowercase();
+
+        let block_name = keyword_map
+            .iter()
+            .find(|(keywords, _)| keywords.iter().any(|kw| title.contains(kw)))
+            .map(|(_, name)| name.to_string())
+            .unwrap_or_else(|| "Другое".to_string());
+
+        let anomaly_count = anomalies.iter().filter(|a| a.slide_num == slide_num).count();
+
+        if let Some(last) = blocks.last_mut() {
+            if last.name == block_name {
+                last.slides.push(slide_num);
+                last.anomaly_count += anomaly_count;
+                continue;
+            }
+        }
+        blocks.push(ThematicBlock {
+            name: block_name,
+            slides: vec![slide_num],
+            health: "good".to_string(),
+            anomaly_count,
+        });
+    }
+
+    for block in &mut blocks {
+        let high = anomalies
+            .iter()
+            .filter(|a| block.slides.contains(&a.slide_num) && a.severity == "high")
+            .count();
+        block.health = if high > 0 {
+            "critical".to_string()
+        } else if block.anomaly_count > 0 {
+            "warning".to_string()
+        } else {
+            "good".to_string()
+        };
+    }
+
+    blocks
+}
+
+fn find_cross_slide_links(all_series: &[(u32, MetricPoint)]) -> Vec<CrossSlideLink> {
+    let mut links = Vec::new();
+
+    for (i, (slide_a, metric_a)) in all_series.iter().enumerate() {
+        for (slide_b, metric_b) in all_series.iter().skip(i + 1) {
+            if slide_a == slide_b {
+                continue;
+            }
+
+            let name_a = metric_a.name.to_lowercase();
+            let name_a = name_a.trim();
+            let name_b = metric_b.name.to_lowercase();
+            let name_b = name_b.trim();
+
+            if name_a.len() < 4 || name_b.len() < 4 {
+                continue;
+            }
+
+            if name_a == name_b || name_a.contains(name_b) || name_b.contains(name_a) {
+                let dir_a = trend_direction(&metric_a.values);
+                let dir_b = trend_direction(&metric_b.values);
+
+                let link_type = if (dir_a == "up" && dir_b == "down")
+                    || (dir_a == "down" && dir_b == "up")
+                {
+                    "inverse"
+                } else {
+                    "same_metric"
+                };
+
+                links.push(CrossSlideLink {
+                    from_slide: *slide_a,
+                    to_slide: *slide_b,
+                    link_type: link_type.to_string(),
+                    description: format!(
+                        "\"{}\" на слайдах {} и {}",
+                        metric_a.name, slide_a, slide_b
+                    ),
+                });
+            }
+        }
+    }
+
+    links.truncate(10);
+    links
+}
+
+fn trend_direction(values: &[Option<f64>]) -> &'static str {
+    let valid: Vec<f64> = values.iter().filter_map(|v| *v).collect();
+    if valid.len() < 2 {
+        return "flat";
+    }
+    let first = valid[0];
+    let last = valid[valid.len() - 1];
+    if first.abs() < 1e-10 || last.abs() < 1e-10 {
+        return "flat";
+    }
+    let change = (last - first) / first;
+    if change > 0.05 {
+        "up"
+    } else if change < -0.05 {
+        "down"
+    } else {
+        "flat"
+    }
+}
+
+pub fn format_analytics_context(analytics: &PresentationAnalytics) -> String {
+    let mut out = String::with_capacity(2048);
+    out.push_str("[AURORA INDEX — ВСПОМОГАТЕЛЬНЫЕ ДАННЫЕ (НЕ основное задание)]\n\
+        Ниже — автоматический предварительный анализ числовых данных из графиков. \
+        Используй как ДОПОЛНИТЕЛЬНЫЙ контекст при выполнении ОСНОВНОГО задания. \
+        НЕ меняй формат ответа — выполняй задание из команды.\n\n");
+    out.push_str(&format!(
+        "{} блоков, {} аномалий ({} критических), {} межслайдовых связей\n\n",
+        analytics.health.block_count,
+        analytics.health.anomaly_count,
+        analytics.health.high_severity_count,
+        analytics.health.cross_link_count,
+    ));
+
+    if !analytics.blocks.is_empty() {
+        out.push_str("БЛОКИ:\n");
+        for b in &analytics.blocks {
+            let slides_str = if b.slides.len() > 2 {
+                format!(
+                    "{}-{}",
+                    b.slides.first().unwrap(),
+                    b.slides.last().unwrap()
+                )
+            } else {
+                b.slides
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            let health_icon = match b.health.as_str() {
+                "critical" => "🔴",
+                "warning" => "🟡",
+                _ => "🟢",
+            };
+            out.push_str(&format!(
+                "- {} {} (сл. {}) [{}]\n",
+                health_icon,
+                b.name,
+                slides_str,
+                if b.anomaly_count > 0 {
+                    format!("{} аном.", b.anomaly_count)
+                } else {
+                    "ок".to_string()
+                }
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !analytics.anomalies.is_empty() {
+        out.push_str("АНОМАЛИИ:\n");
+        for a in analytics.anomalies.iter().take(10) {
+            out.push_str(&format!(
+                "- Сл.{} «{}» {}: {:.0} (ожид. {:.0}, откл. {:.0}%) [{}]\n",
+                a.slide_num,
+                a.metric_name,
+                a.category,
+                a.value,
+                a.expected,
+                a.deviation_pct,
+                a.severity
+            ));
+        }
+        out.push('\n');
+    }
+
+    if !analytics.trends.is_empty() {
+        out.push_str("ТРЕНДЫ:\n");
+        for t in analytics.trends.iter().take(10) {
+            let arrow = match t.direction.as_str() {
+                "up" => "↑",
+                "down" => "↓",
+                _ => "→",
+            };
+            out.push_str(&format!("- «{}» {} {:.0}%\n", t.metric_name, arrow, t.change_pct));
+        }
+        out.push('\n');
+    }
+
+    if !analytics.cross_links.is_empty() {
+        out.push_str("СВЯЗИ:\n");
+        for l in analytics.cross_links.iter().take(8) {
+            out.push_str(&format!(
+                "- Сл.{} → Сл.{}: {} [{}]\n",
+                l.from_slide, l.to_slide, l.description, l.link_type
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str(
+        "Эти данные — вспомогательные. Выполняй ОСНОВНОЕ задание из команды (послайдовые комментарии, check, executive summary и т.п.). Упоминай аномалии и тренды в комментариях где релевантно.\n",
+    );
+    out
+}
+
+#[cfg(test)]
+mod analytics_tests {
+    use super::*;
+
+    fn make_slide(num: u32, title: &str, series: Vec<(&str, Vec<f64>)>) -> serde_json::Value {
+        let chart_series: Vec<serde_json::Value> = series
+            .iter()
+            .map(|(name, vals)| {
+                serde_json::json!({"name": name, "values": vals})
+            })
+            .collect();
+        serde_json::json!({
+            "slide_num": num, "type": "data", "title": title,
+            "charts": [{"chart_type": "LINE", "series": chart_series, "categories": ["Q1","Q2","Q3","Q4"]}],
+            "texts": [], "tables": []
+        })
+    }
+
+    #[test]
+    fn test_trend_up() {
+        let slides = vec![make_slide(
+            1,
+            "Продажи",
+            vec![("Revenue", vec![100.0, 120.0, 140.0, 160.0])],
+        )];
+        let a = compute_analytics(&slides);
+        assert_eq!(a.trends.len(), 1);
+        assert_eq!(a.trends[0].direction, "up");
+        assert!(a.trends[0].change_pct > 50.0);
+    }
+
+    #[test]
+    fn test_anomaly_detected() {
+        let slides = vec![make_slide(
+            1,
+            "Бюджет",
+            vec![("TV", vec![100.0, 105.0, 200.0, 110.0])],
+        )];
+        let a = compute_analytics(&slides);
+        assert!(!a.anomalies.is_empty());
+        assert!(a.anomalies.iter().any(|a| a.value > 150.0));
+    }
+
+    #[test]
+    fn test_thematic_grouping() {
+        let slides = vec![
+            make_slide(
+                1,
+                "Инвестиции в рекламу",
+                vec![("Budget", vec![10.0, 20.0, 30.0])],
+            ),
+            make_slide(
+                2,
+                "Инвестиции по каналам",
+                vec![("TV", vec![5.0, 10.0, 15.0])],
+            ),
+            make_slide(3, "Конкуренты SOV", vec![("SOV", vec![30.0, 28.0, 25.0])]),
+        ];
+        let a = compute_analytics(&slides);
+        assert!(a
+            .blocks
+            .iter()
+            .any(|b| b.name == "Инвестиции" && b.slides.len() == 2));
+        assert!(a.blocks.iter().any(|b| b.name == "Конкуренты"));
+    }
+
+    #[test]
+    fn test_cross_slide_link() {
+        let slides = vec![
+            make_slide(
+                1,
+                "Digital spend",
+                vec![("Digital", vec![100.0, 150.0, 200.0])],
+            ),
+            make_slide(
+                5,
+                "Digital ROI",
+                vec![("Digital", vec![1.2, 1.5, 1.8])],
+            ),
+        ];
+        let a = compute_analytics(&slides);
+        assert!(!a.cross_links.is_empty());
+    }
+
+    #[test]
+    fn test_empty_slides() {
+        let slides = vec![serde_json::json!({
+            "slide_num": 1, "type": "title", "title": "Cover",
+            "charts": [], "texts": [], "tables": []
+        })];
+        let a = compute_analytics(&slides);
+        assert!(a.trends.is_empty());
+        assert!(a.anomalies.is_empty());
+    }
+
+    #[test]
+    fn test_format_context() {
+        let slides = vec![make_slide(
+            1,
+            "Продажи",
+            vec![("Revenue", vec![100.0, 120.0, 140.0, 160.0])],
+        )];
+        let a = compute_analytics(&slides);
+        let ctx = format_analytics_context(&a);
+        assert!(ctx.contains("AURORA INDEX"));
+        assert!(ctx.contains("ТРЕНДЫ"));
+    }
 }
 
 #[cfg(test)]
@@ -531,7 +1185,7 @@ ACTION TITLE: Digital лидирует
     fn split_into_chunks_basic() {
         let slides = sample_slides();
         let tmp = tempfile::tempdir().unwrap();
-        let result = split_into_chunks(&slides, tmp.path(), 500).unwrap();
+        let result = split_into_chunks(&slides, tmp.path(), 500, None).unwrap();
         assert_eq!(result.data_slide_count, 8); // slides 3-10
         assert!(result.chunk_count >= 2); // 8 data slides at 500 bytes max → multiple chunks
         for f in &result.chunk_files {
@@ -544,19 +1198,32 @@ ACTION TITLE: Digital лидирует
         let slides = sample_slides();
         let tmp = tempfile::tempdir().unwrap();
         // Very large max → single chunk
-        let result = split_into_chunks(&slides, tmp.path(), 1_000_000).unwrap();
+        let result = split_into_chunks(&slides, tmp.path(), 1_000_000, None).unwrap();
         assert_eq!(result.chunk_count, 1);
     }
 
     #[test]
     fn merge_chunk_notes_dedup() {
-        let chunk1 = "## Слайд 4: A\nACTION TITLE: X\n[CEO] ...\n\n## Слайд 5: B\nACTION TITLE: Y\n".to_string();
-        let chunk2 = "## Слайд 6: C\nACTION TITLE: Z\n\n## Слайд 5: B updated\nACTION TITLE: Y2\n".to_string();
+        // chunk2 has a longer version of slide 5 → should win
+        let chunk1 = "## Слайд 4: A\nACTION TITLE: X\n[CEO] ...\n\n## Слайд 5: B\nACTION TITLE: Y\n[CEO] short\n".to_string();
+        let chunk2 = "## Слайд 6: C\nACTION TITLE: Z\n\n## Слайд 5: B updated\nACTION TITLE: Y2\n[CEO] longer version with more detail here\n".to_string();
         let notes = merge_chunk_notes(&[chunk1, chunk2]);
         assert_eq!(notes.len(), 3); // slides 4, 5, 6
-        // Slide 5 from chunk2 wins (later overwrite)
+        // Slide 5 from chunk2 wins (longer content)
         let slide5 = notes.iter().find(|n| n["slide_num"] == 5).unwrap();
         assert!(slide5["text"].as_str().unwrap().contains("Y2"));
+    }
+
+    #[test]
+    fn merge_chunk_notes_keeps_longer() {
+        // chunk2 has a shorter version of slide 5 → chunk1 version should be preserved
+        let chunk1 = "## Слайд 5: B\nACTION TITLE: Y\n[CEO] long detailed analysis here with benchmark and recommendation\n".to_string();
+        let chunk2 = "## Слайд 5: B retry\nACTION TITLE: Y short\n".to_string();
+        let notes = merge_chunk_notes(&[chunk1, chunk2]);
+        assert_eq!(notes.len(), 1);
+        // Slide 5 from chunk1 preserved (longer content)
+        let slide5 = notes.iter().find(|n| n["slide_num"] == 5).unwrap();
+        assert!(slide5["text"].as_str().unwrap().contains("benchmark"));
     }
 
     #[test]
