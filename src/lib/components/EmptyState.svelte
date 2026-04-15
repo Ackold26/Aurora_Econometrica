@@ -50,7 +50,7 @@
   .es-action {
     padding: 10px 22px;
     background: var(--accent-primary);
-    color: #fff;
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: var(--radius-sm);
     font-size: var(--font-sm, 13px);

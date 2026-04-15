@@ -53,20 +53,20 @@
 
   .selector-trigger {
     display: flex; align-items: center; gap: 4px;
-    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    background: var(--hover-bg); border: 1px solid var(--border);
     color: var(--text-secondary, #aaa); padding: 4px 10px; border-radius: 6px;
     cursor: pointer; font-size: 0.8rem; font-family: inherit;
   }
-  .selector-trigger:hover { background: rgba(255,255,255,0.08); color: var(--text-primary, #fff); }
+  .selector-trigger:hover { background: var(--accent-glow); color: var(--text-primary); }
 
   .selector-chevron { transition: transform 0.15s; }
   .selector-chevron.open { transform: rotate(180deg); }
 
   .selector-dropdown {
     position: absolute; top: calc(100% + 4px); right: 0;
-    background: var(--bg-surface, #1a1a2e); border: 1px solid rgba(255,255,255,0.1);
+    background: var(--bg-surface); border: 1px solid var(--border);
     border-radius: 8px; padding: 4px; min-width: 180px; max-height: 240px; overflow-y: auto;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 100;
+    box-shadow: var(--shadow-glow); z-index: 100;
   }
 
   .selector-item {
@@ -75,7 +75,7 @@
     color: var(--text-secondary, #aaa); cursor: pointer; border-radius: 6px;
     font-size: 0.85rem; font-family: inherit; text-align: left;
   }
-  .selector-item:hover { background: rgba(255,255,255,0.06); color: var(--text-primary, #fff); }
-  .selector-item.active { color: #818cf8; }
+  .selector-item:hover { background: var(--hover-bg); color: var(--text-primary); }
+  .selector-item.active { color: var(--accent-text-light); }
   .item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

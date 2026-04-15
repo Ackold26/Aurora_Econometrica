@@ -193,8 +193,8 @@
   .palette-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
+    background: var(--overlay-bg);
+    backdrop-filter: var(--blur-quiet);
     display: flex;
     align-items: flex-start;
     justify-content: center;
@@ -212,9 +212,9 @@
     width: 100%;
     max-width: 520px;
     background: var(--bg-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border);
     border-radius: 14px;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-glow);
     overflow: hidden;
     animation: palette-in 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
@@ -229,7 +229,7 @@
     align-items: center;
     gap: 10px;
     padding: 14px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
   }
 
   .search-icon {
@@ -255,10 +255,10 @@
     font-size: 10px;
     font-family: var(--font-mono);
     color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--hover-bg);
     padding: 2px 6px;
     border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
   }
 
   .palette-results {
@@ -290,7 +290,7 @@
   }
 
   .palette-item-selected {
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
     color: var(--text-primary);
   }
 
@@ -344,7 +344,7 @@
     display: flex;
     gap: 16px;
     padding: 8px 16px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     font-size: 10px;
     color: var(--text-muted);
   }
@@ -352,10 +352,10 @@
   .palette-footer kbd {
     font-family: var(--font-mono);
     font-size: 9px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--hover-bg);
     padding: 1px 5px;
     border-radius: 3px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
     margin-right: 3px;
   }
 </style>

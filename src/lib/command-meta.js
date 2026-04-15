@@ -26,10 +26,6 @@ export const CABINET_CATEGORIES = [
     name: 'ДОКУМЕНТЫ',
     ids: ['doc-master'],
   },
-  {
-    name: 'ECONOMETRICA',
-    ids: ['data-model', 'analysis', 'reporting'],
-  },
 ];
 
 /**
@@ -68,12 +64,32 @@ export function getCategorizedCabinets(cabinets) {
 // ─── Command Metadata ───────────────────────────────────────────────
 
 /**
+ * @typedef {Object} BriefFieldOption
+ * @property {string} value
+ * @property {string} label
+ * @property {boolean} [allowInput] - Show inline text input when this option is selected
+ * @property {string} [inputPlaceholder]
+ */
+
+/**
+ * @typedef {Object} BriefField
+ * @property {string} id
+ * @property {string} label
+ * @property {'radio'|'checkboxes'|'text'} type
+ * @property {BriefFieldOption[]} [options]
+ * @property {string} [default] - Default value for radio
+ * @property {string[]} [defaults] - Default selected values for checkboxes
+ * @property {string[]} [chips] - Suggestion chips for text field
+ * @property {string} [placeholder] - Placeholder for text field
+ */
+
+/**
  * @typedef {Object} CommandMeta
  * @property {string} description - Short description (1 line)
  * @property {string} [example] - Example task prompt
  * @property {string} [category] - Semantic category: create | analyze | edit | test | utility
  * @property {boolean} [needsFile] - Highlight when inbox has files
- * @property {string[]} [phases] - Per-command progress messages
+ * @property {BriefField[]} [briefFields] - If present, show CommandBrief panel on click
  */
 
 /** @type {Record<string, CommandMeta>} */
@@ -84,7 +100,6 @@ export const COMMAND_META = {
     example: 'Проверь договор поставки с ООО "Альфа"',
     category: 'analyze',
     needsFile: true,
-    phases: ['Читаю текст договора', 'Анализирую условия', 'Ищу правовые риски', 'Формирую заключение'],
   },
   '/contract-batch': { description: 'Пакетная проверка нескольких договоров', category: 'analyze', needsFile: true },
   '/contract-риски': { description: 'Быстрый анализ только рисков без полного заключения', category: 'analyze', needsFile: true },
@@ -106,7 +121,6 @@ export const COMMAND_META = {
     description: 'Проверка рекламных материалов на соответствие ФЗ «О рекламе»',
     category: 'analyze',
     needsFile: true,
-    phases: ['Читаю материал', 'Проверяю требования закона', 'Ищу нарушения', 'Формирую заключение'],
   },
   '/qa-batch': { description: 'Пакетная проверка нескольких рекламных материалов', category: 'analyze', needsFile: true },
   '/qa-fix-docx': { description: 'Правки рекламного текста с отслеживанием в Word', category: 'edit', needsFile: true },
@@ -126,7 +140,6 @@ export const COMMAND_META = {
   '/pretension-write': {
     description: 'Составление претензии с правовым обоснованием',
     category: 'create',
-    phases: ['Анализирую ситуацию', 'Подбираю правовые основания', 'Составляю текст претензии'],
   },
   '/pretension-reply': { description: 'Подготовка ответа на полученную претензию', category: 'create', needsFile: true },
   '/pretension-analyze': { description: 'Правовой анализ претензии: перспективы и риски', category: 'analyze', needsFile: true },
@@ -143,7 +156,6 @@ export const COMMAND_META = {
     description: 'Создание текста в стиле и голосе бренда',
     example: 'Напиши пост для Telegram про запуск нового продукта',
     category: 'create',
-    phases: ['Изучаю бриф', 'Подбираю тон и стиль', 'Генерирую варианты', 'Финализирую текст'],
   },
   '/adapt': { description: 'Адаптация готового текста под другой формат или канал', category: 'edit', needsFile: true },
   '/audit': { description: 'Проверка текста: стиль, грамматика, tone of voice', category: 'analyze', needsFile: true },
@@ -157,7 +169,6 @@ export const COMMAND_META = {
     description: 'Полный цикл: от брифа до креативных концепций',
     example: 'Разработай креативную кампанию для нового йогурта',
     category: 'create',
-    phases: ['Анализирую бриф', 'Исследую аудиторию', 'Генерирую концепции', 'Оформляю презентацию'],
   },
   '/creative-audit': { description: 'Аудит существующего креатива: сильные и слабые стороны', category: 'analyze', needsFile: true },
   '/brand-memory': { description: 'Извлечение ДНК бренда из материалов и коммуникаций', category: 'analyze', needsFile: true },
@@ -173,7 +184,6 @@ export const COMMAND_META = {
     description: 'Полный цикл коммуникационной стратегии',
     example: 'Разработай коммуникационную стратегию для IT-стартапа',
     category: 'create',
-    phases: ['Анализирую рынок', 'Определяю позиционирование', 'Формирую сообщения', 'Строю план'],
   },
   '/positioning': { description: 'Разработка платформы позиционирования бренда', category: 'create' },
   '/brief': { description: 'Структурированный креативный бриф', category: 'create' },
@@ -187,7 +197,6 @@ export const COMMAND_META = {
   '/strategy-fg': {
     description: 'Стратегическая фокус-группа: позиционирование и восприятие',
     category: 'test',
-    phases: ['Формирую состав группы', 'Провожу модерацию', 'Анализирую ответы', 'Формирую выводы'],
   },
   '/creative-fg': { description: 'Тестирование креативных материалов на фокус-группе', category: 'test', needsFile: true },
   '/concept-test': { description: 'Тест концепций: оценка привлекательности и понятности', category: 'test' },
@@ -201,22 +210,318 @@ export const COMMAND_META = {
     description: 'Аналитические комментарии к слайдам презентации',
     category: 'analyze',
     needsFile: true,
-    phases: ['Читаю слайды', 'Выявляю тренды', 'Сравниваю с бенчмарками', 'Формирую выводы'],
+    briefFields: [
+      {
+        id: 'slides',
+        label: 'Слайды',
+        type: 'radio',
+        options: [
+          { value: 'all', label: 'Все (без перебивок и оглавлений)' },
+          { value: 'specific', label: 'Конкретные', allowInput: true, inputPlaceholder: 'напр. 3, 7–10, 15' },
+        ],
+        default: 'all',
+      },
+      {
+        id: 'audience',
+        label: 'Аудитория (уровни комментариев)',
+        type: 'checkboxes',
+        options: [
+          { value: 'ceo', label: 'CEO (стратегия)' },
+          { value: 'cmo', label: 'CMO (тактика)' },
+          { value: 'bm', label: 'BM (операции)' },
+        ],
+        defaults: ['ceo', 'cmo', 'bm'],
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Фокус, сравнения, акценты...',
+        chips: ['Фокус на выводах', 'Сравнить с Q3', 'Акцент на digital', 'Выделить аномалии'],
+      },
+    ],
   },
-  '/check': { description: 'Проверка качества существующих комментариев по чек-листу', category: 'analyze', needsFile: true },
-  '/action-title': { description: 'Генерация заголовков-выводов для слайдов', category: 'create', needsFile: true },
-  '/executive-summary': { description: 'Executive Summary по Pyramid Principle', category: 'create', needsFile: true },
-  '/bridges': { description: 'Межтематические связки между блоками презентации', category: 'create', needsFile: true },
-  '/batch-analytics': { description: 'Пакетная обработка нескольких презентаций', category: 'analyze', needsFile: true },
-  '/data-analysis': { description: 'Анализ сырых данных из xlsx/csv до создания слайдов', category: 'analyze', needsFile: true },
-  '/benchmark': { description: 'Контекстуализация данных относительно рыночных бенчмарков', category: 'analyze' },
+  '/check': {
+    description: 'Проверка качества существующих комментариев по чек-листу',
+    category: 'analyze',
+    needsFile: true,
+    briefFields: [
+      {
+        id: 'areas',
+        label: 'Что проверять',
+        type: 'checkboxes',
+        options: [
+          { value: 'action-titles', label: 'Action Titles' },
+          { value: 'formula', label: 'Формула Факт+Причина+Влияние' },
+          { value: 'data-cemetery', label: 'Кладбище данных' },
+          { value: 'exec-summary', label: 'Executive Summary' },
+          { value: 'source-accuracy', label: 'Точность источников' },
+        ],
+        defaults: ['action-titles', 'formula', 'data-cemetery', 'exec-summary', 'source-accuracy'],
+      },
+      {
+        id: 'mode',
+        label: 'Режим',
+        type: 'radio',
+        options: [
+          { value: 'checklist', label: 'Только чек-лист (проверка без правок)' },
+          { value: 'fix', label: 'Чек-лист + исправить проблемы' },
+        ],
+        default: 'checklist',
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Конкретные слайды, фокус проверки...',
+        chips: ['Только слайды 5-15', 'Фокус на digital-блоке', 'Проверить цифры vs графики'],
+      },
+    ],
+  },
+  '/action-title': {
+    description: 'Генерация заголовков-выводов для слайдов',
+    category: 'create',
+    needsFile: true,
+    briefFields: [
+      {
+        id: 'level',
+        label: 'Уровень SO WHAT',
+        type: 'checkboxes',
+        options: [
+          { value: 'operational', label: 'Operational (менеджеры)' },
+          { value: 'tactical', label: 'Tactical (CMO)' },
+          { value: 'strategic', label: 'Strategic (CEO)' },
+        ],
+        defaults: ['tactical'],
+      },
+      {
+        id: 'variants',
+        label: 'Вариантов на слайд',
+        type: 'radio',
+        options: [
+          { value: '1', label: '1 (только лучший)' },
+          { value: '3', label: '3 (на каждом уровне)' },
+        ],
+        default: '3',
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Конкретные слайды, отрасль, контекст...',
+        chips: ['Только слайды с данными', 'Фокус на digital', 'Короче и жёстче'],
+      },
+    ],
+  },
+  '/executive-summary': {
+    description: 'Executive Summary по Pyramid Principle',
+    category: 'create',
+    needsFile: true,
+    briefFields: [
+      {
+        id: 'format',
+        label: 'Формат',
+        type: 'radio',
+        options: [
+          { value: 'pyramid', label: 'Pyramid Principle (Минто)' },
+          { value: 'scr', label: 'SCR (Situation-Complication-Resolution)' },
+        ],
+        default: 'pyramid',
+      },
+      {
+        id: 'audience',
+        label: 'Разметка аудитории',
+        type: 'checkboxes',
+        options: [
+          { value: 'ceo', label: '[CEO] стратегия' },
+          { value: 'cmo', label: '[CMO] маркетинг' },
+          { value: 'bm', label: '[BM] операции' },
+        ],
+        defaults: ['ceo', 'cmo', 'bm'],
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Traffic Light, фокус, контекст...',
+        chips: ['Добавить Traffic Light Summary', 'Фокус на рекомендациях', 'Сравнить с прошлым периодом'],
+      },
+    ],
+  },
+  '/bridges': {
+    description: 'Межтематические связки между блоками презентации',
+    category: 'create',
+    needsFile: true,
+    briefFields: [
+      {
+        id: 'types',
+        label: 'Типы связей',
+        type: 'checkboxes',
+        options: [
+          { value: 'causal', label: 'Причинность' },
+          { value: 'correlation', label: 'Корреляция' },
+          { value: 'contradiction', label: 'Противоречие' },
+          { value: 'amplification', label: 'Усиление (мультипликатор)' },
+        ],
+        defaults: ['causal', 'correlation', 'contradiction', 'amplification'],
+      },
+      {
+        id: 'count',
+        label: 'Минимум мостов',
+        type: 'radio',
+        options: [
+          { value: '3', label: '3 (компактно)' },
+          { value: '5', label: '5 (стандарт)' },
+          { value: '7', label: '7+ (максимум)' },
+        ],
+        default: '5',
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Конкретные блоки, фокус связей...',
+        chips: ['Связать медиа и продажи', 'Фокус на digital', 'Каузальные цепочки Binet & Field'],
+      },
+    ],
+  },
+  '/batch-analytics': {
+    description: 'Пакетная обработка нескольких презентаций',
+    category: 'analyze',
+    needsFile: true,
+    briefFields: [
+      {
+        id: 'audience',
+        label: 'Аудитория (уровни комментариев)',
+        type: 'checkboxes',
+        options: [
+          { value: 'ceo', label: 'CEO (стратегия)' },
+          { value: 'cmo', label: 'CMO (тактика)' },
+          { value: 'bm', label: 'BM (операции)' },
+        ],
+        defaults: ['ceo', 'cmo', 'bm'],
+      },
+      {
+        id: 'depth',
+        label: 'Глубина анализа',
+        type: 'radio',
+        options: [
+          { value: 'standard', label: 'Стандарт (полный анализ каждого файла)' },
+          { value: 'express', label: 'Экспресс (ключевые выводы + сводная)' },
+        ],
+        default: 'standard',
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Общий контекст для всех файлов...',
+        chips: ['Единый клиент', 'Сравнить файлы между собой', 'Фокус на аномалиях'],
+      },
+    ],
+  },
+  '/data-analysis': {
+    description: 'Анализ сырых данных из xlsx/csv до создания слайдов',
+    category: 'analyze',
+    needsFile: true,
+    briefFields: [
+      {
+        id: 'analyses',
+        label: 'Типы анализа',
+        type: 'checkboxes',
+        options: [
+          { value: 'descriptive', label: 'Описательная статистика' },
+          { value: 'segmentation', label: 'Сегментация' },
+          { value: 'period', label: 'Period-over-period (YoY, MoM)' },
+          { value: 'anomalies', label: 'Аномалии и выбросы' },
+          { value: 'correlations', label: 'Корреляции' },
+        ],
+        defaults: ['descriptive', 'segmentation', 'period', 'anomalies', 'correlations'],
+      },
+      {
+        id: 'visualizations',
+        label: 'Рекомендации по визуализации',
+        type: 'radio',
+        options: [
+          { value: 'yes', label: 'Да (предложить тип графика для каждого инсайта)' },
+          { value: 'no', label: 'Нет (только данные и выводы)' },
+        ],
+        default: 'yes',
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Конкретные метрики, период, гипотезы...',
+        chips: ['Фокус на продажах', 'Сравнить каналы', 'Найти драйверы роста'],
+      },
+    ],
+  },
+  '/benchmark': {
+    description: 'Контекстуализация данных относительно рыночных бенчмарков',
+    category: 'analyze',
+    briefFields: [
+      {
+        id: 'metrics',
+        label: 'Категории метрик',
+        type: 'checkboxes',
+        options: [
+          { value: 'digital', label: 'Digital (CPM, CTR, CPC)' },
+          { value: 'tv', label: 'TV (GRP, охват)' },
+          { value: 'ooh', label: 'OOH (CPM, охват)' },
+          { value: 'sov', label: 'SOV/SOM/ESOV' },
+        ],
+        defaults: ['digital', 'tv', 'ooh', 'sov'],
+      },
+      {
+        id: 'market',
+        label: 'Рынок',
+        type: 'radio',
+        options: [
+          { value: 'russia', label: 'Россия (РФ 2024-2025)' },
+          { value: 'custom', label: 'Другой', allowInput: true, inputPlaceholder: 'напр. СНГ, Казахстан' },
+        ],
+        default: 'russia',
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Отрасль, конкретные метрики, период...',
+        chips: ['Фарма', 'FMCG', 'Финансы', 'E-commerce'],
+      },
+    ],
+  },
+  '/aurora-index': {
+    description: 'Aurora Index: автоматическая диагностика презентации',
+    category: 'analyze',
+    needsFile: true,
+    briefFields: [
+      {
+        id: 'depth',
+        label: 'Глубина анализа',
+        type: 'radio',
+        options: [
+          { value: 'express', label: 'Экспресс (аномалии и блоки)' },
+          { value: 'full', label: 'Полный (аномалии + связи + рекомендации)' },
+        ],
+        default: 'full',
+      },
+      {
+        id: 'extra',
+        label: 'Дополнительно',
+        type: 'text',
+        placeholder: 'Фокус анализа, контекст бренда...',
+        chips: ['Сравнить с прошлым периодом', 'Фокус на digital', 'Фокус на конкурентах'],
+      },
+    ],
+  },
 
   // ─── communication-analyst (10 commands) ───
   '/media-monitor': {
     description: 'Мониторинг медиаполя: охват, тональность, доля голоса',
     category: 'analyze',
     needsFile: true,
-    phases: ['Читаю данные мониторинга', 'Классифицирую публикации', 'Считаю метрики', 'Формирую отчёт'],
   },
   '/sentiment': { description: 'Анализ тональности публикаций и упоминаний', category: 'analyze', needsFile: true },
   '/effectiveness': { description: 'Отчёт по эффективности PR и коммуникаций', category: 'analyze', needsFile: true },
@@ -232,7 +537,6 @@ export const COMMAND_META = {
     description: 'Поиск и систематизация отзывов о бренде',
     category: 'analyze',
     needsFile: true,
-    phases: ['Читаю данные', 'Классифицирую отзывы', 'Выявляю паттерны', 'Формирую отчёт'],
   },
   '/analyze-sentiment': { description: 'Детальный анализ тональности отзывов', category: 'analyze', needsFile: true },
   '/report': { description: 'Сводный отчёт по результатам social listening', category: 'create', needsFile: true },
@@ -251,28 +555,25 @@ export const COMMAND_META = {
     example: 'Загрузите xlsx с продажами и медиабюджетами',
     category: 'analyze',
     needsFile: true,
-    phases: ['Валидирую данные', 'Строю модель', 'Декомпозирую продажи', 'Оптимизирую бюджет', 'Моделирую сценарии', 'Формирую отчёт'],
   },
   '/mmm-prepare': {
     description: 'Подготовка данных для Marketing Mix Modeling',
     category: 'utility',
     needsFile: true,
-    phases: ['Читаю данные', 'Проверяю качество', 'Трансформирую переменные', 'Формирую датасет'],
   },
-  '/mmm-model': { description: 'Обучение MMM-модели на подготовленных данных', category: 'analyze', needsFile: true, phases: ['Загружаю данные', 'Строю модель', 'Сэмплирую MCMC', 'Проверяю диагностику'] },
-  '/mmm-decomposition': { description: 'Декомпозиция продаж по каналам и факторам', category: 'analyze', needsFile: true, phases: ['Загружаю модель', 'Рассчитываю вклады', 'Строю графики'] },
-  '/mmm-optimize': { description: 'Оптимизация распределения медиабюджета', category: 'analyze', needsFile: true, phases: ['Строю response curves', 'Оптимизирую сплит', 'Сравниваю варианты'] },
-  '/mmm-scenarios': { description: 'Сценарное моделирование what-if по бюджетам', category: 'analyze', needsFile: true, phases: ['Генерирую сценарии', 'Рассчитываю прогнозы', 'Сравниваю результаты'] },
-  '/awareness-forecast': { description: 'Прогноз awareness по медиаплану', category: 'analyze', needsFile: true, phases: ['Читаю данные', 'Строю модель awareness', 'Прогнозирую динамику'] },
-  '/awareness-to-sales': { description: 'Моделирование связи awareness → продажи', category: 'analyze', needsFile: true, phases: ['Анализирую связь', 'Строю S-кривую', 'Оцениваю эластичность'] },
-  '/mmm-report': { description: 'Полный отчёт по результатам моделирования', category: 'create', needsFile: true, phases: ['Компилирую результаты', 'Формирую Executive Summary', 'Оформляю отчёт'] },
+  '/mmm-model': { description: 'Обучение MMM-модели на подготовленных данных', category: 'analyze', needsFile: true },
+  '/mmm-decomposition': { description: 'Декомпозиция продаж по каналам и факторам', category: 'analyze', needsFile: true },
+  '/mmm-optimize': { description: 'Оптимизация распределения медиабюджета', category: 'analyze', needsFile: true },
+  '/mmm-scenarios': { description: 'Сценарное моделирование what-if по бюджетам', category: 'analyze', needsFile: true },
+  '/awareness-forecast': { description: 'Прогноз awareness по медиаплану', category: 'analyze', needsFile: true },
+  '/awareness-to-sales': { description: 'Моделирование связи awareness → продажи', category: 'analyze', needsFile: true },
+  '/mmm-report': { description: 'Полный отчёт по результатам моделирования', category: 'create', needsFile: true },
 
   // ─── doc-master (3 commands) ───
   '/plan-to-doc': {
     description: 'Преобразование медиаплана в юридическое приложение к договору',
     category: 'create',
     needsFile: true,
-    phases: ['Читаю медиаплан', 'Форматирую в приложение', 'Проверяю реквизиты'],
   },
   '/doc-batch': { description: 'Генерация комплектов документов из шаблонов', category: 'create', needsFile: true },
   '/plan-check': { description: 'Проверка медиаплана на полноту и корректность', category: 'analyze', needsFile: true },
@@ -281,7 +582,6 @@ export const COMMAND_META = {
   '/visual': {
     description: 'Создание визуальной концепции по брифу',
     category: 'create',
-    phases: ['Анализирую бриф', 'Подбираю стилистику', 'Генерирую концепции', 'Оформляю результат'],
   },
   '/edit': { description: 'Редактирование и доработка визуальных материалов', category: 'edit', needsFile: true },
   '/logo': { description: 'Разработка концепции логотипа', category: 'create' },
@@ -289,29 +589,6 @@ export const COMMAND_META = {
   '/packaging': { description: 'Дизайн-концепция упаковки продукта', category: 'create' },
   '/brand-visual': { description: 'Визуальный ДНК бренда: цвета, типографика, стиль', category: 'analyze', needsFile: true },
   '/storyboard': { description: 'Раскадровка рекламного ролика', category: 'create' },
-
-  // ─── Econometrica: data-model (4 commands) ───
-  '/validate': {
-    description: 'Проверка готовности данных для моделирования',
-    category: 'analyze',
-    needsFile: true,
-    phases: ['Читаю данные', 'Проверяю структуру', 'Анализирую корреляции', 'Формирую отчёт'],
-  },
-  '/configure': { description: 'Предложить конфигурацию модели по данным', category: 'analyze', needsFile: true, phases: ['Анализирую столбцы', 'Определяю каналы', 'Предлагаю настройки'] },
-  '/train': { description: 'Обучить байесовскую MMM-модель', category: 'analyze', needsFile: true, phases: ['Компилирую модель', 'Сэмплирую MCMC', 'Проверяю диагностику'] },
-  '/diagnose': { description: 'Диагностика обученной модели', category: 'analyze', phases: ['Загружаю результаты', 'Проверяю сходимость', 'Оцениваю качество'] },
-
-  // ─── Econometrica: analysis (4 commands) ───
-  '/decompose': { description: 'Декомпозиция продаж по каналам', category: 'analyze', phases: ['Рассчитываю вклады', 'Строю waterfall', 'Формирую выводы'] },
-  '/optimize': { description: 'Оптимальное распределение медиабюджета', category: 'analyze', phases: ['Строю response curves', 'Оптимизирую сплит', 'Сравниваю варианты'] },
-  '/scenario': { description: 'Прогноз по медиаплану / сценарию', category: 'analyze', needsFile: true, phases: ['Загружаю медиаплан', 'Рассчитываю прогноз'] },
-  '/compare': { description: 'Сравнить несколько сценариев', category: 'analyze', phases: ['Загружаю сценарии', 'Рассчитываю разницу', 'Формирую рекомендации'] },
-
-  // ─── Econometrica: reporting (4 commands) ───
-  '/awareness': { description: 'Прогноз уровня знания бренда', category: 'analyze', needsFile: true, phases: ['Строю модель awareness', 'Прогнозирую динамику', 'Анализирую ESOV'] },
-  '/funnel': { description: 'Моделирование воронки media → awareness → sales', category: 'analyze', needsFile: true, phases: ['Строю S-кривую', 'Оцениваю эластичность'] },
-  '/executive': { description: 'Executive Summary для руководства', category: 'create', phases: ['Компилирую результаты', 'Формирую тезисы', 'Оформляю отчёт'] },
-  '/mmm-export': { description: 'Полный отчёт MMM (xlsx + docx)', category: 'create', phases: ['Собираю данные', 'Формирую отчёт', 'Экспортирую файлы'] },
 };
 
 /**
@@ -321,6 +598,17 @@ export const COMMAND_META = {
  */
 export function getCommandMeta(command) {
   return COMMAND_META[command] || null;
+}
+
+/**
+ * Get brief fields for a command, if it requires a brief panel.
+ * @param {string} command
+ * @returns {{ fields: BriefField[] } | null}
+ */
+export function getCommandBrief(command) {
+  const meta = COMMAND_META[command];
+  if (!meta?.briefFields) return null;
+  return { fields: meta.briefFields };
 }
 
 /**
@@ -363,7 +651,6 @@ const PRODUCT_CABINETS = {
   creative: ['creative-director', 'communication-strategist', 'focus-groups', 'copywriter', 'art-director'],
   media: ['media-analyst', 'communication-analyst', 'social-listening', 'econometrist'],
   docmaster: ['doc-master'],
-  econometrica: ['data-model', 'analysis', 'reporting'],
   agency: null,
   'creative-hub': null,
 };

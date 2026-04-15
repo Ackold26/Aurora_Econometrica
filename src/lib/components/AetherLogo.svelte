@@ -4,8 +4,8 @@
     <path d="M14 9L19 19H9L14 9Z" fill="url(#g)" opacity="0.3"/>
     <defs>
       <linearGradient id="g" x1="4" y1="23" x2="24" y2="3">
-        <stop offset="0%" stop-color="#818cf8"/>
-        <stop offset="100%" stop-color="#c084fc"/>
+        <stop offset="0%" stop-color="var(--logo-gradient-start, #818cf8)"/>
+        <stop offset="100%" stop-color="var(--logo-gradient-end, #c084fc)"/>
       </linearGradient>
     </defs>
   </svg>

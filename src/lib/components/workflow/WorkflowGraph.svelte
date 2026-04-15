@@ -23,8 +23,8 @@
   const statusColor = {
     idle: 'var(--text-muted)',
     running: 'var(--accent-primary)',
-    done: '#10B981',
-    error: '#EF4444',
+    done: 'var(--success)',
+    error: 'var(--danger)',
   };
 </script>
 
@@ -133,9 +133,9 @@
     width: 100%;
     max-width: 400px;
     background: var(--bg-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.07));
     border-radius: var(--radius-lg);
     overflow: hidden;
     cursor: pointer;
@@ -146,7 +146,7 @@
   }
 
   .wf-step:hover {
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: var(--border);
     transform: translateY(-1px);
     box-shadow: var(--shadow-card);
   }
@@ -158,16 +158,16 @@
   }
 
   .wf-step--done {
-    border-color: #10B981;
+    border-color: var(--success);
   }
 
   .wf-step--error {
-    border-color: #EF4444;
+    border-color: var(--danger);
   }
 
   @keyframes step-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(46, 91, 255, 0.3); }
-    50% { box-shadow: 0 0 16px 4px rgba(46, 91, 255, 0.15); }
+    0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow-strong); }
+    50% { box-shadow: var(--shadow-glow); }
   }
 
   .wf-step-accent {
@@ -231,7 +231,7 @@
 
   .wf-step-remove:hover {
     color: var(--danger);
-    background: rgba(239, 68, 68, 0.1);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
   }
 
   /* ── Connector ── */
@@ -246,14 +246,14 @@
   .wf-connector {
     width: 2px;
     height: 20px;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--border);
   }
 
   .wf-add-btn {
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border: 1px dashed var(--border);
     background: transparent;
     color: var(--text-muted);
     font-size: 14px;
@@ -272,7 +272,7 @@
   .wf-add-btn:hover {
     border-color: var(--accent-primary);
     color: var(--accent-primary);
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
   }
 
   .wf-add-btn--visible {
@@ -303,9 +303,9 @@
     display: flex;
     gap: 16px;
     padding: 12px;
-    border: 1px dashed rgba(255, 255, 255, 0.08);
+    border: 1px dashed var(--border);
     border-radius: var(--radius-lg);
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--hover-bg);
   }
 
   .wf-branch {

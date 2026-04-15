@@ -78,7 +78,7 @@
     gap: 8px;
     width: 100%;
     padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--hover-bg);
     border: none;
     border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.10));
     color: var(--text-primary, #EAEAF0);
@@ -91,7 +91,7 @@
   }
 
   .section-header:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--hover-bg);
   }
 
   .collapsed .section-header {
@@ -156,12 +156,4 @@
     color: var(--text-primary, #EAEAF0);
   }
 
-  /* ─── Light theme ─── */
-  :global([data-theme="light"]) .section-header {
-    background: rgba(0, 0, 0, 0.02);
-  }
-
-  :global([data-theme="light"]) .section-header:hover {
-    background: rgba(0, 0, 0, 0.04);
-  }
 </style>

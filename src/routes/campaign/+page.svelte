@@ -159,8 +159,8 @@
   .campaign-brand {
     font-size: 12px;
     color: var(--text-muted);
-    background: rgba(16, 185, 129, 0.1);
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
     padding: 2px 10px;
     border-radius: 12px;
   }
@@ -173,9 +173,9 @@
     gap: 6px;
     padding: 8px 16px;
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-on-accent, #fff);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-btn);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -189,9 +189,9 @@
   .create-input {
     flex: 1;
     padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-input);
     color: var(--text-primary);
     font-size: 13px;
     outline: none;
@@ -201,10 +201,10 @@
 
   .btn-create {
     padding: 8px 16px;
-    background: #10B981;
-    color: white;
+    background: var(--success);
+    color: var(--text-on-accent, #fff);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-btn);
     font-size: 13px;
     cursor: pointer;
   }
@@ -214,14 +214,14 @@
   .btn-cancel {
     padding: 8px 12px;
     background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-btn);
     color: var(--text-muted);
     font-size: 13px;
     cursor: pointer;
   }
 
-  .create-error { margin-top: 8px; font-size: 12px; color: #FCA5A5; }
+  .create-error { margin-top: 8px; font-size: 12px; color: color-mix(in srgb, var(--danger) 65%, transparent); }
 
   .empty-state { text-align: center; padding: 40px 20px; }
   .empty-text { font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
@@ -232,8 +232,8 @@
   .campaign-card {
     padding: 16px;
     background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    backdrop-filter: var(--blur-quiet);
+    border: 1px solid var(--hover-bg);
     border-radius: 12px;
   }
 
@@ -251,7 +251,7 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
     padding: 2px 8px;
     border-radius: 4px;
   }
@@ -273,11 +273,11 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--border);
     transition: background 0.2s;
   }
 
-  .step-completed { background: #10B981; }
+  .step-completed { background: var(--success); }
   .step-active { background: var(--accent-primary); animation: pulse 1.5s infinite; }
 
   @keyframes pulse {

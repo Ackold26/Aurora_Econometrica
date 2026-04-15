@@ -24,6 +24,8 @@
   let openError = $state('');
   /** @type {{filename: string, size: number, content: string|null}|null} */
   let previewData = $state(null);
+  /** @type {(() => void)|null} */
+  let resizeCleanup = $state(null);
   /** @type {ReturnType<typeof setInterval>|undefined} */
   let refreshInterval;
   /** @type {HTMLDivElement|undefined} */
@@ -43,11 +45,13 @@
       window.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      resizeCleanup = null;
     }
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+    resizeCleanup = onMouseUp;
   }
 
   /** @param {string} filename */
@@ -293,6 +297,7 @@
       clearInterval(refreshInterval);
       if (unlisten) unlisten();
       if (unlistenExports) unlistenExports();
+      if (resizeCleanup) resizeCleanup();
     };
   });
 </script>
@@ -459,8 +464,8 @@
     flex-shrink: 0;
     border-left: 1px solid var(--border);
     background: var(--panel-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
     display: flex;
     flex-direction: column;
     padding: 14px;
@@ -481,7 +486,7 @@
   }
 
   .resize-handle:hover {
-    background: rgba(46, 91, 255, 0.4);
+    background: var(--accent-glow-strong);
   }
 
   .file-section-title {
@@ -515,8 +520,8 @@
 
   .section-clear-btn:hover:not(:disabled) {
     opacity: 1;
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
   }
 
   .section-clear-btn:disabled {
@@ -540,8 +545,8 @@
 
   .inbox-zone.drag-over {
     border-color: var(--accent-primary);
-    background: rgba(46, 91, 255, 0.07);
-    box-shadow: 0 0 12px rgba(46, 91, 255, 0.15) inset;
+    background: var(--accent-glow);
+    box-shadow: 0 0 12px var(--accent-glow) inset;
   }
 
   .file-empty {
@@ -604,8 +609,8 @@
   }
 
   .delete-btn:hover {
-    background: rgba(239, 68, 68, 0.15);
-    color: #EF4444;
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
   }
 
   .pick-files-btn {
@@ -622,9 +627,9 @@
   }
 
   .pick-files-btn:hover {
-    background: rgba(46, 91, 255, 0.08);
+    background: var(--accent-glow);
     color: var(--text-secondary);
-    border-color: rgba(46, 91, 255, 0.3);
+    border-color: var(--accent-glow-strong);
   }
 
   .url-input-row {
@@ -646,7 +651,7 @@
   }
 
   .url-input:focus {
-    border-color: rgba(46, 91, 255, 0.35);
+    border-color: var(--accent-glow-strong);
   }
 
   .url-input::placeholder {
@@ -670,8 +675,8 @@
   }
 
   .url-add-btn:hover:not(:disabled) {
-    background: rgba(46, 91, 255, 0.1);
-    border-color: rgba(46, 91, 255, 0.3);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow-strong);
     color: var(--text-primary);
   }
 
@@ -700,7 +705,7 @@
   .action-btn:hover {
     background: var(--hover-bg);
     color: var(--text-secondary);
-    border-color: rgba(255, 255, 255, 0.08);
+    border-color: var(--border);
   }
 
   .help-btn {
@@ -727,7 +732,7 @@
   }
 
   .export-name:hover {
-    color: #8EB4FF;
+    color: var(--accent-text-light);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
@@ -761,8 +766,8 @@
   }
 
   .export-delete-btn:hover {
-    background: rgba(239, 68, 68, 0.15);
-    color: #EF4444;
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
   }
 
   /* ── Preview Popup ── */
@@ -770,9 +775,9 @@
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    background: var(--overlay-bg);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -781,14 +786,14 @@
 
   .preview-popup {
     background: var(--bg-secondary, #16161e);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border);
     border-radius: 12px;
     width: 90%;
     max-width: 440px;
     max-height: 70vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow);
     animation: slideUp 0.2s ease;
   }
 
@@ -884,11 +889,11 @@
   .preview-btn-secondary {
     background: var(--hover-bg);
     color: var(--text-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
   }
 
   .preview-btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--hover-bg);
     color: var(--text-primary);
     filter: none;
   }
@@ -900,9 +905,9 @@
 
   .open-error {
     font-size: 12px;
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
     border-radius: 6px;
     padding: 7px 10px;
     animation: fadeIn 0.2s ease;

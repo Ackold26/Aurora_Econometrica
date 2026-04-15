@@ -9,9 +9,19 @@
    * @type {{
    *   cabinetId?: string,
    *   onExecute?: (command: string) => void,
+   *   visibleCommands?: string[],
    * }}
    */
-  let { cabinetId = '', onExecute } = $props();
+  let { cabinetId = '', onExecute, visibleCommands = undefined } = $props();
+
+  /** Show all commands even if visibleCommands filter is active */
+  let showAll = $state(false);
+
+  // Reset showAll when cabinet changes
+  $effect(() => {
+    void cabinetId;
+    showAll = false;
+  });
 
   /** @type {Array<{command: string, label: string, group: string}>} */
   let commands = $state([]);
@@ -41,15 +51,22 @@
     return pinned.slice(0, 4);
   });
 
+  // Filtered commands (novice mode)
+  const displayCommands = $derived(
+    visibleCommands && visibleCommands.length > 0 && !showAll
+      ? commands.filter(c => visibleCommands.includes(c.command))
+      : commands
+  );
+
   // Group commands
   const grouped = $derived.by(() => {
-    if (commands.length === 0) return [];
-    if (commands.length < 8) return [{ name: '', commands, collapsed: false }];
+    if (displayCommands.length === 0) return [];
+    if (displayCommands.length < 8) return [{ name: '', commands: displayCommands, collapsed: false }];
 
     // Group by group field
     /** @type {Map<string, any[]>} */
     const map = new Map();
-    for (const cmd of commands) {
+    for (const cmd of displayCommands) {
       const g = cmd.group || 'Основные';
       if (!map.has(g)) map.set(g, []);
       map.get(g)?.push(cmd);
@@ -179,6 +196,13 @@
         </div>
       {/if}
     {/each}
+
+    <!-- Novice mode: show hidden commands count -->
+    {#if visibleCommands && !showAll && commands.length > displayCommands.length}
+      <button class="show-more-btn" onclick={() => { showAll = true; }}>
+        Ещё {commands.length - displayCommands.length} команд
+      </button>
+    {/if}
   {/if}
 </div>
 
@@ -229,9 +253,9 @@
     align-items: center;
     gap: 4px;
     padding: 4px 12px;
-    background: rgba(46, 91, 255, 0.06);
-    border: 1px solid rgba(46, 91, 255, 0.15);
-    border-radius: 16px;
+    background: var(--hover-bg);
+    border: 1px solid var(--accent-glow-strong);
+    border-radius: var(--radius-btn);
     color: var(--text-secondary, #A8A8B8);
     font-size: 12px;
     font-family: inherit;
@@ -240,8 +264,8 @@
   }
 
   .quick-chip:hover {
-    background: rgba(46, 91, 255, 0.12);
-    border-color: rgba(46, 91, 255, 0.30);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow-strong);
     color: var(--text-primary, #EAEAF0);
   }
 
@@ -325,9 +349,9 @@
     margin-top: 12px;
     padding: 6px 16px;
     background: var(--accent-primary, #2E5BFF);
-    color: #fff;
+    color: var(--text-on-accent, #fff);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-btn);
     font-size: 13px;
     font-family: inherit;
     cursor: pointer;
@@ -335,5 +359,29 @@
 
   .retry-btn:hover {
     filter: brightness(1.1);
+  }
+
+  /* ─── Show more (novice mode) ─── */
+  .show-more-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 8px;
+    background: none;
+    border: 1px dashed var(--border-subtle, rgba(255,255,255,0.10));
+    border-radius: var(--radius-btn);
+    color: var(--text-muted, #7A7A90);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 150ms ease-out;
+    margin-top: 4px;
+  }
+
+  .show-more-btn:hover {
+    border-color: var(--accent-glow-strong);
+    color: var(--accent-primary, #2E5BFF);
+    background: var(--hover-bg);
   }
 </style>

@@ -316,7 +316,7 @@
     align-items: center;
     gap: 12px;
     padding: 16px 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--hover-bg);
   }
 
   .back-link {
@@ -340,37 +340,37 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--accent-primary);
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
     padding: 2px 8px;
     border-radius: 4px;
     font-weight: 600;
   }
 
   .chat-badge.pro {
-    color: #a78bfa;
-    background: rgba(139, 92, 246, 0.15);
+    color: var(--accent-tertiary, #a78bfa);
+    background: color-mix(in srgb, var(--accent-tertiary, #a78bfa) 15%, transparent);
   }
 
   .brand-indicator {
     font-size: 11px;
     color: var(--text-secondary);
-    background: rgba(255,255,255,0.04);
+    background: var(--hover-bg);
     padding: 2px 8px;
     border-radius: 4px;
-    border: 1px solid rgba(255,255,255,0.06);
+    border: 1px solid var(--hover-bg);
     text-decoration: none;
   }
 
   .brand-indicator.no-brand {
-    color: #f59e0b;
-    border-color: rgba(245,158,11,0.3);
+    color: var(--warning, #f59e0b);
+    border-color: color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
   }
 
   .btn-clear {
     font-size: 11px;
     color: var(--text-muted);
     background: none;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
     padding: 4px 10px;
     border-radius: 6px;
     cursor: pointer;
@@ -410,8 +410,8 @@
     gap: 10px;
     padding: 12px 16px;
     background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    backdrop-filter: var(--blur-quiet);
+    border: 1px solid var(--hover-bg);
     border-radius: 12px;
     cursor: pointer;
     text-align: left;
@@ -434,7 +434,7 @@
 
   .msg-user .msg-content {
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-on-accent, #fff);
     padding: 10px 14px;
     border-radius: 12px 12px 4px 12px;
     margin-left: auto;
@@ -444,8 +444,8 @@
   }
 
   .msg-assistant .msg-content {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
+    border: 1px solid var(--hover-bg);
     padding: 12px 16px;
     border-radius: 12px 12px 12px 4px;
     max-width: 90%;
@@ -458,7 +458,7 @@
   .msg-assistant .msg-content :global(ul) { padding-left: 16px; margin: 4px 0; }
   .msg-assistant .msg-content :global(li) { margin: 2px 0; }
   .msg-assistant .msg-content :global(strong) { color: var(--text-primary); }
-  .msg-assistant .msg-content :global(code) { background: rgba(255,255,255,0.06); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+  .msg-assistant .msg-content :global(code) { background: var(--hover-bg); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
 
   .thinking { color: var(--text-muted); animation: pulse 1.5s infinite; }
 
@@ -476,8 +476,8 @@
 
   .suggestion-chip {
     padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
     border-radius: 20px;
     font-size: 12px;
     color: var(--text-secondary);
@@ -494,14 +494,14 @@
     display: flex;
     gap: 8px;
     padding: 16px 24px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--hover-bg);
   }
 
   .chat-input {
     flex: 1;
     padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
     border-radius: 10px;
     color: var(--text-primary);
     font-size: 13px;
@@ -518,7 +518,7 @@
     width: 40px;
     height: 40px;
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: 10px;
     cursor: pointer;

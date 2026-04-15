@@ -118,17 +118,17 @@
     width: 100%;
     padding: 0;
     background: var(--bg-glass);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
     border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-card);
     cursor: pointer;
     text-align: left;
     color: var(--text-primary);
     overflow: hidden;
     position: relative;
-    transition: all var(--transition-smooth);
-    box-shadow: var(--shadow-card);
+    transition: var(--hover-timing);
+    box-shadow: var(--shadow-elevation-1);
   }
 
   .card::after {
@@ -136,17 +136,15 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: radial-gradient(ellipse 60% 40% at 50% 0%, rgba(255,255,255,0.06) 0%, transparent 75%);
+    background: radial-gradient(ellipse 60% 40% at 50% 0%, var(--hover-bg) 0%, transparent 75%);
     pointer-events: none;
   }
 
   .card:hover {
     background: var(--bg-glass-hover);
-    border-color: rgba(255, 255, 255, 0.22);
-    transform: translateY(-3px);
-    box-shadow:
-      0 8px 28px rgba(0, 0, 0, 0.45),
-      0 0 0 1px var(--card-color) inset;
+    border-color: var(--border);
+    transform: var(--hover-transform);
+    box-shadow: var(--shadow-elevation-2), 0 0 0 1px var(--card-color) inset;
   }
 
   .card:active {
@@ -191,7 +189,7 @@
 
   .card-name {
     font-size: 13.5px;
-    font-weight: 600;
+    font-weight: var(--font-weight-heading);
     letter-spacing: -0.01em;
     margin-bottom: 5px;
     color: var(--text-primary);
@@ -210,7 +208,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 8px 19px 15px;
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid var(--hover-bg);
     margin-top: 5px;
   }
 
@@ -245,7 +243,7 @@
     font-size: 10px;
     font-weight: 600;
     color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
     padding: 2px 7px;
     border-radius: 10px;
     margin-left: auto;
@@ -256,6 +254,6 @@
 
   .card:hover .card-mastery {
     color: var(--card-color);
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
   }
 </style>

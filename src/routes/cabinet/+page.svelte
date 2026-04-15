@@ -386,7 +386,7 @@
       90deg,
       transparent 0%,
       var(--cabinet-color) 20%,
-      rgba(204, 255, 0, 0.5) 80%,
+      color-mix(in srgb, var(--accent-secondary) 50%, transparent) 80%,
       transparent 100%
     );
     flex-shrink: 0;
@@ -436,7 +436,7 @@
 
   .breadcrumb-name {
     font-size: 13.5px;
-    font-weight: 600;
+    font-weight: var(--font-weight-heading);
     color: var(--text-primary);
     letter-spacing: -0.01em;
   }
@@ -448,7 +448,7 @@
     background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.08);
     border: 1px solid rgba(var(--accent-primary-rgb, 99, 102, 241), 0.2);
     padding: 2px 7px;
-    border-radius: 10px;
+    border-radius: var(--radius-chip);
     cursor: default;
     user-select: none;
     white-space: nowrap;
@@ -457,8 +457,8 @@
   .brand-badge {
     font-size: 10px;
     color: var(--text-secondary);
-    background: rgba(99, 102, 241, 0.1);
-    border: 1px solid rgba(99, 102, 241, 0.2);
+    background: var(--accent-glow);
+    border: 1px solid var(--accent-glow);
     padding: 2px 8px;
     border-radius: 4px;
     margin-left: 8px;
@@ -484,9 +484,9 @@
   }
 
   .help-btn:hover {
-    background: rgba(46, 91, 255, 0.08);
+    background: var(--accent-glow);
     color: var(--text-primary);
-    border-color: rgba(46, 91, 255, 0.2);
+    border-color: var(--accent-glow);
   }
 
   /* ── Content ── */
@@ -535,7 +535,7 @@
     border: 1px solid var(--input-border);
     color: var(--text-primary);
     padding: 10px 14px;
-    border-radius: 8px;
+    border-radius: var(--radius-input);
     font-size: 14px;
     font-family: inherit;
     resize: none;
@@ -546,8 +546,8 @@
   }
 
   .selection-input:focus {
-    border-color: rgba(46, 91, 255, 0.4);
-    box-shadow: 0 0 0 2px rgba(46, 91, 255, 0.1);
+    border-color: var(--border-active);
+    box-shadow: 0 0 0 2px var(--accent-glow);
   }
 
   .selection-send {
@@ -556,8 +556,8 @@
     justify-content: center;
     width: 42px;
     height: 42px;
-    background: linear-gradient(135deg, #2E5BFF 0%, #5A8AFF 60%, rgba(204,255,0,0.8) 100%);
-    border-radius: 8px;
+    background: var(--gradient-primary);
+    border-radius: var(--radius-btn);
     border: none;
     color: white;
     cursor: pointer;
@@ -605,7 +605,7 @@
   .back-to-selection:hover {
     background: var(--hover-bg);
     color: var(--text-primary);
-    border-color: rgba(46, 91, 255, 0.3);
+    border-color: var(--accent-glow-strong);
   }
 
   /* ── PSY-7: Zen Mode ── */
@@ -626,8 +626,8 @@
 
   .zen-toggle-btn:hover {
     color: var(--accent-primary);
-    border-color: rgba(46, 91, 255, 0.2);
-    background: rgba(46, 91, 255, 0.06);
+    border-color: var(--accent-glow);
+    background: var(--accent-glow);
   }
 
   .zen-bar {
@@ -660,7 +660,7 @@
 
   .zen-exit-btn:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
   }
 
   .zen-exit-label {

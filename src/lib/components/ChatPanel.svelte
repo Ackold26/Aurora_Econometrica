@@ -2,12 +2,13 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
-  import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands } from '$lib/store.js';
+  import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands, inboxFiles as inboxFilesStore } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
-  import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout } from '$lib/psy.js';
+  import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
   import { playSendSound, playCompleteSound, playAchievementSound } from '$lib/audio.js';
-  import { parseResponseSections, shouldRenderStructured, isSlideDeckResponse, splitSlideSections, cleanSlideTitle } from '$lib/response-parser.js';
+  import { parseResponseSections, shouldRenderStructured, isSlideDeckResponse, splitSlideSections, cleanSlideTitle, extractCompletionStats } from '$lib/response-parser.js';
+  import { fade } from 'svelte/transition';
   import ResponseSection from '$lib/components/ResponseSection.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -89,13 +90,10 @@
   /** Commands that support auto-continuation */
   const AUTO_CONTINUE_COMMANDS = [
     // media-analyst
-    '/analytics', '/batch-analytics', '/check', '/action-title', '/executive-summary', '/bridges',
+    '/analytics', '/batch-analytics', '/check', '/action-title', '/executive-summary', '/bridges', '/benchmark', '/data-analysis', '/aurora-index',
     // econometrist
     '/mmm-full', '/mmm-prepare', '/mmm-model', '/mmm-decomposition', '/mmm-optimize',
     '/mmm-scenarios', '/mmm-report', '/awareness-forecast', '/awareness-to-sales',
-    // econometrica — only Claude-interpretation commands (not sidecar-computed)
-    '/configure', '/diagnose',
-    '/executive', '/mmm-export',
   ];
 
   /** @type {string|null} Track last executed command for auto-continue */
@@ -147,16 +145,23 @@
 
   // PSY-2: Random insight for loading state
   let currentInsight = $state('');
+  // C1: Slide counter during streaming (Goal Gradient Effect)
+  let slideProgress = $state({ current: 0, total: 0 });
   // PSY-3: Progress phase tracking
   let progressPhase = $state('');
   let progressIndex = $state(0);
   let progressTotal = $state(0);
   /** @type {ReturnType<typeof setInterval>|undefined} */
   let progressInterval;
+  // D3: флаг — pipeline_phase event получен, timer-based обновление отключено
+  let pipelinePhaseReceived = false;
   /** @type {ReturnType<typeof setTimeout>|undefined} Safety timeout — гарантия ответа */
   let safetyTimer;
   /** Phase 4.2: micro-celebration pulse на последнем ответе */
   let lastResponseComplete = $state(false);
+  // C3: Completion Summary Card (Peak-End Rule)
+  /** @type {{slides: number, recommendations: number, anomalies: number, bridges: number, elapsed: number, contextInsight: string|null}|null} */
+  let completionStats = $state(null);
   /** @type {Array<{label: string, command: string, description?: string}>} Top-3 команды кабинета для classifier + quick start */
   let quickStartCommands = $state([]);
 
@@ -201,6 +206,17 @@
     }]);
     // Предзаполнить input
     inputText = ctx;
+  });
+
+  // C2: Endowed Progress Effect — сообщение при загрузке первого файла
+  let prevInboxCount = $state(0);
+  $effect(() => {
+    const files = $inboxFilesStore;
+    if (files.length > 0 && prevInboxCount === 0) {
+      const msg = getEndowedProgressMessage(files.length, files[0]);
+      toast(msg, 'info', 3000);
+    }
+    prevInboxCount = files.length;
   });
 
   // ── Phase 5.1: Smart autoscroll — скролл при новых сообщениях / смене loading ──
@@ -421,6 +437,7 @@
             }
           }, getSafetyTimeout(cabinetId));
           startTime = Date.now(); // Reset phase timer
+          pipelinePhaseReceived = true; // D3: отключить timer-based progressPhase
           progressPhase = data.label || 'Обработка...';
           if (data.phase_index !== undefined) progressIndex = data.phase_index;
           if (data.total_phases !== undefined) progressTotal = data.total_phases;
@@ -460,6 +477,12 @@
                 }
                 return [...msgs, { role: 'assistant', content: block.text, ts: Date.now() }];
               });
+              // C1: Slide counter — Goal Gradient Effect
+              const lastMsg = $messages[$messages.length - 1];
+              if (lastMsg?.role === 'assistant') {
+                const slideMatches = lastMsg.content.match(/^##\s+(?:(?:Слайд|Slide)\s*№?\s*\d+|\d+\.\s)/gim);
+                if (slideMatches) slideProgress = { current: slideMatches.length, total: slideProgress.total || 0 };
+              }
             } else if (block.type === 'tool_use') {
               statusText = toolUseToStatus(block);
               // PSY-3: tool status более информативен — скрываем progress bar
@@ -477,6 +500,16 @@
             // Phase 4.2: pulse animation
             lastResponseComplete = true;
             setTimeout(() => { lastResponseComplete = false; }, 600);
+            // C3: Completion Summary Card — Peak-End Rule
+            const msgs = $messages;
+            const lastMsg = msgs[msgs.length - 1];
+            if (lastMsg?.role === 'assistant' && $activeCabinet?.id === 'media-analyst') {
+              const sections = parseResponseSections(lastMsg.content);
+              if (isSlideDeckResponse(sections)) {
+                completionStats = { ...extractCompletionStats(sections), elapsed, contextInsight: getContextInsight(lastMsg.content, 'media-analyst') };
+                setTimeout(() => { completionStats = null; }, 8000);
+              }
+            }
             startTime = null;
           } else {
             statusText = '';
@@ -537,10 +570,21 @@
       const last = msgs[msgs.length - 1];
       if (last && last.role === 'assistant') {
         // Dedup: if this response duplicates the previous assistant message, merge instead of keeping both
-        const prevAssistant = msgs.length >= 3 ? msgs[msgs.length - 3] : null; // -3: prev_assistant, auto_continue_user, current_assistant
-        if (prevAssistant && prevAssistant.role === 'assistant' && last.content.trim() === prevAssistant.content.trim()) {
-          // Duplicate — remove the auto-continue user msg + duplicate assistant msg
-          messages.update(m => m.slice(0, -2));
+        // Use reverse-search to skip any system/user messages between assistant turns
+        let prevAssistant = null;
+        for (let i = msgs.length - 2; i >= 0; i--) {
+          if (msgs[i].role === 'assistant') { prevAssistant = msgs[i]; break; }
+        }
+        if (prevAssistant && last.content.trim() === prevAssistant.content.trim()) {
+          // Duplicate — remove messages from the auto-continue user msg up to (not including) prevAssistant
+          messages.update(m => {
+            let cutFrom = m.length - 1;
+            for (let i = m.length - 2; i >= 0; i--) {
+              if (m[i].role === 'assistant') break;
+              cutFrom = i;
+            }
+            return m.slice(0, cutFrom);
+          });
           isLoading.set(false);
           return;
         }
@@ -664,17 +708,19 @@
 
     // ── Phase 1.1: Instant feedback — прогресс сразу, не ждём system.init ──
     playSendSound();
+    slideProgress = { current: 0, total: 0 }; // C1: reset slide counter
     isLoading.set(true);
     statusText = 'Подготавливаю запрос...';
     currentInsight = getRandomInsight(cabinetId) || '';
     startTime = Date.now();
+    pipelinePhaseReceived = false; // D3: сброс флага перед новым запросом
     clearInterval(progressInterval);
     const phaseInfo = getCurrentPhase(0, cabinetId);
     progressPhase = phaseInfo.label;
     progressIndex = phaseInfo.phaseIndex;
     progressTotal = phaseInfo.totalPhases;
     progressInterval = setInterval(() => {
-      if (cancelled || !startTime) return;
+      if (cancelled || !startTime || pipelinePhaseReceived) return; // D3: pipeline wins
       const elapsed = Math.round((Date.now() - startTime) / 1000);
       const phase = getCurrentPhase(elapsed, cabinetId);
       progressPhase = phase.label;
@@ -784,10 +830,22 @@
       const msgs = $messages;
       const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
       if (lastAssistant) {
-        const trimmed = lastAssistant.content.length > 2000
-          ? lastAssistant.content.slice(0, 2000) + '\n\n[...текст сокращён]'
-          : lastAssistant.content;
-        stickyContext.set(`Контекст из кабинета «${$activeCabinet?.name || ''}»:\n\n${trimmed}\n\n---\n\n`);
+        // D2: для media-analyst передавать только synthesis, не все слайды (PSY-10)
+        let contextText = null;
+        if ($activeCabinet?.id === 'media-analyst') {
+          const sections = parseResponseSections(lastAssistant.content);
+          if (isSlideDeckResponse(sections)) {
+            const { synthesis } = splitSlideSections(sections);
+            const synthText = synthesis.map(s => `## ${s.title}\n${s.content}`).join('\n\n');
+            if (synthText.length > 100) contextText = synthText.slice(0, 3000);
+          }
+        }
+        if (!contextText) {
+          contextText = lastAssistant.content.length > 2000
+            ? lastAssistant.content.slice(0, 2000) + '\n\n[...текст сокращён]'
+            : lastAssistant.content;
+        }
+        stickyContext.set(`Контекст из кабинета «${$activeCabinet?.name || ''}»:\n\n${contextText}\n\n---\n\n`);
       }
 
       // Закрыть текущий кабинет
@@ -1035,6 +1093,9 @@
             <div class="progress-fill" style="width: {((progressIndex + 1) / progressTotal) * 100}%"></div>
           </div>
           <span class="progress-label">{progressPhase}</span>
+          {#if slideProgress.current > 0}
+            <span class="slide-counter">Слайд {slideProgress.current}{slideProgress.total ? `/${slideProgress.total}` : ''}</span>
+          {/if}
           {#if currentInsight}
             <!-- PSY-2: Insight во время загрузки -->
             <div class="insight-card">
@@ -1050,6 +1111,20 @@
         <div class="status-block">
           <span class="status-spinner">{statusText.startsWith('Готово') ? '\u2713' : '\u27F3'}</span>
           <span class="status-text">{statusText}</span>
+        </div>
+      {/if}
+      {#if completionStats}
+        <div class="completion-card" transition:fade={{ duration: 300 }}>
+          <span class="cc-time">Готово за {completionStats.elapsed}с</span>
+          <div class="cc-stats">
+            <span>{completionStats.slides} {pluralRu(completionStats.slides, 'слайд', 'слайда', 'слайдов')}</span>
+            {#if completionStats.anomalies > 0}<span class="cc-warning">{completionStats.anomalies} {pluralRu(completionStats.anomalies, 'аномалия', 'аномалии', 'аномалий')}</span>{/if}
+            {#if completionStats.recommendations > 0}<span>{completionStats.recommendations} {pluralRu(completionStats.recommendations, 'рекомендация', 'рекомендации', 'рекомендаций')}</span>{/if}
+            {#if completionStats.bridges > 0}<span>{completionStats.bridges} {pluralRu(completionStats.bridges, 'мост', 'моста', 'мостов')}</span>{/if}
+          </div>
+          {#if completionStats.contextInsight}
+            <div class="cc-insight">{completionStats.contextInsight}</div>
+          {/if}
         </div>
       {/if}
       <!-- PSY-1: Next Steps — отключены (предлагали другие кабинеты, а не команды текущего) -->
@@ -1164,8 +1239,8 @@
     gap: 8px;
     padding: 8px 16px;
     background: var(--panel-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
     border-bottom: 1px solid var(--border);
     animation: fadeIn 0.2s ease;
   }
@@ -1181,14 +1256,14 @@
     border: 1px solid var(--input-border);
     color: var(--text-primary);
     padding: 6px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-input);
     font-size: 13px;
     min-width: 0;
     transition: border-color var(--transition-fast);
   }
 
   .search-input:focus {
-    border-color: rgba(46, 91, 255, 0.4);
+    border-color: var(--border-active);
     outline: none;
   }
 
@@ -1199,7 +1274,7 @@
   .search-count {
     font-size: 11px;
     color: var(--text-muted);
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
     padding: 2px 7px;
     border-radius: 10px;
     flex-shrink: 0;
@@ -1243,19 +1318,19 @@
 
   .search-toggle-btn:hover {
     color: var(--text-primary);
-    background: rgba(46, 91, 255, 0.08);
-    border-color: rgba(46, 91, 255, 0.2);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow);
   }
 
   .search-toggle-btn.active {
     color: var(--accent-primary);
-    background: rgba(46, 91, 255, 0.12);
-    border-color: rgba(46, 91, 255, 0.3);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow-strong);
   }
 
   /* ── Search highlight ── */
   .chat :global(mark) {
-    background: rgba(204, 255, 0, 0.3);
+    background: color-mix(in srgb, var(--accent-secondary) 30%, transparent);
     color: inherit;
     border-radius: 2px;
     padding: 0 1px;
@@ -1263,6 +1338,7 @@
 
   .messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 24px 28px;
     display: flex;
@@ -1309,10 +1385,10 @@
     margin-top: 20px;
     max-width: 380px;
     padding: 14px 16px;
-    border: 1px solid rgba(204, 255, 0, 0.15);
+    border: 1px solid color-mix(in srgb, var(--accent-secondary) 15%, transparent);
     border-left: 3px solid var(--accent-secondary);
     border-radius: 8px;
-    background: rgba(204, 255, 0, 0.07);
+    background: color-mix(in srgb, var(--accent-secondary) 7%, transparent);
     animation: fadeIn 0.3s ease;
   }
 
@@ -1384,9 +1460,9 @@
 
   /* ── Phase 4.2: Micro-celebration pulse ── */
   @keyframes response-pulse {
-    0% { box-shadow: 0 0 0 0 rgba(46, 91, 255, 0.3); }
-    70% { box-shadow: 0 0 0 6px rgba(46, 91, 255, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(46, 91, 255, 0); }
+    0% { box-shadow: 0 0 0 0 var(--accent-glow-strong); }
+    70% { box-shadow: 0 0 0 6px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
   }
   .response-complete {
     animation: response-pulse 0.6s ease-out;
@@ -1440,14 +1516,14 @@
     background: var(--accent-primary);
     color: white;
     border-bottom-right-radius: 4px;
-    box-shadow: 0 2px 12px rgba(46, 91, 255, 0.3);
+    box-shadow: var(--shadow-glow);
   }
 
   /* Assistant: glass */
   .message-assistant .message-bubble {
     background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
     border: 1px solid var(--input-border);
     border-bottom-left-radius: 4px;
     white-space: normal;
@@ -1481,12 +1557,12 @@
   }
 
   .markdown-body :global(code) {
-    background: rgba(46, 91, 255, 0.12);
+    background: var(--accent-glow);
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 12.5px;
     font-family: var(--font-mono);
-    color: #8EB4FF;
+    color: var(--accent-text-light);
   }
 
   .markdown-body :global(pre code) {
@@ -1511,9 +1587,9 @@
   }
 
   .markdown-body :global(th) {
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
     font-weight: 600;
-    color: #8EB4FF;
+    color: var(--accent-text-light);
   }
 
   .markdown-body :global(blockquote) {
@@ -1522,7 +1598,7 @@
     padding: 4px 12px;
     color: var(--text-secondary);
     font-style: italic;
-    background: rgba(46, 91, 255, 0.08);
+    background: var(--accent-glow);
     border-radius: 0 6px 6px 0;
   }
 
@@ -1536,7 +1612,7 @@
   .markdown-body :global(em) { font-style: italic; }
 
   .markdown-body :global(a) {
-    color: #8EB4FF;
+    color: var(--accent-text-light);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
@@ -1566,16 +1642,16 @@
   }
 
   .copy-btn:hover {
-    background: rgba(46, 91, 255, 0.2);
-    border-color: rgba(46, 91, 255, 0.3);
-    color: #8EB4FF;
+    background: var(--accent-glow-strong);
+    border-color: var(--accent-glow-strong);
+    color: var(--accent-text-light);
   }
 
   /* ── System / Error ── */
   .message-system .message-bubble {
-    background: rgba(239, 68, 68, 0.1);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
     color: var(--danger);
-    border: 1px solid rgba(239, 68, 68, 0.2);
+    border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
     border-radius: var(--radius-sm);
     font-size: 13px;
   }
@@ -1631,8 +1707,8 @@
     padding: 14px 20px;
     border-top: 1px solid var(--border);
     background: var(--panel-bg);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
   }
 
   /* Phase 3.3: Command mode indicator */
@@ -1644,18 +1720,18 @@
   }
   .input-wrapper.command-mode .input {
     border-color: var(--accent-primary, #7c3aed);
-    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+    box-shadow: 0 0 0 2px var(--accent-glow);
   }
   .command-badge {
     position: absolute;
     top: -8px;
     left: 12px;
     background: var(--accent-primary, #7c3aed);
-    color: #fff;
+    color: var(--text-on-accent, #fff);
     font-size: 10px;
     font-weight: 600;
     padding: 1px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-chip);
     z-index: 1;
     letter-spacing: 0.3px;
   }
@@ -1667,7 +1743,7 @@
     border: 1px solid var(--input-border);
     color: var(--text-primary);
     padding: 12px 16px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-input);
     font-size: 14px;
     line-height: 1.5;
     max-height: 140px;
@@ -1676,8 +1752,8 @@
   }
 
   .input:focus {
-    border-color: rgba(46, 91, 255, 0.4);
-    box-shadow: 0 0 0 2px rgba(46, 91, 255, 0.1);
+    border-color: var(--border-active);
+    box-shadow: 0 0 0 2px var(--accent-glow);
   }
 
   .input::placeholder {
@@ -1695,17 +1771,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #2E5BFF 0%, #5A8AFF 60%, rgba(204, 255, 0, 0.8) 100%);
+    background: var(--gradient-primary);
     color: white;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-btn);
     transition: all var(--transition);
     flex-shrink: 0;
-    box-shadow: 0 2px 12px rgba(46, 91, 255, 0.3);
+    box-shadow: var(--shadow-glow);
   }
 
   .send-btn:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 4px 20px rgba(46, 91, 255, 0.5);
+    box-shadow: var(--shadow-glow);
     filter: brightness(1.1);
   }
 
@@ -1721,18 +1797,18 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(239, 68, 68, 0.12);
-    color: #EF4444;
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+    border-radius: var(--radius-btn);
     transition: all var(--transition);
     flex-shrink: 0;
     cursor: pointer;
   }
 
   .stop-btn:hover {
-    background: rgba(239, 68, 68, 0.25);
-    border-color: rgba(239, 68, 68, 0.6);
+    background: color-mix(in srgb, var(--danger) 25%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 60%, transparent);
   }
 
   .rating-widget {
@@ -1764,14 +1840,14 @@
 
   .rate-up:hover {
     color: var(--success, #10B981);
-    background: rgba(16, 185, 129, 0.1);
-    border-color: rgba(16, 185, 129, 0.3);
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+    border-color: color-mix(in srgb, var(--success) 30%, transparent);
   }
 
   .rate-down:hover {
     color: var(--danger, #EF4444);
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.3);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
   }
 
   .rating-done {
@@ -1799,9 +1875,9 @@
   }
 
   .clear-history-btn:hover:not(:disabled) {
-    color: #EF4444;
-    background: rgba(239, 68, 68, 0.08);
-    border-color: rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 20%, transparent);
   }
 
   .clear-history-btn:disabled {
@@ -1811,8 +1887,8 @@
 
   .collapse-all-btn:hover {
     color: var(--text-primary);
-    background: rgba(46, 91, 255, 0.08);
-    border-color: rgba(46, 91, 255, 0.2);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow);
   }
 
   /* ── Collapse/Expand for assistant messages ── */
@@ -1841,9 +1917,9 @@
   }
 
   .collapse-btn:hover {
-    background: rgba(46, 91, 255, 0.15);
-    border-color: rgba(46, 91, 255, 0.3);
-    color: #8EB4FF;
+    background: var(--accent-glow-strong);
+    border-color: var(--accent-glow-strong);
+    color: var(--accent-text-light);
   }
 
   .collapsed-bubble {
@@ -1873,7 +1949,7 @@
   }
 
   .message-user .msg-time {
-    color: rgba(255, 255, 255, 0.75);
+    color: var(--text-secondary);
   }
 
   .message-assistant .msg-time {
@@ -1888,15 +1964,15 @@
     gap: 8px;
     padding: 12px 16px;
     margin: 4px 0;
-    background: rgba(46, 91, 255, 0.04);
-    border: 1px solid rgba(46, 91, 255, 0.1);
+    background: var(--hover-bg);
+    border: 1px solid var(--accent-glow);
     border-radius: 10px;
     animation: fadeIn 0.3s ease;
   }
 
   .progress-bar {
     height: 3px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
     border-radius: 2px;
     overflow: hidden;
   }
@@ -1914,14 +1990,22 @@
     font-weight: 500;
   }
 
+  .slide-counter {
+    font-size: 11px;
+    color: var(--text-muted, var(--text-secondary));
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+    letter-spacing: 0.02em;
+  }
+
   /* ── PSY-2: Insight Card ── */
   .insight-card {
     display: flex;
     align-items: flex-start;
     gap: 8px;
     padding: 8px 10px;
-    background: rgba(204, 255, 0, 0.04);
-    border-left: 2px solid rgba(204, 255, 0, 0.25);
+    background: color-mix(in srgb, var(--accent-secondary) 4%, transparent);
+    border-left: 2px solid color-mix(in srgb, var(--accent-secondary) 25%, transparent);
     border-radius: 4px;
     margin-top: 2px;
   }
@@ -1937,6 +2021,58 @@
     color: var(--text-muted);
     line-height: 1.45;
     font-style: italic;
+  }
+
+  /* ── C3: Completion Summary Card (Peak-End Rule) ── */
+  .completion-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    background: var(--bg-surface-focus);
+    backdrop-filter: var(--blur-focus);
+    -webkit-backdrop-filter: var(--blur-focus);
+    border: 1px solid var(--accent-primary);
+    border-radius: 8px;
+    margin-top: 4px;
+  }
+
+  .cc-time {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-primary);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .cc-stats {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .cc-stats span {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .cc-warning {
+    color: var(--warning-text) !important;
+  }
+
+  /* C6: Context-aware insight — занимает всю строку (flex-wrap новая строка) */
+  .cc-insight {
+    flex-basis: 100%;
+    font-size: 12px;
+    color: var(--text-primary, #e2e8f0);
+    font-weight: 500;
+    padding-top: 4px;
+    margin-top: -2px;
+    border-top: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
   }
 
   /* ── PSY-1: Next Steps Chips ── */
@@ -1967,8 +2103,8 @@
     flex-direction: column;
     gap: 2px;
     padding: 8px 14px;
-    background: rgba(46, 91, 255, 0.06);
-    border: 1px solid rgba(46, 91, 255, 0.15);
+    background: var(--accent-glow);
+    border: 1px solid var(--accent-glow);
     border-radius: 10px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -1976,8 +2112,8 @@
   }
 
   .next-step-chip:hover {
-    background: rgba(46, 91, 255, 0.12);
-    border-color: rgba(46, 91, 255, 0.3);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow-strong);
     transform: translateY(-1px);
   }
 
@@ -2027,8 +2163,8 @@
 
   .toc-chip {
     padding: 4px 10px;
-    background: rgba(46, 91, 255, 0.06);
-    border: 1px solid rgba(46, 91, 255, 0.12);
+    background: var(--accent-glow);
+    border: 1px solid var(--accent-glow);
     border-radius: 12px;
     color: var(--text-secondary);
     font-size: 11px;
@@ -2038,8 +2174,8 @@
   }
 
   .toc-chip:hover {
-    background: rgba(46, 91, 255, 0.12);
-    border-color: rgba(46, 91, 255, 0.25);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow-strong);
     color: var(--accent-primary);
   }
 
@@ -2051,8 +2187,8 @@
     width: 100%;
     padding: 12px 16px;
     margin: 6px 0;
-    background: rgba(46, 91, 255, 0.05);
-    border: 1px solid rgba(46, 91, 255, 0.15);
+    background: var(--accent-glow);
+    border: 1px solid var(--accent-glow);
     border-radius: 10px;
     color: var(--text-primary, #EAEAF0);
     font-family: inherit;
@@ -2062,8 +2198,8 @@
   }
 
   .slide-deck-summary:hover {
-    background: rgba(46, 91, 255, 0.10);
-    border-color: rgba(46, 91, 255, 0.30);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow-strong);
   }
 
   .sds-icon {

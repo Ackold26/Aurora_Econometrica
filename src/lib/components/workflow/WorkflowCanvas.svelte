@@ -251,10 +251,10 @@
 
   /** @type {Record<string, string>} */
   const statusColor = {
-    idle: 'rgba(255,255,255,0.07)',
+    idle: 'var(--border-subtle, rgba(255,255,255,0.07))',
     running: 'var(--accent-primary)',
-    done: '#10B981',
-    error: '#EF4444',
+    done: 'var(--success)',
+    error: 'var(--danger)',
   };
 </script>
 
@@ -360,9 +360,9 @@
 <style>
   .canvas-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; cursor: default; user-select: none; }
   .canvas-viewport.panning { cursor: grab; }
-  .canvas-grid { position: absolute; inset: 0; background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px); pointer-events: none; }
+  .canvas-grid { position: absolute; inset: 0; background-image: radial-gradient(circle, var(--hover-bg) 1px, transparent 1px); pointer-events: none; }
   .edge-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-  .edge-line { fill: none; stroke: rgba(255, 255, 255, 0.2); stroke-width: 2; }
+  .edge-line { fill: none; stroke: var(--border); stroke-width: 2; }
   .edge-label { font-size: 10px; fill: var(--accent-primary); text-anchor: middle; }
   .edge-drawing { stroke: var(--accent-primary); stroke-width: 2; stroke-dasharray: 6 4; opacity: 0.6; }
   .node-layer { position: absolute; top: 0; left: 0; pointer-events: none; }
@@ -370,15 +370,15 @@
   .cn-node {
     position: absolute; width: 220px;
     background: var(--bg-glass, rgba(255,255,255,0.04));
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 14px;
+    backdrop-filter: var(--blur-quiet); -webkit-backdrop-filter: var(--blur-quiet);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.07)); border-radius: 14px;
     overflow: hidden; cursor: grab; pointer-events: auto; transition: box-shadow 0.15s ease;
   }
-  .cn-node:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
-  .cn-node.selected { box-shadow: 0 0 0 1px var(--node-color), 0 0 16px rgba(46, 91, 255, 0.15); }
+  .cn-node:hover { box-shadow: var(--shadow-glow); }
+  .cn-node.selected { box-shadow: 0 0 0 1px var(--node-color), var(--shadow-glow); }
   .cn-node.running { animation: cn-pulse 2s ease-in-out infinite; }
-  .cn-node.done { border-color: #10B981 !important; }
-  @keyframes cn-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(46, 91, 255, 0.3); } 50% { box-shadow: 0 0 16px 4px rgba(46, 91, 255, 0.15); } }
+  .cn-node.done { border-color: var(--success) !important; }
+  @keyframes cn-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow-strong); } 50% { box-shadow: var(--shadow-glow); } }
 
   .cn-accent { height: 3px; }
   .cn-body { display: flex; align-items: center; gap: 10px; padding: 10px 14px; }
@@ -387,10 +387,10 @@
   .cn-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-primary, #fff); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cn-sub { display: block; font-size: 10px; color: var(--text-secondary, #aaa); margin-top: 1px; }
 
-  .cn-port { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.06); border: 2px solid rgba(255, 255, 255, 0.15); top: 50%; transform: translateY(-50%); cursor: crosshair; transition: all 0.12s ease; pointer-events: auto; z-index: 2; }
+  .cn-port { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--hover-bg); border: 2px solid var(--border); top: 50%; transform: translateY(-50%); cursor: crosshair; transition: all 0.12s ease; pointer-events: auto; z-index: 2; }
   .cn-port-in { left: -5px; }
   .cn-port-out { right: -5px; }
   .cn-port:hover { background: var(--node-color); border-color: var(--node-color); transform: translateY(-50%) scale(1.3); }
 
-  .minimap { position: absolute; bottom: 16px; right: 16px; background: rgba(0,0,0,0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 10px; padding: 6px; pointer-events: none; opacity: 0.8; }
+  .minimap { position: absolute; bottom: 16px; right: 16px; background: var(--overlay-bg); backdrop-filter: var(--blur-quiet); border: 1px solid var(--border-subtle, rgba(255,255,255,0.07)); border-radius: 10px; padding: 6px; pointer-events: none; opacity: 0.8; }
 </style>

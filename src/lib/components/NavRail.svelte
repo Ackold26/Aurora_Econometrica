@@ -128,11 +128,11 @@
 
   .nav-rail[data-mode="tabs"] .nav-item.active {
     border-bottom-color: var(--cab-color);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
   }
 
   .nav-rail[data-mode="tabs"] .nav-item:hover:not(.active):not(:disabled) {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
   }
 
   /* ─── Sidebar mode (vertical, 6+ cabs) ─── */
@@ -195,12 +195,12 @@
   }
 
   .nav-item:hover:not(.active):not(:disabled) {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
     color: var(--text-primary, #EAEAF0);
   }
 
   .nav-item.active {
-    background: rgba(46, 91, 255, 0.10);
+    background: var(--accent-glow);
     color: var(--text-primary, #EAEAF0);
   }
 
@@ -244,7 +244,7 @@
   .nav-spinner {
     width: 14px;
     height: 14px;
-    border: 2px solid rgba(255, 255, 255, 0.15);
+    border: 2px solid var(--border);
     border-top-color: var(--cab-color);
     border-radius: 50%;
     animation: nav-spin 600ms linear infinite;
@@ -271,7 +271,7 @@
   }
 
   .nav-collapse-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
     color: var(--text-secondary, #A8A8B8);
   }
 
@@ -280,21 +280,10 @@
     width: 3px;
   }
   .nav-scroll::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--border);
     border-radius: 2px;
   }
   .nav-scroll::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-
-  /* ─── Light theme ─── */
-  :global([data-theme="light"]) .nav-rail {
-    background: var(--bg-secondary, #EEEEF0);
-  }
-  :global([data-theme="light"]) .nav-item:hover:not(.active):not(:disabled) {
-    background: rgba(0, 0, 0, 0.04);
-  }
-  :global([data-theme="light"]) .nav-item.active {
-    background: rgba(46, 91, 255, 0.08);
+    background: var(--border);
   }
 </style>

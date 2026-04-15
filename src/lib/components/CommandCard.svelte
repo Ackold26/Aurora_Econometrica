@@ -91,13 +91,13 @@
     background: var(--bg-surface-quiet, rgba(20, 20, 30, 0.92));
     backdrop-filter: var(--blur-quiet, blur(8px));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.10));
-    border-radius: 12px;
+    border-radius: var(--radius-card);
     color: var(--text-primary, #EAEAF0);
     font-family: inherit;
     font-size: 13px;
     text-align: left;
     cursor: pointer;
-    transition: all 150ms ease-out;
+    transition: var(--hover-timing);
     animation: card-appear 0.35s ease-out both;
     content-visibility: auto;
     contain-intrinsic-size: 120px 88px;
@@ -107,8 +107,8 @@
   .cmd-card:hover {
     background: var(--bg-glass-hover, rgba(28,28,40,0.96));
     border-color: var(--cab-color);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    transform: var(--hover-transform);
+    box-shadow: var(--shadow-glow);
   }
 
   .cmd-card:active {
@@ -124,7 +124,7 @@
   /* Smart highlighting when inbox has files */
   .cmd-card.highlighted {
     border-color: var(--cab-color);
-    box-shadow: 0 0 0 1px var(--cab-color), 0 0 12px rgba(46, 91, 255, 0.12);
+    box-shadow: 0 0 0 1px var(--cab-color), var(--shadow-glow);
   }
 
   /* ─── Content ─── */
@@ -151,7 +151,7 @@
     right: 10px;
     font-size: 10px;
     color: var(--text-muted, #7A7A90);
-    background: rgba(255,255,255,0.04);
+    background: var(--hover-bg);
     padding: 1px 6px;
     border-radius: 8px;
   }
@@ -182,7 +182,7 @@
     opacity: 0;
     transition: opacity 150ms ease-out;
     transition-delay: 0ms;
-    box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+    box-shadow: var(--shadow-glow);
   }
 
   .cmd-card:hover .cmd-tooltip {
@@ -219,10 +219,4 @@
     color: var(--text-secondary, #A8A8B8);
   }
 
-  /* ─── Light theme ─── */
-  :global([data-theme="light"]) .cmd-tooltip {
-    background: #fff;
-    border-color: rgba(0,0,0,0.12);
-    box-shadow: 0 8px 28px rgba(0,0,0,0.12);
-  }
 </style>

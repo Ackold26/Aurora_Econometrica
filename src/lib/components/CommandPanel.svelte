@@ -239,7 +239,7 @@
   }
 
   .search-wrap:focus-within {
-    border-color: rgba(46, 91, 255, 0.35);
+    border-color: var(--accent-glow-strong);
   }
 
   .search-icon {
@@ -391,7 +391,7 @@
   }
 
   .fav-btn {
-    border-color: rgba(204, 255, 0, 0.15);
+    border-color: color-mix(in srgb, var(--accent-secondary) 15%, transparent);
   }
 
   .fav-btn:hover:not(:disabled) {

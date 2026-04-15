@@ -26,8 +26,8 @@
 <style>
   .cd-overlay {
     position: fixed; inset: 0; z-index: 9999;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
+    background: var(--overlay-bg);
+    backdrop-filter: var(--blur-quiet);
     display: flex; align-items: center; justify-content: center;
     animation: cd-fade-in 0.15s ease;
   }
@@ -82,16 +82,16 @@
   }
   .cd-btn--confirm {
     background: var(--accent-primary);
-    color: #fff;
+    color: var(--text-on-accent, #fff);
   }
   .cd-btn--confirm:hover {
     background: var(--accent-hover);
   }
   .cd-btn--danger {
     background: var(--danger);
-    color: #fff;
+    color: var(--text-on-accent, #fff);
   }
   .cd-btn--danger:hover {
-    background: #dc2626;
+    background: var(--danger-hover);
   }
 </style>

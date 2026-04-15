@@ -160,10 +160,34 @@
     }
   }
 
+  /** @type {'sonnet'|'opus'} */
+  let modelChoice = $state('sonnet');
+  /** @type {'medium'|'high'|'max'} */
+  let effortChoice = $state('high');
+
+  async function loadModelSettings() {
+    try {
+      const s = /** @type {{model: string, effort: string}} */ (await invoke('get_model_settings'));
+      modelChoice = /** @type {'sonnet'|'opus'} */ (s.model || 'sonnet');
+      effortChoice = /** @type {'medium'|'high'|'max'} */ (s.effort || 'high');
+    } catch (err) {
+      console.error('Failed to load model settings:', err);
+    }
+  }
+
+  async function saveModelSettings() {
+    try {
+      await invoke('set_model_settings', { model: modelChoice, effort: effortChoice });
+    } catch (err) {
+      console.error('Failed to save model settings:', err);
+    }
+  }
+
   loadStatus();
   loadMetrics();
   loadVaultStatus();
   loadCabinetPaths();
+  loadModelSettings();
 
   // Load online connection status
   (async () => {
@@ -236,6 +260,26 @@
             <span>Выключены</span>
           {/if}
         </button>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Модель Claude</h2>
+      <p class="section-desc">Модель и уровень усилия для обработки запросов</p>
+      <div class="theme-toggle-row">
+        <span class="theme-label">Модель</span>
+        <select class="model-select" bind:value={modelChoice} onchange={saveModelSettings}>
+          <option value="sonnet">Sonnet (быстрый, по умолчанию)</option>
+          <option value="opus">Opus (глубокий анализ)</option>
+        </select>
+      </div>
+      <div class="theme-toggle-row">
+        <span class="theme-label">Уровень</span>
+        <select class="model-select" bind:value={effortChoice} onchange={saveModelSettings}>
+          <option value="medium">Medium</option>
+          <option value="high">High (по умолчанию)</option>
+          <option value="max">Max</option>
+        </select>
       </div>
     </section>
 
@@ -522,14 +566,14 @@
     font-size: 13px;
     padding: 6px 10px;
     border-radius: var(--radius-sm);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-subtle);
     transition: all var(--transition-fast);
   }
 
   .back-link:hover {
     color: var(--text-primary);
     background: var(--bg-tertiary);
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--border);
   }
 
   .content {
@@ -543,11 +587,11 @@
     margin-bottom: 28px;
     padding: 20px 22px;
     background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
     border: var(--glass-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-elevation-1);
   }
 
   .section-title {
@@ -570,10 +614,10 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    background: rgba(0, 0, 0, 0.25);
+    background: var(--bg-tertiary);
     padding: 11px 14px;
     border-radius: var(--radius-sm);
-    border: 1px solid rgba(46, 91, 255, 0.15);
+    border: 1px solid var(--accent-glow);
   }
 
   .machine-id code {
@@ -581,7 +625,7 @@
     font-size: 14px;
     font-family: var(--font-mono);
     letter-spacing: 0.12em;
-    color: #8EB4FF;
+    color: var(--accent-text-light);
   }
 
 
@@ -590,7 +634,7 @@
     padding: 6px 14px;
     background: transparent;
     color: var(--text-muted);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 12px;
     cursor: pointer;
@@ -600,20 +644,20 @@
 
   .copy-hash-btn:hover {
     color: var(--text-secondary);
-    border-color: rgba(255, 255, 255, 0.15);
-    background: rgba(255, 255, 255, 0.04);
+    border-color: var(--border);
+    background: var(--hover-bg);
   }
 
   .raw-fp-btn {
     margin-top: 6px;
-    border-color: rgba(204, 255, 0, 0.15);
-    color: rgba(204, 255, 0, 0.6);
+    border-color: color-mix(in srgb, var(--accent-secondary) 15%, transparent);
+    color: color-mix(in srgb, var(--accent-secondary) 60%, transparent);
   }
 
   .raw-fp-btn:hover {
-    border-color: rgba(204, 255, 0, 0.3);
-    color: rgba(204, 255, 0, 0.85);
-    background: rgba(204, 255, 0, 0.05);
+    border-color: color-mix(in srgb, var(--accent-secondary) 30%, transparent);
+    color: var(--accent-secondary);
+    background: color-mix(in srgb, var(--accent-secondary) 5%, transparent);
   }
 
   .status-card {
@@ -622,19 +666,19 @@
     gap: 12px;
     padding: 14px;
     border-radius: var(--radius-sm);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-subtle);
     margin-bottom: 14px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-tertiary);
   }
 
   .status-card.status-ok {
-    border-color: rgba(16, 185, 129, 0.25);
-    background: rgba(16, 185, 129, 0.05);
+    border-color: color-mix(in srgb, var(--success) 25%, transparent);
+    background: color-mix(in srgb, var(--success) 5%, transparent);
   }
 
   .status-card.status-error {
-    border-color: rgba(239, 68, 68, 0.25);
-    background: rgba(239, 68, 68, 0.05);
+    border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+    background: color-mix(in srgb, var(--danger) 5%, transparent);
   }
 
   .status-dot {
@@ -647,13 +691,13 @@
 
   .status-dot.ok {
     background: var(--success);
-    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--success) 50%, transparent);
     animation: glow-pulse 2.5s ease-in-out infinite;
   }
 
   .status-dot.error {
     background: var(--danger);
-    box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 50%, transparent);
   }
 
   .status-label {
@@ -681,12 +725,12 @@
     background: linear-gradient(135deg, var(--accent-primary) 0%, #4A76FF 100%);
     color: white;
     border: none;
-    box-shadow: 0 2px 12px rgba(46, 91, 255, 0.25);
+    box-shadow: var(--shadow-glow);
   }
 
   .btn-accent:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 20px rgba(46, 91, 255, 0.45);
+    box-shadow: var(--shadow-glow);
     filter: brightness(1.08);
   }
 
@@ -708,8 +752,8 @@
     flex-direction: column;
     align-items: center;
     padding: 12px 8px;
-    background: rgba(0, 0, 0, 0.2);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
     border-radius: 8px;
   }
 
@@ -739,7 +783,7 @@
     padding: 5px 14px;
     background: transparent;
     color: var(--text-muted);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 11px;
     cursor: pointer;
@@ -747,16 +791,16 @@
   }
 
   .reset-metrics-btn:hover {
-    color: #EF4444;
-    border-color: rgba(239, 68, 68, 0.2);
-    background: rgba(239, 68, 68, 0.05);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+    background: color-mix(in srgb, var(--danger) 5%, transparent);
   }
 
   .btn-logs {
     padding: 8px 18px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
     color: var(--text-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 13px;
     cursor: pointer;
@@ -765,15 +809,15 @@
 
   .btn-logs:hover {
     color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.18);
+    background: var(--hover-bg);
+    border-color: var(--border);
   }
 
   /* ── Command Chart ── */
   .chart-section {
     margin-top: 14px;
     padding-top: 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--border-subtle);
   }
 
   .chart-title {
@@ -811,14 +855,14 @@
   .chart-bar-track {
     flex: 1;
     height: 14px;
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--bg-tertiary);
     border-radius: 4px;
     overflow: hidden;
   }
 
   .chart-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, #2E5BFF 0%, rgba(204, 255, 0, 0.7) 100%);
+    background: var(--gradient-accent-line);
     border-radius: 4px;
     min-width: 4px;
     transition: width 0.3s ease;
@@ -856,12 +900,12 @@
 
   .vault-dot.vault-ok {
     background: var(--success, #10B981);
-    box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--success) 40%, transparent);
   }
 
   .vault-dot.vault-missing {
     background: var(--danger, #EF4444);
-    box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 40%, transparent);
   }
 
   .vault-name {
@@ -886,7 +930,7 @@
     padding: 14px 24px;
     margin-bottom: 28px;
     background: linear-gradient(135deg, var(--accent-primary, #2E5BFF) 0%, #4A76FF 50%, #5A8AFF 100%);
-    color: #fff;
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: var(--radius-lg);
     font-size: 15px;
@@ -895,18 +939,18 @@
     text-transform: uppercase;
     cursor: pointer;
     transition: all var(--transition);
-    box-shadow: 0 4px 20px rgba(46, 91, 255, 0.35);
+    box-shadow: var(--shadow-glow);
   }
 
   .btn-platform:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 28px rgba(46, 91, 255, 0.5);
+    box-shadow: var(--shadow-glow);
     filter: brightness(1.1);
   }
 
   .btn-platform:active {
     transform: translateY(0);
-    box-shadow: 0 2px 12px rgba(46, 91, 255, 0.3);
+    box-shadow: var(--shadow-glow);
   }
 
   .about-text {
@@ -931,7 +975,7 @@
   .app-info-version {
     font-size: 11px;
     color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
     padding: 1px 6px;
     border-radius: 4px;
   }
@@ -986,7 +1030,7 @@
 
   .fb-submit {
     background: var(--accent, #3B82F6);
-    color: #fff;
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: 6px;
     padding: 10px 16px;
@@ -1043,6 +1087,21 @@
     border-color: var(--border-active);
   }
 
+  .model-select {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+  }
+
+  .model-select:hover {
+    border-color: var(--border-active);
+  }
+
   /* ── Connection Status ── */
   .connection-status {
     display: flex;
@@ -1065,17 +1124,17 @@
 
   .dot-ok {
     background: var(--success, #10B981);
-    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--success) 50%, transparent);
   }
 
   .dot-cached {
     background: var(--warning, #F59E0B);
-    box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--warning) 50%, transparent);
   }
 
   .dot-offline {
     background: var(--danger, #EF4444);
-    box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 40%, transparent);
   }
 
   .status-text-label {

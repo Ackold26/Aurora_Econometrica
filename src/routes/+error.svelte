@@ -18,8 +18,8 @@
     align-items: center;
     justify-content: center;
     min-height: 100vh;
-    background: var(--bg-primary, #1a1a2e);
-    color: var(--text-primary, #e0e0e0);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     font-family: system-ui, -apple-system, sans-serif;
   }
   .error-card {
@@ -30,7 +30,7 @@
   .error-code {
     font-size: 4rem;
     font-weight: 700;
-    color: var(--accent, #818cf8);
+    color: var(--accent-text-light);
     margin: 0 0 0.5rem;
   }
   .error-message {
@@ -40,15 +40,15 @@
   }
   .retry-btn {
     padding: 0.6rem 1.5rem;
-    border: 1px solid var(--accent, #818cf8);
+    border: 1px solid var(--accent-text-light);
     background: transparent;
-    color: var(--accent, #818cf8);
+    color: var(--accent-text-light);
     border-radius: 8px;
     cursor: pointer;
     font-size: 0.95rem;
     transition: background 0.2s;
   }
   .retry-btn:hover {
-    background: rgba(129, 140, 248, 0.1);
+    background: color-mix(in srgb, var(--accent-text-light) 10%, transparent);
   }
 </style>

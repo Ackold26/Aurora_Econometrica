@@ -102,9 +102,9 @@
     position: fixed;
     inset: 0;
     z-index: 1000;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: var(--overlay-bg);
+    backdrop-filter: var(--blur-quiet);
+    -webkit-backdrop-filter: var(--blur-quiet);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -113,13 +113,13 @@
 
   .modal {
     background: var(--bg-secondary, #16161e);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
     border-radius: 16px;
     padding: 40px 36px 32px;
     max-width: 420px;
     width: 90%;
     text-align: center;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-glow);
     animation: slideUp 0.35s cubic-bezier(0.4, 0, 0.2, 1);
     overflow: hidden;
     position: relative;
@@ -131,7 +131,7 @@
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, #2E5BFF 0%, #5A8AFF 50%, rgba(204, 255, 0, 0.7) 100%);
+    background: var(--gradient-accent-line);
   }
 
   .step-content {
@@ -155,7 +155,7 @@
   .step-desc {
     font-size: 14px;
     line-height: 1.6;
-    color: var(--text-secondary, #a0a0b0);
+    color: var(--text-secondary);
     margin-bottom: 24px;
   }
 
@@ -170,13 +170,13 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--border);
     transition: all 0.25s ease;
   }
 
   .dot.active {
     background: var(--accent-primary, #2E5BFF);
-    box-shadow: 0 0 8px rgba(46, 91, 255, 0.5);
+    box-shadow: var(--shadow-glow);
   }
 
   .actions {
@@ -188,7 +188,7 @@
   .skip-btn {
     padding: 8px 16px;
     background: transparent;
-    color: var(--text-muted, #666);
+    color: var(--text-muted);
     border: none;
     font-size: 13px;
     cursor: pointer;
@@ -198,32 +198,32 @@
   }
 
   .skip-btn:hover {
-    color: var(--text-secondary, #a0a0b0);
-    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary);
+    background: var(--hover-bg);
   }
 
   .next-btn {
     padding: 10px 28px;
-    background: linear-gradient(135deg, var(--accent-primary, #2E5BFF) 0%, #4A76FF 100%);
-    color: white;
+    background: linear-gradient(135deg, var(--accent-primary, #2E5BFF) 0%, var(--accent-hover) 100%);
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: 8px;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 2px 12px rgba(46, 91, 255, 0.3);
+    box-shadow: var(--shadow-glow);
   }
 
   .next-btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 20px rgba(46, 91, 255, 0.5);
+    box-shadow: var(--shadow-glow);
     filter: brightness(1.08);
   }
 
   .next-btn-final {
-    background: linear-gradient(135deg, #2E5BFF 0%, #5A8AFF 40%, rgba(204, 255, 0, 0.8) 100%);
-    box-shadow: 0 2px 16px rgba(46, 91, 255, 0.4);
+    background: var(--gradient-primary);
+    box-shadow: var(--shadow-glow);
   }
 
   @keyframes slideUp {

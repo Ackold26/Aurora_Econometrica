@@ -211,7 +211,7 @@
 
   .back-btn {
     background: none;
-    border: 1px solid rgba(255,255,255,0.15);
+    border: 1px solid var(--border);
     color: var(--text-secondary, #aaa);
     padding: 6px 12px;
     border-radius: 6px;
@@ -220,16 +220,16 @@
   }
 
   .back-btn:hover {
-    background: rgba(255,255,255,0.05);
+    background: var(--hover-bg);
     color: var(--text-primary, #fff);
   }
 
   .create-btn {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff;
+    background: linear-gradient(135deg, var(--brand-gradient-start), var(--brand-gradient-end));
+    color: var(--text-on-accent, #fff);
     border: none;
     padding: 8px 20px;
-    border-radius: 8px;
+    border-radius: var(--radius-btn);
     cursor: pointer;
     font-weight: 500;
     font-size: 0.9rem;
@@ -246,9 +246,9 @@
   }
 
   .brand-card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 12px;
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
     padding: 16px;
     cursor: pointer;
     text-align: left;
@@ -264,26 +264,26 @@
   }
 
   .brand-card:hover {
-    border-color: rgba(255,255,255,0.2);
-    background: rgba(255,255,255,0.06);
+    border-color: var(--border);
+    background: var(--hover-bg);
   }
 
   .brand-card.active {
-    border-color: #6366f1;
-    background: rgba(99,102,241,0.08);
+    border-color: var(--brand-gradient-start);
+    background: color-mix(in srgb, var(--brand-gradient-start) 8%, transparent);
   }
 
   .brand-icon {
     width: 40px;
     height: 40px;
     border-radius: 10px;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    background: linear-gradient(135deg, var(--brand-gradient-start), var(--brand-gradient-end));
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 700;
     font-size: 1.1rem;
-    color: #fff;
+    color: var(--text-on-accent, #fff);
     flex-shrink: 0;
   }
 
@@ -296,7 +296,7 @@
   .brand-industry {
     font-size: 0.75rem;
     color: var(--text-tertiary, #888);
-    background: rgba(255,255,255,0.06);
+    background: var(--hover-bg);
     padding: 2px 8px;
     border-radius: 4px;
   }
@@ -312,8 +312,8 @@
     position: absolute;
     top: 8px;
     right: 8px;
-    background: #6366f1;
-    color: #fff;
+    background: var(--brand-gradient-start);
+    color: var(--text-on-accent, #fff);
     font-size: 0.7rem;
     padding: 2px 8px;
     border-radius: 4px;
@@ -339,17 +339,17 @@
   .wizard-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.6);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    backdrop-filter: blur(4px);
+    backdrop-filter: var(--blur-quiet);
   }
 
   .wizard-card {
     background: var(--bg-surface, #1a1a2e);
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid var(--border);
     border-radius: 16px;
     padding: 32px;
     width: 90%;
@@ -381,13 +381,13 @@
   }
 
   .required {
-    color: #ef4444;
+    color: var(--danger);
   }
 
   .field input, .field textarea {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 8px;
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-input);
     padding: 10px 12px;
     color: var(--text-primary, #fff);
     font-size: 0.9rem;
@@ -396,7 +396,7 @@
   }
 
   .field input:focus, .field textarea:focus {
-    border-color: #6366f1;
+    border-color: var(--brand-gradient-start);
   }
 
   .wizard-actions {
@@ -407,11 +407,11 @@
   }
 
   .btn-primary {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff;
+    background: linear-gradient(135deg, var(--brand-gradient-start), var(--brand-gradient-end));
+    color: var(--text-on-accent, #fff);
     border: none;
     padding: 8px 20px;
-    border-radius: 8px;
+    border-radius: var(--radius-btn);
     cursor: pointer;
     font-weight: 500;
   }
@@ -422,17 +422,17 @@
   }
 
   .btn-secondary {
-    background: rgba(255,255,255,0.06);
+    background: var(--hover-bg);
     color: var(--text-primary, #fff);
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid var(--border);
     padding: 8px 20px;
-    border-radius: 8px;
+    border-radius: var(--radius-btn);
     cursor: pointer;
   }
 
   .success-info {
-    background: rgba(99,102,241,0.1);
-    border: 1px solid rgba(99,102,241,0.2);
+    background: color-mix(in srgb, var(--brand-gradient-start) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-gradient-start) 20%, transparent);
     border-radius: 8px;
     padding: 16px;
     margin: 16px 0;

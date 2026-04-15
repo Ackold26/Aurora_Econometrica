@@ -218,7 +218,7 @@
     width: 32px;
     height: 32px;
     border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
@@ -237,7 +237,7 @@
     width: 28px;
     height: 28px;
     border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -247,7 +247,7 @@
 
   .help-btn:hover {
     color: var(--accent-primary);
-    border-color: rgba(46,91,255,0.3);
+    border-color: var(--accent-glow-strong);
   }
 
   .brand-badge {
@@ -255,9 +255,9 @@
     font-size: 12px;
     padding: 4px 10px;
     border-radius: 6px;
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
     color: var(--accent-primary);
-    border: 1px solid rgba(46, 91, 255, 0.2);
+    border: 1px solid var(--accent-glow-strong);
   }
 
   .section {
@@ -266,7 +266,7 @@
 
   .section-title {
     font-size: 14px;
-    font-weight: 500;
+    font-weight: var(--font-weight-heading);
     color: var(--text-secondary);
     margin-bottom: 12px;
     text-transform: uppercase;
@@ -285,19 +285,19 @@
     gap: 6px;
     padding: 16px;
     background: var(--bg-glass);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: var(--radius-lg);
+    backdrop-filter: var(--blur-quiet);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.07));
+    border-radius: var(--radius-card);
     cursor: pointer;
     text-align: left;
-    transition: all var(--transition-fast);
+    transition: var(--hover-timing);
     color: var(--text-primary);
   }
 
   .template-card:hover {
     border-color: var(--accent-primary);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(46, 91, 255, 0.15);
+    transform: var(--hover-transform);
+    box-shadow: var(--shadow-elevation-2);
   }
 
   .template-card--empty {
@@ -345,8 +345,8 @@
     justify-content: space-between;
     padding: 12px 16px;
     background: var(--bg-glass);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(255,255,255,0.05);
+    backdrop-filter: var(--blur-quiet);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.05));
     border-radius: var(--radius-sm);
     cursor: pointer;
     color: var(--text-primary);
@@ -354,7 +354,7 @@
   }
 
   .workflow-item-main:hover {
-    border-color: rgba(255,255,255,0.12);
+    border-color: var(--border);
     background: var(--bg-glass-hover);
   }
 
@@ -381,7 +381,7 @@
 
   .workflow-delete:hover {
     color: var(--danger);
-    background: rgba(239, 68, 68, 0.1);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
   }
 
 

@@ -47,7 +47,6 @@
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
   // Cabinets filtered by product type (Legal=3, Creative=5, Agency=all)
   const cabinets = $derived(filterCabinetsByProduct($layoutCabinets, $productType));
-  const isEconometrica = $derived($productType === 'econometrica');
   /** @type {string|null} */
   let licenseError = $state(null);
   let loading = $derived($layoutCabinets.length === 0 && !licenseError);
@@ -318,22 +317,6 @@
         </div>
       {/if}
 
-      <!-- Start Pipeline CTA — Econometrica only (Phase 1) -->
-      {#if isEconometrica}
-        <div class="pipeline-cta">
-          <div class="pipeline-cta-content">
-            <span class="pipeline-cta-icon">⚡</span>
-            <div class="pipeline-cta-text">
-              <span class="pipeline-cta-title">Visual Pipeline</span>
-              <span class="pipeline-cta-desc">6-шаговый MMM-анализ с интерактивными графиками</span>
-            </div>
-          </div>
-          <button class="pipeline-cta-btn" onclick={() => goto('/pipeline')}>
-            Открыть Pipeline →
-          </button>
-        </div>
-      {/if}
-
       <div class="cabinets-section">
         <div class="section-header">
           <div>
@@ -431,12 +414,7 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg,
-      transparent 0%,
-      rgba(46, 91, 255, 0.4) 30%,
-      rgba(204, 255, 0, 0.3) 70%,
-      transparent 100%
-    );
+    background: var(--gradient-accent-line);
   }
 
   .topbar-left {
@@ -508,8 +486,8 @@
   .main {
     flex: 1;
     display: flex;
-    align-items: flex-start;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
     padding: 32px 28px;
     overflow-y: auto;
   }
@@ -531,8 +509,8 @@
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     border: var(--glass-border);
-    border-radius: var(--radius-xl);
-    box-shadow: var(--shadow-card);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-elevation-1);
   }
 
   .state-icon {
@@ -543,7 +521,7 @@
 
   .state-title {
     font-size: 18px;
-    font-weight: 600;
+    font-weight: var(--font-weight-heading);
     margin-bottom: 8px;
   }
 
@@ -585,7 +563,7 @@
     font-weight: 500;
     text-decoration: none;
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-on-accent, #fff);
     transition: all var(--transition);
   }
 
@@ -600,6 +578,8 @@
     display: flex;
     gap: 10px;
     margin-bottom: 24px;
+    width: 100%;
+    max-width: 960px;
   }
 
   .qa-card {
@@ -610,74 +590,24 @@
     gap: 6px;
     padding: 16px 12px;
     background: var(--bg-glass);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 12px;
+    backdrop-filter: var(--blur-quiet);
+    border: 1px solid var(--hover-bg);
+    border-radius: var(--radius-card);
     cursor: pointer;
     color: var(--text-secondary);
-    transition: all 0.2s ease;
+    transition: var(--hover-timing);
     text-align: center;
   }
 
   .qa-card:hover {
     border-color: var(--accent-primary);
     color: var(--text-primary);
-    transform: translateY(-2px);
+    transform: var(--hover-transform);
   }
 
   .qa-icon { font-size: 22px; }
   .qa-label { font-size: 13px; font-weight: 600; }
   .qa-desc { font-size: 10px; color: var(--text-muted); }
-
-  /* Pipeline CTA (Econometrica only) */
-  .pipeline-cta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 14px 20px;
-    background: rgba(59,130,246,0.08);
-    border: 1px solid rgba(59,130,246,0.25);
-    border-radius: 12px;
-    width: 100%;
-    max-width: 960px;
-    box-sizing: border-box;
-    margin-bottom: 8px;
-  }
-  .pipeline-cta-content {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .pipeline-cta-icon { font-size: 22px; }
-  .pipeline-cta-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .pipeline-cta-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--accent-primary, #3b82f6);
-  }
-  .pipeline-cta-desc {
-    font-size: 12px;
-    color: var(--text-secondary, #94a3b8);
-  }
-  .pipeline-cta-btn {
-    padding: 8px 20px;
-    background: var(--accent-primary, #3b82f6);
-    border: none;
-    border-radius: 8px;
-    color: #fff;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    flex-shrink: 0;
-    transition: background 0.15s;
-  }
-  .pipeline-cta-btn:hover { background: #2563eb; }
 
   .cabinets-section {
     width: 100%;
@@ -695,7 +625,7 @@
     font-size: 22px;
     font-weight: 700;
     letter-spacing: -0.02em;
-    background: linear-gradient(135deg, var(--text-primary) 40%, rgba(46, 91, 255, 0.8) 100%);
+    background: linear-gradient(135deg, var(--text-primary) 40%, var(--accent-primary) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -708,12 +638,12 @@
   }
 
   .open-error {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.25);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
     border-radius: var(--radius-sm);
     padding: 10px 14px;
     margin-bottom: 20px;
-    color: #FCA5A5;
+    color: var(--danger-text-light);
     font-size: 13px;
     display: flex;
     align-items: center;
@@ -723,7 +653,7 @@
 
   .open-error button {
     background: transparent;
-    color: #FCA5A5;
+    color: var(--danger-text-light);
     font-size: 14px;
     opacity: 0.7;
     border: none;
@@ -802,7 +732,7 @@
     justify-content: center;
     background: transparent;
     border: 1px solid var(--border-subtle);
-    border-radius: 5px;
+    border-radius: var(--radius-btn);
     color: var(--text-muted);
     cursor: pointer;
     opacity: 0;
@@ -816,8 +746,8 @@
 
   .share-btn:hover {
     color: var(--accent-primary);
-    background: rgba(46, 91, 255, 0.1);
-    border-color: rgba(46, 91, 255, 0.3);
+    background: var(--accent-glow);
+    border-color: var(--accent-glow-strong);
   }
 
   .share-targets {
@@ -829,9 +759,9 @@
 
   .target-btn {
     padding: 5px 10px;
-    background: rgba(46, 91, 255, 0.08);
+    background: var(--accent-glow);
     color: var(--text-secondary);
-    border: 1px solid rgba(46, 91, 255, 0.2);
+    border: 1px solid var(--accent-glow-strong);
     border-radius: 6px;
     font-size: 11.5px;
     cursor: pointer;
@@ -839,9 +769,9 @@
   }
 
   .target-btn:hover {
-    background: rgba(46, 91, 255, 0.18);
+    background: var(--accent-glow-strong);
     color: var(--text-primary);
-    border-color: rgba(46, 91, 255, 0.4);
+    border-color: var(--border-active);
   }
 
   /* ── Update Banner ── */
@@ -850,8 +780,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 28px;
-    background: linear-gradient(90deg, rgba(46, 91, 255, 0.12) 0%, rgba(204, 255, 0, 0.08) 100%);
-    border-bottom: 1px solid rgba(46, 91, 255, 0.2);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent-primary) 12%, transparent) 0%, color-mix(in srgb, var(--accent-secondary) 8%, transparent) 100%);
+    border-bottom: 1px solid var(--accent-glow-strong);
     font-size: 13px;
     color: var(--text-secondary);
     flex-shrink: 0;
@@ -865,9 +795,9 @@
   .update-download {
     padding: 4px 14px;
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-on-accent, #fff);
     border: none;
-    border-radius: 5px;
+    border-radius: var(--radius-btn);
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
@@ -888,8 +818,8 @@
     padding: 4px 10px;
     background: transparent;
     color: var(--text-muted);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 5px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-btn);
     font-size: 12px;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -897,7 +827,7 @@
 
   .update-dismiss:hover {
     color: var(--text-secondary);
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: var(--border);
   }
 
   .share-success {
@@ -905,9 +835,9 @@
     color: var(--success, #10B981);
     margin-bottom: 8px;
     padding: 5px 10px;
-    background: rgba(16, 185, 129, 0.08);
+    background: color-mix(in srgb, var(--success) 8%, transparent);
     border-radius: 6px;
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
   }
 
 
@@ -917,17 +847,17 @@
     align-items: center;
     justify-content: space-between;
     padding: 10px 28px;
-    background: linear-gradient(90deg, rgba(234, 179, 8, 0.15) 0%, rgba(234, 179, 8, 0.06) 100%);
-    border-bottom: 1px solid rgba(234, 179, 8, 0.3);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--warning) 15%, transparent) 0%, color-mix(in srgb, var(--warning) 6%, transparent) 100%);
+    border-bottom: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
     font-size: 13px;
-    color: #FBBF24;
+    color: var(--warning);
     flex-shrink: 0;
   }
 
   .license-banner-red {
-    background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.06) 100%);
-    border-bottom-color: rgba(239, 68, 68, 0.3);
-    color: #FCA5A5;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 15%, transparent) 0%, color-mix(in srgb, var(--danger) 6%, transparent) 100%);
+    border-bottom-color: color-mix(in srgb, var(--danger) 30%, transparent);
+    color: var(--danger-text-light);
   }
 
   .license-banner-actions {
@@ -937,9 +867,9 @@
 
   .license-banner-renew {
     padding: 4px 14px;
-    background: rgba(234, 179, 8, 0.2);
-    color: #FBBF24;
-    border: 1px solid rgba(234, 179, 8, 0.3);
+    background: color-mix(in srgb, var(--warning) 20%, transparent);
+    color: var(--warning);
+    border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
     border-radius: 5px;
     font-size: 12px;
     font-weight: 500;
@@ -949,9 +879,9 @@
   }
 
   .license-banner-red .license-banner-renew {
-    background: rgba(239, 68, 68, 0.2);
-    color: #FCA5A5;
-    border-color: rgba(239, 68, 68, 0.3);
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+    color: var(--danger-text-light);
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
   }
 
   .license-banner-renew:hover {
@@ -963,7 +893,7 @@
     background: transparent;
     color: inherit;
     opacity: 0.6;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border);
     border-radius: 5px;
     font-size: 12px;
     cursor: pointer;
@@ -972,12 +902,12 @@
 
   .license-banner-dismiss:hover {
     opacity: 1;
-    border-color: rgba(255, 255, 255, 0.15);
+    border-color: var(--border);
   }
 
   .welcome-brand {
-    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.08));
-    border: 1px solid rgba(99,102,241,0.2);
+    background: linear-gradient(135deg, color-mix(in srgb, var(--brand-gradient-start) 10%, transparent), color-mix(in srgb, var(--brand-gradient-end) 8%, transparent));
+    border: 1px solid color-mix(in srgb, var(--brand-gradient-start) 20%, transparent);
     border-radius: 12px;
     padding: 24px;
     text-align: center;
@@ -986,9 +916,9 @@
   .welcome-brand h3 { font-size: 1.1rem; font-weight: 600; color: var(--text-primary, #fff); margin: 0 0 6px; }
   .welcome-brand p { font-size: 0.85rem; color: var(--text-secondary, #aaa); margin: 0 0 16px; }
   .welcome-input-row { display: flex; gap: 8px; max-width: 360px; margin: 0 auto; }
-  .welcome-input { flex: 1; padding: 8px 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text-primary, #fff); font-size: 0.9rem; outline: none; font-family: inherit; }
-  .welcome-input:focus { border-color: #6366f1; }
-  .welcome-create-btn { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border: none; padding: 8px 20px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 0.9rem; }
+  .welcome-input { flex: 1; padding: 8px 12px; background: var(--hover-bg); border: 1px solid var(--border); border-radius: var(--radius-input); color: var(--text-primary, #fff); font-size: 0.9rem; outline: none; font-family: inherit; }
+  .welcome-input:focus { border-color: var(--brand-gradient-start); }
+  .welcome-create-btn { background: linear-gradient(135deg, var(--brand-gradient-start), var(--brand-gradient-end)); color: var(--text-on-accent, #fff); border: none; padding: 8px 20px; border-radius: var(--radius-btn); cursor: pointer; font-weight: 500; font-size: 0.9rem; }
   .welcome-create-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* ── Dashboard Stats ── */

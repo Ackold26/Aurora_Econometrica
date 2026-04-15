@@ -1,19 +1,23 @@
 <script>
-  import { cleanSlideTitle } from '$lib/response-parser.js';
+  import { onMount } from 'svelte';
+  import { cleanSlideTitle, groupSlidesByBlocks } from '$lib/response-parser.js';
   import { pendingCommand } from '$lib/store.js';
   import ResponseSection from './ResponseSection.svelte';
 
   /**
    * @type {{
    *   sections: import('$lib/response-parser.js').ResponseSection[],
+   *   synthesis?: import('$lib/response-parser.js').ResponseSection[],
    *   onClose: () => void,
    * }}
    */
-  let { sections, onClose } = $props();
+  let { sections, synthesis = [], onClose } = $props();
 
   let selectedIndex = $state(0);
   let copied = $state(false);
   let panelWidth = $state(300);
+  /** @type {(() => void)|null} */
+  let resizeCleanup = $state(null);
 
   /** @param {MouseEvent} e */
   function startResize(e) {
@@ -29,15 +33,27 @@
       window.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      resizeCleanup = null;
     }
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+    resizeCleanup = onMouseUp;
   }
+
+  onMount(() => {
+    return () => {
+      if (resizeCleanup) resizeCleanup();
+    };
+  });
 
   /** @type {{ num: number, name: string }[]} */
   let cleanTitles = $derived(sections.map(s => cleanSlideTitle(s.title)));
+
+  // C5: Visual Chunking — группировка по блокам из synthesis (Miller's Law: 7±2)
+  let slideGroups = $derived(groupSlidesByBlocks(sections, synthesis));
+  let hasGroups = $derived(slideGroups.length > 1 || (slideGroups[0]?.name !== ''));
 
   let safeIndex = $derived(Math.min(selectedIndex, sections.length - 1));
   let selectedSection = $derived(sections[safeIndex] || sections[0]);
@@ -94,18 +110,40 @@
   <div class="sp-section-label">Слайды</div>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="sp-list" tabindex="0" onkeydown={handleListKeydown} role="listbox" aria-label="Список слайдов">
-    {#each cleanTitles as t, i}
-      <button
-        class="sp-item"
-        class:active={i === safeIndex}
-        onclick={() => selectedIndex = i}
-        role="option"
-        aria-selected={i === safeIndex}
-      >
-        <span class="sp-num">{t.num || i + 1}</span>
-        <span class="sp-name">{t.name}</span>
-      </button>
-    {/each}
+    {#if hasGroups}
+      {#each slideGroups as group}
+        {#if group.name}
+          <div class="sp-group-label">{group.name}</div>
+        {/if}
+        {#each group.slides as slide}
+          {@const globalIdx = sections.indexOf(slide)}
+          {@const t = cleanTitles[globalIdx] || cleanSlideTitle(slide.title)}
+          <button
+            class="sp-item"
+            class:active={globalIdx === safeIndex}
+            onclick={() => selectedIndex = globalIdx}
+            role="option"
+            aria-selected={globalIdx === safeIndex}
+          >
+            <span class="sp-num">{t.num || globalIdx + 1}</span>
+            <span class="sp-name">{t.name}</span>
+          </button>
+        {/each}
+      {/each}
+    {:else}
+      {#each cleanTitles as t, i}
+        <button
+          class="sp-item"
+          class:active={i === safeIndex}
+          onclick={() => selectedIndex = i}
+          role="option"
+          aria-selected={i === safeIndex}
+        >
+          <span class="sp-num">{t.num || i + 1}</span>
+          <span class="sp-name">{t.name}</span>
+        </button>
+      {/each}
+    {/if}
   </div>
 
   <!-- Divider + Detail label -->
@@ -227,6 +265,24 @@
     outline: none;
   }
 
+  /* C5: Visual Chunking — group labels */
+  .sp-group-label {
+    padding: 6px 14px 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent-primary);
+    opacity: 0.7;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    margin-top: 4px;
+  }
+
+  .sp-group-label:first-child {
+    border-top: none;
+    margin-top: 0;
+  }
+
   .sp-item {
     display: flex;
     align-items: center;
@@ -245,12 +301,12 @@
   }
 
   .sp-item:hover {
-    background: rgba(255,255,255,0.04);
+    background: var(--hover-bg);
   }
 
   .sp-item.active {
     border-left-color: var(--accent-primary, #2E5BFF);
-    background: rgba(46, 91, 255, 0.08);
+    background: var(--accent-glow);
   }
 
   .sp-num {
@@ -291,21 +347,8 @@
 
   .sp-list::-webkit-scrollbar-thumb,
   .sp-detail::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.12);
+    background: var(--border);
     border-radius: 2px;
-  }
-
-  /* ── Light theme ── */
-  :global([data-theme="light"]) .slide-panel {
-    background: rgba(255, 255, 255, 0.95);
-  }
-
-  :global([data-theme="light"]) .sp-item:hover {
-    background: rgba(0,0,0,0.04);
-  }
-
-  :global([data-theme="light"]) .sp-item.active {
-    background: rgba(46, 91, 255, 0.06);
   }
 
   /* ── Mobile overlay ── */
@@ -318,7 +361,7 @@
       width: 85%;
       max-width: 360px;
       z-index: 50;
-      box-shadow: -4px 0 24px rgba(0,0,0,0.3);
+      box-shadow: var(--shadow-glow);
     }
   }
 </style>

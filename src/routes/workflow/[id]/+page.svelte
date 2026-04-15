@@ -656,7 +656,7 @@
       </div>
 
       <div class="celebration-icon">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
           <polyline points="22 4 12 14.01 9 11.01"/>
         </svg>
@@ -705,7 +705,7 @@
     align-items: center;
     gap: 12px;
     padding: 16px 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.05));
     position: sticky;
     top: 0;
     z-index: 10;
@@ -719,7 +719,7 @@
     width: 32px;
     height: 32px;
     border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
@@ -745,13 +745,13 @@
   }
 
   .name-display:hover {
-    background: rgba(255,255,255,0.05);
+    background: var(--hover-bg);
   }
 
   .name-input {
     font-size: 16px;
     font-weight: 600;
-    background: rgba(255,255,255,0.05);
+    background: var(--hover-bg);
     border: 1px solid var(--accent-primary);
     color: var(--text-primary);
     padding: 4px 8px;
@@ -764,9 +764,9 @@
     font-size: 12px;
     padding: 4px 10px;
     border-radius: 6px;
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
     color: var(--accent-primary);
-    border: 1px solid rgba(46, 91, 255, 0.2);
+    border: 1px solid var(--accent-glow-strong);
   }
 
   .save-btn {
@@ -774,7 +774,7 @@
     font-size: 12px;
     font-weight: 500;
     background: var(--accent-primary);
-    color: white;
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: 6px;
     cursor: pointer;
@@ -792,7 +792,7 @@
     width: 28px;
     height: 28px;
     border-radius: 6px;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
@@ -802,7 +802,7 @@
 
   .help-btn:hover {
     color: var(--accent-primary);
-    border-color: rgba(46,91,255,0.3);
+    border-color: var(--accent-glow-strong);
   }
 
   .save-indicator {
@@ -812,7 +812,7 @@
   }
 
   .save-indicator--done {
-    color: #10B981;
+    color: var(--success);
   }
 
   .empty-hint {
@@ -854,14 +854,14 @@
     width: 32px;
     height: 32px;
     border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    background: var(--hover-bg);
     color: var(--text-secondary, #aaa);
     cursor: pointer;
   }
 
   .toggle-btn:hover {
-    background: rgba(255,255,255,0.08);
+    background: var(--accent-glow);
     color: var(--text-primary, #fff);
   }
 
@@ -885,7 +885,7 @@
   .add-first-btn {
     padding: 8px 20px;
     font-size: 13px;
-    border: 1px dashed rgba(255,255,255,0.15);
+    border: 1px dashed var(--border);
     background: transparent;
     color: var(--text-secondary);
     border-radius: 8px;
@@ -903,8 +903,8 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
+    background: var(--overlay-bg);
+    backdrop-filter: var(--blur-quiet);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -913,12 +913,12 @@
 
   .modal {
     background: var(--bg-secondary);
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--border);
     border-radius: var(--radius-xl);
     padding: 24px;
     max-width: 480px;
     width: 90%;
-    box-shadow: 0 16px 64px rgba(0,0,0,0.5);
+    box-shadow: var(--shadow-glow);
   }
 
   .modal-title {
@@ -939,7 +939,7 @@
     gap: 8px;
     padding: 10px 12px;
     background: transparent;
-    border: 1px solid rgba(255,255,255,0.06);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     cursor: pointer;
@@ -950,12 +950,12 @@
 
   .cabinet-option:hover {
     border-color: var(--accent-primary);
-    background: rgba(46, 91, 255, 0.05);
+    background: var(--hover-bg);
   }
 
   .cabinet-option--suggested {
-    border-color: rgba(46, 91, 255, 0.2);
-    background: rgba(46, 91, 255, 0.03);
+    border-color: var(--accent-glow-strong);
+    background: var(--hover-bg);
     position: relative;
   }
 
@@ -990,8 +990,8 @@
     padding: 6px 16px;
     font-size: 12px;
     font-weight: 500;
-    background: #10B981;
-    color: white;
+    background: var(--success);
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: 6px;
     cursor: pointer;
@@ -1003,21 +1003,21 @@
 
   .export-btn {
     padding: 6px 14px;
-    background: rgba(16,185,129,0.15);
-    color: #10b981;
-    border: 1px solid rgba(16,185,129,0.3);
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+    border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
     border-radius: 8px;
     cursor: pointer;
     font-size: 0.8rem;
     font-weight: 500;
   }
-  .export-btn:hover { background: rgba(16,185,129,0.25); }
+  .export-btn:hover { background: color-mix(in srgb, var(--success) 25%, transparent); }
   .export-btn:disabled { opacity: 0.4; cursor: default; }
 
   /* ── Brief panel ── */
 
   .brief-panel {
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
   }
 
   .brief-toggle {
@@ -1034,7 +1034,7 @@
     text-align: left;
     font-family: inherit;
   }
-  .brief-toggle:hover { color: var(--text-primary, #fff); background: rgba(255,255,255,0.02); }
+  .brief-toggle:hover { color: var(--text-primary); background: var(--hover-bg); }
 
   .brief-content {
     padding: 0 24px 16px;
@@ -1044,8 +1044,8 @@
   .brief-textarea {
     width: 100%;
     padding: 10px 12px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.1);
+    background: var(--hover-bg);
+    border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text-primary, #fff);
     font-size: 0.85rem;
@@ -1053,7 +1053,7 @@
     outline: none;
     resize: vertical;
   }
-  .brief-textarea:focus { border-color: #6366f1; }
+  .brief-textarea:focus { border-color: var(--brand-gradient-start); }
 
   .brief-saving {
     position: absolute;
@@ -1068,7 +1068,7 @@
     font-size: 12px;
     font-weight: 500;
     background: var(--danger);
-    color: white;
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: 6px;
     cursor: pointer;
@@ -1086,8 +1086,8 @@
     padding: 8px 16px;
     font-size: 12px;
     color: var(--warning);
-    background: rgba(245, 158, 11, 0.06);
-    border-bottom: 1px solid rgba(245, 158, 11, 0.15);
+    background: color-mix(in srgb, var(--warning) 6%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--warning) 15%, transparent);
   }
 
   /* ── Execution status bar ── */
@@ -1099,17 +1099,17 @@
     padding: 8px 16px;
     font-size: 12px;
     font-weight: 500;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.05));
   }
 
-  .exec-running { color: var(--accent-primary); background: rgba(46, 91, 255, 0.05); }
-  .exec-done { color: #10B981; background: rgba(16, 185, 129, 0.05); }
-  .exec-error { color: var(--danger); background: rgba(239, 68, 68, 0.05); }
+  .exec-running { color: var(--accent-primary); background: var(--hover-bg); }
+  .exec-done { color: var(--success); background: color-mix(in srgb, var(--success) 5%, transparent); }
+  .exec-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 5%, transparent); }
 
   .exec-spinner {
     width: 12px;
     height: 12px;
-    border: 2px solid rgba(46, 91, 255, 0.3);
+    border: 2px solid var(--accent-glow-strong);
     border-top-color: var(--accent-primary);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
@@ -1123,8 +1123,8 @@
   .celebration-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(6px);
+    background: var(--overlay-bg);
+    backdrop-filter: var(--blur-quiet);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1135,13 +1135,13 @@
   .celebration-card {
     position: relative;
     background: var(--bg-secondary);
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
     border-radius: 20px;
     padding: 40px 48px;
     max-width: 420px;
     width: 90%;
     text-align: center;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5), 0 0 60px rgba(16, 185, 129, 0.08);
+    box-shadow: var(--shadow-glow);
     overflow: hidden;
     animation: celebrationSlideUp 0.4s ease;
   }
@@ -1194,7 +1194,7 @@
   .celebration-title {
     font-size: 22px;
     font-weight: 700;
-    color: #10B981;
+    color: var(--success);
     margin: 0 0 4px;
   }
 
@@ -1239,7 +1239,7 @@
   .stat-divider {
     width: 1px;
     height: 32px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--border);
   }
 
   .celebration-efficiency {
@@ -1247,9 +1247,9 @@
     color: var(--text-secondary);
     margin: 0 0 24px;
     padding: 8px 16px;
-    background: rgba(204, 255, 0, 0.06);
+    background: color-mix(in srgb, var(--accent-secondary) 6%, transparent);
     border-radius: 8px;
-    border: 1px solid rgba(204, 255, 0, 0.1);
+    border: 1px solid color-mix(in srgb, var(--accent-secondary) 10%, transparent);
   }
 
   .celebration-actions {
@@ -1269,13 +1269,13 @@
   }
 
   .celebration-btn--secondary {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
     color: var(--text-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border);
   }
 
   .celebration-btn--secondary:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--border);
     color: var(--text-primary);
   }
 </style>

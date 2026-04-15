@@ -29,7 +29,7 @@
   --accent-green-glow:   rgba(204, 255, 0, 0.15);
 
   /* ── Backward-compat Aliases (used throughout components) ── */
-  --accent:       #2E5BFF;
+  --accent:       var(--accent-primary);  /* alias, не удалять */
   --accent-hover: #4A76FF;
 
   /* ── Text ── */
@@ -53,6 +53,12 @@
   --radius-md: 12px;
   --radius-lg: 16px;
   --radius-xl: 20px;
+
+  /* ── Radius per-component (dark/light default = sm) ── */
+  --radius-btn:   var(--radius-sm);
+  --radius-chip:  var(--radius-sm);
+  --radius-input: var(--radius-sm);
+  --radius-card:  var(--radius);
 
   /* ── Motion ── */
   --transition:        200ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -107,6 +113,31 @@
   --code-bg:        rgba(0, 0, 0, 0.45);
   --msg-assistant-bg: rgba(255, 255, 255, 0.07);
   --msg-user-bg:    rgba(46, 91, 255, 0.10);
+
+  /* ── Extended palette ── */
+  --accent-text-light:    #8EB4FF;
+  --danger-text-light:    #FCA5A5;
+  --warning-text:         #FBBF24;
+  --brand-gradient-start: #6366f1;
+  --brand-gradient-end:   #8b5cf6;
+  --danger-hover:         #dc2626;
+  --logo-gradient-start:  #818cf8;
+  --logo-gradient-end:    #c084fc;
+  --overlay-bg:           rgba(0, 0, 0, 0.6);
+  --gradient-primary:     linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-hover) 60%, color-mix(in srgb, var(--accent-secondary) 80%, transparent) 100%);
+  --gradient-accent-line: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+
+  /* Per-theme: shadow elevation */
+  --shadow-elevation-1: 0 0 12px rgba(59,130,246,0.08);
+  --shadow-elevation-2: 0 0 24px rgba(59,130,246,0.12);
+  --shadow-elevation-3: 0 0 48px rgba(59,130,246,0.18);
+
+  /* Per-theme: hover behavior */
+  --hover-transform: translateY(-2px);
+  --hover-timing: 200ms ease-out;
+
+  /* Per-theme: typography weight */
+  --font-weight-heading: 500;
 }
 
 /* ── Light Theme ── */
@@ -119,10 +150,13 @@
   --bg-glass:       rgba(255, 255, 255, 0.92);
   --bg-glass-hover: rgba(245, 245, 247, 0.96);
 
-  --bg-surface-quiet: rgba(255, 255, 255, 0.92);
-  --bg-surface-focus: rgba(255, 255, 255, 0.80);
-  --blur-quiet: blur(8px);
-  --blur-focus: blur(24px) saturate(1.1);
+  --bg-surface-quiet: #ffffff;
+  --bg-surface-focus: rgba(255, 255, 255, 0.97);
+  --blur-quiet:  none;
+  --blur-focus:  none;
+  --glass-blur:  none;
+  --bg-glass:    #ffffff;
+  --overlay-bg:  rgba(0, 0, 0, 0.4);
 
   --accent-glow:         rgba(46, 91, 255, 0.12);
   --accent-glow-strong:  rgba(46, 91, 255, 0.22);
@@ -153,6 +187,12 @@
   --code-bg:        rgba(0, 0, 0, 0.07);
   --msg-assistant-bg: rgba(0, 0, 0, 0.04);
   --msg-user-bg:    rgba(46, 91, 255, 0.10);
+
+  /* Per-theme: light = paper shadows, no glow */
+  --shadow-elevation-1: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-elevation-2: 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-elevation-3: 0 8px 32px rgba(0,0,0,0.08);
+  --font-weight-heading: 400;
 }
 
 /* ── Fun Theme — pastel, warm, playful ── */
@@ -198,6 +238,13 @@
 
   --clock-color:      #5A5A42;
 
+  /* ── Radius per-component (fun = pill для кнопок/chips) ── */
+  --radius-btn:   999px;
+  --radius-chip:  999px;
+  --radius-input: 14px;
+  --radius-card:  20px;
+
+  /* ── Cabinet interior ── */
   --panel-bg:       rgba(245, 240, 208, 0.80);
   --input-bg:       #FFFEF5;
   --input-border:   rgba(90, 80, 40, 0.18);
@@ -205,6 +252,14 @@
   --code-bg:        rgba(90, 80, 40, 0.06);
   --msg-assistant-bg: rgba(144, 198, 124, 0.08);
   --msg-user-bg:    rgba(124, 107, 196, 0.10);
+
+  /* Per-theme: fun = colored shadows, bounce hover, bold headings */
+  --shadow-elevation-1: 0 2px 8px rgba(34,197,94,0.08);
+  --shadow-elevation-2: 0 4px 16px rgba(34,197,94,0.12), 0 2px 8px rgba(139,92,246,0.06);
+  --shadow-elevation-3: 0 8px 32px rgba(34,197,94,0.15), 0 4px 16px rgba(234,179,8,0.08);
+  --hover-transform: translateY(-3px) scale(1.02);
+  --hover-timing: 300ms cubic-bezier(0.68, -0.55, 0.27, 1.55);
+  --font-weight-heading: 700;
 }
 
 /* ─── Reset ─── */

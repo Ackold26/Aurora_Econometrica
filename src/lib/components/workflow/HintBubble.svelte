@@ -47,8 +47,8 @@
     align-items: flex-start;
     gap: 8px;
     padding: 10px 12px;
-    background: rgba(46, 91, 255, 0.06);
-    border: 1px solid rgba(46, 91, 255, 0.12);
+    background: var(--hover-bg);
+    border: 1px solid var(--accent-glow);
     border-radius: 10px;
     animation: hint-enter 0.3s ease-out;
     margin: 8px 0;
@@ -129,6 +129,6 @@
   .hint-dismiss:hover {
     opacity: 1;
     color: var(--text-secondary);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--hover-bg);
   }
 </style>

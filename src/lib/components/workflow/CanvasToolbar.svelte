@@ -36,11 +36,11 @@
 </div>
 
 <style>
-  .toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: rgba(0,0,0,0.3); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 10px; }
+  .toolbar { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: var(--bg-tertiary); backdrop-filter: var(--blur-quiet); border: 1px solid var(--border-subtle, rgba(255,255,255,0.07)); border-radius: 10px; }
   .toolbar-group { display: flex; align-items: center; gap: 2px; }
-  .toolbar-separator { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.08); margin: 0 4px; }
+  .toolbar-separator { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
   .tb-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent; color: var(--text-secondary, #aaa); cursor: pointer; transition: all 0.12s ease; }
-  .tb-btn:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-primary, #fff); }
-  .tb-btn.active { background: rgba(46, 91, 255, 0.15); color: var(--accent-primary, #6366f1); }
+  .tb-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
+  .tb-btn.active { background: var(--accent-glow-strong); color: var(--accent-primary); }
   .zoom-label { font-size: 11px; color: var(--text-muted, #888); min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
 </style>

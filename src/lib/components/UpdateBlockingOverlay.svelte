@@ -122,9 +122,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(9, 9, 12, 0.92);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
+    background: var(--overlay-bg);
+    backdrop-filter: var(--blur-focus);
+    -webkit-backdrop-filter: var(--blur-focus);
   }
 
   .card {
@@ -136,7 +136,7 @@
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow), 0 0 60px rgba(46, 91, 255, 0.15);
+    box-shadow: var(--shadow), var(--shadow-glow);
     max-width: 420px;
     text-align: center;
   }
@@ -157,7 +157,7 @@
     font-size: 13px;
     color: var(--accent-primary);
     font-weight: 600;
-    background: rgba(46, 91, 255, 0.1);
+    background: var(--accent-glow);
     padding: 3px 12px;
     border-radius: 20px;
   }
@@ -179,8 +179,8 @@
     align-items: center;
     gap: 8px;
     padding: 12px 28px;
-    background: linear-gradient(135deg, #2E5BFF 0%, #5A8AFF 60%, rgba(204, 255, 0, 0.8) 100%);
-    color: white;
+    background: var(--gradient-primary);
+    color: var(--text-on-accent, #fff);
     border: none;
     border-radius: var(--radius-sm);
     font-size: 14px;
@@ -188,24 +188,24 @@
     cursor: pointer;
     margin-top: 8px;
     transition: all var(--transition);
-    box-shadow: 0 2px 16px rgba(46, 91, 255, 0.35);
+    box-shadow: var(--shadow-glow);
   }
 
   .update-btn:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 24px rgba(46, 91, 255, 0.5);
+    box-shadow: var(--shadow-glow);
     filter: brightness(1.1);
   }
 
   .update-btn.retry {
-    background: rgba(239, 68, 68, 0.15);
-    color: #EF4444;
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
     box-shadow: none;
   }
 
   .update-btn.retry:hover {
-    background: rgba(239, 68, 68, 0.25);
+    background: color-mix(in srgb, var(--danger) 25%, transparent);
     transform: none;
     filter: none;
   }
@@ -252,10 +252,10 @@
   .error-text {
     font-size: 12.5px;
     color: var(--danger);
-    background: rgba(239, 68, 68, 0.08);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
     padding: 8px 14px;
     border-radius: 6px;
-    border: 1px solid rgba(239, 68, 68, 0.15);
+    border: 1px solid color-mix(in srgb, var(--danger) 15%, transparent);
     word-break: break-word;
   }
 </style>

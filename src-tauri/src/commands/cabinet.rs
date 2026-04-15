@@ -104,28 +104,6 @@ pub fn get_cabinet_definitions() -> Vec<CabinetInfo> {
             icon: "🎬".to_string(),
             color: "#7C3AED".to_string(), // violet
         },
-        // ── Econometrica cabinets ──
-        CabinetInfo {
-            id: "data-model".to_string(),
-            name: "Данные и Модель".to_string(),
-            description: "Загрузка данных, валидация, обучение MMM-модели".to_string(),
-            icon: "📊".to_string(),
-            color: "#0EA5E9".to_string(), // sky-blue
-        },
-        CabinetInfo {
-            id: "analysis".to_string(),
-            name: "Анализ".to_string(),
-            description: "Декомпозиция продаж, ROI, оптимизация бюджета, сценарии".to_string(),
-            icon: "📐".to_string(),
-            color: "#6366F1".to_string(), // indigo
-        },
-        CabinetInfo {
-            id: "reporting".to_string(),
-            name: "Отчёты".to_string(),
-            description: "Awareness, Executive Summary, отчёт для\u{00a0}руководства".to_string(),
-            icon: "📋".to_string(),
-            color: "#8B5CF6".to_string(), // purple
-        },
     ]
 }
 
@@ -182,6 +160,7 @@ pub fn get_commands_for_cabinet(cabinet_id: &str) -> Vec<CabinetCommand> {
             ("/batch-analytics", "Пакетная обработка", "Инструменты"),
             ("/data-analysis", "Анализ данных", "Инструменты"),
             ("/benchmark", "Бенчмарки", "Инструменты"),
+            ("/aurora-index", "Aurora Index", "Инструменты"),
         ],
         "communication-analyst" => vec![
             ("/media-monitor", "Мониторинг медиаполя", "Основные"),
@@ -284,25 +263,6 @@ pub fn get_commands_for_cabinet(cabinet_id: &str) -> Vec<CabinetCommand> {
             ("/brand-visual", "Визуальный DNA", "Бренд"),
             ("/storyboard", "Раскадровка", "Видео"),
         ],
-        // ── Econometrica cabinets ──
-        "data-model" => vec![
-            ("/validate", "Валидация данных", "Данные"),
-            ("/configure", "Конфигурация модели", "Данные"),
-            ("/train", "Обучить модель", "Модель"),
-            ("/diagnose", "Диагностика модели", "Модель"),
-        ],
-        "analysis" => vec![
-            ("/decompose", "Декомпозиция продаж", "Анализ"),
-            ("/optimize", "Оптимизация бюджета", "Оптимизация"),
-            ("/scenario", "Сценарий", "Сценарии"),
-            ("/compare", "Сравнить сценарии", "Сценарии"),
-        ],
-        "reporting" => vec![
-            ("/awareness", "Прогноз awareness", "Awareness"),
-            ("/funnel", "Воронка media→sales", "Awareness"),
-            ("/executive", "Executive Summary", "Отчёт"),
-            ("/mmm-export", "Полный отчёт", "Отчёт"),
-        ],
         _ => vec![],
     };
 
@@ -322,14 +282,12 @@ pub fn cabinet_folder_name(cabinet_id: &str) -> &str {
 
 /// Validate that a cabinet_id is one of the known cabinet definitions.
 pub fn validate_cabinet_id(cabinet_id: &str) -> Result<&str, String> {
-    let valid_ids: [&str; 16] = [
+    let valid_ids: [&str; 13] = [
         "social-listening", "media-analyst", "communication-analyst",
         "communication-strategist", "focus-groups", "creative-director",
         "lawyer-contracts", "lawyer-claims", "lawyer-advertising",
         "doc-master", "econometrist",
         "copywriter", "art-director",
-        // Econometrica
-        "data-model", "analysis", "reporting",
     ];
     if valid_ids.contains(&cabinet_id) {
         Ok(cabinet_id)
@@ -343,9 +301,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_cabinets_defined() {
+    fn all_thirteen_cabinets_defined() {
         let cabinets = get_cabinet_definitions();
-        assert_eq!(cabinets.len(), 16); // 13 original + 3 econometrica
+        assert_eq!(cabinets.len(), 13);
     }
 
     #[test]
@@ -365,10 +323,6 @@ mod tests {
             "econometrist",
             "copywriter",
             "art-director",
-            // Econometrica
-            "data-model",
-            "analysis",
-            "reporting",
         ];
         let ids: Vec<&str> = cabinets.iter().map(|c| c.id.as_str()).collect();
         for expected in &expected_ids {
@@ -387,7 +341,7 @@ mod tests {
 
     #[test]
     fn command_counts_per_cabinet() {
-        assert_eq!(get_commands_for_cabinet("media-analyst").len(), 8);
+        assert_eq!(get_commands_for_cabinet("media-analyst").len(), 9);
         assert_eq!(get_commands_for_cabinet("communication-analyst").len(), 10);
         assert_eq!(get_commands_for_cabinet("communication-strategist").len(), 8);
         assert_eq!(get_commands_for_cabinet("creative-director").len(), 9);
@@ -400,10 +354,6 @@ mod tests {
         assert_eq!(get_commands_for_cabinet("econometrist").len(), 9);
         assert_eq!(get_commands_for_cabinet("copywriter").len(), 7);
         assert_eq!(get_commands_for_cabinet("art-director").len(), 9);
-        // Econometrica
-        assert_eq!(get_commands_for_cabinet("data-model").len(), 4);
-        assert_eq!(get_commands_for_cabinet("analysis").len(), 4);
-        assert_eq!(get_commands_for_cabinet("reporting").len(), 4);
     }
 
     #[test]
