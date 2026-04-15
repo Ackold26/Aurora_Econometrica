@@ -121,8 +121,13 @@
       <span class="step-counter">Шаг {currentStep + 1} из {config.steps.length}</span>
     </div>
 
-    <!-- Skip -->
-    <button class="skip-btn" onclick={handleSkip}>Пропустить →</button>
+    <!-- Navigation -->
+    <div class="nav-row">
+      {#if currentStep < config.steps.length - 1}
+        <button class="next-step-btn" onclick={() => advanceOnboardingStep(cabinetId)}>Далее →</button>
+      {/if}
+      <button class="skip-btn" onclick={handleSkip}>Пропустить</button>
+    </div>
   </div>
 {/if}
 
@@ -341,6 +346,29 @@
     font-size: 11px;
     color: var(--text-secondary, rgba(255,255,255,0.4));
     margin-left: 4px;
+  }
+
+  /* ── Navigation row ── */
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .next-step-btn {
+    padding: 6px 18px;
+    background: var(--accent-primary, #2E5BFF);
+    color: var(--text-on-accent, #fff);
+    border: none;
+    border-radius: var(--radius-btn);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 150ms;
+  }
+
+  .next-step-btn:hover {
+    opacity: 0.88;
   }
 
   /* ── Skip ── */
