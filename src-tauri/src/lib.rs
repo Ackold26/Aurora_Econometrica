@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod crypto;
+pub mod econ_sidecar;
 pub mod errors;
 pub mod metrics;
 pub mod session;
@@ -2850,6 +2851,12 @@ fn start_parser_server() {
     }
 }
 
+#[tauri::command]
+async fn econ_sidecar_wait_ready(timeout_ms: Option<u64>) -> bool {
+    let _ = timeout_ms; // reserved for future use
+    econ_sidecar::wait_for_sidecar_ready().await
+}
+
 fn stop_rag_server() {
     if let Some(lock) = RAG_PROCESS.get() {
         if let Some(mut child) = lock.lock().unwrap().take() {
@@ -2969,6 +2976,9 @@ fn build_app() -> Result<(), String> {
                 .center()
                 .build()?;
 
+            // Start Econometrica Python sidecar (FastAPI on :7430)
+            econ_sidecar::start_sidecar(app.handle());
+
             Ok(())
         })
         .manage(state.clone())
@@ -3079,6 +3089,22 @@ fn build_app() -> Result<(), String> {
             ensure_default_brand,
             // Phase 3: frontend repair from fallback page
             repair_frontend,
+            // Econometrica pipeline commands
+            econ_sidecar_wait_ready,
+            commands::econometrica::econ_health,
+            commands::econometrica::econ_validate,
+            commands::econometrica::econ_train,
+            commands::econometrica::econ_train_start,
+            commands::econometrica::econ_train_progress,
+            commands::econometrica::econ_train_result,
+            commands::econometrica::econ_decompose,
+            commands::econometrica::econ_optimize,
+            commands::econometrica::econ_scenario,
+            commands::econometrica::econ_compare,
+            commands::econometrica::econ_awareness_forecast,
+            commands::econometrica::econ_awareness_sales,
+            commands::econometrica::econ_chart,
+            commands::econometrica::econ_data_preview,
         ])
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -3087,6 +3113,7 @@ fn build_app() -> Result<(), String> {
                 // Idempotent shutdown — safe to call even if never started
                 stop_rag_server();
                 stop_parser_server();
+                econ_sidecar::stop_sidecar();
             }
         })
         .run(tauri::generate_context!())
