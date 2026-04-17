@@ -44,6 +44,7 @@
   class="cmd-card"
   class:highlighted
   class:favorite={isFavorite}
+  class:hero={command === '/analytics'}
   style="--cab-color: {cabinetColor}; animation-delay: {animDelay}ms"
   onclick={() => onExecute?.(command)}
   oncontextmenu={handleContext}
@@ -102,6 +103,11 @@
     content-visibility: auto;
     contain-intrinsic-size: 120px 88px;
     min-height: 72px;
+  }
+
+  .cmd-card.hero {
+    border-left: 3px solid var(--accent-primary);
+    box-shadow: inset 3px 0 8px rgba(var(--accent-primary-rgb, 46, 91, 255), 0.12);
   }
 
   .cmd-card:hover {

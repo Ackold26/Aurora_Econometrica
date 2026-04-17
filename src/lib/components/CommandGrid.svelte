@@ -297,6 +297,21 @@
     transition: color 150ms;
   }
 
+  .group-name::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+    background: var(--accent-primary);
+    vertical-align: middle;
+  }
+
+  .group-header:nth-of-type(2) .group-name::before {
+    background: var(--color-info, var(--accent-primary));
+  }
+
   .group-header:hover {
     color: var(--text-secondary, #A8A8B8);
   }
