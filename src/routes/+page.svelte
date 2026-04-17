@@ -169,8 +169,11 @@
   // User chooses: open Pipeline or dismiss → opens cabinet
   let pipelineDismissed = $state(false);
 
+  let enteringCabinet = $state(false);
+
   function dismissPipeline() {
     pipelineDismissed = true;
+    enteringCabinet = true;
     if (cabinets.length >= 1) {
       openCabinet(cabinets[0]);
     }
@@ -185,6 +188,14 @@
   <OnboardingOverlay />
 {/if}
 
+{#if enteringCabinet}
+  <div class="home">
+    <div style="display: flex; align-items: center; justify-content: center; height: 100vh;">
+      <div class="spinner"></div>
+      <p style="margin-left: 12px; opacity: 0.6; font-size: 13px;">Открытие кабинета...</p>
+    </div>
+  </div>
+{:else}
 <div class="home">
   <!-- ── Top Bar ── -->
   <header class="topbar">
@@ -424,6 +435,7 @@
     {/if}
   </main>
 </div>
+{/if}
 
 <style>
   .home {

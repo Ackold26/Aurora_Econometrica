@@ -1594,17 +1594,14 @@ fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), Str
         }
     }
 
-    // 2. Fallback to bundled resource
-    let resource_path = app_handle
-        .path()
-        .resource_dir()
-        .map_err(|e| e.to_string())?
-        .join("help")
-        .join(format!("{}.html", cabinet_id));
-
-    if !resource_path.exists() {
-        return Err(format!("Help file not found for cabinet: {}", cabinet_id));
-    }
+    // 2. Fallback to bundled resource (check help-econometrica/ and _up_ variant)
+    let res_dir = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
+    let filename = format!("{}.html", cabinet_id);
+    let resource_path = ["help-econometrica", "help"]
+        .iter()
+        .map(|d| res_dir.join(d).join(&filename))
+        .find(|p| p.exists())
+        .ok_or_else(|| format!("Help file not found for cabinet: {}", cabinet_id))?;
 
     let path_str = resource_path.to_string_lossy().to_string();
     tauri_plugin_opener::open_path(&path_str, None::<&str>).map_err(|e| e.to_string())
