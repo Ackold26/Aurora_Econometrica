@@ -42,20 +42,16 @@ fn is_already_running() -> bool {
 // ── Production path (bundled exe) ────────────────────────────────────────────
 
 fn spawn_bundled_exe(app_handle: &tauri::AppHandle) -> Result<Child, String> {
-    let exe_path = app_handle
-        .path()
-        .resolve(
-            "sidecar/econometrica/econometrica-sidecar.exe",
-            tauri::path::BaseDirectory::Resource,
-        )
-        .map_err(|e| format!("Resource path error: {e}"))?;
-
-    if !exe_path.exists() {
-        return Err(format!(
-            "Bundled sidecar not found at: {}",
-            exe_path.display()
-        ));
-    }
+    // Try both paths: direct and _up_/ (Tauri replaces ../ with _up_/ in bundle)
+    let resolve = |p: &str| app_handle.path().resolve(p, tauri::path::BaseDirectory::Resource).ok();
+    let exe_path = [
+        "sidecar/econometrica/econometrica-sidecar.exe",
+        "_up_/sidecar/econometrica/econometrica-sidecar.exe",
+    ]
+    .iter()
+    .filter_map(|p| resolve(p))
+    .find(|p| p.exists())
+    .ok_or_else(|| "Bundled sidecar not found in sidecar/ or _up_/sidecar/".to_string())?;
 
     let mut cmd = Command::new(&exe_path);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
