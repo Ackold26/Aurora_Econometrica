@@ -5,6 +5,7 @@ Bayesian Marketing Mix Model with Adstock + Hill saturation.
 import json
 import pickle
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -282,6 +283,27 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         }
 
         model_path = models_dir / 'latest.pkl'
+
+        # Model versioning: archive previous model before overwriting
+        history_dir = models_dir / 'history'
+        history_dir.mkdir(exist_ok=True)
+        if model_path.exists():
+            import shutil
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            shutil.copy2(model_path, history_dir / f'model-{ts}.pkl')
+            # Also archive params JSON
+            prev_params = models_dir / 'latest-params.json'
+            if prev_params.exists():
+                shutil.copy2(prev_params, history_dir / f'params-{ts}.json')
+            # Keep max 5 versions (oldest first)
+            archives = sorted(history_dir.glob('model-*.pkl'))
+            while len(archives) > 5:
+                archives[0].unlink(missing_ok=True)
+                # Also remove matching params
+                param_f = archives[0].name.replace('model-', 'params-').replace('.pkl', '.json')
+                (history_dir / param_f).unlink(missing_ok=True)
+                archives.pop(0)
+
         with open(model_path, 'wb') as f:
             pickle.dump(model_data, f)
 

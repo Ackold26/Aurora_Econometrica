@@ -69,6 +69,20 @@
       sidecarHealthy.set(false);
       sidecarStatus.set(`Ошибка: ${err}`);
     }
+
+    // Crash recovery: if training was in progress but sidecar restarted
+    const savedTask = typeof localStorage !== 'undefined' ? localStorage.getItem('econ-training-task') : null;
+    if (savedTask) {
+      try {
+        const progress = /** @type {any} */ (await invoke('econ_train_progress'));
+        if (progress.status !== 'running') {
+          // Sidecar lost state — clean up stale task
+          localStorage.removeItem('econ-training-task');
+        }
+      } catch {
+        localStorage.removeItem('econ-training-task');
+      }
+    }
   }
 
   onMount(() => {

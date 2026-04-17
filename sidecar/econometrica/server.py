@@ -117,6 +117,10 @@ class PptxExportRequest(BaseModel):
     optimize_data: dict
 
 
+class ModelHistoryRequest(BaseModel):
+    project_dir: str
+
+
 # ── Async training state ─────────────────────────────
 # task_id → {status, phase, pct, elapsed_sec, result, error, started_at}
 _training_tasks: dict[str, dict] = {}
@@ -369,6 +373,40 @@ def generate_chart(req: ChartRequest):
     except Exception as e:
         logger.exception(f'Chart generation failed: {req.chart_type}')
         return {'status': 'error', 'message': str(e)}
+
+
+# ── Model History ────────────────────────────────────────
+
+@app.post('/compute/model_history')
+def model_history(req: ModelHistoryRequest):
+    """List archived model versions with summary diagnostics."""
+    history_dir = Path(req.project_dir) / 'models' / 'history'
+    if not history_dir.exists():
+        return {'status': 'ok', 'versions': []}
+
+    versions = []
+    for params_file in sorted(history_dir.glob('params-*.json'), reverse=True):
+        try:
+            with open(params_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            ts_str = params_file.stem.replace('params-', '')
+            diag = data.get('diagnostics', {})
+            mqs = diag.get('mqs', {})
+            channels = list(data.get('channel_params', {}).keys())
+            versions.append({
+                'timestamp': ts_str,
+                'mqs_score': mqs.get('score', 0),
+                'mqs_label': mqs.get('tier_label', ''),
+                'r_squared': diag.get('r_squared', 0),
+                'mape': diag.get('mape', 0),
+                'n_channels': len(channels),
+                'channels': channels,
+                'config': data.get('config', {}),
+            })
+        except Exception:
+            continue
+
+    return {'status': 'ok', 'versions': versions}
 
 
 # ── PPTX Export ──────────────────────────────────────────
