@@ -5,10 +5,12 @@ Port: 7430
 """
 import json
 import logging
+import os
 import sys
 import threading
 import uuid
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +108,13 @@ class AwarenessSalesRequest(BaseModel):
 class ChartRequest(BaseModel):
     project_dir: str
     chart_type: str  # 'waterfall', 'response_curves', 'awareness', 's_curve', 'mqs'
+
+
+class PptxExportRequest(BaseModel):
+    project_id: str
+    model_data: dict
+    decompose_data: dict
+    optimize_data: dict
 
 
 # ── Async training state ─────────────────────────────
@@ -360,6 +369,25 @@ def generate_chart(req: ChartRequest):
     except Exception as e:
         logger.exception(f'Chart generation failed: {req.chart_type}')
         return {'status': 'error', 'message': str(e)}
+
+
+# ── PPTX Export ──────────────────────────────────────────
+
+@app.post('/export/pptx')
+def export_pptx(req: PptxExportRequest):
+    """Generate branded PPTX presentation from MMM results."""
+    from engines.pptx_export import build_pptx
+
+    appdata = os.environ.get('APPDATA', '')
+    identifier = 'com.aurora.econometrica'
+    exports_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'exports'
+    exports_dir.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_path = str(exports_dir / f'mmm_report_{ts}.pptx')
+
+    result = build_pptx(req.model_data, req.decompose_data, req.optimize_data, output_path)
+    return JSONResponse(content=result)
 
 
 # ── Startup ──────────────────────────────────────────

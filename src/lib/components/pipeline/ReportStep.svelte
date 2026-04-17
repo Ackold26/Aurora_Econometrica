@@ -29,6 +29,8 @@
   /** @type {string | null} */
   let xlsxPath = $state(null);
   /** @type {string | null} */
+  let pptxPath = $state(null);
+  /** @type {string | null} */
   let executiveSummary = $state(null);
 
   // Reactive store reads
@@ -120,6 +122,32 @@
         stepState = 'done';
       } else {
         handleError(result.message ?? 'Ошибка XLSX экспорта');
+      }
+    } catch (/** @type {any} */ e) {
+      handleError(String(e));
+    }
+  }
+
+  async function exportPptx() {
+    const pid = get(activeProjectId);
+    if (!pid || !hasData) return;
+
+    stepState = 'generating-xlsx'; // reuse spinner state
+    errorMessage = null;
+
+    try {
+      const result = /** @type {any} */ (await invoke('econ_export_pptx', {
+        projectId:     pid,
+        modelData:     get(modelData),
+        decomposeData: get(decomposeData),
+        optimizeData:  get(optimizeData),
+      }));
+
+      if (result.status === 'ok') {
+        pptxPath = result.path ?? null;
+        stepState = 'done';
+      } else {
+        handleError(result.message ?? 'Ошибка PPTX');
       }
     } catch (/** @type {any} */ e) {
       handleError(String(e));
@@ -218,12 +246,21 @@
           disabled={!hasData}
         >
           <span class="btn-icon">📊</span>
-          Экспорт в XLSX
+          Данные (XLSX)
+        </button>
+        <button
+          class="btn-export pptx"
+          onclick={exportPptx}
+          disabled={!hasData}
+        >
+          <span class="btn-icon">📽</span>
+          Презентация (PPTX)
         </button>
       </div>
       <p class="export-hint">
-        Markdown включает Executive Summary, декомпозицию, ROI и рекомендации.
-        XLSX — 4 листа с полными данными pipeline.
+        PPTX — 8 слайдов с графиками и рекомендациями.
+        XLSX — 6 листов с формулами, графиками и глоссарием.
+        Markdown — текстовый отчёт для email.
       </p>
 
     {:else if stepState === 'generating-report'}
@@ -257,13 +294,22 @@
             <span class="file-path">{xlsxPath}</span>
           </div>
         {/if}
+        {#if pptxPath}
+          <div class="file-row">
+            <span class="file-icon">📽</span>
+            <span class="file-path">{pptxPath}</span>
+          </div>
+        {/if}
 
         <div class="more-exports">
           {#if !reportPath}
-            <button class="btn-more" onclick={generateReport}>📄 Также Markdown</button>
+            <button class="btn-more" onclick={generateReport}>📄 Markdown</button>
           {/if}
           {#if !xlsxPath}
-            <button class="btn-more" onclick={exportXlsx}>📊 Также XLSX</button>
+            <button class="btn-more" onclick={exportXlsx}>📊 XLSX</button>
+          {/if}
+          {#if !pptxPath}
+            <button class="btn-more" onclick={exportPptx}>📽 PPTX</button>
           {/if}
           <button class="btn-folder" onclick={openFolder}>📁 Открыть папку</button>
         </div>
@@ -422,6 +468,11 @@
     background: rgba(34,197,94,0.15);
     border: 1px solid rgba(34,197,94,0.3);
     color: #22c55e;
+  }
+  .btn-export.pptx {
+    background: rgba(139,92,246,0.15);
+    border: 1px solid rgba(139,92,246,0.3);
+    color: #a78bfa;
   }
   .btn-export:hover:not(:disabled) { opacity: 0.85; }
   .btn-export:disabled { opacity: 0.4; cursor: not-allowed; }

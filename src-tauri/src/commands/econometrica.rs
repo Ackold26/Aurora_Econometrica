@@ -178,6 +178,25 @@ pub async fn econ_chart(project_dir: String, chart_type: String) -> Result<Value
     post_json("/chart", &body, quick_client()).await
 }
 
+// ── PPTX Export ─────────────────────────────────────
+
+#[tauri::command]
+pub async fn econ_export_pptx(
+    project_id: String,
+    model_data: Value,
+    decompose_data: Value,
+    optimize_data: Value,
+) -> Result<Value, String> {
+    info!("econ_export_pptx: project={project_id}");
+    let body = serde_json::json!({
+        "project_id": project_id,
+        "model_data": model_data,
+        "decompose_data": decompose_data,
+        "optimize_data": optimize_data,
+    });
+    post_json("/export/pptx", &body, quick_client()).await
+}
+
 // ── Helper ───────────────────────────────────────────
 
 async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result<Value, String> {
