@@ -68,7 +68,7 @@
   }
 
   const HEARTBEAT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.0.7';
 
   /** Compare semver strings: returns true if remote > current
    * @param {string} remote
