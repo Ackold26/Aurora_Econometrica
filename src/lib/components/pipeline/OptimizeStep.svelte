@@ -9,6 +9,7 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
+  import { marginalROI } from '$lib/hill.js';
   import {
     activeProjectId,
     modelData,
@@ -59,6 +60,18 @@
 
   /** Current KPI at current_spend (baseline for lift%). Uses predictKPI from hill.js. */
   const currentKPI = $derived(predictKPI(currentSpend, scaledParams));
+
+  /** miROAS per channel — marginal return of next ruble. Uses existing marginalROI(). */
+  const miROASMap = $derived.by(() => {
+    /** @type {Record<string, number>} */
+    const map = {};
+    for (const ch of channels) {
+      const p = scaledParams[ch];
+      if (!p || !currentSpend[ch]) continue;
+      map[ch] = marginalROI(currentSpend[ch], p.alpha, p.gammaScaled, p.beta);
+    }
+    return map;
+  });
 
   /** Shared channel budgets — source of truth for BudgetOptimizer & ResponseCurves */
   let channelBudgets = $state(/** @type {Record<string, number>} */ ({}));
@@ -278,6 +291,26 @@
       </div>
     </div>
 
+    <!-- miROAS table -->
+    {#if Object.keys(miROASMap).length > 0}
+      <div class="card miroas-card">
+        <div class="card-title">miROAS — предельная отдача следующего рубля</div>
+        <div class="miroas-table">
+          {#each channels as ch}
+            {@const val = miROASMap[ch] ?? 0}
+            {@const cls = val > 1.5 ? 'miroas-good' : val > 0.8 ? 'miroas-ok' : 'miroas-low'}
+            <div class="miroas-row {cls}">
+              <span class="miroas-name">{ch}</span>
+              <span class="miroas-value">{val.toFixed(2)}x</span>
+              <span class="miroas-hint">
+                {val > 1.5 ? 'Масштабировать' : val > 0.8 ? 'Стабильно' : 'Перенасыщен'}
+              </span>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
     <!-- Confirm + Scenario Playground -->
     <div class="bottom-section">
       <div class="confirm-row">
@@ -470,6 +503,21 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
+
+  .miroas-card { margin-top: 4px; }
+  .miroas-table { display: flex; flex-direction: column; gap: 4px; }
+  .miroas-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.02);
+    border-left: 3px solid transparent;
+  }
+  .miroas-row.miroas-good { border-left-color: #22c55e; }
+  .miroas-row.miroas-ok   { border-left-color: #f59e0b; }
+  .miroas-row.miroas-low  { border-left-color: #ef4444; }
+  .miroas-name { flex: 1; font-size: 12px; color: var(--text-secondary, #94a3b8); }
+  .miroas-value { font-size: 14px; font-weight: 700; font-family: monospace; color: var(--text-primary, #e2e8f0); }
+  .miroas-hint { font-size: 10px; color: rgba(148,163,184,0.55); min-width: 80px; text-align: right; }
 
   .no-curves {
     padding: 40px 20px;

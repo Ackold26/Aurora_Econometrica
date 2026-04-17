@@ -74,6 +74,17 @@
   let mcmcDraws = $state(1000);
   let mcmcTune = $state(500);
 
+  // ── Time estimate (heuristic: ~0.5s per draw × chains for Metropolis, ~0.15s for NUTS) ──
+  const enabledCount = $derived(Object.values(channelEnabled).filter(Boolean).length);
+  const estimateMinutes = $derived.by(() => {
+    const chains = showAdvanced ? mcmcChains : 2;
+    const draws = showAdvanced ? mcmcDraws : 1000;
+    const tune = showAdvanced ? mcmcTune : 500;
+    const totalSamples = (draws + tune) * chains;
+    const secPerSample = 0.3 * Math.max(enabledCount / 4, 1); // scales with channels
+    return Math.max(1, Math.round(totalSamples * secPerSample / 60));
+  });
+
   // ── Actions ──
   async function trainModel() {
     const projectId = $activeProjectId;
@@ -260,6 +271,9 @@
       Запустить модель
     {/if}
   </button>
+  {#if !$isComputing && enabledCount > 0}
+    <p class="time-estimate">Оценка: ~{estimateMinutes} мин ({enabledCount} канал{enabledCount > 4 ? 'ов' : enabledCount > 1 ? 'а' : ''})</p>
+  {/if}
 </div>
 
 <style>
@@ -431,6 +445,13 @@
 
   .run-btn:hover:not(:disabled) { opacity: 0.9; }
   .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .time-estimate {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-secondary, #94a3b8);
+    margin-top: 6px;
+  }
 
   .spinner {
     width: 16px;

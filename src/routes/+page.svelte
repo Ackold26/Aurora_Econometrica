@@ -202,7 +202,7 @@
     <div class="topbar-left">
       <img src="/logo-wordmark.png" alt="Aurora AI" class="topbar-logo" />
       <div class="brand">
-        <span class="brand-rosst">ECONOMETRICA</span>
+        <span class="brand-product">ECONOMETRICA</span>
       </div>
     </div>
     <div class="topbar-center">
@@ -489,7 +489,7 @@
     opacity: 0.9;
   }
 
-  .brand-rosst {
+  .brand-product {
     font-size: 15px;
     font-weight: 800;
     letter-spacing: 0.08em;

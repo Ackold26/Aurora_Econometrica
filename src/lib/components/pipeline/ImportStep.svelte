@@ -12,7 +12,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
-  import { importData, completeStep, resetDownstream } from '$lib/project-state.js';
+  import { importData, completeStep, resetDownstream, pipelineStepMeta } from '$lib/project-state.js';
   import { get } from 'svelte/store';
 
   // ── State ──────────────────────────────────────────
@@ -104,6 +104,12 @@
   async function loadFile(path) {
     const isReimport = !!filePath && filePath !== path;
     if (isReimport) {
+      // Warn if model was trained (step 2 complete) — user loses training results
+      const meta = get(pipelineStepMeta);
+      if (meta[2]?.status === 'complete') {
+        const ok = confirm('Результаты обучения модели будут сброшены. Продолжить?');
+        if (!ok) return;
+      }
       resetDownstream(0);
     }
 

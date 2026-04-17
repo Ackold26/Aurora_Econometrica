@@ -149,7 +149,9 @@
     (async () => {
       const { echarts } = await import('$lib/echarts-setup.js');
       if (!container) return;
-      chart = echarts.init(container, 'dark');
+      const { getBaseChartOption } = await import('$lib/echarts-setup.js');
+      chart = echarts.init(container);
+      chart.setOption(getBaseChartOption());
 
       rebuildChart();
 

@@ -22,6 +22,7 @@
   } from '$lib/project-state.js';
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
+  import ProjectSelector from '$lib/components/ProjectSelector.svelte';
 
   let { children } = $props();
 
@@ -80,8 +81,23 @@
     function onResize() { windowWidth = window.innerWidth; }
     window.addEventListener('resize', onResize, { passive: true });
 
-    // Load pipeline metadata for current project (A4: data never persisted)
-    loadPipelineForProject($activeProjectId);
+    // Restore active project from backend if not already set
+    if (!$activeProjectId) {
+      (async () => {
+        try {
+          const id = /** @type {string|null} */ (await invoke('project_get_active'));
+          if (id) {
+            activeProjectId.set(id);
+            const info = await invoke('project_get', { projectId: id });
+            activeProject.set(info);
+            loadPipelineForProject(id);
+          }
+        } catch { /* no active project yet */ }
+      })();
+    } else {
+      // Load pipeline metadata for current project (A4: data never persisted)
+      loadPipelineForProject($activeProjectId);
+    }
 
     // C5: initialise sidecar
     initSidecar();
@@ -96,8 +112,13 @@
 
 {#if isEconometrica}
   <div class="pipeline-shell">
-    <!-- Stepper header -->
-    <PipelineStepper onNavigate={handleNavigate} />
+    <!-- Stepper header with project selector -->
+    <div class="pipeline-header">
+      <div class="project-area">
+        <ProjectSelector />
+      </div>
+      <PipelineStepper onNavigate={handleNavigate} />
+    </div>
 
     <!-- Body: main content + insights panel -->
     <div class="pipeline-body">
@@ -159,6 +180,20 @@
     /* CLAUDE.md Rule 13: 100%, not 100vh */
     height: 100%;
     overflow: hidden;
+  }
+
+  .pipeline-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  .project-area {
+    flex-shrink: 0;
+    min-width: 180px;
+    max-width: 240px;
+    padding: 8px 0 8px 16px;
   }
 
   .pipeline-body {

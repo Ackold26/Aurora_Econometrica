@@ -8,6 +8,7 @@
    * @component ModelTrainingStep
    */
   import { invoke } from '@tauri-apps/api/core';
+  import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import {
     validateData, modelData, isComputing, computeStatus,
@@ -37,6 +38,33 @@
 
   // ── Handlers ──
 
+  const TASK_KEY = 'econ-training-task';
+
+  // F3: Restore training state after browser refresh
+  onMount(() => {
+    const savedTaskId = localStorage.getItem(TASK_KEY);
+    if (savedTaskId && stepState === 'idle') {
+      (async () => {
+        try {
+          const progress = /** @type {any} */ (await invoke('econ_train_progress'));
+          if (progress.status === 'running') {
+            activeTaskId = savedTaskId;
+            stepState = 'training';
+            isComputing.set(true);
+            computeStatus.set('MCMC сэмплирование...');
+          } else if (progress.status === 'completed') {
+            const result = /** @type {any} */ (await invoke('econ_train_result', { taskId: savedTaskId }));
+            handleComplete(result);
+          } else {
+            localStorage.removeItem(TASK_KEY);
+          }
+        } catch {
+          localStorage.removeItem(TASK_KEY);
+        }
+      })();
+    }
+  });
+
   /**
    * A3: useAsyncTraining prop in ConfigPanel triggers this instead of sync econ_train.
    * @param {string} taskId
@@ -46,6 +74,7 @@
     stepState = 'training';
     isComputing.set(true);
     computeStatus.set('MCMC сэмплирование...');
+    try { localStorage.setItem(TASK_KEY, taskId); } catch { /* ignore */ }
   }
 
   /**
@@ -55,6 +84,7 @@
   function handleComplete(result) {
     isComputing.set(false);
     computeStatus.set('');
+    try { localStorage.removeItem(TASK_KEY); } catch { /* ignore */ }
 
     if (result.status === 'ok') {
       modelData.set({
@@ -75,23 +105,25 @@
   function handleError(msg) {
     isComputing.set(false);
     computeStatus.set('');
+    try { localStorage.removeItem(TASK_KEY); } catch { /* ignore */ }
     errorMessage = msg;
     stepState = 'error';
     setStepError(2, msg);
   }
 
-  /** Retry with same config */
+  /** Retry with same config — auto-starts training without manual Run click */
   async function retryTraining() {
     if (!lastConfig) {
       stepState = 'idle';
       return;
     }
     errorMessage = null;
-    stepState = 'idle';
-    // Small tick to let ConfigPanel re-render
-    await new Promise(r => setTimeout(r, 50));
-    // Re-trigger via ConfigPanel (user presses Run again)
-    stepState = 'idle';
+    try {
+      const start = /** @type {any} */ (await invoke('econ_train_start', { config: lastConfig }));
+      handleTrainingStarted(start.task_id);
+    } catch (/** @type {any} */ e) {
+      handleError(String(e));
+    }
   }
 
   /** Go back to config to change settings */

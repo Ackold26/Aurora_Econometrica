@@ -2883,6 +2883,7 @@ fn clear_webview_cache() {
         "com.rosst.media",
         "com.aurora.creative-hub",
         "com.aurora.analytics-hub",
+        "com.aurora.econometrica",
     ];
 
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
@@ -3102,6 +3103,21 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_awareness_sales,
             commands::econometrica::econ_chart,
             commands::econometrica::econ_data_preview,
+            // Project management commands
+            commands::project::project_list,
+            commands::project::project_create,
+            commands::project::project_get,
+            commands::project::project_update,
+            commands::project::project_delete,
+            commands::project::project_upload_data,
+            commands::project::project_activate,
+            commands::project::project_get_active,
+            commands::project::project_get_dir,
+            commands::project::project_stats,
+            // Report generation commands
+            commands::report::econ_generate_report,
+            commands::report::econ_export_xlsx,
+            commands::report::econ_open_exports,
         ])
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -3157,7 +3173,7 @@ pub fn run() {
                              3. Обратиться в техподдержку",
                             retry_err
                         );
-                        show_error_dialog("Aurora AI Analytics Hub — Ошибка запуска", &msg);
+                        show_error_dialog("Aurora AI Econometrica — Ошибка запуска", &msg);
                     }
                 }
             } else {
@@ -3170,7 +3186,7 @@ pub fn run() {
                      3. Обратиться в техподдержку",
                     err_str
                 );
-                show_error_dialog("Aurora AI Analytics Hub — Ошибка запуска", &msg);
+                show_error_dialog("Aurora AI Econometrica — Ошибка запуска", &msg);
             }
         }
     }

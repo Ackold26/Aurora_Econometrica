@@ -176,6 +176,12 @@ def train_start(req: TrainStartRequest):
     project_dir = req.project_dir
 
     with _training_lock:
+        # Cleanup consumed tasks older than 5 min
+        cutoff = time.time() - 300
+        stale = [k for k, v in _training_tasks.items() if v.get('consumed_at', 0) and v['consumed_at'] < cutoff]
+        for k in stale:
+            del _training_tasks[k]
+
         _training_tasks[task_id] = {
             'status': 'running',
             'phase': 'loading',
@@ -241,7 +247,7 @@ def train_result(task_id: str):
             return {'status': 'not_found'}
         if task['status'] in ('done', 'error'):
             result = task.get('result') or {'status': 'error', 'message': task.get('error', 'Unknown error')}
-            del _training_tasks[task_id]  # C3: cleanup after consumption
+            task['consumed_at'] = time.time()  # Mark consumed, keep for retries
             return result
     return {'status': 'pending'}
 

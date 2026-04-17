@@ -3,8 +3,7 @@
 //! One project = one client/dataset + trained models + results + scenarios.
 //! Stored in %APPDATA%/<identifier>/projects/ (filesystem-first, no RAG).
 
-use anyhow::{Context, Result};
-use log::{debug, info, warn};
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -163,7 +162,10 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
 pub async fn project_delete(project_id: String) -> Result<(), String> {
     let dir = project_dir(&project_id)?;
     if dir.exists() {
-        std::fs::remove_dir_all(&dir).map_err(|e| format!("Delete failed: {e}"))?;
+        trash::delete(&dir).unwrap_or_else(|_| {
+            // Fallback if trash unavailable (CI/headless)
+            let _ = std::fs::remove_dir_all(&dir);
+        });
         info!("Deleted project: {project_id}");
     }
     Ok(())

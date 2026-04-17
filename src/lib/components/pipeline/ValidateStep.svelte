@@ -96,8 +96,16 @@
 
   /** @param {any} mapping */
   function onMappingChange(mapping) {
-    // Future: persist mapping to project config via project_update command
-    // For now just keep in memory
+    const projectId = get(activeProjectId);
+    if (!projectId || !mapping) return;
+    invoke('project_update', {
+      projectId,
+      updates: {
+        kpi_column: mapping.kpi?.[0] ?? null,
+        media_columns: mapping.media ?? [],
+        control_columns: mapping.control ?? [],
+      },
+    }).catch(() => { /* best-effort persist */ });
   }
 </script>
 

@@ -58,6 +58,9 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"], default-features = false }
 futures-util = "0.3"
 
+# Soft-delete (move to OS trash instead of rm)
+trash = "5"
+
 # Windows system info
 [target.'cfg(windows)'.dependencies]
 wmi = "0.14"

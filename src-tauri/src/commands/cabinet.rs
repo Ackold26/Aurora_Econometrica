@@ -1,4 +1,6 @@
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Cabinet metadata for the GUI.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +109,26 @@ pub fn get_cabinet_definitions() -> Vec<CabinetInfo> {
     ]
 }
 
+/// Filter cabinet list by product type.
+/// Agency/creative-hub → all cabinets; other products → specific subset.
+pub fn filter_by_product(product: &str, cabinets: Vec<CabinetInfo>) -> Vec<CabinetInfo> {
+    let allowed: Option<&[&str]> = match product {
+        "agency" | "creative-hub" => None, // all cabinets
+        "analytics-hub" => Some(&["media-analyst"]),
+        "econometrica" => Some(&["econometrist"]),
+        "marketing" => Some(&["media-analyst", "communication-analyst"]),
+        "legal" => Some(&["lawyer-contracts", "lawyer-claims", "lawyer-advertising"]),
+        "creative" => Some(&["creative-director", "communication-strategist", "focus-groups", "copywriter", "art-director"]),
+        "docmaster" => Some(&["doc-master"]),
+        "prmaster" => Some(&["communication-analyst", "social-listening", "copywriter"]),
+        _ => None,
+    };
+    match allowed {
+        Some(ids) => cabinets.into_iter().filter(|c| ids.contains(&c.id.as_str())).collect(),
+        None => cabinets,
+    }
+}
+
 /// Command button for a cabinet.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CabinetCommand {
@@ -152,15 +174,15 @@ pub fn get_commands_for_cabinet(cabinet_id: &str) -> Vec<CabinetCommand> {
             ("/qa-visual-brief", "Визуальный чек-лист", "Комплаенс"),
         ],
         "media-analyst" => vec![
-            ("/analytics", "Комментарии к слайдам", "Основные"),
-            ("/check", "Проверить качество", "Основные"),
-            ("/action-title", "Action Title", "Основные"),
-            ("/executive-summary", "Executive Summary", "Основные"),
-            ("/bridges", "Мосты между блоками", "Основные"),
+            ("/analytics", "TOTAL ANALYTICS", "Команды"),
+            ("/check", "Анализ выводов", "Инструменты"),
+            ("/action-title", "Мастер заголовков", "Команды"),
+            ("/executive-summary", "Ключевые выводы", "Команды"),
+            ("/bridges", "Связующие выводы", "Команды"),
             ("/batch-analytics", "Пакетная обработка", "Инструменты"),
             ("/data-analysis", "Анализ данных", "Инструменты"),
             ("/benchmark", "Бенчмарки", "Инструменты"),
-            ("/aurora-index", "Aurora Index", "Инструменты"),
+            ("/aurora-index", "Быстрый анализ", "Инструменты"),
         ],
         "communication-analyst" => vec![
             ("/media-monitor", "Мониторинг медиаполя", "Основные"),
@@ -280,16 +302,63 @@ pub fn cabinet_folder_name(cabinet_id: &str) -> &str {
     cabinet_id
 }
 
-/// Validate that a cabinet_id is one of the known cabinet definitions.
+// ── Dynamic loaders (content pack with hardcoded fallback) ────────────────────
+
+/// Cabinet info extended with commands — used for cabinets.json deserialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CabinetInfoExtended {
+    #[serde(flatten)]
+    info: CabinetInfo,
+    commands: Vec<CabinetCommand>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CabinetsPack {
+    cabinets: Vec<CabinetInfoExtended>,
+}
+
+/// Load cabinet definitions from content pack with hardcoded fallback.
+pub fn get_cabinet_definitions_dynamic(app_local_data_dir: &Path) -> Vec<CabinetInfo> {
+    match super::content_pack::load_pack_file(app_local_data_dir, "cabinets.json") {
+        Ok(json_str) => match serde_json::from_str::<CabinetsPack>(&json_str) {
+            Ok(pack) => {
+                info!("Loaded {} cabinets from content pack", pack.cabinets.len());
+                return pack.cabinets.into_iter().map(|c| c.info).collect();
+            }
+            Err(e) => warn!("Failed to parse cabinets.json: {e}, using hardcoded fallback"),
+        },
+        Err(_) => {}
+    }
+    get_cabinet_definitions()
+}
+
+/// Load commands for a cabinet from content pack with hardcoded fallback.
+pub fn get_commands_dynamic(app_local_data_dir: &Path, cabinet_id: &str) -> Vec<CabinetCommand> {
+    if let Ok(json_str) = super::content_pack::load_pack_file(app_local_data_dir, "cabinets.json") {
+        if let Ok(pack) = serde_json::from_str::<CabinetsPack>(&json_str) {
+            if let Some(cab) = pack.cabinets.iter().find(|c| c.info.id == cabinet_id) {
+                return cab.commands.clone();
+            }
+        }
+    }
+    get_commands_for_cabinet(cabinet_id)
+}
+
+/// Validate cabinet_id format for path-traversal protection.
+///
+/// Accepts any non-empty string containing only ASCII alphanumeric chars, dashes, and underscores.
+/// This allows dynamically added cabinets (via cabinets.json) while preventing path traversal.
 pub fn validate_cabinet_id(cabinet_id: &str) -> Result<&str, String> {
-    let valid_ids: [&str; 13] = [
-        "social-listening", "media-analyst", "communication-analyst",
-        "communication-strategist", "focus-groups", "creative-director",
-        "lawyer-contracts", "lawyer-claims", "lawyer-advertising",
-        "doc-master", "econometrist",
-        "copywriter", "art-director",
-    ];
-    if valid_ids.contains(&cabinet_id) {
+    if cabinet_id.is_empty() {
+        return Err("Cabinet ID cannot be empty".to_string());
+    }
+    if cabinet_id.len() > 64 {
+        return Err(format!("Cabinet ID too long: {}", cabinet_id));
+    }
+    if cabinet_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
         Ok(cabinet_id)
     } else {
         Err(format!("Invalid cabinet ID: {}", cabinet_id))
@@ -399,9 +468,135 @@ mod tests {
     }
 
     #[test]
-    fn validate_cabinet_id_rejects_unknown() {
-        assert!(validate_cabinet_id("nonexistent").is_err());
+    fn validate_cabinet_id_accepts_dynamic() {
+        // New cabinets added via cabinets.json must pass format validation
+        assert!(validate_cabinet_id("pr-master").is_ok());
+        assert!(validate_cabinet_id("marketing-analytics").is_ok());
+        assert!(validate_cabinet_id("new_cabinet_123").is_ok());
+    }
+
+    #[test]
+    fn validate_cabinet_id_rejects_invalid() {
         assert!(validate_cabinet_id("../etc/passwd").is_err());
         assert!(validate_cabinet_id("").is_err());
+        assert!(validate_cabinet_id("foo/bar").is_err());
+        assert!(validate_cabinet_id("foo\\bar").is_err());
+        assert!(validate_cabinet_id("кириллица").is_err());
+        assert!(validate_cabinet_id("a".repeat(65).as_str()).is_err());
+    }
+
+    // ── Dynamic loader tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn dynamic_cabinets_fallback_when_no_pack() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // No content-packs directory at all → hardcoded fallback
+        let cabinets = get_cabinet_definitions_dynamic(dir.path());
+        assert_eq!(cabinets.len(), 13, "Fallback must return exactly 13 hardcoded cabinets");
+    }
+
+    #[test]
+    fn dynamic_cabinets_fallback_on_invalid_json() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let packs_dir = dir.path().join("content-packs");
+        std::fs::create_dir_all(&packs_dir).unwrap();
+        std::fs::write(packs_dir.join("cabinets.json"), b"not valid json {{{{").unwrap();
+        // Invalid JSON → graceful fallback to hardcoded
+        let cabinets = get_cabinet_definitions_dynamic(dir.path());
+        assert_eq!(cabinets.len(), 13);
+    }
+
+    #[test]
+    fn dynamic_cabinets_loaded_from_pack() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let packs_dir = dir.path().join("content-packs");
+        std::fs::create_dir_all(&packs_dir).unwrap();
+        let json = r##"{
+            "cabinets": [
+                {"id":"pack-cab-1","name":"Pack Cabinet 1","description":"Desc 1","icon":"X","color":"#FF0000","commands":[{"command":"/cmd1","label":"Cmd 1","group":"Main"}]},
+                {"id":"pack-cab-2","name":"Pack Cabinet 2","description":"Desc 2","icon":"Y","color":"#00FF00","commands":[]}
+            ]
+        }"##;
+        std::fs::write(packs_dir.join("cabinets.json"), json).unwrap();
+
+        let cabinets = get_cabinet_definitions_dynamic(dir.path());
+        assert_eq!(cabinets.len(), 2);
+        assert_eq!(cabinets[0].id, "pack-cab-1");
+        assert_eq!(cabinets[1].id, "pack-cab-2");
+        assert_eq!(cabinets[0].color, "#FF0000");
+    }
+
+    #[test]
+    fn dynamic_cabinets_pack_overrides_hardcoded_count() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let packs_dir = dir.path().join("content-packs");
+        std::fs::create_dir_all(&packs_dir).unwrap();
+        // Pack with a single cabinet — should replace all 13 hardcoded ones
+        let json = r##"{"cabinets":[{"id":"only-one","name":"Only","description":"","icon":"O","color":"#123456","commands":[]}]}"##;
+        std::fs::write(packs_dir.join("cabinets.json"), json).unwrap();
+
+        let cabinets = get_cabinet_definitions_dynamic(dir.path());
+        assert_eq!(cabinets.len(), 1);
+        assert_eq!(cabinets[0].id, "only-one");
+    }
+
+    #[test]
+    fn dynamic_commands_fallback_when_no_pack() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // No pack → falls through to hardcoded get_commands_for_cabinet
+        let cmds = get_commands_dynamic(dir.path(), "media-analyst");
+        assert_eq!(cmds.len(), 9, "media-analyst hardcoded command count");
+        assert!(cmds[0].command.starts_with('/'));
+    }
+
+    #[test]
+    fn dynamic_commands_loaded_from_pack() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let packs_dir = dir.path().join("content-packs");
+        std::fs::create_dir_all(&packs_dir).unwrap();
+        let json = r##"{
+            "cabinets": [{
+                "id": "test-cab",
+                "name": "Test", "description": "", "icon": "X", "color": "#000000",
+                "commands": [
+                    {"command": "/alpha", "label": "Alpha", "group": "Main"},
+                    {"command": "/beta",  "label": "Beta",  "group": "Tools"},
+                    {"command": "/gamma", "label": "Gamma", "group": "Main"}
+                ]
+            }]
+        }"##;
+        std::fs::write(packs_dir.join("cabinets.json"), json).unwrap();
+
+        let cmds = get_commands_dynamic(dir.path(), "test-cab");
+        assert_eq!(cmds.len(), 3);
+        assert_eq!(cmds[0].command, "/alpha");
+        assert_eq!(cmds[1].group, "Tools");
+    }
+
+    #[test]
+    fn dynamic_commands_unknown_cabinet_falls_back_to_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let packs_dir = dir.path().join("content-packs");
+        std::fs::create_dir_all(&packs_dir).unwrap();
+        let json = r##"{"cabinets":[{"id":"known","name":"K","description":"","icon":"K","color":"#000000","commands":[{"command":"/x","label":"X","group":"G"}]}]}"##;
+        std::fs::write(packs_dir.join("cabinets.json"), json).unwrap();
+
+        // Cabinet not in pack, not in hardcoded → empty
+        let cmds = get_commands_dynamic(dir.path(), "unknown-cabinet-xyz");
+        assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn dynamic_commands_pack_cabinet_not_found_uses_hardcoded() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let packs_dir = dir.path().join("content-packs");
+        std::fs::create_dir_all(&packs_dir).unwrap();
+        // Pack exists but doesn't contain "media-analyst" → falls back to hardcoded
+        let json = r##"{"cabinets":[{"id":"other","name":"Other","description":"","icon":"O","color":"#000000","commands":[]}]}"##;
+        std::fs::write(packs_dir.join("cabinets.json"), json).unwrap();
+
+        let cmds = get_commands_dynamic(dir.path(), "media-analyst");
+        assert_eq!(cmds.len(), 9);
     }
 }
+// force rebuild

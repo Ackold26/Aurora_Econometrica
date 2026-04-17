@@ -5,6 +5,8 @@
 
 use serde_json::Value;
 use log::{info, warn};
+use std::sync::OnceLock;
+use std::time::Duration;
 
 const ECON_BASE: &str = "http://127.0.0.1:7430";
 
@@ -14,18 +16,34 @@ const QUICK_TIMEOUT_SECS: u64 = 60;
 /// Timeout for long-running endpoints (MCMC training)
 const TRAIN_TIMEOUT_SECS: u64 = 900; // 15 minutes
 
-fn client(timeout_secs: u64) -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(timeout_secs))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
+/// Static clients — avoid TLS bootstrap + connection pool setup per request.
+static QUICK_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static TRAIN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static HEALTH_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn quick_client() -> &'static reqwest::Client {
+    QUICK_CLIENT.get_or_init(|| reqwest::Client::builder()
+        .timeout(Duration::from_secs(QUICK_TIMEOUT_SECS))
+        .build().unwrap_or_default())
+}
+
+fn train_client() -> &'static reqwest::Client {
+    TRAIN_CLIENT.get_or_init(|| reqwest::Client::builder()
+        .timeout(Duration::from_secs(TRAIN_TIMEOUT_SECS))
+        .build().unwrap_or_default())
+}
+
+fn health_client() -> &'static reqwest::Client {
+    HEALTH_CLIENT.get_or_init(|| reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build().unwrap_or_default())
 }
 
 // ── Health ───────────────────────────────────────────
 
 #[tauri::command]
 pub async fn econ_health() -> Result<Value, String> {
-    match client(5)
+    match health_client()
         .get(format!("{ECON_BASE}/health"))
         .send()
         .await
@@ -44,20 +62,20 @@ pub async fn econ_health() -> Result<Value, String> {
 pub async fn econ_validate(file_path: String, project_dir: Option<String>) -> Result<Value, String> {
     info!("econ_validate: {file_path}");
     let body = serde_json::json!({ "file_path": file_path, "project_dir": project_dir });
-    post_json("/compute/validate", &body, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/validate", &body, quick_client()).await
 }
 
 #[tauri::command]
 pub async fn econ_train(config: Value) -> Result<Value, String> {
     info!("econ_train: {:?}", config.get("kpi_column"));
-    post_json("/compute/train", &config, TRAIN_TIMEOUT_SECS).await
+    post_json("/compute/train", &config, train_client()).await
 }
 
 #[tauri::command]
 pub async fn econ_decompose(project_dir: String) -> Result<Value, String> {
     info!("econ_decompose: {project_dir}");
     let body = serde_json::json!({ "project_dir": project_dir });
-    post_json("/compute/decompose", &body, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/decompose", &body, quick_client()).await
 }
 
 #[tauri::command]
@@ -70,7 +88,7 @@ pub async fn econ_optimize(project_dir: String, total_budget: Option<f64>,
         "min_pct": min_pct.unwrap_or(50.0),
         "max_pct": max_pct.unwrap_or(150.0),
     });
-    post_json("/compute/optimize", &body, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/optimize", &body, quick_client()).await
 }
 
 #[tauri::command]
@@ -83,25 +101,25 @@ pub async fn econ_scenario(project_dir: String, scenario_name: String,
         "media_plan": media_plan.unwrap_or(Value::Object(Default::default())),
         "media_plan_file": media_plan_file,
     });
-    post_json("/compute/scenario", &body, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/scenario", &body, quick_client()).await
 }
 
 #[tauri::command]
 pub async fn econ_compare(project_dir: String) -> Result<Value, String> {
     let body = serde_json::json!({ "project_dir": project_dir });
-    post_json("/compute/compare", &body, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/compare", &body, quick_client()).await
 }
 
 #[tauri::command]
 pub async fn econ_awareness_forecast(config: Value) -> Result<Value, String> {
     info!("econ_awareness_forecast");
-    post_json("/compute/awareness/forecast", &config, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/awareness/forecast", &config, quick_client()).await
 }
 
 #[tauri::command]
 pub async fn econ_awareness_sales(config: Value) -> Result<Value, String> {
     info!("econ_awareness_sales");
-    post_json("/compute/awareness/sales", &config, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/awareness/sales", &config, quick_client()).await
 }
 
 // ── Async training ───────────────────────────────────
@@ -109,12 +127,12 @@ pub async fn econ_awareness_sales(config: Value) -> Result<Value, String> {
 #[tauri::command]
 pub async fn econ_train_start(config: Value) -> Result<Value, String> {
     info!("econ_train_start: {:?}", config.get("kpi_column"));
-    post_json("/compute/train/start", &config, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/train/start", &config, quick_client()).await
 }
 
 #[tauri::command]
 pub async fn econ_train_progress() -> Result<Value, String> {
-    client(5)
+    health_client()
         .get(format!("{ECON_BASE}/compute/train/progress"))
         .send()
         .await
@@ -127,7 +145,7 @@ pub async fn econ_train_progress() -> Result<Value, String> {
 #[tauri::command]
 pub async fn econ_train_result(task_id: String) -> Result<Value, String> {
     info!("econ_train_result: {task_id}");
-    client(QUICK_TIMEOUT_SECS)
+    quick_client()
         .get(format!("{ECON_BASE}/compute/train/result/{task_id}"))
         .send()
         .await
@@ -146,7 +164,7 @@ pub async fn econ_data_preview(file_path: String, n_rows: Option<u32>) -> Result
         "file_path": file_path,
         "n_rows": n_rows.unwrap_or(20),
     });
-    post_json("/compute/validate/preview", &body, QUICK_TIMEOUT_SECS).await
+    post_json("/compute/validate/preview", &body, quick_client()).await
 }
 
 // ── Charts ───────────────────────────────────────────
@@ -157,13 +175,13 @@ pub async fn econ_chart(project_dir: String, chart_type: String) -> Result<Value
         "project_dir": project_dir,
         "chart_type": chart_type,
     });
-    post_json("/chart", &body, QUICK_TIMEOUT_SECS).await
+    post_json("/chart", &body, quick_client()).await
 }
 
 // ── Helper ───────────────────────────────────────────
 
-async fn post_json(path: &str, body: &Value, timeout_secs: u64) -> Result<Value, String> {
-    let resp = client(timeout_secs)
+async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result<Value, String> {
+    let resp = client
         .post(format!("{ECON_BASE}{path}"))
         .json(body)
         .send()
