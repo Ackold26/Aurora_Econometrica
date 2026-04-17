@@ -5,6 +5,8 @@
    * Tier 2: Claude AI (online, optional) — Phase 10.
    * C4: width clamp(240px, 22%, 360px), auto-collapse below 1100px.
    */
+  import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import {
     pipelineCurrentStep,
     importData, validateData, modelData, decomposeData, optimizeData,
@@ -55,6 +57,70 @@
 
   /** @type {number | null} */
   let expandedTip = $state(null);
+
+  // ── Tier 2: Claude AI (online, optional) ──
+  let aiLoading = $state(false);
+  /** @type {string | null} */
+  let aiResponse = $state(null);
+  let aiAvailable = $state(false);
+
+  // Check if Claude CLI exists on mount
+  import { onMount } from 'svelte';
+  onMount(() => {
+    invoke('get_product_type').then(() => { aiAvailable = true; }).catch(() => {});
+  });
+
+  /** Build context string from current pipeline data for AI prompt */
+  function buildContext() {
+    const step = $pipelineCurrentStep;
+    const parts = [];
+    const mod = $modelData;
+    const dec = $decomposeData;
+    const opt = $optimizeData;
+
+    if (mod?.diagnostics) {
+      const d = mod.diagnostics;
+      parts.push(`Model: MQS=${d.mqs?.score?.toFixed(0)}, R²=${d.r_squared?.toFixed(3)}, MAPE=${d.mape?.toFixed(1)}%, R-hat=${d.r_hat?.toFixed(3)}`);
+    }
+    if (mod?.channelParams) {
+      const chs = Object.entries(mod.channelParams).map(([n, p]) =>
+        `${n}: ROI=${/** @type {any} */(p).roi?.toFixed(2)}x, alpha=${/** @type {any} */(p).alpha?.toFixed(2)}, beta=${/** @type {any} */(p).beta?.toFixed(3)}`
+      );
+      parts.push(`Channels: ${chs.join('; ')}`);
+    }
+    if (dec) {
+      parts.push(`Base sales: ${dec.base_pct?.toFixed(0)}%`);
+    }
+    if (opt) {
+      parts.push(`Optimization lift: ${opt.expected_lift_pct?.toFixed(1)}%`);
+    }
+    return parts.join('\n');
+  }
+
+  async function askAI() {
+    const q = question.trim();
+    if (!q) return;
+    question = '';
+    aiLoading = true;
+    aiResponse = null;
+
+    const context = buildContext();
+    const prompt = `Ты — эконометрист-аналитик Aurora AI. Пользователь задаёт вопрос о результатах Marketing Mix Model.\n\nКонтекст модели:\n${context}\n\nВопрос: ${q}\n\nОтветь кратко (3-5 предложений), на русском, с конкретными рекомендациями.`;
+
+    try {
+      const result = /** @type {any} */ (await invoke('send_message', {
+        cabinetId: 'econometrist',
+        message: prompt,
+        suppressExport: true,
+      }));
+      // send_message streams via events, but also returns final text
+      aiResponse = typeof result === 'string' ? result : 'Ответ получен. Посмотрите в чате кабинета.';
+    } catch (/** @type {any} */ e) {
+      aiResponse = `Ошибка: ${e}. Убедитесь что Claude CLI установлен и авторизован.`;
+    } finally {
+      aiLoading = false;
+    }
+  }
 </script>
 
 <aside class="insights-panel" class:collapsed aria-label="Инсайты">
@@ -101,19 +167,28 @@
         </ul>
       {/if}
 
+      {#if aiResponse}
+        <div class="ai-response">
+          <div class="ai-label">AI</div>
+          <p class="ai-text">{aiResponse}</p>
+          <button class="ai-dismiss" onclick={() => aiResponse = null}>x</button>
+        </div>
+      {/if}
+
       <div class="ask-section">
         <input
           class="ask-input"
           type="text"
-          placeholder="Задать вопрос AI..."
+          placeholder={aiAvailable ? 'Спросить AI...' : 'AI недоступен (нет Claude CLI)'}
           bind:value={question}
+          disabled={aiLoading || !aiAvailable}
           onkeydown={(e) => {
-            if (e.key === 'Enter' && question.trim()) {
-              // Phase 10: Claude AI Tier 2
-              question = '';
-            }
+            if (e.key === 'Enter' && question.trim()) askAI();
           }}
         />
+        {#if aiLoading}
+          <div class="ai-spinner"></div>
+        {/if}
       </div>
     </div>
   {/if}
@@ -218,7 +293,33 @@
     background: rgba(255,255,255,0.02); border-radius: 4px;
   }
 
-  .ask-section { margin-top: auto; flex-shrink: 0; }
+  .ai-response {
+    position: relative;
+    padding: 10px; border-radius: 6px;
+    background: rgba(139,92,246,0.06);
+    border: 1px solid rgba(139,92,246,0.2);
+  }
+  .ai-label {
+    font-size: 9px; font-weight: 700; text-transform: uppercase;
+    color: #a78bfa; letter-spacing: 0.06em; margin-bottom: 4px;
+  }
+  .ai-text { font-size: 12px; color: var(--text-primary, #e2e8f0); line-height: 1.5; margin: 0; }
+  .ai-dismiss {
+    position: absolute; top: 4px; right: 6px;
+    background: none; border: none; color: rgba(148,163,184,0.4);
+    font-size: 12px; cursor: pointer; padding: 2px 4px;
+  }
+  .ai-spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(139,92,246,0.2);
+    border-top-color: #a78bfa;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  }
+  @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
+
+  .ask-section { margin-top: auto; flex-shrink: 0; position: relative; }
   .ask-input {
     width: 100%; padding: 7px 10px;
     background: rgba(255,255,255,0.05);
