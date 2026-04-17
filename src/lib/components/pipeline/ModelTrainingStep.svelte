@@ -12,8 +12,9 @@
   import { get } from 'svelte/store';
   import {
     validateData, modelData, isComputing, computeStatus,
-    completeStep, setStepError, resetDownstream,
+    completeStep, setStepError, resetDownstream, expertMode,
   } from '$lib/project-state.js';
+  import ExpertModelPanel from '$lib/components/pipeline/ExpertModelPanel.svelte';
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
   import TrainingProgress from '$lib/components/pipeline/TrainingProgress.svelte';
   import ConvergenceDashboard from '$lib/components/pipeline/ConvergenceDashboard.svelte';
@@ -180,6 +181,10 @@
 
     <!-- Convergence charts -->
     <ConvergenceDashboard {diagnostics} />
+
+    {#if $expertMode}
+      <ExpertModelPanel />
+    {/if}
   {/if}
 
 </div>

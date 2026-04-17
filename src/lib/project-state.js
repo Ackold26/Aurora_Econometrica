@@ -132,6 +132,26 @@ function savePipelineMeta(projectId, meta) {
 /** @type {import('svelte/store').Writable<number>} Active pipeline step index (0-5) */
 export const pipelineCurrentStep = writable(0);
 
+/**
+ * Expert mode toggle — persisted in localStorage.
+ * false = Marketer mode (simplified, auto-defaults)
+ * true = Expert mode (full controls, diagnostics, priors)
+ */
+function createExpertStore() {
+  let initial = false;
+  try {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem('econ-expert-mode') : null;
+    if (v) initial = JSON.parse(v);
+  } catch { /* use default */ }
+  const store = writable(initial);
+  store.subscribe(v => {
+    try { localStorage.setItem('econ-expert-mode', JSON.stringify(v)); } catch { /* ignore */ }
+  });
+  return store;
+}
+/** @type {import('svelte/store').Writable<boolean>} */
+export const expertMode = createExpertStore();
+
 /** @type {import('svelte/store').Writable<StepMeta[]>} Step metadata (statuses only, no data) */
 export const pipelineStepMeta = writable(defaultStepMeta());
 

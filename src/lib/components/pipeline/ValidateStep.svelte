@@ -17,8 +17,9 @@
   import CorrelationHeatmap from '$lib/components/pipeline/CorrelationHeatmap.svelte';
   import {
     importData, validateData, completeStep, setStepError,
-    activeProjectId,
+    activeProjectId, expertMode,
   } from '$lib/project-state.js';
+  import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
   import { get } from 'svelte/store';
 
   // ── State ──────────────────────────────────────────
@@ -27,6 +28,8 @@
 
   /** @type {any | null} */
   let result = $state(null);
+  /** @type {Set<string>} Dismissed/applied warning keys */
+  let appliedFixes = $state(new Set());
 
   // Restore from store if already validated this session
   const storedValidate = get(validateData);
@@ -160,6 +163,35 @@
         />
       </section>
 
+      <!-- Auto-fix suggestions -->
+      {#if result.warnings?.length > 0}
+        <section class="section section-wide">
+          <h4 class="section-title">Рекомендации</h4>
+          <div class="fix-list">
+            {#each result.warnings as warn}
+              {#if !appliedFixes.has(warn.column + warn.type)}
+                <div class="fix-item fix-{warn.severity}">
+                  <span class="fix-text">{warn.message}</span>
+                  {#if warn.action === 'exclude'}
+                    <button class="fix-btn" onclick={() => {
+                      appliedFixes = new Set([...appliedFixes, warn.column + warn.type]);
+                    }}>Понятно</button>
+                  {:else if warn.action === 'merge'}
+                    <button class="fix-btn" onclick={() => {
+                      appliedFixes = new Set([...appliedFixes, warn.column + warn.type]);
+                    }}>Понятно</button>
+                  {:else}
+                    <button class="fix-btn" onclick={() => {
+                      appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
+                    }}>Принять</button>
+                  {/if}
+                </div>
+              {/if}
+            {/each}
+          </div>
+        </section>
+      {/if}
+
       <!-- ColumnMapper -->
       <section class="section">
         <h4 class="section-title">Назначение столбцов</h4>
@@ -196,6 +228,10 @@
         Проверка качества, мультиколлинеарности, соотношения данных.
       </p>
     </div>
+  {/if}
+
+  {#if $expertMode}
+    <ExpertValidatePanel />
   {/if}
 
 </div>
@@ -322,6 +358,21 @@
   }
 
   /* ── Idle ── */
+  .fix-list { display: flex; flex-direction: column; gap: 6px; }
+  .fix-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-radius: 6px; background: rgba(255,255,255,0.02);
+    border-left: 3px solid #f59e0b;
+  }
+  .fix-item.fix-critical { border-left-color: #ef4444; }
+  .fix-text { flex: 1; font-size: 12px; color: var(--text-secondary, #94a3b8); line-height: 1.4; }
+  .fix-btn {
+    padding: 4px 12px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.05); color: var(--text-secondary, #94a3b8);
+    font-size: 11px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  }
+  .fix-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-primary, #e2e8f0); }
+
   .idle-state {
     display: flex;
     flex-direction: column;

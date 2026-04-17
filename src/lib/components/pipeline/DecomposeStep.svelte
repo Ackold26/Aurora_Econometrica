@@ -15,9 +15,11 @@
     setStepError,
     isComputing,
     computeStatus,
+    expertMode,
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
   import ROIComparison from '$lib/components/pipeline/ROIComparison.svelte';
+  import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
 
   /** @type {'idle' | 'loading' | 'done' | 'error'} */
@@ -163,6 +165,10 @@
       </div>
     </div>
 
+  {/if}
+
+  {#if $expertMode}
+    <ExpertDecomposePanel />
   {/if}
 
 </div>

@@ -12,7 +12,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
-  import { importData, completeStep, resetDownstream, pipelineStepMeta } from '$lib/project-state.js';
+  import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep } from '$lib/project-state.js';
   import { get } from 'svelte/store';
 
   // ── State ──────────────────────────────────────────
@@ -212,6 +212,13 @@
         rows={previewRows}
         emptyMessage="Нет данных для отображения"
       />
+
+      <button
+        class="quick-btn"
+        onclick={() => pipelineCurrentStep.set(1)}
+      >
+        Далее: Валидация →
+      </button>
     </div>
   {/if}
 
@@ -402,4 +409,15 @@
     color: #93c5fd;
     letter-spacing: 0.04em;
   }
+
+  .quick-btn {
+    align-self: flex-end;
+    margin-top: 8px;
+    padding: 10px 24px;
+    background: var(--accent-primary, #3b82f6);
+    border: none; border-radius: 8px;
+    color: white; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.15s;
+  }
+  .quick-btn:hover { opacity: 0.85; }
 </style>

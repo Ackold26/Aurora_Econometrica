@@ -14,6 +14,7 @@
     pipelineStepMeta,
     activeProjectId,
     activeProject,
+    expertMode,
     sidecarHealthy,
     sidecarStatus,
     isComputing,
@@ -118,6 +119,14 @@
         <ProjectSelector />
       </div>
       <PipelineStepper onNavigate={handleNavigate} />
+      <button
+        class="mode-toggle"
+        class:expert={$expertMode}
+        onclick={() => expertMode.update(v => !v)}
+        title={$expertMode ? 'Переключить в режим маркетолога' : 'Переключить в экспертный режим'}
+      >
+        {$expertMode ? 'Эксперт' : 'Маркетолог'}
+      </button>
     </div>
 
     <!-- Body: main content + insights panel -->
@@ -194,6 +203,28 @@
     min-width: 180px;
     max-width: 240px;
     padding: 8px 0 8px 16px;
+  }
+
+  .mode-toggle {
+    flex-shrink: 0;
+    margin-left: auto;
+    margin-right: 16px;
+    padding: 5px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .mode-toggle:hover { background: rgba(255,255,255,0.08); }
+  .mode-toggle.expert {
+    background: rgba(139,92,246,0.12);
+    border-color: rgba(139,92,246,0.35);
+    color: #a78bfa;
   }
 
   .pipeline-body {
