@@ -95,7 +95,7 @@
 
   .step-content {
     flex: 1;
-    overflow: auto;
+    overflow: visible;
     padding: 24px;
   }
 </style>

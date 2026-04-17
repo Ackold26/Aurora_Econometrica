@@ -54,6 +54,6 @@
     /* Relative container so absolute-positioned hidden steps don't leak */
     position: relative;
     height: 100%;
-    overflow: hidden;
+    overflow: auto;
   }
 </style>

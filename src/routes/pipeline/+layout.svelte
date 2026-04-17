@@ -170,7 +170,7 @@
 
   .pipeline-main {
     flex: 1;
-    overflow: hidden;
+    overflow: auto;
     position: relative;
     min-width: 0;
   }
