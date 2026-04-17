@@ -6,168 +6,45 @@
  */
 import { getTimeGreeting } from '$lib/psy.js';
 
-// ════════════════════════════════════════════════════════
-// PATTERNS — 9 категорий, 70+ regex'ов
-// ════════════════════════════════════════════════════════
+// ── Data (loaded from content pack) ──
 
-/** @type {Record<string, RegExp[]>} */
-const PATTERNS = {
-  // ── Приветствия ──
-  greeting: [
-    /^привет/i,
-    /^здравствуй/i,
-    /^добрый\s+(день|утро|вечер)/i,
-    /^доброе\s+утро/i,
-    /^доброго\s+(дня|утра|вечера|времени\s+суток)/i,
-    /^хай\b/i,
-    /^хелло[у]?\b/i,
-    /^hello\b/i,
-    /^hi\b/i,
-    /^hey\b/i,
-    /^yo\b/i,
-    /^приветик/i,
-    /^приветствую/i,
-    /^салют/i,
-    /^здарова/i,
-    /^здоров[а]?\b/i,
-    /^ку\b/i,
-    /^good\s+(morning|afternoon|evening)/i,
-  ],
-
-  // ── Прощания ──
-  farewell: [
-    /^пока\b/i,
-    /^до свидания/i,
-    /^до встречи/i,
-    /^всего доброго/i,
-    /^всего хорошего/i,
-    /^удачи\b/i,
-    /^до связи/i,
-    /^bye\b/i,
-    /^goodbye/i,
-    /^good\s*bye/i,
-    /^до завтра/i,
-    /^спокойной\s+ночи/i,
-    /^увидимся/i,
-    /^бывай/i,
-  ],
-
-  // ── Благодарности ──
-  thanks: [
-    /^спасибо/i,
-    /^благодарю/i,
-    /^благодарствую/i,
-    /^thanks?\b/i,
-    /^thank\s+you/i,
-    /^thx\b/i,
-    /^мерси/i,
-    /^спс\b/i,
-    /^отлично[,!.\s]*$/i,
-    /^класс[!.\s]*$/i,
-    /^круто[!.\s]*$/i,
-    /^супер[!.\s]*$/i,
-    /^замечательно[!.\s]*$/i,
-    /^прекрасно[!.\s]*$/i,
-    /^великолепно[!.\s]*$/i,
-    /^молодец[!.\s]*$/i,
-    /^хорошо\s+сделано/i,
-    /^ты\s+лучш/i,
-  ],
-
-  // ── Как дела / статус ──
-  status: [
-    /^как\s+(ты|дела|жизнь|настроение|поживаешь|сам)/i,
-    /^что\s+нового/i,
-    /^как\s+оно/i,
-    /^чем\s+занимаешься/i,
-    /^how\s+are\s+you/i,
-    /^what'?s\s+up/i,
-    /^как\s+сам/i,
-    /^ну\s+как\s+ты/i,
-  ],
-
-  // ── Кто ты / идентичность ──
-  identity: [
-    /^кто\s+ты/i,
-    /^ты\s+кто/i,
-    /^что\s+ты\s+за/i,
-    /^ты\s+(бот|робот|ии|ai|искусственный)/i,
-    /^who\s+are\s+you/i,
-    /^are\s+you\s+(a\s+)?(bot|ai|robot)/i,
-    /^ты\s+живой/i,
-    /^ты\s+настоящ/i,
-    /^как\s+тебя\s+зовут/i,
-    /^what'?s\s+your\s+name/i,
-    /^представься/i,
-  ],
-
-  // ── Что умеешь / возможности ──
-  capabilities: [
-    /^что\s+(ты\s+)?(умеешь|можешь|делаешь)/i,
-    /^на\s+что\s+(ты\s+)?способ/i,
-    /^какие\s+(у\s+тебя\s+)?возможности/i,
-    /^что\s+ты\s+знаешь/i,
-    /^чем\s+(ты\s+)?(можешь|мож)\s+помочь/i,
-    /^help\s*[.!?]*$/i,
-    /^помощь\s*[.!?]*$/i,
-    /^помоги\s*[.!?]*$/i,
-    /^подскажи\s*[.!?]*$/i,
-    /^что\s+делать\s*[.!?]*$/i,
-    /^как\s+начать\s*[.!?]*$/i,
-    /^с\s+чего\s+начать\s*[.!?]*$/i,
-    /^what\s+can\s+you\s+do/i,
-    /^покажи\s+(команды|возможности|меню)/i,
-    /^какие\s+команды/i,
-    /^список\s+команд/i,
-  ],
-
-  // ── Пустые / бессмысленные сообщения ──
-  empty: [
-    /^[.\s!?…]+$/,
-    /^(ок[ей]?|okay|ok|ладно|угу|ага|ну|да|нет|не|хм+|эм+|ммм*)\s*[.!?]*$/i,
-    /^(тест|test|testing|проверка|1234?5?|hello\s+world)\s*[.!?]*$/i,
-    /^ы+$/i,
-    /^а+$/i,
-    /^о+$/i,
-    /^(lol|lmao|haha|хаха|ахах|ржу|кек)\s*$/i,
-    /^[)(;:]+$/,
-  ],
-
-  // ── Комплименты / лесть ──
-  compliment: [
-    /^ты\s+(классн|крут|умн|хорош|молодец|гений|талант)/i,
-    /^какой\s+ты\s+(умн|классн|крут)/i,
-    /^you'?re?\s+(great|awesome|amazing|smart)/i,
-    /^impressive/i,
-    /^впечатляет/i,
-    /^ничего\s+себе/i,
-    /^вау/i,
-    /^wow/i,
-  ],
-
-  // ── Off-topic / разговоры о жизни ──
-  offtopic: [
-    /^(расскажи|поговорим?|давай\s+поговорим)\s+(о\s+|про\s+)?(жизн|погод|фильм|музык|книг|кот|собак)/i,
-    /^какая\s+погода/i,
-    /^расскажи\s+(анекдот|шутк|историю|сказку)/i,
-    /^пошути/i,
-    /^поиграем/i,
-    /^давай\s+поиграем/i,
-    /^tell\s+me\s+(a\s+)?joke/i,
-    /^sing/i,
-    /^спой/i,
-    /^какой\s+сегодня\s+день/i,
-    /^сколько\s+времени/i,
-    /^который\s+час/i,
-  ],
-};
+/** @type {Record<string, {regexes: string[], flags: string}>} */
+let _patterns = {};
+let _safeAfterAssistant = new Set(['greeting', 'farewell', 'offtopic']);
+/** @type {Record<string, RegExp[]>|null} */
+let _compiledPatterns = null;
 
 /**
- * Категории, безопасные для перехвата даже после ответа ассистента.
- * Остальные (thanks, empty, compliment, status, identity, capabilities)
- * после ответа ассистента НЕ перехватываются — могут быть follow-up.
+ * Initialize classifier data from content pack JSON.
+ * Called once from +layout.svelte during app startup.
+ * @param {any} data - parsed classifier-data.json
  */
-const SAFE_AFTER_ASSISTANT = new Set(['greeting', 'farewell', 'offtopic']);
+export function initClassifierData(data) {
+  if (data) {
+    _patterns = data.patterns || {};
+    _safeAfterAssistant = new Set(data.safeAfterAssistant || []);
+    _compiledPatterns = null; // invalidate cache
+  }
+}
+
+/**
+ * Get compiled RegExp patterns (lazy, cached).
+ * @returns {Record<string, RegExp[]>}
+ */
+function getCompiledPatterns() {
+  if (_compiledPatterns) return _compiledPatterns;
+  _compiledPatterns = {};
+  for (const [category, config] of Object.entries(_patterns)) {
+    _compiledPatterns[category] = config.regexes.map(
+      r => new RegExp(r, config.flags || 'i')
+    );
+  }
+  return _compiledPatterns;
+}
+
+// ════════════════════════════════════════════════════════
+// PATTERNS — 9 категорий, 70+ regex'ов (loaded from content pack)
+// ════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════
 // RESPONSE BUILDER
@@ -248,7 +125,7 @@ export function classifyMessage(text, cabinet, topCommands, chatMessages) {
 
   // ── Поиск совпадения ──
   let matchedType = null;
-  for (const [type, patterns] of Object.entries(PATTERNS)) {
+  for (const [type, patterns] of Object.entries(getCompiledPatterns())) {
     for (const regex of patterns) {
       if (regex.test(trimmed)) {
         matchedType = type;
@@ -264,7 +141,7 @@ export function classifyMessage(text, cabinet, topCommands, chatMessages) {
   // После ответа ассистента перехватываем ТОЛЬКО безопасные категории.
   // "ок", "спасибо", "круто" после ответа могут быть follow-up инструкциями.
   const lastMsg = chatMessages[chatMessages.length - 1];
-  if (lastMsg?.role === 'assistant' && !SAFE_AFTER_ASSISTANT.has(matchedType)) {
+  if (lastMsg?.role === 'assistant' && !_safeAfterAssistant.has(matchedType)) {
     return null; // → Claude (возможный follow-up)
   }
 

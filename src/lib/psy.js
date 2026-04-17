@@ -7,78 +7,39 @@
  *   PSY-5: Milestones + эмпатичные ошибки
  */
 import { get } from 'svelte/store';
-import { createPersistentStore } from '$lib/store.js';
+import { createPersistentStore, cabinetOnboarding } from '$lib/store.js';
 
-// ═════════════════���════════════════════════════════════
-// PSY-1: NEXT STEPS — routing table + suggestion chips
-// ════════════════════════════════════════���═════════════
+// ── Data (loaded from content pack) ──
+
+/** @type {Record<string, Array<{id: string, label: string, reason: string}>>} */
+let _nextSteps = {};
+/** @type {Record<string, string[]>} */
+let _insights = {};
+/** @type {Record<string, string[]>} */
+let _advancedInsights = {};
+/** @type {Array<{label: string, minSec: number}>} */
+let _progressPhases = [];
+/** @type {Record<string, Array<{label: string, minSec: number}>>} */
+let _cabinetPhases = {};
 
 /**
- * Routing table: после работы в кабинете X → предложить кабинеты Y.
- * Ключ = cabinet_id, значение = массив {id, label, reason}.
- * @type {Record<string, Array<{id: string, label: string, reason: string}>>}
+ * Initialize PSY data from content pack JSON.
+ * Called once from +layout.svelte during app startup.
+ * @param {any} data - parsed psy-data.json
  */
-export const NEXT_STEPS = {
-  'media-analyst': [
-    { id: 'communication-analyst', label: 'Анализ коммуникаций', reason: 'Оценить медиаполе' },
-    { id: 'communication-strategist', label: 'Стратегия', reason: 'Разработать план' },
-    { id: 'social-listening', label: 'Соцсети', reason: 'Мониторинг реакций' },
-  ],
-  'communication-analyst': [
-    { id: 'communication-strategist', label: 'Стратегия', reason: 'На основе анализа' },
-    { id: 'creative-director', label: 'Креативный директор', reason: 'Создать концепцию' },
-  ],
-  'communication-strategist': [
-    { id: 'creative-director', label: 'Креативный директор', reason: 'Реализовать стратегию' },
-    { id: 'copywriter', label: 'Копирайтер', reason: 'Написать тексты' },
-  ],
-  'creative-director': [
-    { id: 'copywriter', label: 'Копирайтер', reason: 'Тексты по брифу' },
-    { id: 'art-director', label: 'Арт-директор', reason: 'Визуальная концепция' },
-    { id: 'focus-groups', label: 'Фокус-группы', reason: 'Протестировать идею' },
-  ],
-  'copywriter': [
-    { id: 'art-director', label: 'Арт-директор', reason: 'Визуалы к текстам' },
-    { id: 'lawyer-advertising', label: 'Юрист — Реклама', reason: 'Проверить текст' },
-    { id: 'focus-groups', label: 'Фокус-группы', reason: 'Тестирование' },
-  ],
-  'art-director': [
-    { id: 'focus-groups', label: 'Фокус-группы', reason: 'Тестирование визуала' },
-    { id: 'lawyer-advertising', label: 'Юрист — Реклама', reason: 'Проверить макет' },
-    { id: 'copywriter', label: 'Копирайтер', reason: 'Тексты к визуалу' },
-  ],
-  'focus-groups': [
-    { id: 'creative-director', label: 'Креативный директор', reason: 'Доработать по фидбэку' },
-    { id: 'copywriter', label: 'Копирайтер', reason: 'Скорректировать тексты' },
-  ],
-  'social-listening': [
-    { id: 'media-analyst', label: 'Медиа-аналитик', reason: 'Глубокий анализ' },
-    { id: 'communication-strategist', label: 'Стратегия', reason: 'Реагирование' },
-  ],
-  'lawyer-contracts': [
-    { id: 'lawyer-claims', label: 'Юрист — Претензии', reason: 'Риски по договору' },
-  ],
-  'lawyer-claims': [
-    { id: 'lawyer-contracts', label: 'Юрист — Договоры', reason: 'Скорректировать договор' },
-  ],
-  'lawyer-advertising': [
-    { id: 'copywriter', label: 'Копирайтер', reason: 'Исправить замечания' },
-    { id: 'art-director', label: 'Арт-директор', reason: 'Скорректировать макет' },
-  ],
-  'doc-master': [],
-  'econometrist': [
-    { id: 'communication-strategist', label: 'Стратегия', reason: 'На основе данных' },
-    { id: 'media-analyst', label: 'Медиа-аналитик', reason: 'Контекст рынка' },
-  ],
-  // ── Econometrica pipeline ──
-  'data-model': [
-    { id: 'analysis', label: 'Анализ', reason: 'Декомпозиция и оптимизация бюджета' },
-  ],
-  'analysis': [
-    { id: 'reporting', label: 'Отчёты', reason: 'Executive Summary для руководства' },
-  ],
-  'reporting': [],
-};
+export function initPsyData(data) {
+  if (data) {
+    _nextSteps = data.nextSteps || {};
+    _insights = data.insights || {};
+    _advancedInsights = data.advancedInsights || {};
+    _progressPhases = data.progressPhases || [];
+    _cabinetPhases = data.cabinetPhases || {};
+  }
+}
+
+// ═════════════════════════════════════════════════════
+// PSY-1: NEXT STEPS — routing table + suggestion chips
+// ═════════════════════════════════════════════════════
 
 /**
  * Получить next steps для кабинета.
@@ -86,170 +47,12 @@ export const NEXT_STEPS = {
  * @returns {Array<{id: string, label: string, reason: string}>}
  */
 export function getNextSteps(cabinetId) {
-  return NEXT_STEPS[cabinetId] || [];
+  return _nextSteps[cabinetId] || [];
 }
 
-// ════════════════════════════════════════════���═════════
+// ══════════════════════════════════════════════════════
 // PSY-2: RANDOM INSIGHTS — факты из методологий
-// ═══════════════════���═══════════════════════════════���══
-
-/** @type {Record<string, string[]>} */
-const INSIGHTS = {
-  'media-analyst': [
-    'Медиааналитика выявляет не только что говорят, но и что замалчивают',
-    'Тональность упоминаний важнее их количества',
-    'Share of Voice — один из ключевых KPI медиаприсутствия',
-    'Пик информационного повода — первые 72 часа',
-  ],
-  'communication-analyst': [
-    'Самые эффективные сообщения решают конкретную проблему аудитории',
-    'Анализ конкурентных коммуникаций — основа дифференциации',
-    'Восприятие бренда формируется за 7 секунд',
-    'Консистентность сообщений увеличивает узнаваемость на 80%',
-  ],
-  'communication-strategist': [
-    'Стратегия без тактики — мечта, тактика без стратегии — хаос',
-    'Лучшие стратегии умещаются на одной странице',
-    'PESO-модель: Paid, Earned, Shared, Owned — четыре канала влияния',
-    'Стратегическое сообщение работает, когда его можно пересказать за 10 секунд',
-  ],
-  'creative-director': [
-    'Сильный бриф — 80% успеха креативной работы',
-    'Лучшие идеи рождаются на стыке инсайта и ограничений',
-    'Креативная концепция должна работать в любом формате — от баннера до ТВ',
-    'Правило трёх: не больше 3 ключевых сообщений в одной кампании',
-  ],
-  'copywriter': [
-    'Заголовок читают в 5 раз чаще, чем основной текст',
-    'Активный залог делает текст на 20-30% убедительнее',
-    'Идеальная длина предложения для рекламы — 8-12 слов',
-    'Call-to-action с глаголом действия повышает конверсию',
-  ],
-  'art-director': [
-    'Визуальная иерархия направляет взгляд за 3 секунды',
-    'Правило 60-30-10: основной цвет, вторичный, акцент',
-    'Белое пространство — не пустота, а инструмент фокусировки',
-    'Контраст — главный инструмент привлечения внимания',
-  ],
-  'focus-groups': [
-    'Оптимальный размер фокус-группы — 6-8 человек',
-    'Первые 5 минут определяют динамику всей дискуссии',
-    'Невербальные реакции часто информативнее вербальных',
-    'Хороший модератор задаёт вопросы, а не даёт ответы',
-  ],
-  'social-listening': [
-    'Пользователи делятся негативным опытом в 2 раза чаще, чем позитивным',
-    'Скорость реакции на упоминание влияет на лояльность',
-    'Микроинфлюенсеры дают в 7 раз больше вовлечённости, чем макро',
-    'Эмодзи в социальных сетях повышают engagement на 25%',
-  ],
-  // ── Econometrica: insights при ожидании MCMC (Variable Rewards + Labor Illusion) ──
-  'data-model': [
-    'Закон убывающей отдачи: удвоение бюджета канала НИКОГДА не удваивает продажи',
-    'Bayesian MCMC даёт распределение ROI, а не точку — вы видите уверенность, а не иллюзию точности',
-    'Adstock ТВ: рекламный ролик работает 2-8 недель после окончания флайта',
-    'Geometric adstock (digital): мгновенный пик, быстрый спад. Weibull (TV): отложенный пик, медленный спад',
-    'MMM изобрели в 1960-х для ТВ-рекламы. Тогда считали вручную на перфокартах',
-    'Binet & Field: бренды с SOV > SOM растут. +10% ESOV = +0.5% доли рынка',
-    'R²=0.82 означает "82% вариации объяснено". Не "модель верна на 82%"',
-    'PyMC-Marketing: байесовский подход работает даже с 30 наблюдениями, если priors правильные',
-  ],
-  'analysis': [
-    'Share of Spend vs Share of Effect — самая важная таблица для CMO',
-    'Marginal ROI важнее среднего: средний говорит о прошлом, маргинальный — о будущем',
-    'Response curves показывают точку насыщения — после неё каждый рубль приносит всё меньше',
-    'Оптимизация сплита может дать +10-15% продаж при ТОМ ЖЕ бюджете',
-    'What-if: вместо "попробуем" → "модель предсказывает +12% при таком сплите"',
-    'Simpson\'s Paradox: канал может быть эффективным в целом, но неэффективным в каждом сегменте',
-  ],
-  'reporting': [
-    'Pyramid Principle: главный вывод — первым. Детали — для тех, кто хочет копнуть глубже',
-    'CMO тратит на отчёт 90 секунд. Вывод должен быть на первой странице',
-    'Эластичность awareness→sales нелинейна — есть оптимум, после которого рост замедляется',
-    'Лучший отчёт — тот, после которого принимают решение, а не просят ещё данных',
-    'Awareness без consideration — иллюзия. S-кривая покажет порог реальных покупок',
-  ],
-  'lawyer-contracts': [
-    'Недействительная оговорка не делает недействительным весь договор',
-    'Преамбула договора — контекст для толкования спорных условий',
-    'Существенные условия — то, без чего договор не считается заключённым',
-    'Force majeure не освобождает от обязательства, а приостанавливает его',
-  ],
-  'lawyer-claims': [
-    'Досудебная претензия — обязательный этап для большинства споров',
-    'Срок исковой давности — 3 года по общему правилу',
-    'Правильная фиксация нарушения — основа успешной претензии',
-    'Мировое соглашение экономит в среднем 60% от судебных расходов',
-  ],
-  'lawyer-advertising': [
-    'Реклама без маркировки — штраф до 500 000 рублей',
-    'Слово "лучший" в рекламе требует документального подтверждения',
-    'Сравнительная реклама допустима, но с ограничениями',
-    'Скрытая реклама запрещена Законом о рекламе (ст. 7)',
-  ],
-  'doc-master': [
-    'Хорошая документация экономит до 40% времени команды',
-    'README — витрина проекта, первые 3 строки решают всё',
-    'Документация, которую не обновляют, хуже её отсутствия',
-    'Один скриншот заменяет 100 слов в технической документации',
-  ],
-  'econometrist': [
-    'Корреляция не означает причинно-следственную связь',
-    'Модель хороша не когда идеально подогнана, а когда предсказывает',
-    'Мультиколлинеарность — тихий убийца регрессионных моделей',
-    'R-квадрат > 0.9 в маркетинге — повод насторожиться, а не радоваться',
-  ],
-};
-
-/** Универсальные инсайты — если для кабинета нет специфических */
-const GENERIC_INSIGHTS = [
-  'AI лучше всего работает с чёткими и конкретными заданиями',
-  'Контекст из загруженных файлов значительно повышает качество результата',
-  'Сложную задачу лучше разбить на несколько простых запросов',
-  'Уточняющие вопросы после первого ответа — нормальная практика',
-];
-
-/** Продвинутые инсайты — после 10+ запросов к кабинету
- * @type {Record<string, string[]>} */
-const ADVANCED_INSIGHTS = {
-  'media-analyst': [
-    'Анализ тональности без контекста отрасли даёт до 30% ложных срабатываний',
-    'Лучшие медиааналитики измеряют не coverage, а impact на бизнес-метрики',
-  ],
-  'communication-strategist': [
-    'Стратегия, которую нельзя объяснить стажёру за 2 минуты, слишком сложна для реализации',
-    'Message House без proof points — декларация, не стратегия',
-  ],
-  'creative-director': [
-    'Креативная концепция, которая не вызывает дискомфорта — скорее всего, безопасная и неэффективная',
-    'Лучший тест идеи: можете ли вы описать её одним предложением без "и"?',
-  ],
-  'copywriter': [
-    'A/B тесты показывают: конкретные цифры в заголовках дают +37% CTR',
-    'Правило Хемингуэя: если можно убрать слово без потери смысла — убирайте',
-  ],
-  'art-director': [
-    'Если нужно объяснять макет словами — макет не работает',
-    'Mobile-first не значит "уменьшить десктоп" — это другое мышление',
-  ],
-  'lawyer-advertising': [
-    'ФАС штрафует чаще за некорректное сравнение, чем за отсутствие маркировки',
-    'Рекламные акции с условиями мелким шрифтом — системный риск',
-  ],
-  // ── Econometrica advanced insights ──
-  'data-model': [
-    'Информативные priors (Bayesian) — это не "подгонка", а использование экспертного знания. Uninformative priors = притворство, что вы ничего не знаете',
-    'NUTS sampler > Metropolis по скорости сходимости. Если есть C-компилятор — используйте NUTS',
-  ],
-  'analysis': [
-    'Omitted Variable Bias: если не включить дистрибуцию в модель, TV "украдёт" её эффект — ROI TV будет завышен',
-    'Мультиколлинеарность: если TV и OOH ходят вместе (корр >0.8), модель не может их разделить. Решение: объединить или использовать ridge priors',
-  ],
-  'reporting': [
-    'Модель — это инструмент мышления, не оракул. Доверительные интервалы — не погрешность, а мера нашего незнания',
-    'Три уровня рекомендации: ВЫСОКАЯ (данные + логика), СРЕДНЯЯ (модель), НИЗКАЯ (гипотеза)',
-  ],
-};
+// ══════════════════════════════════════════════════════
 
 /**
  * Получить случайный инсайт для кабинета.
@@ -268,14 +71,14 @@ export function getRandomInsight(cabinetId, forceShow = false) {
 
   // После 10+ запросов — 40% шанс продвинутого инсайта
   if (cabinetUses >= 10 && Math.random() < 0.4) {
-    const advanced = ADVANCED_INSIGHTS[cabinetId];
+    const advanced = _advancedInsights[cabinetId];
     if (advanced && advanced.length > 0) {
       return advanced[Math.floor(Math.random() * advanced.length)];
     }
   }
 
-  const pool = INSIGHTS[cabinetId] || GENERIC_INSIGHTS;
-  return pool[Math.floor(Math.random() * pool.length)];
+  const pool = _insights[cabinetId] || _insights['_generic'] || [];
+  return pool[Math.floor(Math.random() * pool.length)] || null;
 }
 
 // ══════════════════════════════════════════════════════
@@ -300,6 +103,11 @@ export function getTimeGreeting() {
  * @returns {{text: string, isPersonal: boolean}|null}
  */
 export function getUsageHint(cabinetId) {
+  // Suppress during active onboarding — component provides its own guidance
+  const onbState = get(cabinetOnboarding);
+  const cab = onbState[cabinetId];
+  if (cab && !cab.completed) return null;
+
   const data = get(milestones);
   const cabinetUses = data.cabinetRequests[cabinetId] || 0;
   const totalUses = data.totalRequests;
@@ -316,7 +124,7 @@ export function getUsageHint(cabinetId) {
 
   // Частый пользователь этого кабинета — подсказать next steps
   if (cabinetUses >= 10) {
-    const next = NEXT_STEPS[cabinetId];
+    const next = _nextSteps[cabinetId];
     if (next && next.length > 0) {
       const suggestion = next[Math.floor(Math.random() * next.length)];
       return { text: `Совет: после работы здесь попробуйте «${suggestion.label}» — ${suggestion.reason.toLowerCase()}`, isPersonal: true };
@@ -328,93 +136,7 @@ export function getUsageHint(cabinetId) {
 
 // ══════════════════════════════════════════════════════
 // PSY-3: PROGRESS INDICATOR — фазы генерации
-// ═══════════════════════════════════════════════���══════
-
-/**
- * Фазы AI-генерации с примерным таймингом (fallback).
- * @type {Array<{label: string, minSec: number}>}
- */
-export const PROGRESS_PHASES = [
-  { label: 'Анализирую контекст...', minSec: 0 },
-  { label: 'Подготавливаю рабочее пространство...', minSec: 3 },
-  { label: 'Формирую стратегию ответа...', minSec: 8 },
-  { label: 'Генерирую результат...', minSec: 15 },
-  { label: 'Финализирую и форматирую...', minSec: 30 },
-];
-
 // ══════════════════════════════════════════════════════
-// PSY-3+: CABINET-SPECIFIC PHASES — domain-specific прогресс
-// ══════════════════════════════════════════════════════
-
-/**
- * Создать массив фаз из 5 глаголов.
- * @param {string[]} verbs — 5 строк без "..."
- * @returns {Array<{label: string, minSec: number}>}
- */
-function makePhases(verbs) {
-  const timings = [0, 3, 8, 15, 30];
-  return verbs.map((v, i) => ({ label: `${v}...`, minSec: timings[i] }));
-}
-
-/** @type {Record<string, Array<{label: string, minSec: number}>>} */
-const CABINET_PHASES = {
-  'media-analyst': makePhases([
-    'Сканирую медиаполе', 'Оцениваю тональность', 'Сравниваю с бенчмарками',
-    'Формирую инсайты', 'Готовлю рекомендации',
-  ]),
-  'communication-analyst': makePhases([
-    'Анализирую коммуникации', 'Оцениваю эффективность каналов', 'Строю коммуникационную карту',
-    'Выявляю закономерности', 'Готовлю рекомендации',
-  ]),
-  'communication-strategist': makePhases([
-    'Изучаю контекст', 'Анализирую аудиторию', 'Разрабатываю стратегию',
-    'Прорабатываю тактику', 'Оформляю документ',
-  ]),
-  'creative-director': makePhases([
-    'Анализирую контекст бренда', 'Генерирую идеи', 'Развиваю концепцию',
-    'Прорабатываю детали', 'Оформляю бриф',
-  ]),
-  'copywriter': makePhases([
-    'Изучаю бриф', 'Подбираю тон и стиль', 'Пишу текст',
-    'Шлифую формулировки', 'Финальная вычитка',
-  ]),
-  'art-director': makePhases([
-    'Анализирую визуальный контекст', 'Подбираю стилистику', 'Разрабатываю концепцию',
-    'Прорабатываю детали', 'Финализирую макет',
-  ]),
-  'focus-groups': makePhases([
-    'Формирую сегменты', 'Готовлю гайд обсуждения', 'Моделирую реакции',
-    'Анализирую паттерны', 'Формирую выводы',
-  ]),
-  'social-listening': makePhases([
-    'Сканирую социальные сети', 'Анализирую упоминания', 'Оцениваю sentiment',
-    'Выявляю тренды', 'Формирую отчёт',
-  ]),
-  'lawyer-contracts': makePhases([
-    'Изучаю документ', 'Проверяю существенные условия', 'Анализирую риски',
-    'Формирую замечания', 'Готовлю заключение',
-  ]),
-  'lawyer-claims': makePhases([
-    'Изучаю обстоятельства', 'Анализирую правовую базу', 'Оцениваю перспективы',
-    'Формирую позицию', 'Готовлю документ',
-  ]),
-  'lawyer-advertising': makePhases([
-    'Проверяю рекламные материалы', 'Сверяю с ФЗ «О рекламе»', 'Анализирую риски ФАС',
-    'Формирую рекомендации', 'Готовлю заключение',
-  ]),
-  'econometrist': [
-    { label: 'Загружаю данные...', minSec: 0 },
-    { label: 'Строю байесовскую модель...', minSec: 10 },
-    { label: 'MCMC-сэмплирование...', minSec: 30 },
-    { label: 'Проверяю конвергенцию...', minSec: 120 },
-    { label: 'Рассчитываю ROI и декомпозицию...', minSec: 300 },
-    { label: 'Оформляю результаты...', minSec: 600 },
-  ],
-  'doc-master': makePhases([
-    'Анализирую структуру', 'Обрабатываю содержание', 'Форматирую документ',
-    'Проверяю качество', 'Финализирую',
-  ]),
-};
 
 /**
  * Получить текущую фазу по прошедшему времени.
@@ -423,7 +145,10 @@ const CABINET_PHASES = {
  * @returns {{label: string, phaseIndex: number, totalPhases: number}}
  */
 export function getCurrentPhase(elapsedSec, cabinetId) {
-  const phases = (cabinetId && CABINET_PHASES[cabinetId]) || PROGRESS_PHASES;
+  const phases = (cabinetId && _cabinetPhases[cabinetId]) || _progressPhases;
+  if (!phases || phases.length === 0) {
+    return { label: 'Обработка...', phaseIndex: 0, totalPhases: 1 };
+  }
   let phaseIndex = 0;
   for (let i = phases.length - 1; i >= 0; i--) {
     if (elapsedSec >= phases[i].minSec) {
@@ -447,10 +172,6 @@ const SAFETY_TIMEOUTS = {
   'default': 90_000,
   'media-analyst': 600_000,  // 10 min — multi-phase pipeline manages its own phases
   'econometrist': 900_000,   // 15 min — MCMC sampling + PyTensor compilation on Windows
-  // Econometrica cabinets
-  'data-model': 900_000,     // 15 min — MCMC training
-  'analysis': 300_000,       // 5 min — optimization + scenarios
-  'reporting': 300_000,      // 5 min — Claude report generation
 };
 
 /**
@@ -636,6 +357,29 @@ export function pluralRu(n, one, few, many) {
   return many;
 }
 
+/**
+ * Сообщение при загрузке файла (Endowed Progress Effect).
+ * Даёт ощущение уже начатого прогресса — повышает мотивацию завершить задачу.
+ * @param {number} fileCount
+ * @param {string} [fileName]
+ * @returns {string}
+ */
+export function getEndowedProgressMessage(fileCount, fileName, cabinetId = undefined) {
+  if (cabinetId) {
+    const onbState = get(cabinetOnboarding);
+    const cab = onbState[cabinetId];
+    if (cab && !cab.completed && (cab.step ?? 0) === 0) {
+      return 'Файл загружен — переходим к анализу';
+    }
+  }
+  if (fileCount === 1 && fileName) {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    if (ext === 'pptx') return `Презентация загружена. Этап 1 из 5 выполнен — выберите команду для анализа.`;
+    if (ext === 'xlsx' || ext === 'csv') return `Данные загружены. Готово к анализу.`;
+  }
+  return `${fileCount} ${pluralRu(fileCount, 'файл загружен', 'файла загружено', 'файлов загружено')}. Выберите команду для работы.`;
+}
+
 // ════════════════════════════════════════════════════════
 // PSY-4: WORKFLOW CELEBRATION — утилиты
 // ═══════════════════════════════════════════════════��══
@@ -764,6 +508,47 @@ export function getCabinetUsageCount(cabinetId) {
 }
 
 // ══════════════════════════════════════════════════════
+// C4: CABINET MASTERY SYSTEM (Self-Determination Theory, Deci & Ryan 1985)
+// Уровни мастерства создают идентичность и стремление к росту.
+// ══════════════════════════════════════════════════════
+
+/** @typedef {{ threshold: number, title: string, icon: string }} MasteryTier */
+
+/** @type {Record<string, MasteryTier[]>} */
+const CABINET_MASTERY = {
+  'media-analyst':            [{ threshold: 5, title: 'Практик', icon: '📊' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'communication-analyst':    [{ threshold: 5, title: 'Практик', icon: '📡' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'communication-strategist': [{ threshold: 5, title: 'Практик', icon: '🗺️' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'social-listening':         [{ threshold: 5, title: 'Практик', icon: '🔍' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'focus-groups':             [{ threshold: 5, title: 'Практик', icon: '💬' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'creative-director':        [{ threshold: 5, title: 'Практик', icon: '🎨' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'lawyer-contracts':         [{ threshold: 5, title: 'Практик', icon: '📝' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'lawyer-claims':            [{ threshold: 5, title: 'Практик', icon: '⚖️' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'lawyer-advertising':       [{ threshold: 5, title: 'Практик', icon: '📣' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'doc-master':               [{ threshold: 5, title: 'Практик', icon: '📚' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'econometrist':             [{ threshold: 5, title: 'Практик', icon: '📈' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'copywriter':               [{ threshold: 5, title: 'Практик', icon: '✍️' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+  'art-director':             [{ threshold: 5, title: 'Практик', icon: '🖼️' }, { threshold: 20, title: 'Эксперт', icon: '🎯' }, { threshold: 50, title: 'Мастер', icon: '👑' }],
+};
+
+/**
+ * Получить текущий уровень мастерства в кабинете.
+ * @param {string} cabinetId
+ * @returns {{ current: MasteryTier|null, next: MasteryTier|null, uses: number }|null}
+ */
+export function getCabinetMastery(cabinetId) {
+  const tiers = CABINET_MASTERY[cabinetId];
+  if (!tiers) return null;
+  const uses = get(milestones).cabinetRequests[cabinetId] || 0;
+  let current = null;
+  let next = tiers[0];
+  for (const tier of tiers) {
+    if (uses >= tier.threshold) { current = tier; next = tiers[tiers.indexOf(tier) + 1] || null; }
+  }
+  return { current, next, uses };
+}
+
+// ══════════════════════════════════════════════════════
 // PSY-8: SESSION ARC — трекинг сессии кабинета
 // ══════════════════════════════════════════════════════
 
@@ -886,4 +671,98 @@ export function getPendingWork(cabinetId) {
  */
 export function clearPendingWork(cabinetId) {
   try { localStorage.removeItem(`ai-pending-${cabinetId}`); } catch { /* ok */ }
+}
+
+// ══════════════════════════════════════════════════════
+// C6: CONTEXT-AWARE POST-ANALYSIS INSIGHTS (Specificity Effect, Nisbett & Ross 1980)
+// Конкретный инсайт из данных убедительнее generic фразы.
+// ══════════════════════════════════════════════════════
+
+/**
+ * Нормализовать строку числа: убрать ~, ≈, пробелы, заменить запятую.
+ * @param {string} s
+ * @returns {number}
+ */
+function parseMetricValue(s) {
+  return parseFloat(s.replace(/[~≈\s]/g, '').replace('−', '-').replace(',', '.'));
+}
+
+/**
+ * Извлечь ключевую метрику из ответа media-analyst и вернуть конкретный инсайт.
+ * Приоритет: ESOV → SOV+SOM → SOV → GRP/TRP → охват/reach → бюджет.
+ *
+ * @param {string} content — текст ответа ассистента
+ * @param {string} cabinetId — ID кабинета
+ * @returns {string|null} — инсайт ≤70 символов или null
+ */
+export function getContextInsight(content, cabinetId) {
+  if (cabinetId !== 'media-analyst') return null;
+  if (!content || content.length < 50) return null;
+
+  // 1. ESOV явно указан (Binet & Field: ключевой предиктор роста)
+  const esovMatch = content.match(/ESOV[:\s=]+([+\-−~≈]?\d+[.,]?\d*)\s*%/i);
+  if (esovMatch) {
+    const v = parseMetricValue(esovMatch[1]);
+    if (!isNaN(v)) {
+      if (v > 0) return `ESOV +${v}% — бренд опережает рынок по голосу`;
+      if (v < 0) return `ESOV ${v}% — голос ниже SOM, давление конкурентов`;
+      return `ESOV ≈ 0% — нейтральная медиапозиция`;
+    }
+  }
+
+  // 2. SOV + SOM → вычислить ESOV
+  const sovMatch = content.match(/\bSOV[:\s=]+([~≈]?\d+[.,]?\d*)\s*%/i);
+  const somMatch = content.match(/\bSOM[:\s=]+([~≈]?\d+[.,]?\d*)\s*%/i);
+  if (sovMatch && somMatch) {
+    const sov = parseMetricValue(sovMatch[1]);
+    const som = parseMetricValue(somMatch[1]);
+    if (!isNaN(sov) && !isNaN(som)) {
+      const esov = Math.round((sov - som) * 10) / 10;
+      if (esov > 0) return `SOV ${sov}% vs SOM ${som}% → ESOV +${esov}%`;
+      if (esov < 0) return `SOV ${sov}% vs SOM ${som}% → ESOV ${esov}%`;
+      return `SOV = SOM ${sov}% — нейтральная позиция`;
+    }
+  }
+
+  // 3. SOV (без SOM)
+  if (sovMatch) {
+    const v = parseMetricValue(sovMatch[1]);
+    if (!isNaN(v)) {
+      if (v >= 30) return `SOV ${v}% — сильное медиаприсутствие в категории`;
+      if (v >= 10) return `SOV ${v}% — умеренное медиаприсутствие`;
+      return `SOV ${v}% — низкий голос в категории`;
+    }
+  }
+
+  // 4. GRP / TRP
+  const grpMatch = content.match(/(\d[\d\s]{0,6})\s*(GRP|TRP)\b|(?:GRP|TRP)[:\s=]+(\d[\d\s]{0,6})/i);
+  if (grpMatch) {
+    const rawNum = ((grpMatch[1] || grpMatch[3]) ?? '').replace(/\s/g, '');
+    const v = parseInt(rawNum, 10);
+    const label = (grpMatch[2] || 'GRP').toUpperCase();
+    if (!isNaN(v) && v > 0 && v < 100000) {
+      if (v >= 500) return `${v} ${label} — высокое медиадавление`;
+      if (v >= 200) return `${v} ${label} — умеренное медиадавление`;
+      return `${v} ${label} — низкое медиадавление`;
+    }
+  }
+
+  // 5. Охват / reach
+  const reachMatch = content.match(/(?:охват|reach)[^\d]{0,25}(\d+[.,]?\d*)\s*%/i);
+  if (reachMatch) {
+    const v = parseMetricValue(reachMatch[1]);
+    if (!isNaN(v) && v > 0 && v <= 100) {
+      if (v >= 70) return `Охват ${v}% — широкое покрытие аудитории`;
+      if (v >= 40) return `Охват ${v}% целевой аудитории`;
+      return `Охват ${v}% — ниже рекомендуемых 60%`;
+    }
+  }
+
+  // 6. Бюджет в млн ₽ / руб
+  const budgetMatch = content.match(/([~≈]?\d+[.,]?\d*)\s*млн\s*(?:₽|руб)/i);
+  if (budgetMatch) {
+    return `Бюджет ~${budgetMatch[1]} млн ₽ выявлен в анализе`;
+  }
+
+  return null;
 }

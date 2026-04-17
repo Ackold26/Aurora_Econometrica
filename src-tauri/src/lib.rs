@@ -1,14 +1,14 @@
 pub mod commands;
 pub mod crypto;
-pub mod econ_sidecar;
 pub mod errors;
 pub mod metrics;
 pub mod session;
 
-use commands::{brand, cabinet, claude, content_updater, feedback, license, online_auth, parser, updater, user_config, vault};
+use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, updater, user_config, vault};
 use session::manager::SessionManager;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager};
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
@@ -20,16 +20,31 @@ pub struct AppState {
     pub active_pids: Arc<Mutex<HashMap<String, u32>>>,
     /// Active workflow executions: execution_id → status ("running"/"completed"/"cancelled"/"failed")
     pub workflow_executions: Arc<Mutex<HashMap<String, String>>>,
+    /// Set to true only when content packs pass Ed25519 manifest verification at startup.
+    /// Dynamic loaders must check this before serving pack data.
+    pub content_packs_verified: Arc<AtomicBool>,
 }
 
 // ============== Tauri Commands ==============
 
 #[tauri::command]
 async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri::AppHandle) -> Result<Vec<cabinet::CabinetInfo>, String> {
+    let local_data_dir = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?;
+
     #[cfg(debug_assertions)]
     if std::env::var("AIAGENCY_DEV").is_ok() {
-        info!("[DEV] Bypassing license check — returning all cabinets");
-        return Ok(cabinet::get_cabinet_definitions());
+        info!("[DEV] Bypassing license check");
+        let packs_ok = _state.content_packs_verified.load(Ordering::Acquire);
+        let all = if packs_ok {
+            cabinet::get_cabinet_definitions_dynamic(&local_data_dir)
+        } else {
+            cabinet::get_cabinet_definitions()
+        };
+        // Filter by product type (same as prod) so single-cabinet products work in dev
+        let product = online_auth::detect_product();
+        let filtered = cabinet::filter_by_product(product, all);
+        info!("[DEV] Returning {} cabinets for product '{}'", filtered.len(), product);
+        return Ok(filtered);
     }
 
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
@@ -47,10 +62,26 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
             let vaults_dir = vault::vaults_dir(&data_dir);
             let product = online_auth::detect_product();
 
-            // Collect vault filenames that are missing locally
+            // Collect vault filenames that are missing OR undecryptable locally
+            let local_key = content_updater::derive_local_key(&config_dir).ok();
             let missing: Vec<String> = online.cabinets.iter()
                 .map(|cab| vault::vault_filename_pub(cab))
-                .filter(|fname| !vaults_dir.join(fname).exists())
+                .filter(|fname| {
+                    let path = vaults_dir.join(fname);
+                    if !path.exists() {
+                        return true; // missing
+                    }
+                    // Vault exists — verify it's decryptable with local key
+                    if let Some(ref key) = local_key {
+                        if let Ok(data) = std::fs::read(&path) {
+                            if crypto::aes::decrypt(key, &data).is_err() {
+                                warn!("Vault {} exists but cannot be decrypted — will re-download", fname);
+                                return true; // corrupt or wrong key → re-download
+                            }
+                        }
+                    }
+                    false
+                })
                 .collect();
 
             if !missing.is_empty() {
@@ -63,7 +94,12 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
             }
         }
 
-        let all_cabinets = cabinet::get_cabinet_definitions();
+        let packs_ok = _state.content_packs_verified.load(Ordering::Acquire);
+        let all_cabinets = if packs_ok {
+            cabinet::get_cabinet_definitions_dynamic(&local_data_dir)
+        } else {
+            cabinet::get_cabinet_definitions()
+        };
         let available: Vec<_> = all_cabinets.into_iter()
             .filter(|c| online.cabinets.contains(&c.id))
             .collect();
@@ -96,7 +132,12 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
 
     metrics::audit::log_event("license_validate", &format!("issued_to={}, days_remaining={}", status.issued_to, status.days_remaining), true);
 
-    let all_cabinets = cabinet::get_cabinet_definitions();
+    let packs_ok = _state.content_packs_verified.load(Ordering::Acquire);
+    let all_cabinets = if packs_ok {
+        cabinet::get_cabinet_definitions_dynamic(&local_data_dir)
+    } else {
+        cabinet::get_cabinet_definitions()
+    };
     let available: Vec<_> = all_cabinets.into_iter()
         .filter(|c| status.cabinets.contains(&c.id))
         .collect();
@@ -130,7 +171,73 @@ fn import_license(path: String, app_handle: tauri::AppHandle) -> Result<(), Stri
 async fn check_online_auth(app_handle: tauri::AppHandle) -> Result<online_auth::OnlineAuthStatus, String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let app_version = env!("CARGO_PKG_VERSION");
-    Ok(online_auth::authorize(&config_dir, app_version, "").await)
+    let status = online_auth::authorize(&config_dir, app_version, "").await;
+
+    // Phase 5: fire-and-forget background update check after successful auth
+    if status.status == "ok" {
+        let handle = app_handle.clone();
+        let s = status.clone();
+        tokio::spawn(async move {
+            if let Err(e) = check_all_updates(&handle, &s).await {
+                warn!("Background update check failed: {e}");
+            }
+        });
+    }
+
+    Ok(status)
+}
+
+/// Phase 5 auto-update: triggered after successful online auth.
+/// Downloads content packs and frontend bundle if server versions are newer.
+async fn check_all_updates(
+    app_handle: &tauri::AppHandle,
+    auth: &online_auth::OnlineAuthStatus,
+) -> anyhow::Result<()> {
+    let local_data_dir = app_handle.path().app_local_data_dir()?;
+
+    // 1. Content packs
+    if let Some(server_pack_ver) = auth.content_pack_version {
+        let local_ver = content_updater::get_local_content_pack_version(&local_data_dir);
+        if server_pack_ver > local_ver {
+            if let (Some(url), Some(checksum)) = (
+                auth.content_pack_url.as_deref(),
+                auth.content_pack_checksum.as_deref(),
+            ) {
+                info!(
+                    "Content pack update: local={} server={}, downloading…",
+                    local_ver, server_pack_ver
+                );
+                content_updater::download_content_pack(&local_data_dir, url, checksum, app_handle)
+                    .await?;
+            }
+        }
+    }
+
+    // 2. Frontend bundle
+    if let Some(server_fe_ver) = auth.frontend_version {
+        let local_ver = content_updater::get_local_frontend_version(&local_data_dir);
+        if server_fe_ver > local_ver {
+            if let (Some(url), Some(checksum)) = (
+                auth.frontend_url.as_deref(),
+                auth.frontend_checksum.as_deref(),
+            ) {
+                info!(
+                    "Frontend bundle update: local={} server={}, downloading…",
+                    local_ver, server_fe_ver
+                );
+                content_updater::download_frontend_bundle_from_url(
+                    &local_data_dir,
+                    url,
+                    checksum,
+                    server_fe_ver,
+                    app_handle,
+                )
+                .await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -347,6 +454,57 @@ fn close_cabinet(
         })
 }
 
+/// Extract brief parameters from a multiline command message.
+/// Input: "/analytics\nСлайды: Все\nАудитория: CEO, CMO\nДополнительно: Фокус"
+/// Output: Some("Слайды: Все\nАудитория: CEO, CMO\nДополнительно: Фокус")
+/// Returns None if message is single-line (no brief params).
+fn extract_brief_params(message: &str) -> Option<String> {
+    let trimmed = message.trim();
+    if let Some(newline_pos) = trimmed.find('\n') {
+        let params = trimmed[newline_pos + 1..].trim();
+        if !params.is_empty() {
+            return Some(params.to_string());
+        }
+    }
+    None
+}
+
+/// Parse slide selection from brief params.
+/// Looks for a line starting with "Слайды:" containing "Конкретные".
+/// Parses the numbers/ranges after the last colon: "3, 7-10, 15" → [3, 7, 8, 9, 10, 15]
+/// Returns None if slides are "Все" or no slide parameter found.
+fn parse_slide_selection(params: &str) -> Option<Vec<u32>> {
+    for line in params.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("Слайды:") && !trimmed.starts_with("Слайды :") {
+            continue;
+        }
+        let lower = trimmed.to_lowercase();
+        if lower.contains("все") || lower.contains("all") {
+            return None;
+        }
+        let list_part = trimmed.rsplit(':').next()?;
+        let mut nums = Vec::new();
+        for part in list_part.split(',') {
+            let part = part.trim();
+            let range_sep = if part.contains('–') { '–' } else { '-' };
+            if let Some((start_s, end_s)) = part.split_once(range_sep) {
+                if let (Ok(s), Ok(e)) = (start_s.trim().parse::<u32>(), end_s.trim().parse::<u32>()) {
+                    for n in s..=e {
+                        nums.push(n);
+                    }
+                }
+            } else if let Ok(n) = part.parse::<u32>() {
+                nums.push(n);
+            }
+        }
+        if !nums.is_empty() {
+            return Some(nums);
+        }
+    }
+    None
+}
+
 /// Multi-phase analytics pipeline for large PPTX presentations.
 /// Chains Phase 0 (map) → Phase 1 (detail chunks) → Phase 2 (synthesis) via --resume.
 /// Returns (phase1_markdowns, synthesis_markdown, final_session_id).
@@ -354,6 +512,8 @@ async fn run_analytics_pipeline(
     work_dir: &std::path::Path,
     overview: &str,
     chunk_split: &commands::pptx_processor::ChunkSplit,
+    brief_params: Option<&str>,
+    analytics_context: Option<&str>,
     app_handle: tauri::AppHandle,
     cabinet_id: &str,
     active_pids: Arc<std::sync::Mutex<std::collections::HashMap<String, u32>>>,
@@ -362,6 +522,17 @@ async fn run_analytics_pipeline(
     let total_phases = chunk_split.chunk_count + 2; // map + N chunks + synthesis
     let mut session_id: Option<String> = state.session_manager.get_claude_session_id(cabinet_id);
     let mut chunk_markdowns: Vec<String> = Vec::new();
+
+    // Build parameters block for injection into phase prompts
+    let params_block = brief_params.map(|p| {
+        format!(
+            "\n\n[ПАРАМЕТРЫ ЗАПУСКА ИЗ UI — ПРИОРИТЕТ НАД ДЕФОЛТАМИ]\n{}\n\
+             Применяй эти параметры строго:\n\
+             - Аудитория: писать ТОЛЬКО указанные уровни ([CEO]/[CMO]/[BM])\n\
+             - Дополнительно: учесть как фокус во всех комментариях\n",
+            p
+        )
+    }).unwrap_or_default();
 
     // Helper: emit pipeline phase event
     let emit_phase = |label: &str, index: usize| {
@@ -378,13 +549,18 @@ async fn run_analytics_pipeline(
 
     // ═══ PHASE 0: MAP ═══
     emit_phase("Сканирую структуру презентации...", 0);
+    let analytics_block = analytics_context
+        .map(|ctx| format!("\n\n{}", ctx))
+        .unwrap_or_default();
     let phase0_prompt = format!(
-        "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН — ФАЗА 0: КАРТА]\n\n{}\n\n\
+        "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН — ФАЗА 0: КАРТА]\n\n{}{}{}\n\n\
          Задача: определи тематические блоки презентации. Для каждого блока укажи:\n\
          - Название блока\n- Диапазон слайдов\n- Краткое описание\n\n\
          Затем сформулируй 3-5 гипотез для проверки при детальном анализе.\n\n\
          Формат:\n## СТРУКТУРА ПРЕЗЕНТАЦИИ\n## БЛОК: Название — слайды X-Y\n## ГИПОТЕЗЫ ДЛЯ ПРОВЕРКИ",
-        overview
+        overview,
+        analytics_block,
+        params_block
     );
 
     match commands::claude::run_claude_pipeline(work_dir, &phase0_prompt, app_handle.clone(), cabinet_id.to_string(), session_id.clone(), active_pids.clone()).await {
@@ -407,11 +583,12 @@ async fn run_analytics_pipeline(
         let chunk_data = std::fs::read_to_string(chunk_path).unwrap_or_default();
         let phase1_prompt = format!(
             "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН — ФАЗА 1: ДЕТАЛЬНЫЙ АНАЛИЗ]\n\
-             Чанк {}/{}. Вот данные слайдов:\n\n{}\n\n\
+             Чанк {}/{}. Вот данные слайдов:\n\n{}{}\n\n\
              Для каждого слайда напиши на русском языке:\n\
-             ## Слайд N: Заголовок\nACTION TITLE: ...\n\n[CEO] ...\n\n[CMO] ...\n\n[BM] ...\n\n\
+             ## Слайд N: Заголовок\nЗАГОЛОВОК: ...\n\n[CEO] ...\n\n[CMO] ...\n\n[BM] ...\n\n\
              В конце — краткие итоги для слайдов этого чанка.",
-            i + 1, chunk_split.chunk_count, chunk_data
+            i + 1, chunk_split.chunk_count, chunk_data,
+            params_block
         );
 
         let mut retry = 0;
@@ -445,7 +622,7 @@ async fn run_analytics_pipeline(
     let phase2_prompt = format!(
         "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН — ФАЗА 2: СИНТЕЗ]\n\n\
          Ты проанализировал все {} слайдов с данными ({} чанков). \
-         Вот краткий обзор:\n\n{}\n\n\
+         Вот краткий обзор:\n\n{}{}\n\n\
          Теперь напиши на русском языке:\n\
          ## EXECUTIVE SUMMARY\n5-7 тезисов по Pyramid Principle (главное → детали)\n\n\
          ## ОБЩИЙ ВЫВОД ПО ПРЕЗЕНТАЦИИ\nРазвёрнутый аналитический нарратив на ~1 страницу (4-6 абзацев): \
@@ -454,7 +631,8 @@ async fn run_analytics_pipeline(
          ## БЛОК: Название\nДля каждого блока: тезисы (bullets) + развёрнутый вывод (1-2 абзаца)\n\n\
          ## МОСТЫ\nМинимум 5 межтематических связей (каузальные цепочки)\n\n\
          ## РЕКОМЕНДАЦИИ\nСтратегические рекомендации с ICE-приоритизацией",
-        chunk_split.data_slide_count, chunk_split.chunk_count, recap
+        chunk_split.data_slide_count, chunk_split.chunk_count, recap,
+        params_block
     );
 
     let mut synthesis_md = String::new();
@@ -473,6 +651,53 @@ async fn run_analytics_pipeline(
     Ok((chunk_markdowns, synthesis_md, session_id))
 }
 
+/// Resolve a slash-command message by reading the corresponding .md file
+/// from .claude/commands/ and substituting $ARGUMENTS.
+/// If not a slash-command or file not found, returns the original message.
+fn resolve_slash_command(message: &str, work_dir: &std::path::Path) -> String {
+    let trimmed = message.trim();
+    if !trimmed.starts_with('/') {
+        return message.to_string();
+    }
+
+    // Extract command name and arguments
+    let first_line_end = trimmed.find('\n').unwrap_or(trimmed.len());
+    let first_line = &trimmed[..first_line_end];
+    let command_name = first_line.split_whitespace().next().unwrap_or("/");
+    let cmd_slug = command_name.trim_start_matches('/');
+
+    if cmd_slug.is_empty() {
+        return message.to_string();
+    }
+
+    // Arguments = everything after the command name on first line + all subsequent lines
+    let args_start = trimmed.find('\n').map(|p| p + 1).unwrap_or(trimmed.len());
+    let arguments = if args_start < trimmed.len() {
+        trimmed[args_start..].trim()
+    } else {
+        ""
+    };
+
+    // Try to read .claude/commands/{cmd_slug}.md
+    let md_path = work_dir.join(".claude").join("commands").join(format!("{}.md", cmd_slug));
+    if !md_path.exists() {
+        debug!("No command file for /{cmd_slug}, passing raw message");
+        return message.to_string();
+    }
+
+    match std::fs::read_to_string(&md_path) {
+        Ok(template) => {
+            let resolved = template.replace("$ARGUMENTS", arguments);
+            info!("Resolved /{cmd_slug} command ({} bytes template, {} bytes args)", template.len(), arguments.len());
+            resolved
+        }
+        Err(e) => {
+            warn!("Failed to read command file {}: {e}", md_path.display());
+            message.to_string()
+        }
+    }
+}
+
 // Auto-save (.md → .docx/.pdf/.xlsx) suppressed for all slash-commands.
 // Slash-commands produce their own exports; .md auto-save just duplicates chat content.
 
@@ -484,7 +709,12 @@ async fn send_message(
     state: tauri::State<'_, Arc<AppState>>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let msg_preview = if message.len() > 80 { &message[..80] } else { &message };
+    let msg_preview = if message.len() > 80 {
+        let end = (0..=80).rev().find(|&i| message.is_char_boundary(i)).unwrap_or(0);
+        &message[..end]
+    } else {
+        &message
+    };
     info!("send_message [{cabinet_id}]: \"{msg_preview}\"");
 
     // Record metrics
@@ -505,10 +735,13 @@ async fn send_message(
         .sync_inbox(&cabinet_id)
         .map_err(|e| e.to_string())?;
 
+    // ── Slash-command detection (used for preprocessing, clean slate, session management) ──
+    let is_slash_command = message.trim().starts_with('/');
+
     // PPTX Pipeline: preprocess the FIRST (largest) PPTX file for media-analyst cabinet
-    let is_file_command = message.trim().starts_with('/');
+    let mut analytics_context: Option<String> = None;
     let mut pptx_filename: Option<String> = None;
-    if cabinet_id == "media-analyst" && is_file_command {
+    if cabinet_id == "media-analyst" && is_slash_command {
         let inbox_dir = work_dir.join("inbox");
         if inbox_dir.exists() {
             // Find the largest PPTX file in inbox (most likely the main presentation)
@@ -530,12 +763,35 @@ async fn send_message(
             if let Some(largest) = pptx_files.first() {
                 pptx_filename = largest.file_name().map(|n| n.to_string_lossy().to_string());
                 let output_dir = work_dir.join("preprocessed");
+                // Clean stale preprocessed data from previous runs
+                if output_dir.exists() {
+                    let _ = std::fs::remove_dir_all(&output_dir);
+                }
+                let _ = std::fs::create_dir_all(&output_dir);
                 if pptx_files.len() > 1 {
                     warn!("Multiple PPTX in inbox ({}), preprocessing largest: {}", pptx_files.len(), largest.display());
                 }
                 match commands::pptx_processor::preprocess(largest, &output_dir) {
                     Ok(slides_json) => {
                         info!("PPTX preprocessed for media-analyst: {}", slides_json.display());
+                        // Aurora Index: compute analytics from slides.json
+                        let slides_path = output_dir.join("slides.json");
+                        if let Ok(content) = std::fs::read_to_string(&slides_path) {
+                            if let Ok(slides) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
+                                let analytics = commands::pptx_processor::compute_analytics(&slides);
+                                let analytics_path = output_dir.join("analytics.json");
+                                let _ = std::fs::write(
+                                    &analytics_path,
+                                    serde_json::to_string_pretty(&analytics).unwrap_or_default(),
+                                );
+                                info!("Aurora Index: {} blocks, {} anomalies, {} trends, {} links",
+                                    analytics.health.block_count, analytics.health.anomaly_count,
+                                    analytics.trends.len(), analytics.health.cross_link_count);
+                                analytics_context = Some(
+                                    commands::pptx_processor::format_analytics_context(&analytics)
+                                );
+                            }
+                        }
                     }
                     Err(e) => {
                         warn!("PPTX preprocess failed (non-critical): {e}");
@@ -553,23 +809,50 @@ async fn send_message(
         }
     }
 
+    // ── Clean slate for slash-commands: fresh session, no stale context ──
+    if is_slash_command {
+        state.session_manager.clear_claude_session_id(&cabinet_id);
+    }
+
     // Multi-phase pipeline for large presentations (>15 data slides)
     let is_analytics = message.trim().starts_with("/analytics") || message.trim().starts_with("/batch-analytics");
+    // Extract CommandBrief parameters for pipeline injection
+    let brief_params = extract_brief_params(&message);
+    let selected_slides = brief_params.as_deref().and_then(parse_slide_selection);
+    if let Some(ref params) = brief_params {
+        info!("CommandBrief params detected: {} bytes", params.len());
+        if let Some(ref slides) = selected_slides {
+            info!("User selected specific slides: {:?}", slides);
+        }
+    }
     if cabinet_id == "media-analyst" && is_analytics {
         let slides_json_path = work_dir.join("preprocessed").join("slides.json");
         if slides_json_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&slides_json_path) {
                 if let Ok(slides) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
-                    let data_count = slides.iter().filter(|s| s["type"] == "data").count();
+                    // Count data slides AFTER applying user's slide selection filter
+                    let data_count = slides.iter()
+                        .filter(|s| s["type"] == "data")
+                        .filter(|s| {
+                            match &selected_slides {
+                                Some(nums) => s["slide_num"].as_u64()
+                                    .map(|n| nums.contains(&(n as u32)))
+                                    .unwrap_or(false),
+                                None => true,
+                            }
+                        })
+                        .count();
                     if data_count > 15 {
                         info!("Large PPTX detected: {data_count} data slides → multi-phase pipeline");
                         let overview = commands::pptx_processor::generate_overview(&slides);
                         let preprocessed_dir = work_dir.join("preprocessed");
                         // 80KB per chunk — prompt piped via temp file, no cmd line limit
-                                match commands::pptx_processor::split_into_chunks(&slides, &preprocessed_dir, 80_000, None) {
+                                match commands::pptx_processor::split_into_chunks(&slides, &preprocessed_dir, 80_000, selected_slides.as_deref()) {
                             Ok(chunk_split) => {
                                 let pipeline_result = run_analytics_pipeline(
                                     &work_dir, &overview, &chunk_split,
+                                    brief_params.as_deref(),
+                                    None, // analytics_context disabled: overwhelms Claude, causes format switch
                                     app_handle.clone(), &cabinet_id,
                                     state.active_pids.clone(),
                                     &state,
@@ -677,15 +960,77 @@ async fn send_message(
         }
     }
 
-    // Use --resume with stored session ID for conversation continuity
-    let resume_session_id = state.session_manager.get_claude_session_id(&cabinet_id);
-    let is_continuation = state.session_manager.should_continue(&cabinet_id);
+    // --resume only for free chat, never for slash-commands (already cleared above)
+    let resume_session_id = if is_slash_command {
+        None
+    } else {
+        state.session_manager.get_claude_session_id(&cabinet_id)
+    };
+    let is_continuation = !is_slash_command && state.session_manager.should_continue(&cabinet_id);
     debug!("Claude session resume_id={}, continuation={is_continuation}, work_dir={}",
         resume_session_id.as_deref().unwrap_or("none"), work_dir.display());
+
+    // Resolve slash-command: read .md file and substitute $ARGUMENTS inline
+    // Claude CLI --print mode may not process slash-commands from .claude/commands/
+    let resolved_message = resolve_slash_command(&message, &work_dir);
+
+    // Aurora Index context: full inject only for /aurora-index, skip for other commands
+    // (full analytics context overwhelms /analytics and causes Claude to switch to diagnostic format)
+    let is_aurora_index = message.trim().starts_with("/aurora-index");
+    let _is_check = message.trim().starts_with("/check");
+    let final_message = if is_aurora_index {
+        // Aurora Index: inject both analytics context AND slides.json
+        let slides_json_path = work_dir.join("preprocessed").join("slides.json");
+        let mut parts = Vec::new();
+        if let Some(ref ctx) = analytics_context {
+            parts.push(ctx.clone());
+        }
+        if slides_json_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&slides_json_path) {
+                info!("Injecting slides.json ({} bytes) into aurora-index message", content.len());
+                parts.push(format!(
+                    "[СЛАЙДЫ ПРЕЗЕНТАЦИИ — preprocessed/slides.json]\n{}\n[/СЛАЙДЫ ПРЕЗЕНТАЦИИ]\n\nДанные уже предоставлены выше. НЕ читать PPTX файлы из inbox напрямую.",
+                    content
+                ));
+            }
+        }
+        if parts.is_empty() {
+            resolved_message
+        } else {
+            parts.push(resolved_message);
+            parts.join("\n\n")
+        }
+    } else if cabinet_id == "media-analyst" && is_slash_command {
+        // Inject slides.json for ALL media-analyst slash commands (not just /analytics).
+        // All commands need presentation data: /benchmark, /bridges, /action-title, etc.
+        let slides_json_path = work_dir.join("preprocessed").join("slides.json");
+        if slides_json_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&slides_json_path) {
+                info!("Injecting slides.json ({} bytes) into message for {}", content.len(), cabinet_id);
+                format!(
+                    "[СЛАЙДЫ ПРЕЗЕНТАЦИИ — preprocessed/slides.json]\n{}\n[/СЛАЙДЫ ПРЕЗЕНТАЦИИ]\n\nДанные уже предоставлены выше. НЕ читать PPTX файлы из inbox напрямую.\n\n{}",
+                    content,
+                    resolved_message
+                )
+            } else {
+                resolved_message
+            }
+        } else {
+            resolved_message
+        }
+    } else {
+        resolved_message
+    };
+
+    // Load user model preference
+    let user_model = app_handle.path().app_config_dir().ok()
+        .map(|d| user_config::load(&d).model)
+        .unwrap_or(None);
 
     let max_retries = 2u32;
     let mut attempt = 0u32;
     let mut use_resume = resume_session_id.clone();
+    #[allow(unused_assignments)]
     let mut last_response_text = String::new();
     loop {
         // On retry, don't use --resume (start fresh)
@@ -693,12 +1038,13 @@ async fn send_message(
 
         let result = claude::run_claude(
             &work_dir,
-            &message,
+            &final_message,
             app_handle.clone(),
             cabinet_id.clone(),
             resume_for_attempt,
             state.active_pids.clone(),
             suppress_export.unwrap_or(false) || message.trim().starts_with('/'),
+            user_model.clone(),
         ).await;
 
         match result {
@@ -1024,8 +1370,12 @@ fn show_inbox_in_folder(cabinet_id: String, filename: String, app_handle: tauri:
 }
 
 #[tauri::command]
-fn get_cabinet_commands(cabinet_id: String) -> Vec<cabinet::CabinetCommand> {
-    cabinet::get_commands_for_cabinet(&cabinet_id)
+fn get_cabinet_commands(cabinet_id: String, state: tauri::State<'_, Arc<AppState>>, app_handle: tauri::AppHandle) -> Vec<cabinet::CabinetCommand> {
+    let packs_ok = state.content_packs_verified.load(Ordering::Acquire);
+    match app_handle.path().app_local_data_dir() {
+        Ok(dir) if packs_ok => cabinet::get_commands_dynamic(&dir, &cabinet_id),
+        _ => cabinet::get_commands_for_cabinet(&cabinet_id),
+    }
 }
 
 #[tauri::command]
@@ -1071,11 +1421,10 @@ fn show_export_in_folder(cabinet_id: String, filename: String, app_handle: tauri
     }
 
     info!("Show in folder: {}", file_path.display());
-    // explorer /select requires the full path without extra escaping.
-    // Use cmd /C with the full command string to handle Cyrillic/spaces correctly.
-    let select_path = file_path.to_string_lossy();
-    std::process::Command::new("cmd")
-        .args(["/C", &format!("explorer /select,\"{}\"", select_path)])
+    // Use explorer.exe directly (not via cmd /C) to handle Cyrillic paths correctly
+    std::process::Command::new("explorer")
+        .arg("/select,")
+        .arg(&file_path)
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -1118,6 +1467,28 @@ fn load_chat_history(cabinet_id: String) -> Result<Vec<session::history::ChatHis
 #[tauri::command]
 fn clear_chat_history(cabinet_id: String) -> Result<(), String> {
     session::history::clear_history(&cabinet_id).map_err(|e| e.to_string())
+}
+
+/// Clear inbox and exports files in the persistent workspace (clean start).
+/// Files on Desktop are removed from the UI — user can re-add them.
+#[tauri::command]
+fn clear_workspace_files(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    cabinet::validate_cabinet_id(&cabinet_id)?;
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let workspace = user_config::get_cabinet_workspace(&config_dir, &cabinet_id)?;
+
+    for dir_name in &["inbox", "exports"] {
+        let dir = workspace.join(dir_name);
+        if dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+    info!("Workspace cleaned for {cabinet_id}: inbox + exports");
+    Ok(())
 }
 
 /// Preprocess a PPTX file: extract text + chart data → slides.json + styles.json.
@@ -1213,6 +1584,16 @@ fn pptx_postprocess(
 
 #[tauri::command]
 fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    // 1. Try content pack help first
+    if let Ok(local_data_dir) = app_handle.path().app_local_data_dir() {
+        if let Some(path) = content_pack::help_file_path(&local_data_dir, &cabinet_id) {
+            let path_str = path.to_string_lossy().to_string();
+            return tauri_plugin_opener::open_path(&path_str, None::<&str>)
+                .map_err(|e| e.to_string());
+        }
+    }
+
+    // 2. Fallback to bundled resource
     let resource_path = app_handle
         .path()
         .resource_dir()
@@ -1253,6 +1634,73 @@ fn open_user_guide(app_handle: tauri::AppHandle) -> Result<(), String> {
 
     let path_str = path.to_string_lossy().to_string();
     tauri_plugin_opener::open_path(&path_str, None::<&str>).map_err(|e| e.to_string())
+}
+
+// ============== Content Pack IPC ==============
+
+#[tauri::command]
+fn get_content_pack(pack_name: String, app_handle: tauri::AppHandle) -> Result<String, String> {
+    // Validate filename
+    if pack_name.contains("..") || pack_name.contains('/') || pack_name.contains('\\') {
+        return Err(format!("Invalid pack name: {}", pack_name));
+    }
+
+    let local_data_dir = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    match content_pack::load_pack_file(&local_data_dir, &pack_name) {
+        Ok(data) => Ok(data),
+        Err(_e) => {
+            // Fallback: try bundled resources (content-packs shipped with installer)
+            if let Ok(resource_dir) = app_handle.path().resource_dir() {
+                // Tauri bundles "../content-packs/*" as "_up_/content-packs/*"
+                let bundled = resource_dir.join("_up_").join("content-packs").join(&pack_name);
+                if bundled.exists() {
+                    info!("Loading content pack from bundled resources: {}", bundled.display());
+                    return std::fs::read_to_string(&bundled).map_err(|e| e.to_string());
+                }
+                // Also try flat (in case resources path was changed)
+                let flat = resource_dir.join(&pack_name);
+                if flat.exists() {
+                    info!("Loading content pack from bundled resources: {}", flat.display());
+                    return std::fs::read_to_string(&flat).map_err(|e| e.to_string());
+                }
+            }
+
+            // Dev fallback: try reading from project's content-packs/ directory
+            #[cfg(debug_assertions)]
+            {
+                let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .join("content-packs")
+                    .join(&pack_name);
+                if dev_path.exists() {
+                    info!("[DEV] Loading content pack from project: {}", dev_path.display());
+                    return std::fs::read_to_string(&dev_path).map_err(|e| e.to_string());
+                }
+            }
+            Err(_e.to_string())
+        }
+    }
+}
+
+// ── Dependency management ──────────────────────────────────
+
+#[tauri::command]
+fn check_pptx_dependencies() -> commands::pptx_processor::DependencyStatus {
+    commands::pptx_processor::check_dependencies()
+}
+
+#[tauri::command]
+fn install_pptx_dependencies(packages: Vec<String>) -> Result<String, String> {
+    commands::pptx_processor::install_packages(&packages)
+        .map(|n| format!("Установлено пакетов: {n}"))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn verify_content_packs_status(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let local_data_dir = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    content_pack::verify_content_packs(&local_data_dir).map_err(|e| e.to_string())
 }
 
 // ============== File Preview ==============
@@ -1442,6 +1890,27 @@ fn reset_cabinet_path(cabinet_id: String, app_handle: tauri::AppHandle) -> Resul
     Ok(default.to_string_lossy().to_string())
 }
 
+// ============== Model Settings Commands ==============
+
+#[tauri::command]
+fn get_model_settings(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config = user_config::load(&config_dir);
+    Ok(serde_json::json!({
+        "model": config.model.unwrap_or_else(|| "sonnet".to_string()),
+        "effort": config.model_effort.unwrap_or_else(|| "high".to_string()),
+    }))
+}
+
+#[tauri::command]
+fn set_model_settings(model: String, effort: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    config.model = if model == "sonnet" { None } else { Some(model) };
+    config.model_effort = if effort == "high" { None } else { Some(effort) };
+    user_config::save(&config_dir, &config)
+}
+
 // ============== Metrics Commands ==============
 
 #[tauri::command]
@@ -1494,17 +1963,24 @@ fn list_vault_status(app_handle: tauri::AppHandle) -> Result<Vec<(String, String
 // ============== Logs & Updates ==============
 
 #[tauri::command]
-fn export_logs() -> Result<String, String> {
-    let app_data = std::env::var("APPDATA").map_err(|_| "APPDATA environment variable is not set".to_string())?;
-    let log_dir = std::path::PathBuf::from(&app_data)
-        .join("com.rosst.ai-agency")
-        .join("logs");
+fn export_logs(app_handle: &tauri::AppHandle) -> Result<String, String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let log_dir = config_dir.join("logs");
+    // Fallback: try %LOCALAPPDATA%/<identifier>/logs/
+    if !log_dir.exists() {
+        if let Ok(local_dir) = app_handle.path().app_local_data_dir() {
+            let alt = local_dir.join("logs");
+            if alt.exists() {
+                return Ok(alt.to_string_lossy().to_string());
+            }
+        }
+    }
     Ok(log_dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-fn open_logs_folder() -> Result<(), String> {
-    let path = export_logs()?;
+fn open_logs_folder(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let path = export_logs(&app_handle)?;
     let log_path = std::path::Path::new(&path);
     if !log_path.exists() {
         let _ = std::fs::create_dir_all(log_path);
@@ -1520,6 +1996,41 @@ fn open_logs_folder() -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn export_diagnostics(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let config = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let data = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let local = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?;
+
+    let report = commands::diagnostics::collect_report(&config, &data, &local);
+
+    // Save to Desktop (Tauri resolver → USERPROFILE fallback → config dir)
+    let desktop = app_handle.path().desktop_dir()
+        .or_else(|_| std::env::var("USERPROFILE")
+            .map(|p| std::path::PathBuf::from(p).join("Desktop"))
+            .map_err(|e| tauri::Error::Anyhow(e.into())))
+        .unwrap_or_else(|_| config.clone());
+
+    let now = chrono::Local::now();
+    let filename = format!("Aurora_Diagnostics_{}.txt", now.format("%Y-%m-%d_%H%M%S"));
+    let filepath = desktop.join(&filename);
+
+    std::fs::write(&filepath, &report).map_err(|e| format!("Failed to write: {e}"))?;
+
+    // Also save a copy to the logs folder (accessible via "Open Logs Folder")
+    let logs_dir = export_logs(&app_handle).unwrap_or_default();
+    if !logs_dir.is_empty() {
+        let logs_path = std::path::Path::new(&logs_dir);
+        let _ = std::fs::create_dir_all(logs_path);
+        let _ = std::fs::write(logs_path.join(&filename), &report);
+    }
+
+    info!("Diagnostics exported: {}", filepath.display());
+    metrics::audit::log_event("export_diagnostics", &filepath.to_string_lossy(), true);
+
+    Ok(filepath.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -1551,6 +2062,190 @@ async fn download_update(url: String, checksum: String, app: tauri::AppHandle) -
 #[tauri::command]
 fn apply_update(installer_path: String) -> Result<(), String> {
     updater::apply_update(std::path::Path::new(&installer_path))
+        .map_err(|e| e.to_string())
+}
+
+// ============== Frontend Externalization (Phase 3) ==============
+
+/// Handle requests to the custom aurora:// protocol.
+///
+/// Serves files from the active external frontend directory in %LOCALAPPDATA%.
+/// Falls back to the embedded fallback page if the directory is missing.
+///
+/// Security: rejects ".." path traversal and symlinks outside the frontend dir.
+fn handle_aurora_protocol(
+    app: &tauri::AppHandle,
+    request: tauri::http::Request<Vec<u8>>,
+) -> tauri::http::Response<Vec<u8>> {
+    use tauri::http::Response;
+
+    // aurora://localhost/some/path → "some/path"
+    let uri = request.uri().to_string();
+    let raw_path = uri
+        .strip_prefix("aurora://localhost/")
+        .or_else(|| uri.strip_prefix("aurora://localhost"))
+        .unwrap_or("")
+        .trim_start_matches('/');
+
+    let path = if raw_path.is_empty() || raw_path == "/" { "index.html" } else { raw_path };
+
+    // Block path traversal
+    if path.contains("..") {
+        return Response::builder()
+            .status(403)
+            .header("Content-Type", "text/plain")
+            .body(b"Forbidden".to_vec())
+            .unwrap_or_default();
+    }
+
+    let data_dir = match app.path().app_local_data_dir() {
+        Ok(d) => d,
+        Err(_) => return serve_aurora_fallback(),
+    };
+
+    let version_file = data_dir.join("current_frontend_version.txt");
+    let version = match std::fs::read_to_string(&version_file) {
+        Ok(v) => v.trim().to_string(),
+        Err(_) => return serve_aurora_fallback(),
+    };
+    if version.is_empty() {
+        return serve_aurora_fallback();
+    }
+
+    let frontend_dir = data_dir.join(format!("frontend-{}", version));
+    let file_path = frontend_dir.join(path);
+
+    // Symlink protection: resolved path must stay inside frontend_dir
+    if let (Ok(canonical), Ok(canonical_dir)) = (file_path.canonicalize(), frontend_dir.canonicalize()) {
+        if !canonical.starts_with(&canonical_dir) {
+            return Response::builder()
+                .status(403)
+                .header("Content-Type", "text/plain")
+                .body(b"Path outside frontend directory".to_vec())
+                .unwrap_or_default();
+        }
+    }
+
+    if !file_path.exists() {
+        // SPA fallback: serve index.html for unknown routes (client-side routing)
+        let index = frontend_dir.join("index.html");
+        if index.exists() {
+            if let Ok(content) = std::fs::read(&index) {
+                return Response::builder()
+                    .status(200)
+                    .header("Content-Type", "text/html; charset=utf-8")
+                    .body(content)
+                    .unwrap_or_default();
+            }
+        }
+        return Response::builder()
+            .status(404)
+            .header("Content-Type", "text/plain")
+            .body(format!("Not found: {path}").into_bytes())
+            .unwrap_or_default();
+    }
+
+    let content = match std::fs::read(&file_path) {
+        Ok(c) => c,
+        Err(e) => return Response::builder()
+            .status(500)
+            .header("Content-Type", "text/plain")
+            .body(format!("Read error: {e}").into_bytes())
+            .unwrap_or_default(),
+    };
+
+    let mime = match path.rsplit('.').next() {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") | Some("mjs") => "application/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("svg") => "image/svg+xml",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        _ => "application/octet-stream",
+    };
+
+    Response::builder()
+        .status(200)
+        .header("Content-Type", mime)
+        .body(content)
+        .unwrap_or_default()
+}
+
+/// Serve the embedded fallback HTML (included at compile time).
+fn serve_aurora_fallback() -> tauri::http::Response<Vec<u8>> {
+    let html = include_str!("fallback.html");
+    tauri::http::Response::builder()
+        .status(200)
+        .header("Content-Type", "text/html; charset=utf-8")
+        .body(html.as_bytes().to_vec())
+        .unwrap_or_default()
+}
+
+/// Returns true if a valid (signature-verified) external frontend exists in app_local_data_dir.
+fn has_verified_external_frontend(data_dir: &std::path::Path) -> bool {
+    let version_file = data_dir.join("current_frontend_version.txt");
+    let version = match std::fs::read_to_string(&version_file) {
+        Ok(v) => v.trim().to_string(),
+        Err(_) => return false,
+    };
+    if version.is_empty() { return false; }
+
+    let frontend_dir = data_dir.join(format!("frontend-{}", version));
+    match crypto::content_sig::verify_manifest(&frontend_dir) {
+        Ok(_) => {
+            info!("External frontend verified: {}", version);
+            true
+        }
+        Err(e) => {
+            warn!("External frontend verification failed (using embedded): {e}");
+            false
+        }
+    }
+}
+
+/// Delete old frontend-vN directories (all versions older than the current one).
+/// Called at startup to reclaim disk space.
+fn cleanup_old_frontend_dirs(data_dir: &std::path::Path) {
+    let version_file = data_dir.join("current_frontend_version.txt");
+    let current = match std::fs::read_to_string(&version_file) {
+        Ok(v) => v.trim().to_string(),
+        Err(_) => return,
+    };
+    let current_n = current.trim_start_matches('v').parse::<u32>().unwrap_or(0);
+    if current_n == 0 { return; }
+
+    if let Ok(entries) = std::fs::read_dir(data_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if let Some(ver_str) = name.strip_prefix("frontend-v") {
+                // Also skip staging dirs (contain a '-')
+                if ver_str.contains('-') { continue; }
+                if let Ok(n) = ver_str.parse::<u32>() {
+                    if n < current_n {
+                        match std::fs::remove_dir_all(entry.path()) {
+                            Ok(_) => info!("Removed old frontend dir: {}", name),
+                            Err(e) => warn!("Failed to remove old frontend dir {}: {e}", name),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// IPC command: download and install the latest frontend bundle from the server.
+/// Called from the fallback page when external frontend is missing or corrupted.
+#[tauri::command]
+async fn repair_frontend(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let data_dir = app_handle.path().app_local_data_dir().map_err(|e| e.to_string())?;
+    let product = online_auth::detect_product();
+    content_updater::download_frontend_bundle(&data_dir, product, &app_handle)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -1897,6 +2592,9 @@ fn execute_workflow_steps(
 
                     // run_claude: resume_session_id = should_continue session id
                     let resume = state.session_manager.get_claude_session_id(cabinet_id);
+                    let wf_model = app.path().app_config_dir().ok()
+                        .map(|d| user_config::load(&d).model)
+                        .unwrap_or(None);
                     let claude_result = claude::run_claude(
                         &work_dir,
                         &msg,
@@ -1905,6 +2603,7 @@ fn execute_workflow_steps(
                         resume,
                         state.active_pids.clone(),
                         false,
+                        wf_model,
                     )
                     .await;
                     if let Err(e) = claude_result {
@@ -2056,14 +2755,6 @@ static RAG_PROCESS: std::sync::OnceLock<Mutex<Option<std::process::Child>>> =
 static PARSER_PROCESS: std::sync::OnceLock<Mutex<Option<std::process::Child>>> =
     std::sync::OnceLock::new();
 
-// Econometrica sidecar lifecycle is managed by econ_sidecar.rs module.
-// start/stop called from build_app() setup hook and on_window_event respectively.
-
-#[tauri::command]
-async fn econ_sidecar_wait_ready() -> bool {
-    econ_sidecar::wait_for_sidecar_ready().await
-}
-
 fn start_rag_server() {
     let rag_dir = if cfg!(debug_assertions) {
         std::env::var("CARGO_MANIFEST_DIR")
@@ -2187,6 +2878,7 @@ fn clear_webview_cache() {
         "com.rosst.legal",
         "com.rosst.media",
         "com.aurora.creative-hub",
+        "com.aurora.analytics-hub",
     ];
 
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
@@ -2211,6 +2903,7 @@ fn build_app() -> Result<(), String> {
         session_manager,
         active_pids: Arc::new(Mutex::new(HashMap::new())),
         workflow_executions: Arc::new(Mutex::new(HashMap::new())),
+        content_packs_verified: Arc::new(AtomicBool::new(false)),
     });
 
     tauri::Builder::default()
@@ -2224,15 +2917,61 @@ fn build_app() -> Result<(), String> {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .manage(state.clone())
+        // Phase 3: Custom protocol for external frontend
+        .register_uri_scheme_protocol("aurora", |ctx, req| handle_aurora_protocol(ctx.app_handle(), req))
         .setup(|app| {
-            // Start Econometrica Python sidecar on app launch
-            if commands::online_auth::is_econometrica() {
-                let app_handle = app.handle().clone();
-                econ_sidecar::start_sidecar(&app_handle);
+            let local_data_dir = app.path().app_local_data_dir().ok();
+
+            // One-time migration: content_version.txt → vault-versions.json
+            if let (Some(config_dir), Some(data_dir)) = (
+                app.path().app_config_dir().ok(),
+                app.path().app_data_dir().ok(),
+            ) {
+                if let Err(e) = commands::content_updater::migrate_from_legacy(&config_dir, &data_dir) {
+                    warn!("vault-versions migration failed: {e}");
+                }
             }
+
+            // Content pack verification — result stored in AppState for dynamic loaders
+            if let Some(ref ldd) = local_data_dir {
+                let packs_ok = match commands::content_pack::verify_content_packs(ldd) {
+                    Ok(true) => { info!("Content packs verified at startup"); true }
+                    Ok(false) => { info!("No content packs at startup — using hardcoded fallback"); false }
+                    Err(e) => { warn!("Content pack integrity check FAILED at startup: {e}"); false }
+                };
+                // Propagate to AppState so dynamic loaders can check without re-verifying
+                if let Some(s) = app.try_state::<Arc<AppState>>() {
+                    s.content_packs_verified.store(packs_ok, Ordering::Release);
+                }
+                // Cleanup stale old frontend versions on startup
+                cleanup_old_frontend_dirs(ldd);
+            }
+
+            // Determine window URL: verified external frontend or embedded fallback
+            let use_external = local_data_dir.as_ref()
+                .map(|d| has_verified_external_frontend(d))
+                .unwrap_or(false);
+
+            let url = if use_external {
+                info!("Loading external frontend via aurora:// protocol");
+                tauri::WebviewUrl::CustomProtocol(
+                    tauri::Url::parse("aurora://localhost/").expect("valid aurora URL")
+                )
+            } else {
+                info!("Loading embedded frontend (no verified external frontend)");
+                tauri::WebviewUrl::App("index.html".into())
+            };
+
+            tauri::WebviewWindowBuilder::new(app, "main", url)
+                .title("Aurora AI Analytics Hub")
+                .inner_size(1280.0, 820.0)
+                .min_inner_size(900.0, 600.0)
+                .center()
+                .build()?;
+
             Ok(())
         })
+        .manage(state.clone())
         .invoke_handler(tauri::generate_handler![
             get_cabinets,
             get_license_status,
@@ -2262,6 +3001,10 @@ fn build_app() -> Result<(), String> {
             delete_export_file,
             open_help,
             open_user_guide,
+            get_content_pack,
+            check_pptx_dependencies,
+            install_pptx_dependencies,
+            verify_content_packs_status,
             preview_export_file,
             cancel_claude,
             pptx_preprocess,
@@ -2269,6 +3012,7 @@ fn build_app() -> Result<(), String> {
             save_chat_message,
             load_chat_history,
             clear_chat_history,
+            clear_workspace_files,
             get_usage_metrics,
             reset_metrics,
             rate_response,
@@ -2278,9 +3022,12 @@ fn build_app() -> Result<(), String> {
             get_cabinet_path,
             set_cabinet_path,
             reset_cabinet_path,
+            get_model_settings,
+            set_model_settings,
             list_vault_status,
-            export_logs,
+            // export_logs removed — now internal helper, open_logs_folder uses it
             open_logs_folder,
+            export_diagnostics,
             check_update,
             check_server_update,
             download_update,
@@ -2330,36 +3077,8 @@ fn build_app() -> Result<(), String> {
             // Product type + default brand for frontend
             get_product_type,
             ensure_default_brand,
-            // Econometrica: project management
-            commands::project::project_list,
-            commands::project::project_create,
-            commands::project::project_get,
-            commands::project::project_update,
-            commands::project::project_delete,
-            commands::project::project_upload_data,
-            commands::project::project_get_dir,
-            commands::project::project_activate,
-            commands::project::project_get_active,
-            commands::project::project_stats,
-            // Econometrica: sidecar lifecycle + compute proxy
-            econ_sidecar_wait_ready,
-            commands::econometrica::econ_health,
-            commands::econometrica::econ_validate,
-            commands::econometrica::econ_train,
-            commands::econometrica::econ_train_start,
-            commands::econometrica::econ_train_progress,
-            commands::econometrica::econ_train_result,
-            commands::econometrica::econ_decompose,
-            commands::econometrica::econ_optimize,
-            commands::econometrica::econ_scenario,
-            commands::econometrica::econ_compare,
-            commands::econometrica::econ_awareness_forecast,
-            commands::econometrica::econ_awareness_sales,
-            commands::econometrica::econ_chart,
-            commands::econometrica::econ_data_preview,
-            commands::report::econ_generate_report,
-            commands::report::econ_export_xlsx,
-            commands::report::econ_open_exports,
+            // Phase 3: frontend repair from fallback page
+            repair_frontend,
         ])
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::Destroyed = event {
@@ -2368,7 +3087,6 @@ fn build_app() -> Result<(), String> {
                 // Idempotent shutdown — safe to call even if never started
                 stop_rag_server();
                 stop_parser_server();
-                econ_sidecar::stop_sidecar();
             }
         })
         .run(tauri::generate_context!())
@@ -2377,6 +3095,13 @@ fn build_app() -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Record app start time for diagnostics uptime
+    commands::diagnostics::mark_app_start();
+
+    // One-time data migration for identifier rename (ROSST → Aurora AI v0.8.0)
+    let tauri_id = option_env!("TAURI_ENV_IDENTIFIER").unwrap_or("com.aurora.agency");
+    commands::data_migration::migrate_if_needed(tauri_id);
+
     // Fix interrupted pipelines from previous session
     commands::campaign::fix_interrupted_campaigns();
 
@@ -2385,8 +3110,6 @@ pub fn run() {
         start_rag_server();
         start_parser_server();
     }
-
-    // Econometrica sidecar is now started in build_app().setup() with app_handle context.
 
     match build_app() {
         Ok(()) => {}
@@ -2410,7 +3133,7 @@ pub fn run() {
                              3. Обратиться в техподдержку",
                             retry_err
                         );
-                        show_error_dialog("Aurora AI Agency — Ошибка запуска", &msg);
+                        show_error_dialog("Aurora AI Analytics Hub — Ошибка запуска", &msg);
                     }
                 }
             } else {
@@ -2423,8 +3146,68 @@ pub fn run() {
                      3. Обратиться в техподдержку",
                     err_str
                 );
-                show_error_dialog("Aurora AI Agency — Ошибка запуска", &msg);
+                show_error_dialog("Aurora AI Analytics Hub — Ошибка запуска", &msg);
             }
         }
     }
 }
+
+#[cfg(test)]
+mod brief_tests {
+    use super::*;
+
+    #[test]
+    fn extract_params_multiline() {
+        let msg = "/analytics\nСлайды: Все (без перебивок)\nАудитория: CEO, CMO";
+        let params = extract_brief_params(msg);
+        assert!(params.is_some());
+        let p = params.unwrap();
+        assert!(p.contains("Слайды: Все"));
+        assert!(p.contains("Аудитория: CEO, CMO"));
+    }
+
+    #[test]
+    fn extract_params_single_line() {
+        assert_eq!(extract_brief_params("/analytics"), None);
+        assert_eq!(extract_brief_params("/check"), None);
+    }
+
+    #[test]
+    fn extract_params_empty_after_command() {
+        assert_eq!(extract_brief_params("/analytics\n\n"), None);
+    }
+
+    #[test]
+    fn parse_slides_specific_range() {
+        let params = "Слайды: Конкретные: 3, 7-10, 15\nАудитория: CEO";
+        let result = parse_slide_selection(params);
+        assert_eq!(result, Some(vec![3, 7, 8, 9, 10, 15]));
+    }
+
+    #[test]
+    fn parse_slides_en_dash() {
+        let params = "Слайды: Конкретные: 3, 7–10";
+        let result = parse_slide_selection(params);
+        assert_eq!(result, Some(vec![3, 7, 8, 9, 10]));
+    }
+
+    #[test]
+    fn parse_slides_all() {
+        let params = "Слайды: Все (без перебивок и оглавлений)\nАудитория: CEO";
+        assert_eq!(parse_slide_selection(params), None);
+    }
+
+    #[test]
+    fn parse_slides_no_param() {
+        let params = "Аудитория: CEO, CMO\nДополнительно: Фокус на digital";
+        assert_eq!(parse_slide_selection(params), None);
+    }
+
+    #[test]
+    fn parse_slides_single() {
+        let params = "Слайды: Конкретные: 5";
+        assert_eq!(parse_slide_selection(params), Some(vec![5]));
+    }
+}
+// rebuild
+// icon refresh

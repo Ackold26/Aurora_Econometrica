@@ -27,7 +27,7 @@ obfstr = "0.4"
 aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
-ed25519-dalek = { version = "2", features = ["serde"] }
+ed25519-dalek = { version = "2", features = ["serde", "rand_core"] }
 rand = "0.8"
 
 # Utils
