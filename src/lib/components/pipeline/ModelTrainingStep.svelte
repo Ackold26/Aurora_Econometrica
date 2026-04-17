@@ -160,9 +160,8 @@
     padding: 20px;
     height: 100%;
     box-sizing: border-box;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
+    overflow-y: visible;
+    overflow-x: visible;
   }
 
   .config-area {

@@ -307,6 +307,8 @@
     color: var(--text-primary, #e2e8f0);
     font-size: 13px;
     outline: none;
+    position: relative;
+    z-index: 10;
   }
 
   .config-select:focus, .config-select-sm:focus {
