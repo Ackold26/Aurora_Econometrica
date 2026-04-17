@@ -1615,16 +1615,16 @@ fn open_user_guide(app_handle: tauri::AppHandle) -> Result<(), String> {
         .path()
         .resource_dir()
         .map_err(|e| e.to_string())?
-        .join("help")
-        .join("user-guide.html");
+        .join("help-econometrica")
+        .join("index.html");
 
-    // In dev mode resource_dir points to target/debug, so fall back to src-tauri/help/
+    // In dev mode resource_dir points to target/debug, so fall back to src-tauri/help-econometrica/
     let path = if resource_path.exists() {
         resource_path
     } else {
         let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("help")
-            .join("user-guide.html");
+            .join("help-econometrica")
+            .join("index.html");
         if dev_path.exists() {
             dev_path
         } else {
@@ -2963,7 +2963,7 @@ fn build_app() -> Result<(), String> {
             };
 
             tauri::WebviewWindowBuilder::new(app, "main", url)
-                .title("Aurora AI Analytics Hub")
+                .title("Aurora AI Econometrica")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(900.0, 600.0)
                 .center()

@@ -3,7 +3,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { theme, toggleTheme } from '$lib/store.js';
   import { productType } from '$lib/creative-store.js';
-  import { getProductName } from '$lib/command-meta.js';
+  import { getProductName, filterCabinetsByProduct } from '$lib/command-meta.js';
   import { getVersion } from '@tauri-apps/api/app';
 
   let APP_VERSION = $state('...');
@@ -22,6 +22,8 @@
   let usageMetrics = $state(null);
   /** @type {Array<[string, string, boolean]>} */
   let vaultStatus = $state([]);
+  let diagExporting = $state(false);
+  let diagPath = $state('');
   /** @type {{status: string, content_version: string|null, expires_at: string|null, machine_id: string}|null} */
   let onlineStatus = $state(null);
   let contentVersion = $state('');
@@ -89,7 +91,11 @@
 
   async function loadVaultStatus() {
     try {
-      vaultStatus = await invoke('list_vault_status');
+      const all = /** @type {Array<[string, string, boolean]>} */ (await invoke('list_vault_status'));
+      const allCabs = /** @type {any[]} */ (await invoke('get_cabinets'));
+      const filtered = filterCabinetsByProduct(allCabs, $productType);
+      const allowedIds = new Set(filtered.map(c => c.id));
+      vaultStatus = all.filter(([cabId]) => allowedIds.has(cabId));
     } catch { vaultStatus = []; }
   }
 
@@ -126,7 +132,8 @@
 
   async function loadCabinetPaths() {
     try {
-      cabinets = await invoke('get_cabinets');
+      const allCabs = /** @type {any[]} */ (await invoke('get_cabinets'));
+      cabinets = filterCabinetsByProduct(allCabs, $productType);
       /** @type {Record<string, string>} */
       const paths = {};
       for (const cab of cabinets) {
@@ -212,6 +219,10 @@
   </header>
 
   <main class="content">
+    <div class="settings-logo">
+      <img src="/logo-full.png" alt="Aurora AI" class="settings-logo-img" />
+      <span class="settings-logo-subtitle">Econometrica</span>
+    </div>
     <button class="btn-platform" onclick={async () => { try { await invoke('open_help', { cabinetId: 'about' }); } catch { /* */ } }}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -225,12 +236,12 @@
         <span class="theme-label">Тема оформления</span>
         <button class="theme-toggle" onclick={toggleTheme}>
           {#if $theme === 'dark'}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
             </svg>
             <span>Тёмная</span>
-          {:else}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          {:else if $theme === 'light'}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
               <circle cx="12" cy="12" r="5"/>
               <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
               <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
@@ -238,6 +249,14 @@
               <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
             </svg>
             <span>Светлая</span>
+          {:else}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-width="2">
+              <path d="M2 19 A10 10 0 0 1 22 19" stroke="#e74c3c"/>
+              <path d="M4.5 19 A7.5 7.5 0 0 1 19.5 19" stroke="#f39c12"/>
+              <path d="M7 19 A5 5 0 0 1 17 19" stroke="#2ecc71"/>
+              <path d="M9.5 19 A2.5 2.5 0 0 1 14.5 19" stroke="#3498db"/>
+            </svg>
+            <span>Весёлая</span>
           {/if}
         </button>
       </div>
@@ -465,15 +484,13 @@
             <span class="metric-label">Ср. время ответа</span>
           </div>
         </div>
-        {#if usageMetrics.cabinets_used?.length > 0}
-          <p class="metric-detail">Кабинеты: {usageMetrics.cabinets_used.join(', ')}</p>
-        {/if}
         {#if usageMetrics.first_use}
           <p class="metric-detail">Используется с {usageMetrics.first_use.split('T')[0]}</p>
         {/if}
         {#if usageMetrics.command_counts && Object.keys(usageMetrics.command_counts).length > 0}
-          {@const entries = Object.entries(usageMetrics.command_counts).sort((a, b) => b[1] - a[1]).slice(0, 10)}
-          {@const maxCount = Math.max(...entries.map(e => e[1]))}
+          {@const allowedCmds = ['analytics', 'check', 'action-title', 'executive-summary', 'bridges', 'batch-analytics', 'data-analysis', 'benchmark', 'aurora-index']}
+          {@const entries = Object.entries(usageMetrics.command_counts).filter(([cmd]) => allowedCmds.includes(cmd)).sort((a, b) => b[1] - a[1]).slice(0, 10)}
+          {@const maxCount = entries.length > 0 ? Math.max(...entries.map(e => e[1])) : 1}
           <div class="chart-section">
             <h3 class="chart-title">Использование команд</h3>
             <div class="chart-bars">
@@ -514,19 +531,37 @@
     {/if}
 
     <section class="section">
-      <h2 class="section-title">Логи</h2>
-      <p class="section-desc">Журнал работы приложения. Полезно для диагностики проблем.</p>
-      <button class="btn-logs" onclick={async () => { try { await invoke('open_logs_folder'); } catch(e) { console.error(e); } }}>
-        Открыть папку логов
-      </button>
+      <h2 class="section-title">Логи и диагностика</h2>
+      <p class="section-desc">Журнал работы приложения. При проблемах — экспортируйте отчёт и отправьте в поддержку.</p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn-logs" onclick={async () => { try { await invoke('open_logs_folder'); } catch(e) { console.error(e); } }}>
+          Открыть папку логов
+        </button>
+        <button class="btn-logs" disabled={diagExporting}
+          onclick={async () => {
+            diagExporting = true; diagPath = '';
+            try {
+              diagPath = /** @type {string} */ (await invoke('export_diagnostics'));
+            } catch(e) { diagPath = `Ошибка: ${e}`; }
+            finally { diagExporting = false; }
+          }}>
+          {diagExporting ? 'Экспорт...' : 'Экспорт диагностики'}
+        </button>
+      </div>
+      {#if diagPath}
+        <p class="section-desc" style="margin-top: 8px; font-size: 12px; color: var(--accent-primary);">{diagPath}</p>
+      {/if}
     </section>
 
     <section class="section about-section">
       <div class="app-info">
-        <span class="app-info-name">{getProductName($productType)}</span>
-        <span class="app-info-version">v{APP_VERSION}</span>
+        <img src="/logo-full.png" alt="" class="app-info-logo" />
+        <div>
+          <span class="app-info-name">{getProductName($productType)}</span>
+          <span class="app-info-version">v{APP_VERSION}</span>
+          <p class="about-text copyright">© 2026 А. Сипович · www.sipovich.pro</p>
+        </div>
       </div>
-      <p class="about-text copyright">© 2026 А. Сипович · www.sipovich.pro</p>
     </section>
   </main>
 </div>
@@ -581,6 +616,27 @@
     overflow-y: auto;
     padding: 32px 28px;
     max-width: 580px;
+  }
+
+  .settings-logo {
+    text-align: center;
+    margin-bottom: 16px;
+    padding: 16px 0 0;
+  }
+
+  .settings-logo-img {
+    height: 140px;
+    width: auto;
+  }
+
+  .settings-logo-subtitle {
+    display: block;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    text-transform: uppercase;
   }
 
   .section {
@@ -961,9 +1017,15 @@
 
   .app-info {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin-bottom: 6px;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0;
+  }
+
+  .app-info-logo {
+    height: 50px;
+    width: auto;
+    opacity: 0.85;
   }
 
   .app-info-name {

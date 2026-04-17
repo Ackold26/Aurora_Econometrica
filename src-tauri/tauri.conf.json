@@ -1,55 +1,45 @@
 {
-    "$schema":  "https://schema.tauri.app/config/2",
-    "productName":  "Aurora AI Econometrica",
-    "version":  "1.0.0",
-    "identifier":  "com.aurora.econometrica",
-    "build":  {
-                  "beforeDevCommand":  "npm run dev",
-                  "devUrl":  "http://localhost:1420",
-                  "beforeBuildCommand":  "npm run build",
-                  "frontendDist":  "../build"
-              },
-    "app":  {
-                "windows":  [
-                                {
-                                    "title":  "Aurora AI Econometrica",
-                                    "width":  1280,
-                                    "height":  820,
-                                    "minWidth":  900,
-                                    "minHeight":  600,
-                                    "center":  true,
-                                    "dragDropEnabled":  true
-                                }
-                            ],
-                "security":  {
-                                 "csp":  "default-src \u0027self\u0027; script-src \u0027self\u0027; style-src \u0027self\u0027 \u0027unsafe-inline\u0027; img-src \u0027self\u0027 data:; connect-src \u0027self\u0027 https://ackold26.github.io http://localhost:7430; frame-src \u0027none\u0027; object-src \u0027none\u0027; base-uri \u0027self\u0027"
-                             }
-            },
-    "plugins":  {
-
-                },
-    "bundle":  {
-                   "active":  true,
-                   "targets":  [
-                                   "nsis"
-                               ],
-                   "publisher":  "A. Sipovich",
-                   "copyright":  "© 2026 A. Sipovich",
-                   "icon":  [
-                                "icons/32x32.png",
-                                "icons/128x128.png",
-                                "icons/128x128@2x.png",
-                                "icons/icon.icns",
-                                "icons/icon.ico"
-                            ],
-                   "resources":  [
-                                     "help/*",
-                                     "../sidecar/econometrica/**/*"
-                                 ],
-                   "windows":  {
-                                   "nsis":  {
-                                                "installMode":  "perMachine"
-                                            }
-                               }
-               }
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Aurora AI Econometrica",
+    "version": "1.0.0",
+    "identifier": "com.aurora.econometrica",
+    "build": {
+        "beforeDevCommand": "npm run dev",
+        "devUrl": "http://localhost:1420",
+        "beforeBuildCommand": "npm run build",
+        "frontendDist": "../build"
+    },
+    "app": {
+        "windows": [],
+        "security": {
+            "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://ackold26.github.io http://localhost:7430; frame-src 'none'; object-src 'none'; base-uri 'self'"
+        }
+    },
+    "plugins": {},
+    "bundle": {
+        "active": true,
+        "targets": [
+            "nsis"
+        ],
+        "publisher": "A. Sipovich",
+        "copyright": "© 2026 A. Sipovich",
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/128x128@2x.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ],
+        "resources": [
+            "help-econometrica/*",
+            "../sidecar/econometrica/**/*",
+            "../content-packs/*",
+            "sidecar/pptx_pipeline.py"
+        ],
+        "windows": {
+            "nsis": {
+                "installMode": "perMachine"
+            }
+        }
+    }
 }

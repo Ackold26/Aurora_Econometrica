@@ -2,7 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { activeCabinet, messages, errorMessage, hasCompletedOnboarding, theme, toggleTheme, updateRequired, layoutCabinets, lastCabinetId } from '$lib/store.js';
+  import { activeCabinet, messages, errorMessage, hasCompletedOnboarding, theme, toggleTheme, updateRequired, layoutCabinets, lastCabinetId, licenseError as licenseErrorStore } from '$lib/store.js';
   import { isCreativeHub, activeBrand, brands, refreshBrands, setActiveBrand, productType } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
   import CabinetCard from '$lib/components/CabinetCard.svelte';
@@ -47,9 +47,7 @@
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
   // Cabinets filtered by product type (Legal=3, Creative=5, Agency=all)
   const cabinets = $derived(filterCabinetsByProduct($layoutCabinets, $productType));
-  /** @type {string|null} */
-  let licenseError = $state(null);
-  let loading = $derived($layoutCabinets.length === 0 && !licenseError);
+  let loading = $derived($layoutCabinets.length === 0 && !$licenseErrorStore);
   /** @type {{file: string, current: number, total: number}|null} */
   let vaultProgress = $state(null);
 
@@ -80,6 +78,8 @@
 
   /** @type {string|null} */
   let openError = $state(null);
+  // Plain let (NOT $state) — invisible to Svelte reactivity, prevents $effect re-trigger
+  let autoRedirectInProgress = false;
   /** @type {Array<[string, string, string]>} */
   let recentExports = $state([]);
   /** @type {{cabinetId: string, filename: string}|null} */
@@ -121,6 +121,7 @@
     } catch (err) {
       console.error('open_cabinet error:', err);
       openError = String(err);
+      autoRedirectInProgress = false; // allow retry
     }
   }
 
@@ -164,8 +165,14 @@
     return () => window.removeEventListener('keydown', handleHomeKeydown);
   });
 
-  // lastCabinetId используется для NavRail highlighting, но НЕ для auto-redirect.
-  // Пользователь сам выбирает кабинет при запуске.
+  // Авто-редирект: если кабинет один — сразу открываем его (с guard от повторного срабатывания)
+  $effect(() => {
+    if (cabinets.length === 1 && !loading && $hasCompletedOnboarding && !autoRedirectInProgress) {
+      autoRedirectInProgress = true;
+      openCabinet(cabinets[0]);
+    }
+  });
+
   loadRecentExports();
   checkUpdate();
   // Mandatory update checks are centralized in +layout.svelte (heartbeat + check_update)
@@ -173,15 +180,30 @@
 
 {#if !$hasCompletedOnboarding}
   <OnboardingOverlay />
+{:else if cabinets.length === 1}
+  <div class="home">
+    <div class="state-panel" style="height: 100%; justify-content: center;">
+      {#if openError}
+        <div class="state-icon">⚠️</div>
+        <h2 class="state-title">Не удалось открыть кабинет</h2>
+        <p class="state-desc">{openError}</p>
+        <button class="btn-primary" onclick={() => { openError = null; openCabinet(cabinets[0]); }}>Повторить</button>
+        <a href="/settings" class="btn-primary" style="margin-top: 8px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);">Настройки</a>
+      {:else}
+        <div class="spinner"></div>
+        <p class="state-text" style="margin-top: 16px; opacity: 0.6; font-size: 13px;">Открытие кабинета...</p>
+      {/if}
+    </div>
+  </div>
 {/if}
 
-<div class="home">
+<div class="home" style:display={cabinets.length === 1 && $hasCompletedOnboarding ? 'none' : ''}>
   <!-- ── Top Bar ── -->
   <header class="topbar">
     <div class="topbar-left">
-      <AetherLogo />
+      <img src="/logo-wordmark.png" alt="Aurora AI" class="topbar-logo" />
       <div class="brand">
-        <span class="brand-rosst">{getProductName($productType).toUpperCase()}</span>
+        <span class="brand-rosst">ECONOMETRICA</span>
       </div>
     </div>
     <div class="topbar-center">
@@ -194,16 +216,23 @@
       {/if}
       <button class="nav-link" title="Переключить тему" aria-label="Переключить тему" onclick={toggleTheme}>
         {#if $theme === 'dark'}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
-        {:else}
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        {:else if $theme === 'light'}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <circle cx="12" cy="12" r="5"/>
             <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
             <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
             <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
             <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        {:else}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-width="2">
+            <path d="M2 19 A10 10 0 0 1 22 19" stroke="#e74c3c"/>
+            <path d="M4.5 19 A7.5 7.5 0 0 1 19.5 19" stroke="#f39c12"/>
+            <path d="M7 19 A5 5 0 0 1 17 19" stroke="#2ecc71"/>
+            <path d="M9.5 19 A2.5 2.5 0 0 1 14.5 19" stroke="#3498db"/>
           </svg>
         {/if}
       </button>
@@ -247,6 +276,20 @@
     </div>
   {/if}
 
+  <!-- ── Pipeline CTA (Econometrica only) ── -->
+  <div class="pipeline-cta">
+    <div class="pipeline-cta-content">
+      <span class="pipeline-cta-icon">⚡</span>
+      <div class="pipeline-cta-text">
+        <span class="pipeline-cta-title">Visual Pipeline</span>
+        <span class="pipeline-cta-desc">6-шаговый MMM-анализ с интерактивными графиками</span>
+      </div>
+    </div>
+    <button class="pipeline-cta-btn" onclick={() => goto('/pipeline')}>
+      Открыть Pipeline →
+    </button>
+  </div>
+
   <!-- ── Main Content ── -->
   <main class="main">
     {#if loading}
@@ -261,11 +304,11 @@
       </div>
       <SkeletonCard count={6} height="110px" />
 
-    {:else if licenseError}
+    {:else if $licenseErrorStore}
       <div class="state-panel glass-panel">
         <div class="state-icon">🔒</div>
         <h2 class="state-title">Лицензия не найдена</h2>
-        <p class="state-desc">{licenseError}</p>
+        <p class="state-desc">{$licenseErrorStore}</p>
         <a href="/settings" class="btn-primary">Импортировать лицензию</a>
       </div>
 
@@ -428,6 +471,12 @@
     flex-direction: column;
     gap: 0px;
     line-height: 1;
+  }
+
+  .topbar-logo {
+    height: 31px;
+    width: auto;
+    opacity: 0.9;
   }
 
   .brand-rosst {
@@ -955,4 +1004,37 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
+
+  /* Pipeline CTA */
+  .pipeline-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 20px;
+    background: rgba(59,130,246,0.08);
+    border: 1px solid rgba(59,130,246,0.25);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto 20px;
+  }
+  .pipeline-cta-content { display: flex; align-items: center; gap: 12px; }
+  .pipeline-cta-icon { font-size: 24px; }
+  .pipeline-cta-text { display: flex; flex-direction: column; }
+  .pipeline-cta-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+  .pipeline-cta-desc { font-size: 12px; color: var(--text-muted); }
+  .pipeline-cta-btn {
+    padding: 8px 18px;
+    background: var(--accent, #3b82f6);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .pipeline-cta-btn:hover { background: #2563eb; }
 </style>

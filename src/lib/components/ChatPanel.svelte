@@ -90,7 +90,7 @@
   /** Commands that support auto-continuation */
   const AUTO_CONTINUE_COMMANDS = [
     // media-analyst
-    '/analytics', '/batch-analytics', '/check', '/action-title', '/executive-summary', '/bridges', '/benchmark', '/data-analysis', '/aurora-index',
+    '/analytics', '/batch-analytics', '/check', '/action-title', '/executive-summary', '/bridges', '/benchmark', '/data-analysis',
     // econometrist
     '/mmm-full', '/mmm-prepare', '/mmm-model', '/mmm-decomposition', '/mmm-optimize',
     '/mmm-scenarios', '/mmm-report', '/awareness-forecast', '/awareness-to-sales',
@@ -400,7 +400,7 @@
     // Async setup for stream listeners
     let asyncCleanup = /** @type {(() => void)|undefined} */ (undefined);
     (async () => {
-    await loadHistory();
+    // Clean start moved to +layout.svelte (once on app launch, not on every cabinet open)
 
     // Phase 2.2: загрузка топ-команд для classifier
     // Используем cabinetCommands store (заполняется CommandGrid) — без дублирующего IPC
@@ -1979,9 +1979,16 @@
 
   .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+    background: linear-gradient(90deg, var(--accent-primary), var(--color-info, var(--accent-secondary)), var(--color-completion, var(--accent-secondary)));
+    background-size: 200% 100%;
+    animation: progress-hue 45s linear;
     border-radius: 2px;
     transition: width 0.8s ease;
+  }
+
+  @keyframes progress-hue {
+    0%   { background-position: 0% 50%; }
+    100% { background-position: 100% 50%; }
   }
 
   .progress-label {
@@ -2034,15 +2041,16 @@
     background: var(--bg-surface-focus);
     backdrop-filter: var(--blur-focus);
     -webkit-backdrop-filter: var(--blur-focus);
-    border: 1px solid var(--accent-primary);
+    border: 1px solid var(--color-completion, var(--accent-primary));
     border-radius: 8px;
     margin-top: 4px;
+    animation: glow-pulse 2s ease-in-out 1;
   }
 
   .cc-time {
     font-size: 12px;
     font-weight: 600;
-    color: var(--accent-primary);
+    color: var(--color-completion, var(--accent-primary));
     white-space: nowrap;
     flex-shrink: 0;
   }

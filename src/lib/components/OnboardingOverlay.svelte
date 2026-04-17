@@ -5,24 +5,24 @@
 
   const steps = [
     {
-      title: 'Aurora AI Agency',
-      desc: '11 специализированных кабинетов и более 100 команд — от аналитики и стратегии до креатива, эконометрики и юридической проверки.',
+      title: 'Aurora AI Econometrica',
+      desc: 'Marketing Mix Modeling без программирования. Байесовское моделирование медиаканалов, декомпозиция продаж и оптимизация бюджета — всё в одном интерфейсе.',
+      icon: 'M3 3v18h18 M7 16l4-5 4 3 4-7',
+    },
+    {
+      title: 'Модели и методы',
+      desc: 'PyMC + NUTS sampler для байесовского вывода. Hill function для saturation curves, adstock-преобразования (geometric/Weibull) для моделирования запаздывающего эффекта. Поддержка линейных и нелинейных моделей.',
       icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
     },
     {
-      title: 'Лицензия',
-      desc: 'Для работы нужна лицензия, привязанная к вашему компьютеру. Импортируйте JSON-файл в Настройках или подключитесь к серверу.',
-      icon: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z',
+      title: 'Как начать',
+      desc: 'Загрузите Excel с данными через «Входящие» и запустите команду /mmm-full для полного цикла MMM. Или используйте Visual Pipeline для пошагового анализа: Import → Validate → Model → Decompose → Optimize → Report.',
+      icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
     },
     {
-      title: 'Кабинеты',
-      desc: 'Выберите кабинет на главном экране. Загрузите файлы через «Входящие». В пустом чате появятся советы. Длинные ответы можно сворачивать кнопкой «−».',
-      icon: 'M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z M9 22V12h6v10',
-    },
-    {
-      title: 'Команды',
-      desc: 'Нажмите кнопку команды или введите её в чат. Ищите команды по названию, добавляйте в избранное звёздочкой для быстрого доступа.',
-      icon: 'M16 18l6-6-6-6 M8 6l-6 6 6 6',
+      title: 'Уникальные возможности',
+      desc: 'Drag-to-adjust response curves для интерактивной оптимизации бюджета. Автоматическая валидация данных со светофором качества. XLSX-отчёты с уровнями уверенности для каждого канала.',
+      icon: 'M12 20V10 M18 20V4 M6 20v-4',
     },
   ];
 
@@ -65,7 +65,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="overlay" role="dialog" aria-modal="true" aria-label="Приветственный экран Aurora AI" tabindex="-1" onkeydown={handleKeydown}>
+<div class="overlay" role="dialog" aria-modal="true" aria-label="Приветственный экран Aurora AI Econometrica" tabindex="-1" onkeydown={handleKeydown}>
   <div class="modal">
     <div class="gradient-line"></div>
     {#key step}
