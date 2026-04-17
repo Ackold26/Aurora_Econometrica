@@ -165,13 +165,16 @@
     return () => window.removeEventListener('keydown', handleHomeKeydown);
   });
 
-  // Авто-редирект: если кабинет один — сразу открываем его (с guard от повторного срабатывания)
-  $effect(() => {
-    if (cabinets.length === 1 && !loading && $hasCompletedOnboarding && !autoRedirectInProgress) {
-      autoRedirectInProgress = true;
+  // Econometrica: no auto-redirect — show Pipeline CTA first
+  // User chooses: open Pipeline or dismiss → opens cabinet
+  let pipelineDismissed = $state(false);
+
+  function dismissPipeline() {
+    pipelineDismissed = true;
+    if (cabinets.length >= 1) {
       openCabinet(cabinets[0]);
     }
-  });
+  }
 
   loadRecentExports();
   checkUpdate();
@@ -180,24 +183,9 @@
 
 {#if !$hasCompletedOnboarding}
   <OnboardingOverlay />
-{:else if cabinets.length === 1}
-  <div class="home">
-    <div class="state-panel" style="height: 100%; justify-content: center;">
-      {#if openError}
-        <div class="state-icon">⚠️</div>
-        <h2 class="state-title">Не удалось открыть кабинет</h2>
-        <p class="state-desc">{openError}</p>
-        <button class="btn-primary" onclick={() => { openError = null; openCabinet(cabinets[0]); }}>Повторить</button>
-        <a href="/settings" class="btn-primary" style="margin-top: 8px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);">Настройки</a>
-      {:else}
-        <div class="spinner"></div>
-        <p class="state-text" style="margin-top: 16px; opacity: 0.6; font-size: 13px;">Открытие кабинета...</p>
-      {/if}
-    </div>
-  </div>
 {/if}
 
-<div class="home" style:display={cabinets.length === 1 && $hasCompletedOnboarding ? 'none' : ''}>
+<div class="home">
   <!-- ── Top Bar ── -->
   <header class="topbar">
     <div class="topbar-left">
@@ -276,19 +264,29 @@
     </div>
   {/if}
 
-  <!-- ── Pipeline CTA (Econometrica only) ── -->
-  <div class="pipeline-cta">
-    <div class="pipeline-cta-content">
-      <span class="pipeline-cta-icon">⚡</span>
-      <div class="pipeline-cta-text">
-        <span class="pipeline-cta-title">Visual Pipeline</span>
-        <span class="pipeline-cta-desc">6-шаговый MMM-анализ с интерактивными графиками</span>
+  <!-- ── Pipeline Promo Panel (Econometrica) ── -->
+  {#if !pipelineDismissed && !loading}
+    <div class="pipeline-promo">
+      <button class="pipeline-promo-close" onclick={dismissPipeline} title="Закрыть и открыть кабинет">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+      <div class="pipeline-promo-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="1.5" stroke-linecap="round">
+          <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
+        </svg>
+      </div>
+      <h2 class="pipeline-promo-title">Visual Pipeline</h2>
+      <p class="pipeline-promo-desc">6-шаговый MMM-анализ с интерактивными графиками: Import → Validate → Model → Decompose → Optimize → Report</p>
+      <div class="pipeline-promo-actions">
+        <button class="pipeline-promo-btn" onclick={() => goto('/pipeline')}>
+          Открыть Pipeline →
+        </button>
+        <button class="pipeline-promo-skip" onclick={dismissPipeline}>
+          Перейти в кабинет
+        </button>
       </div>
     </div>
-    <button class="pipeline-cta-btn" onclick={() => goto('/pipeline')}>
-      Открыть Pipeline →
-    </button>
-  </div>
+  {/if}
 
   <!-- ── Main Content ── -->
   <main class="main">
@@ -1005,36 +1003,44 @@
     letter-spacing: 0.04em;
   }
 
-  /* Pipeline CTA */
-  .pipeline-cta {
+  /* Pipeline Promo Panel */
+  .pipeline-promo {
+    position: relative;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 14px 20px;
-    background: rgba(59,130,246,0.08);
-    border: 1px solid rgba(59,130,246,0.25);
-    border-radius: 12px;
+    gap: 12px;
+    padding: 32px 40px;
+    background: rgba(59,130,246,0.06);
+    border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 16px;
     width: 100%;
-    max-width: 960px;
-    margin: 0 auto 20px;
+    max-width: 520px;
+    margin: 40px auto 24px;
+    text-align: center;
+    animation: promoFadeIn 0.3s ease-out;
   }
-  .pipeline-cta-content { display: flex; align-items: center; gap: 12px; }
-  .pipeline-cta-icon { font-size: 24px; }
-  .pipeline-cta-text { display: flex; flex-direction: column; }
-  .pipeline-cta-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-  .pipeline-cta-desc { font-size: 12px; color: var(--text-muted); }
-  .pipeline-cta-btn {
-    padding: 8px 18px;
-    background: var(--accent, #3b82f6);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: background 0.15s;
+  @keyframes promoFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .pipeline-promo-close {
+    position: absolute; top: 12px; right: 12px;
+    background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;
+    border-radius: 6px; transition: background 0.15s;
   }
-  .pipeline-cta-btn:hover { background: #2563eb; }
+  .pipeline-promo-close:hover { background: rgba(255,255,255,0.08); }
+  .pipeline-promo-icon { margin-bottom: 4px; }
+  .pipeline-promo-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin: 0; }
+  .pipeline-promo-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+  .pipeline-promo-actions { display: flex; gap: 12px; margin-top: 8px; }
+  .pipeline-promo-btn {
+    padding: 10px 24px; background: var(--accent, #3b82f6); color: white;
+    border: none; border-radius: 10px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .pipeline-promo-btn:hover { background: #2563eb; }
+  .pipeline-promo-skip {
+    padding: 10px 20px; background: transparent; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 10px; font-size: 13px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .pipeline-promo-skip:hover { border-color: var(--text-secondary); color: var(--text-secondary); }
 </style>
