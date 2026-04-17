@@ -110,6 +110,13 @@ class ChartRequest(BaseModel):
     chart_type: str  # 'waterfall', 'response_curves', 'awareness', 's_curve', 'mqs'
 
 
+class AdstockSelectRequest(BaseModel):
+    file_path: str
+    kpi_column: str
+    media_columns: list[str]
+    date_column: str | None = None
+
+
 class PptxExportRequest(BaseModel):
     project_id: str
     model_data: dict
@@ -373,6 +380,16 @@ def generate_chart(req: ChartRequest):
     except Exception as e:
         logger.exception(f'Chart generation failed: {req.chart_type}')
         return {'status': 'error', 'message': str(e)}
+
+
+# ── Adstock Auto-Select ──────────────────────────────────
+
+@app.post('/compute/adstock_select')
+def adstock_select(req: AdstockSelectRequest):
+    """Auto-select best adstock type per channel using BIC comparison."""
+    from engines.adstock_selector import select_adstock
+    result = select_adstock(req.file_path, req.kpi_column, req.media_columns, req.date_column)
+    return JSONResponse(content=result)
 
 
 # ── Model History ────────────────────────────────────────

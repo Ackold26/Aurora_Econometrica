@@ -3104,6 +3104,7 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_chart,
             commands::econometrica::econ_data_preview,
             commands::econometrica::econ_export_pptx,
+            commands::econometrica::econ_adstock_select,
             // Project management commands
             commands::project::project_list,
             commands::project::project_create,

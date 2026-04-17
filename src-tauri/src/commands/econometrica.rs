@@ -178,6 +178,23 @@ pub async fn econ_chart(project_dir: String, chart_type: String) -> Result<Value
     post_json("/chart", &body, quick_client()).await
 }
 
+// ── Adstock Auto-Select ─────────────────────────────
+
+#[tauri::command]
+pub async fn econ_adstock_select(
+    file_path: String,
+    kpi_column: String,
+    media_columns: Vec<String>,
+) -> Result<Value, String> {
+    info!("econ_adstock_select: {file_path}, kpi={kpi_column}, channels={}", media_columns.len());
+    let body = serde_json::json!({
+        "file_path": file_path,
+        "kpi_column": kpi_column,
+        "media_columns": media_columns,
+    });
+    post_json("/compute/adstock_select", &body, quick_client()).await
+}
+
 // ── PPTX Export ─────────────────────────────────────
 
 #[tauri::command]

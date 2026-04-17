@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, isComputing, computeStatus } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, isComputing, computeStatus, expertMode } from '$lib/project-state.js';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
   /**
@@ -62,6 +62,40 @@
       channelEnabled = enabled;
       channelAdstock = adstock;
     }
+  });
+
+  // ── Adstock auto-select (marketer mode) ──
+  let adstockAutoSelected = $state(false);
+  let adstockAutoLabel = $state('');
+
+  $effect(() => {
+    // In marketer mode: auto-select adstock via BIC when KPI + channels ready
+    if ($expertMode || adstockAutoSelected || !selectedKpi) return;
+    const enabledChannels = Object.entries(channelEnabled).filter(([, v]) => v).map(([k]) => k);
+    if (enabledChannels.length === 0) return;
+    const filePath = $pipelineState?.data?.file;
+    if (!filePath) return;
+
+    (async () => {
+      try {
+        const result = /** @type {any} */ (await invoke('econ_adstock_select', {
+          filePath, kpiColumn: selectedKpi, mediaColumns: enabledChannels,
+        }));
+        if (result.status === 'ok' && result.selections) {
+          /** @type {Record<string, string>} */
+          const updated = { ...channelAdstock };
+          const labels = [];
+          for (const [ch, sel] of Object.entries(result.selections)) {
+            const s = /** @type {any} */ (sel);
+            updated[ch] = s.type;
+            labels.push(`${ch}: ${s.type === 'weibull' ? 'Weibull' : 'Geometric'}`);
+          }
+          channelAdstock = updated;
+          adstockAutoSelected = true;
+          adstockAutoLabel = labels.join(', ');
+        }
+      } catch { /* sidecar not ready yet — use defaults */ }
+    })();
   });
 
   // ── Control variables ──
@@ -274,6 +308,9 @@
   {#if !$isComputing && enabledCount > 0}
     <p class="time-estimate">Оценка: ~{estimateMinutes} мин ({enabledCount} канал{enabledCount > 4 ? 'ов' : enabledCount > 1 ? 'а' : ''})</p>
   {/if}
+  {#if adstockAutoSelected && !$expertMode}
+    <p class="adstock-auto-label">Adstock: {adstockAutoLabel} (авто по BIC)</p>
+  {/if}
 </div>
 
 <style>
@@ -451,6 +488,12 @@
     font-size: 11px;
     color: var(--text-secondary, #94a3b8);
     margin-top: 6px;
+  }
+  .adstock-auto-label {
+    text-align: center;
+    font-size: 10px;
+    color: rgba(139,92,246,0.7);
+    margin-top: 4px;
   }
 
   .spinner {
