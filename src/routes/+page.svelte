@@ -392,7 +392,7 @@
   }
 
   .topbar-logo {
-    height: 31px;
+    height: 26px;
     width: auto;
     opacity: 0.9;
   }
