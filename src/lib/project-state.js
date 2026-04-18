@@ -256,6 +256,27 @@ export function loadPipelineForProject(projectId) {
   reportData.set(null);
 }
 
+/**
+ * Full reset for a fresh analysis — clears active project, wipes all pipeline
+ * data, returns user to step 0 with a clean stepper. Used by "Новый анализ"
+ * button on the main screen.
+ */
+export function resetForNewAnalysis() {
+  activeProjectId.set(null);
+  activeProject.set(null);
+  pipelineCurrentStep.set(0);
+  pipelineStepMeta.set(defaultStepMeta());
+  importData.set({ file: null, columns: null, rows: null });
+  validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
+  modelData.set({ diagnostics: null, channelParams: null, picklePath: null });
+  decomposeData.set(null);
+  optimizeData.set(null);
+  reportData.set(null);
+  chartImages.set({});
+  isComputing.set(false);
+  computeStatus.set('');
+}
+
 // ===================================================================
 // Shared stores (used by both pipeline and cabinet)
 // ===================================================================

@@ -175,18 +175,29 @@
       importData.set(updated);
 
       // Auto-create project if none exists — eliminates the "проект не выбран" block later.
-      // Format: "{brand} ММХ {DDMM-YY}" — e.g. "Кагоцел РФ ММХ 1804-26"
+      // Format: "{brand} ММХ {DDMM-YY}" — e.g. "Кагоцел РФ ММХ 1804-26".
+      // If a project with that name already exists (Rust throws "уже существует"),
+      // append (2), (3)… until a fresh name is found, OR activate the existing one.
       if (!get(activeProjectId)) {
-        try {
-          const projectName = buildProjectName(result.file_name ?? path.split(/[\\/]/).pop() ?? '');
-          const info = /** @type {any} */ (await invoke('project_create', { name: projectName }));
-          if (info?.id) {
-            activeProjectId.set(info.id);
-            activeProject.set(info);
+        const baseName = buildProjectName(result.file_name ?? path.split(/[\\/]/).pop() ?? '');
+        let created = false;
+        for (let i = 0; i < 30 && !created; i++) {
+          const candidate = i === 0 ? baseName : `${baseName} (${i + 1})`;
+          try {
+            const info = /** @type {any} */ (await invoke('project_create', { name: candidate }));
+            if (info?.id) {
+              activeProjectId.set(info.id);
+              activeProject.set(info);
+              created = true;
+            }
+          } catch (projErr) {
+            const msg = String(projErr);
+            if (!msg.includes('уже существует')) {
+              console.error('Auto-create project failed:', projErr);
+              break; // unknown error — stop retrying
+            }
+            // else loop: try next suffix
           }
-        } catch (projErr) {
-          console.error('Auto-create project failed:', projErr);
-          // Not fatal — user can still work, will hit error on Model step with clear message
         }
       }
 
@@ -372,10 +383,12 @@
   .file-name {
     font-size: 15px;
     font-weight: 600;
-    color: #22c55e;
+    color: var(--success, #22c55e);
     margin: 0;
-    word-break: break-all;
-    max-width: 400px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: min(85vw, 1100px);
   }
 
   .file-meta {

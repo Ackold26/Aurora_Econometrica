@@ -348,18 +348,9 @@
       {/if}
 
     </div>
-
-  {:else if !loading && hasFile}
-    <!-- Idle -->
-    <div class="idle-state">
-      <div class="idle-icon">🔍</div>
-      <p class="idle-text">Нажмите «Запустить валидацию» для анализа данных</p>
-      <p class="idle-hint">
-        Автоматическое определение KPI, медиа-каналов и дат.
-        Проверка качества, мультиколлинеарности, соотношения данных.
-      </p>
-    </div>
   {/if}
+  <!-- Idle-state removed: replaced by full-screen ObjectiveSelector overlay above -->
+
 
   {#if $expertMode}
     <ExpertValidatePanel />

@@ -424,7 +424,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 10px 8px;
+    padding: 14px 14px 12px;
+    min-height: 52px;  /* match StepWrapper .step-header height (h2 + padding) */
+    box-sizing: border-box;
     border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     flex-shrink: 0;
     gap: 8px;

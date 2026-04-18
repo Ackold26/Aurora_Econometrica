@@ -23,6 +23,11 @@
   }
 
   async function loadActiveProject() {
+    // Skip backend restore if user explicitly started a "new analysis" via ?new=1
+    if (typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('new') === '1') {
+      return;
+    }
     try {
       const id = await invoke('project_get_active');
       if (id) {
@@ -47,6 +52,29 @@
       // TODO: populate pipelineState from stats
     } catch (e) {
       console.error('Failed to select project:', e);
+    }
+  }
+
+  /**
+   * Delete a project from disk. If it's the active one, clear active state.
+   * @param {string} id
+   * @param {string} name
+   * @param {Event} e
+   */
+  async function deleteProject(id, name, e) {
+    e.stopPropagation();
+    const confirmed = confirm(`Удалить проект «${name}»? Все связанные данные (импорт, модель, отчёты) будут удалены безвозвратно.`);
+    if (!confirmed) return;
+    try {
+      await invoke('project_delete', { projectId: id });
+      projects = projects.filter(p => p.id !== id);
+      if ($activeProjectId === id) {
+        activeProjectId.set(null);
+        activeProject.set(null);
+      }
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert(`Не удалось удалить проект: ${err}`);
     }
   }
 
@@ -87,14 +115,23 @@
   {#if showCreate}
     <div class="project-dropdown">
       {#each projects as p}
-        <button
-          class="project-item"
-          class:active={$activeProjectId === p.id}
-          onclick={() => { selectProject(p.id); showCreate = false; }}
-        >
-          <span class="item-name">{p.name}</span>
-          <span class="item-date">{p.updated_at?.slice(0, 10)}</span>
-        </button>
+        <div class="project-item-row" class:active={$activeProjectId === p.id}>
+          <button
+            class="project-item"
+            onclick={() => { selectProject(p.id); showCreate = false; }}
+          >
+            <span class="item-name">{p.name}</span>
+            <span class="item-date">{p.updated_at?.slice(0, 10)}</span>
+          </button>
+          <button
+            class="item-delete"
+            title="Удалить проект"
+            aria-label="Удалить проект «{p.name}»"
+            onclick={(e) => deleteProject(p.id, p.name, e)}
+          >
+            🗑
+          </button>
+        </div>
       {/each}
 
       <div class="project-create">
@@ -150,22 +187,47 @@
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
-    right: 0;
+    min-width: 100%;
+    width: max-content;
+    max-width: 520px;
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.96));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
     border-radius: 8px;
-    padding: 4px;
+    padding: 6px;
     z-index: 50;
-    max-height: 300px;
+    max-height: 400px;
     overflow-y: auto;
     box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+
+  .project-item .item-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-item-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .project-item-row:hover { background: color-mix(in srgb, var(--accent-primary) 8%, transparent); }
+  .project-item-row.active {
+    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
   }
 
   .project-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    gap: 12px;
     padding: 8px 10px;
     background: transparent;
     border: none;
@@ -176,8 +238,27 @@
     text-align: left;
   }
 
-  .project-item:hover { background: rgba(255,255,255,0.06); }
-  .project-item.active { background: var(--accent-primary, #3b82f6); color: white; }
+  .item-delete {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0.5;
+    transition: all 0.15s;
+  }
+  .item-delete:hover {
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
+    opacity: 1;
+  }
 
   .item-date { font-size: 11px; opacity: 0.5; }
 

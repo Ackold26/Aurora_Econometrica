@@ -161,27 +161,27 @@
   .objective-selector {
     display: flex;
     flex-direction: column;
-    gap: 28px;
-    padding: 32px 24px;
+    gap: 16px;
+    padding: 20px 24px;
     max-width: 1280px;
     margin: 0 auto;
     width: 100%;
     height: 100%;
     box-sizing: border-box;
-    overflow-y: auto;
+    overflow: hidden;
   }
 
   .intro h2 {
-    font-size: var(--font-2xl, 22px);
+    font-size: 18px;
     font-weight: var(--font-weight-heading, 600);
     color: var(--text-primary);
-    margin: 0 0 10px;
+    margin: 0 0 4px;
     letter-spacing: -0.01em;
   }
   .intro .lead {
-    font-size: var(--font-md, 15px);
+    font-size: 12px;
     color: var(--text-secondary);
-    line-height: 1.6;
+    line-height: 1.45;
     max-width: 860px;
     margin: 0;
   }
@@ -190,8 +190,9 @@
   .cards {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
+    gap: 14px;
     flex: 1;
+    min-height: 0;
   }
 
   @media (max-width: 1100px) {
@@ -201,8 +202,8 @@
   .card {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 22px 20px;
+    gap: 10px;
+    padding: 14px 16px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-card, 14px);
@@ -212,6 +213,7 @@
     color: inherit;
     font: inherit;
     transition: transform var(--hover-timing, 200ms ease-out), border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    overflow: hidden;
   }
   .card:hover,
   .card.highlighted {

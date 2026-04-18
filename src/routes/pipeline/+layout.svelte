@@ -21,6 +21,8 @@
     isComputing,
     computeStatus,
     loadPipelineForProject,
+    validateData,
+    importData,
   } from '$lib/project-state.js';
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
@@ -98,8 +100,17 @@
     function onResize() { windowWidth = window.innerWidth; }
     window.addEventListener('resize', onResize, { passive: true });
 
-    // Restore active project from backend if not already set
-    if (!$activeProjectId) {
+    // Check for ?new=1 — user clicked "Новый проект в Pipeline" on home
+    const forceNew = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('new') === '1';
+
+    if (forceNew) {
+      // Clean slate: ignore backend-stored active project, stay at step 0
+      activeProjectId.set(null);
+      activeProject.set(null);
+      pipelineCurrentStep.set(0);
+    } else if (!$activeProjectId) {
+      // Restore active project from backend if not already set
       (async () => {
         try {
           const id = /** @type {string|null} */ (await invoke('project_get_active'));
@@ -125,6 +136,17 @@
   const canGoNext = $derived(
     $pipelineCurrentStep < 5 && $pipelineStepMeta[$pipelineCurrentStep + 1]?.status !== 'locked'
   );
+
+  // Objective overlay is open: step 1 (validate) with no validation result yet
+  const isObjectiveOverlay = $derived(
+    $pipelineCurrentStep === 1 && !$validateData?.result
+  );
+
+  // Hide insights panel when there's no data to comment on yet
+  const hideInsightsPanel = $derived(
+    isObjectiveOverlay ||
+    ($pipelineCurrentStep === 0 && !$importData?.file)
+  );
 </script>
 
 {#if isEconometrica}
@@ -148,7 +170,7 @@
       {/if}
       <PipelineStepper onNavigate={handleNavigate} />
       <div class="header-right">
-        {#if $pipelineCurrentStep >= 1}
+        {#if $pipelineCurrentStep >= 1 && !isObjectiveOverlay}
           <button
             class="mode-toggle"
             class:expert={$expertMode}
@@ -179,11 +201,13 @@
         {@render children()}
       </main>
 
-      <!-- C4: InsightsPanel with clamp(240px, 22%, 360px) -->
-      <InsightsPanel
-        collapsed={insightsCollapsed}
-        onToggle={toggleInsights}
-      />
+      <!-- InsightsPanel: shown only when there's data to comment on (not on empty Import, not on Objective overlay) -->
+      {#if !hideInsightsPanel}
+        <InsightsPanel
+          collapsed={insightsCollapsed}
+          onToggle={toggleInsights}
+        />
+      {/if}
     </div>
 
     <!-- Footer: navigation + C5 sidecar status -->
@@ -236,11 +260,15 @@
   }
 
   .pipeline-header {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 16px;
     flex-shrink: 0;
   }
+  .pipeline-header > :global(*:nth-child(1)) { justify-self: start; }
+  .pipeline-header > :global(*:nth-child(2)) { justify-self: center; }
+  .pipeline-header > :global(*:nth-child(3)) { justify-self: end; }
 
   .project-chip {
     display: inline-flex;
@@ -260,8 +288,8 @@
   }
   .project-area {
     flex-shrink: 0;
-    min-width: 180px;
-    max-width: 240px;
+    min-width: 260px;
+    max-width: 360px;
     padding: 8px 0 8px 16px;
   }
 
@@ -269,7 +297,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-left: auto;
     margin-right: 16px;
     flex-shrink: 0;
   }

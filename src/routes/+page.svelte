@@ -8,6 +8,7 @@
   import CabinetCard from '$lib/components/CabinetCard.svelte';
   import BrandSelector from '$lib/components/BrandSelector.svelte';
   import AetherLogo from '$lib/components/AetherLogo.svelte';
+  import { activeProject, resetForNewAnalysis } from '$lib/project-state.js';
   import SkeletonCard from '$lib/components/SkeletonCard.svelte';
   import { milestones } from '$lib/psy.js';
 
@@ -299,21 +300,44 @@
       </div>
 
     {:else}
-      <div class="pipeline-promo">
-        <div class="pipeline-promo-icon">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="1.5" stroke-linecap="round">
-            <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
-          </svg>
-        </div>
-        <h2 class="pipeline-promo-title">Visual Pipeline</h2>
-        <p class="pipeline-promo-desc">6-шаговый MMM-анализ с интерактивными графиками: Import → Validate → Model → Decompose → Optimize → Report</p>
-        <div class="pipeline-promo-actions">
-          <button class="pipeline-promo-btn" onclick={() => goto('/pipeline')}>
-            Открыть Pipeline →
-          </button>
-          <button class="pipeline-promo-skip" onclick={dismissPipeline}>
-            Перейти в кабинет
-          </button>
+      <div class="pipeline-stage">
+        <img
+          src="/logo-hero.png"
+          alt="Aurora AI"
+          class="hero-logo"
+        />
+        <div class="pipeline-promo">
+          <div class="pipeline-promo-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="1.5" stroke-linecap="round">
+              <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
+            </svg>
+          </div>
+          <h2 class="pipeline-promo-title">Visual Pipeline</h2>
+          <p class="pipeline-promo-desc">
+            6-шаговый MMM-анализ с интерактивными графиками:<br>
+            <span class="pipeline-steps-line">Import → Validate → Model → Decompose → Optimize → Report</span>
+          </p>
+          <div class="pipeline-promo-actions">
+            {#if $activeProject}
+              <button
+                class="pipeline-promo-btn"
+                onclick={() => goto('/pipeline')}
+                title={$activeProject.name}
+              >
+                Продолжить проект →
+              </button>
+            {/if}
+            <button
+              class="pipeline-promo-btn"
+              class:pipeline-promo-secondary={$activeProject}
+              onclick={() => { resetForNewAnalysis(); goto('/pipeline?new=1'); }}
+            >
+              Новый проект
+            </button>
+            <button class="pipeline-promo-skip" onclick={dismissPipeline}>
+              Перейти к командам
+            </button>
+          </div>
         </div>
       </div>
     {/if}
@@ -901,14 +925,33 @@
   }
 
   /* Pipeline Promo Panel */
+  .pipeline-stage {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+    width: 100%;
+    max-width: 520px;
+  }
+
+  .hero-logo {
+    width: 180px;
+    max-width: 60%;
+    height: auto;
+    object-fit: contain;
+    user-select: none;
+    pointer-events: none;
+    filter: drop-shadow(0 4px 16px color-mix(in srgb, var(--accent-primary) 25%, transparent));
+  }
+
   .pipeline-promo {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 12px;
     padding: 40px 48px;
-    background: rgba(59,130,246,0.06);
-    border: 1px solid rgba(59,130,246,0.2);
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-radius: 16px;
     width: 100%;
     max-width: 520px;
@@ -918,18 +961,64 @@
   @keyframes promoFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
   .pipeline-promo-icon { margin-bottom: 4px; }
   .pipeline-promo-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin: 0; }
-  .pipeline-promo-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+  .pipeline-promo-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin: 0;
+    text-align: center;
+  }
+  .pipeline-steps-line {
+    display: inline-block;
+    margin-top: 4px;
+    white-space: nowrap;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
   .pipeline-promo-actions { display: flex; gap: 12px; margin-top: 8px; }
-  .pipeline-promo-btn {
-    padding: 10px 24px; background: var(--accent, #3b82f6); color: white;
-    border: none; border-radius: 10px; font-size: 14px; font-weight: 600;
-    cursor: pointer; transition: background 0.15s;
-  }
-  .pipeline-promo-btn:hover { background: #2563eb; }
+  /* Unified action buttons — same size, shape, font-weight; differ only by color */
+  .pipeline-promo-btn,
   .pipeline-promo-skip {
-    padding: 10px 20px; background: transparent; color: var(--text-muted);
-    border: 1px solid var(--border); border-radius: 10px; font-size: 13px;
-    cursor: pointer; transition: all 0.15s;
+    padding: 7px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 7px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+    line-height: 1.2;
+    white-space: nowrap;
   }
-  .pipeline-promo-skip:hover { border-color: var(--text-secondary); color: var(--text-secondary); }
+
+  /* Primary — solid accent */
+  .pipeline-promo-btn {
+    background: var(--accent, #3b82f6);
+    color: white;
+  }
+  .pipeline-promo-btn:hover {
+    background: #2563eb;
+  }
+
+  /* Secondary — outline accent (for "Новый проект" when active project exists) */
+  .pipeline-promo-btn.pipeline-promo-secondary {
+    background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+    color: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 45%, transparent);
+  }
+  .pipeline-promo-btn.pipeline-promo-secondary:hover {
+    background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+    border-color: var(--accent-primary);
+  }
+
+  /* Tertiary / skip — muted outline */
+  .pipeline-promo-skip {
+    background: transparent;
+    color: var(--text-muted);
+    border-color: var(--border);
+  }
+  .pipeline-promo-skip:hover {
+    border-color: var(--text-secondary);
+    color: var(--text-secondary);
+  }
 </style>
