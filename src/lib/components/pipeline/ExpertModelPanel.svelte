@@ -114,5 +114,5 @@
   .mono { font-family: monospace; }
   .good { color: #22c55e; }
   .warn { color: #f59e0b; }
-  .ci { color: rgba(148,163,184,0.6); font-size: 10px; }
+  .ci { color: var(--text-muted); font-size: 10px; }
 </style>

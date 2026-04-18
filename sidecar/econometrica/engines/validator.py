@@ -10,18 +10,19 @@ from typing import Any
 
 
 # Column name patterns for auto-detection
-KPI_PATTERNS = ['sales', 'revenue', 'som', 'market_share', 'conversions', 'units', 'volume',
+KPI_PATTERNS = ['sales', 'revenue', 'market_share', 'conversions', 'units', 'volume',
                 'продажи', 'выручка', 'конверси', 'заказ']
 MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'views',
                   'бюджет', 'расход', 'показ', 'клик', 'визит', 'прочтен', 'просмотр',
                   'impression', 'click', 'visit', 'cpm', 'cpc', 'cpv',
                   'olv', 'banner', 'social', 'retail media', 'performance',
-                  'радио', 'пресса', 'ooh', 'ооh', 'digital', 'programmatic',
+                  'радио', 'пресса', 'ooh', 'ооh', 'ots', 'digital', 'programmatic',
                   'price', 'promo', 'цен', 'промо']
 DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
 CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
                     'seasonality', 'temperature', 'weather', 'holiday',
-                    'sov', 'sos', 'share_of', 'share of', 'конкурент',
+                    'som', 'sov', 'sos', 'share_of', 'share of',
+                    'конкурент', 'конк.', 'конк ',
                     'сезон', 'дистрибуц', 'погод', 'праздни',
                     'запрос', 'кол-во запрос']
 
@@ -46,6 +47,11 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
         return 'date', 0.97
     if any(p in lower for p in DATE_PATTERNS):
         return 'date', 0.80
+
+    # Priority override: "конкурент" always → control (even if contains media keywords)
+    COMPETITOR_KEYS = ['конкурент', 'конк.', 'конк ', 'competitor']
+    if any(k in lower for k in COMPETITOR_KEYS):
+        return 'control', 0.90
 
     # Count pattern matches per category
     kpi_matches = sum(1 for p in KPI_PATTERNS if p in lower)

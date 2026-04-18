@@ -349,7 +349,7 @@
   }
 
   .empty-hint {
-    font-size: 12px; color: rgba(148,163,184,0.5);
+    font-size: 12px; color: var(--text-muted);
     text-align: center; padding: 20px 0; margin: 0;
   }
 
@@ -415,7 +415,7 @@
   }
 
   .tip-text {
-    font-size: 11px; color: rgba(148,163,184,0.65);
+    font-size: 11px; color: var(--text-muted);
     line-height: 1.5; margin: 4px 0 0; padding: 6px 8px;
     background: rgba(255,255,255,0.02); border-radius: 4px;
   }
@@ -433,7 +433,7 @@
   .ai-text { font-size: 12px; color: var(--text-primary, #e2e8f0); line-height: 1.5; margin: 0; }
   .ai-dismiss {
     position: absolute; top: 4px; right: 6px;
-    background: none; border: none; color: rgba(148,163,184,0.4);
+    background: none; border: none; color: var(--text-muted);
     font-size: 12px; cursor: pointer; padding: 2px 4px;
   }
   .ai-spinner {
@@ -456,5 +456,5 @@
     transition: border-color 0.15s;
   }
   .ask-input:focus { border-color: var(--accent-primary, #3b82f6); }
-  .ask-input::placeholder { color: rgba(148,163,184,0.45); }
+  .ask-input::placeholder { color: var(--text-muted); }
 </style>

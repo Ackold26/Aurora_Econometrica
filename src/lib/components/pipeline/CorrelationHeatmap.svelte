@@ -278,7 +278,7 @@
 
   .empty-msg {
     font-size: 12px;
-    color: rgba(148, 163, 184, 0.5);
+    color: var(--text-muted);
     text-align: center;
     padding: 24px;
     margin: 0;
@@ -347,14 +347,14 @@
 
   .tooltip-sep {
     font-size: 10px;
-    color: rgba(148, 163, 184, 0.4);
+    color: var(--text-muted);
     text-align: center;
   }
 
   .r-val {
     font-size: 13px;
     font-weight: 700;
-    color: #93c5fd;
+    color: var(--accent-primary);
   }
 
   .r-val.r-high {
@@ -379,7 +379,7 @@
     align-items: center;
     gap: 6px;
     font-size: 10px;
-    color: rgba(148, 163, 184, 0.65);
+    color: var(--text-muted);
   }
 
   .legend-swatch {
@@ -425,7 +425,7 @@
   }
 
   .high-risk {
-    color: rgba(148, 163, 184, 0.55);
+    color: var(--text-muted);
     font-style: italic;
   }
 </style>

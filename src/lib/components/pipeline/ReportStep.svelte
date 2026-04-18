@@ -411,7 +411,7 @@
   .metric-value.lift.negative { color: #ef4444; }
   .metric-sub {
     font-size: 11px;
-    color: rgba(148,163,184,0.55);
+    color: var(--text-muted);
   }
 
   .no-data-banner {
@@ -480,7 +480,7 @@
 
   .export-hint {
     font-size: 12px;
-    color: rgba(148,163,184,0.5);
+    color: var(--text-muted);
     line-height: 1.6;
     margin: 0;
   }

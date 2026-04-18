@@ -376,7 +376,7 @@
   }
   .sidecar-label {
     font-size: 11px;
-    color: rgba(148,163,184,0.55);
+    color: var(--text-muted);
     white-space: nowrap;
   }
 </style>

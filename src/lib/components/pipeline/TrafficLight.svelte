@@ -27,7 +27,30 @@
     columns = [],
   } = $props();
 
+  import { validateData } from '$lib/project-state.js';
+
   let showColumnStats = $state(false);
+
+  // ── Inline role editor ──
+  /** @type {string|null} */
+  let editingCol = $state(null);
+  const ROLE_OPTS = [
+    { id: 'media', icon: '📺', label: 'Медиа' },
+    { id: 'kpi', icon: '📈', label: 'KPI' },
+    { id: 'control', icon: '🎛', label: 'Внешние' },
+    { id: 'date', icon: '📅', label: 'Дата' },
+    { id: 'unused', icon: '🚫', label: 'Исключить' },
+  ];
+  /** @param {string} colName @param {string} newRole */
+  function setRole(colName, newRole) {
+    const val = $validateData;
+    if (!val?.result?.columns) return;
+    validateData.set({
+      ...val,
+      result: { ...val.result, columns: val.result.columns.map(/** @param {any} c */ c => c.name === colName ? { ...c, role: newRole } : c) },
+    });
+    editingCol = null;
+  }
 
   const statusConfig = {
     ok:      { icon: '●', label: 'Готово',   color: '#22c55e', bg: 'rgba(34,197,94,0.10)',   border: 'rgba(34,197,94,0.30)'  },
@@ -39,7 +62,7 @@
 
   /** @param {any} col */
   function roleLabel(col) {
-    const map = /** @type {Record<string, string>} */ ({ kpi: '📈 KPI', media: '📺 Медиа', control: '🎛 Контроль', date: '📅 Дата', unknown: '❓' });
+    const map = /** @type {Record<string, string>} */ ({ kpi: '📈 KPI', media: '📺 Медиа', control: '🎛 Внешние', date: '📅 Дата', unused: '🚫', unknown: '?' });
     return map[col.role] ?? col.role;
   }
 
@@ -169,9 +192,20 @@
           <tbody>
             {#each columns as col}
               {#if col.stats}
-                <tr>
+                <tr class:excluded={col.role === 'unused'}>
                   <td class="col-name">{col.name}</td>
-                  <td class="col-role">{roleLabel(col)}</td>
+                  <td class="col-role">
+                    {#if editingCol === col.name}
+                      <div class="role-picker-inline">
+                        {#each ROLE_OPTS as opt}
+                          <button class="rp-btn" class:active={col.role === opt.id} onclick={() => setRole(col.name, opt.id)}>{opt.icon} {opt.label}</button>
+                        {/each}
+                        <button class="rp-btn rp-close" onclick={() => editingCol = null}>✕</button>
+                      </div>
+                    {:else}
+                      <button class="role-click" class:unknown={!col.role || col.role === 'unknown'} onclick={() => editingCol = col.name} title="Нажмите для изменения">{roleLabel(col)}</button>
+                    {/if}
+                  </td>
                   <td>{col.stats.min}</td>
                   <td>{col.stats.max}</td>
                   <td>{col.stats.mean}</td>
@@ -245,7 +279,7 @@
 
   .file-stat {
     font-size: 11px;
-    color: rgba(148, 163, 184, 0.7);
+    color: var(--text-secondary);
   }
 
   .file-sep {
@@ -254,7 +288,7 @@
   }
 
   .freq {
-    color: #93c5fd;
+    color: var(--text-primary);
     font-weight: 500;
   }
 
@@ -335,7 +369,7 @@
   .toggle-stats:hover {
     border-color: rgba(59, 130, 246, 0.4);
     background: rgba(59, 130, 246, 0.06);
-    color: #93c5fd;
+    color: var(--text-primary);
   }
 
   /* ── Column stats table ── */
@@ -352,7 +386,7 @@
   th {
     text-align: left;
     padding: 5px 8px;
-    color: rgba(148, 163, 184, 0.6);
+    color: var(--text-secondary);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -375,9 +409,35 @@
     text-overflow: ellipsis;
   }
 
-  td.col-role { color: rgba(148, 163, 184, 0.7); }
+  tr.excluded td { opacity: 0.5; text-decoration: line-through; }
 
-  .val-ok   { color: #86efac !important; }
-  .val-warn { color: #fcd34d !important; }
-  .val-bad  { color: #fca5a5 !important; }
+  .role-click {
+    background: none; border: 1px solid transparent; border-radius: 4px;
+    color: var(--accent-primary, #3b82f6); font-size: 10px; cursor: pointer;
+    padding: 1px 6px; transition: all 0.12s;
+  }
+  .role-click:hover { border-color: var(--accent-primary, #3b82f6); background: rgba(59,130,246,0.08); }
+  .role-click.unknown {
+    color: var(--warning, #f59e0b); border: 1px dashed var(--warning, #f59e0b);
+    animation: pulse-q 2s infinite;
+  }
+  @keyframes pulse-q { 0%,100% { border-color: rgba(245,158,11,0.3); } 50% { border-color: rgba(245,158,11,0.8); } }
+
+  .role-picker-inline {
+    display: flex; gap: 2px; flex-wrap: wrap;
+  }
+  .rp-btn {
+    padding: 2px 6px; border: none; border-radius: 3px;
+    background: rgba(255,255,255,0.06); color: var(--text-primary, #e2e8f0);
+    font-size: 10px; cursor: pointer; white-space: nowrap;
+  }
+  .rp-btn:hover { background: rgba(255,255,255,0.12); }
+  .rp-btn.active { background: rgba(59,130,246,0.2); }
+  .rp-close { color: var(--text-muted, #64748b); }
+
+  td.col-role { color: var(--text-secondary); }
+
+  .val-ok   { color: var(--success, #16a34a) !important; }
+  .val-warn { color: var(--warning, #d97706) !important; }
+  .val-bad  { color: var(--danger, #dc2626) !important; }
 </style>

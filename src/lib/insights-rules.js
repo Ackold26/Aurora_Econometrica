@@ -128,13 +128,35 @@ export function validateInsights(result) {
 
   // ── Объём данных vs параметры ──
   const totalRows = result.detected?.rows ?? 0;
-  const paramCount = mediaCols.length * 3 + controlCols.length + 2; // ~3 params per channel + controls + intercept
+  const paramCount = mediaCols.length * 3 + controlCols.length + 2;
   if (totalRows > 0 && mediaCols.length > 0) {
     const ratio = totalRows / paramCount;
-    if (ratio < 3) {
-      out.push({ severity: 'warning', text: `Мало данных для ${mediaCols.length} каналов: ${totalRows} наблюдений на ~${paramCount} параметров (ratio ${ratio.toFixed(1)}). Риск переобучения.`, tip: 'Объедините мелкие каналы в группы (например, все баннеры в один), уберите каналы с >80% нулей, или добавьте больше данных.' });
-    } else if (ratio < 5) {
-      out.push({ severity: 'info', text: `Соотношение данных к параметрам: ${ratio.toFixed(1)}:1 — приемлемо, но увеличение выборки повысит точность.` });
+
+    // Найти каналы-кандидаты на исключение (>50% нулей) — для кнопки "Оптимизировать"
+    const weakChannels = mediaCols
+      .filter(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 50)
+      .sort(/** @param {any} a @param {any} b */ (a, b) => (b.stats?.zeros_pct ?? 0) - (a.stats?.zeros_pct ?? 0));
+    const weakNames = weakChannels.map(/** @param {any} c */ c => c.name);
+
+    if (ratio < 2) {
+      const afterExclude = weakNames.length > 0 ? totalRows / ((mediaCols.length - weakNames.length) * 3 + controlCols.length + 2) : ratio;
+      out.push({
+        severity: 'error',
+        text: `Критически мало данных: ${totalRows} наблюдений / ${mediaCols.length} каналов (ratio ${ratio.toFixed(1)}:1, минимум 4:1). ${weakNames.length > 0 ? `Исключите ${weakNames.length} неактивных каналов → ratio станет ${afterExclude.toFixed(1)}:1.` : 'Добавьте данные или уменьшите каналы.'}`,
+        tip: `Каждый медиаканал добавляет ~3 параметра. При ${totalRows} наблюдениях рекомендуется не более ${Math.floor(totalRows / 12)} каналов. Два пути: (1) добавить данные в недельной гранулярности, (2) исключить каналы с >50% нулей.`,
+        action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} неактивных` } : undefined,
+      });
+    } else if (ratio < 4) {
+      out.push({
+        severity: 'warning',
+        text: `Мало данных: ratio ${ratio.toFixed(1)}:1 (рекомендуется ≥4:1). ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей можно исключить.` : ''}`,
+        tip: `Для ${mediaCols.length} каналов оптимально ≥${mediaCols.length * 12} наблюдений. Байесовская модель сработает, но с широкими доверительными интервалами.`,
+        action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} неактивных` } : undefined,
+      });
+    } else if (ratio < 6) {
+      out.push({ severity: 'info', text: `Ratio ${ratio.toFixed(1)}:1 — приемлемо. Модель сойдётся, но для узких доверительных интервалов нужно ≥6:1.` });
+    } else {
+      out.push({ severity: 'success', text: `Ratio ${ratio.toFixed(1)}:1 — отличное соотношение данных к параметрам.` });
     }
   }
 
@@ -280,11 +302,20 @@ export function validateInsights(result) {
     out.push(...channelRecs);
   }
 
-  // ── Рекомендации по улучшению ──
-  if (out.filter(i => i.severity === 'warning').length === 0 && mediaCols.length > 0) {
-    out.push({ severity: 'success', text: 'Данные в хорошем состоянии. Можно переходить к моделированию.' });
-  } else if (out.filter(i => i.severity === 'warning').length > 3) {
-    out.push({ severity: 'info', text: 'Много предупреждений — рекомендуем переключиться в режим «Эксперт» для детального анализа корреляций, VIF и статистики столбцов.' });
+  // ── Динамическая оценка готовности ──
+  const errorCount = out.filter(i => i.severity === 'error').length;
+  const warnCount = out.filter(i => i.severity === 'warning').length;
+  const currentRatio = totalRows > 0 && mediaCols.length > 0 ? totalRows / (mediaCols.length * 3 + controlCols.length + 2) : 0;
+  const maxChannels = Math.floor(totalRows / 12);
+
+  if (errorCount > 0) {
+    out.push({ severity: 'error', text: `Моделирование не рекомендуется. Устраните критические проблемы выше.` });
+  } else if (warnCount === 0 && mediaCols.length > 0 && kpiCols.length > 0) {
+    out.push({ severity: 'success', text: `Данные готовы к моделированию. ${mediaCols.length} каналов, ratio ${currentRatio.toFixed(1)}:1. Нажмите «Далее».` });
+  } else if (mediaCols.length > maxChannels && maxChannels > 0) {
+    out.push({ severity: 'info', text: `Сейчас ${mediaCols.length} каналов. Для ${totalRows} наблюдений оптимально ≤${maxChannels}. Исключите наименее значимые каналы.` });
+  } else if (warnCount > 0) {
+    out.push({ severity: 'info', text: `${warnCount} предупреждений. Моделирование возможно, но рекомендуем устранить хотя бы критичные. Режим «Эксперт» покажет детали.` });
   }
 
   return out;

@@ -317,7 +317,7 @@
 
   .drop-formats {
     font-size: 11px;
-    color: rgba(148, 163, 184, 0.5);
+    color: var(--text-muted);
     margin: 4px 0 0;
     letter-spacing: 0.05em;
   }
@@ -350,7 +350,7 @@
 
   .change-hint {
     font-size: 11px;
-    color: rgba(148, 163, 184, 0.45);
+    color: var(--text-muted);
     margin: 6px 0 0;
     font-style: italic;
   }
@@ -418,7 +418,7 @@
     background: rgba(59, 130, 246, 0.12);
     border: 1px solid rgba(59, 130, 246, 0.2);
     border-radius: 20px;
-    color: #93c5fd;
+    color: var(--accent-primary);
     letter-spacing: 0.04em;
   }
 

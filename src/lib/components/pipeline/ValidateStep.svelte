@@ -28,6 +28,9 @@
 
   /** @type {Set<string>} Dismissed/applied warning keys */
   let appliedFixes = $state(new Set());
+  let showValidation = $state(true);
+  let showRecs = $state(true);
+  let showMapper = $state(true);
 
   // Reactively read from store — updates when InsightsPanel modifies column roles
   const result = $derived($validateData?.result ?? null);
@@ -155,29 +158,38 @@
 
   <!-- Results -->
   {#if result}
-    <div class="results-grid">
+    <div class="results-stack">
 
       <!-- TrafficLight -->
-      <section class="section">
-        <h4 class="section-title">Результат валидации</h4>
-        <TrafficLight
-          status={activeWarnings.length === 0 && result.status !== 'error' ? 'ok' : result.status}
-          verdict={result.verdict}
-          issues={result.issues ?? []}
-          warnings={activeWarnings}
-          file={result.file ?? null}
-          detected={result.detected ?? null}
-          columns={result.columns?.filter(/** @param {any} c */ c => c.role !== 'unused') ?? []}
-        />
-        {#if excludedCount > 0}
-          <div class="excluded-badge">{excludedCount} столбц{excludedCount > 4 ? 'ов' : excludedCount > 1 ? 'а' : ''} исключен{excludedCount > 1 ? 'о' : ''} по рекомендациям</div>
+      <section class="section-full">
+        <button class="section-toggle" onclick={() => showValidation = !showValidation}>
+          <span>{showValidation ? '▼' : '▶'}</span>
+          <h4 class="section-title">Результат валидации</h4>
+        </button>
+        {#if showValidation}
+          <TrafficLight
+            status={activeWarnings.length === 0 && result.status !== 'error' ? 'ok' : result.status}
+            verdict={result.verdict}
+            issues={result.issues ?? []}
+            warnings={activeWarnings}
+            file={result.file ?? null}
+            detected={result.detected ?? null}
+            columns={result.columns ?? []}
+          />
+          {#if excludedCount > 0}
+            <div class="excluded-badge">{excludedCount} столбц{excludedCount > 4 ? 'ов' : excludedCount > 1 ? 'а' : ''} исключен{excludedCount > 1 ? 'о' : ''} по рекомендациям</div>
+          {/if}
         {/if}
       </section>
 
       <!-- Auto-fix suggestions -->
       {#if activeWarnings.length > 0}
-        <section class="section section-wide">
-          <h4 class="section-title">Рекомендации ({activeWarnings.length})</h4>
+        <section class="section-full">
+          <button class="section-toggle" onclick={() => showRecs = !showRecs}>
+            <span>{showRecs ? '▼' : '▶'}</span>
+            <h4 class="section-title">Рекомендации ({activeWarnings.length})</h4>
+          </button>
+          {#if showRecs}
           <div class="fix-list">
             {#each activeWarnings as warn}
               {#if !appliedFixes.has(warn.column + warn.type)}
@@ -200,26 +212,31 @@
               {/if}
             {/each}
           </div>
+          {/if}
         </section>
       {/if}
 
       <!-- ColumnMapper -->
-      <section class="section">
-        <h4 class="section-title">Назначение столбцов</h4>
+      <section class="section-full">
+        <button class="section-toggle" onclick={() => showMapper = !showMapper}>
+          <span>{showMapper ? '▼' : '▶'}</span>
+          <h4 class="section-title">Назначение столбцов</h4>
+        </button>
+        {#if showMapper}
         <p class="section-hint">
-          Роли определены автоматически. Перетащите для коррекции.
-          Двойной клик по назначенному — убрать.
+          Нажмите на столбец → выберите роль. Или перетащите в нужную зону.
         </p>
         <ColumnMapper
           columns={result.columns ?? []}
           detected={result.detected ?? {}}
           onmappingchange={onMappingChange}
         />
+        {/if}
       </section>
 
       <!-- Correlation heatmap -->
       {#if result.full_correlation_matrix?.labels?.length >= 2}
-        <section class="section section-wide">
+        <section class="section-full">
           <CorrelationHeatmap
             correlationMatrix={result.full_correlation_matrix}
             highCorrelations={result.high_correlations ?? []}
@@ -269,7 +286,7 @@
 
   .no-file-hint {
     font-size: 13px;
-    color: rgba(148, 163, 184, 0.5);
+    color: var(--text-muted);
     margin: 0;
     font-style: italic;
   }
@@ -345,34 +362,46 @@
   }
 
   /* ── Results grid ── */
-  .results-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
+  .results-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
   }
 
-  .section {
+  .section-full {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    width: 100%;
   }
 
-  .section-wide {
-    grid-column: 1 / -1;
+  .section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 0;
+    color: var(--text-secondary, #94a3b8);
   }
+  .section-toggle:hover { color: var(--text-primary, #e2e8f0); }
+  .section-toggle span { font-size: 10px; width: 14px; }
 
   .section-title {
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.07em;
+    margin: 0;
     color: var(--text-secondary, #94a3b8);
     margin: 0;
   }
 
   .section-hint {
     font-size: 11px;
-    color: rgba(148, 163, 184, 0.5);
+    color: var(--text-muted);
     margin: 0;
     font-style: italic;
     line-height: 1.5;
@@ -416,7 +445,7 @@
 
   .idle-hint {
     font-size: 12px;
-    color: rgba(148, 163, 184, 0.5);
+    color: var(--text-muted);
     margin: 0;
     max-width: 380px;
     line-height: 1.6;

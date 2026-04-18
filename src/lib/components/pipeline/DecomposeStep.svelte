@@ -247,7 +247,7 @@
   .btn-rerun {
     background: transparent;
     border: none;
-    color: rgba(148,163,184,0.5);
+    color: var(--text-muted);
     font-size: 16px;
     cursor: pointer;
     padding: 0 4px;
@@ -299,7 +299,7 @@
   th {
     text-align: left;
     padding: 6px 10px;
-    color: rgba(148,163,184,0.6);
+    color: var(--text-muted);
     font-weight: 500;
     border-bottom: 1px solid rgba(255,255,255,0.06);
   }

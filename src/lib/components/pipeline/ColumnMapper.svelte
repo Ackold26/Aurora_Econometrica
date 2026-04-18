@@ -354,7 +354,7 @@
 
   .section-hint {
     font-size: 11px;
-    color: rgba(148, 163, 184, 0.5);
+    color: var(--text-muted);
     font-style: italic;
   }
 
@@ -363,15 +363,15 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 10px;
-    background: rgba(15, 23, 42, 0.35);
+    background: var(--bg-tertiary, rgba(15, 23, 42, 0.35));
     border-radius: 10px;
     min-height: 46px;
-    border: 1px solid rgba(71, 85, 105, 0.25);
+    border: 1px solid var(--border, rgba(71, 85, 105, 0.25));
   }
 
   .empty-cols {
     font-size: 12px;
-    color: rgba(148, 163, 184, 0.4);
+    color: var(--text-muted);
     margin: 0;
     align-self: center;
     font-style: italic;
@@ -391,14 +391,14 @@
   }
 
   .col-chip.unassigned {
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.25);
-    color: #93c5fd;
+    background: var(--bg-card, rgba(59, 130, 246, 0.1));
+    border: 1px solid var(--border, rgba(59, 130, 246, 0.25));
+    color: var(--text-primary);
   }
 
   .col-chip.unassigned:hover {
-    background: rgba(59, 130, 246, 0.18);
-    border-color: rgba(59, 130, 246, 0.45);
+    background: var(--bg-card-hover, rgba(59, 130, 246, 0.18));
+    border-color: var(--accent-primary, rgba(59, 130, 246, 0.45));
   }
 
   .col-chip.selected {
@@ -433,9 +433,9 @@
   .quick-role-btn.zone-unused { color: var(--text-muted, #64748b); }
 
   .col-chip.assigned {
-    background: rgba(71, 85, 105, 0.2);
-    border: 1px solid rgba(71, 85, 105, 0.25);
-    color: rgba(148, 163, 184, 0.6);
+    background: var(--bg-secondary, rgba(71, 85, 105, 0.2));
+    border: 1px solid var(--border-subtle, rgba(71, 85, 105, 0.25));
+    color: var(--text-secondary);
     cursor: default;
   }
 
@@ -466,8 +466,8 @@
   }
 
   .zone {
-    background: rgba(15, 23, 42, 0.4);
-    border: 1.5px dashed rgba(71, 85, 105, 0.35);
+    background: var(--bg-card, rgba(15, 23, 42, 0.4));
+    border: 1.5px dashed var(--border, rgba(71, 85, 105, 0.35));
     border-radius: 12px;
     padding: 12px;
     min-height: 100px;
@@ -513,7 +513,7 @@
 
   .zone-desc {
     font-size: 10px;
-    color: rgba(148, 163, 184, 0.55);
+    color: var(--text-secondary);
     margin-top: 1px;
   }
 
@@ -521,8 +521,8 @@
     margin-left: auto;
     font-size: 11px;
     font-weight: 700;
-    color: rgba(148, 163, 184, 0.6);
-    background: rgba(71, 85, 105, 0.25);
+    color: var(--text-muted);
+    background: var(--bg-tertiary, rgba(71, 85, 105, 0.25));
     border-radius: 10px;
     padding: 1px 7px;
   }
@@ -535,7 +535,7 @@
 
   .zone-empty {
     font-size: 11px;
-    color: rgba(148, 163, 184, 0.3);
+    color: var(--text-muted);
     text-align: center;
     padding: 8px 0;
     font-style: italic;
@@ -576,7 +576,7 @@
   .remove-btn {
     background: none;
     border: none;
-    color: rgba(148, 163, 184, 0.5);
+    color: var(--text-muted);
     font-size: 14px;
     line-height: 1;
     cursor: pointer;

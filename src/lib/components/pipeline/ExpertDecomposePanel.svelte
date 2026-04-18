@@ -87,6 +87,6 @@
   .mono { font-family: monospace; }
   .good { color: #22c55e; }
   .warn { color: #f59e0b; }
-  .verdict { font-size: 10px; color: rgba(148,163,184,0.6); }
-  .legend { font-size: 10px; color: rgba(148,163,184,0.45); line-height: 1.5; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 6px; }
+  .verdict { font-size: 10px; color: var(--text-muted); }
+  .legend { font-size: 10px; color: var(--text-muted); line-height: 1.5; padding: 8px; background: rgba(255,255,255,0.02); border-radius: 6px; }
 </style>

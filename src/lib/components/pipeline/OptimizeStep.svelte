@@ -517,7 +517,7 @@
   .miroas-row.miroas-low  { border-left-color: #ef4444; }
   .miroas-name { flex: 1; font-size: 12px; color: var(--text-secondary, #94a3b8); }
   .miroas-value { font-size: 14px; font-weight: 700; font-family: monospace; color: var(--text-primary, #e2e8f0); }
-  .miroas-hint { font-size: 10px; color: rgba(148,163,184,0.55); min-width: 80px; text-align: right; }
+  .miroas-hint { font-size: 10px; color: var(--text-muted); min-width: 80px; text-align: right; }
 
   .no-curves {
     padding: 40px 20px;

@@ -156,13 +156,13 @@
     border: 1px solid rgba(239,68,68,0.18);
   }
   .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(252,165,165,0.85); }
-  .empty { font-size: 12px; color: rgba(148,163,184,0.5); }
+  .empty { font-size: 12px; color: var(--text-muted); }
 
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
   th { text-align: left; padding: 6px 8px; color: var(--text-secondary, #94a3b8); border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600; }
   td { padding: 5px 8px; color: var(--text-primary, #e2e8f0); border-bottom: 1px solid rgba(255,255,255,0.03); }
   .mono { font-family: monospace; }
-  .warn { color: #f59e0b; }
+  .warn { color: var(--warning, #d97706); }
   tr.high td { background: rgba(239,68,68,0.06); }
   tr.medium td { background: rgba(245,158,11,0.04); }
   .role-cell { position: relative; }
@@ -198,7 +198,7 @@
     white-space: nowrap;
   }
   .role-option:hover { background: rgba(255,255,255,0.08); }
-  .role-option.active { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .role-option.active { background: rgba(59,130,246,0.15); color: var(--accent-primary); }
   .role-cancel { color: var(--text-muted, #64748b); }
 
   tr.excluded td { opacity: 0.4; }
