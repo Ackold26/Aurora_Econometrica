@@ -469,7 +469,7 @@
     transition: background 0.1s;
   }
   .dropdown-item:hover { background: rgba(255,255,255,0.07); }
-  .dropdown-item.selected { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .dropdown-item.selected { background: color-mix(in srgb, var(--accent-primary) 15%, transparent); color: #93c5fd; }
 
   .dropdown-empty {
     display: block;
@@ -480,8 +480,8 @@
 
   .config-summary {
     padding: 8px 12px;
-    background: rgba(59, 130, 246, 0.06);
-    border: 1px solid rgba(59, 130, 246, 0.12);
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 12%, transparent);
     border-radius: 6px;
     font-size: 12px;
     color: var(--text-secondary, #94a3b8);

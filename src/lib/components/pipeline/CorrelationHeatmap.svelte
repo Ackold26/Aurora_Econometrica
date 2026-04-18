@@ -108,7 +108,7 @@
 
         // High correlation border
         if (high) {
-          ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+          ctx.strokeStyle = 'color-mix(in srgb, var(--danger) 70%, transparent)';
           ctx.lineWidth = 1.5;
           ctx.strokeRect(x + 0.75, y + 0.75, CELL - 2.5, CELL - 2.5);
         }
@@ -238,7 +238,7 @@
     <!-- Legend -->
     <div class="legend">
       <div class="legend-item">
-        <span class="legend-swatch" style="background: rgba(59,130,246,0.6)"></span>
+        <span class="legend-swatch" style="background: color-mix(in srgb, var(--accent-primary) 60%, transparent)"></span>
         <span>Положительная корреляция</span>
       </div>
       <div class="legend-item">
@@ -246,7 +246,7 @@
         <span>Отрицательная корреляция</span>
       </div>
       <div class="legend-item">
-        <span class="legend-swatch" style="background: rgba(239,68,68,0.7); border: 1px solid rgba(239,68,68,0.8)"></span>
+        <span class="legend-swatch" style="background: color-mix(in srgb, var(--danger) 70%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 80%, transparent)"></span>
         <span>|r| > 0.8 — риск мультиколлинеарности</span>
       </div>
     </div>
@@ -304,8 +304,8 @@
   .high-count {
     font-size: 11px;
     color: #fca5a5;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.25);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
     border-radius: 20px;
     padding: 2px 9px;
   }
@@ -313,8 +313,8 @@
   .no-high {
     font-size: 11px;
     color: #86efac;
-    background: rgba(34, 197, 94, 0.1);
-    border: 1px solid rgba(34, 197, 94, 0.2);
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
     border-radius: 20px;
     padding: 2px 9px;
   }
@@ -328,9 +328,11 @@
   .heatmap-tooltip {
     position: absolute;
     pointer-events: none;
-    background: rgba(15, 23, 42, 0.95);
-    border: 1px solid rgba(71, 85, 105, 0.5);
-    border-radius: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    color: var(--text-primary);
+    border-radius: var(--radius-sm, 8px);
     padding: 7px 12px;
     display: flex;
     flex-direction: column;
@@ -401,8 +403,8 @@
     align-items: center;
     gap: 10px;
     padding: 5px 10px;
-    background: rgba(239, 68, 68, 0.07);
-    border: 1px solid rgba(239, 68, 68, 0.18);
+    background: color-mix(in srgb, var(--danger) 7%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
     border-radius: 8px;
     font-size: 11px;
     flex-wrap: wrap;

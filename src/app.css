@@ -143,6 +143,33 @@
 
   /* Per-theme: typography weight */
   --font-weight-heading: 500;
+
+  /* ── Per-card accents (Fun theme variety) — default = neutral card bg ── */
+  --card-accent-lemon:    var(--accent-primary);
+  --card-accent-lavender: var(--accent-primary);
+  --card-accent-sage:     var(--success);
+  --card-accent-peach:    var(--warning);
+  --card-accent-coral:    var(--danger);
+
+  --card-bg-lemon:    var(--bg-card);
+  --card-bg-lavender: var(--bg-card);
+  --card-bg-sage:     var(--bg-card);
+  --card-bg-peach:    var(--bg-card);
+  --card-bg-coral:    var(--bg-card);
+
+  /* ── Insight card backgrounds (per-severity) — default: subtle translucent ── */
+  --bg-insight-base:    color-mix(in srgb, var(--text-primary) 3%, transparent);
+  --bg-insight-info:    var(--bg-insight-base);
+  --bg-insight-success: var(--bg-insight-base);
+  --bg-insight-warning: var(--bg-insight-base);
+  --bg-insight-error:   var(--bg-insight-base);
+
+  /* ── Surface: dropzones, empty states ── */
+  --dropzone-bg:     rgba(15, 23, 42, 0.4);
+  --dropzone-border: rgba(59, 130, 246, 0.30);
+
+  /* ── Disabled opacity (per-theme for contrast) ── */
+  --disabled-opacity: 0.32;
 }
 
 /* ── Light Theme ── */
@@ -205,6 +232,13 @@
   --shadow-elevation-2: 0 4px 12px rgba(0,0,0,0.06);
   --shadow-elevation-3: 0 8px 32px rgba(0,0,0,0.08);
   --font-weight-heading: 400;
+
+  /* ── Surface overrides: white cards, soft blue border ── */
+  --dropzone-bg:     #FFFFFF;
+  --dropzone-border: rgba(46, 91, 255, 0.25);
+
+  /* ── Disabled opacity: light needs stronger contrast ── */
+  --disabled-opacity: 0.5;
 }
 
 /* ── Fun Theme — pastel, warm, playful ── */
@@ -275,6 +309,31 @@
   --hover-transform: translateY(-3px) scale(1.02);
   --hover-timing: 300ms cubic-bezier(0.68, -0.55, 0.27, 1.55);
   --font-weight-heading: 700;
+
+  /* ── Per-card accents — playful variety inspired by pastel dashboards ── */
+  --card-accent-lemon:    #D4C93A;
+  --card-accent-lavender: #8A7DC7;
+  --card-accent-sage:     #7FA868;
+  --card-accent-peach:    #D49A5E;
+  --card-accent-coral:    #D47A7A;
+
+  --card-bg-lemon:    rgba(245, 232, 74, 0.22);
+  --card-bg-lavender: rgba(200, 187, 232, 0.28);
+  --card-bg-sage:     rgba(184, 212, 168, 0.28);
+  --card-bg-peach:    rgba(244, 200, 138, 0.25);
+  --card-bg-coral:    rgba(245, 165, 165, 0.22);
+
+  /* ── Fun: per-severity pastel backgrounds (playful variety) ── */
+  --bg-insight-info:    var(--card-bg-lavender);
+  --bg-insight-success: var(--card-bg-sage);
+  --bg-insight-warning: var(--card-bg-peach);
+  --bg-insight-error:   var(--card-bg-coral);
+
+  /* ── Surface: dropzone blends with cream bg ── */
+  --dropzone-bg:     #FFFEF5;
+  --dropzone-border: rgba(124, 107, 196, 0.30);
+
+  --disabled-opacity: 0.45;
 }
 
 /* ─── Reset ─── */
@@ -291,9 +350,7 @@ html {
 body {
   font-family: var(--font-sans);
   background-color: var(--bg-primary);
-  background-image:
-    radial-gradient(ellipse 80% 55% at 20% 10%, rgba(46, 91, 255, 0.07) 0%, transparent 65%),
-    radial-gradient(ellipse 60% 45% at 80% 85%, rgba(204, 255, 0, 0.04) 0%, transparent 55%);
+  /* Dark/Fun: flat background (inspired by Framer/CalyxFlow benchmarks) */
   transition: background-color 0.3s ease, color 0.3s ease;
   color: var(--text-primary);
   overflow: hidden;
@@ -312,12 +369,6 @@ input, textarea {
   font-family: inherit;
   border: none;
   outline: none;
-}
-
-[data-theme="light"] body {
-  background-image:
-    radial-gradient(ellipse 80% 55% at 20% 10%, rgba(46, 91, 255, 0.05) 0%, transparent 65%),
-    radial-gradient(ellipse 60% 45% at 80% 85%, rgba(80, 160, 0, 0.03) 0%, transparent 55%);
 }
 
 ::selection {

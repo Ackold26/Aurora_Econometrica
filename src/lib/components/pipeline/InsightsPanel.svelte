@@ -384,14 +384,15 @@
   .insight-item {
     display: flex; gap: 8px; align-items: flex-start;
     font-size: 12px; line-height: 1.5;
-    padding: 8px 10px; border-radius: 6px;
-    background: rgba(255,255,255,0.025);
+    padding: 8px 10px; border-radius: var(--radius-sm, 6px);
+    background: var(--bg-insight-base);
     border-left: 3px solid transparent;
+    transition: background 0.2s;
   }
-  .insight-item.sev-info    { border-left-color: #3b82f6; }
-  .insight-item.sev-success { border-left-color: #22c55e; }
-  .insight-item.sev-warning { border-left-color: #f59e0b; }
-  .insight-item.sev-error   { border-left-color: #ef4444; }
+  .insight-item.sev-info    { border-left-color: var(--color-info, var(--accent-primary)); background: var(--bg-insight-info); }
+  .insight-item.sev-success { border-left-color: var(--success); background: var(--bg-insight-success); }
+  .insight-item.sev-warning { border-left-color: var(--warning); background: var(--bg-insight-warning); }
+  .insight-item.sev-error   { border-left-color: var(--danger);  background: var(--bg-insight-error); }
 
   .sev-badge {
     width: 16px; height: 16px;
@@ -399,10 +400,10 @@
     border-radius: 50%; font-size: 9px; font-weight: 700;
     flex-shrink: 0; margin-top: 1px;
   }
-  .sev-info    .sev-badge { background: rgba(59,130,246,0.15); color: #3b82f6; }
-  .sev-success .sev-badge { background: rgba(34,197,94,0.15);  color: #22c55e; }
-  .sev-warning .sev-badge { background: rgba(245,158,11,0.15); color: #f59e0b; }
-  .sev-error   .sev-badge { background: rgba(239,68,68,0.15);  color: #ef4444; }
+  .sev-info    .sev-badge { background: color-mix(in srgb, var(--color-info, var(--accent-primary)) 18%, transparent); color: var(--color-info, var(--accent-primary)); }
+  .sev-success .sev-badge { background: color-mix(in srgb, var(--success) 18%, transparent);  color: var(--success); }
+  .sev-warning .sev-badge { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
+  .sev-error   .sev-badge { background: color-mix(in srgb, var(--danger) 18%, transparent);  color: var(--danger); }
 
   .insight-content { flex: 1; min-width: 0; }
   .insight-text { color: var(--text-secondary, #94a3b8); }
@@ -420,23 +421,23 @@
 
   .action-btn {
     padding: 3px 10px;
-    background: rgba(34,197,94,0.12);
-    border: 1px solid rgba(34,197,94,0.3);
-    border-radius: 5px;
-    color: #4ade80;
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
+    border-radius: var(--radius-chip, 5px);
+    color: var(--success);
     font-size: 10px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s;
   }
   .action-btn:hover {
-    background: rgba(34,197,94,0.22);
-    border-color: rgba(34,197,94,0.5);
+    background: color-mix(in srgb, var(--success) 24%, transparent);
+    border-color: color-mix(in srgb, var(--success) 52%, transparent);
   }
 
   .action-applied {
     font-size: 10px;
-    color: #22c55e;
+    color: var(--success);
     font-weight: 500;
   }
 

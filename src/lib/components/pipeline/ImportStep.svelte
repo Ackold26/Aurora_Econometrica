@@ -250,40 +250,41 @@
   /* ── Drop zone ── */
   .drop-zone {
     min-height: 180px;
-    border: 2px dashed rgba(59, 130, 246, 0.3);
-    border-radius: 16px;
-    background: rgba(15, 23, 42, 0.4);
+    border: 2px dashed var(--dropzone-border);
+    border-radius: var(--radius-card, 16px);
+    background: var(--dropzone-bg);
+    box-shadow: var(--shadow-card);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    transition: border-color 0.2s, background 0.2s, transform 0.15s, box-shadow 0.2s;
     flex-shrink: 0;
   }
 
   .drop-zone:hover,
   .drop-zone:focus-visible {
-    border-color: rgba(59, 130, 246, 0.7);
-    background: rgba(59, 130, 246, 0.06);
+    border-color: var(--border-active);
+    background: var(--bg-card-hover);
     outline: none;
   }
 
   .drop-zone.drag-over {
-    border-color: #3b82f6;
-    background: rgba(59, 130, 246, 0.12);
+    border-color: var(--accent-primary);
+    background: var(--accent-glow);
     transform: scale(1.01);
   }
 
   .drop-zone.has-file {
     border-style: solid;
-    border-color: rgba(34, 197, 94, 0.4);
-    background: rgba(34, 197, 94, 0.04);
+    border-color: color-mix(in srgb, var(--success) 45%, transparent);
+    background: color-mix(in srgb, var(--success) 6%, var(--bg-card));
     min-height: 120px;
   }
 
   .drop-zone.has-file:hover {
-    border-color: rgba(59, 130, 246, 0.6);
-    background: rgba(59, 130, 246, 0.06);
+    border-color: var(--border-active);
+    background: var(--bg-card-hover);
   }
 
   /* ── Drop content ── */
@@ -359,7 +360,7 @@
   .spinner {
     width: 32px;
     height: 32px;
-    border: 3px solid rgba(59, 130, 246, 0.2);
+    border: 3px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-top-color: #3b82f6;
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
@@ -375,8 +376,8 @@
     align-items: center;
     gap: 8px;
     padding: 10px 16px;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
     border-radius: 10px;
     font-size: 13px;
     color: #fca5a5;
@@ -415,8 +416,8 @@
   .preview-badge {
     font-size: 10px;
     padding: 2px 8px;
-    background: rgba(59, 130, 246, 0.12);
-    border: 1px solid rgba(59, 130, 246, 0.2);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-radius: 20px;
     color: var(--accent-primary);
     letter-spacing: 0.04em;

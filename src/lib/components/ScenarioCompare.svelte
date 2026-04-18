@@ -275,8 +275,8 @@
   .slider-result {
     margin-top: 12px;
     padding: 10px 14px;
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid rgba(59, 130, 246, 0.2);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-radius: 8px;
     color: var(--accent-primary, #3b82f6);
     font-size: 14px;

@@ -53,9 +53,9 @@
   }
 
   const statusConfig = {
-    ok:      { icon: '●', label: 'Готово',   color: '#22c55e', bg: 'rgba(34,197,94,0.10)',   border: 'rgba(34,197,94,0.30)'  },
-    warning: { icon: '●', label: 'Предупреждения', color: '#f59e0b', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.30)' },
-    error:   { icon: '●', label: 'Ошибки',   color: '#ef4444', bg: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.30)'  },
+    ok:      { icon: '●', label: 'Готово',   color: '#22c55e', bg: 'color-mix(in srgb, var(--success) 10%, transparent)',   border: 'color-mix(in srgb, var(--success) 30%, transparent)'  },
+    warning: { icon: '●', label: 'Предупреждения', color: '#f59e0b', bg: 'color-mix(in srgb, var(--warning) 10%, transparent)', border: 'color-mix(in srgb, var(--warning) 30%, transparent)' },
+    error:   { icon: '●', label: 'Ошибки',   color: '#ef4444', bg: 'color-mix(in srgb, var(--danger) 10%, transparent)',  border: 'color-mix(in srgb, var(--danger) 30%, transparent)'  },
   };
 
   let cfg = $derived(statusConfig[status] ?? statusConfig.ok);
@@ -306,13 +306,13 @@
     font-weight: 500;
   }
 
-  .det-chip.kpi     { background: rgba(34,197,94,0.12);  color: var(--text-primary); border: 1px solid rgba(34,197,94,0.3); }
-  .det-chip.media   { background: rgba(59,130,246,0.12); color: var(--text-primary); border: 1px solid rgba(59,130,246,0.3); }
+  .det-chip.kpi     { background: color-mix(in srgb, var(--success) 12%, transparent);  color: var(--text-primary); border: 1px solid color-mix(in srgb, var(--success) 30%, transparent); }
+  .det-chip.media   { background: color-mix(in srgb, var(--accent-primary) 12%, transparent); color: var(--text-primary); border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent); }
   .det-chip.control { background: rgba(168,85,247,0.12); color: var(--text-primary); border: 1px solid rgba(168,85,247,0.3); }
   .det-chip.date    { background: rgba(20,184,166,0.12); color: var(--text-primary); border: 1px solid rgba(20,184,166,0.3); }
   .det-chip.ratio   { background: rgba(71,85,105,0.15);  color: var(--text-primary); border: 1px solid rgba(71,85,105,0.3); }
-  .det-chip.ratio-bad { background: rgba(239,68,68,0.12); color: var(--text-primary); border-color: rgba(239,68,68,0.3); }
-  .det-chip.ratio-ok  { background: rgba(34,197,94,0.12); color: var(--text-primary); border-color: rgba(34,197,94,0.3); }
+  .det-chip.ratio-bad { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--text-primary); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+  .det-chip.ratio-ok  { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--text-primary); border-color: color-mix(in srgb, var(--success) 30%, transparent); }
 
   /* ── Issues ── */
   .issue-list {
@@ -332,14 +332,14 @@
   }
 
   .issue-item.critical {
-    background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.25);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
     color: var(--text-primary, #e2e8f0);
   }
 
   .issue-item.warning {
-    background: rgba(245, 158, 11, 0.08);
-    border: 1px solid rgba(245, 158, 11, 0.25);
+    background: color-mix(in srgb, var(--warning) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
     color: var(--text-primary, #e2e8f0);
   }
 
@@ -367,8 +367,8 @@
   }
 
   .toggle-stats:hover {
-    border-color: rgba(59, 130, 246, 0.4);
-    background: rgba(59, 130, 246, 0.06);
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
     color: var(--text-primary);
   }
 
@@ -416,12 +416,12 @@
     color: var(--accent-primary, #3b82f6); font-size: 10px; cursor: pointer;
     padding: 1px 6px; transition: all 0.12s;
   }
-  .role-click:hover { border-color: var(--accent-primary, #3b82f6); background: rgba(59,130,246,0.08); }
+  .role-click:hover { border-color: var(--accent-primary, #3b82f6); background: color-mix(in srgb, var(--accent-primary) 8%, transparent); }
   .role-click.unknown {
     color: var(--warning, #f59e0b); border: 1px dashed var(--warning, #f59e0b);
     animation: pulse-q 2s infinite;
   }
-  @keyframes pulse-q { 0%,100% { border-color: rgba(245,158,11,0.3); } 50% { border-color: rgba(245,158,11,0.8); } }
+  @keyframes pulse-q { 0%,100% { border-color: color-mix(in srgb, var(--warning) 30%, transparent); } 50% { border-color: color-mix(in srgb, var(--warning) 80%, transparent); } }
 
   .role-picker-inline {
     display: flex; gap: 2px; flex-wrap: wrap;
@@ -432,7 +432,7 @@
     font-size: 10px; cursor: pointer; white-space: nowrap;
   }
   .rp-btn:hover { background: rgba(255,255,255,0.12); }
-  .rp-btn.active { background: rgba(59,130,246,0.2); }
+  .rp-btn.active { background: color-mix(in srgb, var(--accent-primary) 20%, transparent); }
   .rp-close { color: var(--text-muted, #64748b); }
 
   td.col-role { color: var(--text-secondary); }

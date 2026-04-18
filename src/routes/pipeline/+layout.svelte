@@ -271,8 +271,8 @@
     min-width: 100px;
     text-align: center;
     border-radius: 14px;
-    border: 1px solid rgba(59,130,246,0.35);
-    background: rgba(59,130,246,0.1);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
     color: #93c5fd;
     font-size: 11px;
     font-weight: 600;
@@ -280,13 +280,13 @@
     cursor: pointer;
     transition: all 0.25s;
   }
-  .mode-toggle:hover { background: rgba(59,130,246,0.18); }
+  .mode-toggle:hover { background: color-mix(in srgb, var(--accent-primary) 18%, transparent); }
   .mode-toggle.expert {
-    background: rgba(239,68,68,0.12);
-    border-color: rgba(239,68,68,0.4);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
     color: #fca5a5;
   }
-  .mode-toggle.expert:hover { background: rgba(239,68,68,0.2); }
+  .mode-toggle.expert:hover { background: color-mix(in srgb, var(--danger) 20%, transparent); }
 
   .pipeline-body {
     flex: 1;
@@ -349,7 +349,7 @@
     color: var(--text-secondary, #94a3b8);
   }
   .nav-btn.secondary:hover:not(:disabled) { background: rgba(255,255,255,0.12); }
-  .nav-btn:disabled { opacity: 0.32; cursor: not-allowed; }
+  .nav-btn:disabled { opacity: var(--disabled-opacity, 0.32); cursor: not-allowed; }
 
   /* C5: Sidecar status */
   .sidecar-status {
@@ -369,7 +369,7 @@
   }
   .sidecar-status.healthy .sidecar-dot {
     background: var(--success, #22c55e);
-    box-shadow: 0 0 5px rgba(34,197,94,0.4);
+    box-shadow: 0 0 5px color-mix(in srgb, var(--success) 40%, transparent);
   }
   .sidecar-status.errored .sidecar-dot {
     background: var(--error, #ef4444);

@@ -340,21 +340,21 @@
     font-size: 11px;
     color: #4ade80;
     padding: 4px 10px;
-    background: rgba(34,197,94,0.08);
-    border: 1px solid rgba(34,197,94,0.2);
+    background: color-mix(in srgb, var(--success) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
     border-radius: 6px;
     display: inline-block;
   }
 
-  .status-ok      { background: rgba(34,197,94,0.15);  color: var(--text-primary); border: 1px solid rgba(34,197,94,0.35); }
-  .status-warning { background: rgba(245,158,11,0.15); color: var(--text-primary); border: 1px solid rgba(245,158,11,0.35); }
-  .status-error   { background: rgba(239,68,68,0.15);  color: var(--text-primary); border: 1px solid rgba(239,68,68,0.35); }
+  .status-ok      { background: color-mix(in srgb, var(--success) 15%, transparent);  color: var(--text-primary); border: 1px solid color-mix(in srgb, var(--success) 35%, transparent); }
+  .status-warning { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--text-primary); border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); }
+  .status-error   { background: color-mix(in srgb, var(--danger) 15%, transparent);  color: var(--text-primary); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
 
   /* ── Error ── */
   .error-banner {
     padding: 10px 16px;
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
     border-radius: 10px;
     font-size: 13px;
     color: #fca5a5;
@@ -412,11 +412,11 @@
   .fix-item {
     display: flex; align-items: center; gap: 10px; padding: 8px 12px;
     border-radius: 6px;
-    background: rgba(245, 158, 11, 0.06);
-    border: 1px solid rgba(245, 158, 11, 0.2);
+    background: color-mix(in srgb, var(--warning) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
     border-left: 3px solid #f59e0b;
   }
-  .fix-item.fix-critical { border-left-color: #ef4444; background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.2); }
+  .fix-item.fix-critical { border-left-color: #ef4444; background: color-mix(in srgb, var(--danger) 6%, transparent); border-color: color-mix(in srgb, var(--danger) 20%, transparent); }
   .fix-text { flex: 1; font-size: 12px; color: var(--text-primary, #e2e8f0); line-height: 1.4; }
   .fix-btn {
     padding: 4px 12px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.12);

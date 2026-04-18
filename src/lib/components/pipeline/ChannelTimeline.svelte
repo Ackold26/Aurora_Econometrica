@@ -102,7 +102,7 @@
           height: 20,
           borderColor: 'rgba(255,255,255,0.1)',
           backgroundColor: 'rgba(255,255,255,0.04)',
-          fillerColor: 'rgba(59,130,246,0.15)',
+          fillerColor: 'color-mix(in srgb, var(--accent-primary) 15%, transparent)',
           handleStyle: { color: '#3b82f6' },
           textStyle: { color: '#94a3b8', fontSize: 10 },
           start: 0,

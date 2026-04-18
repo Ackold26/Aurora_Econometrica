@@ -76,8 +76,8 @@
   .expert-panel {
     display: flex; flex-direction: column; gap: 12px; margin-top: 16px;
     padding: 16px; border-radius: 10px;
-    background: rgba(239,68,68,0.04);
-    border: 1px solid rgba(239,68,68,0.18);
+    background: color-mix(in srgb, var(--danger) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
   }
   .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(252,165,165,0.85); }
   .share-scroll { overflow-x: auto; }

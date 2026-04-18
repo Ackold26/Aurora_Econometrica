@@ -81,15 +81,15 @@
     font-weight: 500;
   }
   .step-badge.complete {
-    background: rgba(34,197,94,0.12);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
     color: var(--success, #22c55e);
   }
   .step-badge.error {
-    background: rgba(239,68,68,0.12);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
     color: var(--error, #ef4444);
   }
   .step-badge.active {
-    background: rgba(59,130,246,0.12);
+    background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
     color: var(--accent-primary, #3b82f6);
   }
 

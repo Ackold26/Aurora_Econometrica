@@ -391,21 +391,21 @@
   }
 
   .col-chip.unassigned {
-    background: var(--bg-card, rgba(59, 130, 246, 0.1));
-    border: 1px solid var(--border, rgba(59, 130, 246, 0.25));
+    background: var(--bg-card, color-mix(in srgb, var(--accent-primary) 10%, transparent));
+    border: 1px solid var(--border, color-mix(in srgb, var(--accent-primary) 25%, transparent));
     color: var(--text-primary);
   }
 
   .col-chip.unassigned:hover {
-    background: var(--bg-card-hover, rgba(59, 130, 246, 0.18));
-    border-color: var(--accent-primary, rgba(59, 130, 246, 0.45));
+    background: var(--bg-card-hover, color-mix(in srgb, var(--accent-primary) 18%, transparent));
+    border-color: var(--accent-primary, color-mix(in srgb, var(--accent-primary) 45%, transparent));
   }
 
   .col-chip.selected {
-    background: rgba(34, 197, 94, 0.2);
-    border-color: rgba(34, 197, 94, 0.6);
+    background: color-mix(in srgb, var(--success) 20%, transparent);
+    border-color: color-mix(in srgb, var(--success) 60%, transparent);
     color: #4ade80;
-    box-shadow: 0 0 8px rgba(34,197,94,0.25);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--success) 25%, transparent);
   }
 
   .inline-role-picker {
@@ -426,8 +426,8 @@
     white-space: nowrap;
   }
   .quick-role-btn:hover { background: rgba(255,255,255,0.1); }
-  .quick-role-btn.zone-kpi:hover { border-color: #22c55e; background: rgba(34,197,94,0.12); }
-  .quick-role-btn.zone-media:hover { border-color: #3b82f6; background: rgba(59,130,246,0.12); }
+  .quick-role-btn.zone-kpi:hover { border-color: #22c55e; background: color-mix(in srgb, var(--success) 12%, transparent); }
+  .quick-role-btn.zone-media:hover { border-color: #3b82f6; background: color-mix(in srgb, var(--accent-primary) 12%, transparent); }
   .quick-role-btn.zone-control:hover { border-color: #a855f7; background: rgba(168,85,247,0.12); }
   .quick-role-btn.zone-date:hover { border-color: #14b8a6; background: rgba(20,184,166,0.12); }
   .quick-role-btn.zone-unused { color: var(--text-muted, #64748b); }
@@ -475,19 +475,19 @@
   }
 
   .zone.click-target {
-    border-color: rgba(34,197,94,0.5);
+    border-color: color-mix(in srgb, var(--success) 50%, transparent);
     cursor: pointer;
     animation: zone-pulse 1.5s ease-in-out infinite;
   }
-  @keyframes zone-pulse { 0%,100% { border-color: rgba(34,197,94,0.3); } 50% { border-color: rgba(34,197,94,0.7); } }
+  @keyframes zone-pulse { 0%,100% { border-color: color-mix(in srgb, var(--success) 30%, transparent); } 50% { border-color: color-mix(in srgb, var(--success) 70%, transparent); } }
   .zone.click-target:hover {
-    background: rgba(34,197,94,0.06);
-    border-color: rgba(34,197,94,0.8);
+    background: color-mix(in srgb, var(--success) 6%, transparent);
+    border-color: color-mix(in srgb, var(--success) 80%, transparent);
   }
 
   .zone.drag-over {
     border-color: #3b82f6;
-    background: rgba(59, 130, 246, 0.08);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
     border-style: solid;
   }
 
@@ -600,9 +600,9 @@
   }
 
   .conf-high {
-    background: rgba(34, 197, 94, 0.15);
+    background: color-mix(in srgb, var(--success) 15%, transparent);
     color: #86efac;
-    border: 1px solid rgba(34, 197, 94, 0.25);
+    border: 1px solid color-mix(in srgb, var(--success) 25%, transparent);
   }
 
   .conf-mid {
@@ -612,9 +612,9 @@
   }
 
   .conf-low {
-    background: rgba(239, 68, 68, 0.1);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
     color: #fca5a5;
-    border: 1px solid rgba(239, 68, 68, 0.2);
+    border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
   }
 
   .conf-unknown {

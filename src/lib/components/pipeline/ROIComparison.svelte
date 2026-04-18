@@ -76,7 +76,7 @@
             return {
               value: v,
               itemStyle: {
-                color: gap > 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)',
+                color: gap > 0 ? 'color-mix(in srgb, var(--success) 70%, transparent)' : 'color-mix(in srgb, var(--danger) 70%, transparent)',
                 borderRadius: [4, 4, 0, 0],
               },
             };

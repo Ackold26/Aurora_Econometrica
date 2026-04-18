@@ -152,8 +152,8 @@
   .expert-panel {
     display: flex; flex-direction: column; gap: 16px; margin-top: 16px;
     padding: 16px; border-radius: 10px;
-    background: rgba(239,68,68,0.04);
-    border: 1px solid rgba(239,68,68,0.18);
+    background: color-mix(in srgb, var(--danger) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
   }
   .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(252,165,165,0.85); }
   .empty { font-size: 12px; color: var(--text-muted); }
@@ -163,8 +163,8 @@
   td { padding: 5px 8px; color: var(--text-primary, #e2e8f0); border-bottom: 1px solid rgba(255,255,255,0.03); }
   .mono { font-family: monospace; }
   .warn { color: var(--warning, #d97706); }
-  tr.high td { background: rgba(239,68,68,0.06); }
-  tr.medium td { background: rgba(245,158,11,0.04); }
+  tr.high td { background: color-mix(in srgb, var(--danger) 6%, transparent); }
+  tr.medium td { background: color-mix(in srgb, var(--warning) 4%, transparent); }
   .role-cell { position: relative; }
   .role-badge {
     font-size: 10px; font-weight: 500;
@@ -173,7 +173,7 @@
     color: var(--accent-primary, #3b82f6);
     cursor: pointer; transition: all 0.15s;
   }
-  .role-badge:hover { border-color: var(--accent-primary, #3b82f6); background: rgba(59,130,246,0.08); }
+  .role-badge:hover { border-color: var(--accent-primary, #3b82f6); background: color-mix(in srgb, var(--accent-primary) 8%, transparent); }
   .role-badge.unknown {
     color: var(--warning, #f59e0b);
     border: 1px dashed var(--warning, #f59e0b);
@@ -181,7 +181,7 @@
     animation: pulse-border 2s infinite;
   }
   .role-badge.role-unused { color: var(--text-muted, #64748b); opacity: 0.6; text-decoration: line-through; }
-  @keyframes pulse-border { 0%,100% { border-color: rgba(245,158,11,0.4); } 50% { border-color: rgba(245,158,11,0.9); } }
+  @keyframes pulse-border { 0%,100% { border-color: color-mix(in srgb, var(--warning) 40%, transparent); } 50% { border-color: color-mix(in srgb, var(--warning) 90%, transparent); } }
 
   .role-picker {
     display: flex; flex-wrap: wrap; gap: 3px;
@@ -198,7 +198,7 @@
     white-space: nowrap;
   }
   .role-option:hover { background: rgba(255,255,255,0.08); }
-  .role-option.active { background: rgba(59,130,246,0.15); color: var(--accent-primary); }
+  .role-option.active { background: color-mix(in srgb, var(--accent-primary) 15%, transparent); color: var(--accent-primary); }
   .role-cancel { color: var(--text-muted, #64748b); }
 
   tr.excluded td { opacity: 0.4; }

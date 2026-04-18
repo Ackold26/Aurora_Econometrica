@@ -76,7 +76,7 @@
     flex-shrink: 0;
   }
   .step-node:hover:not(:disabled) {
-    background: rgba(255,255,255,0.05);
+    background: var(--hover-bg, rgba(255,255,255,0.05));
   }
   .step-node:disabled { cursor: default; }
 
@@ -104,33 +104,33 @@
   .step-node.locked .node-label { opacity: 0.3; }
 
   /* ready */
-  .step-node.ready .node-circle { border-color: rgba(59,130,246,0.5); }
+  .step-node.ready .node-circle { border-color: color-mix(in srgb, var(--accent-primary) 50%, transparent); }
   .step-node.ready .node-label { color: var(--text-primary, #e2e8f0); }
 
   /* active (current) */
   .step-node.active .node-circle {
     border-color: var(--accent-primary, #3b82f6);
-    background: rgba(59,130,246,0.15);
-    box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
+    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
   }
   .step-node.active .node-label {
     color: var(--accent-primary, #3b82f6);
-    font-weight: 600;
+    font-weight: var(--font-weight-heading, 600);
   }
 
   /* complete */
   .step-node.complete .node-circle {
     border-color: var(--success, #22c55e);
-    background: rgba(34,197,94,0.1);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
     color: var(--success, #22c55e);
   }
   .step-node.complete .node-label { color: var(--success, #22c55e); }
 
   /* error */
   .step-node.error .node-circle {
-    border-color: var(--error, #ef4444);
-    background: rgba(239,68,68,0.1);
-    color: var(--error, #ef4444);
+    border-color: var(--danger, #ef4444);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger, #ef4444);
   }
-  .step-node.error .node-label { color: var(--error, #ef4444); }
+  .step-node.error .node-label { color: var(--danger, #ef4444); }
 </style>

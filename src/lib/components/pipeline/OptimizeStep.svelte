@@ -359,8 +359,8 @@
     align-items: center;
     gap: 10px;
     padding: 14px 16px;
-    background: rgba(239,68,68,0.08);
-    border: 1px solid rgba(239,68,68,0.25);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
     border-radius: 10px;
     flex-wrap: wrap;
   }
@@ -382,8 +382,8 @@
     align-items: flex-start;
     gap: 10px;
     padding: 14px 16px;
-    background: rgba(59,130,246,0.08);
-    border: 1px solid rgba(59,130,246,0.2);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-radius: 10px;
   }
   .insight-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
@@ -391,8 +391,8 @@
   .lift-badge {
     flex-shrink: 0;
     padding: 4px 10px;
-    background: rgba(34,197,94,0.15);
-    border: 1px solid rgba(34,197,94,0.3);
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
     border-radius: 20px;
     color: #22c55e;
     font-size: 13px;
@@ -400,8 +400,8 @@
     font-family: monospace;
   }
   .lift-badge.negative-lift {
-    background: rgba(239,68,68,0.15);
-    border-color: rgba(239,68,68,0.3);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
     color: #ef4444;
   }
 

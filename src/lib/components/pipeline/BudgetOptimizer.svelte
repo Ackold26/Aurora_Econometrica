@@ -222,13 +222,13 @@
     border-radius: 4px;
     font-weight: 600;
   }
-  .delta-badge.positive { background: rgba(34,197,94,0.12); color: #22c55e; }
-  .delta-badge.negative { background: rgba(239,68,68,0.12); color: #ef4444; }
+  .delta-badge.positive { background: color-mix(in srgb, var(--success) 12%, transparent); color: #22c55e; }
+  .delta-badge.negative { background: color-mix(in srgb, var(--danger) 12%, transparent); color: #ef4444; }
 
   .kpi-card {
     padding: 12px 14px;
-    background: rgba(59,130,246,0.08);
-    border: 1px solid rgba(59,130,246,0.2);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-radius: 10px;
   }
   .kpi-row {

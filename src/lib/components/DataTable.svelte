@@ -161,7 +161,7 @@
   }
 
   .highlight {
-    background: rgba(59, 130, 246, 0.08);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
   }
 
   td.positive { color: var(--success, #22c55e); }

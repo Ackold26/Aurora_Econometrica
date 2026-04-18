@@ -131,7 +131,7 @@
     font-size: 13px;
     outline: none;
   }
-  .name-input:focus { border-color: rgba(59,130,246,0.4); }
+  .name-input:focus { border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent); }
   .name-input::placeholder { color: var(--text-secondary, #94a3b8); }
 
   .btn-save {
@@ -167,7 +167,7 @@
     font-size: 12px;
     color: #ef4444;
     padding: 6px 10px;
-    background: rgba(239,68,68,0.08);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
     border-radius: 6px;
   }
 </style>
