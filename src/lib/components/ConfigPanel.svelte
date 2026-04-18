@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, isComputing, computeStatus, expertMode } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode } from '$lib/project-state.js';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
   /**
@@ -83,7 +83,7 @@
       const adstock = {};
       for (const ch of media) {
         enabled[ch.name] = !(ch.stats?.zeros_pct > 80);
-        adstock[ch.name] = ch.adstock_type || 'geometric';
+        adstock[ch.name] = 'auto';
       }
       channelEnabled = enabled;
       channelAdstock = adstock;
@@ -99,7 +99,7 @@
     if ($expertMode || adstockAutoSelected || !selectedKpi) return;
     const enabledChannels = Object.entries(channelEnabled).filter(([, v]) => v).map(([k]) => k);
     if (enabledChannels.length === 0) return;
-    const filePath = $pipelineState?.data?.file;
+    const filePath = $importData?.file || $pipelineState?.data?.file;
     if (!filePath) return;
 
     (async () => {
@@ -178,6 +178,13 @@
       return;
     }
 
+    const dataFile = $importData?.file || $pipelineState?.data?.file || '';
+    if (!dataFile) {
+      computeStatus.set('Ошибка: файл данных не найден. Вернитесь на шаг Импорт и загрузите файл заново.');
+      setTimeout(() => computeStatus.set(''), 6000);
+      return;
+    }
+
     isComputing.set(true);
     computeStatus.set('Компилирую модель...');
 
@@ -196,7 +203,7 @@
 
       const config = {
         project_dir: projectDir,
-        data_file: $pipelineState?.data?.file || '',
+        data_file: dataFile,
         kpi_column: selectedKpi,
         media_columns: enabledChannels,
         control_columns: controlColumns,
@@ -217,7 +224,7 @@
       }
 
       // ── Original sync flow (chat-first cabinet) — UNTOUCHED ──
-      computeStatus.set('Обучаю модель (MCMC сэмплирование)...');
+      computeStatus.set('Обучаю модель (Markov Chain Monte Carlo сэмплирование)...');
 
       const result = await invoke('econ_train', { config });
 
@@ -355,12 +362,12 @@
 
         <!-- MCMC params -->
         <div class="config-group">
-          <label class="config-label">MCMC параметры</label>
+          <label class="config-label">Параметры Markov Chain Monte Carlo</label>
           <div class="mcmc-grid">
             <label>
               <span class="mcmc-label-row">
                 Chains
-                <span class="help-icon" title="Количество параллельных MCMC-цепей. Обычно 2-4. Больше цепей — лучше проверка сходимости (R-hat), но дольше обучение. Для 31 строки рекомендуется 2.">?</span>
+                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Обычно 2-4. Больше цепей — лучше проверка сходимости (R-hat), но дольше обучение. Для 31 строки рекомендуется 2.">?</span>
               </span>
               <input type="number" bind:value={mcmcChains} min="1" max="8" />
             </label>

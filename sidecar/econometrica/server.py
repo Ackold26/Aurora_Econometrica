@@ -255,7 +255,20 @@ def train_progress():
         task_id = max(_training_tasks, key=lambda k: _training_tasks[k]['started_at'])
         task = _training_tasks[task_id].copy()
         task['elapsed_sec'] = round(time.time() - task['started_at'], 1)
-    return {'task_id': task_id, **{k: v for k, v in task.items() if k not in ('result', 'error', 'started_at')}}
+    return {'task_id': task_id, **{k: v for k, v in task.items() if k not in ('result', 'started_at')}}
+
+
+@app.post('/compute/train/cancel/{task_id}')
+def train_cancel(task_id: str):
+    """Mark training task as cancelled. MCMC thread finishes in background but result discarded."""
+    with _training_lock:
+        task = _training_tasks.get(task_id)
+        if not task:
+            return {'status': 'not_found'}
+        if task['status'] == 'running':
+            task['status'] = 'cancelled'
+            task['error'] = 'Обучение остановлено пользователем'
+        return {'status': task['status'], 'task_id': task_id}
 
 
 @app.get('/compute/train/result/{task_id}')

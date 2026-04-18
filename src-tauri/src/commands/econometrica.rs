@@ -143,6 +143,19 @@ pub async fn econ_train_progress() -> Result<Value, String> {
 }
 
 #[tauri::command]
+pub async fn econ_train_cancel(task_id: String) -> Result<Value, String> {
+    info!("econ_train_cancel: {task_id}");
+    quick_client()
+        .post(format!("{ECON_BASE}/compute/train/cancel/{task_id}"))
+        .send()
+        .await
+        .map_err(|e| format!("Вычислительный модуль недоступен: {e}"))?
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("Ошибка парсинга ответа: {e}"))
+}
+
+#[tauri::command]
 pub async fn econ_train_result(task_id: String) -> Result<Value, String> {
     info!("econ_train_result: {task_id}");
     quick_client()

@@ -531,7 +531,7 @@ export function modelPreTrainingInsights(validateResult) {
   // ── 6. What to watch after training ──
   out.push({
     severity: 'info',
-    text: 'После обучения смотрим: MQS (качество модели, ≥60) · R² (объяснительная сила, ≥0.7) · R-hat (сходимость MCMC, <1.05).',
+    text: 'После обучения смотрим: MQS (качество модели, ≥60) · R² (объяснительная сила, ≥0.7) · R-hat (сходимость Markov Chain Monte Carlo, <1.05).',
     tip: 'MQS — агрегированная оценка качества от 0 до 100. R² — доля объяснённой вариации KPI. R-hat — сходимость Байесовских цепей; если >1.05 — увеличьте draws (в Расширенных настройках, режим Эксперт).',
   });
 
@@ -541,7 +541,7 @@ export function modelPreTrainingInsights(validateResult) {
     out.push({
       severity: 'info',
       text: `Оценка времени: ~${estimatedMinutes} мин для ${mediaCount} каналов. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
-      tip: 'Байесовский MCMC проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). На слабой выборке warmup занимает больше времени, чем sampling.',
+      tip: 'Байесовский Markov Chain Monte Carlo проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). На слабой выборке warmup занимает больше времени, чем sampling.',
     });
   }
 
@@ -566,7 +566,7 @@ export function modelInsights(data) {
   }
 
   if (d.r_hat > 1.05) {
-    out.push({ severity: 'error', text: `R-hat = ${d.r_hat.toFixed(3)} — MCMC цепи не сошлись. Результаты ненадёжны.`, tip: 'Увеличьте количество draws (2000+) и tune (1000+). Если не помогает — упростите модель (меньше каналов).' });
+    out.push({ severity: 'error', text: `R-hat = ${d.r_hat.toFixed(3)} — цепи Markov Chain Monte Carlo не сошлись. Результаты ненадёжны.`, tip: 'Увеличьте количество draws (2000+) и tune (1000+). Если не помогает — упростите модель (меньше каналов).' });
   } else if (d.r_hat > 1.01) {
     out.push({ severity: 'warning', text: `R-hat = ${d.r_hat.toFixed(3)} — цепи почти сошлись. Рассмотрите увеличение draws.` });
   }
@@ -582,7 +582,7 @@ export function modelInsights(data) {
   }
 
   if (d.divergences > 0) {
-    out.push({ severity: 'warning', text: `${d.divergences} дивергенций в MCMC. Модель может быть нестабильна.`, tip: 'Увеличьте target_accept (0.9→0.95) или tune. Дивергенции означают, что сэмплер не смог исследовать всё пространство параметров.' });
+    out.push({ severity: 'warning', text: `${d.divergences} дивергенций в Markov Chain Monte Carlo. Модель может быть нестабильна.`, tip: 'Увеличьте target_accept (0.9→0.95) или tune. Дивергенции означают, что сэмплер не смог исследовать всё пространство параметров.' });
   }
 
   return out;

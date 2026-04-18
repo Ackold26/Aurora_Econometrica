@@ -15,20 +15,97 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def _find_msvc_via_vswhere() -> str | None:
+    """Locate MSVC cl.exe directory via official vswhere.exe.
+
+    vswhere is always at %ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe
+    regardless of VS version/edition. Returns bin path containing cl.exe, or None.
+    Side effect: adds the path to os.environ['PATH'] so subsequent PyTensor subprocess calls find it.
+    """
+    import os
+    import subprocess
+    import glob
+
+    vswhere = os.path.join(
+        os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'),
+        'Microsoft Visual Studio', 'Installer', 'vswhere.exe'
+    )
+    if not os.path.isfile(vswhere):
+        return None
+
+    try:
+        result = subprocess.run(
+            [vswhere, '-latest', '-products', '*',
+             '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+             '-property', 'installationPath'],
+            capture_output=True, text=True, timeout=10
+        )
+        vs_path = result.stdout.strip()
+        if not vs_path:
+            return None
+    except Exception:
+        return None
+
+    # Find cl.exe inside VC\Tools\MSVC\<version>\bin\Hostx64\x64\
+    pattern = os.path.join(vs_path, 'VC', 'Tools', 'MSVC', '*', 'bin', 'Hostx64', 'x64', 'cl.exe')
+    matches = glob.glob(pattern)
+    if not matches:
+        return None
+
+    cl_exe = sorted(matches)[-1]
+    bin_dir = os.path.dirname(cl_exe)
+
+    # Full env setup — run vcvars64.bat and capture INCLUDE/LIB/PATH/etc.
+    # Without this, cl.exe runs but can't find windows.h / kernel32.lib → PyTensor compile fails.
+    vcvars = os.path.join(vs_path, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat')
+    if os.path.isfile(vcvars):
+        try:
+            # Run vcvars64.bat and dump env via `set`, parse output
+            proc = subprocess.run(
+                f'"{vcvars}" >nul 2>&1 && set',
+                shell=True, capture_output=True, text=True, timeout=30
+            )
+            if proc.returncode == 0:
+                for line in proc.stdout.splitlines():
+                    if '=' in line:
+                        key, _, val = line.partition('=')
+                        # Only inject compiler-relevant vars to avoid clobbering
+                        if key.upper() in ('PATH', 'INCLUDE', 'LIB', 'LIBPATH', 'WINDOWSSDKDIR',
+                                           'WINDOWSSDKVERSION', 'VCINSTALLDIR', 'VCTOOLSINSTALLDIR',
+                                           'VSINSTALLDIR'):
+                            os.environ[key] = val
+                return bin_dir
+        except Exception:
+            pass
+
+    # Fallback: at least add cl.exe dir to PATH (may still fail on missing headers)
+    current_path = os.environ.get('PATH', '')
+    if bin_dir not in current_path:
+        os.environ['PATH'] = f"{bin_dir};{current_path}"
+    return bin_dir
+
+
 def check_compiler() -> bool:
-    """Check if C compiler is available (for NUTS sampler)."""
+    """Check if C compiler is available (for NUTS sampler).
+
+    Windows strategy:
+    1. Try cl.exe via PATH (activated via vcvars, or manually added)
+    2. Try g++ (MinGW)
+    3. Fall back to vswhere.exe to locate MSVC Build Tools installation
+       (MSVC is not in PATH by default — must be activated via vcvars64.bat)
+    """
     import subprocess
     import platform
     try:
         if platform.system() == 'Windows':
-            # Try MSVC first, then MinGW
             for cmd in [['cl.exe'], ['g++', '--version']]:
                 try:
                     subprocess.run(cmd, capture_output=True, timeout=5)
                     return True
                 except FileNotFoundError:
                     continue
-            return False
+            # Last resort: locate MSVC via vswhere and inject into PATH
+            return _find_msvc_via_vswhere() is not None
         else:
             result = subprocess.run(['gcc', '--version'], capture_output=True, timeout=5)
             return result.returncode == 0
@@ -216,10 +293,47 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         r_hat_max = max(r_hat_values) if r_hat_values else 1.0
         divergences = int(trace.sample_stats['diverging'].sum()) if hasattr(trace, 'sample_stats') else 0
 
-        # Posterior predictions (no context manager needed for PyMC 5.10+)
-        ppc = pm.sample_posterior_predictive(trace, model=mmm, extend_inferencedata=True)
+        # Posterior predictions. PyMC 5.x + custom Deterministic variables (Adstock/Hill)
+        # sometimes crash with `'functools.partial' object has no attribute '__name__'`
+        # inside sample_posterior_predictive. Fallback: reconstruct y_pred manually from posterior means.
+        y_pred_norm = None
+        try:
+            ppc = pm.sample_posterior_predictive(trace, model=mmm, extend_inferencedata=True, progressbar=False)
+            y_pred_norm = ppc.posterior_predictive['obs'].mean(dim=['chain', 'draw']).values
+        except Exception as e:
+            logger.warning(f"sample_posterior_predictive failed ({type(e).__name__}: {e}); computing y_pred manually from posterior means")
+            try:
+                import numpy as _np
+                intercept_mean = float(trace.posterior['intercept'].mean(dim=['chain', 'draw']).values)
+                media_betas_mean = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values
+                alphas_mean = trace.posterior['alphas'].mean(dim=['chain', 'draw']).values
+                gammas_mean = trace.posterior['gammas'].mean(dim=['chain', 'draw']).values
 
-        y_pred_norm = ppc.posterior_predictive['obs'].mean(dim=['chain', 'draw']).values
+                # Reconstruct Hill-saturated predictions using posterior means
+                # (using X_media_norm — same transformation as inside pm.Model)
+                media_effect_pred = _np.zeros(n_obs)
+                for i, col in enumerate(media_cols):
+                    x_ch = X_media_norm[col].values
+                    alpha_i = float(alphas_mean[i])
+                    gamma_i = float(gammas_mean[i])
+                    beta_i = float(media_betas_mean[i])
+                    x_safe = _np.maximum(x_ch, 0)
+                    gamma_scaled = gamma_i * max(x_safe.max(), 1e-10)
+                    saturated = x_safe ** alpha_i / (x_safe ** alpha_i + gamma_scaled ** alpha_i + 1e-10)
+                    media_effect_pred += beta_i * saturated
+
+                # Control effect
+                control_effect_pred = _np.zeros(n_obs)
+                if len(control_cols) > 0:
+                    control_betas_mean = trace.posterior['control_betas'].mean(dim=['chain', 'draw']).values
+                    control_effect_pred = X_control.values.astype(float) @ _np.asarray(control_betas_mean)
+
+                y_pred_norm = intercept_mean + media_effect_pred + control_effect_pred
+            except Exception as e2:
+                logger.exception(f"Manual y_pred fallback also failed: {e2}")
+                import numpy as _np
+                y_pred_norm = _np.zeros(n_obs)
+
         y_pred = y_pred_norm * y_std + y_mean
 
         # C2: actual_vs_predicted with dates

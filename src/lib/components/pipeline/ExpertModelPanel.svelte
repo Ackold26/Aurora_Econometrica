@@ -25,7 +25,7 @@
 
 <div class="expert-panel">
   {#if diagnostics}
-    <div class="section-title">MCMC Диагностика</div>
+    <div class="section-title">Диагностика Markov Chain Monte Carlo</div>
     <div class="diag-grid">
       <div class="diag-item">
         <span class="diag-label">R-hat (max)</span>

@@ -37,6 +37,16 @@
   const diagnostics = $derived($modelData?.diagnostics || null);
   const mqs = $derived(diagnostics?.mqs || null);
 
+  /** Estimate training duration in seconds from config — used for smooth progress interpolation */
+  const estimatedSec = $derived.by(() => {
+    if (!lastConfig) return 600;
+    const mc = lastConfig.mcmc_override || { chains: 2, draws: 1000, tune: 500 };
+    const channels = (lastConfig.media_columns || []).length || 4;
+    const totalSamples = (mc.draws + mc.tune) * mc.chains;
+    const secPerSample = 0.3 * Math.max(channels / 4, 1);
+    return Math.max(60, totalSamples * secPerSample);
+  });
+
   // ── Handlers ──
 
   const TASK_KEY = 'econ-training-task';
@@ -52,7 +62,7 @@
             activeTaskId = savedTaskId;
             stepState = 'training';
             isComputing.set(true);
-            computeStatus.set('MCMC сэмплирование...');
+            computeStatus.set('Markov Chain Monte Carlo сэмплирование...');
           } else if (progress.status === 'completed') {
             const result = /** @type {any} */ (await invoke('econ_train_result', { taskId: savedTaskId }));
             handleComplete(result);
@@ -83,7 +93,7 @@
     activeTaskId = taskId;
     stepState = 'training';
     isComputing.set(true);
-    computeStatus.set('MCMC сэмплирование...');
+    computeStatus.set('Markov Chain Monte Carlo сэмплирование...');
     try { localStorage.setItem(TASK_KEY, taskId); } catch { /* ignore */ }
   }
 
@@ -119,6 +129,15 @@
     errorMessage = msg;
     stepState = 'error';
     setStepError(2, msg);
+  }
+
+  /** User clicked Stop during training — reset to idle, allow reconfigure */
+  function handleStop() {
+    isComputing.set(false);
+    computeStatus.set('');
+    try { localStorage.removeItem(TASK_KEY); } catch { /* ignore */ }
+    errorMessage = null;
+    stepState = 'idle';
   }
 
   /** Retry with same config — auto-starts training without manual Run click */
@@ -166,6 +185,8 @@
       taskId={activeTaskId}
       onComplete={handleComplete}
       onError={handleError}
+      onStop={handleStop}
+      {estimatedSec}
     />
   {/if}
 

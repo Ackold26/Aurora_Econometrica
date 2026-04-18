@@ -9,8 +9,24 @@
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
 
-  /** @type {{ taskId: string, onComplete: (result: any) => void, onError: (msg: string) => void }} */
-  let { taskId, onComplete, onError } = $props();
+  /** @type {{ taskId: string, onComplete: (result: any) => void, onError: (msg: string) => void, onStop?: () => void, estimatedSec?: number }} */
+  let { taskId, onComplete, onError, onStop, estimatedSec = 600 } = $props();
+
+  let stopping = $state(false);
+  /** When sampling phase started (epoch seconds from elapsedSec) */
+  let samplingStartElapsed = $state(/** @type {number|null} */ (null));
+
+  async function handleStop() {
+    if (stopping) return;
+    stopping = true;
+    active = false;
+    try {
+      await invoke('econ_train_cancel', { taskId });
+    } catch {
+      /* ignore — user just wants UI back */
+    }
+    onStop?.();
+  }
 
   let phase = $state('loading');
   let pct = $state(0);
@@ -21,7 +37,7 @@
   const PHASE_LABELS = {
     loading: 'Загрузка данных',
     compiling: 'Компиляция модели',
-    sampling: 'MCMC сэмплирование',
+    sampling: 'Markov Chain Monte Carlo сэмплирование',
     diagnostics: 'Диагностика',
     saving: 'Сохранение результатов',
     complete: 'Готово',
@@ -59,14 +75,38 @@
 
       if (p.status === 'error') {
         active = false;
-        onError(p.error || 'Ошибка обучения модели');
+        try {
+          const result = /** @type {any} */ (await invoke('econ_train_result', { taskId }));
+          onError(result?.message || p.error || 'Ошибка обучения модели');
+        } catch {
+          onError(p.error || 'Ошибка обучения модели');
+        }
+        return;
+      }
+
+      if (p.status === 'cancelled') {
+        active = false;
+        onStop?.();
         return;
       }
 
       if (p.task_id === taskId || p.status === 'running') {
-        phase = p.phase || phase;
-        pct = p.pct || pct;
+        const newPhase = p.phase || phase;
+        const serverPct = p.pct || pct;
         elapsedSec = Math.round(p.elapsed_sec || 0);
+
+        if (newPhase === 'sampling') {
+          if (samplingStartElapsed === null) samplingStartElapsed = elapsedSec;
+          const samplingElapsed = elapsedSec - samplingStartElapsed;
+          // Budget ~70% of estimatedSec for sampling (rest is loading/compile/diagnostics)
+          const samplingBudget = Math.max(60, estimatedSec * 0.7);
+          const sampleProgress = Math.min(samplingElapsed / samplingBudget, 0.97);
+          // Interpolate from 25 → 85 during sampling
+          pct = Math.max(serverPct, Math.round(25 + sampleProgress * 60));
+        } else {
+          pct = serverPct;
+        }
+        phase = newPhase;
       }
     } catch {
       // Sidecar temporarily unavailable — retry
@@ -106,6 +146,10 @@
     <span class="phase-label">{phaseLabel}</span>
     <span class="pct-label">{pct}%</span>
   </div>
+
+  <button class="stop-btn" onclick={handleStop} disabled={stopping}>
+    {stopping ? 'Останавливаю...' : '⏹ Остановить обучение'}
+  </button>
 </div>
 
 <style>
@@ -178,5 +222,28 @@
     font-weight: 600;
     color: var(--accent-primary, #3b82f6);
     font-variant-numeric: tabular-nums;
+  }
+
+  .stop-btn {
+    margin-top: 4px;
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--danger, #ef4444);
+    color: var(--danger, #ef4444);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 150ms ease;
+  }
+
+  .stop-btn:hover:not(:disabled) {
+    background: var(--danger, #ef4444);
+    color: #fff;
+  }
+
+  .stop-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 </style>

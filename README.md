@@ -6,17 +6,49 @@
 
 ---
 
-## Требования
+## Системные требования (для конечного пользователя)
 
-- [Node.js LTS](https://nodejs.org/) — установить в `D:\Program Files\nodejs`
+### Минимальные
+
+- **ОС:** Windows 10 (build 1903+) / Windows 11
+- **CPU:** 4 ядра, 2.5 ГГц (Intel Core i5-8xxx / AMD Ryzen 5 2xxx и выше)
+- **RAM:** 8 ГБ
+- **Диск:** 1.5 ГБ свободно
+- **WebView2** (обычно уже установлен в Windows 10+, иначе — автоматом через инсталлятор)
+
+### Рекомендуемые (для быстрого MCMC)
+
+- **CPU:** 6+ ядер, 3.5+ ГГц (Intel i7-12xxx / AMD Ryzen 7 5xxx и выше)
+- **RAM:** 16 ГБ
+- **MS Visual C++ 2022 Build Tools** — **критично для скорости обучения модели**
+
+> Без C-компилятора PyMC использует Metropolis-sampler (в 3-5 раз медленнее NUTS). Установка:
+> ```powershell
+> winget install Microsoft.VisualStudio.2022.BuildTools
+> ```
+> Выбрать workload: «Desktop development with C++» → «MSVC v143» + «Windows SDK».
+
+### Опционально (на будущее, для JAX-backend)
+
+- **CUDA Toolkit 12+** (NVIDIA GPU) — ускорение через NumPyro/JAX. Сейчас не используется, но планируется в roadmap.
+
+---
+
+## Требования для разработки
+
+- [Node.js LTS](https://nodejs.org/) — `winget install OpenJS.NodeJS.LTS`
 - [Rust (stable-msvc)](https://rustup.rs/) — `winget install Rustlang.Rustup`
 - Rust target: `stable-x86_64-pc-windows-msvc`
+- [Python 3.10+](https://www.python.org/) — с установленными:
+  - `pip install pymc arviz pandas numpy scipy scikit-learn statsmodels openpyxl python-pptx fastapi uvicorn`
+- **MS Visual C++ 2022 Build Tools** — обязательно для компиляции PyTensor под NUTS-sampler
 
 ## Установка
 
 ```powershell
-cd path\to\AI_APP_AGENCY
+cd path\to\Aurora_Econometrica
 npm install
+pip install -r sidecar/econometrica/requirements.txt
 ```
 
 ---
