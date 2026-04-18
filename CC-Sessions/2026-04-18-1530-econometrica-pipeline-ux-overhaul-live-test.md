@@ -4,7 +4,7 @@ type: session
 updated: 2026-04-18
 ---
 # Quick Reference
-Масштабный UX overhaul Pipeline Econometrica: 2 коммита (7e802c9 + 6192eea), 32 файла, ~1160 строк. Actionable инсайты с кнопками, кликабельные роли, реактивная валидация, theme contrast fix, автодетект ролей (RU). Live-тест прошёл Import+Validate, следующее — Model+.
+Масштабный UX overhaul Pipeline Econometrica: 4 коммита (7e802c9 + 6192eea + 2e51b42 + 9a0d361), 34 файла, ~1400 строк. Adaptive recommendation chain (KPI suggest → auto-optimize → merge → ready), actionable инсайты с кнопками, кликабельные роли, реактивная валидация, theme contrast fix, автодетект ролей (RU). Live-тест: Import+Validate done, Model+ next.
 
 Topic: econometrica-pipeline-ux-overhaul-live-test
 Key files: insights-rules.js, InsightsPanel.svelte, ValidateStep.svelte, TrafficLight.svelte, ColumnMapper.svelte, ConfigPanel.svelte, ExpertValidatePanel.svelte, project-state.js, validator.py, app.css, +page.svelte, +layout.svelte (pipeline)
@@ -113,10 +113,26 @@ Status: Import+Validate полностью протестированы и до�
 | `<select>` обрезается | WebView2 не рендерит нативный dropdown за overflow | Кастомный dropdown с position:fixed |
 | "TRPs конкуренты" → media | "trp" в MEDIA перебивает "конкурент" в CONTROL | Приоритетное правило: competitor check ДО pattern counting |
 
+## Коммиты 3-4 (после первого compress)
+
+### Коммит 3: 2e51b42 — Merge weak channels
+- Группировка каналов с 50-90% нулей → "Объединить N каналов в Малые медиа"
+- Action type 'merge': виртуальный столбец с merged_from, суммирование stats
+- Оригиналы → unused, объединённый → media
+
+### Коммит 4: 9a0d361 — Adaptive recommendation chain
+- Цепочка: нет KPI → найти кандидата → кнопка "Назначить как KPI"
+- Ratio <2 → ранжировать каналы по нулям → "Оптимизировать: оставить N каналов"
+- Ratio 2-4 → мягкое предупреждение
+- Ratio ≥4 + 0 warnings → зелёный "Данные готовы"
+- Action type 'set_role' для KPI назначения
+- Каждое действие → validateData обновляется → инсайты пересчитываются → новая рекомендация
+
+### Ключевое решение сессии
+Валидация данных — это не просто "проверка", а **интерактивная подготовка данных**. Система ведёт пользователя по цепочке: проблема → конкретная рекомендация → кнопка → пересчёт → следующий шаг. Пока все проблемы не устранены, пользователь не получит зелёный статус.
+
 ## Full Session Notes
 
-Сессия длилась ~3 часа. Антон тестировал Econometrica v1.0.7 в dev-режиме, отправлял скриншоты, давал обратную связь по UX. Каждый баг фиксился на лету через hot-reload (фронтенд) или рестарт (Python sidecar).
-
-Ключевой инсайт: валидация данных — это не просто "проверка", а **интерактивная подготовка данных** для моделирования. Пользователь должен видеть проблемы, получать конкретные рекомендации, и применять их одним кликом. Инсайты должны пересчитываться реактивно при каждом изменении.
+Сессия длилась ~4 часа. Антон тестировал Econometrica v1.0.7 в dev-режиме, отправлял скриншоты, давал обратную связь по UX. Каждый баг фиксился на лету через hot-reload (фронтенд) или рестарт (Python sidecar).
 
 Терминология ролей утверждена на основе маркетинговой экономики: цены и промо — управляемые факторы (часть Marketing Mix), SOM/SOV — неуправляемые (зависят от конкурентов).
