@@ -51,9 +51,10 @@
 
 <style>
   .pipeline-page {
-    /* Relative container so absolute-positioned hidden steps don't leak */
+    /* Relative container so absolute-positioned hidden steps don't leak.
+       NO overflow here — scrolling is owned by .pipeline-main (parent).
+       Double-scroll containers caused phantom scroll into empty space. */
     position: relative;
     height: 100%;
-    overflow: auto;
   }
 </style>

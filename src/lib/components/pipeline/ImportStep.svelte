@@ -12,7 +12,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
-  import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep } from '$lib/project-state.js';
+  import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject } from '$lib/project-state.js';
   import { get } from 'svelte/store';
 
   // ── State ──────────────────────────────────────────
@@ -38,6 +38,25 @@
     if (stored.rows && stored.rows.length) {
       previewRows = stored.rows;
     }
+  }
+
+  /**
+   * Build auto project name from a file name.
+   * Format: "{brand} ММХ {DDMM-YY}" — e.g. "Кагоцел РФ ММХ 1804-26".
+   * Brand = first meaningful fragment before separators (_, +, —, «данные», etc).
+   * @param {string} fileName
+   * @returns {string}
+   */
+  function buildProjectName(fileName) {
+    const stem = fileName.replace(/\.(xlsx|xls|csv)$/i, '').trim();
+    // Cut off at first separator-ish marker so we keep only the brand part
+    const brandMatch = stem.split(/[_+—–]|\s(?:данны|data|model|эконометрик|анализ|отчёт|план)/i)[0];
+    const brand = (brandMatch || stem || 'Проект').trim().replace(/\s+/g, ' ').slice(0, 40);
+    const d = new Date();
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    return `${brand} ММХ ${dd}${mm}-${yy}`;
   }
 
   // ── Tauri drag-drop listener ───────────────────────
@@ -154,6 +173,22 @@
         fileName: result.file_name ?? path.split(/[\\/]/).pop() ?? '',
       };
       importData.set(updated);
+
+      // Auto-create project if none exists — eliminates the "проект не выбран" block later.
+      // Format: "{brand} ММХ {DDMM-YY}" — e.g. "Кагоцел РФ ММХ 1804-26"
+      if (!get(activeProjectId)) {
+        try {
+          const projectName = buildProjectName(result.file_name ?? path.split(/[\\/]/).pop() ?? '');
+          const info = /** @type {any} */ (await invoke('project_create', { name: projectName }));
+          if (info?.id) {
+            activeProjectId.set(info.id);
+            activeProject.set(info);
+          }
+        } catch (projErr) {
+          console.error('Auto-create project failed:', projErr);
+          // Not fatal — user can still work, will hit error on Model step with clear message
+        }
+      }
 
       completeStep(0);
     } catch (e) {

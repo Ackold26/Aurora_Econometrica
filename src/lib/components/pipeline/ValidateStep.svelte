@@ -15,10 +15,12 @@
   import ColumnMapper from '$lib/components/pipeline/ColumnMapper.svelte';
   import TrafficLight from '$lib/components/pipeline/TrafficLight.svelte';
   import CorrelationHeatmap from '$lib/components/pipeline/CorrelationHeatmap.svelte';
+  import ObjectiveSelector from '$lib/components/pipeline/ObjectiveSelector.svelte';
   import {
     importData, validateData, completeStep, setStepError,
-    activeProjectId, expertMode,
+    activeProjectId, expertMode, analysisObjective,
   } from '$lib/project-state.js';
+  import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
   import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
   import { get } from 'svelte/store';
 
@@ -63,7 +65,8 @@
   });
 
   // ── Validate ───────────────────────────────────────
-  async function runValidate() {
+  /** @param {{ skipAutoRole?: boolean }} [opts] */
+  async function runValidate(opts) {
     const imp = get(importData);
     if (!imp.file) {
       errorMsg = 'Сначала загрузите файл на шаге Импорт';
@@ -72,6 +75,7 @@
 
     loading = true;
     errorMsg = '';
+    appliedFixes = new Set();
 
     try {
       const projectId = get(activeProjectId);
@@ -89,7 +93,16 @@
         return;
       }
 
-      // Save to store — result is $derived from store, updates reactively
+      // Apply objective-based role filter (unless skipped)
+      if (!opts?.skipAutoRole) {
+        const obj = get(analysisObjective);
+        const applied = applyObjectiveToColumns(res.columns ?? [], obj);
+        res.columns = applied.columns;
+        res.objective_applied = { objective: obj, excluded: applied.excluded, kept: applied.kept };
+        // Recompute issues/status/verdict/ratio to reflect new role distribution
+        recomputeResultAfterObjective(res);
+      }
+
       validateData.set({
         result: res,
         correlationMatrix: res.full_correlation_matrix ?? null,
@@ -105,6 +118,48 @@
       setStepError(1, String(e));
     } finally {
       loading = false;
+    }
+  }
+
+  /**
+   * Objective selected from the overlay → set store and kick off validation.
+   * @param {'roi' | 'effectiveness' | 'manual'} obj
+   */
+  function onObjectiveChosen(obj) {
+    analysisObjective.set(obj);
+    runValidate();
+  }
+
+  /**
+   * Segmented control click — switch objective AFTER validation has run.
+   * Re-applies role filter to the existing result without re-invoking the sidecar.
+   * @param {'roi' | 'effectiveness' | 'manual'} obj
+   */
+  function switchObjective(obj) {
+    if (get(analysisObjective) === obj) return;
+    analysisObjective.set(obj);
+
+    // Re-apply objective to current columns in-place (no sidecar re-call)
+    const current = get(validateData);
+    if (!current?.result?.columns) return;
+    const applied = applyObjectiveToColumns(current.result.columns, obj);
+    const nextResult = {
+      ...current.result,
+      columns: applied.columns,
+      objective_applied: { objective: obj, excluded: applied.excluded, kept: applied.kept },
+    };
+    recomputeResultAfterObjective(nextResult);
+    validateData.set({
+      ...current,
+      result: nextResult,
+    });
+    appliedFixes = new Set();
+
+    // Unlock/lock next step based on new status
+    if (nextResult.status === 'error') {
+      setStepError(1, 'Критические проблемы с данными');
+    } else {
+      completeStep(1);
     }
   }
 
@@ -125,39 +180,87 @@
 
 <div class="validate-step">
 
-  <!-- Action bar -->
-  <div class="action-bar">
-    {#if !hasFile}
+  <!-- Objective selector overlay — shown before first validation -->
+  {#if hasFile && !result && !loading}
+    <ObjectiveSelector onSelect={onObjectiveChosen} />
+  {:else if !hasFile}
+    <div class="action-bar">
       <p class="no-file-hint">Сначала загрузите файл на шаге «Импорт»</p>
-    {:else}
+    </div>
+  {:else}
+    <!-- Action bar (post-validation) -->
+    <div class="action-bar">
       <button
         class="run-btn"
         disabled={loading}
-        onclick={runValidate}
+        onclick={() => runValidate()}
       >
         {#if loading}
           <span class="btn-spinner"></span>
           Анализирую…
-        {:else if result}
-          🔄 Перезапустить валидацию
         {:else}
-          ▶ Запустить валидацию
+          🔄 Перезапустить валидацию
         {/if}
       </button>
 
       {#if result}
         <span class="status-pill status-{result.status}">{statusLabel}</span>
       {/if}
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   <!-- Error -->
   {#if errorMsg}
     <div class="error-banner">⚠️ {errorMsg}</div>
   {/if}
 
-  <!-- Results -->
+  <!-- Objective selector: ROI / Effectiveness / Manual -->
   {#if result}
+    <div class="objective-bar" role="radiogroup" aria-label="Цель анализа">
+      <span class="objective-label">Цель анализа:</span>
+      <div class="objective-segments">
+        <button
+          class="objective-seg"
+          class:active={$analysisObjective === 'roi'}
+          role="radio"
+          aria-checked={$analysisObjective === 'roi'}
+          onclick={() => switchObjective('roi')}
+          title="Измеряем возврат инвестиций — оставляем бюджеты"
+        >
+          💰 ROI
+          <span class="objective-sub">бюджеты</span>
+        </button>
+        <button
+          class="objective-seg"
+          class:active={$analysisObjective === 'effectiveness'}
+          role="radio"
+          aria-checked={$analysisObjective === 'effectiveness'}
+          onclick={() => switchObjective('effectiveness')}
+          title="Измеряем эффективность медиа — оставляем показы/клики/визиты"
+        >
+          📊 Эффективность
+          <span class="objective-sub">показы/клики</span>
+        </button>
+        <button
+          class="objective-seg"
+          class:active={$analysisObjective === 'manual'}
+          role="radio"
+          aria-checked={$analysisObjective === 'manual'}
+          onclick={() => switchObjective('manual')}
+          title="Выбираете метрику для каждого канала вручную"
+        >
+          🔧 Вручную
+          <span class="objective-sub">per-канал</span>
+        </button>
+      </div>
+      {#if result.objective_applied?.excluded?.length > 0}
+        <span class="objective-hint">
+          {describeObjective($analysisObjective)} Исключено: {result.objective_applied.excluded.length}.
+        </span>
+      {:else if $analysisObjective === 'manual'}
+        <span class="objective-hint">{describeObjective('manual')}</span>
+      {/if}
+    </div>
     <div class="results-stack">
 
       <!-- TrafficLight -->
@@ -276,6 +379,67 @@
   }
 
   /* ── Action bar ── */
+  /* ── Objective selector (ROI / Effectiveness / Manual) ── */
+  .objective-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--bg-surface-quiet);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card, 12px);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .objective-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .objective-segments {
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-btn, 8px);
+  }
+  .objective-seg {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    border-radius: calc(var(--radius-btn, 8px) - 2px);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .objective-seg:hover:not(.active) {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+  }
+  .objective-seg.active {
+    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+    color: var(--accent-primary);
+    font-weight: var(--font-weight-heading, 600);
+  }
+  .objective-sub {
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.75;
+  }
+  .objective-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 4px;
+    font-style: italic;
+  }
+
   .action-bar {
     display: flex;
     align-items: center;
@@ -419,11 +583,36 @@
   .fix-item.fix-critical { border-left-color: #ef4444; background: color-mix(in srgb, var(--danger) 6%, transparent); border-color: color-mix(in srgb, var(--danger) 20%, transparent); }
   .fix-text { flex: 1; font-size: 12px; color: var(--text-primary, #e2e8f0); line-height: 1.4; }
   .fix-btn {
-    padding: 4px 12px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.12);
-    background: rgba(255,255,255,0.05); color: var(--text-secondary, #94a3b8);
-    font-size: 11px; cursor: pointer; white-space: nowrap; transition: all 0.15s;
+    padding: 6px 16px;
+    border-radius: var(--radius-btn, 6px);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 45%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    color: var(--accent-primary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
   }
-  .fix-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-primary, #e2e8f0); }
+  .fix-btn:hover {
+    background: var(--accent-primary);
+    color: #fff;
+    border-color: var(--accent-primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  }
+  .fix-item.fix-critical .fix-btn {
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    color: var(--danger);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--danger) 15%, transparent);
+  }
+  .fix-item.fix-critical .fix-btn:hover {
+    background: var(--danger);
+    color: #fff;
+    border-color: var(--danger);
+  }
 
   .idle-state {
     display: flex;

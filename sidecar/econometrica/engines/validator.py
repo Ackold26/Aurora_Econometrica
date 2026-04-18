@@ -16,7 +16,13 @@ MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'vie
                   'бюджет', 'расход', 'показ', 'клик', 'визит', 'прочтен', 'просмотр',
                   'impression', 'click', 'visit', 'cpm', 'cpc', 'cpv',
                   'olv', 'banner', 'social', 'retail media', 'performance',
-                  'радио', 'пресса', 'ooh', 'ооh', 'ots', 'digital', 'programmatic',
+                  'радио', 'пресса', 'digital', 'programmatic',
+                  # Out-of-Home: English (OOH, outdoor) + Russian (ООН, наружная)
+                  'ooh', 'outdoor', 'оон', 'наружн',
+                  # OTS (Opportunity To See) — impression-like metric for OOH/TV
+                  'ots',
+                  # TV (television) — English + Russian
+                  'tv', 'television', 'тв ', 'тв_', 'тв-',
                   'price', 'promo', 'цен', 'промо']
 DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
 CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',

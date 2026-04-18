@@ -58,7 +58,7 @@ export function importInsights(data) {
 
   // ── Автодетект медиаканалов по именам колонок ──
   const colNames = columns.map(/** @param {any} c */ c => (c.name ?? String(c)).toUpperCase());
-  const MEDIA_KEYWORDS = ['OLV','TV','RADIO','BANNER','DIGITAL','CONTEXT','TARGET','SMM','OOH','PRESS','YOUTUBE','VK','OK','TG','TELEGRAM','SEARCH','SEO','EMAIL','PUSH','IN-APP','RTB','PROGRAMMATIC','CPC','CPM','GRP','IMPRESS','CLICK','BUDGET','SPEND','COST','РУБ'];
+  const MEDIA_KEYWORDS = ['OLV','TV','ТВ','RADIO','РАДИО','BANNER','БАННЕР','DIGITAL','CONTEXT','TARGET','SMM','OOH','ООН','ВНЕШН','НАРУЖН','OUTDOOR','PRESS','ПРЕССА','YOUTUBE','VK','OK','TG','TELEGRAM','SEARCH','SEO','EMAIL','PUSH','IN-APP','RTB','PROGRAMMATIC','CPC','CPM','GRP','TRP','OTS','IMPRESS','ПОКАЗ','CLICK','КЛИК','VISIT','ВИЗИТ','BUDGET','БЮДЖЕТ','SPEND','COST','РУБ','СОЦ','SOCIAL','PERFORMANCE','RETAIL','СПЕЦПРОЕКТ','СТАТЬИ'];
   const DATE_KEYWORDS = ['DATE','ДАТА','PERIOD','НЕДЕЛЯ','МЕСЯЦ','WEEK','MONTH','YEAR'];
   const KPI_KEYWORDS = ['SALES','ПРОДАЖИ','REVENUE','ВЫРУЧКА','UNITS','ШТУ','КОНВЕРС','CONVERSION','ORDERS','ЗАКАЗ','LEADS','ЛИД','CLICKS_KPI'];
 
@@ -99,7 +99,7 @@ export function importInsights(data) {
  * @param {any} result
  * @returns {Insight[]}
  */
-export function validateInsights(result) {
+export function validateInsights(result, objective = 'roi') {
   /** @type {Insight[]} */
   const out = [];
   if (!result) return out;
@@ -128,10 +128,11 @@ export function validateInsights(result) {
   }
 
   // ── Объём данных vs параметры ──
-  const totalRows = result.detected?.rows ?? 0;
-  const paramCount = mediaCols.length * 3 + controlCols.length + 2;
+  // Унифицированная формула rows / (media + control) — соответствует Python validator и индустриальной практике (rows-to-cols ratio).
+  const totalRows = result.file?.rows ?? result.detected?.rows ?? 0;
+  const paramCount = mediaCols.length + controlCols.length;
   if (totalRows > 0 && mediaCols.length > 0) {
-    const ratio = totalRows / paramCount;
+    const ratio = totalRows / Math.max(paramCount, 1);
 
     // Найти каналы-кандидаты на исключение (>50% нулей) — для кнопки "Оптимизировать"
     const weakChannels = mediaCols
@@ -140,18 +141,18 @@ export function validateInsights(result) {
     const weakNames = weakChannels.map(/** @param {any} c */ c => c.name);
 
     if (ratio < 2) {
-      const afterExclude = weakNames.length > 0 ? totalRows / ((mediaCols.length - weakNames.length) * 3 + controlCols.length + 2) : ratio;
+      const afterExclude = weakNames.length > 0 ? totalRows / Math.max(mediaCols.length - weakNames.length + controlCols.length, 1) : ratio;
       out.push({
         severity: 'error',
-        text: `Критически мало данных: ${totalRows} наблюдений / ${mediaCols.length} каналов (ratio ${ratio.toFixed(1)}:1, минимум 4:1). ${weakNames.length > 0 ? `Исключите ${weakNames.length} неактивных каналов → ratio станет ${afterExclude.toFixed(1)}:1.` : 'Добавьте данные или уменьшите каналы.'}`,
-        tip: `Каждый медиаканал добавляет ~3 параметра. При ${totalRows} наблюдениях рекомендуется не более ${Math.floor(totalRows / 12)} каналов. Два пути: (1) добавить данные в недельной гранулярности, (2) исключить каналы с >50% нулей.`,
+        text: `Критически мало данных: ${totalRows} наблюдений / ${mediaCols.length + controlCols.length} переменных (ratio ${ratio.toFixed(1)}:1, минимум 4:1). ${weakNames.length > 0 ? `Исключите ${weakNames.length} неактивных каналов → ratio станет ${afterExclude.toFixed(1)}:1.` : 'Добавьте данные или уменьшите каналы.'}`,
+        tip: `При ${totalRows} наблюдениях рекомендуется не более ${Math.floor(totalRows / 4)} переменных (4:1). Два пути: (1) добавить данные в недельной гранулярности (${Math.round(totalRows * 4.3)} наблюдений), (2) исключить каналы с >50% нулей и объединить парные метрики.`,
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} неактивных` } : undefined,
       });
     } else if (ratio < 4) {
       out.push({
         severity: 'warning',
         text: `Мало данных: ratio ${ratio.toFixed(1)}:1 (рекомендуется ≥4:1). ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей можно исключить.` : ''}`,
-        tip: `Для ${mediaCols.length} каналов оптимально ≥${mediaCols.length * 12} наблюдений. Байесовская модель сработает, но с широкими доверительными интервалами.`,
+        tip: `Для ${mediaCols.length} каналов оптимально ≥${mediaCols.length * 4} наблюдений. Байесовская модель сработает, но с широкими доверительными интервалами.`,
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} неактивных` } : undefined,
       });
     } else if (ratio < 6) {
@@ -196,32 +197,41 @@ export function validateInsights(result) {
   }
 
   // ── Пропуски ──
-  const missing = cols.filter(/** @param {any} c */ c => c.stats?.missing_pct > 5);
+  const missing = cols.filter(/** @param {any} c */ c => c.role !== 'unused' && c.stats?.missing_pct > 5);
   if (missing.length > 0) {
     const names = missing.map(/** @param {any} c */ c => `${c.name} (${c.stats.missing_pct.toFixed(0)}%)`).join(', ');
     out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'Линейная интерполяция заполнит небольшие пробелы. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
   }
 
   // ── Группировка парных колонок и рекомендации ──
-  const VOLUME_KEYS = ['ПОКАЗ','ПРОСМОТР','КЛИК','ВИЗИТ','ПРОЧТЕН','GRP','TRP','IMPRESSION','CLICK','VIEW','VISIT','READ'];
+  const VOLUME_KEYS = ['ПОКАЗ','ПРОСМОТР','КЛИК','ВИЗИТ','ПРОЧТЕН','GRP','TRP','OTS','IMPRESSION','CLICK','VIEW','VISIT','READ'];
   const COST_KEYS = ['БЮДЖЕТ','РАСХОД','ЗАТРАТ','СТОИМОСТЬ','SPEND','COST','BUDGET','РУБ'];
 
   /** @type {Map<string, {volume: any[], cost: any[]}>} */
   const channelGroups = new Map();
 
+  // Canonical prefix: letters only + truncated to 6 chars (stemming — handles Russian plural vs singular, e.g. "СПЕЦПРОЕКТЫ"/"СПЕЦПРОЕКТ")
+  /** @param {string} leading */
+  const canonicalPrefix = (leading) => {
+    const m = leading.match(/^[А-ЯЁA-Z]+/);
+    return m ? m[0].slice(0, 6) : '';
+  };
+
   for (const c of cols) {
+    // Skip excluded columns — user-applied actions should not resurface them in insights
+    if (c.role === 'unused') continue;
     const upper = (c.name ?? '').toUpperCase();
-    // Extract channel prefix: everything before the metric keyword
+    // Extract channel prefix: everything before the metric keyword, canonicalized
     let prefix = '';
     let type = '';
     for (const k of VOLUME_KEYS) {
       const idx = upper.indexOf(k);
-      if (idx > 0) { prefix = upper.slice(0, idx).trim().replace(/[\s_-]+$/, ''); type = 'volume'; break; }
+      if (idx > 0) { prefix = canonicalPrefix(upper.slice(0, idx)); type = 'volume'; break; }
     }
     if (!prefix) {
       for (const k of COST_KEYS) {
         const idx = upper.indexOf(k);
-        if (idx > 0) { prefix = upper.slice(0, idx).trim().replace(/[\s_-]+$/, ''); type = 'cost'; break; }
+        if (idx > 0) { prefix = canonicalPrefix(upper.slice(0, idx)); type = 'cost'; break; }
       }
     }
     if (!prefix) continue;
@@ -252,19 +262,34 @@ export function validateInsights(result) {
     } else if (hasCost && hasVolume) {
       const costZeros = g.cost[0]?.stats?.zeros_pct ?? 0;
       const volZeros = g.volume[0]?.stats?.zeros_pct ?? 0;
-      if (costZeros < volZeros) {
+      const costTooSparse = costZeros > 50 && costZeros > volZeros + 15; // override when budget gaps are severe
+
+      // Objective-driven recommendation
+      if (objective === 'roi' && !costTooSparse) {
+        // ROI → keep budget (monetary attribution)
         channelRecs.push({
           severity: 'info',
-          text: `${prefix}: парные метрики. Рекомендация — оставить бюджет (${costNames[0]}), исключить натуральные (${volNames.join(', ')}).`,
-          tip: 'MMM моделирует зависимость KPI от затрат. Показы/клики — промежуточные метрики, коррелирующие с бюджетом. Включение обоих размывает оценку ROI.',
-          action: { type: 'keep_only', columns: costNames, exclude: volNames, label: 'Оставить бюджет' },
+          text: `${prefix}: парные метрики. Цель ROI → оставить бюджет (${costNames[0]}), исключить ${volNames.join(', ')}.`,
+          tip: 'MMM моделирует зависимость KPI от затрат. Показы/клики — промежуточные метрики, коррелирующие с бюджетом. Для ROI-анализа нужен только денежный показатель.',
+          action: { type: 'keep_only', columns: costNames.slice(0, 1), exclude: [...costNames.slice(1), ...volNames], label: 'Оставить бюджет' },
+        });
+      } else if (objective === 'effectiveness') {
+        // Efficiency → keep natural metric (contact/volume-driven attribution)
+        channelRecs.push({
+          severity: 'info',
+          text: `${prefix}: парные метрики. Цель Эффективность → оставить ${volNames[0]}, исключить ${[...costNames, ...volNames.slice(1)].join(', ')}.`,
+          tip: 'При оценке эффективности медиа важны контакты (показы, клики, визиты), а не деньги. Бюджет уходит в расчёт стоимости контакта позднее.',
+          action: { type: 'keep_only', columns: volNames.slice(0, 1), exclude: [...costNames, ...volNames.slice(1)], label: `Оставить ${volNames[0]}` },
         });
       } else {
+        // Manual mode OR budget-too-sparse override — fallback to data-quality heuristic
+        const reason = costTooSparse ? ` (бюджет ${costZeros.toFixed(0)}% нулей — слишком разрежен)` : '';
         channelRecs.push({
           severity: 'info',
-          text: `${prefix}: парные метрики. Бюджет ${costZeros.toFixed(0)}% нулей — используйте натуральный показатель (${volNames[0]}).`,
-          tip: 'Если бюджетные данные неполные, но есть показы/GRP, используйте их как прокси.',
-          action: { type: 'keep_only', columns: volNames.slice(0, 1), exclude: [...costNames, ...volNames.slice(1)], label: `Оставить ${volNames[0]}` },
+          text: `${prefix}: парные метрики${reason}. Выберите базовую метрику.`,
+          tip: 'Бюджет даёт прямой ROI; показы/клики показывают физическую активность. Модель может работать только с одной из них.',
+          action: { type: 'keep_only', columns: costNames.slice(0, 1), exclude: [...costNames.slice(1), ...volNames], label: 'Оставить бюджет' },
+          secondaryAction: { type: 'keep_only', columns: volNames.slice(0, 1), exclude: [...costNames, ...volNames.slice(1)], label: `Оставить ${volNames[0]}` },
         });
       }
     } else if (hasVolume && g.volume.length > 1) {
@@ -298,8 +323,49 @@ export function validateInsights(result) {
     }
   }
 
+  // ── Bulk-apply: единая кнопка "Применить цель" для всех парных каналов ──
+  // Вынесено ВЫШЕ per-channel recs и независимо от channelRecs.length, чтобы быть первым видимым инсайтом.
+  /** @type {string[]} */
+  const bulkExclude = [];
+  let keepCount = 0;
+  for (const [, g] of channelGroups) {
+    if (g.cost.length === 0 && g.volume.length === 0) continue;
+    const hasBoth = g.cost.length > 0 && g.volume.length > 0;
+    if (objective === 'roi' && g.cost.length > 0) {
+      keepCount += 1;
+      bulkExclude.push(...g.cost.slice(1).map(/** @param {any} c */ c => c.name));
+      if (hasBoth) bulkExclude.push(...g.volume.map(/** @param {any} c */ c => c.name));
+    } else if (objective === 'effectiveness' && g.volume.length > 0) {
+      keepCount += 1;
+      bulkExclude.push(...g.volume.slice(1).map(/** @param {any} c */ c => c.name));
+      if (hasBoth) bulkExclude.push(...g.cost.map(/** @param {any} c */ c => c.name));
+    }
+  }
+  const bulkHasEffect = bulkExclude.length >= 1 && (objective === 'roi' || objective === 'effectiveness');
+  if (bulkHasEffect) {
+    const label = objective === 'roi'
+      ? `Оставить бюджеты (${keepCount} канала)`
+      : `Оставить медийные метрики (${keepCount} канала)`;
+    const text = objective === 'roi'
+      ? `Цель: ROI (финансовая отдача). Оставим бюджет для каждого канала, исключим ${bulkExclude.length} промежуточных метрик (показы/клики/визиты).`
+      : `Цель: Эффективность (физические контакты). Оставим показы/клики для каждого канала, исключим ${bulkExclude.length} бюджетных дублей.`;
+    out.push({
+      severity: 'info',
+      text,
+      tip: 'Переключите цель анализа вверху (ROI / Эффективность / Вручную), чтобы увидеть другой сценарий очистки.',
+      action: { type: 'exclude', columns: bulkExclude, label },
+    });
+  } else if (objective === 'manual' && channelGroups.size > 0) {
+    out.push({
+      severity: 'info',
+      text: `Режим «Вручную»: выберите метрику для каждого канала ниже. Переключите цель на ROI/Эффективность для авто-очистки.`,
+    });
+  }
+
   if (channelRecs.length > 0) {
-    out.push({ severity: 'info', text: `Анализ каналов: ${channelGroups.size} групп обнаружено. Рекомендации ниже.` });
+    if (!bulkHasEffect && objective !== 'manual') {
+      out.push({ severity: 'info', text: `Анализ каналов: ${channelGroups.size} групп обнаружено. Рекомендации ниже.` });
+    }
     out.push(...channelRecs);
   }
 
@@ -320,8 +386,9 @@ export function validateInsights(result) {
   }
 
   // ── Динамическая оценка готовности (цепочка рекомендаций) ──
-  const currentRatio = totalRows > 0 && mediaCols.length > 0 ? totalRows / (mediaCols.length * 3 + controlCols.length + 2) : 0;
-  const maxChannels = Math.max(2, Math.floor(totalRows / 12));
+  // Формула едина с Python validator: ratio = rows / (media + control) variables.
+  const currentRatio = totalRows > 0 && mediaCols.length > 0 ? totalRows / Math.max(mediaCols.length + controlCols.length, 1) : 0;
+  const maxChannels = Math.max(2, Math.floor(totalRows / 4) - controlCols.length);
   const excessChannels = mediaCols.length - maxChannels;
 
   // Шаг 1: нет KPI → предложить назначить
@@ -350,7 +417,7 @@ export function validateInsights(result) {
       .filter(/** @param {any} c */ c => !c.merged_from) // не трогаем объединённые
       .sort(/** @param {any} a @param {any} b */ (a, b) => (b.stats?.zeros_pct ?? 0) - (a.stats?.zeros_pct ?? 0));
     const toExclude = ranked.slice(0, excessChannels).map(/** @param {any} c */ c => c.name);
-    const afterRatio = totalRows / ((mediaCols.length - toExclude.length) * 3 + controlCols.length + 2);
+    const afterRatio = totalRows / Math.max((mediaCols.length - toExclude.length) + controlCols.length, 1);
 
     if (currentRatio < 2) {
       out.push({
@@ -393,6 +460,94 @@ export function validateInsights(result) {
  * @param {{ diagnostics: { mqs: { score: number, tier_label: string }, r_squared: number, mape: number, r_hat: number, divergences: number }, channelParams: Record<string, any> }} data
  * @returns {Insight[]}
  */
+/**
+ * Pre-training insights — shown on Model step BEFORE training is launched.
+ * Uses the validated data context to educate & warn the user.
+ *
+ * @param {any} validateResult — the validator output stored in validateData.result
+ * @returns {Insight[]}
+ */
+export function modelPreTrainingInsights(validateResult) {
+  /** @type {Insight[]} */
+  const out = [];
+  if (!validateResult) return out;
+
+  const cols = validateResult.columns ?? [];
+  const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media').length;
+  const controlCount = cols.filter(/** @param {any} c */ c => c.role === 'control').length;
+  const kpiNames = cols.filter(/** @param {any} c */ c => c.role === 'kpi').map(/** @param {any} c */ c => c.name);
+  const mediaNames = cols.filter(/** @param {any} c */ c => c.role === 'media').map(/** @param {any} c */ c => c.name);
+  const rows = validateResult.file?.rows ?? 0;
+  const ratio = validateResult.detected?.ratio ?? 0;
+
+  // ── 1. Ready-state summary ──
+  if (kpiNames.length > 0 && mediaCount > 0) {
+    out.push({
+      severity: 'success',
+      text: `Готово к обучению: KPI «${kpiNames[0]}», ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? `, ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'} переменн${controlCount === 1 ? 'ая' : 'ых'}` : ''}.`,
+    });
+  }
+
+  // ── 2. What MMM does (education) ──
+  out.push({
+    severity: 'info',
+    text: 'Что происходит: модель оценит вклад каждого канала в KPI через Байесовскую регрессию с учётом отложенного эффекта (Adstock) и насыщения (Hill).',
+    tip: 'Результат — ROI и маргинальная отдача каждого канала. На шаге «Оптимизация» сможете перераспределить бюджет, на «Декомпозиции» — увидеть вклад по времени.',
+  });
+
+  // ── 3. Adstock guidance ──
+  out.push({
+    severity: 'info',
+    text: 'Adstock: «Geometric» — быстрый спад эффекта (1-2 недели, digital). «Weibull» — плавная кривая с build-up (TV, OOH, Радио).',
+    tip: 'Geometric: стандарт для OLV, Banners, Social, Performance, Search — эффект рекламы затухает экспоненциально после контакта. Weibull: лучше для охватных (TV, OOH, Радио, Пресса) — эффект нарастает и уходит медленнее. «Авто» — программа выбирает по имени канала.',
+  });
+
+  // ── 4. Ratio-based warning ──
+  if (ratio > 0 && ratio < 4) {
+    const severity = /** @type {const} */ (ratio < 2 ? 'error' : 'warning');
+    out.push({
+      severity,
+      text: `Ratio ${ratio.toFixed(1)}:1 — ниже идеала 4:1. Модель запустится, но доверительные интервалы будут широкими.`,
+      tip: `Байесовская MMM работает с малыми выборками через priors, но при ${rows} наблюдениях на ${mediaCount + controlCount} переменных отдельные каналы могут быть слабо значимы. Интерпретируйте ROI по top-3 каналам с наибольшим вкладом.`,
+    });
+  } else if (ratio >= 4) {
+    out.push({
+      severity: 'success',
+      text: `Ratio ${ratio.toFixed(1)}:1 — отличный объём данных для ${mediaCount + controlCount} переменных.`,
+    });
+  }
+
+  // ── 5. Virtual merged channel warning ──
+  const hasMerged = cols.some(/** @param {any} c */ c => c.role === 'media' && Array.isArray(c.merged_from));
+  if (hasMerged) {
+    const mergedCol = cols.find(/** @param {any} c */ c => c.role === 'media' && Array.isArray(c.merged_from));
+    out.push({
+      severity: 'info',
+      text: `Канал «${mergedCol.name}» — объединённый из ${mergedCol.merged_from.length} столбцов. Модель оценит ROI группы как целого.`,
+      tip: `Объединено: ${mergedCol.merged_from.join(', ')}. Если после обучения ROI группы высок — можно разделить её обратно и обучить отдельно на большем объёме данных.`,
+    });
+  }
+
+  // ── 6. What to watch after training ──
+  out.push({
+    severity: 'info',
+    text: 'После обучения смотрим: MQS (качество модели, ≥60) · R² (объяснительная сила, ≥0.7) · R-hat (сходимость MCMC, <1.05).',
+    tip: 'MQS — агрегированная оценка качества от 0 до 100. R² — доля объяснённой вариации KPI. R-hat — сходимость Байесовских цепей; если >1.05 — увеличьте draws (в Расширенных настройках, режим Эксперт).',
+  });
+
+  // ── 7. Time estimate (educational) ──
+  const estimatedMinutes = Math.round(mediaCount * 3.5 + 3); // rough: ~3.5 min/channel + overhead
+  if (mediaCount > 5) {
+    out.push({
+      severity: 'info',
+      text: `Оценка времени: ~${estimatedMinutes} мин для ${mediaCount} каналов. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
+      tip: 'Байесовский MCMC проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). На слабой выборке warmup занимает больше времени, чем sampling.',
+    });
+  }
+
+  return out;
+}
+
 export function modelInsights(data) {
   /** @type {Insight[]} */
   const out = [];

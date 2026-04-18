@@ -131,9 +131,21 @@
   <div class="pipeline-shell">
     <!-- Stepper header with project selector -->
     <div class="pipeline-header">
-      <div class="project-area">
-        <ProjectSelector />
-      </div>
+      <!-- Project selector visible only on Import step (where it's relevant) -->
+      {#if $pipelineCurrentStep === 0}
+        <div class="project-area">
+          <ProjectSelector />
+        </div>
+      {:else}
+        <!-- Keep header layout stable but show a read-only chip after import -->
+        <div class="project-area">
+          {#if $activeProject}
+            <span class="project-chip" title="Активный проект — переключение доступно на шаге «Импорт»">
+              📊 {$activeProject.name}
+            </span>
+          {/if}
+        </div>
+      {/if}
       <PipelineStepper onNavigate={handleNavigate} />
       <div class="header-right">
         {#if $pipelineCurrentStep >= 1}
@@ -230,6 +242,22 @@
     flex-shrink: 0;
   }
 
+  .project-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-surface-quiet);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm, 6px);
+    cursor: default;
+    white-space: nowrap;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .project-area {
     flex-shrink: 0;
     min-width: 180px;

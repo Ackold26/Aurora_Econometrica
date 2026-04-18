@@ -58,7 +58,8 @@
       const info = await invoke('project_create', { name });
       activeProjectId.set(info.id);
       activeProject.set(info);
-      resetPipeline();
+      // NOTE: do NOT resetPipeline() here — creating a project while importing
+      // would nuke the user's current work. Reset only on explicit project switch.
       projects = [...projects, info];
       showCreate = false;
       newName = '';

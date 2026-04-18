@@ -163,6 +163,15 @@ export const importData = writable({ file: null, columns: null, rows: null });
 /** @type {import('svelte/store').Writable<{result: any|null, correlationMatrix: any|null, columnHistograms: any|null}>} */
 export const validateData = writable({ result: null, correlationMatrix: null, columnHistograms: null });
 
+/**
+ * Analysis objective — determines which metric to prefer for paired channels.
+ *   'roi'           → keep budgets (measure monetary return)
+ *   'effectiveness' → keep natural metrics (impressions/clicks/visits)
+ *   'manual'        → user chooses per-channel (current behavior)
+ * @type {import('svelte/store').Writable<'roi' | 'effectiveness' | 'manual'>}
+ */
+export const analysisObjective = writable('roi');
+
 /** @type {import('svelte/store').Writable<{diagnostics: any|null, channelParams: any|null, picklePath: string|null}>} */
 export const modelData = writable({ diagnostics: null, channelParams: null, picklePath: null });
 

@@ -58,11 +58,20 @@
             handleComplete(result);
           } else {
             localStorage.removeItem(TASK_KEY);
+            // Stale task in storage but not running — reset compute flag
+            isComputing.set(false);
+            computeStatus.set('');
           }
         } catch {
           localStorage.removeItem(TASK_KEY);
+          isComputing.set(false);
+          computeStatus.set('');
         }
       })();
+    } else if (stepState === 'idle') {
+      // No saved task — ensure compute flag is clean when entering the step
+      isComputing.set(false);
+      computeStatus.set('');
     }
   });
 
@@ -195,10 +204,8 @@
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    height: 100%;
     box-sizing: border-box;
-    overflow-y: visible;
-    overflow-x: visible;
+    /* Scroll handled by parent .pipeline-main — no nested overflow to avoid empty scroll area */
   }
 
   .config-area {

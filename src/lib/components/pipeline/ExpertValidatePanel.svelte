@@ -150,10 +150,26 @@
 
 <style>
   .expert-panel {
-    display: flex; flex-direction: column; gap: 16px; margin-top: 16px;
-    padding: 16px; border-radius: 10px;
+    display: flex; flex-direction: column; gap: 16px; margin-top: 24px;
+    padding: 16px; border-radius: var(--radius-md, 10px);
     background: color-mix(in srgb, var(--danger) 4%, transparent);
-    border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 8%, transparent);
+    position: relative;
+  }
+  .expert-panel::before {
+    content: 'Экспертный режим';
+    position: absolute;
+    top: -8px;
+    left: 12px;
+    padding: 2px 8px;
+    background: var(--bg-primary, #0C0C12);
+    color: var(--danger);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 4px;
   }
   .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(252,165,165,0.85); }
   .empty { font-size: 12px; color: var(--text-muted); }

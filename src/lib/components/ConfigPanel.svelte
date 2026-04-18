@@ -29,6 +29,11 @@
 
   let showAdvanced = $state(false);
 
+  // Auto-expand advanced when Expert mode is turned on
+  $effect(() => {
+    if ($expertMode) showAdvanced = true;
+  });
+
   // ── Custom dropdown state ──
   let kpiOpen = $state(false);
   let adstockOpen = $state(false);
@@ -152,13 +157,26 @@
   // ── Actions ──
   async function trainModel() {
     const projectId = $activeProjectId;
-    if (!projectId || !selectedKpi) return;
+    if (!projectId) {
+      computeStatus.set('Ошибка: проект не выбран. Создайте проект на шаге Импорт.');
+      setTimeout(() => computeStatus.set(''), 5000);
+      return;
+    }
+    if (!selectedKpi) {
+      computeStatus.set('Ошибка: не выбран целевой KPI.');
+      setTimeout(() => computeStatus.set(''), 4000);
+      return;
+    }
 
     const enabledChannels = Object.entries(channelEnabled)
       .filter(([, v]) => v)
       .map(([k]) => k);
 
-    if (enabledChannels.length === 0) return;
+    if (enabledChannels.length === 0) {
+      computeStatus.set('Ошибка: не выбрано ни одного медиа-канала.');
+      setTimeout(() => computeStatus.set(''), 4000);
+      return;
+    }
 
     isComputing.set(true);
     computeStatus.set('Компилирую модель...');
@@ -313,37 +331,57 @@
     </div>
   </div>
 
-  <!-- Advanced (collapsible) -->
-  <button class="advanced-toggle" onclick={() => showAdvanced = !showAdvanced}>
-    {showAdvanced ? '▾' : '▸'} Расширенные настройки
-  </button>
+  <!-- Advanced (collapsible) — only in Expert mode -->
+  {#if $expertMode}
+    <button class="advanced-toggle" onclick={() => showAdvanced = !showAdvanced}>
+      {showAdvanced ? '▾' : '▸'} Расширенные настройки
+    </button>
 
-  {#if showAdvanced}
-    <div class="advanced-section">
-      <!-- Per-channel adstock -->
-      <div class="config-group">
-        <label class="config-label">Adstock по каналам</label>
-        {#each Object.entries(channelEnabled).filter(([,v]) => v) as [ch]}
-          <div class="adstock-row">
-            <span class="adstock-name">{ch}</span>
-            <select class="config-select-sm" bind:value={channelAdstock[ch]}>
-              <option value="geometric">Geometric</option>
-              <option value="weibull">Weibull</option>
-            </select>
+    {#if showAdvanced}
+      <div class="advanced-section">
+        <!-- Per-channel adstock -->
+        <div class="config-group">
+          <label class="config-label">Adstock по каналам</label>
+          {#each Object.entries(channelEnabled).filter(([,v]) => v) as [ch]}
+            <div class="adstock-row">
+              <span class="adstock-name">{ch}</span>
+              <select class="config-select-sm" bind:value={channelAdstock[ch]}>
+                <option value="geometric">Geometric</option>
+                <option value="weibull">Weibull</option>
+              </select>
+            </div>
+          {/each}
+        </div>
+
+        <!-- MCMC params -->
+        <div class="config-group">
+          <label class="config-label">MCMC параметры</label>
+          <div class="mcmc-grid">
+            <label>
+              <span class="mcmc-label-row">
+                Chains
+                <span class="help-icon" title="Количество параллельных MCMC-цепей. Обычно 2-4. Больше цепей — лучше проверка сходимости (R-hat), но дольше обучение. Для 31 строки рекомендуется 2.">?</span>
+              </span>
+              <input type="number" bind:value={mcmcChains} min="1" max="8" />
+            </label>
+            <label>
+              <span class="mcmc-label-row">
+                Draws
+                <span class="help-icon" title="Число основных выборок на каждую цепь (после разогрева). 2000 — стандарт. 500 — быстрый прогон для проверки. 5000+ — для публикации. Чем больше — тем точнее ROI-оценки и уже доверительные интервалы.">?</span>
+              </span>
+              <input type="number" bind:value={mcmcDraws} min="500" max="10000" step="500" />
+            </label>
+            <label>
+              <span class="mcmc-label-row">
+                Tune
+                <span class="help-icon" title="Warmup: число выборок для настройки step-size сэмплера. 1000 — стандарт. При низком ratio (меньше 4:1) увеличьте до 2000. Эти выборки отбрасываются и не влияют на финальный результат.">?</span>
+              </span>
+              <input type="number" bind:value={mcmcTune} min="200" max="5000" step="100" />
+            </label>
           </div>
-        {/each}
-      </div>
-
-      <!-- MCMC params -->
-      <div class="config-group">
-        <label class="config-label">MCMC параметры</label>
-        <div class="mcmc-grid">
-          <label>Chains <input type="number" bind:value={mcmcChains} min="1" max="8" /></label>
-          <label>Draws <input type="number" bind:value={mcmcDraws} min="500" max="10000" step="500" /></label>
-          <label>Tune <input type="number" bind:value={mcmcTune} min="200" max="5000" step="100" /></label>
         </div>
       </div>
-    </div>
+    {/if}
   {/if}
 
   <!-- PSY: Commitment summary — user sees what THEY configured (IKEA Effect + Commitment) -->
@@ -521,9 +559,12 @@
 
   .advanced-toggle {
     background: transparent;
-    border: none;
-    color: var(--text-secondary, #94a3b8);
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    border-radius: var(--radius-sm, 6px);
+    color: var(--danger);
     font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
     cursor: pointer;
     text-align: left;
     padding: 0;
@@ -535,10 +576,48 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 12px;
-    background: rgba(0,0,0,0.15);
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.04);
+    padding: 14px;
+    background: color-mix(in srgb, var(--danger) 4%, transparent);
+    border-radius: var(--radius-md, 8px);
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger) 8%, transparent);
+    position: relative;
+  }
+  .advanced-section::before {
+    content: 'Экспертный режим';
+    position: absolute;
+    top: -8px;
+    left: 12px;
+    padding: 2px 8px;
+    background: var(--bg-primary, #0C0C12);
+    color: var(--danger);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 4px;
+  }
+
+  /* Tooltip icon for MCMC params */
+  .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    color: var(--accent-primary);
+    font-size: 10px;
+    font-weight: 700;
+    margin-left: 6px;
+    cursor: help;
+    vertical-align: middle;
+    line-height: 1;
+  }
+  .help-icon:hover {
+    background: var(--accent-primary);
+    color: #fff;
   }
 
   .adstock-row {
@@ -562,6 +641,11 @@
     gap: 4px;
     font-size: 11px;
     color: var(--text-secondary, #94a3b8);
+  }
+  .mcmc-label-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .mcmc-grid input {

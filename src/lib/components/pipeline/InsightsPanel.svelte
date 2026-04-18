@@ -10,16 +10,22 @@
   import {
     pipelineCurrentStep,
     importData, validateData, modelData, decomposeData, optimizeData,
+    analysisObjective, completeStep, setStepError,
   } from '$lib/project-state.js';
+  import { recomputeResultAfterObjective } from '$lib/objective-engine.js';
   import {
-    importInsights, validateInsights, modelInsights, decomposeInsights, optimizeInsights,
+    importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights,
   } from '$lib/insights-rules.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
 
-  /** @type {Set<number>} */
-  let appliedActions = $state(new Set());
+  /**
+   * Snapshot of what was done — enables undo.
+   * Keyed by insight index; stores roles prior to apply + merge metadata.
+   * @type {Map<number, { previousRoles: Record<string, string>, mergedName?: string }>}
+   */
+  let appliedActions = $state(new Map());
 
   /** Apply an insight action: modify column roles in validateData
    * @param {import('$lib/insights-rules.js').InsightAction} action
@@ -30,34 +36,47 @@
     if (!val?.result?.columns) return;
 
     const updated = { ...val, result: { ...val.result, columns: val.result.columns.map(/** @param {any} c */ c => ({ ...c })) } };
+    /** @type {Record<string, string>} */
+    const previousRoles = {};
+    /** @type {string | undefined} */
+    let mergedName;
 
     if (action.type === 'exclude') {
       for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) col.role = 'unused';
+        if (action.columns.includes(col.name)) {
+          previousRoles[col.name] = col.role || 'unknown';
+          col.role = 'unused';
+        }
       }
     } else if (action.type === 'keep_only') {
       const toExclude = action.exclude ?? [];
       for (const col of updated.result.columns) {
-        if (toExclude.includes(col.name)) col.role = 'unused';
+        if (toExclude.includes(col.name)) {
+          previousRoles[col.name] = col.role || 'unknown';
+          col.role = 'unused';
+        }
       }
     } else if (action.type === 'set_role') {
       for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) col.role = 'kpi';
+        if (action.columns.includes(col.name)) {
+          previousRoles[col.name] = col.role || 'unknown';
+          col.role = 'kpi';
+        }
       }
     } else if (action.type === 'merge') {
-      // Mark originals as unused, add virtual merged column
-      const mergedName = action.mergedName || 'Объединённый канал';
+      mergedName = action.mergedName || 'Объединённый канал';
       const mergedCols = updated.result.columns.filter(/** @param {any} c */ c => action.columns.includes(c.name));
 
-      // Sum stats from merged columns
       const totalMean = mergedCols.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.stats?.mean ?? 0), 0);
       const minZeros = Math.min(...mergedCols.map(/** @param {any} c */ c => c.stats?.zeros_pct ?? 100));
 
       for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) col.role = 'unused';
+        if (action.columns.includes(col.name)) {
+          previousRoles[col.name] = col.role || 'unknown';
+          col.role = 'unused';
+        }
       }
 
-      // Add virtual merged column
       updated.result.columns.push({
         name: mergedName,
         role: 'media',
@@ -68,8 +87,63 @@
       });
     }
 
+    recomputeResultAfterObjective(updated.result);
+    syncStepLockAfterValidate(updated.result);
     validateData.set(updated);
-    appliedActions = new Set([...appliedActions, idx]);
+    const nextMap = new Map(appliedActions);
+    nextMap.set(idx, { previousRoles, mergedName });
+    appliedActions = nextMap;
+  }
+
+  /**
+   * Undo an applied action — restore roles, remove merged column.
+   * @param {number} idx
+   */
+  function revertAction(idx) {
+    const snapshot = appliedActions.get(idx);
+    if (!snapshot) return;
+    const val = $validateData;
+    if (!val?.result?.columns) return;
+
+    const updated = { ...val, result: { ...val.result, columns: val.result.columns.map(/** @param {any} c */ c => ({ ...c })) } };
+
+    // Restore previous roles
+    for (const col of updated.result.columns) {
+      if (col.name in snapshot.previousRoles) {
+        col.role = snapshot.previousRoles[col.name];
+      }
+    }
+
+    // Remove virtual merged column if this was a merge action
+    if (snapshot.mergedName) {
+      updated.result.columns = updated.result.columns.filter(/** @param {any} c */ c => c.name !== snapshot.mergedName);
+    }
+
+    recomputeResultAfterObjective(updated.result);
+    syncStepLockAfterValidate(updated.result);
+    validateData.set(updated);
+    const nextMap = new Map(appliedActions);
+    nextMap.delete(idx);
+    appliedActions = nextMap;
+  }
+
+  /**
+   * Sync pipeline step-lock state with current validation result.
+   * Called after any action that recomputes status (apply/revert).
+   * If status becomes ok/warning → step 1 complete, step 2 ready (unlocks "Далее").
+   * If status becomes error → step 1 error, step 2 locked.
+   * @param {any} result
+   */
+  function syncStepLockAfterValidate(result) {
+    if (!result) return;
+    // Only sync if we're actually ON the validation step
+    const step = $pipelineCurrentStep;
+    if (step !== 1) return;
+    if (result.status === 'error') {
+      setStepError(1, 'Критические проблемы с данными');
+    } else {
+      completeStep(1);
+    }
   }
 
   /** @type {string} */
@@ -91,6 +165,7 @@
     const mod = $modelData;
     const dec = $decomposeData;
     const opt = $optimizeData;
+    const objective = $analysisObjective; // ensure reactive subscription
 
     switch (step) {
       case 0: {
@@ -109,8 +184,12 @@
           fileName: imp.fileName ?? '',
         });
       }
-      case 1: return validateInsights(val?.result);
-      case 2: return modelInsights(mod);
+      case 1: return validateInsights(val?.result, objective);
+      case 2: {
+        // If training hasn't produced diagnostics yet → educational/context insights
+        if (!mod?.diagnostics) return modelPreTrainingInsights(val?.result);
+        return modelInsights(mod);
+      }
       case 3: return decomposeInsights(dec);
       case 4: return optimizeInsights(opt);
       default: return [];
@@ -265,7 +344,13 @@
                     </button>
                   {/if}
                   {#if appliedActions.has(i)}
-                    <span class="action-applied">✓ Применено</span>
+                    <button
+                      class="revert-btn"
+                      onclick={() => revertAction(i)}
+                      title="Отменить применённое действие"
+                    >
+                      ✓ Применено · Отменить
+                    </button>
                   {/if}
                 </div>
                 {#if expandedTip === i && insight.tip}
@@ -420,9 +505,45 @@
   .tip-toggle:hover { text-decoration: underline; }
 
   .action-btn {
-    padding: 3px 10px;
+    padding: 5px 14px;
+    background: var(--success);
+    border: 1px solid var(--success);
+    border-radius: var(--radius-chip, 5px);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--success) 30%, transparent);
+  }
+  .action-btn:hover {
+    background: color-mix(in srgb, var(--success) 85%, black);
+    border-color: color-mix(in srgb, var(--success) 85%, black);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px color-mix(in srgb, var(--success) 45%, transparent);
+  }
+  /* Error-severity actions get danger color for clarity */
+  .sev-error .action-btn {
+    background: var(--danger);
+    border-color: var(--danger);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--danger) 30%, transparent);
+  }
+  .sev-error .action-btn:hover {
+    background: color-mix(in srgb, var(--danger) 85%, black);
+    border-color: color-mix(in srgb, var(--danger) 85%, black);
+    box-shadow: 0 3px 8px color-mix(in srgb, var(--danger) 45%, transparent);
+  }
+
+  .action-applied {
+    font-size: 10px;
+    color: var(--success);
+    font-weight: 500;
+  }
+
+  .revert-btn {
+    padding: 4px 10px;
     background: color-mix(in srgb, var(--success) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--success) 32%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 36%, transparent);
     border-radius: var(--radius-chip, 5px);
     color: var(--success);
     font-size: 10px;
@@ -430,15 +551,10 @@
     cursor: pointer;
     transition: all 0.15s;
   }
-  .action-btn:hover {
-    background: color-mix(in srgb, var(--success) 24%, transparent);
-    border-color: color-mix(in srgb, var(--success) 52%, transparent);
-  }
-
-  .action-applied {
-    font-size: 10px;
-    color: var(--success);
-    font-weight: 500;
+  .revert-btn:hover {
+    background: color-mix(in srgb, var(--warning) 18%, transparent);
+    border-color: color-mix(in srgb, var(--warning) 55%, transparent);
+    color: var(--warning);
   }
 
   .tip-text {
