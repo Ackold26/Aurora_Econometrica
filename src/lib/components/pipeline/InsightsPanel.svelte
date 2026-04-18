@@ -40,6 +40,28 @@
       for (const col of updated.result.columns) {
         if (toExclude.includes(col.name)) col.role = 'unused';
       }
+    } else if (action.type === 'merge') {
+      // Mark originals as unused, add virtual merged column
+      const mergedName = action.mergedName || 'Объединённый канал';
+      const mergedCols = updated.result.columns.filter(/** @param {any} c */ c => action.columns.includes(c.name));
+
+      // Sum stats from merged columns
+      const totalMean = mergedCols.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.stats?.mean ?? 0), 0);
+      const minZeros = Math.min(...mergedCols.map(/** @param {any} c */ c => c.stats?.zeros_pct ?? 100));
+
+      for (const col of updated.result.columns) {
+        if (action.columns.includes(col.name)) col.role = 'unused';
+      }
+
+      // Add virtual merged column
+      updated.result.columns.push({
+        name: mergedName,
+        role: 'media',
+        dtype: 'float64',
+        confidence: 0.9,
+        merged_from: [...action.columns],
+        stats: { mean: totalMean, zeros_pct: minZeros, missing_pct: 0, min: 0, max: 0 },
+      });
     }
 
     validateData.set(updated);

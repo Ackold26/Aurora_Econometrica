@@ -8,10 +8,11 @@
 
 /**
  * @typedef {Object} InsightAction
- * @property {'exclude'|'keep_only'|'set_role'} type
+ * @property {'exclude'|'keep_only'|'set_role'|'merge'} type
  * @property {string[]} columns — columns to act on
  * @property {string[]} [exclude] — columns to exclude (for keep_only)
  * @property {string} [label] — button label override
+ * @property {string} [mergedName] — name for merged column (type=merge)
  */
 
 /**
@@ -300,6 +301,22 @@ export function validateInsights(result) {
   if (channelRecs.length > 0) {
     out.push({ severity: 'info', text: `Анализ каналов: ${channelGroups.size} групп обнаружено. Рекомендации ниже.` });
     out.push(...channelRecs);
+  }
+
+  // ── Группировка слабых каналов → предложение объединить ──
+  const allWeakMedia = mediaCols.filter(/** @param {any} c */ c => {
+    const z = c.stats?.zeros_pct ?? 0;
+    return z > 50 && z <= 90; // >90% → исключить, 50-90% → кандидат на объединение
+  });
+  if (allWeakMedia.length >= 2) {
+    const weakNames = allWeakMedia.map(/** @param {any} c */ c => c.name);
+    const avgZeros = allWeakMedia.reduce(/** @param {number} sum @param {any} c */ (sum, c) => sum + (c.stats?.zeros_pct ?? 0), 0) / allWeakMedia.length;
+    out.push({
+      severity: 'info',
+      text: `${allWeakMedia.length} каналов с 50-90% нулей (${weakNames.join(', ')}). Объедините их в один «Малые медиа» — суммарный сигнал будет сильнее.`,
+      tip: `Каждый канал по отдельности слишком разреженный (в среднем ${avgZeros.toFixed(0)}% нулей). Объединение суммирует их активность — модель получит более стабильную оценку ROI для группы.`,
+      action: { type: 'merge', columns: weakNames, mergedName: 'Малые медиа', label: `Объединить ${allWeakMedia.length} канала` },
+    });
   }
 
   // ── Динамическая оценка готовности ──
