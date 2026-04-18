@@ -40,6 +40,10 @@
       for (const col of updated.result.columns) {
         if (toExclude.includes(col.name)) col.role = 'unused';
       }
+    } else if (action.type === 'set_role') {
+      for (const col of updated.result.columns) {
+        if (action.columns.includes(col.name)) col.role = 'kpi';
+      }
     } else if (action.type === 'merge') {
       // Mark originals as unused, add virtual merged column
       const mergedName = action.mergedName || 'Объединённый канал';

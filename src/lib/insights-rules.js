@@ -319,20 +319,69 @@ export function validateInsights(result) {
     });
   }
 
-  // ── Динамическая оценка готовности ──
-  const errorCount = out.filter(i => i.severity === 'error').length;
-  const warnCount = out.filter(i => i.severity === 'warning').length;
+  // ── Динамическая оценка готовности (цепочка рекомендаций) ──
   const currentRatio = totalRows > 0 && mediaCols.length > 0 ? totalRows / (mediaCols.length * 3 + controlCols.length + 2) : 0;
-  const maxChannels = Math.floor(totalRows / 12);
+  const maxChannels = Math.max(2, Math.floor(totalRows / 12));
+  const excessChannels = mediaCols.length - maxChannels;
 
-  if (errorCount > 0) {
-    out.push({ severity: 'error', text: `Моделирование не рекомендуется. Устраните критические проблемы выше.` });
-  } else if (warnCount === 0 && mediaCols.length > 0 && kpiCols.length > 0) {
-    out.push({ severity: 'success', text: `Данные готовы к моделированию. ${mediaCols.length} каналов, ratio ${currentRatio.toFixed(1)}:1. Нажмите «Далее».` });
-  } else if (mediaCols.length > maxChannels && maxChannels > 0) {
-    out.push({ severity: 'info', text: `Сейчас ${mediaCols.length} каналов. Для ${totalRows} наблюдений оптимально ≤${maxChannels}. Исключите наименее значимые каналы.` });
-  } else if (warnCount > 0) {
-    out.push({ severity: 'info', text: `${warnCount} предупреждений. Моделирование возможно, но рекомендуем устранить хотя бы критичные. Режим «Эксперт» покажет детали.` });
+  // Шаг 1: нет KPI → предложить назначить
+  if (kpiCols.length === 0 && cols.length > 0) {
+    // Найти кандидатов на KPI (продажи, выручка)
+    const kpiCandidates = cols.filter(/** @param {any} c */ c =>
+      c.role !== 'unused' && c.role !== 'date' && c.stats?.zeros_pct < 10 &&
+      /продаж|sales|revenue|выручк|units|volume/i.test(c.name)
+    );
+    if (kpiCandidates.length > 0) {
+      const bestName = kpiCandidates[0].name;
+      out.push({
+        severity: 'error',
+        text: `KPI не назначен. Похоже, «${bestName}» — целевой показатель. Назначьте его как KPI.`,
+        action: { type: 'set_role', columns: [bestName], label: `Назначить ${bestName} как KPI` },
+      });
+    } else {
+      out.push({ severity: 'error', text: 'KPI не назначен. Выберите целевой показатель (продажи, выручка) в таблице ролей.' });
+    }
+  }
+
+  // Шаг 2: слишком много каналов → предложить автооптимизацию
+  if (mediaCols.length > 0 && excessChannels > 0) {
+    // Ранжировать каналы: чем больше нулей → тем слабее
+    const ranked = [...mediaCols]
+      .filter(/** @param {any} c */ c => !c.merged_from) // не трогаем объединённые
+      .sort(/** @param {any} a @param {any} b */ (a, b) => (b.stats?.zeros_pct ?? 0) - (a.stats?.zeros_pct ?? 0));
+    const toExclude = ranked.slice(0, excessChannels).map(/** @param {any} c */ c => c.name);
+    const afterRatio = totalRows / ((mediaCols.length - toExclude.length) * 3 + controlCols.length + 2);
+
+    if (currentRatio < 2) {
+      out.push({
+        severity: 'error',
+        text: `Ratio ${currentRatio.toFixed(1)}:1 — критически мало. Нужно ≤${maxChannels} каналов (сейчас ${mediaCols.length}). Исключите ${toExclude.length} слабейших → ratio станет ${afterRatio.toFixed(1)}:1.`,
+        tip: `Будут исключены: ${toExclude.join(', ')}. Это каналы с наибольшей долей нулей, вклад которых модель не сможет оценить надёжно.`,
+        action: { type: 'exclude', columns: toExclude, label: `Оптимизировать: оставить ${maxChannels} каналов` },
+      });
+    } else if (currentRatio < 4) {
+      out.push({
+        severity: 'warning',
+        text: `Ratio ${currentRatio.toFixed(1)}:1 (рекомендуется ≥4:1). Исключите ${toExclude.length} каналов → ratio ${afterRatio.toFixed(1)}:1.`,
+        action: { type: 'exclude', columns: toExclude, label: `Оптимизировать до ${maxChannels} каналов` },
+      });
+    }
+  }
+
+  // Шаг 3: ratio ok, но есть предупреждения
+  if (currentRatio >= 4 && mediaCols.length > 0 && kpiCols.length > 0) {
+    const warnCount = out.filter(i => i.severity === 'warning').length;
+    if (warnCount === 0) {
+      out.push({ severity: 'success', text: `Данные готовы к моделированию. ${mediaCols.length} каналов, ratio ${currentRatio.toFixed(1)}:1. Нажмите «Далее».` });
+    } else {
+      out.push({ severity: 'info', text: `Ratio ${currentRatio.toFixed(1)}:1 — допустимо. ${warnCount} предупреждений не блокируют моделирование, но могут снизить точность.` });
+    }
+  } else if (currentRatio >= 2 && currentRatio < 4 && excessChannels <= 0 && kpiCols.length > 0) {
+    out.push({
+      severity: 'warning',
+      text: `Ratio ${currentRatio.toFixed(1)}:1 — на грани. Модель посчитает, но доверительные интервалы будут широкими. Для надёжных результатов нужно ≥52 наблюдения.`,
+      tip: 'Байесовский подход (PyMC) работает лучше частотного при малых выборках, но не творит чудеса. Интерпретируйте результаты осторожно.',
+    });
   }
 
   return out;
