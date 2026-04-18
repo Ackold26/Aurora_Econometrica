@@ -1,14 +1,16 @@
 <script>
   /**
    * Expert-only panel for ValidateStep.
-   * Shows: correlation heatmap, VIF table, data quality stats.
+   * Adds numeric econometric metrics on top of the main view:
+   *   - VIF (Variance Inflation Factor) table — quantitative multicollinearity
+   *   - Detailed per-column statistics (missing%, zeros%, mean, std)
+   * Correlation heatmap is shown in the main view — no duplication here.
    * @component ExpertValidatePanel
    */
-  import CorrelationHeatmap from '$lib/components/pipeline/CorrelationHeatmap.svelte';
   import { validateData } from '$lib/project-state.js';
+  import { fmtNum, fmtPct } from '$lib/fmt.js';
 
   const result = $derived($validateData?.result);
-  const corrMatrix = $derived($validateData?.correlationMatrix);
 
   /** @type {Array<{name: string, vif: number}>} */
   const vifTable = $derived.by(() => {
@@ -25,10 +27,10 @@
       name: c.name,
       role: c.role,
       dtype: c.dtype ?? '—',
-      missing: c.stats?.missing_pct?.toFixed(1) ?? '0',
-      zeros: c.stats?.zeros_pct?.toFixed(1) ?? '0',
-      mean: c.stats?.mean?.toFixed(2) ?? '—',
-      std: c.stats?.std?.toFixed(2) ?? '—',
+      missing: fmtPct(c.stats?.missing_pct ?? 0),
+      zeros: fmtPct(c.stats?.zeros_pct ?? 0),
+      mean: fmtNum(c.stats?.mean),
+      std: fmtNum(c.stats?.std),
     }));
   });
 
@@ -39,11 +41,11 @@
   let editingColumn = $state(null);
 
   const ROLE_OPTIONS = [
-    { id: 'media', icon: '📺', label: 'Медиа и упр. факторы' },
-    { id: 'kpi', icon: '📈', label: 'KPI' },
-    { id: 'control', icon: '🎛', label: 'Неупр. внешние факторы' },
-    { id: 'date', icon: '📅', label: 'Дата' },
-    { id: 'unused', icon: '🚫', label: 'Исключить' },
+    { id: 'media',   icon: '📺', label: 'Медиа' },
+    { id: 'kpi',     icon: '📈', label: 'KPI' },
+    { id: 'control', icon: '🎛', label: 'Внешние' },
+    { id: 'date',    icon: '📅', label: 'Дата' },
+    { id: 'unused',  icon: '🚫', label: 'Исключить' },
   ];
 
   /** @param {string} colName @param {string} newRole */
@@ -72,22 +74,36 @@
 </script>
 
 <div class="expert-panel">
-  <div class="section-title">Корреляционная матрица</div>
-  {#if corrMatrix}
-    <CorrelationHeatmap correlationMatrix={corrMatrix} />
-  {:else}
-    <p class="empty">Запустите валидацию для отображения</p>
-  {/if}
+  <!--
+    Корреляционная матрица уже показывается в основном режиме (ValidateStep) —
+    в экспертном дублировать её нет смысла. Эксперт-секция добавляет то,
+    чего нет в main: численный VIF + детальную статистику столбцов.
+  -->
 
   {#if vifTable.length > 0}
     <div class="section-title">VIF (Variance Inflation Factor)</div>
     <table class="vif-table">
-      <thead><tr><th>Канал</th><th>VIF</th><th>Статус</th></tr></thead>
+      <thead>
+        <tr>
+          <th>
+            Канал
+            <span class="help-icon" title="Название медиа или контрольной переменной, для которой рассчитан VIF.">?</span>
+          </th>
+          <th>
+            VIF
+            <span class="help-icon" title="Variance Inflation Factor — показывает во сколько раз дисперсия оценки коэффициента раздувается из-за корреляции этого канала с остальными. VIF = 1 / (1 − R²), где R² — объяснимость канала остальными. VIF ≤ 5 — норма, 5-10 — умеренная мультиколлинеарность, &gt;10 — критическая (канал почти полностью предсказуем из остальных, его ROI в модели будет нестабильным).">?</span>
+          </th>
+          <th>
+            Статус
+            <span class="help-icon" title="Интерпретация VIF: «Норма» (≤5) — канал вносит уникальный сигнал. «Умеренная» (5-10) — результат усреднится с другими каналами. «Мультиколлинеарность» (&gt;10) — модель не сможет разделить вклад этого канала от остальных, рекомендуется исключить или объединить.">?</span>
+          </th>
+        </tr>
+      </thead>
       <tbody>
         {#each vifTable as row}
           <tr class:high={row.vif > 10} class:medium={row.vif > 5 && row.vif <= 10}>
             <td>{row.name}</td>
-            <td class="mono">{row.vif.toFixed(1)}</td>
+            <td class="mono">{fmtNum(row.vif, { decimals: 1 })}</td>
             <td>{row.vif > 10 ? 'Мультиколлинеарность' : row.vif > 5 ? 'Умеренная' : 'Норма'}</td>
           </tr>
         {/each}
@@ -104,7 +120,32 @@
     </div>
     <div class="stats-scroll">
       <table class="stats-table">
-        <thead><tr><th>Столбец</th><th>Роль</th><th>Тип</th><th>Пропуски %</th><th>Нули %</th><th>Среднее</th><th>Std</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Столбец</th>
+            <th>Роль</th>
+            <th>
+              Тип
+              <span class="help-icon" title="Тип данных столбца: float64 (числа с дробной частью — деньги, проценты), int64 (целые числа — количество), object (текст или дата).">?</span>
+            </th>
+            <th>
+              Пропуски %
+              <span class="help-icon" title="Доля строк с пропущенным значением (NaN). При &gt;20% столбец лучше исключить — интерполяция не спасёт.">?</span>
+            </th>
+            <th>
+              Нули %
+              <span class="help-icon" title="Доля строк с нулём. Отличается от пропусков: ноль — это факт отсутствия активности (канал не работал), пропуск — отсутствие данных. Высокий % нулей сигнализирует о разреженном канале.">?</span>
+            </th>
+            <th>
+              Среднее
+              <span class="help-icon" title="Среднее арифметическое по столбцу. Для бюджетов — средние расходы за период; для показов — средняя аудитория.">?</span>
+            </th>
+            <th>
+              Std
+              <span class="help-icon" title="Стандартное отклонение — мера разброса значений вокруг среднего. Чем больше Std относительно Mean, тем сильнее колебания. Std/Mean = коэффициент вариации (CV).">?</span>
+            </th>
+          </tr>
+        </thead>
         <tbody>
           {#each dataStats as row}
             <tr class:excluded={row.role === 'unused'}>
@@ -226,4 +267,25 @@
   }
 
   .stats-scroll { overflow-x: auto; }
+
+  .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    color: var(--accent-primary);
+    font-size: 9px;
+    font-weight: 700;
+    margin-left: 4px;
+    cursor: help;
+    vertical-align: middle;
+    line-height: 1;
+  }
+  .help-icon:hover {
+    background: var(--accent-primary);
+    color: #fff;
+  }
 </style>

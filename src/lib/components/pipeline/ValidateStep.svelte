@@ -132,35 +132,17 @@
 
   /**
    * Segmented control click — switch objective AFTER validation has run.
-   * Re-applies role filter to the existing result without re-invoking the sidecar.
+   * Re-runs validation from scratch so that columns excluded by the previous
+   * objective are restored before the new objective is applied.
+   * (Re-applying in-place didn't work because applyObjectiveToColumns only
+   * sees columns with role='media' — after ROI, only budgets remain as media,
+   * so a switch to 'effectiveness' would find no pairs to rearrange.)
    * @param {'roi' | 'effectiveness' | 'manual'} obj
    */
   function switchObjective(obj) {
     if (get(analysisObjective) === obj) return;
     analysisObjective.set(obj);
-
-    // Re-apply objective to current columns in-place (no sidecar re-call)
-    const current = get(validateData);
-    if (!current?.result?.columns) return;
-    const applied = applyObjectiveToColumns(current.result.columns, obj);
-    const nextResult = {
-      ...current.result,
-      columns: applied.columns,
-      objective_applied: { objective: obj, excluded: applied.excluded, kept: applied.kept },
-    };
-    recomputeResultAfterObjective(nextResult);
-    validateData.set({
-      ...current,
-      result: nextResult,
-    });
-    appliedFixes = new Set();
-
-    // Unlock/lock next step based on new status
-    if (nextResult.status === 'error') {
-      setStepError(1, 'Критические проблемы с данными');
-    } else {
-      completeStep(1);
-    }
+    runValidate();  // re-invoke Python validator → fresh columns → apply new objective
   }
 
   /** @param {any} mapping */

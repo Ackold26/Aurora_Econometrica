@@ -28,6 +28,7 @@
   } = $props();
 
   import { validateData } from '$lib/project-state.js';
+  import { fmtNum } from '$lib/fmt.js';
 
   let showColumnStats = $state(false);
 
@@ -134,6 +135,10 @@
       {#if detected.ratio}
         <span class="det-chip ratio" class:ratio-bad={detected.ratio < 4} class:ratio-ok={detected.ratio >= 10}>
           Ratio: {detected.ratio}:1
+          <span
+            class="help-icon"
+            title="Ratio — соотношение числа наблюдений к числу независимых переменных (rows / (media + control)). Показывает есть ли у модели достаточно данных, чтобы надёжно оценить вклад каждого канала.&#10;&#10;Пороги:&#10;• &lt;2:1 — критически мало, модель не сойдётся&#10;• 2–4:1 — работает, но с широкими доверительными интервалами&#10;• ≥4:1 — идеал (на 1 переменную ≥4 наблюдения)&#10;• ≥10:1 — отличная надёжность&#10;&#10;Почему важно: чем меньше Ratio, тем больше шума в оценках ROI. Решения при низком Ratio: увеличить историю данных (перейти к недельным вместо месячных), исключить малозначимые каналы, объединить парные метрики."
+          >?</span>
         </span>
       {/if}
     </div>
@@ -181,12 +186,30 @@
             <tr>
               <th>Столбец</th>
               <th>Роль</th>
-              <th>Min</th>
-              <th>Max</th>
-              <th>Mean</th>
-              <th title="Коэффициент вариации">CV%</th>
-              <th>Нули%</th>
-              <th>Пропуски</th>
+              <th>
+                Min
+                <span class="help-icon" title="Минимальное значение в столбце. Показывает нижнюю границу диапазона данных. Если Min = 0, значит столбец содержит нули (часто — периоды без активности канала).">?</span>
+              </th>
+              <th>
+                Max
+                <span class="help-icon" title="Максимальное значение в столбце. Верхняя граница диапазона. Сравнение Min/Max даёт представление о размахе значений.">?</span>
+              </th>
+              <th>
+                Mean
+                <span class="help-icon" title="Среднее арифметическое значение по столбцу. Для бюджетов — средний расход за период, для показов — среднее число контактов.">?</span>
+              </th>
+              <th>
+                CV%
+                <span class="help-icon" title="Коэффициент вариации — отношение стандартного отклонения к среднему, в процентах. CV &lt;10% — стабильный канал, 10-50% — нормальная изменчивость, &gt;50% — сильные колебания (пульсирующие кампании, запуск-пауза). Низкий CV на малом объёме данных может означать что модель не увидит эффекта канала.">?</span>
+              </th>
+              <th>
+                Нули%
+                <span class="help-icon" title="Доля строк с нулевым значением. Высокий процент нулей = канал неактивен значительную часть времени. &gt;80% — кандидат на исключение или объединение с другим каналом.">?</span>
+              </th>
+              <th>
+                Пропуски
+                <span class="help-icon" title="Количество строк с отсутствующим значением (NaN). В отличие от нулей, пропуски ломают регрессию. Программа интерполирует небольшие пробелы, при &gt;20% пропусков столбец лучше исключить.">?</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -206,12 +229,12 @@
                       <button class="role-click" class:unknown={!col.role || col.role === 'unknown'} onclick={() => editingCol = col.name} title="Нажмите для изменения">{roleLabel(col)}</button>
                     {/if}
                   </td>
-                  <td>{col.stats.min}</td>
-                  <td>{col.stats.max}</td>
-                  <td>{col.stats.mean}</td>
-                  <td class={cvClass(col.stats.cv)}>{col.stats.cv}%</td>
-                  <td class={zerosClass(col.stats.zeros_pct)}>{col.stats.zeros_pct}%</td>
-                  <td class={col.stats.nulls > 0 ? 'val-warn' : ''}>{col.stats.nulls}</td>
+                  <td class="mono">{fmtNum(col.stats.min)}</td>
+                  <td class="mono">{fmtNum(col.stats.max)}</td>
+                  <td class="mono">{fmtNum(col.stats.mean)}</td>
+                  <td class="mono {cvClass(col.stats.cv)}">{fmtNum(col.stats.cv, { decimals: 1 })}%</td>
+                  <td class="mono {zerosClass(col.stats.zeros_pct)}">{fmtNum(col.stats.zeros_pct, { decimals: 1 })}%</td>
+                  <td class="mono {col.stats.nulls > 0 ? 'val-warn' : ''}">{fmtNum(col.stats.nulls)}</td>
                 </tr>
               {/if}
             {/each}
@@ -410,6 +433,27 @@
   }
 
   tr.excluded td { opacity: 0.5; text-decoration: line-through; }
+
+  .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+    color: var(--accent-primary);
+    font-size: 9px;
+    font-weight: 700;
+    margin-left: 4px;
+    cursor: help;
+    vertical-align: middle;
+    line-height: 1;
+  }
+  .help-icon:hover {
+    background: var(--accent-primary);
+    color: #fff;
+  }
 
   .role-click {
     background: none; border: 1px solid transparent; border-radius: 4px;

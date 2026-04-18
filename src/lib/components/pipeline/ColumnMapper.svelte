@@ -23,9 +23,9 @@
 
   // ── Zones ──────────────────────────────────────────
   const ZONES = [
-    { id: 'kpi',     label: 'KPI',           icon: '📈', desc: 'Целевой показатель (продажи, конверсии)' },
-    { id: 'media',   label: 'Медиа и управляемые факторы', icon: '📺', desc: 'Расходы, контакты, показы, цены, промо' },
-    { id: 'control', label: 'Неуправляемые внешние факторы', icon: '🎛', desc: 'Сезонность, погода, конкуренты, SOV' },
+    { id: 'kpi',     label: 'KPI',                              icon: '📈', desc: 'Целевой показатель (продажи, конверсии)' },
+    { id: 'media',   label: 'Медиа и управляемые факторы',      icon: '📺', desc: 'Расходы, контакты, показы, цены, промо' },
+    { id: 'control', label: 'Неуправляемые внешние факторы',    icon: '🎛', desc: 'Сезонность, погода, конкуренты, SOV' },
     { id: 'date',    label: 'Дата',          icon: '📅', desc: 'Столбец с датой/периодом' },
   ];
 
@@ -210,6 +210,13 @@
 </script>
 
 <div class="column-mapper">
+  <header class="mapper-heading">
+    <h3 class="mapper-title">Назначение ролей столбцов</h3>
+    <p class="mapper-subtitle">
+      Распределите столбцы по четырём ролям: <strong>KPI</strong> · <strong>Медиа</strong> · <strong>Внешние</strong> · <strong>Дата</strong>.
+      Нажмите на столбец — выберите одну из ролей. Двойной клик по назначенному чипу возвращает его в неназначенные.
+    </p>
+  </header>
 
   <!-- Unassigned columns -->
   <div class="unassigned-section">
@@ -223,15 +230,12 @@
         {#if zone === 'unknown'}
           <div
             class="col-chip unassigned"
-            class:dragging={dragging === col.name}
             class:selected={selectedColumn === col.name}
-            draggable="true"
             role="button"
             tabindex="0"
             title="Нажмите для назначения роли"
             onclick={() => selectColumn(col.name)}
-            ondragstart={(e) => onDragstart(e, col.name)}
-            ondragend={onDragend}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectColumn(col.name); } }}
           >
             <span class="chip-name">{col.name}</span>
             <span class="chip-dtype">{col.dtype}</span>
@@ -275,9 +279,6 @@
         role="group"
         aria-label="Зона {zone.label}"
         onclick={() => assignToZone(zone.id)}
-        ondragover={(e) => onZoneDragover(e, zone.id)}
-        ondragleave={onZoneDragleave}
-        ondrop={(e) => onZoneDrop(e, zone.id)}
       >
         <div class="zone-header">
           <span class="zone-icon">{zone.icon}</span>
@@ -293,18 +294,18 @@
             {@const meta = colMeta(name)}
             <div
               class="zone-chip"
-              class:dragging={dragging === name}
-              draggable="true"
               role="button"
               tabindex="0"
               title="Двойной клик — вернуть в неназначенные"
-              ondragstart={(e) => onDragstart(e, name)}
-              ondragend={onDragend}
               ondblclick={() => returnToUnassigned(name)}
+              onkeydown={(e) => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); returnToUnassigned(name); } }}
             >
               <span class="chip-name">{name}</span>
               {#if meta.confidence}
-                <span class="conf-badge {confidenceClass(meta)}">{confidenceLabel(meta)}</span>
+                <span
+                  class="conf-badge {confidenceClass(meta)}"
+                  title="Уверенность автодетекции: {confidenceLabel(meta)}. Программа распознаёт роль по имени столбца (например, «бюджет», «показы», «продажи»). Чем выше %, тем точнее определение."
+                >{confidenceLabel(meta)}</span>
               {/if}
               <button
                 class="remove-btn"
@@ -325,6 +326,28 @@
 </div>
 
 <style>
+  .mapper-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 4px 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 4px;
+  }
+  .mapper-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: var(--font-weight-heading, 600);
+    color: var(--text-primary);
+    letter-spacing: -0.005em;
+  }
+  .mapper-subtitle {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+
   .column-mapper {
     display: flex;
     flex-direction: column;
