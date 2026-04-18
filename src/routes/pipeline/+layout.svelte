@@ -9,6 +9,7 @@
   import { goto } from '$app/navigation';
   import { invoke } from '@tauri-apps/api/core';
   import { productType } from '$lib/creative-store.js';
+  import { theme, toggleTheme } from '$lib/store.js';
   import {
     pipelineCurrentStep,
     pipelineStepMeta,
@@ -30,14 +31,15 @@
   // C1: Pipeline guard — econometrica only
   const isEconometrica = $derived($productType === 'econometrica');
 
-  let insightsCollapsed = $state(false);
+  let userCollapsed = $state(false); // явное намерение пользователя
   let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
 
-  // C4: Auto-collapse InsightsPanel when viewport < 1100px
-  $effect(() => {
-    if (windowWidth < 1100 && !insightsCollapsed) insightsCollapsed = true;
-    if (windowWidth >= 1100 && insightsCollapsed) insightsCollapsed = false;
-  });
+  // C4: Auto-collapse on small screens; on large — уважаем userCollapsed
+  const insightsCollapsed = $derived(windowWidth < 1100 ? true : userCollapsed);
+
+  function toggleInsights() {
+    if (windowWidth >= 1100) userCollapsed = !userCollapsed;
+  }
 
   /** @param {number} step */
   function handleNavigate(step) {
@@ -133,14 +135,30 @@
         <ProjectSelector />
       </div>
       <PipelineStepper onNavigate={handleNavigate} />
-      <button
-        class="mode-toggle"
-        class:expert={$expertMode}
-        onclick={() => expertMode.update(v => !v)}
-        title={$expertMode ? 'Переключить в режим маркетолога' : 'Переключить в экспертный режим'}
-      >
-        {$expertMode ? 'Эксперт' : 'Маркетолог'}
-      </button>
+      <div class="header-right">
+        {#if $pipelineCurrentStep >= 1}
+          <button
+            class="mode-toggle"
+            class:expert={$expertMode}
+            onclick={() => expertMode.update(v => !v)}
+            title={$expertMode ? 'Переключить в режим маркетолога' : 'Переключить в экспертный режим'}
+          >
+            {$expertMode ? 'Эксперт' : 'Маркетолог'}
+          </button>
+        {/if}
+        <button class="header-icon-btn" title="Переключить тему" onclick={toggleTheme}>
+          {#if $theme === 'dark'}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          {:else if $theme === 'light'}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          {:else}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-width="2"><path d="M2 19 A10 10 0 0 1 22 19" stroke="#e74c3c"/><path d="M4.5 19 A7.5 7.5 0 0 1 19.5 19" stroke="#f39c12"/><path d="M7 19 A5 5 0 0 1 17 19" stroke="#2ecc71"/><path d="M9.5 19 A2.5 2.5 0 0 1 14.5 19" stroke="#3498db"/></svg>
+          {/if}
+        </button>
+        <a href="/settings" class="header-icon-btn" title="Настройки">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </a>
+      </div>
     </div>
 
     <!-- Body: main content + insights panel -->
@@ -152,7 +170,7 @@
       <!-- C4: InsightsPanel with clamp(240px, 22%, 360px) -->
       <InsightsPanel
         collapsed={insightsCollapsed}
-        onToggle={() => insightsCollapsed = !insightsCollapsed}
+        onToggle={toggleInsights}
       />
     </div>
 
@@ -219,27 +237,56 @@
     padding: 8px 0 8px 16px;
   }
 
-  .mode-toggle {
-    flex-shrink: 0;
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin-left: auto;
     margin-right: 16px;
+    flex-shrink: 0;
+  }
+
+  .header-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    color: var(--text-muted, #94a3b8);
+    border-radius: var(--radius-sm, 6px);
+    transition: all 0.15s;
+    text-decoration: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+  .header-icon-btn:hover {
+    color: var(--text-primary, #e2e8f0);
+    background: var(--bg-tertiary, rgba(255,255,255,0.06));
+  }
+
+  .mode-toggle {
     padding: 5px 14px;
+    min-width: 100px;
+    text-align: center;
     border-radius: 14px;
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
-    background: rgba(255,255,255,0.04);
-    color: var(--text-secondary, #94a3b8);
+    border: 1px solid rgba(59,130,246,0.35);
+    background: rgba(59,130,246,0.1);
+    color: #93c5fd;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.03em;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.25s;
   }
-  .mode-toggle:hover { background: rgba(255,255,255,0.08); }
+  .mode-toggle:hover { background: rgba(59,130,246,0.18); }
   .mode-toggle.expert {
-    background: rgba(139,92,246,0.12);
-    border-color: rgba(139,92,246,0.35);
-    color: #a78bfa;
+    background: rgba(239,68,68,0.12);
+    border-color: rgba(239,68,68,0.4);
+    color: #fca5a5;
   }
+  .mode-toggle.expert:hover { background: rgba(239,68,68,0.2); }
 
   .pipeline-body {
     flex: 1;

@@ -272,13 +272,13 @@
     font-weight: 500;
   }
 
-  .det-chip.kpi     { background: rgba(34,197,94,0.12);  color: #86efac; border: 1px solid rgba(34,197,94,0.2); }
-  .det-chip.media   { background: rgba(59,130,246,0.12); color: #93c5fd; border: 1px solid rgba(59,130,246,0.2); }
-  .det-chip.control { background: rgba(168,85,247,0.12); color: #d8b4fe; border: 1px solid rgba(168,85,247,0.2); }
-  .det-chip.date    { background: rgba(20,184,166,0.12); color: #5eead4; border: 1px solid rgba(20,184,166,0.2); }
-  .det-chip.ratio   { background: rgba(71,85,105,0.2);   color: #cbd5e1; border: 1px solid rgba(71,85,105,0.3); }
-  .det-chip.ratio-bad { background: rgba(239,68,68,0.12); color: #fca5a5; border-color: rgba(239,68,68,0.25); }
-  .det-chip.ratio-ok  { background: rgba(34,197,94,0.12); color: #86efac; border-color: rgba(34,197,94,0.25); }
+  .det-chip.kpi     { background: rgba(34,197,94,0.12);  color: var(--text-primary); border: 1px solid rgba(34,197,94,0.3); }
+  .det-chip.media   { background: rgba(59,130,246,0.12); color: var(--text-primary); border: 1px solid rgba(59,130,246,0.3); }
+  .det-chip.control { background: rgba(168,85,247,0.12); color: var(--text-primary); border: 1px solid rgba(168,85,247,0.3); }
+  .det-chip.date    { background: rgba(20,184,166,0.12); color: var(--text-primary); border: 1px solid rgba(20,184,166,0.3); }
+  .det-chip.ratio   { background: rgba(71,85,105,0.15);  color: var(--text-primary); border: 1px solid rgba(71,85,105,0.3); }
+  .det-chip.ratio-bad { background: rgba(239,68,68,0.12); color: var(--text-primary); border-color: rgba(239,68,68,0.3); }
+  .det-chip.ratio-ok  { background: rgba(34,197,94,0.12); color: var(--text-primary); border-color: rgba(34,197,94,0.3); }
 
   /* ── Issues ── */
   .issue-list {
@@ -299,14 +299,14 @@
 
   .issue-item.critical {
     background: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.2);
-    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: var(--text-primary, #e2e8f0);
   }
 
   .issue-item.warning {
     background: rgba(245, 158, 11, 0.08);
-    border: 1px solid rgba(245, 158, 11, 0.2);
-    color: #fcd34d;
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    color: var(--text-primary, #e2e8f0);
   }
 
   .issue-icon { flex-shrink: 0; font-size: 13px; margin-top: 1px; }

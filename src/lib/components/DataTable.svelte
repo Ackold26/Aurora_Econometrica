@@ -50,6 +50,25 @@
 
   let displayHeaders = $derived(previewHeaders);
   let displayRows = $derived(previewRows);
+
+  /**
+   * Format a cell value: numbers get thousand separators (display only).
+   * @param {any} val
+   * @returns {string}
+   */
+  function fmt(val) {
+    if (val === null || val === undefined || val === '—') return '—';
+    const n = typeof val === 'number' ? val : Number(val);
+    if (!isNaN(n) && String(val).trim() !== '') {
+      // Integer: no decimals; float: up to 2 decimals, trim trailing zeros
+      const isInt = Number.isInteger(n) || (typeof val === 'string' && !String(val).includes('.'));
+      return new Intl.NumberFormat('ru-RU', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: isInt ? 0 : 2,
+      }).format(n);
+    }
+    return String(val);
+  }
 </script>
 
 {#if title}
@@ -77,8 +96,9 @@
                 class:highlight={displayHeaders[i] === highlightColumn}
                 class:positive={typeof cell === 'string' && cell.startsWith('+')}
                 class:negative={typeof cell === 'string' && cell.startsWith('-')}
+                class:numeric={typeof cell === 'number' || (typeof cell === 'string' && !isNaN(Number(cell)) && cell.trim() !== '')}
               >
-                {cell}
+                {fmt(cell)}
               </td>
             {/each}
           </tr>
@@ -146,6 +166,7 @@
 
   td.positive { color: var(--success, #22c55e); }
   td.negative { color: var(--error, #ef4444); }
+  td.numeric { text-align: right; font-variant-numeric: tabular-nums; font-size: 11.5px; }
 
   tr:hover td {
     background: rgba(255,255,255,0.03);

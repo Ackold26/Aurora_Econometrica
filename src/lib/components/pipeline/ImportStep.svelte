@@ -139,8 +139,20 @@
       shape = { rows: result.shape?.[0] ?? 0, cols: result.shape?.[1] ?? 0 };
 
       // A4: persist only file path + preview rows to memory store (not localStorage)
+      // result.dtypes is a dict {col: dtype}, normalize to array [{name, dtype}]
+      const columnsArray = result.dtypes
+        ? Object.entries(result.dtypes).map(([name, dtype]) => ({ name, dtype }))
+        : (result.headers ?? []).map((/** @type {string} */ h) => ({ name: h }));
+
       const currentImport = get(importData);
-      const updated = { ...currentImport, file: path, rows: result.rows, columns: result.dtypes };
+      const updated = {
+        ...currentImport,
+        file: path,
+        rows: result.rows,
+        columns: columnsArray,
+        shape: { rows: result.shape?.[0] ?? 0, cols: result.shape?.[1] ?? 0 },
+        fileName: result.file_name ?? path.split(/[\\/]/).pop() ?? '',
+      };
       importData.set(updated);
 
       completeStep(0);

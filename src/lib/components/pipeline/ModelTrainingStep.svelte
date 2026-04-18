@@ -30,8 +30,8 @@
   /** @type {any | null} */
   let lastConfig = $state(null);
 
-  // Current validation result (from Step 1)
-  const validation = $derived(get(validateData)?.result || null);
+  // Current validation result (from Step 1) — реактивно через $validateData
+  const validation = $derived($validateData?.result || null);
 
   // Current model diagnostics (if trained)
   const diagnostics = $derived($modelData?.diagnostics || null);

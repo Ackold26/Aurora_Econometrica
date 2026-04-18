@@ -29,6 +29,27 @@
 
   let showAdvanced = $state(false);
 
+  // ── Custom dropdown state ──
+  let kpiOpen = $state(false);
+  let adstockOpen = $state(false);
+  /** @type {HTMLElement|null} */
+  let kpiAnchor = $state(null);
+  /** @type {HTMLElement|null} */
+  let adstockAnchor = $state(null);
+
+  /** @param {'kpi'|'adstock'} which @param {HTMLElement} anchor */
+  function openDropdown(which, anchor) {
+    if (which === 'kpi') { kpiOpen = !kpiOpen; adstockOpen = false; kpiAnchor = anchor; }
+    else { adstockOpen = !adstockOpen; kpiOpen = false; adstockAnchor = anchor; }
+  }
+
+  /** @param {HTMLElement|null} anchor */
+  function getDropdownStyle(anchor) {
+    if (!anchor) return '';
+    const r = anchor.getBoundingClientRect();
+    return `position:fixed;left:${r.left}px;top:${r.bottom + 4}px;width:${r.width}px;z-index:9999;`;
+  }
+
   // ── KPI selection ──
   let kpiOptions = $derived(
     validation?.columns?.filter(/** @param {any} c */ (c) => c.role === 'kpi').map(/** @param {any} c */ (c) => c.name) || []
@@ -97,6 +118,15 @@
       } catch { /* sidecar not ready yet — use defaults */ }
     })();
   });
+
+  // ── Adstock dropdown options ──
+  const adstockOptions = [
+    { value: 'auto', label: 'Авто (digital=мгновенный, TV=отложенный)' },
+    { value: 'geometric', label: 'Geometric (все каналы)' },
+    { value: 'weibull', label: 'Weibull (все каналы)' },
+  ];
+  const currentAdstock = $derived(Object.values(channelAdstock)[0] || 'auto');
+  const currentAdstockLabel = $derived(adstockOptions.find(o => o.value === currentAdstock)?.label || adstockOptions[0].label);
 
   // ── Control variables ──
   let controlColumns = $derived(
@@ -208,11 +238,28 @@
       Целевой KPI
       <span class="config-hint">Что моделируем</span>
     </label>
-    <select class="config-select" bind:value={selectedKpi}>
-      {#each kpiOptions as kpi}
-        <option value={kpi}>{kpi}</option>
-      {/each}
-    </select>
+    <button
+      class="config-select dropdown-trigger"
+      bind:this={kpiAnchor}
+      onclick={(e) => openDropdown('kpi', e.currentTarget)}
+    >
+      <span>{selectedKpi || '— выберите KPI —'}</span>
+      <span class="dropdown-arrow" class:open={kpiOpen}>▾</span>
+    </button>
+    {#if kpiOpen}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="dropdown-overlay" onclick={() => kpiOpen = false}></div>
+      <div class="dropdown-list" style={getDropdownStyle(kpiAnchor)}>
+        {#each kpiOptions as kpi}
+          <button class="dropdown-item" class:selected={kpi === selectedKpi} onclick={() => { selectedKpi = kpi; kpiOpen = false; }}>
+            {kpi}
+          </button>
+        {/each}
+        {#if kpiOptions.length === 0}
+          <span class="dropdown-empty">Нет доступных KPI</span>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   <!-- Media channels -->
@@ -238,16 +285,30 @@
       <span class="config-hint">Тип отложенного эффекта</span>
     </label>
     <div class="adstock-with-preview">
-      <select class="config-select" onchange={(e) => {
-        const val = /** @type {HTMLSelectElement} */ (e.target).value;
-        const updated = {...channelAdstock};
-        for (const ch of Object.keys(updated)) updated[ch] = val;
-        channelAdstock = updated;
-      }}>
-        <option value="auto">Авто (digital=мгновенный, TV=отложенный)</option>
-        <option value="geometric">Geometric (все каналы)</option>
-        <option value="weibull">Weibull (все каналы)</option>
-      </select>
+      <button
+        class="config-select dropdown-trigger"
+        bind:this={adstockAnchor}
+        onclick={(e) => openDropdown('adstock', e.currentTarget)}
+      >
+        <span>{currentAdstockLabel}</span>
+        <span class="dropdown-arrow" class:open={adstockOpen}>▾</span>
+      </button>
+      {#if adstockOpen}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="dropdown-overlay" onclick={() => adstockOpen = false}></div>
+        <div class="dropdown-list" style={getDropdownStyle(adstockAnchor)}>
+          {#each adstockOptions as opt}
+            <button class="dropdown-item" class:selected={currentAdstock === opt.value} onclick={() => {
+              const updated = {...channelAdstock};
+              for (const ch of Object.keys(updated)) updated[ch] = opt.value;
+              channelAdstock = updated;
+              adstockOpen = false;
+            }}>
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+      {/if}
       <AdstockPreview type={Object.values(channelAdstock)[0] === 'weibull' ? 'weibull' : 'geometric'} />
     </div>
   </div>
@@ -358,8 +419,6 @@
     color: var(--text-primary, #e2e8f0);
     font-size: 13px;
     outline: none;
-    position: relative;
-    z-index: 10;
   }
 
   .config-select:focus, .config-select-sm:focus {
@@ -367,6 +426,57 @@
   }
 
   .config-select-sm { padding: 4px 8px; font-size: 12px; }
+
+  /* Custom dropdown */
+  .dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    cursor: pointer;
+    text-align: left;
+  }
+  .dropdown-trigger:hover { border-color: rgba(255,255,255,0.2); }
+  .dropdown-arrow { font-size: 10px; opacity: 0.6; transition: transform 0.15s; }
+  .dropdown-arrow.open { transform: rotate(180deg); }
+
+  .dropdown-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+  }
+
+  .dropdown-list {
+    background: #1e2130;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    overflow: hidden;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+
+  .dropdown-item {
+    display: block;
+    width: 100%;
+    padding: 9px 12px;
+    background: none;
+    border: none;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .dropdown-item:hover { background: rgba(255,255,255,0.07); }
+  .dropdown-item.selected { background: rgba(59,130,246,0.15); color: #93c5fd; }
+
+  .dropdown-empty {
+    display: block;
+    padding: 9px 12px;
+    font-size: 12px;
+    color: var(--text-muted, #64748b);
+  }
 
   .config-summary {
     padding: 8px 12px;

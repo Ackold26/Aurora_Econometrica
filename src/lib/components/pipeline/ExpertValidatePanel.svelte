@@ -31,6 +31,44 @@
       std: c.stats?.std?.toFixed(2) ?? '—',
     }));
   });
+
+  const unknownCount = $derived(dataStats.filter(r => !r.role || r.role === 'unknown').length);
+
+  // ── Inline role editor ──
+  /** @type {string|null} */
+  let editingColumn = $state(null);
+
+  const ROLE_OPTIONS = [
+    { id: 'media', icon: '📺', label: 'Медиа и упр. факторы' },
+    { id: 'kpi', icon: '📈', label: 'KPI' },
+    { id: 'control', icon: '🎛', label: 'Неупр. внешние факторы' },
+    { id: 'date', icon: '📅', label: 'Дата' },
+    { id: 'unused', icon: '🚫', label: 'Исключить' },
+  ];
+
+  /** @param {string} colName @param {string} newRole */
+  function assignRole(colName, newRole) {
+    const val = $validateData;
+    if (!val?.result?.columns) return;
+    const updated = {
+      ...val,
+      result: {
+        ...val.result,
+        columns: val.result.columns.map(/** @param {any} c */ c =>
+          c.name === colName ? { ...c, role: newRole } : c
+        ),
+      },
+    };
+    validateData.set(updated);
+    editingColumn = null;
+  }
+
+  /** @param {string} role */
+  function roleLabel(role) {
+    if (!role || role === 'unknown') return '?';
+    const opt = ROLE_OPTIONS.find(o => o.id === role);
+    return opt ? `${opt.icon} ${opt.label}` : role;
+  }
 </script>
 
 <div class="expert-panel">
@@ -58,15 +96,45 @@
   {/if}
 
   {#if dataStats.length > 0}
-    <div class="section-title">Статистика столбцов</div>
+    <div class="section-title">
+      Статистика столбцов
+      {#if unknownCount > 0}
+        <span class="hint-badge">Нажмите «?» чтобы назначить роль ({unknownCount} не определено)</span>
+      {/if}
+    </div>
     <div class="stats-scroll">
       <table class="stats-table">
         <thead><tr><th>Столбец</th><th>Роль</th><th>Тип</th><th>Пропуски %</th><th>Нули %</th><th>Среднее</th><th>Std</th></tr></thead>
         <tbody>
           {#each dataStats as row}
-            <tr>
+            <tr class:excluded={row.role === 'unused'}>
               <td>{row.name}</td>
-              <td class="role-badge">{row.role}</td>
+              <td class="role-cell">
+                {#if editingColumn === row.name}
+                  <div class="role-picker">
+                    {#each ROLE_OPTIONS as opt}
+                      <button
+                        class="role-option"
+                        class:active={row.role === opt.id}
+                        onclick={() => assignRole(row.name, opt.id)}
+                      >
+                        {opt.icon} {opt.label}
+                      </button>
+                    {/each}
+                    <button class="role-option role-cancel" onclick={() => editingColumn = null}>✕</button>
+                  </div>
+                {:else}
+                  <button
+                    class="role-badge"
+                    class:unknown={!row.role || row.role === 'unknown'}
+                    class:role-unused={row.role === 'unused'}
+                    onclick={() => editingColumn = row.name}
+                    title="Нажмите для изменения роли"
+                  >
+                    {roleLabel(row.role)}
+                  </button>
+                {/if}
+              </td>
               <td class="mono">{row.dtype}</td>
               <td class="mono" class:warn={parseFloat(row.missing) > 5}>{row.missing}</td>
               <td class="mono" class:warn={parseFloat(row.zeros) > 80}>{row.zeros}</td>
@@ -81,8 +149,13 @@
 </div>
 
 <style>
-  .expert-panel { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
-  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(167,139,250,0.8); }
+  .expert-panel {
+    display: flex; flex-direction: column; gap: 16px; margin-top: 16px;
+    padding: 16px; border-radius: 10px;
+    background: rgba(239,68,68,0.04);
+    border: 1px solid rgba(239,68,68,0.18);
+  }
+  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(252,165,165,0.85); }
   .empty { font-size: 12px; color: rgba(148,163,184,0.5); }
 
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -92,6 +165,49 @@
   .warn { color: #f59e0b; }
   tr.high td { background: rgba(239,68,68,0.06); }
   tr.medium td { background: rgba(245,158,11,0.04); }
-  .role-badge { font-size: 10px; color: var(--accent-primary, #3b82f6); }
+  .role-cell { position: relative; }
+  .role-badge {
+    font-size: 10px; font-weight: 500;
+    padding: 2px 8px; border-radius: 4px;
+    background: none; border: 1px solid transparent;
+    color: var(--accent-primary, #3b82f6);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .role-badge:hover { border-color: var(--accent-primary, #3b82f6); background: rgba(59,130,246,0.08); }
+  .role-badge.unknown {
+    color: var(--warning, #f59e0b);
+    border: 1px dashed var(--warning, #f59e0b);
+    padding: 2px 10px;
+    animation: pulse-border 2s infinite;
+  }
+  .role-badge.role-unused { color: var(--text-muted, #64748b); opacity: 0.6; text-decoration: line-through; }
+  @keyframes pulse-border { 0%,100% { border-color: rgba(245,158,11,0.4); } 50% { border-color: rgba(245,158,11,0.9); } }
+
+  .role-picker {
+    display: flex; flex-wrap: wrap; gap: 3px;
+    position: absolute; left: 0; top: -2px; z-index: 30;
+    background: var(--bg-surface-quiet, #1e2130);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
+    border-radius: 8px; padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    min-width: 180px;
+  }
+  .role-option {
+    padding: 4px 8px; border: none; border-radius: 4px;
+    background: none; color: var(--text-primary, #e2e8f0);
+    font-size: 11px; cursor: pointer; transition: background 0.1s;
+    white-space: nowrap;
+  }
+  .role-option:hover { background: rgba(255,255,255,0.08); }
+  .role-option.active { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .role-cancel { color: var(--text-muted, #64748b); }
+
+  tr.excluded td { opacity: 0.4; }
+
+  .hint-badge {
+    font-size: 10px; font-weight: 400; text-transform: none; letter-spacing: 0;
+    color: var(--warning, #f59e0b);
+    margin-left: 8px;
+  }
+
   .stats-scroll { overflow-x: auto; }
 </style>

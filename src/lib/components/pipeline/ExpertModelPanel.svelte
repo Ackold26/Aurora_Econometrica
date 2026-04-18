@@ -86,8 +86,13 @@
 </div>
 
 <style>
-  .expert-panel { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
-  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(167,139,250,0.8); }
+  .expert-panel {
+    display: flex; flex-direction: column; gap: 16px; margin-top: 16px;
+    padding: 16px; border-radius: 10px;
+    background: rgba(239,68,68,0.04);
+    border: 1px solid rgba(239,68,68,0.18);
+  }
+  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(252,165,165,0.85); }
 
   .diag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
   .diag-item {

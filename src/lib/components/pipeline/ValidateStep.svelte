@@ -26,27 +26,38 @@
   let loading = $state(false);
   let errorMsg = $state('');
 
-  /** @type {any | null} */
-  let result = $state(null);
   /** @type {Set<string>} Dismissed/applied warning keys */
   let appliedFixes = $state(new Set());
 
-  // Restore from store if already validated this session
-  const storedValidate = get(validateData);
-  if (storedValidate.result) {
-    result = storedValidate.result;
-  }
+  // Reactively read from store — updates when InsightsPanel modifies column roles
+  const result = $derived($validateData?.result ?? null);
 
   // ── Reactive store reads (Svelte 5 auto-subscribe) ─
-  // $importData is auto-subscribed in .svelte context
   let hasFile = $derived(!!$importData?.file);
 
-  let statusLabel = $derived(
-    !result ? '' :
-    result.status === 'ok'      ? 'Валидация пройдена' :
-    result.status === 'warning' ? 'Готово с предупреждениями' :
-                                  'Обнаружены критические проблемы'
+  // Recalculate stats based on current column roles (after insight actions)
+  const activeMediaCount = $derived(result?.columns?.filter(/** @param {any} c */ c => c.role === 'media').length ?? 0);
+  const excludedCount = $derived(result?.columns?.filter(/** @param {any} c */ c => c.role === 'unused').length ?? 0);
+
+  // Columns currently excluded (role=unused) — for filtering warnings
+  const excludedColumns = $derived(
+    new Set((result?.columns ?? []).filter(/** @param {any} c */ c => c.role === 'unused').map(/** @param {any} c */ c => c.name))
   );
+
+  // Warnings filtered: hide warnings for excluded columns
+  const activeWarnings = $derived(
+    (result?.warnings ?? []).filter(/** @param {any} w */ w => {
+      if (!w.column) return true; // general warning, always show
+      return !excludedColumns.has(w.column);
+    })
+  );
+
+  let statusLabel = $derived.by(() => {
+    if (!result) return '';
+    if (activeWarnings.length === 0 && result.status !== 'error') return 'Валидация пройдена';
+    if (result.status === 'error') return 'Обнаружены критические проблемы';
+    return `Готово с предупреждениями (${activeWarnings.length})`;
+  });
 
   // ── Validate ───────────────────────────────────────
   async function runValidate() {
@@ -58,7 +69,6 @@
 
     loading = true;
     errorMsg = '';
-    result = null;
 
     try {
       const projectId = get(activeProjectId);
@@ -76,9 +86,7 @@
         return;
       }
 
-      result = res;
-
-      // Save full result to memory store (A4)
+      // Save to store — result is $derived from store, updates reactively
       validateData.set({
         result: res,
         correlationMatrix: res.full_correlation_matrix ?? null,
@@ -153,22 +161,25 @@
       <section class="section">
         <h4 class="section-title">Результат валидации</h4>
         <TrafficLight
-          status={result.status}
+          status={activeWarnings.length === 0 && result.status !== 'error' ? 'ok' : result.status}
           verdict={result.verdict}
           issues={result.issues ?? []}
-          warnings={result.warnings ?? []}
+          warnings={activeWarnings}
           file={result.file ?? null}
           detected={result.detected ?? null}
-          columns={result.columns ?? []}
+          columns={result.columns?.filter(/** @param {any} c */ c => c.role !== 'unused') ?? []}
         />
+        {#if excludedCount > 0}
+          <div class="excluded-badge">{excludedCount} столбц{excludedCount > 4 ? 'ов' : excludedCount > 1 ? 'а' : ''} исключен{excludedCount > 1 ? 'о' : ''} по рекомендациям</div>
+        {/if}
       </section>
 
       <!-- Auto-fix suggestions -->
-      {#if result.warnings?.length > 0}
+      {#if activeWarnings.length > 0}
         <section class="section section-wide">
-          <h4 class="section-title">Рекомендации</h4>
+          <h4 class="section-title">Рекомендации ({activeWarnings.length})</h4>
           <div class="fix-list">
-            {#each result.warnings as warn}
+            {#each activeWarnings as warn}
               {#if !appliedFixes.has(warn.column + warn.type)}
                 <div class="fix-item fix-{warn.severity}">
                   <span class="fix-text">{warn.message}</span>
@@ -268,20 +279,19 @@
     align-items: center;
     gap: 8px;
     padding: 9px 20px;
-    background: linear-gradient(135deg, rgba(59,130,246,0.3), rgba(99,102,241,0.3));
-    border: 1px solid rgba(59, 130, 246, 0.45);
+    background: var(--accent-primary, #3b82f6);
+    border: none;
     border-radius: 10px;
-    color: #93c5fd;
+    color: var(--text-on-accent, #fff);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    transition: background 0.15s, opacity 0.15s, transform 0.1s;
   }
 
   .run-btn:hover:not(:disabled) {
-    background: linear-gradient(135deg, rgba(59,130,246,0.45), rgba(99,102,241,0.45));
-    border-color: #3b82f6;
-    color: #bfdbfe;
+    background: var(--accent-hover, #2563eb);
+    transform: translateY(-1px);
   }
 
   .run-btn:disabled {
@@ -308,9 +318,20 @@
     border-radius: 20px;
   }
 
-  .status-ok      { background: rgba(34,197,94,0.12);  color: #86efac; border: 1px solid rgba(34,197,94,0.25); }
-  .status-warning { background: rgba(245,158,11,0.12); color: #fcd34d; border: 1px solid rgba(245,158,11,0.25); }
-  .status-error   { background: rgba(239,68,68,0.12);  color: #fca5a5; border: 1px solid rgba(239,68,68,0.25); }
+  .excluded-badge {
+    margin-top: 8px;
+    font-size: 11px;
+    color: #4ade80;
+    padding: 4px 10px;
+    background: rgba(34,197,94,0.08);
+    border: 1px solid rgba(34,197,94,0.2);
+    border-radius: 6px;
+    display: inline-block;
+  }
+
+  .status-ok      { background: rgba(34,197,94,0.15);  color: var(--text-primary); border: 1px solid rgba(34,197,94,0.35); }
+  .status-warning { background: rgba(245,158,11,0.15); color: var(--text-primary); border: 1px solid rgba(245,158,11,0.35); }
+  .status-error   { background: rgba(239,68,68,0.15);  color: var(--text-primary); border: 1px solid rgba(239,68,68,0.35); }
 
   /* ── Error ── */
   .error-banner {
@@ -361,11 +382,13 @@
   .fix-list { display: flex; flex-direction: column; gap: 6px; }
   .fix-item {
     display: flex; align-items: center; gap: 10px; padding: 8px 12px;
-    border-radius: 6px; background: rgba(255,255,255,0.02);
+    border-radius: 6px;
+    background: rgba(245, 158, 11, 0.06);
+    border: 1px solid rgba(245, 158, 11, 0.2);
     border-left: 3px solid #f59e0b;
   }
-  .fix-item.fix-critical { border-left-color: #ef4444; }
-  .fix-text { flex: 1; font-size: 12px; color: var(--text-secondary, #94a3b8); line-height: 1.4; }
+  .fix-item.fix-critical { border-left-color: #ef4444; background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.2); }
+  .fix-text { flex: 1; font-size: 12px; color: var(--text-primary, #e2e8f0); line-height: 1.4; }
   .fix-btn {
     padding: 4px 12px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.12);
     background: rgba(255,255,255,0.05); color: var(--text-secondary, #94a3b8);

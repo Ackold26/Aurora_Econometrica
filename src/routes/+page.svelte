@@ -165,14 +165,9 @@
     return () => window.removeEventListener('keydown', handleHomeKeydown);
   });
 
-  // Econometrica: no auto-redirect — show Pipeline CTA first
-  // User chooses: open Pipeline or dismiss → opens cabinet
-  let pipelineDismissed = $state(false);
-
   let enteringCabinet = $state(false);
 
   function dismissPipeline() {
-    pipelineDismissed = true;
     enteringCabinet = true;
     if (cabinets.length >= 1) {
       openCabinet(cabinets[0]);
@@ -275,30 +270,6 @@
     </div>
   {/if}
 
-  <!-- ── Pipeline Promo Panel (Econometrica) ── -->
-  {#if !pipelineDismissed && !loading}
-    <div class="pipeline-promo">
-      <button class="pipeline-promo-close" onclick={dismissPipeline} title="Закрыть и открыть кабинет">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-      <div class="pipeline-promo-icon">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="1.5" stroke-linecap="round">
-          <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
-        </svg>
-      </div>
-      <h2 class="pipeline-promo-title">Visual Pipeline</h2>
-      <p class="pipeline-promo-desc">6-шаговый MMM-анализ с интерактивными графиками: Import → Validate → Model → Decompose → Optimize → Report</p>
-      <div class="pipeline-promo-actions">
-        <button class="pipeline-promo-btn" onclick={() => goto('/pipeline')}>
-          Открыть Pipeline →
-        </button>
-        <button class="pipeline-promo-skip" onclick={dismissPipeline}>
-          Перейти в кабинет
-        </button>
-      </div>
-    </div>
-  {/if}
-
   <!-- ── Main Content ── -->
   <main class="main">
     {#if loading}
@@ -311,7 +282,6 @@
           <p class="state-text">Проверка лицензии...</p>
         {/if}
       </div>
-      <SkeletonCard count={6} height="110px" />
 
     {:else if $licenseErrorStore}
       <div class="state-panel glass-panel">
@@ -329,108 +299,22 @@
       </div>
 
     {:else}
-      <!-- Quick actions: только для 6+ кабинетов (tabs уже показывают навигацию для ≤5) -->
-      {#if cabinets.length > 5}
-        <div class="quick-actions">
-          {#each cabinets.slice(0, 3) as cab (cab.id)}
-            <button class="qa-card" onclick={() => openCabinet(cab)}>
-              <span class="qa-icon">{cab.icon}</span>
-              <span class="qa-label">{cab.name}</span>
-              <span class="qa-desc">{cab.description?.split(',')[0] || ''}</span>
-            </button>
-          {/each}
-          {#if $isCreativeHub && $brands.length > 0}
-            <button class="qa-card" onclick={() => goto('/brands')}>
-              <span class="qa-icon">🎨</span>
-              <span class="qa-label">Бренды</span>
-              <span class="qa-desc">{$activeBrand ? $activeBrand.name : 'Управление'}</span>
-            </button>
-          {/if}
+      <div class="pipeline-promo">
+        <div class="pipeline-promo-icon">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="1.5" stroke-linecap="round">
+            <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
+          </svg>
         </div>
-      {/if}
-
-      {#if $isCreativeHub && $brands.length === 0}
-        <div class="welcome-brand">
-          <h3>Creative Hub</h3>
-          <p>Создайте первый бренд для начала работы</p>
-          <div class="welcome-input-row">
-            <input
-              type="text"
-              class="welcome-input"
-              placeholder="Имя бренда..."
-              bind:value={newBrandName}
-              onkeydown={(e) => e.key === 'Enter' && quickCreateBrand()}
-              disabled={creatingBrand}
-            />
-            <button class="welcome-create-btn" onclick={quickCreateBrand} disabled={!newBrandName.trim() || creatingBrand}>
-              {creatingBrand ? '...' : 'Создать'}
-            </button>
-          </div>
+        <h2 class="pipeline-promo-title">Visual Pipeline</h2>
+        <p class="pipeline-promo-desc">6-шаговый MMM-анализ с интерактивными графиками: Import → Validate → Model → Decompose → Optimize → Report</p>
+        <div class="pipeline-promo-actions">
+          <button class="pipeline-promo-btn" onclick={() => goto('/pipeline')}>
+            Открыть Pipeline →
+          </button>
+          <button class="pipeline-promo-skip" onclick={dismissPipeline}>
+            Перейти в кабинет
+          </button>
         </div>
-      {/if}
-
-      <div class="cabinets-section">
-        <div class="section-header">
-          <div>
-            <h2 class="section-title">Рабочие пространства</h2>
-            <p class="section-subtitle">{cabinets.length} кабинет{cabinets.length > 1 ? 'a' : ''} доступно</p>
-          </div>
-        </div>
-
-        {#if openError}
-          <div class="open-error">
-            <span>{openError}</span>
-            <button onclick={() => openError = null}>✕</button>
-          </div>
-        {/if}
-
-        <div class="cabinets-grid">
-          {#each cabinets as cabinet, i}
-            <div class="card-wrapper" style="animation-delay: {i * 65}ms">
-              <CabinetCard {cabinet} onClick={() => openCabinet(cabinet)} />
-            </div>
-          {/each}
-        </div>
-
-        {#if recentExports.length > 0}
-          <div class="exports-section">
-            <h3 class="exports-title">Последние экспорты</h3>
-            {#if shareSuccess}
-              <div class="share-success">{shareSuccess}</div>
-            {/if}
-            <div class="exports-list">
-              {#each recentExports as [cabId, filename, cabName]}
-                <div class="export-row">
-                  <span class="export-cab">{cabName}</span>
-                  <span class="export-file" title={filename}>{filename}</span>
-                  <button
-                    class="share-btn"
-                    onclick={() => shareTarget = { cabinetId: cabId, filename }}
-                    title="Отправить в другой кабинет"
-                    aria-label="Отправить {filename} в другой кабинет"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                    </svg>
-                  </button>
-                </div>
-                {#if shareTarget?.cabinetId === cabId && shareTarget?.filename === filename}
-                  <div class="share-targets">
-                    {#each cabinets.filter(c => c.id !== cabId) as target}
-                      <button
-                        class="target-btn"
-                        onclick={() => shareToInbox(cabId, filename, target.id)}
-                      >
-                        {target.icon} {target.name}
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
-              {/each}
-            </div>
-          </div>
-        {/if}
       </div>
     {/if}
   </main>
@@ -547,6 +431,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     padding: 32px 28px;
     overflow-y: auto;
   }
@@ -1017,28 +902,20 @@
 
   /* Pipeline Promo Panel */
   .pipeline-promo {
-    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    padding: 32px 40px;
+    padding: 40px 48px;
     background: rgba(59,130,246,0.06);
     border: 1px solid rgba(59,130,246,0.2);
     border-radius: 16px;
     width: 100%;
     max-width: 520px;
-    margin: 40px auto 24px;
     text-align: center;
     animation: promoFadeIn 0.3s ease-out;
   }
   @keyframes promoFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .pipeline-promo-close {
-    position: absolute; top: 12px; right: 12px;
-    background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;
-    border-radius: 6px; transition: background 0.15s;
-  }
-  .pipeline-promo-close:hover { background: rgba(255,255,255,0.08); }
   .pipeline-promo-icon { margin-bottom: 4px; }
   .pipeline-promo-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin: 0; }
   .pipeline-promo-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin: 0; }

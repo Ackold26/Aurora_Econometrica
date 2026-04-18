@@ -18,6 +18,34 @@
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
 
+  /** @type {Set<number>} */
+  let appliedActions = $state(new Set());
+
+  /** Apply an insight action: modify column roles in validateData
+   * @param {import('$lib/insights-rules.js').InsightAction} action
+   * @param {number} idx
+   */
+  function applyAction(action, idx) {
+    const val = $validateData;
+    if (!val?.result?.columns) return;
+
+    const updated = { ...val, result: { ...val.result, columns: val.result.columns.map(/** @param {any} c */ c => ({ ...c })) } };
+
+    if (action.type === 'exclude') {
+      for (const col of updated.result.columns) {
+        if (action.columns.includes(col.name)) col.role = 'unused';
+      }
+    } else if (action.type === 'keep_only') {
+      const toExclude = action.exclude ?? [];
+      for (const col of updated.result.columns) {
+        if (toExclude.includes(col.name)) col.role = 'unused';
+      }
+    }
+
+    validateData.set(updated);
+    appliedActions = new Set([...appliedActions, idx]);
+  }
+
   /** @type {string} */
   let question = $state('');
 
@@ -40,12 +68,20 @@
 
     switch (step) {
       case 0: {
-        if (!imp?.columns) return [];
+        if (!imp?.file) return [];
+        const cols = imp.columns ?? [];
+        const totalRows = imp.shape?.rows ?? imp.rows?.length ?? 0;
         const zeros = /** @type {Record<string, number>} */ ({});
-        for (const c of (imp.columns ?? [])) {
+        for (const c of cols) {
           if (c.stats?.zeros_pct > 0) zeros[c.name] = c.stats.zeros_pct;
         }
-        return importInsights({ rows: imp.rows?.length ?? 0, cols: imp.columns?.length ?? 0, columns: imp.columns ?? [], zeros });
+        return importInsights({
+          rows: totalRows,
+          cols: imp.shape?.cols ?? cols.length,
+          columns: cols,
+          zeros,
+          fileName: imp.fileName ?? '',
+        });
       }
       case 1: return validateInsights(val?.result);
       case 2: return modelInsights(mod);
@@ -69,6 +105,7 @@
   onMount(() => {
     invoke('get_product_type').then(() => { aiAvailable = true; }).catch(() => {});
   });
+
 
   /** Build context string from current pipeline data for AI prompt */
   function buildContext() {
@@ -121,9 +158,43 @@
       aiLoading = false;
     }
   }
+
+  // ── Drag-resize ──
+  let panelWidth = $state(300);
+  let isResizing = $state(false);
+
+  /** @param {MouseEvent} e */
+  function startResize(e) {
+    if (collapsed) return;
+    e.preventDefault();
+    isResizing = true;
+    const startX = e.clientX;
+    const startW = panelWidth;
+
+    /** @param {MouseEvent} moveEvt */
+    function onMove(moveEvt) {
+      const delta = startX - moveEvt.clientX;
+      panelWidth = Math.max(200, Math.min(600, startW + delta));
+    }
+    function onUp() {
+      isResizing = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 </script>
 
-<aside class="insights-panel" class:collapsed aria-label="Инсайты">
+<aside
+  class="insights-panel"
+  class:collapsed
+  class:resizing={isResizing}
+  style={collapsed ? '' : `width:${panelWidth}px`}
+  aria-label="Инсайты"
+>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle" onmousedown={startResize}></div>
   <div class="panel-header">
     {#if !collapsed}
       <span class="panel-title">Инсайты</span>
@@ -150,16 +221,29 @@
               <span class="sev-badge">{SEVERITY[insight.severity].icon}</span>
               <div class="insight-content">
                 <span class="insight-text">{insight.text}</span>
-                {#if insight.tip}
-                  <button
-                    class="tip-toggle"
-                    onclick={() => expandedTip = expandedTip === i ? null : i}
-                  >
-                    {expandedTip === i ? 'Скрыть' : 'Подробнее'}
-                  </button>
-                  {#if expandedTip === i}
-                    <p class="tip-text">{insight.tip}</p>
+                <div class="insight-actions-row">
+                  {#if insight.tip}
+                    <button
+                      class="tip-toggle"
+                      onclick={() => expandedTip = expandedTip === i ? null : i}
+                    >
+                      {expandedTip === i ? 'Скрыть' : 'Подробнее'}
+                    </button>
                   {/if}
+                  {#if insight.action && !appliedActions.has(i)}
+                    <button
+                      class="action-btn"
+                      onclick={() => applyAction(insight.action, i)}
+                    >
+                      {insight.action.label || 'Применить'}
+                    </button>
+                  {/if}
+                  {#if appliedActions.has(i)}
+                    <span class="action-applied">✓ Применено</span>
+                  {/if}
+                </div>
+                {#if expandedTip === i && insight.tip}
+                  <p class="tip-text">{insight.tip}</p>
                 {/if}
               </div>
             </li>
@@ -196,17 +280,34 @@
 
 <style>
   .insights-panel {
-    width: clamp(240px, 22%, 360px);
+    position: relative;
     min-width: 0;
     display: flex;
     flex-direction: column;
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
     border-left: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
-    transition: width 0.2s ease, min-width 0.2s ease;
     overflow: hidden;
     flex-shrink: 0;
+    transition: width 0.15s ease;
   }
-  .insights-panel.collapsed { width: 34px; min-width: 34px; }
+  .insights-panel.resizing { transition: none; user-select: none; }
+  .insights-panel.collapsed { width: 34px !important; min-width: 34px; }
+
+  .resize-handle {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    z-index: 20;
+    background: transparent;
+    transition: background 0.15s;
+  }
+  .resize-handle:hover,
+  .resizing .resize-handle {
+    background: var(--accent-primary, #3b82f6);
+    opacity: 0.5;
+  }
+  .collapsed .resize-handle { display: none; }
 
   .panel-header {
     display: flex;
@@ -280,12 +381,38 @@
   .insight-content { flex: 1; min-width: 0; }
   .insight-text { color: var(--text-secondary, #94a3b8); }
 
+  .insight-actions-row {
+    display: flex; gap: 8px; align-items: center; margin-top: 5px; flex-wrap: wrap;
+  }
+
   .tip-toggle {
     background: none; border: none; padding: 0;
     font-size: 11px; color: var(--accent-primary, #3b82f6);
-    cursor: pointer; margin-top: 4px; display: block;
+    cursor: pointer;
   }
   .tip-toggle:hover { text-decoration: underline; }
+
+  .action-btn {
+    padding: 3px 10px;
+    background: rgba(34,197,94,0.12);
+    border: 1px solid rgba(34,197,94,0.3);
+    border-radius: 5px;
+    color: #4ade80;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .action-btn:hover {
+    background: rgba(34,197,94,0.22);
+    border-color: rgba(34,197,94,0.5);
+  }
+
+  .action-applied {
+    font-size: 10px;
+    color: #22c55e;
+    font-weight: 500;
+  }
 
   .tip-text {
     font-size: 11px; color: rgba(148,163,184,0.65);

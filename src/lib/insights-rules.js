@@ -7,16 +7,25 @@
  */
 
 /**
+ * @typedef {Object} InsightAction
+ * @property {'exclude'|'keep_only'|'set_role'} type
+ * @property {string[]} columns — columns to act on
+ * @property {string[]} [exclude] — columns to exclude (for keep_only)
+ * @property {string} [label] — button label override
+ */
+
+/**
  * @typedef {Object} Insight
  * @property {'info'|'success'|'warning'|'error'} severity
  * @property {string} text
  * @property {string} [tip]
+ * @property {InsightAction} [action]
  */
 
 // ── Import Step ─────────────────────────────────────────
 
 /**
- * @param {{ rows: number, cols: number, columns: any[], zeros: Record<string, number> }} data
+ * @param {{ rows: number, cols: number, columns: any[], zeros: Record<string, number>, fileName?: string }} data
  * @returns {Insight[]}
  */
 export function importInsights(data) {
@@ -24,25 +33,58 @@ export function importInsights(data) {
   const out = [];
   if (!data) return out;
 
-  const { rows, cols, columns, zeros } = data;
+  const { rows, cols, columns, zeros, fileName } = data;
 
-  if (rows < 26) {
-    out.push({ severity: 'warning', text: `Мало данных: ${rows} наблюдений. Для стабильной модели рекомендуется минимум 52 недели.`, tip: 'Байесовская модель может работать с малыми выборками, но доверительные интервалы будут широкими.' });
+  // ── Оценка объёма данных ──
+  if (rows === 0) {
+    out.push({ severity: 'info', text: `Файл${fileName ? ` «${fileName}»` : ''} загружен. Запустите валидацию для анализа структуры данных.` });
+    return out;
+  }
+
+  // Гранулярность: < 60 строк скорее всего месячные данные
+  const granularity = rows <= 60 ? 'месячных' : rows <= 260 ? 'недельных' : 'дневных';
+  const period = rows <= 60 ? `~${rows} месяц${rows > 1 ? (rows < 5 ? 'а' : 'ев') : ''}` :
+                 rows <= 260 ? `~${Math.round(rows / 52)} год${Math.round(rows/52) > 1 ? 'а' : ''}` :
+                 `~${Math.round(rows / 365)} год${Math.round(rows/365) > 1 ? 'а' : ''}`;
+
+  if (rows < 24) {
+    out.push({ severity: 'warning', text: `Мало данных: ${rows} наблюдений (${period}). MMM требует минимум 2 года истории.`, tip: 'Байесовская модель работает с малыми выборками, но доверительные интервалы будут широкими.' });
   } else if (rows >= 104) {
-    out.push({ severity: 'success', text: `${rows} наблюдений — отличный объём данных для MMM.` });
+    out.push({ severity: 'success', text: `${rows} ${granularity} наблюдений (${period}) — отличный объём для MMM.` });
   } else {
-    out.push({ severity: 'info', text: `${rows} наблюдений, ${cols} столбцов.` });
+    out.push({ severity: 'info', text: `${rows} ${granularity} наблюдений (${period}), ${cols} столбцов.` });
   }
 
-  const mediaCount = columns?.filter(c => c.role === 'media').length ?? 0;
-  if (mediaCount > 8) {
-    out.push({ severity: 'warning', text: `${mediaCount} медиаканалов — много. Рассмотрите объединение мелких каналов.`, tip: 'Чем больше каналов, тем больше параметров оценивает модель. При малом объёме данных это снижает точность.' });
+  // ── Автодетект медиаканалов по именам колонок ──
+  const colNames = columns.map(/** @param {any} c */ c => (c.name ?? String(c)).toUpperCase());
+  const MEDIA_KEYWORDS = ['OLV','TV','RADIO','BANNER','DIGITAL','CONTEXT','TARGET','SMM','OOH','PRESS','YOUTUBE','VK','OK','TG','TELEGRAM','SEARCH','SEO','EMAIL','PUSH','IN-APP','RTB','PROGRAMMATIC','CPC','CPM','GRP','IMPRESS','CLICK','BUDGET','SPEND','COST','РУБ'];
+  const DATE_KEYWORDS = ['DATE','ДАТА','PERIOD','НЕДЕЛЯ','МЕСЯЦ','WEEK','MONTH','YEAR'];
+  const KPI_KEYWORDS = ['SALES','ПРОДАЖИ','REVENUE','ВЫРУЧКА','UNITS','ШТУ','КОНВЕРС','CONVERSION','ORDERS','ЗАКАЗ','LEADS','ЛИД','CLICKS_KPI'];
+
+  const detectedMedia = colNames.filter(n => MEDIA_KEYWORDS.some(k => n.includes(k))).length;
+  const hasDate = colNames.some(n => DATE_KEYWORDS.some(k => n.includes(k)));
+  const hasKpi = colNames.some(n => KPI_KEYWORDS.some(k => n.includes(k)));
+
+  if (hasDate && hasKpi) {
+    out.push({ severity: 'success', text: 'Обнаружены дата и целевой KPI — структура данных подходит для MMM.' });
+  } else if (!hasDate) {
+    out.push({ severity: 'warning', text: 'Колонка с датой не найдена. Убедитесь, что временной период присутствует в данных.', tip: 'MMM требует временного ряда. Колонка с датой должна быть первой или явно названа DATE/ДАТА/PERIOD.' });
+  } else if (!hasKpi) {
+    out.push({ severity: 'warning', text: 'Целевой KPI не распознан автоматически. На шаге Валидация назначьте его вручную.', tip: 'KPI — это что вы хотите объяснить: продажи, выручка, конверсии, заказы.' });
   }
 
+  if (detectedMedia > 0) {
+    out.push({ severity: 'info', text: `Найдено ~${detectedMedia} медиа-переменных. На шаге Валидация проверьте назначение ролей.` });
+    if (detectedMedia > 10) {
+      out.push({ severity: 'warning', text: `Много медиа-переменных (${detectedMedia}). Рассмотрите агрегацию мелких каналов.`, tip: 'Чем больше каналов, тем сложнее модель. При малом числе наблюдений это снижает точность.' });
+    }
+  }
+
+  // ── Нули ──
   if (zeros) {
     for (const [col, pct] of Object.entries(zeros)) {
       if (pct > 80) {
-        out.push({ severity: 'warning', text: `Столбец «${col}» на ${pct.toFixed(0)}% состоит из нулей — модель может не найти значимый эффект.` });
+        out.push({ severity: 'warning', text: `«${col}»: ${Math.round(pct)}% нулей — канал малоактивен.` });
       }
     }
   }
@@ -53,7 +95,7 @@ export function importInsights(data) {
 // ── Validate Step ───────────────────────────────────────
 
 /**
- * @param {{ status: string, warnings: any[], correlations: Record<string, Record<string, number>>, columns: any[] }} result
+ * @param {any} result
  * @returns {Insight[]}
  */
 export function validateInsights(result) {
@@ -61,32 +103,188 @@ export function validateInsights(result) {
   const out = [];
   if (!result) return out;
 
+  // ── Общий статус ──
   if (result.status === 'ok') {
-    out.push({ severity: 'success', text: 'Данные прошли валидацию без критических проблем.' });
+    out.push({ severity: 'success', text: 'Данные прошли валидацию. Структура подходит для MMM-моделирования.' });
+  } else if (result.status === 'warning') {
+    const warnCount = result.warnings?.length ?? 0;
+    out.push({ severity: 'warning', text: `Валидация выявила ${warnCount} предупреждени${warnCount === 1 ? 'е' : warnCount < 5 ? 'я' : 'й'}. Модель можно запустить, но точность может быть ниже.`, tip: 'Предупреждения не блокируют моделирование, но каждое снижает надёжность результатов. Рекомендуем устранить хотя бы критичные.' });
+  } else if (result.status === 'error') {
+    out.push({ severity: 'error', text: 'Критические проблемы с данными. Моделирование невозможно без исправления.' });
   }
 
-  // High correlation pairs
+  // ── Распознанные роли колонок ──
+  const cols = result.columns ?? [];
+  const kpiCols = cols.filter(/** @param {any} c */ c => c.role === 'kpi');
+  const mediaCols = cols.filter(/** @param {any} c */ c => c.role === 'media');
+  const controlCols = cols.filter(/** @param {any} c */ c => c.role === 'control');
+  const dateCols = cols.filter(/** @param {any} c */ c => c.role === 'date');
+
+  if (kpiCols.length > 0 && mediaCols.length > 0) {
+    out.push({ severity: 'success', text: `Распознано: KPI — ${kpiCols.map(/** @param {any} c */ c => c.name).join(', ')}, ${mediaCols.length} медиаканал${mediaCols.length > 4 ? 'ов' : mediaCols.length > 1 ? 'а' : ''}, ${controlCols.length} контрольн${controlCols.length === 1 ? 'ая' : 'ых'} переменн${controlCols.length === 1 ? 'ая' : 'ых'}.` });
+  } else if (kpiCols.length === 0) {
+    out.push({ severity: 'error', text: 'KPI не определён. Назначьте целевую метрику в таблице ролей.', tip: 'KPI — зависимая переменная, которую объясняет модель: продажи, выручка, конверсии.' });
+  }
+
+  // ── Объём данных vs параметры ──
+  const totalRows = result.detected?.rows ?? 0;
+  const paramCount = mediaCols.length * 3 + controlCols.length + 2; // ~3 params per channel + controls + intercept
+  if (totalRows > 0 && mediaCols.length > 0) {
+    const ratio = totalRows / paramCount;
+    if (ratio < 3) {
+      out.push({ severity: 'warning', text: `Мало данных для ${mediaCols.length} каналов: ${totalRows} наблюдений на ~${paramCount} параметров (ratio ${ratio.toFixed(1)}). Риск переобучения.`, tip: 'Объедините мелкие каналы в группы (например, все баннеры в один), уберите каналы с >80% нулей, или добавьте больше данных.' });
+    } else if (ratio < 5) {
+      out.push({ severity: 'info', text: `Соотношение данных к параметрам: ${ratio.toFixed(1)}:1 — приемлемо, но увеличение выборки повысит точность.` });
+    }
+  }
+
+  // ── Предупреждения из валидации ──
+  if (result.warnings?.length > 0) {
+    for (const w of result.warnings) {
+      const msg = typeof w === 'string' ? w : w?.message ?? w?.text ?? String(w);
+      if (msg.toLowerCase().includes('корреляц') || msg.toLowerCase().includes('correl')) {
+        out.push({ severity: 'warning', text: msg, tip: 'Высокая корреляция между каналами мешает модели разделить их вклады. Исключите один из пары или объедините в группу. В режиме «Эксперт» доступна корреляционная матрица и VIF.' });
+      } else if (msg.toLowerCase().includes('нул') || msg.toLowerCase().includes('zero')) {
+        out.push({ severity: 'warning', text: msg, tip: 'Каналы с >80% нулей дают нестабильные оценки ROI. Рекомендуем исключить их или агрегировать с аналогичным каналом.' });
+      } else {
+        out.push({ severity: 'warning', text: msg });
+      }
+    }
+  }
+
+  // ── Мультиколлинеарность (корреляции) ──
   if (result.correlations) {
     const seen = new Set();
+    const highCorr = [];
     for (const [a, row] of Object.entries(result.correlations)) {
-      for (const [b, r] of Object.entries(row)) {
+      for (const [b, r] of Object.entries(/** @type {Record<string, number>} */ (row))) {
         if (a === b) continue;
         const key = [a, b].sort().join('|');
         if (seen.has(key)) continue;
         seen.add(key);
         const absR = Math.abs(/** @type {number} */ (r));
-        if (absR > 0.85) {
-          out.push({ severity: 'warning', text: `Мультиколлинеарность: ${a} и ${b} (r=${absR.toFixed(2)}). Модель может не разделить их вклады.`, tip: 'Рассмотрите исключение одного из каналов или объединение в группу. В expert mode доступна VIF-таблица.' });
-        }
+        if (absR > 0.85) highCorr.push({ a, b, r: absR });
       }
+    }
+    if (highCorr.length > 0) {
+      const pairs = highCorr.slice(0, 3).map(p => `${p.a} ↔ ${p.b} (r=${p.r.toFixed(2)})`).join('; ');
+      out.push({ severity: 'warning', text: `Мультиколлинеарность: ${pairs}${highCorr.length > 3 ? ` и ещё ${highCorr.length - 3}` : ''}`, tip: 'Модель не сможет разделить вклады коррелирующих каналов. Решение: исключите один из пары, объедините в группу, или примите широкие доверительные интервалы.' });
     }
   }
 
-  // Missing values
-  const missing = result.columns?.filter(c => c.stats?.missing_pct > 5) ?? [];
+  // ── Пропуски ──
+  const missing = cols.filter(/** @param {any} c */ c => c.stats?.missing_pct > 5);
   if (missing.length > 0) {
-    const names = missing.map(c => c.name).join(', ');
-    out.push({ severity: 'warning', text: `Пропуски >5% в столбцах: ${names}. Модель будет менее точной.`, tip: 'Интерполяция заполнит небольшие пропуски. Для больших — рассмотрите дополнительные источники данных.' });
+    const names = missing.map(/** @param {any} c */ c => `${c.name} (${c.stats.missing_pct.toFixed(0)}%)`).join(', ');
+    out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'Линейная интерполяция заполнит небольшие пробелы. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
+  }
+
+  // ── Группировка парных колонок и рекомендации ──
+  const VOLUME_KEYS = ['ПОКАЗ','ПРОСМОТР','КЛИК','ВИЗИТ','ПРОЧТЕН','GRP','TRP','IMPRESSION','CLICK','VIEW','VISIT','READ'];
+  const COST_KEYS = ['БЮДЖЕТ','РАСХОД','ЗАТРАТ','СТОИМОСТЬ','SPEND','COST','BUDGET','РУБ'];
+
+  /** @type {Map<string, {volume: any[], cost: any[]}>} */
+  const channelGroups = new Map();
+
+  for (const c of cols) {
+    const upper = (c.name ?? '').toUpperCase();
+    // Extract channel prefix: everything before the metric keyword
+    let prefix = '';
+    let type = '';
+    for (const k of VOLUME_KEYS) {
+      const idx = upper.indexOf(k);
+      if (idx > 0) { prefix = upper.slice(0, idx).trim().replace(/[\s_-]+$/, ''); type = 'volume'; break; }
+    }
+    if (!prefix) {
+      for (const k of COST_KEYS) {
+        const idx = upper.indexOf(k);
+        if (idx > 0) { prefix = upper.slice(0, idx).trim().replace(/[\s_-]+$/, ''); type = 'cost'; break; }
+      }
+    }
+    if (!prefix) continue;
+
+    if (!channelGroups.has(prefix)) channelGroups.set(prefix, { volume: [], cost: [] });
+    const g = channelGroups.get(prefix);
+    if (type === 'volume') g.volume.push(c);
+    else g.cost.push(c);
+  }
+
+  /** @type {Insight[]} */
+  const channelRecs = [];
+  for (const [prefix, g] of channelGroups) {
+    const allCols = [...g.volume, ...g.cost];
+    const allZero = allCols.every(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 90);
+    const highZero = allCols.every(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 60);
+    const hasCost = g.cost.length > 0;
+    const hasVolume = g.volume.length > 0;
+    const costNames = g.cost.map(/** @param {any} c */ c => c.name);
+    const volNames = g.volume.map(/** @param {any} c */ c => c.name);
+
+    if (allZero) {
+      channelRecs.push({
+        severity: 'warning',
+        text: `${prefix}: все метрики >90% нулей (${allCols.map(/** @param {any} c */ c => c.name).join(', ')}). Канал неактивен — исключите из модели.`,
+        action: { type: 'exclude', columns: allCols.map(/** @param {any} c */ c => c.name), label: 'Исключить канал' },
+      });
+    } else if (hasCost && hasVolume) {
+      const costZeros = g.cost[0]?.stats?.zeros_pct ?? 0;
+      const volZeros = g.volume[0]?.stats?.zeros_pct ?? 0;
+      if (costZeros < volZeros) {
+        channelRecs.push({
+          severity: 'info',
+          text: `${prefix}: парные метрики. Рекомендация — оставить бюджет (${costNames[0]}), исключить натуральные (${volNames.join(', ')}).`,
+          tip: 'MMM моделирует зависимость KPI от затрат. Показы/клики — промежуточные метрики, коррелирующие с бюджетом. Включение обоих размывает оценку ROI.',
+          action: { type: 'keep_only', columns: costNames, exclude: volNames, label: 'Оставить бюджет' },
+        });
+      } else {
+        channelRecs.push({
+          severity: 'info',
+          text: `${prefix}: парные метрики. Бюджет ${costZeros.toFixed(0)}% нулей — используйте натуральный показатель (${volNames[0]}).`,
+          tip: 'Если бюджетные данные неполные, но есть показы/GRP, используйте их как прокси.',
+          action: { type: 'keep_only', columns: volNames.slice(0, 1), exclude: [...costNames, ...volNames.slice(1)], label: `Оставить ${volNames[0]}` },
+        });
+      }
+    } else if (hasVolume && g.volume.length > 1) {
+      channelRecs.push({
+        severity: 'info',
+        text: `${prefix}: ${g.volume.length} метрик (${volNames.join(', ')}). Оставьте одну наиболее полную.`,
+        tip: 'Показы, клики, визиты одного канала сильно коррелируют. Модели достаточно одной метрики.',
+        action: { type: 'keep_only', columns: [volNames[0]], exclude: volNames.slice(1), label: `Оставить ${volNames[0]}` },
+      });
+    } else if (highZero && allCols.length === 1) {
+      channelRecs.push({
+        severity: 'warning',
+        text: `${prefix} (${allCols[0].name}): ${(allCols[0].stats?.zeros_pct ?? 0).toFixed(0)}% нулей — исключите или объедините.`,
+        action: { type: 'exclude', columns: [allCols[0].name], label: 'Исключить' },
+      });
+    }
+  }
+
+  // Also catch standalone high-zero columns not in groups
+  const groupedNames = new Set();
+  for (const [, g] of channelGroups) {
+    for (const c of [...g.volume, ...g.cost]) groupedNames.add(c.name);
+  }
+  const ungroupedZero = mediaCols.filter(/** @param {any} c */ c => !groupedNames.has(c.name) && (c.stats?.zeros_pct ?? 0) > 60);
+  for (const c of ungroupedZero) {
+    const pct = c.stats?.zeros_pct ?? 0;
+    if (pct > 90) {
+      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей — исключите.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
+    } else {
+      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей — объединить или оставить с оговоркой.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
+    }
+  }
+
+  if (channelRecs.length > 0) {
+    out.push({ severity: 'info', text: `Анализ каналов: ${channelGroups.size} групп обнаружено. Рекомендации ниже.` });
+    out.push(...channelRecs);
+  }
+
+  // ── Рекомендации по улучшению ──
+  if (out.filter(i => i.severity === 'warning').length === 0 && mediaCols.length > 0) {
+    out.push({ severity: 'success', text: 'Данные в хорошем состоянии. Можно переходить к моделированию.' });
+  } else if (out.filter(i => i.severity === 'warning').length > 3) {
+    out.push({ severity: 'info', text: 'Много предупреждений — рекомендуем переключиться в режим «Эксперт» для детального анализа корреляций, VIF и статистики столбцов.' });
   }
 
   return out;

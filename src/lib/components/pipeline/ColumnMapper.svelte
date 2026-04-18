@@ -24,8 +24,8 @@
   // ── Zones ──────────────────────────────────────────
   const ZONES = [
     { id: 'kpi',     label: 'KPI',           icon: '📈', desc: 'Целевой показатель (продажи, конверсии)' },
-    { id: 'media',   label: 'Медиа',         icon: '📺', desc: 'Расходы, контакты, показы по каналам' },
-    { id: 'control', label: 'Контроль',      icon: '🎛', desc: 'Внешние факторы (сезонность, цены)' },
+    { id: 'media',   label: 'Медиа и управляемые факторы', icon: '📺', desc: 'Расходы, контакты, показы, цены, промо' },
+    { id: 'control', label: 'Неуправляемые внешние факторы', icon: '🎛', desc: 'Сезонность, погода, конкуренты, SOV' },
     { id: 'date',    label: 'Дата',          icon: '📅', desc: 'Столбец с датой/периодом' },
   ];
 
@@ -66,6 +66,22 @@
       unknown: [...mapping.unknown],
     });
   });
+
+  // ── Click-to-assign (reliable alternative to drag-drop) ──
+  /** @type {string | null} */
+  let selectedColumn = $state(null);
+
+  /** @param {string} colName */
+  function selectColumn(colName) {
+    selectedColumn = selectedColumn === colName ? null : colName;
+  }
+
+  /** @param {string} zoneId */
+  function assignToZone(zoneId) {
+    if (!selectedColumn) return;
+    moveColumn(selectedColumn, zoneId);
+    selectedColumn = null;
+  }
 
   // ── Drag state ─────────────────────────────────────
   /** @type {string | null} */
@@ -199,7 +215,7 @@
   <div class="unassigned-section">
     <div class="section-header">
       <span class="section-title">Столбцы</span>
-      <span class="section-hint">Перетащите в нужную категорию</span>
+      <span class="section-hint">{selectedColumn ? `Выбрано: ${selectedColumn} — нажмите на зону ниже` : 'Нажмите на столбец, затем на нужную зону'}</span>
     </div>
     <div class="columns-list">
       {#each columns as col (col.name)}
@@ -208,16 +224,30 @@
           <div
             class="col-chip unassigned"
             class:dragging={dragging === col.name}
+            class:selected={selectedColumn === col.name}
             draggable="true"
             role="button"
             tabindex="0"
-            title="{col.name} · {col.dtype}"
+            title="Нажмите для назначения роли"
+            onclick={() => selectColumn(col.name)}
             ondragstart={(e) => onDragstart(e, col.name)}
             ondragend={onDragend}
           >
             <span class="chip-name">{col.name}</span>
             <span class="chip-dtype">{col.dtype}</span>
           </div>
+          {#if selectedColumn === col.name}
+            <div class="inline-role-picker">
+              {#each ZONES as z}
+                <button class="quick-role-btn zone-{z.id}" onclick={() => { moveColumn(col.name, z.id); selectedColumn = null; }}>
+                  {z.icon} {z.label}
+                </button>
+              {/each}
+              <button class="quick-role-btn zone-unused" onclick={() => { moveColumn(col.name, 'unknown'); selectedColumn = null; }}>
+                ✕
+              </button>
+            </div>
+          {/if}
         {:else}
           <!-- Assigned — shown in zone, greyed out here -->
           <div class="col-chip assigned" title="Назначен: {zone}">
@@ -237,11 +267,14 @@
   <div class="zones-grid">
     {#each ZONES as zone (zone.id)}
       {@const items = /** @type {string[]} */ ((/** @type {Record<string, string[]>} */(zoneItems))[zone.id] ?? [])}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="zone"
         class:drag-over={dragOver === zone.id}
+        class:click-target={!!selectedColumn}
         role="group"
         aria-label="Зона {zone.label}"
+        onclick={() => assignToZone(zone.id)}
         ondragover={(e) => onZoneDragover(e, zone.id)}
         ondragleave={onZoneDragleave}
         ondrop={(e) => onZoneDrop(e, zone.id)}
@@ -368,6 +401,37 @@
     border-color: rgba(59, 130, 246, 0.45);
   }
 
+  .col-chip.selected {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.6);
+    color: #4ade80;
+    box-shadow: 0 0 8px rgba(34,197,94,0.25);
+  }
+
+  .inline-role-picker {
+    display: flex;
+    gap: 3px;
+    margin-top: -2px;
+    margin-bottom: 4px;
+  }
+  .quick-role-btn {
+    padding: 3px 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 5px;
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    color: var(--text-primary, #e2e8f0);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.12s;
+    white-space: nowrap;
+  }
+  .quick-role-btn:hover { background: rgba(255,255,255,0.1); }
+  .quick-role-btn.zone-kpi:hover { border-color: #22c55e; background: rgba(34,197,94,0.12); }
+  .quick-role-btn.zone-media:hover { border-color: #3b82f6; background: rgba(59,130,246,0.12); }
+  .quick-role-btn.zone-control:hover { border-color: #a855f7; background: rgba(168,85,247,0.12); }
+  .quick-role-btn.zone-date:hover { border-color: #14b8a6; background: rgba(20,184,166,0.12); }
+  .quick-role-btn.zone-unused { color: var(--text-muted, #64748b); }
+
   .col-chip.assigned {
     background: rgba(71, 85, 105, 0.2);
     border: 1px solid rgba(71, 85, 105, 0.25);
@@ -408,6 +472,17 @@
     padding: 12px;
     min-height: 100px;
     transition: border-color 0.15s, background 0.15s;
+  }
+
+  .zone.click-target {
+    border-color: rgba(34,197,94,0.5);
+    cursor: pointer;
+    animation: zone-pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes zone-pulse { 0%,100% { border-color: rgba(34,197,94,0.3); } 50% { border-color: rgba(34,197,94,0.7); } }
+  .zone.click-target:hover {
+    background: rgba(34,197,94,0.06);
+    border-color: rgba(34,197,94,0.8);
   }
 
   .zone.drag-over {

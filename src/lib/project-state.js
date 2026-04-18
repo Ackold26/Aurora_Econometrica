@@ -197,7 +197,8 @@ export function resetDownstream(fromStep) {
 }
 
 /**
- * Mark a step complete and unlock the next step. Auto-advances currentStep.
+ * Mark a step complete and unlock the next step.
+ * Does NOT auto-advance — user clicks "Далее" manually to review results.
  * @param {number} step - step index (0-5)
  */
 export function completeStep(step) {
@@ -207,7 +208,6 @@ export function completeStep(step) {
     if (step + 1 < 6) copy[step + 1] = { ...copy[step + 1], status: 'ready' };
     return copy;
   });
-  if (step + 1 < 6) pipelineCurrentStep.set(step + 1);
 
   const pid = get(activeProjectId);
   savePipelineMeta(pid, { currentStep: get(pipelineCurrentStep), steps: get(pipelineStepMeta) });

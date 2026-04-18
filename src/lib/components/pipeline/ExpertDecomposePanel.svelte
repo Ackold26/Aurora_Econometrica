@@ -73,8 +73,13 @@
 </div>
 
 <style>
-  .expert-panel { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
-  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(167,139,250,0.8); }
+  .expert-panel {
+    display: flex; flex-direction: column; gap: 12px; margin-top: 16px;
+    padding: 16px; border-radius: 10px;
+    background: rgba(239,68,68,0.04);
+    border: 1px solid rgba(239,68,68,0.18);
+  }
+  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(252,165,165,0.85); }
   .share-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 11px; }
   th { text-align: left; padding: 6px 8px; color: var(--text-secondary, #94a3b8); border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600; }

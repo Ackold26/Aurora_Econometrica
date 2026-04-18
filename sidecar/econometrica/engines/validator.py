@@ -10,11 +10,20 @@ from typing import Any
 
 
 # Column name patterns for auto-detection
-KPI_PATTERNS = ['sales', 'revenue', 'som', 'market_share', 'conversions', 'units', 'volume']
-MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'views']
-DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time']
-CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'price', 'distribution', 'promo',
-                    'seasonality', 'temperature', 'weather', 'holiday']
+KPI_PATTERNS = ['sales', 'revenue', 'som', 'market_share', 'conversions', 'units', 'volume',
+                'продажи', 'выручка', 'конверси', 'заказ']
+MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'views',
+                  'бюджет', 'расход', 'показ', 'клик', 'визит', 'прочтен', 'просмотр',
+                  'impression', 'click', 'visit', 'cpm', 'cpc', 'cpv',
+                  'olv', 'banner', 'social', 'retail media', 'performance',
+                  'радио', 'пресса', 'ooh', 'ооh', 'digital', 'programmatic',
+                  'price', 'promo', 'цен', 'промо']
+DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
+CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
+                    'seasonality', 'temperature', 'weather', 'holiday',
+                    'sov', 'sos', 'share_of', 'share of', 'конкурент',
+                    'сезон', 'дистрибуц', 'погод', 'праздни',
+                    'запрос', 'кол-во запрос']
 
 
 def detect_column_role(col_name: str) -> str:
