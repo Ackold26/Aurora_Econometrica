@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Методология — Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 32px; }
+h2 { font-size: 20px; font-weight: 700; margin: 48px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+.formula { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin: 14px 0; font-family: 'Consolas', monospace; font-size: 13px; color: var(--teal); line-height: 1.6; }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid rgba(88,166,255,0.25); background: rgba(88,166,255,0.06); }
+.callout p { font-size: 13.5px; margin: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; letter-spacing: 0.04em; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+td:first-child { color: var(--text); }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Методология MMM</h1>
+<p class="sub">Bayesian Marketing Mix Modeling — как именно модель находит вклад каналов и почему это надёжнее regression-подходов.</p>
+
+<h2>Общая идея</h2>
+<p>MMM разлагает продажи на базу (всё, что было бы без медиа) и вклад каждого канала, учитывая перенос эффекта во времени (adstock) и насыщение (saturation).</p>
+
+<div class="formula">
+sales[t] = baseline + Σ channel_effect[c, t] + controls[t] + noise[t]<br>
+channel_effect[c, t] = β[c] × Hill( Adstock( spend[c, t] ) )
+</div>
+
+<h2>Adstock (перенос эффекта)</h2>
+<p>Медиа-эффект не исчезает моментально. Рекламная кампания в марте продолжает влиять на продажи в апреле-мае. Adstock моделирует этот перенос.</p>
+
+<h3>Geometric adstock (для digital / короткая память)</h3>
+<div class="formula">
+adstock[t] = spend[t] + λ × adstock[t-1],  λ ∈ (0, 1)
+</div>
+<p>Экспоненциальное затухание. Чем выше λ — тем дольше эффект. Для digital-каналов обычно <code>λ ≈ 0.2–0.5</code> (половина эффекта уходит за 1–2 периода).</p>
+
+<h3>Weibull adstock (для TV / ATL — длинная с задержкой)</h3>
+<div class="formula">
+adstock[t] = Σ spend[t-i] × weibull_weight(i; shape, scale)
+</div>
+<p>Более гибкая форма: пик эффекта может быть через 1–2 недели после flight'а (классический TV-эффект), потом постепенное затухание. Используется по умолчанию для TV, Radio, OOH, Press.</p>
+
+<h2>Saturation (Hill function)</h2>
+<p>Удваивание бюджета не даёт удваивания эффекта. После некоторой точки каждая следующая «порция денег» приносит всё меньше — канал насыщается.</p>
+
+<div class="formula">
+Hill(x; α, γ) = x^α / (x^α + γ^α)
+</div>
+
+<ul>
+  <li><strong>α (shape)</strong> — крутизна кривой. Низкое α = медленный рост + долгое плато. Высокое α = резкий скачок + быстрое насыщение.</li>
+  <li><strong>γ (half-saturation)</strong> — точка, в которой эффект достигает 50% от максимума. Ключевой параметр для оптимизации: выше γ — больше пространства для роста.</li>
+</ul>
+
+<h2>Bayesian inference — MCMC / NUTS</h2>
+<p>В отличие от OLS/ridge/lasso, Bayesian MMM даёт не одну точку, а распределение значений для каждого параметра. Это важно: мы не просто знаем «ROI TV = 1.8×», но и «95% CI: 1.2–2.4×».</p>
+
+<p>Инференс через <strong>NUTS</strong> (No-U-Turn Sampler) — современный вариант Hamiltonian Monte Carlo. Реализация на <a href="https://num.pyro.ai">NumPyro</a> + JAX.</p>
+
+<div class="callout">
+  <div class="c-title">MCMC ≠ Markov Chain</div>
+  <p>MCMC расшифровывается как <strong>Markov Chain Monte Carlo</strong>. Это семейство алгоритмов, где Markov Chain — математическая основа (каждый следующий сэмпл зависит только от текущего), Monte Carlo — способ получения (случайное сэмплирование). Часто путают: в интерфейсе мы пишем «MCMC» вместо «Markov Chain», потому что Markov Chain сам по себе — это не алгоритм, а математическая конструкция.</p>
+</div>
+
+<h3>Параметры по умолчанию</h3>
+<div class="table-wrap"><table>
+<tr><th>Параметр</th><th>Default</th><th>Что означает</th></tr>
+<tr><td>chains</td><td>4</td><td>Параллельных цепей — для проверки конвергенции через R-hat</td></tr>
+<tr><td>warmup</td><td>2000</td><td>«Прогрев» перед сэмплированием — цепь стабилизируется</td></tr>
+<tr><td>samples</td><td>2000</td><td>Сэмплов после warmup — из них строятся posterior-распределения</td></tr>
+<tr><td>target_accept</td><td>0.8</td><td>Целевой acceptance rate NUTS — 0.8 баланс скорости и точности</td></tr>
+</table></div>
+
+<h3>Диагностика конвергенции</h3>
+<ul>
+  <li><strong>R-hat</strong> — отношение межцепной и внутрицепной дисперсии. <code>&lt; 1.05</code> — отлично; <code>&lt; 1.1</code> — приемлемо; <code>&gt; 1.1</code> — <strong>модели нельзя доверять</strong>.</li>
+  <li><strong>Divergences</strong> — NUTS обнаружил проблемные области posterior. 0 — идеально; до 10 — приемлемо; больше — увеличить <code>target_accept</code> или упростить модель.</li>
+  <li><strong>ESS (Effective Sample Size)</strong> — сколько «независимых» сэмплов в цепи. Если ESS &lt; 400 на параметр — результат шумный.</li>
+</ul>
+
+<h2>MQS — Model Quality Score</h2>
+<p>Агрегированный score 0–100, составленный из:</p>
+<div class="formula">
+MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
+</div>
+<ul>
+  <li><strong>R²</strong> — доля объяснённой вариации продаж</li>
+  <li><strong>MAPE_score</strong> = max(0, 100 − 2×MAPE%) — точность прогноза</li>
+  <li><strong>convergence_score</strong> = 100 если R-hat&lt;1.05 и 0 divergences; иначе 70 или 30</li>
+</ul>
+
+<h3>Thin-data cap</h3>
+<p>При малом количестве данных модель может получить R²=0.99 просто потому что «запомнила» ряд — переобучение. Aurora ограничивает MQS на тонких данных:</p>
+<div class="table-wrap"><table>
+<tr><th>Ratio</th><th>Cap</th><th>Смысл</th></tr>
+<tr><td>&lt; 2</td><td>50 / 100</td><td>Критически мало — даже идеально сошедшаяся модель не может получить больше «Слабое»</td></tr>
+<tr><td>&lt; 4</td><td>70 / 100</td><td>Пограничная зона — не выше «Хорошо»</td></tr>
+<tr><td>≥ 4</td><td>без cap</td><td>Достаточно данных, score отражает реальное качество</td></tr>
+</table></div>
+
+<h2>Trust Levels — защита от ложного доверия</h2>
+
+<h3>Level 1 — Smell tests (реализовано)</h3>
+<p>Автоматические проверки после каждого train/decompose. Банеры в UI при:</p>
+<ul>
+  <li>ROI &gt; 50× — признак переобучения или unit-mixing</li>
+  <li>Суммарный вклад media &gt; 80% KPI — baseline съеден (нет controls?)</li>
+  <li>Канал в TRP без unit_cost — его ROI бессмысленно сопоставлять с рублёвыми каналами</li>
+  <li>Ratio &lt; 4 — thin data warning на все выводы</li>
+</ul>
+
+<h3>Level 2 — CPP-нормализация (реализовано)</h3>
+<p>Конвертация TRP в рубли через <strong>Cost Per Point</strong>. Дефолт для TV brand W25-54 — <strong>250 000 ₽/TRP</strong> (рыночный ориентир 2026). Пользователь корректирует на шаге «Проверка».</p>
+
+<h3>Level 3 — Brand vs Performance split (в разработке)</h3>
+<p>Hierarchical Bayesian модель с разделением каналов на brand-building (длинный adstock, ROI через mental availability) и performance (короткий adstock, прямой ROI). Оцениваются отдельно, объединяются через иерархическую структуру.</p>
+
+<h2>Позиционирование vs. другие решения</h2>
+<div class="table-wrap"><table>
+<tr><th></th><th>Aurora AI Econometrica</th><th>Robyn (Meta)</th><th>LightweightMMM (Google)</th></tr>
+<tr><td>Модель</td><td>Bayesian (NumPyro/NUTS)</td><td>Frequentist (ridge)</td><td>Bayesian (NumPyro)</td></tr>
+<tr><td>Uncertainty</td><td>Posterior distribution</td><td>Нет CI</td><td>Posterior</td></tr>
+<tr><td>UI</td><td>Desktop-приложение, русифицирован</td><td>R-script</td><td>Colab notebook</td></tr>
+<tr><td>Smell tests</td><td>Встроены + UX-guardrails</td><td>Частично</td><td>Нет</td></tr>
+<tr><td>Онлайн-оптимизация</td><td>SLSQP + What-if + Forecast</td><td>NSGA-II</td><td>Ручной grid-search</td></tr>
+</table></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 А. Сипович</p></div>
+</body>
+</html>

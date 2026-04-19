@@ -683,6 +683,7 @@ pub async fn data_chat_deep(
         None, // no resume — fresh session each time
         state.active_pids.clone(),
         false,
+        None, // model — use default
     )
     .await;
 

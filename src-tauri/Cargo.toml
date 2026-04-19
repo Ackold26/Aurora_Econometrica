@@ -61,6 +61,9 @@ futures-util = "0.3"
 # Soft-delete (move to OS trash instead of rm)
 trash = "5"
 
+# Non-blocking child.wait — защита от зависания shutdown на зомби-процессе
+wait-timeout = "0.2"
+
 # Windows system info
 [target.'cfg(windows)'.dependencies]
 wmi = "0.14"

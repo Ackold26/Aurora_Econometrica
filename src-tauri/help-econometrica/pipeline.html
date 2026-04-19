@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pipeline — Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --accent2: #3fb950; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 32px; }
+h2 { font-size: 20px; font-weight: 700; margin: 48px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+
+.step-card { background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 20px 22px; margin: 18px 0; }
+.step-card h3 { font-size: 17px; margin-bottom: 10px; display: flex; align-items: center; gap: 12px; }
+.step-num { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: rgba(88,166,255,0.15); color: var(--accent); font-size: 13px; font-weight: 700; border-radius: 50%; }
+.io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.io-box { background: var(--bg3); border-radius: 6px; padding: 10px 14px; }
+.io-box .lbl { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--text3); letter-spacing: 0.05em; margin-bottom: 4px; }
+.io-box .val { font-size: 13px; color: var(--text2); line-height: 1.5; }
+.time-tag { font-size: 11px; color: var(--text3); margin-left: auto; font-weight: 500; }
+.ui-ref { font-size: 12px; color: var(--text3); margin-top: 10px; font-style: italic; }
+@media (max-width: 600px) { .io-grid { grid-template-columns: 1fr; } }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Pipeline — 5 шагов</h1>
+<p class="sub">Путь от XLSX-файла к готовому PPTX/XLSX-отчёту. Каждый шаг можно переделать без потери предыдущих.</p>
+
+<div class="step-card">
+  <h3><span class="step-num">1</span> Импорт и валидация <span class="time-tag">~30 сек</span></h3>
+  <p>Загрузка файла, автоопределение ролей столбцов, проверка готовности к MMM. Показывает светофор (красный/жёлтый/зелёный), считает Ratio, находит подозрительно коррелированные столбцы.</p>
+  <div class="io-grid">
+    <div class="io-box"><div class="lbl">Input</div><div class="val">XLSX или CSV с <code>date</code> + KPI + медиа (см. <a href="data-preparation.html">Подготовка данных</a>)</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">Статус «готов / требует доработки», автороли, matrix корреляций, гистограммы</div></div>
+  </div>
+  <div class="ui-ref">UI: шаг «Проверка» в pipeline. Добавь стоимость юнита в ₽ если есть TRP/impressions.</div>
+</div>
+
+<div class="step-card">
+  <h3><span class="step-num">2</span> Обучение модели (MCMC) <span class="time-tag">3–15 мин</span></h3>
+  <p>Bayesian MMM через NumPyro / NUTS. По умолчанию 4 цепи × 2000 warmup + 2000 sampling. Каждый канал трансформируется Adstock → Hill (насыщение) → линейная регрессия.</p>
+  <div class="io-grid">
+    <div class="io-box"><div class="lbl">Input</div><div class="val">валидированный датасет, adstock-тип per канал, опциональные экспертные priors</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">MQS (0–100), R², MAPE, R-hat, декомпозиция продаж base + channels</div></div>
+  </div>
+  <div class="ui-ref">UI: шаг «Моделирование». Экспертные priors — кнопка «Экспертный режим» раскрывает настройки adstock/saturation/seasonality.</div>
+</div>
+
+<div class="step-card">
+  <h3><span class="step-num">3</span> Декомпозиция <span class="time-tag">~5 сек</span></h3>
+  <p>Разложение продаж: baseline (всё, что не объясняется media) + вклад каждого канала. Waterfall, ROI, Spend vs Effect. Smell-flags ловят аномалии (unit mixing, ROI &gt;100×).</p>
+  <div class="io-grid">
+    <div class="io-box"><div class="lbl">Input</div><div class="val">обученная модель + unit_costs из проекта</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">baseline_pct, channel_contributions, ROI per channel, traffic-light smell flags</div></div>
+  </div>
+  <div class="ui-ref">UI: шаг «Результаты». Заметил unit_smell badge? Проверь unit_costs — скорее всего пропустил канал.</div>
+</div>
+
+<div class="step-card">
+  <h3><span class="step-num">4</span> Оптимизация <span class="time-tag">~10 сек</span></h3>
+  <p>5 блоков: (A) текущий бюджет, (B) оптимум в рамках текущего, (C) what-if при другом бюджете, (D) прогноз на будущий период с медиаинфляцией, (E) сценарный анализ с сохранением пресетов.</p>
+  <div class="io-grid">
+    <div class="io-box"><div class="lbl">Input</div><div class="val">модель + декомпозиция + unit_costs</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">оптимальное распределение, lift%, miROAS per channel, saturation map</div></div>
+  </div>
+  <div class="ui-ref">UI: шаг «Оптимизация». При первом визите запустится короткий тур по блокам A→E.</div>
+</div>
+
+<div class="step-card">
+  <h3><span class="step-num">5</span> Отчёт <span class="time-tag">~20 сек</span></h3>
+  <p>Генерация PPTX (презентация руководству: executive summary, методология, результаты, рекомендации) и XLSX (сырые данные + графики + лист «Данные» для своих диаграмм).</p>
+  <div class="io-grid">
+    <div class="io-box"><div class="lbl">Input</div><div class="val">все предыдущие шаги</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">PPTX + XLSX в папке <code>exports</code> активного проекта. «Открыть папку» в UI открывает её в проводнике.</div></div>
+  </div>
+  <div class="ui-ref">UI: шаг «Отчёт». Email-текст на карточках — динамический, берётся из твоих реальных результатов.</div>
+</div>
+
+<h2>Повторные запуски</h2>
+<p>Изменил unit_costs или adstock? Pipeline <strong>не</strong> обнуляет всё — можно переобучить модель и декомпозиция/оптимизация пересчитаются автоматически. Но сценарии старых моделей имеют смысл только для той же модели.</p>
+
+<h2>Что происходит при сбое вычислительного модуля</h2>
+<p>Приложение автоматически следит за состоянием вычислительного модуля и перезапускает его при зависаниях или сбоях. Если модуль не восстанавливается — в настройках есть кнопка «Перезапустить модуль» для ручного запуска. При повторных сбоях имеет смысл проверить установку приложения и обратиться в поддержку.</p>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 А. Сипович</p></div>
+</body>
+</html>

@@ -287,3 +287,34 @@ pub async fn project_stats(project_id: String) -> Result<Value, String> {
             else { 3 },
     }))
 }
+
+/// Восстановить все доступные результаты pipeline с диска в единый JSON.
+/// Фронтенд читает его при активации проекта и заполняет стoры, чтобы ReportStep
+/// и InsightsPanel не показывали «данных нет» при complete-статусе в stepper.
+/// Отсутствующие файлы → соответствующее поле = null.
+#[tauri::command]
+pub async fn project_load_results(project_id: String) -> Result<Value, String> {
+    let dir = project_dir(&project_id)?;
+    if !dir.exists() {
+        return Err("Проект не найден".to_string());
+    }
+    let results = dir.join("results");
+
+    let read_json = |name: &str| -> Value {
+        let path = results.join(name);
+        if !path.exists() {
+            return Value::Null;
+        }
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .unwrap_or(Value::Null)
+    };
+
+    Ok(serde_json::json!({
+        "validation":       read_json("validation.json"),
+        "modelDiagnostics": read_json("model-diagnostics.json"),
+        "decomposition":    read_json("decomposition.json"),
+        "optimization":     read_json("optimization.json"),
+    }))
+}

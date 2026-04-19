@@ -8,6 +8,8 @@ use log::{info, warn};
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use crate::econ_sidecar;
+
 const ECON_BASE: &str = "http://127.0.0.1:7430";
 
 /// Timeout for quick endpoints (validate, decompose, optimize, charts)
@@ -107,21 +109,30 @@ pub async fn econ_optimize(
 }
 
 #[tauri::command]
-pub async fn econ_scenario(project_dir: String, scenario_name: String,
-                           media_plan: Option<Value>, media_plan_file: Option<String>) -> Result<Value, String> {
+pub async fn econ_scenario(
+    project_dir: String,
+    scenario_name: String,
+    media_plan: Option<Value>,
+    media_plan_file: Option<String>,
+    unit_costs: Option<Value>,
+) -> Result<Value, String> {
     info!("econ_scenario: {scenario_name}");
     let body = serde_json::json!({
         "project_dir": project_dir,
         "scenario_name": scenario_name,
         "media_plan": media_plan.unwrap_or(Value::Object(Default::default())),
         "media_plan_file": media_plan_file,
+        "unit_costs": unit_costs,
     });
     post_json("/compute/scenario", &body, quick_client()).await
 }
 
 #[tauri::command]
-pub async fn econ_compare(project_dir: String) -> Result<Value, String> {
-    let body = serde_json::json!({ "project_dir": project_dir });
+pub async fn econ_compare(project_dir: String, unit_costs: Option<Value>) -> Result<Value, String> {
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "unit_costs": unit_costs,
+    });
     post_json("/compute/compare", &body, quick_client()).await
 }
 
@@ -254,16 +265,41 @@ pub async fn econ_export_pptx(
 
 // ── Helper ───────────────────────────────────────────
 
+/// POST with auto-recovery: on connect errors, trigger sidecar respawn + retry once.
+/// HTTP-level errors (4xx/5xx with JSON body) pass through untouched — those are app errors,
+/// not sidecar crashes.
 async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result<Value, String> {
-    let resp = client
+    let resp = match client
         .post(format!("{ECON_BASE}{path}"))
         .json(body)
         .send()
         .await
-        .map_err(|e| {
+    {
+        Ok(r) => r,
+        Err(e) if e.is_connect() || e.is_timeout() => {
+            warn!("Sidecar unreachable on {path} ({e}) — attempting auto-respawn");
+            if !econ_sidecar::ensure_alive().await {
+                return Err(format!(
+                    "Вычислительный модуль недоступен и не удалось автоматически перезапустить. \
+                     Попробуй нажать «Перезапустить модуль» или проверь логи sidecar: {e}"
+                ));
+            }
+            // Retry once after successful respawn
+            client
+                .post(format!("{ECON_BASE}{path}"))
+                .json(body)
+                .send()
+                .await
+                .map_err(|e2| {
+                    warn!("Retry after respawn failed on {path}: {e2}");
+                    format!("Модуль перезапущен, но запрос всё ещё не проходит: {e2}")
+                })?
+        }
+        Err(e) => {
             warn!("Econometrica sidecar request failed: {e}");
-            format!("Вычислительный модуль недоступен. Убедитесь, что Python sidecar запущен: {e}")
-        })?;
+            return Err(format!("Ошибка запроса к модулю: {e}"));
+        }
+    };
 
     let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("Не удалось прочитать ответ: {e}"))?;

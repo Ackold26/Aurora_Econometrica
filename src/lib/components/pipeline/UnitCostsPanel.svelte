@@ -22,7 +22,7 @@
   import { get } from 'svelte/store';
   import {
     activeProjectId, activeProject, unitCosts,
-    decomposeData, optimizeData,
+    decomposeData, optimizeData, analysisObjective,
   } from '$lib/project-state.js';
 
   /** @type {{ columns: any[] }} */
@@ -41,11 +41,11 @@
     { re: /(CPM|ПОКАЗ|IMPRESSION)/i, value: 200, label: 'Digital CPM (200₽ за 1000 показов)' },
     { re: /OTS|ОХВАТ/i, value: 5, label: 'OTS (5₽ за охват, прикидка)' },
   ];
-  // Синхронизируем с UNIT_HINTS в decomposer.py — важно чтобы frontend и backend
-  // видели одни и те же каналы как «не-денежные».
-  // NB: word boundaries (\b) не используем — в JS \b не работает с кириллицей,
-  // плюс нам нужно ловить «TRPs бренд» где после TRP идёт буква.
-  const UNIT_HINT = /TRP|GRP|OTS|РЕЙТИНГ|ОХВАТ|ПОКАЗ|ПРОСМОТР|КЛИК|ВИЗИТ|ПУНКТ|IMPRESSION|CLICK/i;
+  // Автодетект — только «чистые» медиа-единицы (TRP/GRP/OTS и их русские аналоги).
+  // Остальные не-денежные каналы (статьи/спецпроекты/показы/клики) пользователь
+  // добавляет вручную через «+ Добавить канал» — там слишком много вариантов
+  // именования чтобы надёжно ловить regex'ом, лучше явный выбор.
+  const UNIT_HINT = /TRP|GRP|OTS|РЕЙТИНГ|ОХВАТ/i;
 
   /** @type {Record<string, string>} */
   const CATEGORY_HELP = {
@@ -69,12 +69,77 @@
     return Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ');
   }
 
-  // Каналы, которым предположительно нужна нормализация (media-role + non-money hint).
-  const nonMoneyChannels = $derived(
-    (columns ?? []).filter(/** @param {any} c */ (c) =>
-      c.role === 'media' && UNIT_HINT.test(String(c.name || ''))
-    )
+  // Все media-каналы проекта — кандидаты для перевода в рубли.
+  const allMediaChannels = $derived(
+    (columns ?? []).filter(/** @param {any} c */ (c) => c.role === 'media')
   );
+
+  // Подсказки автодетекта (TRP/GRP/OTS) — только для ссылки «Добавить все».
+  const autoDetected = $derived(
+    allMediaChannels.filter(/** @param {any} c */ (c) => UNIT_HINT.test(String(c.name || '')))
+  );
+
+  /**
+   * Каналы, явно добавленные пользователем в панель. Hydrate из сохранённых
+   * unit_costs; auto-detected предлагаются через отдельную ссылку, не
+   * добавляются автоматически.
+   * @type {string[]}
+   */
+  let selectedNames = $state([]);
+
+  // Hydrate один раз при появлении списка медиа-каналов.
+  let selectedHydrated = false;
+  $effect(() => {
+    if (selectedHydrated) return;
+    if (allMediaChannels.length === 0) return;
+    selectedHydrated = true;
+    const stored = get(unitCosts) || {};
+    const names = Object.keys(stored).filter(
+      (k) => allMediaChannels.some(/** @param {any} c */ (c) => c.name === k)
+    );
+    selectedNames = names;
+  });
+
+  // Строки панели — media-каналы, которые пользователь добавил.
+  const nonMoneyChannels = $derived(
+    allMediaChannels.filter(/** @param {any} c */ (c) => selectedNames.includes(c.name))
+  );
+
+  // Не добавленные auto-detected — для ссылки «Добавить все TRP/GRP/OTS».
+  const autoUnselected = $derived(
+    autoDetected.filter(/** @param {any} c */ (c) => !selectedNames.includes(c.name))
+  );
+
+  // Для dropdown «+ Добавить канал» — все media которых нет в selected.
+  const availableToAdd = $derived(
+    allMediaChannels.filter(/** @param {any} c */ (c) => !selectedNames.includes(c.name))
+  );
+
+  /** @type {string} выбор в dropdown перед нажатием «Добавить». */
+  let pendingAdd = $state('');
+
+  /** @param {string} name */
+  function addChannel(name) {
+    if (!name || selectedNames.includes(name)) return;
+    selectedNames = [...selectedNames, name];
+  }
+
+  /** @param {string} name */
+  function removeChannel(name) {
+    selectedNames = selectedNames.filter((n) => n !== name);
+    if (draft[name] !== undefined) {
+      const { [name]: _removed, ...rest } = draft;
+      draft = rest;
+    }
+    if (savedSnapshot[name] !== undefined) {
+      const { [name]: _r, ...rest } = savedSnapshot;
+      savedSnapshot = rest;
+    }
+  }
+
+  function addAllAutoDetected() {
+    for (const c of autoUnselected) addChannel(c.name);
+  }
 
   // Сумма raw-spend канала из валидационного sample — для preview money.
   // validator.py пишет сумму в col.stats.sum.
@@ -202,77 +267,129 @@
   }
 </script>
 
-{#if nonMoneyChannels.length > 0}
+{#if $analysisObjective === 'roi' && allMediaChannels.length > 0}
   <section class="unit-costs">
     <div class="header">
       <div class="title">Стоимость юнита для каналов в не-денежных единицах</div>
       <div class="hint">
-        Чтобы модель считала ROI корректно, укажи стоимость 1 юнита канала (CPP/CPM).
-        Дефолты — по медиа-данным РФ 2026. После сохранения пересчитай декомпозицию.
+        Добавь каналы, измеряемые не в рублях (TRP, показы, статьи, спецпроекты),
+        и укажи цену единицы. Модель пересчитает их в рубли и даст корректный ROI.
+        {#if $analysisObjective !== 'roi'}
+          <br><em>Активно только в режиме «ROI» (см. Цель анализа).</em>
+        {/if}
       </div>
     </div>
 
-    <div class="rows">
-      {#each nonMoneyChannels as ch}
-        {@const def = suggestDefault(ch.name)}
-        {@const val = parsed[ch.name]}
-        {@const rawSum = rawSumForChannel(ch.name)}
-        {@const preview = (val != null && rawSum != null) ? rawSum * val : null}
-        {@const warn = anomalyHint(ch.name)}
-        <div class="row" class:row-warn={!!warn}>
-          <div class="row-name">
-            {ch.name}
-            {#if ch.category && CATEGORY_HELP[ch.category]}
-              <span
-                class="cat-chip"
-                class:brand={ch.category === 'brand_reach'}
-                class:perf={ch.category === 'performance'}
-                title={CATEGORY_HELP[ch.category]}
-              >
-                {ch.category === 'brand_reach' ? 'Brand-Reach' : 'Performance'}
-              </span>
-            {/if}
+    {#if nonMoneyChannels.length > 0}
+      <div class="rows">
+        {#each nonMoneyChannels as ch}
+          {@const def = suggestDefault(ch.name)}
+          {@const val = parsed[ch.name]}
+          {@const rawSum = rawSumForChannel(ch.name)}
+          {@const preview = (val != null && rawSum != null) ? rawSum * val : null}
+          {@const warn = anomalyHint(ch.name)}
+          <div class="row" class:row-warn={!!warn}>
+            <div class="row-name">
+              {ch.name}
+              {#if ch.category && CATEGORY_HELP[ch.category]}
+                <span
+                  class="cat-chip"
+                  class:brand={ch.category === 'brand_reach'}
+                  class:perf={ch.category === 'performance'}
+                  title={CATEGORY_HELP[ch.category]}
+                >
+                  {ch.category === 'brand_reach' ? 'Brand-Reach' : 'Performance'}
+                </span>
+              {/if}
+            </div>
+            <div class="row-input">
+              <input
+                type="text"
+                inputmode="decimal"
+                bind:value={draft[ch.name]}
+                placeholder={def ? String(def.value) : 'введи цену'}
+                aria-label="Стоимость 1 юнита для {ch.name}"
+              />
+              <span class="unit">₽ за юнит</span>
+            </div>
+            <div class="row-meta">
+              {#if rawSum != null}
+                <div class="row-default">
+                  {fmt(rawSum)} юнит<span class="muted">(в загруженных данных)</span>
+                  {#if def}
+                    · <span title="Дефолт по медиа-данным РФ 2026">≈ {def.label}</span>
+                  {/if}
+                </div>
+              {:else if def}
+                <div class="row-default" title="Дефолт по медиа-данным РФ 2026">≈ {def.label}</div>
+              {:else}
+                <div class="row-default muted">Нет данных по объёму — укажи цену вручную</div>
+              {/if}
+              {#if preview != null}
+                <div class="row-preview">
+                  Эквивалент: <b>{fmt(rawSum)} × {fmt(val)} ₽ = {fmt(preview)} ₽</b>
+                </div>
+              {:else if val != null && rawSum == null}
+                <div class="row-preview muted">
+                  Цена <b>{fmt(val)} ₽</b> сохранена — общая сумма появится после валидации данных.
+                </div>
+              {/if}
+              {#if warn}
+                <div class="row-warn-msg">⚠ {warn}</div>
+              {/if}
+            </div>
+            <button
+              class="btn-remove"
+              type="button"
+              onclick={() => removeChannel(ch.name)}
+              title="Убрать канал из списка"
+              aria-label="Убрать {ch.name}"
+            >✕</button>
           </div>
-          <div class="row-input">
-            <input
-              type="text"
-              inputmode="decimal"
-              bind:value={draft[ch.name]}
-              placeholder={def ? String(def.value) : '—'}
-              aria-label="Стоимость 1 юнита для {ch.name}"
-            />
-            <span class="unit">₽ за юнит</span>
-          </div>
-          <div class="row-meta">
-            {#if def}
-              <div class="row-default" title="Дефолт по медиа-данным РФ 2026">≈ {def.label}</div>
-            {:else}
-              <div class="row-default muted">Дефолт не найден — задай вручную</div>
-            {/if}
-            {#if preview != null}
-              <div class="row-preview">
-                Эквивалент: <b>{fmt(rawSum)} × {fmt(val)} ₽ = {fmt(preview)} ₽</b>
-              </div>
-            {/if}
-            {#if warn}
-              <div class="row-warn-msg">⚠ {warn}</div>
-            {/if}
-          </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {/if}
 
-    <div class="footer">
-      <button class="btn-save" onclick={save} disabled={saving || !dirty}>
-        {saving ? 'Сохраняю…' : (dirty ? 'Сохранить стоимости' : 'Нет изменений')}
+    <!-- Добавление нового канала -->
+    {#if availableToAdd.length > 0}
+      <div class="add-row">
+        <select class="add-select" bind:value={pendingAdd}>
+          <option value="">+ Добавить канал для перевода в рубли…</option>
+          {#each availableToAdd as c}
+            <option value={c.name}>
+              {UNIT_HINT.test(String(c.name || '')) ? '★ ' : ''}{c.name}
+            </option>
+          {/each}
+        </select>
+        <button
+          class="btn-add"
+          type="button"
+          disabled={!pendingAdd}
+          onclick={() => { addChannel(pendingAdd); pendingAdd = ''; }}
+        >Добавить</button>
+      </div>
+    {/if}
+
+    <!-- Hint: автодетект TRP/GRP/OTS -->
+    {#if autoUnselected.length > 0 && nonMoneyChannels.length === 0}
+      <button class="autodetect-hint" type="button" onclick={addAllAutoDetected}>
+        Обнаружено {autoUnselected.length} {autoUnselected.length === 1 ? 'канал' : autoUnselected.length < 5 ? 'канала' : 'каналов'} с TRP/GRP/OTS — добавить все одним кликом
       </button>
-      <button class="btn-reset" type="button" onclick={resetToDefaults} disabled={saving} title="Вернуть рыночные дефолты">
-        ↺ Дефолты
-      </button>
-      {#if savedMsg}
-        <span class="saved-msg" class:err={savedMsg.startsWith('Ошибка')}>{savedMsg}</span>
-      {/if}
-    </div>
+    {/if}
+
+    {#if nonMoneyChannels.length > 0}
+      <div class="footer">
+        <button class="btn-save" onclick={save} disabled={saving || !dirty}>
+          {saving ? 'Сохраняю…' : (dirty ? 'Сохранить стоимости' : 'Нет изменений')}
+        </button>
+        <button class="btn-reset" type="button" onclick={resetToDefaults} disabled={saving} title="Вернуть рыночные дефолты для текущих каналов">
+          ↺ Дефолты
+        </button>
+        {#if savedMsg}
+          <span class="saved-msg" class:err={savedMsg.startsWith('Ошибка')}>{savedMsg}</span>
+        {/if}
+      </div>
+    {/if}
   </section>
 {/if}
 
@@ -302,7 +419,7 @@
   .rows { display: flex; flex-direction: column; gap: 8px; }
   .row {
     display: grid;
-    grid-template-columns: minmax(160px, 1.1fr) minmax(180px, auto) minmax(240px, 1.6fr);
+    grid-template-columns: minmax(160px, 1.1fr) minmax(180px, auto) minmax(240px, 1.6fr) auto;
     align-items: center;
     gap: 12px;
     padding: 8px 10px;
@@ -314,6 +431,76 @@
   .row.row-warn { border-color: color-mix(in srgb, var(--warning, #f59e0b) 35%, transparent); }
   @media (max-width: 700px) {
     .row { grid-template-columns: 1fr; gap: 4px; }
+  }
+  .btn-remove {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 50%;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-remove:hover {
+    color: var(--danger, #ef4444);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 40%, transparent);
+    background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
+  }
+
+  .add-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .add-select {
+    flex: 1;
+    padding: 7px 10px;
+    background: var(--bg-card, #0b0d13);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 6px;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 12.5px;
+    outline: none;
+  }
+  .add-select:focus { border-color: var(--accent-primary, #3b82f6); }
+  .btn-add {
+    padding: 7px 14px;
+    background: transparent;
+    color: var(--text-secondary, #94a3b8);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-add:hover:not(:disabled) {
+    color: var(--accent-primary, #3b82f6);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, transparent);
+  }
+  .btn-add:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .autodetect-hint {
+    align-self: flex-start;
+    padding: 6px 12px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--accent-primary, #3b82f6) 35%, transparent);
+    border-radius: 6px;
+    color: var(--accent-primary, #3b82f6);
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+  }
+  .autodetect-hint:hover {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 14%, transparent);
   }
   .row-name {
     font-size: 13px;
@@ -361,13 +548,15 @@
   }
   .unit { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
   .row-meta { display: flex; flex-direction: column; gap: 2px; }
-  .row-default { font-size: 11px; color: var(--text-muted); line-height: 1.3; }
-  .row-default.muted { opacity: 0.6; font-style: italic; }
+  .row-default { font-size: 11px; color: var(--text-secondary, #94a3b8); line-height: 1.3; }
+  .row-default .muted { color: var(--text-muted); opacity: 0.8; margin-left: 4px; }
+  .row-default.muted { opacity: 0.6; font-style: italic; color: var(--text-muted); }
   .row-preview {
     font-size: 11px;
     color: var(--text-secondary, #94a3b8);
     line-height: 1.3;
   }
+  .row-preview.muted { color: var(--text-muted); font-style: italic; }
   .row-preview b { color: var(--text-primary, #e2e8f0); font-weight: 600; font-variant-numeric: tabular-nums; }
   .row-warn-msg {
     font-size: 11px;

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FAQ — Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --amber: #d29922; --red: #f85149; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 32px; }
+h2 { font-size: 18px; font-weight: 700; margin: 40px 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); color: var(--accent); }
+details { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin: 10px 0; cursor: pointer; transition: all 0.15s; }
+details[open] { border-color: rgba(88,166,255,0.3); }
+summary { font-size: 14px; font-weight: 600; color: var(--text); list-style: none; position: relative; padding-right: 24px; user-select: none; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: '+'; position: absolute; right: 0; top: 0; font-size: 18px; color: var(--text3); transition: transform 0.15s; }
+details[open] summary::after { content: '−'; }
+details p { font-size: 13.5px; margin: 10px 0 0; color: var(--text2); line-height: 1.6; }
+details p + p { margin-top: 8px; }
+details ul { margin: 10px 0 0 22px; }
+details li { font-size: 13.5px; color: var(--text2); margin-bottom: 4px; line-height: 1.5; }
+details code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>FAQ и troubleshooting</h1>
+<p class="sub">Частые вопросы про работу с моделью и решение проблем.</p>
+
+<h2>Данные и модель</h2>
+
+<details>
+<summary>Какой минимальный объём данных нужен?</summary>
+<p>Ключевой показатель — <strong>Ratio = количество строк / количество каналов и control-переменных</strong>. Минимум Ratio ≥ 2, рекомендация ≥ 4, идеал ≥ 6.</p>
+<p>В абсолютах: для 5 каналов — минимум 10 строк, рекомендация 20+ (2 года помесячных или 5 месяцев недельных). Подробнее в <a href="data-preparation.html">Подготовка данных</a>.</p>
+</details>
+
+<details>
+<summary>Можно ли смешивать TRP и рубли в одной модели?</summary>
+<p>Да, модель сама разберётся с разными единицами. <strong>Но обязательно укажи стоимость юнита в ₽</strong> на шаге «Проверка» — иначе ROAS и бюджетные сравнения станут бессмысленными (1 TRP ≠ 1 рубль).</p>
+<p>Без unit_costs ты увидишь ROI каналов типа «115× для TRP» — это артефакт смешения единиц, а не реальная эффективность.</p>
+</details>
+
+<details>
+<summary>Почему ROI одного канала 500×, а другого 1.5?</summary>
+<p>Скорее всего причина одна из:</p>
+<ul>
+  <li><strong>Unit mixing</strong> — TRP без unit_cost (самое частое). Проверь что все каналы в одной валюте.</li>
+  <li><strong>Переобучение</strong> — Ratio &lt; 4, модель выдала «красивый» R², но параметры не отражают реальность.</li>
+  <li><strong>Пропущен control</strong> — модель приписала медиа эффект, который на самом деле дал промо или сезон.</li>
+</ul>
+<p>Aurora предупреждает об этом через smell-флаги (Trust Level 1). Если видишь красный badge — не игнорируй.</p>
+</details>
+
+<details>
+<summary>Недельные или помесячные данные лучше?</summary>
+<p>Помесячные проще агрегировать, меньше шума, легче найти long-term тренды. Но дают меньше точек на тот же период (24 мес × помесячно = 24 точки vs недельно = 104 точки).</p>
+<p>Недельные лучше если: (1) у тебя короткий период данных, (2) медиа-кампании короткие (1-2 недели), (3) хочешь поймать промо-эффект. Aurora работает одинаково хорошо с обоими.</p>
+</details>
+
+<details>
+<summary>Что такое MQS и почему он ограничен 70?</summary>
+<p>MQS (Model Quality Score, 0–100) — композитная оценка из R², MAPE и convergence-метрик. При Ratio &lt; 4 MQS автоматически ограничен 70 (cap), при Ratio &lt; 2 — 50.</p>
+<p>Причина: на тонких данных даже переобученная модель получает R²=0.99, что выглядело бы как «Отличное качество» без cap'а. Это <strong>защита от ложного доверия</strong>. Хочешь снять cap — добавь данных.</p>
+</details>
+
+<h2>Оптимизация и сценарии</h2>
+
+<details>
+<summary>Почему оптимизация показывает +0% lift?</summary>
+<p>Значит оптимизатор не нашёл способа улучшить результат в заданных ограничениях. Причины:</p>
+<ul>
+  <li>Все каналы <strong>перенасыщены</strong> — двигать нечего, любое перераспределение не улучшит.</li>
+  <li>Слишком <strong>жёсткие Min/Max % ограничения</strong> — расширь диапазон (50–150 вместо 80–120).</li>
+  <li>Unit-mixing — модель не может сравнить ROAS каналов в разных единицах.</li>
+</ul>
+<p>В UI после оптимизации инсайт объяснит причину. Иногда единственный способ получить lift — увеличить общий бюджет (блок C «What-if»).</p>
+</details>
+
+<details>
+<summary>Разница между блоками B, C, D, E в Оптимизации?</summary>
+<p>Все 5 блоков на одном экране:</p>
+<ul>
+  <li><strong>A — Текущий бюджет</strong>: где ты сейчас (без действий)</li>
+  <li><strong>B — Оптимизация</strong>: найти лучший микс в рамках <em>текущей суммы</em></li>
+  <li><strong>C — What-if</strong>: что будет при другой сумме (+20% / −30%)</li>
+  <li><strong>D — Прогноз</strong>: на будущий период с учётом медиаинфляции (TV +12%, Digital +7% и т.д.)</li>
+  <li><strong>E — Сценарии</strong>: сохраняй пресеты бюджетов, сравнивай ROAS между ними</li>
+</ul>
+<p>При первом открытии шага запускается короткий тур с подсветкой каждого блока.</p>
+</details>
+
+<details>
+<summary>Что такое miROAS (marginal ROAS)?</summary>
+<p>Предельная отдача следующего рубля — <strong>производная response curve</strong> в текущей точке бюджета. Показывает что произойдёт если вложить ещё 1 ₽ в канал.</p>
+<ul>
+  <li>miROAS &gt; 2 — канал <strong>недоинвестирован</strong>, добавь бюджет</li>
+  <li>miROAS ≈ 1 — стабильно, баланс</li>
+  <li>miROAS &lt; 0.5 — канал <strong>перенасыщен</strong>, урезай</li>
+</ul>
+<p>Средний ROAS = total effect / total spend. miROAS = следующий 1 ₽ / prior slope. Они разные: средний может быть 3×, marginal — уже 0.8×.</p>
+</details>
+
+<h2>Вычислительный модуль и ошибки</h2>
+
+<details>
+<summary>«Вычислительный модуль недоступен» — что делать?</summary>
+<p>Приложение автоматически восстанавливает вычислительный модуль:</p>
+<ul>
+  <li>При обнаружении ошибки — подожди 5-30 секунд, запрос пройдёт автоматически</li>
+  <li>Если через минуту не восстановился — нажми «Перезапустить модуль» в настройках</li>
+  <li>Если модуль временно заблокирован после нескольких неудач — перезапусти приложение</li>
+</ul>
+<p>Самые частые причины: нехватка памяти при MCMC на большом датасете (уменьши samples в «Экспертном» режиме), повреждённый файл модели проекта (удали проект и создай заново).</p>
+</details>
+
+<details>
+<summary>MCMC обучается 30+ минут — нормально?</summary>
+<p>Нормальный диапазон — 3–15 минут на датасете до 100 строк × 10 каналов. Больше 20 минут — тревожный сигнал.</p>
+<ul>
+  <li>Первый запуск после обновления JAX — <strong>до 30 сек JIT-компиляция</strong>, потом быстро</li>
+  <li>Если MCMC реально долго — сократи <code>samples</code> до 1000 и <code>chains</code> до 2 (Экспертный режим)</li>
+  <li>NUTS замедляется на многоканальных моделях — объедини мелкие каналы</li>
+  <li>Проверь <strong>Stop</strong>-кнопка — можешь прервать и запустить с другими параметрами</li>
+</ul>
+</details>
+
+<details>
+<summary>R-hat &gt; 1.1 — что это значит?</summary>
+<p>Цепи MCMC не сошлись — межцепная дисперсия сильно больше внутрицепной. <strong>Модели нельзя доверять</strong>, даже если R² высокий.</p>
+<p>Как исправить: (1) увеличь warmup с 2000 до 3000, (2) увеличь target_accept с 0.8 до 0.9 (медленнее но точнее), (3) упрости модель — убери малозначимые каналы, (4) подожди 5 минут и попробуй снова (stochastic элемент).</p>
+</details>
+
+<details>
+<summary>Где лежат экспорты?</summary>
+<p>В папке проекта внутри профиля приложения. Прямой путь видно в шаге «Отчёт» после генерации — кнопка «Открыть папку» автоматически откроет нужный каталог в проводнике.</p>
+</details>
+
+<h2>Экспорты и презентации</h2>
+
+<details>
+<summary>Могу ли я редактировать PPTX после генерации?</summary>
+<p>Да — это обычный <code>.pptx</code>, открывается в PowerPoint / Keynote / LibreOffice. Все графики — native PowerPoint (не картинки), можно пересобирать, менять цвета, редактировать данные.</p>
+<p>Если нужны свои варианты графиков — используй лист «Данные» в XLSX. Там time-series с base/channels/KPI, из которых делаются любые диаграммы.</p>
+</details>
+
+<details>
+<summary>Email-текст на карточках в Report — он статичный?</summary>
+<p>Нет, это <strong>живой контент</strong> из твоей модели. Переобучил модель — текст обновится: MQS, R², главный драйвер, lift% из оптимизации, статус ограничений. Можно копировать прямо из UI в письмо руководству.</p>
+</details>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 А. Сипович</p></div>
+</body>
+</html>

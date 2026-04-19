@@ -137,6 +137,7 @@ class ScenarioRequest(BaseModel):
     scenario_name: str = 'custom'
     media_plan: dict[str, list[float]] = {}
     media_plan_file: str | None = None
+    unit_costs: dict[str, float] | None = None
 
 
 class AwarenessRequest(BaseModel):
@@ -374,11 +375,16 @@ def predict_scenario(req: ScenarioRequest):
     return JSONResponse(content=result)
 
 
+class CompareRequest(BaseModel):
+    project_dir: str
+    unit_costs: dict[str, float] | None = None
+
+
 @app.post('/compute/compare')
-def compare_scenarios(req: DecomposeRequest):
-    """Compare all saved scenarios side-by-side."""
+def compare_scenarios(req: CompareRequest):
+    """Compare all saved scenarios side-by-side. unit_costs used for legacy migration."""
     from engines.scenario import compare_scenarios as _compare
-    result = _compare(req.project_dir)
+    result = _compare(req.project_dir, req.unit_costs)
     return JSONResponse(content=result)
 
 

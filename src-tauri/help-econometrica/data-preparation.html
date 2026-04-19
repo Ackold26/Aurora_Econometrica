@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Подготовка данных — Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
+  --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --accent: #58a6ff; --accent2: #3fb950; --border: #30363d;
+  --green: #3fb950; --amber: #d29922; --red: #f85149;
+  --purple: #bc8cff; --teal: #39d0d8;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+.container { max-width: 900px; margin: 0 auto; padding: 40px 32px 80px; }
+
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.02em; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 32px; }
+h2 { font-size: 20px; font-weight: 700; margin: 48px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; color: var(--text); }
+p  { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Cascadia Code', 'Consolas', monospace; border: 1px solid var(--border); }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 14px 0 18px; border-radius: 8px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+td { padding: 9px 12px; border-top: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+td:first-child { color: var(--text); font-weight: 500; }
+td code { font-size: 12px; }
+.tag { display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 10px; font-weight: 600; }
+.tag-req { background: rgba(248,81,73,0.12); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+.tag-rec { background: rgba(88,166,255,0.12); color: var(--accent); border: 1px solid rgba(88,166,255,0.3); }
+.tag-opt { background: rgba(110,118,129,0.15); color: var(--text3); border: 1px solid var(--border); }
+
+/* Callouts */
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.callout p { font-size: 13.5px; margin: 0; line-height: 1.55; }
+.callout p + p { margin-top: 6px; }
+.c-info { background: rgba(88,166,255,0.06); border-color: rgba(88,166,255,0.25); }
+.c-info .c-title { color: var(--accent); }
+.c-warn { background: rgba(210,153,34,0.06); border-color: rgba(210,153,34,0.3); }
+.c-warn .c-title { color: var(--amber); }
+.c-ok { background: rgba(63,185,80,0.06); border-color: rgba(63,185,80,0.3); }
+.c-ok .c-title { color: var(--green); }
+.c-danger { background: rgba(248,81,73,0.06); border-color: rgba(248,81,73,0.3); }
+.c-danger .c-title { color: var(--red); }
+
+/* Ratio bars */
+.ratio-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0; }
+.ratio-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; border-top: 3px solid; }
+.ratio-card.critical { border-top-color: var(--red); }
+.ratio-card.borderline { border-top-color: var(--amber); }
+.ratio-card.good { border-top-color: var(--green); }
+.ratio-card .rc-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.ratio-card .rc-value { font-size: 22px; font-weight: 700; margin: 6px 0; }
+.ratio-card .rc-desc { font-size: 12.5px; color: var(--text2); line-height: 1.55; }
+
+/* Example file preview */
+.file-preview { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0; margin: 16px 0; overflow: hidden; }
+.file-header { padding: 10px 16px; background: var(--bg3); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text2); display: flex; justify-content: space-between; }
+.file-header .fn { font-weight: 600; color: var(--text); }
+.file-preview table { font-size: 12px; }
+.file-preview th { font-size: 10.5px; background: transparent; }
+.file-preview td { font-family: 'Consolas', monospace; padding: 6px 12px; }
+
+/* Columns roles */
+.roles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+.role-card { background: var(--bg2); border-left: 3px solid; padding: 12px 14px; border-radius: 6px; }
+.role-card h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.role-card .r-desc { font-size: 12px; color: var(--text2); line-height: 1.5; }
+.role-date { border-color: var(--purple); }
+.role-date h4 { color: var(--purple); }
+.role-kpi { border-color: var(--green); }
+.role-kpi h4 { color: var(--green); }
+.role-media { border-color: var(--accent); }
+.role-media h4 { color: var(--accent); }
+.role-control { border-color: var(--amber); }
+.role-control h4 { color: var(--amber); }
+
+@media (max-width: 720px) { .ratio-grid, .roles { grid-template-columns: 1fr; } }
+
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>Подготовка данных</h1>
+<p class="sub">Какие столбцы нужны, сколько строк и как не получить переобученную модель.</p>
+
+<h2>Формат файла</h2>
+<p>Принимаются <code>.xlsx</code>, <code>.xls</code> и <code>.csv</code>. Первая строка — заголовки, дальше данные. Один лист; если в XLSX несколько — читается первый.</p>
+
+<div class="callout c-info">
+  <div class="c-title">Дискретизация</div>
+  <p><strong>По умолчанию — помесячные данные.</strong> Недельные тоже полностью работают — система автоматически распознаёт частоту по разнице дат (7 дней → weekly, ~30 дней → monthly, ~90 → quarterly). Дневные и квартальные поддерживаются технически, но MMM на дневных редко даёт стабильный результат: слишком много шума.</p>
+</div>
+
+<h2>Роли столбцов</h2>
+<p>Система автоопределяет роль каждого столбца по имени (RU + EN), но на шаге Валидации ты можешь исправить вручную через drag-and-drop.</p>
+
+<div class="roles">
+  <div class="role-card role-date">
+    <h4>Date</h4>
+    <div class="r-desc">1 столбец, обязательно. Дата начала периода. Имена: <code>date</code>, <code>week</code>, <code>month</code>, <code>period</code>, <code>дата</code>, <code>неделя</code>, <code>месяц</code>.</div>
+  </div>
+  <div class="role-card role-kpi">
+    <h4>KPI</h4>
+    <div class="r-desc">Минимум 1 (обычно 1). Целевая метрика: продажи, доля рынка, конверсии, упаковки. Имена: <code>sales</code>, <code>revenue</code>, <code>market_share</code>, <code>продажи</code>, <code>выручка</code>, <code>конверсии</code>.</div>
+  </div>
+  <div class="role-card role-media">
+    <h4>Media</h4>
+    <div class="r-desc">2+ каналов (обязательно). Инвестиции или объём: ₽ бюджета, TRP, impressions, clicks. Имена: <code>TV_TRP</code>, <code>OLV_spend</code>, <code>Digital_impressions</code>, <code>Social_rub</code>.</div>
+  </div>
+  <div class="role-card role-control">
+    <h4>Control</h4>
+    <div class="r-desc">Опционально. Внешние факторы: цена, дистрибуция, сезонность, погода, праздники, SOV конкурентов. Имена: <code>price</code>, <code>distribution</code>, <code>seasonality</code>, <code>holiday</code>, <code>competitor_SOV</code>.</div>
+  </div>
+</div>
+
+<h2>Обязательные и опциональные столбцы</h2>
+<div class="table-wrap"><table>
+<tr><th>Столбец</th><th>Тип</th><th>Описание</th><th>Статус</th></tr>
+<tr><td><code>date</code></td><td>дата</td><td>Начало периода. Формат <code>YYYY-MM-DD</code> или Excel-date.</td><td><span class="tag tag-req">обязательно</span></td></tr>
+<tr><td><code>sales</code> (или аналог)</td><td>число</td><td>KPI модели — то, что прогнозируем.</td><td><span class="tag tag-req">обязательно</span></td></tr>
+<tr><td>медиа-каналы, 2+</td><td>число ≥ 0</td><td>Бюджет в ₽ или объём в TRP/impressions. Нули допустимы (канал не работал).</td><td><span class="tag tag-req">обязательно</span></td></tr>
+<tr><td><code>price</code></td><td>число &gt; 0</td><td>Цена пачки/услуги. Сильно влияет на спрос, снижает путаницу в отделении media-эффекта.</td><td><span class="tag tag-rec">рекомендуется</span></td></tr>
+<tr><td><code>distribution</code></td><td>0–100</td><td>Нумерическая дистрибуция (% магазинов). Без неё media-эффект может переоцениваться.</td><td><span class="tag tag-rec">рекомендуется</span></td></tr>
+<tr><td><code>seasonality</code></td><td>число</td><td>Индекс сезонности или temperature/holiday flag. Убирает сезон из media-эффекта.</td><td><span class="tag tag-rec">рекомендуется</span></td></tr>
+<tr><td><code>competitor_SOV</code></td><td>0–100</td><td>Share of Voice конкурентов. Объясняет провалы продаж без наших расходов.</td><td><span class="tag tag-opt">опционально</span></td></tr>
+<tr><td><code>promo_flag</code></td><td>0/1</td><td>Была ли акция/скидка. Одна из самых влияющих переменных в FMCG.</td><td><span class="tag tag-opt">опционально</span></td></tr>
+</table></div>
+
+<h2>Минимум, рекомендация, идеал</h2>
+<p>Ключевое соотношение — <strong>Ratio = количество строк / количество каналов и control-переменных</strong>. От него зависит качество и достоверность MMM-модели.</p>
+
+<div class="ratio-grid">
+  <div class="ratio-card critical">
+    <div class="rc-label">Минимум</div>
+    <div class="rc-value" style="color: var(--red);">Ratio ≥ 2</div>
+    <div class="rc-desc">Модель запустится, но <strong>MQS ограничен 50/100</strong>, все выводы с пометкой «thin data». Риск переобучения высокий.</div>
+  </div>
+  <div class="ratio-card borderline">
+    <div class="rc-label">Рекомендация</div>
+    <div class="rc-value" style="color: var(--amber);">Ratio ≥ 4</div>
+    <div class="rc-desc">MQS capped на 70 при Ratio &lt; 4. Выше — cap снимается. Доверительные интервалы адекватные.</div>
+  </div>
+  <div class="ratio-card good">
+    <div class="rc-label">Идеально</div>
+    <div class="rc-value" style="color: var(--green);">Ratio ≥ 6</div>
+    <div class="rc-desc">Модель устойчива, ROI каналов близок к индустриальным бенчмаркам, прогноз надёжен для бюджетных решений.</div>
+  </div>
+</div>
+
+<h3>В абсолютных цифрах</h3>
+<div class="table-wrap"><table>
+<tr><th>Каналов</th><th>Минимум строк</th><th>Рекомендация</th><th>Идеально</th></tr>
+<tr><td>3</td><td>6</td><td>12 (~3 мес недельных / 1 год помесячных)</td><td>18+</td></tr>
+<tr><td>5</td><td>10</td><td>20 (~5 мес нед / 1.5 года мес)</td><td>30+</td></tr>
+<tr><td>7</td><td>14</td><td>28 (~7 мес нед / 2 года мес)</td><td>42+</td></tr>
+<tr><td>10</td><td>20</td><td>40 (~10 мес нед / 3 года мес)</td><td>60+</td></tr>
+</table></div>
+
+<div class="callout c-warn">
+  <div class="c-title">Если данных мало</div>
+  <p>1) Сократи число каналов (объедини мелкие: OLV+Banners+Programmatic → «Digital»). 2) Убери control-переменные с низкой вариативностью. 3) Перейди на более мелкую дискретизацию (помесячные → недельные) — если такие данные есть.</p>
+</div>
+
+<h2>Пример 1 — FMCG (пиво, помесячные данные)</h2>
+<p>Национальный бренд, 24 месяца, 5 медиа-каналов + 3 control.</p>
+
+<div class="file-preview">
+<div class="file-header"><span class="fn">beer_brand_2024.xlsx</span><span>24 строк × 10 столбцов</span></div>
+<div class="table-wrap"><table>
+<tr><th>date</th><th>sales</th><th>TV_TRP</th><th>OLV_rub</th><th>OOH_rub</th><th>Social_rub</th><th>Radio_TRP</th><th>price</th><th>distribution</th><th>promo_flag</th></tr>
+<tr><td>2024-01-01</td><td>18 420 000</td><td>0</td><td>1 200 000</td><td>0</td><td>850 000</td><td>0</td><td>89.50</td><td>82.1</td><td>0</td></tr>
+<tr><td>2024-02-01</td><td>19 100 000</td><td>250</td><td>1 500 000</td><td>0</td><td>900 000</td><td>180</td><td>89.50</td><td>83.0</td><td>0</td></tr>
+<tr><td>2024-03-01</td><td>22 800 000</td><td>420</td><td>2 100 000</td><td>3 500 000</td><td>1 200 000</td><td>220</td><td>85.00</td><td>85.4</td><td>1</td></tr>
+<tr><td>2024-04-01</td><td>24 500 000</td><td>480</td><td>2 300 000</td><td>3 800 000</td><td>1 300 000</td><td>260</td><td>85.00</td><td>86.1</td><td>0</td></tr>
+<tr><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td></tr>
+</table></div>
+</div>
+
+<ul>
+  <li><strong>Ratio = 24 / (5+3) = 3.0</strong> — ниже рекомендации, MQS будет ограничен 70. Для живого результата стоит добавить ещё год данных или убрать слабый канал (например, Radio).</li>
+  <li>TV и Radio в <strong>TRP</strong>, Digital/OOH/Social — в <strong>рублях</strong>. <strong>Обязательно</strong> на шаге «Стоимость юнита» указать ₽/TRP (например, 250 000 для TV brand W25-54).</li>
+  <li><code>promo_flag</code> критичен в FMCG — без него модель припишет эффект промо медиа-каналам.</li>
+</ul>
+
+<h2>Пример 2 — Pharma (Rx-препарат, понедельные данные)</h2>
+<p>Этичный препарат в категории OTC, 18 месяцев недельных данных, 4 медиа-канала + 2 control. KPI — упаковки в аптеках.</p>
+
+<div class="file-preview">
+<div class="file-header"><span class="fn">pharma_otc_weekly.csv</span><span>78 строк × 8 столбцов</span></div>
+<div class="table-wrap"><table>
+<tr><th>week</th><th>packs</th><th>TV_TRP</th><th>Digital_impressions</th><th>DoctorVisits_rub</th><th>Print_rub</th><th>season_idx</th><th>competitor_sov</th></tr>
+<tr><td>2024-01-01</td><td>42 800</td><td>0</td><td>1 200 000</td><td>380 000</td><td>0</td><td>0.95</td><td>28.5</td></tr>
+<tr><td>2024-01-08</td><td>44 100</td><td>85</td><td>1 400 000</td><td>420 000</td><td>180 000</td><td>0.98</td><td>27.2</td></tr>
+<tr><td>2024-01-15</td><td>48 900</td><td>120</td><td>1 800 000</td><td>450 000</td><td>180 000</td><td>1.12</td><td>26.8</td></tr>
+<tr><td>2024-01-22</td><td>51 200</td><td>145</td><td>2 100 000</td><td>520 000</td><td>250 000</td><td>1.18</td><td>25.4</td></tr>
+<tr><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td></tr>
+</table></div>
+</div>
+
+<ul>
+  <li><strong>Ratio = 78 / (4+2) = 13.0</strong> — идеально, MQS без cap'а.</li>
+  <li>В Pharma <strong>сезонность критична</strong> (простуды, аллергии, сезонные категории) — используем индекс сезонности, не sin/cos-гармоники.</li>
+  <li><code>DoctorVisits_rub</code> — специфический pharma-канал: визиты медпредставителей. Моделируется как media-канал с более длинным adstock (4–8 недель vs 2 для digital).</li>
+  <li>Smешанные единицы (TRP + impressions + ₽) — <strong>обязательно</strong> unit_costs для всех.</li>
+</ul>
+
+<h2>Стоимость юнита (unit_costs) — когда обязательно</h2>
+<div class="callout c-danger">
+  <div class="c-title">Не пропускай этот шаг при смешанных единицах</div>
+  <p>Если хотя бы один канал измеряется не в рублях (TRP, impressions, clicks) — <strong>обязательно</strong> укажи стоимость юнита в ₽ на шаге «Проверка». Без этого ROAS и бюджетные сравнения становятся бессмысленными: 1 TRP ≠ 1 рубль ≠ 1 показ.</p>
+</div>
+
+<div class="table-wrap"><table>
+<tr><th>Канал</th><th>Единица</th><th>Типичная стоимость ₽/юнит (2026, РФ)</th></tr>
+<tr><td>TV (brand W25-54)</td><td>TRP</td><td>200 000 – 300 000 (дефолт 250 000)</td></tr>
+<tr><td>Radio</td><td>TRP</td><td>40 000 – 80 000</td></tr>
+<tr><td>OOH</td><td>OTS / impressions</td><td>от CPM рынка</td></tr>
+<tr><td>Digital OLV</td><td>impressions или ₽</td><td>при CPM 300–500 ₽ → 0.3–0.5 ₽/имп</td></tr>
+<tr><td>Performance</td><td>clicks или ₽</td><td>от CPC сегмента</td></tr>
+<tr><td>Рубли напрямую</td><td>₽</td><td>1.0 (или оставить пустым)</td></tr>
+</table></div>
+
+<h2>Частые ошибки валидации</h2>
+<div class="table-wrap"><table>
+<tr><th>Что говорит система</th><th>В чём причина</th><th>Как исправить</th></tr>
+<tr><td><code>Не найден столбец с датами</code></td><td>Столбец даты назван неожиданно (например <code>период</code>) или дата как число.</td><td>Переименуй в <code>date</code> / <code>week</code> / <code>month</code> либо исправь роль вручную на шаге Валидации.</td></tr>
+<tr><td><code>Не найдены медиа-столбцы</code></td><td>Медиа-каналы названы без узнаваемых слов (<code>ch1</code>, <code>A</code>, <code>source</code>).</td><td>Переименуй в стиле <code>TV_TRP</code>, <code>OLV_rub</code>, <code>Social_spend</code> или назначь роли вручную.</td></tr>
+<tr><td><code>Ratio 1.8:1 — критически мало</code></td><td>Много каналов + мало строк.</td><td>Объедини каналы или добавь период. 5 каналов × 10 строк = ratio 2; лучше 5 × 20 = ratio 4.</td></tr>
+<tr><td><code>{канал} — 78% нулей</code></td><td>Канал работал эпизодически, большую часть периода 0 бюджета.</td><td>Либо объедини со смежным каналом, либо исключи — модель не сможет оценить его вклад.</td></tr>
+<tr><td><code>Мультиколлинеарность: TV_TRP ↔ TV_spend (r=0.98)</code></td><td>Ты загрузил и объём и деньги того же канала.</td><td>Оставь что-то одно. Обычно объём (TRP) точнее отражает эффект на аудиторию.</td></tr>
+<tr><td><code>Низкая вариативность (CV &lt; 5%)</code></td><td>Канал тратится почти ровным потоком — модель не может разделить его эффект.</td><td>Подумай, действительно ли это медиа-активность. Если всегда ровно — это <strong>не media</strong>, это baseline.</td></tr>
+<tr><td><code>Не удалось распознать формат дат</code></td><td>Даты как текст в формате <code>01.04.2024</code> или <code>Апрель 2024</code>.</td><td>Сохрани как <code>YYYY-MM-DD</code> или Excel-date (ячейка с иконкой календаря).</td></tr>
+</table></div>
+
+<h2>Чеклист перед запуском</h2>
+<div class="callout c-ok">
+  <div class="c-title">Готов к Валидации?</div>
+  <p>✓ файл <code>.xlsx</code>/<code>.csv</code>, первая строка — заголовки<br>
+     ✓ есть столбец даты, читаемый формат (<code>YYYY-MM-DD</code> предпочтительнее)<br>
+     ✓ есть KPI-столбец (продажи / упаковки / SOM)<br>
+     ✓ минимум 2 медиа-канала, <strong>Ratio периоды/переменные ≥ 2</strong> (лучше ≥ 4)<br>
+     ✓ если есть TRP или impressions — знаешь стоимость юнита в ₽<br>
+     ✓ <strong>нет</strong> дубликатов дат и пустых строк посередине<br>
+     ✓ <strong>нет</strong> столбцов-итогов (<code>Total</code>, <code>Сумма</code>) — они ломают модель</p>
+</div>
+
+<p>Дальше — открой Aurora AI Econometrica, нажми «Импорт» и перетащи файл. Светофор покажет готовность. <a href="pipeline.html">Переход к шагам pipeline →</a></p>
+
+</div>
+
+<div class="footer">
+  <p>Aurora AI Econometrica · © 2026 А. Сипович</p>
+</div>
+
+</body>
+</html>

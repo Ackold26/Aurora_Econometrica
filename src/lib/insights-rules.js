@@ -537,12 +537,14 @@ export function modelPreTrainingInsights(validateResult) {
   });
 
   // ── 7. Time estimate (educational) ──
-  const estimatedMinutes = Math.round(mediaCount * 3.5 + 3); // rough: ~3.5 min/channel + overhead
+  // JAX/NumPyro NUTS на CPU: ~1-3 мин на 4-8 каналах при дефолтах (4×(2000+2000) samples).
+  // Формула синхронизирована с ConfigPanel.svelte estimateMinutes (JIT + ~5-10 мс/sample).
+  const estimatedMinutes = Math.max(1, Math.round(0.3 * mediaCount + 1));
   if (mediaCount > 5) {
     out.push({
       severity: 'info',
-      text: `Оценка времени: ~${estimatedMinutes} мин для ${mediaCount} каналов. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
-      tip: 'Байесовский Markov Chain Monte Carlo проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). На слабой выборке warmup занимает больше времени, чем sampling.',
+      text: `Оценка времени: ~${estimatedMinutes} мин для ${mediaCount} каналов на движке JAX/NumPyro. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
+      tip: 'Байесовский Markov Chain Monte Carlo (NUTS) проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). Первый запуск включает ~20 сек JIT-компиляции XLA — далее каждый sample занимает миллисекунды.',
     });
   }
 
@@ -1370,7 +1372,7 @@ export function reportInsights(ctx = {}) {
   out.push({
     severity: 'info',
     text: '📤 Форматы экспорта:',
-    tip: '• PPTX — 8 слайдов для презентации заказчику/команде: executive summary, спецификация модели, декомпозиция, ROI, оптимизация.\n• XLSX — 7 листов для аналитиков: метрики, спецификация, декомпозиция, ROI, Spend vs Effect, оптимизация, сырые time-series данные для собственных графиков, глоссарий.\n\nОба формата содержат одну аналитику — выбирайте по аудитории. К каждому файлу — автоматически генерируемый сопроводительный текст с описанием модели, результатов и ограничений.',
+    tip: '• PPTX — для презентации заказчику/команде: executive summary, спецификация модели, декомпозиция, ROI, оптимизация.\n• XLSX — для аналитиков: метрики, спецификация, декомпозиция, ROI, Spend vs Effect, оптимизация, сырые time-series данные для собственных графиков, глоссарий.\n\nОба формата содержат одну аналитику — выбирайте по аудитории. К каждому файлу — автоматически генерируемый сопроводительный текст с описанием модели, результатов и ограничений.',
   });
 
   return out;

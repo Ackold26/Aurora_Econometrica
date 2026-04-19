@@ -254,16 +254,22 @@ pub fn get_commands_for_cabinet(cabinet_id: &str) -> Vec<CabinetCommand> {
             ("/doc-batch", "Комплекты документов", "Основные"),
             ("/plan-check", "Проверить медиаплан", "Инструменты"),
         ],
+        // Econometrist — консультант ПОВЕРХ pipeline.
+        // Pipeline делает MMM (валидация, MCMC, оптимизация, PPTX). Кабинет осмысляет и
+        // расширяет результат — не дублирует расчёты, а отвечает на вопросы «что значит»,
+        // «что делать дальше», «что собрать». Старые 7 MMM-команд (/mmm-prepare, /mmm-model,
+        // /mmm-decomposition, /mmm-optimize, /mmm-scenarios, /mmm-report, /mmm-full,
+        // /mmm-to-doc, /mmm-to-slides) СКРЫТЫ из UI, но промпты в .claude/commands/
+        // остаются — ручной ввод в поле всё ещё работает (backward compat).
         "econometrist" => vec![
-            ("/mmm-full", "Полный цикл MMM", "Основные"),
-            ("/mmm-prepare", "Подготовка данных", "Основные"),
-            ("/mmm-model", "Обучить модель", "Основные"),
-            ("/mmm-decomposition", "Декомпозиция", "Анализ"),
-            ("/mmm-optimize", "Оптимизация бюджета", "Анализ"),
-            ("/mmm-scenarios", "Сценарии what-if", "Анализ"),
+            ("/interpret-model", "Объяснить результаты", "Смысл"),
+            ("/why-channel", "Почему у канала такой ROI", "Смысл"),
+            ("/explain-ratio", "Разбор Ratio данных", "Смысл"),
+            ("/pilot-design", "План пилота 4–6 недель", "Стратегия"),
+            ("/next-quarter-plan", "План следующего квартала", "Стратегия"),
+            ("/data-gaps", "Чего не хватает в данных", "Стратегия"),
             ("/awareness-forecast", "Прогноз awareness", "Awareness"),
             ("/awareness-to-sales", "Awareness → Продажи", "Awareness"),
-            ("/mmm-report", "Полный отчёт", "Отчёты"),
         ],
         "copywriter" => vec![
             ("/write", "Написать текст", "Основные"),
@@ -420,7 +426,7 @@ mod tests {
         assert_eq!(get_commands_for_cabinet("lawyer-claims").len(), 10);
         assert_eq!(get_commands_for_cabinet("lawyer-advertising").len(), 14);
         assert_eq!(get_commands_for_cabinet("doc-master").len(), 3);
-        assert_eq!(get_commands_for_cabinet("econometrist").len(), 9);
+        assert_eq!(get_commands_for_cabinet("econometrist").len(), 8);
         assert_eq!(get_commands_for_cabinet("copywriter").len(), 7);
         assert_eq!(get_commands_for_cabinet("art-director").len(), 9);
     }

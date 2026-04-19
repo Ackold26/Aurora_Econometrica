@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Aurora AI</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0C0C12; color: #EAEAF0; font-family: system-ui, sans-serif;
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh;
+        }
+        .container { text-align: center; max-width: 400px; padding: 40px; }
+        h1 { font-size: 20px; margin-bottom: 16px; letter-spacing: 0.02em; }
+        p { font-size: 14px; color: #8888AA; margin-bottom: 24px; line-height: 1.6; }
+        button {
+            background: #2E5BFF; color: white; border: none; padding: 12px 28px;
+            border-radius: 8px; font-size: 14px; cursor: pointer; transition: background 0.15s;
+        }
+        button:hover { background: #4B73FF; }
+        button:disabled { background: #333350; cursor: not-allowed; }
+        .status { margin-top: 16px; font-size: 12px; color: #666688; min-height: 20px; }
+        .error { color: #FF6B6B; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Aurora AI</h1>
+        <p>Файлы интерфейса отсутствуют или повреждены.<br>
+           Нажмите кнопку для восстановления с сервера.</p>
+        <button id="btn" onclick="repair()">Восстановить</button>
+        <div class="status" id="status"></div>
+    </div>
+    <script>
+        async function repair() {
+            const btn = document.getElementById('btn');
+            const status = document.getElementById('status');
+            btn.disabled = true;
+            btn.textContent = 'Загрузка...';
+            status.className = 'status';
+            status.textContent = 'Подключение к серверу...';
+            try {
+                await window.__TAURI__.core.invoke('repair_frontend');
+                status.textContent = 'Готово! Перезапустите приложение.';
+                btn.textContent = 'Восстановлено';
+            } catch (e) {
+                status.className = 'status error';
+                status.textContent = 'Ошибка: ' + e;
+                btn.disabled = false;
+                btn.textContent = 'Повторить';
+            }
+        }
+    </script>
+</body>
+</html>

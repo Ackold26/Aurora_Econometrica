@@ -18,32 +18,32 @@
 <div class="pipeline-page">
 
   <!-- Step 0: Import — Phase 2 -->
-  <StepWrapper step={0}>
+  <StepWrapper step={0} helpPage="data-preparation">
     <ImportStep />
   </StepWrapper>
 
   <!-- Step 1: Validate — Phase 2 -->
-  <StepWrapper step={1}>
+  <StepWrapper step={1} helpPage="data-preparation">
     <ValidateStep />
   </StepWrapper>
 
   <!-- Step 2: Model — Phase 3 -->
-  <StepWrapper step={2}>
+  <StepWrapper step={2} helpPage="methodology">
     <ModelTrainingStep />
   </StepWrapper>
 
   <!-- Step 3: Decompose — Phase 4A -->
-  <StepWrapper step={3}>
+  <StepWrapper step={3} helpPage="pipeline">
     <DecomposeStep />
   </StepWrapper>
 
   <!-- Step 4: Optimize — Phase 4B -->
-  <StepWrapper step={4}>
+  <StepWrapper step={4} helpPage="pipeline">
     <OptimizeStep />
   </StepWrapper>
 
   <!-- Step 5: Report — Phase 5 -->
-  <StepWrapper step={5}>
+  <StepWrapper step={5} helpPage="pipeline">
     <ReportStep />
   </StepWrapper>
 

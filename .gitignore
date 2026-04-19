@@ -41,3 +41,15 @@ sidecar/econometrica/econometrica-sidecar.exe
 sidecar/econometrica/_internal/
 sidecar/econometrica/dist/
 sidecar/econometrica/build_tmp/
+
+# Приватные данные MMM-проектов (датасеты клиентов, pickle-модели, результаты
+# валидаций). Синхронизируются через %APPDATA% вне репозитория.
+sidecar/econometrica/*/data/
+sidecar/econometrica/*/models/
+sidecar/econometrica/*/results/
+sidecar/econometrica/*/exports/
+sidecar/econometrica/*/project.json
+# Тестовые проекты («1test», «венарус-ммх-*» и т.п.) — всё кроме engines/.
+sidecar/econometrica/1test/
+sidecar/econometrica/венарус-ммх-*/
+sidecar/econometrica/mmx-*/

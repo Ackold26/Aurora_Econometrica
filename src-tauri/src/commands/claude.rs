@@ -85,8 +85,9 @@ pub async fn run_claude(
     resume_session_id: Option<String>,
     active_pids: Arc<Mutex<HashMap<String, u32>>>,
     suppress_export: bool,
+    model: Option<String>,
 ) -> Result<(Option<String>, String)> {
-    let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export).await?;
+    let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
     Ok((sid, response_text))
 }
 
@@ -100,7 +101,7 @@ pub async fn run_claude_pipeline(
     active_pids: Arc<Mutex<HashMap<String, u32>>>,
 ) -> Result<(Option<String>, String)> {
     // Pipeline phases always suppress export — final output is built by post-processor
-    let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true).await?;
+    let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
     Ok((sid, response_text))
 }
 
@@ -113,6 +114,7 @@ async fn run_claude_inner(
     active_pids: Arc<Mutex<HashMap<String, u32>>>,
     suppress_done: bool,
     suppress_export: bool,
+    model: Option<String>,
 ) -> Result<(Option<String>, String)> {
     let claude_path = find_claude_binary()?;
     info!("Launching Claude CLI: {claude_path}, cabinet={cabinet_id}, resume={}", resume_session_id.as_deref().unwrap_or("none"));
@@ -135,19 +137,25 @@ async fn run_claude_inner(
             log::warn!("Invalid session_id format (len={}, skipping --resume)", sid.len());
         }
     }
-    // For long prompts (>20KB), write to a workspace file and reference it in a short prompt.
-    // Claude CLI does not support stdin pipe in --print mode, and Windows cmd line limit = 32767 chars.
-    if prompt.len() > 20_000 {
-        let prompt_file = work_dir.join(".pipeline_prompt.md");
-        std::fs::write(&prompt_file, prompt).context("Failed to write prompt file")?;
-        // Short prompt that tells Claude to read the file
-        let short_prompt = "Прочитай файл .pipeline_prompt.md в текущей директории и выполни задание из него. Отвечай на русском языке.";
-        args.push("-p");
-        args.push(short_prompt);
-    } else {
-        args.push("-p");
-        args.push(prompt);
+    // Model selection from user config
+    let model_id_owned: String;
+    if let Some(ref m) = model {
+        model_id_owned = match m.as_str() {
+            "opus" => "claude-opus-4-6".to_string(),
+            "haiku" => "claude-haiku-4-5-20251001".to_string(),
+            _ => "claude-sonnet-4-6".to_string(),
+        };
+        args.push("--model");
+        args.push(&model_id_owned);
     }
+    // Always write prompt to temp file and pipe via stdin.
+    // Reasons: (1) Windows cmd line limit = 32767 chars, slides.json can be 100KB+
+    // (2) cmd /C with Cyrillic args corrupts on cp1251 Windows
+    // (3) stdin pipe is the most reliable cross-platform approach
+    let prompt_file = work_dir.join(".pipeline_prompt.md");
+    std::fs::write(&prompt_file, prompt).context("Failed to write prompt file")?;
+    args.push("-p");
+    args.push("-"); // read prompt from stdin
 
     // On Windows, npm CLIs are .cmd scripts — must run via cmd.exe /C
     #[cfg(windows)]
@@ -166,7 +174,7 @@ async fn run_claude_inner(
     cmd.current_dir(work_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped()) // pipe prompt from file via stdin
         .env_remove("CLAUDECODE")
         .env_remove("ANTHROPIC_API_KEY"); // Force OAuth (subscription) instead of API credits
 
@@ -183,6 +191,16 @@ async fn run_claude_inner(
     debug!("Claude process spawned (pid={:?})", pid);
     if let Some(pid) = pid {
         active_pids.lock().unwrap_or_else(|e| e.into_inner()).insert(cabinet_id.clone(), pid);
+    }
+
+    // Feed prompt via stdin, then close (so Claude knows input is done)
+    if let Some(mut stdin) = child.stdin.take() {
+        let prompt_data = std::fs::read(&prompt_file).unwrap_or_default();
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(&prompt_data).await;
+            let _ = stdin.shutdown().await;
+        });
     }
 
     let stdout = child.stdout.take().context(coded(ErrorCode::CL003, "Failed to capture stdout"))?;

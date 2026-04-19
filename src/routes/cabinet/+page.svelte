@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles } from '$lib/store.js';
+  import { activeProject } from '$lib/project-state.js';
   import { getProductName, getCommandBrief, getCommandMeta } from '$lib/command-meta.js';
   import CommandBrief from '$lib/components/CommandBrief.svelte';
   import { productType, activeBrand, isCreativeHub } from '$lib/creative-store.js';
@@ -289,16 +290,18 @@
     <!-- ── Cabinet Header ── -->
     {#if !zenMode}
       <header class="header" style="--cabinet-color: {$activeCabinet.color}">
-        <button class="back-btn" onclick={goBack} title="Назад">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-        </button>
-
-        <div class="breadcrumb">
-          <img src="/logo-wordmark.png" alt="Aurora AI" class="breadcrumb-logo" />
-          <span class="breadcrumb-root">ECONOMETRICA</span>
+        <!-- Логотип + название продукта — тот же layout что в главном меню (src/routes/+page.svelte) -->
+        <div class="topbar-left">
+          <img src="/logo-wordmark.png" alt="Aurora AI" class="topbar-logo" />
+          <div class="brand">
+            <span class="brand-product">ECONOMETRICA</span>
+          </div>
         </div>
+        {#if $activeProject}
+          <span class="breadcrumb-project" title="Активный проект — переключение в pipeline">
+            📊 {$activeProject.name}
+          </span>
+        {/if}
 
         <div class="header-spacer"></div>
         <button class="header-icon-btn" title="Переключить тему" onclick={toggleTheme}>
@@ -401,6 +404,12 @@
           {/if}
           <!-- FileList sidebar stays visible during onboarding -->
           <div class="selection-input-area">
+            <button class="footer-back-btn" onclick={goBack} title="В главное меню" aria-label="Назад">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+              Назад
+            </button>
             <textarea
               class="selection-input"
               bind:value={selectionInput}
@@ -474,24 +483,6 @@
     opacity: 0.6;
   }
 
-  .back-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-muted);
-    transition: all var(--transition-fast);
-    flex-shrink: 0;
-  }
-
-  .back-btn:hover {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-  }
-
   /* ── Breadcrumb ── */
   .breadcrumb {
     display: flex;
@@ -500,17 +491,63 @@
   }
 
   .breadcrumb-logo {
-    height: 36px;
+    height: 22px;
     width: auto;
     vertical-align: middle;
     margin-right: 6px;
-    opacity: 0.85;
+    opacity: 0.9;
   }
 
   .breadcrumb-root {
-    font-size: 12.5px;
+    font-size: 11px;
     color: var(--text-secondary);
-    font-weight: 500;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* Логотип+бренд — идентично главному меню (/+page.svelte) */
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .topbar-logo {
+    height: 26px;
+    width: auto;
+    opacity: 0.9;
+  }
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 0px;
+    line-height: 1;
+    margin-top: 8px;
+  }
+  .brand-product {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--text-primary);
+    text-transform: uppercase;
+  }
+
+  /* Активный проект — chip рядом с логотипом, как в pipeline */
+  .breadcrumb-project {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 10px;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.6));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 999px;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .breadcrumb-sep {
@@ -605,6 +642,29 @@
     pointer-events: none;
     position: absolute;
     visibility: hidden;
+  }
+
+  /* Nav-back в footer — слева от поля ввода команды (симметрия с pipeline footer). */
+  .footer-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    height: 38px;
+    background: transparent;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
+    border-radius: var(--radius-sm, 6px);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .footer-back-btn:hover {
+    color: var(--text-primary, #e2e8f0);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 50%, transparent);
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 6%, transparent);
   }
 
   /* ── Selection input area ── */

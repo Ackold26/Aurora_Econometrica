@@ -30,6 +30,35 @@
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
+  import OptimizeOnboarding from '$lib/components/pipeline/OptimizeOnboarding.svelte';
+
+  // Onboarding — показываем первый визит на Optimize ТОЛЬКО когда блоки A-E
+  // действительно отрендерены (channels.length > 0, то есть после успешного train).
+  // Иначе spotlight бьётся по пустому DOM и пользователь видит 6 абстрактных модалок.
+  let showOnboarding = $state(false);
+  let onboardingChecked = false;
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    if (onboardingChecked) return;
+    // channels — $derived из optimizeData/decomposeData, появляется после train
+    if (!channels || channels.length === 0) return;
+    onboardingChecked = true;
+    try {
+      const seen = window.localStorage.getItem('aurora-econ-optimize-onboarded');
+      if (!seen) {
+        // 1 кадр даём Svelte на render блоков после channels-инициализации
+        requestAnimationFrame(() => { showOnboarding = true; });
+      }
+    } catch { /* localStorage может быть заблокирован — молча пропустить */ }
+  });
+  function restartOnboarding() {
+    if (!channels || channels.length === 0) {
+      alert('Обучи модель на шаге «Моделирование» — тогда появятся блоки A-E и тур станет осмысленным.');
+      return;
+    }
+    try { window.localStorage.removeItem('aurora-econ-optimize-onboarded'); } catch {}
+    showOnboarding = true;
+  }
 
   /** @type {'idle' | 'optimizing' | 'done' | 'error'} */
   let stepState = $state('idle');
@@ -660,6 +689,13 @@
 
 <div class="optimize-step">
 
+  <!-- Onboarding re-trigger — небольшая ссылка сверху для повторного тура -->
+  <div class="onboarding-hint">
+    <button class="btn-hint" onclick={restartOnboarding} title="Показать обзор блоков A→E">
+      ? Показать тур
+    </button>
+  </div>
+
   <!-- Error banner -->
   {#if stepState === 'error' && errorMessage}
     <div class="error-banner">
@@ -1132,10 +1168,14 @@
       </div>
       {#if playgroundOpen}
         <div class="card scenario-card">
-          <ScenarioPlayground {channelBudgets} {channels} />
+          <ScenarioPlayground {channelBudgets} {channels} {optimalBudgets} />
         </div>
       {/if}
     </section>
+  {/if}
+
+  {#if showOnboarding}
+    <OptimizeOnboarding onDone={() => { showOnboarding = false; }} />
   {/if}
 
 </div>
@@ -1149,6 +1189,27 @@
     gap: 20px;
     padding: 0;
     box-sizing: border-box;
+  }
+
+  .onboarding-hint {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: -6px;
+    margin-bottom: -6px;
+  }
+  .btn-hint {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 12px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-hint:hover {
+    color: var(--text-primary, #e2e8f0);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 50%, transparent);
   }
 
   /* ── Section blocks (A/B/C/D) ─────────────────────────────── */

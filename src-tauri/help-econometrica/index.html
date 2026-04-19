@@ -3,22 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Aurora AI — Справочный центр</title>
+  <title>Aurora AI Econometrica — Справочный центр</title>
   <style>
-    :root { --bg: #0C0C12; --bg2: #141420; --bg3: #1E1E2C; --text: #EAEAF0; --text2: #9898A8; --accent: #2E5BFF; --accent2: #CCFF00; --border: rgba(255,255,255,0.1); }
+    :root { --bg: #0C0C12; --bg2: #141420; --bg3: #1E1E2C; --text: #EAEAF0; --text2: #9898A8; --accent: #58a6ff; --accent2: #3fb950; --border: rgba(255,255,255,0.1); }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
-    .hero { background: linear-gradient(135deg, var(--bg2) 0%, #0d1429 50%, #111827 100%); padding: 48px 32px 40px; text-align: center; border-bottom: 2px solid var(--accent); position: relative; overflow: hidden; }
-    .hero::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle at 50% 50%, rgba(46,91,255,0.06) 0%, transparent 60%); }
-    .hero h1 { font-size: 28px; font-weight: 700; position: relative; }
+    .hero { background: linear-gradient(135deg, var(--bg2) 0%, #0d1429 50%, #111827 100%); padding: 40px 40px 36px; border-bottom: 2px solid var(--accent); position: relative; overflow: hidden; display: flex; align-items: center; gap: 28px; justify-content: center; flex-wrap: wrap; }
+    .hero::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle at 50% 50%, rgba(88,166,255,0.07) 0%, transparent 60%); pointer-events: none; }
+    .hero-logo { height: 96px; width: auto; position: relative; z-index: 1; opacity: 0.95; flex-shrink: 0; }
+    .hero-text { position: relative; z-index: 1; text-align: left; }
+    .hero h1 { font-size: 28px; font-weight: 700; line-height: 1.25; margin: 0; }
     .hero h1 span { background: linear-gradient(135deg, var(--accent) 0%, #5A8AFF 40%, var(--accent2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .hero .tagline { font-size: 15px; color: var(--text2); margin-top: 8px; position: relative; }
-    .container { max-width: 800px; margin: 0 auto; padding: 40px 32px; }
+    .hero .tagline { font-size: 15px; color: var(--text2); margin-top: 8px; }
+    @media (max-width: 600px) { .hero { flex-direction: column; gap: 16px; } .hero-text { text-align: center; } }
+    .container { max-width: 880px; margin: 0 auto; padding: 40px 32px; }
 
-    /* ── Category Cards ── */
     .categories { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 40px; }
-    .cat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 24px 20px; transition: all 0.2s; cursor: default; }
-    .cat-card:hover { border-color: rgba(46,91,255,0.3); background: var(--bg3); }
+    .cat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 24px 20px; transition: all 0.2s; }
+    .cat-card:hover { border-color: rgba(88,166,255,0.3); background: var(--bg3); }
     .cat-card h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
     .cat-card .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .cat-card p { font-size: 13px; color: var(--text2); margin-bottom: 12px; }
@@ -27,81 +29,64 @@
     .cat-links a:hover { background: rgba(255,255,255,0.06); color: #fff; }
     .cat-links a::before { content: '→'; color: var(--text2); font-size: 11px; }
 
-    /* ── Quick Start ── */
-    h2.section-title { font-size: 15px; font-weight: 700; color: var(--accent2); letter-spacing: 0.02em; margin-bottom: 16px; }
-    .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 40px; }
+    h2.section-title { font-size: 15px; font-weight: 700; color: var(--accent2); letter-spacing: 0.02em; margin-bottom: 16px; text-transform: uppercase; }
+    .steps { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 40px; }
     .step { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
-    .step .num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(46,91,255,0.15); color: var(--accent); font-size: 12px; font-weight: 700; border-radius: 6px; margin-bottom: 8px; }
+    .step .num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: rgba(88,166,255,0.15); color: var(--accent); font-size: 12px; font-weight: 700; border-radius: 6px; margin-bottom: 8px; }
     .step h3 { font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
     .step p { font-size: 12.5px; color: var(--text2); line-height: 1.5; }
 
-    /* ── Tips ── */
     .tips { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 40px; }
-    .tips h2 { font-size: 15px; font-weight: 700; color: var(--accent2); margin-bottom: 14px; }
+    .tips h2 { font-size: 15px; font-weight: 700; color: var(--accent2); margin-bottom: 14px; text-transform: uppercase; }
     .tips ul { list-style: none; }
     .tips li { font-size: 13.5px; color: var(--text); padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.04); line-height: 1.55; }
     .tips li:last-child { border-bottom: none; }
     .tips li::before { content: '💡 '; }
+    .tips code { background: rgba(255,255,255,0.06); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: #39d0d8; font-family: 'Consolas', monospace; }
 
     .footer { text-align: center; padding: 24px 32px; border-top: 1px solid var(--border); }
     .footer p { font-size: 11px; color: var(--text2); opacity: 0.5; }
-    @media (max-width: 600px) { .categories, .steps { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) { .categories, .steps { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
 
 <div class="hero">
-  <h1><span>Справочный центр Aurora AI</span></h1>
-  <p class="tagline">Навигация по кабинетам, инструкции, рекомендации</p>
+  <img src="logo-full.png" alt="Aurora AI" class="hero-logo" />
+  <div class="hero-text">
+    <h1><span>Справочный центр Aurora AI Econometrica</span></h1>
+    <p class="tagline">Marketing Mix Modeling: от данных к оптимальному бюджету</p>
+  </div>
 </div>
 
 <div class="container">
 
   <div class="categories">
     <div class="cat-card">
-      <h2><span class="dot" style="background:#06B6D4"></span> Insights Hub</h2>
-      <p>Аналитика, мониторинг, исследования</p>
-      <div class="cat-links">
-        <a href="social-listening.html">Social Listening</a>
-        <a href="media-analyst.html">Медиа-аналитик</a>
-        <a href="communication-analyst.html">Коммуникационный аналитик</a>
-      </div>
-    </div>
-    <div class="cat-card">
-      <h2><span class="dot" style="background:#8B5CF6"></span> Creative</h2>
-      <p>Стратегия, креатив, тестирование</p>
-      <div class="cat-links">
-        <a href="communication-strategist.html">Коммуникационный стратег</a>
-        <a href="creative-director.html">Креативный директор</a>
-        <a href="focus-groups.html">Фокус-группы</a>
-      </div>
-    </div>
-    <div class="cat-card">
-      <h2><span class="dot" style="background:#10B981"></span> Legal</h2>
-      <p>Договоры, претензии, комплаенс</p>
-      <div class="cat-links">
-        <a href="lawyer-contracts.html">Юрист — Контракты</a>
-        <a href="lawyer-claims.html">Юрист — NDA и претензии</a>
-        <a href="lawyer-advertising.html">Юрист — Реклама</a>
-      </div>
-    </div>
-    <div class="cat-card">
-      <h2><span class="dot" style="background:#6366F1"></span> Docu-master</h2>
-      <p>Документооборот, медиапланы, шаблоны</p>
-      <div class="cat-links">
-        <a href="doc-master.html">Доку-мастер</a>
-      </div>
-    </div>
-    <div class="cat-card">
-      <h2><span class="dot" style="background:#2E5BFF"></span> Платформа</h2>
-      <p>Общие руководства и справочники</p>
+      <h2><span class="dot" style="background:#58a6ff"></span> Начало работы</h2>
+      <p>Первые шаги, общее руководство, частые вопросы</p>
       <div class="cat-links">
         <a href="about.html">О платформе</a>
         <a href="user-guide.html">Руководство пользователя</a>
-        <a href="workflow-builder.html">Workflow Builder</a>
-        <a href="brands.html">Управление брендами</a>
-        <a href="pipeline.html">Pipeline работы</a>
+        <a href="faq.html">FAQ и troubleshooting</a>
         <a href="error-codes.html">Коды ошибок</a>
+      </div>
+    </div>
+    <div class="cat-card">
+      <h2><span class="dot" style="background:#3fb950"></span> Данные и методология</h2>
+      <p>Как готовить данные, что стоит за моделью</p>
+      <div class="cat-links">
+        <a href="data-preparation.html">Подготовка данных (FMCG, Pharma)</a>
+        <a href="pipeline.html">Pipeline: 5 шагов работы</a>
+        <a href="methodology.html">Методология MMM / Bayesian</a>
+      </div>
+    </div>
+    <div class="cat-card" style="grid-column: 1 / -1;">
+      <h2><span class="dot" style="background:#bc8cff"></span> Интерфейс</h2>
+      <p>Детальное описание визуальной части и чат-команд</p>
+      <div class="cat-links">
+        <a href="econometrica.html">Visual Pipeline (шаг за шагом в UI)</a>
+        <a href="econometrist.html">Эконометрист (команды чата)</a>
       </div>
     </div>
   </div>
@@ -110,45 +95,53 @@
   <div class="steps">
     <div class="step">
       <div class="num">1</div>
-      <h3>Лицензия</h3>
-      <p>Импортируйте лицензию в разделе Настройки или подключитесь к серверу</p>
+      <h3>Подготовь данные</h3>
+      <p>XLSX/CSV: date + KPI + медиа-столбцы. Минимум 20 строк на 5 каналов. <a href="data-preparation.html" style="color: var(--accent)">подробнее</a></p>
     </div>
     <div class="step">
       <div class="num">2</div>
-      <h3>Кабинет</h3>
-      <p>Выберите нужный кабинет на главном экране</p>
+      <h3>Импорт + Валидация</h3>
+      <p>Перетащи файл. Светофор покажет готов ли датасет, автоопределит роли столбцов.</p>
     </div>
     <div class="step">
       <div class="num">3</div>
-      <h3>Файлы и команды</h3>
-      <p>Загрузите файлы через Inbox или введите команду в чат</p>
+      <h3>Стоимость юнитов</h3>
+      <p>Если есть TRP / impressions — укажи ₽/юнит. Без этого ROAS будет в native-единицах и несопоставим.</p>
     </div>
     <div class="step">
       <div class="num">4</div>
-      <h3>Результаты</h3>
-      <p>Готовые документы появятся в папке Exports на рабочем столе</p>
+      <h3>Обучение модели</h3>
+      <p>MCMC (3–15 мин). Результат — MQS, R², декомпозиция вкладов каналов.</p>
+    </div>
+    <div class="step">
+      <div class="num">5</div>
+      <h3>Оптимизация</h3>
+      <p>Блоки A–E: текущий бюджет, найти оптимум, what-if, прогноз с инфляцией, сценарный анализ.</p>
+    </div>
+    <div class="step">
+      <div class="num">6</div>
+      <h3>Отчёт</h3>
+      <p>PPTX + XLSX с графиками и комментариями. Готово к отправке руководству.</p>
     </div>
   </div>
 
   <div class="tips">
-    <h2>Советы и рекомендации</h2>
+    <h2>Советы</h2>
     <ul>
-      <li>Загружайте файлы до отправки команды — кабинет автоматически использует их как контекст</li>
-      <li>Используйте конкретные команды вместо свободных запросов — результат будет точнее и структурированнее</li>
-      <li>Для больших массивов данных применяйте <code>/batch-analysis</code> — он обработает весь объём последовательно</li>
-      <li>Результаты можно уточнять: задайте follow-up вопрос в чате, не вводя команду повторно</li>
-      <li>Сворачивайте длинные ответы кнопкой «−» — это ускоряет навигацию по чату</li>
-      <li>Добавляйте часто используемые команды в избранное (звёздочка) для быстрого доступа</li>
-      <li>Каждый кабинет — независимый эксперт со своей методологией. Один и тот же файл можно проанализировать в разных кабинетах</li>
-      <li>Доку-мастер: всегда проверяйте медиаплан (<code>/plan-check</code>) перед генерацией приложения — это сэкономит время на исправлениях</li>
-      <li>Pipeline описывает полный цикл работы — <a href="pipeline.html" style="color: var(--accent)">от данных до презентации</a></li>
+      <li>Данные помесячные по умолчанию, но <strong>недельные тоже работают</strong> — система сама распознает частоту.</li>
+      <li>Соотношение <code>периоды / каналы ≥ 4</code> — рекомендуемое. <code>&lt; 2</code> — критически мало, MQS будет ограничен.</li>
+      <li>Смешивать TRP и рубли в одной модели можно, но тогда обязательно укажи стоимость юнита — иначе ROAS не сопоставим между каналами.</li>
+      <li>Если видишь ROI 500× — это сигнал переобучения. Проверь Ratio и unit_costs.</li>
+      <li>MCMC чувствителен к данным — при <code>R-hat &gt; 1.1</code> модели доверять нельзя, увеличь <code>warmup</code> или сократи каналы.</li>
+      <li>Отчёт в Report — не статичный текст, а живая выборка из твоей модели. Настрой <code>Стоимость юнита</code> и пересобери.</li>
+      <li>Любая кнопка «?» в интерфейсе → откроет нужный раздел справки в браузере.</li>
     </ul>
   </div>
 
 </div>
 
 <div class="footer">
-  <p>Aurora AI · © 2026 А. Сипович · www.sipovich.pro</p>
+  <p>Aurora AI Econometrica · © 2026 А. Сипович · www.sipovich.pro</p>
 </div>
 
 <script src="econ-nav.js"></script>

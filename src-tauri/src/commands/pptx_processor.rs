@@ -6,22 +6,124 @@ use std::process::Stdio;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+// ── Dependency checking & auto-install ─────────────────────
+
+/// Status of PPTX pipeline dependencies.
+#[derive(Debug, Clone, Serialize)]
+pub struct DependencyStatus {
+    pub python_available: bool,
+    pub python_version: String,
+    pub missing_packages: Vec<String>,
+    pub all_ok: bool,
+}
+
+/// Required pip packages for PPTX pipeline.
+const REQUIRED_PACKAGES: &[&str] = &["pptx", "docx"];
+/// Package names for pip install (different from import names).
+const PIP_PACKAGES: &[&str] = &["python-pptx", "python-docx"];
+
+/// Check if Python and required packages are available.
+pub fn check_dependencies() -> DependencyStatus {
+    let python = if cfg!(windows) { "python" } else { "python3" };
+
+    // Check Python
+    let py_result = std::process::Command::new(python)
+        .args(["--version"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output();
+
+    let (python_available, python_version) = match py_result {
+        Ok(output) if output.status.success() => {
+            let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let ver = if ver.is_empty() {
+                String::from_utf8_lossy(&output.stderr).trim().to_string()
+            } else {
+                ver
+            };
+            (true, ver)
+        }
+        _ => (false, String::new()),
+    };
+
+    if !python_available {
+        return DependencyStatus {
+            python_available: false,
+            python_version: String::new(),
+            missing_packages: PIP_PACKAGES.iter().map(|s| s.to_string()).collect(),
+            all_ok: false,
+        };
+    }
+
+    // Check each required package via importlib
+    let mut missing = Vec::new();
+    for (import_name, pip_name) in REQUIRED_PACKAGES.iter().zip(PIP_PACKAGES.iter()) {
+        let check = std::process::Command::new(python)
+            .args(["-c", &format!("import {import_name}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .output();
+
+        match check {
+            Ok(output) if output.status.success() => {}
+            _ => missing.push(pip_name.to_string()),
+        }
+    }
+
+    let all_ok = missing.is_empty();
+    DependencyStatus { python_available, python_version, missing_packages: missing, all_ok }
+}
+
+/// Install missing pip packages. Returns Ok(installed_count) or Err.
+pub fn install_packages(packages: &[String]) -> Result<usize> {
+    if packages.is_empty() {
+        return Ok(0);
+    }
+    let python = if cfg!(windows) { "python" } else { "python3" };
+    let mut args = vec!["-m", "pip", "install", "--user", "--quiet"];
+    let pkg_refs: Vec<&str> = packages.iter().map(|s| s.as_str()).collect();
+    args.extend(&pkg_refs);
+
+    info!("Installing pip packages: {:?}", packages);
+
+    let output = std::process::Command::new(python)
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .context("Failed to run pip install")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("pip install failed: {}", stderr.chars().take(500).collect::<String>());
+    }
+
+    info!("Successfully installed {} packages", packages.len());
+    Ok(packages.len())
+}
+
 /// Find the pptx_pipeline executable or script.
-/// In dev: python + sidecar/pptx_pipeline.py
-/// In release: bundled pptx_pipeline.exe
+/// Priority: bundled .exe → bundled .py (resources) → dev script
 fn find_pipeline() -> Result<(String, Vec<String>)> {
-    // Release: look for bundled exe next to the app binary
-    if !cfg!(debug_assertions) {
-        if let Ok(exe) = std::env::current_exe() {
-            let dir = exe.parent().unwrap_or(Path::new("."));
-            let pipeline_exe = dir.join("pptx_pipeline.exe");
-            if pipeline_exe.exists() {
-                return Ok((pipeline_exe.to_string_lossy().to_string(), vec![]));
+    // 1. Bundled exe next to the app binary (future: PyInstaller build)
+    if let Ok(exe) = std::env::current_exe() {
+        let dir = exe.parent().unwrap_or(Path::new("."));
+        let pipeline_exe = dir.join("pptx_pipeline.exe");
+        if pipeline_exe.exists() {
+            return Ok((pipeline_exe.to_string_lossy().to_string(), vec![]));
+        }
+
+        // 2. Bundled .py script in resources
+        for subdir in &["sidecar", "_up_/sidecar"] {
+            let bundled_script = dir.join(subdir).join("pptx_pipeline.py");
+            if bundled_script.exists() {
+                let python = if cfg!(windows) { "python" } else { "python3" };
+                return Ok((python.to_string(), vec![bundled_script.to_string_lossy().to_string()]));
             }
         }
     }
 
-    // Dev: use python + script path
+    // 3. Dev: use CARGO_MANIFEST_DIR + sidecar/
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
         .unwrap_or_else(|_| ".".to_string());
     let script = PathBuf::from(&manifest_dir)
@@ -32,7 +134,7 @@ fn find_pipeline() -> Result<(String, Vec<String>)> {
         let python = if cfg!(windows) { "python" } else { "python3" };
         Ok((python.to_string(), vec![script.to_string_lossy().to_string()]))
     } else {
-        anyhow::bail!("pptx_pipeline not found (checked exe and dev script at {})", script.display())
+        anyhow::bail!("pptx_pipeline not found (checked bundled exe, bundled py, and dev script)")
     }
 }
 
@@ -48,12 +150,15 @@ fn run_pipeline(mode: &str, args: &[&str]) -> Result<String> {
 
     debug!("pptx_pipeline: {} {:?}", cmd, prefix_args);
 
+    // Launch Python directly (NOT via cmd /C) to avoid cp1251 encoding on Russian Windows.
+    // PYTHONIOENCODING=utf-8 forces UTF-8 for stdin/stdout/stderr.
+    // PYTHONUTF8=1 enables UTF-8 mode globally (Python 3.7+).
     #[cfg(windows)]
     let child = {
-        std::process::Command::new("cmd")
-            .arg("/C")
-            .arg(&cmd)
+        std::process::Command::new(&cmd)
             .args(&prefix_args)
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONUTF8", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .creation_flags(0x08000000) // CREATE_NO_WINDOW
@@ -65,6 +170,8 @@ fn run_pipeline(mode: &str, args: &[&str]) -> Result<String> {
     let child = {
         std::process::Command::new(&cmd)
             .args(&prefix_args)
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONUTF8", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

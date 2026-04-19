@@ -364,7 +364,7 @@
             <div class="format-title">PPTX — для презентации</div>
           </div>
           <p class="format-desc">
-            8 слайдов: Executive summary, спецификация модели (Bayesian MMM, Adstock, Hill), декомпозиция продаж,<br>
+            Executive summary, спецификация модели (Bayesian MMM, Adstock, Hill), декомпозиция продаж,<br>
             ROI по каналам, оптимальное распределение, прогноз. С графиками и рекомендациями.
           </p>
           <details class="format-email">
@@ -402,7 +402,7 @@
             <div class="format-title">XLSX — для самостоятельной работы с данными</div>
           </div>
           <p class="format-desc">
-            7 листов: Executive Summary, спецификация модели, декомпозиция, ROI каналов, Spend vs Effect,<br>
+            Executive Summary, спецификация модели, декомпозиция, ROI каналов, Spend vs Effect,<br>
             оптимизация, сырые time-series данные для построения собственных графиков, глоссарий.
           </p>
           <details class="format-email">

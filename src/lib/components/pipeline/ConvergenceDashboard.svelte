@@ -91,13 +91,34 @@
       ? avp.dates
       : avp.actual.map((/** @type {any} */ _, /** @type {number} */ i) => `#${i + 1}`);
 
+    // Метрики качества — показываем в правом верхнем углу вместо сухой легенды.
+    const r2 = diagnostics?.metrics?.r_squared;
+    const mape = diagnostics?.metrics?.mape_pct;
+    const r2Str = r2 != null ? `R² = ${Number(r2).toFixed(4)}` : '';
+    const mapeStr = mape != null ? `MAPE = ${Number(mape).toFixed(2)}%` : '';
+    const metricsLine = [r2Str, mapeStr].filter(Boolean).join('   ·   ');
+
     return {
       backgroundColor: 'transparent',
-      grid: { left: '60px', right: '20px', top: '28px', bottom: '40px' },
+      grid: { left: '60px', right: '20px', top: '38px', bottom: '40px' },
       legend: {
         top: 4,
+        left: 'center',
         textStyle: { color: '#94a3b8', fontSize: 11 },
       },
+      graphic: metricsLine ? [{
+        type: 'text',
+        right: 14,
+        top: 6,
+        style: {
+          text: metricsLine,
+          fill: '#e2e8f0',
+          fontFamily: 'Consolas, monospace',
+          fontSize: 11,
+          fontWeight: 600,
+        },
+        z: 10,
+      }] : [],
       xAxis: {
         type: 'category',
         data: xData,
@@ -151,6 +172,12 @@
 
   /** Chart height — scale with number of params */
   const rhatHeight = $derived(`${Math.max(180, rhatCount * 28 + 60)}px`);
+
+  // Подсказки для ?-иконок
+  const HELP = {
+    rhatChart: 'R-hat по параметрам — проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона — R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
+    avpChart:  'Факт vs Прогноз — визуальная проверка качества модели.\n\nЧто это: синяя линия — реальные продажи, зелёная пунктирная — предсказание модели. В правом верхнем углу — R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
+  };
 </script>
 
 {#if diagnostics}
@@ -170,7 +197,7 @@
   <!-- Panel A: R-hat per parameter -->
   {#if rhatCount > 0}
     <div class="chart-panel">
-      <h4 class="chart-title">R-hat по параметрам</h4>
+      <h4 class="chart-title">R-hat по параметрам<span class="help-icon" title={HELP.rhatChart}>?</span></h4>
       <EChartBase option={rhatOption} height={rhatHeight} />
       <p class="chart-hint">
         {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
@@ -181,7 +208,7 @@
   <!-- Panel B: Actual vs Predicted -->
   {#if diagnostics.actual_vs_predicted}
     <div class="chart-panel">
-      <h4 class="chart-title">Факт vs Прогноз</h4>
+      <h4 class="chart-title">Факт vs Прогноз<span class="help-icon" title={HELP.avpChart}>?</span></h4>
       <EChartBase option={avpOption} height="260px" />
     </div>
   {/if}
@@ -222,5 +249,27 @@
     margin: 0;
     font-size: 11px;
     color: var(--text-secondary, #94a3b8);
+  }
+
+  .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text-secondary, #94a3b8) 18%, transparent);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: help;
+    user-select: none;
+    vertical-align: middle;
+    transition: background 0.15s, color 0.15s;
+  }
+  .help-icon:hover {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
+    color: var(--accent-primary, #3b82f6);
   }
 </style>

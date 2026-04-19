@@ -94,6 +94,23 @@ pub struct AuthResponse {
     pub update_required: bool,
     #[serde(default)]
     pub update_url: Option<String>,
+    // v3 fields (Phase 5) — optional, ignored by older clients
+    #[serde(default)]
+    pub vault_versions: Option<std::collections::HashMap<String, u32>>,
+    #[serde(default)]
+    pub vault_checksums: Option<serde_json::Value>,
+    #[serde(default)]
+    pub content_pack_version: Option<u32>,
+    #[serde(default)]
+    pub content_pack_url: Option<String>,
+    #[serde(default)]
+    pub content_pack_checksum: Option<String>,
+    #[serde(default)]
+    pub frontend_version: Option<u32>,
+    #[serde(default)]
+    pub frontend_url: Option<String>,
+    #[serde(default)]
+    pub frontend_checksum: Option<String>,
 }
 
 /// Cached auth response stored on disk.
@@ -126,6 +143,14 @@ pub struct OnlineAuthStatus {
     pub message: Option<String>,
     pub update_required: bool,
     pub update_url: Option<String>,
+    // v3 fields (Phase 5)
+    pub vault_versions: Option<std::collections::HashMap<String, u32>>,
+    pub content_pack_version: Option<u32>,
+    pub content_pack_url: Option<String>,
+    pub content_pack_checksum: Option<String>,
+    pub frontend_version: Option<u32>,
+    pub frontend_url: Option<String>,
+    pub frontend_checksum: Option<String>,
 }
 
 // ── Session ID (per-launch, NOT persisted) ────────────────
@@ -295,6 +320,13 @@ pub async fn authorize(
                     message: None,
                     update_required: resp.update_required,
                     update_url: resp.update_url,
+                    vault_versions: resp.vault_versions,
+                    content_pack_version: resp.content_pack_version,
+                    content_pack_url: resp.content_pack_url,
+                    content_pack_checksum: resp.content_pack_checksum,
+                    frontend_version: resp.frontend_version,
+                    frontend_url: resp.frontend_url,
+                    frontend_checksum: resp.frontend_checksum,
                 }
             } else {
                 // Server responded but denied access
@@ -309,6 +341,13 @@ pub async fn authorize(
                     message: resp.message,
                     update_required: false,
                     update_url: None,
+                    vault_versions: None,
+                    content_pack_version: None,
+                    content_pack_url: None,
+                    content_pack_checksum: None,
+                    frontend_version: None,
+                    frontend_url: None,
+                    frontend_checksum: None,
                 }
             }
         }
@@ -329,6 +368,13 @@ pub async fn authorize(
                     message: Some("Работа по кэшу (сервер недоступен)".to_string()),
                     update_required: cached.update_required,
                     update_url: cached.update_url,
+                    vault_versions: cached.vault_versions,
+                    content_pack_version: cached.content_pack_version,
+                    content_pack_url: cached.content_pack_url,
+                    content_pack_checksum: cached.content_pack_checksum,
+                    frontend_version: cached.frontend_version,
+                    frontend_url: cached.frontend_url,
+                    frontend_checksum: cached.frontend_checksum,
                 }
             } else {
                 // No cache — caller should try offline Ed25519
@@ -343,6 +389,13 @@ pub async fn authorize(
                     message: Some("Сервер недоступен, кэш отсутствует".to_string()),
                     update_required: false,
                     update_url: None,
+                    vault_versions: None,
+                    content_pack_version: None,
+                    content_pack_url: None,
+                    content_pack_checksum: None,
+                    frontend_version: None,
+                    frontend_url: None,
+                    frontend_checksum: None,
                 }
             }
         }

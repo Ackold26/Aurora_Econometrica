@@ -160,15 +160,22 @@
   let mcmcDraws = $state(2000);
   let mcmcTune = $state(2000);
 
-  // ── Time estimate (heuristic: ~0.5s per draw × chains for Metropolis, ~0.15s for NUTS) ──
+  // ── Time estimate ──
+  // Backend: JAX 0.7.2 + NumPyro 0.20.1 NUTS, скомпилированный XLA на CPU.
+  // Реальные замеры (S8 Кагоцел, 31 точка, 6 каналов, 4×2000+2000 = 16 000 samples):
+  //   ~5-10 мс / sample + ~15-30 сек JIT compile при первом запуске.
+  // Старая формула (0.3 с × max(channels/4,1)) давала 160 мин для того же прогона — оверкилл.
   const enabledCount = $derived(Object.values(channelEnabled).filter(Boolean).length);
   const estimateMinutes = $derived.by(() => {
     const chains = showAdvanced ? mcmcChains : 4;
     const draws = showAdvanced ? mcmcDraws : 2000;
     const tune = showAdvanced ? mcmcTune : 2000;
     const totalSamples = (draws + tune) * chains;
-    const secPerSample = 0.3 * Math.max(enabledCount / 4, 1); // scales with channels
-    return Math.max(1, Math.round(totalSamples * secPerSample / 60));
+    // ~5 мс базово + ~0.8 мс на каждый канал (adstock+hill трансформации)
+    const secPerSample = 0.005 + enabledCount * 0.0008;
+    const jitCompileSec = 20; // one-time cost перед sampling
+    const totalSec = totalSamples * secPerSample + jitCompileSec;
+    return Math.max(1, Math.ceil(totalSec / 60));
   });
 
   // Auto-warning when defaults may be slow for the current project shape.

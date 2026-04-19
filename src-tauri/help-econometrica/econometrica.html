@@ -473,22 +473,23 @@ tr:hover td { background: var(--bg3); }
 <!-- ═══════════════════════════════════════════════
      TECHNICAL
 ═══════════════════════════════════════════════ -->
-<h2>Технические детали</h2>
+<h2>Математическая основа</h2>
 
 <table>
-  <tr><th>Компонент</th><th>Технология</th></tr>
-  <tr><td>Интерфейс</td><td>Tauri v2 + SvelteKit 5 (WebView2 на Windows)</td></tr>
-  <tr><td>Вычислительный движок</td><td>Python FastAPI, порт 7430 (только localhost)</td></tr>
-  <tr><td>MMM-модель</td><td>PyMC-Marketing — Bayesian Marketing Mix Model</td></tr>
-  <tr><td>MCMC-семплер</td><td>PyMC (NUTS, по умолчанию 1000 draws × 4 chains)</td></tr>
-  <tr><td>Оптимизация бюджета</td><td>scipy SLSQP (client-side Hill function)</td></tr>
-  <tr><td>Кривые насыщения</td><td>Hill function: <code>f(x) = α · x^γ / (β^γ + x^γ)</code></td></tr>
-  <tr><td>Хранение данных</td><td>Локально в папке проекта, без облака</td></tr>
+  <tr><th>Компонент</th><th>Метод</th></tr>
+  <tr><td>MMM-модель</td><td>Bayesian Marketing Mix Model</td></tr>
+  <tr><td>Инференс</td><td>NUTS (No-U-Turn Sampler), Markov Chain Monte Carlo. Дефолт — 4 цепи × (2000 warmup + 2000 samples)</td></tr>
+  <tr><td>Adstock</td><td>Geometric для digital, Weibull для TV / Radio / OOH / Press</td></tr>
+  <tr><td>Saturation</td><td>Hill function: <code>f(x) = α · x^γ / (β^γ + x^γ)</code></td></tr>
+  <tr><td>Оптимизация бюджета</td><td>SLSQP (локальная оптимизация с constraints)</td></tr>
+  <tr><td>Хранение данных</td><td>Локально в папке проекта — без облака и внешних серверов</td></tr>
 </table>
+
+<p>Полная методология (включая Trust Levels, MQS-формулу и сравнение с Robyn / LightweightMMM) — в разделе <a href="methodology.html">Методология MMM</a>.</p>
 
 <div class="page-footer">
   <span>Aurora AI Econometrica · Visual Pipeline</span>
-  <span><a href="econometrist.html">Справка по кабинету эконометриста →</a></span>
+  <span><a href="user-guide.html">Руководство пользователя →</a></span>
 </div>
 
 </div>

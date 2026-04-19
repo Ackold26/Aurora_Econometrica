@@ -6,17 +6,24 @@
   'use strict';
 
   const PAGES = [
-    { id: 'index',        title: 'Быстрый старт',          group: 'start',    keywords: 'начало старт обзор лицензия запуск' },
-    { id: 'about',        title: 'О платформе',             group: 'start',    keywords: 'платформа автор безопасность технологии' },
-    { id: 'error-codes',  title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
+    { id: 'index',             title: 'Быстрый старт',          group: 'start',    keywords: 'начало старт обзор лицензия запуск' },
+    { id: 'about',             title: 'О продукте',              group: 'start',    keywords: 'продукт автор эконометрика MMM' },
+    { id: 'user-guide',        title: 'Руководство пользователя', group: 'start',   keywords: 'руководство гайд инструкция шаги' },
+    { id: 'system-requirements', title: 'Системные требования',  group: 'start',    keywords: 'требования компьютер оборудование ОС windows RAM CPU диск python jax numpyro зависимости' },
+    { id: 'faq',               title: 'FAQ и troubleshooting',   group: 'start',    keywords: 'вопросы проблемы troubleshooting python mcmc' },
+    { id: 'error-codes',       title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
 
-    { id: 'econometrica', title: 'Visual Pipeline (MMM)',   group: 'pipeline', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица KPI медиа adstock обучение модель декомпозиция оптимизация отчёт xlsx' },
-    { id: 'econometrist', title: 'Эконометрист (чат)',      group: 'pipeline', keywords: 'MMM эконометрика ROI декомпозиция бюджет оптимизация awareness validate train чат команды' },
+    { id: 'data-preparation',  title: 'Подготовка данных',       group: 'data',     keywords: 'данные подготовка структура столбцы kpi media control date формат недельные помесячные FMCG pharma фарма объём ratio csv xlsx' },
+    { id: 'pipeline',          title: 'Pipeline: 5 шагов',       group: 'data',     keywords: 'pipeline validate train decompose optimize report шаги процесс' },
+    { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
+
+    { id: 'econometrica',      title: 'Visual Pipeline (UI)',    group: 'pipeline', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица KPI медиа adstock обучение модель декомпозиция оптимизация отчёт xlsx' },
   ];
 
   const GROUPS = {
-    start:    { label: 'Начало',   color: '#2E5BFF' },
-    pipeline: { label: 'Pipeline', color: '#58a6ff' },
+    start:    { label: 'Начало',    color: '#2E5BFF' },
+    data:     { label: 'Данные и MMM', color: '#3fb950' },
+    pipeline: { label: 'Интерфейс',  color: '#58a6ff' },
   };
 
   // Determine current page
@@ -28,7 +35,10 @@
     nav.id = 'aurora-nav';
     nav.innerHTML = `
       <div class="anav-inner">
-        <a href="index.html" class="anav-logo">Econometrica</a>
+        <a href="index.html" class="anav-logo" title="Aurora AI Econometrica — справочный центр">
+          <img src="logo-wordmark.png" alt="Aurora AI" class="anav-logo-img" />
+          <span class="anav-logo-text">Econometrica</span>
+        </a>
         <div class="anav-groups">
           ${Object.entries(GROUPS).map(([gid, g]) => {
             const items = PAGES.filter(p => p.group === gid);
@@ -66,13 +76,21 @@
         padding: 8px 20px; height: 48px;
       }
       .anav-logo {
-        font-size: 15px; font-weight: 700; color: #fff; text-decoration: none;
-        letter-spacing: -0.02em; white-space: nowrap; margin-right: 12px;
-        background: linear-gradient(135deg, #58a6ff, #3fb950);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        display: inline-flex; align-items: center; gap: 8px;
+        text-decoration: none; white-space: nowrap; margin-right: 14px;
+      }
+      .anav-logo-img {
+        height: 22px; width: auto; opacity: 0.92;
+      }
+      .anav-logo-text {
+        font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
+        color: #e6edf3; text-transform: uppercase;
       }
       .anav-groups { display: flex; gap: 2px; }
-      .anav-group { position: relative; }
+      /* padding-bottom расширяет hover-зону группы на область между кнопкой и dropdown —
+         без этого mouseleave срабатывает в 4-пиксельной "мёртвой зоне" и меню исчезает
+         до того как курсор доберётся до пункта. */
+      .anav-group { position: relative; padding-bottom: 6px; margin-bottom: -6px; }
       .anav-group-btn {
         background: none; border: 1px solid transparent; color: #8b949e;
         font-size: 12.5px; font-weight: 600; padding: 6px 12px;
@@ -85,7 +103,8 @@
         display: none; position: absolute; top: 100%; left: 0;
         background: #161b22; border: 1px solid rgba(255,255,255,0.1);
         border-radius: 8px; padding: 6px; min-width: 200px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5); margin-top: 4px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        /* margin-top убран — hover-зона группы теперь бесшовная (см. padding-bottom выше) */
       }
       .anav-group:hover .anav-dropdown { display: block; }
       .anav-dropdown a {

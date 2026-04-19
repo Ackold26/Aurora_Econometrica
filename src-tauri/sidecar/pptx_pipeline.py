@@ -12,10 +12,25 @@ Requirements: python-pptx, python-docx
 """
 
 import sys
+import io
 import json
 import os
 import re
 from pathlib import Path
+
+# Force UTF-8 for stdout/stderr on Windows (cp1251 breaks Cyrillic JSON output)
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+# Remove XML-incompatible control characters (keeps \t, \n, \r)
+_CONTROL_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]')
+
+def sanitize_xml(text):
+    """Strip control chars that lxml/python-docx rejects."""
+    if not text:
+        return text
+    return _CONTROL_RE.sub('', text)
 
 try:
     from pptx import Presentation
@@ -271,7 +286,7 @@ def preprocess(input_path, output_dir):
         "slides_json": str(slides_path),
         "styles_json": str(styles_path),
     }
-    print(json.dumps(summary, ensure_ascii=False))
+    print(json.dumps(summary, ensure_ascii=True))
 
 
 # ─── INJECT NOTES ─────────────────────────────────────────────────────
@@ -466,22 +481,22 @@ def generate_docx(input_path, notes_path, styles_path, output_path):
             continue
 
         # Section header
-        title = slide_titles.get(num, f"Слайд {num}")
-        doc.add_heading(f"Слайд {num}: {title}", level=2)
+        title = sanitize_xml(slide_titles.get(num, f"Слайд {num}"))
+        doc.add_heading(sanitize_xml(f"Слайд {num}: {title}"), level=2)
 
         # Get notes text
         if "text" in entry:
-            notes_text = entry["text"]
+            notes_text = sanitize_xml(entry["text"])
         else:
             parts = []
             if entry.get("action_title"):
-                parts.append(f"ACTION TITLE: {entry['action_title']}")
+                parts.append(f"ЗАГОЛОВОК: {sanitize_xml(entry['action_title'])}")
             if entry.get("ceo"):
-                parts.append(f"[CEO] {entry['ceo']}")
+                parts.append(f"[CEO] {sanitize_xml(entry['ceo'])}")
             if entry.get("cmo"):
-                parts.append(f"[CMO] {entry['cmo']}")
+                parts.append(f"[CMO] {sanitize_xml(entry['cmo'])}")
             if entry.get("bm"):
-                parts.append(f"[BM] {entry['bm']}")
+                parts.append(f"[BM] {sanitize_xml(entry['bm'])}")
             notes_text = "\n\n".join(parts) if parts else ""
 
         if not notes_text.strip():
@@ -607,7 +622,7 @@ def generate_docx_with_synthesis(input_path, notes_path, styles_path, synthesis_
     synthesis_md = ""
     if synthesis_path and os.path.exists(synthesis_path):
         with open(synthesis_path, "r", encoding="utf-8") as f:
-            synthesis_md = f.read()
+            synthesis_md = sanitize_xml(f.read())
 
     # Get slide titles from PPTX
     prs = Presentation(input_path)
@@ -634,10 +649,27 @@ def generate_docx_with_synthesis(input_path, notes_path, styles_path, synthesis_
         if primary_font == "Calibri" and styles["fonts"]:
             primary_font = styles["fonts"][0]
 
+    # Determine font sizes from PPTX styles
+    pptx_sizes = sorted(styles.get("sizes", []))
+    body_size = 11  # default
+    heading_size = 14  # default
+    if pptx_sizes:
+        # Body = most common small size (typically 10-14pt)
+        body_candidates = [s for s in pptx_sizes if 8 <= s <= 16]
+        if body_candidates:
+            body_size = body_candidates[len(body_candidates) // 2]  # median
+        # Heading = largest size
+        heading_size = max(pptx_sizes[- 1], body_size + 2)
+
     doc = Document()
     style = doc.styles["Normal"]
     style.font.name = primary_font
-    style.font.size = DocxPt(11)
+    style.font.size = DocxPt(body_size)
+
+    # Apply font to heading styles too
+    for level in range(1, 4):
+        hs = doc.styles[f"Heading {level}"]
+        hs.font.name = primary_font
 
     # Title
     pptx_name = Path(input_path).stem
@@ -666,21 +698,21 @@ def generate_docx_with_synthesis(input_path, notes_path, styles_path, synthesis_
         if num is None:
             continue
 
-        title = slide_titles.get(num, f"Слайд {num}")
-        doc.add_heading(f"Слайд {num}: {title}", level=2)
+        title = sanitize_xml(slide_titles.get(num, f"Слайд {num}"))
+        doc.add_heading(sanitize_xml(f"Слайд {num}: {title}"), level=2)
 
         if "text" in entry:
-            notes_text = entry["text"]
+            notes_text = sanitize_xml(entry["text"])
         else:
             parts = []
             if entry.get("action_title"):
-                parts.append(f"ACTION TITLE: {entry['action_title']}")
+                parts.append(f"ЗАГОЛОВОК: {sanitize_xml(entry['action_title'])}")
             if entry.get("ceo"):
-                parts.append(f"[CEO] {entry['ceo']}")
+                parts.append(f"[CEO] {sanitize_xml(entry['ceo'])}")
             if entry.get("cmo"):
-                parts.append(f"[CMO] {entry['cmo']}")
+                parts.append(f"[CMO] {sanitize_xml(entry['cmo'])}")
             if entry.get("bm"):
-                parts.append(f"[BM] {entry['bm']}")
+                parts.append(f"[BM] {sanitize_xml(entry['bm'])}")
             notes_text = "\n\n".join(parts) if parts else ""
 
         if not notes_text.strip():
@@ -693,29 +725,36 @@ def generate_docx_with_synthesis(input_path, notes_path, styles_path, synthesis_
                 continue
 
             para = doc.add_paragraph()
-            if line.startswith("ACTION TITLE:"):
-                run = para.add_run(line)
+            if line.startswith("ЗАГОЛОВОК:") or line.startswith("ACTION TITLE:"):
+                run = para.add_run(sanitize_xml(line))
                 run.bold = True
-                run.font.size = DocxPt(12)
+                run.font.name = primary_font
+                run.font.size = DocxPt(body_size + 1)
                 run.font.color.rgb = RGBColor(0x1E, 0x40, 0xAF)
             elif line.startswith("[CEO]"):
                 run_marker = para.add_run("[CEO] ")
                 run_marker.bold = True
+                run_marker.font.name = primary_font
                 run_marker.font.color.rgb = RGBColor(0xDC, 0x26, 0x26)
-                run_text = para.add_run(line[5:].strip())
-                run_text.font.size = DocxPt(11)
+                run_text = para.add_run(sanitize_xml(line[5:].strip()))
+                run_text.font.name = primary_font
+                run_text.font.size = DocxPt(body_size)
             elif line.startswith("[CMO]"):
                 run_marker = para.add_run("[CMO] ")
                 run_marker.bold = True
+                run_marker.font.name = primary_font
                 run_marker.font.color.rgb = RGBColor(0xEA, 0x58, 0x0C)
-                run_text = para.add_run(line[5:].strip())
-                run_text.font.size = DocxPt(11)
+                run_text = para.add_run(sanitize_xml(line[5:].strip()))
+                run_text.font.name = primary_font
+                run_text.font.size = DocxPt(body_size)
             elif line.startswith("[BM]"):
                 run_marker = para.add_run("[BM] ")
                 run_marker.bold = True
+                run_marker.font.name = primary_font
                 run_marker.font.color.rgb = RGBColor(0x16, 0xA3, 0x4A)
-                run_text = para.add_run(line[4:].strip())
-                run_text.font.size = DocxPt(11)
+                run_text = para.add_run(sanitize_xml(line[4:].strip()))
+                run_text.font.name = primary_font
+                run_text.font.size = DocxPt(body_size)
             else:
                 para.add_run(line)
 

@@ -149,3 +149,7 @@ export const THEME_ICONS = { dark: '\u{1F319}', light: '\u{2600}', fun: '\u{1F30
 /** Cabinet-specific onboarding state: {cabinetId: {step: number, completed: boolean}}
  * @type {import('svelte/store').Writable<Record<string, {step: number, completed: boolean}>>} */
 export const cabinetOnboarding = createPersistentStore('ai-agency-cabinet-onboarding', {});
+
+/** License/auth error from layout — shared so +page.svelte can display it.
+ * @type {import('svelte/store').Writable<string|null>} */
+export const licenseError = writable(null);

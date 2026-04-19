@@ -9,6 +9,7 @@
  * @module project-state
  */
 import { writable, derived, get } from 'svelte/store';
+import { invoke } from '@tauri-apps/api/core';
 
 /** @type {import('svelte/store').Writable<string|null>} Active project ID */
 export const activeProjectId = writable(null);
@@ -197,6 +198,108 @@ export const decomposeData = writable(null);
 
 /** @type {import('svelte/store').Writable<any|null>} */
 export const optimizeData = writable(null);
+
+/**
+ * Восстановить данные pipeline из `results/*.json` при активации проекта.
+ *
+ * Предыстория: до S9 stepMeta кешируется в localStorage, но сами данные шагов
+ * (modelData/decomposeData/optimizeData) — только в памяти. После перезапуска
+ * app stepper показывает ✓ (complete из localStorage), а ReportStep видит
+ * пустые сторы и кричит «данных нет». Эта функция читает results/*.json
+ * через Rust-команду и заполняет сторы — приводит UI в консистентное состояние.
+ *
+ * Ограничения: channelParams / normalization лежат в pickle (не JSON), поэтому
+ * re-train модели требуется для повторной оптимизации. Для Report + Insights
+ * хватает diagnostics (из model-diagnostics.json) + decompose + optimize.
+ *
+ * @param {string | null} pid — project id; при null — ничего не делает.
+ */
+async function restoreProjectResults(pid) {
+  if (!pid) return;
+  try {
+    const r = /** @type {any} */ (await invoke('project_load_results', { projectId: pid }));
+    const hasValidation = Boolean(r.validation);
+    const hasModel = Boolean(r.modelDiagnostics);
+    const hasDecompose = Boolean(r.decomposition);
+    const hasOptimize = Boolean(r.optimization);
+
+    if (hasModel) {
+      modelData.update(m => ({
+        ...m,
+        diagnostics: r.modelDiagnostics,
+        normalization: r.modelDiagnostics?.normalization ?? m.normalization,
+      }));
+    }
+    if (hasDecompose) decomposeData.set(r.decomposition);
+    if (hasOptimize) optimizeData.set(r.optimization);
+    if (hasValidation) {
+      validateData.set({
+        result: r.validation,
+        correlationMatrix: r.validation?.full_correlation_matrix ?? null,
+        columnHistograms: null, // histograms не сохраняются отдельно
+      });
+    }
+
+    // Синхронизировать stepMeta с реальным наличием данных на диске.
+    // Иначе остаточный status='error' с прошлых сессий висит на шагах,
+    // до которых пользователь ещё не дошёл (например, «Декомпозиция ❌»
+    // пока работаешь на «Валидация»).
+    reconcileStepMetaFromDisk({ hasValidation, hasModel, hasDecompose, hasOptimize });
+  } catch (e) {
+    // Silent: отсутствие results/* — норма для нового проекта.
+    console.warn('restoreProjectResults skipped:', e);
+  }
+}
+
+/**
+ * Привести stepMeta в соответствие с фактическими результатами на диске.
+ * Шаг с данными → complete. Шаг без данных, но с complete-предшественником → ready.
+ * Остальные → locked. Все error-статусы, не подкреплённые данными, сбрасываются.
+ *
+ * @param {{hasValidation: boolean, hasModel: boolean, hasDecompose: boolean, hasOptimize: boolean}} flags
+ */
+function reconcileStepMetaFromDisk(flags) {
+  const { hasValidation, hasModel, hasDecompose, hasOptimize } = flags;
+  // Step 0 (Import): если есть validation, значит импорт и валидация прошли успешно.
+  // Сам факт наличия validation.json подразумевает что файл был импортирован.
+  const stepStatuses = /** @type {StepStatus[]} */ ([
+    hasValidation ? 'complete' : 'ready',         // 0 — Import
+    hasValidation ? 'complete' : 'locked',        // 1 — Validate
+    hasModel     ? 'complete' : (hasValidation ? 'ready' : 'locked'),  // 2 — Model
+    hasDecompose ? 'complete' : (hasModel ? 'ready' : 'locked'),       // 3 — Decompose
+    hasOptimize  ? 'complete' : (hasDecompose ? 'ready' : 'locked'),   // 4 — Optimize
+    (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 5 — Report
+  ]);
+  pipelineStepMeta.set(stepStatuses.map(status => ({ status, errorMessage: null })));
+
+  // Persist pristine state в localStorage + поправить currentStep если он указывает
+  // на шаг который теперь locked (после сброса error).
+  const curStep = get(pipelineCurrentStep);
+  const curStatus = stepStatuses[curStep];
+  if (curStatus === 'locked') {
+    // Откатиться к последнему complete шагу или к ready.
+    const lastUsable = stepStatuses.findLastIndex(s => s === 'complete' || s === 'ready');
+    if (lastUsable >= 0 && lastUsable !== curStep) {
+      pipelineCurrentStep.set(lastUsable);
+    }
+  }
+  savePipelineMeta(get(activeProjectId), {
+    currentStep: get(pipelineCurrentStep),
+    steps: get(pipelineStepMeta),
+  });
+}
+
+// Автовосстановление при смене активного проекта (и при cold start после
+// восстановления activeProjectId из backend). Выполняется один раз per pid.
+let _lastRestoredPid = /** @type {string | null} */ (null);
+activeProjectId.subscribe((pid) => {
+  if (pid && pid !== _lastRestoredPid) {
+    _lastRestoredPid = pid;
+    restoreProjectResults(pid);
+  } else if (!pid) {
+    _lastRestoredPid = null;
+  }
+});
 
 /**
  * Live-state оптимизатора — положение слайдеров в блоке B до нажатия «Оптимизировать».

@@ -336,6 +336,14 @@ impl SessionManager {
         sessions.get(cabinet_id).and_then(|s| s.claude_session_id.clone())
     }
 
+    pub fn clear_claude_session_id(&self, cabinet_id: &str) {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(session) = sessions.get_mut(cabinet_id) {
+            debug!("Clearing Claude session_id for {cabinet_id}");
+            session.claude_session_id = None;
+        }
+    }
+
     /// [DEV ONLY] Open a session directly from a source directory (no vault decryption).
     #[cfg(debug_assertions)]
     pub fn open_dev_session(
@@ -347,8 +355,14 @@ impl SessionManager {
         let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
 
         if let Some(existing) = sessions.get(cabinet_id) {
-            debug!("[DEV] Reusing existing session for {cabinet_id}");
-            return Ok(existing.work_dir.clone());
+            // Re-sync cabinet files from source on every open (hot-reload friendly)
+            let work = &existing.work_dir;
+            if let Err(e) = copy_dir_recursive(source_dir, work) {
+                warn!("[DEV] Failed to re-sync cabinet files: {e}");
+            } else {
+                debug!("[DEV] Re-synced prompts from {}", source_dir.display());
+            }
+            return Ok(work.clone());
         }
 
         let session_uid = uuid::Uuid::new_v4().to_string();

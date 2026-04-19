@@ -99,7 +99,7 @@ export function shouldRenderStructured(sections) {
 }
 
 /** @type {RegExp} */
-const SLIDE_RE = /^(?:Слайд|Slide)\s*№?\s*\d+/i;
+const SLIDE_RE = /^(?:(?:Слайд|Slide)\s*№?\s*\d+|\d+\.\s)/i;
 
 /** @type {RegExp} */
 const SYNTH_RE = /^(EXECUTIVE SUMMARY|ОБЩИЙ ВЫВОД|БЛОК:|МОСТЫ|РЕКОМЕНДАЦИИ)/i;
@@ -111,6 +111,17 @@ const SYNTH_RE = /^(EXECUTIVE SUMMARY|ОБЩИЙ ВЫВОД|БЛОК:|МОСТЫ
  */
 export function isSlideDeckResponse(sections) {
   return sections.filter(s => SLIDE_RE.test(s.title)).length >= 5;
+}
+
+/**
+ * Check if response has enough structured sections (## headings) for content panel.
+ * Works for any command output: aurora-index, executive-summary, bridges, etc.
+ * @param {ResponseSection[]} sections
+ * @returns {boolean}
+ */
+export function isStructuredResponse(sections) {
+  // At least 3 titled sections (excludes preamble with empty title)
+  return sections.filter(s => s.title && s.title.trim()).length >= 3;
 }
 
 /**
@@ -146,11 +157,69 @@ export function splitSlideSections(sections) {
 }
 
 /**
+ * Extract completion statistics from parsed sections for Completion Summary Card.
+ * @param {ResponseSection[]} sections
+ * @returns {{ slides: number, recommendations: number, anomalies: number, bridges: number }}
+ */
+export function extractCompletionStats(sections) {
+  const slides = sections.filter(s => SLIDE_RE.test(s.title)).length;
+  let recommendations = 0;
+  let anomalies = 0;
+  let bridges = 0;
+
+  for (const s of sections) {
+    if (/РЕКОМЕНДАЦИИ/i.test(s.title)) {
+      recommendations = (s.content.match(/^\d+\./gm) || []).length;
+    }
+    if (/МОСТЫ/i.test(s.title)) {
+      bridges = (s.content.match(/^\d+\./gm) || []).length;
+    }
+    const anomalyMatches = s.content.match(/аномал|отклонен|выброс|резк/gi);
+    if (anomalyMatches) anomalies += anomalyMatches.length;
+  }
+
+  return { slides, recommendations, anomalies: Math.min(anomalies, 10), bridges };
+}
+
+/**
+ * C5: Group slides into named blocks based on synthesis section headings.
+ * Synthesis sections matching "БЛОК: Name — слайды X-Y" define groups.
+ * Slides not matching any block are placed in "Прочее" (if other groups exist).
+ * Fallback: single group with empty name containing all slides (flat list).
+ * @param {ResponseSection[]} slides
+ * @param {ResponseSection[]} synthesis
+ * @returns {Array<{ name: string, slides: ResponseSection[] }>}
+ */
+export function groupSlidesByBlocks(slides, synthesis) {
+  const blockRe = /БЛОК:\s*(.+?)(?:\s*[—–\-]\s*слайды?\s*(\d+)\s*[-–—]\s*(\d+))?/i;
+  /** @type {Array<{ name: string, slides: ResponseSection[] }>} */
+  const groups = [];
+  for (const sec of synthesis) {
+    const m = sec.title.match(blockRe);
+    if (m) {
+      const name = m[1].trim();
+      const from = m[2] ? +m[2] : 0;
+      const to = m[3] ? +m[3] : 999;
+      const blockSlides = slides.filter(s => {
+        const num = cleanSlideTitle(s.title).num;
+        return num >= from && num <= to;
+      });
+      if (blockSlides.length > 0) groups.push({ name, slides: blockSlides });
+    }
+  }
+  const grouped = new Set(groups.flatMap(g => g.slides));
+  const ungrouped = slides.filter(s => !grouped.has(s));
+  if (ungrouped.length > 0 && groups.length > 0) groups.push({ name: 'Прочее', slides: ungrouped });
+  return groups.length > 0 ? groups : [{ name: '', slides }];
+}
+
+/**
  * Extract clean slide number and name from a "Слайд N: Title" heading.
  * @param {string} title
  * @returns {{ num: number, name: string }}
  */
 export function cleanSlideTitle(title) {
-  const m = title.match(/^(?:Слайд|Slide)\s*№?\s*(\d+)\s*[:.—–\-]?\s*(.*)/i);
+  const m = title.match(/^(?:Слайд|Slide)\s*№?\s*(\d+)\s*[:.—–\-]?\s*(.*)/i)
+         || title.match(/^(\d+)\.\s+(.*)/);
   return m ? { num: +m[1], name: m[2].trim() || `Слайд ${m[1]}` } : { num: 0, name: title };
 }

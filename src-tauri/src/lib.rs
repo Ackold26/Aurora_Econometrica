@@ -1585,6 +1585,11 @@ fn pptx_postprocess(
 
 #[tauri::command]
 fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    // Sanitize: защита от path traversal через имя
+    if !cabinet_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err("Invalid help page id".to_string());
+    }
+
     // 1. Try content pack help first
     if let Ok(local_data_dir) = app_handle.path().app_local_data_dir() {
         if let Some(path) = content_pack::help_file_path(&local_data_dir, &cabinet_id) {
@@ -1594,17 +1599,30 @@ fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), Str
         }
     }
 
-    // 2. Fallback to bundled resource (check help-econometrica/ and _up_ variant)
-    let res_dir = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
+    // 2. Bundled resource (prod) — проверяем обе папки
     let filename = format!("{}.html", cabinet_id);
-    let resource_path = ["help-econometrica", "help"]
-        .iter()
-        .map(|d| res_dir.join(d).join(&filename))
-        .find(|p| p.exists())
-        .ok_or_else(|| format!("Help file not found for cabinet: {}", cabinet_id))?;
+    if let Ok(res_dir) = app_handle.path().resource_dir() {
+        if let Some(path) = ["help-econometrica", "help"]
+            .iter()
+            .map(|d| res_dir.join(d).join(&filename))
+            .find(|p| p.exists())
+        {
+            return tauri_plugin_opener::open_path(&path.to_string_lossy().to_string(), None::<&str>)
+                .map_err(|e| e.to_string());
+        }
+    }
 
-    let path_str = resource_path.to_string_lossy().to_string();
-    tauri_plugin_opener::open_path(&path_str, None::<&str>).map_err(|e| e.to_string())
+    // 3. Dev fallback — resource_dir в dev-режиме указывает на target/debug,
+    // где help-econometrica/ может не быть. Читаем напрямую из src-tauri/.
+    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("help-econometrica")
+        .join(&filename);
+    if dev_path.exists() {
+        return tauri_plugin_opener::open_path(&dev_path.to_string_lossy().to_string(), None::<&str>)
+            .map_err(|e| e.to_string());
+    }
+
+    Err(format!("Help page not found: {}.html", cabinet_id))
 }
 
 #[tauri::command]
@@ -2854,6 +2872,14 @@ async fn econ_sidecar_wait_ready(timeout_ms: Option<u64>) -> bool {
     econ_sidecar::wait_for_sidecar_ready().await
 }
 
+/// Force-restart the econometrica sidecar. Called from UI "Перезапустить модуль" button.
+/// Clears banned cooldown, kills any zombie process, spawns fresh, waits for health.
+#[tauri::command]
+async fn econ_sidecar_restart() -> Result<(), String> {
+    econ_sidecar::force_restart().await
+}
+
+
 fn stop_rag_server() {
     if let Some(lock) = RAG_PROCESS.get() {
         if let Some(mut child) = lock.lock().unwrap().take() {
@@ -2976,6 +3002,8 @@ fn build_app() -> Result<(), String> {
 
             // Start Econometrica Python sidecar (FastAPI on :7430)
             econ_sidecar::start_sidecar(app.handle());
+            // Proactive watchdog — respawns sidecar on freeze/crash during runtime
+            econ_sidecar::spawn_watchdog();
 
             Ok(())
         })
@@ -3089,6 +3117,7 @@ fn build_app() -> Result<(), String> {
             repair_frontend,
             // Econometrica pipeline commands
             econ_sidecar_wait_ready,
+            econ_sidecar_restart,
             commands::econometrica::econ_health,
             commands::econometrica::econ_validate,
             commands::econometrica::econ_train,
@@ -3118,6 +3147,7 @@ fn build_app() -> Result<(), String> {
             commands::project::project_get_active,
             commands::project::project_get_dir,
             commands::project::project_stats,
+            commands::project::project_load_results,
             // Report generation commands
             commands::report::econ_generate_report,
             commands::report::econ_export_xlsx,

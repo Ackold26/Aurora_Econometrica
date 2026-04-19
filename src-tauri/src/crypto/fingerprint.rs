@@ -1,12 +1,20 @@
 use anyhow::Result;
 use log::info;
 use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
 
 use crate::errors::{coded_err, ErrorCode};
 
+/// Cached fingerprint — WMI queries are expensive (~100ms each), called 6+ times per session.
+static FINGERPRINT_CACHE: OnceLock<String> = OnceLock::new();
+
 /// Collects machine-unique identifiers and produces a SHA-256 fingerprint.
 /// Components: Machine UUID + Disk Serial + Motherboard Serial.
+/// Result is cached after first computation (hardware doesn't change at runtime).
 pub fn get_machine_fingerprint() -> Result<String> {
+    if let Some(cached) = FINGERPRINT_CACHE.get() {
+        return Ok(cached.clone());
+    }
     let components = collect_hw_ids()?;
     let mut hasher = Sha256::new();
     for component in &components {
@@ -14,7 +22,9 @@ pub fn get_machine_fingerprint() -> Result<String> {
         hasher.update(b"|");
     }
     let hash = hasher.finalize();
-    Ok(hex::encode(hash))
+    let fp = hex::encode(hash);
+    let _ = FINGERPRINT_CACHE.set(fp.clone());
+    Ok(fp)
 }
 
 #[cfg(windows)]

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Системные требования — Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+.sub { font-size: 15px; color: var(--text2); margin-bottom: 32px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+td { padding: 9px 12px; border-top: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
+
+.tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0; }
+.tier-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; border-top: 3px solid; }
+.tier-card.min { border-top-color: var(--amber); }
+.tier-card.rec { border-top-color: var(--accent); }
+.tier-card.best { border-top-color: var(--green); }
+.tier-card .label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.tier-card h4 { font-size: 16px; margin: 4px 0 10px; color: var(--text); }
+.tier-card .spec { font-size: 13px; color: var(--text2); line-height: 1.65; }
+.tier-card .spec strong { color: var(--text); }
+
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.callout p { font-size: 13.5px; margin: 0; line-height: 1.55; }
+.c-info { background: rgba(88,166,255,0.06); border-color: rgba(88,166,255,0.25); }
+.c-info .c-title { color: var(--accent); }
+.c-warn { background: rgba(210,153,34,0.06); border-color: rgba(210,153,34,0.3); }
+.c-warn .c-title { color: var(--amber); }
+.c-ok { background: rgba(63,185,80,0.06); border-color: rgba(63,185,80,0.3); }
+.c-ok .c-title { color: var(--green); }
+
+@media (max-width: 720px) { .tier-grid { grid-template-columns: 1fr; } }
+
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>Системные требования</h1>
+<p class="sub">Что нужно для комфортной работы Aurora AI Econometrica и байесовского моделирования.</p>
+
+<h2>Операционная система</h2>
+<ul>
+  <li><strong>Windows 10 64-bit (версия 1903+) или Windows 11</strong> — основная поддерживаемая платформа.</li>
+  <li><strong>Системный WebView2</strong> — обычно предустановлен в Windows 10/11. Если нет — установится автоматически при установке приложения.</li>
+  <li>macOS / Linux — пока не поддерживаются официально.</li>
+</ul>
+
+<h2>Рекомендации по железу</h2>
+
+<div class="tier-grid">
+  <div class="tier-card min">
+    <div class="label">Минимум</div>
+    <h4>Работает, но медленно</h4>
+    <div class="spec">
+      <strong>CPU:</strong> 4 ядра, 2.0 ГГц<br>
+      <strong>RAM:</strong> 8 ГБ<br>
+      <strong>Диск:</strong> 2 ГБ свободно<br>
+      <strong>Экран:</strong> 1366×768
+    </div>
+  </div>
+  <div class="tier-card rec">
+    <div class="label">Рекомендация</div>
+    <h4>Комфортная работа</h4>
+    <div class="spec">
+      <strong>CPU:</strong> 6+ ядер, 3.0+ ГГц<br>
+      <strong>RAM:</strong> 16 ГБ<br>
+      <strong>Диск:</strong> 5 ГБ свободно (SSD)<br>
+      <strong>Экран:</strong> 1920×1080
+    </div>
+  </div>
+  <div class="tier-card best">
+    <div class="label">Для больших моделей</div>
+    <h4>Быстрые MCMC-прогоны</h4>
+    <div class="spec">
+      <strong>CPU:</strong> 8+ ядер с AVX2 (Intel i7 / AMD Ryzen 7+)<br>
+      <strong>RAM:</strong> 32 ГБ<br>
+      <strong>Диск:</strong> 10 ГБ SSD<br>
+      <strong>Экран:</strong> 2560×1440
+    </div>
+  </div>
+</div>
+
+<div class="callout c-info">
+  <div class="c-title">Почему важен CPU</div>
+  <p>
+    Байесовский MMM — это Markov Chain Monte Carlo (MCMC) с тысячами итераций.
+    Каждая цепь считает отдельно, поэтому чем больше ядер — тем быстрее. На минимальной
+    конфигурации модель из 8 каналов обучится за 5-10 минут, на рекомендуемой — за 1-3 минуты.
+  </p>
+</div>
+
+<h2>Программные зависимости</h2>
+
+<p>
+  Для упрощения установки приложение поставляется с собственным встроенным вычислительным
+  модулем (Python + необходимые библиотеки) — вам <strong>не нужно</strong> ставить Python
+  или пакеты вручную. Всё необходимое уже упаковано в дистрибутив и не конфликтует с вашим системным Python.
+</p>
+
+<h3>Что внутри (для справки)</h3>
+<div class="table-wrap"><table>
+<tr><th>Компонент</th><th>Версия</th><th>Назначение</th></tr>
+<tr><td>Python</td><td>3.12.x</td><td>Среда выполнения вычислительного модуля</td></tr>
+<tr><td>JAX</td><td>0.7.2</td><td>Вычислительное ядро с XLA-компиляцией на CPU — даёт 3-10× ускорение байесовской модели</td></tr>
+<tr><td>NumPyro</td><td>0.20.1</td><td>Библиотека байесовского инференса поверх JAX — реализация NUTS-сэмплера</td></tr>
+<tr><td>NumPy / SciPy</td><td>актуальные</td><td>Линейная алгебра, оптимизация бюджета (SLSQP)</td></tr>
+<tr><td>Pandas</td><td>актуальная</td><td>Чтение XLSX/CSV, агрегация данных</td></tr>
+<tr><td>python-pptx</td><td>актуальная</td><td>Генерация PPTX-отчётов с native-графиками</td></tr>
+<tr><td>openpyxl</td><td>актуальная</td><td>Генерация XLSX-отчётов с несколькими листами</td></tr>
+</table></div>
+
+<div class="callout c-ok">
+  <div class="c-title">Ручная установка не нужна</div>
+  <p>Все библиотеки поставляются в составе приложения. Если в системе уже установлен Python — он не используется и не трогается. Приложение работает в собственной изолированной среде.</p>
+</div>
+
+<h2>Для работы нужен интернет?</h2>
+<p>
+  Для <strong>основной работы — нет</strong>. Валидация, обучение модели, декомпозиция,
+  оптимизация и отчёты — всё работает полностью оффлайн на локальной машине.
+</p>
+<p>Интернет нужен только для:</p>
+<ul>
+  <li><strong>Проверки обновлений</strong> — приложение скачивает новые версии через защищённое соединение.</li>
+  <li><strong>Опциональной онлайн-авторизации</strong> лицензии — настраивается в разделе «Настройки».</li>
+  <li><strong>Отправки обратной связи</strong> — когда нажимаете «Сообщить о проблеме».</li>
+</ul>
+
+<h2>Безопасность на корпоративных машинах</h2>
+<p>
+  Приложение спроектировано для работы в корпоративных средах с повышенными требованиями
+  к безопасности — в т.ч. на изолированных машинах без постоянного доступа в интернет.
+</p>
+<ul>
+  <li>Установка <strong>per-machine</strong> (для всех пользователей ПК) — требует прав администратора, как большинство корпоративного ПО.</li>
+  <li>Все данные хранятся в профиле пользователя на локальном диске — <strong>не синхронизируются</strong> в облако, не передаются на сторонние серверы.</li>
+  <li>Лицензия <strong>привязана к машине</strong> по цифровому отпечатку оборудования — перенос на другой ПК невозможен без новой лицензии.</li>
+  <li>Обновления приложения получаются только с официального сервера с проверкой контрольных сумм.</li>
+</ul>
+
+<div class="callout c-warn">
+  <div class="c-title">Что проверить перед установкой</div>
+  <p>
+    ✓ Антивирус / EDR — добавьте папку приложения в исключения, иначе проверка поведения может замедлять MCMC.<br>
+    ✓ Корпоративный прокси / SSL-inspection — онлайн-авторизация и обновления могут требовать whitelisting домена обновлений.<br>
+    ✓ Политика групп (GPO) — WebView2 должен быть разрешён. Обычно это дефолт для Windows 10/11.
+  </p>
+</div>
+
+<h2>Место на диске</h2>
+<ul>
+  <li><strong>Само приложение</strong> — ~500 МБ (включая вычислительный модуль с JAX/NumPyro).</li>
+  <li><strong>Один проект с обученной моделью</strong> — обычно 5-50 МБ (зависит от числа цепей MCMC и размера датасета).</li>
+  <li><strong>Экспорты</strong> (PPTX + XLSX) — типично 2-10 МБ за прогон.</li>
+  <li><strong>Логи</strong> — несколько МБ в месяц, автоматически ротируются.</li>
+</ul>
+
+<p>Если работаете с 10+ проектами, рекомендуем иметь минимум 5 ГБ свободно на системном диске.</p>
+
+<h2>Производительность на разных CPU</h2>
+<p>Ориентировочное время обучения модели (8 каналов, 24 месяца, дефолтные параметры MCMC — 4 цепи × 2000 warmup + 2000 samples):</p>
+<div class="table-wrap"><table>
+<tr><th>CPU</th><th>Время обучения</th><th>Комментарий</th></tr>
+<tr><td>Intel i3 7-го поколения</td><td>~8-12 мин</td><td>Минимальный уровень, работает</td></tr>
+<tr><td>Intel i5 10-го поколения</td><td>~3-5 мин</td><td>Комфортно</td></tr>
+<tr><td>Intel i7 12-го / AMD Ryzen 7 5000+</td><td>~1-2 мин</td><td>Оптимально</td></tr>
+<tr><td>Intel i9 / AMD Ryzen 9</td><td>~30-60 сек</td><td>Для частых экспериментов</td></tr>
+</table></div>
+
+<p>
+  <strong>Первый запуск</strong> любой модели включает ~15-30 секунд компиляции вычислительного
+  графа — это нормально, на последующих прогонах задержка исчезает.
+</p>
+
+<h2>GPU нужен?</h2>
+<p>
+  <strong>Нет</strong>, для размеров типичных MMM-моделей (до 20 каналов × до 200 наблюдений)
+  CPU полностью достаточен. Вычислительное ядро оптимизировано под CPU с XLA-компиляцией.
+</p>
+<p>
+  GPU даёт выигрыш только на очень больших моделях (50+ каналов), которые редко встречаются
+  в реальном маркетинге. Если такой случай возникнет — обратитесь в поддержку.
+</p>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 А. Сипович</p></div>
+</body>
+</html>

@@ -1,267 +1,414 @@
 ---
-tags: [session, compressed, econometrica, nuts, msvc, tamburin, saas, branding]
+tags: [session, compressed, econometrica, jax, numpyro, pymc, priors, live-test, reports, optimizer]
 type: session
 updated: 2026-04-19
 ---
 # Quick Reference
 
-Длинная live-сессия продолжения тестирования Econometrica на Кагоцеле. Главный blocker — медленный Metropolis sampler из-за недетекции MSVC — разрешён через `vswhere.exe` + `vcvars64.bat` env injection (ускорение NUTS в 3-5×). Плюс цикл UX-фиксов (Stop button, time-based progress, data_file store), брендинг (Logo_PNG_3-2 header + Logo_PNG_4_cuted иконки) и стратегические документы (Tamburin competitive, SaaS migration, System Requirements).
+Эпическая live-сессия на Econometrica + Кагоцел (31×34). Pipeline пройден end-to-end: Import→Validate→Model→Decompose→Optimize→Report. Ключевые breakthroughs: (1) PyTensor на Windows требует g++, не MSVC — переключились на JAX/NumPyro backend (NUTS за секунды вместо 15-30 мин); (2) Tighter priors на Hill-saturation устранили 1658 divergences; (3) Нормализация X_control исправила R² с -86 млрд % до 95.6 MQS. Плюс: file logging в sidecar, tight icons (0% margin) на все 9 приложений, стратегические документы (SaaS migration, Tamburin competitive, SYSTEM_REQUIREMENTS).
 
-**Topic:** econometrica-nuts-saas-strategy
+**Topic:** econometrica-live-test-jax-breakthrough
 
-**Коммиты:** `74691f8` (Econometrica, 61 файл +495/-30) · 8 × иконочных коммитов в других приложениях (`6f10da4 / e6a9419 / 8f0da77 / 9faf9e4 / 0649809 / 8b7f497 / a2b6420 / 58c96be`)
+**Коммиты:**
+- `74691f8` — MCMC UX polish (Markov Chain Monte Carlo rename, Stop button, time-based progress, data_file store fix, Adstock auto, docs)
+- **`81d4d21`** — JAX/NumPyro backend + tight priors + control normalization + file logging + icons tight
+- 16 коммитов иконок в 8 других приложениях (Logo_PNG_1 → Logo_PNG_3-2 header → Logo_PNG_4_cuted tight)
 
 **Key files:**
-- `sidecar/econometrica/engines/modeler.py` — check_compiler() + vswhere + functools.partial fallback
-- `sidecar/econometrica/server.py` — train/cancel endpoint, progress error field
+- `sidecar/econometrica/engines/modeler.py` — NUTS sampler selection, priors, pickle cleanup, control normalization, y_pred fallback
+- `sidecar/econometrica/server.py` — file logging + startup diagnostic, train/cancel endpoint, pptx endpoint (без try/except — TODO)
 - `src-tauri/src/commands/econometrica.rs` + `lib.rs` — econ_train_cancel
-- `src/lib/components/ConfigPanel.svelte` — data_file store, Adstock 'auto', MSVC msg
-- `src/lib/components/pipeline/TrainingProgress.svelte` — Stop button, time-based pct
+- `src/lib/components/ConfigPanel.svelte` — data_file из importData, Adstock 'auto', MSVC hint
+- `src/lib/components/pipeline/TrainingProgress.svelte` — Stop button, time-based pct, cancelled status
 - `src/lib/components/pipeline/ModelTrainingStep.svelte` — handleStop, estimatedSec
-- `src/lib/components/pipeline/ExpertModelPanel.svelte` — MCMC rename
-- `src/lib/insights-rules.js` — MCMC rename (4 карточки)
-- `src/routes/+page.svelte` — topbar-logo 31px → 26px, new logo
-- `static/logo-wordmark.png` — Logo_PNG_3-2
-- `src-tauri/icons/*` — все иконки из Logo_PNG_4_cuted
-- `docs/SYSTEM_REQUIREMENTS.md` (NEW) — детальные требования Econometrica
-- `README.md` — обновлён раздел «Системные требования»
+- `src/lib/components/pipeline/ExpertModelPanel.svelte` — Диагностика Markov Chain Monte Carlo
+- `src/lib/insights-rules.js` — MCMC→Markov Chain Monte Carlo в 4 карточках
+- `src-tauri/icons/*` — Logo_PNG_4_cuted, tight fit 0% margin
+- `docs/SYSTEM_REQUIREMENTS.md` (NEW)
+- `README.md` — обновлён раздел Системные требования
 
 **Внешние документы:**
 - `D:/Docs/Aurora_Ai/5_Документация/SYSTEM_REQUIREMENTS_PLATFORM.md` (NEW)
 - `D:/Docs/Aurora_Ai/5_Документация/COMPETITIVE_TAMBURIN.md` (NEW)
 - `D:/Docs/Aurora_Ai/5_Документация/ROADMAP_SAAS_MIGRATION.md` (NEW)
-- `D:/Docs/Aurora_Ai/KB/System_Requirements/` (2 файла + index) — Obsidian vault
-- `D:/Docs/Aurora_Ai/KB/Competitive/` (1 файл + index)
-- `D:/Docs/Aurora_Ai/KB/Roadmap/` (1 файл + index)
+- `D:/Docs/Aurora_Ai/KB/` — 4 MD + 3 index.md (Obsidian vault с frontmatter + wikilinks)
 
-**Status:** Шаг 2 Модель ещё в прогоне в момент компрессии (10 мин = 82%, time-based). NUTS vs Metropolis определится по завершении. Шаги 3-5 (Decompose/Optimize/Report) — ожидают.
+**Status:** ✅ **LIVE-ТЕСТ ПРОЙДЕН END-TO-END**
+- Шаг 0 Импорт ✅ / Шаг 1 Валидация ✅ (ratio 2.38:1, 6 медиа, 7 контрол)
+- Шаг 2 Модель ✅ MQS=95.6, R-hat < 1.01, Divergences=0
+- Шаг 3 Декомпозиция ✅ waterfall+insights+таблица
+- Шаг 4 Оптимизация ⚠️ работает, UX недоделки (slider не recalc, сценарии нет UI)
+- Шаг 5 Отчёт: MD ✅ XLSX ✅ PPTX ❌ (error decoding response body)
 
 ---
 
 ## Learnings
 
-### L1 — MSVC Build Tools не в PATH по умолчанию
+### L1 — PyTensor на Windows требует g++ (не MSVC!)
 
-Установка MS Visual C++ Build Tools (Desktop development with C++) **не добавляет `cl.exe` в PATH**. Чтобы активировать среду, нужно запустить `vcvars64.bat` из `VC\Auxiliary\Build\` — он экспортирует ~15 env vars (PATH, INCLUDE, LIB, LIBPATH, WINDOWSSDKDIR и пр.).
+Потратили много времени на установку MS Visual C++ Build Tools. Это **бесполезно для PyTensor** — он по умолчанию ищет `g++` через `shutil.which()`, не `cl.exe`. MSVC Build Tools полезны для NumPy/Cython, но PyTensor игнорирует их.
 
-Это означает что `subprocess.run(['cl.exe'])` всегда возвращает FileNotFoundError у свежеустановленной VS, даже если компилятор физически на диске.
+Лог показывает напрямую:
+```
+[WARNING] pytensor.configdefaults: g++ not available, if using conda: `conda install gxx`
+[WARNING] pytensor.configdefaults: g++ not detected!  PyTensor will be unable to compile
+[INFO] econometrica: pytensor.config.cxx = ""
+```
 
-**Правильная детекция:**
-1. Найти `vswhere.exe` — он **всегда** в фиксированной локации `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe`
-2. Запросить `vswhere.exe -latest -property installationPath` → путь к VS
-3. Glob по `VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe` → путь к компилятору
-4. Запустить `vcvars64.bat && set` → parse output → inject в `os.environ`
+Когда cxx="" → PyTensor использует Python-fallback → NUTS работает в Python-интерпретированном режиме → 15-30× медленнее.
 
-Это стандартная техника, которую используют Microsoft Build Insights, CMake, ninja-build.
+**Варианты исправления:**
+1. **MinGW-w64** (g++) — системный установщик, ~500 МБ. PyTensor auto-detects.
+2. **JAX/NumPyro backend** — обход PyTensor компиляции. **Выбрали этот путь.**
 
-### L2 — Markov Chain ≠ Markov Chain Monte Carlo
+### L2 — JAX/NumPyro версионный mismatch
 
-Терминологическая ловушка, критичная для коммуникации с клиентами:
+На момент сессии:
+- `pip install numpyro` → NumPyro 0.20.1
+- `pip install jax` → JAX 0.10.0
+- **Несовместимы:** NumPyro 0.20.1 ищет `jax.extend.core.primitives.xla_pmap_p`, которое JAX 0.10 удалил.
 
-- **Markov Chain (модель)** — граф переходов между состояниями. Для **MTA** (Multi-Touch Attribution, анализ клик-стрима) — золотой стандарт. Для **MMM** — не применимо, не умеет моделировать Adstock и diminishing returns.
-- **Markov Chain Monte Carlo (MCMC)** — метод **сэмплирования** posterior-распределения в байесовских моделях. Это **вычислительный движок** под капотом всех современных MMM (Meta Robyn, Google LightweightMMM, PyMC-Marketing).
+**Рабочий stack:** `jax==0.7.2 jaxlib==0.7.2 numpyro==0.20.1`.
 
-Наша Econometrica = Байесовский MMM с MCMC-сэмплером = state-of-the-art.
+Паттерн: при установке JAX+NumPyro всегда **пинить JAX на версию, совместимую с NumPyro** (последний NumPyro обычно отстаёт от JAX на 6-12 месяцев).
 
-Антон просил писать полностью «Markov Chain Monte Carlo» в UI чтобы избежать путаницы.
+### L3 — NumPyro backend активируется одной строкой в pm.sample
 
-### L3 — Два разных Svelte store для file path
+После `pip install jax jaxlib numpyro` достаточно:
+```python
+trace = pm.sample(
+    draws=draws, tune=tune, chains=chains,
+    nuts_sampler='numpyro',
+    chain_method='vectorized',  # parallel chains в одном JAX call
+    return_inferencedata=True,
+    progressbar=True,
+)
+```
 
-`importData.file` (где ImportStep сохраняет) ≠ `pipelineState?.data?.file` (откуда ConfigPanel читал). Эти store'ы никто не синхронизировал. При рестарте dev (memory-only stores) ConfigPanel получал пустой `data_file` → Python `[Errno 2] No such file or directory: ''`.
+**Не передавать:** `cores`, `callback` — они не поддерживаются NumPyro.
 
-**Паттерн:** когда два компонента разделены шагами пайплайна, читают и пишут в **один** store, или есть явная синхронизация.
+### L4 — Hill saturation priors создают funnel
 
-### L4 — PyMC ppc crash с custom Deterministic
+Предыдущие priors:
+- `alphas: Gamma(3, 1)` — mean=3, слишком сильная нелинейность
+- `gammas: Beta(2, 2)` — U-shaped bimodal distribution
+- `betas: HalfNormal(0.5)` — слабая регуляризация
 
-`pm.sample_posterior_predictive` в PyMC 5.x может падать с `'functools.partial' object has no attribute '__name__'` когда модель содержит custom Deterministic переменные (Adstock/Hill через `pm.math`). Внутренне PyMC пытается рекомбинировать граф, и partial-функции без `__name__` ломают сериализацию.
+Результат: 1658 divergences, R-hat > 3 даже на 2 каналах.
 
-**Workaround:** try/except + manual reconstruction y_pred из posterior means. Для MMM это работает потому что Hill-формула полностью задаётся через media_betas + alphas + gammas (все в posterior).
+**Рабочие priors:**
+- `alphas: Gamma(5, 3)` — mean=1.67, типичный saturation shape
+- `gammas: Beta(3, 3)` — bell-shaped около 0.5
+- `betas: HalfNormal(0.3)` — сильнее регуляризация
+- `control_betas: Normal(0, 0.3)` — тоже
+- `sigma: HalfNormal(0.3)` — y_norm std=1, 0.3 разумно
 
-### L5 — Tauri dev watcher перезапускает приложение при ЛЮБОМ изменении в src-tauri/
+Также: убрал `gamma_scaled = gammas[i] * x.max()` — это создавало scale-зависимость, которая ломала geometry.
 
-Запуск `npx tauri icon <path>` пишет файлы в `src-tauri/icons/` → Tauri dev обнаруживает изменения → Rust rebuild → перезапуск приложения → Python sidecar убивается.
+### L5 — Нормализация X_control критична
 
-**Паттерн:** в процессе live-теста **не запускать** `tauri icon` или любые операции, пишущие в `src-tauri/`. Всё делать с остановленным dev, либо после завершения теста.
+**Баг:** в коде model использовался `X_control.values.astype(float)` — **raw values**. Если контроли — это price (в ₽), температура (в градусах), или budget — control_effect = X_control @ control_betas взрывается в миллиарды, `mu` улетает, y_pred_norm > 1000, y_pred = y_pred_norm × y_std + y_mean = bajjilions.
 
-### L6 — Sidecar Stdio::null() = нет логов в dev-консоли
+**Симптом:** R² = -86 миллиардов %.
 
-PyMC и PyTensor пишут в stderr. Tauri sidecar запускается с `stderr(Stdio::null())` → логи идут в /dev/null. Невозможно диагностировать падения sidecar без отдельного logging-to-file.
+**Фикс:** `X_control_norm = (X_control - mean) / std` + использовать в pm.Model и в y_pred fallback.
 
-**Паттерн:** в production-sidecar writtely логгировать в файл `%APPDATA%\<app>\logs\sidecar-YYYY-MM-DD.log`.
+### L6 — Pickle PyMC-модели падает с functools.partial
 
-### L7 — Metropolis CompoundStep → functools.partial без __name__
+`pickle.dump(mmm)` где `mmm = pm.Model(...)` с custom Deterministic (Adstock/Hill) → `'functools.partial' object has no attribute '__name__'`. PyTensor closures содержат functools.partial без `__name__`.
 
-Метробой Metropolis в PyMC для модели со смешанными типами переменных (Normal, HalfNormal, Gamma, Beta) создаёт **CompoundStep** — композицию шагов разных типов. Внутри CompoundStep есть functools.partial объекты которые не всегда имеют `__name__`. arviz.summary() и sample_posterior_predictive натыкаются на это → KeyError/AttributeError.
+**Fix:** не пиклим `mmm` и `trace`. Downstream engines (decomposer/optimizer/scenario) используют только `config`, `channel_params`, `y_actual`, `y_predicted`, `normalization` — этого достаточно.
 
-NUTS не использует CompoundStep для тех же переменных → ошибка не возникает.
+### L7 — sample_posterior_predictive тоже может упасть
 
-**Смысл:** та же ошибка «functools.partial» — сигнал что Metropolis работает вместо NUTS. Root fix = починить детекцию C-compiler.
+Даже без pickle, `pm.sample_posterior_predictive(trace, model=mmm)` иногда падает с той же functools.partial (особенно на Metropolis CompoundStep).
 
-### L8 — Subscription-модель Claude несовместима с SaaS
+**Fix:** try/except + manual y_pred reconstruction из posterior means (применяем Hill-формулу к X_media_norm с mean(alpha), mean(gamma), mean(beta) + X_control_norm @ mean(control_betas) + mean(intercept)).
 
-Anthropic ToS явно запрещает перепродажу подписочного доступа (Pro / Max) через SaaS. Детектится автоматически (IP, user-agent, частотные паттерны). Публичные кейсы банов есть. Для SaaS — **только per-token API**.
+### L8 — Sidecar Stdio::null() = нет логов
 
-### L9 — Anthropic не продаёт в РФ официально
+В dev-режиме Tauri запускает Python sidecar с `stderr(Stdio::null())`. Никаких логов в dev-консоли. **Обязательно** добавлять file logging:
+```python
+_log_file = Path(APPDATA) / 'aurora-econometrica-gui' / 'logs' / f'sidecar-{date}.log'
+logging.basicConfig(handlers=[StreamHandler(stderr), FileHandler(_log_file)], force=True)
+```
 
-Для российских клиентов SaaS через Anthropic API — схема через офшорное юрлицо (EU / UAE / AM / KZ). Клиент платит в ₽ через CloudPayments/Tinkoff, мы платим Anthropic в $ через офшор. Схема легальная, использует множество российских AI-продуктов.
+Без этого — невозможно диагностировать crashes.
 
-### L10 — Econometrica = самый тяжёлый продукт платформы
+### L9 — Tauri dev watcher убивает sidecar при любом edit в src-tauri/
 
-7 из 8 продуктов Aurora — «оболочка для Claude API» с минимальной локальной нагрузкой. Только Econometrica запускает реальные вычисления (PyMC + PyTensor). Это критично для:
-- Системных требований (tier 🔴 vs 🟢🟡)
-- Ценообразования (CPU-compute в облаке дорогой)
-- SaaS-миграции (Econometrica требует worker-кластер и cost management)
+Запустить `npx tauri icon <path>` пишет в `src-tauri/icons/` → Tauri dev обнаруживает → Rust rebuild → app restart → Python sidecar kill.
 
-### L11 — Git Bash на Windows vs PowerShell
+**Паттерн:** во время live-теста **не трогать** src-tauri/. Только sidecar/ можно — Python reloadится вместе с Tauri, но это не критично.
 
-Команды из PowerShell (`Get-Process`, `taskkill /F`) не работают в Git Bash. Git Bash конвертирует одиночные `/argument` в пути. Для native-команд в Git Bash нужны:
-- Двойные слеши: `taskkill //F //IM python.exe`
-- Или через cmd: `cmd "/c taskkill /F /IM python.exe"`
-- Или использовать отдельный PowerShell
+### L10 — Metropolis CompoundStep вызывает functools.partial в arviz
 
-### L12 — Tamburin использует OLS/RF (предположение)
+Когда check_compiler() возвращал False (MSVC не помогает) → Metropolis sampler → CompoundStep (смесь типов) → functools.partial внутри → arviz.summary / ppc падают.
 
-Основной российский MMM-конкурент Tamburin (tametrics.ru) позиционируется «без сложных терминов и формул» → вероятно использует OLS + Random Forest, а не байесовский движок. Это означает:
-- Нет доверительных интервалов → точечные оценки
-- Переобучение на малых данных
-- Не «честные» выводы для принятия бюджетных решений
+NUTS через JAX этой проблемы не имеет.
 
-Наш байесовский путь = **технологическое преимущество**.
+### L11 — MCMC в Python-backend runs на 4% CPU
+
+Наблюдение: Python-backend NUTS работает на 1/4 ядра (~4.2% CPU). Это потому что PyTensor на Python-backend тратит много времени в pure-Python ops (не numpy). Эффективнее на 1-2 ядрах чем на 8.
+
+JAX через XLA compile сразу утилизирует CPU на 100% × N_cores одновременно.
+
+### L12 — R-hat > 1.05 и 0 divergences одновременно
+
+После фикса priors получили странное состояние: `Divergences=0 ✅` но `R-hat > 4 ❌`.
+
+Значит: geometry posterior OK (NUTS не путается), но цепи **разбежались в разные местные моды** (мультимодальность).
+
+Это признак **data insufficiency** (мало строк) + over-parameterization. Решение: упростить модель ИЛИ добавить data ИЛИ сильнее priors. Нам помогло последнее + нормализация controls.
+
+### L13 — Смешанные единицы в MMM-данных
+
+Кагоцел: 6 media каналов, из которых:
+- OLV/Banners/Social/Performance/Статьи — **бюджет в рублях** (миллионы-миллиарды ₽)
+- TRPs бренд (W 25-54) — **пункты рейтинга** (22,100 ед.)
+
+Наш MMM считает всех как одну шкалу → ROI TRPs получается 49,122× (искусственно огромный). Нужен либо CPP-pricing (умножить TRPs на cost-per-point) либо раздельная группа reach-cols в модели.
+
+### L14 — Git Bash на Windows конвертирует single-slash args
+
+`taskkill /F /IM python.exe` в Git Bash → `/F` интерпретируется как путь → ошибка. Решения:
+- `taskkill //F //IM python.exe` (двойной слеш)
+- `cmd "/c taskkill /F /IM python.exe"`
+- Отдельный PowerShell (от Админа нужен для kill)
+
+### L15 — `taskkill /F /IM python.exe` требует Admin
+
+С non-admin PS: «Отказано в доступе» для процессов Python запущенных sidecar'ом через Tauri. Нужен PS от Администратора.
+
+### L16 — Icon regeneration flow на Windows
+
+1. Preprocess PNG (PIL: trim alpha bbox, convert white-opaque to transparent, pad to square, resize Lanczos 1024×1024)
+2. `npx @tauri-apps/cli icon <path>` генерит ~30 файлов (icon.ico/png/icns + Windows Store Square*Logo + iOS AppIcon + Android mipmap)
+3. Distribute через `cp` в все 8 других `src-tauri/icons/` директорий
+
+Tight fit (0% margin): `side = max(w, h)` без множителя → логотип касается краёв.
+
+### L17 — Aurora AI позиционирование vs Tamburin
+
+Tamburin — основной РФ-конкурент (cloud SaaS, OLS/RF, простое UX). Наши USP:
+- **Приватность данных** (локальная работа) — решающее для фарма/банков/B2B с NDA
+- **Bayesian MMM (state-of-the-art)** с доверительными интервалами
+- **Платформенность** (8 связанных продуктов)
+- **Expert-режим** для data scientist'ов
+
+Слабости против Tamburin:
+- Нет публичных кейсов (Tamburin уже работает 5+ лет)
+- Windows-only
+- Ручной импорт без коннекторов к Mediascope/Adfox
+
+### L18 — Claude API для SaaS: не подписки
+
+Anthropic ToS запрещает перепродажу Claude Pro/Max в commercial SaaS. Для SaaS нужен API с per-token биллингом. Для РФ — **офшорное юрлицо** (EU/UAE/AM/KZ) для прямого биллинга Anthropic. Экономически API дешевле (~$1200/мес на 100 юзеров) чем 10× Max подписок.
 
 ---
 
 ## Decisions
 
-### D1 — Stop button не убивает MCMC thread, только помечает cancelled
+### D1 — JAX/NumPyro over MinGW
 
-PyMC MCMC-поток нельзя корректно прервать (thread.terminate() = memory corruption). При нажатии Stop:
-- Task помечается 'cancelled' в `_training_tasks[task_id]`
-- Polling на фронте видит status → onStop callback → UI возвращается в idle
-- MCMC-поток **продолжает работать в фоне** ~5-15 мин, но результат отбрасывается
+Два пути ускорения PyTensor:
+- **MinGW-w64**: системный g++, ~500 МБ, без правки кода, ~3-5× speedup
+- **JAX/NumPyro**: pip package, ~800 МБ, одна строка правки, ~7-15× speedup + parallel chains + GPU-ready roadmap
 
-Это компромисс: UI отзывчивый, но CPU занят. Для MVP приемлемо.
+Выбрали **JAX**. Причины: скорость, бандлинг в sidecar (не нужен системный install), будущий GPU-путь.
 
-### D2 — Time-based progress interpolation на фронте
+### D2 — Tighter priors над non-centered parameterization
 
-Sidecar PyMC не даёт per-draw callback без нестабильности. Вместо fake-backend-progress делаем чисто визуальную интерполяцию на TrainingProgress.svelte:
-- При phase='sampling' запоминаем samplingStartElapsed
-- Budget = estimatedSec × 0.7 (оставляя 30% на post-processing)
-- pct = max(25, 25 + min(elapsed/budget, 0.97) × 60) → растёт от 25% до 85%
-- Когда backend отчитается 90% (diagnostics) — frontend перехватит
+Два стандартных решения funnel в Hill-моделях:
+- Non-centered: `alpha_raw ~ Normal(0, 1); alpha = mu + sigma * alpha_raw` — переделывать модель
+- Tight priors: просто сузить Gamma/Beta параметры — минутная правка
 
-**Честно:** прогресс не отражает real MCMC progress, только прошедшее время. Но UI живой.
+Выбрали **tight priors** — быстрее и дало 0 divergences.
 
-### D3 — Adstock default = 'auto' для всех каналов
+### D3 — Pickle только channel_params + normalization (без trace/mmm)
 
-Было: validator.py назначал Geometric по умолчанию. Стало: 'auto' — auto-selector через BIC подменит на concrete type. UX выигрывает: dropdown показывает «Авто» сразу, без «Geometric» по умолчанию.
+Downstream engines не используют trace/mmm, а pickle падает из-за functools.partial в PyTensor closures. Решение: не пиклить, сохраняем только то что нужно decomposer/optimizer/scenario.
 
-Backend fallback `adstock_config.get(col, 'geometric')` остаётся — страховка если auto-selector не отработал.
+### D4 — File logging в %APPDATA%
 
-### D4 — Полное «Markov Chain Monte Carlo» в UI
+- Никаких Stdio::null() проблем
+- Файл живёт per-day (rotation через `sidecar-YYYY-MM-DD.log`)
+- Можно читать параллельно с работой sidecar
+- Дублирование в stderr для dev-run
 
-Антон попросил избегать сокращения MCMC. Обновлены:
-- ConfigPanel: label + tooltip Chains
-- ModelTrainingStep: 2 status-строки
-- TrainingProgress: phaseLabel sampling
-- ExpertModelPanel: section-title «Диагностика Markov Chain Monte Carlo»
-- insights-rules.js: 4 карточки инсайтов
+### D5 — Нормализация controls одинаково с media
 
-Code comments не трогала (не user-facing).
+Media нормализовались, controls — нет. Очевидный баг. Добавили `X_control_norm = (X_control - mean) / std` + использовать в модели и в y_pred fallback + сохранять `control_means/stds` в pickle для downstream.
 
-### D5 — Hero logo: Logo_PNG_3-2 (wordmark), высота 26px
+### D6 — Tight icons (0% margin)
 
-Итеративный подбор: 31 → 36 (+15%) → 29 (-20%) → 26 (-10%). Антон предпочёл wordmark-вариант без пирамиды в header.
+После итераций (2% → 2% → 0%): Logo_PNG_4_cuted — симметричная пирамида без текста, хорошо читается в любом размере. Tight fit делает её максимально крупной в квадрате таскбара.
 
-### D6 — App icons: Logo_PNG_4_cuted (только пирамида)
+### D7 — В отчётах нужна единая формула спецификации модели
 
-В иконках нет места для wordmark (32px и меньше — текст нечитаем). Logo_PNG_4_cuted — квадратный логотип только пирамиды, хорошо читается в любом размере.
+Feedback от Антона: клиенту нужно видеть математику. MMM без формулы = black box = недоверие. Задача: добавить секцию «Спецификация» в MD/XLSX/PPTX с формулами Hill/Adstock + priors + описание.
 
-Tight margin 2% (`1024×1024` финальный размер), Lanczos resampling.
+### D8 — Optimizer UX — отдельная задача завтра
 
-### D7 — Путь B (Hybrid SaaS) для миграции в облако
+Текущее состояние Optimizer:
+- Slider «Общий бюджет» не триггерит recalc
+- При +0.0% нет explanation overlay
+- Scenario Playground UI отсутствует
+- Смешанные единицы (TRPs vs ₽) ломают ROI
 
-Рекомендуется из трёх вариантов:
-- **Путь A** (Desktop-only до 2028): упустим SMB, где Tamburin выиграет время
-- **Путь B** (Hybrid): 7 LLM-продуктов в SaaS, Econometrica + Creative Hub desktop-only → сохраняем USP приватности для enterprise
-- **Путь C** (Full SaaS): 24+ мес, $1M+, высокий риск
+Все 4 записано в `project_econometrica_optimizer_ux.md`. Разбираем завтра.
 
-Путь B — **9 месяцев** MVP, ~$530k.
+### D9 — Session 4 коммичу одним коммитом вместо рефактора
 
-### D8 — Офшорное юрлицо для Anthropic API (решение на конец 2026 Q3)
+Всё держится вместе: JAX activation + tight priors + control normalization + file logging + pickle cleanup. Это один atomic change — `81d4d21`.
 
-Для SaaS нужен биллинг с Anthropic через EU/UAE/Казахстан. Antropic не работает с РФ напрямую. Российские клиенты платят нам в ₽, мы в $ через офшор. Схема стандартная для AI-продуктов на рынке РФ.
+### D10 — Путь B (Hybrid SaaS) для Aurora AI
 
-### D9 — Не публичные пуши Oracle и Media
-
-Конфликт remotes (Aurora_Oracle origin = ROSST_AI_Media.git) не разрешён. В этой сессии не пушила эти два репо, чтобы не усугублять. Fix требует подтверждения force-push от Антона. См. `project_oracle_media_remote_conflict.md`.
-
-### D10 — SYSTEM_REQUIREMENTS в двух уровнях
-
-- **Per-product** (`docs/SYSTEM_REQUIREMENTS.md` в репо Econometrica) — детально для конкретного продукта
-- **Platform-level** (`5_Документация/SYSTEM_REQUIREMENTS_PLATFORM.md`) — для всей платформы с tier'ами
-
-Позднее станут публичной документацией на сайте.
-
-### D11 — OLS-fallback как roadmap task
-
-Для данных <20 точек байесовская модель не сходится. OLS-fallback — альтернативный движок с честным «CI недоступны». 6-8 часов разработки, medium complexity, запуск после live-теста MVP. Задача записана в `project_econometrica_ols_fallback.md`.
+Roadmap 2027 Q3-Q4: 7 LLM-продуктов в SaaS. Econometrica + Creative Hub остаются desktop-only (сохраняет USP приватности для enterprise). Econometrica в SaaS — отдельный проект 2028+.
 
 ---
 
 ## Solutions & Fixes
 
-### Fix 1 — NUTS через vswhere.exe (ключевой)
+### Fix 1 — data_file из правильного store (ConfigPanel)
 
-**Root cause:** `check_compiler()` искал `cl.exe` только через PATH. MSVC Build Tools не добавляет себя в PATH.
+**Bug:** ImportStep сохранял в `importData.file`, ConfigPanel читал `pipelineState.data.file` → при restart dev пусто → Python crash `[Errno 2] No such file or directory: ''`.
 
-**Fix:** `_find_msvc_via_vswhere()` в `modeler.py`:
-- Путь vswhere: `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe`
-- Команда: `vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`
-- Glob по `{vs_path}\VC\Tools\MSVC\*\bin\Hostx64\x64\cl.exe` — sorted pick newest
-- Запускает `vcvars64.bat >nul && set` через subprocess shell
-- Парсит output, фильтрует по whitelist (PATH/INCLUDE/LIB/LIBPATH/WINDOWSSDKDIR/VCINSTALLDIR/VCTOOLSINSTALLDIR/VSINSTALLDIR)
-- `os.environ[key] = val` → PyTensor видит среду
+**Fix:**
+```js
+const dataFile = $importData?.file || $pipelineState?.data?.file || '';
+if (!dataFile) {
+  computeStatus.set('Ошибка: файл данных не найден. Вернитесь на шаг Импорт...');
+  return;
+}
+```
+
+**File:** `src/lib/components/ConfigPanel.svelte:199`
+
+### Fix 2 — check_compiler через vswhere.exe (для future MSVC users)
+
+Даже если PyTensor требует g++, наш `check_compiler()` теперь корректно детектит MSVC через `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe`, инжектит vcvars64.bat env vars. Для Cython/NumPy compile — работает.
 
 **File:** `sidecar/econometrica/engines/modeler.py:17-95`
 
-### Fix 2 — functools.partial ppc fallback
+### Fix 3 — functools.partial ppc fallback
 
-**Root cause:** PyMC 5.x ppc рекомбинирует граф с custom Deterministic → partial без __name__ → AttributeError.
+**Bug:** `pm.sample_posterior_predictive` падает с functools.partial error.
 
-**Fix:** try/except вокруг `pm.sample_posterior_predictive`:
-- На failure: `intercept_mean + media_effect_pred + control_effect_pred`
-- media_effect_pred = Hill-трансформация X_media_norm с posterior means (alphas, gammas, media_betas)
-- control_effect_pred = X_control @ control_betas_mean
-- Если fallback тоже падает — zeros array (редко, но graceful)
+**Fix:** try/except + reconstruct y_pred из posterior means (применяем Hill формулу и control_effect через normalized X_control).
 
-**File:** `sidecar/econometrica/engines/modeler.py:296-330`
+**File:** `sidecar/econometrica/engines/modeler.py:296-370`
 
-### Fix 3 — Error field в train_progress
+### Fix 4 — Не пиклить trace и mmm
 
-**Root cause:** `train_progress` endpoint вырезал поле `error` из task dict:
+**Bug:** `pickle.dump(model_data)` где model_data содержит trace+mmm → functools.partial закрытия в PyTensor → крах.
+
+**Fix:** убрать 'trace' и 'model' из model_data dict. Downstream не использует.
+
+**File:** `sidecar/econometrica/engines/modeler.py:434-448`
+
+### Fix 5 — NumPyro sampler + JAX backend
+
+**File:** `sidecar/econometrica/engines/modeler.py:250-275`
 ```python
-return {'task_id': task_id, **{k: v for k, v in task.items() if k not in ('result', 'error', 'started_at')}}
+try:
+    import numpyro; import jax
+    _use_numpyro = True
+    logger.info('Using NumPyro NUTS sampler (JAX backend)')
+except ImportError:
+    logger.warning('NumPyro/JAX not available — falling back to PyTensor NUTS')
+
+if _use_numpyro:
+    trace = pm.sample(
+        draws=draws, tune=tune, chains=chains,
+        return_inferencedata=True, progressbar=True,
+        nuts_sampler='numpyro',
+        chain_method='vectorized',
+    )
+else:
+    # ...fallback
 ```
 
-Фронт `TrainingProgress:60-68` читал `p.error` → undefined → generic «Ошибка обучения модели» без real message.
+### Fix 6 — Tight priors (Hill funnel)
 
-**Fix:** убрать 'error' из exclusion + frontend дополнительно fetches full result on error status.
+**File:** `sidecar/econometrica/engines/modeler.py:214-246`
 
-**Files:** `server.py:258` + `TrainingProgress.svelte:60-68`
+```python
+intercept = pm.Normal('intercept', mu=0, sigma=0.5)                    # было sigma=1
+media_betas = pm.HalfNormal('media_betas', sigma=0.3, shape=...)       # было 0.5
+control_betas = pm.Normal('control_betas', mu=0, sigma=0.3, shape=...) # было 0.5
+alphas = pm.Gamma('alphas', alpha=5, beta=3, shape=...)                # было Gamma(3,1)
+gammas = pm.Beta('gammas', alpha=3, beta=3, shape=...)                 # было Beta(2,2)
+sigma = pm.HalfNormal('sigma', sigma=0.3)                              # было 0.5
+# Hill без gamma_scaled (было: gammas[i] * x.max() — нестабильно)
+saturated = x_safe ** alphas[i] / (x_safe ** alphas[i] + gammas[i] ** alphas[i] + 1e-10)
+```
 
-### Fix 4 — Stop training endpoint
+### Fix 7 — Control normalization
 
-**New:** `POST /compute/train/cancel/{task_id}` в `server.py:261-271` — помечает task как 'cancelled' + error message «Обучение остановлено пользователем».
+**File:** `sidecar/econometrica/engines/modeler.py:186-208`
+```python
+# Normalize controls — критично: без этого raw price/budget → y_pred взрывается
+if len(control_cols) > 0:
+    control_means = X_control.mean()
+    control_stds = X_control.std().replace(0, 1)
+    X_control_norm = (X_control - control_means) / control_stds
+else:
+    control_means = pd.Series(dtype=float)
+    control_stds = pd.Series(dtype=float)
+    X_control_norm = pd.DataFrame()
 
-**Rust binding:** `econ_train_cancel` в `econometrica.rs:74-85` — POST через quick_client.
+# In model:
+control_effect = pm.math.dot(X_control_norm.values.astype(float), control_betas)
 
-**Frontend:** кнопка «⏹ Остановить обучение» в `TrainingProgress.svelte` (красная outline) + `handleStop` в `ModelTrainingStep` очищает isComputing / computeStatus / localStorage и возвращает stepState='idle'.
+# In pickle normalization dict:
+'control_means': control_means.to_dict(),
+'control_stds': control_stds.to_dict(),
+```
 
-### Fix 5 — Time-based progress interpolation
+### Fix 8 — File logging в sidecar
 
-**Root cause:** modeler.py вызывает `report('sampling', pct=25)` один раз в начале MCMC. Далее 3-25 минут UI стоит на 25%.
+**File:** `sidecar/econometrica/server.py:26-60`
+```python
+_log_dir = Path(os.environ.get('APPDATA', '.')) / 'aurora-econometrica-gui' / 'logs'
+_log_dir.mkdir(parents=True, exist_ok=True)
+_log_file = _log_dir / f'sidecar-{datetime.now().strftime("%Y-%m-%d")}.log'
 
-**Fix:** в `TrainingProgress.svelte:45-80`:
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_file_handler = logging.FileHandler(_log_file, encoding='utf-8', mode='a')
+_stderr_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+_file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(name)s: %(message)s'))
+
+logging.basicConfig(level=logging.INFO, handlers=[_stderr_handler, _file_handler], force=True)
+
+# Startup diagnostic dump
+from engines.modeler import check_compiler
+logger.info(f'check_compiler() = {check_compiler()}')
+logger.info(f'Injected PATH: {os.environ.get("PATH", "")[:300]}')
+import pytensor
+logger.info(f'pytensor.config.cxx = "{pytensor.config.cxx}"')
+```
+
+### Fix 9 — Stop training endpoint
+
+**Backend:** `sidecar/econometrica/server.py:261-271`
+```python
+@app.post('/compute/train/cancel/{task_id}')
+def train_cancel(task_id: str):
+    with _training_lock:
+        task = _training_tasks.get(task_id)
+        if task and task['status'] == 'running':
+            task['status'] = 'cancelled'
+            task['error'] = 'Обучение остановлено пользователем'
+        return {'status': task['status'] if task else 'not_found', 'task_id': task_id}
+```
+
+**Rust:** `src-tauri/src/commands/econometrica.rs:74-85` — econ_train_cancel через HTTP POST
+**Frontend:** `TrainingProgress.svelte` — кнопка «⏹ Остановить обучение» (красная outline)
+
+### Fix 10 — Time-based progress interpolation
+
+**File:** `src/lib/components/pipeline/TrainingProgress.svelte:45-80`
 ```js
 if (newPhase === 'sampling') {
   if (samplingStartElapsed === null) samplingStartElapsed = elapsedSec;
@@ -272,340 +419,349 @@ if (newPhase === 'sampling') {
 }
 ```
 
-`estimatedSec` приходит из `ModelTrainingStep.estimatedSec = $derived.by(...)` — считает из `lastConfig.mcmc_override` (chains × (draws+tune) × secPerSample с учётом channels).
-
-### Fix 6 — data_file из правильного store
-
-**Root cause:** ImportStep пишет в `importData.file`, ConfigPanel читал `pipelineState.data.file` → рассинхрон.
-
-**Fix:** `ConfigPanel.svelte:199`:
+estimatedSec из ModelTrainingStep:
 ```js
-const dataFile = $importData?.file || $pipelineState?.data?.file || '';
-if (!dataFile) {
-  computeStatus.set('Ошибка: файл данных не найден. Вернитесь на шаг Импорт и загрузите файл заново.');
-  setTimeout(() => computeStatus.set(''), 6000);
-  return;
-}
-// ...
-const config = { data_file: dataFile, ... };
+const estimatedSec = $derived.by(() => {
+  if (!lastConfig) return 600;
+  const mc = lastConfig.mcmc_override || { chains: 2, draws: 1000, tune: 500 };
+  const channels = (lastConfig.media_columns || []).length || 4;
+  const totalSamples = (mc.draws + mc.tune) * mc.chains;
+  const secPerSample = 0.3 * Math.max(channels / 4, 1);
+  return Math.max(60, totalSamples * secPerSample);
+});
 ```
 
-### Fix 7 — Adstock 'auto' default
+### Fix 11 — MCMC → Markov Chain Monte Carlo (UI strings)
 
-**Was:** `adstock[ch.name] = ch.adstock_type || 'geometric';` (ConfigPanel $effect)
+В 6 файлах: ConfigPanel (label + tooltip + status), ModelTrainingStep (2 status), TrainingProgress (phaseLabel), ExpertModelPanel (section-title), insights-rules.js (4 cards).
 
-**Now:** `adstock[ch.name] = 'auto';` — auto-selector через BIC подменит на concrete, dropdown показывает «Авто (digital=мгновенный, TV=отложенный)».
-
-**Fix:** `ConfigPanel.svelte:86`
-
-### Fix 8 — Иконки приложений, Logo_PNG_4_cuted
-
-Python-скрипт preprocess:
-1. Open Logo_PNG_4_cuted.png, RGBA
-2. Alpha bbox crop
-3. Iterate pixels: convert white-opaque (>240 alpha, RGB>245) в transparent
-4. Second bbox crop (после transparentization)
-5. Pad to square `max(w,h) × 1.02` (2% margin)
-6. Resize 1024×1024 Lanczos
-7. Save PNG optimized
-
-Затем `npx @tauri-apps/cli icon <path>` генерит:
-- Windows: icon.ico (multi-res), 32/64/128/128@2x.png
-- macOS: icon.icns, Square*Logo.png, StoreLogo.png
-- iOS + Android: полный набор (ignored для desktop)
-
-Распространено через `cp` в все 9 `src-tauri/icons/` директорий.
-
-**Trigger:** осознали после incident (tauri icon в dev = kill sidecar → прервали обучение). Записано как паттерн L5.
+Причина: терминологическая ясность для enterprise-клиентов (не путать с Markov Chain моделями в MTA).
 
 ---
 
 ## Files Modified
 
-### Session commit `74691f8` (Econometrica) — 61 файл, +495/-30
+### Commit `74691f8` (первая часть сессии)
+- sidecar/econometrica/engines/modeler.py (check_compiler + vswhere)
+- sidecar/econometrica/server.py (train/cancel endpoint)
+- src-tauri/src/commands/econometrica.rs + lib.rs (econ_train_cancel)
+- src/lib/components/ConfigPanel.svelte (data_file fix, Adstock auto, MSVC hint)
+- src/lib/components/pipeline/TrainingProgress.svelte (Stop button, time interp)
+- src/lib/components/pipeline/ModelTrainingStep.svelte (handleStop, estimatedSec)
+- src/lib/components/pipeline/ExpertModelPanel.svelte (MCMC rename)
+- src/lib/insights-rules.js (MCMC rename)
+- src/routes/+page.svelte (topbar logo 31→26px)
+- static/logo-wordmark.png (Logo_PNG_3-2)
+- src-tauri/icons/* (Logo_PNG_4_cuted первая итерация)
+- docs/SYSTEM_REQUIREMENTS.md (NEW)
+- README.md
 
-**Python sidecar:**
-- `sidecar/econometrica/engines/modeler.py` — check_compiler + vswhere + vcvars + functools.partial fallback
-- `sidecar/econometrica/server.py` — train/cancel endpoint, error field в progress
+### Commit `81d4d21` (финальная часть сессии) — критический
+- sidecar/econometrica/engines/modeler.py:
+  - Tighter priors (alpha Gamma(5,3), gamma Beta(3,3), beta HalfNormal(0.3))
+  - Control normalization (X_control_norm)
+  - NumPyro backend selection with fallback
+  - try/except вокруг sample_posterior_predictive
+  - pickle без trace/mmm
+- sidecar/econometrica/server.py:
+  - File logging в %APPDATA%/aurora-econometrica-gui/logs/
+  - Startup diagnostic dump
+- src-tauri/icons/* (Logo_PNG_4_cuted tight, 0% margin)
 
-**Rust backend:**
-- `src-tauri/src/commands/econometrica.rs` — econ_train_cancel
-- `src-tauri/src/lib.rs` — register econ_train_cancel в invoke_handler
+### 16 иконочных коммитов других приложений (8×Logo_PNG_4 + 8×tight)
+`6f10da4 / e6a9419 / 8f0da77 / 9faf9e4 / 0649809 / 8b7f497 / a2b6420 / 58c96be` (Logo_PNG_4)
++ 8 коммитов tight fit.
 
-**Frontend (Svelte):**
-- `src/lib/components/ConfigPanel.svelte` — data_file из importData, Adstock 'auto', MSVC hint
-- `src/lib/components/pipeline/TrainingProgress.svelte` — Stop button, time-based pct, cancelled handler
-- `src/lib/components/pipeline/ModelTrainingStep.svelte` — handleStop, estimatedSec, MCMC rename
-- `src/lib/components/pipeline/ExpertModelPanel.svelte` — MCMC rename
-- `src/lib/components/pipeline/ObjectiveSelector.svelte` — (unchanged content этой сессии)
-- `src/lib/insights-rules.js` — MCMC rename в 4 карточках
-- `src/routes/+page.svelte` — topbar-logo 31→26px, новый wordmark
+### Внешние документы (5_Документация/)
+- `SYSTEM_REQUIREMENTS_PLATFORM.md` — требования для всех 8 продуктов
+- `COMPETITIVE_TAMBURIN.md` — анализ vs Tamburin
+- `ROADMAP_SAAS_MIGRATION.md` — стратегия SaaS-перехода
 
-**Branding:**
-- `static/logo-wordmark.png` — Logo_PNG_3-2
-- `src-tauri/icons/*` (51 файл) — Logo_PNG_4_cuted на все размеры
+### Obsidian KB (`D:/Docs/Aurora_Ai/KB/`)
+- `System_Requirements/` (2 + index)
+- `Competitive/` (1 + index)
+- `Roadmap/` (1 + index)
+Все с frontmatter + wikilinks.
 
-**Docs:**
-- `docs/SYSTEM_REQUIREMENTS.md` (NEW)
-- `README.md` — новый раздел Системные требования
-
-### 8 коммитов других приложений (иконки)
-
-`Aurora_Creative_Hub` `6f10da4` · `Aurora_Oracle` `e6a9419` · `Aurora_Parser` `8f0da77` · `Aurora_PR_Master` `9faf9e4` · `ROSST_AI_Creative` `0649809` · `ROSST_AI_DocMaster` `8b7f497` · `ROSST_AI_Legal` `a2b6420` · `ROSST_AI_Media` `58c96be`
-
-Все: копии иконок из Econometrica в `src-tauri/icons/` (17 файлов каждый).
-
-### Внешние документы (не в git)
-
-- `D:/Docs/Aurora_Ai/5_Документация/SYSTEM_REQUIREMENTS_PLATFORM.md` (NEW, ~500 строк) — 11 разделов: OS, железо, MSVC, антивирусы, файрвол, сетевые требования, пути, диагностика, roadmap, contacts
-- `D:/Docs/Aurora_Ai/5_Документация/COMPETITIVE_TAMBURIN.md` (NEW, ~350 строк) — 9 разделов: справка по Tamburin, сравнительная таблица, наши + их сильные стороны, позиционирование, 6-месячный план, риски, sources
-- `D:/Docs/Aurora_Ai/5_Документация/ROADMAP_SAAS_MIGRATION.md` (NEW, ~600 строк) — 10 разделов: исходная позиция, требования SaaS, сложность per-product, API vs подписки, экономика, модели монетизации, roadmap, ресурсы, метрики, риски
-
-### Obsidian KB vault (`D:/Docs/Aurora_Ai/KB/`)
-
-- `System_Requirements/index.md` (NEW, MOC)
-- `System_Requirements/Aurora_Platform_System_Requirements.md` (NEW, copy с frontmatter+wikilinks)
-- `System_Requirements/Econometrica_System_Requirements.md` (NEW, copy)
-- `Competitive/index.md` (NEW, MOC)
-- `Competitive/Aurora_vs_Tamburin.md` (NEW, copy)
-- `Roadmap/index.md` (NEW, MOC)
-- `Roadmap/SaaS_Migration_Strategy.md` (NEW, copy)
-
-Все с Obsidian frontmatter (tags, type, status, updated) и `[[wikilinks]]` для cross-navigation.
-
-### Memory updates
-
-- `C:\Users\ackol\.claude\projects\D--Docs-Aurora-Ai\memory\project_econometrica_session4.md` (NEW)
-- `C:\Users\ackol\.claude\projects\D--Docs-Aurora-Ai\memory\project_econometrica_methodology.md` (NEW)
-- `C:\Users\ackol\.claude\projects\D--Docs-Aurora-Ai\memory\project_econometrica_ols_fallback.md` (NEW)
-- `C:\Users\ackol\.claude\projects\D--Docs-Aurora-Ai\memory\project_oracle_media_remote_conflict.md` (NEW earlier)
-- `C:\Users\ackol\.claude\projects\D--Docs-Aurora-Ai\memory\MEMORY.md` — updated с 4 новыми ссылками
+### Memory
+- `project_econometrica_session4.md` — детальная сессия
+- `project_econometrica_methodology.md` — методология + позиционирование
+- `project_econometrica_ols_fallback.md` — OLS fallback task
+- `project_econometrica_optimizer_ux.md` — optimizer pending
+- `project_econometrica_reports_issues.md` — reports pending
+- `project_oracle_media_remote_conflict.md` — git remote conflict
+- `MEMORY.md` — индекс
 
 ---
 
 ## Setup & Config Changes
 
-### MSVC Build Tools detection
-
-**Уже установлены** на машине Антона (v14.44.35207) — winget upgrade не принёс ничего нового. Путь: `C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\`.
-
-**Корневое исправление** — не установка (она была давно), а **детекция**:
-- `modeler.py:check_compiler()` переписан чтобы использовать vswhere.exe
-- После sidecar restart (обязательно!) PyTensor получает среду VS и компилирует NUTS
-
-### Tauri icons
-
-- Temp preprocess script: `D:/Docs/Aurora_Ai/Dev/.tmp_icon_prep.py` (создан и удалён)
-- Temp 1024×1024 PNG: `D:/Docs/Aurora_Ai/Dev/.tmp_aurora_icon_1024.png` (создан и удалён)
-- Generator: `npx @tauri-apps/cli icon <path>` из Aurora_Econometrica/
-- Distribution: bash cp всех иконок в 8 других `src-tauri/icons/`
-
-### Python sidecar process management
-
-11 повисших python.exe после live-теста предыдущей сессии. Решение:
-```powershell
-# PowerShell от имени Администратора:
-taskkill /F /IM python.exe
+### Python environment (критично для следующей сессии!)
+```bash
+pip install numpyro==0.20.1
+pip install "jax==0.7.2" "jaxlib==0.7.2"  # НЕ upgrade — 0.10 несовместим с numpyro!
 ```
-8 успешно убиты, 3 уже были мертвы (но числились). Освободилось ~2-3 ГБ RAM.
 
-### Background tasks в этой сессии
+Проверка:
+```bash
+python -c "import jax, numpyro; print('JAX', jax.__version__); print('NumPyro', numpyro.__version__)"
+# → JAX 0.7.2 / NumPyro 0.20.1
+```
 
-- Task `bs4ox2die` (начальный dev run) — завершён
-- Task `bvaaedi0z` (current dev run) — был активен на момент компрессии
+### MSVC Build Tools
+- Установлены (v14.44.35207), путь через vswhere.exe
+- **НЕ помогают PyTensor** (он требует g++)
+- Помогают Cython/NumPy (полезно держать)
+
+### Sidecar logs
+- Путь: `%APPDATA%\aurora-econometrica-gui\logs\sidecar-YYYY-MM-DD.log`
+- Rotation: per-day, mode='a' (append)
+- Формат: `YYYY-MM-DD HH:MM:SS,mmm [LEVEL] logger: message`
+
+### Dev commands
+- Start: `cd D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica && npm run tauri dev`
+- Kill python (из PS Админ): `taskkill /F /IM python.exe`
+- Check JAX: см. выше
 
 ---
 
 ## Pending Tasks
 
-### Блокирующие (пока не завершим — не двигаемся)
+### Блокеры релиза (разбираем завтра)
 
-- ⏳ **Live-test Шаг 2 Модель** — в процессе, 82% interpolation на 10 мин. Ждём финальной метрики MQS/R²/R-hat.
-- ⏳ **Проверить NUTS vs Metropolis** — по времени прогона и наличию/отсутствию `functools.partial` ошибки
-- ⏳ **Шаг 3 Декомпозиция** (waterfall chart)
-- ⏳ **Шаг 4 Оптимизация** (budget optimizer, response curves)
-- ⏳ **Шаг 5 Отчёт** (XLSX/PPTX export)
+**1. PPTX export падает — `error decoding response body`**
+- Root cause: `/export/pptx` в server.py:474 без try/except → HTML 500 → reqwest не парсит
+- Fix: try/except wrapper + логирование фаз build_pptx
+- Приоритет: critical (MD/XLSX работают, PPTX main client deliverable)
+- Est: 1 час
+- См. `project_econometrica_reports_issues.md` секция 1
 
-### Tech debt
+**2. Единая формула спецификации модели в отчётах**
+- Отсутствует в MD/XLSX/PPTX
+- Нужно: секция «Спецификация» с формулами Hill/Adstock + priors + описание
+- Приоритет: важно (клиент doверие)
+- Est: 4-6 часов
+- См. `project_econometrica_reports_issues.md` секция 2
 
-- [ ] **OLS-fallback** для <20 точек (6-8ч, medium) — см. `project_econometrica_ols_fallback.md`
-- [ ] **MSVC auto-check в Settings** — при старте вызвать `_has_c_compiler()` и показать баннер если Metropolis активен (1ч)
-- [ ] **Auto-watcher на result.status** для мгновенной разблокировки «Далее» без клика
-- [ ] **Скрыть bulk-карточку «Оставить бюджеты»** после applyObjective (дубль)
-- [ ] **Синхронизация UX-фиксов** в 9 других Aurora-вариантов после закрытия live-теста
-- [ ] **Prod build v1.0.8** (GitHub Releases + Supabase + rosst-updates manifest)
+### UX недоделки Optimizer (~16-24 часа суммарно)
 
-### Стратегические (отложено)
+**3. Slider «Общий бюджет» не триггерит recalc**
+- Нужен debounce + auto-optimize при изменении
+- Est: 1-2 часа
 
-- [ ] **Разрулить Oracle/Media remote conflict** (нужен Антон для force-push на `e350fb9`) — см. `project_oracle_media_remote_conflict.md`
-- [ ] **Создать отдельный репо для Aurora_Oracle** на GitHub, переключить origin
-- [ ] **3-5 публичных кейсов** Econometrica (партнёрство с Кагоцелом — первый кандидат)
-- [ ] **Коннектор Mediascope** (TV + радио) — приоритет 2
-- [ ] **Prior calibration via lift-tests** — Q3-Q4 2026 roadmap
-- [ ] **SaaS MVP (Hybrid)** — Q3-Q4 2027 roadmap
-- [ ] **Офшорное юрлицо** для Anthropic API — конец 2026 Q3
+**4. Explanation overlay при +0% прирост**
+- Когда модель говорит «всё оптимально» — пользователю непонятно
+- Est: 1 час
 
-### TODO в Obsidian index файлах
+**5. Scenario Playground UI**
+- Код `scenario.py` есть, UI части нет
+- Нужен блок: выбор канала + % изменения + таблица сравнения
+- Est: 6-8 часов
 
-- [ ] Конкурентные анализы: Meta Robyn, LightweightMMM, Qualtrics, Consultant.ru, Kittl (Competitive/index.md)
-- [ ] Стратегия международного рынка (EU / MENA) (Roadmap/index.md)
-- [ ] Партнёрство с YandexGPT / GigaChat как fallback (Roadmap/index.md)
-- [ ] Продуктовая feature-roadmap: MTA, GPU backend, prior calibration (Roadmap/index.md)
+**6. Смешанные единицы (TRPs vs ₽)**
+- TRPs 22,100 пунктов vs рубли в других каналах → ROI 49,122× искажение
+- Вариант A (быстро): header-parser + warning
+- Вариант B (правильно): группы spend_cols/reach_cols в модели
+- Вариант C (production): CPP-нормализация
+- Est: 8-12 часов
+
+### UI cosmetic
+
+**7. R² не отображается на Модель и Отчёт**
+- Backend считает, теряется в serialize → store → card
+- Est: 30 минут
+
+### Стратегические / tech debt
+
+**8. OLS-fallback для <20 точек** (6-8ч, `project_econometrica_ols_fallback.md`)
+**9. Prior calibration via lift-tests** — roadmap Q3-Q4 2026
+**10. MTA-модуль** (Markov Chains на клик-стрим) — отдельный кабинет
+**11. Разрулить Oracle/Media remote conflict** — требует force-push (подтверждение Антона)
+**12. Коннекторы к Mediascope/Adfox** — для импорта медиапланов без xlsx
+**13. Публичные кейсы** — нужны 3-5 для coverage в СМИ
+
+### Синхронизация в 9 других Aurora-вариантов
+После закрытия live-теста — распространить UX-фиксы (Markov Chain Monte Carlo rename, data_file store, Stop button и пр.) в другие кабинеты.
 
 ---
 
 ## Errors & Workarounds
 
-### E1 — Metropolis CompoundStep crash `'functools.partial' object has no attribute '__name__'`
+### E1 — Python NUTS застрял на 15+ мин sampling
 
-**Сценарий:** обучение дошло до 100% (30 мин), упало на post-processing (arviz.summary / ppc).
+**Симптом:** модель не завершается даже за 20+ мин. CPU 4.2% (Python single-thread).
 
-**Root cause:** Metropolis sampler создаёт CompoundStep со смесью типов переменных. functools.partial объекты внутри CompoundStep не всегда имеют `__name__`. arviz / ppc натыкается на это.
+**Root cause:** PyTensor на Windows по умолчанию использует Python fallback (нет g++).
 
-**Workaround (primary):** NUTS вместо Metropolis — NUTS не использует CompoundStep → ошибка не возникает. Root fix = vswhere + vcvars64 env injection (Fix 1 выше).
+**Workaround:** JAX/NumPyro backend (см. Fix 5).
 
-**Workaround (secondary):** try/except ppc + manual reconstruction (Fix 2) — защита на случай если NUTS где-то тоже упрётся в эту ошибку.
+### E2 — `'functools.partial' object has no attribute '__name__'`
 
-### E2 — Винда: 11 повисших python.exe процессов
+**Возникает в:** `pm.sample_posterior_predictive`, `arviz.summary`, `pickle.dump(model)`.
 
-**Сценарий:** live-тест Econometrica, sidecar крашился несколько раз, MCMC-потоки не убивались корректно.
+**Root cause:** PyTensor closures с functools.partial без `__name__` attribute. Либо Metropolis CompoundStep, либо pickle PyMC model graph.
 
-**Workaround:** `taskkill /F /IM python.exe` из PowerShell **от имени Админа**. Из non-admin получишь «Отказано в доступе».
+**Workarounds:**
+1. Не пиклить mmm/trace (Fix 4)
+2. try/except ppc + manual y_pred (Fix 3)
+3. NUTS через JAX не создаёт CompoundStep → ошибка не возникает
 
-**Правильный fix (отложено):** sidecar должен регистрировать SIGTERM handler и gracefully killать child-процессы.
+### E3 — R² = -86 миллиардов %
 
-### E3 — Git Bash не понимает single-slash args
+**Root cause:** X_control не нормализован → control_effect в миллиарды → y_pred_norm взрывается → y_pred = huge × y_std + y_mean = astronomical.
 
-**Сценарий:** `taskkill /F /IM python.exe` в Git Bash → `Ошибка: Неправильный параметр или аргумент - 'F:/'`
+**Fix:** control normalization (Fix 7).
 
-**Workaround:** `taskkill //F //IM python.exe` (двойной слеш) или `cmd "/c taskkill /F /IM python.exe"`.
+### E4 — 1658 divergences после NUTS
 
-### E4 — Tauri dev watcher убивает sidecar при icon regen
+**Root cause:** Hill priors `alphas Gamma(3,1) + gammas Beta(2,2)` создают funnel geometry. NUTS не может адаптировать step-size.
 
-**Сценарий:** `npx tauri icon <path>` во время активного dev → rebuild → sidecar kill → прерван live-test.
+**Fix:** tight priors + без `gamma_scaled` (Fix 6).
 
-**Workaround:** не запускать операции в `src-tauri/` во время live-test. Делать с остановленным dev.
+### E5 — JAX 0.10 несовместима с NumPyro 0.20.1
 
-### E5 — Winget install BuildTools exit code 1 (при уже установленной VS)
+**Симптом:** `ImportError: cannot import name 'xla_pmap_p' from 'jax.extend.core.primitives'`
 
-**Сценарий:** `winget install Microsoft.VisualStudio.2022.BuildTools` → «Found an existing package already installed. Trying to upgrade… Installer failed with exit code: 1».
+**Fix:** пинить `jax==0.7.2 jaxlib==0.7.2`.
 
-**Root cause:** VS BuildTools 17.14.30 уже установлена, но winget upgrade не знает какие workloads уже включены.
+### E6 — 11 повисших python.exe процессов
 
-**Workaround:** игнорировать exit code, проверить через glob что cl.exe существует:
-```bash
-ls "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
-```
-Если есть — всё ок, просто fix детекции (Fix 1).
+**Симптом:** после live-теста накапливаются зомби-процессы MCMC (Metropolis не убивается корректно).
 
-### E6 — Aurora_Oracle origin = ROSST_AI_Media.git
+**Workaround:** `taskkill /F /IM python.exe` из **PowerShell от Админа**. Non-admin → «Отказано в доступе».
 
-**Сценарий:** `git push` из Aurora_Oracle ушёл в remote `ROSST_AI_Media.git` (fast-forward `e350fb9..49beb61`), испортил историю Media remote.
+### E7 — Git Bash single-slash args
 
-**Workaround:** не пушить Oracle и Media в этой сессии. Оба коммита (иконки, Markov Chain Monte Carlo updates) остались локально.
+**Симптом:** `taskkill /F /IM python.exe` → `Ошибка: Неправильный параметр или аргумент - 'F:/'`
 
-**Proper fix (отложено):**
-1. Проверить существование отдельного репо `Ackold26/Aurora_Oracle` на GitHub
-2. Если есть — `git remote set-url origin https://github.com/Ackold26/Aurora_Oracle.git` в Aurora_Oracle
-3. Force-reset remote ROSST_AI_Media на `e350fb9` (destructive — требует подтверждения Антона)
-4. Push Oracle в свой корректный remote
-5. Push Media в свой (откаченный) remote
+**Workaround:** `taskkill //F //IM python.exe` (двойной слеш) ИЛИ отдельный PowerShell.
+
+### E8 — Tauri dev watcher убивает sidecar при icon regen
+
+**Симптом:** `npx tauri icon` во время активного dev → rebuild → sidecar kill → live-test прерван.
+
+**Workaround:** не запускать операции в src-tauri/ во время live-test. Делать с остановленным dev.
+
+### E9 — PPTX export "error decoding response body"
+
+**Симптом:** при нажатии «Презентация (PPTX)» на шаге Отчёт → ошибка парсинга HTTP response.
+
+**Root cause:** `/export/pptx` без try/except → python exception → FastAPI HTTP 500 с HTML error page → reqwest ждёт JSON → decode fail.
+
+**Workaround (pending):** try/except wrapper в server.py с JSONResponse error. См. `project_econometrica_reports_issues.md`.
+
+### E10 — Optimizer `Singular matrix C` и `Iteration limit reached`
+
+**Симптом:** в логе sidecar `Optimization did not converge` несколько раз.
+
+**Root cause:** scipy optimizer не сходится когда все каналы в Hill saturation plateau (mROAS=0).
+
+**Workaround:** это data issue (TRPs в пунктах), не backend. Фиксится когда разрулим смешанные единицы.
 
 ---
 
 ## Full Session Notes
 
-### Хронология
+### Хронология (30+ шагов за день)
 
-1. **Подхват контекста** — прочитала session log предыдущей сессии, память проекта, коммиты `72c6493 → 539e11f → 83f28a2`. Статус: Шаг 1 Валидация пройден, Шаг 2 Модель ready.
+1. Подхват контекста из предыдущей session log (`2026-04-18-2330`)
+2. Замена header logo на Logo_PNG_3-2, итеративный подбор размера (31→36→29→26px)
+3. Распространение header-logo фикса на 8 других приложений + commit + push
+4. Первый запуск модели → ошибка `[Errno 2] No such file or directory`
+5. **Fix 1:** data_file store рассинхрон (importData vs pipelineState)
+6. Adstock default 'auto' + предупреждение о файле
+7. Второй запуск модели → 20+ мин на 25%, выглядит как зависание
+8. **Fix 10:** time-based progress interpolation на фронте
+9. **Fix 9:** Stop training endpoint + Rust + UI кнопка
+10. Первый крах: functools.partial после 16 мин обучения
+11. **Fix 2:** vswhere.exe + vcvars64.bat для детекции MSVC
+12. 11 повисших python.exe → taskkill + перезапуск
+13. **Incident:** tauri icon во время активного live-test → убил sidecar (Logo_PNG_1)
+14. Icon regen Logo_PNG_4_cuted (только пирамида, без текста)
+15. Создание `SYSTEM_REQUIREMENTS.md` (платформа + econometrica)
+16. WebSearch Tamburin → `COMPETITIVE_TAMBURIN.md`
+17. Вопрос про SaaS-миграцию → `ROADMAP_SAAS_MIGRATION.md`
+18. MCMC → Markov Chain Monte Carlo rename
+19. Объяснение методологии Bayesian MMM + MCMC Антону
+20. Obsidian KB sync (4 файла + 3 index)
+21. Memory updates (session4, methodology, ols_fallback)
+22. **Первый большой коммит** `74691f8`
+23. Снова NUTS не детектился → глубокая диагностика check_compiler
+24. **Ключевое открытие:** PyTensor требует g++, не MSVC
+25. Обсуждение MinGW vs JAX → выбор JAX
+26. Install jax 0.10 → JAX/NumPyro version mismatch
+27. Downgrade to jax 0.7.2 → совместимость
+28. NumPyro sampler работает: 5-секундное sampling
+29. НО: Divergences=0, R-hat>4, R² = -86 млрд % (огромный overflow)
+30. **Fix 6:** tight priors (Gamma(5,3), Beta(3,3)) → 0 divergences
+31. **Fix 7:** control normalization → R² становится положительным
+32. **Final victory:** MQS=95.6, R-hat<1.01, фит идеальный
+33. Декомпозиция: waterfall + insights + таблица детализации + Share of Spend vs Effect
+34. Оптимизация: +0.0% (все каналы на plateau — ожидаемо на искажённых TRPs)
+35. Feedback: Optimizer slider не recalc, сценарии непонятны
+36. Отчёт: MD ✅, XLSX ✅, PPTX ❌ `error decoding response body`
+37. Feedback: в отчётах нет формулы спецификации модели
+38. **Финальный коммит** `81d4d21` + 8 иконочных коммитов tight fit
+39. Memory final updates (optimizer_ux, reports_issues)
+40. Компрессия (этот документ)
 
-2. **Замена header-лого** — Антон попросил `Logo_PNG_3-2.png` в топбаре, размер +15%. Скопировала static/logo-wordmark.png, увеличила height 31→36. Далее итерации: -20% (36→29), -10% (29→26). Утверждено.
+### Скриншоты (ключевые)
 
-3. **Sync across apps** — замена header-logo распространена на все 7 «лёгких» приложений (Parser пропущен — другой UI). 8 коммитов + пуш в 7 репо (Oracle пропущен из-за remote conflict).
+- Home с hero logo + 3 кнопками ✅
+- Validation success (ratio 2.38:1) ✅
+- Model Expert с per-channel Adstock ✅
+- TrainingProgress с Stop button (красная) ✅
+- Error banner «functools.partial» (решён)
+- Error banner `[Errno 2] ''` (решён)
+- Model complete: MQS 95.6, Факт vs Прогноз идеальный фит ✅
+- Decompose: waterfall 3.37B→11.23B + 6 channels
+- Decompose: tooltip с разбивкой по датам (2025-02-01 = 562.9M)
+- Detail таблица: ROI, Gap, Вердикты
+- Optimizer: response curves + mROAS = 0 (plateau)
+- Report: 3 кнопки экспорта (MD/XLSX/PPTX)
+- Error banner PPTX: «error decoding response body»
 
-4. **Первый запуск модели** — на Кагоцел (31×34, 6 каналов). Упала с ошибкой «[Errno 2] No such file or directory: ''».
-
-5. **data_file store fix** — нашла root cause: ConfigPanel читал из `pipelineState.data.file`, а ImportStep сохранял в `importData.file`. Два разных store. Фикс + pre-flight check + понятный error message.
-
-6. **Adstock 'auto' default** — замена `'geometric'` на `'auto'` в validator-назначении. Dropdown показывает «Авто» сразу.
-
-7. **Второй запуск** — пошла модель. Но прогресс-бар стоял на 25% всю MCMC-фазу (20+ мин), выглядело как зависание.
-
-8. **Time-based progress interpolation** — рефакторинг TrainingProgress.svelte на псевдо-pct базе elapsed time + estimatedSec. Progress bar плавно ползёт 25% → 85%.
-
-9. **Stop button** — backend endpoint `/compute/train/cancel/{task_id}` + Rust command + Svelte красная кнопка «⏹ Остановить обучение». Проверено работает.
-
-10. **Первый крах `functools.partial`** — модель обучилась за 16 мин, упала на arviz/ppc. Гипотеза: Metropolis CompoundStep. Решение: починить детекцию C-compiler чтобы активировать NUTS.
-
-11. **`check_compiler` fix через vswhere** — переписала функцию. Локализует MSVC через vswhere.exe, запускает vcvars64.bat, инжектит env vars в os.environ. 3-5× ожидаемое ускорение.
-
-12. **11 повисших python.exe** — live-тест накопил зомби-процессы. Taskkill из PowerShell от Админа освободил RAM.
-
-13. **Tauri icon incident** — я решила обновить иконки приложения на Logo_PNG_1 во время активного обучения. `npx tauri icon` записал в src-tauri/icons → dev watcher rebuild → sidecar kill → прервала тест. Mea culpa. Записано в Learnings как паттерн L5.
-
-14. **Icon replacement Logo_PNG_1** — python preprocess (trim whitespace, square pad, 1024×1024) + `tauri icon` + cp в 8 других приложений. 9 коммитов.
-
-15. **Icon replacement Logo_PNG_4_cuted** — Антон пересмотрел: предыдущая версия (Logo_PNG_1 с текстом AURORA AI) — плохо читается в иконке. Logo_PNG_4_cuted = только пирамида. Перегенерировала всё. 9 коммитов.
-
-16. **Системные требования документация** — создан `docs/SYSTEM_REQUIREMENTS.md` (детально для Econometrica) + `5_Документация/SYSTEM_REQUIREMENTS_PLATFORM.md` (единая таблица для 8 продуктов).
-
-17. **Econometrica = самый требовательный продукт** — родилась отдельная tier-система: 🟢 Стандарт (7 LLM-продуктов), 🟡 Расширенный (Creative Hub), 🔴 Аналитический (Econometrica, требует MSVC).
-
-18. **Вопрос Антона про Tamburin** — WebSearch о конкуренте. Cloud SaaS, основан 2020, Moscow Seed Fund, кейс «Папа может» 2.5× sales. Позиционирование «без сложных терминов и формул».
-
-19. **Competitive анализ** — создан `COMPETITIVE_TAMBURIN.md` (350 строк): сильные/слабые стороны каждого, USP Aurora (приватность данных + Bayesian + экосистема), стратегический план на 6 месяцев.
-
-20. **Вопрос Антона про SaaS-миграцию** — создан `ROADMAP_SAAS_MIGRATION.md` (600 строк): архитектурная сложность, тонкости Claude API (подписки запрещены ToS, офшор для РФ), модели монетизации (API+margin, BYOK, Hybrid), 3 пути (A/B/C), выбор путь B.
-
-21. **MCMC → Markov Chain Monte Carlo rename** — Антон попросил полное название везде. Обновлены: ConfigPanel label + tooltip, ModelTrainingStep status, TrainingProgress phaseLabel, ExpertModelPanel section-title, insights-rules.js 4 карточки.
-
-22. **Объяснение методологии** — диалог с Антоном про MCMC sampling, разница между Markov Chain и Markov Chain Monte Carlo, позиционирование против Tamburin. Записано в `project_econometrica_methodology.md`.
-
-23. **functools.partial post-processing fix** — добавила try/except + manual y_pred reconstruction из posterior means. Протестировано в текущем прогоне модели.
-
-24. **Commit discipline** — итоговый коммит `74691f8` в Econometrica (61 файл, +495/-30) + 8 иконочных коммитов в других приложениях.
-
-25. **Obsidian KB sync** — скопировала 4 новых MD в KB vault (`D:/Docs/Aurora_Ai/KB/`), добавила frontmatter, wikilinks, создала 3 MOC-index файла (System_Requirements, Competitive, Roadmap).
-
-26. **Memory updates** — 4 новых файла в `.claude/projects/.../memory/`: session4, methodology, ols_fallback, oracle_media_remote_conflict. MEMORY.md проиндексирован.
-
-27. **Компрессия сессии** — текущий документ.
-
-### Ключевые скриншоты
-
-- Home page Econometrica с hero logo + 3 кнопками ✅
-- Import step Кагоцел («Кагоцел РФ ММХ 1904-26 (4)») ✅
-- Validate step с ROI objective, status=success ✅
-- Model step с Expert panel, 6 каналов, Adstock 'Авто' ✅
-- TrainingProgress с Stop button красная outline ✅
-- Error banner «[Errno 2] No such file or directory: ''» → решён (data_file fix)
-- Error banner «'functools.partial' object has no attribute '__name__'» → решается (vswhere + ppc fallback)
-- Прогресс-бар time-based intelpolation: 3 мин = 43%, 10 мин = 82%
-- Новая иконка Aurora AI в таскбаре Windows ✅
-
-### Commits
+### Commits (summary)
 
 ```
 Econometrica:
-74691f8 feat(econometrica): NUTS detection via vswhere, MCMC UX polish, system docs
+  74691f8 feat(econometrica): NUTS detection via vswhere, MCMC UX polish, system docs
+  81d4d21 feat(econometrica): JAX backend + tight priors + file logging + icons tight
 
-Other 8 apps (icons only):
-6f10da4 (Aurora_Creative_Hub)
-e6a9419 (Aurora_Oracle)
-8f0da77 (Aurora_Parser)
-9faf9e4 (Aurora_PR_Master)
-0649809 (ROSST_AI_Creative)
-8b7f497 (ROSST_AI_DocMaster)
-a2b6420 (ROSST_AI_Legal)
-58c96be (ROSST_AI_Media)
+Other 8 apps (Logo_PNG_4 round 1):
+  6f10da4 (Creative_Hub) e6a9419 (Oracle) 8f0da77 (Parser) 9faf9e4 (PR_Master)
+  0649809 (Creative) 8b7f497 (DocMaster) a2b6420 (Legal) 58c96be (Media)
+
+Other 8 apps (tight icons round 2):
+  [8 новых коммитов с tight fit]
 ```
 
-Суммарно: **9 коммитов**, ~61+ файлов, 495+ insertions.
+**Итого:** 18 коммитов за сессию.
 
-### Memory
+### Memory final state
 
-- `project_econometrica_session4.md` — полная запись этой сессии
-- `project_econometrica_methodology.md` — методология + позиционирование
-- `project_econometrica_ols_fallback.md` — OLS-fallback task
-- `project_oracle_media_remote_conflict.md` — remote conflict (earlier)
-- `MEMORY.md` — indexed с 4 новыми ссылками
+- `project_econometrica_session4.md` — детальная сессия (этот compress дополняет)
+- `project_econometrica_methodology.md` — Bayesian MMM + позиционирование
+- `project_econometrica_ols_fallback.md` — OLS fallback task (6-8ч pending)
+- `project_econometrica_optimizer_ux.md` — optimizer pending (4 задачи 16-24ч)
+- `project_econometrica_reports_issues.md` — reports pending (3 задачи)
+- `project_oracle_media_remote_conflict.md` — git remote conflict
+- `MEMORY.md` — проиндексирован всеми ссылками
+
+### Следующая сессия (завтра)
+
+Читай:
+1. `MEMORY.md` → `project_econometrica_session4.md`
+2. Этот compress log
+3. `project_econometrica_reports_issues.md`
+4. `project_econometrica_optimizer_ux.md`
+
+Начни с:
+1. PPTX fix (1 час — блокер для релиза)
+2. R² в UI (30 мин — cosmetic quick win)
+3. Единая формула спецификации (4-6 часов — клиенту важно)
+4. Optimizer UX (решить в каком порядке — 16-24 часа суммарно)
+
+**Среда:** JAX 0.7.2 + NumPyro 0.20.1 — не трогай версии!
+**При проблемах sidecar:** taskkill /F /IM python.exe + restart dev
+**Логи:** `%APPDATA%\aurora-econometrica-gui\logs\sidecar-YYYY-MM-DD.log`

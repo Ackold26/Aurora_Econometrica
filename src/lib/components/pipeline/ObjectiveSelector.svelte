@@ -25,6 +25,7 @@
     <p class="lead">
       Перед тем как строить модель, важно определить — <strong>что именно вы измеряете</strong>.
       Этот выбор фундаментально меняет набор метрик, которые модель будет использовать, и смысл финального отчёта.
+      <br>
       Проверьте 3 варианта ниже — можно переключить в любой момент, но от этого зависит всё дальнейшее.
     </p>
   </header>
@@ -45,6 +46,7 @@
           <h3>ROI</h3>
           <span class="tagline">финансовая отдача</span>
         </div>
+        <span class="card-badge">80% моделей</span>
       </div>
 
       <div class="section">
@@ -139,7 +141,7 @@
 
       <div class="section">
         <h4>К чему приведёт</h4>
-        <p>Гибридная модель. Больше ручной работы, но максимальная точность под реальный микс каналов. <strong>Рекомендую опытным аналитикам</strong> с пониманием специфики каждого канала.</p>
+        <p>Гибридная модель. Больше ручной работы, но максимальная точность под реальный микс каналов. <strong>Рекомендовано опытным специалистам</strong> с пониманием специфики каждого канала.</p>
       </div>
 
       <div class="section typical">
@@ -181,8 +183,8 @@
   .intro .lead {
     font-size: 12px;
     color: var(--text-secondary);
-    line-height: 1.45;
-    max-width: 860px;
+    line-height: 1.5;
+    max-width: 1180px;
     margin: 0;
   }
   .intro strong { color: var(--text-primary); font-weight: 600; }
@@ -262,6 +264,20 @@
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+
+  .card-badge {
+    margin-left: auto;
+    padding: 3px 8px;
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    color: var(--accent-primary);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .section { display: flex; flex-direction: column; gap: 4px; }

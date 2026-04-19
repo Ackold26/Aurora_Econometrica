@@ -57,61 +57,92 @@
 
 ## 3. Обязательное ПО
 
-### 3.1 Для всех пользователей
+> ⚠️ **Обновлено 2026-04-19 на основе live-теста:** MSVC Build Tools на Windows **НЕ ускоряет PyTensor** (он требует g++, не cl.exe). Правильный путь — JAX/NumPyro backend.
 
-**Microsoft Visual C++ 2022 Build Tools** — **критично для скорости обучения модели.**
+### 3.1 Для всех пользователей — JAX / NumPyro (критично для скорости)
 
-Без C-компилятора PyTensor не может скомпилировать вычислительный граф → PyMC автоматически падает на **Metropolis-sampler**, который в **3-5 раз медленнее** NUTS.
+**JAX + NumPyro** — обязательные Python-пакеты для приемлемой скорости MCMC.
 
-**Установка (разово, ~10 минут):**
+Без них PyMC падает на Python-fallback NUTS — sampling занимает **15-30+ минут** на типовых данных (31×34). С JAX — **секунды**.
+
+**Установка (разово):**
+
+```bash
+pip install "jax==0.7.2" "jaxlib==0.7.2" "numpyro==0.20.1"
+```
+
+> ⚠️ **Версионный mismatch:** последний JAX (0.10+) НЕ совместим с NumPyro 0.20.1.
+> Пинить строго: `jax==0.7.2`, `jaxlib==0.7.2`, `numpyro==0.20.1`.
+
+**Проверка:**
+```bash
+python -c "import jax, numpyro; print('JAX:', jax.__version__); print('NumPyro:', numpyro.__version__)"
+```
+
+### 3.2 MSVC Build Tools — опционально (для Cython/NumPy)
+
+MSVC Build Tools полезны для:
+- Установки пакетов с native-extension (некоторые версии lxml, pycurl и т.д.)
+- Сборки NumPy/SciPy из исходников (обычно не нужно — есть wheels)
+- **НЕ помогают** PyMC/PyTensor
+
+Если не нужно — **пропустить, поставить только JAX/NumPyro** (см. 3.1).
+
+**Если всё же устанавливать:**
 
 ```powershell
 winget install Microsoft.VisualStudio.2022.BuildTools
 ```
 
-После открытия Visual Studio Installer **отметить только** (остальное не нужно):
+После открытия Visual Studio Installer отметить:
 - ✅ **MSVC v143 - VS 2022 C++ x64/x86 build tools**
-- ✅ **Windows 11 SDK** (или Windows 10 SDK — по вашей ОС)
+- ✅ **Windows 11 SDK** (или Windows 10 SDK)
 
-Опционально, но ускоряет сборку PyTensor:
-- ✅ **C++ CMake tools for Windows**
+**Размер:** ~3.5 ГБ минимум.
 
-**Размер на диске:**
-
-| Вариант | Размер |
-|---|---|
-| Только MSVC v143 + Windows SDK (минимум) | **~3.5 ГБ** |
-| + CMake + ATL/MFC | ~5-6 ГБ |
-| Полный workload «Desktop development with C++» | ~7-8 ГБ |
-
-**Проверка установки:**
-
+**Проверка через vswhere** (работает в любом терминале):
 ```powershell
-# В PowerShell, после перезапуска терминала:
-cl.exe
-# Должно показать: Microsoft (R) C/C++ Optimizing Compiler Version 19.xx
+"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
 ```
 
-### 3.2 Установлено автоматически инсталлятором Aurora
+### 3.3 Установлено автоматически инсталлятором Aurora
 
 - WebView2 Runtime (если не установлен)
-- Python runtime с PyMC, NumPy, Pandas, SciPy (bundled в sidecar)
-- Visual C++ Redistributable 2015-2022
+- Python runtime с PyMC, NumPy, Pandas, SciPy, **JAX, JAXlib, NumPyro** (bundled в sidecar)
+- Visual C++ Redistributable 2015-2022 (стандартная зависимость)
 
 ---
 
 ## 4. Тонкости настройки
 
-### 4.1 Проверка, что NUTS активен
+### 4.1 Проверка, что NUTS через JAX активен
 
-После обучения первой модели:
-1. Открыть Expert-режим
-2. В панели «Диагностика Markov Chain Monte Carlo» проверить R-hat
-3. R-hat ≤ 1.01 при 500 draws = работает NUTS. R-hat > 1.05 при том же — вероятно Metropolis.
+В логе sidecar (`%APPDATA%\aurora-econometrica-gui\logs\sidecar-YYYY-MM-DD.log`) должна быть строка:
+```
+[INFO] engines.modeler: Using NumPyro NUTS sampler (JAX backend)
+```
 
-Альтернатива (в будущем): в Settings добавить проверку `_has_c_compiler()` + индикатор активного sampler.
+Если вместо неё:
+```
+[WARNING] engines.modeler: NumPyro/JAX not available — falling back to PyTensor NUTS
+```
+→ JAX/NumPyro не установлен (см. 3.1).
 
-### 4.2 Антивирус
+**Прямая проверка версий:**
+```bash
+python -c "import jax, numpyro; print(jax.__version__, numpyro.__version__)"
+# Должно: 0.7.2 0.20.1
+```
+
+### 4.2 Проверка скорости обучения
+
+На тест-данных 31×34, 6 каналов, Chains=2, Draws=500, Tune=500:
+- **JAX/NumPyro:** ~5-15 секунд
+- **PyTensor Python fallback:** 15-30+ минут
+
+Если тренировка идёт дольше 30 секунд — проверить JAX.
+
+### 4.3 Антивирус
 
 Некоторые антивирусы (особенно Kaspersky, Dr.Web) блокируют быстрые записи кэша PyTensor в `%TEMP%\pytensor\` — это замедляет первый запуск модели в 2-3 раза.
 
@@ -120,7 +151,7 @@ cl.exe
 - `%TEMP%\pytensor\` (кэш PyTensor)
 - `%APPDATA%\aurora-econometrica-gui\` (проекты)
 
-### 4.3 PowerShell execution policy
+### 4.4 PowerShell execution policy
 
 Если при первом запуске ставится блок от PowerShell:
 
@@ -128,13 +159,13 @@ cl.exe
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-### 4.4 Russian paths / Cyrillic в пути
+### 4.5 Russian paths / Cyrillic в пути
 
 PyTensor исторически плохо дружит с кириллицей в пути. **Не размещать** установку в `C:\Users\<русское_имя>\...`.
 
 **Обходной путь:** установить в `C:\Aurora\` или `D:\Программы\Aurora\` (первая папка с латиницей допустима, финальная — любая).
 
-### 4.5 Файрвол
+### 4.6 Файрвол
 
 Приложение работает **полностью локально**, исходящих соединений нет кроме:
 - GitHub Pages (`ackold26.github.io`) — проверка обновлений
@@ -169,10 +200,10 @@ PyTensor исторически плохо дружит с кириллицей 
 
 ## 6. Диагностика проблем
 
-### Модель обучается очень долго (>30 минут на 500 draws)
+### Модель обучается очень долго (>30 секунд на 500 draws)
 
-**Причина 99%:** не установлены MS Visual C++ Build Tools → Metropolis sampler активен.
-**Решение:** §3.1 выше.
+**Причина 99%:** не установлены JAX / NumPyro → PyTensor Python fallback (15-30+ мин).
+**Решение:** `pip install "jax==0.7.2" "jaxlib==0.7.2" "numpyro==0.20.1"` + перезапуск sidecar. См. §3.1.
 
 ### Ошибка «PyMC not found» при запуске модели
 

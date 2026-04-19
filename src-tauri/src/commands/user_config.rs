@@ -10,6 +10,12 @@ pub struct UserConfig {
     /// Custom output paths per cabinet: cabinet_id → absolute path
     #[serde(default)]
     pub cabinet_paths: HashMap<String, String>,
+    /// Claude model: "sonnet" | "opus"
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Thinking effort: "medium" | "high" | "max"
+    #[serde(default)]
+    pub model_effort: Option<String>,
 }
 
 fn config_path(config_dir: &Path) -> PathBuf {

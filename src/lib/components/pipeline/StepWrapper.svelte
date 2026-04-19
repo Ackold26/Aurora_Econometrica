@@ -6,8 +6,10 @@
    */
   import { PIPELINE_STEPS, pipelineCurrentStep, pipelineStepMeta } from '$lib/project-state.js';
 
-  /** @type {{ step: number, children: import('svelte').Snippet }} */
-  let { step, children } = $props();
+  /** helpPage сохранён как prop для обратной совместимости с /pipeline/+page.svelte,
+      но сама кнопка «?» больше здесь не рендерится — она переехала в header pipeline. */
+  /** @type {{ step: number, helpPage?: string, children: import('svelte').Snippet }} */
+  let { step, helpPage: _helpPage, children } = $props();
 
   const stepDef = $derived(PIPELINE_STEPS[step]);
   const meta = $derived($pipelineStepMeta[step]);

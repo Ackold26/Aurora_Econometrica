@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use tauri::Emitter;
 
 use crate::crypto;
-use super::vault;
+use super::{content_pack, vault};
 
 /// Supabase Edge Functions base URL (obfuscated at compile time).
 fn supabase_url() -> String {
@@ -380,4 +380,549 @@ pub async fn download_updates(
     }
 
     Ok(updated)
+}
+
+// ── Content Pack Version ───────────────────────────────────
+
+/// Read the locally installed content pack version from its manifest.json.
+/// Returns 0 if no content packs are installed yet.
+pub fn get_local_content_pack_version(app_local_data_dir: &Path) -> u32 {
+    let manifest_path = content_pack::content_packs_dir(app_local_data_dir).join("manifest.json");
+    std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["version"].as_u64())
+        .map(|v| v as u32)
+        .unwrap_or(0)
+}
+
+/// Read the locally installed frontend bundle version.
+/// Returns 0 if no frontend bundle is installed yet.
+pub fn get_local_frontend_version(app_local_data_dir: &Path) -> u32 {
+    let version_file = app_local_data_dir.join("current_frontend_version.txt");
+    std::fs::read_to_string(&version_file)
+        .ok()
+        .and_then(|s| s.trim().trim_start_matches('v').parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+// ── Content Pack Download (Phase 5) ───────────────────────
+
+/// Download and install a content pack from a direct URL.
+///
+/// Downloads tar.gz, verifies SHA-256 checksum, verifies Ed25519 manifest
+/// signature, then atomically installs it as the new content-packs directory.
+pub async fn download_content_pack(
+    app_local_data_dir: &Path,
+    url: &str,
+    expected_checksum: &str,
+    app_handle: &tauri::AppHandle,
+) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+        .build()?;
+
+    info!("Downloading content pack from URL");
+    let _ = app_handle.emit("content-pack-update-progress", serde_json::json!({ "stage": "connecting" }));
+
+    let resp = client.get(url).send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Content pack download failed: HTTP {} — {}", status, body);
+    }
+
+    let bytes = resp.bytes().await?;
+    info!("Downloaded content pack ({} bytes)", bytes.len());
+
+    // Verify bundle checksum
+    if !expected_checksum.is_empty() {
+        let hash = format!("sha256:{:x}", Sha256::digest(&bytes));
+        if hash != expected_checksum {
+            anyhow::bail!(
+                "Content pack checksum mismatch: expected {}, got {}",
+                expected_checksum,
+                hash
+            );
+        }
+    }
+
+    let _ = app_handle.emit("content-pack-update-progress", serde_json::json!({
+        "stage": "extracting",
+        "bytes": bytes.len(),
+    }));
+
+    // Extract to staging directory
+    let staging_dir = app_local_data_dir.join("content-packs-new");
+    if staging_dir.exists() {
+        std::fs::remove_dir_all(&staging_dir)
+            .context("Failed to remove stale content-pack staging dir")?;
+    }
+    std::fs::create_dir_all(&staging_dir)
+        .context("Failed to create content-pack staging dir")?;
+
+    let cursor = std::io::Cursor::new(bytes.as_ref());
+    let gz = flate2::read::GzDecoder::new(cursor);
+    let mut archive = tar::Archive::new(gz);
+    archive.unpack(&staging_dir)
+        .context("Failed to unpack content pack")?;
+
+    // Verify manifest signature BEFORE making it live
+    crate::crypto::content_sig::verify_manifest(&staging_dir)
+        .context("Content pack manifest verification failed")?;
+
+    let _ = app_handle.emit("content-pack-update-progress", serde_json::json!({ "stage": "installing" }));
+
+    // Atomic swap: current → backup, new → current
+    let current_dir = content_pack::content_packs_dir(app_local_data_dir);
+    let backup_dir = app_local_data_dir.join("content-packs-old");
+
+    if current_dir.exists() {
+        if backup_dir.exists() {
+            let _ = std::fs::remove_dir_all(&backup_dir);
+        }
+        std::fs::rename(&current_dir, &backup_dir)
+            .context("Failed to backup current content packs")?;
+    }
+    std::fs::rename(&staging_dir, &current_dir)
+        .context("Failed to install new content packs")?;
+    let _ = std::fs::remove_dir_all(&backup_dir); // best-effort cleanup
+
+    info!("Content pack installed successfully");
+    Ok(())
+}
+
+// ── Frontend Bundle Download ───────────────────────────────
+
+/// Download and install a frontend bundle from the server.
+///
+/// Downloads a tar.gz archive containing the SvelteKit build output,
+/// verifies manifest.sig, then atomically installs it as the next
+/// versioned frontend directory in app_local_data_dir.
+///
+/// On success the version pointer (`current_frontend_version.txt`) is updated.
+/// The caller should prompt the user to restart the app.
+///
+/// NOTE: The `/frontend-bundle` Edge Function is implemented in Phase 5.
+pub async fn download_frontend_bundle(
+    app_local_data_dir: &Path,
+    product: &str,
+    app_handle: &tauri::AppHandle,
+) -> Result<()> {
+    let url = format!("{}/frontend-bundle?product={}", supabase_url(), product);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+        .build()?;
+
+    info!("Downloading frontend bundle: product={}", product);
+
+    let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({ "stage": "connecting" }));
+
+    let resp = client.get(&url).send().await?;
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        anyhow::bail!("Frontend bundle not available on server for product={}", product);
+    }
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Frontend bundle download failed: HTTP {} — {}", status, body);
+    }
+
+    let bytes = resp.bytes().await?;
+    info!("Downloaded frontend bundle ({} bytes)", bytes.len());
+
+    let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
+        "stage": "extracting",
+        "bytes": bytes.len(),
+    }));
+
+    // Compute next version number
+    let version_file = app_local_data_dir.join("current_frontend_version.txt");
+    let current_v = std::fs::read_to_string(&version_file).unwrap_or_else(|_| "v0".to_string());
+    let next_n = current_v.trim().trim_start_matches('v')
+        .parse::<u32>()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let next_version = format!("v{}", next_n);
+
+    // Extract to staging directory
+    let staging_dir = app_local_data_dir.join(format!("frontend-{}-staging", next_version));
+    if staging_dir.exists() {
+        std::fs::remove_dir_all(&staging_dir)
+            .context("Failed to remove stale staging dir")?;
+    }
+    std::fs::create_dir_all(&staging_dir)
+        .context("Failed to create staging dir")?;
+
+    let cursor = std::io::Cursor::new(bytes.as_ref());
+    let gz = flate2::read::GzDecoder::new(cursor);
+    let mut archive = tar::Archive::new(gz);
+    archive.unpack(&staging_dir)
+        .context("Failed to unpack frontend bundle")?;
+
+    // Verify manifest signature BEFORE making it live
+    crate::crypto::content_sig::verify_manifest(&staging_dir)
+        .context("Frontend bundle manifest verification failed")?;
+
+    info!("Frontend staging verified — installing as {}", next_version);
+
+    let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
+        "stage": "installing",
+        "version": next_version,
+    }));
+
+    // Move staging → final directory
+    let final_dir = app_local_data_dir.join(format!("frontend-{}", next_version));
+    if final_dir.exists() {
+        std::fs::remove_dir_all(&final_dir)?;
+    }
+    std::fs::rename(&staging_dir, &final_dir)
+        .context("Failed to move staged frontend into place")?;
+
+    // Atomically update version pointer (write tmp, then rename)
+    let tmp_version = version_file.with_extension("tmp");
+    std::fs::write(&tmp_version, &next_version)?;
+    std::fs::rename(&tmp_version, &version_file)?;
+
+    info!("Frontend bundle installed: {}", next_version);
+    Ok(())
+}
+
+/// Download and install a frontend bundle from a direct URL with checksum verification.
+///
+/// Phase 5 variant: accepts pre-signed URL + checksum + explicit version number
+/// from the /auth response, rather than constructing the URL from the product name.
+pub async fn download_frontend_bundle_from_url(
+    app_local_data_dir: &Path,
+    url: &str,
+    expected_checksum: &str,
+    version: u32,
+    app_handle: &tauri::AppHandle,
+) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+        .build()?;
+
+    info!("Downloading frontend bundle v{} from URL", version);
+    let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({ "stage": "connecting" }));
+
+    let resp = client.get(url).send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Frontend bundle download failed: HTTP {} — {}", status, body);
+    }
+
+    let bytes = resp.bytes().await?;
+    info!("Downloaded frontend bundle ({} bytes)", bytes.len());
+
+    // Verify bundle checksum
+    if !expected_checksum.is_empty() {
+        let hash = format!("sha256:{:x}", Sha256::digest(&bytes));
+        if hash != expected_checksum {
+            anyhow::bail!(
+                "Frontend bundle checksum mismatch: expected {}, got {}",
+                expected_checksum,
+                hash
+            );
+        }
+    }
+
+    let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
+        "stage": "extracting",
+        "bytes": bytes.len(),
+    }));
+
+    // Extract to staging directory
+    let next_version = format!("v{}", version);
+    let staging_dir = app_local_data_dir.join(format!("frontend-{}-staging", next_version));
+    if staging_dir.exists() {
+        std::fs::remove_dir_all(&staging_dir)
+            .context("Failed to remove stale frontend staging dir")?;
+    }
+    std::fs::create_dir_all(&staging_dir)
+        .context("Failed to create frontend staging dir")?;
+
+    let cursor = std::io::Cursor::new(bytes.as_ref());
+    let gz = flate2::read::GzDecoder::new(cursor);
+    let mut archive = tar::Archive::new(gz);
+    archive.unpack(&staging_dir)
+        .context("Failed to unpack frontend bundle")?;
+
+    // Verify manifest signature BEFORE making it live
+    crate::crypto::content_sig::verify_manifest(&staging_dir)
+        .context("Frontend bundle manifest verification failed")?;
+
+    info!("Frontend staging verified — installing as {}", next_version);
+    let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
+        "stage": "installing",
+        "version": &next_version,
+    }));
+
+    // Move staging → final directory
+    let final_dir = app_local_data_dir.join(format!("frontend-{}", next_version));
+    if final_dir.exists() {
+        std::fs::remove_dir_all(&final_dir)?;
+    }
+    std::fs::rename(&staging_dir, &final_dir)
+        .context("Failed to move staged frontend into place")?;
+
+    // Atomically update version pointer
+    let version_file = app_local_data_dir.join("current_frontend_version.txt");
+    let tmp_version_file = version_file.with_extension("tmp");
+    std::fs::write(&tmp_version_file, &next_version)?;
+    std::fs::rename(&tmp_version_file, &version_file)?;
+
+    // Cleanup old versions (keep current and one previous)
+    cleanup_old_frontend_versions(app_local_data_dir, version);
+
+    info!("Frontend bundle v{} installed, restart required", version);
+    app_handle.emit("frontend-updated", version)?;
+    Ok(())
+}
+
+/// Remove frontend-vN directories older than (current_version - 1).
+fn cleanup_old_frontend_versions(app_local_data_dir: &Path, current_version: u32) {
+    if current_version < 2 {
+        return;
+    }
+    let keep_from = current_version.saturating_sub(1);
+    if let Ok(entries) = std::fs::read_dir(app_local_data_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let s = name.to_string_lossy();
+            if let Some(suffix) = s.strip_prefix("frontend-v") {
+                // Skip staging dirs
+                if suffix.ends_with("-staging") {
+                    continue;
+                }
+                if let Ok(ver) = suffix.parse::<u32>() {
+                    if ver < keep_from {
+                        let _ = std::fs::remove_dir_all(entry.path());
+                        info!("Removed old frontend version: {}", s);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tempfile::TempDir;
+
+    // ── Local version (legacy) ────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_local_version_no_file() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(get_local_version(dir.path()), None);
+    }
+
+    #[test]
+    fn test_set_and_get_local_version() {
+        let dir = TempDir::new().unwrap();
+        set_local_version(dir.path(), "c5").unwrap();
+        assert_eq!(get_local_version(dir.path()), Some("c5".to_string()));
+        // Overwrite
+        set_local_version(dir.path(), "c8").unwrap();
+        assert_eq!(get_local_version(dir.path()), Some("c8".to_string()));
+    }
+
+    // ── Per-cabinet vault versions ────────────────────────────────────────────
+
+    #[test]
+    fn test_get_vault_versions_no_file() {
+        let dir = TempDir::new().unwrap();
+        let versions = get_vault_versions(dir.path());
+        assert!(versions.is_empty());
+    }
+
+    #[test]
+    fn test_set_and_get_vault_versions() {
+        let dir = TempDir::new().unwrap();
+        set_vault_version(dir.path(), "media-analyst", 5).unwrap();
+        set_vault_version(dir.path(), "creative-director", 3).unwrap();
+
+        let versions = get_vault_versions(dir.path());
+        assert_eq!(versions.get("media-analyst"), Some(&5));
+        assert_eq!(versions.get("creative-director"), Some(&3));
+        assert_eq!(versions.get("social-listening"), None);
+    }
+
+    #[test]
+    fn test_set_vault_version_overwrites_previous() {
+        let dir = TempDir::new().unwrap();
+        set_vault_version(dir.path(), "media-analyst", 1).unwrap();
+        set_vault_version(dir.path(), "media-analyst", 7).unwrap();
+
+        let versions = get_vault_versions(dir.path());
+        assert_eq!(versions.get("media-analyst"), Some(&7));
+        assert_eq!(versions.len(), 1);
+    }
+
+    // ── Migration from legacy ────────────────────────────────────────────────
+
+    #[test]
+    fn test_migrate_noop_if_vault_versions_exists() {
+        let dir = TempDir::new().unwrap();
+        // Pre-create vault-versions.json
+        std::fs::write(dir.path().join("vault-versions.json"), r#"{"media-analyst":3}"#).unwrap();
+        // Should be a no-op — file should not be modified
+        migrate_from_legacy(dir.path(), dir.path()).unwrap();
+        let versions = get_vault_versions(dir.path());
+        assert_eq!(versions.get("media-analyst"), Some(&3));
+        assert_eq!(versions.len(), 1);
+    }
+
+    #[test]
+    fn test_migrate_noop_if_no_legacy_version() {
+        let dir = TempDir::new().unwrap();
+        // Neither content_version.txt nor vault-versions.json
+        migrate_from_legacy(dir.path(), dir.path()).unwrap();
+        assert!(!dir.path().join("vault-versions.json").exists());
+    }
+
+    #[test]
+    fn test_migrate_creates_vault_versions_from_legacy() {
+        let config_dir = TempDir::new().unwrap();
+        let data_dir = TempDir::new().unwrap();
+
+        // Setup: content_version.txt = "c5"
+        set_local_version(config_dir.path(), "c5").unwrap();
+
+        // Create some .vault files on disk
+        let vaults_dir = data_dir.path().join("vaults");
+        std::fs::create_dir_all(&vaults_dir).unwrap();
+        std::fs::write(vaults_dir.join("media-analyst.vault"), b"encrypted").unwrap();
+        std::fs::write(vaults_dir.join("creative-group.vault"), b"encrypted").unwrap();
+
+        migrate_from_legacy(config_dir.path(), data_dir.path()).unwrap();
+
+        let versions = get_vault_versions(config_dir.path());
+        // media-analyst → version 5
+        assert_eq!(versions.get("media-analyst"), Some(&5));
+        // creative-group maps to creative-director via stem_to_cabinet_id
+        assert_eq!(versions.get("creative-director"), Some(&5));
+    }
+
+    #[test]
+    fn test_migrate_skips_non_vault_files() {
+        let config_dir = TempDir::new().unwrap();
+        let data_dir = TempDir::new().unwrap();
+
+        set_local_version(config_dir.path(), "c2").unwrap();
+        let vaults_dir = data_dir.path().join("vaults");
+        std::fs::create_dir_all(&vaults_dir).unwrap();
+        std::fs::write(vaults_dir.join("media-analyst.vault"), b"data").unwrap();
+        std::fs::write(vaults_dir.join("readme.txt"), b"not a vault").unwrap();
+        std::fs::write(vaults_dir.join("config.json"), b"{}").unwrap();
+
+        migrate_from_legacy(config_dir.path(), data_dir.path()).unwrap();
+
+        let versions = get_vault_versions(config_dir.path());
+        assert_eq!(versions.len(), 1);
+        assert!(versions.contains_key("media-analyst"));
+    }
+
+    // ── Per-cabinet update check ─────────────────────────────────────────────
+
+    #[test]
+    fn test_check_update_per_cabinet_needs_update() {
+        let dir = TempDir::new().unwrap();
+        set_vault_version(dir.path(), "media-analyst", 1).unwrap();
+        set_vault_version(dir.path(), "creative-director", 3).unwrap();
+
+        // Server: media-analyst bumped to 2, creative-director still 3
+        let mut server = HashMap::new();
+        server.insert("media-analyst".to_string(), 2u32);
+        server.insert("creative-director".to_string(), 3u32);
+
+        let status = check_update_per_cabinet(dir.path(), &server);
+        assert!(status.update_available);
+        assert!(status.files_to_update.iter().any(|f| f.contains("media-analyst")),
+            "media-analyst must be in files_to_update");
+        assert!(!status.files_to_update.iter().any(|f| f.contains("creative")),
+            "creative-director must NOT be in files_to_update (already up to date)");
+    }
+
+    #[test]
+    fn test_check_update_per_cabinet_up_to_date() {
+        let dir = TempDir::new().unwrap();
+        set_vault_version(dir.path(), "media-analyst", 5).unwrap();
+
+        let mut server = HashMap::new();
+        server.insert("media-analyst".to_string(), 5u32);
+
+        let status = check_update_per_cabinet(dir.path(), &server);
+        assert!(!status.update_available);
+        assert!(status.files_to_update.is_empty());
+    }
+
+    #[test]
+    fn test_check_update_per_cabinet_no_local_version() {
+        let dir = TempDir::new().unwrap();
+        // Local has no version for this cabinet → treat as 0 → needs update
+
+        let mut server = HashMap::new();
+        server.insert("media-analyst".to_string(), 1u32);
+
+        let status = check_update_per_cabinet(dir.path(), &server);
+        assert!(status.update_available);
+        assert!(!status.files_to_update.is_empty());
+    }
+
+    #[test]
+    fn test_check_update_per_cabinet_empty_server() {
+        let dir = TempDir::new().unwrap();
+        set_vault_version(dir.path(), "media-analyst", 3).unwrap();
+
+        let server: HashMap<String, u32> = HashMap::new();
+        let status = check_update_per_cabinet(dir.path(), &server);
+        assert!(!status.update_available);
+        assert!(status.files_to_update.is_empty());
+    }
+
+    // ── Local content pack / frontend version ─────────────────────────────────
+
+    #[test]
+    fn test_get_local_content_pack_version_no_manifest() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(get_local_content_pack_version(dir.path()), 0);
+    }
+
+    #[test]
+    fn test_get_local_content_pack_version_from_manifest() {
+        let dir = TempDir::new().unwrap();
+        let packs_dir = dir.path().join("content-packs");
+        std::fs::create_dir_all(&packs_dir).unwrap();
+        std::fs::write(
+            packs_dir.join("manifest.json"),
+            r#"{"format_version":1,"layer":"content","version":7,"min_core_version":"0.7.0","product":"test","timestamp":1000,"files":{}}"#,
+        ).unwrap();
+        assert_eq!(get_local_content_pack_version(dir.path()), 7);
+    }
+
+    #[test]
+    fn test_get_local_frontend_version_no_file() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(get_local_frontend_version(dir.path()), 0);
+    }
+
+    #[test]
+    fn test_get_local_frontend_version_from_file() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("current_frontend_version.txt"), "v3").unwrap();
+        assert_eq!(get_local_frontend_version(dir.path()), 3);
+    }
+
+    #[test]
+    fn test_get_local_frontend_version_without_v_prefix() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("current_frontend_version.txt"), "5").unwrap();
+        assert_eq!(get_local_frontend_version(dir.path()), 5);
+    }
 }

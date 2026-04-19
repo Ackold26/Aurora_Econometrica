@@ -96,7 +96,7 @@
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       }
       .anav-groups { display: flex; gap: 2px; }
-      .anav-group { position: relative; }
+      .anav-group { position: relative; padding-bottom: 6px; margin-bottom: -6px; }
       .anav-group-btn {
         background: none; border: 1px solid transparent; color: #9898A8;
         font-size: 12.5px; font-weight: 600; padding: 6px 12px;
@@ -114,7 +114,7 @@
         display: none; position: absolute; top: 100%; left: 0;
         background: #141420; border: 1px solid rgba(255,255,255,0.1);
         border-radius: 8px; padding: 6px; min-width: 200px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5); margin-top: 4px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
       }
       .anav-group:hover .anav-dropdown { display: block; }
       .anav-dropdown a {
