@@ -198,6 +198,25 @@ export const decomposeData = writable(null);
 /** @type {import('svelte/store').Writable<any|null>} */
 export const optimizeData = writable(null);
 
+/**
+ * Live-state оптимизатора — положение слайдеров в блоке B до нажатия «Оптимизировать».
+ * Нужно InsightsPanel'у для реактивного пересчёта mROAS/saturation на каждое движение.
+ * @type {import('svelte/store').Writable<{
+ *   channelBudgets: Record<string, number>,
+ *   channelMinPct: Record<string, number>,
+ *   channelMaxPct: Record<string, number>,
+ *   globalMinPct: number,
+ *   globalMaxPct: number,
+ * }>}
+ */
+export const optimizeLiveState = writable({
+  channelBudgets: {},
+  channelMinPct: {},
+  channelMaxPct: {},
+  globalMinPct: 50,
+  globalMaxPct: 150,
+});
+
 /** @type {import('svelte/store').Writable<any|null>} */
 export const reportData = writable(null);
 

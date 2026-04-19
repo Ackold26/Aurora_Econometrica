@@ -766,6 +766,63 @@ fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, path: &PathBuf
         for c in 1..6u16 { ws.set_column_width(c, 16).map_err(|e| format!("{e}"))?; }
     }
 
+    // ── Sheet: Данные (сырой time-series для графиков) ───────
+    {
+        let ws = wb.add_worksheet();
+        ws.set_name("Данные").map_err(|e| format!("{e}"))?;
+        ws.set_tab_color(Color::RGB(0x22C55E));
+
+        let ts = &decompose["time_series"];
+        let dates = ts["dates"].as_array().cloned().unwrap_or_default();
+        let baseline = ts["baseline"].as_array().cloned().unwrap_or_default();
+        let channels_ts = ts["channels"].as_object().cloned().unwrap_or_default();
+        let channel_names: Vec<String> = channels_ts.keys().cloned().collect();
+
+        // Header row
+        ws.write_with_format(0, 0, "Период", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(0, 1, "Baseline", &header_fmt).map_err(|e| format!("{e}"))?;
+        for (i, name) in channel_names.iter().enumerate() {
+            ws.write_with_format(0, (i + 2) as u16, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
+        }
+        let total_col = (channel_names.len() + 2) as u16;
+        let kpi_col = total_col + 1;
+        ws.write_with_format(0, total_col, "Медиа-вклад", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(0, kpi_col, "KPI (факт+модель)", &header_fmt).map_err(|e| format!("{e}"))?;
+
+        // Data rows
+        let n_periods = dates.len();
+        for t in 0..n_periods {
+            let row = (t + 1) as u32;
+            if let Some(s) = dates.get(t).and_then(|v| v.as_str()) {
+                ws.write(row, 0, s).map_err(|e| format!("{e}"))?;
+            }
+            let b = baseline.get(t).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            ws.write_with_format(row, 1, b, &num_fmt).map_err(|e| format!("{e}"))?;
+            let mut media_total = 0.0;
+            for (i, name) in channel_names.iter().enumerate() {
+                let v = channels_ts[name].as_array()
+                    .and_then(|arr| arr.get(t))
+                    .and_then(|x| x.as_f64())
+                    .unwrap_or(0.0);
+                ws.write_with_format(row, (i + 2) as u16, v, &num_fmt).map_err(|e| format!("{e}"))?;
+                media_total += v;
+            }
+            ws.write_with_format(row, total_col, media_total, &num_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, kpi_col, b + media_total, &num_fmt).map_err(|e| format!("{e}"))?;
+        }
+
+        // Headline explainer
+        let explainer_row = (n_periods + 3) as u32;
+        ws.write_with_format(explainer_row, 0, "Как использовать лист:", &bold).map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 1, 0, "• Выделите колонки «Период» + нужные → Вставка → Диаграмма → получите график вклада канала по времени.").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 2, 0, "• Baseline — часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 3, 0, "• Медиа-вклад = сумма по каналам. KPI = Baseline + Медиа-вклад (то что модель объясняет).").map_err(|e| format!("{e}"))?;
+
+        ws.set_column_width(0, 14).map_err(|e| format!("{e}"))?;
+        ws.set_column_width(1, 14).map_err(|e| format!("{e}"))?;
+        for c in 2..kpi_col + 1 { ws.set_column_width(c, 16).map_err(|e| format!("{e}"))?; }
+    }
+
     // ── Sheet 6: Глоссарий (NEW) ────────────────────────────
     {
         let ws = wb.add_worksheet();

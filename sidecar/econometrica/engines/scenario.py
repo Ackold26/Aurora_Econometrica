@@ -120,6 +120,19 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     return result
 
 
+def delete_scenario(project_dir: str, scenario_name: str) -> dict[str, Any]:
+    """Delete a saved scenario JSON file by name."""
+    project_path = Path(project_dir)
+    target = project_path / 'results' / 'scenarios' / f'{scenario_name}.json'
+    if not target.exists():
+        return {'status': 'error', 'message': f'Сценарий «{scenario_name}» не найден'}
+    try:
+        target.unlink()
+        return {'status': 'ok', 'deleted': scenario_name}
+    except OSError as e:
+        return {'status': 'error', 'message': f'Не удалось удалить: {e}'}
+
+
 def compare_scenarios(project_dir: str) -> dict[str, Any]:
     """Load and compare all saved scenarios.
 

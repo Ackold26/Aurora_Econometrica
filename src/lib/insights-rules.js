@@ -5,6 +5,7 @@
  *
  * @module insights-rules
  */
+import { marginalROI, buildScaledParams } from './hill.js';
 
 /**
  * @typedef {Object} InsightAction
@@ -558,40 +559,68 @@ export function modelInsights(data) {
   const m = d.metrics ?? d;
   const mqs = d.mqs?.score ?? 0;
   const label = d.mqs?.tier_label ?? '';
+  const thinnessCap = d.mqs?.thinness_cap ?? null;
   const rSq = m.r_squared ?? d.r_squared ?? 0;
   const mape = m.mape_pct ?? d.mape ?? 0;
   const rHat = m.r_hat_max ?? d.r_hat ?? 0;
   const divergences = m.divergences ?? d.divergences ?? 0;
+  const ratio = m.ratio ?? 0;
+  const isThin = ratio > 0 && ratio < 4;
+  const isVeryThin = ratio > 0 && ratio < 2;
   const channels = data.channelParams ? Object.keys(data.channelParams) : [];
   const nChannels = channels.length;
 
+  // ── 0. Data thinness warning — trumps everything else ──
+  if (isVeryThin) {
+    out.push({
+      severity: 'error',
+      text: `⚠ Данных критически мало: Ratio ${ratio.toFixed(1)}:1 (< 2:1). Модель может «выучить» точки, а не закономерность. Высокий R² здесь — артефакт переобучения, а не сигнал надёжности.`,
+      tip: 'Рекомендуем: увеличить историю до ≥52 недель, либо упростить модель (меньше каналов, перевести недели в месяцы). ROI и декомпозиция ненадёжны при таком Ratio.',
+    });
+  } else if (isThin) {
+    out.push({
+      severity: 'warning',
+      text: `⚠ Данных мало: Ratio ${ratio.toFixed(1)}:1 (< 4:1). Высокий R² может быть артефактом переобучения. ROI-оценки имеют широкие доверительные интервалы.`,
+      tip: 'Bayesian MMM с priors смягчает проблему, но не устраняет. Относитесь к декомпозиции как к ориентиру, а не истине. Для надёжности — ≥52 недель данных.',
+    });
+  }
+
   // ── 1. Headline verdict (MQS-based) ──
+  const thinSuffix = isThin ? ' Учитывайте, что данных мало — CI широкие.' : '';
   if (mqs >= 80) {
     out.push({
       severity: 'success',
-      text: `MQS = ${mqs.toFixed(0)} (${label}) — высокое качество модели. Результаты надёжны для принятия решений.`,
+      text: `MQS = ${mqs.toFixed(0)} (${label}) — высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`,
       tip: 'Перейдите к Декомпозиции, чтобы увидеть вклад каждого канала, и к Оптимизации — для перераспределения бюджета.',
     });
   } else if (mqs >= 60) {
     out.push({
       severity: 'info',
-      text: `MQS = ${mqs.toFixed(0)} (${label}) — приемлемое качество.`,
-      tip: 'Можно работать, но добавление контрольных переменных (сезонность, праздники, промо) поднимет MQS и сузит CI.',
+      text: `MQS = ${mqs.toFixed(0)} (${label}) — приемлемое качество.${thinSuffix}`,
+      tip: thinnessCap
+        ? `MQS снижен из-за недостатка данных (Ratio ${ratio.toFixed(1)}:1). На толстых данных та же модель получила бы выше. Для решения: больше истории или меньше каналов.`
+        : 'Можно работать, но добавление контрольных переменных (сезонность, праздники, промо) поднимет MQS и сузит CI.',
     });
   } else {
     out.push({
       severity: 'warning',
-      text: `MQS = ${mqs.toFixed(0)} (${label}) — модель требует доработки.`,
+      text: `MQS = ${mqs.toFixed(0)} (${label}) — модель требует доработки.${thinSuffix}`,
       tip: 'Попробуйте: добавить промо-переменные, увеличить draws, проверить качество данных.',
     });
   }
 
   // ── 2. Convergence — positive signals ──
   if (rHat > 0 && rHat <= 1.01 && divergences === 0) {
+    const convergenceText = isThin
+      ? `Markov Chain Monte Carlo сошёлся технически (R-hat = ${rHat.toFixed(3)}, дивергенций = 0), но это не гарантирует содержательной надёжности на коротких данных.`
+      : `Markov Chain Monte Carlo сошёлся идеально: R-hat = ${rHat.toFixed(3)}, дивергенций = 0.`;
+    const convergenceTip = isThin
+      ? 'Сэмплер корректно исследовал пространство параметров, но при Ratio < 4:1 «пространство» само по себе слабо ограничено данными. Модель могла сойтись к переобученному решению.'
+      : 'R-hat ≤ 1.01 означает, что независимые цепи сошлись к одному распределению. 0 дивергенций — сэмплер исследовал всё пространство параметров без скачков. Posterior надёжен для оценки ROI и CI.';
     out.push({
-      severity: 'success',
-      text: `Markov Chain Monte Carlo сошёлся идеально: R-hat = ${rHat.toFixed(3)}, дивергенций = 0.`,
-      tip: 'R-hat ≤ 1.01 означает, что независимые цепи сошлись к одному распределению. 0 дивергенций — сэмплер исследовал всё пространство параметров без скачков. Posterior надёжен для оценки ROI и CI.',
+      severity: isThin ? 'info' : 'success',
+      text: convergenceText,
+      tip: convergenceTip,
     });
   } else if (rHat > 1.05) {
     out.push({
@@ -617,9 +646,13 @@ export function modelInsights(data) {
   // ── 3. Fit metrics — positive signals ──
   if (rSq >= 0.9) {
     out.push({
-      severity: 'success',
-      text: `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации KPI. Очень сильный fit.`,
-      tip: 'R² ≥ 90% — модель захватывает почти всю динамику продаж. Прогнозы устойчивы, декомпозиция вкладов правдоподобна.',
+      severity: isThin ? 'info' : 'success',
+      text: isThin
+        ? `R² = ${rSq.toFixed(3)} — очень высокий fit, но на коротких данных (Ratio ${ratio.toFixed(1)}:1) это признак переобучения, а не силы модели.`
+        : `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации KPI. Очень сильный fit.`,
+      tip: isThin
+        ? 'На тонких данных R² стремится к 1 автоматически: модель подгоняется под каждую точку. Это НЕ означает, что декомпозиция каналов верна. Out-of-sample валидация невозможна (нет hold-out набора).'
+        : 'R² ≥ 90% — модель захватывает почти всю динамику продаж. Прогнозы устойчивы, декомпозиция вкладов правдоподобна.',
     });
   } else if (rSq >= 0.7) {
     out.push({
@@ -663,7 +696,8 @@ export function modelInsights(data) {
 
   // ── 5. Trust foundation — что повышает доверие ──
   // Показываем только когда модель действительно хорошая — иначе совет «доверяй» звучит фальшиво.
-  const isGoodModel = mqs >= 70 && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7;
+  // На тонких данных (Ratio < 4:1) блок доверия НЕ показываем — он вводит в заблуждение.
+  const isGoodModel = mqs >= 70 && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7 && !isThin;
   if (isGoodModel) {
     out.push({
       severity: 'info',
@@ -693,7 +727,8 @@ export function decomposeInsights(data) {
   if (!data) return out;
 
   const channels = data.channels ?? [];
-  const basePct = data.base_pct ?? 0;
+  // Backend returns `baseline_pct`; legacy field `base_pct` kept as fallback.
+  const basePct = data.baseline_pct ?? data.base_pct ?? 0;
   const mediaPct = Math.max(0, 100 - basePct);
   const totalSpend = channels.reduce((s, c) => s + (c.spend || 0), 0);
   const totalContrib = channels.reduce((s, c) => s + (c.contribution || 0), 0);
@@ -862,7 +897,7 @@ export function decomposeInsights(data) {
 export function optimizeInsights(data, ctx = {}) {
   /** @type {Insight[]} */
   const out = [];
-  const { dec, channelMinPct = {}, channelMaxPct = {}, globalMinPct = 50, globalMaxPct = 150 } = ctx;
+  const { dec, mod, channelBudgets = null, channelMinPct = {}, channelMaxPct = {}, globalMinPct = 50, globalMaxPct = 150 } = ctx;
 
   // ════════════════ PRE-STATE: оптимизация ещё не запущена ════════════════
   if (!data?.channels?.length) {
@@ -932,12 +967,19 @@ export function optimizeInsights(data, ctx = {}) {
   const totalBudget = data.total_budget ?? 0;
   const totalCurrent = channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.current_spend || 0), 0);
   const totalOptimal = channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.optimal_spend || 0), 0);
+  const totalBudgetMoney = data.total_budget_money ?? totalBudget;
+
+  // ── Базовый ROI и средняя отдача ──
+  const decChannels = dec?.channels ?? [];
+  const totalSpendDec = decChannels.reduce((s, /** @type {any} */ c) => s + (c.spend || 0), 0);
+  const totalContribDec = decChannels.reduce((s, /** @type {any} */ c) => s + (c.contribution || 0), 0);
+  const avgROI = totalSpendDec > 0 ? totalContribDec / totalSpendDec : 0;
 
   // ── 1. Headline lift ──
   if (lift > 15) {
     out.push({
       severity: 'success',
-      text: `Найден оптимум: прирост +${lift.toFixed(1)}% продаж при том же бюджете (${totalBudget.toLocaleString('ru-RU')}₽).`,
+      text: `Найден оптимум: прирост +${lift.toFixed(1)}% продаж при том же бюджете (${totalBudgetMoney.toLocaleString('ru-RU')}₽).`,
       tip: 'Существенный потенциал перераспределения. Рекомендуется пилот 4-6 недель на части бюджета (20-30%) перед полным переходом, чтобы валидировать модельные оценки на практике.',
     });
   } else if (lift > 5) {
@@ -953,11 +995,136 @@ export function optimizeInsights(data, ctx = {}) {
       tip: 'Незначительный потенциал в рамках того же бюджета. Чтобы существенно улучшить — нужен либо рост бюджета (см. блок C What-if), либо пересмотр медиа-микса.',
     });
   } else {
-    // ── Особый случай: +0% или меньше — explanation overlay ──
     out.push({
       severity: 'warning',
-      text: `Прирост ≈${lift.toFixed(1)}%. Все каналы в saturation plateau — оптимизатору некуда переливать деньги.`,
-      tip: 'Это не баг — модель честно говорит «лучше уже не сделаешь в этих рамках». Что попробовать:\n\n1. **Снизить Мин. %** — разрешить более радикальные сокращения насыщенных каналов (попробуйте 10-30%).\n2. **Повысить Макс. %** — дать оптимизатору больше пространства для роста недонасыщенных (200-300%).\n3. **What-if (блок C)** — увеличить общий бюджет: дополнительные деньги пойдут в каналы вне плато.\n4. **Эксперт-режим** — per-channel настройки: TV-сделку зафиксировать, OOH разрешить только увеличивать.\n5. **Проверить TRPs/non-money каналы** — если ROI > 50× в декомпозиции, единицы измерения смешаны.',
+      text: `Прирост ≈${lift.toFixed(1)}%. Оптимизатор не нашёл выигрыша в рамках текущих ограничений.`,
+      tip: 'Это не баг — модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau — каждый доп.рубль даёт меньше 1 рубля продаж, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.',
+    });
+  }
+
+  // ── 2. Рыночный контекст: средний ROI и общий бюджет ──
+  if (avgROI > 0) {
+    let roiComment = '';
+    let roiSev = /** @type {'success' | 'info' | 'warning'} */ ('info');
+    if (avgROI >= 3) { roiComment = 'Сильная отдача медиа'; roiSev = 'success'; }
+    else if (avgROI >= 1.5) { roiComment = 'Здоровый уровень'; }
+    else if (avgROI >= 1) { roiComment = 'Медиа окупается, но слабо'; roiSev = 'warning'; }
+    else { roiComment = 'Медиа в среднем не окупается'; roiSev = 'warning'; }
+    out.push({
+      severity: roiSev,
+      text: `Средний ROI = ${avgROI.toFixed(2)}× — ${roiComment}. Бюджет ${totalBudgetMoney.toLocaleString('ru-RU')}₽ → медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
+      tip: 'Benchmark: ROI ≥ 2× — отлично; 1-2× — приемлемо, нужно улучшать микс; < 1× — медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.',
+    });
+  }
+
+  // ── 3. Saturation breakdown по mROAS (идентично светофору в блоке A) ──
+  // Если доступен live channelBudgets (слайдеры в блоке B) — используем его, иначе
+  // fallback на current_spend из последнего optimize run. buildScaledParams делает
+  // нормализацию по reference-spend, которую брать из optimize (это не меняется при
+  // движении слайдеров — это «nominal» от первоначальной тренировки).
+  /** @type {Array<{name: string, mroas: number, status: 'scale'|'stable'|'saturated'|'unused'}>} */
+  const satList = [];
+  if (mod?.channelParams && data.channels) {
+    /** @type {Record<string, number>} */
+    const referenceSpend = {};
+    for (const ch of data.channels) {
+      referenceSpend[ch.name] = ch.current_spend ?? 0;
+    }
+    const scaledParams = buildScaledParams(mod.channelParams, referenceSpend);
+    const yNorm = mod.normalization ?? null;
+    for (const ch of data.channels) {
+      const p = scaledParams[ch.name];
+      if (!p) continue;
+      // Live-spend из слайдеров (если пользователь двигал), иначе reference.
+      const spend = channelBudgets?.[ch.name] ?? referenceSpend[ch.name];
+      if (!spend || spend < 1) {
+        satList.push({ name: ch.name, mroas: 0, status: 'unused' });
+        continue;
+      }
+      const v = marginalROI(spend, p.alpha, p.gammaScaled, p.beta, yNorm);
+      /** @type {'scale'|'stable'|'saturated'} */
+      const status = v > 1.5 ? 'scale' : v > 0.8 ? 'stable' : 'saturated';
+      satList.push({ name: ch.name, mroas: v, status });
+    }
+  }
+  const saturated = satList.filter(s => s.status === 'saturated');
+  const effective = satList.filter(s => s.status === 'scale');
+  const stable = satList.filter(s => s.status === 'stable');
+  const unused = satList.filter(s => s.status === 'unused');
+
+  // Unit-smell из decompose (отдельный сигнал — не связан с mROAS)
+  /** @type {Array<{name: string, roi: number}>} */
+  const suspicious = decChannels
+    .filter((/** @type {any} */ c) => /подозрительно/i.test(c.verdict || ''))
+    .map((/** @type {any} */ c) => ({ name: c.name, roi: c.roi ?? 0 }));
+
+  // Всегда показываем расклад по saturation (4 категории) — стабильное количество инсайтов.
+  if (satList.length > 0) {
+    const rows = [];
+    if (effective.length > 0) rows.push(`🟢 Недонасыщены: ${effective.length} — ${effective.map(c => `${c.name} (mROAS ${c.mroas.toFixed(2)}×)`).join(', ')}`);
+    if (stable.length > 0) rows.push(`🟡 Стабильны: ${stable.length} — ${stable.map(c => `${c.name} (mROAS ${c.mroas.toFixed(2)}×)`).join(', ')}`);
+    if (saturated.length > 0) rows.push(`🔴 Перенасыщены: ${saturated.length} — ${saturated.map(c => `${c.name} (mROAS ${c.mroas.toFixed(2)}×)`).join(', ')}`);
+    if (unused.length > 0) rows.push(`⚪ Не используются: ${unused.length} — ${unused.map(c => c.name).join(', ')}`);
+
+    const headline =
+      saturated.length >= Math.ceil(satList.length / 2)
+        ? `${saturated.length} из ${satList.length} каналов перенасыщены — оптимизатор упирается в плато.`
+        : effective.length >= 1 && saturated.length === 0
+          ? `${effective.length} канал${effective.length > 1 ? 'а' : ''} в зоне роста — есть куда вкладывать.`
+          : `Расклад: 🟢${effective.length} 🟡${stable.length} 🔴${saturated.length}${unused.length > 0 ? ` ⚪${unused.length}` : ''} из ${satList.length}.`;
+
+    const sev = saturated.length >= Math.ceil(satList.length / 2)
+      ? /** @type {'warning'} */ ('warning')
+      : effective.length >= 1 && saturated.length === 0
+        ? /** @type {'success'} */ ('success')
+        : /** @type {'info'} */ ('info');
+
+    out.push({
+      severity: sev,
+      text: headline,
+      tip: rows.join('\n') + '\n\nКритерии по mROAS (предельная отдача следующего рубля):\n• > 1.5× — недонасыщен (масштабировать)\n• 0.8–1.5× — стабильная зона (сохранить)\n• < 0.8× — перенасыщен (сократить)\n• 0 — не используется.',
+    });
+  }
+
+  // ── 4. miROAS leaders (стабильный инсайт — всегда виден) ──
+  const activeSat = satList.filter(s => s.status !== 'unused' && s.mroas > 0);
+  if (activeSat.length >= 2) {
+    const sorted = [...activeSat].sort((a, b) => b.mroas - a.mroas);
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+    const spread = worst.mroas > 0 ? best.mroas / worst.mroas : 0;
+    const spreadNote = spread > 10
+      ? ` Разброс ${spread.toFixed(0)}× — есть реальный потенциал перекладки.`
+      : spread > 3
+        ? ` Умеренный разброс — потенциал есть, но ограниченный.`
+        : ' Каналы выровнены — перекладка не даст существенного прироста.';
+    out.push({
+      severity: 'info',
+      text: `Предельная отдача (mROAS): лучший ${best.name} (${best.mroas.toFixed(2)}×), худший ${worst.name} (${worst.mroas.toFixed(2)}×).${spreadNote}`,
+      tip: 'mROAS — сколько рублей KPI приносит следующий рубль в канал (не путать с ROI, который про средний за период). Классическое правило оптимизации: переливать из канала с низким mROAS в канал с высоким, пока они не сравняются.',
+    });
+  } else if (activeSat.length === 1) {
+    const only = activeSat[0];
+    out.push({
+      severity: 'warning',
+      text: `Активен только 1 канал (${only.name}, mROAS ${only.mroas.toFixed(2)}×). Модель не может оценить перекладку — нужно включить хотя бы 2 канала.`,
+      tip: 'Поставьте бюджет на остальных каналах > 0, чтобы увидеть сравнение mROAS. Каналы с 0₽ модель считает «не используются» и их отдача недоступна.',
+    });
+  } else if (satList.length > 0) {
+    out.push({
+      severity: 'warning',
+      text: `Все ${satList.length} каналов с нулевым бюджетом — сравнить mROAS невозможно.`,
+      tip: 'Верните бюджет хотя бы 2 каналам, чтобы увидеть их относительную эффективность.',
+    });
+  }
+
+  // ── 5. Unit-smell / trust warning ──
+  if (suspicious.length > 0) {
+    out.push({
+      severity: 'warning',
+      text: `⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI — не используйте их оценки для бюджетных решений.`,
+      tip: suspicious.map(c => `⚠ ${c.name} — ROI ${c.roi.toFixed(1)}×`).join('\n') +
+        '\n\nПричины завышенного ROI обычно две: (1) переобучение модели на коротких данных (Ratio < 4:1), (2) смешанные единицы измерения (TRP + рубли в одной модели). Оптимизатор учитывает эти цифры как есть — вручную скорректируйте рекомендации.',
     });
   }
 
@@ -1023,11 +1190,187 @@ export function optimizeInsights(data, ctx = {}) {
     });
   }
 
-  // ── 5. Action items: куда дальше ──
+  // ── 6. Action items: куда дальше (context-aware) ──
+  const noLift = Math.abs(lift) < 0.5;
+  const manyChannelsSaturated = saturated.length >= Math.ceil(satList.length / 2);
+  /** @type {string[]} */
+  const actions = [];
+  if (noLift) {
+    actions.push('• Блок C (What-if) — подвигайте общий бюджет ×1.2–×1.5: увидите куда модель хочет направить доп.деньги.');
+    actions.push('• Блок D (Forecast) — спрогнозируйте KPI на следующий период с учётом медиаинфляции.');
+    if (manyChannelsSaturated) {
+      actions.push('• Расширьте границы — Мин. % → 20–30%, Макс. % → 200–300%: оптимизатор получит пространство для перекладки.');
+      actions.push('• Стратегически — обновите креатив или добавьте новый канал: Hill saturation «не знает» о новой кампании, но на практике свежий креатив возвращает канал к точке до плато.');
+    }
+  } else if (lift > 15) {
+    actions.push('• Пилот 4-6 недель на 20-30% бюджета с новыми пропорциями — валидация модельных оценок.');
+    actions.push('• Блок E (Сценарии) — сохраните этот оптимум, сравните с другими конфигурациями.');
+    actions.push('• Эксперт-режим в блоке B — если есть бизнес-ограничения (подписанные контракты, sponsor obligations), зафиксируйте каналы.');
+  } else {
+    actions.push('• Блок C (What-if) — поэкспериментируйте с бюджетом ±30%.');
+    actions.push('• Блок D (Forecast) — планирование следующего периода.');
+    actions.push('• Блок E (Сценарии) — сохраните и сравните несколько вариантов.');
+    actions.push('• Подтвердить и перейти к отчёту — когда план устраивает.');
+  }
+
   out.push({
     severity: 'info',
     text: 'Что делать дальше:',
-    tip: '• Двигайте слайдеры в блоке B — увидите как меняется прогноз KPI в реальном времени.\n• Используйте What-if (блок C, скоро) для планирования другого бюджета.\n• Прогноз на будущий период (блок D, скоро) — учёт медиаинфляции.\n• Когда готовы — нажмите «Подтвердить и перейти к отчёту».',
+    tip: actions.join('\n'),
+  });
+
+  return out;
+}
+
+/**
+ * Report step insights — structured per-stage summary + recommendations.
+ * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь
+ * увидел итоговую картину одним взглядом.
+ *
+ * @param {{ mod?: any, dec?: any, opt?: any, scenarioCount?: number }} ctx
+ * @returns {Insight[]}
+ */
+export function reportInsights(ctx = {}) {
+  /** @type {Insight[]} */
+  const out = [];
+  const { mod, dec, opt, scenarioCount = 0 } = ctx;
+  const mqs = mod?.diagnostics?.mqs?.score ?? null;
+  const tierLabel = mod?.diagnostics?.mqs?.tier_label ?? '';
+  const rSq = mod?.diagnostics?.metrics?.r_squared ?? null;
+  const mape = mod?.diagnostics?.metrics?.mape_pct ?? null;
+  const ratio = mod?.diagnostics?.metrics?.ratio ?? null;
+  const lift = opt?.expected_lift_pct ?? null;
+  const budget = opt?.total_budget_money ?? null;
+  const basePct = dec?.baseline_pct ?? null;
+  const decChannels = dec?.channels ?? [];
+
+  if (mqs == null) {
+    out.push({
+      severity: 'info',
+      text: 'Пройдите все шаги пайплайна (Импорт → Оптимизация), чтобы увидеть сводку и выгрузить отчёт.',
+    });
+    return out;
+  }
+
+  // ════════════════ ЭТАП 1: Качество модели ════════════════
+  const isThin = ratio != null && ratio < 4;
+  const mqsParts = [`MQS ${mqs.toFixed(0)} (${tierLabel})`];
+  if (rSq != null) mqsParts.push(`R² ${rSq.toFixed(3)}`);
+  if (mape != null) mqsParts.push(`MAPE ${mape.toFixed(1)}%`);
+  if (ratio != null) mqsParts.push(`Ratio ${ratio.toFixed(1)}:1`);
+
+  if (mqs >= 80 && !isThin) {
+    out.push({
+      severity: 'success',
+      text: `🎯 Модель: ${mqsParts.join(' · ')}. Результаты надёжны.`,
+      tip: `Рекомендация: используйте выводы отчёта для бюджетных решений. Спецификация модели, priors и доверительные интервалы экспортируются в PPTX/MD/XLSX для воспроизводимости.\n\nВалидационный критерий: посмотрите график «Факт vs Прогноз» в отчёте — линии должны накладываться без систематического смещения.`,
+    });
+  } else if (isThin) {
+    out.push({
+      severity: 'warning',
+      text: `⚠ Модель: ${mqsParts.join(' · ')}. Данных мало — возможно переобучение.`,
+      tip: `Рекомендация: относитесь к ROI и декомпозиции как к ориентиру, а не истине. При Ratio < 4:1 модель может «выучить» точки, а не закономерность.\n\nЧто сделать: (1) запустите пилот 4-6 недель на части бюджета для валидации, (2) перед решениями смотрите на направление (увеличить/сократить), а не на абсолютные числа, (3) планируйте собрать ≥52 недель данных для следующей итерации.`,
+    });
+  } else {
+    out.push({
+      severity: mqs >= 60 ? 'info' : 'warning',
+      text: `${mqs >= 60 ? '📊' : '⚠'} Модель: ${mqsParts.join(' · ')}.`,
+      tip: mqs >= 60
+        ? 'Рекомендация: приемлемое качество для ориентировочных решений. Пилот 4-6 недель обязателен перед полным переходом на новый медиа-план.'
+        : 'Рекомендация: модель слабая. Добавьте контрольные переменные (сезонность, промо), увеличьте историю данных или упростите модель (меньше каналов).',
+    });
+  }
+
+  // ════════════════ ЭТАП 2: Декомпозиция ════════════════
+  if (basePct != null || decChannels.length > 0) {
+    const sortedByContrib = [...decChannels].sort((a, b) => (b.contribution_pct || 0) - (a.contribution_pct || 0));
+    const top = sortedByContrib[0];
+    const suspicious = decChannels.filter(c => /подозрительно/i.test(c.verdict || ''));
+
+    /** @type {'success' | 'warning' | 'info'} */
+    let sev = 'info';
+    let headline = '';
+    let reco = '';
+
+    if (basePct != null) {
+      if (basePct > 70) {
+        sev = 'info';
+        headline = `📊 Декомпозиция: base ${basePct.toFixed(0)}% / медиа ${(100 - basePct).toFixed(0)}%. Бренд в основном органический.`;
+        reco = 'Рекомендация: оптимизируйте эффективность внутри существующего медиа-бюджета, не увеличивайте объём — рост ограничен саморазогревом бренда.';
+      } else if (basePct < 30) {
+        sev = 'warning';
+        headline = `⚠ Декомпозиция: base ${basePct.toFixed(0)}% — бренд зависит от рекламы.`;
+        reco = 'Рекомендация: долгосрочно — инвестиции в brand-equity (TV, OOH) для поднятия базы. Остановка медиа = риск значительного падения продаж.';
+      } else {
+        sev = 'success';
+        headline = `✅ Декомпозиция: здоровый mix — base ${basePct.toFixed(0)}% / медиа ${(100 - basePct).toFixed(0)}%.`;
+        reco = 'Рекомендация: сбалансированная модель. Реклама драйвит существенную долю продаж, бренд имеет органическую базу. Фокус — на эффективности перекладки.';
+      }
+    }
+
+    if (top) {
+      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '—'}% от медиа-вклада, ROI ${top.roi?.toFixed(2) ?? '—'}×).`;
+    }
+    if (suspicious.length > 0) {
+      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI (${suspicious.map(s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные — только относительно.`;
+    }
+
+    out.push({
+      severity: sev,
+      text: headline,
+      tip: reco,
+    });
+  }
+
+  // ════════════════ ЭТАП 3: Оптимизация ════════════════
+  if (lift != null) {
+    if (lift > 15) {
+      out.push({
+        severity: 'success',
+        text: `🚀 Оптимизация: +${lift.toFixed(1)}% KPI при том же бюджете${budget ? ` (${budget.toLocaleString('ru-RU')}₽)` : ''}.`,
+        tip: 'Рекомендация: высокий потенциал перекладки. Конкретные суммы по каналам — в отчёте. Перед полным переходом — пилот 4-6 недель на части бюджета (20-30%), чтобы валидировать модельные оценки на практике.',
+      });
+    } else if (lift > 5) {
+      out.push({
+        severity: 'success',
+        text: `📈 Оптимизация: +${lift.toFixed(1)}% — умеренный, но значимый потенциал.`,
+        tip: 'Рекомендация: перекладка даст устойчивый прирост. Текущий план близок к рациональному — радикальной перестройки не требуется. Пилот на 20% бюджета для подтверждения.',
+      });
+    } else if (lift > 0.5) {
+      out.push({
+        severity: 'info',
+        text: `📊 Оптимизация: +${lift.toFixed(1)}% — план почти оптимален.`,
+        tip: 'Рекомендация: существенного потенциала в рамках текущего бюджета нет. Для роста нужен либо увеличенный бюджет (What-if), либо пересмотр медиа-микса (новый канал, обновление креатива).',
+      });
+    } else {
+      out.push({
+        severity: 'info',
+        text: '🟰 Оптимизация: +0% — план уже оптимален в заданных рамках.',
+        tip: 'Рекомендация: каналы на saturation plateau или Мин/Макс % слишком узкие. Для прорыва: (1) What-if с ростом бюджета +30-50%, (2) обновление креатива в насыщенных каналах, (3) добавление нового канала — Hill saturation «не знает» о новой кампании.',
+      });
+    }
+  }
+
+  // ════════════════ ЭТАП 4: Сценарии ════════════════
+  if (scenarioCount > 0) {
+    out.push({
+      severity: 'info',
+      text: `💼 Сценарии: сохранено ${scenarioCount}.`,
+      tip: `Рекомендация: сравните сценарии в блоке E (Оптимизация) — таблица с ROAS, бюджетом и lift% покажет лучшую конфигурацию. Сохранённые планы экспортируются вместе с отчётом и доступны для следующих итераций.\n\nЧто обычно сохраняют: (1) Baseline — текущий план, (2) Optimal — результат оптимизации, (3) ±30% бюджета — what-if анализ, (4) Forecast — план на следующий период с учётом инфляции.`,
+    });
+  } else {
+    out.push({
+      severity: 'info',
+      text: '💼 Сценарии: не сохранены.',
+      tip: 'Рекомендация: вернитесь в блок E (Оптимизация → Сценарный анализ) и сохраните хотя бы 2 плана для сравнения — Baseline и Optimal. Это позволит отчёту показать альтернативы и обосновать решения.',
+    });
+  }
+
+  // ════════════════ Экспорт ════════════════
+  out.push({
+    severity: 'info',
+    text: '📤 Форматы экспорта:',
+    tip: '• PPTX — 8 слайдов для презентации заказчику/команде: executive summary, спецификация модели, декомпозиция, ROI, оптимизация.\n• XLSX — 7 листов для аналитиков: метрики, спецификация, декомпозиция, ROI, Spend vs Effect, оптимизация, сырые time-series данные для собственных графиков, глоссарий.\n\nОба формата содержат одну аналитику — выбирайте по аудитории. К каждому файлу — автоматически генерируемый сопроводительный текст с описанием модели, результатов и ограничений.',
   });
 
   return out;

@@ -26,6 +26,7 @@
         style="--score-color: {mqs.color}"
         title="MQS (Model Quality Score) — общая агрегированная оценка качества модели от 0 до 100.&#10;&#10;Формула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).&#10;&#10;Шкала: ≥ 80 — отлично, 60-80 — хорошо, 40-60 — приемлемо, < 40 — требует доработки."
       >
+        <span class="score-title">MQS</span>
         <span class="score-value">{Math.round(mqs.score)}</span>
         <span class="score-label">{mqs.tier_label}</span>
       </div>
@@ -94,6 +95,15 @@
     background: rgba(0,0,0,0.3);
     border: 2px solid var(--score-color);
     cursor: help;
+  }
+
+  .score-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary, #94a3b8);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
   }
 
   .score-value {

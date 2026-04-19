@@ -129,7 +129,8 @@
       {@const cur = channelBudgets[ch] ?? 0}
       {@const curMoney = cur * uc(ch)}
       {@const opt = optimalBudgets?.[ch]}
-      {@const delta = opt != null ? ((opt - cur) / Math.max(cur, 1) * 100) : null}
+      {@const deltaRaw = opt != null && cur >= 1 ? ((opt - cur) / cur * 100) : null}
+      {@const deltaLabel = opt == null ? null : cur < 1 ? (opt < 1 ? '—' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
       {@const initMoney = (initialSpend[ch] ?? cur) * uc(ch)}
       {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
@@ -147,9 +148,9 @@
           style="--accent:{color}"
         />
         <span class="ch-value">{fmt(curMoney)} ₽</span>
-        {#if delta != null}
-          <span class="delta-badge" class:positive={delta > 0} class:negative={delta < 0}>
-            {delta > 0 ? '+' : ''}{delta.toFixed(0)}%
+        {#if deltaLabel != null}
+          <span class="delta-badge" class:positive={deltaRaw != null && deltaRaw > 0} class:negative={deltaRaw != null && deltaRaw < 0}>
+            {deltaLabel}
           </span>
         {/if}
       </div>

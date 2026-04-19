@@ -382,6 +382,19 @@ def compare_scenarios(req: DecomposeRequest):
     return JSONResponse(content=result)
 
 
+class ScenarioDeleteRequest(BaseModel):
+    project_dir: str
+    scenario_name: str
+
+
+@app.post('/compute/scenario/delete')
+def delete_scenario(req: ScenarioDeleteRequest):
+    """Delete a saved scenario JSON file."""
+    from engines.scenario import delete_scenario as _delete
+    result = _delete(req.project_dir, req.scenario_name)
+    return JSONResponse(content=result)
+
+
 @app.post('/compute/awareness/forecast')
 def awareness_forecast(req: AwarenessRequest):
     """Forecast brand awareness."""
@@ -512,7 +525,9 @@ def export_pptx(req: PptxExportRequest):
         from engines.pptx_export import build_pptx
 
         appdata = os.environ.get('APPDATA', '')
-        identifier = 'com.aurora.econometrica'
+        # Единый identifier с Rust-командой econ_export_xlsx (CARGO_PKG_NAME).
+        # Иначе PPTX и XLSX оказываются в разных папках → «Открыть папку» показывает только XLSX.
+        identifier = 'aurora-econometrica-gui'
         exports_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'exports'
         exports_dir.mkdir(parents=True, exist_ok=True)
 

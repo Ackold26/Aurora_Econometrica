@@ -59,10 +59,39 @@
       const result = /** @type {any} */ (await invoke('econ_compare', { projectDir }));
       if (result.status === 'ok') {
         comparison = result.comparison || null;
+      } else {
+        comparison = null;
       }
     } catch { /* silent */ }
     status = 'idle';
   }
+
+  /** @param {string} name */
+  async function deleteScenario(name) {
+    const projectId = get(activeProjectId);
+    if (!projectId) return;
+    if (!confirm(`Удалить сценарий «${name}»?`)) return;
+    errorMsg = null;
+    try {
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const result = /** @type {any} */ (await invoke('econ_scenario_delete', {
+        projectDir,
+        scenarioName: name,
+      }));
+      if (result.status === 'ok') {
+        await loadComparison();
+      } else {
+        errorMsg = result.message || 'Ошибка удаления';
+      }
+    } catch (/** @type {any} */ e) {
+      errorMsg = String(e);
+    }
+  }
+
+  /** Имена сценариев из comparison (headers[0] — "Метрика", дальше имена). */
+  let scenarioNames = $derived(
+    comparison?.headers ? comparison.headers.slice(1) : []
+  );
 </script>
 
 <div class="scenario-playground">
@@ -96,6 +125,22 @@
   {/if}
 
   {#if comparison}
+    {#if scenarioNames.length > 0}
+      <div class="scenario-chips">
+        <span class="chips-label">Сохранённые:</span>
+        {#each scenarioNames as name}
+          <span class="chip">
+            {name}
+            <button
+              class="chip-del"
+              onclick={() => deleteScenario(name)}
+              title="Удалить сценарий «{name}»"
+              aria-label="Удалить {name}"
+            >✕</button>
+          </span>
+        {/each}
+      </div>
+    {/if}
     <DataTable
       mode="scenario"
       title="Сравнение сценариев"
@@ -169,5 +214,48 @@
     padding: 6px 10px;
     background: color-mix(in srgb, var(--danger) 8%, transparent);
     border-radius: 6px;
+  }
+
+  .scenario-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    font-size: 12px;
+  }
+  .chips-label {
+    color: var(--text-secondary, #94a3b8);
+    margin-right: 4px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 4px 3px 10px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 12px;
+  }
+  .chip-del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .chip-del:hover {
+    background: color-mix(in srgb, var(--danger) 25%, transparent);
+    color: #fff;
   }
 </style>

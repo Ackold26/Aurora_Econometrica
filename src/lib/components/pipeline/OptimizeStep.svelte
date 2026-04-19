@@ -14,6 +14,7 @@
     activeProjectId,
     modelData,
     optimizeData,
+    optimizeLiveState,
     decomposeData,
     completeStep,
     setStepError,
@@ -262,6 +263,19 @@
       for (const ch of dec.channels) init[ch.name] = ch.raw_spend ?? ch.spend ?? 0;
       channelBudgets = init;
     }
+  });
+
+  // Sync live slider state → store. InsightsPanel слушает этот store и реактивно
+  // пересчитывает mROAS/saturation на каждое движение слайдера, без полного прогона
+  // оптимизатора.
+  $effect(() => {
+    optimizeLiveState.set({
+      channelBudgets: { ...channelBudgets },
+      channelMinPct: { ...channelMinPct },
+      channelMaxPct: { ...channelMaxPct },
+      globalMinPct: minPct,
+      globalMaxPct: maxPct,
+    });
   });
 
   // Init per-channel constraints when channels appear (default = global Min/Max).
@@ -1106,7 +1120,7 @@
   {#if channels.length > 0}
     <section class="block block-scenarios">
       <div class="block-header">
-        <span class="block-letter">⚙</span>
+        <span class="block-letter">E</span>
         <h3 class="block-title">Сценарный анализ</h3>
         <span class="block-subtitle">— что будет, если изменить бюджет канала на N%?</span>
         <button

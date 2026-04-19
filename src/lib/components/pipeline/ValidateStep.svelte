@@ -278,16 +278,16 @@
           {#if showRecs}
           <div class="fix-list">
             {#each activeWarnings as warn}
-              {#if !appliedFixes.has(warn.column + warn.type)}
+              {#if !appliedFixes.has((warn.column ?? '') + warn.type)}
                 <div class="fix-item fix-{warn.severity}">
                   <span class="fix-text">{warn.message}</span>
                   {#if warn.action === 'exclude'}
                     <button class="fix-btn" onclick={() => {
-                      appliedFixes = new Set([...appliedFixes, warn.column + warn.type]);
+                      appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
                     }}>Понятно</button>
                   {:else if warn.action === 'merge'}
                     <button class="fix-btn" onclick={() => {
-                      appliedFixes = new Set([...appliedFixes, warn.column + warn.type]);
+                      appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
                     }}>Понятно</button>
                   {:else}
                     <button class="fix-btn" onclick={() => {
@@ -301,6 +301,11 @@
           {/if}
         </section>
       {/if}
+
+      <!-- Trust Level 2: unit_costs для не-денежных каналов -->
+      <section class="section-full">
+        <UnitCostsPanel columns={result.columns ?? []} />
+      </section>
 
       <!-- ColumnMapper -->
       <section class="section-full">
@@ -318,11 +323,6 @@
           onmappingchange={onMappingChange}
         />
         {/if}
-      </section>
-
-      <!-- Trust Level 2: unit_costs для не-денежных каналов -->
-      <section class="section-full">
-        <UnitCostsPanel columns={result.columns ?? []} />
       </section>
 
       <!-- Correlation heatmap -->

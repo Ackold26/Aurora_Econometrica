@@ -9,12 +9,12 @@
   import { listen } from '@tauri-apps/api/event';
   import {
     pipelineCurrentStep,
-    importData, validateData, modelData, decomposeData, optimizeData,
+    importData, validateData, modelData, decomposeData, optimizeData, optimizeLiveState,
     analysisObjective, completeStep, setStepError,
   } from '$lib/project-state.js';
   import { recomputeResultAfterObjective } from '$lib/objective-engine.js';
   import {
-    importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights,
+    importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, reportInsights,
   } from '$lib/insights-rules.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
@@ -165,6 +165,7 @@
     const mod = $modelData;
     const dec = $decomposeData;
     const opt = $optimizeData;
+    const live = $optimizeLiveState;
     const objective = $analysisObjective; // ensure reactive subscription
 
     switch (step) {
@@ -191,7 +192,15 @@
         return modelInsights(mod);
       }
       case 3: return decomposeInsights(dec);
-      case 4: return optimizeInsights(opt, { dec, mod });
+      case 4: return optimizeInsights(opt, {
+        dec, mod,
+        channelBudgets: live.channelBudgets,
+        channelMinPct: live.channelMinPct,
+        channelMaxPct: live.channelMaxPct,
+        globalMinPct: live.globalMinPct,
+        globalMaxPct: live.globalMaxPct,
+      });
+      case 5: return reportInsights({ mod, dec, opt });
       default: return [];
     }
   });
@@ -563,6 +572,7 @@
     font-size: 11px; color: var(--text-muted);
     line-height: 1.5; margin: 4px 0 0; padding: 6px 8px;
     background: rgba(255,255,255,0.02); border-radius: 4px;
+    white-space: pre-line;
   }
 
   .ai-response {

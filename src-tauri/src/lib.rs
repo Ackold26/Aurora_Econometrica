@@ -3100,6 +3100,7 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_optimize,
             commands::econometrica::econ_scenario,
             commands::econometrica::econ_compare,
+            commands::econometrica::econ_scenario_delete,
             commands::econometrica::econ_awareness_forecast,
             commands::econometrica::econ_awareness_sales,
             commands::econometrica::econ_chart,

@@ -48,6 +48,71 @@
 
   const hasData  = $derived(!!mData?.diagnostics && !!dData && !!oData);
 
+  // ── Dynamic summary for cover email ─────────────────────────────────────────
+  const ratio    = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.ratio ?? null));
+  const rHat     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_hat_max ?? null));
+  const divergences = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.divergences ?? null));
+  const basePct  = $derived(/** @type {number|null} */ (dData?.baseline_pct ?? null));
+  const decChannels = $derived(/** @type {any[]} */ (dData?.channels ?? []));
+  const nChannels = $derived(decChannels.length);
+  const nPeriods = $derived((dData?.time_series?.dates ?? []).length);
+  const topDriver = $derived(
+    [...decChannels].sort((a, b) => (b.contribution_pct || 0) - (a.contribution_pct || 0))[0] ?? null
+  );
+  const suspiciousChannels = $derived(
+    decChannels.filter(/** @param {any} c */ c => /подозрительно/i.test(c.verdict || ''))
+  );
+  const lossChannels = $derived(
+    decChannels.filter(/** @param {any} c */ c => /убыточн/i.test(c.verdict || ''))
+  );
+
+  /** Краткое описание модели (2-3 предложения). */
+  const modelSummary = $derived.by(() => {
+    if (!mData?.diagnostics) return '';
+    const parts = [];
+    parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`);
+    parts.push(`Оценка через MCMC-сэмплер${rHat != null ? `, R-hat = ${rHat.toFixed(3)}` : ''}${divergences != null ? `, дивергенций ${divergences}` : ''}.`);
+    if (nPeriods > 0) parts.push(`База данных: ${nPeriods} период${nPeriods > 4 ? 'ов' : nPeriods > 1 ? 'а' : ''}${ratio != null ? `, Ratio наблюдений к параметрам ${ratio.toFixed(1)}:1` : ''}.`);
+    return parts.join(' ');
+  });
+
+  /** Краткое описание результатов (2-3 предложения). */
+  const resultsSummary = $derived.by(() => {
+    if (!mData?.diagnostics) return '';
+    const parts = [];
+    if (mqs != null) parts.push(`Качество модели: MQS ${mqs.toFixed(0)} (${mqsLabel})${rSq != null ? `, R² ${rSq.toFixed(3)}` : ''}${mape != null ? `, MAPE ${mape.toFixed(1)}%` : ''}.`);
+    if (basePct != null) parts.push(`Декомпозиция продаж: baseline ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
+    if (topDriver) parts.push(`Главный драйвер — ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '—'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '—'}×).`);
+    if (lift != null) {
+      if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
+      else if (lift > 0.5) parts.push(`Оптимизация: +${lift.toFixed(1)}% — план близок к оптимальному.`);
+      else parts.push(`Оптимизация: прирост ≈0% — план уже оптимален в заданных ограничениях.`);
+    }
+    return parts.join(' ');
+  });
+
+  /** Ограничения моделирования. */
+  const limitationsSummary = $derived.by(() => {
+    if (!mData?.diagnostics) return '';
+    const items = [];
+    if (ratio != null && ratio < 2) {
+      items.push(`Данных критически мало (Ratio ${ratio.toFixed(1)}:1 < 2:1) — высокий риск переобучения. ROI и декомпозицию рассматривайте как ориентир, не истину.`);
+    } else if (ratio != null && ratio < 4) {
+      items.push(`Данных мало (Ratio ${ratio.toFixed(1)}:1 < 4:1 рекомендуемых). Доверительные интервалы широкие, CI для отдельных каналов могут включать 0.`);
+    }
+    if (suspiciousChannels.length > 0) {
+      const names = suspiciousChannels.map(/** @param {any} c */ c => c.name).join(', ');
+      items.push(`Каналы с подозрительно высоким ROI (${names}) — скорее всего артефакт переобучения или смешанных единиц измерения; не используйте их абсолютные значения.`);
+    }
+    if (lossChannels.length > 0) {
+      const names = lossChannels.map(/** @param {any} c */ c => c.name).join(', ');
+      items.push(`Убыточные/перенасыщенные каналы: ${names}. Перед решениями о перераспределении проверьте корректность unit_costs.`);
+    }
+    items.push('Модель описывает историю — прогнозы чувствительны к изменению креатива, новым кампаниям и структурным сдвигам рынка.');
+    items.push('Перед принятием решений — пилот 4-6 недель на части бюджета (20-30%) для валидации на практике.');
+    return items;
+  });
+
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   /**
@@ -144,9 +209,12 @@
         optimizeData:  get(optimizeData),
       }));
 
-      if (result.status === 'ok') {
+      if (result.status === 'ok' || result.status === 'partial') {
         pptxPath = result.path ?? null;
         stepState = 'done';
+        if (result.status === 'partial' && Array.isArray(result.failed_phases)) {
+          console.warn('PPTX partial: failed phases =', result.failed_phases);
+        }
       } else {
         handleError(result.message ?? 'Ошибка PPTX');
       }
@@ -239,15 +307,45 @@
   <div class="card generate-card">
     <div class="card-title">Экспорт результатов</div>
 
-    {#if stepState === 'idle' || stepState === 'error'}
+    {#if stepState === 'idle' || stepState === 'error' || stepState === 'done'}
+      {#if stepState === 'done'}
+        <div class="success-section">
+          <div class="success-header">
+            <span class="success-icon">✅</span>
+            <span class="success-title">Файл сохранён</span>
+          </div>
+          {#if xlsxPath}
+            <div class="file-row">
+              <span class="file-icon">📊</span>
+              <span class="file-path">{xlsxPath}</span>
+            </div>
+          {/if}
+          {#if pptxPath}
+            <div class="file-row">
+              <span class="file-icon">📽</span>
+              <span class="file-path">{pptxPath}</span>
+            </div>
+          {/if}
+          <div class="more-exports">
+            <button class="btn-folder" onclick={openFolder}>📁 Открыть папку</button>
+          </div>
+          {#if executiveSummary}
+            <div class="summary-preview">
+              <div class="preview-title">Executive Summary</div>
+              <pre class="preview-text">{executiveSummary}</pre>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       <div class="export-buttons">
         <button
-          class="btn-export primary"
-          onclick={generateReport}
+          class="btn-export pptx"
+          onclick={exportPptx}
           disabled={!hasData}
         >
-          <span class="btn-icon">📄</span>
-          Сгенерировать отчёт (Markdown)
+          <span class="btn-icon">📽</span>
+          {pptxPath ? 'PPTX — пересоздать' : 'Презентация (PPTX)'}
         </button>
         <button
           class="btn-export secondary"
@@ -255,80 +353,95 @@
           disabled={!hasData}
         >
           <span class="btn-icon">📊</span>
-          Данные (XLSX)
-        </button>
-        <button
-          class="btn-export pptx"
-          onclick={exportPptx}
-          disabled={!hasData}
-        >
-          <span class="btn-icon">📽</span>
-          Презентация (PPTX)
+          {xlsxPath ? 'XLSX — пересоздать' : 'Данные (XLSX)'}
         </button>
       </div>
-      <p class="export-hint">
-        PPTX — 8 слайдов с графиками и рекомендациями.
-        XLSX — 6 листов с формулами, графиками и глоссарием.
-        Markdown — текстовый отчёт для email.
-      </p>
 
-    {:else if stepState === 'generating-report'}
-      <div class="generating-state">
-        <div class="spinner"></div>
-        <p>Генерирую Markdown отчёт...</p>
-      </div>
-
-    {:else if stepState === 'generating-xlsx'}
-      <div class="generating-state">
-        <div class="spinner"></div>
-        <p>Создаю XLSX...</p>
-      </div>
-
-    {:else if stepState === 'done'}
-      <div class="success-section">
-        <div class="success-header">
-          <span class="success-icon">✅</span>
-          <span class="success-title">Файл сохранён</span>
+      <div class="format-cards">
+        <div class="format-card">
+          <div class="format-card-header">
+            <span class="format-icon">📽</span>
+            <div class="format-title">PPTX — для презентации</div>
+          </div>
+          <p class="format-desc">
+            8 слайдов: Executive summary, спецификация модели (Bayesian MMM, Adstock, Hill), декомпозиция продаж,<br>
+            ROI по каналам, оптимальное распределение, прогноз. С графиками и рекомендациями.
+          </p>
+          <details class="format-email">
+            <summary>Сопроводительный текст для письма</summary>
+            <p>Коллеги, прикладываю презентацию с результатами Marketing Mix Modeling.</p>
+            {#if modelSummary}
+              <p><b>Модель.</b> {modelSummary}</p>
+            {/if}
+            {#if resultsSummary}
+              <p><b>Результаты.</b> {resultsSummary}</p>
+            {/if}
+            {#if limitationsSummary.length > 0}
+              <p><b>Ограничения и оговорки.</b></p>
+              <ul>
+                {#each limitationsSummary as item}
+                  <li>{item}</li>
+                {/each}
+              </ul>
+            {/if}
+            <p><b>Структура презентации:</b></p>
+            <ul>
+              <li>Executive summary — MQS, R², MAPE, прирост от оптимизации</li>
+              <li>Спецификация модели — Bayesian MMM с Adstock + Hill saturation, MCMC-сэмплер, priors</li>
+              <li>Декомпозиция продаж — вклад baseline vs медиа по каналам</li>
+              <li>ROI-анализ — Share of Spend vs Share of Effect, Gap, Efficiency</li>
+              <li>Оптимальное распределение бюджета с ожидаемым lift</li>
+            </ul>
+            <p>Готов обсудить детали и план пилота.</p>
+          </details>
         </div>
 
-        {#if reportPath}
-          <div class="file-row">
-            <span class="file-icon">📄</span>
-            <span class="file-path">{reportPath}</span>
+        <div class="format-card">
+          <div class="format-card-header">
+            <span class="format-icon">📊</span>
+            <div class="format-title">XLSX — для самостоятельной работы с данными</div>
           </div>
-        {/if}
-        {#if xlsxPath}
-          <div class="file-row">
-            <span class="file-icon">📊</span>
-            <span class="file-path">{xlsxPath}</span>
-          </div>
-        {/if}
-        {#if pptxPath}
-          <div class="file-row">
-            <span class="file-icon">📽</span>
-            <span class="file-path">{pptxPath}</span>
-          </div>
-        {/if}
-
-        <div class="more-exports">
-          {#if !reportPath}
-            <button class="btn-more" onclick={generateReport}>📄 Markdown</button>
-          {/if}
-          {#if !xlsxPath}
-            <button class="btn-more" onclick={exportXlsx}>📊 XLSX</button>
-          {/if}
-          {#if !pptxPath}
-            <button class="btn-more" onclick={exportPptx}>📽 PPTX</button>
-          {/if}
-          <button class="btn-folder" onclick={openFolder}>📁 Открыть папку</button>
+          <p class="format-desc">
+            7 листов: Executive Summary, спецификация модели, декомпозиция, ROI каналов, Spend vs Effect,<br>
+            оптимизация, сырые time-series данные для построения собственных графиков, глоссарий.
+          </p>
+          <details class="format-email">
+            <summary>Сопроводительный текст для письма</summary>
+            <p>Во вложении — полные данные MMM-анализа для самостоятельной работы.</p>
+            {#if modelSummary}
+              <p><b>Модель.</b> {modelSummary}</p>
+            {/if}
+            {#if resultsSummary}
+              <p><b>Результаты.</b> {resultsSummary}</p>
+            {/if}
+            {#if limitationsSummary.length > 0}
+              <p><b>Ограничения и оговорки.</b></p>
+              <ul>
+                {#each limitationsSummary as item}
+                  <li>{item}</li>
+                {/each}
+              </ul>
+            {/if}
+            <p><b>Структура файла:</b></p>
+            <ul>
+              <li><b>Executive Summary</b> — ключевые метрики качества модели</li>
+              <li><b>Спецификация</b> — параметры модели (alpha, gamma, beta по каналам), priors, методология Bayesian MMM</li>
+              <li><b>Декомпозиция</b> — вклад baseline и каждого канала в продажи</li>
+              <li><b>ROI каналов</b> — ROI, Gap, Efficiency по каналам</li>
+              <li><b>Spend vs Effect</b> — share of spend vs share of effect</li>
+              <li><b>Оптимизация</b> — текущее vs оптимальное распределение</li>
+              <li><b>Данные</b> — сырые time-series (KPI, baseline, вклад по каналам по периодам) — можно построить любые графики</li>
+              <li><b>Глоссарий</b> — определения MMM-терминов</li>
+            </ul>
+            <p>Лист «Данные» особенно полезен: выделите нужные колонки → Вставка → Диаграмма.</p>
+          </details>
         </div>
+      </div>
 
-        {#if executiveSummary}
-          <div class="summary-preview">
-            <div class="preview-title">Executive Summary</div>
-            <pre class="preview-text">{executiveSummary}</pre>
-          </div>
-        {/if}
+    {:else if stepState === 'generating-report' || stepState === 'generating-xlsx'}
+      <div class="generating-state">
+        <div class="spinner"></div>
+        <p>{stepState === 'generating-report' ? 'Генерирую отчёт…' : 'Создаю файл…'}</p>
       </div>
     {/if}
   </div>
@@ -384,43 +497,53 @@
   /* ── Summary cards ────────────────────────────────────── */
   .summary-cards {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
   }
-  @media (max-width: 900px) {
+  @media (max-width: 1200px) {
+    .summary-cards { grid-template-columns: repeat(3, 1fr); }
+  }
+  @media (max-width: 700px) {
     .summary-cards { grid-template-columns: repeat(2, 1fr); }
   }
 
   .card-metric {
     background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
-    border-radius: 12px;
-    padding: 16px;
+    border-radius: 10px;
+    padding: 10px 12px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    min-width: 0;
   }
   .metric-label {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
     color: var(--text-secondary, #94a3b8);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .metric-value {
-    font-size: 24px;
+    font-size: 20px;
     font-weight: 700;
     font-family: monospace;
     color: var(--text-primary, #e2e8f0);
-    line-height: 1.2;
+    line-height: 1.15;
   }
   .metric-value.good   { color: #22c55e; }
   .metric-value.warn   { color: #f59e0b; }
   .metric-value.lift.positive { color: #22c55e; }
   .metric-value.lift.negative { color: #ef4444; }
   .metric-sub {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .no-data-banner {
@@ -492,6 +615,78 @@
     color: var(--text-muted);
     line-height: 1.6;
     margin: 0;
+  }
+
+  .format-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  @media (max-width: 900px) {
+    .format-cards { grid-template-columns: 1fr; }
+  }
+
+  .format-card {
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .format-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .format-icon {
+    font-size: 18px;
+  }
+  .format-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .format-desc {
+    font-size: 12.5px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.55;
+    margin: 0 0 10px;
+  }
+  .format-email {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  .format-email summary {
+    cursor: pointer;
+    color: var(--accent-primary, #3b82f6);
+    font-weight: 500;
+    padding: 4px 0;
+    list-style: none;
+  }
+  .format-email summary::before {
+    content: '▸ ';
+    font-size: 10px;
+  }
+  .format-email[open] summary::before {
+    content: '▾ ';
+  }
+  .format-email summary:hover {
+    text-decoration: underline;
+  }
+  .format-email p, .format-email ul {
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.55;
+    margin: 8px 0;
+  }
+  .format-email ul {
+    padding-left: 20px;
+  }
+  .format-email li {
+    margin: 3px 0;
+  }
+  .format-email b {
+    color: var(--text-primary, #e2e8f0);
   }
 
   /* ── Generating ───────────────────────────────────────── */

@@ -27,11 +27,18 @@ def compute_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
-                        divergences: int = 0) -> dict:
+                        divergences: int = 0, ratio: float | None = None) -> dict:
     """Compute Model Quality Score (MQS) with tier classification.
 
+    Applies a data-thinness cap based on observations-to-parameters ratio:
+      ratio < 2  → MQS capped at 50 (weak) — severe overfitting risk
+      ratio < 4  → MQS capped at 70 (good, not excellent) — wide CIs likely
+
+    Without the cap, a well-converged overfit model on thin data gets a
+    misleadingly high score (R² ~0.99 when model just memorised noise).
+
     Returns:
-        Dict with score, tier, tier_label, and component scores
+        Dict with score, tier, tier_label, color, components, and thinness_cap.
     """
     # Component scores (0-100 each)
     r2_score = min(100, max(0, r_squared * 100))
@@ -41,7 +48,16 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
     )
 
     # Weighted average
-    mqs = r2_score * 0.4 + mape_score * 0.3 + convergence_score * 0.3
+    raw_mqs = r2_score * 0.4 + mape_score * 0.3 + convergence_score * 0.3
+
+    # Data-thinness cap
+    thinness_cap = None
+    if ratio is not None:
+        if ratio < 2:
+            thinness_cap = 50
+        elif ratio < 4:
+            thinness_cap = 70
+    mqs = min(raw_mqs, thinness_cap) if thinness_cap is not None else raw_mqs
 
     # Tier classification
     if mqs >= 85:
@@ -57,9 +73,12 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
 
     return {
         'score': round(mqs, 1),
+        'raw_score': round(raw_mqs, 1),
         'tier': tier,
         'tier_label': label,
         'color': color,
+        'thinness_cap': thinness_cap,
+        'ratio': round(ratio, 2) if ratio is not None else None,
         'components': {
             'r_squared': {'value': round(r_squared, 4), 'score': round(r2_score, 1)},
             'mape': {'value': round(mape, 2), 'score': round(mape_score, 1)},
@@ -74,18 +93,26 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
                                   n_obs: int, n_params: int) -> dict:
     """Full diagnostics summary for UI display."""
     from utils.model_spec import bayesian_mmm_spec
-    mqs = model_quality_score(r_squared, mape, r_hat_max, divergences)
+    ratio = n_obs / max(n_params, 1)
+    mqs = model_quality_score(r_squared, mape, r_hat_max, divergences, ratio=ratio)
 
     # Human-readable verdict.
     # ВАЖНО: MQS-бейдж (слева от текста) — агрегированный score 0-100 из R²+MAPE+convergence.
     # R² — отдельная метрика (fit), явно маркируем её в тексте чтобы не путать с MQS.
     r2_pct = round(r_squared * 100)
+    thin_note = ""
+    if mqs.get('thinness_cap') is not None:
+        if ratio < 2:
+            thin_note = f" ⚠ Данных критически мало (Ratio {ratio:.1f}:1) — высокий риск переобучения, результаты ненадёжны."
+        else:
+            thin_note = f" ⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) — высокий R² может быть артефактом переобучения. Доверительные интервалы будут широкими."
+
     if mqs['tier'] in ('excellent', 'good'):
-        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Надёжный результат для принятия бюджетных решений."
+        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Надёжный результат для принятия бюджетных решений.{thin_note}"
     elif mqs['tier'] == 'acceptable':
-        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Приемлемо для ориентировочных решений, рекомендуем дополнительную валидацию."
+        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Приемлемо для ориентировочных решений, рекомендуем дополнительную валидацию.{thin_note}"
     else:
-        verdict = f"Модель объясняет только {r2_pct}% вариации продаж (R²). Результаты ненадёжны — нужно больше данных или другая спецификация."
+        verdict = f"Модель объясняет только {r2_pct}% вариации продаж (R²). Результаты ненадёжны — нужно больше данных или другая спецификация.{thin_note}"
 
     return {
         'mqs': mqs,

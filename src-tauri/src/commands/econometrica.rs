@@ -126,6 +126,16 @@ pub async fn econ_compare(project_dir: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
+pub async fn econ_scenario_delete(project_dir: String, scenario_name: String) -> Result<Value, String> {
+    info!("econ_scenario_delete: {scenario_name}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "scenario_name": scenario_name,
+    });
+    post_json("/compute/scenario/delete", &body, quick_client()).await
+}
+
+#[tauri::command]
 pub async fn econ_awareness_forecast(config: Value) -> Result<Value, String> {
     info!("econ_awareness_forecast");
     post_json("/compute/awareness/forecast", &config, quick_client()).await
