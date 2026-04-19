@@ -237,6 +237,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'max': round(float(col_series.max()), 4),
                 'mean': round(float(col_series.mean()), 4),
                 'std': round(float(col_series.std()), 4),
+                'sum': round(float(col_series.sum()), 2),
                 'zeros_pct': zeros_pct,
                 'nulls': int(df[col].isna().sum()),
                 'cv': round(float(col_series.std() / col_series.mean() * 100), 1) if col_series.mean() != 0 else 0,

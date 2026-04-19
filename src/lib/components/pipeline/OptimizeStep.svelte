@@ -22,11 +22,13 @@
     triggerCompletion,
     sessionStats,
     expertMode,
+    unitCosts,
   } from '$lib/project-state.js';
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
+  import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
 
   /** @type {'idle' | 'optimizing' | 'done' | 'error'} */
   let stepState = $state('idle');
@@ -49,7 +51,7 @@
 
   /** Пресеты для быстрой настройки per-channel ограничений. */
   const CHANNEL_PRESETS = {
-    free:        { label: 'Свободно', min: 0,   max: 300, hint: 'без ограничений' },
+    free:        { label: 'Свободно', min: 0,   max: 500, hint: 'без ограничений' },
     flex:        { label: 'Гибкий',   min: 50,  max: 150, hint: '±50% от текущего' },
     only_up:     { label: 'Только ↑', min: 100, max: 200, hint: 'нельзя сокращать (фикс. контракт)' },
     only_down:   { label: 'Только ↓', min: 0,   max: 100, hint: 'нельзя увеличивать (бюджет ограничен)' },
@@ -76,9 +78,13 @@
   };
 
   // ── Блок A — статус-карточка «Текущий бюджет» ─────────────
+  // Display-бюджет всегда в money (рубли), чтобы суммы между каналами были сопоставимы.
+  // Для optData используем current_spend_money (с unit_cost), fallback — current_spend.
+  // Для decompose fallback ch.spend уже в money (см. decomposer.py).
   const currentTotalBudget = $derived.by(() => {
     if (optData?.channels) {
-      return optData.channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.current_spend || 0), 0);
+      return optData.channels.reduce((/** @type {number} */ s, /** @type {any} */ c) =>
+        s + (c.current_spend_money ?? c.current_spend ?? 0), 0);
     }
     if (dData?.channels) {
       return dData.channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.spend || 0), 0);
@@ -86,6 +92,7 @@
     return 0;
   });
 
+  // ROI × = money contribution / money spend. Оба берутся из decompose (ch.spend уже money).
   const avgROI = $derived.by(() => {
     if (!dData?.channels) return null;
     const totalSpend = dData.channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.spend || 0), 0);
@@ -112,13 +119,16 @@
     []
   );
 
-  /** @type {Record<string, number>} current spend — из optimize или decompose. */
+  /** @type {Record<string, number>} current spend в НАТИВНЫХ единицах канала (raw).
+   *  Hill-функции обучены на raw, поэтому слайдеры/scaledParams работают именно тут.
+   *  Для decompose fallback используем raw_spend (не .spend, который теперь money).
+   */
   const currentSpend = $derived.by(() => {
     if (optData?.channels) {
       return Object.fromEntries(optData.channels.map(/** @type {(c: any) => [string, number]} */ (c) => [c.name, c.current_spend]));
     }
     if (dData?.channels) {
-      return Object.fromEntries(dData.channels.map(/** @type {(c: any) => [string, number]} */ (c) => [c.name, c.spend ?? 0]));
+      return Object.fromEntries(dData.channels.map(/** @type {(c: any) => [string, number]} */ (c) => [c.name, c.raw_spend ?? c.spend ?? 0]));
     }
     return {};
   });
@@ -132,8 +142,13 @@
   /** Normalization из тренировки модели (y_mean, y_std) — для денормализации в реальные единицы. */
   const yNorm = $derived(mData?.normalization ?? null);
 
-  /** Current KPI at current_spend (baseline for lift%). Денормализован в исходные единицы. */
+  /** Current KPI at current_spend (baseline for lift% — per-period prediction в рублях). */
   const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm));
+
+  /** Display-KPI для блока A. Используем total_sales из декомпозиции — это KPI
+   *  за весь период анализа (в одной шкале с total budget). Если decompose
+   *  ещё не запущен — fallback на predictKPI (one-period). */
+  const displayKPI = $derived(dData?.total_sales ?? currentKPI);
 
   /**
    * miROAS per channel — marginal ROI следующего рубля при ТЕКУЩИХ значениях слайдеров.
@@ -196,8 +211,9 @@
       totalBudgetInput = opt.total_budget ?? null;
     } else if (dec?.channels && dec.channels.length > 0 && Object.keys(channelBudgets).length === 0) {
       // Fallback init from decompose (до первого optimize) — чтобы блок B был интерактивен.
+      // Берём raw_spend (native units для Hill), не .spend (money).
       const init = /** @type {Record<string, number>} */ ({});
-      for (const ch of dec.channels) init[ch.name] = ch.spend ?? 0;
+      for (const ch of dec.channels) init[ch.name] = ch.raw_spend ?? ch.spend ?? 0;
       channelBudgets = init;
     }
   });
@@ -309,6 +325,7 @@
         maxPct,
         minPerChannel,
         maxPerChannel,
+        unitCosts: get(unitCosts) ?? {},
       }));
 
       if (result.status === 'ok') {
@@ -406,6 +423,11 @@
     </div>
   {/if}
 
+  <!-- Trust banner — наследуем smell_flags от decompose -->
+  {#if dData?.smell_flags?.length}
+    <TrustBanner flags={dData.smell_flags} />
+  {/if}
+
   <!-- ════════════════ БЛОК A — Текущий бюджет (статус-карточка) ════════════════ -->
   <section class="block block-status">
     <div class="block-header">
@@ -425,8 +447,8 @@
         <div class="status-label">
           Прогноз KPI<span class="help-icon" title={HELP.forecastKPI}>?</span>
         </div>
-        <div class="status-value">{fmtNum(currentKPI, 0)}</div>
-        <div class="status-sub">при текущем распределении</div>
+        <div class="status-value">{fmtBudget(displayKPI)}</div>
+        <div class="status-sub">за весь период анализа</div>
       </div>
       <div class="status-cell">
         <div class="status-label">

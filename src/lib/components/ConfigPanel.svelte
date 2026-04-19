@@ -7,7 +7,8 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts } from '$lib/project-state.js';
+  import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
   /**
@@ -232,6 +233,7 @@
           enabledChannels.map(ch => [ch, channelAdstock[ch] || 'geometric'])
         ),
         mcmc_override: showAdvanced ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune } : null,
+        unit_costs: get(unitCosts) || {},
       };
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)

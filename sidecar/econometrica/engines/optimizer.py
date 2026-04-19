@@ -42,6 +42,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     config_model = model_data['config']
     channel_params = model_data['channel_params']
     media_cols = config_model['media_columns']
+    # Override > pickle-config (аналогично decomposer).
+    unit_costs_override = config.get('unit_costs')
+    unit_costs = unit_costs_override if unit_costs_override is not None else (config_model.get('unit_costs', {}) or {})
 
     # Read original data for current spend
     import pandas as pd
@@ -106,10 +109,14 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         mroi_current = float(marginal_roi(np.array([cur]), p['alpha'], max(p['gamma'] * cur, 1), p['beta'])[0])
         mroi_optimal = float(marginal_roi(np.array([opt]), p['alpha'], max(p['gamma'] * cur, 1), p['beta'])[0])
 
+        uc = float(unit_costs.get(col, 1.0) or 1.0)
         channels.append({
             'name': col,
             'current_spend': round(cur, 0),
             'optimal_spend': round(float(opt), 0),
+            'current_spend_money': round(cur * uc, 0),
+            'optimal_spend_money': round(float(opt) * uc, 0),
+            'unit_cost': uc,
             'delta_pct': round(delta_pct, 1),
             'mroi_current': round(mroi_current, 4),
             'mroi_optimal': round(mroi_optimal, 4),
@@ -118,7 +125,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
     # Generate response curves data (for charts)
     response_curves_data = {}
-    for col in media_cols:
+    for i, col in enumerate(media_cols):
         p = channel_params[col]
         cur = current_spend[col]
         spend_range = np.linspace(0, cur * 2, 50)
@@ -127,10 +134,17 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             'spend': spend_range.tolist(),
             'response': responses.tolist(),
             'current_x': cur,
-            'optimal_x': float(optimal_spend[media_cols.index(col)]),
+            'optimal_x': float(optimal_spend[i]),
         }
 
-    insight = f"Оптимальное перераспределение бюджета ({round(total_budget, 0):,.0f} ₽) даёт ожидаемый прирост +{lift_pct:.1f}%."
+    # Money-эквиваленты total_budget: Hill-оптимизация ведётся в нативных единицах
+    # каналов (TRP пункты + рубли), но пользователь хочет видеть суммы в валюте KPI.
+    total_budget_money = sum(float(optimal_spend[i]) * float(unit_costs.get(col, 1.0) or 1.0)
+                             for i, col in enumerate(media_cols))
+    total_current_money = sum(current_spend[col] * float(unit_costs.get(col, 1.0) or 1.0)
+                              for col in media_cols)
+
+    insight = f"Оптимальное перераспределение бюджета ({round(total_budget_money, 0):,.0f} ₽) даёт ожидаемый прирост +{lift_pct:.1f}%."
     top_increase = max(channels, key=lambda x: x['delta_pct'])
     top_decrease = min(channels, key=lambda x: x['delta_pct'])
     if top_increase['delta_pct'] > 5:
@@ -141,6 +155,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     result_data = {
         'status': 'ok',
         'total_budget': round(total_budget, 0),
+        'total_budget_money': round(total_budget_money, 0),
+        'total_current_money': round(total_current_money, 0),
         'expected_lift_pct': round(lift_pct, 1),
         'channels': channels,
         'response_curves': response_curves_data,

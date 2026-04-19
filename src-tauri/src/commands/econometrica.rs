@@ -72,9 +72,12 @@ pub async fn econ_train(config: Value) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn econ_decompose(project_dir: String) -> Result<Value, String> {
+pub async fn econ_decompose(project_dir: String, unit_costs: Option<Value>) -> Result<Value, String> {
     info!("econ_decompose: {project_dir}");
-    let body = serde_json::json!({ "project_dir": project_dir });
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "unit_costs": unit_costs,
+    });
     post_json("/compute/decompose", &body, quick_client()).await
 }
 
@@ -86,6 +89,7 @@ pub async fn econ_optimize(
     max_pct: Option<f64>,
     min_per_channel: Option<Value>,
     max_per_channel: Option<Value>,
+    unit_costs: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_optimize: {project_dir}");
     let body = serde_json::json!({
@@ -95,6 +99,7 @@ pub async fn econ_optimize(
         "max_pct": max_pct.unwrap_or(150.0),
         "min_per_channel": min_per_channel,
         "max_per_channel": max_per_channel,
+        "unit_costs": unit_costs,
     });
     post_json("/compute/optimize", &body, quick_client()).await
 }

@@ -12,16 +12,33 @@
   import {
     activeProjectId,
     decomposeData,
+    modelData,
     completeStep,
     setStepError,
     isComputing,
     computeStatus,
     expertMode,
+    unitCosts,
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
   import ROIComparison from '$lib/components/pipeline/ROIComparison.svelte';
   import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
+  import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
+
+  /** @type {Record<string, string>} */
+  const CATEGORY_LABEL = {
+    brand_reach: 'Brand-Reach',
+    performance: 'Performance',
+    mixed: 'Mixed',
+  };
+
+  /** @type {Record<string, string>} */
+  const CATEGORY_HELP = {
+    brand_reach: 'Brand-Reach — охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
+    performance: 'Performance — каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI — чистая отдача на рубль. Сравнивай с другими Performance каналами.',
+    mixed: 'Mixed — канал не однозначно классифицирован (нет явных маркеров brand/performance в имени).\n\nКак читать: смотри на тип контента и цель размещения — он может работать и на охват, и на отклик.',
+  };
 
   /** @type {'idle' | 'loading' | 'done' | 'error'} */
   let stepState = $state('idle');
@@ -63,7 +80,7 @@
   }
 
   /**
-   * @param {number} [attemptsLeft] — Делаем до 4 попыток с возрастающим backoff
+   * @param {number} [attemptsLeft] - Делаем до 4 попыток с возрастающим backoff
    *        (1.5/2/3с) чтобы дождаться pickle после свежей тренировки. Дефолт = 4
    *        принудительно (не полагаемся на event-arg от onclick).
    */
@@ -80,7 +97,12 @@
 
     try {
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
-      const result = /** @type {any} */ (await invoke('econ_decompose', { projectDir }));
+      // Trust Level 2: override unit_costs из store (если user менял CPP после train,
+      // pickle содержит старые значения — override даёт актуальные).
+      const result = /** @type {any} */ (await invoke('econ_decompose', {
+        projectDir,
+        unitCosts: get(unitCosts) ?? {},
+      }));
 
       if (result.status === 'ok') {
         decomposeData.set(result);
@@ -166,6 +188,29 @@
       clearTimeout(fallback);
     };
   });
+
+  // Авто-ретрай когда прилетела новая тренировка (pickle всегда latest.pkl,
+  // поэтому сравниваем по object-reference modelData — каждый set() даёт
+  // новый object). Срабатывает:
+  //   • при error «Модель не найдена» (исправляется автоматом)
+  //   • при idle без данных (первое открытие после train)
+  //   • при done (пользователь перетренировал → декомпозиция устарела)
+  /** @type {any} */
+  let lastModelRef = null;
+  $effect(() => {
+    const md = $modelData;
+    // Не триггерим при первом получении пустого state.
+    if (!md?.channelParams) return;
+    if (md === lastModelRef) return;
+    const firstFire = lastModelRef === null;
+    lastModelRef = md;
+    // При первом запуске (onMount ещё подхватит) — не дублируем работу.
+    if (firstFire && stepState !== 'error') return;
+    errorMessage = null;
+    // Сбросим decomposeData — старая модель → старые результаты.
+    if (stepState === 'done') decomposeData.set(null);
+    runDecompose();
+  });
 </script>
 
 <div class="decompose-step">
@@ -189,6 +234,11 @@
 
   <!-- Results -->
   {#if stepState === 'done' && data}
+
+    <!-- Trust banner (smell_flags) -->
+    {#if data.smell_flags?.length}
+      <TrustBanner flags={data.smell_flags} />
+    {/if}
 
     <!-- Insight banner -->
     {#if data.insight}
@@ -247,8 +297,23 @@
           <tbody>
             {#each data.channels as ch}
               <tr>
-                <td class="ch-name">{ch.name}</td>
-                <td class="num">{ch.spend.toLocaleString('ru-RU')}</td>
+                <td class="ch-name">
+                  {ch.name}
+                  {#if ch.category && ch.category !== 'mixed'}
+                    <span
+                      class="ch-cat"
+                      class:cat-brand={ch.category === 'brand_reach'}
+                      class:cat-perf={ch.category === 'performance'}
+                      title={CATEGORY_HELP[ch.category]}
+                    >{CATEGORY_LABEL[ch.category]}</span>
+                  {/if}
+                </td>
+                <td class="num" title={ch.unit_cost && ch.unit_cost !== 1 ? `${(ch.raw_spend ?? 0).toLocaleString('ru-RU')} юнитов × ${ch.unit_cost.toLocaleString('ru-RU')}₽ = ${ch.spend.toLocaleString('ru-RU')}₽` : ''}>
+                  {ch.spend.toLocaleString('ru-RU')}
+                  {#if ch.unit_cost && ch.unit_cost !== 1}
+                    <span class="spend-sub">{(ch.raw_spend ?? 0).toLocaleString('ru-RU')} × {ch.unit_cost.toLocaleString('ru-RU')}₽</span>
+                  {/if}
+                </td>
                 <td class="num">{ch.contribution.toLocaleString('ru-RU')}</td>
                 <td class="num" class:roi-good={ch.roi > 2 && ch.roi <= 50} class:roi-mid={ch.roi >= 0.8 && ch.roi <= 2} class:roi-bad={ch.roi < 0.8} class:roi-warn={ch.roi > 50}>
                   {ch.roi.toFixed(2)}×
@@ -430,7 +495,37 @@
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
     color: var(--accent-primary, #3b82f6);
   }
+  .spend-sub {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-top: 1px;
+    line-height: 1.2;
+  }
   .ch-name { font-weight: 500; }
+  .ch-cat {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 6px;
+    border-radius: 4px;
+    vertical-align: middle;
+    background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+    color: var(--text-secondary);
+    cursor: help;
+  }
+  .ch-cat.cat-brand {
+    background: color-mix(in srgb, var(--warning, #f59e0b) 15%, transparent);
+    color: var(--warning, #f59e0b);
+  }
+  .ch-cat.cat-perf {
+    background: color-mix(in srgb, var(--success, #10b981) 15%, transparent);
+    color: var(--success, #10b981);
+  }
   .roi-good { color: var(--success); font-weight: 600; }
   .roi-mid { color: var(--warning); }
   .roi-bad { color: var(--danger); }

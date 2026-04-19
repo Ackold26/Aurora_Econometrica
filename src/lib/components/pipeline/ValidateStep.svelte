@@ -22,6 +22,7 @@
   } from '$lib/project-state.js';
   import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
   import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
+  import UnitCostsPanel from '$lib/components/pipeline/UnitCostsPanel.svelte';
   import { get } from 'svelte/store';
 
   // ── State ──────────────────────────────────────────
@@ -317,6 +318,11 @@
           onmappingchange={onMappingChange}
         />
         {/if}
+      </section>
+
+      <!-- Trust Level 2: unit_costs для не-денежных каналов -->
+      <section class="section-full">
+        <UnitCostsPanel columns={result.columns ?? []} />
       </section>
 
       <!-- Correlation heatmap -->

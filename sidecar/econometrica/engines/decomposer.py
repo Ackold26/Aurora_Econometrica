@@ -10,11 +10,13 @@ from pathlib import Path
 from typing import Any
 
 
-def decompose(project_dir: str) -> dict[str, Any]:
+def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict[str, Any]:
     """Decompose sales into baseline + channel contributions using trained model.
 
     Args:
         project_dir: Path to project with models/latest.pkl
+        unit_costs_override: Если задан — используется вместо config.unit_costs из pickle.
+            Нужно, когда user изменил CPP/CPM после тренировки модели.
 
     Returns:
         JSON with waterfall data, ROI, share of spend vs effect
@@ -33,6 +35,9 @@ def decompose(project_dir: str) -> dict[str, Any]:
     y_actual = np.array(model_data['y_actual'])
     y_predicted = np.array(model_data['y_predicted'])
     media_cols = config['media_columns']
+    # Override > config. Передан ли override (даже {}) — клиент управляет явно.
+    # None → fallback на pickle (для старых pkl или sessions без знания current state).
+    unit_costs = unit_costs_override if unit_costs_override is not None else (config.get('unit_costs', {}) or {})
 
     # Read original data for spend totals
     data_file = config['data_file']
@@ -46,7 +51,11 @@ def decompose(project_dir: str) -> dict[str, Any]:
     total_media_contribution = 0
     for col in media_cols:
         params = channel_params[col]
-        spend = float(df[col].fillna(0).sum())
+        raw_spend = float(df[col].fillna(0).sum())
+        # Native-unit spend (TRPs, показы) → денежный эквивалент через CPP/CPM.
+        # Для каналов в рублях unit_cost = 1.0 (default) → spend без изменений.
+        unit_cost = float(unit_costs.get(col, 1.0) or 1.0)
+        spend = raw_spend * unit_cost
         # Contribution proportional to beta (simplified)
         total_beta = sum(abs(channel_params[c]['beta']) for c in media_cols)
         contribution_pct = abs(params['beta']) / total_beta if total_beta > 1e-10 else 0
@@ -57,6 +66,8 @@ def decompose(project_dir: str) -> dict[str, Any]:
         channels.append({
             'name': col,
             'spend': round(spend, 0),
+            'raw_spend': round(raw_spend, 2),
+            'unit_cost': unit_cost,
             'contribution': round(contribution, 0),
             'contribution_pct': round(contribution_pct * 100, 1),
             'roi': round(roi, 2),
@@ -80,14 +91,29 @@ def decompose(project_dir: str) -> dict[str, Any]:
     # поэтому каналы с ROI=10× но gap=-23% (перенасыщенные) помечались «Эффективен».
     # Также детектируем подозрительно высокий ROI (>50×) — типично для смешанных
     # единиц (TRPs vs рубли) и помечаем отдельно, чтобы пользователь не доверял слепо.
-    UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ')
+    UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ', 'ОХВАТ', 'РЕЙТИНГ')
+    BRAND_HINTS = ('TRP', 'GRP', 'OTS', 'ОХВАТ', 'РЕЙТИНГ', 'TV', 'ТВ', 'OOH', 'НАРУЖК', 'РАДИО', 'RADIO', 'БРЕНД', 'BRAND')
+    PERF_HINTS = ('DIGITAL', 'SEARCH', 'ПОИСК', 'CONTEXT', 'КОНТЕКСТ', 'SOCIAL', 'СОЦ', 'CTR', 'CPC', 'CPA', 'PERFORMANCE', 'ПЕРФ', 'ЯНДЕКС', 'GOOGLE', 'VK', 'ВК', 'TELEGRAM', 'ТЕЛЕГРАМ', 'МЕТА', 'META', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ')
     for ch in channels:
         roi = ch['roi']
         gap = ch['efficiency_gap']
         name_upper = (ch['name'] or '').upper()
         looks_like_non_money = any(hint in name_upper for hint in UNIT_HINTS)
+        is_brand = any(hint in name_upper for hint in BRAND_HINTS)
+        is_perf = any(hint in name_upper for hint in PERF_HINTS)
+        if is_brand and not is_perf:
+            ch['category'] = 'brand_reach'
+        elif is_perf and not is_brand:
+            ch['category'] = 'performance'
+        else:
+            ch['category'] = 'mixed'
+        # unit_smell = «имя подозрительное» ∧ «CPP не задан» (unit_cost == 1.0).
+        # Если user настроил CPP — канал уже в money-эквиваленте, smell снимается.
+        ch['unit_smell'] = bool(looks_like_non_money and abs(ch['unit_cost'] - 1.0) < 1e-9)
 
-        if roi > 50 and looks_like_non_money:
+        # «Не рубли?» только когда CPP не задан (unit_cost=1.0). Если CPP задан —
+        # канал уже в money, завышенный ROI — про другое (модель сомневается или мало данных).
+        if roi > 50 and ch['unit_smell']:
             ch['verdict'] = 'ROI завышен (не рубли?)'
             ch['verdict_tone'] = 'warn'
         elif roi > 50:
@@ -136,15 +162,18 @@ def decompose(project_dir: str) -> dict[str, Any]:
     n_periods = len(df)
     y_arr = y_actual[:n_periods] if len(y_actual) >= n_periods else y_actual
 
-    # Per-period channel contributions (proportional to spend in each period)
+    # Per-period channel contributions (proportional to spend in each period).
+    # ВАЖНО: ratio берётся по RAW spend (df[col]), т.к. unit_cost постоянен для канала
+    # во всех периодах → разницы между использованием raw vs money нет математически,
+    # но raw — безопаснее (никаких шансов деления money на raw из-за опечатки).
     time_series_channels = {}
     for ch in channels:
         col = ch['name']
-        total_ch_spend = ch['spend']
+        total_raw = float(ch['raw_spend'])
         ch_contribution = ch['contribution']
-        if total_ch_spend > 0:
+        if total_raw > 0:
             spend_per_period = df[col].fillna(0).values[:n_periods]
-            ts_contrib = [(float(s) / total_ch_spend * ch_contribution) for s in spend_per_period]
+            ts_contrib = [(float(s) / total_raw * ch_contribution) for s in spend_per_period]
         else:
             ts_contrib = [0.0] * n_periods
         time_series_channels[col] = [round(v, 1) for v in ts_contrib]
@@ -156,8 +185,38 @@ def decompose(project_dir: str) -> dict[str, Any]:
         b_t = float(y_arr[t]) - ch_total_t if t < len(y_arr) else 0.0
         baseline_ts.append(round(b_t, 1))
 
+    # Smell-детектор для banner доверия (Trust Level 1).
+    # Модель должна сама предупреждать о своих пределах — это USP vs Robyn/LightweightMMM.
+    smell_flags = []
+    positive_rois = [c['roi'] for c in channels if c['roi'] > 0]
+    if positive_rois:
+        roi_max = max(positive_rois)
+        roi_min = min(positive_rois)
+        if roi_max > 50:
+            top_ch = max(channels, key=lambda c: c['roi'])
+            smell_flags.append({
+                'type': 'roi_max',
+                'channel': top_ch['name'],
+                'value': round(roi_max, 1),
+                'severity': 'high' if roi_max > 200 else 'medium',
+            })
+        if roi_min > 0 and roi_max / roi_min > 50:
+            smell_flags.append({
+                'type': 'roi_spread',
+                'value': round(roi_max / roi_min, 1),
+                'severity': 'high' if roi_max / roi_min > 200 else 'medium',
+            })
+    unit_smell_channels = [c['name'] for c in channels if c.get('unit_smell')]
+    if unit_smell_channels:
+        smell_flags.append({
+            'type': 'unit_smell',
+            'channels': unit_smell_channels,
+            'severity': 'medium',
+        })
+
     result = {
         'status': 'ok',
+        'smell_flags': smell_flags,
         'total_sales': round(total_sales, 0),
         'baseline': round(baseline, 0),
         'baseline_pct': round(baseline / total_sales * 100, 1) if total_sales else 0,

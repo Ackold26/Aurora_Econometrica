@@ -164,6 +164,23 @@ export const importData = writable({ file: null, columns: null, rows: null });
 export const validateData = writable({ result: null, correlationMatrix: null, columnHistograms: null });
 
 /**
+ * Trust Level 2: стоимость 1 юнита канала в валюте KPI (CPP/CPM).
+ * Для каналов в рублях — 1.0 или отсутствие ключа.
+ * Загружается из project.unit_costs при активации проекта, сохраняется через project_update.
+ * @type {import('svelte/store').Writable<Record<string, number>>}
+ */
+export const unitCosts = writable({});
+
+// Sync unitCosts from activeProject when it loads/changes.
+activeProject.subscribe((p) => {
+  if (p && p.unit_costs && typeof p.unit_costs === 'object') {
+    unitCosts.set(/** @type {Record<string, number>} */ (p.unit_costs));
+  } else if (!p) {
+    unitCosts.set({});
+  }
+});
+
+/**
  * Analysis objective — determines which metric to prefer for paired channels.
  *   'roi'           → keep budgets (measure monetary return)
  *   'effectiveness' → keep natural metrics (impressions/clicks/visits)

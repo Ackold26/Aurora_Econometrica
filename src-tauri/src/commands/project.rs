@@ -6,6 +6,7 @@
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Project metadata (stored as project.json).
@@ -20,6 +21,10 @@ pub struct ProjectInfo {
     pub media_columns: Vec<String>,
     pub control_columns: Vec<String>,
     pub data_file: Option<String>,
+    /// Trust Level 2: стоимость 1 юнита канала в валюте KPI (CPP/CPM).
+    /// Для каналов в рублях — 1.0 или отсутствие записи.
+    #[serde(default)]
+    pub unit_costs: HashMap<String, f64>,
 }
 
 /// Get the projects root directory: %APPDATA%/<identifier>/projects/
@@ -110,6 +115,7 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
         media_columns: Vec::new(),
         control_columns: Vec::new(),
         data_file: None,
+        unit_costs: HashMap::new(),
     };
     write_project(&dir, &info)?;
 
@@ -151,6 +157,11 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     }
     if let Some(file) = updates.get("data_file").and_then(|v| v.as_str()) {
         info.data_file = Some(file.to_string());
+    }
+    if let Some(uc) = updates.get("unit_costs").and_then(|v| v.as_object()) {
+        info.unit_costs = uc.iter()
+            .filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f)))
+            .collect();
     }
 
     info.updated_at = now_iso();

@@ -21,7 +21,11 @@
 {#if mqs}
   <div class="mqs-badge">
     <div class="mqs-header">
-      <div class="mqs-score" style="--score-color: {mqs.color}">
+      <div
+        class="mqs-score"
+        style="--score-color: {mqs.color}"
+        title="MQS (Model Quality Score) — общая агрегированная оценка качества модели от 0 до 100.&#10;&#10;Формула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).&#10;&#10;Шкала: ≥ 80 — отлично, 60-80 — хорошо, 40-60 — приемлемо, < 40 — требует доработки."
+      >
         <span class="score-value">{Math.round(mqs.score)}</span>
         <span class="score-label">{mqs.tier_label}</span>
       </div>
@@ -89,6 +93,7 @@
     border-radius: 12px;
     background: rgba(0,0,0,0.3);
     border: 2px solid var(--score-color);
+    cursor: help;
   }
 
   .score-value {

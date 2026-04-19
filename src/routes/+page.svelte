@@ -389,6 +389,9 @@
     flex-direction: column;
     gap: 0px;
     line-height: 1;
+    /* Выравнивание с AURORA baseline — у картинки logo-wordmark.png
+       "AI"-superscript смещает визуальный центр выше baseline текста AURORA. */
+    margin-top: 8px;
   }
 
   .topbar-logo {

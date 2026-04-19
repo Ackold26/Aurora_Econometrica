@@ -76,13 +76,16 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
     from utils.model_spec import bayesian_mmm_spec
     mqs = model_quality_score(r_squared, mape, r_hat_max, divergences)
 
-    # Human-readable verdict
+    # Human-readable verdict.
+    # ВАЖНО: MQS-бейдж (слева от текста) — агрегированный score 0-100 из R²+MAPE+convergence.
+    # R² — отдельная метрика (fit), явно маркируем её в тексте чтобы не путать с MQS.
+    r2_pct = round(r_squared * 100)
     if mqs['tier'] in ('excellent', 'good'):
-        verdict = f"Модель объясняет {round(r_squared * 100)}% изменений продаж. Это надёжный результат для принятия бюджетных решений."
+        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Надёжный результат для принятия бюджетных решений."
     elif mqs['tier'] == 'acceptable':
-        verdict = f"Модель объясняет {round(r_squared * 100)}% изменений. Результаты приемлемые, но рекомендуем дополнительную валидацию."
+        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Приемлемо для ориентировочных решений, рекомендуем дополнительную валидацию."
     else:
-        verdict = f"Модель объясняет только {round(r_squared * 100)}% изменений. Результаты ненадёжны — рекомендуем больше данных или другую спецификацию."
+        verdict = f"Модель объясняет только {r2_pct}% вариации продаж (R²). Результаты ненадёжны — нужно больше данных или другая спецификация."
 
     return {
         'mqs': mqs,

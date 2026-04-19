@@ -89,6 +89,11 @@ class TrainRequest(BaseModel):
     date_column: str = 'date'
     adstock_config: dict[str, str] = {}
     mcmc_override: dict | None = None
+    # Стоимость 1 юнита канала в валюте KPI для не-денежных каналов (CPP/CPM).
+    # {channel: cost_per_unit}. Если задано — decomposer/optimizer используют
+    # spend × unit_cost для отображения и расчёта ROI. На обучение модели не
+    # влияет (Hill работает на нативных единицах канала).
+    unit_costs: dict[str, float] = {}
 
 
 class TrainStartRequest(BaseModel):
@@ -100,10 +105,14 @@ class TrainStartRequest(BaseModel):
     date_column: str = 'date'
     adstock_config: dict[str, str] = {}
     mcmc_override: dict | None = None
+    unit_costs: dict[str, float] = {}
 
 
 class DecomposeRequest(BaseModel):
     project_dir: str
+    # Trust Level 2: override unit_costs поверх pickle-config.
+    # Нужно когда user изменил CPP после тренировки — pickle содержит старые значения.
+    unit_costs: dict[str, float] | None = None
 
 
 class OptimizeRequest(BaseModel):
@@ -115,6 +124,8 @@ class OptimizeRequest(BaseModel):
     # для указанных каналов. Если канал отсутствует в dict — используется глобальный лимит.
     min_per_channel: dict[str, float] | None = None
     max_per_channel: dict[str, float] | None = None
+    # Override unit_costs (аналогично DecomposeRequest).
+    unit_costs: dict[str, float] | None = None
 
 
 class ScenarioRequest(BaseModel):
@@ -326,7 +337,7 @@ def decompose_sales(req: DecomposeRequest):
     from pathlib import Path as _Path
     pickle_exists = (_Path(req.project_dir) / 'models' / 'latest.pkl').exists()
     logger.info(f'/compute/decompose project_dir={req.project_dir} pickle_exists={pickle_exists}')
-    result = _decompose(req.project_dir)
+    result = _decompose(req.project_dir, unit_costs_override=req.unit_costs)
     if result.get('status') != 'ok':
         logger.warning(f'/compute/decompose returned error: {result.get("message")}')
     return JSONResponse(content=result)
@@ -342,6 +353,7 @@ def optimize_budget(req: OptimizeRequest):
         'max_pct': req.max_pct,
         'min_per_channel': req.min_per_channel,
         'max_per_channel': req.max_per_channel,
+        'unit_costs': req.unit_costs,  # None → decomposer fallback на pickle config
     }
     result = _optimize(config, req.project_dir)
     return JSONResponse(content=result)
