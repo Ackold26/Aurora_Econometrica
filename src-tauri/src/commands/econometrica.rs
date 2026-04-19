@@ -85,6 +85,7 @@ pub async fn econ_decompose(project_dir: String, unit_costs: Option<Value>) -> R
 pub async fn econ_optimize(
     project_dir: String,
     total_budget: Option<f64>,
+    total_budget_money: Option<f64>,
     min_pct: Option<f64>,
     max_pct: Option<f64>,
     min_per_channel: Option<Value>,
@@ -95,6 +96,7 @@ pub async fn econ_optimize(
     let body = serde_json::json!({
         "project_dir": project_dir,
         "total_budget": total_budget,
+        "total_budget_money": total_budget_money,
         "min_pct": min_pct.unwrap_or(50.0),
         "max_pct": max_pct.unwrap_or(150.0),
         "min_per_channel": min_per_channel,

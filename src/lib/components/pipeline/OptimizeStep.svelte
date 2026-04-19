@@ -49,6 +49,45 @@
   /** @type {Record<string, number>} */
   let channelMaxPct = $state({});
 
+  // ── Phase 3: What-if ────────────────────────────────────
+  /** Мультипликатор к текущему money-бюджету (0.5…2.0). */
+  let whatIfMult = $state(1.0);
+  /** @type {any} Результат what-if optimize */
+  let whatIfResult = $state(null);
+  let whatIfRunning = $state(false);
+  /** @type {string | null} — реальная ошибка (красный) */
+  let whatIfError = $state(null);
+  /** @type {string | null} — уведомление об успехе (зелёный) */
+  let whatIfSuccess = $state(null);
+
+  // Автосброс whatIfResult при возврате слайдера к 1.0 — чтобы старый результат
+  // не висел на экране при нулевой разнице.
+  $effect(() => {
+    if (Math.abs(whatIfMult - 1) < 0.01 && whatIfResult) {
+      whatIfResult = null;
+    }
+  });
+
+  // ── Phase 4: Forecast с медиаинфляцией ──────────────────
+  /** @type {Record<string, number>} — % инфляции per-канал (14 = +14%). */
+  let channelInflation = $state({});
+  /** 'volume' = сохранить объём (нужно больше денег), 'budget' = сохранить бюджет. */
+  let forecastMode = $state(/** @type {'volume' | 'budget'} */ ('volume'));
+  /** @type {any} */
+  let forecastResult = $state(null);
+  let forecastRunning = $state(false);
+  /** @type {string | null} */
+  let forecastError = $state(null);
+  /** @type {string | null} */
+  let forecastSuccess = $state(null);
+
+  /** Дефолты инфляции РФ 2026 по категории. */
+  const INFLATION_DEFAULTS = {
+    brand_reach: 12,
+    performance: 7,
+    mixed: 8,
+  };
+
   /** Пресеты для быстрой настройки per-channel ограничений. */
   const CHANNEL_PRESETS = {
     free:        { label: 'Свободно', min: 0,   max: 500, hint: 'без ограничений' },
@@ -193,6 +232,13 @@
     return counts;
   });
 
+  /** Средняя инфляция по всем каналам — для UI-подсказки в блоке D. */
+  const avgInflation = $derived(
+    channels.length > 0
+      ? channels.reduce((s, ch) => s + (channelInflation[ch] ?? 0), 0) / channels.length
+      : 0
+  );
+
   /** Shared channel budgets — source of truth for BudgetOptimizer & ResponseCurves */
   let channelBudgets = $state(/** @type {Record<string, number>} */ ({}));
 
@@ -284,6 +330,191 @@
     return null;
   }
 
+  // ── Phase 3: What-if ──────────────────────────────────────────────────────
+  /** Native-эквивалент нового money-бюджета: масштабируем текущий native пропорционально.
+   * @param {number} ratio */
+  function nativeForMoneyRatio(ratio) {
+    const currentNative = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0), 0);
+    return currentNative * ratio;
+  }
+
+  async function runWhatIf() {
+    whatIfRunning = true;
+    whatIfError = null;
+    try {
+      const projectId = await ensureProjectId();
+      if (!projectId) throw new Error('Проект не выбран');
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+      const totalBudgetNative = nativeForMoneyRatio(whatIfMult);
+      // Важно: per-channel bounds должны покрыть мультипликатор, иначе optimizer
+      // не сможет найти допустимое распределение и fallback вернёт current.
+      // Min=0 (любой канал можно обнулить), Max — с запасом в 2× сверх мультипликатора.
+      const whatIfMax = Math.max(300, Math.ceil(whatIfMult * 200));
+      const result = /** @type {any} */ (await invoke('econ_optimize', {
+        projectDir,
+        totalBudget: totalBudgetNative,
+        totalBudgetMoney: null,
+        minPct: 0,
+        maxPct: whatIfMax,
+        minPerChannel: null,
+        maxPerChannel: null,
+        unitCosts: get(unitCosts) ?? {},
+      }));
+      if (result.status === 'ok') {
+        whatIfResult = result;
+      } else {
+        throw new Error(result.message || 'Ошибка what-if');
+      }
+    } catch (/** @type {any} */ e) {
+      whatIfError = String(e?.message || e);
+    } finally {
+      whatIfRunning = false;
+    }
+  }
+
+  function resetWhatIf() {
+    whatIfMult = 1.0;
+    whatIfResult = null;
+    whatIfError = null;
+  }
+
+  /** Сохранить What-if result как именованный сценарий. */
+  async function saveWhatIfAsScenario() {
+    if (!whatIfResult?.channels) return;
+    const projectId = await ensureProjectId();
+    if (!projectId) return;
+    try {
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+      /** @type {Record<string, number[]>} */
+      const mediaPlan = {};
+      for (const c of whatIfResult.channels) mediaPlan[c.name] = [c.optimal_spend ?? 0];
+      const name = `what-if-${Math.round(whatIfMult * 100)}pct-${Date.now().toString().slice(-6)}`;
+      const r = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir, scenarioName: name, mediaPlan,
+      }));
+      if (r.status === 'ok') {
+        whatIfSuccess = '✓ Сохранено как сценарий «' + name + '»';
+        setTimeout(() => { whatIfSuccess = null; }, 3500);
+      } else {
+        whatIfError = r.message || 'Ошибка сохранения';
+      }
+    } catch (/** @type {any} */ e) {
+      whatIfError = String(e?.message || e);
+    }
+  }
+
+  // ── Phase 4: Прогноз с медиаинфляцией ─────────────────────────────────────
+  /** Дефолтный процент инфляции per-канал по его category.
+   * @param {string} ch */
+  function defaultInflation(ch) {
+    const cat = dData?.channels?.find(/** @param {any} c */ (c) => c.name === ch)?.category || 'mixed';
+    return INFLATION_DEFAULTS[/** @type {keyof typeof INFLATION_DEFAULTS} */ (cat)] ?? 8;
+  }
+
+  // Hydrate channelInflation при появлении каналов.
+  $effect(() => {
+    if (channels.length === 0) return;
+    const next = /** @type {Record<string, number>} */ ({ ...channelInflation });
+    let changed = false;
+    for (const ch of channels) {
+      if (next[ch] == null) {
+        next[ch] = defaultInflation(ch);
+        changed = true;
+      }
+    }
+    if (changed) channelInflation = next;
+  });
+
+  async function runForecast() {
+    forecastRunning = true;
+    forecastError = null;
+    try {
+      const projectId = await ensureProjectId();
+      if (!projectId) throw new Error('Проект не выбран');
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+
+      // Новые unit_costs: старые × (1 + inflation%).
+      const uc0 = get(unitCosts) ?? {};
+      /** @type {Record<string, number>} */
+      const ucNew = {};
+      for (const ch of channels) {
+        const oldU = uc0[ch] ?? 1.0;
+        const infl = (channelInflation[ch] ?? 0) / 100;
+        ucNew[ch] = oldU * (1 + infl);
+      }
+
+      // Режимы:
+      // 'volume' — сохраняем native объём (Σ native const) → money вырастет на инфляцию.
+      // 'budget' — сохраняем money (Σ native × new_uc == currentMoney), native упадёт.
+      //           Передаём backend total_budget_money, он применит money-constraint.
+      const currentNative = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0), 0);
+      const currentMoney = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0) * (uc0[ch] ?? 1.0), 0);
+
+      /** @type {{ totalBudget: number | null, totalBudgetMoney: number | null }} */
+      const budgetParams = forecastMode === 'budget'
+        ? { totalBudget: null, totalBudgetMoney: currentMoney }
+        : { totalBudget: currentNative, totalBudgetMoney: null };
+
+      // Расширенные bounds — инфляция меняет экономику каналов, оптимизатору
+      // нужна свобода перекладывать бюджет сильнее ±50%.
+      const result = /** @type {any} */ (await invoke('econ_optimize', {
+        projectDir,
+        totalBudget: budgetParams.totalBudget,
+        totalBudgetMoney: budgetParams.totalBudgetMoney,
+        minPct: 0,
+        maxPct: 300,
+        minPerChannel: null,
+        maxPerChannel: null,
+        unitCosts: ucNew,
+      }));
+      if (result.status === 'ok') {
+        forecastResult = { ...result, mode: forecastMode, ucOld: uc0, ucNew, currentMoney };
+      } else {
+        throw new Error(result.message || 'Ошибка прогноза');
+      }
+    } catch (/** @type {any} */ e) {
+      forecastError = String(e?.message || e);
+    } finally {
+      forecastRunning = false;
+    }
+  }
+
+  function resetForecast() {
+    /** @type {Record<string, number>} */
+    const next = {};
+    for (const ch of channels) next[ch] = defaultInflation(ch);
+    channelInflation = next;
+    forecastResult = null;
+    forecastError = null;
+    forecastMode = 'volume';
+  }
+
+  /** Сохранить Forecast result как именованный сценарий. */
+  async function saveForecastAsScenario() {
+    if (!forecastResult?.channels) return;
+    const projectId = await ensureProjectId();
+    if (!projectId) return;
+    try {
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+      /** @type {Record<string, number[]>} */
+      const mediaPlan = {};
+      for (const c of forecastResult.channels) mediaPlan[c.name] = [c.optimal_spend ?? 0];
+      const avgInfl = Math.round(channels.reduce((s, ch) => s + (channelInflation[ch] ?? 0), 0) / Math.max(channels.length, 1));
+      const name = `forecast-${forecastMode}-${avgInfl}pct-${Date.now().toString().slice(-6)}`;
+      const r = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir, scenarioName: name, mediaPlan,
+      }));
+      if (r.status === 'ok') {
+        forecastSuccess = '✓ Сохранено как сценарий «' + name + '»';
+        setTimeout(() => { forecastSuccess = null; }, 3500);
+      } else {
+        forecastError = r.message || 'Ошибка сохранения';
+      }
+    } catch (/** @type {any} */ e) {
+      forecastError = String(e?.message || e);
+    }
+  }
+
   /** Run scipy optimization */
   async function runOptimize() {
     // Сразу показываем loading — пользователь видит, что клик сработал.
@@ -321,6 +552,7 @@
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
         totalBudget: totalBudgetInput,
+        totalBudgetMoney: null,
         minPct,
         maxPct,
         minPerChannel,
@@ -610,6 +842,8 @@
             onReset={resetBudgets}
             optimizing={stepState === 'optimizing'}
             {optimalBudgets}
+            unitCosts={$unitCosts}
+            displayBaseKPI={displayKPI}
           />
         </div>
         <div class="card">
@@ -623,6 +857,7 @@
               {scaledParams}
               {channels}
               onBudgetChange={handleBudgetChange}
+              unitCosts={$unitCosts}
             />
           {:else}
             <div class="no-curves">Запустите оптимизацию для отображения кривых</div>
@@ -681,32 +916,191 @@
   </section>
 
   <!-- ════════════════ БЛОК C — What-if: изменённый бюджет ════════════════ -->
-  <section class="block block-whatif preview">
-    <div class="block-header">
-      <span class="block-letter">C</span>
-      <h3 class="block-title">What-if: изменённый бюджет</h3>
-      <span class="block-subtitle">— а если бюджет станет другим?</span>
-      <span class="preview-badge">скоро</span>
-    </div>
-    <div class="preview-content">
-      <p>Слайдер общего бюджета (±50% от текущего) и кнопка «Пересчитать для нового бюджета» с сравнительной таблицей текущий vs новый.</p>
-      <p class="hint">Ответит на вопросы «куда уйдут дополнительные деньги», «каких каналов лишимся первыми при сокращении».</p>
-    </div>
-  </section>
+  {#if channels.length > 0}
+    {@const curMoney = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0) * ((($unitCosts?.[ch]) ?? 1.0)), 0)}
+    {@const newMoney = curMoney * whatIfMult}
+    {@const deltaMoney = newMoney - curMoney}
+    <!-- KPI-прогноз = total_sales × (1 + lift%). Lift backend считает в пространстве
+         Hill-effect (media-вклад). Для total KPI применяем его к total_sales целиком
+         — приближение, но в той же шкале с блоком A. -->
+    {@const whatIfKPI = whatIfResult && dData?.total_sales
+      ? dData.total_sales * (1 + (whatIfResult.expected_lift_pct ?? 0) / 100)
+      : null}
+    <section class="block block-whatif">
+      <div class="block-header">
+        <span class="block-letter">C</span>
+        <h3 class="block-title">What-if: изменённый бюджет</h3>
+        <span class="block-subtitle">— а если бюджет станет другим?</span>
+      </div>
+
+      <div class="whatif-controls">
+        <label class="whatif-label">Новый бюджет: <b>{fmtBudget(newMoney)}</b>
+          <span class="whatif-delta" class:positive={deltaMoney > 0} class:negative={deltaMoney < 0}>
+            {deltaMoney > 0 ? '+' : ''}{((whatIfMult - 1) * 100).toFixed(0)}%
+            ({deltaMoney > 0 ? '+' : ''}{fmtBudget(Math.abs(deltaMoney))})
+          </span>
+        </label>
+        <input
+          type="range"
+          class="whatif-slider"
+          min="0.5"
+          max="2.0"
+          step="0.05"
+          bind:value={whatIfMult}
+        />
+        <div class="whatif-actions">
+          <button class="btn-run" onclick={runWhatIf} disabled={whatIfRunning || Math.abs(whatIfMult - 1) < 0.01}>
+            {whatIfRunning ? 'Считаю…' : 'Пересчитать'}
+          </button>
+          <button class="btn-reset-sm" onclick={resetWhatIf} disabled={whatIfRunning}>↺ Сбросить</button>
+        </div>
+      </div>
+
+      {#if whatIfError}
+        <div class="inline-error">⚠ {whatIfError}</div>
+      {/if}
+      {#if whatIfSuccess}
+        <div class="inline-success">{whatIfSuccess}</div>
+      {/if}
+
+      {#if whatIfResult}
+        <div class="whatif-compare">
+          <div class="compare-row">
+            <div class="compare-cell">
+              <div class="compare-label">Текущий бюджет</div>
+              <div class="compare-value">{fmtBudget(curMoney)}</div>
+              <div class="compare-sub">KPI: {fmtBudget(dData?.total_sales ?? 0)}</div>
+            </div>
+            <div class="compare-arrow">→</div>
+            <div class="compare-cell highlight">
+              <div class="compare-label">Новый бюджет</div>
+              <div class="compare-value">{fmtBudget(newMoney)}</div>
+              <div class="compare-sub">
+                KPI: {fmtBudget(whatIfKPI ?? 0)}
+                <span class="lift" class:positive={whatIfResult.expected_lift_pct > 0} class:negative={whatIfResult.expected_lift_pct < 0}>
+                  ({whatIfResult.expected_lift_pct > 0 ? '+' : ''}{whatIfResult.expected_lift_pct.toFixed(1)}%)
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="whatif-insight">{whatIfResult.insight}</div>
+          <div>
+            <button class="btn-save-scenario" onclick={saveWhatIfAsScenario}>💾 Сохранить как сценарий</button>
+          </div>
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <!-- ════════════════ БЛОК D — Прогноз на будущий период (медиаинфляция) ════════════════ -->
-  <section class="block block-forecast preview">
-    <div class="block-header">
-      <span class="block-letter">D</span>
-      <h3 class="block-title">Прогноз на будущий период</h3>
-      <span class="block-subtitle">— с учётом медиаинфляции по каналам</span>
-      <span class="preview-badge">скоро</span>
-    </div>
-    <div class="preview-content">
-      <p>Таблица % инфляции per-channel (с пресетами: TV +12%, Digital +7%, OOH +10%, Radio +8%, Print +5%, Social +7%) + режимы расчёта:</p>
-      <p class="hint">«Сохранить объём» — нужно больше денег. «Сохранить бюджет» — реальный объём упадёт, модель пересчитает оптимум в новых ценах.</p>
-    </div>
-  </section>
+  {#if channels.length > 0}
+    <section class="block block-forecast">
+      <div class="block-header">
+        <span class="block-letter">D</span>
+        <h3 class="block-title">Прогноз на будущий период</h3>
+        <span class="block-subtitle">— с учётом медиаинфляции по каналам</span>
+      </div>
+
+      <div class="forecast-mode">
+        <label class="mode-radio">
+          <input type="radio" name="forecast-mode" value="volume" bind:group={forecastMode} />
+          <span>Сохранить объём</span>
+          <span class="mode-hint">— нужно больше денег</span>
+        </label>
+        <label class="mode-radio">
+          <input type="radio" name="forecast-mode" value="budget" bind:group={forecastMode} />
+          <span>Сохранить бюджет</span>
+          <span class="mode-hint">— объём упадёт, оптимум пересчитается</span>
+        </label>
+      </div>
+
+      <div class="forecast-table">
+        <div class="forecast-head">
+          <div class="fc-name">Канал</div>
+          <div class="fc-infl">Инфляция %</div>
+          <div class="fc-cpp">Новый CPP</div>
+        </div>
+        {#each channels as ch}
+          {@const oldU = ($unitCosts?.[ch]) ?? 1.0}
+          {@const infl = (channelInflation[ch] ?? 0)}
+          {@const newU = oldU * (1 + infl / 100)}
+          <div class="forecast-row">
+            <div class="fc-name">{ch}</div>
+            <div class="fc-infl">
+              <input
+                type="number"
+                class="fc-input"
+                min={0}
+                max={100}
+                step={1}
+                value={infl}
+                oninput={(/** @type {any} */ e) => channelInflation = { ...channelInflation, [ch]: Number(e.target.value) }}
+              /><span class="fc-pct">%</span>
+            </div>
+            <div class="fc-cpp">
+              {#if oldU > 1.0}
+                {fmtBudget(newU)} <span class="fc-cpp-old">(было {fmtBudget(oldU)})</span>
+              {:else}
+                —
+              {/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+
+      <div class="forecast-actions">
+        <button class="btn-run" onclick={runForecast} disabled={forecastRunning}>
+          {forecastRunning ? 'Считаю…' : 'Построить прогноз'}
+        </button>
+        <button class="btn-reset-sm" onclick={resetForecast} disabled={forecastRunning}>↺ Сбросить</button>
+        <span class="forecast-avg">Средняя инфляция: <b>+{avgInflation.toFixed(0)}%</b></span>
+      </div>
+
+      {#if forecastError}
+        <div class="inline-error">⚠ {forecastError}</div>
+      {/if}
+      {#if forecastSuccess}
+        <div class="inline-success">{forecastSuccess}</div>
+      {/if}
+
+      {#if forecastResult}
+        {@const curMoney = forecastResult.currentMoney}
+        {@const newMoney = forecastResult.total_budget_money ?? forecastResult.total_budget}
+        {@const deltaMoney = newMoney - curMoney}
+        {@const forecastKPI = dData?.total_sales
+          ? dData.total_sales * (1 + (forecastResult.expected_lift_pct ?? 0) / 100)
+          : 0}
+        <div class="whatif-compare">
+          <div class="compare-row">
+            <div class="compare-cell">
+              <div class="compare-label">Сейчас</div>
+              <div class="compare-value">{fmtBudget(curMoney)}</div>
+              <div class="compare-sub">KPI: {fmtBudget(dData?.total_sales ?? 0)}</div>
+            </div>
+            <div class="compare-arrow">→</div>
+            <div class="compare-cell highlight">
+              <div class="compare-label">После инфляции ({forecastMode === 'volume' ? 'объём сохранён' : 'бюджет сохранён'})</div>
+              <div class="compare-value">{fmtBudget(newMoney)}
+                <span class="lift" class:positive={deltaMoney > 0} class:negative={deltaMoney < 0}>
+                  ({deltaMoney > 0 ? '+' : ''}{fmtBudget(Math.abs(deltaMoney))})
+                </span>
+              </div>
+              <div class="compare-sub">
+                KPI: {fmtBudget(forecastKPI)}
+                <span class="lift" class:positive={forecastResult.expected_lift_pct > 0} class:negative={forecastResult.expected_lift_pct < 0}>
+                  ({forecastResult.expected_lift_pct > 0 ? '+' : ''}{forecastResult.expected_lift_pct.toFixed(1)}%)
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="whatif-insight">{forecastResult.insight}</div>
+          <div>
+            <button class="btn-save-scenario" onclick={saveForecastAsScenario}>💾 Сохранить как сценарий</button>
+          </div>
+        </div>
+      {/if}
+    </section>
+  {/if}
 
   <!-- ════════════════ Сценарии (постоянно видимы, переедут в Phase 5) ════════════════ -->
   {#if channels.length > 0}
@@ -813,6 +1207,201 @@
     font-size: 11px;
     color: var(--text-muted);
   }
+
+  /* ── Block C/D: What-if + Forecast ──────────────────────── */
+  .whatif-controls {
+    display: grid;
+    grid-template-columns: minmax(220px, 1.4fr) 2fr auto;
+    gap: 14px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.5));
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+  }
+  @media (max-width: 800px) {
+    .whatif-controls { grid-template-columns: 1fr; }
+  }
+  .whatif-label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .whatif-label b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .whatif-delta {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 12px;
+  }
+  .whatif-delta.positive { background: color-mix(in srgb, var(--success) 14%, transparent); color: var(--success); }
+  .whatif-delta.negative { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+  .whatif-slider {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .whatif-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent-primary);
+    cursor: pointer;
+  }
+  .whatif-actions { display: flex; gap: 8px; }
+  .btn-run {
+    padding: 7px 14px;
+    background: var(--accent-primary);
+    color: var(--text-on-accent, #fff);
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-run:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-reset-sm {
+    padding: 7px 12px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-reset-sm:hover:not(:disabled) { border-color: rgba(255,255,255,0.25); color: var(--text-primary); }
+  .btn-reset-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .inline-error {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+    border-radius: 6px;
+    color: var(--danger);
+    font-size: 12px;
+  }
+  .inline-success {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--success, #10b981) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #10b981) 28%, transparent);
+    border-radius: 6px;
+    color: var(--success, #10b981);
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .forecast-avg {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .forecast-avg b { color: var(--text-primary); font-weight: 600; }
+
+  .whatif-compare {
+    margin-top: 10px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .compare-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .compare-cell { flex: 1; min-width: 180px; }
+  .compare-cell.highlight {
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    border-radius: 8px;
+  }
+  .compare-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .compare-value { font-size: 18px; font-weight: 700; color: var(--text-primary); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .compare-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+  .compare-arrow { font-size: 20px; color: var(--text-muted); }
+  .lift { font-weight: 600; margin-left: 4px; }
+  .lift.positive { color: var(--success); }
+  .lift.negative { color: var(--danger); }
+  .whatif-insight { font-size: 12px; color: var(--text-secondary); line-height: 1.5; font-style: italic; }
+
+  /* Forecast mode radios */
+  .forecast-mode {
+    display: flex;
+    gap: 14px;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+  }
+  .mode-radio {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .mode-radio input { cursor: pointer; }
+  .mode-hint { font-size: 11px; color: var(--text-muted); }
+
+  .forecast-table {
+    padding: 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .forecast-head, .forecast-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 2fr;
+    gap: 12px;
+    align-items: center;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .forecast-head {
+    color: var(--text-muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .forecast-row {
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.3));
+    border-radius: 6px;
+  }
+  .fc-name { color: var(--text-primary); }
+  .fc-infl { display: flex; align-items: center; gap: 4px; }
+  .fc-input {
+    width: 60px;
+    padding: 4px 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .fc-input:focus { outline: none; border-color: var(--accent-primary); }
+  .fc-pct { color: var(--text-muted); }
+  .fc-cpp { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .fc-cpp-old { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
+
+  .forecast-actions { display: flex; gap: 8px; padding: 10px 12px; }
+
+  .btn-save-scenario {
+    padding: 6px 14px;
+    background: color-mix(in srgb, var(--success, #10b981) 14%, transparent);
+    color: var(--success, #10b981);
+    border: 1px solid color-mix(in srgb, var(--success, #10b981) 30%, transparent);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .btn-save-scenario:hover { background: color-mix(in srgb, var(--success, #10b981) 22%, transparent); }
 
   /* ── Block A: Status grid ─────────────────────────────────── */
   .status-grid {

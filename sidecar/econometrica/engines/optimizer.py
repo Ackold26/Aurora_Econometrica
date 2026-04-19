@@ -53,7 +53,20 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
     current_spend = {col: float(df[col].fillna(0).sum()) for col in media_cols}
     total_current = sum(current_spend.values())
-    total_budget = config.get('total_budget') or total_current
+
+    # Money constraint: если задан total_budget_money, constraint считается в money
+    # (Σ x_native × unit_cost == total_budget_money). Иначе — native constraint как раньше.
+    total_budget_money_target = config.get('total_budget_money')
+    uc_arr = [float(unit_costs.get(col, 1.0) or 1.0) for col in media_cols]
+
+    if total_budget_money_target is not None:
+        # В money-режиме total_budget для логов/insight = native-эквивалент (пропорция).
+        total_current_money = sum(current_spend[col] * uc_arr[i] for i, col in enumerate(media_cols))
+        ratio = float(total_budget_money_target) / max(total_current_money, 1e-9)
+        total_budget = total_current * ratio
+    else:
+        total_budget = config.get('total_budget') or total_current
+
     min_pct_global = config.get('min_pct', 50) / 100
     max_pct_global = config.get('max_pct', 150) / 100
 
@@ -83,7 +96,14 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         (current_spend[col] * channel_min(col), current_spend[col] * channel_max(col))
         for col in media_cols
     ]
-    constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - total_budget}]
+    if total_budget_money_target is not None:
+        # Money constraint: Σ x × unit_cost == total_budget_money
+        constraints = [{
+            'type': 'eq',
+            'fun': lambda x: float(np.sum(np.asarray(x) * np.asarray(uc_arr)) - total_budget_money_target),
+        }]
+    else:
+        constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - total_budget}]
 
     # Optimize
     result = minimize(total_response, x0, method='SLSQP', bounds=bounds, constraints=constraints)

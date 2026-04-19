@@ -118,6 +118,10 @@ class DecomposeRequest(BaseModel):
 class OptimizeRequest(BaseModel):
     project_dir: str
     total_budget: float | None = None
+    # Альтернатива total_budget: constraint в money (Σ x × unit_cost == total_budget_money).
+    # Используется в Forecast режиме «Сохранить бюджет» — чтобы сумма в рублях
+    # после оптимизации оставалась точно равной currentMoney.
+    total_budget_money: float | None = None
     min_pct: float = 50
     max_pct: float = 150
     # Per-channel constraints (экспертный режим). Перекрывают глобальные min_pct/max_pct
@@ -349,6 +353,7 @@ def optimize_budget(req: OptimizeRequest):
     from engines.optimizer import optimize as _optimize
     config = {
         'total_budget': req.total_budget,
+        'total_budget_money': req.total_budget_money,
         'min_pct': req.min_pct,
         'max_pct': req.max_pct,
         'min_per_channel': req.min_per_channel,

@@ -187,9 +187,14 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
 
     # Smell-детектор для banner доверия (Trust Level 1).
     # Модель должна сама предупреждать о своих пределах — это USP vs Robyn/LightweightMMM.
+    #
+    # Порог ROI > 50 применяется только если есть хоть один канал в не-денежных единицах
+    # БЕЗ CPP (unit_smell). Если все каналы в money (unit_cost≠1.0 задан везде где нужно),
+    # высокий ROI — честный результат модели, не артефакт единиц → banner не нужен.
     smell_flags = []
     positive_rois = [c['roi'] for c in channels if c['roi'] > 0]
-    if positive_rois:
+    any_unit_smell = any(c.get('unit_smell') for c in channels)
+    if positive_rois and any_unit_smell:
         roi_max = max(positive_rois)
         roi_min = min(positive_rois)
         if roi_max > 50:

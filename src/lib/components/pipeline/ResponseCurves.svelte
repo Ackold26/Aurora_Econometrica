@@ -17,9 +17,17 @@
    *   scaledParams: Record<string, {alpha: number, gammaScaled: number, beta: number}>,
    *   channels: string[],
    *   onBudgetChange: (ch: string, val: number) => void,
+   *   unitCosts?: Record<string, number>,
    * }}
    */
-  let { responseCurves, channelBudgets, scaledParams, channels, onBudgetChange } = $props();
+  let { responseCurves, channelBudgets, scaledParams, channels, onBudgetChange, unitCosts = {} } = $props();
+
+  /** Стоимость 1 юнита канала в ₽. 1.0 — канал уже в деньгах. */
+  /** @param {string} ch */
+  function uc(ch) {
+    const v = unitCosts?.[ch];
+    return (typeof v === 'number' && v > 0) ? v : 1.0;
+  }
 
   /** @type {HTMLDivElement} */
   let container;
@@ -49,13 +57,15 @@
   function buildGraphic() {
     if (!chart) return [];
     return channels.map((ch, idx) => {
-      const x = channelBudgets[ch] ?? 0;
-      const y = responseAt(ch, x);
-      const px = chart.convertToPixel('grid', [x, y]);
+      const u = uc(ch);
+      const xNative = channelBudgets[ch] ?? 0;
+      const xMoney = xNative * u;              // ось графика в money
+      const y = responseAt(ch, xNative);        // Hill работает в native
+      const px = chart.convertToPixel('grid', [xMoney, y]);
       if (!px) return null;
       const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length];
       const curve = responseCurves[ch];
-      const maxSpend = curve ? Math.max(...curve.spend) : (channelBudgets[ch] ?? 0) * 2.5;
+      const maxSpendMoney = (curve ? Math.max(...curve.spend) : (channelBudgets[ch] ?? 0) * 2.5) * u;
       return {
         type: 'circle',
         id: `drag-${ch}`,
@@ -68,9 +78,9 @@
         ondragstart: () => { dragging = true; },
         ondrag: (/** @type {any} */ e) => {
           const dataCoord = chart.convertFromPixel('grid', [e.offsetX, e.offsetY]);
-          // A3: clamp to [0, maxSpend]
-          const newSpend = Math.max(0, Math.min(dataCoord[0], maxSpend));
-          onBudgetChange(ch, newSpend);
+          const newMoney = Math.max(0, Math.min(dataCoord[0], maxSpendMoney));
+          // Обратно в native для Hill/optimizer.
+          onBudgetChange(ch, newMoney / u);
         },
         ondragend: () => { dragging = false; },
       };
@@ -86,8 +96,10 @@
     const seriesList = channels.map((ch, idx) => {
       const curve = responseCurves?.[ch];
       const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length];
+      const u = uc(ch);
+      // Кривая рисуется в money по X (native × unit_cost) — все каналы на одной оси.
       const data = curve
-        ? curve.spend.map((s, i) => [s, curve.response[i]])
+        ? curve.spend.map((s, i) => [s * u, curve.response[i]])
         : [];
 
       return {
@@ -116,7 +128,7 @@
       grid: { left: 16, right: 16, top: 44, bottom: 32, containLabel: true },
       xAxis: {
         type: 'value',
-        name: 'Бюджет',
+        name: 'Бюджет, ₽',
         nameTextStyle: { color: '#64748b', fontSize: 10 },
         axisLabel: {
           color: '#94a3b8', fontSize: 10,

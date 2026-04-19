@@ -206,6 +206,8 @@
     lastModelRef = md;
     // При первом запуске (onMount ещё подхватит) — не дублируем работу.
     if (firstFire && stepState !== 'error') return;
+    // Защита от race: если уже идёт runDecompose — не запускаем второй параллельно.
+    if (stepState === 'loading') return;
     errorMessage = null;
     // Сбросим decomposeData — старая модель → старые результаты.
     if (stepState === 'done') decomposeData.set(null);
@@ -299,11 +301,12 @@
               <tr>
                 <td class="ch-name">
                   {ch.name}
-                  {#if ch.category && ch.category !== 'mixed'}
+                  {#if ch.category}
                     <span
                       class="ch-cat"
                       class:cat-brand={ch.category === 'brand_reach'}
                       class:cat-perf={ch.category === 'performance'}
+                      class:cat-mixed={ch.category === 'mixed'}
                       title={CATEGORY_HELP[ch.category]}
                     >{CATEGORY_LABEL[ch.category]}</span>
                   {/if}
@@ -525,6 +528,10 @@
   .ch-cat.cat-perf {
     background: color-mix(in srgb, var(--success, #10b981) 15%, transparent);
     color: var(--success, #10b981);
+  }
+  .ch-cat.cat-mixed {
+    background: color-mix(in srgb, var(--text-muted, #64748b) 14%, transparent);
+    color: var(--text-muted, #64748b);
   }
   .roi-good { color: var(--success); font-weight: 600; }
   .roi-mid { color: var(--warning); }

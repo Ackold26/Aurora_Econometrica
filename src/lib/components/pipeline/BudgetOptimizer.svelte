@@ -21,6 +21,8 @@
    *   onReset: () => void,
    *   optimizing?: boolean,
    *   optimalBudgets?: Record<string, number> | null,
+   *   unitCosts?: Record<string, number>,
+   *   displayBaseKPI?: number,
    * }}
    */
   let {
@@ -36,37 +38,59 @@
     onReset,
     optimizing = false,
     optimalBudgets = null,
+    unitCosts = {},
+    // total_sales из decompose (KPI за весь период анализа, в money).
+    // Если задан — Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
+    // чтобы число было согласовано с блоком A (8300.6 M ₽, а не 342M per-period).
+    displayBaseKPI = 0,
   } = $props();
+
+  /** Стоимость 1 юнита в ₽ для канала (1.0 — канал уже в рублях). */
+  /** @param {string} ch */
+  function uc(ch) {
+    const v = unitCosts?.[ch];
+    return (typeof v === 'number' && v > 0) ? v : 1.0;
+  }
 
   // Predicted KPI from current sliders — денормализован в исходные единицы.
   const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization));
   const liftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
-  const totalBudget = $derived(Object.values(channelBudgets).reduce((s, v) => s + v, 0));
+  // Scaled KPI для display: применяем lift% к total KPI за весь период анализа.
+  // liftPct scale-invariant (отношение), поэтому умножение на baseKPI корректно.
+  const displayKPI = $derived(displayBaseKPI > 0 ? displayBaseKPI * (1 + liftPct / 100) : predictedKPI);
+  // totalBudget (money): sum(native × unit_cost) — согласован с блоком A.
+  const totalBudget = $derived(Object.entries(channelBudgets).reduce((s, [ch, v]) => s + v * uc(ch), 0));
 
-  // Базовый текущий бюджет (initial spend) — для расчёта delta общего бюджета.
-  const initialTotal = $derived(Object.values(initialSpend).reduce((s, /** @type {number} */ v) => s + v, 0));
+  // Базовый текущий бюджет в money — для расчёта delta общего бюджета.
+  const initialTotal = $derived(Object.entries(initialSpend).reduce((s, [ch, v]) => s + /** @type {number} */ (v) * uc(ch), 0));
   const budgetDeltaPct = $derived(initialTotal > 0 ? ((totalBudget - initialTotal) / initialTotal * 100) : 0);
   const budgetDeltaAbs = $derived(totalBudget - initialTotal);
 
   /**
-   * Handle slider input — redistribute if locked.
+   * Handle slider input. Слайдер оперирует в MONEY (рублях), а onBudgetChange
+   * и Hill — в NATIVE (raw юниты канала). Конвертация через uc(ch).
    * @param {string} ch
-   * @param {number} newValue
+   * @param {number} newMoney — новое значение слайдера в рублях
    */
-  function handleSlider(ch, newValue) {
+  function handleSlider(ch, newMoney) {
+    const newNative = newMoney / uc(ch);
     if (locked) {
-      const delta = newValue - channelBudgets[ch];
+      // Redistribute в money-шкале: delta money между каналами пропорционально
+      // текущим money-долям (единицы сопоставимы).
+      const deltaMoney = newMoney - channelBudgets[ch] * uc(ch);
       const others = channels.filter(c => c !== ch);
-      const othersTotal = others.reduce((s, c) => s + channelBudgets[c], 0);
+      const othersTotalMoney = others.reduce((s, c) => s + channelBudgets[c] * uc(c), 0);
       const updated = { ...channelBudgets };
-      updated[ch] = newValue;
+      updated[ch] = newNative;
       for (const other of others) {
-        const share = channelBudgets[other] / Math.max(othersTotal, 1);
-        updated[other] = Math.max(0, channelBudgets[other] - delta * share);
+        const otherMoney = channelBudgets[other] * uc(other);
+        const share = otherMoney / Math.max(othersTotalMoney, 1);
+        const newOtherMoney = Math.max(0, otherMoney - deltaMoney * share);
+        updated[other] = newOtherMoney / uc(other);
       }
       for (const [c, v] of Object.entries(updated)) onBudgetChange(c, v);
     } else {
-      onBudgetChange(ch, newValue);
+      onBudgetChange(ch, newNative);
     }
   }
 
@@ -103,9 +127,11 @@
   <div class="sliders">
     {#each channels as ch, idx}
       {@const cur = channelBudgets[ch] ?? 0}
+      {@const curMoney = cur * uc(ch)}
       {@const opt = optimalBudgets?.[ch]}
       {@const delta = opt != null ? ((opt - cur) / Math.max(cur, 1) * 100) : null}
-      {@const maxVal = (initialSpend[ch] ?? cur) * 2.5 || 1}
+      {@const initMoney = (initialSpend[ch] ?? cur) * uc(ch)}
+      {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
 
       <div class="slider-row">
@@ -114,13 +140,13 @@
           type="range"
           class="slider"
           min={0}
-          max={maxVal}
-          step={Math.max(maxVal / 200, 1)}
-          value={cur}
+          max={maxMoney}
+          step={Math.max(maxMoney / 200, 1)}
+          value={curMoney}
           oninput={(e) => handleSlider(ch, parseFloat(/** @type {HTMLInputElement} */ (e.target).value))}
           style="--accent:{color}"
         />
-        <span class="ch-value">{fmt(cur)} ₽</span>
+        <span class="ch-value">{fmt(curMoney)} ₽</span>
         {#if delta != null}
           <span class="delta-badge" class:positive={delta > 0} class:negative={delta < 0}>
             {delta > 0 ? '+' : ''}{delta.toFixed(0)}%
@@ -134,7 +160,7 @@
   <div class="kpi-card">
     <div class="kpi-row">
       <span class="kpi-label">Прогноз KPI</span>
-      <span class="kpi-value">{predictedKPI.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}</span>
+      <span class="kpi-value">{fmt(displayKPI)} ₽</span>
     </div>
     {#if liftPct !== 0}
       <div class="lift-row">
@@ -145,11 +171,10 @@
     {/if}
   </div>
 
-  <!-- Action buttons -->
+  <!-- Action buttons.
+       Основная CTA «Оптимизировать бюджет» живёт в блоке B наверху (OptimizeStep);
+       здесь — только «Сбросить» для возврата слайдеров к текущему бюджету. -->
   <div class="actions">
-    <button class="btn-optimize" onclick={onOptimize} disabled={optimizing}>
-      {optimizing ? 'Оптимизирую...' : 'Оптимизировать'}
-    </button>
     <button class="btn-reset" onclick={onReset}>Сбросить</button>
   </div>
 </div>
@@ -281,21 +306,6 @@
     display: flex;
     gap: 8px;
   }
-
-  .btn-optimize {
-    flex: 1;
-    padding: 9px 16px;
-    background: var(--accent-primary, #3b82f6);
-    border: none;
-    border-radius: 8px;
-    color: white;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.15s;
-  }
-  .btn-optimize:hover:not(:disabled) { opacity: 0.85; }
-  .btn-optimize:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .btn-reset {
     padding: 9px 16px;

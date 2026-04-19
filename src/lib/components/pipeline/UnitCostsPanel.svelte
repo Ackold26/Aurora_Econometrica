@@ -43,6 +43,8 @@
   ];
   // Синхронизируем с UNIT_HINTS в decomposer.py — важно чтобы frontend и backend
   // видели одни и те же каналы как «не-денежные».
+  // NB: word boundaries (\b) не используем — в JS \b не работает с кириллицей,
+  // плюс нам нужно ловить «TRPs бренд» где после TRP идёт буква.
   const UNIT_HINT = /TRP|GRP|OTS|РЕЙТИНГ|ОХВАТ|ПОКАЗ|ПРОСМОТР|КЛИК|ВИЗИТ|ПУНКТ|IMPRESSION|CLICK/i;
 
   /** @type {Record<string, string>} */
@@ -74,18 +76,13 @@
     )
   );
 
-  // Сумма raw значений канала из валидационного sample, чтобы показать preview money.
-  // В stats валидации может быть `sum` или вычислим из histogram. Fallback: null → не показываем.
+  // Сумма raw-spend канала из валидационного sample — для preview money.
+  // validator.py пишет сумму в col.stats.sum.
   /** @param {string} name */
   function rawSumForChannel(name) {
     const col = (columns ?? []).find(/** @param {any} c */ (c) => c.name === name);
-    if (!col) return null;
-    // Пытаемся несколько типичных путей хранения суммы в результате валидатора.
-    const candidates = [col.sum, col.total, col?.stats?.sum, col?.stats?.total];
-    for (const v of candidates) {
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-    }
-    return null;
+    const v = col?.stats?.sum;
+    return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
   }
 
   /** @type {Record<string, string>} рабочая копия инпутов (строки — для удобного ввода) */
