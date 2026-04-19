@@ -187,10 +187,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     X_control = df[control_cols].fillna(0).astype(float) if control_cols else pd.DataFrame()
 
-    # Normalize
+    # Normalize media
     media_means = X_media.mean()
     media_stds = X_media.std().replace(0, 1)
     X_media_norm = (X_media - media_means) / media_stds
+
+    # Normalize controls — критично: без этого большие контроли (price, budget) дают
+    # огромный control_effect, y_pred улетает в ∞, R² получается астрономически отрицательным.
+    if len(control_cols) > 0:
+        control_means = X_control.mean()
+        control_stds = X_control.std().replace(0, 1)
+        X_control_norm = (X_control - control_means) / control_stds
+    else:
+        control_means = pd.Series(dtype=float)
+        control_stds = pd.Series(dtype=float)
+        X_control_norm = pd.DataFrame()
 
     y_mean, y_std = y.mean(), max(y.std(), 1e-10)
     y_norm = (y - y_mean) / y_std
@@ -212,66 +223,90 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         import pymc as pm
 
         with pm.Model() as mmm:
-            # Priors
-            intercept = pm.Normal('intercept', mu=0, sigma=1)
+            # Priors — tightened 2026-04-19 to fix NUTS funnel / divergences on small data.
+            # Previous priors (Gamma(3,1) for alpha, Beta(2,2) for gamma, HalfNormal(0.5) for beta)
+            # created poorly identified Hill saturation geometry → 1600+ divergences.
+            intercept = pm.Normal('intercept', mu=0, sigma=0.5)  # было sigma=1
 
-            # Media coefficients (positive — media should drive sales)
-            media_betas = pm.HalfNormal('media_betas', sigma=0.5, shape=len(media_cols))
+            # Media coefficients — более консервативный HalfNormal, меньший разброс
+            media_betas = pm.HalfNormal('media_betas', sigma=0.3, shape=len(media_cols))  # было 0.5
 
-            # Control coefficients (can be negative)
+            # Control coefficients (используем нормализованные X_control_norm)
             if len(control_cols) > 0:
-                control_betas = pm.Normal('control_betas', mu=0, sigma=0.5, shape=len(control_cols))
-                control_effect = pm.math.dot(X_control.values.astype(float), control_betas)
+                control_betas = pm.Normal('control_betas', mu=0, sigma=0.3, shape=len(control_cols))
+                control_effect = pm.math.dot(X_control_norm.values.astype(float), control_betas)
             else:
                 control_effect = 0
 
-            # Hill saturation per channel
-            alphas = pm.Gamma('alphas', alpha=3, beta=1, shape=len(media_cols))
-            gammas = pm.Beta('gammas', alpha=2, beta=2, shape=len(media_cols))
+            # Hill saturation — жёстче priors для стабильной geometry
+            # alpha ≈ 1-2 (типичный saturation shape), Gamma(5, 3) имеет mean=1.67, var=0.56
+            alphas = pm.Gamma('alphas', alpha=5, beta=3, shape=len(media_cols))  # было Gamma(3, 1) mean=3
+            # gamma — half-point of saturation, концентрируемся около 0.5
+            gammas = pm.Beta('gammas', alpha=3, beta=3, shape=len(media_cols))  # было Beta(2, 2) too wide
 
             # Saturated media effect
             from utils.saturation import hill_function
             media_effect = 0
             for i, col in enumerate(media_cols):
                 x_ch = X_media_norm[col].values
-                # Apply Hill saturation
                 x_safe = pm.math.maximum(x_ch, 0)
-                gamma_scaled = gammas[i] * x_safe.max() if hasattr(x_safe, 'max') else gammas[i]
-                saturated = x_safe ** alphas[i] / (x_safe ** alphas[i] + gamma_scaled ** alphas[i] + 1e-10)
+                # Простой Hill без gamma_scaled — стабильнее при x.max() низком
+                saturated = x_safe ** alphas[i] / (x_safe ** alphas[i] + gammas[i] ** alphas[i] + 1e-10)
                 media_effect = media_effect + media_betas[i] * saturated
 
             # Likelihood
             mu = intercept + media_effect + control_effect
-            sigma = pm.HalfNormal('sigma', sigma=0.5)
+            sigma = pm.HalfNormal('sigma', sigma=0.3)  # было 0.5 — y_norm std=1, так что 0.3 ок
             pm.Normal('obs', mu=mu, sigma=sigma, observed=y_norm)
 
             # A1: report sampling start — pct stays at 25 during 3-15 min MCMC
             # elapsed timer in UI shows progress is alive
             report('sampling', pct=25)
 
-            # A1 bonus: try per-draw callback; fallback if PyMC API unavailable/broken
+            # Prefer JAX/NumPyro backend (5-15× faster than PyTensor Python fallback).
+            # PyTensor on Windows doesn't find g++ by default → falls back to slow Python NUTS.
+            # NumPyro uses JAX+XLA → compiles gradient graph to native, handles parallel chains.
+            _use_numpyro = False
             try:
-                def _draw_cb(trace_slice, draw):
-                    pass  # Phase 3 uses phase-level only; per-draw in Phase 4 if needed
+                import numpyro  # noqa: F401
+                import jax  # noqa: F401
+                _use_numpyro = True
+                logger.info('Using NumPyro NUTS sampler (JAX backend)')
+            except ImportError:
+                logger.warning('NumPyro/JAX not available — falling back to PyTensor NUTS')
+
+            if _use_numpyro:
                 trace = pm.sample(
                     draws=draws,
                     tune=tune,
                     chains=chains,
-                    cores=1,
                     return_inferencedata=True,
                     progressbar=True,
-                    callback=_draw_cb,
+                    nuts_sampler='numpyro',
+                    chain_method='vectorized',  # parallel chains in single JAX call
                 )
-            except TypeError:
-                # Older PyMC version without callback param
-                trace = pm.sample(
-                    draws=draws,
-                    tune=tune,
-                    chains=chains,
-                    cores=1,
-                    return_inferencedata=True,
-                    progressbar=True,
-                )
+            else:
+                try:
+                    def _draw_cb(trace_slice, draw):
+                        pass
+                    trace = pm.sample(
+                        draws=draws,
+                        tune=tune,
+                        chains=chains,
+                        cores=1,
+                        return_inferencedata=True,
+                        progressbar=True,
+                        callback=_draw_cb,
+                    )
+                except TypeError:
+                    trace = pm.sample(
+                        draws=draws,
+                        tune=tune,
+                        chains=chains,
+                        cores=1,
+                        return_inferencedata=True,
+                        progressbar=True,
+                    )
 
         report('diagnostics', pct=90)
 
@@ -322,11 +357,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     saturated = x_safe ** alpha_i / (x_safe ** alpha_i + gamma_scaled ** alpha_i + 1e-10)
                     media_effect_pred += beta_i * saturated
 
-                # Control effect
+                # Control effect (используем нормализованные контроли — так же как внутри pm.Model)
                 control_effect_pred = _np.zeros(n_obs)
                 if len(control_cols) > 0:
                     control_betas_mean = trace.posterior['control_betas'].mean(dim=['chain', 'draw']).values
-                    control_effect_pred = X_control.values.astype(float) @ _np.asarray(control_betas_mean)
+                    control_effect_pred = X_control_norm.values.astype(float) @ _np.asarray(control_betas_mean)
 
                 y_pred_norm = intercept_mean + media_effect_pred + control_effect_pred
             except Exception as e2:
@@ -380,15 +415,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
         report('saving', pct=95)
 
-        # Save model
+        # Save model.
+        # NOTE: we do NOT pickle `trace` or `mmm` because PyMC models with custom
+        # Deterministic variables (Adstock/Hill via pm.math) contain functools.partial
+        # closures that don't have __name__ → pickle.dump crashes with
+        # `'functools.partial' object has no attribute '__name__'`.
+        # Downstream engines (decomposer/optimizer/scenario) only need channel_params +
+        # posterior means + normalization — not the raw trace or model graph.
         model_data = {
-            'trace': trace,
-            'model': mmm,
             'config': config,
             'channel_params': channel_params,
             'normalization': {
                 'media_means': media_means.to_dict(),
                 'media_stds': media_stds.to_dict(),
+                'control_means': control_means.to_dict() if len(control_cols) > 0 else {},
+                'control_stds': control_stds.to_dict() if len(control_cols) > 0 else {},
                 'y_mean': float(y_mean),
                 'y_std': float(y_std),
             },

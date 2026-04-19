@@ -23,13 +23,43 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-# Configure logging
+# Configure logging — dual output: stderr + file in %APPDATA%
+_log_dir = Path(os.environ.get('APPDATA', '.')) / 'aurora-econometrica-gui' / 'logs'
+try:
+    _log_dir.mkdir(parents=True, exist_ok=True)
+except Exception:
+    _log_dir = Path('.')
+_log_file = _log_dir / f'sidecar-{datetime.now().strftime("%Y-%m-%d")}.log'
+
+_log_format = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_stderr_handler.setFormatter(logging.Formatter(_log_format))
+_file_handler = logging.FileHandler(_log_file, encoding='utf-8', mode='a')
+_file_handler.setFormatter(logging.Formatter(_log_format))
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    stream=sys.stderr,
+    handlers=[_stderr_handler, _file_handler],
+    force=True,
 )
 logger = logging.getLogger('econometrica')
+logger.info(f'=== Sidecar starting, log file: {_log_file} ===')
+
+# Dump PyTensor/MSVC diagnostic on startup
+try:
+    from engines.modeler import check_compiler as _check_compiler
+    _has_cc = _check_compiler()
+    logger.info(f'check_compiler() = {_has_cc}')
+    logger.info(f'Injected PATH (first 300 chars): {os.environ.get("PATH", "")[:300]}')
+    logger.info(f'Injected INCLUDE (first 200 chars): {os.environ.get("INCLUDE", "(not set)")[:200]}')
+    logger.info(f'Injected LIB (first 200 chars): {os.environ.get("LIB", "(not set)")[:200]}')
+    # Now check what PyTensor picks up
+    import pytensor
+    logger.info(f'pytensor.config.cxx = "{pytensor.config.cxx}"')
+    logger.info(f'pytensor.config.mode = "{pytensor.config.mode}"')
+    logger.info(f'pytensor.config.compiledir = "{pytensor.config.compiledir}"')
+except Exception as e:
+    logger.exception(f'Startup diagnostic failed: {e}')
 
 app = FastAPI(
     title='Aurora AI Econometrica Sidecar',
