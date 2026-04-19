@@ -240,7 +240,28 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
             format!("Вычислительный модуль недоступен. Убедитесь, что Python sidecar запущен: {e}")
         })?;
 
-    resp.json::<Value>()
-        .await
-        .map_err(|e| format!("Ошибка парсинга ответа: {e}"))
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| format!("Не удалось прочитать ответ: {e}"))?;
+
+    // Try JSON parse regardless of status — sidecar returns JSON for 200 and 500 alike.
+    match serde_json::from_str::<Value>(&text) {
+        Ok(v) => {
+            if !status.is_success() {
+                warn!("Sidecar {path} returned {status}: {}", &text[..text.len().min(500)]);
+                let msg = v
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("неизвестная ошибка");
+                return Err(format!("Ошибка sidecar ({status}): {msg}"));
+            }
+            Ok(v)
+        }
+        Err(e) => {
+            warn!("Sidecar {path} non-JSON {status}: {}", &text[..text.len().min(500)]);
+            Err(format!(
+                "Ошибка парсинга ответа ({status}): {e}. Тело: {}",
+                &text[..text.len().min(200)]
+            ))
+        }
+    }
 }

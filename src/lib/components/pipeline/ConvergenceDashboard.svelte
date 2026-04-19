@@ -9,6 +9,7 @@
    * @component ConvergenceDashboard
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import { chartTooltipDark } from '$lib/echarts-setup.js';
 
   /** @type {{ diagnostics: any }} */
   let { diagnostics } = $props();
@@ -109,7 +110,10 @@
       },
       yAxis: {
         type: 'value',
-        axisLabel: { color: '#94a3b8', fontSize: 10 },
+        axisLabel: {
+          color: '#94a3b8', fontSize: 10,
+          formatter: (/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU'),
+        },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
       },
       series: [
@@ -133,12 +137,7 @@
           smooth: false,
         },
       ],
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(20,23,34,0.95)',
-        borderColor: 'rgba(255,255,255,0.1)',
-        textStyle: { color: '#e2e8f0', fontSize: 12 },
-      },
+      tooltip: chartTooltipDark({ trigger: 'axis' }),
     };
   });
 

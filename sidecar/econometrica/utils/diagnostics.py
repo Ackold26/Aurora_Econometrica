@@ -73,6 +73,7 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
                                   r_hat_max: float, divergences: int,
                                   n_obs: int, n_params: int) -> dict:
     """Full diagnostics summary for UI display."""
+    from utils.model_spec import bayesian_mmm_spec
     mqs = model_quality_score(r_squared, mape, r_hat_max, divergences)
 
     # Human-readable verdict
@@ -101,4 +102,5 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
             'fit': r_squared > 0.5,
             'ratio': n_obs / max(n_params, 1) >= 4,
         },
+        'model_spec': bayesian_mmm_spec(),
     }

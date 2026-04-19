@@ -61,18 +61,59 @@ def decompose(project_dir: str) -> dict[str, Any]:
             'contribution_pct': round(contribution_pct * 100, 1),
             'roi': round(roi, 2),
             'beta': params['beta'],
-            'verdict': 'Эффективен' if roi > 1.5 else ('Приемлемый' if roi > 0.8 else 'Неэффективен'),
+            # verdict пересчитывается ниже после efficiency_gap.
+            'verdict': '',
+            'verdict_tone': 'neutral',
         })
 
     # Sort by ROI descending
     channels.sort(key=lambda x: x['roi'], reverse=True)
 
-    # Share of Spend vs Share of Effect
+    # Share of Spend vs Share of Effect (нужно ДО verdict, т.к. verdict учитывает gap)
     total_spend = sum(c['spend'] for c in channels) or 1
     for ch in channels:
         ch['share_of_spend'] = round(ch['spend'] / total_spend * 100, 1)
         ch['share_of_effect'] = ch['contribution_pct']
         ch['efficiency_gap'] = round(ch['share_of_effect'] - ch['share_of_spend'], 1)
+
+    # Verdict — комбинирует ROI И efficiency_gap. Раньше использовался только ROI,
+    # поэтому каналы с ROI=10× но gap=-23% (перенасыщенные) помечались «Эффективен».
+    # Также детектируем подозрительно высокий ROI (>50×) — типично для смешанных
+    # единиц (TRPs vs рубли) и помечаем отдельно, чтобы пользователь не доверял слепо.
+    UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ')
+    for ch in channels:
+        roi = ch['roi']
+        gap = ch['efficiency_gap']
+        name_upper = (ch['name'] or '').upper()
+        looks_like_non_money = any(hint in name_upper for hint in UNIT_HINTS)
+
+        if roi > 50 and looks_like_non_money:
+            ch['verdict'] = 'ROI завышен (не рубли?)'
+            ch['verdict_tone'] = 'warn'
+        elif roi > 50:
+            ch['verdict'] = 'ROI подозрительно высок'
+            ch['verdict_tone'] = 'warn'
+        elif roi < 0.8:
+            ch['verdict'] = 'Убыточный'
+            ch['verdict_tone'] = 'bad'
+        elif roi < 1.0:
+            ch['verdict'] = 'На грани окупаемости'
+            ch['verdict_tone'] = 'warn'
+        elif gap <= -10:
+            ch['verdict'] = 'Перенасыщен'
+            ch['verdict_tone'] = 'warn'
+        elif gap <= -5:
+            ch['verdict'] = 'Слабее своей доли'
+            ch['verdict_tone'] = 'warn'
+        elif gap >= 10:
+            ch['verdict'] = 'Высокоэффективен'
+            ch['verdict_tone'] = 'good'
+        elif gap >= 5:
+            ch['verdict'] = 'Эффективен'
+            ch['verdict_tone'] = 'good'
+        else:
+            ch['verdict'] = 'Сбалансирован'
+            ch['verdict_tone'] = 'neutral'
 
     # Insight generation (template, 0 tokens)
     top = channels[0] if channels else None

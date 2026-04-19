@@ -3,6 +3,7 @@
    * Step 3: Sales Decomposition.
    * B2: auto-runs on mount if no decomposeData yet.
    * Layout: insight banner → waterfall (full width) → grid: ROI (50%) | timeline (50%).
+   * Note: scroll владеет .pipeline-main, не сам компонент (см. +page.svelte).
    * @component DecomposeStep
    */
   import { onMount } from 'svelte';
@@ -29,8 +30,31 @@
 
   const data = $derived($decomposeData);
 
+  // Help-tooltips для основной таблицы «Детализация по каналам».
+  const CH_HELP = {
+    spend:   'Расходы — суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) — ROI будет искажён.',
+    contrib: 'Вклад — оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
+    roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× — отлично. 1-2× — окупается. < 1× — убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) — нужна нормализация.',
+    gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета — кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен — каждый дополнительный рубль даёт меньше отдачи.',
+    verdict: 'Вердикт — комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» — приносит больше своей доли бюджета.\n«Сбалансирован» — окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» — приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» — ROI ≤ 1×.\n«ROI завышен (не рубли?)» — данные канала не в денежных единицах.',
+  };
+
+  /** Дожидаемся, пока projectId станет валидным (макс. 2с), потом отдаём. */
+  function waitForProjectId(timeoutMs = 2000) {
+    return new Promise(/** @param {(id: string|null) => void} resolve */ (resolve) => {
+      const current = get(activeProjectId);
+      if (current) { resolve(current); return; }
+      const timer = setTimeout(() => { unsub(); resolve(get(activeProjectId)); }, timeoutMs);
+      const unsub = activeProjectId.subscribe((pid) => {
+        if (pid) { clearTimeout(timer); unsub(); resolve(pid); }
+      });
+    });
+  }
+
   async function runDecompose() {
-    const projectId = get(activeProjectId);
+    // Race: projectId может ещё не подгрузиться к моменту клика «Повторить».
+    // Подождём чуть-чуть, прежде чем кричать «Проект не выбран».
+    const projectId = await waitForProjectId();
     if (!projectId) { errorMessage = 'Проект не выбран'; stepState = 'error'; return; }
 
     stepState = 'loading';
@@ -65,15 +89,51 @@
     // isComputing/computeStatus cleared in finally block
   }
 
-  // B2: auto-run on mount if no data yet
+  // Bug 2: activeProjectId гидрируется асинхронно из localStorage/IPC после mount.
+  // Если запустить runDecompose синхронно в onMount — projectId === null,
+  // показывается «Проект не выбран». Подписываемся и ждём первого валидного значения.
+  // (Bug 1 со scroll-позицией решается в +layout.svelte — сбрасывается .pipeline-main.scrollTop при смене шага.)
+  //
+  // Также: если data уже есть в memory (вернулись на шаг через stepper) —
+  // просто показываем done и не запускаем ничего, fallback тоже не нужен.
   onMount(() => {
-    (async () => {
-      if (!get(decomposeData)) {
-        await runDecompose();
-      } else {
+    if (get(decomposeData)) {
+      stepState = 'done';
+      return;
+    }
+
+    let started = false;
+    const unsub = activeProjectId.subscribe((pid) => {
+      if (started) return;
+      if (!pid) return; // ждём пока projectId станет валидным
+      started = true;
+      (async () => {
+        // повторная проверка — за время ожидания pid могли подгрузиться данные
+        if (!get(decomposeData)) {
+          await runDecompose();
+        } else {
+          stepState = 'done';
+        }
+      })();
+    });
+
+    // Fallback: если projectId так и не появился за 3с И данных нет — показываем ошибку.
+    const fallback = setTimeout(() => {
+      if (started) return;
+      if (get(decomposeData)) {
+        started = true;
         stepState = 'done';
+        return;
       }
-    })();
+      started = true;
+      errorMessage = 'Проект не выбран';
+      stepState = 'error';
+    }, 3000);
+
+    return () => {
+      unsub();
+      clearTimeout(fallback);
+    };
   });
 </script>
 
@@ -135,29 +195,39 @@
       <div class="card-title">Детализация по каналам</div>
       <div class="channel-table">
         <table>
+          <colgroup>
+            <col style="width: 28%" />
+            <col style="width: 16%" />
+            <col style="width: 18%" />
+            <col style="width: 11%" />
+            <col style="width: 10%" />
+            <col style="width: 17%" />
+          </colgroup>
           <thead>
             <tr>
               <th>Канал</th>
-              <th>Расходы</th>
-              <th>Вклад</th>
-              <th>ROI</th>
-              <th>Gap</th>
-              <th>Вердикт</th>
+              <th class="num">Расходы<span class="help-icon" title={CH_HELP.spend}>?</span></th>
+              <th class="num">Вклад<span class="help-icon" title={CH_HELP.contrib}>?</span></th>
+              <th class="num">ROI<span class="help-icon" title={CH_HELP.roi}>?</span></th>
+              <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
+              <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
             </tr>
           </thead>
           <tbody>
             {#each data.channels as ch}
               <tr>
                 <td class="ch-name">{ch.name}</td>
-                <td>{ch.spend.toLocaleString('ru-RU')}</td>
-                <td>{ch.contribution.toLocaleString('ru-RU')}</td>
-                <td class:roi-good={ch.roi > 1.5} class:roi-mid={ch.roi >= 0.8 && ch.roi <= 1.5} class:roi-bad={ch.roi < 0.8}>
+                <td class="num">{ch.spend.toLocaleString('ru-RU')}</td>
+                <td class="num">{ch.contribution.toLocaleString('ru-RU')}</td>
+                <td class="num" class:roi-good={ch.roi > 2 && ch.roi <= 50} class:roi-mid={ch.roi >= 0.8 && ch.roi <= 2} class:roi-bad={ch.roi < 0.8} class:roi-warn={ch.roi > 50}>
                   {ch.roi.toFixed(2)}×
                 </td>
-                <td class:gap-pos={ch.efficiency_gap > 0} class:gap-neg={ch.efficiency_gap < 0}>
+                <td class="num" class:gap-pos={ch.efficiency_gap >= 5} class:gap-neg={ch.efficiency_gap <= -5}>
                   {ch.efficiency_gap > 0 ? '+' : ''}{ch.efficiency_gap}%
                 </td>
-                <td>{ch.verdict}</td>
+                <td class:verdict-good={ch.verdict_tone === 'good'} class:verdict-warn={ch.verdict_tone === 'warn'} class:verdict-bad={ch.verdict_tone === 'bad'}>
+                  {ch.verdict}
+                </td>
               </tr>
             {/each}
           </tbody>
@@ -175,15 +245,14 @@
 
 <style>
   .decompose-step {
+    /* Скрол владеет .pipeline-main (см. +page.svelte). Здесь — никаких
+       overflow-y / height: 100%, иначе двойной скрол + фантомное пустое
+       пространство снизу (баг найден 2026-04-19). */
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 20px;
-    height: 100%;
+    padding: 0;
     box-sizing: border-box;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
   }
 
   .loading-banner {
@@ -293,6 +362,7 @@
   }
   table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 12px;
   }
@@ -308,10 +378,35 @@
     color: var(--text-primary, #e2e8f0);
     border-bottom: 1px solid rgba(255,255,255,0.04);
   }
+  th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th .help-icon { margin-left: 4px; vertical-align: middle; }
+  .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: help;
+    user-select: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .help-icon:hover {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
+    color: var(--accent-primary, #3b82f6);
+  }
   .ch-name { font-weight: 500; }
-  .roi-good { color: #22c55e; font-weight: 600; }
-  .roi-mid { color: #f59e0b; }
-  .roi-bad { color: #ef4444; }
-  .gap-pos { color: #22c55e; }
-  .gap-neg { color: #ef4444; }
+  .roi-good { color: var(--success); font-weight: 600; }
+  .roi-mid { color: var(--warning); }
+  .roi-bad { color: var(--danger); }
+  .roi-warn { color: var(--warning); font-weight: 600; }  /* подозрительно высокий ROI */
+  .gap-pos { color: var(--success); }
+  .gap-neg { color: var(--danger); }
+  .verdict-good { color: var(--success); font-weight: 500; }
+  .verdict-warn { color: var(--warning); font-weight: 500; }
+  .verdict-bad  { color: var(--danger);  font-weight: 500; }
 </style>

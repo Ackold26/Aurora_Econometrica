@@ -44,12 +44,69 @@ export function getBaseChartOption() {
     textStyle: { color: textColor },
     title: { textStyle: { color: textColor }, subtextStyle: { color: textSecondary } },
     legend: { textStyle: { color: textSecondary } },
-    tooltip: {
-      backgroundColor: 'rgba(30, 33, 44, 0.95)',
-      borderColor,
-      textStyle: { color: textColor },
-    },
+    tooltip: chartTooltipDark(),
     xAxis: { axisLine: { lineStyle: { color: borderColor } }, axisLabel: { color: textSecondary }, splitLine: { lineStyle: { color: borderColor } } },
     yAxis: { axisLine: { lineStyle: { color: borderColor } }, axisLabel: { color: textSecondary }, splitLine: { lineStyle: { color: borderColor } } },
+  };
+}
+
+/**
+ * Universal dark tooltip option for ECharts.
+ * Темный полупрозрачный фон + белый текст — читается одинаково в light/dark/fun темах.
+ * Использует кастомный formatter, чтобы заголовок и подписи серий тоже были белыми
+ * (без него ECharts красит их цветом серии — плохой контраст на тёмном фоне).
+ *
+ * @param {{
+ *   trigger?: 'axis' | 'item',
+ *   numberFormat?: (v: number) => string,
+ *   suffix?: string,
+ * }} [opts]
+ * @returns {import('echarts').TooltipComponentOption}
+ */
+export function chartTooltipDark(opts = {}) {
+  const { trigger = 'axis', numberFormat, suffix = '' } = opts;
+  const fmt = numberFormat || ((/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU'));
+
+  /**
+   * @param {any} v
+   * @returns {string}
+   */
+  const renderValue = (v) => {
+    if (v == null || v === '') return '—';
+    if (Array.isArray(v)) return v.map(renderValue).join(', ');
+    const n = typeof v === 'number' ? v : Number(v);
+    if (!Number.isFinite(n)) return String(v);
+    return fmt(n) + suffix;
+  };
+
+  return {
+    trigger,
+    backgroundColor: 'rgba(15, 18, 28, 0.94)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderWidth: 1,
+    padding: [8, 12],
+    textStyle: { color: '#ffffff', fontSize: 12 },
+    extraCssText: 'box-shadow: 0 6px 20px rgba(0,0,0,0.45); border-radius: 6px;',
+    axisPointer: {
+      label: {
+        color: '#ffffff',
+        backgroundColor: 'rgba(15, 18, 28, 0.94)',
+        borderColor: 'rgba(255, 255, 255, 0.14)',
+      },
+    },
+    formatter: (/** @type {any} */ params) => {
+      const arr = Array.isArray(params) ? params : [params];
+      if (arr.length === 0) return '';
+      const head = trigger === 'axis' && arr[0]?.axisValue != null
+        ? `<div style="color:#fff;font-weight:600;margin-bottom:6px;">${arr[0].axisValue}</div>`
+        : '';
+      const rows = arr.map((p) => {
+        const dot = `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${p.color};margin-right:8px;vertical-align:middle;"></span>`;
+        const name = p.seriesName ?? p.name ?? '';
+        const val = renderValue(p.value);
+        return `<div style="color:#fff;line-height:1.5;">${dot}<span style="color:#fff;opacity:0.9;">${name}</span>&nbsp;&nbsp;<b style="color:#fff;">${val}</b></div>`;
+      }).join('');
+      return head + rows;
+    },
   };
 }

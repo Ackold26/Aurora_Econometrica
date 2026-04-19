@@ -96,191 +96,287 @@ def build_pptx(model_data: dict, decompose_data: dict, optimize_data: dict, outp
     if not HAS_PPTX:
         return {'status': 'error', 'message': 'python-pptx не установлен. pip install python-pptx'}
 
+    # Defensive: backend sometimes hands us None for a section
+    model_data = model_data or {}
+    decompose_data = decompose_data or {}
+    optimize_data = optimize_data or {}
+
     prs = Presentation()
     prs.slide_width = Inches(10)
     prs.slide_height = Inches(5.625)  # 16:9
 
-    diag = model_data.get('diagnostics', {})
-    mqs = diag.get('mqs', {})
-    channels = decompose_data.get('channels', [])
-    opt_channels = optimize_data.get('channels', [])
-    waterfall = decompose_data.get('waterfall', [])
+    diag = model_data.get('diagnostics', {}) or {}
+    mqs = diag.get('mqs', {}) or {}
+    channels = decompose_data.get('channels', []) or []
+    opt_channels = optimize_data.get('channels', []) or []
+    waterfall = decompose_data.get('waterfall', []) or []
+
+    logger.info(
+        f"build_pptx start: channels={len(channels)} opt_channels={len(opt_channels)} "
+        f"waterfall={len(waterfall)} mqs={mqs.get('score')} r2={diag.get('r_squared')}"
+    )
+
+    failed_phases: list[str] = []
 
     blank_layout = prs.slide_layouts[6]  # blank
 
     # ── Slide 1: Title ─────────────────────────────────────
-    slide = prs.slides.add_slide(blank_layout)
-    _set_slide_bg(slide)
-    _add_title_text(slide, "Marketing Mix Model", top=1.5, size=36)
-    _add_body_text(slide, f"Аналитический отчёт\n{datetime.now().strftime('%d.%m.%Y')}", top=2.5, size=18, color=AURORA_MUTED)
-    _add_body_text(slide, "Aurora AI Econometrica", top=4.2, size=12, color=AURORA_BLUE)
+    try:
+        slide = prs.slides.add_slide(blank_layout)
+        _set_slide_bg(slide)
+        _add_title_text(slide, "Marketing Mix Model", top=1.5, size=36)
+        _add_body_text(slide, f"Аналитический отчёт\n{datetime.now().strftime('%d.%m.%Y')}", top=2.5, size=18, color=AURORA_MUTED)
+        _add_body_text(slide, "Aurora AI Econometrica", top=4.2, size=12, color=AURORA_BLUE)
+        logger.info("PPTX phase OK: title")
+    except Exception:
+        logger.exception("PPTX phase FAILED: title")
+        failed_phases.append('title')
 
     # ── Slide 2: Executive Summary ────────────────────────
-    slide = prs.slides.add_slide(blank_layout)
-    _set_slide_bg(slide)
-    _add_title_text(slide, "Executive Summary", size=24)
+    mqs_score = mqs.get('score', 0) or 0
+    mqs_label = mqs.get('tier_label', 'N/A') or 'N/A'
+    # Backend nests fit metrics under `diagnostics.metrics` (mape under `mape_pct`).
+    metrics = diag.get('metrics', {}) or {}
+    r_sq = metrics.get('r_squared', diag.get('r_squared', 0)) or 0
+    mape_val = metrics.get('mape_pct', diag.get('mape', 0)) or 0
+    lift = optimize_data.get('expected_lift_pct', 0) or 0
+    budget = optimize_data.get('total_budget', 0) or 0
 
-    mqs_score = mqs.get('score', 0)
-    mqs_label = mqs.get('tier_label', 'N/A')
-    r_sq = diag.get('r_squared', 0)
-    mape_val = diag.get('mape', 0)
-    lift = optimize_data.get('expected_lift_pct', 0)
-    budget = optimize_data.get('total_budget', 0)
+    try:
+        slide = prs.slides.add_slide(blank_layout)
+        _set_slide_bg(slide)
+        _add_title_text(slide, "Executive Summary", size=24)
+        summary_lines = [
+            f"MQS: {mqs_score:.0f}/100 ({mqs_label})",
+            f"R\u00b2: {r_sq:.3f} ({r_sq*100:.0f}% \u0434\u0438\u0441\u043f\u0435\u0440\u0441\u0438\u0438)",
+            f"MAPE: {mape_val:.1f}%",
+            f"\u041f\u0440\u0438\u0440\u043e\u0441\u0442 \u043e\u0442 \u043e\u043f\u0442\u0438\u043c\u0438\u0437\u0430\u0446\u0438\u0438: {lift:+.1f}%",
+            f"\u041e\u0431\u0449\u0438\u0439 \u0431\u044e\u0434\u0436\u0435\u0442: {budget:,.0f}",
+        ]
+        _add_body_text(slide, '\n'.join(summary_lines), top=1.2, size=16)
+        _add_notes(slide, "MQS > 80 = отлично, 60-80 = хорошо, < 60 = требует доработки. R\u00b2 показывает долю объяснённой вариации.")
+        logger.info("PPTX phase OK: summary")
+    except Exception:
+        logger.exception("PPTX phase FAILED: summary")
+        failed_phases.append('summary')
 
-    summary_lines = [
-        f"MQS: {mqs_score:.0f}/100 ({mqs_label})",
-        f"R\u00b2: {r_sq:.3f} ({r_sq*100:.0f}% \u0434\u0438\u0441\u043f\u0435\u0440\u0441\u0438\u0438)",
-        f"MAPE: {mape_val:.1f}%",
-        f"\u041f\u0440\u0438\u0440\u043e\u0441\u0442 \u043e\u0442 \u043e\u043f\u0442\u0438\u043c\u0438\u0437\u0430\u0446\u0438\u0438: {lift:+.1f}%",
-        f"\u041e\u0431\u0449\u0438\u0439 \u0431\u044e\u0434\u0436\u0435\u0442: {budget:,.0f}",
-    ]
-    _add_body_text(slide, '\n'.join(summary_lines), top=1.2, size=16)
-    _add_notes(slide, "MQS > 80 = отлично, 60-80 = хорошо, < 60 = требует доработки. R\u00b2 показывает долю объяснённой вариации.")
+    # ── Slide 2.5: Спецификация модели ────────────────────
+    try:
+        spec = diag.get('model_spec') or {}
+        if not spec:
+            from utils.model_spec import bayesian_mmm_spec
+            spec = bayesian_mmm_spec()
+
+        slide = prs.slides.add_slide(blank_layout)
+        _set_slide_bg(slide)
+        _add_title_text(slide, spec.get('title', 'Спецификация модели'), size=24)
+
+        # Subtitle + formula on a single text block
+        spec_lines = [
+            spec.get('subtitle', ''),
+            '',
+            'Формула:',
+            f"  {spec.get('formula', '')}",
+            '',
+            'Трансформации:',
+        ]
+        for tr in spec.get('transformations', []):
+            spec_lines.append(f"  • {tr.get('name')}: {tr.get('formula')}")
+        spec_lines.append('')
+        spec_lines.append('Priors (априорные распределения):')
+        for p in spec.get('priors', []):
+            spec_lines.append(f"  {p.get('symbol'):>4}  {p.get('distribution'):<22}  — {p.get('name')}")
+
+        _add_body_text(slide, '\n'.join(spec_lines), top=0.95, size=11)
+
+        inf = spec.get('inference', {}) or {}
+        notes_parts = [
+            spec.get('subtitle', ''),
+            f"Инференс: {inf.get('method', 'N/A')}",
+            inf.get('note', ''),
+            spec.get('normalization', ''),
+        ]
+        _add_notes(slide, '\n'.join(p for p in notes_parts if p))
+        logger.info("PPTX phase OK: spec")
+    except Exception:
+        logger.exception("PPTX phase FAILED: spec")
+        failed_phases.append('spec')
 
     # ── Slide 3: Декомпозиция ─────────────────────────────
     if waterfall:
-        slide = prs.slides.add_slide(blank_layout)
-        _set_slide_bg(slide)
-        _add_title_text(slide, "Декомпозиция продаж", size=24)
+        try:
+            slide = prs.slides.add_slide(blank_layout)
+            _set_slide_bg(slide)
+            _add_title_text(slide, "Декомпозиция продаж", size=24)
 
-        chart_data_obj = __import__('pptx.chart.data', fromlist=['CategoryChartData']).CategoryChartData()
-        chart_data_obj.categories = [w.get('category', '') for w in waterfall]
-        chart_data_obj.add_series('Вклад', [w.get('value', 0) for w in waterfall])
+            from pptx.chart.data import CategoryChartData
+            chart_data_obj = CategoryChartData()
+            chart_data_obj.categories = [str(w.get('category', '')) for w in waterfall]
+            chart_data_obj.add_series('Вклад', [float(w.get('value', 0) or 0) for w in waterfall])
 
-        chart_frame = slide.shapes.add_chart(
-            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
-        )
-        chart = chart_frame.chart
-        chart.has_legend = False
-        series = chart.series[0]
-        series.format.fill.solid()
-        series.format.fill.fore_color.rgb = AURORA_BLUE
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
+            )
+            chart = chart_frame.chart
+            chart.has_legend = False
+            series = chart.series[0]
+            series.format.fill.solid()
+            series.format.fill.fore_color.rgb = AURORA_BLUE
 
-        base_pct = decompose_data.get('base_pct', 0)
-        _add_notes(slide, f"Base sales = {base_pct:.0f}%. Это органические продажи без рекламного воздействия. Значение > 60% означает сильный бренд.")
+            base_pct = decompose_data.get('base_pct', 0) or 0
+            _add_notes(slide, f"Base sales = {base_pct:.0f}%. Это органические продажи без рекламного воздействия. Значение > 60% означает сильный бренд.")
+            logger.info("PPTX phase OK: decomposition")
+        except Exception:
+            logger.exception("PPTX phase FAILED: decomposition")
+            failed_phases.append('decomposition')
 
     # ── Slide 4: ROI по каналам ───────────────────────────
     if channels:
-        slide = prs.slides.add_slide(blank_layout)
-        _set_slide_bg(slide)
-        _add_title_text(slide, "ROI по каналам", size=24)
+        try:
+            slide = prs.slides.add_slide(blank_layout)
+            _set_slide_bg(slide)
+            _add_title_text(slide, "ROI по каналам", size=24)
 
-        from pptx.chart.data import CategoryChartData
-        chart_data_obj = CategoryChartData()
-        sorted_chs = sorted(channels, key=lambda c: c.get('roi', 0), reverse=True)
-        chart_data_obj.categories = [c.get('name', '') for c in sorted_chs]
-        chart_data_obj.add_series('ROI', [c.get('roi', 0) for c in sorted_chs])
+            from pptx.chart.data import CategoryChartData
+            chart_data_obj = CategoryChartData()
+            sorted_chs = sorted(channels, key=lambda c: c.get('roi', 0) or 0, reverse=True)
+            chart_data_obj.categories = [str(c.get('name', '')) for c in sorted_chs]
+            chart_data_obj.add_series('ROI', [float(c.get('roi', 0) or 0) for c in sorted_chs])
 
-        chart_frame = slide.shapes.add_chart(
-            XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
-        )
-        chart = chart_frame.chart
-        chart.has_legend = False
-        series = chart.series[0]
-        # Color each bar by channel
-        for idx in range(len(sorted_chs)):
-            pt = series.points[idx]
-            pt.format.fill.solid()
-            color_idx = idx % len(CHANNEL_COLORS)
-            pt.format.fill.fore_color.rgb = CHANNEL_COLORS[color_idx]
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.BAR_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
+            )
+            chart = chart_frame.chart
+            chart.has_legend = False
+            series = chart.series[0]
+            for idx in range(len(sorted_chs)):
+                pt = series.points[idx]
+                pt.format.fill.solid()
+                color_idx = idx % len(CHANNEL_COLORS)
+                pt.format.fill.fore_color.rgb = CHANNEL_COLORS[color_idx]
 
-        _add_notes(slide, "ROI > 2.0x считается хорошим. ROI < 1.0x означает, что расходы на канал превышают его вклад в продажи.")
+            _add_notes(slide, "ROI > 2.0x считается хорошим. ROI < 1.0x означает, что расходы на канал превышают его вклад в продажи.")
+            logger.info("PPTX phase OK: roi")
+        except Exception:
+            logger.exception("PPTX phase FAILED: roi")
+            failed_phases.append('roi')
 
     # ── Slide 5: Share of Spend vs Effect ─────────────────
     if channels:
-        slide = prs.slides.add_slide(blank_layout)
-        _set_slide_bg(slide)
-        _add_title_text(slide, "Share of Spend vs Share of Effect", size=22)
+        try:
+            slide = prs.slides.add_slide(blank_layout)
+            _set_slide_bg(slide)
+            _add_title_text(slide, "Share of Spend vs Share of Effect", size=22)
 
-        from pptx.chart.data import CategoryChartData
-        chart_data_obj = CategoryChartData()
-        total_spend = sum(c.get('spend', 0) for c in channels)
-        total_contrib = sum(c.get('contribution', 0) for c in channels)
+            from pptx.chart.data import CategoryChartData
+            chart_data_obj = CategoryChartData()
+            total_spend = sum(float(c.get('spend', 0) or 0) for c in channels)
+            total_contrib = sum(float(c.get('contribution', 0) or 0) for c in channels)
 
-        chart_data_obj.categories = [c.get('name', '') for c in channels]
-        chart_data_obj.add_series('% бюджета', [c.get('spend', 0) / total_spend * 100 if total_spend else 0 for c in channels])
-        chart_data_obj.add_series('% эффекта', [c.get('contribution', 0) / total_contrib * 100 if total_contrib else 0 for c in channels])
+            chart_data_obj.categories = [str(c.get('name', '')) for c in channels]
+            chart_data_obj.add_series('% бюджета', [(float(c.get('spend', 0) or 0) / total_spend * 100) if total_spend else 0 for c in channels])
+            chart_data_obj.add_series('% эффекта', [(float(c.get('contribution', 0) or 0) / total_contrib * 100) if total_contrib else 0 for c in channels])
 
-        chart_frame = slide.shapes.add_chart(
-            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
-        )
-        chart = chart_frame.chart
-        chart.series[0].format.fill.solid()
-        chart.series[0].format.fill.fore_color.rgb = AURORA_MUTED
-        chart.series[1].format.fill.solid()
-        chart.series[1].format.fill.fore_color.rgb = AURORA_GREEN
-        chart.has_legend = True
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
+            )
+            chart = chart_frame.chart
+            chart.series[0].format.fill.solid()
+            chart.series[0].format.fill.fore_color.rgb = AURORA_MUTED
+            chart.series[1].format.fill.solid()
+            chart.series[1].format.fill.fore_color.rgb = AURORA_GREEN
+            chart.has_legend = True
 
-        _add_notes(slide, "Если % эффекта > % бюджета — канал недоинвестирован (efficiency > 1). Если наоборот — перенасыщен.")
+            _add_notes(slide, "Если % эффекта > % бюджета — канал недоинвестирован (efficiency > 1). Если наоборот — перенасыщен.")
+            logger.info("PPTX phase OK: share")
+        except Exception:
+            logger.exception("PPTX phase FAILED: share")
+            failed_phases.append('share')
 
     # ── Slide 6: Оптимизация ──────────────────────────────
     if opt_channels:
-        slide = prs.slides.add_slide(blank_layout)
-        _set_slide_bg(slide)
-        _add_title_text(slide, f"Оптимизация бюджета (lift: {lift:+.1f}%)", size=22)
+        try:
+            slide = prs.slides.add_slide(blank_layout)
+            _set_slide_bg(slide)
+            _add_title_text(slide, f"Оптимизация бюджета (lift: {lift:+.1f}%)", size=22)
 
-        from pptx.chart.data import CategoryChartData
-        chart_data_obj = CategoryChartData()
-        chart_data_obj.categories = [c.get('name', '') for c in opt_channels]
-        chart_data_obj.add_series('Текущий', [c.get('current_spend', 0) for c in opt_channels])
-        chart_data_obj.add_series('Оптимальный', [c.get('optimal_spend', 0) for c in opt_channels])
+            from pptx.chart.data import CategoryChartData
+            chart_data_obj = CategoryChartData()
+            chart_data_obj.categories = [str(c.get('name', '')) for c in opt_channels]
+            chart_data_obj.add_series('Текущий', [float(c.get('current_spend', 0) or 0) for c in opt_channels])
+            chart_data_obj.add_series('Оптимальный', [float(c.get('optimal_spend', 0) or 0) for c in opt_channels])
 
-        chart_frame = slide.shapes.add_chart(
-            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
-        )
-        chart = chart_frame.chart
-        chart.series[0].format.fill.solid()
-        chart.series[0].format.fill.fore_color.rgb = AURORA_MUTED
-        chart.series[1].format.fill.solid()
-        chart.series[1].format.fill.fore_color.rgb = AURORA_BLUE
-        chart.has_legend = True
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
+            )
+            chart = chart_frame.chart
+            chart.series[0].format.fill.solid()
+            chart.series[0].format.fill.fore_color.rgb = AURORA_MUTED
+            chart.series[1].format.fill.solid()
+            chart.series[1].format.fill.fore_color.rgb = AURORA_BLUE
+            chart.has_legend = True
 
-        _add_notes(slide, f"Ожидаемый прирост {lift:+.1f}% при перераспределении бюджета. Рекомендуется пилотный период 4-6 недель.")
+            _add_notes(slide, f"Ожидаемый прирост {lift:+.1f}% при перераспределении бюджета. Рекомендуется пилотный период 4-6 недель.")
+            logger.info("PPTX phase OK: optimize")
+        except Exception:
+            logger.exception("PPTX phase FAILED: optimize")
+            failed_phases.append('optimize')
 
     # ── Slide 7: Рекомендации ─────────────────────────────
-    slide = prs.slides.add_slide(blank_layout)
-    _set_slide_bg(slide)
-    _add_title_text(slide, "Рекомендации", size=24)
+    try:
+        slide = prs.slides.add_slide(blank_layout)
+        _set_slide_bg(slide)
+        _add_title_text(slide, "Рекомендации", size=24)
 
-    recs = []
-    if lift > 5:
-        recs.append(f"[ВЫСОКАЯ] Перераспределить бюджет — ожидаемый прирост {lift:+.1f}%")
-    if channels:
-        top_ch = max(channels, key=lambda c: c.get('roi', 0))
-        recs.append(f"[ВЫСОКАЯ] Приоритет: {top_ch.get('name', '')} (ROI {top_ch.get('roi', 0):.1f}x)")
-        bot_ch = min(channels, key=lambda c: c.get('roi', 0))
-        if bot_ch.get('roi', 0) < 1:
-            recs.append(f"[СРЕДНЯЯ] Сократить {bot_ch.get('name', '')} (ROI {bot_ch.get('roi', 0):.1f}x)")
-    if r_sq < 0.7:
-        recs.append("[СРЕДНЯЯ] R\u00b2 ниже 0.7 — добавить контрольные переменные")
-    if mqs_score >= 80:
-        recs.append("[ВЫСОКАЯ] Высокий MQS — результаты надёжны для принятия решений")
+        recs = []
+        if lift > 5:
+            recs.append(f"[ВЫСОКАЯ] Перераспределить бюджет — ожидаемый прирост {lift:+.1f}%")
+        if channels:
+            top_ch = max(channels, key=lambda c: c.get('roi', 0) or 0)
+            recs.append(f"[ВЫСОКАЯ] Приоритет: {top_ch.get('name', '')} (ROI {top_ch.get('roi', 0) or 0:.1f}x)")
+            bot_ch = min(channels, key=lambda c: c.get('roi', 0) or 0)
+            if (bot_ch.get('roi', 0) or 0) < 1:
+                recs.append(f"[СРЕДНЯЯ] Сократить {bot_ch.get('name', '')} (ROI {bot_ch.get('roi', 0) or 0:.1f}x)")
+        if r_sq < 0.7:
+            recs.append("[СРЕДНЯЯ] R\u00b2 ниже 0.7 — добавить контрольные переменные")
+        if mqs_score >= 80:
+            recs.append("[ВЫСОКАЯ] Высокий MQS — результаты надёжны для принятия решений")
 
-    _add_body_text(slide, '\n'.join(recs) if recs else "Нет специальных рекомендаций.", top=1.2, size=14)
+        _add_body_text(slide, '\n'.join(recs) if recs else "Нет специальных рекомендаций.", top=1.2, size=14)
+        logger.info("PPTX phase OK: recommendations")
+    except Exception:
+        logger.exception("PPTX phase FAILED: recommendations")
+        failed_phases.append('recommendations')
 
     # ── Slide 8: Методология ──────────────────────────────
-    slide = prs.slides.add_slide(blank_layout)
-    _set_slide_bg(slide)
-    _add_title_text(slide, "Методология", size=24)
-    method_text = [
-        "Байесовская Media Mix Model (PyMC-Marketing)",
-        "Adstock: Geometric / Weibull (per channel)",
-        "Saturation: Hill function (\u03b1 steepness, \u03b3 half-saturation)",
-        "MCMC: Markov Chain Monte Carlo sampling",
-        f"Данных: {decompose_data.get('n_observations', 'N/A')} наблюдений, {len(channels)} каналов",
-        "Оптимизация: scipy SLSQP с бюджетными ограничениями",
-    ]
-    _add_body_text(slide, '\n'.join(method_text), top=1.2, size=13)
-    _add_notes(slide, "Байесовский подход позволяет учитывать априорные знания и оценивать неопределённость. Hill function моделирует убывающую отдачу.")
+    try:
+        slide = prs.slides.add_slide(blank_layout)
+        _set_slide_bg(slide)
+        _add_title_text(slide, "Методология", size=24)
+        method_text = [
+            "Байесовская Media Mix Model (PyMC-Marketing)",
+            "Adstock: Geometric / Weibull (per channel)",
+            "Saturation: Hill function (\u03b1 steepness, \u03b3 half-saturation)",
+            "MCMC: Markov Chain Monte Carlo sampling",
+            f"Данных: {decompose_data.get('n_observations', 'N/A')} наблюдений, {len(channels)} каналов",
+            "Оптимизация: scipy SLSQP с бюджетными ограничениями",
+        ]
+        _add_body_text(slide, '\n'.join(method_text), top=1.2, size=13)
+        _add_notes(slide, "Байесовский подход позволяет учитывать априорные знания и оценивать неопределённость. Hill function моделирует убывающую отдачу.")
+        logger.info("PPTX phase OK: methodology")
+    except Exception:
+        logger.exception("PPTX phase FAILED: methodology")
+        failed_phases.append('methodology')
 
     # ── Save ──────────────────────────────────────────────
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(out))
-    logger.info(f"PPTX saved: {out} ({len(prs.slides)} slides)")
+    logger.info(f"PPTX saved: {out} ({len(prs.slides)} slides, failed_phases={failed_phases})")
 
     return {
-        'status': 'ok',
+        'status': 'ok' if not failed_phases else 'partial',
         'path': str(out),
         'slides': len(prs.slides),
+        'failed_phases': failed_phases,
     }

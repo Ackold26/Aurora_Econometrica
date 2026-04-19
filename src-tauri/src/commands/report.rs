@@ -12,6 +12,125 @@ use std::path::PathBuf;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/// Pull a fit metric out of `model.diagnostics`.
+/// Backend nests them under `diagnostics.metrics.*` (with `mape_pct`),
+/// older payloads kept them flat under `diagnostics.*`.
+fn diag_metric(model: &Value, nested_key: &str, flat_key: &str) -> f64 {
+    model["diagnostics"]["metrics"][nested_key]
+        .as_f64()
+        .or_else(|| model["diagnostics"][flat_key].as_f64())
+        .unwrap_or(0.0)
+}
+
+/// Pull the model spec from diagnostics; if backend didn't supply one (old
+/// trained models), fall back to the canonical Bayesian MMM spec hardcoded
+/// here. Keep priors in sync with sidecar `utils/model_spec.py`.
+fn model_spec_value(model: &Value) -> Value {
+    let spec = &model["diagnostics"]["model_spec"];
+    if spec.is_object() {
+        return spec.clone();
+    }
+    serde_json::json!({
+        "title": "Спецификация модели",
+        "subtitle": "Байесовская Media Mix Model с Adstock и Hill saturation",
+        "engine": "PyMC + NumPyro (JAX) NUTS",
+        "formula": "Sales_t = β₀ + Σᵢ βᵢ · Hill(Adstock(Media_i,t), αᵢ, γᵢ) + Σⱼ γⱼ · Control_j,t + ε_t",
+        "transformations": [
+            {"name": "Hill (saturation)", "formula": "Hill(x, α, γ) = x^α / (x^α + γ^α)"},
+            {"name": "Adstock (geometric)", "formula": "x'_t = x_t + λ · x'_{t-1}"},
+            {"name": "Adstock (Weibull)", "formula": "x'_t = Σ θ₁^((k-1)^θ₂) · x_{t-k}"},
+        ],
+        "priors": [
+            {"symbol": "β₀", "name": "intercept (базовые продажи)", "distribution": "Normal(0, 0.5)"},
+            {"symbol": "βᵢ", "name": "media coefficients", "distribution": "HalfNormal(0.3)"},
+            {"symbol": "αᵢ", "name": "Hill steepness", "distribution": "Gamma(5, 3)"},
+            {"symbol": "γᵢ", "name": "Hill half-saturation", "distribution": "Beta(3, 3)"},
+            {"symbol": "γⱼ", "name": "control coefficients", "distribution": "Normal(0, 0.3)"},
+            {"symbol": "σ", "name": "noise (residual std)", "distribution": "HalfNormal(0.3)"},
+        ],
+        "inference": {
+            "method": "NUTS (No-U-Turn Sampler) через NumPyro/JAX",
+            "default_chains": 2, "default_draws": 500, "default_tune": 500,
+        },
+        "normalization": "Media и control нормализованы (X / max(X)); y нормализован к std=1.",
+    })
+}
+
+/// Render the model spec block as a Markdown section.
+fn render_spec_md(spec: &Value) -> String {
+    let mut s = String::with_capacity(1024);
+    let title = spec["title"].as_str().unwrap_or("Спецификация модели");
+    let subtitle = spec["subtitle"].as_str().unwrap_or("");
+    let engine = spec["engine"].as_str().unwrap_or("");
+    let formula = spec["formula"].as_str().unwrap_or("");
+    let normalization = spec["normalization"].as_str().unwrap_or("");
+
+    s.push_str(&format!("## {title}\n\n"));
+    if !subtitle.is_empty() {
+        s.push_str(&format!("*{subtitle}*  \n"));
+    }
+    if !engine.is_empty() {
+        s.push_str(&format!("**Движок инференса:** {engine}\n\n"));
+    }
+
+    s.push_str("### Формула\n\n");
+    s.push_str("```\n");
+    s.push_str(formula);
+    s.push_str("\n```\n\n");
+
+    if let Some(trs) = spec["transformations"].as_array() {
+        s.push_str("### Трансформации\n\n");
+        s.push_str("| Преобразование | Формула | Назначение |\n");
+        s.push_str("|----------------|---------|------------|\n");
+        for tr in trs {
+            let name = tr["name"].as_str().unwrap_or("");
+            let f = tr["formula"].as_str().unwrap_or("");
+            let n = tr["note"].as_str().unwrap_or("");
+            s.push_str(&format!("| {name} | `{f}` | {n} |\n"));
+        }
+        s.push('\n');
+    }
+
+    if let Some(priors) = spec["priors"].as_array() {
+        s.push_str("### Priors (априорные распределения)\n\n");
+        s.push_str("| Параметр | Имя | Распределение | Комментарий |\n");
+        s.push_str("|----------|-----|---------------|-------------|\n");
+        for p in priors {
+            let sym = p["symbol"].as_str().unwrap_or("");
+            let name = p["name"].as_str().unwrap_or("");
+            let dist = p["distribution"].as_str().unwrap_or("");
+            let note = p["note"].as_str().unwrap_or("");
+            s.push_str(&format!("| {sym} | {name} | `{dist}` | {note} |\n"));
+        }
+        s.push('\n');
+    }
+
+    let inf = &spec["inference"];
+    if inf.is_object() {
+        let method = inf["method"].as_str().unwrap_or("");
+        let chains = inf["default_chains"].as_u64().unwrap_or(0);
+        let draws = inf["default_draws"].as_u64().unwrap_or(0);
+        let tune = inf["default_tune"].as_u64().unwrap_or(0);
+        let note = inf["note"].as_str().unwrap_or("");
+        s.push_str("### Инференс\n\n");
+        s.push_str(&format!("- **Метод:** {method}\n"));
+        if chains > 0 {
+            s.push_str(&format!("- **Цепочки/draws/tune:** {chains}/{draws}/{tune}\n"));
+        }
+        if !note.is_empty() {
+            s.push_str(&format!("- {note}\n"));
+        }
+        s.push('\n');
+    }
+
+    if !normalization.is_empty() {
+        s.push_str(&format!("> {normalization}\n\n"));
+    }
+
+    s.push_str("---\n\n");
+    s
+}
+
 fn exports_dir(project_id: &str) -> Result<PathBuf, String> {
     let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not set".to_string())?;
     let identifier = env!("CARGO_PKG_NAME");
@@ -30,9 +149,11 @@ fn exports_dir(project_id: &str) -> Result<PathBuf, String> {
 fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String {
     let mqs        = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
     let mqs_label  = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
-    let r_squared  = model["diagnostics"]["r_squared"].as_f64().unwrap_or(0.0);
-    let mape       = model["diagnostics"]["mape"].as_f64().unwrap_or(0.0);
-    let r_hat      = model["diagnostics"]["r_hat"].as_f64();
+    let r_squared  = diag_metric(model, "r_squared", "r_squared");
+    let mape       = diag_metric(model, "mape_pct", "mape");
+    let r_hat      = model["diagnostics"]["metrics"]["r_hat_max"]
+        .as_f64()
+        .or_else(|| model["diagnostics"]["r_hat"].as_f64());
     let lift       = optimize["expected_lift_pct"].as_f64().unwrap_or(0.0);
     let budget     = optimize["total_budget"].as_f64().unwrap_or(0.0);
 
@@ -80,6 +201,10 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str(&format!("| R-hat (сходимость MCMC) | {rh:.3} |\n"));
     }
     md.push_str("\n---\n\n");
+
+    // ── Спецификация модели (formula + priors) ───────────────
+    let spec = model_spec_value(model);
+    md.push_str(&render_spec_md(&spec));
 
     // ── Decompose insight ────────────────────────────────────
     if let Some(insight) = decompose["insight"].as_str() {
@@ -295,9 +420,11 @@ fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, path: &PathBuf
 
         let mqs       = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
         let mqs_label = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
-        let r_sq      = model["diagnostics"]["r_squared"].as_f64().unwrap_or(0.0);
-        let mape      = model["diagnostics"]["mape"].as_f64().unwrap_or(0.0);
-        let r_hat     = model["diagnostics"]["r_hat"].as_f64();
+        let r_sq      = diag_metric(model, "r_squared", "r_squared");
+        let mape      = diag_metric(model, "mape_pct", "mape");
+        let r_hat     = model["diagnostics"]["metrics"]["r_hat_max"]
+            .as_f64()
+            .or_else(|| model["diagnostics"]["r_hat"].as_f64());
         let lift      = optimize["expected_lift_pct"].as_f64().unwrap_or(0.0);
         let budget    = optimize["total_budget"].as_f64().unwrap_or(0.0);
 
@@ -329,6 +456,96 @@ fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, path: &PathBuf
         ws.set_column_width(0, 30).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 18).map_err(|e| format!("{e}"))?;
         ws.set_column_width(2, 20).map_err(|e| format!("{e}"))?;
+    }
+
+    // ── Sheet 1.5: Спецификация модели ──────────────────────
+    {
+        let ws = wb.add_worksheet();
+        ws.set_name("Спецификация").map_err(|e| format!("{e}"))?;
+        ws.set_tab_color(Color::RGB(0x8B5CF6));
+
+        let spec = model_spec_value(model);
+        let title = spec["title"].as_str().unwrap_or("Спецификация модели");
+        let subtitle = spec["subtitle"].as_str().unwrap_or("");
+        let engine = spec["engine"].as_str().unwrap_or("");
+        let formula = spec["formula"].as_str().unwrap_or("");
+        let normalization = spec["normalization"].as_str().unwrap_or("");
+
+        ws.write_with_format(0, 0, title, &bold).map_err(|e| format!("{e}"))?;
+        ws.write(1, 0, subtitle).map_err(|e| format!("{e}"))?;
+        if !engine.is_empty() {
+            ws.write(2, 0, &format!("Движок: {engine}")).map_err(|e| format!("{e}"))?;
+        }
+
+        ws.write_with_format(4, 0, "Формула", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write(5, 0, formula).map_err(|e| format!("{e}"))?;
+
+        // Transformations block
+        let mut row: u32 = 7;
+        ws.write_with_format(row, 0, "Преобразование", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(row, 1, "Формула", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(row, 2, "Назначение", &header_fmt).map_err(|e| format!("{e}"))?;
+        row += 1;
+        if let Some(trs) = spec["transformations"].as_array() {
+            for tr in trs {
+                ws.write(row, 0, tr["name"].as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, tr["formula"].as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                ws.write(row, 2, tr["note"].as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+        }
+
+        // Priors table
+        row += 1;
+        ws.write_with_format(row, 0, "Параметр", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(row, 1, "Имя", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(row, 2, "Распределение", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(row, 3, "Комментарий", &header_fmt).map_err(|e| format!("{e}"))?;
+        row += 1;
+        if let Some(priors) = spec["priors"].as_array() {
+            for p in priors {
+                ws.write(row, 0, p["symbol"].as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, p["name"].as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                ws.write(row, 2, p["distribution"].as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                ws.write(row, 3, p["note"].as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+        }
+
+        // Inference
+        let inf = &spec["inference"];
+        if inf.is_object() {
+            row += 1;
+            ws.write_with_format(row, 0, "Инференс", &header_fmt).map_err(|e| format!("{e}"))?;
+            row += 1;
+            if let Some(m) = inf["method"].as_str() {
+                ws.write(row, 0, "Метод").map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, m).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+            let chains = inf["default_chains"].as_u64().unwrap_or(0);
+            let draws  = inf["default_draws"].as_u64().unwrap_or(0);
+            let tune   = inf["default_tune"].as_u64().unwrap_or(0);
+            if chains > 0 {
+                ws.write(row, 0, "Chains / draws / tune").map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, &format!("{chains} / {draws} / {tune}")).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+            if let Some(note) = inf["note"].as_str() {
+                ws.write(row, 0, note).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+        }
+
+        if !normalization.is_empty() {
+            row += 1;
+            ws.write(row, 0, normalization).map_err(|e| format!("{e}"))?;
+        }
+
+        ws.set_column_width(0, 18).map_err(|e| format!("{e}"))?;
+        ws.set_column_width(1, 32).map_err(|e| format!("{e}"))?;
+        ws.set_column_width(2, 30).map_err(|e| format!("{e}"))?;
+        ws.set_column_width(3, 55).map_err(|e| format!("{e}"))?;
     }
 
     // ── Sheet 2: Декомпозиция + waterfall chart ─────────────

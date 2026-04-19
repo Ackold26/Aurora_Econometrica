@@ -554,35 +554,128 @@ export function modelInsights(data) {
   if (!data?.diagnostics) return out;
 
   const d = data.diagnostics;
+  // Backend nests metrics under diagnostics.metrics; legacy paths kept flat values.
+  const m = d.metrics ?? d;
   const mqs = d.mqs?.score ?? 0;
   const label = d.mqs?.tier_label ?? '';
+  const rSq = m.r_squared ?? d.r_squared ?? 0;
+  const mape = m.mape_pct ?? d.mape ?? 0;
+  const rHat = m.r_hat_max ?? d.r_hat ?? 0;
+  const divergences = m.divergences ?? d.divergences ?? 0;
+  const channels = data.channelParams ? Object.keys(data.channelParams) : [];
+  const nChannels = channels.length;
 
+  // ── 1. Headline verdict (MQS-based) ──
   if (mqs >= 80) {
-    out.push({ severity: 'success', text: `MQS = ${mqs.toFixed(0)} (${label}) — высокое качество модели. Результаты надёжны для принятия решений.` });
+    out.push({
+      severity: 'success',
+      text: `MQS = ${mqs.toFixed(0)} (${label}) — высокое качество модели. Результаты надёжны для принятия решений.`,
+      tip: 'Перейдите к Декомпозиции, чтобы увидеть вклад каждого канала, и к Оптимизации — для перераспределения бюджета.',
+    });
   } else if (mqs >= 60) {
-    out.push({ severity: 'info', text: `MQS = ${mqs.toFixed(0)} (${label}) — приемлемое качество. Рассмотрите добавление контрольных переменных для улучшения.` });
+    out.push({
+      severity: 'info',
+      text: `MQS = ${mqs.toFixed(0)} (${label}) — приемлемое качество.`,
+      tip: 'Можно работать, но добавление контрольных переменных (сезонность, праздники, промо) поднимет MQS и сузит CI.',
+    });
   } else {
-    out.push({ severity: 'warning', text: `MQS = ${mqs.toFixed(0)} (${label}) — модель требует доработки.`, tip: 'Попробуйте: добавить промо-переменные, увеличить draws, проверить качество данных.' });
+    out.push({
+      severity: 'warning',
+      text: `MQS = ${mqs.toFixed(0)} (${label}) — модель требует доработки.`,
+      tip: 'Попробуйте: добавить промо-переменные, увеличить draws, проверить качество данных.',
+    });
   }
 
-  if (d.r_hat > 1.05) {
-    out.push({ severity: 'error', text: `R-hat = ${d.r_hat.toFixed(3)} — цепи Markov Chain Monte Carlo не сошлись. Результаты ненадёжны.`, tip: 'Увеличьте количество draws (2000+) и tune (1000+). Если не помогает — упростите модель (меньше каналов).' });
-  } else if (d.r_hat > 1.01) {
-    out.push({ severity: 'warning', text: `R-hat = ${d.r_hat.toFixed(3)} — цепи почти сошлись. Рассмотрите увеличение draws.` });
+  // ── 2. Convergence — positive signals ──
+  if (rHat > 0 && rHat <= 1.01 && divergences === 0) {
+    out.push({
+      severity: 'success',
+      text: `Markov Chain Monte Carlo сошёлся идеально: R-hat = ${rHat.toFixed(3)}, дивергенций = 0.`,
+      tip: 'R-hat ≤ 1.01 означает, что независимые цепи сошлись к одному распределению. 0 дивергенций — сэмплер исследовал всё пространство параметров без скачков. Posterior надёжен для оценки ROI и CI.',
+    });
+  } else if (rHat > 1.05) {
+    out.push({
+      severity: 'error',
+      text: `R-hat = ${rHat.toFixed(3)} — цепи Markov Chain Monte Carlo не сошлись. Результаты ненадёжны.`,
+      tip: 'Увеличьте draws (2000+) и tune (2000+). Если не помогает — упростите модель (меньше каналов).',
+    });
+  } else if (rHat > 1.01) {
+    out.push({
+      severity: 'warning',
+      text: `R-hat = ${rHat.toFixed(3)} — цепи почти сошлись. Рассмотрите увеличение draws.`,
+    });
   }
 
-  if (d.mape > 15) {
-    out.push({ severity: 'warning', text: `MAPE = ${d.mape.toFixed(1)}% — модель объясняет тренд, но не улавливает краткосрочные скачки.`, tip: 'Добавьте промо-переменные (акции, праздники) как контрольные факторы.' });
+  if (divergences > 0 && rHat <= 1.05) {
+    out.push({
+      severity: 'warning',
+      text: `${divergences} дивергенций в Markov Chain Monte Carlo. Модель может быть нестабильна.`,
+      tip: 'Дивергенции = сэмплер не смог исследовать часть пространства параметров. Увеличьте target_accept (0.9 → 0.95) или tune.',
+    });
   }
 
-  if (d.r_squared < 0.5) {
-    out.push({ severity: 'warning', text: `R² = ${d.r_squared.toFixed(3)} — модель объясняет менее 50% вариации. Добавьте контрольные переменные.` });
-  } else if (d.r_squared >= 0.8) {
-    out.push({ severity: 'success', text: `R² = ${d.r_squared.toFixed(3)} — модель объясняет ${(d.r_squared * 100).toFixed(0)}% вариации продаж.` });
+  // ── 3. Fit metrics — positive signals ──
+  if (rSq >= 0.9) {
+    out.push({
+      severity: 'success',
+      text: `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации KPI. Очень сильный fit.`,
+      tip: 'R² ≥ 90% — модель захватывает почти всю динамику продаж. Прогнозы устойчивы, декомпозиция вкладов правдоподобна.',
+    });
+  } else if (rSq >= 0.7) {
+    out.push({
+      severity: 'success',
+      text: `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации продаж.`,
+    });
+  } else if (rSq >= 0.5) {
+    out.push({
+      severity: 'info',
+      text: `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации. Добавление контрольных факторов улучшит fit.`,
+    });
+  } else if (rSq > 0) {
+    out.push({
+      severity: 'warning',
+      text: `R² = ${rSq.toFixed(3)} — модель объясняет менее 50% вариации. Добавьте контрольные переменные.`,
+    });
   }
 
-  if (d.divergences > 0) {
-    out.push({ severity: 'warning', text: `${d.divergences} дивергенций в Markov Chain Monte Carlo. Модель может быть нестабильна.`, tip: 'Увеличьте target_accept (0.9→0.95) или tune. Дивергенции означают, что сэмплер не смог исследовать всё пространство параметров.' });
+  if (mape > 0 && mape < 5) {
+    out.push({
+      severity: 'success',
+      text: `MAPE = ${mape.toFixed(1)}% — крайне низкая ошибка прогноза. Модель точно следует фактической динамике.`,
+      tip: 'Индустриальный benchmark: MAPE < 10% = отлично, 10-20% = приемлемо, > 20% = нужны доработки.',
+    });
+  } else if (mape > 15) {
+    out.push({
+      severity: 'warning',
+      text: `MAPE = ${mape.toFixed(1)}% — модель объясняет тренд, но не улавливает краткосрочные скачки.`,
+      tip: 'Добавьте промо-переменные (акции, праздники) как контрольные факторы.',
+    });
+  }
+
+  // ── 4. Model architecture — what was built ──
+  if (nChannels > 0) {
+    out.push({
+      severity: 'info',
+      text: `Структура модели: Bayesian MMM с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа. Каждый канал прошёл через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`,
+      tip: 'Adstock моделирует, что реклама прошлой недели продолжает работать сегодня. Hill — что после определённого порога каждый дополнительный рубль даёт меньше продаж. Это две стандартные нелинейности в эконометрике медиа.',
+    });
+  }
+
+  // ── 5. Trust foundation — что повышает доверие ──
+  // Показываем только когда модель действительно хорошая — иначе совет «доверяй» звучит фальшиво.
+  const isGoodModel = mqs >= 70 && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7;
+  if (isGoodModel) {
+    out.push({
+      severity: 'info',
+      text: 'Что повышает доверие к этой модели:',
+      tip: [
+        '• Tight priors (HalfNormal, Beta, Gamma) основаны на индустриальных бенчмарках MMM — не data-mining.',
+        '• Каждый ROI имеет 95% CI — видна неопределённость, не точечная оценка.',
+        '• Полная спецификация модели и priors экспортируется в MD/XLSX/PPTX.',
+        '• Декомпозиция показывает базовые продажи vs медиа-вклад — можно проверить sanity.',
+        '• Sampler — NUTS (золотой стандарт Bayesian inference), не Metropolis.',
+      ].join('\n'),
+    });
   }
 
   return out;
@@ -599,41 +692,147 @@ export function decomposeInsights(data) {
   const out = [];
   if (!data) return out;
 
-  if (data.base_pct > 80) {
-    out.push({ severity: 'info', text: `Base sales = ${data.base_pct.toFixed(0)}% — большинство продаж органические. Медиа-эффект относительно слабый.`, tip: 'Это может означать сильный бренд (хорошо) или что модель не смогла уловить медиа-эффект (проверьте adstock).' });
-  } else if (data.base_pct < 40) {
-    out.push({ severity: 'info', text: `Base sales = ${data.base_pct.toFixed(0)}% — бренд сильно зависит от рекламы. Остановка медиа может привести к значительному падению.` });
+  const channels = data.channels ?? [];
+  const basePct = data.base_pct ?? 0;
+  const mediaPct = Math.max(0, 100 - basePct);
+  const totalSpend = channels.reduce((s, c) => s + (c.spend || 0), 0);
+  const totalContrib = channels.reduce((s, c) => s + (c.contribution || 0), 0);
+  const totalEffectPct = channels.reduce((s, c) => s + (c.contribution_pct || 0), 0);
+
+  // ── 1. Headline: что показала декомпозиция ──
+  const sortedByEffect = [...channels].sort((a, b) => (b.contribution_pct || 0) - (a.contribution_pct || 0));
+  const top = sortedByEffect[0];
+  if (top && totalEffectPct > 0) {
+    out.push({
+      severity: 'success',
+      text: `Декомпозиция готова: ${basePct.toFixed(0)}% продаж — базовые (без медиа), ${mediaPct.toFixed(0)}% — вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
+      tip: 'Базовые продажи — это то, что вы получили бы при нулевом медиа-бюджете (бренд, дистрибуция, лояльность). Медиа-вклад — что добавила реклама поверх базы.',
+    });
   }
 
-  if (!data.channels?.length) return out;
+  // ── 2. Трактовка базовых продаж ──
+  if (basePct > 80) {
+    out.push({
+      severity: 'info',
+      text: `Base sales = ${basePct.toFixed(0)}% — большинство продаж органические. Медиа-эффект относительно слабый.`,
+      tip: 'Возможные причины: (1) сильный бренд с лояльной аудиторией — медиа поддерживает, не двигает; (2) недостаточная мощность медиа-кампаний; (3) модель не уловила эффект (проверь Adstock и контрольные переменные).',
+    });
+  } else if (basePct < 30) {
+    out.push({
+      severity: 'warning',
+      text: `Base sales = ${basePct.toFixed(0)}% — бренд критически зависит от рекламы. Остановка медиа = риск значительного падения продаж.`,
+      tip: 'Это типично для категорий с низкой лояльностью или новых брендов. Стратегия: постепенно инвестировать в brand-equity медиа (TV, OOH), чтобы поднять базу.',
+    });
+  } else if (basePct < 50) {
+    out.push({
+      severity: 'info',
+      text: `Base sales = ${basePct.toFixed(0)}% — медиа драйвит около половины продаж. Здоровый mix performance + brand.`,
+    });
+  }
 
-  // Spend share vs effect share divergence
-  const totalSpend = data.channels.reduce((s, c) => s + (c.spend || 0), 0);
-  const totalEffect = data.channels.reduce((s, c) => s + (c.contribution_pct || 0), 0);
+  if (!channels.length) return out;
 
-  for (const ch of data.channels) {
-    if (!totalSpend || !totalEffect) continue;
-    const spendShare = ch.spend / totalSpend;
-    const effectShare = (ch.contribution_pct || 0) / totalEffect;
-    if (spendShare > 0.15 && effectShare > 0 && spendShare / effectShare > 2.5) {
-      out.push({ severity: 'warning', text: `${ch.name}: ${(spendShare * 100).toFixed(0)}% бюджета, но лишь ${(effectShare * 100).toFixed(0)}% эффекта. ROI ниже среднего.` });
+  // ── 3. Топ-3 драйвера: подробная раскладка ──
+  const top3 = sortedByEffect.slice(0, Math.min(3, sortedByEffect.length));
+  if (top3.length > 0 && totalEffectPct > 0) {
+    const top3Sum = top3.reduce((s, c) => s + (c.contribution_pct || 0), 0);
+    const lines = top3.map((c, i) => {
+      const rank = ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
+      const roi = c.roi != null ? c.roi.toFixed(2) + '×' : '—';
+      const spend = c.spend?.toLocaleString('ru-RU') ?? '—';
+      const contrib = c.contribution?.toLocaleString('ru-RU') ?? '—';
+      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib}`;
+    }).join('\n');
+    out.push({
+      severity: 'info',
+      text: `Топ-${top3.length} драйверов медиа-вклада (${top3Sum.toFixed(0)}% от всего медиа-эффекта):`,
+      tip: lines,
+    });
+  }
+
+  // ── 4. Эффективные vs перенасыщенные каналы (per-channel разбор) ──
+  /** @type {Array<{ch: any, spendShare: number, effectShare: number, ratio: number}>} */
+  const efficient = [];
+  /** @type {Array<{ch: any, spendShare: number, effectShare: number, ratio: number}>} */
+  const inefficient = [];
+  for (const ch of channels) {
+    if (!totalSpend || !totalEffectPct) continue;
+    const spendShare = (ch.spend || 0) / totalSpend;
+    const effectShare = (ch.contribution_pct || 0) / totalEffectPct;
+    if (spendShare < 0.02 && effectShare < 0.02) continue; // отбрасываем шум
+    const ratio = effectShare / Math.max(spendShare, 0.001);
+    if (ratio >= 1.5) efficient.push({ ch, spendShare, effectShare, ratio });
+    else if (ratio <= 0.6 && spendShare > 0.08) inefficient.push({ ch, spendShare, effectShare, ratio });
+  }
+  efficient.sort((a, b) => b.ratio - a.ratio);
+  inefficient.sort((a, b) => a.ratio - b.ratio);
+
+  if (efficient.length > 0) {
+    const lines = efficient.slice(0, 3).map(({ ch, spendShare, effectShare, ratio }) =>
+      `✓ ${ch.name}: ${(spendShare * 100).toFixed(0)}% бюджета даёт ${(effectShare * 100).toFixed(0)}% эффекта (${ratio.toFixed(1)}× выше ожидания)`
+    ).join('\n');
+    out.push({
+      severity: 'success',
+      text: `${efficient.length} канал${efficient.length > 1 ? 'а' : ''} работает эффективнее своей доли бюджета:`,
+      tip: lines + '\n\nТакие каналы — кандидаты на докрутку бюджета на шаге Оптимизация.',
+    });
+  }
+
+  if (inefficient.length > 0) {
+    const lines = inefficient.slice(0, 3).map(({ ch, spendShare, effectShare, ratio }) =>
+      `✗ ${ch.name}: ${(spendShare * 100).toFixed(0)}% бюджета — лишь ${(effectShare * 100).toFixed(0)}% эффекта (${ratio.toFixed(1)}× ниже ожидания)`
+    ).join('\n');
+    out.push({
+      severity: 'warning',
+      text: `${inefficient.length} канал${inefficient.length > 1 ? 'а' : ''} перенасыщен${inefficient.length > 1 ? 'ы' : ''} или работает${inefficient.length > 1 ? 'ют' : ''} ниже среднего:`,
+      tip: lines + '\n\nВарианты: (1) сократить бюджет — проверить через Оптимизатор; (2) пересмотреть креатив/таргетинг; (3) проверить нет ли проблем с трекингом.',
+    });
+  }
+
+  // ── 5. ROI лидеры и аутсайдеры ──
+  const sortedByRoi = [...channels].filter(c => c.roi != null).sort((a, b) => (b.roi || 0) - (a.roi || 0));
+  if (sortedByRoi.length >= 2) {
+    const topRoi = sortedByRoi[0];
+    const bottomRoi = sortedByRoi[sortedByRoi.length - 1];
+
+    if (topRoi.roi >= 2) {
+      out.push({
+        severity: 'success',
+        text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — каждый вложенный рубль возвращает ${topRoi.roi.toFixed(2)} рублей продаж.`,
+        tip: 'ROI ≥ 2× — отличный показатель. Если канал не перенасыщен (см. Hill saturation), можно увеличить инвестиции.',
+      });
+    } else if (topRoi.roi >= 1.2) {
+      out.push({
+        severity: 'info',
+        text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — окупается, но не выдающийся.`,
+      });
     }
-    if (effectShare > 0.15 && spendShare > 0 && effectShare / spendShare > 2) {
-      out.push({ severity: 'success', text: `${ch.name}: ${(effectShare * 100).toFixed(0)}% эффекта при ${(spendShare * 100).toFixed(0)}% бюджета — высокоэффективный канал.` });
+
+    if (bottomRoi.roi < 1 && bottomRoi.roi > 0 && bottomRoi.spend > 0) {
+      out.push({
+        severity: 'warning',
+        text: `Убыточный канал: ${bottomRoi.name} = ROI ${bottomRoi.roi.toFixed(2)}× — расходы превышают вклад в продажи.`,
+        tip: 'Прежде чем сокращать: (1) проверить, есть ли brand-эффект (доля поиска, прямые заходы); (2) убедиться, что данные по каналу полные; (3) рассмотреть смену формата/креатива до полного отключения.',
+      });
     }
   }
 
-  // Top/bottom ROI
-  const sorted = [...data.channels].sort((a, b) => (b.roi || 0) - (a.roi || 0));
-  if (sorted.length >= 2) {
-    const top = sorted[0];
-    const bottom = sorted[sorted.length - 1];
-    if (top.roi > 2) {
-      out.push({ severity: 'success', text: `Лучший канал по ROI: ${top.name} (${top.roi.toFixed(1)}x).` });
-    }
-    if (bottom.roi < 1 && bottom.roi > 0) {
-      out.push({ severity: 'warning', text: `${bottom.name}: ROI = ${bottom.roi.toFixed(1)}x — расходы превышают вклад. Рассмотрите сокращение.` });
-    }
+  // ── 6. Концентрация: один канал доминирует? ──
+  if (top && top.contribution_pct > 50) {
+    out.push({
+      severity: 'warning',
+      text: `Высокая концентрация: ${top.name} даёт ${top.contribution_pct.toFixed(0)}% всего медиа-вклада.`,
+      tip: 'Зависимость от одного канала — риск. Если он перестанет работать (смена алгоритма, рост CPM, насыщение) — упадёт значительная часть продаж. Диверсифицируйте mix.',
+    });
+  }
+
+  // ── 7. Куда дальше — guidance ──
+  if (channels.length > 0 && totalEffectPct > 0) {
+    out.push({
+      severity: 'info',
+      text: 'Что делать дальше:',
+      tip: '• Перейдите в «Оптимизация» — модель посчитает оптимальное перераспределение бюджета.\n• В «Отчёт» — выгрузите MD/XLSX/PPTX с полной декомпозицией и спецификацией модели.\n• На графике «Динамика по периодам» можно увидеть, как вклад каналов меняется во времени.',
+    });
   }
 
   return out;

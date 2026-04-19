@@ -450,15 +450,16 @@ def model_history(req: ModelHistoryRequest):
             with open(params_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             ts_str = params_file.stem.replace('params-', '')
-            diag = data.get('diagnostics', {})
-            mqs = diag.get('mqs', {})
+            diag = data.get('diagnostics', {}) or {}
+            mqs = diag.get('mqs', {}) or {}
+            metrics = diag.get('metrics', {}) or {}
             channels = list(data.get('channel_params', {}).keys())
             versions.append({
                 'timestamp': ts_str,
                 'mqs_score': mqs.get('score', 0),
                 'mqs_label': mqs.get('tier_label', ''),
-                'r_squared': diag.get('r_squared', 0),
-                'mape': diag.get('mape', 0),
+                'r_squared': metrics.get('r_squared', diag.get('r_squared', 0)),
+                'mape': metrics.get('mape_pct', diag.get('mape', 0)),
                 'n_channels': len(channels),
                 'channels': channels,
                 'config': data.get('config', {}),
@@ -474,18 +475,37 @@ def model_history(req: ModelHistoryRequest):
 @app.post('/export/pptx')
 def export_pptx(req: PptxExportRequest):
     """Generate branded PPTX presentation from MMM results."""
-    from engines.pptx_export import build_pptx
+    logger.info(f'PPTX export START project_id={req.project_id}')
+    try:
+        from engines.pptx_export import build_pptx
 
-    appdata = os.environ.get('APPDATA', '')
-    identifier = 'com.aurora.econometrica'
-    exports_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'exports'
-    exports_dir.mkdir(parents=True, exist_ok=True)
+        appdata = os.environ.get('APPDATA', '')
+        identifier = 'com.aurora.econometrica'
+        exports_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'exports'
+        exports_dir.mkdir(parents=True, exist_ok=True)
 
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_path = str(exports_dir / f'mmm_report_{ts}.pptx')
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_path = str(exports_dir / f'mmm_report_{ts}.pptx')
+        logger.info(f'PPTX output path: {output_path}')
 
-    result = build_pptx(req.model_data, req.decompose_data, req.optimize_data, output_path)
-    return JSONResponse(content=result)
+        has_model = bool(req.model_data)
+        has_decomp = bool(req.decompose_data)
+        has_optim = bool(req.optimize_data)
+        logger.info(f'PPTX inputs: model={has_model} decompose={has_decomp} optimize={has_optim}')
+
+        result = build_pptx(req.model_data, req.decompose_data, req.optimize_data, output_path)
+        logger.info(f'PPTX export OK: {result}')
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('PPTX export FAILED')
+        return JSONResponse(
+            status_code=500,
+            content={
+                'status': 'error',
+                'message': str(e),
+                'type': type(e).__name__,
+            },
+        )
 
 
 # ── Startup ──────────────────────────────────────────

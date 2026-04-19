@@ -91,15 +91,50 @@
     }
   });
 
+  /** Дожидаемся, пока projectId станет валидным (макс. 2с). */
+  function waitForProjectId(timeoutMs = 2000) {
+    return new Promise(/** @param {(id: string|null) => void} resolve */ (resolve) => {
+      const current = get(activeProjectId);
+      if (current) { resolve(current); return; }
+      const timer = setTimeout(() => { unsub(); resolve(get(activeProjectId)); }, timeoutMs);
+      const unsub = activeProjectId.subscribe((pid) => {
+        if (pid) { clearTimeout(timer); unsub(); resolve(pid); }
+      });
+    });
+  }
+
+  /** Получить projectId — сначала из store, потом ждём, потом fallback на backend. */
+  async function ensureProjectId() {
+    let projectId = await waitForProjectId(1500);
+    if (projectId) return projectId;
+    // Fallback: store пуст после HMR/reload — спросим backend напрямую.
+    try {
+      projectId = /** @type {string|null} */ (await invoke('project_get_active'));
+      if (projectId) {
+        activeProjectId.set(projectId);
+        return projectId;
+      }
+    } catch { /* нет активного проекта */ }
+    return null;
+  }
+
   /** Run scipy optimization */
   async function runOptimize() {
-    const projectId = get(activeProjectId);
-    if (!projectId) return;
-
+    // Сразу показываем loading — пользователь видит, что клик сработал.
     stepState = 'optimizing';
-    isComputing.set(true);
-    computeStatus.set('Оптимизирую бюджет...');
     errorMessage = null;
+    isComputing.set(true);
+    computeStatus.set('Подготовка...');
+
+    const projectId = await ensureProjectId();
+    if (!projectId) {
+      isComputing.set(false);
+      computeStatus.set('');
+      handleError('Проект не выбран. Вернитесь на шаг «Импорт» и загрузите данные.');
+      return;
+    }
+
+    computeStatus.set('Оптимизирую бюджет...');
 
     try {
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
@@ -334,8 +369,14 @@
     </div>
   {:else if stepState === 'idle'}
     <div class="empty-state">
-      <p>Запустите оптимизацию для интерактивного анализа бюджета</p>
-      <button class="btn-run-big" onclick={runOptimize}>Оптимизировать бюджет</button>
+      <p>Настройте параметры выше (общий бюджет, диапазон Мин/Макс) и нажмите <b>«Оптимизировать бюджет»</b> — модель найдёт оптимальное распределение.</p>
+      <p class="hint">Можно начать с дефолтов: автоматический бюджет = текущий, диапазон 50-150% (каждый канал может уменьшиться до 50% или вырасти до 150% от текущего).</p>
+    </div>
+  {:else if stepState === 'optimizing'}
+    <div class="empty-state">
+      <div class="spinner-lg"></div>
+      <p>Оптимизирую распределение бюджета...</p>
+      <p class="hint">scipy SLSQP подбирает максимум продаж при заданных ограничениях.</p>
     </div>
   {/if}
 
@@ -343,15 +384,13 @@
 
 <style>
   .optimize-step {
+    /* Скрол владеет .pipeline-main — здесь никаких overflow / height: 100%,
+       иначе двойной скрол + фантомное пустое пространство (см. DecomposeStep). */
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 20px;
-    height: 100%;
+    padding: 0;
     box-sizing: border-box;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
   }
 
   .error-banner {
@@ -571,22 +610,29 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 16px;
-    padding: 60px 20px;
+    gap: 12px;
+    padding: 50px 24px;
     text-align: center;
-    color: var(--text-secondary, #94a3b8);
+    color: var(--text-secondary);
     font-size: 14px;
+    line-height: 1.6;
+    max-width: 640px;
+    margin: 0 auto;
   }
-  .btn-run-big {
-    padding: 12px 28px;
-    background: var(--accent-primary, #3b82f6);
-    border: none;
-    border-radius: 10px;
-    color: white;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.15s;
+  .empty-state p { margin: 0; }
+  .empty-state b { color: var(--text-primary); }
+  .empty-state .hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
   }
-  .btn-run-big:hover { opacity: 0.85; }
+  .spinner-lg {
+    width: 32px;
+    height: 32px;
+    border: 3px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+    border-top-color: var(--accent-primary, #3b82f6);
+    border-radius: 50%;
+    animation: spin-lg 0.8s linear infinite;
+  }
+  @keyframes spin-lg { to { transform: rotate(360deg); } }
 </style>

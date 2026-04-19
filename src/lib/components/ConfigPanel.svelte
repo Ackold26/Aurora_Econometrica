@@ -139,20 +139,27 @@
   );
 
   // ── MCMC params (advanced) ──
-  let mcmcChains = $state(2);
-  let mcmcDraws = $state(1000);
-  let mcmcTune = $state(500);
+  // Defaults bumped 2026-04-19 → 4/2000/2000.
+  // На JAX/NUTS со tight priors это секунды для типового медиаплана,
+  // но даёт надёжный R-hat (4 цепи) и точные ROI CI (2000 draws).
+  let mcmcChains = $state(4);
+  let mcmcDraws = $state(2000);
+  let mcmcTune = $state(2000);
 
   // ── Time estimate (heuristic: ~0.5s per draw × chains for Metropolis, ~0.15s for NUTS) ──
   const enabledCount = $derived(Object.values(channelEnabled).filter(Boolean).length);
   const estimateMinutes = $derived.by(() => {
-    const chains = showAdvanced ? mcmcChains : 2;
-    const draws = showAdvanced ? mcmcDraws : 1000;
-    const tune = showAdvanced ? mcmcTune : 500;
+    const chains = showAdvanced ? mcmcChains : 4;
+    const draws = showAdvanced ? mcmcDraws : 2000;
+    const tune = showAdvanced ? mcmcTune : 2000;
     const totalSamples = (draws + tune) * chains;
     const secPerSample = 0.3 * Math.max(enabledCount / 4, 1); // scales with channels
     return Math.max(1, Math.round(totalSamples * secPerSample / 60));
   });
+
+  // Auto-warning when defaults may be slow for the current project shape.
+  // Triggers for big models (>10 channels) — fewer draws/chains могут сильно ускорить.
+  const heavyModelWarn = $derived(enabledCount > 10);
 
   // ── Actions ──
   async function trainModel() {
@@ -367,7 +374,7 @@
             <label>
               <span class="mcmc-label-row">
                 Chains
-                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Обычно 2-4. Больше цепей — лучше проверка сходимости (R-hat), но дольше обучение. Для 31 строки рекомендуется 2.">?</span>
+                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Дефолт 4 — надёжная диагностика сходимости (R-hat). На JAX/NUTS параллелятся в один вызов, почти не замедляют обучение. Минимум 2 — для R-hat нужны хотя бы 2 независимые цепи.">?</span>
               </span>
               <input type="number" bind:value={mcmcChains} min="1" max="8" />
             </label>
@@ -413,6 +420,12 @@
   </button>
   {#if !$isComputing && enabledCount > 0}
     <p class="time-estimate">Оценка: ~{estimateMinutes} мин ({enabledCount} канал{enabledCount > 4 ? 'ов' : enabledCount > 1 ? 'а' : ''})</p>
+  {/if}
+  {#if heavyModelWarn && !showAdvanced}
+    <p class="heavy-warn">
+      Большая модель (&gt;10 каналов). Дефолт 4 цепи × 2000 draws точный, но может занять минуту.
+      Можно снизить в «Расширенных» до 2 цепей × 1000 draws — будет в разы быстрее.
+    </p>
   {/if}
   {#if adstockAutoSelected && !$expertMode}
     <p class="adstock-auto-label">Adstock: {adstockAutoLabel} (авто по BIC)</p>
@@ -688,6 +701,17 @@
     text-align: center;
     font-size: 11px;
     color: var(--text-secondary, #94a3b8);
+    margin-top: 6px;
+  }
+  .heavy-warn {
+    text-align: center;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-secondary, #94a3b8);
+    background: color-mix(in srgb, #f59e0b 12%, transparent);
+    border: 1px solid color-mix(in srgb, #f59e0b 30%, transparent);
+    border-radius: 8px;
+    padding: 8px 12px;
     margin-top: 6px;
   }
   .adstock-auto-label {

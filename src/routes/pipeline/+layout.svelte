@@ -35,6 +35,8 @@
 
   let userCollapsed = $state(false); // явное намерение пользователя
   let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
+  /** @type {HTMLElement | undefined} Главный скрол-контейнер шагов */
+  let mainEl = $state();
 
   // C4: Auto-collapse on small screens; on large — уважаем userCollapsed
   const insightsCollapsed = $derived(windowWidth < 1100 ? true : userCollapsed);
@@ -61,6 +63,14 @@
       pipelineCurrentStep.set(next);
     }
   }
+
+  // При смене шага сбрасываем scroll наверх — иначе scroll-позиция от прошлого шага
+  // оставляет пользователя в середине/внизу нового, и кажется, что страница пустая.
+  $effect(() => {
+    // Подписка на pipelineCurrentStep — при изменении прокручиваем main в начало.
+    const _step = $pipelineCurrentStep;
+    if (mainEl) mainEl.scrollTop = 0;
+  });
 
   // C5: Start sidecar and track its status in footer
   async function initSidecar() {
@@ -197,7 +207,7 @@
 
     <!-- Body: main content + insights panel -->
     <div class="pipeline-body">
-      <main class="pipeline-main">
+      <main class="pipeline-main" bind:this={mainEl}>
         {@render children()}
       </main>
 

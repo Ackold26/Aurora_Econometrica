@@ -5,6 +5,7 @@
    * @component WaterfallChart
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import { chartTooltipDark } from '$lib/echarts-setup.js';
   import { CHANNEL_COLORS } from '$lib/hill.js';
 
   /** @type {{ waterfall: { labels: string[], values: number[], types: string[] } }} */
@@ -45,13 +46,14 @@
     return {
       backgroundColor: 'transparent',
       tooltip: {
-        trigger: 'axis',
+        ...chartTooltipDark({ trigger: 'axis' }),
         axisPointer: { type: 'shadow' },
         formatter: (/** @type {any[]} */ params) => {
           const idx = params[1]?.dataIndex ?? params[0]?.dataIndex ?? 0;
           const val = values[idx];
           const pct = ((val / total) * 100).toFixed(1);
-          return `<b>${labels[idx]}</b><br>${val.toLocaleString('ru-RU')} (${pct}%)`;
+          return `<div style="color:#fff;font-weight:600;margin-bottom:4px;">${labels[idx]}</div>` +
+                 `<div style="color:#fff;">${val.toLocaleString('ru-RU')} <span style="opacity:0.7;">(${pct}%)</span></div>`;
         },
       },
       grid: { left: 16, right: 16, top: 12, bottom: 48, containLabel: true },

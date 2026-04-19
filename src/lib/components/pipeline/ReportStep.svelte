@@ -41,7 +41,8 @@
   // Summary card values
   const mqs      = $derived(/** @type {number|null} */ (mData?.diagnostics?.mqs?.score ?? null));
   const mqsLabel = $derived(/** @type {string} */ (mData?.diagnostics?.mqs?.tier_label ?? '—'));
-  const rSq      = $derived(/** @type {number|null} */ (mData?.diagnostics?.r_squared ?? null));
+  const rSq      = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_squared ?? mData?.diagnostics?.r_squared ?? null));
+  const mape     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.mape_pct ?? mData?.diagnostics?.mape ?? null));
   const lift     = $derived(/** @type {number|null} */ (oData?.expected_lift_pct ?? null));
   const budget   = $derived(/** @type {number|null} */ (oData?.total_budget ?? null));
 
@@ -200,6 +201,14 @@
           {fmt(rSq, 3)}
         </div>
         <div class="metric-sub">объяснённая дисперсия</div>
+      </div>
+
+      <div class="card-metric">
+        <div class="metric-label">MAPE</div>
+        <div class="metric-value" class:good={mape != null && mape < 10} class:warn={mape != null && mape >= 20}>
+          {mape != null ? fmt(mape, 1) + '%' : '—'}
+        </div>
+        <div class="metric-sub">средняя ошибка прогноза</div>
       </div>
 
       <div class="card-metric">

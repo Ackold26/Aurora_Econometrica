@@ -5,6 +5,7 @@
    * @component ROIComparison
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import { chartTooltipDark } from '$lib/echarts-setup.js';
 
   /**
    * @type {{
@@ -12,6 +13,12 @@
    * }}
    */
   let { channels } = $props();
+
+  // Палитра — hex/rgba (ECharts не понимает color-mix()).
+  const COLOR_SPEND = '#64748b';   // нейтральный slate — «фоновая» метрика для сравнения
+  const COLOR_EFFICIENT = '#22c55e'; // зелёный — эффект > расходов
+  const COLOR_INEFFICIENT = '#ef4444'; // красный — расходы > эффекта
+  const COLOR_NEUTRAL = '#3b82f6'; // синий для дефолта/нулевого gap
 
   const option = $derived.by(() => {
     if (!channels?.length) return {};
@@ -23,23 +30,30 @@
     return {
       backgroundColor: 'transparent',
       tooltip: {
-        trigger: 'axis',
+        ...chartTooltipDark({ trigger: 'axis' }),
         axisPointer: { type: 'shadow' },
         formatter: (/** @type {any[]} */ params) => {
           const ch = channels[params[0].dataIndex];
           const gap = ch.efficiency_gap;
           const sign = gap > 0 ? '+' : '';
-          const gapColor = gap > 0 ? '#22c55e' : '#ef4444';
-          return `<b>${ch.name}</b><br>
-            Доля расходов: ${ch.share_of_spend}%<br>
-            Доля эффекта: ${ch.share_of_effect}%<br>
-            <span style="color:${gapColor}">Разрыв: ${sign}${gap}%</span>`;
+          const gapColor = gap > 0 ? '#4ade80' : '#fb7185';
+          return `<div style="color:#fff;font-weight:600;margin-bottom:4px;">${ch.name}</div>` +
+                 `<div style="color:#fff;">Доля расходов: <b>${ch.share_of_spend}%</b></div>` +
+                 `<div style="color:#fff;">Доля эффекта: <b>${ch.share_of_effect}%</b></div>` +
+                 `<div style="color:${gapColor};font-weight:600;">Разрыв: ${sign}${gap}%</div>`;
         },
       },
+      // Custom legend rows — явно задаём цвет и иконку, чтобы соответствие
+      // легенды и реальной раскраски было 1:1 (а не дефолтная палитра ECharts).
       legend: {
-        data: ['Расходы %', 'Эффект %'],
+        data: [
+          { name: 'Расходы %', icon: 'roundRect', itemStyle: { color: COLOR_SPEND } },
+          { name: 'Эффект (эффективен)', icon: 'roundRect', itemStyle: { color: COLOR_EFFICIENT } },
+          { name: 'Эффект (перенасыщен)', icon: 'roundRect', itemStyle: { color: COLOR_INEFFICIENT } },
+        ],
         textStyle: { color: '#94a3b8', fontSize: 11 },
         top: 4,
+        itemGap: 18,
       },
       grid: { left: 16, right: 16, top: 36, bottom: 48, containLabel: true },
       xAxis: {
@@ -61,27 +75,29 @@
           type: 'bar',
           barGap: '10%',
           barMaxWidth: 32,
-          data: spendData.map((v, i) => ({
-            value: v,
-            itemStyle: { color: 'rgba(148,163,184,0.4)', borderRadius: [4, 4, 0, 0] },
-          })),
+          itemStyle: { color: COLOR_SPEND, borderRadius: [4, 4, 0, 0] },
+          data: spendData,
           label: { show: true, position: 'top', color: '#94a3b8', fontSize: 10, formatter: '{c}%' },
         },
+        // Две серии для зелёных/красных, чтобы легенда корректно подсвечивала их.
+        // ECharts не позволяет per-bar легенду в одной серии — поэтому split.
         {
-          name: 'Эффект %',
+          name: 'Эффект (эффективен)',
           type: 'bar',
           barMaxWidth: 32,
-          data: effectData.map((v, i) => {
-            const gap = channels[i].efficiency_gap;
-            return {
-              value: v,
-              itemStyle: {
-                color: gap > 0 ? 'color-mix(in srgb, var(--success) 70%, transparent)' : 'color-mix(in srgb, var(--danger) 70%, transparent)',
-                borderRadius: [4, 4, 0, 0],
-              },
-            };
-          }),
-          label: { show: true, position: 'top', color: '#94a3b8', fontSize: 10, formatter: '{c}%' },
+          stack: 'effect',
+          itemStyle: { color: COLOR_EFFICIENT, borderRadius: [4, 4, 0, 0] },
+          data: effectData.map((v, i) => (channels[i].efficiency_gap > 0 ? v : null)),
+          label: { show: true, position: 'top', color: '#94a3b8', fontSize: 10, formatter: (/** @type {any} */ p) => p.value != null ? `${p.value}%` : '' },
+        },
+        {
+          name: 'Эффект (перенасыщен)',
+          type: 'bar',
+          barMaxWidth: 32,
+          stack: 'effect',
+          itemStyle: { color: COLOR_INEFFICIENT, borderRadius: [4, 4, 0, 0] },
+          data: effectData.map((v, i) => (channels[i].efficiency_gap <= 0 ? v : null)),
+          label: { show: true, position: 'top', color: '#94a3b8', fontSize: 10, formatter: (/** @type {any} */ p) => p.value != null ? `${p.value}%` : '' },
         },
       ],
     };

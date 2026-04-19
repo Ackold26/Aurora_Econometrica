@@ -114,9 +114,15 @@ def check_compiler() -> bool:
 
 
 def get_mcmc_params(has_compiler: bool) -> dict:
-    """MCMC parameters based on environment (Windows optimization)."""
+    """MCMC parameters based on environment (Windows optimization).
+
+    Defaults bumped 2026-04-19 to 4/2000/2000 — на JAX/NUTS секунды,
+    но даёт надёжный R-hat (4 цепи) и точные ROI CI (2000 draws + 2000 tune).
+    """
     if has_compiler:
-        return {'chains': 4, 'draws': 2000, 'tune': 1000, 'sampler': 'NUTS'}
+        return {'chains': 4, 'draws': 2000, 'tune': 2000, 'sampler': 'NUTS'}
+    # No compiler → Metropolis fallback. Сохраняем меньшие дефолты, иначе обучение
+    # 4×2000×2000 на Metropolis = десятки минут. Antон поднимет вручную если нужно.
     return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'Metropolis'}
 
 
@@ -209,9 +215,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # MCMC parameters
     has_compiler = check_compiler()
     mcmc = config.get('mcmc_override') or get_mcmc_params(has_compiler)
-    chains = mcmc.get('chains', 2)
-    draws = mcmc.get('draws', 1000)
-    tune = mcmc.get('tune', 500)
+    chains = mcmc.get('chains', 4)
+    draws = mcmc.get('draws', 2000)
+    tune = mcmc.get('tune', 2000)
 
     report('compiling', pct=20)
 
