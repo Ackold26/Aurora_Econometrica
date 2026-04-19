@@ -2,6 +2,49 @@
 
 ---
 
+## v1.0.7 — S10: Help System + UX Polish (2026-04-20)
+
+### Справочная система
+- Новый справочный центр с 5 специализированными разделами: `data-preparation` (FMCG+Pharma примеры, Ratio 2/4/6 пороги, unit_costs таблица), `pipeline` (5 шагов с input/output/time-tag), `methodology` (Bayesian MMM, Adstock, Hill, NUTS, MQS, Trust Levels), `faq` (10+ вопросов с аккордеоном), `system-requirements` (Windows, RAM/CPU тиры, bundled Python 3.12 + JAX 0.7.2 + NumPyro 0.20.1)
+- Единая кнопка «?» в header pipeline — динамически выбирает раздел по текущему шагу
+- Аналогичная кнопка в header главного меню → index.html справки
+- Navbar справки с логотипом Aurora + навигацией по группам (start / data / pipeline)
+- Fix hover-dropdown bug: `padding-bottom + negative margin-bottom` на `.anav-group`, применено ко всем 12 nav.js в 10 продуктах Aurora
+- Удалены упоминания инфраструктуры (vault/AES/Ed25519/APPDATA/Python sidecar/localhost/pickle/Tauri/SvelteKit) из пользовательской справки
+
+### Сидекар и восстановление данных
+- **Auto-respawn вычислительного модуля**: watchdog (tokio task, 15s tick), ensure_alive с async Mutex, zombie-kill через tasklist/taskkill с PID verify, banned cooldown (5 min после 5 неудач), `child.wait_timeout(3s)` через крейт `wait-timeout`
+- `post_json` retry: при `is_connect`/`is_timeout` → `ensure_alive` → 1 retry
+- `project_load_results` Rust команда — читает `results/*.json` при активации проекта, заполняет `modelData`/`decomposeData`/`optimizeData`/`validateData`
+- `reconcileStepMetaFromDisk` — пересобирает stepMeta по фактам на диске, сбрасывает остаточные `error`-статусы без подкрепления данными (фикс «❌ Декомпозиция когда данных нет»)
+
+### Кабинет эконометриста
+- **6 новых команд-консультантов** (замена 7 старых mmm-*): `/interpret-model`, `/why-channel`, `/explain-ratio`, `/pilot-design`, `/next-quarter-plan`, `/data-gaps` + `/awareness-forecast`, `/awareness-to-sales`. Осмысление результатов pipeline без дублирования вычислений. Старые mmm-* команды остаются в `.claude/commands/` для ручного ввода (backward compat)
+- Редизайн кабинета в стиле pipeline: логотип + «ECONOMETRICA» как в главном меню, project-chip рядом, footer-back-btn слева от command input
+- Удалён нестабильный «Спросить AI» из InsightsPanel
+
+### Pipeline UX
+- `UnitCostsPanel` переработан: dropdown «+ Добавить канал» + кнопка ✕ на строке + hint «Обнаружено N TRP/GRP/OTS — добавить все». Autodetect сужен до TRP/GRP/OTS/РЕЙТИНГ/ОХВАТ. Панель видна только в режиме ROI. Preview «N юнит × цена = эквивалент ₽» на каждой строке
+- `MQSBadge` + `ConvergenceDashboard`: значки «?» на каждом термине (R², MAPE, R-hat max, Divergences, Ratio) с tooltip'ами из ExpertModelPanel. R² и MAPE в правом верхнем углу графика «Факт vs Прогноз» (ECharts graphic overlay)
+- Реалистичная оценка MCMC времени для JAX/NumPyro (~3 мин на 8 каналов вместо старых ~31)
+- Scenario ROAS с `unit_costs`/money_mode: корректный подсчёт в рублях при смешанных единицах (TRP + рубли)
+- Сценарии с человеко-читаемыми именами («Текущий 19.04 14:30»), кнопка «Сохранить оптимум»
+- Убраны «8 слайдов» и «7 листов» из карточек экспорта и инсайта
+- Кнопка «Назад» на шаге 0 pipeline → главное меню (вместо disabled)
+
+### Критичные фиксы
+- Onboarding tour запускается только при `channels.length > 0` (после train), не на пустом DOM
+- Scroll race в OptimizeOnboarding: RAF polling с stable-rect detection (2 кадра или 500ms cap)
+- `unit_costs` guard от отрицательных/NaN значений
+- `kill_on_port` проверяет PID owner через `tasklist` (не убивает чужие процессы на :7430)
+- `child.wait_timeout` вместо блокирующего `child.wait()` — защита от зависания shutdown
+- Backward compat сценариев S8 через `_migrate_money_fields` на лету
+
+### Content pack
+- Обновлён: econometrist 11 → 8 команд, +6 новых описаний в command-meta-data.json, manifest version 3, Ed25519 re-signed
+
+---
+
 ## v0.6.0 — Aurora Pipeline: Autonomous Agency Operations (2026-04-05)
 
 ### Pipeline Engine — контекстная цепочка между кабинетами
