@@ -79,14 +79,22 @@ pub async fn econ_decompose(project_dir: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn econ_optimize(project_dir: String, total_budget: Option<f64>,
-                           min_pct: Option<f64>, max_pct: Option<f64>) -> Result<Value, String> {
+pub async fn econ_optimize(
+    project_dir: String,
+    total_budget: Option<f64>,
+    min_pct: Option<f64>,
+    max_pct: Option<f64>,
+    min_per_channel: Option<Value>,
+    max_per_channel: Option<Value>,
+) -> Result<Value, String> {
     info!("econ_optimize: {project_dir}");
     let body = serde_json::json!({
         "project_dir": project_dir,
         "total_budget": total_budget,
         "min_pct": min_pct.unwrap_or(50.0),
         "max_pct": max_pct.unwrap_or(150.0),
+        "min_per_channel": min_per_channel,
+        "max_per_channel": max_per_channel,
     });
     post_json("/compute/optimize", &body, quick_client()).await
 }

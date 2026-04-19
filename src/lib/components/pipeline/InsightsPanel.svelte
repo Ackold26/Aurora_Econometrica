@@ -191,7 +191,7 @@
         return modelInsights(mod);
       }
       case 3: return decomposeInsights(dec);
-      case 4: return optimizeInsights(opt);
+      case 4: return optimizeInsights(opt, { dec, mod });
       default: return [];
     }
   });

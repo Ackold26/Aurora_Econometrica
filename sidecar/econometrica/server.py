@@ -111,6 +111,10 @@ class OptimizeRequest(BaseModel):
     total_budget: float | None = None
     min_pct: float = 50
     max_pct: float = 150
+    # Per-channel constraints (экспертный режим). Перекрывают глобальные min_pct/max_pct
+    # для указанных каналов. Если канал отсутствует в dict — используется глобальный лимит.
+    min_per_channel: dict[str, float] | None = None
+    max_per_channel: dict[str, float] | None = None
 
 
 class ScenarioRequest(BaseModel):
@@ -319,7 +323,12 @@ def train_result(task_id: str):
 def decompose_sales(req: DecomposeRequest):
     """Decompose sales into baseline + channel contributions."""
     from engines.decomposer import decompose as _decompose
+    from pathlib import Path as _Path
+    pickle_exists = (_Path(req.project_dir) / 'models' / 'latest.pkl').exists()
+    logger.info(f'/compute/decompose project_dir={req.project_dir} pickle_exists={pickle_exists}')
     result = _decompose(req.project_dir)
+    if result.get('status') != 'ok':
+        logger.warning(f'/compute/decompose returned error: {result.get("message")}')
     return JSONResponse(content=result)
 
 
@@ -327,7 +336,13 @@ def decompose_sales(req: DecomposeRequest):
 def optimize_budget(req: OptimizeRequest):
     """Optimize budget allocation across channels."""
     from engines.optimizer import optimize as _optimize
-    config = {'total_budget': req.total_budget, 'min_pct': req.min_pct, 'max_pct': req.max_pct}
+    config = {
+        'total_budget': req.total_budget,
+        'min_pct': req.min_pct,
+        'max_pct': req.max_pct,
+        'min_per_channel': req.min_per_channel,
+        'max_per_channel': req.max_per_channel,
+    }
     result = _optimize(config, req.project_dir)
     return JSONResponse(content=result)
 

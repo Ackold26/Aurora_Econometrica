@@ -51,10 +51,26 @@
     });
   }
 
-  async function runDecompose() {
-    // Race: projectId может ещё не подгрузиться к моменту клика «Повторить».
-    // Подождём чуть-чуть, прежде чем кричать «Проект не выбран».
-    const projectId = await waitForProjectId();
+  /** Дожидаемся projectId через store + fallback на backend (как в OptimizeStep). */
+  async function ensureProjectId() {
+    let pid = await waitForProjectId(2000);
+    if (pid) return pid;
+    try {
+      pid = /** @type {string|null} */ (await invoke('project_get_active'));
+      if (pid) { activeProjectId.set(pid); return pid; }
+    } catch { /* нет активного */ }
+    return null;
+  }
+
+  /**
+   * @param {number} [attemptsLeft] — Делаем до 4 попыток с возрастающим backoff
+   *        (1.5/2/3с) чтобы дождаться pickle после свежей тренировки. Дефолт = 4
+   *        принудительно (не полагаемся на event-arg от onclick).
+   */
+  async function runDecompose(attemptsLeft) {
+    if (typeof attemptsLeft !== 'number' || !Number.isFinite(attemptsLeft)) attemptsLeft = 4;
+
+    const projectId = await ensureProjectId();
     if (!projectId) { errorMessage = 'Проект не выбран'; stepState = 'error'; return; }
 
     stepState = 'loading';
@@ -71,7 +87,19 @@
         stepState = 'done';
         completeStep(3);
       } else {
-        handleError(result.message || 'Ошибка декомпозиции');
+        const msg = result.message || 'Ошибка декомпозиции';
+        // Авто-retry на race «Модель не найдена» — pickle ещё пишется async.
+        const isModelMissing = /модель не найдена|model not found|не найден|not found|pickle|latest\.pkl/i.test(msg);
+        if (attemptsLeft > 1 && isModelMissing) {
+          const delay = [1500, 2000, 3000][4 - attemptsLeft] || 3000;
+          isComputing.set(false);
+          computeStatus.set(`Жду готовность модели (попытка ${5 - attemptsLeft + 1}/4)...`);
+          await new Promise(r => setTimeout(r, delay));
+          isComputing.set(true);
+          await runDecompose(attemptsLeft - 1);
+          return;
+        }
+        handleError(msg);
       }
     } catch (/** @type {any} */ e) {
       handleError(String(e));
@@ -97,6 +125,9 @@
   // Также: если data уже есть в memory (вернулись на шаг через stepper) —
   // просто показываем done и не запускаем ничего, fallback тоже не нужен.
   onMount(() => {
+    // Сбрасываем устаревший errorMessage в локальном state и в pipelineMeta —
+    // иначе старая ошибка от прошлой попытки видна до того как retry отработает.
+    errorMessage = null;
     if (get(decomposeData)) {
       stepState = 'done';
       return;
@@ -152,7 +183,7 @@
     <div class="error-banner">
       <span class="error-icon">⚠</span>
       <span class="error-text">{errorMessage}</span>
-      <button class="btn-retry" onclick={runDecompose}>Повторить</button>
+      <button class="btn-retry" onclick={() => runDecompose()}>Повторить</button>
     </div>
   {/if}
 
@@ -164,7 +195,7 @@
       <div class="insight-banner">
         <span class="insight-icon">💡</span>
         <p class="insight-text">{data.insight}</p>
-        <button class="btn-rerun" onclick={runDecompose} title="Пересчитать">↺</button>
+        <button class="btn-rerun" onclick={() => runDecompose()} title="Пересчитать">↺</button>
       </div>
     {/if}
 

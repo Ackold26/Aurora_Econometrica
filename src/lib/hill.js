@@ -28,26 +28,48 @@ export function hillFunction(x, alpha, gamma) {
  * @param {number} beta - channel coefficient
  * @returns {number}
  */
-export function marginalROI(x, alpha, gamma, beta) {
+/**
+ * Marginal ROI = ∂KPI/∂spend в точке x. Denomalization: returned value
+ * — в нормализованной KPI-шкале (beta из priors). Чтобы получить в исходных
+ * единицах KPI на рубль расхода, умножьте на y_std.
+ *
+ * @param {number} x
+ * @param {number} alpha
+ * @param {number} gamma
+ * @param {number} beta
+ * @param {{y_std?: number} | null} [normalization]
+ * @returns {number}
+ */
+export function marginalROI(x, alpha, gamma, beta, normalization = null) {
   const xSafe = Math.max(x, 1e-10);
   const gSafe = Math.max(gamma, 1e-10);
   const numerator = alpha * Math.pow(gSafe, alpha) * Math.pow(xSafe, alpha - 1);
   const denominator = Math.pow(Math.pow(xSafe, alpha) + Math.pow(gSafe, alpha), 2);
-  return beta * numerator / denominator;
+  const normalized = beta * numerator / denominator;
+  if (normalization && Number.isFinite(normalization.y_std)) {
+    return normalized * (normalization.y_std ?? 1);
+  }
+  return normalized;
 }
 
 /**
  * Predict total KPI from budget allocation.
  * @param {Record<string, number>} budgets - {channelName: spendValue}
  * @param {Record<string, {alpha: number, gammaScaled: number, beta: number}>} scaledParams
+ * @param {{y_mean?: number, y_std?: number} | null} [normalization] — Денормализация
+ *        в исходные единицы KPI (y = y_norm * y_std + y_mean). Без неё возвращается
+ *        значение в normalized-шкале (≈0-2), бесполезное для отображения пользователю.
  * @returns {number}
  */
-export function predictKPI(budgets, scaledParams) {
+export function predictKPI(budgets, scaledParams, normalization = null) {
   let total = 0;
   for (const [ch, spend] of Object.entries(budgets)) {
     const p = scaledParams[ch];
     if (!p) continue;
     total += p.beta * hillFunction(spend, p.alpha, p.gammaScaled);
+  }
+  if (normalization && Number.isFinite(normalization.y_std) && Number.isFinite(normalization.y_mean)) {
+    return total * (normalization.y_std ?? 1) + (normalization.y_mean ?? 0);
   }
   return total;
 }

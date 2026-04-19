@@ -18,8 +18,12 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     Args:
         config: {
             'total_budget': float|None,  # None = use current total
-            'min_pct': float,            # Min % of current per channel (default 50)
-            'max_pct': float,            # Max % of current per channel (default 150)
+            'min_pct': float,            # Глобальный Min % (default 50). Используется
+                                         # как fallback если нет per-channel constraint.
+            'max_pct': float,            # Глобальный Max % (default 150).
+            'min_per_channel': dict|None,# Опционально: {channel: min_pct} — экспертный режим.
+                                         # Если задан для канала, перекрывает глобальный min_pct.
+            'max_per_channel': dict|None,# Опционально: {channel: max_pct} — экспертный режим.
         }
         project_dir: Path to project with models/latest.pkl
 
@@ -47,8 +51,19 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     current_spend = {col: float(df[col].fillna(0).sum()) for col in media_cols}
     total_current = sum(current_spend.values())
     total_budget = config.get('total_budget') or total_current
-    min_pct = config.get('min_pct', 50) / 100
-    max_pct = config.get('max_pct', 150) / 100
+    min_pct_global = config.get('min_pct', 50) / 100
+    max_pct_global = config.get('max_pct', 150) / 100
+
+    # Per-channel constraints (экспертный режим). Если для канала задан явный
+    # min/max в процентах — используется он, иначе глобальный.
+    min_per_channel = config.get('min_per_channel') or {}
+    max_per_channel = config.get('max_per_channel') or {}
+
+    def channel_min(col: str) -> float:
+        return min_per_channel.get(col, min_pct_global * 100) / 100
+
+    def channel_max(col: str) -> float:
+        return max_per_channel.get(col, max_pct_global * 100) / 100
 
     # Response function: spend → predicted effect
     def total_response(spend_vector):
@@ -61,7 +76,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
     # Constraints
     x0 = np.array([current_spend[col] * total_budget / total_current for col in media_cols])
-    bounds = [(current_spend[col] * min_pct, current_spend[col] * max_pct) for col in media_cols]
+    bounds = [
+        (current_spend[col] * channel_min(col), current_spend[col] * channel_max(col))
+        for col in media_cols
+    ]
     constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - total_budget}]
 
     # Optimize

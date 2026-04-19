@@ -17,6 +17,7 @@
    *   useAsyncTraining?: boolean,
    *   onTrainingStarted?: (taskId: string) => void,
    *   lastConfig?: any,
+   *   modelTrained?: boolean,
    * }}
    */
   let {
@@ -25,13 +26,25 @@
     useAsyncTraining = false,
     onTrainingStarted,
     lastConfig = $bindable(null),
+    modelTrained = false,
   } = $props();
 
   let showAdvanced = $state(false);
 
-  // Auto-expand advanced when Expert mode is turned on
+  // Auto-expand advanced when Expert mode is turned on (но не если модель уже обучена —
+  // после тренировки сворачиваем чтобы пользователь видел результаты ниже).
   $effect(() => {
-    if ($expertMode) showAdvanced = true;
+    if ($expertMode && !modelTrained) showAdvanced = true;
+  });
+
+  // После завершения обучения свернуть Расширенные настройки — освобождаем место
+  // для блока с результатами (auto-scroll прокручивает вниз к диагностике).
+  let prevTrained = false;
+  $effect(() => {
+    if (modelTrained && !prevTrained) {
+      showAdvanced = false;
+    }
+    prevTrained = modelTrained;
   });
 
   // ── Custom dropdown state ──
@@ -409,11 +422,14 @@
   <!-- Run button -->
   <button
     class="run-btn"
+    class:trained={modelTrained && !$isComputing}
     onclick={trainModel}
     disabled={$isComputing || !selectedKpi || Object.values(channelEnabled).filter(Boolean).length === 0}
   >
     {#if $isComputing}
       <span class="spinner"></span> {$computeStatus || 'Обучаю модель...'}
+    {:else if modelTrained}
+      ✓ Обучено · Перетренировать
     {:else}
       Запустить модель
     {/if}
@@ -691,7 +707,16 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    transition: opacity 0.15s;
+    transition: background 0.2s, color 0.2s, border 0.2s;
+  }
+  /* После тренировки: меняем стиль чтобы пользователь сразу понял — действие изменилось. */
+  .run-btn.trained {
+    background: transparent;
+    border: 1px solid var(--success);
+    color: var(--success);
+  }
+  .run-btn.trained:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
   }
 
   .run-btn:hover:not(:disabled) { opacity: 0.9; }

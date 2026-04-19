@@ -841,36 +841,194 @@ export function decomposeInsights(data) {
 // ── Optimize Step ───────────────────────────────────────
 
 /**
- * @param {{ expected_lift_pct: number, total_budget: number, channels: Array<{ name: string, current_spend: number, optimal_spend: number }> }} data
+ * @typedef {Object} OptimizeContext
+ * @property {any} [dec] — decomposeData (для pre-state)
+ * @property {any} [mod] — modelData (для pre-state)
+ * @property {Record<string, number>} [channelMinPct] — per-channel custom лимиты (если были заданы в expert)
+ * @property {Record<string, number>} [channelMaxPct]
+ * @property {number} [globalMinPct]
+ * @property {number} [globalMaxPct]
+ */
+
+/**
+ * Реактивные инсайты оптимизации.
+ * Без `data` (до запуска) — pre-state на основе decompose: что MMM посчитает, какой потенциал.
+ * С `data` — post-state с lift, главные сдвиги, особый случай +0%, влияние custom-лимитов.
+ *
+ * @param {any} data — optimizeData (опционально)
+ * @param {OptimizeContext} [ctx]
  * @returns {Insight[]}
  */
-export function optimizeInsights(data) {
+export function optimizeInsights(data, ctx = {}) {
   /** @type {Insight[]} */
   const out = [];
-  if (!data) return out;
+  const { dec, channelMinPct = {}, channelMaxPct = {}, globalMinPct = 50, globalMaxPct = 150 } = ctx;
 
+  // ════════════════ PRE-STATE: оптимизация ещё не запущена ════════════════
+  if (!data?.channels?.length) {
+    if (!dec?.channels?.length) {
+      // Нет даже decompose — нечего предсказать
+      out.push({
+        severity: 'info',
+        text: 'Здесь будет интерактивный оптимизатор бюджета.',
+        tip: 'Сначала пройдите шаги Декомпозиция, потом возвращайтесь — увидите потенциал перераспределения.',
+      });
+      return out;
+    }
+
+    const totalSpend = dec.channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.spend || 0), 0);
+    const totalContrib = dec.channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.contribution || 0), 0);
+    const avgROI = totalSpend > 0 ? totalContrib / totalSpend : 0;
+
+    // Light версия miROAS-распределения через ROI каналов (proxy для saturation)
+    let efficient = 0, balanced = 0, saturated = 0;
+    for (const c of dec.channels) {
+      const r = c.roi ?? 0;
+      const gap = c.efficiency_gap ?? 0;
+      if (r > 2 && gap >= 5) efficient++;
+      else if (r < 1 || gap <= -10) saturated++;
+      else balanced++;
+    }
+
+    out.push({
+      severity: 'success',
+      text: `Готово к оптимизации: ${dec.channels.length} канал${dec.channels.length > 4 ? 'ов' : dec.channels.length > 1 ? 'а' : ''}, бюджет ${totalSpend.toLocaleString('ru-RU')}₽, средний ROI ${avgROI.toFixed(2)}×.`,
+      tip: 'Нажмите «🎯 Оптимизировать бюджет» — модель найдёт распределение, максимизирующее KPI при заданных Мин/Макс ограничениях.',
+    });
+
+    // Прогноз потенциала по структуре каналов
+    if (saturated > efficient) {
+      out.push({
+        severity: 'warning',
+        text: `Каналов в плато: ${saturated} (перенасыщены). Эффективных: ${efficient}. Прирост в рамках текущего бюджета может быть близок к 0% — оптимизатору некуда «переливать» деньги.`,
+        tip: 'Что попробовать:\n• Снизить Мин. % (разрешить более радикальные сокращения)\n• Повысить Макс. % (разрешить больший рост недонасыщенных)\n• Использовать What-if (блок C) — увеличить общий бюджет и пересчитать\n• Проверить TRPs/non-money каналы — они искажают модель.',
+      });
+    } else if (efficient >= 2 && saturated <= 1) {
+      const expected = Math.min(20, efficient * 4 + balanced * 1);
+      out.push({
+        severity: 'info',
+        text: `Структура благоприятна: ${efficient} эффективных канала, ${saturated} перенасыщенных. Ожидаемый прирост: 5-${expected}%.`,
+        tip: 'Перераспределение из перенасыщенных в эффективные обычно даёт значимый lift без увеличения общего бюджета.',
+      });
+    } else {
+      out.push({
+        severity: 'info',
+        text: `Структура: ${efficient} эффективных, ${balanced} сбалансированных, ${saturated} перенасыщенных. Ожидаемый прирост: 3-10%.`,
+      });
+    }
+
+    out.push({
+      severity: 'info',
+      text: 'Параметры оптимизации:',
+      tip: '• Мин. % / Макс. % — глобальные границы изменения каждого канала.\n• Фиксировать бюджет — оптимизатор только перераспределяет, не меняет сумму.\n• Эксперт-режим — per-channel ограничения (зафиксировать TV-сделку, разрешить только рост OOH и т.д.).',
+    });
+
+    return out;
+  }
+
+  // ════════════════ POST-STATE: оптимизация выполнена ════════════════
   const lift = data.expected_lift_pct ?? 0;
+  const channels = data.channels ?? [];
+  const totalBudget = data.total_budget ?? 0;
+  const totalCurrent = channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.current_spend || 0), 0);
+  const totalOptimal = channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.optimal_spend || 0), 0);
 
+  // ── 1. Headline lift ──
   if (lift > 15) {
-    out.push({ severity: 'success', text: `Потенциальный рост: +${lift.toFixed(1)}% — значительный потенциал оптимизации.`, tip: 'Перераспределите бюджет согласно оптимальному плану. Рекомендуется пилотный период 4-6 недель.' });
+    out.push({
+      severity: 'success',
+      text: `Найден оптимум: прирост +${lift.toFixed(1)}% продаж при том же бюджете (${totalBudget.toLocaleString('ru-RU')}₽).`,
+      tip: 'Существенный потенциал перераспределения. Рекомендуется пилот 4-6 недель на части бюджета (20-30%) перед полным переходом, чтобы валидировать модельные оценки на практике.',
+    });
   } else if (lift > 5) {
-    out.push({ severity: 'info', text: `Потенциальный рост: +${lift.toFixed(1)}% — умеренный потенциал. Текущее распределение неплохое, но можно улучшить.` });
-  } else if (lift > 0) {
-    out.push({ severity: 'info', text: `Потенциальный рост: +${lift.toFixed(1)}% — текущее распределение уже близко к оптимальному.` });
+    out.push({
+      severity: 'success',
+      text: `Найден оптимум: прирост +${lift.toFixed(1)}% при текущем бюджете. Умеренный, но значимый потенциал.`,
+      tip: 'Текущее распределение приемлемое. Перераспределение даст устойчивый прирост, но не радикальный — план уже близок к рациональному.',
+    });
+  } else if (lift > 0.5) {
+    out.push({
+      severity: 'info',
+      text: `Прирост +${lift.toFixed(1)}% — текущее распределение почти оптимально.`,
+      tip: 'Незначительный потенциал в рамках того же бюджета. Чтобы существенно улучшить — нужен либо рост бюджета (см. блок C What-if), либо пересмотр медиа-микса.',
+    });
+  } else {
+    // ── Особый случай: +0% или меньше — explanation overlay ──
+    out.push({
+      severity: 'warning',
+      text: `Прирост ≈${lift.toFixed(1)}%. Все каналы в saturation plateau — оптимизатору некуда переливать деньги.`,
+      tip: 'Это не баг — модель честно говорит «лучше уже не сделаешь в этих рамках». Что попробовать:\n\n1. **Снизить Мин. %** — разрешить более радикальные сокращения насыщенных каналов (попробуйте 10-30%).\n2. **Повысить Макс. %** — дать оптимизатору больше пространства для роста недонасыщенных (200-300%).\n3. **What-if (блок C)** — увеличить общий бюджет: дополнительные деньги пойдут в каналы вне плато.\n4. **Эксперт-режим** — per-channel настройки: TV-сделку зафиксировать, OOH разрешить только увеличивать.\n5. **Проверить TRPs/non-money каналы** — если ROI > 50× в декомпозиции, единицы измерения смешаны.',
+    });
   }
 
-  if (!data.channels?.length) return out;
+  // ── 2. Главные сдвиги (top-3 по abs delta) ──
+  const changes = channels
+    .map((/** @type {any} */ ch) => ({
+      name: ch.name,
+      delta: (ch.optimal_spend ?? 0) - (ch.current_spend ?? 0),
+      deltaPct: ch.current_spend > 0 ? ((ch.optimal_spend ?? 0) - (ch.current_spend ?? 0)) / ch.current_spend * 100 : 0,
+      action: ch.action,
+    }))
+    .sort((/** @type {any} */ a, /** @type {any} */ b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct));
 
-  // Biggest changes
-  const changes = data.channels
-    .map(ch => ({ name: ch.name, delta: (ch.optimal_spend - ch.current_spend), deltaPct: ch.current_spend > 0 ? (ch.optimal_spend - ch.current_spend) / ch.current_spend * 100 : 0 }))
-    .sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct));
-
-  const biggest = changes[0];
-  if (biggest && Math.abs(biggest.deltaPct) > 20) {
-    const dir = biggest.deltaPct > 0 ? 'увеличить' : 'сократить';
-    out.push({ severity: 'info', text: `Главное изменение: ${dir} ${biggest.name} на ${Math.abs(biggest.deltaPct).toFixed(0)}%.` });
+  const significantChanges = changes.filter(c => Math.abs(c.deltaPct) > 5);
+  if (significantChanges.length > 0) {
+    const lines = significantChanges.slice(0, 4).map(c => {
+      const arrow = c.deltaPct > 0 ? '↑' : '↓';
+      const sign = c.deltaPct > 0 ? '+' : '';
+      const deltaAbs = Math.abs(c.delta).toLocaleString('ru-RU');
+      return `${arrow} ${c.name}: ${sign}${c.deltaPct.toFixed(0)}% (${c.deltaPct > 0 ? '+' : '−'}${deltaAbs}₽)`;
+    }).join('\n');
+    out.push({
+      severity: 'info',
+      text: `Главные сдвиги бюджета (${significantChanges.length} канал${significantChanges.length > 4 ? 'ов' : significantChanges.length > 1 ? 'а' : ''}):`,
+      tip: lines + '\n\nПерекладка идёт из перенасыщенных каналов в недонасыщенные — где каждый рубль ещё работает на полную.',
+    });
+  } else if (Math.abs(lift) < 0.5) {
+    out.push({
+      severity: 'info',
+      text: 'Все каналы остаются практически в текущих позициях (изменения < 5%).',
+      tip: 'Подтверждение того, что текущее распределение близко к оптимальному в рамках заданных лимитов.',
+    });
   }
+
+  // ── 3. Влияние custom-лимитов (если экспертный режим был использован) ──
+  let customCount = 0;
+  let lockedCount = 0;
+  for (const ch of channels) {
+    const minP = channelMinPct[ch.name];
+    const maxP = channelMaxPct[ch.name];
+    if (minP == null && maxP == null) continue;
+    if ((minP != null && minP !== globalMinPct) || (maxP != null && maxP !== globalMaxPct)) {
+      customCount++;
+      if ((minP ?? globalMinPct) === 100 && (maxP ?? globalMaxPct) === 100) lockedCount++;
+    }
+  }
+  if (customCount > 0) {
+    out.push({
+      severity: 'info',
+      text: `Применены custom-ограничения: ${customCount} канал${customCount > 4 ? 'ов' : customCount > 1 ? 'а' : ''}${lockedCount > 0 ? ` (из них зафиксировано: ${lockedCount})` : ''}.`,
+      tip: 'Custom-лимиты учтены оптимизатором как hard-constraints (бизнес-ограничения: контракты, обязательства). Без них достижимый lift мог бы быть выше — но рекомендации были бы нереалистичны.',
+    });
+  }
+
+  // ── 4. Total budget изменение (если What-if когда-нибудь добавим) ──
+  if (totalBudget > 0 && Math.abs(totalOptimal - totalCurrent) / Math.max(totalCurrent, 1) > 0.05) {
+    const diff = totalOptimal - totalCurrent;
+    const sign = diff > 0 ? '+' : '';
+    out.push({
+      severity: 'info',
+      text: `Оптимальный общий бюджет: ${totalOptimal.toLocaleString('ru-RU')}₽ (${sign}${diff.toLocaleString('ru-RU')}₽ к текущему ${totalCurrent.toLocaleString('ru-RU')}₽).`,
+      tip: 'Это значит «Фиксировать бюджет» был выключен — оптимизатор сам нашёл лучшую сумму в рамках per-channel лимитов.',
+    });
+  }
+
+  // ── 5. Action items: куда дальше ──
+  out.push({
+    severity: 'info',
+    text: 'Что делать дальше:',
+    tip: '• Двигайте слайдеры в блоке B — увидите как меняется прогноз KPI в реальном времени.\n• Используйте What-if (блок C, скоро) для планирования другого бюджета.\n• Прогноз на будущий период (блок D, скоро) — учёт медиаинфляции.\n• Когда готовы — нажмите «Подтвердить и перейти к отчёту».',
+  });
 
   return out;
 }

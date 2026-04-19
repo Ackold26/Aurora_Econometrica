@@ -14,6 +14,7 @@
    *   channelBudgets: Record<string, number>,
    *   initialSpend: Record<string, number>,
    *   currentKPI: number,
+   *   normalization?: {y_mean: number, y_std: number} | null,
    *   locked: boolean,
    *   onBudgetChange: (ch: string, val: number) => void,
    *   onOptimize: () => void,
@@ -28,6 +29,7 @@
     channelBudgets,
     initialSpend,
     currentKPI,
+    normalization = null,
     locked,
     onBudgetChange,
     onOptimize,
@@ -36,10 +38,15 @@
     optimalBudgets = null,
   } = $props();
 
-  // Predicted KPI from current sliders
-  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams));
+  // Predicted KPI from current sliders — денормализован в исходные единицы.
+  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization));
   const liftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
   const totalBudget = $derived(Object.values(channelBudgets).reduce((s, v) => s + v, 0));
+
+  // Базовый текущий бюджет (initial spend) — для расчёта delta общего бюджета.
+  const initialTotal = $derived(Object.values(initialSpend).reduce((s, /** @type {number} */ v) => s + v, 0));
+  const budgetDeltaPct = $derived(initialTotal > 0 ? ((totalBudget - initialTotal) / initialTotal * 100) : 0);
+  const budgetDeltaAbs = $derived(totalBudget - initialTotal);
 
   /**
    * Handle slider input — redistribute if locked.
@@ -80,6 +87,13 @@
   <div class="total-row">
     <span class="total-label">Общий бюджет</span>
     <span class="total-value">{fmt(totalBudget)} ₽</span>
+    {#if Math.abs(budgetDeltaPct) >= 0.5}
+      <span class="budget-delta" class:positive={budgetDeltaPct > 0} class:negative={budgetDeltaPct < 0}
+            title="Изменение относительно текущего бюджета {fmt(initialTotal)} ₽">
+        {budgetDeltaPct > 0 ? '+' : ''}{budgetDeltaPct.toFixed(0)}%
+        <span class="budget-delta-abs">({budgetDeltaAbs > 0 ? '+' : ''}{fmt(Math.abs(budgetDeltaAbs))} ₽)</span>
+      </span>
+    {/if}
     <span class="lock-badge" class:locked title={locked ? 'Бюджет заблокирован — перераспределение' : 'Свободное изменение'}>
       {locked ? '🔒' : '🔓'}
     </span>
@@ -157,7 +171,27 @@
     border: 1px solid rgba(255,255,255,0.08);
   }
   .total-label { font-size: 12px; color: var(--text-secondary, #94a3b8); flex: 1; }
-  .total-value { font-size: 14px; font-weight: 600; color: var(--text-primary, #e2e8f0); font-family: monospace; }
+  .total-value { font-size: 14px; font-weight: 600; color: var(--text-primary, #e2e8f0); font-family: monospace; font-variant-numeric: tabular-nums; }
+  .budget-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: monospace;
+    cursor: help;
+  }
+  .budget-delta.positive {
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
+  }
+  .budget-delta.negative {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    color: var(--danger);
+  }
+  .budget-delta-abs { font-size: 10px; opacity: 0.8; font-weight: 500; }
   .lock-badge { font-size: 14px; cursor: default; }
 
   .sliders {

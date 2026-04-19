@@ -491,6 +491,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'model_path': str(model_path),
             'diagnostics': diagnostics,
             'channel_params': channel_params,
+            # Нормализация y нужна фронту для денормализации интерактивного predictKPI:
+            # модель работает в нормализованной шкале (y_norm = (y - y_mean) / y_std).
+            # Чтобы показать KPI в исходных единицах (рублях), фронт умножает predict на y_std + y_mean.
+            'normalization': {
+                'y_mean': float(y_mean),
+                'y_std': float(y_std),
+            },
             'mcmc_info': {
                 **mcmc,
                 'has_compiler': has_compiler,

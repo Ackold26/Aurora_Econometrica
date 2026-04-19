@@ -95,6 +95,9 @@
     isComputing.set(true);
     computeStatus.set('Markov Chain Monte Carlo сэмплирование...');
     try { localStorage.setItem(TASK_KEY, taskId); } catch { /* ignore */ }
+    // Сброс downstream-шагов: при перетренировке Decompose/Optimize/Report устаревают.
+    // Без этого на stepper'е оставались старые статусы (например ✕ от прошлой ошибки).
+    resetDownstream(2);
   }
 
   /**
@@ -111,12 +114,25 @@
         diagnostics: result.diagnostics,
         channelParams: result.channel_params,
         picklePath: result.model_path,
+        normalization: result.normalization ?? null,
       });
       stepState = 'trained';
       completeStep(2);
+      // Auto-scroll к секции с результатами через небольшую задержку,
+      // чтобы успел появиться success-баннер и ConfigPanel свернул advanced.
+      setTimeout(() => {
+        const target = document.querySelector('#model-results-anchor');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 600);
     } else {
       handleError(result.message || 'Ошибка обучения модели');
     }
+  }
+
+  /** Прокрутить страницу к секции результатов (вызывается из success-баннера). */
+  function scrollToResults() {
+    const target = document.querySelector('#model-results-anchor');
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   /**
@@ -165,6 +181,25 @@
 
 <div class="model-training-step">
 
+  <!-- Success banner (после тренировки) — заметная подсказка что результаты ниже. -->
+  {#if stepState === 'trained' && diagnostics}
+    {@const m = diagnostics.metrics ?? diagnostics}
+    {@const rSq = m.r_squared ?? diagnostics.r_squared}
+    {@const mScore = mqs?.score}
+    {@const mLabel = mqs?.tier_label ?? ''}
+    <div class="success-banner">
+      <span class="success-icon">✅</span>
+      <div class="success-text">
+        <strong>Модель обучена!</strong>
+        {#if mScore != null}
+          MQS = <b>{mScore.toFixed(0)}</b> ({mLabel}){#if rSq != null}, R² = <b>{rSq.toFixed(3)}</b>{/if}.
+        {/if}
+        Результаты ниже.
+      </div>
+      <button class="btn-scroll-results" onclick={scrollToResults}>↓ Смотреть детали</button>
+    </div>
+  {/if}
+
   <!-- ConfigPanel — always rendered (visibility) — A3: async flow via useAsyncTraining prop -->
   <div
     class="config-area"
@@ -176,6 +211,7 @@
       useAsyncTraining={true}
       onTrainingStarted={handleTrainingStarted}
       bind:lastConfig
+      modelTrained={stepState === 'trained'}
     />
   </div>
 
@@ -202,8 +238,9 @@
     </div>
   {/if}
 
-  <!-- Results (after training) -->
+  <!-- Results (after training) — anchor для auto-scroll. -->
   {#if stepState === 'trained' && diagnostics}
+    <div id="model-results-anchor"></div>
     <!-- MQS Badge -->
     {#if mqs}
       <MQSBadge diagnostics={diagnostics} />
@@ -232,6 +269,43 @@
   .config-area {
     transition: opacity 0.2s;
   }
+
+  .success-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
+    border-radius: 10px;
+    animation: success-slide-in 0.4s ease-out;
+  }
+  @keyframes success-slide-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .success-icon { font-size: 20px; flex-shrink: 0; }
+  .success-text {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.5;
+  }
+  .success-text strong { color: var(--success); margin-right: 6px; }
+  .success-text b { color: var(--text-primary); font-weight: 700; }
+  .btn-scroll-results {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    background: var(--success);
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-scroll-results:hover { opacity: 0.9; }
 
   .error-banner {
     display: flex;

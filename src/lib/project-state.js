@@ -172,8 +172,8 @@ export const validateData = writable({ result: null, correlationMatrix: null, co
  */
 export const analysisObjective = writable('roi');
 
-/** @type {import('svelte/store').Writable<{diagnostics: any|null, channelParams: any|null, picklePath: string|null}>} */
-export const modelData = writable({ diagnostics: null, channelParams: null, picklePath: null });
+/** @type {import('svelte/store').Writable<{diagnostics: any|null, channelParams: any|null, picklePath: string|null, normalization?: {y_mean: number, y_std: number}|null}>} */
+export const modelData = writable({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
 
 /** @type {import('svelte/store').Writable<any|null>} */
 export const decomposeData = writable(null);
@@ -192,7 +192,7 @@ export const reportData = writable(null);
  */
 export function resetDownstream(fromStep) {
   if (fromStep < 1) validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
-  if (fromStep < 2) modelData.set({ diagnostics: null, channelParams: null, picklePath: null });
+  if (fromStep < 2) modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   if (fromStep < 3) decomposeData.set(null);
   if (fromStep < 4) optimizeData.set(null);
   if (fromStep < 5) reportData.set(null);
@@ -250,7 +250,7 @@ export function loadPipelineForProject(projectId) {
   // A4: data stores always reset (never persisted)
   importData.set({ file: null, columns: null, rows: null });
   validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
-  modelData.set({ diagnostics: null, channelParams: null, picklePath: null });
+  modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   decomposeData.set(null);
   optimizeData.set(null);
   reportData.set(null);
@@ -268,7 +268,7 @@ export function resetForNewAnalysis() {
   pipelineStepMeta.set(defaultStepMeta());
   importData.set({ file: null, columns: null, rows: null });
   validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
-  modelData.set({ diagnostics: null, channelParams: null, picklePath: null });
+  modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   decomposeData.set(null);
   optimizeData.set(null);
   reportData.set(null);
