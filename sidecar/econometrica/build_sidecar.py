@@ -66,6 +66,14 @@ PYINSTALLER_ARGS = [
     '--add-data', f'{ROOT / "charts"}:charts',
     '--add-data', f'{ROOT / "utils"}:utils',
 
+    # Collect data files for packages that ship non-Python resources at runtime
+    # Fixes FileNotFoundError on arviz/static/html/icons-svg-inline.html
+    # and arviz/data/example_data/*.json at /health import chain
+    '--collect-data=arviz',
+    '--collect-data=pymc',
+    '--collect-data=pymc_marketing',
+    '--collect-data=xarray',
+
     # Exclude torch — would add 2GB, not needed (FTS5/keyword ML only)
     '--exclude-module=torch',
     '--exclude-module=torchvision',
