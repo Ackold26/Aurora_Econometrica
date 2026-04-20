@@ -1,6 +1,6 @@
 [package]
 name = "aurora-econometrica-gui"
-version = "1.0.8"
+version = "1.0.9"
 description = "Aurora AI Econometrica — Marketing Mix Modeling with Claude AI"
 authors = ["Ackold"]
 edition = "2021"
@@ -8,6 +8,12 @@ edition = "2021"
 [lib]
 name = "aurora_econometrica_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# Включается по умолчанию ТОЛЬКО в AI_APP_AGENCY — единственный «native» Agency
+# продукт. В 9 форках feature отсутствует → legacy %APPDATA%\AIAgency\license.json
+# fallback компилируется в zero-LOC. См. memory/project_per_user_port_isolation.md.
+legacy_aiagency_fallback = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -64,6 +70,15 @@ trash = "5"
 # Non-blocking child.wait — защита от зависания shutdown на зомби-процессе
 wait-timeout = "0.2"
 
-# Windows system info
+# SID hashing для deterministic per-user port allocation (RDP multi-user isolation)
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# Windows system info + API для process owner detection
 [target.'cfg(windows)'.dependencies]
 wmi = "0.14"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Threading",
+] }

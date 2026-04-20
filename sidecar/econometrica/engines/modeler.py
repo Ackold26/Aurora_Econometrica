@@ -3,6 +3,7 @@ MMM Model training engine using PyMC-Marketing.
 Bayesian Marketing Mix Model with Adstock + Hill saturation.
 """
 import json
+import os
 import pickle
 import logging
 from datetime import datetime
@@ -269,50 +270,153 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # elapsed timer in UI shows progress is alive
             report('sampling', pct=25)
 
-            # Prefer JAX/NumPyro backend (5-15× faster than PyTensor Python fallback).
-            # PyTensor on Windows doesn't find g++ by default → falls back to slow Python NUTS.
-            # NumPyro uses JAX+XLA → compiles gradient graph to native, handles parallel chains.
+            # ───────────────────────────────────────────────────────────────
+            # Tier-based MCMC sampling с fallback (v1.0.9)
+            # ───────────────────────────────────────────────────────────────
+            # Tier-1: NumPyro NUTS (JAX JIT + vectorized chains) — 5-15× быстрее.
+            # Tier-2: PyTensor NUTS (cores=1) — стабильный, но 3-5× медленнее.
+            # Full fail: honest RuntimeError с кодом MMM_SAMPLER_EXHAUSTED.
+            #
+            # Metropolis НЕ используется как Tier-3 fallback — на MMM с
+            # Adstock/Hill он даёт r_hat > 2.0 (ложный зелёный результат
+            # опаснее честного fail).
+            #
+            # Fallback Tier-1 → Tier-2 ТОЛЬКО на `functools.partial` ошибке
+            # (известный PyMC 5 + JAX JIT bug для custom Deterministic).
+            # Другие ошибки (плохие данные, numerical issues) не маскируем
+            # медленным backend'ом — Tier-2 даст ту же ошибку за 10 минут.
+            #
+            # Override: env `AURORA_NUTS_BACKEND=numpyro|pymc|auto` позволяет
+            # оператору форсировать конкретный backend без rebuild'а.
+            # ───────────────────────────────────────────────────────────────
+            _backend = os.environ.get('AURORA_NUTS_BACKEND', 'auto').lower()
             _use_numpyro = False
-            try:
-                import numpyro  # noqa: F401
-                import jax  # noqa: F401
-                _use_numpyro = True
-                logger.info('Using NumPyro NUTS sampler (JAX backend)')
-            except ImportError:
-                logger.warning('NumPyro/JAX not available — falling back to PyTensor NUTS')
+            if _backend in ('auto', 'numpyro'):
+                try:
+                    import numpyro  # noqa: F401
+                    import jax  # noqa: F401
+                    _use_numpyro = True
+                    logger.info(
+                        f'MCMC backend: NumPyro NUTS (JAX) — '
+                        f'numpyro={numpyro.__version__}, jax={jax.__version__}'
+                    )
+                except ImportError:
+                    if _backend == 'numpyro':
+                        raise RuntimeError(
+                            'AURORA_NUTS_BACKEND=numpyro but NumPyro/JAX not installed'
+                        )
+                    logger.warning('NumPyro/JAX not available — using PyTensor NUTS')
 
-            if _use_numpyro:
-                trace = pm.sample(
-                    draws=draws,
-                    tune=tune,
-                    chains=chains,
-                    return_inferencedata=True,
-                    progressbar=True,
-                    nuts_sampler='numpyro',
-                    chain_method='vectorized',  # parallel chains in single JAX call
+            trace = None
+            _sampling_errors: list[tuple[str, str]] = []
+
+            def _is_partial_bug(exc: BaseException) -> bool:
+                """PyMC 5 + JAX JIT bug: custom Deterministic → functools.partial
+                без __name__. Fallback оправдан только на этой конкретной ошибке."""
+                msg = str(exc)
+                return 'functools.partial' in msg or "'__name__'" in msg
+
+            # ── Tier 1: NumPyro NUTS ───────────────────────────────────
+            if _use_numpyro and _backend != 'pymc':
+                try:
+                    logger.info(
+                        f'Sampling: Tier-1 NumPyro NUTS '
+                        f'(chains={chains}, draws={draws}, tune={tune})'
+                    )
+                    trace = pm.sample(
+                        draws=draws,
+                        tune=tune,
+                        chains=chains,
+                        return_inferencedata=True,
+                        progressbar=True,
+                        nuts_sampler='numpyro',
+                        chain_method='vectorized',
+                    )
+                    logger.info('Tier-1 NumPyro NUTS: SUCCESS')
+                except AttributeError as e:
+                    if _is_partial_bug(e):
+                        logger.warning(
+                            f'Tier-1 NumPyro NUTS: functools.partial bug '
+                            f'({str(e)[:150]}) — falling back to Tier-2 PyTensor NUTS'
+                        )
+                        _sampling_errors.append(('numpyro', f'partial bug: {str(e)[:200]}'))
+                        trace = None
+                    else:
+                        # Другая AttributeError — не маскируем медленным fallback'ом
+                        raise
+                except Exception as e:
+                    # Non-partial errors (bad data, numerical issues) — instant fail,
+                    # Tier-2 на тех же данных вернёт то же
+                    _sampling_errors.append(
+                        ('numpyro', f'{type(e).__name__}: {str(e)[:200]}')
+                    )
+                    logger.error(
+                        f'Tier-1 NumPyro NUTS failed on non-partial error: '
+                        f'{type(e).__name__}: {e}'
+                    )
+                    raise
+
+            # ── Tier 2: PyTensor NUTS ──────────────────────────────────
+            if trace is None:
+                logger.info(
+                    f'Sampling: Tier-2 PyTensor NUTS '
+                    f'(chains={chains}, draws={draws}, tune={tune}, cores=1)'
                 )
-            else:
                 try:
                     def _draw_cb(trace_slice, draw):
                         pass
-                    trace = pm.sample(
-                        draws=draws,
-                        tune=tune,
-                        chains=chains,
-                        cores=1,
-                        return_inferencedata=True,
-                        progressbar=True,
-                        callback=_draw_cb,
+                    try:
+                        trace = pm.sample(
+                            draws=draws,
+                            tune=tune,
+                            chains=chains,
+                            cores=1,
+                            return_inferencedata=True,
+                            progressbar=True,
+                            callback=_draw_cb,
+                        )
+                    except TypeError:
+                        # Callback не поддерживается (старая PyMC версия)
+                        trace = pm.sample(
+                            draws=draws,
+                            tune=tune,
+                            chains=chains,
+                            cores=1,
+                            return_inferencedata=True,
+                            progressbar=True,
+                        )
+                    logger.info('Tier-2 PyTensor NUTS: SUCCESS')
+                except AttributeError as e:
+                    if _is_partial_bug(e):
+                        _sampling_errors.append(
+                            ('pytensor', f'partial bug: {str(e)[:200]}')
+                        )
+                        logger.error(
+                            'Tier-2 PyTensor NUTS тоже упал на functools.partial. '
+                            'Модель structurally несовместима с текущим PyMC 5 build.'
+                        )
+                        trace = None
+                    else:
+                        raise
+                except Exception as e:
+                    _sampling_errors.append(
+                        ('pytensor', f'{type(e).__name__}: {str(e)[:200]}')
                     )
-                except TypeError:
-                    trace = pm.sample(
-                        draws=draws,
-                        tune=tune,
-                        chains=chains,
-                        cores=1,
-                        return_inferencedata=True,
-                        progressbar=True,
-                    )
+                    raise
+
+            # ── Full fail: honest error (NO Metropolis — даёт r_hat > 2) ──
+            if trace is None:
+                _err_summary = '\n'.join(
+                    f'  - {tier}: {msg}' for tier, msg in _sampling_errors
+                )
+                raise RuntimeError(
+                    'MMM_SAMPLER_EXHAUSTED: не удалось обучить модель ни одним '
+                    'MCMC backend\'ом (NumPyro, PyTensor).\n'
+                    f'Попытки:\n{_err_summary}\n\n'
+                    'Это structural incompatibility между PyMC 5 и конфигурацией '
+                    'модели (Adstock/Hill custom Deterministic). Обратитесь в '
+                    'поддержку с диагностическим отчётом.'
+                )
 
         report('diagnostics', pct=90)
 
@@ -508,10 +612,46 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         return {
             'status': 'error',
             'message': f'Пакет не установлен: {e}. Запустите pip install pymc pymc-marketing',
+            'error_code': 'IMPORT_ERROR',
         }
-    except Exception as e:
-        logger.exception("Model training failed")
+    except RuntimeError as e:
+        # MMM_SAMPLER_EXHAUSTED — honest error из triple fallback, с деталями
+        msg = str(e)
+        if 'MMM_SAMPLER_EXHAUSTED' in msg:
+            logger.error(f"MMM sampler exhausted: {msg}")
+            return {
+                'status': 'error',
+                'message': msg,
+                'error_code': 'MMM_SAMPLER_EXHAUSTED',
+            }
+        logger.exception("Model training failed (RuntimeError)")
         return {
             'status': 'error',
-            'message': f'Ошибка обучения модели: {e}',
+            'message': f'Ошибка обучения модели: {msg[:300]}',
+            'error_code': 'RUNTIME_ERROR',
+        }
+    except AttributeError as e:
+        # Оставшийся functools.partial где-то ВНЕ sampling-блока (маловероятно,
+        # но возможно — например, в save/pickle). Диагностика для поддержки.
+        msg = str(e)
+        if 'functools.partial' in msg or "'__name__'" in msg:
+            logger.exception("functools.partial bug вне sampling block")
+            return {
+                'status': 'error',
+                'message': f'Ошибка сериализации модели: {msg[:200]}. '
+                           f'Обратитесь в поддержку с кодом SERIALIZATION_ERROR.',
+                'error_code': 'SERIALIZATION_ERROR',
+            }
+        logger.exception("Model training failed (AttributeError)")
+        return {
+            'status': 'error',
+            'message': f'Ошибка обучения модели: {msg[:300]}',
+            'error_code': 'ATTRIBUTE_ERROR',
+        }
+    except Exception as e:
+        logger.exception("Model training failed (unexpected)")
+        return {
+            'status': 'error',
+            'message': f'Ошибка обучения модели: {str(e)[:300]}',
+            'error_code': 'UNKNOWN_ERROR',
         }

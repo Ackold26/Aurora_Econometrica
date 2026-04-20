@@ -1,7 +1,15 @@
 //! Econometrica sidecar HTTP proxy commands.
 //!
-//! Forwards computation requests to the Python sidecar at :7430.
+//! Forwards computation requests to the Python sidecar. Порт больше не
+//! захардкожен — читается из `econ_sidecar::current_port()`, который устанавливается
+//! через `sidecar_runtime::allocate_port()` (deterministic per-user).
+//!
 //! All heavy math (MCMC, optimization, charts) runs locally in Python — 0 Claude tokens.
+//!
+//! # v1.0.9: X-Expected-Session handshake
+//! Каждый POST добавляет заголовок `X-Expected-Session: <uuid>`. Sidecar
+//! возвращает 409 если session_id не совпадает (foreign sidecar после reset),
+//! и тогда мы делаем re-handshake (ensure_alive) + retry один раз.
 
 use serde_json::Value;
 use log::{info, warn};
@@ -10,7 +18,19 @@ use std::time::Duration;
 
 use crate::econ_sidecar;
 
-const ECON_BASE: &str = "http://127.0.0.1:7430";
+/// Базовый URL sidecar — динамический порт. Использовать только через эту функцию.
+fn econ_url(path: &str) -> String {
+    format!("{}{}", econ_sidecar::base_url(), path)
+}
+
+/// Добавляет заголовок X-Expected-Session если session_id известен.
+fn with_session(rb: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    if let Some(sid) = econ_sidecar::current_session_id() {
+        rb.header("X-Expected-Session", sid)
+    } else {
+        rb
+    }
+}
 
 /// Timeout for quick endpoints (validate, decompose, optimize, charts)
 const QUICK_TIMEOUT_SECS: u64 = 60;
@@ -46,7 +66,7 @@ fn health_client() -> &'static reqwest::Client {
 #[tauri::command]
 pub async fn econ_health() -> Result<Value, String> {
     match health_client()
-        .get(format!("{ECON_BASE}/health"))
+        .get(econ_url("/health"))
         .send()
         .await
     {
@@ -168,8 +188,7 @@ pub async fn econ_train_start(config: Value) -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn econ_train_progress() -> Result<Value, String> {
-    health_client()
-        .get(format!("{ECON_BASE}/compute/train/progress"))
+    with_session(health_client().get(econ_url("/compute/train/progress")))
         .send()
         .await
         .map_err(|e| format!("Вычислительный модуль недоступен: {e}"))?
@@ -181,8 +200,7 @@ pub async fn econ_train_progress() -> Result<Value, String> {
 #[tauri::command]
 pub async fn econ_train_cancel(task_id: String) -> Result<Value, String> {
     info!("econ_train_cancel: {task_id}");
-    quick_client()
-        .post(format!("{ECON_BASE}/compute/train/cancel/{task_id}"))
+    with_session(quick_client().post(econ_url(&format!("/compute/train/cancel/{task_id}"))))
         .send()
         .await
         .map_err(|e| format!("Вычислительный модуль недоступен: {e}"))?
@@ -194,8 +212,7 @@ pub async fn econ_train_cancel(task_id: String) -> Result<Value, String> {
 #[tauri::command]
 pub async fn econ_train_result(task_id: String) -> Result<Value, String> {
     info!("econ_train_result: {task_id}");
-    quick_client()
-        .get(format!("{ECON_BASE}/compute/train/result/{task_id}"))
+    with_session(quick_client().get(econ_url(&format!("/compute/train/result/{task_id}"))))
         .send()
         .await
         .map_err(|e| format!("Вычислительный модуль недоступен: {e}"))?
@@ -265,16 +282,17 @@ pub async fn econ_export_pptx(
 
 // ── Helper ───────────────────────────────────────────
 
-/// POST with auto-recovery: on connect errors, trigger sidecar respawn + retry once.
-/// HTTP-level errors (4xx/5xx with JSON body) pass through untouched — those are app errors,
-/// not sidecar crashes.
+/// POST with auto-recovery:
+/// - connect/timeout errors → trigger sidecar respawn + retry once
+/// - HTTP 409 (session mismatch) → re-handshake + retry once (foreign sidecar detected)
+/// - 4xx/5xx с JSON body → pass through untouched (app errors, not sidecar issues)
 async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result<Value, String> {
-    let resp = match client
-        .post(format!("{ECON_BASE}{path}"))
-        .json(body)
-        .send()
-        .await
-    {
+    let send_once = |c: &reqwest::Client, url: String| {
+        let req = with_session(c.post(url).json(body));
+        async move { req.send().await }
+    };
+
+    let resp = match send_once(client, econ_url(path)).await {
         Ok(r) => r,
         Err(e) if e.is_connect() || e.is_timeout() => {
             warn!("Sidecar unreachable on {path} ({e}) — attempting auto-respawn");
@@ -284,16 +302,10 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
                      Попробуй нажать «Перезапустить модуль» или проверь логи sidecar: {e}"
                 ));
             }
-            // Retry once after successful respawn
-            client
-                .post(format!("{ECON_BASE}{path}"))
-                .json(body)
-                .send()
-                .await
-                .map_err(|e2| {
-                    warn!("Retry after respawn failed on {path}: {e2}");
-                    format!("Модуль перезапущен, но запрос всё ещё не проходит: {e2}")
-                })?
+            send_once(client, econ_url(path)).await.map_err(|e2| {
+                warn!("Retry after respawn failed on {path}: {e2}");
+                format!("Модуль перезапущен, но запрос всё ещё не проходит: {e2}")
+            })?
         }
         Err(e) => {
             warn!("Econometrica sidecar request failed: {e}");
@@ -301,10 +313,29 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
         }
     };
 
+    // v1.0.9: 409 Conflict → session mismatch → re-handshake + retry once
+    if resp.status() == reqwest::StatusCode::CONFLICT {
+        warn!(
+            "Sidecar {path} returned 409 (session mismatch) — \
+             re-handshake and retry"
+        );
+        // ensure_alive делает /health verify_handshake + respawn если чужой
+        if !econ_sidecar::ensure_alive().await {
+            return Err("Session mismatch: модуль не удалось переинициализировать".to_string());
+        }
+        let resp2 = send_once(client, econ_url(path)).await.map_err(|e| {
+            warn!("Retry after 409 failed on {path}: {e}");
+            format!("Запрос не прошёл после re-handshake: {e}")
+        })?;
+        return parse_resp(resp2, path).await;
+    }
+
+    parse_resp(resp, path).await
+}
+
+async fn parse_resp(resp: reqwest::Response, path: &str) -> Result<Value, String> {
     let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("Не удалось прочитать ответ: {e}"))?;
-
-    // Try JSON parse regardless of status — sidecar returns JSON for 200 and 500 alike.
     match serde_json::from_str::<Value>(&text) {
         Ok(v) => {
             if !status.is_success() {

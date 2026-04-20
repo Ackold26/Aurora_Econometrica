@@ -56,27 +56,45 @@ impl License {
         Ok(license)
     }
 
-    /// Returns the path where license is currently stored (per-app first, then legacy fallbacks).
-    fn resolve_license_path(app_config_dir: &Path) -> Option<PathBuf> {
-        // 1. Per-app directory (Tauri v2 idiomatic)
-        let primary = Self::license_path(app_config_dir);
+    /// Returns the path where license is currently stored.
+    ///
+    /// Primary: `<app_config_dir>/license.json` (Tauri v2 per-app idiomatic).
+    ///
+    /// Legacy fallbacks (`%APPDATA%\AIAgency\`, `%PROGRAMDATA%\AIAgency\`) —
+    /// только с feature `legacy_aiagency_fallback`. По умолчанию включена
+    /// ТОЛЬКО в AI_APP_AGENCY; в 9 форках (Econometrica, Legal, Creative и т.д.)
+    /// feature отсутствует → legacy-ветки компилируются в zero-LOC.
+    ///
+    /// Почему: contamination из `%APPDATA%\AIAgency\license.json` (оставленной
+    /// старой установкой Aurora Agency) подтягивалась в форкнутые продукты —
+    /// юзер видел `Issued To: "Юрист"` в Econometrica с лицензии, которой в
+    /// Supabase нет. См. memory/project_per_user_port_isolation.md.
+    fn resolve_license_path(_app_config_dir: &Path) -> Option<PathBuf> {
+        // 1. Per-app directory (always)
+        let primary = Self::license_path(_app_config_dir);
         if primary.exists() {
             return Some(primary);
         }
-        // 2. Legacy: %APPDATA%\AIAgency\license.json
-        let app_data = std::env::var("APPDATA")
-            .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Roaming".to_string());
-        let legacy_appdata = PathBuf::from(app_data).join("AIAgency").join("license.json");
-        if legacy_appdata.exists() {
-            return Some(legacy_appdata);
+
+        #[cfg(feature = "legacy_aiagency_fallback")]
+        {
+            // 2. Legacy: %APPDATA%\AIAgency\license.json
+            let app_data = std::env::var("APPDATA")
+                .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Roaming".to_string());
+            let legacy_appdata = PathBuf::from(app_data).join("AIAgency").join("license.json");
+            if legacy_appdata.exists() {
+                return Some(legacy_appdata);
+            }
+            // 3. Legacy: %PROGRAMDATA%\AIAgency\license.json
+            let program_data = std::env::var("PROGRAMDATA")
+                .unwrap_or_else(|_| "C:\\ProgramData".to_string());
+            let legacy_programdata =
+                PathBuf::from(program_data).join("AIAgency").join("license.json");
+            if legacy_programdata.exists() {
+                return Some(legacy_programdata);
+            }
         }
-        // 3. Legacy: %PROGRAMDATA%\AIAgency\license.json
-        let program_data = std::env::var("PROGRAMDATA")
-            .unwrap_or_else(|_| "C:\\ProgramData".to_string());
-        let legacy_programdata = PathBuf::from(program_data).join("AIAgency").join("license.json");
-        if legacy_programdata.exists() {
-            return Some(legacy_programdata);
-        }
+
         None
     }
 
@@ -197,8 +215,49 @@ impl License {
     }
 }
 
+/// Переименовать найденный legacy license file в `.bak`, чтобы убрать его
+/// из контаминации будущих диагностик. Никогда не **использует** этот файл,
+/// только изолирует. Graceful fail на любых ошибках (permission, ACL).
+///
+/// Запускать на cold start приложения (после попытки online auth).
+/// Идемпотентно: если `.bak` уже есть, не делает ничего.
+pub fn quarantine_legacy_files() {
+    let candidates = [
+        std::env::var("APPDATA")
+            .ok()
+            .map(|p| PathBuf::from(p).join("AIAgency").join("license.json")),
+        std::env::var("PROGRAMDATA")
+            .ok()
+            .map(|p| PathBuf::from(p).join("AIAgency").join("license.json")),
+    ];
+    for candidate in candidates.into_iter().flatten() {
+        if !candidate.exists() {
+            continue;
+        }
+        let bak = candidate.with_file_name("license.legacy.bak");
+        if bak.exists() {
+            // Уже quarantined — ничего не делаем
+            continue;
+        }
+        match std::fs::rename(&candidate, &bak) {
+            Ok(_) => log::info!(
+                "Legacy license quarantined: {} → {}",
+                candidate.display(),
+                bak.display()
+            ),
+            Err(e) => log::debug!(
+                "Quarantine skipped ({}): {e} — probably permission/ACL issue, not fatal",
+                candidate.display()
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use std::fs;
+
     #[test]
     fn license_verify_signature_invalid() {
         // Подпись неправильной длины — ed25519::verify_signature вернёт ошибку
@@ -211,6 +270,38 @@ mod tests {
         let result = crate::crypto::ed25519::verify_signature(b"test data", &garbage_64);
         assert!(result.is_ok(), "64-byte garbage should not cause Err");
         assert!(!result.unwrap(), "64-byte garbage signature should not verify as valid");
+    }
+
+    /// Без feature `legacy_aiagency_fallback` resolve_license_path НЕ должен
+    /// возвращать legacy path, даже если файл реально существует.
+    #[cfg(not(feature = "legacy_aiagency_fallback"))]
+    #[test]
+    fn resolve_license_path_no_legacy_when_feature_off() {
+        // Создаём temp app_config_dir где НЕТ license.json
+        let tmp = std::env::temp_dir().join(format!(
+            "aurora-test-license-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        // primary не существует
+        assert!(!tmp.join("license.json").exists());
+
+        // Feature off → resolve должен вернуть None даже если legacy есть
+        // (мы НЕ создаём реальный legacy в %APPDATA% чтобы не портить среду;
+        // тест проверяет логику: primary нет → None без feature)
+        let resolved = License::resolve_license_path(&tmp);
+        assert!(
+            resolved.is_none(),
+            "Без feature legacy_aiagency_fallback resolve должен вернуть None"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn quarantine_legacy_noop_if_missing() {
+        // Файла нет → функция ничего не делает и не падает
+        quarantine_legacy_files(); // smoke test — не должно паниковать
     }
 }
 

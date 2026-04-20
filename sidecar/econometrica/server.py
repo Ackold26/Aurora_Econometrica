@@ -1,16 +1,24 @@
 """
 Aurora AI Econometrica — Python Sidecar Server.
 FastAPI server for local MMM computations (0 Claude tokens).
-Port: 7430
+
+Port: принимается через sys.argv[1] (fallback 7430 для back-compat).
+Version: из env AURORA_PRODUCT_VERSION (fallback '1.0.9').
+Product ID: из env AURORA_PRODUCT_ID (fallback 'com.aurora.econometrica').
+
+Per-user RDP изоляция обеспечивается на Rust-стороне — этот сервер
+просто слушает переданный ему порт.
 """
 import json
 import logging
+import logging.handlers
 import os
+import signal
 import sys
 import threading
 import uuid
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,22 +27,37 @@ _sidecar_root = str(Path(__file__).parent)
 if _sidecar_root not in sys.path:
     sys.path.insert(0, _sidecar_root)
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-# Configure logging — dual output: stderr + file in %APPDATA%
-_log_dir = Path(os.environ.get('APPDATA', '.')) / 'aurora-econometrica-gui' / 'logs'
+# ── Identity & session (required by handshake protocol v1.0.9+) ──────────────
+# Session_id меняется при каждом cold start. Rust сверяет его с sidecar.json
+# и live /health, несовпадение → force kill + respawn (защита от stale/foreign).
+PRODUCT_ID = os.environ.get('AURORA_PRODUCT_ID', 'com.aurora.econometrica')
+VERSION = os.environ.get('AURORA_PRODUCT_VERSION', '1.0.9')
+SESSION_ID = uuid.uuid4().hex
+STARTED_AT = datetime.now(timezone.utc).isoformat()
+
+# Configure logging — dual output: stderr + rotating file в %LOCALAPPDATA%.
+# %LOCALAPPDATA% (AppData\Local) гарантированно НЕ роумит в AD-доменах,
+# в отличие от %APPDATA% (AppData\Roaming) — критично для RDP-серверов.
+_local_appdata = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or '.'
+_log_dir = Path(_local_appdata) / 'aurora-econometrica-gui' / 'logs'
 try:
     _log_dir.mkdir(parents=True, exist_ok=True)
 except Exception:
     _log_dir = Path('.')
-_log_file = _log_dir / f'sidecar-{datetime.now().strftime("%Y-%m-%d")}.log'
+_log_file = _log_dir / 'sidecar.log'
 
 _log_format = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
 _stderr_handler = logging.StreamHandler(sys.stderr)
 _stderr_handler.setFormatter(logging.Formatter(_log_format))
-_file_handler = logging.FileHandler(_log_file, encoding='utf-8', mode='a')
+# Rotation: 10MB × 7 backups = max 70MB/user. На RDP с 10+ юзерами роуминг/диск
+# не лопается (при %APPDATA% + 5MB/день × 365 дней × 10 юзеров = 18GB).
+_file_handler = logging.handlers.RotatingFileHandler(
+    _log_file, maxBytes=10 * 1024 * 1024, backupCount=7, encoding='utf-8'
+)
 _file_handler.setFormatter(logging.Formatter(_log_format))
 
 logging.basicConfig(
@@ -43,7 +66,10 @@ logging.basicConfig(
     force=True,
 )
 logger = logging.getLogger('econometrica')
-logger.info(f'=== Sidecar starting, log file: {_log_file} ===')
+logger.info(
+    f'=== Sidecar starting: product={PRODUCT_ID} version={VERSION} '
+    f'session={SESSION_ID[:8]}… pid={os.getpid()} log={_log_file} ==='
+)
 
 # Dump bundle integrity + PyTensor/MSVC diagnostic on startup.
 # Purpose: when sidecar fails at /health or model training, these logs tell
@@ -61,6 +87,9 @@ try:
         'arviz/static/html/icons-svg-inline.html',
         'arviz/data/example_data/data_local.json',
         'pytensor/__init__.py',  # pytensor always needs templates/configs alongside
+        # v1.0.9: NumPyro + JAX (Tier-1 NUTS sampler)
+        'numpyro/__init__.py',
+        'jax/__init__.py',
     ]
     for rel in _required_files:
         p = _bundle_root / rel
@@ -85,9 +114,77 @@ except Exception as e:
 
 app = FastAPI(
     title='Aurora AI Econometrica Sidecar',
-    version='1.0.0',
+    version=VERSION,
     description='Local MMM computation engine (0 tokens)',
 )
+
+
+# ── Session middleware (handshake protection) ────────────────────────────────
+# Каждый API-запрос от GUI может включать заголовок `X-Expected-Session: <uuid>`.
+# Если он не совпадает с текущим SESSION_ID — это значит GUI разговаривает с
+# процессом, которого он не создавал (переиспользованный чужой sidecar).
+# Отвечаем 409 Conflict — GUI перехватывает и делает re-handshake + retry once.
+@app.middleware('http')
+async def session_guard(request: Request, call_next):
+    # Health и shutdown пропускаем — они сами служат для разрешения рассинхрона
+    if request.url.path in ('/health', '/shutdown'):
+        return await call_next(request)
+
+    expected = request.headers.get('X-Expected-Session')
+    if expected and expected != SESSION_ID:
+        logger.warning(
+            f'session_guard: 409 for {request.url.path} '
+            f'(header={expected[:8]}… vs self={SESSION_ID[:8]}…)'
+        )
+        return JSONResponse(
+            status_code=409,
+            content={
+                'status': 'session_mismatch',
+                'expected': expected,
+                'actual': SESSION_ID,
+                'product': PRODUCT_ID,
+                'version': VERSION,
+            },
+        )
+    return await call_next(request)
+
+
+# ── Graceful shutdown ────────────────────────────────────────────────────────
+# Signal от родителя (Rust закрывает GUI) или HTTP /shutdown — cleanup + exit.
+# Без этого сигналa child.kill() оставляет corrupted PyInstaller temp + pickle.
+_shutdown_event = threading.Event()
+
+
+def _shutdown_requested(reason: str):
+    if _shutdown_event.is_set():
+        return
+    _shutdown_event.set()
+    logger.info(f'Shutdown requested ({reason}), cleaning up and exiting')
+    # Flush logs
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    # Даём uvicorn ~500ms на отдачу текущих ответов, затем exit
+    def _exit_soon():
+        time.sleep(0.5)
+        os._exit(0)
+    threading.Thread(target=_exit_soon, daemon=True).start()
+
+
+def _install_signal_handlers():
+    try:
+        signal.signal(signal.SIGTERM, lambda *_: _shutdown_requested('SIGTERM'))
+    except Exception as e:
+        logger.debug(f'SIGTERM handler not installable: {e}')
+    try:
+        signal.signal(signal.SIGINT, lambda *_: _shutdown_requested('SIGINT'))
+    except Exception as e:
+        logger.debug(f'SIGINT handler not installable: {e}')
+
+
+_install_signal_handlers()
 
 
 # ── Pydantic models ──────────────────────────────────
@@ -210,7 +307,11 @@ _training_lock = threading.Lock()
 
 @app.get('/health')
 async def health():
-    """Check sidecar health and available packages."""
+    """Extended /health (v1.0.9+) — handshake protocol.
+
+    Возвращает product/session_id/pid/started_at для version-handshake
+    в Rust-стороне. Старые GUI-клиенты (pre-v1.0.9) игнорируют новые поля.
+    """
     packages = {}
     for pkg in ['pymc', 'pymc_marketing', 'pandas', 'scipy', 'matplotlib', 'numpy']:
         try:
@@ -221,10 +322,22 @@ async def health():
 
     return {
         'status': 'ok',
-        'version': '1.0.0',
+        'product': PRODUCT_ID,
+        'version': VERSION,
+        'session_id': SESSION_ID,
+        'pid': os.getpid(),
+        'started_at': STARTED_AT,
         'python': sys.version,
         'packages': packages,
     }
+
+
+@app.post('/shutdown')
+async def shutdown():
+    """Graceful shutdown. Rust вызывает при GUI close перед force-kill.
+    Возвращает сразу, cleanup+exit выполняются в фоне через 500ms."""
+    _shutdown_requested('HTTP /shutdown')
+    return {'status': 'shutting_down', 'session_id': SESSION_ID}
 
 
 # ── Compute endpoints ────────────────────────────────
@@ -587,4 +700,15 @@ def export_pptx(req: PptxExportRequest):
 
 if __name__ == '__main__':
     import uvicorn
-    uvicorn.run(app, host='127.0.0.1', port=7430, log_level='info')
+
+    # Port: sys.argv[1] (от Rust) → fallback 7430 (back-compat с pre-v1.0.9 Rust)
+    _port = 7430
+    if len(sys.argv) > 1:
+        try:
+            _port = int(sys.argv[1])
+        except ValueError:
+            logger.warning(f'Invalid port arg "{sys.argv[1]}", using legacy {_port}')
+    # Машиночитаемая метка для parent-process (синхронно с brand-hub/rag-server)
+    print(f'PORT:{_port}', flush=True)
+    logger.info(f'uvicorn binding 127.0.0.1:{_port}')
+    uvicorn.run(app, host='127.0.0.1', port=_port, log_level='info')

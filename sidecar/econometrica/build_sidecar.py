@@ -78,6 +78,11 @@ PYINSTALLER_ARGS = [
     '--collect-all=pymc_marketing',
     '--collect-all=pytensor',          # scan_perform.c, configdefaults, compile templates
     '--collect-all=xarray',
+    # v1.0.9: NumPyro + JAX — нужны для Tier-1 NUTS sampler (5-15× скорость).
+    # JAX CUDA wheels намеренно исключены (2GB+), CPU-only бандл ≈180MB.
+    '--collect-all=numpyro',
+    '--collect-all=jax',
+    '--collect-all=jaxlib',
     # Secondary: data only (binaries auto-detected, submodules not all needed)
     '--collect-data=matplotlib',       # mpl-data: fonts, stylelib, rcparams
     '--collect-data=sklearn',          # datasets/data/*.csv
@@ -93,6 +98,10 @@ PYINSTALLER_ARGS = [
     '--exclude-module=dostoevsky',
     '--exclude-module=tensorflow',
     '--exclude-module=keras',
+    # JAX CUDA — CPU-only bundle; GPU backends бесполезны без NVIDIA driver + добавляют 2GB
+    '--exclude-module=jaxlib.cuda',
+    '--exclude-module=jax.experimental.gpu',
+    '--exclude-module=jax.experimental.cuda',
 ]
 
 
@@ -111,15 +120,50 @@ def main():
         shutil.rmtree(build_tmp, ignore_errors=True)
 
     exe_path = DIST / OUTPUT_NAME / f'{OUTPUT_NAME}.exe'
-    if exe_path.exists():
-        size_mb = sum(f.stat().st_size for f in (DIST / OUTPUT_NAME).rglob('*') if f.is_file()) / 1e6
-        print(f'\nBuild SUCCESS: {exe_path}')
-        print(f'Bundle size: {size_mb:.0f} MB')
-        print(f'\nNext step:')
-        print(f'  Copy dist/{OUTPUT_NAME}/ → src-tauri/binaries/{OUTPUT_NAME}/')
-        print(f'  Then reference in tauri.conf.json as externalBin')
-    else:
+    if not exe_path.exists():
         print(f'\nWARNING: Expected exe not found at {exe_path}')
+        return
+
+    size_mb = sum(
+        f.stat().st_size for f in (DIST / OUTPUT_NAME).rglob('*') if f.is_file()
+    ) / 1e6
+    print(f'\nBuild SUCCESS: {exe_path}')
+    print(f'Bundle size: {size_mb:.0f} MB')
+
+    # ── Auto-sync в sidecar/econometrica/ (где Tauri бандлит через resources) ──
+    # Tauri.conf.json: "resources": ["../sidecar/econometrica/**/*"]
+    # Поэтому копируем dist/econometrica-sidecar/* → sidecar/econometrica/
+    # (ROOT это и есть sidecar/econometrica)
+    print(f'\nSyncing bundle into {ROOT} (Tauri resource path)...')
+    src_dir = DIST / OUTPUT_NAME
+
+    # Снимаем старый exe + _internal/ перед копированием нового
+    old_exe = ROOT / f'{OUTPUT_NAME}.exe'
+    old_internal = ROOT / '_internal'
+    for p in (old_exe, old_internal):
+        if p.exists():
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            else:
+                try:
+                    p.unlink()
+                except Exception as e:
+                    print(f'  WARN: cannot remove {p}: {e}')
+
+    # Копируем всё содержимое dist/econometrica-sidecar/ → ROOT
+    copied = 0
+    for item in src_dir.iterdir():
+        dst = ROOT / item.name
+        try:
+            if item.is_dir():
+                shutil.copytree(item, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, dst)
+            copied += 1
+        except Exception as e:
+            print(f'  ERROR copying {item.name}: {e}')
+    print(f'  ✓ {copied} items synced into {ROOT}')
+    print(f'\nNext step: cd .. && npm run tauri build')
 
 
 if __name__ == '__main__':

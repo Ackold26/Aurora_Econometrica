@@ -1,44 +1,118 @@
 //! Econometrica sidecar lifecycle management — start, health check, auto-respawn, stop.
 //!
-//! Features:
-//! - Cold start in Tauri setup() (unchanged)
-//! - Proactive watchdog (tokio task) — respawns on freeze/crash every 15s
-//! - Reactive recovery via `ensure_alive()` — called by post_json on connect errors
-//! - Zombie detection: TCP accepts but HTTP fails → force-kill + respawn
-//! - Exponential backoff + banned cooldown (5 min) — prevents spin on broken env
-//! - Force restart API for UI "Перезапустить модуль" button
+//! # v1.0.9 — RDP hardening
 //!
-//! Production: launches bundled econometrica-sidecar.exe from resource_dir.
-//! Dev: launches `python -B server.py` from sidecar/econometrica/ source directory.
+//! Порт НЕ хардкожен. На cold start `sidecar_runtime::allocate_port()` выдаёт
+//! deterministic per-user port (SID hash → base+offset). Порт передаётся в
+//! Python через `sys.argv[1]`. Состояние (port, pid, session_id, product, version)
+//! пишется атомарно в `%LOCALAPPDATA%\com.aurora.econometrica\sidecar.json`.
 //!
-//! CRITICAL: Always use Stdio::null() — piped() without reading causes deadlock.
+//! Кадый HTTP-запрос на /health проверяется handshake'ом — если product/version
+//! чужой, Rust форс-киллит процесс (значит, мы попали на sidecar другого юзера
+//! или старой версии на том же порту).
+//!
+//! # Features
+//! - Cold start в Tauri setup()
+//! - Proactive watchdog — respawn на freeze/crash (15s tick)
+//! - Reactive recovery через `ensure_alive()` — из post_json при connect errors
+//! - Zombie detection: TCP accepts но HTTP fails → force-kill + respawn
+//! - Exponential backoff + banned cooldown — предотвращает spin на broken env
+//! - Force restart — bypass cooldown, для "Перезапустить модуль" button
+//! - Per-user process kill — убивает только процессы того же OS-юзера
+//! - Kill-switch env var `AURORA_SIDECAR_LEGACY_PORT=1` — bypass discovery
+//!
+//! # Critical
+//! Always use Stdio::null() — piped() без чтения deadlock'ит sidecar.
 
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex as AsyncMutex;
 use wait_timeout::ChildExt;
 
-const CHILD_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+use crate::sidecar_runtime::{
+    self, allocate_port, current_user_name, delete_state_file, handshake_client,
+    read_state_file, verify_handshake, write_state_file, HealthInfo, SidecarConfig,
+    SidecarState,
+};
 
-const SIDECAR_PORT: u16 = 7430;
+const CHILD_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
+const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Канонический конфиг для Econometrica. Остальные 9 продуктов имеют свой.
+const SIDECAR_CONFIG: SidecarConfig = SidecarConfig {
+    product_id: "com.aurora.econometrica",
+    version: env!("CARGO_PKG_VERSION"),
+    legacy_port: 7430,
+    identifier_dir: "com.aurora.econometrica",
+    process_exe_hint: "econometrica-sidecar",
+};
+
 const MAX_CONSECUTIVE_FAILS: u32 = 5;
-const BANNED_COOLDOWN_SECS: u64 = 300; // 5 min after max fails
+const BANNED_COOLDOWN_SECS: u64 = 300;
 const WATCHDOG_INTERVAL_SECS: u64 = 15;
-const WATCHDOG_FAIL_THRESHOLD: u32 = 3; // 3 × 15s = 45s before respawn
-const WATCHDOG_STARTUP_DELAY_SECS: u64 = 30; // grace period after cold start
-const HEALTH_TIMEOUT_SECS: u64 = 1;
+const WATCHDOG_FAIL_THRESHOLD: u32 = 3;
+const WATCHDOG_STARTUP_DELAY_SECS: u64 = 30;
+const HEALTH_TIMEOUT_SECS: u64 = 2;
 
 static SIDECAR_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static RESPAWN_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
 static HEALTH_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static CONSECUTIVE_FAILS: AtomicU32 = AtomicU32::new(0);
-static BANNED_UNTIL: AtomicU64 = AtomicU64::new(0); // unix secs
+static BANNED_UNTIL: AtomicU64 = AtomicU64::new(0);
+
+/// Текущий порт. 0 = не назначен, читать legacy_port.
+static CURRENT_PORT: AtomicU16 = AtomicU16::new(0);
+/// Session_id **от sidecar'а** (Python генерит свой SESSION_ID при старте,
+/// мы читаем его из первого /health и сохраняем здесь как source of truth).
+/// Используется как X-Expected-Session header. `None` до первого успешного
+/// handshake — клиент не шлёт header (Python middleware пропускает).
+static CURRENT_SESSION: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+// ── Public API for clients (commands/econometrica.rs) ───────────────────────
+
+/// Текущий порт sidecar'а — читать из клиентского кода перед HTTP-запросом.
+/// Если ещё не allocate'ен, возвращает `SIDECAR_CONFIG.legacy_port` (back-compat).
+pub fn current_port() -> u16 {
+    let p = CURRENT_PORT.load(Ordering::Relaxed);
+    if p == 0 {
+        SIDECAR_CONFIG.legacy_port
+    } else {
+        p
+    }
+}
+
+/// Session_id ожидаемого sidecar'а — для заголовка `X-Expected-Session`.
+/// None до первого успешного handshake (sidecar ещё не сообщил свой session).
+pub fn current_session_id() -> Option<String> {
+    current_session_cell().lock().ok()?.clone()
+}
+
+fn current_session_cell() -> &'static Mutex<Option<String>> {
+    CURRENT_SESSION.get_or_init(|| Mutex::new(None))
+}
+
+fn set_current_session(s: String) {
+    if let Ok(mut lock) = current_session_cell().lock() {
+        *lock = Some(s);
+    }
+}
+
+fn clear_current_session() {
+    if let Ok(mut lock) = current_session_cell().lock() {
+        *lock = None;
+    }
+}
+
+/// Базовый URL для HTTP-запросов к sidecar'у — http://127.0.0.1:<port>.
+pub fn base_url() -> String {
+    format!("http://127.0.0.1:{}", current_port())
+}
 
 // ── Internal state helpers ───────────────────────────────────────────────────
 
@@ -76,13 +150,17 @@ fn take_child() -> Option<Child> {
     process_lock().lock().ok().and_then(|mut l| l.take())
 }
 
+fn set_current_port(p: u16) {
+    CURRENT_PORT.store(p, Ordering::Relaxed);
+}
+
 // ── Health probes ────────────────────────────────────────────────────────────
 
-/// TCP probe — fast but insufficient: uvicorn may accept TCP while deadlocked.
-fn tcp_responsive() -> bool {
+/// TCP probe — быстрая проверка, но uvicorn может accept TCP будучи deadlock'нутым.
+fn tcp_responsive(port: u16) -> bool {
     use std::net::TcpStream;
     TcpStream::connect_timeout(
-        &format!("127.0.0.1:{SIDECAR_PORT}")
+        &format!("127.0.0.1:{port}")
             .parse()
             .unwrap_or_else(|_| "127.0.0.1:7430".parse().unwrap()),
         Duration::from_millis(500),
@@ -90,43 +168,59 @@ fn tcp_responsive() -> bool {
     .is_ok()
 }
 
-/// HTTP health check — detects deadlocked sidecar that accepts TCP but can't process.
-async fn is_healthy() -> bool {
+/// Full handshake — HTTP /health + product/version validation.
+/// Возвращает `Some(HealthInfo)` если этот sidecar наш (product совпал).
+async fn probe_and_verify(port: u16) -> Option<HealthInfo> {
+    verify_handshake(port, &SIDECAR_CONFIG, health_client()).await
+}
+
+/// Basic /health check без handshake (для watchdog — просто жив ли процесс).
+async fn is_healthy_on(port: u16) -> bool {
     matches!(
         health_client()
-            .get(format!("http://127.0.0.1:{SIDECAR_PORT}/health"))
+            .get(format!("http://127.0.0.1:{port}/health"))
             .send()
             .await,
         Ok(r) if r.status().is_success()
     )
 }
 
-// ── Port cleanup (zombie kill) ───────────────────────────────────────────────
-
-/// Проверить что процесс с PID — наш sidecar (python или econometrica-sidecar.exe).
-/// Предохраняет от случайного kill'а чужой службы, занявшей порт 7430.
-#[cfg(windows)]
-fn is_our_sidecar_process(pid: u32) -> bool {
-    use std::os::windows::process::CommandExt;
-    let out = Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-        .creation_flags(0x08000000)
-        .output();
-    let Ok(out) = out else { return false };
-    let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
-    s.contains("python") || s.contains("econometrica-sidecar")
+async fn is_healthy() -> bool {
+    is_healthy_on(current_port()).await
 }
 
-/// Kill zombie sidecar on port 7430. Убивает ТОЛЬКО процессы чьё имя совпадает
-/// с python/econometrica-sidecar — чужие процессы (например, dev-сервер) не трогает.
+/// Handshake check: HTTP health + product + (опционально) session_id match.
+/// Используется при cold start для решения «reuse или respawn».
+///
+/// - Если expected_session=Some → требуем совпадения session_id (strict).
+/// - Если expected_session=None → достаточно чтобы product совпал.
+async fn is_healthy_and_ours(port: u16, expected_session: Option<&str>) -> bool {
+    let Some(info) = probe_and_verify(port).await else {
+        return false;
+    };
+    if let Some(expected) = expected_session {
+        if info.session_id != expected {
+            debug!(
+                "handshake: session mismatch on :{port} (want={}, got={})",
+                &expected[..8.min(expected.len())],
+                &info.session_id[..8.min(info.session_id.len())]
+            );
+            return false;
+        }
+    }
+    true
+}
+
+// ── Port cleanup (zombie kill) ───────────────────────────────────────────────
+
+/// Kill процессов, держащих наш port — только тех, что принадлежат текущему
+/// OS-пользователю И имеют подходящее image name.
+/// На multi-user RDP — НЕ убиваем чужих юзеров.
 #[cfg(windows)]
-fn kill_on_port() {
+fn kill_on_port(port: u16) {
     use std::os::windows::process::CommandExt;
     let output = Command::new("cmd")
-        .args([
-            "/C",
-            &format!("netstat -ano -p tcp | findstr :{SIDECAR_PORT}"),
-        ])
+        .args(["/C", &format!("netstat -ano -p tcp | findstr :{port}")])
         .creation_flags(0x08000000)
         .output();
     let Ok(output) = output else { return };
@@ -143,13 +237,13 @@ fn kill_on_port() {
         }
     }
     for pid in pids {
-        if !is_our_sidecar_process(pid) {
+        if !sidecar_runtime::is_our_process_and_user(pid, &SIDECAR_CONFIG) {
             warn!(
-                "Port {SIDECAR_PORT} owned by PID={pid} (not python/econometrica-sidecar) — skipping kill"
+                "Port {port} held by PID={pid} — not ours or not our user, skipping kill"
             );
             continue;
         }
-        info!("Killing zombie sidecar PID={pid} on port {SIDECAR_PORT}");
+        info!("Killing zombie sidecar PID={pid} on port {port}");
         let _ = Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .creation_flags(0x08000000)
@@ -158,8 +252,7 @@ fn kill_on_port() {
 }
 
 #[cfg(not(windows))]
-fn kill_on_port() {
-    // Best-effort: kill stored child. Unix alternative: lsof -ti :7430 | xargs kill -9.
+fn kill_on_port(_port: u16) {
     if let Some(mut child) = take_child() {
         let _ = child.kill();
         let _ = child.wait_timeout(CHILD_WAIT_TIMEOUT);
@@ -168,8 +261,7 @@ fn kill_on_port() {
 
 // ── Spawn paths ──────────────────────────────────────────────────────────────
 
-fn spawn_bundled_exe(app_handle: &AppHandle) -> Result<Child, String> {
-    // Try both paths: direct and _up_/ (Tauri replaces ../ with _up_/ in bundle)
+fn spawn_bundled_exe(app_handle: &AppHandle, port: u16) -> Result<Child, String> {
     let resolve = |p: &str| {
         app_handle
             .path()
@@ -186,19 +278,23 @@ fn spawn_bundled_exe(app_handle: &AppHandle) -> Result<Child, String> {
     .ok_or_else(|| "Bundled sidecar not found in sidecar/ or _up_/sidecar/".to_string())?;
 
     let mut cmd = Command::new(&exe_path);
-    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg(port.to_string())
+        .env("AURORA_PRODUCT_ID", SIDECAR_CONFIG.product_id)
+        .env("AURORA_PRODUCT_VERSION", SIDECAR_CONFIG.version)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
 
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.creation_flags(0x08000000);
     }
 
     cmd.spawn()
         .map_err(|e| format!("Failed to spawn bundled sidecar: {e}"))
 }
 
-fn spawn_python_dev() -> Result<Child, String> {
+fn spawn_python_dev(port: u16) -> Result<Child, String> {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let sidecar_dir = std::path::Path::new(&manifest_dir)
         .parent()
@@ -219,8 +315,10 @@ fn spawn_python_dev() -> Result<Child, String> {
     let python = "python3";
 
     let mut cmd = Command::new(python);
-    cmd.args(["-B", "server.py"])
+    cmd.args(["-B", "server.py", &port.to_string()])
         .current_dir(&sidecar_dir)
+        .env("AURORA_PRODUCT_ID", SIDECAR_CONFIG.product_id)
+        .env("AURORA_PRODUCT_VERSION", SIDECAR_CONFIG.version)
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
@@ -234,70 +332,146 @@ fn spawn_python_dev() -> Result<Child, String> {
         .map_err(|e| format!("Failed to spawn python sidecar: {e}"))
 }
 
-/// Production → bundled exe; dev → python server.py. Shared by start + respawn.
-fn spawn_sidecar_proc(app_handle: &AppHandle) -> Result<Child, String> {
+fn spawn_sidecar_proc(app_handle: &AppHandle, port: u16) -> Result<Child, String> {
     if !cfg!(debug_assertions) {
-        match spawn_bundled_exe(app_handle) {
+        match spawn_bundled_exe(app_handle, port) {
             Ok(c) => return Ok(c),
             Err(e) => warn!("Bundled sidecar failed, falling back to python: {e}"),
         }
     }
-    spawn_python_dev()
+    spawn_python_dev(port)
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /// Cold start — call once from setup(). Stores app handle for later respawns.
-/// Skips startup if sidecar already responding (orphan from previous crash).
+///
+/// Decision tree:
+/// 1. Есть stale sidecar.json с handshake OK (наш port, product, session_id)
+///    → просто reuse, НЕ spawn'им заново (idempotent).
+/// 2. Есть sidecar.json но handshake fail → foreign/stale. Пробуем убить
+///    process, удалить файл, allocate new port, spawn.
+/// 3. Нет sidecar.json → allocate new port, spawn.
 pub fn start_sidecar(app_handle: &AppHandle) {
-    // Store handle globally so ensure_alive() can respawn without explicit param
     let _ = APP_HANDLE.set(app_handle.clone());
 
-    if tcp_responsive() {
-        info!("Econometrica sidecar already running on :{SIDECAR_PORT} — reusing");
-        return;
+    // Попытка reuse. Читаем state file и делаем handshake.
+    if let Some(state) = read_state_file(&SIDECAR_CONFIG) {
+        let saved_port = state.port;
+        let saved_session = state.session_id.clone();
+        // Если saved_session пустой (cold start прервался до handshake'а) —
+        // проверяем только product match, не strict session. Product mismatch =
+        // форрин sidecar → respawn, а пустой session → benign transient state.
+        let session_check = if saved_session.is_empty() {
+            None
+        } else {
+            Some(saved_session.as_str())
+        };
+        let is_ours = tauri::async_runtime::block_on(async {
+            is_healthy_and_ours(saved_port, session_check).await
+        });
+        if is_ours {
+            info!(
+                "Sidecar reuse: port={saved_port} session={}… (pid={})",
+                &saved_session[..8.min(saved_session.len())],
+                state.pid
+            );
+            set_current_port(saved_port);
+            set_current_session(saved_session);
+            return;
+        }
+        info!(
+            "Sidecar state file stale (session_id/product mismatch or dead). \
+             Cleaning up and respawning."
+        );
+        // Попытка убить старый процесс (только наш + наш юзер)
+        kill_on_port(saved_port);
+        delete_state_file(&SIDECAR_CONFIG);
     }
 
-    match spawn_sidecar_proc(app_handle) {
+    // Cold spawn.
+    let port = match allocate_port(&SIDECAR_CONFIG) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(
+                "allocate_port failed: {e}. Falling back to legacy port {}.",
+                SIDECAR_CONFIG.legacy_port
+            );
+            SIDECAR_CONFIG.legacy_port
+        }
+    };
+    set_current_port(port);
+    clear_current_session(); // Начинаем cold start — session_id будет задан после handshake'а
+    info!("Starting Econometrica sidecar on :{port} (session: TBD from sidecar handshake)");
+
+    match spawn_sidecar_proc(app_handle, port) {
         Ok(child) => {
-            info!("Econometrica sidecar started (PID={})", child.id());
+            let pid = child.id();
+            info!("Econometrica sidecar started (PID={pid}, port={port})");
             store_child(child);
+            // Initial state file с пустым session_id (hint). Python-sidecar
+            // генерит свой SESSION_ID при запуске, wait_for_sidecar_ready
+            // прочитает его из /health и заполнит state файл.
+            let _ = write_initial_state(port, pid, "");
+            // Background task: ждём когда sidecar будет health-ready, синхронизируем
+            // CURRENT_SESSION + state file с настоящим session_id от Python-sidecar'а.
+            tauri::async_runtime::spawn(async move {
+                if wait_for_sidecar_ready().await {
+                    info!("Cold start handshake complete — state synced");
+                } else {
+                    warn!("Cold start handshake timeout — next restart may force-respawn");
+                }
+            });
         }
         Err(e) => {
-            warn!("Failed to start econometrica sidecar: {e}. Compute features will be unavailable.");
+            warn!("Failed to start econometrica sidecar: {e}. Compute features unavailable.");
         }
     }
 }
 
+/// Пишет state с pid + port до handshake (как hint). После ready получаем
+/// реальный session_id от sidecar'а и обновляем.
+fn write_initial_state(port: u16, pid: u32, session_id: &str) -> Result<(), String> {
+    let state = SidecarState {
+        port,
+        pid,
+        session_id: session_id.to_string(),
+        product: SIDECAR_CONFIG.product_id.to_string(),
+        version: SIDECAR_CONFIG.version.to_string(),
+        user: current_user_name(),
+        started_at: chrono::Utc::now().to_rfc3339(),
+    };
+    write_state_file(&SIDECAR_CONFIG, &state).map_err(|e| e.to_string())
+}
+
 /// Wait for sidecar to be healthy. Returns true if ready within timeout.
-/// Uses exponential backoff: fast initial checks, slower later. Total max ~23s.
+/// После успеха обновляет sidecar.json с session_id от sidecar'а (он может
+/// отличаться от нашего если произошёл respawn внутри того же GUI).
 pub async fn wait_for_sidecar_ready() -> bool {
     let delays_ms = [300, 500, 1000, 1000, 2000, 2000, 3000, 3000, 5000, 5000];
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .unwrap_or_default();
+    let port = current_port();
+    let client = handshake_client();
 
     for (attempt, &delay_ms) in delays_ms.iter().enumerate() {
-        match client
-            .get(format!("http://127.0.0.1:{SIDECAR_PORT}/health"))
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => {
-                info!(
-                    "Econometrica sidecar healthy after {} attempt(s)",
-                    attempt + 1
-                );
-                return true;
+        if let Some(info) = verify_handshake(port, &SIDECAR_CONFIG, &client).await {
+            info!(
+                "Econometrica sidecar healthy after {} attempt(s), session={}…",
+                attempt + 1,
+                &info.session_id[..8.min(info.session_id.len())]
+            );
+            // Обновить session_id — используем то что сказал sidecar (source of truth)
+            set_current_session(info.session_id.clone());
+            if let Some(mut state) = read_state_file(&SIDECAR_CONFIG) {
+                state.session_id = info.session_id.clone();
+                state.version = info.version.clone();
+                let _ = write_state_file(&SIDECAR_CONFIG, &state);
             }
-            _ => {
-                if attempt == 0 {
-                    info!("Waiting for econometrica sidecar to start...");
-                }
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-            }
+            return true;
         }
+        if attempt == 0 {
+            info!("Waiting for econometrica sidecar on :{port} to start...");
+        }
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
     }
 
     error!("Econometrica sidecar did not become healthy within timeout");
@@ -305,20 +479,12 @@ pub async fn wait_for_sidecar_ready() -> bool {
 }
 
 /// Ensure sidecar is alive; respawn if not. Idempotent, thread-safe, bounded retries.
-///
-/// Called from:
-/// - `post_json()` in econometrica.rs on connect errors (reactive recovery)
-/// - `spawn_watchdog()` tick on repeated health failures (proactive)
-///
-/// Returns true iff sidecar is healthy at return time.
 pub async fn ensure_alive() -> bool {
-    // Fast path — already healthy
     if is_healthy().await {
         CONSECUTIVE_FAILS.store(0, Ordering::Relaxed);
         return true;
     }
 
-    // Respect banned cooldown (avoid thrash on broken Python env)
     let banned_until = BANNED_UNTIL.load(Ordering::Relaxed);
     let now = now_secs();
     if banned_until > now {
@@ -334,10 +500,8 @@ pub async fn ensure_alive() -> bool {
         return false;
     };
 
-    // Serialize respawn — only one thread spawns at a time
     let _guard = respawn_lock().lock().await;
 
-    // Double-check after acquiring lock — another thread may have revived it
     if is_healthy().await {
         CONSECUTIVE_FAILS.store(0, Ordering::Relaxed);
         return true;
@@ -346,29 +510,44 @@ pub async fn ensure_alive() -> bool {
     let fails = CONSECUTIVE_FAILS.fetch_add(1, Ordering::Relaxed) + 1;
     info!("Sidecar unhealthy — respawn attempt #{fails}");
 
-    // Exponential backoff between retries (skip on first attempt)
     if fails > 1 {
-        let backoff_secs = 2_u64.pow((fails - 1).min(4)); // 2, 4, 8, 16, 16
+        let backoff_secs = 2_u64.pow((fails - 1).min(4));
         tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
     }
 
-    // Zombie detection: TCP open but HTTP dead → uvicorn deadlocked, force-kill
-    if tcp_responsive() {
+    let port = current_port();
+
+    if tcp_responsive(port) {
         warn!("Sidecar TCP accepts but HTTP unresponsive — killing deadlocked process");
-        kill_on_port();
+        kill_on_port(port);
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
-    // Reap prev Child handle (dead anyway, avoid zombie)
     if let Some(mut child) = take_child() {
         let _ = child.kill();
         let _ = child.wait_timeout(CHILD_WAIT_TIMEOUT);
     }
 
-    match spawn_sidecar_proc(app_handle) {
+    // При respawn порт МОЖЕТ измениться (если preferred занят другим зомби).
+    let new_port = match allocate_port(&SIDECAR_CONFIG) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("allocate_port failed on respawn: {e}. Using current.");
+            port
+        }
+    };
+    if new_port != port {
+        info!("Respawn on different port: {port} → {new_port}");
+        set_current_port(new_port);
+    }
+
+    clear_current_session(); // новый sidecar → новый session_id, получим через handshake
+    match spawn_sidecar_proc(app_handle, new_port) {
         Ok(child) => {
-            info!("Sidecar respawned (PID={}) — waiting for health", child.id());
+            let pid = child.id();
+            info!("Sidecar respawned (PID={pid}, port={new_port}) — waiting for health");
             store_child(child);
+            let _ = write_initial_state(new_port, pid, "");
         }
         Err(e) => {
             error!("Respawn spawn failed: {e}");
@@ -400,28 +579,38 @@ fn maybe_ban(fails: u32) {
 }
 
 /// Force restart — bypass banned cooldown, reset counters, kill + spawn fresh.
-/// Surfaced via Tauri command `econ_sidecar_restart` for UI "Перезапустить модуль" button.
 pub async fn force_restart() -> Result<(), String> {
     CONSECUTIVE_FAILS.store(0, Ordering::Relaxed);
     BANNED_UNTIL.store(0, Ordering::Relaxed);
 
     let _guard = respawn_lock().lock().await;
+    let port = current_port();
 
-    if tcp_responsive() {
-        kill_on_port();
+    // Graceful shutdown first (correct cleanup при активном pm.sample)
+    if tcp_responsive(port) {
+        let _ = request_graceful_shutdown(port).await;
+        kill_on_port(port);
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
     if let Some(mut child) = take_child() {
         let _ = child.kill();
         let _ = child.wait_timeout(CHILD_WAIT_TIMEOUT);
     }
+    delete_state_file(&SIDECAR_CONFIG);
 
     let app_handle = APP_HANDLE
         .get()
         .ok_or_else(|| "APP_HANDLE not initialized".to_string())?;
-    let child = spawn_sidecar_proc(app_handle)?;
-    info!("Sidecar force-restarted (PID={})", child.id());
+
+    let new_port = allocate_port(&SIDECAR_CONFIG).unwrap_or(SIDECAR_CONFIG.legacy_port);
+    set_current_port(new_port);
+    clear_current_session();
+
+    let child = spawn_sidecar_proc(app_handle, new_port)?;
+    let pid = child.id();
+    info!("Sidecar force-restarted (PID={pid}, port={new_port})");
     store_child(child);
+    let _ = write_initial_state(new_port, pid, "");
 
     if wait_for_sidecar_ready().await {
         Ok(())
@@ -430,15 +619,9 @@ pub async fn force_restart() -> Result<(), String> {
     }
 }
 
-/// Background watchdog — proactively respawns sidecar on freeze/crash.
-/// Call once from setup() after start_sidecar(). Runs for app lifetime.
-///
-/// Uses `tauri::async_runtime::spawn` (not `tokio::spawn`) — setup() runs before
-/// tokio runtime is attached to main thread, direct tokio::spawn would panic with
-/// "no reactor running". async_runtime::spawn routes to Tauri's managed runtime.
+/// Background watchdog — proactive respawn on freeze/crash.
 pub fn spawn_watchdog() {
     tauri::async_runtime::spawn(async move {
-        // Grace period before monitoring (cold start may take ~15s for MCMC JIT warmup)
         tokio::time::sleep(Duration::from_secs(WATCHDOG_STARTUP_DELAY_SECS)).await;
 
         let mut consecutive_fails = 0u32;
@@ -454,37 +637,71 @@ pub fn spawn_watchdog() {
             }
 
             consecutive_fails += 1;
-            warn!(
-                "Watchdog: sidecar unhealthy ({consecutive_fails}/{WATCHDOG_FAIL_THRESHOLD})"
-            );
+            warn!("Watchdog: sidecar unhealthy ({consecutive_fails}/{WATCHDOG_FAIL_THRESHOLD})");
 
             if consecutive_fails >= WATCHDOG_FAIL_THRESHOLD {
                 info!("Watchdog triggering respawn");
                 let _ = ensure_alive().await;
-                consecutive_fails = 0; // reset regardless — ensure_alive() handles its own retries
+                consecutive_fails = 0;
             }
         }
     });
 }
 
+/// Graceful shutdown request через HTTP /shutdown. Возвращает Ok если sidecar
+/// ответил 200, иначе Err (caller всё равно делает force kill).
+async fn request_graceful_shutdown(port: u16) -> Result<(), String> {
+    let url = format!("http://127.0.0.1:{port}/shutdown");
+    health_client()
+        .post(&url)
+        .send()
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Stop sidecar — call from window close handler. Idempotent.
+///
+/// 1. POST /shutdown → ждём до 5 секунд
+/// 2. Если не остановился → force kill
+/// 3. Удаляем sidecar.json
 pub fn stop_sidecar() {
     let Some(mut child) = take_child() else {
         return;
     };
     let pid = child.id();
+    let port = current_port();
 
-    // On Windows: kill entire process tree to catch uvicorn workers
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(0x08000000)
-            .output();
+    // Graceful сначала
+    let graceful = tauri::async_runtime::block_on(async {
+        if request_graceful_shutdown(port).await.is_ok() {
+            // Wait до 5 секунд на mягкое завершение
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                if !tcp_responsive(port) {
+                    return true;
+                }
+            }
+        }
+        false
+    });
+
+    if graceful {
+        debug!("Sidecar exited gracefully (PID={pid})");
+    } else {
+        // Force kill process tree
+        warn!("Sidecar did not exit on /shutdown within {GRACEFUL_SHUTDOWN_TIMEOUT:?}, force-killing PID={pid}");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(0x08000000)
+                .output();
+        }
+        let _ = child.kill();
     }
-
-    let _ = child.kill();
     let _ = child.wait();
+    delete_state_file(&SIDECAR_CONFIG);
     info!("Econometrica sidecar stopped (was PID={pid})");
 }

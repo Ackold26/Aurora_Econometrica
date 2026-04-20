@@ -4,6 +4,7 @@ pub mod econ_sidecar;
 pub mod errors;
 pub mod metrics;
 pub mod session;
+pub mod sidecar_runtime;
 
 use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, updater, user_config, vault};
 use session::manager::SessionManager;
@@ -3000,7 +3001,12 @@ fn build_app() -> Result<(), String> {
                 .center()
                 .build()?;
 
-            // Start Econometrica Python sidecar (FastAPI on :7430)
+            // v1.0.9: quarantine legacy AIAgency license files (contamination from
+            // старых Aurora Agency installations). Не использует их — просто
+            // переименовывает в .bak чтобы убрать из будущих диагностик.
+            license::quarantine_legacy_files();
+
+            // Start Econometrica Python sidecar (FastAPI — dynamic per-user port)
             econ_sidecar::start_sidecar(app.handle());
             // Proactive watchdog — respawns sidecar on freeze/crash during runtime
             econ_sidecar::spawn_watchdog();
