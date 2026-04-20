@@ -45,19 +45,41 @@ logging.basicConfig(
 logger = logging.getLogger('econometrica')
 logger.info(f'=== Sidecar starting, log file: {_log_file} ===')
 
-# Dump PyTensor/MSVC diagnostic on startup
+# Dump bundle integrity + PyTensor/MSVC diagnostic on startup.
+# Purpose: when sidecar fails at /health or model training, these logs tell
+# the IT-admin exactly which bundled resource is missing (not "cannot import X").
 try:
+    logger.info(f'sys.executable = {sys.executable}')
+    logger.info(f'sys.frozen = {getattr(sys, "frozen", False)}')
+    logger.info(f'_MEIPASS = {getattr(sys, "_MEIPASS", "(not frozen)")}')
+
+    # Known-risk bundle paths — if any missing, the sidecar WILL crash later.
+    # These are the files that disappear when PyInstaller gets --hidden-import
+    # but not --collect-data for the corresponding package.
+    _bundle_root = Path(getattr(sys, '_MEIPASS', _sidecar_root))
+    _required_files = [
+        'arviz/static/html/icons-svg-inline.html',
+        'arviz/data/example_data/data_local.json',
+        'pytensor/__init__.py',  # pytensor always needs templates/configs alongside
+    ]
+    for rel in _required_files:
+        p = _bundle_root / rel
+        logger.info(f'bundle check: {rel} — {"OK" if p.exists() else "MISSING"} ({p})')
+
+    # PyTensor compiler probe
     from engines.modeler import check_compiler as _check_compiler
     _has_cc = _check_compiler()
     logger.info(f'check_compiler() = {_has_cc}')
-    logger.info(f'Injected PATH (first 300 chars): {os.environ.get("PATH", "")[:300]}')
-    logger.info(f'Injected INCLUDE (first 200 chars): {os.environ.get("INCLUDE", "(not set)")[:200]}')
-    logger.info(f'Injected LIB (first 200 chars): {os.environ.get("LIB", "(not set)")[:200]}')
-    # Now check what PyTensor picks up
+    logger.info(f'PATH (first 300 chars): {os.environ.get("PATH", "")[:300]}')
+    logger.info(f'INCLUDE (first 200 chars): {os.environ.get("INCLUDE", "(not set)")[:200]}')
+    logger.info(f'LIB (first 200 chars): {os.environ.get("LIB", "(not set)")[:200]}')
     import pytensor
     logger.info(f'pytensor.config.cxx = "{pytensor.config.cxx}"')
     logger.info(f'pytensor.config.mode = "{pytensor.config.mode}"')
     logger.info(f'pytensor.config.compiledir = "{pytensor.config.compiledir}"')
+    # Probe arviz to surface its FileNotFoundError early with a clear message
+    import arviz  # noqa: F401
+    logger.info('arviz import: OK')
 except Exception as e:
     logger.exception(f'Startup diagnostic failed: {e}')
 

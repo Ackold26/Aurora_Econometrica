@@ -66,13 +66,25 @@ PYINSTALLER_ARGS = [
     '--add-data', f'{ROOT / "charts"}:charts',
     '--add-data', f'{ROOT / "utils"}:utils',
 
-    # Collect data files for packages that ship non-Python resources at runtime
-    # Fixes FileNotFoundError on arviz/static/html/icons-svg-inline.html
-    # and arviz/data/example_data/*.json at /health import chain
-    '--collect-data=arviz',
-    '--collect-data=pymc',
-    '--collect-data=pymc_marketing',
-    '--collect-data=xarray',
+    # Collect data files for packages that ship non-Python resources at runtime.
+    # --hidden-import alone copies only .py; runtime resources (HTML/JSON/C templates/
+    # fonts/headers) need --collect-data or --collect-all.
+    #
+    # Scanned 2026-04-20: packages with runtime data in site-packages. Core MMM stack
+    # gets --collect-all (binaries + submodules + data) — safest against the class of
+    # "FileNotFoundError at import" bugs (arviz icons, pytensor scan_perform.c, etc).
+    '--collect-all=arviz',
+    '--collect-all=pymc',
+    '--collect-all=pymc_marketing',
+    '--collect-all=pytensor',          # scan_perform.c, configdefaults, compile templates
+    '--collect-all=xarray',
+    # Secondary: data only (binaries auto-detected, submodules not all needed)
+    '--collect-data=matplotlib',       # mpl-data: fonts, stylelib, rcparams
+    '--collect-data=sklearn',          # datasets/data/*.csv
+    '--collect-data=scipy',            # linalg headers, sparse/csgraph data
+    '--collect-data=statsmodels',      # datasets CSV (if transitive dep)
+    '--collect-data=numba',            # header files for JIT
+    '--collect-data=pandas',           # io/formats/templates/*.tpl
 
     # Exclude torch — would add 2GB, not needed (FTS5/keyword ML only)
     '--exclude-module=torch',
