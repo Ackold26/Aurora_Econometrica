@@ -649,17 +649,33 @@
     margin-top: 14px;
   }
   /* Визуальный разрыв между «Новый проект» блоком (dropzone) и
-     «Загрузить сохранённый проект» — чтобы не сливались. */
+     «Загрузить сохранённый проект». «или» посередине + бóльший отступ,
+     чтобы читалось как ОТДЕЛЬНАЯ секция. */
   .import-intro > .drop-zone--inline + .intro-card {
-    margin-top: 28px;
+    margin-top: 56px;
     position: relative;
   }
   .import-intro > .drop-zone--inline + .intro-card::before {
+    content: 'или';
+    position: absolute;
+    top: -32px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 14px;
+    background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
+    color: var(--text-muted, #94a3b8);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    z-index: 1;
+  }
+  .import-intro > .drop-zone--inline + .intro-card::after {
     content: '';
     position: absolute;
-    top: -14px;
-    left: 10%;
-    right: 10%;
+    top: -22px;
+    left: 0;
+    right: 0;
     height: 1px;
     background: var(--border-subtle, rgba(255, 255, 255, 0.1));
   }
