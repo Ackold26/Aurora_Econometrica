@@ -50,6 +50,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     import pandas as pd
     data_file = config_model['data_file']
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+    # Материализация виртуальных каналов (совпадает с train-time merge_rules)
+    from utils.merge_rules import apply_merge_rules
+    apply_merge_rules(df, config_model.get('merge_rules'))
 
     current_spend = {col: float(df[col].fillna(0).sum()) for col in media_cols}
     total_current = sum(current_spend.values())

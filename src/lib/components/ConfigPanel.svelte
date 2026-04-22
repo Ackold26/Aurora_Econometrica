@@ -252,6 +252,16 @@
         },
       });
 
+      // Собираем merge_rules для виртуальных каналов (созданных через
+      // InsightsPanel.applyAction type='merge'). Backend материализует
+      // df[merged_name] = df[source_cols].sum(axis=1) до column guard.
+      const mergeRules = /** @type {Record<string, string[]>} */ ({});
+      for (const col of /** @type {any[]} */ (validation?.columns ?? [])) {
+        if (Array.isArray(col.merged_from) && col.merged_from.length > 0) {
+          mergeRules[col.name] = [...col.merged_from];
+        }
+      }
+
       const config = {
         project_dir: projectDir,
         data_file: dataFile,
@@ -264,6 +274,7 @@
         ),
         mcmc_override: showAdvanced ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune } : null,
         unit_costs: get(unitCosts) || {},
+        merge_rules: mergeRules,
       };
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)

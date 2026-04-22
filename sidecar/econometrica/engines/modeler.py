@@ -173,10 +173,17 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     control_cols = config.get('control_columns', [])
     date_col = config.get('date_column', 'date')
     adstock_config = config.get('adstock_config', {})
+    merge_rules = config.get('merge_rules', {}) or {}
 
     # Parse dates
     if date_col in df.columns:
         df[date_col] = pd.to_datetime(df[date_col])
+
+    # ── Материализация виртуальных каналов (merged recommendations) ──
+    # См. utils/merge_rules.py. idempotent. Config + merge_rules сохранятся
+    # в pickle → decomposer/optimizer увидят те же правила.
+    from utils.merge_rules import apply_merge_rules
+    apply_merge_rules(df, merge_rules)
 
     # ── Валидация колонок ДО любых вычислений ─────────────────────────
     # Защита от race: пользователь мог применить рекомендацию «объединить с другим

@@ -36,6 +36,9 @@ def forecast_awareness(config: dict, project_dir: str) -> dict[str, Any]:
     project_path = Path(project_dir)
     data_file = config['data_file']
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+    # Материализация виртуальных каналов (merge_rules могут быть и здесь)
+    from utils.merge_rules import apply_merge_rules
+    apply_merge_rules(df, config.get('merge_rules'))
 
     awareness_col = config.get('awareness_column', 'awareness_%')
     media_cols = config.get('media_columns', [])

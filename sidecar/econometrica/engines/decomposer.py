@@ -42,6 +42,9 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     # Read original data for spend totals
     data_file = config['data_file']
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+    # Материализация виртуальных каналов (если были merge_rules при train)
+    from utils.merge_rules import apply_merge_rules
+    apply_merge_rules(df, config.get('merge_rules'))
 
     total_sales = float(y_actual.sum())
     baseline = float(y_actual.sum() - y_predicted.sum()) + float(y_predicted.mean() * len(y_actual) * 0.3)
