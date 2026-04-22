@@ -49,7 +49,7 @@
       const info = await invoke('project_get', { projectId: id });
       activeProject.set(info);      // Set BEFORE reset to avoid UI flash
       activeProjectId.set(id);
-      resetPipeline();
+      resetPipeline(id);             // передаём id чтобы restore перечитал results
 
       // Load pipeline stats
       const stats = await invoke('project_stats', { projectId: id });
@@ -159,7 +159,7 @@
       await invoke('project_activate', { projectId: newId });
       activeProject.set(info);
       activeProjectId.set(newId);
-      resetPipeline();
+      resetPipeline(newId);          // передаём id → restore result JSONs
       projects = [...projects, info];
       showCreate = false;
       archiveMsg = `✓ Проект «${info.name ?? newId}» импортирован`;

@@ -9,10 +9,9 @@
   let APP_VERSION = $state('...');
   getVersion().then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
   import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
-  import { onboardingEnabled, resetAllOnboarding, TOUR_STEP_KEYS } from '$lib/onboarding-state.js';
+  import { onboardingEnabled } from '$lib/onboarding-state.js';
 
   let audioEnabled = $state(isAudioEnabled());
-  let onboardingResetMsg = $state('');
 
   // Econometrica projects root
   /** @type {{current: string, default: string, is_custom: boolean} | null} */
@@ -343,11 +342,11 @@
     <section class="section">
       <h2 class="section-title">Обучающий режим</h2>
       <p class="section-desc">
-        Краткие подсказки по каждому разделу пайплайна (Валидация → Модель → Декомпозиция → Оптимизация → Отчёт).
-        Запускаются автоматически при первом визите на шаг и не повторяются после прохождения или пропуска.
+        Краткие подсказки по каждому шагу пайплайна (Импорт → Валидация → Модель → Декомпозиция → Оптимизация → Отчёт).
+        Показываются каждый раз пока включены — отключаются здесь или прямо из тура кнопкой «Отключить обучение».
       </p>
       <div class="theme-toggle-row">
-        <span class="theme-label">Показывать туры новым пользователям</span>
+        <span class="theme-label">Показывать туры</span>
         <button
           class="theme-toggle"
           onclick={() => onboardingEnabled.set(!$onboardingEnabled)}
@@ -368,24 +367,6 @@
           {/if}
         </button>
       </div>
-      <div class="theme-toggle-row" style="margin-top: 8px;">
-        <span class="theme-label">Пройти все туры заново</span>
-        <button
-          class="btn-logs"
-          onclick={() => {
-            resetAllOnboarding();
-            onboardingResetMsg = `Сброшено ${TOUR_STEP_KEYS.length} туров — откроются при следующем заходе на каждый шаг`;
-            setTimeout(() => { onboardingResetMsg = ''; }, 6000);
-          }}
-          disabled={!$onboardingEnabled}
-          title={$onboardingEnabled ? 'Сбросить completed-флаги для всех 5 шагов' : 'Сначала включите обучающий режим'}
-        >
-          ↺ Сбросить прогресс
-        </button>
-      </div>
-      {#if onboardingResetMsg}
-        <p class="import-status" style="color: var(--success); margin-top: 8px;">{onboardingResetMsg}</p>
-      {/if}
     </section>
 
     <section class="section">

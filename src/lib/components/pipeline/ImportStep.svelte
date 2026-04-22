@@ -52,7 +52,7 @@
       await invoke('project_activate', { projectId: newId });
       activeProject.set(info);
       activeProjectId.set(newId);
-      resetPipeline();
+      resetPipeline(newId);  // передаём id → restore result JSONs
       archiveMsg = `✓ Проект «${info.name ?? newId}» загружен. Следующие шаги подхватят результаты автоматически.`;
       setTimeout(() => { archiveMsg = ''; }, 8000);
     } catch (e) {

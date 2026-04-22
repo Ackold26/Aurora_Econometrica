@@ -1,23 +1,26 @@
 /**
- * Обучающий режим — глобальный toggle + персист completed-флагов по шагам.
+ * Обучающий режим — только глобальный toggle (без per-step completion).
  *
- * Поведение:
- *   - Глобальный toggle в /settings: `onboardingEnabled` (default = true для новых
- *     пользователей, false если отключено хотя бы раз). Сохраняется в localStorage.
- *   - Per-step completed flags: `aurora-econ-onboarded:<stepKey>` (0/1).
- *   - Step-компоненты на mount делают `shouldShowOnboarding('<stepKey>')` — если
- *     true (enabled=true + этот шаг ещё не пройден), запускают <PipelineOnboarding />.
- *   - «Пройти все туры заново» (кнопка в /settings) — removeItem всех step-flags.
+ * Поведение (с 2026-04-22 по запросу Антона):
+ *   - Туры показываются ВСЕГДА пока onboardingEnabled=true (default true).
+ *   - В самом туре есть кнопки «Далее» / «Пропустить» / «Отключить в настройках».
+ *   - Пропустить = закрыть тур локально (до следующего визита шага).
+ *   - Отключить = снять глобальный toggle → больше ни один тур не появится
+ *     пока пользователь не включит обратно в Settings.
+ *
+ * Per-step completion flags удалены в этой ревизии — считаем что пользователь
+ * либо хочет туры (тогда каждый раз новый контекст), либо нет (тогда выключил).
+ * Старые ключи `aurora-econ-onboarded:<step>` очищаются автоматически при load.
  */
 import { writable } from 'svelte/store';
 
 const ENABLED_KEY = 'aurora-econ-onboarding-enabled';
-const STEP_KEY_PREFIX = 'aurora-econ-onboarded:';
+const LEGACY_STEP_PREFIX = 'aurora-econ-onboarded:';
 
-/** @type {string[]} Канонические имена шагов с турами. */
+/** @type {string[]} Канонические имена шагов с турами (используется для диагностики). */
 export const TOUR_STEP_KEYS = ['import', 'validate', 'model', 'decompose', 'optimize', 'report'];
 
-/** Прочитать enabled из localStorage. Default true (показываем туры новым юзерам). */
+/** Прочитать enabled из localStorage. Default true — туры показываем новым юзерам. */
 function readEnabled() {
   if (typeof window === 'undefined') return true;
   try {
@@ -28,6 +31,18 @@ function readEnabled() {
     return true;
   }
 }
+
+/** One-time очистка legacy per-step flags — больше не используются. */
+function cleanupLegacyStepFlags() {
+  if (typeof window === 'undefined') return;
+  try {
+    for (const key of TOUR_STEP_KEYS) {
+      window.localStorage.removeItem(LEGACY_STEP_PREFIX + key);
+    }
+    window.localStorage.removeItem('aurora-econ-optimize-onboarded');
+  } catch {}
+}
+cleanupLegacyStepFlags();
 
 /** @type {import('svelte/store').Writable<boolean>} */
 export const onboardingEnabled = writable(readEnabled());
@@ -40,41 +55,34 @@ onboardingEnabled.subscribe((v) => {
 
 /**
  * Проверка: стоит ли показать тур на этом шаге прямо сейчас.
- * @param {string} stepKey
+ * Теперь = просто проверка глобального toggle. Per-step состояние НЕ хранится.
+ * @param {string} _stepKey — принимается для API-совместимости, но не используется.
  * @returns {boolean}
  */
-export function shouldShowOnboarding(stepKey) {
+export function shouldShowOnboarding(_stepKey) {
   if (typeof window === 'undefined') return false;
   try {
-    const enabled = window.localStorage.getItem(ENABLED_KEY);
-    if (enabled === '0') return false; // глобально выключен
-    const seen = window.localStorage.getItem(STEP_KEY_PREFIX + stepKey);
-    return !seen;
+    const v = window.localStorage.getItem(ENABLED_KEY);
+    if (v === null) return true; // default on
+    return v === '1';
   } catch {
     return false;
   }
 }
 
 /**
- * Отметить шаг как пройденный (тур завершён или пропущен).
- * @param {string} stepKey
+ * Отключить онбординг глобально. Вызывается из кнопки «Отключить в настройках»
+ * внутри тура — пользователь сразу видит эффект (тур закрывается + больше не
+ * появится пока не включит обратно в Settings).
  */
-export function markOnboardingDone(stepKey) {
-  if (typeof window === 'undefined') return;
-  try { window.localStorage.setItem(STEP_KEY_PREFIX + stepKey, '1'); } catch {}
+export function disableOnboarding() {
+  onboardingEnabled.set(false);
 }
 
 /**
- * Сбросить все completed-флаги (кнопка «Пройти все туры заново» в настройках).
- * НЕ трогает `onboardingEnabled` — если он включён, туры сразу начнут появляться.
+ * API-совместимость — старые вызовы markOnboardingDone / resetAllOnboarding
+ * остаются работоспособными как no-op. Новая логика их не требует.
+ * @param {string} _stepKey
  */
-export function resetAllOnboarding() {
-  if (typeof window === 'undefined') return;
-  try {
-    for (const key of TOUR_STEP_KEYS) {
-      window.localStorage.removeItem(STEP_KEY_PREFIX + key);
-    }
-    // Совместимость со старым ключом из OptimizeStep (может быть в storage после апгрейда)
-    window.localStorage.removeItem('aurora-econ-optimize-onboarded');
-  } catch {}
-}
+export function markOnboardingDone(_stepKey) { /* no-op */ }
+export function resetAllOnboarding() { cleanupLegacyStepFlags(); }

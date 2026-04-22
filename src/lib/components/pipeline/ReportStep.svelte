@@ -33,6 +33,32 @@
   /** @type {string|null} */
   let recomputeError = $state(null);
 
+  /** Попытаться загрузить уже посчитанные результаты с диска (validation,
+   * model-diagnostics, decomposition, optimization). Используется когда
+   * stores обнулились после переключения проекта, но JSON-файлы на диске
+   * ещё валидны. Быстрая альтернатива recomputeDownstream(). */
+  async function reloadFromDisk() {
+    const pid = get(activeProjectId);
+    if (!pid) return;
+    recomputing = true;
+    recomputeError = null;
+    try {
+      const r = /** @type {any} */ (await invoke('project_load_results', { projectId: pid }));
+      if (r.modelDiagnostics) {
+        modelData.update(m => ({ ...m, diagnostics: r.modelDiagnostics }));
+      }
+      if (r.decomposition) decomposeData.set(r.decomposition);
+      if (r.optimization) optimizeData.set(r.optimization);
+      if (!r.modelDiagnostics && !r.decomposition && !r.optimization) {
+        recomputeError = 'На диске нет ранее посчитанных результатов. Нужен пересчёт.';
+      }
+    } catch (/** @type {any} */ e) {
+      recomputeError = String(e?.message || e);
+    } finally {
+      recomputing = false;
+    }
+  }
+
   async function recomputeDownstream() {
     const pid = get(activeProjectId);
     if (!pid) return;
@@ -691,26 +717,27 @@
       </div>
     </div>
   {:else}
+    {@const missing = [!mData?.diagnostics && 'модель', !dData && 'декомпозиция', !oData && 'оптимизация'].filter(Boolean).join(', ')}
     <div class="no-data-banner">
-      {#if mData?.diagnostics && (!dData || !oData)}
-        {@const missing = [!dData && 'декомпозиция', !oData && 'оптимизация'].filter(Boolean).join(' и ')}
-        <div class="stale-header">⚠ Результаты требуют пересчёта</div>
-        <p class="stale-body">
-          Модель обучена, но {missing} сброшен{(!dData && !oData) ? 'ы' : 'а'}
-          (обычно после изменения стоимостей юнитов на шаге «Валидация»).
-          Запустить пересчёт прямо здесь:
-        </p>
-        <div class="stale-actions">
-          <button class="btn-recompute" onclick={recomputeDownstream} disabled={recomputing}>
-            {recomputing ? 'Пересчитываю…' : '↺ Пересчитать декомпозицию + оптимизацию'}
+      <div class="stale-header">⚠ Данные не загружены в память</div>
+      <p class="stale-body">
+        В этой сессии отсутствуют: {missing || 'результаты шагов'}.
+        Если вы уже прошли пайплайн в другой сессии — результаты лежат на диске,
+        и их можно подтянуть одним кликом. Если результатов нет — нужен пересчёт.
+      </p>
+      <div class="stale-actions">
+        <button class="btn-recompute" onclick={reloadFromDisk} disabled={recomputing}>
+          {recomputing ? 'Загружаю…' : '↓ Загрузить результаты с диска'}
+        </button>
+        {#if mData?.diagnostics}
+          <button class="btn-recompute" style="background: transparent; border-color: var(--border); color: var(--text-secondary);" onclick={recomputeDownstream} disabled={recomputing}>
+            {recomputing ? 'Пересчитываю…' : '↺ Пересчитать (декомпозиция + оптимизация)'}
           </button>
-          {#if recomputeError}
-            <span class="stale-error">⚠ {recomputeError}</span>
-          {/if}
-        </div>
-      {:else}
-        Данные предыдущих шагов недоступны — пройдите шаги 1–4.
-      {/if}
+        {/if}
+        {#if recomputeError}
+          <span class="stale-error">⚠ {recomputeError}</span>
+        {/if}
+      </div>
     </div>
   {/if}
 

@@ -467,4 +467,15 @@ export function resetPipeline(projectId) {
   isComputing.set(false);
   computeStatus.set('');
   loadPipelineForProject(projectId ?? null);
+
+  // Если передан projectId — перечитать результаты с диска (validation,
+  // modelDiagnostics, decompose, optimize). Без этого: пользователь
+  // переключил проект → stores сброшены → ReportStep показывает
+  // «данные предыдущих шагов недоступны», хотя они есть в JSON-файлах.
+  // Fix для race: _lastRestoredPid в subscribe может блокировать повторный
+  // вызов для того же pid. Здесь вызываем явно обходя guard.
+  if (projectId) {
+    _lastRestoredPid = null;  // сброс guard'а чтобы subscribe позволил
+    restoreProjectResults(projectId);
+  }
 }

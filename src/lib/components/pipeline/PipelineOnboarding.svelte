@@ -17,7 +17,7 @@
    * @component PipelineOnboarding
    */
   import { onMount, onDestroy } from 'svelte';
-  import { markOnboardingDone } from '$lib/onboarding-state.js';
+  import { disableOnboarding } from '$lib/onboarding-state.js';
 
   /**
    * @type {{
@@ -37,8 +37,16 @@
   /** @type {number | null} */
   let scrollSettleRAF = null;
 
+  /** Закрыть тур локально (на этом визите шага). При следующем заходе —
+   * появится снова, если onboardingEnabled в Settings не выключен. */
   function markDone() {
-    markOnboardingDone(stepKey);
+    onDone();
+  }
+
+  /** Отключить онбординг глобально и закрыть тур. Пользователь больше не
+   * увидит туры пока не включит toggle в Settings → Обучающий режим. */
+  function disableGlobally() {
+    disableOnboarding();
     onDone();
   }
 
@@ -177,6 +185,11 @@
   <h3 id="ob-title" class="card-title">{steps[current].title}</h3>
   <p class="card-body">{steps[current].body}</p>
   <div class="card-actions">
+    <button
+      class="btn-disable"
+      onclick={disableGlobally}
+      title="Больше не показывать туры ни на одном шаге. Включить обратно можно в Настройках → Обучающий режим."
+    >Отключить обучение</button>
     <button class="btn-skip" onclick={markDone}>Пропустить</button>
     <div class="spacer"></div>
     {#if current > 0}
@@ -263,7 +276,8 @@
 
   .btn-skip,
   .btn-back,
-  .btn-next {
+  .btn-next,
+  .btn-disable {
     padding: 7px 14px;
     border-radius: 7px;
     font-size: 12px;
@@ -271,6 +285,7 @@
     cursor: pointer;
     transition: all 0.15s;
     border: 1px solid transparent;
+    font-family: inherit;
   }
   .btn-skip {
     background: transparent;
@@ -278,6 +293,19 @@
     border-color: transparent;
   }
   .btn-skip:hover { color: var(--text-primary, #e2e8f0); }
+
+  .btn-disable {
+    background: transparent;
+    color: var(--text-muted, #64748b);
+    font-size: 11px;
+    padding: 5px 10px;
+    border-color: transparent;
+    margin-right: 4px;
+  }
+  .btn-disable:hover {
+    color: var(--danger, #ef4444);
+    background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent);
+  }
 
   .btn-back {
     background: transparent;
