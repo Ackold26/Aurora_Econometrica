@@ -17,14 +17,22 @@
   let query = $state('');
   /** @type {string | null} */
   let errorMsg = $state(null);
+  /** @type {HTMLDialogElement | undefined} */
+  let dialogEl = $state();
 
   onMount(() => {
     loadProjects();
   });
 
-  // Перезагружаем список когда открывается модалка (могли добавиться новые)
+  // Reactive sync: prop `open` → native dialog showModal/close
   $effect(() => {
-    if (open) loadProjects();
+    if (!dialogEl) return;
+    if (open && !dialogEl.open) {
+      dialogEl.showModal();
+      loadProjects(); // перезагружаем при открытии
+    } else if (!open && dialogEl.open) {
+      dialogEl.close();
+    }
   });
 
   async function loadProjects() {
@@ -57,43 +65,38 @@
     onSelect(p.id, p);
   }
 
-  /** @param {KeyboardEvent} e */
-  function onOverlayKey(e) {
-    if (e.key === 'Escape') onCancel();
+  /** @param {Event} e */
+  function handleCancel(e) {
+    e.preventDefault();
+    onCancel();
+  }
+
+  /** @param {MouseEvent} e */
+  function onBackdropClick(e) {
+    if (e.target === dialogEl) onCancel();
   }
 </script>
 
-{#if open}
-  <div
-    class="pm-overlay"
-    onclick={onCancel}
-    role="button"
-    tabindex="-1"
-    onkeydown={onOverlayKey}
-  >
-    <div
-      class="pm-dialog"
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.stopPropagation()}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Выбрать проект для сравнения"
-      tabindex="0"
-    >
-      <h3 class="pm-title">⚖ Выбрать проект для сравнения</h3>
-      <p class="pm-sub">
-        Будет открыт side-by-side отчёт. Активный проект не переключится.
-      </p>
+<dialog
+  bind:this={dialogEl}
+  oncancel={handleCancel}
+  onclick={onBackdropClick}
+  class="pm-dialog"
+  aria-label="Выбрать проект для сравнения"
+>
+  <h3 class="pm-title">⚖ Выбрать проект для сравнения</h3>
+  <p class="pm-sub">
+    Будет открыт side-by-side отчёт. Активный проект не переключится.
+  </p>
 
-      <input
-        class="pm-search"
-        type="text"
-        placeholder="Поиск по имени, KPI..."
-        bind:value={query}
-        autofocus
-      />
+  <input
+    class="pm-search"
+    type="text"
+    placeholder="Поиск по имени, KPI..."
+    bind:value={query}
+  />
 
-      {#if loading}
+  {#if loading}
         <div class="pm-state">Загрузка...</div>
       {:else if errorMsg}
         <div class="pm-state pm-err">{errorMsg}</div>
@@ -122,29 +125,13 @@
         </div>
       {/if}
 
-      <div class="pm-actions">
-        <button class="pm-btn pm-btn--cancel" onclick={onCancel}>Отмена</button>
-      </div>
-    </div>
+  <div class="pm-actions">
+    <button class="pm-btn pm-btn--cancel" onclick={onCancel}>Отмена</button>
   </div>
-{/if}
+</dialog>
 
 <style>
-  .pm-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: var(--overlay-bg, rgba(0, 0, 0, 0.55));
-    backdrop-filter: var(--blur-quiet, blur(4px));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: pm-fade-in 0.15s ease;
-  }
-  @keyframes pm-fade-in {
-    from { opacity: 0; }
-  }
-  .pm-dialog {
+  dialog.pm-dialog {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg, 12px);
@@ -152,14 +139,23 @@
     max-width: 520px;
     width: 92%;
     max-height: 80vh;
+    color: var(--text-primary);
+    box-shadow: var(--shadow, 0 24px 60px rgba(0, 0, 0, 0.4));
+    /* Dialog default: centered via margin auto; open→ flex column */
+  }
+  dialog.pm-dialog:not([open]) { display: none; }
+  dialog.pm-dialog[open] {
     display: flex;
     flex-direction: column;
-    box-shadow: var(--shadow);
     animation: pm-slide-up 0.2s ease;
   }
-  @keyframes pm-slide-up {
-    from { transform: translateY(12px); opacity: 0; }
+  dialog.pm-dialog::backdrop {
+    background: var(--overlay-bg, rgba(0, 0, 0, 0.55));
+    backdrop-filter: var(--blur-quiet, blur(4px));
+    animation: pm-fade-in 0.15s ease;
   }
+  @keyframes pm-fade-in { from { opacity: 0; } }
+  @keyframes pm-slide-up { from { transform: translateY(12px); opacity: 0; } }
   .pm-title {
     font-size: var(--font-lg, 17px);
     font-weight: 700;

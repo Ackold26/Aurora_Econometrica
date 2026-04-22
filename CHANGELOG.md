@@ -2,6 +2,32 @@
 
 ---
 
+## v1.0.10-rc1.1 — Comparison polish + a11y (2026-04-22)
+
+Follow-up к v1.0.10-rc1 (Comparison feature) — после self-audit всей сессии 17 findings; критическое fix'nуто сразу, остальное в этом rc.
+
+### Comparison UX
+- **Native `<dialog>`** для всех 3 модалок (ModelComparisonView, ProjectPickerModal, ConfirmDialog). Встроенный focus trap, Escape, `::backdrop` pseudo, a11y-правильные роли. Удалено 60+ строк custom overlay CSS + DOM listeners (keyboard Escape + body overflow hack).
+- **DataTable reuse** в ComparisonView Section 2 (Channels) + Section 5 (Optimize budget). Auto-detect positive/negative по `+/-` prefix — убрана дубликация стилей.
+- **optRows filter fix**: каналы с `current_spend` но без `optimal_spend` теперь показаны в таблице (раньше скрывались если проект не прошёл Optimize).
+
+### Backend
+- **`project_load_comparison`**: scenarios limit 50 newest (по mtime desc) вместо полного чтения директории. Предотвращает blocking FastAPI handler при 100+ сценариев.
+- **`scenarios_total`** в payload — frontend показывает banner «показаны последние 50 из N» если overflow.
+
+### Security (self-audit fix)
+- **V40 XSS в `ModelComparisonView.renderMd()`** — исправлено в коммите `665f731` перед этим rc. Channel name из xlsx больше не попадает в `{@html}` без escape.
+
+### DX / Infra (doc-only)
+- **Rollback runbook**: `memory/reference_econometrica_rollback.md` — точные SQL/URL/SHA для v1.0.8 emergency rollback.
+- **Dry-run rollback script**: `tools/rollback.sh` — показывает steps без execute.
+- **Manual test checklist**: `tools/manual-test-comparison.md` — 8 flows (Comparison open, keyboard, picker, confirm, overflow, partial data, ECharts dispose, dropdown visibility) + regression checks.
+
+### Artifact
+- .exe **не пересобран** — изменения frontend-only + docs. Используется тот же installer что в v1.0.10-rc1 (SHA256 `102c20e74fba02059aa529659a2db2223c181af5bd28c3e7f13652ab0ae2b086`).
+
+---
+
 ## v1.0.9-rc2 — Stability + multi-core MCMC (2026-04-22)
 
 Follow-up к v1.0.9-rc1 (port isolation) — 7 технических фиксов по результатам live-теста IT Паши на CLOUDEAI RDP 2026-04-21.

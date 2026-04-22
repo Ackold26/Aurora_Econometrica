@@ -651,17 +651,31 @@ fn load_snapshot(project_id: &str) -> Result<Value, String> {
             .unwrap_or(Value::Null)
     };
 
+    // Лимит сценариев для comparison — снимок 50 последних (по mtime) чтобы
+    // не блокировать FastAPI handler при 100+ сценариев. Фронт показывает
+    // warning если scenarios_total > scenarios.len.
+    const SCENARIO_LIMIT: usize = 50;
     let scenarios_dir = results.join("scenarios");
     let mut scenarios: Vec<Value> = Vec::new();
+    let mut total_scenarios_count = 0usize;
     if scenarios_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(&scenarios_dir) {
-            let mut paths: Vec<PathBuf> = entries
+            let mut entries_with_mtime: Vec<(PathBuf, std::time::SystemTime)> = entries
                 .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
+                .filter_map(|e| {
+                    let p = e.path();
+                    if p.extension().and_then(|x| x.to_str()) != Some("json") {
+                        return None;
+                    }
+                    let mtime = e.metadata().ok()?.modified().ok()?;
+                    Some((p, mtime))
+                })
                 .collect();
-            paths.sort();
-            for p in paths {
+            // Sort newest first (mtime desc)
+            entries_with_mtime.sort_by(|a, b| b.1.cmp(&a.1));
+            total_scenarios_count = entries_with_mtime.len();
+            entries_with_mtime.truncate(SCENARIO_LIMIT);
+            for (p, _) in entries_with_mtime {
                 if let Ok(s) = std::fs::read_to_string(&p) {
                     if let Ok(v) = serde_json::from_str::<Value>(&s) {
                         scenarios.push(v);
@@ -678,6 +692,7 @@ fn load_snapshot(project_id: &str) -> Result<Value, String> {
         "optimization":     read_json("optimization.json"),
         "validation":       read_json("validation.json"),
         "scenarios":        scenarios,
+        "scenarios_total":  total_scenarios_count,
     }))
 }
 

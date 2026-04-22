@@ -7,8 +7,9 @@
    * @component ModelComparisonView
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { onDestroy, onMount } from 'svelte';
+  import { onMount } from 'svelte';
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import DataTable from '$lib/components/DataTable.svelte';
 
   /** @type {{ primaryId: string, secondaryId: string, onClose: () => void }} */
   let { primaryId, secondaryId, onClose } = $props();
@@ -18,24 +19,25 @@
   let loading = $state(true);
   /** @type {string | null} */
   let errorMsg = $state(null);
+  /** @type {HTMLDialogElement | undefined} */
+  let dialogEl = $state();
 
   onMount(() => {
     loadPayload();
-    if (typeof document !== 'undefined') {
-      document.addEventListener('keydown', onEsc);
-      document.body.style.overflow = 'hidden';
-    }
-  });
-  onDestroy(() => {
-    if (typeof document !== 'undefined') {
-      document.removeEventListener('keydown', onEsc);
-      document.body.style.overflow = '';
-    }
+    // Открываем modal после mount — dialogEl уже bound
+    queueMicrotask(() => dialogEl?.showModal());
   });
 
-  /** @param {KeyboardEvent} e */
-  function onEsc(e) {
-    if (e.key === 'Escape') onClose();
+  /** @param {Event} e */
+  function handleCancel(e) {
+    e.preventDefault(); // Escape → onClose, не default close
+    onClose();
+  }
+
+  /** @param {MouseEvent} e */
+  function onBackdropClick(e) {
+    // Клик по самому dialog (а не по children) = backdrop click
+    if (e.target === dialogEl) onClose();
   }
 
   async function loadPayload() {
@@ -52,6 +54,18 @@
   // ── Snapshots ──────────────────────────────────────────────────────────
   const A = $derived(payload?.primary ?? null);
   const B = $derived(payload?.secondary ?? null);
+
+  // Scenarios overflow detection (backend truncates до 50 newest)
+  const scenariosOverflow = $derived.by(() => {
+    const aTotal = A?.scenarios_total ?? A?.scenarios?.length ?? 0;
+    const bTotal = B?.scenarios_total ?? B?.scenarios?.length ?? 0;
+    const aShown = A?.scenarios?.length ?? 0;
+    const bShown = B?.scenarios?.length ?? 0;
+    if (aTotal > aShown || bTotal > bShown) {
+      return { aTotal, bTotal, aShown, bShown };
+    }
+    return null;
+  });
 
   /** @param {any} snap */
   function diagnostics(snap) {
@@ -242,7 +256,7 @@
           curB: cb?.current_spend ?? null,
         };
       })
-      .filter((r) => r.optA != null || r.optB != null)
+      .filter((r) => r.curA != null || r.curB != null || r.optA != null || r.optB != null)
   );
 
   // ── Derived insights (text) ────────────────────────────────────────────
@@ -302,16 +316,14 @@
   }
 </script>
 
-<div
-  class="cmp-overlay"
-  role="dialog"
-  aria-modal="true"
+<dialog
+  bind:this={dialogEl}
+  class="cmp-dialog"
   aria-label="Сравнение моделей"
-  onclick={onClose}
-  onkeydown={(e) => e.key === 'Escape' && onClose()}
-  tabindex="-1"
+  oncancel={handleCancel}
+  onclick={onBackdropClick}
 >
-  <div class="cmp-shell" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="document">
+  <div class="cmp-shell">
     <header class="cmp-header">
       <div class="cmp-title">
         <span class="cmp-ico">⚖</span>
@@ -330,6 +342,11 @@
       {:else if errorMsg}
         <div class="cmp-state cmp-err">Ошибка: {errorMsg}</div>
       {:else if A && B}
+        {#if scenariosOverflow}
+          <div class="cmp-banner">
+            ℹ Показаны последние 50 сценариев (A: {scenariosOverflow.aShown} из {scenariosOverflow.aTotal}, B: {scenariosOverflow.bShown} из {scenariosOverflow.bTotal})
+          </div>
+        {/if}
         <!-- ── KPI cards ──────────────────────────────────────────── -->
         <section class="block">
           <h2>📊 Ключевые метрики</h2>
@@ -357,38 +374,24 @@
           </p>
         </section>
 
-        <!-- ── Channels table ─────────────────────────────────────── -->
+        <!-- ── Channels table (через DataTable) ────────────────────── -->
         {#if channelRows.length > 0}
           <section class="block">
-            <h2>🎯 Каналы: расходы и ROI</h2>
-            <div class="tbl-wrap">
-              <table class="cmp-table">
-                <thead>
-                  <tr>
-                    <th>Канал</th>
-                    <th class="num">Расход A</th>
-                    <th class="num">Расход B</th>
-                    <th class="num">ROI A</th>
-                    <th class="num">ROI B</th>
-                    <th class="num">Δ ROI</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {#each channelRows as r}
-                    <tr>
-                      <td>{r.name}</td>
-                      <td class="num">{fmtInt(r.spendA)}</td>
-                      <td class="num">{fmtInt(r.spendB)}</td>
-                      <td class="num" class:win={r.highlight.a}>{r.roiA != null ? `${fmt(r.roiA)}×` : '—'}</td>
-                      <td class="num" class:win={r.highlight.b}>{r.roiB != null ? `${fmt(r.roiB)}×` : '—'}</td>
-                      <td class="num" class:pos={r.delta != null && r.delta > 0} class:neg={r.delta != null && r.delta < 0}>
-                        {r.delta != null ? `${r.delta > 0 ? '+' : ''}${fmt(r.delta)}` : '—'}
-                      </td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              mode="scenario"
+              title="🎯 Каналы: расходы и ROI"
+              headers={['Канал', 'Расход A', 'Расход B', 'ROI A', 'ROI B', 'Δ ROI']}
+              rows={channelRows.map((r) => [
+                r.name,
+                r.spendA != null ? Math.round(Number(r.spendA)) : '—',
+                r.spendB != null ? Math.round(Number(r.spendB)) : '—',
+                r.roiA != null ? `${fmt(r.roiA)}×` : '—',
+                r.roiB != null ? `${fmt(r.roiB)}×` : '—',
+                r.delta != null
+                  ? (r.delta > 0 ? '+' : '') + fmt(r.delta)
+                  : '—',
+              ])}
+            />
           </section>
         {/if}
 
@@ -456,29 +459,18 @@
               </div>
             </div>
             {#if optRows.length > 0}
-              <div class="tbl-wrap" style="margin-top:12px;">
-                <table class="cmp-table">
-                  <thead>
-                    <tr>
-                      <th>Канал</th>
-                      <th class="num">Текущ. A</th>
-                      <th class="num">Оптим. A</th>
-                      <th class="num">Текущ. B</th>
-                      <th class="num">Оптим. B</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each optRows as r}
-                      <tr>
-                        <td>{r.name}</td>
-                        <td class="num">{fmtInt(r.curA)}</td>
-                        <td class="num">{fmtInt(r.optA)}</td>
-                        <td class="num">{fmtInt(r.curB)}</td>
-                        <td class="num">{fmtInt(r.optB)}</td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table>
+              <div style="margin-top:12px;">
+                <DataTable
+                  mode="scenario"
+                  headers={['Канал', 'Текущ. A', 'Оптим. A', 'Текущ. B', 'Оптим. B']}
+                  rows={optRows.map((r) => [
+                    r.name,
+                    r.curA != null ? Math.round(Number(r.curA)) : '—',
+                    r.optA != null ? Math.round(Number(r.optA)) : '—',
+                    r.curB != null ? Math.round(Number(r.curB)) : '—',
+                    r.optB != null ? Math.round(Number(r.optB)) : '—',
+                  ])}
+                />
               </div>
             {/if}
           </section>
@@ -498,35 +490,43 @@
       {/if}
     </div>
   </div>
-</div>
+</dialog>
 
 <style>
-  .cmp-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
+  dialog.cmp-dialog {
+    /* Full-page modal: native dialog centers via margin auto, override */
+    margin: 20px auto;
+    padding: 0;
+    border: none;
+    background: transparent;
+    max-width: 1280px;
+    width: calc(100% - 40px);
+    max-height: calc(100vh - 40px);
+    color: var(--text-primary);
+  }
+  dialog.cmp-dialog:not([open]) { display: none; }
+  dialog.cmp-dialog[open] {
+    animation: cmp-rise 0.25s ease;
+  }
+  dialog.cmp-dialog::backdrop {
     background: var(--overlay-bg, rgba(0, 0, 0, 0.7));
     backdrop-filter: blur(6px);
-    display: flex;
-    align-items: stretch;
-    justify-content: center;
-    padding: 20px;
-    overflow-y: auto;
     animation: cmp-fade 0.2s ease;
   }
   @keyframes cmp-fade { from { opacity: 0; } }
+  @keyframes cmp-rise { from { transform: translateY(16px); opacity: 0; } }
+
   .cmp-shell {
     background: var(--bg-primary, #0b0f16);
     border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
     border-radius: 14px;
     width: 100%;
-    max-width: 1280px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
-    animation: cmp-rise 0.25s ease;
   }
-  @keyframes cmp-rise { from { transform: translateY(16px); opacity: 0; } }
   .cmp-header {
     display: flex;
     align-items: center;
@@ -582,6 +582,15 @@
     font-size: 14px;
   }
   .cmp-err { color: var(--danger, #ef4444); }
+
+  .cmp-banner {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 25%, transparent);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 12px;
+  }
 
   .block {
     background: var(--bg-secondary, #111827);
@@ -658,28 +667,8 @@
   .dot-b { background: #f59e0b; }
   .note { font-style: italic; opacity: 0.7; margin-left: 6px; }
 
-  .tbl-wrap { overflow-x: auto; }
-  .cmp-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  .cmp-table th, .cmp-table td {
-    padding: 8px 10px;
-    text-align: left;
-    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  }
-  .cmp-table th {
-    color: var(--text-muted, #94a3b8);
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .cmp-table td.win { color: #22c55e; font-weight: 600; }
-  .cmp-table td.pos { color: #22c55e; }
-  .cmp-table td.neg { color: #ef4444; }
+  /* Table styles removed — DataTable component has its own styles with
+     auto-detect classes (positive/negative по +/- prefix, numeric по type). */
 
   .charts-two {
     display: grid;
