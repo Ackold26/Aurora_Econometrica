@@ -278,76 +278,95 @@
         Выберите один из двух вариантов — загрузите файл данных для <b>нового анализа</b>
         или откройте <b>ранее сохранённый проект</b>, чтобы продолжить работу с него.
       </p>
-      <div class="intro-options">
-        <div class="intro-card">
+
+      <!-- 1. Карточка «Новый проект» — описание, без кнопки (кнопка = dropzone ниже) -->
+      <div class="intro-card">
+        <div class="intro-card-header">
           <div class="intro-card-icon">📁</div>
           <div class="intro-card-title">Новый проект</div>
-          <div class="intro-card-body">
-            Загрузите xlsx/csv с историческими данными — пройдёте полный цикл
-            MMM-анализа: валидация → модель → декомпозиция → оптимизация → отчёт.
-          </div>
-          <button class="intro-btn primary" onclick={pickFile} disabled={importingArchive}>
-            📂 Выбрать файл данных
-          </button>
-          <p class="intro-btn-hint">или просто перетащите файл в зону ниже</p>
         </div>
-        <div class="intro-card">
-          <div class="intro-card-icon">📦</div>
-          <div class="intro-card-title">Загрузить сохранённый проект</div>
-          <div class="intro-card-body">
-            Откройте <code>.aurora</code> архив с ранее завершённым анализом —
-            данные, модель, декомпозиция, оптимизация и сценарии восстановятся
-            на тот же шаг, где вы закончили.
-          </div>
-          <button class="intro-btn secondary" onclick={loadSavedProject} disabled={importingArchive}>
-            {importingArchive ? 'Загрузка…' : '📦 Выбрать .aurora архив'}
-          </button>
-          <p class="intro-btn-hint">принимаются .aurora и .zip</p>
+        <div class="intro-card-body">
+          Загрузите xlsx/csv с историческими данными — пройдёте полный цикл
+          MMM-анализа: валидация → модель → декомпозиция → оптимизация → отчёт.
         </div>
       </div>
+
+      <!-- 2. Dropzone — единый путь загрузки данных для нового проекта -->
+      <div
+        class="drop-zone drop-zone--inline"
+        class:drag-over={isDragOver}
+        role="button"
+        tabindex="0"
+        aria-label="Зона перетаскивания файла"
+        ondragenter={onDragenter}
+        ondragover={onDragover}
+        ondragleave={onDragleave}
+        onclick={pickFile}
+        onkeydown={(e) => e.key === 'Enter' && pickFile()}
+      >
+        <div class="drop-content">
+          <div class="drop-icon">📂</div>
+          <p class="drop-label">Перетащите файл сюда</p>
+          <p class="drop-hint">или нажмите для выбора</p>
+          <p class="drop-formats">.xlsx · .xls · .csv</p>
+        </div>
+      </div>
+
+      <!-- 3. Карточка «Загрузить сохранённый проект» -->
+      <div class="intro-card">
+        <div class="intro-card-header">
+          <div class="intro-card-icon">📦</div>
+          <div class="intro-card-title">Загрузить сохранённый проект</div>
+        </div>
+        <div class="intro-card-body">
+          Откройте <code>.aurora</code> архив с ранее завершённым анализом —
+          данные, модель, декомпозиция, оптимизация и сценарии восстановятся
+          на тот же шаг, где вы закончили.
+        </div>
+        <button class="intro-btn secondary" onclick={loadSavedProject} disabled={importingArchive}>
+          {importingArchive ? 'Загрузка…' : '📦 Выбрать .aurora архив'}
+        </button>
+        <p class="intro-btn-hint">принимаются .aurora и .zip</p>
+      </div>
+
       {#if archiveMsg}
         <p class="archive-msg" class:archive-err={archiveMsg.startsWith('Ошибка')}>{archiveMsg}</p>
       {/if}
     </div>
   {/if}
 
-  <!-- Drop zone -->
-  <div
-    class="drop-zone"
-    class:drag-over={isDragOver}
-    class:has-file={!!filePath && !loading}
-    role="button"
-    tabindex="0"
-    aria-label="Зона перетаскивания файла"
-    ondragenter={onDragenter}
-    ondragover={onDragover}
-    ondragleave={onDragleave}
-    onclick={pickFile}
-    onkeydown={(e) => e.key === 'Enter' && pickFile()}
-  >
-    {#if loading}
-      <div class="drop-content">
-        <div class="spinner"></div>
-        <p class="drop-label">Загрузка…</p>
-      </div>
-    {:else if filePath}
-      <div class="drop-content file-ready">
-        <div class="file-icon">📊</div>
-        <p class="file-name">{fileName}</p>
-        {#if shape}
-          <p class="file-meta">{shape.rows} строк × {shape.cols} столбцов · {sizeKb} KB</p>
-        {/if}
-        <p class="change-hint">Нажмите или перетащите другой файл, чтобы заменить</p>
-      </div>
-    {:else}
-      <div class="drop-content">
-        <div class="drop-icon">📂</div>
-        <p class="drop-label">Перетащите файл сюда</p>
-        <p class="drop-hint">или нажмите для выбора</p>
-        <p class="drop-formats">.xlsx · .xls · .csv</p>
-      </div>
-    {/if}
-  </div>
+  <!-- Drop zone (states: loading / file-ready) — показывается ПОСЛЕ выбора файла -->
+  {#if filePath || loading}
+    <div
+      class="drop-zone"
+      class:drag-over={isDragOver}
+      class:has-file={!!filePath && !loading}
+      role="button"
+      tabindex="0"
+      aria-label="Файл загружен, зона замены"
+      ondragenter={onDragenter}
+      ondragover={onDragover}
+      ondragleave={onDragleave}
+      onclick={pickFile}
+      onkeydown={(e) => e.key === 'Enter' && pickFile()}
+    >
+      {#if loading}
+        <div class="drop-content">
+          <div class="spinner"></div>
+          <p class="drop-label">Загрузка…</p>
+        </div>
+      {:else if filePath}
+        <div class="drop-content file-ready">
+          <div class="file-icon">📊</div>
+          <p class="file-name">{fileName}</p>
+          {#if shape}
+            <p class="file-meta">{shape.rows} строк × {shape.cols} столбцов · {sizeKb} KB</p>
+          {/if}
+          <p class="change-hint">Нажмите или перетащите другой файл, чтобы заменить</p>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Error message -->
   {#if errorMsg}
@@ -434,6 +453,20 @@
     background: color-mix(in srgb, var(--success) 6%, var(--bg-card));
     min-height: 120px;
   }
+
+  /* Inline dropzone — компактная, живёт внутри intro-chooser между карточками */
+  .drop-zone--inline {
+    min-height: 140px;
+    box-shadow: none;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 6%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
+  }
+  .drop-zone--inline:hover,
+  .drop-zone--inline:focus-visible {
+    border-color: var(--accent-primary, #3b82f6);
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 10%, transparent);
+  }
+  .drop-zone--inline .drop-content { padding: 22px 24px; }
 
   .drop-zone.has-file:hover {
     border-color: var(--border-active);
@@ -609,16 +642,12 @@
     font-size: 14px;
     line-height: 1.6;
   }
-  .intro-options {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  @media (max-width: 900px) {
-    .intro-options { grid-template-columns: 1fr; }
+  .import-intro > .intro-card,
+  .import-intro > .drop-zone--inline {
+    margin-top: 14px;
   }
   .intro-card {
-    padding: 20px;
+    padding: 18px 20px;
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 4%, transparent);
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     border-radius: 10px;
@@ -631,7 +660,12 @@
     border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 35%, transparent);
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
   }
-  .intro-card-icon { font-size: 32px; line-height: 1; }
+  .intro-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .intro-card-icon { font-size: 28px; line-height: 1; }
   .intro-card-title {
     font-size: 15px;
     font-weight: 600;
