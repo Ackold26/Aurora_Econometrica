@@ -111,6 +111,8 @@
   function handleTrainingStarted(taskId) {
     activeTaskId = taskId;
     stepState = 'training';
+    errorMessage = null;  // clear прошлый error (stale из pipelineStepMeta/localStorage)
+    setStepError(2, null); // сброс errored-статуса текущего шага, чтобы UI не показывал cached сообщение
     isComputing.set(true);
     computeStatus.set('Markov Chain Monte Carlo сэмплирование...');
     try { localStorage.setItem(TASK_KEY, taskId); } catch { /* ignore */ }

@@ -464,6 +464,7 @@ def train_start(req: TrainStartRequest):
     config = req.model_dump()
     config.pop('project_dir')
     project_dir = req.project_dir
+    logger.info(f'/compute/train/start: kpi={req.kpi_column}, media={len(req.media_columns)} channels, merge_rules={req.merge_rules!r}')
 
     with _training_lock:
         # Cleanup consumed tasks older than 5 min
