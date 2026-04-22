@@ -3231,6 +3231,7 @@ fn build_app() -> Result<(), String> {
             commands::project::project_get_dir,
             commands::project::project_stats,
             commands::project::project_load_results,
+            commands::project::project_load_comparison,
             commands::project::project_export_archive,
             commands::project::project_import_archive,
             // Report generation commands

@@ -3,6 +3,8 @@
   import { save as saveDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
   import { onMount } from 'svelte';
   import { activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
+  import ProjectPickerModal from '$lib/components/comparison/ProjectPickerModal.svelte';
+  import ModelComparisonView from '$lib/components/comparison/ModelComparisonView.svelte';
 
   /** @type {any[]} */
   let projects = $state([]);
@@ -12,6 +14,36 @@
   let archiving = $state(false);
   /** @type {string} */
   let archiveMsg = $state('');
+
+  // ── Comparison flow ──────────────────────────────────────────────────
+  /** @type {string | null} */
+  let comparePrimaryId = $state(null);   // при клике «⚖» на проекте — сохраняем его id
+  let pickerOpen = $state(false);
+  /** @type {{ primaryId: string, secondaryId: string } | null} */
+  let comparisonOpen = $state(null);
+
+  /** @param {string} id @param {Event} e */
+  function startCompare(id, e) {
+    e.stopPropagation();
+    comparePrimaryId = id;
+    pickerOpen = true;
+    showCreate = false;
+  }
+  /** @param {string} secondaryId */
+  function onPickerSelect(secondaryId) {
+    pickerOpen = false;
+    if (comparePrimaryId) {
+      comparisonOpen = { primaryId: comparePrimaryId, secondaryId };
+    }
+  }
+  function onPickerCancel() {
+    pickerOpen = false;
+    comparePrimaryId = null;
+  }
+  function onComparisonClose() {
+    comparisonOpen = null;
+    comparePrimaryId = null;
+  }
 
   onMount(() => {
     loadProjects();
@@ -202,6 +234,14 @@
             <span class="item-date">{p.updated_at?.slice(0, 10)}</span>
           </button>
           <button
+            class="item-compare"
+            title="Сравнить с другим проектом"
+            aria-label="Сравнить проект «{p.name}» с другим"
+            onclick={(e) => startCompare(p.id, e)}
+          >
+            ⚖
+          </button>
+          <button
             class="item-delete"
             title="Удалить проект"
             aria-label="Удалить проект «{p.name}»"
@@ -252,6 +292,21 @@
     </div>
   {/if}
 </div>
+
+<ProjectPickerModal
+  open={pickerOpen}
+  excludeId={comparePrimaryId}
+  onSelect={(id) => onPickerSelect(id)}
+  onCancel={onPickerCancel}
+/>
+
+{#if comparisonOpen}
+  <ModelComparisonView
+    primaryId={comparisonOpen.primaryId}
+    secondaryId={comparisonOpen.secondaryId}
+    onClose={onComparisonClose}
+  />
+{/if}
 
 <style>
   .project-selector {
@@ -342,7 +397,7 @@
     text-align: left;
   }
 
-  .item-delete {
+  .item-delete, .item-compare {
     flex-shrink: 0;
     width: 28px;
     height: 28px;
@@ -361,6 +416,11 @@
   .item-delete:hover {
     background: color-mix(in srgb, var(--danger) 15%, transparent);
     color: var(--danger);
+    opacity: 1;
+  }
+  .item-compare:hover {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 15%, transparent);
+    color: var(--accent-primary, #3b82f6);
     opacity: 1;
   }
 

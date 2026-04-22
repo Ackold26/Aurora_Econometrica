@@ -624,3 +624,81 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
         "info": info_val,
     }))
 }
+
+// ── Model comparison ────────────────────────────────────────────────────────
+//
+// Атомарное чтение снимков двух проектов для side-by-side сравнения моделей.
+// Не меняет active_project — это read-only операция. Один Rust-вызов читает
+// оба проекта, что исключает race если один из них переименуется/удалится
+// между двумя последовательными invoke на frontend.
+
+fn load_snapshot(project_id: &str) -> Result<Value, String> {
+    let dir = project_dir(project_id)?;
+    if !dir.exists() {
+        return Err(format!("Проект «{project_id}» не найден"));
+    }
+    let info = read_project(&dir)?;
+    let results = dir.join("results");
+
+    let read_json = |name: &str| -> Value {
+        let path = results.join(name);
+        if !path.exists() {
+            return Value::Null;
+        }
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .unwrap_or(Value::Null)
+    };
+
+    let scenarios_dir = results.join("scenarios");
+    let mut scenarios: Vec<Value> = Vec::new();
+    if scenarios_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&scenarios_dir) {
+            let mut paths: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
+                .collect();
+            paths.sort();
+            for p in paths {
+                if let Ok(s) = std::fs::read_to_string(&p) {
+                    if let Ok(v) = serde_json::from_str::<Value>(&s) {
+                        scenarios.push(v);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(serde_json::json!({
+        "info":             info,
+        "modelDiagnostics": read_json("model-diagnostics.json"),
+        "decomposition":    read_json("decomposition.json"),
+        "optimization":     read_json("optimization.json"),
+        "validation":       read_json("validation.json"),
+        "scenarios":        scenarios,
+    }))
+}
+
+/// Читает снимки двух проектов атомарно для сравнения. Не меняет active_project.
+/// Возвращаемый объект: `{ primary: Snapshot, secondary: Snapshot }`, где каждый
+/// snapshot = `{ info, modelDiagnostics, decomposition, optimization, validation,
+/// scenarios }`. Отсутствующие файлы → соответствующее поле = null (для scenarios
+/// — пустой массив).
+#[tauri::command]
+pub async fn project_load_comparison(
+    primary_id: String,
+    secondary_id: String,
+) -> Result<Value, String> {
+    if primary_id == secondary_id {
+        return Err("Нельзя сравнивать проект сам с собой".to_string());
+    }
+    info!("project_load_comparison: {primary_id} vs {secondary_id}");
+    let primary = load_snapshot(&primary_id)?;
+    let secondary = load_snapshot(&secondary_id)?;
+    Ok(serde_json::json!({
+        "primary":   primary,
+        "secondary": secondary,
+    }))
+}
