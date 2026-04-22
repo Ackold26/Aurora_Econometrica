@@ -624,7 +624,9 @@
 
   /* ── Import mode chooser (New project / Load archive) ────────────── */
   .import-intro {
-    margin-bottom: 24px;
+    margin: 0 auto 24px auto;
+    max-width: 720px;
+    width: 100%;
     padding: 24px 28px;
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
@@ -645,6 +647,21 @@
   .import-intro > .intro-card,
   .import-intro > .drop-zone--inline {
     margin-top: 14px;
+  }
+  /* Визуальный разрыв между «Новый проект» блоком (dropzone) и
+     «Загрузить сохранённый проект» — чтобы не сливались. */
+  .import-intro > .drop-zone--inline + .intro-card {
+    margin-top: 28px;
+    position: relative;
+  }
+  .import-intro > .drop-zone--inline + .intro-card::before {
+    content: '';
+    position: absolute;
+    top: -14px;
+    left: 10%;
+    right: 10%;
+    height: 1px;
+    background: var(--border-subtle, rgba(255, 255, 255, 0.1));
   }
   .intro-card {
     padding: 18px 20px;
