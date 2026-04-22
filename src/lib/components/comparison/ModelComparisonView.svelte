@@ -374,24 +374,38 @@
           </p>
         </section>
 
-        <!-- ── Channels table (через DataTable) ────────────────────── -->
+        <!-- ── Channels table (inline для win-highlight на ROI) ────── -->
         {#if channelRows.length > 0}
           <section class="block">
-            <DataTable
-              mode="scenario"
-              title="🎯 Каналы: расходы и ROI"
-              headers={['Канал', 'Расход A', 'Расход B', 'ROI A', 'ROI B', 'Δ ROI']}
-              rows={channelRows.map((r) => [
-                r.name,
-                r.spendA != null ? Math.round(Number(r.spendA)) : '—',
-                r.spendB != null ? Math.round(Number(r.spendB)) : '—',
-                r.roiA != null ? `${fmt(r.roiA)}×` : '—',
-                r.roiB != null ? `${fmt(r.roiB)}×` : '—',
-                r.delta != null
-                  ? (r.delta > 0 ? '+' : '') + fmt(r.delta)
-                  : '—',
-              ])}
-            />
+            <h2>🎯 Каналы: расходы и ROI</h2>
+            <div class="tbl-wrap">
+              <table class="cmp-table">
+                <thead>
+                  <tr>
+                    <th>Канал</th>
+                    <th class="num">Расход A</th>
+                    <th class="num">Расход B</th>
+                    <th class="num">ROI A</th>
+                    <th class="num">ROI B</th>
+                    <th class="num">Δ ROI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each channelRows as r}
+                    <tr>
+                      <td>{r.name}</td>
+                      <td class="num">{fmtInt(r.spendA)}</td>
+                      <td class="num">{fmtInt(r.spendB)}</td>
+                      <td class="num" class:win={r.highlight.a}>{r.roiA != null ? `${fmt(r.roiA)}×` : '—'}</td>
+                      <td class="num" class:win={r.highlight.b}>{r.roiB != null ? `${fmt(r.roiB)}×` : '—'}</td>
+                      <td class="num" class:pos={r.delta != null && r.delta > 0} class:neg={r.delta != null && r.delta < 0}>
+                        {r.delta != null ? `${r.delta > 0 ? '+' : ''}${fmt(r.delta)}` : '—'}
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
           </section>
         {/if}
 
@@ -494,13 +508,14 @@
 
 <style>
   dialog.cmp-dialog {
-    /* Full-page modal: native dialog centers via margin auto, override */
-    margin: 20px auto;
+    /* Vertical + horizontal centering native margin:auto.
+       max-height/width ограничивают size; browser центрирует. */
+    margin: auto;
     padding: 0;
     border: none;
     background: transparent;
     max-width: 1280px;
-    width: calc(100% - 40px);
+    width: calc(100vw - 40px);
     max-height: calc(100vh - 40px);
     color: var(--text-primary);
   }
@@ -667,8 +682,28 @@
   .dot-b { background: #f59e0b; }
   .note { font-style: italic; opacity: 0.7; margin-left: 6px; }
 
-  /* Table styles removed — DataTable component has its own styles with
-     auto-detect classes (positive/negative по +/- prefix, numeric по type). */
+  .tbl-wrap { overflow-x: auto; }
+  .cmp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .cmp-table th, .cmp-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  }
+  .cmp-table th {
+    color: var(--text-muted, #94a3b8);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .cmp-table td.win { color: #22c55e; font-weight: 600; }
+  .cmp-table td.pos { color: #22c55e; }
+  .cmp-table td.neg { color: #ef4444; }
 
   .charts-two {
     display: grid;

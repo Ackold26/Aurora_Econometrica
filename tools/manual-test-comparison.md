@@ -55,15 +55,22 @@ Use after any commit touching:
 
 ## Flow D: ConfirmDialog <dialog>
 
-1. В ProjectSelector → 🗑 на проекте → confirm dialog (подтверждение удаления).
-2. Tab между «Отмена» и «Удалить».
-3. Escape → cancel.
-4. Backdrop click → cancel.
+ConfirmDialog используется в **/workflow** route (при удалении workflow).
+Pipeline ProjectSelector использует native `confirm()` — не testируется здесь.
+
+1. Открыть Creative Hub продукт (или любой где есть /workflow страница).
+2. Navigate to Workflows page.
+3. Click 🗑 на workflow → ConfirmDialog открывается.
+4. Tab между «Отмена» и «Удалить» (2 focusable).
+5. Escape → dialog закрывается + workflow остаётся (cancel fires).
+6. Backdrop click → cancel.
 
 ### Verify
-- [ ] Dialog открывается центрированный.
-- [ ] 2 кнопки focusable.
-- [ ] Escape fires onCancel (НЕ прямой close без callback).
+- [ ] Dialog открывается центрированный (margin:auto).
+- [ ] 2 кнопки focusable, Tab cycling.
+- [ ] Escape fires onCancel (deleteTarget → null).
+- [ ] Backdrop click fires onCancel.
+- [ ] «Удалить» danger style (red).
 
 ## Flow E: Scenarios overflow
 

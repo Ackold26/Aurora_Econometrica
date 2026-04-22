@@ -6,7 +6,6 @@
    * @component ProjectPickerModal
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { onMount } from 'svelte';
 
   /** @type {{ open: boolean, excludeId: string | null, onSelect: (id: string, info: any) => void, onCancel: () => void }} */
   let { open, excludeId, onSelect, onCancel } = $props();
@@ -20,16 +19,14 @@
   /** @type {HTMLDialogElement | undefined} */
   let dialogEl = $state();
 
-  onMount(() => {
-    loadProjects();
-  });
-
-  // Reactive sync: prop `open` → native dialog showModal/close
+  // Reactive sync: prop `open` → native dialog showModal/close.
+  // Проекты загружаем только при открытии (избегаем лишний fetch
+  // при mount когда open=false).
   $effect(() => {
     if (!dialogEl) return;
     if (open && !dialogEl.open) {
       dialogEl.showModal();
-      loadProjects(); // перезагружаем при открытии
+      loadProjects();
     } else if (!open && dialogEl.open) {
       dialogEl.close();
     }
