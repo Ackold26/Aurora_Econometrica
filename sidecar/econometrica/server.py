@@ -279,6 +279,10 @@ class TrainRequest(BaseModel):
     # spend × unit_cost для отображения и расчёта ROI. На обучение модели не
     # влияет (Hill работает на нативных единицах канала).
     unit_costs: dict[str, float] = {}
+    # Виртуальные merged каналы (например «Малые медиа» из 4 источников).
+    # Frontend InsightsPanel создаёт их как metadata. Backend создаёт
+    # df[merged_name] = sum(df[sources]) до column guard. См. utils/merge_rules.py.
+    merge_rules: dict[str, list[str]] = {}
 
 
 class TrainStartRequest(BaseModel):
@@ -291,6 +295,7 @@ class TrainStartRequest(BaseModel):
     adstock_config: dict[str, str] = {}
     mcmc_override: dict | None = None
     unit_costs: dict[str, float] = {}
+    merge_rules: dict[str, list[str]] = {}
 
 
 class DecomposeRequest(BaseModel):

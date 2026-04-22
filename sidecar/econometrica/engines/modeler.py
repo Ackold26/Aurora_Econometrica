@@ -183,6 +183,8 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # См. utils/merge_rules.py. idempotent. Config + merge_rules сохранятся
     # в pickle → decomposer/optimizer увидят те же правила.
     from utils.merge_rules import apply_merge_rules
+    if merge_rules:
+        logger.info(f'Applying merge_rules: {list(merge_rules.keys())} ({sum(len(v) for v in merge_rules.values())} source cols)')
     apply_merge_rules(df, merge_rules)
 
     # ── Валидация колонок ДО любых вычислений ─────────────────────────
