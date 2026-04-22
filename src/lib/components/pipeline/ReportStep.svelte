@@ -979,20 +979,24 @@
             {/if}
             {#if interpretationQuality}
               <h4 class="interp-h">Качество модели и доверие к выводам</h4>
+              <!-- aurora-fix:safe V40 — upstream escapeHtml на user-sourced именах каналов (topDriver.name), ** → <b> контролируемая замена -->
               <p>{@html interpretationQuality.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>
             {/if}
             {#if interpretationDecomposition}
               <h4 class="interp-h">Структура ваших продаж</h4>
+              <!-- aurora-fix:safe V40 — upstream escapeHtml на topDriver.name, ** → <b> контролируемая замена -->
               <p>{@html interpretationDecomposition.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>
             {/if}
             {#if interpretationOptimization}
               <h4 class="interp-h">Что можно улучшить</h4>
+              <!-- aurora-fix:safe V40 — upstream escapeHtml на именах каналов (underfunded/oversaturated), ** → <b> контролируемая замена -->
               <p>{@html interpretationOptimization.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>
             {/if}
             {#if interpretationActions.length > 0}
               <h4 class="interp-h">Что делать дальше — практические шаги</h4>
               <ol class="actions-list">
                 {#each interpretationActions as action}
+                  <!-- aurora-fix:safe V40 — actions — статические строки из derived, без user input; ** → <b> контролируемая замена -->
                   <li>{@html action.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</li>
                 {/each}
               </ol>

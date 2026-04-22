@@ -93,6 +93,7 @@
   <div class="card-body">
     <div class="card-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <!-- aurora-fix:safe V40 — iconMap/fallbackIcon содержат статические SVG-фрагменты из константы в этом же файле, без user input -->
         {@html iconMap[cabinet.id] ?? fallbackIcon}
       </svg>
     </div>

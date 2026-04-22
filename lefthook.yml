@@ -1,0 +1,12 @@
+# lefthook — git hooks для Aurora Econometrica.
+# Установка: npm install → `npx lefthook install` (автоматически через `prepare` script).
+# Bypass: git commit --no-verify (использовать только если понимаешь зачем).
+
+pre-commit:
+  parallel: true
+  commands:
+    v40-xss:
+      glob: "src/**/*.svelte"
+      run: node tools/lint-xss.mjs
+      # Линтер сам сканирует весь src/ — не передаём {staged_files},
+      # иначе AST-проверка пропустит сайты вне staged.
