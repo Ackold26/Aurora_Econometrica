@@ -27,6 +27,10 @@ Desktop.ini
 test-keypair.json
 test-license.json
 
+# Build logs (локальные, не комитить)
+sidecar_build_*.log
+tauri_build_*.log
+
 # Python
 __pycache__/
 *.pyc
