@@ -18,7 +18,11 @@ import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative, sep } from 'path';
 
 const ROOT = 'src';
-const BYPASS_MARKER = 'aurora-fix:safe';
+// Маркер должен быть внутри HTML-комментария <!-- ... -->, иначе false-positive
+// при совпадении в title-атрибуте или строковом литерале на предыдущей строке.
+// Non-greedy .*? чтобы тело комментария могло содержать любые символы (включая <b>),
+// но не захватывать соседний комментарий на той же строке.
+const BYPASS_RE = /<!--.*?\baurora-fix:safe\b.*?-->/;
 const HELPER_RE = /^(escape|_escape|escapeHtml|sanitize|purify|renderMd|renderMarkdown)$/i;
 
 const violations = [];
@@ -58,7 +62,7 @@ function hasBypassComment(code, nodeStart) {
   const lineNum = lines.length;
   const currentLine = lines[lineNum - 1] ?? '';
   const prevLine = lineNum >= 2 ? lines[lineNum - 2] : '';
-  return currentLine.includes(BYPASS_MARKER) || prevLine.includes(BYPASS_MARKER);
+  return BYPASS_RE.test(currentLine) || BYPASS_RE.test(prevLine);
 }
 
 function walkAst(node, fn) {
@@ -124,7 +128,7 @@ if (violations.length) {
     console.error(`    ${v.snippet}`);
   }
   console.error(`\nFix: wrap expression in escape()/escapeHtml()/renderMd(),`);
-  console.error(`or add comment with "${BYPASS_MARKER}" on same/previous line if legit.\n`);
+  console.error(`or add HTML comment <!-- aurora-fix:safe ... --> on same/previous line if legit.\n`);
   process.exit(1);
 }
 console.log('✓ V40 lint: OK');

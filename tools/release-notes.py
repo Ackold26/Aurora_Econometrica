@@ -59,14 +59,18 @@ def sha256_of(path: Path) -> str:
 
 
 def git_log_between(prev_tag: str) -> tuple[str, int]:
-    # Ensure tags are fetched locally
-    subprocess.run(["git", "fetch", "--tags"], capture_output=True, check=False)
-    out = subprocess.run(
-        ["git", "log", "--oneline", f"{prev_tag}..HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        # Ensure tags are fetched locally
+        subprocess.run(["git", "fetch", "--tags"], capture_output=True, check=False)
+        out = subprocess.run(
+            ["git", "log", "--oneline", f"{prev_tag}..HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        sys.stderr.write("warn: git executable not found in PATH\n")
+        return "(git unavailable)", 0
     if out.returncode != 0:
         sys.stderr.write(
             f"warn: git log failed — tag '{prev_tag}' not found locally?\n"
