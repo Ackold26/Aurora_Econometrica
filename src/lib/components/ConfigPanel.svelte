@@ -196,13 +196,36 @@
       return;
     }
 
-    const enabledChannels = Object.entries(channelEnabled)
+    const rawEnabled = Object.entries(channelEnabled)
       .filter(([, v]) => v)
       .map(([k]) => k);
 
+    // Guard: отфильтровать каналы, которых нет в валидации (смердженные псевдо-каналы,
+    // удалённые из xlsx после валидации). Иначе backend падает с KeyError на apply_adstock.
+    const validColumnNames = new Set(
+      (validation?.columns ?? []).map(/** @param {any} c */ (c) => c.name)
+    );
+    const missingChannels = rawEnabled.filter(c => !validColumnNames.has(c));
+    const enabledChannels = rawEnabled.filter(c => validColumnNames.has(c));
+
+    if (missingChannels.length > 0) {
+      console.warn('ConfigPanel: skipping media channels missing from validation:', missingChannels);
+      computeStatus.set(
+        `Внимание: ${missingChannels.length} канал${missingChannels.length > 1 ? 'а' : ''} ` +
+        `(${missingChannels.slice(0, 3).map(c => `«${c}»`).join(', ')}` +
+        `${missingChannels.length > 3 ? '...' : ''}) отсутству${missingChannels.length > 1 ? 'ют' : 'ет'} ` +
+        `в файле и исключ${missingChannels.length > 1 ? 'ены' : 'ён'} из обучения. Вернитесь на «Валидацию» чтобы обновить список.`
+      );
+      setTimeout(() => computeStatus.set(''), 10000);
+    }
+
     if (enabledChannels.length === 0) {
-      computeStatus.set('Ошибка: не выбрано ни одного медиа-канала.');
-      setTimeout(() => computeStatus.set(''), 4000);
+      computeStatus.set(
+        missingChannels.length > 0
+          ? 'Ошибка: все выбранные каналы отсутствуют в файле данных. Обновите роли на шаге «Валидация».'
+          : 'Ошибка: не выбрано ни одного медиа-канала.'
+      );
+      setTimeout(() => computeStatus.set(''), 6000);
       return;
     }
 

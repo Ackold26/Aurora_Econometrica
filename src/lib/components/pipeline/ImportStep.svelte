@@ -12,8 +12,49 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
-  import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject } from '$lib/project-state.js';
+  import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
   import { get } from 'svelte/store';
+
+  // Загрузка ранее сохранённого проекта из .aurora архива. После успешного
+  // импорта активируется новый project_id и происходит resetPipeline → система
+  // сама подхватит results/models/decompose/optimize через restoreProjectResults.
+  let importingArchive = $state(false);
+  /** @type {string} */
+  let archiveMsg = $state('');
+
+  async function loadSavedProject() {
+    if (importingArchive) return;
+    importingArchive = true;
+    archiveMsg = '';
+    try {
+      const selected = await open({
+        filters: [{ name: 'Aurora Project', extensions: ['aurora', 'zip'] }],
+        multiple: false,
+        title: 'Выбрать .aurora архив проекта',
+      });
+      if (!selected || typeof selected !== 'string') {
+        importingArchive = false;
+        return;
+      }
+      const result = /** @type {any} */ (await invoke('project_import_archive', {
+        archivePath: selected,
+      }));
+      const newId = result.project_id;
+      const info = result.info;
+
+      await invoke('project_activate', { projectId: newId });
+      activeProject.set(info);
+      activeProjectId.set(newId);
+      resetPipeline();
+      archiveMsg = `✓ Проект «${info.name ?? newId}» загружен. Следующие шаги подхватят результаты автоматически.`;
+      setTimeout(() => { archiveMsg = ''; }, 8000);
+    } catch (e) {
+      archiveMsg = `Ошибка: ${e}`;
+      setTimeout(() => { archiveMsg = ''; }, 8000);
+    } finally {
+      importingArchive = false;
+    }
+  }
 
   // ── State ──────────────────────────────────────────
   let filePath = $state('');
@@ -211,6 +252,47 @@
 </script>
 
 <div class="import-step">
+
+  <!-- Import mode chooser — показывается только когда файла ещё нет -->
+  {#if !filePath && !loading}
+    <div class="import-intro">
+      <h2 class="intro-title">Начать работу с проектом</h2>
+      <p class="intro-body">
+        Выберите один из двух вариантов — загрузите файл данных для <b>нового анализа</b>
+        или откройте <b>ранее сохранённый проект</b>, чтобы продолжить работу с него.
+      </p>
+      <div class="intro-options">
+        <div class="intro-card">
+          <div class="intro-card-icon">📁</div>
+          <div class="intro-card-title">Новый проект</div>
+          <div class="intro-card-body">
+            Загрузите xlsx/csv с историческими данными — пройдёте полный цикл
+            MMM-анализа: валидация → модель → декомпозиция → оптимизация → отчёт.
+          </div>
+          <button class="intro-btn primary" onclick={pickFile} disabled={importingArchive}>
+            📂 Выбрать файл данных
+          </button>
+          <p class="intro-btn-hint">или просто перетащите файл в зону ниже</p>
+        </div>
+        <div class="intro-card">
+          <div class="intro-card-icon">📦</div>
+          <div class="intro-card-title">Загрузить сохранённый проект</div>
+          <div class="intro-card-body">
+            Откройте <code>.aurora</code> архив с ранее завершённым анализом —
+            данные, модель, декомпозиция, оптимизация и сценарии восстановятся
+            на тот же шаг, где вы закончили.
+          </div>
+          <button class="intro-btn secondary" onclick={loadSavedProject} disabled={importingArchive}>
+            {importingArchive ? 'Загрузка…' : '📦 Выбрать .aurora архив'}
+          </button>
+          <p class="intro-btn-hint">принимаются .aurora и .zip</p>
+        </div>
+      </div>
+      {#if archiveMsg}
+        <p class="archive-msg" class:archive-err={archiveMsg.startsWith('Ошибка')}>{archiveMsg}</p>
+      {/if}
+    </div>
+  {/if}
 
   <!-- Drop zone -->
   <div
@@ -481,4 +563,113 @@
     cursor: pointer; transition: opacity 0.15s;
   }
   .quick-btn:hover { opacity: 0.85; }
+
+  /* ── Import mode chooser (New project / Load archive) ────────────── */
+  .import-intro {
+    margin-bottom: 24px;
+    padding: 24px 28px;
+    background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 14px;
+  }
+  .intro-title {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+  .intro-body {
+    margin: 0 0 20px 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .intro-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .intro-options { grid-template-columns: 1fr; }
+  }
+  .intro-card {
+    padding: 20px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 4%, transparent);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .intro-card:hover {
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 35%, transparent);
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
+  }
+  .intro-card-icon { font-size: 32px; line-height: 1; }
+  .intro-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .intro-card-body {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+  }
+  .intro-card-body code {
+    background: rgba(255,255,255,0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .intro-btn {
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, border-color 0.15s;
+    font-family: inherit;
+    margin-top: 6px;
+  }
+  .intro-btn.primary {
+    background: var(--accent-primary, #3b82f6);
+    color: white;
+    border: 1px solid var(--accent-primary, #3b82f6);
+  }
+  .intro-btn.secondary {
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border, rgba(255,255,255,0.2));
+  }
+  .intro-btn.secondary:hover:not(:disabled) {
+    border-color: var(--accent-primary, #3b82f6);
+    color: var(--accent-primary, #3b82f6);
+  }
+  .intro-btn:hover:not(:disabled) { opacity: 0.9; }
+  .intro-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .intro-btn-hint {
+    margin: 2px 0 0 0;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .archive-msg {
+    margin: 14px 0 0 0;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--success, #22c55e) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #22c55e) 30%, transparent);
+    border-radius: 8px;
+    color: var(--success, #22c55e);
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .archive-msg.archive-err {
+    background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 30%, transparent);
+    color: var(--danger, #ef4444);
+  }
 </style>

@@ -178,6 +178,47 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     if date_col in df.columns:
         df[date_col] = pd.to_datetime(df[date_col])
 
+    # ── Валидация колонок ДО любых вычислений ─────────────────────────
+    # Защита от race: пользователь мог применить рекомендацию «объединить с другим
+    # каналом» (смерджить псевдо-канал «Малые медиа»), но xlsx остался прежним.
+    # Или удалить колонку в xlsx после валидации. Падаем с понятной ошибкой вместо
+    # сырого pandas KeyError в середине training loop.
+    if kpi_col not in df.columns:
+        return {
+            'status': 'error',
+            'error_code': 'MISSING_KPI_COLUMN',
+            'message': f'Колонка KPI «{kpi_col}» не найдена в файле данных. '
+                       f'Доступные колонки: {", ".join(df.columns[:20].tolist())}'
+                       + ('...' if len(df.columns) > 20 else ''),
+        }
+    missing_media = [c for c in media_cols if c not in df.columns]
+    if missing_media:
+        return {
+            'status': 'error',
+            'error_code': 'MISSING_MEDIA_COLUMNS',
+            'message': (
+                f'В списке медиа-каналов есть {len(missing_media)} '
+                f'колонк{"и" if len(missing_media) > 1 else "а"}, которы{"х" if len(missing_media) > 1 else "й"} нет в файле: '
+                f'{", ".join(repr(c) for c in missing_media[:10])}'
+                + (f' (и ещё {len(missing_media) - 10})' if len(missing_media) > 10 else '')
+                + '. Вернитесь на шаг «Валидация» и проверьте назначение ролей колонок.'
+            ),
+            'missing_columns': missing_media,
+        }
+    missing_control = [c for c in control_cols if c not in df.columns]
+    if missing_control:
+        return {
+            'status': 'error',
+            'error_code': 'MISSING_CONTROL_COLUMNS',
+            'message': (
+                f'В списке контрольных колонок есть {len(missing_control)} отсутствующ'
+                f'{"их" if len(missing_control) > 1 else "ая"}: {", ".join(repr(c) for c in missing_control[:10])}'
+                + (f' (и ещё {len(missing_control) - 10})' if len(missing_control) > 10 else '')
+                + '. Вернитесь на шаг «Валидация» и проверьте назначение ролей колонок.'
+            ),
+            'missing_columns': missing_control,
+        }
+
     y = df[kpi_col].values.astype(float)
     n_obs = len(y)
     n_params = len(media_cols) + len(control_cols) + 1  # +1 for intercept
