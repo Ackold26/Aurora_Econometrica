@@ -378,11 +378,34 @@ export function validateInsights(result, objective = 'roi') {
   if (allWeakMedia.length >= 2) {
     const weakNames = allWeakMedia.map(/** @param {any} c */ c => c.name);
     const avgZeros = allWeakMedia.reduce(/** @param {number} sum @param {any} c */ (sum, c) => sum + (c.stats?.zeros_pct ?? 0), 0) / allWeakMedia.length;
+    // Наследование money-маркера: если ВСЕ источники содержат один и тот же
+    // денежный индикатор (НДС/VAT/руб/₽/RUB) — добавляем его в имя merged
+    // канала, чтобы UnitCostsPanel корректно пропускал его (суммированные
+    // рубли остаются рублями, unit_cost=1 не нужен).
+    /** @type {Array<{re: RegExp, suffix: string}>} */
+    const MONEY_MARKERS = [
+      { re: /до\s+НДС/i, suffix: ' до НДС' },
+      { re: /без\s+НДС/i, suffix: ' без НДС' },
+      { re: /с\s+НДС/i,   suffix: ' с НДС' },
+      { re: /НДС/i,       suffix: ' НДС' },
+      { re: /VAT/i,       suffix: ' VAT' },
+      { re: /RUB/i,       suffix: ' RUB' },
+      { re: /₽/,          suffix: ' ₽' },
+      { re: /(^|[\s\(])руб/i, suffix: ' в руб' },
+    ];
+    let nameSuffix = '';
+    for (const m of MONEY_MARKERS) {
+      if (weakNames.every(n => m.re.test(String(n)))) {
+        nameSuffix = m.suffix;
+        break;
+      }
+    }
+    const mergedName = `Малые медиа${nameSuffix}`;
     out.push({
       severity: 'info',
-      text: `${allWeakMedia.length} каналов с 50-90% нулей (${weakNames.join(', ')}). Объедините их в один «Малые медиа» — суммарный сигнал будет сильнее.`,
+      text: `${allWeakMedia.length} каналов с 50-90% нулей (${weakNames.join(', ')}). Объедините их в один «${mergedName}» — суммарный сигнал будет сильнее.`,
       tip: `Каждый канал по отдельности слишком разреженный (в среднем ${avgZeros.toFixed(0)}% нулей). Объединение суммирует их активность — модель получит более стабильную оценку ROI для группы.`,
-      action: { type: 'merge', columns: weakNames, mergedName: 'Малые медиа', label: `Объединить ${allWeakMedia.length} канала` },
+      action: { type: 'merge', columns: weakNames, mergedName, label: `Объединить ${allWeakMedia.length} канала` },
     });
   }
 
