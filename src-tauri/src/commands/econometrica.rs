@@ -271,8 +271,15 @@ pub async fn econ_export_pptx(
     optimize_data: Value,
 ) -> Result<Value, String> {
     info!("econ_export_pptx: project={project_id}");
+    // Передаём абсолютный project_dir чтобы sidecar находил scenarios/exports
+    // в customizable папке (настраивается в Settings). Без этого Python
+    // читал бы захардкоженный %APPDATA% путь, игнорируя Settings override.
+    let project_dir = crate::commands::project::project_dir(&project_id)
+        .map(|p| p.to_string_lossy().to_string())
+        .ok();
     let body = serde_json::json!({
         "project_id": project_id,
+        "project_dir": project_dir,
         "model_data": model_data,
         "decompose_data": decompose_data,
         "optimize_data": optimize_data,
@@ -289,8 +296,12 @@ pub async fn econ_export_html(
     project_name: Option<String>,
 ) -> Result<Value, String> {
     info!("econ_export_html: project={project_id}");
+    let project_dir = crate::commands::project::project_dir(&project_id)
+        .map(|p| p.to_string_lossy().to_string())
+        .ok();
     let body = serde_json::json!({
         "project_id": project_id,
+        "project_dir": project_dir,
         "model_data": model_data,
         "decompose_data": decompose_data,
         "optimize_data": optimize_data,

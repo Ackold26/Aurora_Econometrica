@@ -27,6 +27,7 @@
     expanded = !expanded;
   }
 
+  /** @param {KeyboardEvent} e */
   function onKey(e) {
     if (e.key === 'Escape' && expanded) expanded = false;
   }

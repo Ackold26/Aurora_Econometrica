@@ -176,6 +176,20 @@
   });
 
   // ── Interpretation blocks (для маркетолога/руководителя) ───────────────────
+  /** HTML-escape для user-controlled строк (имена каналов из xlsx) —
+   * защита от XSS перед вставкой в {@html} интерпретации.
+   * @param {unknown} s
+   * @returns {string}
+   */
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#x27;');
+  }
+
   /** Канал с самым высоким ROI (эффективность). */
   const bestRoiChannel = $derived(
     [...decChannels].sort((a, b) => (b.roi || 0) - (a.roi || 0))[0] ?? null
@@ -228,7 +242,7 @@
     else if (basePct >= 40) parts.push(`**Бренд и медиа работают вместе.** База = ${basePct.toFixed(0)}%, медиа-вклад = ${(100 - basePct).toFixed(0)}%.`);
     else parts.push(`**Продажи держатся на рекламе.** База всего ${basePct.toFixed(0)}% — если остановить медиа, продажи упадут на ${(100 - basePct).toFixed(0)}%. Это характерно для молодых брендов или категорий с короткой лояльностью.`);
     if (topDriver) {
-      parts.push(`**Главный медиа-драйвер — «${topDriver.name}»** (${topDriver.contribution_pct?.toFixed(0) ?? '—'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
+      parts.push(`**Главный медиа-драйвер — «${escapeHtml(topDriver.name)}»** (${topDriver.contribution_pct?.toFixed(0) ?? '—'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
     }
     return parts.join(' ');
   });
@@ -244,11 +258,11 @@
       else parts.push(`**Прирост ≈0%** — план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
     }
     if (underfundedChannels.length > 0) {
-      const names = underfundedChannels.map(/** @param {any} c */ c => `«${c.name}»`).join(', ');
+      const names = underfundedChannels.map(/** @param {any} c */ c => `«${escapeHtml(c.name)}»`).join(', ');
       parts.push(`**Недоинвестированные каналы** (дают непропорционально много эффекта): ${names}. Логика: если вложить больше денег — прирост KPI будет выше среднего.`);
     }
     if (oversaturatedChannels.length > 0) {
-      const names = oversaturatedChannels.map(/** @param {any} c */ c => `«${c.name}»`).join(', ');
+      const names = oversaturatedChannels.map(/** @param {any} c */ c => `«${escapeHtml(c.name)}»`).join(', ');
       parts.push(`**Перенасыщенные каналы** (денег много, а эффекта относительно мало): ${names}. Если убрать часть бюджета — потеряете меньше чем получите в альтернативных каналах.`);
     }
     return parts.join(' ');
@@ -268,7 +282,7 @@
       actions.push(`**Не заливать дальше** перенасыщенные каналы — дополнительные рубли там дают всё меньший возврат (Hill saturation).`);
     }
     if (lossChannels.length > 0) {
-      actions.push(`Проверить **unit_costs и чистоту данных** для убыточных каналов (${lossChannels.map(/** @param {any} c */ c => c.name).join(', ')}) — часто причина в неправильных единицах измерения, а не в самом канале.`);
+      actions.push(`Проверить **unit_costs и чистоту данных** для убыточных каналов (${lossChannels.map(/** @param {any} c */ c => escapeHtml(c.name)).join(', ')}) — часто причина в неправильных единицах измерения, а не в самом канале.`);
     }
     if (ratio != null && ratio < 4) {
       actions.push(`**Накопить больше данных.** Сейчас Ratio ${ratio.toFixed(1)}:1 — мало для узких доверительных интервалов. ≥ 4:1 = ROI уверенные.`);

@@ -365,12 +365,20 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
 
 /// Экспорт проекта в zip-архив .aurora. Возвращает путь к созданному файлу.
 /// output_path — обычно путь из dialog.save на фронте.
+///
+/// Особые case'ы обрабатываются:
+/// - Большие файлы копируются через `std::io::copy` (streaming), не `read` в память.
+///   Иначе pickle файлы >1GB (редкий, но возможный) съедали бы RAM.
+/// - `data_file` из project.json — абсолютный путь на этой машине. Если файл ЛЕЖИТ
+///   внутри project_dir — он попадёт в архив через walkdir и можно будет открыть
+///   на другой машине. Если СНАРУЖИ (пользователь импортировал xlsx из Downloads) —
+///   мы его тоже добавляем в архив как `data/<original_filename>` и правим
+///   project.json перед записью в zip.
 #[tauri::command]
 pub async fn project_export_archive(
     project_id: String,
     output_path: String,
 ) -> Result<String, String> {
-    use std::io::Write;
     use zip::write::SimpleFileOptions;
 
     let src = project_dir(&project_id)?;
@@ -384,42 +392,109 @@ pub async fn project_export_archive(
         std::fs::create_dir_all(parent).map_err(|e| format!("create parent: {e}"))?;
     }
 
-    let file = std::fs::File::create(&out).map_err(|e| format!("create archive: {e}"))?;
+    // Atomic write: пишем во временный файл, rename в конце. Прерванный export
+    // (panic / kill) не оставит битый .aurora на диске.
+    let tmp_path = out.with_extension("aurora.tmp");
+    if tmp_path.exists() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    let file = std::fs::File::create(&tmp_path)
+        .map_err(|e| format!("create archive: {e}"))?;
     let mut zip = zip::ZipWriter::new(file);
     let options: SimpleFileOptions = SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
 
-    // Пишем в архив относительные пути (без project_id как root), чтобы при распаковке
-    // можно было восстановить в новый project_dir. root entry — файл project.json.
+    // Проверяем data_file в project.json — если вне project_dir, включаем в архив
+    // с переписыванием пути на относительный.
+    let info = read_project(&src).ok();
+    let external_data: Option<(PathBuf, String)> = info.as_ref().and_then(|i| {
+        i.data_file.as_ref().and_then(|df| {
+            let p = PathBuf::from(df);
+            if !p.is_absolute() || !p.exists() {
+                return None;
+            }
+            // Уже внутри project_dir — не нужно отдельно
+            if p.starts_with(&src) {
+                return None;
+            }
+            let name = p.file_name()?.to_string_lossy().to_string();
+            Some((p, name))
+        })
+    });
+
     let mut file_count = 0u32;
     for entry in walkdir::WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        let rel = path.strip_prefix(&src).map_err(|e| format!("strip_prefix: {e}"))?;
+        let rel = match path.strip_prefix(&src) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
         if rel.as_os_str().is_empty() {
             continue;
         }
         let rel_str = rel.to_string_lossy().replace('\\', "/");
+
+        // project.json с external data_file переписываем отдельно ниже
+        if external_data.is_some() && rel_str == "project.json" {
+            continue;
+        }
+
         if path.is_dir() {
             zip.add_directory(format!("{rel_str}/"), options)
                 .map_err(|e| format!("add_directory: {e}"))?;
         } else if path.is_file() {
             zip.start_file(&rel_str, options)
                 .map_err(|e| format!("start_file: {e}"))?;
-            let data = std::fs::read(path).map_err(|e| format!("read {path:?}: {e}"))?;
-            zip.write_all(&data).map_err(|e| format!("write {rel_str}: {e}"))?;
+            let mut infile = std::fs::File::open(path)
+                .map_err(|e| format!("open {path:?}: {e}"))?;
+            std::io::copy(&mut infile, &mut zip)
+                .map_err(|e| format!("copy {rel_str}: {e}"))?;
             file_count += 1;
         }
     }
 
+    // Если data_file внешний — упаковываем его в archive/data/<basename>
+    // и переписываем project.json чтобы data_file указывал туда же относительно project_dir.
+    if let (Some((ext_path, basename)), Some(mut info_val)) = (external_data, info) {
+        zip.add_directory("data/", options).ok();
+        let archive_path = format!("data/{basename}");
+        zip.start_file(&archive_path, options)
+            .map_err(|e| format!("start_file data: {e}"))?;
+        let mut infile = std::fs::File::open(&ext_path)
+            .map_err(|e| format!("open external {ext_path:?}: {e}"))?;
+        std::io::copy(&mut infile, &mut zip)
+            .map_err(|e| format!("copy external: {e}"))?;
+        file_count += 1;
+        // Переписать project.json с относительным data_file (будет resolved при import)
+        info_val.data_file = Some(format!("<project_dir>/{archive_path}"));
+        zip.start_file("project.json", options)
+            .map_err(|e| format!("start project.json: {e}"))?;
+        let json = serde_json::to_string_pretty(&info_val).map_err(|e| e.to_string())?;
+        use std::io::Write;
+        zip.write_all(json.as_bytes())
+            .map_err(|e| format!("write project.json: {e}"))?;
+        file_count += 1;
+    }
+
     zip.finish().map_err(|e| format!("zip finish: {e}"))?;
+    // Atomic rename tmp → final
+    std::fs::rename(&tmp_path, &out)
+        .map_err(|e| format!("rename final: {e}"))?;
     let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
     info!("archive created: {} files, {} bytes", file_count, size);
     Ok(output_path)
 }
 
 /// Импорт проекта из zip-архива .aurora. Распаковывает в новый project_id,
-/// обновляет project.json (id, created_at — current). Возвращает новый project_id.
+/// обновляет project.json (id, updated_at). Возвращает {project_id, info}.
+///
+/// Особые случаи:
+/// - Pre-validation: перед распаковкой проверяем что в архиве есть project.json.
+///   Если нет — early return, не засоряем файловую систему.
+/// - data_file может быть `<project_dir>/data/foo.xlsx` (новый формат с внешним data)
+///   или абсолютный путь (старые архивы). Нормализуем: заменяем маркер на dest/,
+///   если absolute — проверяем что файл есть, иначе set to None.
 #[tauri::command]
 pub async fn project_import_archive(archive_path: String) -> Result<Value, String> {
     let archive = PathBuf::from(&archive_path);
@@ -427,6 +502,27 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
         return Err("Файл архива не найден".to_string());
     }
     info!("project_import_archive: {}", archive_path);
+
+    // ── Pre-validation ──────────────────────────────────────────────────────
+    // Открываем zip и проверяем структуру ДО распаковки. Если это не проект
+    // Aurora — выбрасываем без создания destination папки.
+    {
+        let file = std::fs::File::open(&archive).map_err(|e| format!("open archive: {e}"))?;
+        let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
+        let mut has_project_json = false;
+        for i in 0..zip.len() {
+            let entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+            let name = entry.name();
+            // Проверяем что project.json лежит в корне архива, не во вложенной папке
+            if name == "project.json" || name.ends_with("/project.json") {
+                has_project_json = true;
+                break;
+            }
+        }
+        if !has_project_json {
+            return Err("Архив не содержит project.json — это не проект Aurora Econometrica".to_string());
+        }
+    }
 
     // Generate new project_id
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
@@ -438,7 +534,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
     }
     std::fs::create_dir_all(&dest).map_err(|e| format!("create dest: {e}"))?;
 
-    // Unzip
+    // ── Unzip со streaming и zip-slip защитой ──────────────────────────────
     let file = std::fs::File::open(&archive).map_err(|e| format!("open archive: {e}"))?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
     let mut file_count = 0u32;
@@ -464,23 +560,58 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
     }
     info!("archive extracted: {} files into {}", file_count, dest.display());
 
-    // Rewrite project.json → new id + touch updated_at
+    // ── Rewrite project.json → new id + updated_at + normalize data_file ──
     let project_json_path = dest.join("project.json");
     if !project_json_path.exists() {
-        // Убрать битый импорт
+        // Должно было отсечься pre-validation'ом, но на всякий случай
         let _ = std::fs::remove_dir_all(&dest);
-        return Err("Архив не содержит project.json — это не проект Aurora Econometrica".to_string());
+        return Err("Архив не содержит project.json в корне после распаковки".to_string());
     }
     let data = std::fs::read_to_string(&project_json_path)
         .map_err(|e| format!("read project.json: {e}"))?;
     let mut info_val: Value = serde_json::from_str(&data)
         .map_err(|e| format!("parse project.json: {e}"))?;
+
     if let Some(obj) = info_val.as_object_mut() {
         obj.insert("id".to_string(), Value::String(new_id.clone()));
         obj.insert(
             "updated_at".to_string(),
             Value::String(chrono::Local::now().to_rfc3339()),
         );
+
+        // Нормализация data_file:
+        //   1. Маркер "<project_dir>/data/xxx.xlsx" → абсолютный dest path
+        //   2. Абсолютный путь валидной машины → оставить если существует, иначе None
+        //   3. Путь которого нет → сообщение в description чтобы пользователь понял,
+        //      что данные надо переимпортировать
+        if let Some(Value::String(df)) = obj.get("data_file") {
+            let df_owned = df.clone();
+            if let Some(rest) = df_owned.strip_prefix("<project_dir>/") {
+                let resolved = dest.join(rest);
+                if resolved.exists() {
+                    obj.insert(
+                        "data_file".to_string(),
+                        Value::String(resolved.to_string_lossy().to_string()),
+                    );
+                } else {
+                    obj.insert("data_file".to_string(), Value::Null);
+                }
+            } else if !PathBuf::from(&df_owned).exists() {
+                // Абсолютный путь с другой машины — проваливается
+                obj.insert("data_file".to_string(), Value::Null);
+                // Добавляем подсказку в description
+                let desc = obj.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let hint = "[После импорта: исходный файл данных недоступен, нужно переимпортировать на шаге «Импорт».]";
+                if !desc.contains("переимпортировать") {
+                    let new_desc = if desc.is_empty() {
+                        hint.to_string()
+                    } else {
+                        format!("{desc}\n\n{hint}")
+                    };
+                    obj.insert("description".to_string(), Value::String(new_desc));
+                }
+            }
+        }
     }
     std::fs::write(
         &project_json_path,

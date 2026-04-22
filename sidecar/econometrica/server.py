@@ -357,6 +357,10 @@ class PptxExportRequest(BaseModel):
     model_data: dict
     decompose_data: dict
     optimize_data: dict
+    # Абсолютный путь к project_dir — передаётся Rust-стороной чтобы
+    # учесть Settings override (econometrica_projects_root). Fallback на
+    # вычисление из %APPDATA% если None для обратной совместимости со старым Rust.
+    project_dir: str | None = None
 
 
 class HtmlExportRequest(BaseModel):
@@ -365,6 +369,7 @@ class HtmlExportRequest(BaseModel):
     decompose_data: dict
     optimize_data: dict
     project_name: str = 'Marketing Mix Model'
+    project_dir: str | None = None
 
 
 class ModelHistoryRequest(BaseModel):
@@ -733,6 +738,21 @@ def model_history(req: ModelHistoryRequest):
 
 # ── PPTX Export ──────────────────────────────────────────
 
+def _resolve_project_dir(project_dir: str | None, project_id: str) -> Path:
+    """Вычислить путь к project_dir с учётом Settings override.
+
+    Приоритет:
+      1. Явно переданный project_dir (из Rust с учётом Settings override)
+      2. Fallback на %APPDATA%\\<identifier>\\projects\\<project_id>\\ для
+         обратной совместимости со старыми клиентами Rust.
+    """
+    if project_dir:
+        return Path(project_dir)
+    appdata = os.environ.get('APPDATA', '')
+    identifier = 'aurora-econometrica-gui'
+    return Path(appdata) / identifier / 'projects' / project_id
+
+
 @app.post('/export/pptx')
 def export_pptx(req: PptxExportRequest):
     """Generate branded PPTX presentation from MMM results."""
@@ -740,11 +760,8 @@ def export_pptx(req: PptxExportRequest):
     try:
         from engines.pptx_export import build_pptx
 
-        appdata = os.environ.get('APPDATA', '')
-        # Единый identifier с Rust-командой econ_export_xlsx (CARGO_PKG_NAME).
-        # Иначе PPTX и XLSX оказываются в разных папках → «Открыть папку» показывает только XLSX.
-        identifier = 'aurora-econometrica-gui'
-        exports_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'exports'
+        project_path = _resolve_project_dir(req.project_dir, req.project_id)
+        exports_dir = project_path / 'exports'
         exports_dir.mkdir(parents=True, exist_ok=True)
 
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -756,7 +773,7 @@ def export_pptx(req: PptxExportRequest):
         has_optim = bool(req.optimize_data)
 
         # Сценарии — читаем с диска (Frontend их не передаёт, они — артефакт шага Optimize).
-        scenarios_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'results' / 'scenarios'
+        scenarios_dir = project_path / 'results' / 'scenarios'
         scenarios: list[dict] = []
         if scenarios_dir.exists():
             for f in sorted(scenarios_dir.glob('*.json')):
@@ -789,9 +806,8 @@ def export_html(req: HtmlExportRequest):
     try:
         from engines.html_export import build_html
 
-        appdata = os.environ.get('APPDATA', '')
-        identifier = 'aurora-econometrica-gui'
-        exports_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'exports'
+        project_path = _resolve_project_dir(req.project_dir, req.project_id)
+        exports_dir = project_path / 'exports'
         exports_dir.mkdir(parents=True, exist_ok=True)
 
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -799,7 +815,7 @@ def export_html(req: HtmlExportRequest):
         logger.info(f'HTML output path: {output_path}')
 
         # Сценарии с диска (как в PPTX)
-        scenarios_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'results' / 'scenarios'
+        scenarios_dir = project_path / 'results' / 'scenarios'
         scenarios: list[dict] = []
         if scenarios_dir.exists():
             for f in sorted(scenarios_dir.glob('*.json')):

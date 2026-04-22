@@ -21,8 +21,15 @@ logger = logging.getLogger(__name__)
 
 
 def _escape(s: Any) -> str:
-    """Safe HTML escape любой value."""
-    return html_lib.escape(str(s) if s is not None else '—')
+    """Safe HTML escape любой value.
+
+    Дополнительно escape'им `{` и `}` как HTML entities — защита от `.format()`
+    template bomb: если user-controlled строка содержит `{name}`, `.format()`
+    попытается resolve это как placeholder и упадёт с KeyError.
+    """
+    if s is None:
+        return '—'
+    return html_lib.escape(str(s)).replace('{', '&#x7B;').replace('}', '&#x7D;')
 
 
 def _fmt_num(n: Any, dec: int = 0) -> str:
@@ -131,6 +138,10 @@ def build_html(
             },
             'optimize': {'names': opt_names, 'current': opt_current, 'optimal': opt_optimal},
         }, ensure_ascii=False)
+        # XSS-защита: если в channel name попадёт `</script>` — json с ensure_ascii=False
+        # оставит его как литеральный текст внутри <script> тега → HTML-парсер закроет
+        # script preamturely и выполнит injected код. Эскейпим `</` в `<\/` (валидно в JSON).
+        charts_json = charts_json.replace('</', '<\\/')
 
         # Channel table rows
         ch_rows_html = '\n'.join(
