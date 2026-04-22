@@ -173,6 +173,15 @@
       return;
     }
 
+    // ВАЖНО: все 6 step компонентов mount'ятся одновременно (см. +page.svelte
+    // rule "visibility switching"). DecomposeStep mount'ится даже когда user
+    // на Validate/Model. Guard — не запускать runDecompose пока нет обученной
+    // модели. $effect(modelData) автоматически запустит когда train завершится.
+    if (!get(modelData)?.channelParams) {
+      stepState = 'idle';
+      return;
+    }
+
     let started = false;
     const unsub = activeProjectId.subscribe((pid) => {
       if (started) return;
@@ -188,12 +197,18 @@
       })();
     });
 
-    // Fallback: если projectId так и не появился за 3с И данных нет — показываем ошибку.
+    // Fallback: если projectId так и не появился за 3с И данных нет И модель ЕСТЬ —
+    // показываем ошибку. Если модели нет — просто idle, ждём train.
     const fallback = setTimeout(() => {
       if (started) return;
       if (get(decomposeData)) {
         started = true;
         stepState = 'done';
+        return;
+      }
+      if (!get(modelData)?.channelParams) {
+        started = true;
+        stepState = 'idle';
         return;
       }
       started = true;
