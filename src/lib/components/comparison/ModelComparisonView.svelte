@@ -282,9 +282,23 @@
     return lines;
   });
 
-  /** @param {string} md — simple **bold** replace */
+  /** HTML escape для защиты от XSS при подстановке user-sourced значений
+   *  (имена проектов / каналов из xlsx могут содержать `<`, `>`, `<script>` etc).
+   *  Правило aurora-fix V40 — все `{@html}` с user-controlled строками должны
+   *  пройти escape. */
+  /** @param {string} s */
+  function escapeHtml(s) {
+    return String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  /** @param {string} md — escape HTML + simple **bold** replace */
   function renderMd(md) {
-    return md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    return escapeHtml(md).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   }
 </script>
 

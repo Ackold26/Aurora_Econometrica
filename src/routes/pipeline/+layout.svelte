@@ -8,6 +8,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { invoke } from '@tauri-apps/api/core';
+  import { save as saveDialog } from '@tauri-apps/plugin-dialog';
   import { productType } from '$lib/creative-store.js';
   import { theme, toggleTheme } from '$lib/store.js';
   import {
@@ -43,6 +44,41 @@
 
   function toggleInsights() {
     if (windowWidth >= 1100) userCollapsed = !userCollapsed;
+  }
+
+  // Quick save: .aurora archive экспорт с любого шага пайплайна.
+  let archivingChip = $state(false);
+  /** @type {string} */
+  let archiveChipMsg = $state('');
+  async function quickSaveArchive() {
+    if (!$activeProject || !$activeProjectId || archivingChip) return;
+    const safeName = ($activeProject.name || 'project')
+      .replace(/[^\p{L}\p{N}._ -]/gu, '_')
+      .slice(0, 100);
+    archivingChip = true;
+    archiveChipMsg = '';
+    try {
+      const outputPath = await saveDialog({
+        defaultPath: `${safeName}.aurora`,
+        filters: [{ name: 'Aurora Project', extensions: ['aurora', 'zip'] }],
+        title: 'Сохранить проект как архив',
+      });
+      if (!outputPath) {
+        archivingChip = false;
+        return;
+      }
+      await invoke('project_export_archive', {
+        projectId: $activeProjectId,
+        outputPath,
+      });
+      archiveChipMsg = '✓ Сохранено';
+      setTimeout(() => { archiveChipMsg = ''; }, 4000);
+    } catch (e) {
+      archiveChipMsg = `Ошибка: ${e}`;
+      setTimeout(() => { archiveChipMsg = ''; }, 6000);
+    } finally {
+      archivingChip = false;
+    }
   }
 
   /** @param {number} step */
@@ -192,6 +228,20 @@
             <span class="project-chip" title="Активный проект — переключение доступно на шаге «Импорт»">
               📊 {$activeProject.name}
             </span>
+            <button
+              class="save-chip-btn"
+              onclick={quickSaveArchive}
+              disabled={archivingChip}
+              title="Сохранить проект как .aurora архив"
+              aria-label="Сохранить проект"
+            >
+              {archivingChip ? '…' : '💾'}
+            </button>
+            {#if archiveChipMsg}
+              <span class="archive-chip-msg" class:err={archiveChipMsg.startsWith('Ошибка')}>
+                {archiveChipMsg}
+              </span>
+            {/if}
           {/if}
         </div>
       {/if}
@@ -323,9 +373,47 @@
   .project-area {
     flex-shrink: 0;
     min-width: 260px;
-    max-width: 360px;
+    max-width: 460px;
     padding: 8px 0 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
   }
+
+  .save-chip-btn {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm, 6px);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .save-chip-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 45%, transparent);
+    color: var(--accent-primary, #3b82f6);
+  }
+  .save-chip-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .archive-chip-msg {
+    font-size: 11px;
+    color: var(--success, #22c55e);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+  }
+  .archive-chip-msg.err { color: var(--danger, #ef4444); }
 
   .header-right {
     display: flex;
