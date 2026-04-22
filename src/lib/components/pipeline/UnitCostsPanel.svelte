@@ -46,6 +46,9 @@
   // добавляет вручную через «+ Добавить канал» — там слишком много вариантов
   // именования чтобы надёжно ловить regex'ом, лучше явный выбор.
   const UNIT_HINT = /TRP|GRP|OTS|РЕЙТИНГ|ОХВАТ/i;
+  // Money-каналы (бюджеты уже в рублях) — скрываются из dropdown «+ Добавить».
+  // Маркеры: НДС / VAT / руб / ₽ / RUB. Unit cost = 1 для них бесcмыслен.
+  const MONEY_HINT = /НДС|VAT|(?:^|[\s\(])руб|₽|RUB/i;
 
   /** @type {Record<string, string>} */
   const CATEGORY_HELP = {
@@ -110,9 +113,13 @@
     autoDetected.filter(/** @param {any} c */ (c) => !selectedNames.includes(c.name))
   );
 
-  // Для dropdown «+ Добавить канал» — все media которых нет в selected.
+  // Для dropdown «+ Добавить канал» — media которых нет в selected И не в рублях.
+  // Каналы с НДС/VAT/руб/₽/RUB в имени уже измеряются в деньгах — unit cost = 1
+  // не требуется, не предлагаем их.
   const availableToAdd = $derived(
-    allMediaChannels.filter(/** @param {any} c */ (c) => !selectedNames.includes(c.name))
+    allMediaChannels.filter(/** @param {any} c */ (c) =>
+      !selectedNames.includes(c.name) && !MONEY_HINT.test(String(c.name || ''))
+    )
   );
 
   /** @type {string} выбор в dropdown перед нажатием «Добавить». */
