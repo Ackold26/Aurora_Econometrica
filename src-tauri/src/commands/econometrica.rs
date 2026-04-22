@@ -280,6 +280,25 @@ pub async fn econ_export_pptx(
     post_json("/export/pptx", &body, quick_client()).await
 }
 
+#[tauri::command]
+pub async fn econ_export_html(
+    project_id: String,
+    model_data: Value,
+    decompose_data: Value,
+    optimize_data: Value,
+    project_name: Option<String>,
+) -> Result<Value, String> {
+    info!("econ_export_html: project={project_id}");
+    let body = serde_json::json!({
+        "project_id": project_id,
+        "model_data": model_data,
+        "decompose_data": decompose_data,
+        "optimize_data": optimize_data,
+        "project_name": project_name.unwrap_or_else(|| "Marketing Mix Model".to_string()),
+    });
+    post_json("/export/html", &body, quick_client()).await
+}
+
 // ── Helper ───────────────────────────────────────────
 
 /// POST with auto-recovery:

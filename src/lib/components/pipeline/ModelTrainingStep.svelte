@@ -19,6 +19,14 @@
   import TrainingProgress from '$lib/components/pipeline/TrainingProgress.svelte';
   import ConvergenceDashboard from '$lib/components/pipeline/ConvergenceDashboard.svelte';
   import MQSBadge from '$lib/components/MQSBadge.svelte';
+  import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
+  import { TOURS } from '$lib/pipeline-tours.js';
+  import { shouldShowOnboarding } from '$lib/onboarding-state.js';
+
+  // Обучающий тур — запускается после обучения модели (stepState='trained'),
+  // когда на экране и config, и результаты — все spotlight'ы находят свою цель.
+  let showOnboarding = $state(false);
+  let onboardingChecked = false;
 
   // ── State ──
   /** @type {'idle' | 'training' | 'trained' | 'error'} */
@@ -36,6 +44,17 @@
   // Current model diagnostics (if trained)
   const diagnostics = $derived($modelData?.diagnostics || null);
   const mqs = $derived(diagnostics?.mqs || null);
+
+  // Онбординг — запуск когда модель обучена (есть и config, и результаты на экране).
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    if (onboardingChecked) return;
+    if (stepState !== 'trained' || !diagnostics) return;
+    onboardingChecked = true;
+    if (shouldShowOnboarding('model')) {
+      requestAnimationFrame(() => { showOnboarding = true; });
+    }
+  });
 
   /** Estimate training duration in seconds from config — used for smooth progress interpolation */
   const estimatedSec = $derived.by(() => {
@@ -203,6 +222,7 @@
   <!-- ConfigPanel — always rendered (visibility) — A3: async flow via useAsyncTraining prop -->
   <div
     class="config-area"
+    data-tour="model-config"
     class:disabled={stepState === 'training'}
     style={stepState === 'training' ? 'pointer-events:none;opacity:0.5' : ''}
   >
@@ -243,15 +263,27 @@
     <div id="model-results-anchor"></div>
     <!-- MQS Badge -->
     {#if mqs}
-      <MQSBadge diagnostics={diagnostics} />
+      <div data-tour="model-mqs">
+        <MQSBadge diagnostics={diagnostics} />
+      </div>
     {/if}
 
     <!-- Convergence charts -->
-    <ConvergenceDashboard {diagnostics} />
+    <div data-tour="model-convergence">
+      <ConvergenceDashboard {diagnostics} />
+    </div>
 
     {#if $expertMode}
       <ExpertModelPanel />
     {/if}
+  {/if}
+
+  {#if showOnboarding}
+    <PipelineOnboarding
+      steps={TOURS.model}
+      stepKey="model"
+      onDone={() => { showOnboarding = false; }}
+    />
   {/if}
 
 </div>

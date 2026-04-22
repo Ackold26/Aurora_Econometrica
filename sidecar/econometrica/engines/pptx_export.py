@@ -132,8 +132,16 @@ def _style_chart_text(chart, color=None):
         pass
 
 
-def build_pptx(model_data: dict, decompose_data: dict, optimize_data: dict, output_path: str) -> dict[str, Any]:
-    """Build a branded PPTX presentation from MMM pipeline data."""
+def build_pptx(
+    model_data: dict, decompose_data: dict, optimize_data: dict, output_path: str,
+    scenarios: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Build a branded PPTX presentation from MMM pipeline data.
+
+    Args:
+        scenarios: optional — сохранённые сценарии из project/results/scenarios/.
+                   Если не пусто → добавляется слайд «Сравнение сценариев».
+    """
     if not HAS_PPTX:
         return {'status': 'error', 'message': 'python-pptx не установлен. pip install python-pptx'}
 
@@ -141,6 +149,7 @@ def build_pptx(model_data: dict, decompose_data: dict, optimize_data: dict, outp
     model_data = model_data or {}
     decompose_data = decompose_data or {}
     optimize_data = optimize_data or {}
+    scenarios = scenarios or []
 
     prs = Presentation()
     prs.slide_width = Inches(10)
@@ -396,6 +405,66 @@ def build_pptx(model_data: dict, decompose_data: dict, optimize_data: dict, outp
             logger.exception("PPTX phase FAILED: share")
             failed_phases.append('share')
 
+    # ── Slide 5.5: Динамика по периодам (stacked area) ────
+    time_series = decompose_data.get('time_series') or {}
+    ts_dates = time_series.get('dates') or []
+    ts_channels_map = time_series.get('channels') or {}
+    ts_baseline = time_series.get('baseline') or []
+    if ts_dates and (ts_channels_map or ts_baseline):
+        try:
+            slide = prs.slides.add_slide(blank_layout)
+            _set_slide_bg(slide)
+            _add_title_text(slide, "Динамика по периодам", size=24)
+
+            from pptx.chart.data import CategoryChartData
+            chart_data_obj = CategoryChartData()
+            chart_data_obj.categories = [str(d) for d in ts_dates]
+
+            # Baseline первой серией (снизу стека), затем каналы в том же порядке что channels[]
+            if ts_baseline:
+                chart_data_obj.add_series('Base', [float(v or 0) for v in ts_baseline])
+            ch_order = [str(c.get('name', '')) for c in channels] or list(ts_channels_map.keys())
+            for ch_name in ch_order:
+                vals = ts_channels_map.get(ch_name, [])
+                if vals:
+                    chart_data_obj.add_series(
+                        ch_name,
+                        [float(v or 0) for v in vals],
+                    )
+
+            chart_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.AREA_STACKED, Inches(0.5), Inches(1.2), Inches(9), Inches(3.8), chart_data_obj
+            )
+            chart = chart_frame.chart
+            chart.has_legend = True
+            # Покрасить серии в цвета каналов (baseline — muted)
+            series_idx = 0
+            if ts_baseline:
+                try:
+                    chart.series[0].format.fill.solid()
+                    chart.series[0].format.fill.fore_color.rgb = AURORA_MUTED
+                except Exception:
+                    pass
+                series_idx = 1
+            for i, ch_name in enumerate(ch_order):
+                if i + series_idx >= len(chart.series):
+                    break
+                try:
+                    s = chart.series[i + series_idx]
+                    s.format.fill.solid()
+                    s.format.fill.fore_color.rgb = CHANNEL_COLORS[i % len(CHANNEL_COLORS)]
+                except Exception:
+                    pass
+            _style_chart_text(chart)
+
+            _add_notes(slide,
+                "Декомпозиция продаж по периодам: органическая база + вклад каждого канала. "
+                "Пики активности каналов видны как расширения соответствующего слоя.")
+            logger.info("PPTX phase OK: timeline")
+        except Exception:
+            logger.exception("PPTX phase FAILED: timeline")
+            failed_phases.append('timeline')
+
     # ── Slide 6: Оптимизация ──────────────────────────────
     if opt_channels:
         try:
@@ -425,6 +494,81 @@ def build_pptx(model_data: dict, decompose_data: dict, optimize_data: dict, outp
         except Exception:
             logger.exception("PPTX phase FAILED: optimize")
             failed_phases.append('optimize')
+
+    # ── Slide 6.5: Сравнение сценариев (if any) ──────────
+    if scenarios:
+        try:
+            slide = prs.slides.add_slide(blank_layout)
+            _set_slide_bg(slide)
+            _add_title_text(slide, "Сравнение сценариев", size=24)
+
+            # Homogeneity check — если у всех есть roas_money, показываем деньги.
+            homogeneous_money = all(
+                s.get('totals', {}).get('roas_money') is not None for s in scenarios
+            )
+            budget_label = "Бюджет (₽)" if homogeneous_money else "Бюджет (native)"
+            roas_label = "ROAS (₽)" if homogeneous_money else "ROAS (native)"
+            spend_field = "total_spend_money" if homogeneous_money else "total_spend"
+            roas_field = "roas_money" if homogeneous_money else "roas"
+
+            # Native-таблица через add_table (проще чем шейпы). 4 строки метрик × N+1 колонок.
+            n_cols = len(scenarios) + 1
+            rows_data = [
+                ["Метрика"] + [s.get('scenario_name', '—') for s in scenarios],
+                ["Прогноз KPI"] + [f"{float(s.get('totals', {}).get('predicted_kpi', 0) or 0):,.0f}".replace(',', ' ') for s in scenarios],
+                [budget_label] + [f"{float(s.get('totals', {}).get(spend_field, 0) or 0):,.0f}".replace(',', ' ') for s in scenarios],
+                [roas_label] + [f"{float(s.get('totals', {}).get(roas_field, 0) or 0):.2f}×" for s in scenarios],
+                ["Лифт vs baseline"] + [f"+{float(s.get('totals', {}).get('lift_pct', 0) or 0):.1f}%" for s in scenarios],
+            ]
+            n_rows = len(rows_data)
+
+            # Размер и позиция таблицы
+            tbl_w = Inches(9)
+            tbl_h = Inches(0.5 * n_rows)
+            tbl = slide.shapes.add_table(n_rows, n_cols, Inches(0.5), Inches(1.3), tbl_w, tbl_h).table
+
+            for i, row_cells in enumerate(rows_data):
+                for j, val in enumerate(row_cells):
+                    cell = tbl.cell(i, j)
+                    cell.text = str(val)
+                    for para in cell.text_frame.paragraphs:
+                        for run in para.runs:
+                            run.font.size = Pt(11)
+                            if i == 0:
+                                run.font.bold = True
+                                run.font.color.rgb = AURORA_BLUE
+
+            # Подсветить лучший сценарий (по выбранному roas_field) зелёным
+            try:
+                best_idx = max(
+                    range(len(scenarios)),
+                    key=lambda k: float(scenarios[k].get('totals', {}).get(roas_field, 0) or 0),
+                )
+                roas_row_idx = 3  # 0=header, 1=KPI, 2=Budget, 3=ROAS
+                cell = tbl.cell(roas_row_idx, best_idx + 1)
+                for para in cell.text_frame.paragraphs:
+                    for run in para.runs:
+                        run.font.bold = True
+                        run.font.color.rgb = AURORA_GREEN
+            except Exception:
+                pass
+
+            if not homogeneous_money:
+                _add_notes(
+                    slide,
+                    "ROAS в native-единицах (смешанные: TRP/GRP + ₽) — несопоставим между сценариями "
+                    "разных каналов. Чтобы получить ROAS в ₽, укажи стоимость юнита в блоке «Проверка»."
+                )
+            else:
+                _add_notes(
+                    slide,
+                    f"Сравнение {len(scenarios)} сценариев по прогнозу KPI, бюджету и ROAS. "
+                    "Зелёным — сценарий с максимальным ROAS."
+                )
+            logger.info(f"PPTX phase OK: scenarios ({len(scenarios)})")
+        except Exception:
+            logger.exception("PPTX phase FAILED: scenarios")
+            failed_phases.append('scenarios')
 
     # ── Slide 7: Рекомендации ─────────────────────────────
     try:

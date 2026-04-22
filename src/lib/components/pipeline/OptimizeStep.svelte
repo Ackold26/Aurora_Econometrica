@@ -30,7 +30,9 @@
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
-  import OptimizeOnboarding from '$lib/components/pipeline/OptimizeOnboarding.svelte';
+  import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
+  import { TOURS } from '$lib/pipeline-tours.js';
+  import { shouldShowOnboarding, markOnboardingDone } from '$lib/onboarding-state.js';
 
   // Onboarding — показываем первый визит на Optimize ТОЛЬКО когда блоки A-E
   // действительно отрендерены (channels.length > 0, то есть после успешного train).
@@ -40,23 +42,19 @@
   $effect(() => {
     if (typeof window === 'undefined') return;
     if (onboardingChecked) return;
-    // channels — $derived из optimizeData/decomposeData, появляется после train
     if (!channels || channels.length === 0) return;
     onboardingChecked = true;
-    try {
-      const seen = window.localStorage.getItem('aurora-econ-optimize-onboarded');
-      if (!seen) {
-        // 1 кадр даём Svelte на render блоков после channels-инициализации
-        requestAnimationFrame(() => { showOnboarding = true; });
-      }
-    } catch { /* localStorage может быть заблокирован — молча пропустить */ }
+    if (shouldShowOnboarding('optimize')) {
+      requestAnimationFrame(() => { showOnboarding = true; });
+    }
   });
   function restartOnboarding() {
     if (!channels || channels.length === 0) {
       alert('Обучи модель на шаге «Моделирование» — тогда появятся блоки A-E и тур станет осмысленным.');
       return;
     }
-    try { window.localStorage.removeItem('aurora-econ-optimize-onboarded'); } catch {}
+    // Сбросить completed-флаг конкретно этого шага и запустить заново
+    try { window.localStorage.removeItem('aurora-econ-onboarded:optimize'); } catch {}
     showOnboarding = true;
   }
 
@@ -1090,6 +1088,8 @@
             <div class="fc-cpp">
               {#if oldU > 1.0}
                 {fmtBudget(newU)} <span class="fc-cpp-old">(было {fmtBudget(oldU)})</span>
+              {:else if infl > 0}
+                <span class="fc-cpp-money" title="Канал уже в деньгах — инфляция повышает сам бюджет канала">+{infl}% к бюджету</span>
               {:else}
                 —
               {/if}
@@ -1175,7 +1175,11 @@
   {/if}
 
   {#if showOnboarding}
-    <OptimizeOnboarding onDone={() => { showOnboarding = false; }} />
+    <PipelineOnboarding
+      steps={TOURS.optimize}
+      stepKey="optimize"
+      onDone={() => { showOnboarding = false; }}
+    />
   {/if}
 
 </div>
@@ -1462,6 +1466,7 @@
   .fc-pct { color: var(--text-muted); }
   .fc-cpp { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
   .fc-cpp-old { color: var(--text-muted); font-size: 10px; margin-left: 4px; }
+  .fc-cpp-money { color: var(--text-secondary); font-size: 12px; font-style: italic; cursor: help; }
 
   .forecast-actions { display: flex; gap: 8px; padding: 10px 12px; }
 

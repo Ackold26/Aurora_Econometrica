@@ -30,6 +30,7 @@ test-license.json
 # Build logs (локальные, не комитить)
 sidecar_build_*.log
 tauri_build_*.log
+dev_run.log
 
 # Python
 __pycache__/

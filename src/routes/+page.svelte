@@ -347,14 +347,6 @@
             >
               Новый проект
             </button>
-            <button
-              class="pipeline-promo-skip"
-              disabled
-              title="Раздел в разработке — откроется после доработки"
-            >
-              Перейти к командам
-              <span class="coming-soon-badge">скоро</span>
-            </button>
           </div>
         </div>
       </div>
@@ -997,9 +989,8 @@
     font-weight: 500;
   }
   .pipeline-promo-actions { display: flex; gap: 12px; margin-top: 8px; }
-  /* Unified action buttons — same size, shape, font-weight; differ only by color */
-  .pipeline-promo-btn,
-  .pipeline-promo-skip {
+  /* Action buttons — same size, shape, font-weight; differ only by color */
+  .pipeline-promo-btn {
     padding: 7px 16px;
     font-size: 12px;
     font-weight: 600;
@@ -1030,37 +1021,5 @@
   .pipeline-promo-btn.pipeline-promo-secondary:hover {
     background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
     border-color: var(--accent-primary);
-  }
-
-  /* Tertiary / skip — muted outline */
-  .pipeline-promo-skip {
-    background: transparent;
-    color: var(--text-muted);
-    border-color: var(--border);
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .pipeline-promo-skip:hover:not(:disabled) {
-    border-color: var(--text-secondary);
-    color: var(--text-secondary);
-  }
-  .pipeline-promo-skip:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-    pointer-events: auto; /* оставить hover для tooltip */
-  }
-
-  .coming-soon-badge {
-    display: inline-block;
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 2px 6px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 18%, transparent);
-    color: var(--accent-primary, #3b82f6);
-    border: 1px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 35%, transparent);
   }
 </style>

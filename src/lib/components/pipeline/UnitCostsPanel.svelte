@@ -237,12 +237,23 @@
     saving = true;
     savedMsg = '';
     try {
+      // Money-каналы (те что НЕ в панели = native уже в деньгах) → unit_cost=1.
+      // Без этого backend scenario.compare видит их как "не покрытые"
+      // и падает в native-mode с warning, хотя для них 1₽/unit — корректно.
+      /** @type {Record<string, number>} */
+      const fullCosts = { ...parsed };
+      for (const ch of allMediaChannels) {
+        if (fullCosts[ch.name] == null) {
+          fullCosts[ch.name] = 1.0;
+        }
+      }
+
       const info = /** @type {any} */ (await invoke('project_update', {
         projectId: pid,
-        updates: { unit_costs: parsed },
+        updates: { unit_costs: fullCosts },
       }));
       activeProject.set(info);
-      unitCosts.set(parsed);
+      unitCosts.set(fullCosts);
       savedSnapshot = { ...parsed };
       // Инвалидируем downstream результаты — старые числа больше не актуальны.
       decomposeData.set(null);

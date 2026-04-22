@@ -9,8 +9,66 @@
   let APP_VERSION = $state('...');
   getVersion().then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
   import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
+  import { onboardingEnabled, resetAllOnboarding, TOUR_STEP_KEYS } from '$lib/onboarding-state.js';
 
   let audioEnabled = $state(isAudioEnabled());
+  let onboardingResetMsg = $state('');
+
+  // Econometrica projects root
+  /** @type {{current: string, default: string, is_custom: boolean} | null} */
+  let econRoot = $state(null);
+  let econRootMsg = $state('');
+  let econRootBusy = $state(false);
+
+  async function loadEconRoot() {
+    try {
+      econRoot = /** @type {any} */ (await invoke('get_econometrica_projects_root'));
+    } catch (e) {
+      econRoot = null;
+    }
+  }
+  loadEconRoot();
+
+  async function chooseEconRoot() {
+    econRootBusy = true;
+    econRootMsg = '';
+    try {
+      const selected = await open({ directory: true, multiple: false, title: 'Папка для проектов Econometrica' });
+      if (!selected || typeof selected !== 'string') { econRootBusy = false; return; }
+      await invoke('set_econometrica_projects_root', { path: selected });
+      await loadEconRoot();
+      econRootMsg = '✓ Папка изменена. Новые проекты будут сохраняться здесь. Существующие остались в прежней папке.';
+      setTimeout(() => { econRootMsg = ''; }, 8000);
+    } catch (e) {
+      econRootMsg = 'Ошибка: ' + String(e);
+    } finally {
+      econRootBusy = false;
+    }
+  }
+
+  async function resetEconRoot() {
+    econRootBusy = true;
+    econRootMsg = '';
+    try {
+      await invoke('set_econometrica_projects_root', { path: '' });
+      await loadEconRoot();
+      econRootMsg = '✓ Сброшено на папку по умолчанию';
+      setTimeout(() => { econRootMsg = ''; }, 5000);
+    } catch (e) {
+      econRootMsg = 'Ошибка: ' + String(e);
+    } finally {
+      econRootBusy = false;
+    }
+  }
+
+  async function openEconRoot() {
+    try {
+      await invoke('open_econometrica_projects_root');
+    } catch (e) {
+      econRootMsg = 'Ошибка: ' + String(e);
+      setTimeout(() => { econRootMsg = ''; }, 5000);
+    }
+  }
   let machineId = $state('...');
   /** @type {any} */
   let licenseStatus = $state(null);
@@ -280,6 +338,88 @@
           {/if}
         </button>
       </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Обучающий режим</h2>
+      <p class="section-desc">
+        Краткие подсказки по каждому разделу пайплайна (Валидация → Модель → Декомпозиция → Оптимизация → Отчёт).
+        Запускаются автоматически при первом визите на шаг и не повторяются после прохождения или пропуска.
+      </p>
+      <div class="theme-toggle-row">
+        <span class="theme-label">Показывать туры новым пользователям</span>
+        <button
+          class="theme-toggle"
+          onclick={() => onboardingEnabled.set(!$onboardingEnabled)}
+          aria-label="Toggle onboarding"
+        >
+          {#if $onboardingEnabled}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Включены</span>
+          {:else}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/>
+              <line x1="15" y1="9" x2="9" y2="15"/>
+              <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+            <span>Выключены</span>
+          {/if}
+        </button>
+      </div>
+      <div class="theme-toggle-row" style="margin-top: 8px;">
+        <span class="theme-label">Пройти все туры заново</span>
+        <button
+          class="btn-logs"
+          onclick={() => {
+            resetAllOnboarding();
+            onboardingResetMsg = `Сброшено ${TOUR_STEP_KEYS.length} туров — откроются при следующем заходе на каждый шаг`;
+            setTimeout(() => { onboardingResetMsg = ''; }, 6000);
+          }}
+          disabled={!$onboardingEnabled}
+          title={$onboardingEnabled ? 'Сбросить completed-флаги для всех 5 шагов' : 'Сначала включите обучающий режим'}
+        >
+          ↺ Сбросить прогресс
+        </button>
+      </div>
+      {#if onboardingResetMsg}
+        <p class="import-status" style="color: var(--success); margin-top: 8px;">{onboardingResetMsg}</p>
+      {/if}
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Папка для проектов Econometrica</h2>
+      <p class="section-desc">
+        Где хранятся данные, модели, результаты и экспорты всех MMM-проектов.
+        По умолчанию — в скрытой системной папке. Можно задать свою (например,
+        на облачном диске или внешнем накопителе) — но существующие проекты автоматически не переносятся.
+      </p>
+      {#if econRoot}
+        <div class="theme-toggle-row" style="align-items: flex-start;">
+          <span class="theme-label" style="max-width: 58%;">
+            <span style="display: block; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;">
+              Текущая папка{econRoot.is_custom ? ' (кастомная)' : ' (по умолчанию)'}
+            </span>
+            <code style="font-size: 12px; word-break: break-all; color: var(--text-primary); line-height: 1.4;">{econRoot.current}</code>
+          </span>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn-logs" onclick={openEconRoot} title="Открыть в проводнике">📂 Открыть</button>
+            <button class="btn-logs" onclick={chooseEconRoot} disabled={econRootBusy}>📁 Выбрать папку</button>
+            {#if econRoot.is_custom}
+              <button class="btn-logs" onclick={resetEconRoot} disabled={econRootBusy} title="Вернуть к папке по умолчанию">↺ Сбросить</button>
+            {/if}
+          </div>
+        </div>
+        {#if econRoot.is_custom}
+          <p class="import-status" style="color: var(--text-muted); margin-top: 8px; font-size: 12px;">
+            По умолчанию: <code>{econRoot.default}</code>
+          </p>
+        {/if}
+      {/if}
+      {#if econRootMsg}
+        <p class="import-status" style="color: var(--success); margin-top: 8px;">{econRootMsg}</p>
+      {/if}
     </section>
 
     <section class="section">

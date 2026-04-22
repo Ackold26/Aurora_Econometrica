@@ -16,6 +16,11 @@ pub struct UserConfig {
     /// Thinking effort: "medium" | "high" | "max"
     #[serde(default)]
     pub model_effort: Option<String>,
+    /// Кастомная директория для Econometrica-проектов. Если None — дефолт
+    /// (%APPDATA%\<identifier>\projects\). При смене существующие проекты
+    /// не переносятся автоматически — пользователю показывается информер.
+    #[serde(default)]
+    pub econometrica_projects_root: Option<String>,
 }
 
 fn config_path(config_dir: &Path) -> PathBuf {

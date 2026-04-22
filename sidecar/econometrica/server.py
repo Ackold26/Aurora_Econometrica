@@ -359,6 +359,14 @@ class PptxExportRequest(BaseModel):
     optimize_data: dict
 
 
+class HtmlExportRequest(BaseModel):
+    project_id: str
+    model_data: dict
+    decompose_data: dict
+    optimize_data: dict
+    project_name: str = 'Marketing Mix Model'
+
+
 class ModelHistoryRequest(BaseModel):
     project_dir: str
 
@@ -746,13 +754,69 @@ def export_pptx(req: PptxExportRequest):
         has_model = bool(req.model_data)
         has_decomp = bool(req.decompose_data)
         has_optim = bool(req.optimize_data)
-        logger.info(f'PPTX inputs: model={has_model} decompose={has_decomp} optimize={has_optim}')
 
-        result = build_pptx(req.model_data, req.decompose_data, req.optimize_data, output_path)
+        # Сценарии — читаем с диска (Frontend их не передаёт, они — артефакт шага Optimize).
+        scenarios_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'results' / 'scenarios'
+        scenarios: list[dict] = []
+        if scenarios_dir.exists():
+            for f in sorted(scenarios_dir.glob('*.json')):
+                try:
+                    with open(f, 'r', encoding='utf-8') as fh:
+                        scenarios.append(json.load(fh))
+                except Exception:
+                    continue
+        logger.info(f'PPTX inputs: model={has_model} decompose={has_decomp} optimize={has_optim} scenarios={len(scenarios)}')
+
+        result = build_pptx(req.model_data, req.decompose_data, req.optimize_data, output_path, scenarios=scenarios)
         logger.info(f'PPTX export OK: {result}')
         return JSONResponse(content=result)
     except Exception as e:
         logger.exception('PPTX export FAILED')
+        return JSONResponse(
+            status_code=500,
+            content={
+                'status': 'error',
+                'message': str(e),
+                'type': type(e).__name__,
+            },
+        )
+
+
+@app.post('/export/html')
+def export_html(req: HtmlExportRequest):
+    """Generate interactive standalone HTML report."""
+    logger.info(f'HTML export START project_id={req.project_id}')
+    try:
+        from engines.html_export import build_html
+
+        appdata = os.environ.get('APPDATA', '')
+        identifier = 'aurora-econometrica-gui'
+        exports_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'exports'
+        exports_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_path = str(exports_dir / f'mmm_report_{ts}.html')
+        logger.info(f'HTML output path: {output_path}')
+
+        # Сценарии с диска (как в PPTX)
+        scenarios_dir = Path(appdata) / identifier / 'projects' / req.project_id / 'results' / 'scenarios'
+        scenarios: list[dict] = []
+        if scenarios_dir.exists():
+            for f in sorted(scenarios_dir.glob('*.json')):
+                try:
+                    with open(f, 'r', encoding='utf-8') as fh:
+                        scenarios.append(json.load(fh))
+                except Exception:
+                    continue
+
+        result = build_html(
+            req.model_data, req.decompose_data, req.optimize_data, output_path,
+            scenarios=scenarios, project_name=req.project_name,
+        )
+        logger.info(f'HTML export OK: {result}')
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('HTML export FAILED')
         return JSONResponse(
             status_code=500,
             content={

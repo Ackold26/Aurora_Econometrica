@@ -132,15 +132,38 @@ fn render_spec_md(spec: &Value) -> String {
 }
 
 fn exports_dir(project_id: &str) -> Result<PathBuf, String> {
-    let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not set".to_string())?;
-    let identifier = env!("CARGO_PKG_NAME");
-    let dir = PathBuf::from(appdata)
-        .join(identifier)
-        .join("projects")
-        .join(project_id)
-        .join("exports");
+    // Использует customizable projects_dir() из project.rs — учитывает user-config
+    // и env AURORA_PROJECTS_ROOT. Единый источник правды для путей.
+    let dir = crate::commands::project::project_dir(project_id)?.join("exports");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create exports dir: {e}"))?;
     Ok(dir)
+}
+
+/// Прочитать все scenario JSON из project_dir/results/scenarios/.
+/// Используется build_xlsx для листа «Сценарии». Порядок — по имени файла (стабильный).
+fn read_scenarios(project_id: &str) -> Vec<Value> {
+    let project_dir = match crate::commands::project::project_dir(project_id) {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
+    let scenarios_dir = project_dir.join("results").join("scenarios");
+    if !scenarios_dir.exists() {
+        return vec![];
+    }
+    let entries = match std::fs::read_dir(&scenarios_dir) {
+        Ok(e) => e,
+        Err(_) => return vec![],
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .filter_map(|s| serde_json::from_str::<Value>(&s).ok())
+        .collect()
 }
 
 // ── Markdown report ──────────────────────────────────────────────────────────
@@ -361,7 +384,11 @@ pub async fn econ_export_xlsx(
     let filename = format!("mmm_report_{ts}.xlsx");
     let path = exports.join(&filename);
 
-    build_xlsx(&model_data, &decompose_data, &optimize_data, &path)?;
+    // Сценарии — опциональные. Если папки нет / JSON невалиден — пустой vec,
+    // лист «Сценарии» просто не добавится.
+    let scenarios = read_scenarios(&project_id);
+
+    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, &path)?;
 
     info!("XLSX saved: {}", path.display());
     Ok(serde_json::json!({
@@ -398,7 +425,7 @@ pub async fn econ_open_exports(project_id: String) -> Result<(), String> {
 
 // ── XLSX builder ──────────────────────────────────────────────────────────────
 
-fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, path: &PathBuf) -> Result<(), String> {
+fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, scenarios: &[Value], path: &PathBuf) -> Result<(), String> {
     use rust_xlsxwriter::{Chart, ChartType, Color, ConditionalFormatCell, ConditionalFormatCellRule, Formula};
 
     let mut wb = Workbook::new();
@@ -697,6 +724,78 @@ fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, path: &PathBuf
         for c in 1..6u16 { ws.set_column_width(c, 15).map_err(|e| format!("{e}"))?; }
     }
 
+    // ── Sheet 4.5: Динамика по периодам (stacked area) ──────
+    // Cols: A=date, B=Base, C..=channels[]. Порядок каналов = decompose.channels[].name
+    // (так же как на UI и в PPTX), чтобы цвета/легенда были выдержаны единообразно.
+    if let Some(time_series) = decompose.get("time_series") {
+        let dates = time_series["dates"].as_array();
+        let baseline = time_series["baseline"].as_array();
+        let channels_map = time_series["channels"].as_object();
+        let channel_order: Vec<String> = decompose["channels"].as_array()
+            .map(|arr| arr.iter().filter_map(|c| c["name"].as_str().map(|s| s.to_string())).collect())
+            .unwrap_or_default();
+
+        if let (Some(dates), Some(channels_map)) = (dates, channels_map) {
+            if !dates.is_empty() && (!channel_order.is_empty() || baseline.is_some()) {
+                let ws = wb.add_worksheet();
+                ws.set_name("Динамика").map_err(|e| format!("{e}"))?;
+                ws.set_tab_color(Color::RGB(0x14B8A6));
+
+                // Header row
+                ws.write_with_format(0, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
+                let mut col_idx: u16 = 1;
+                if baseline.is_some() {
+                    ws.write_with_format(0, col_idx, "Base", &header_fmt).map_err(|e| format!("{e}"))?;
+                    col_idx += 1;
+                }
+                for name in &channel_order {
+                    ws.write_with_format(0, col_idx, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
+                    col_idx += 1;
+                }
+                let last_col = col_idx.saturating_sub(1);
+
+                // Data rows
+                let n_periods = dates.len() as u32;
+                for (i, d) in dates.iter().enumerate() {
+                    let row = (i + 1) as u32;
+                    ws.write(row, 0, d.as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
+                    let mut c: u16 = 1;
+                    if let Some(bl) = baseline {
+                        let v = bl.get(i).and_then(|x| x.as_f64()).unwrap_or(0.0);
+                        ws.write_with_format(row, c, v, &num_fmt).map_err(|e| format!("{e}"))?;
+                        c += 1;
+                    }
+                    for name in &channel_order {
+                        let v = channels_map
+                            .get(name)
+                            .and_then(|a| a.as_array())
+                            .and_then(|a| a.get(i))
+                            .and_then(|x| x.as_f64())
+                            .unwrap_or(0.0);
+                        ws.write_with_format(row, c, v, &num_fmt).map_err(|e| format!("{e}"))?;
+                        c += 1;
+                    }
+                }
+
+                // Stacked area chart — каждая колонка = отдельная series
+                let mut chart = Chart::new(ChartType::AreaStacked);
+                for c in 1..=last_col {
+                    chart.add_series()
+                        .set_categories(("Динамика", 1, 0, n_periods, 0))
+                        .set_values(("Динамика", 1, c, n_periods, c))
+                        .set_name(("Динамика", 0, c));
+                }
+                chart.set_width(720).set_height(400);
+                chart.title().set_name("Декомпозиция продаж по периодам");
+                let chart_anchor_row = (n_periods + 2) as u32;
+                ws.insert_chart(chart_anchor_row, 0, &chart).map_err(|e| format!("{e}"))?;
+
+                ws.set_column_width(0, 14).map_err(|e| format!("{e}"))?;
+                for c in 1..=last_col { ws.set_column_width(c, 14).map_err(|e| format!("{e}"))?; }
+            }
+        }
+    }
+
     // ── Sheet 5: Оптимизация + chart + formulas ─────────────
     if let Some(opt_chs) = optimize["channels"].as_array() {
         let ws = wb.add_worksheet();
@@ -764,6 +863,89 @@ fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, path: &PathBuf
 
         ws.set_column_width(0, 20).map_err(|e| format!("{e}"))?;
         for c in 1..6u16 { ws.set_column_width(c, 16).map_err(|e| format!("{e}"))?; }
+    }
+
+    // ── Sheet 5.5: Сценарии (if any) ─────────────────────────
+    // Метрики × сценарии. Если у всех scenarios есть roas_money — показываем
+    // деньги (homogeneous), иначе native (смешанные единицы) с пометкой.
+    if !scenarios.is_empty() {
+        let ws = wb.add_worksheet();
+        ws.set_name("Сценарии").map_err(|e| format!("{e}"))?;
+        ws.set_tab_color(Color::RGB(0xEC4899));
+
+        let homogeneous_money = scenarios.iter()
+            .all(|s| s["totals"]["roas_money"].as_f64().is_some());
+        let budget_label = if homogeneous_money { "Бюджет (₽)" } else { "Бюджет (native)" };
+        let roas_label = if homogeneous_money { "ROAS (₽)" } else { "ROAS (native)" };
+        let spend_field = if homogeneous_money { "total_spend_money" } else { "total_spend" };
+        let roas_field = if homogeneous_money { "roas_money" } else { "roas" };
+
+        // Header: Метрика | scenario1 | scenario2 | ...
+        ws.write_with_format(0, 0, "Метрика", &header_fmt).map_err(|e| format!("{e}"))?;
+        for (i, s) in scenarios.iter().enumerate() {
+            let name = s["scenario_name"].as_str().unwrap_or("—");
+            ws.write_with_format(0, (i + 1) as u16, name, &header_fmt).map_err(|e| format!("{e}"))?;
+        }
+
+        // Rows: Прогноз KPI | Бюджет | ROAS | Лифт vs baseline
+        let rows: Vec<(&str, &str, &Format)> = vec![
+            ("Прогноз KPI", "predicted_kpi", &num_fmt),
+            (budget_label, spend_field, &num_fmt),
+            (roas_label, roas_field, &roi_fmt),
+        ];
+        for (i, (label, field, fmt)) in rows.iter().enumerate() {
+            let row = (i + 1) as u32;
+            ws.write(row, 0, *label).map_err(|e| format!("{e}"))?;
+            for (j, s) in scenarios.iter().enumerate() {
+                let v = s["totals"][*field].as_f64().unwrap_or(0.0);
+                ws.write_with_format(row, (j + 1) as u16, v, *fmt).map_err(|e| format!("{e}"))?;
+            }
+        }
+        // Lift row — строки формата "+N%"
+        let lift_row = (rows.len() + 1) as u32;
+        ws.write(lift_row, 0, "Лифт vs baseline").map_err(|e| format!("{e}"))?;
+        for (j, s) in scenarios.iter().enumerate() {
+            let lift = s["totals"]["lift_pct"].as_f64().unwrap_or(0.0);
+            ws.write(lift_row, (j + 1) as u16, format!("+{lift:.1}%")).map_err(|e| format!("{e}"))?;
+        }
+
+        // Подсветить зелёным лучший ROAS
+        let roas_row = 3u32; // 0=header, 1=KPI, 2=Budget, 3=ROAS
+        let best_idx = scenarios.iter().enumerate()
+            .max_by(|(_, a), (_, b)| {
+                let ra = a["totals"][roas_field].as_f64().unwrap_or(0.0);
+                let rb = b["totals"][roas_field].as_f64().unwrap_or(0.0);
+                ra.partial_cmp(&rb).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i);
+        if let Some(bi) = best_idx {
+            let best_fmt = Format::new()
+                .set_font_color(Color::RGB(0x22C55E))
+                .set_bold();
+            let v = scenarios[bi]["totals"][roas_field].as_f64().unwrap_or(0.0);
+            ws.write_with_format(roas_row, (bi + 1) as u16, v, &best_fmt)
+                .map_err(|e| format!("{e}"))?;
+        }
+
+        // Note про homogeneity для native-mixed случая
+        if !homogeneous_money {
+            let note_row = (rows.len() + 3) as u32;
+            let note_fmt = Format::new()
+                .set_font_color(Color::RGB(0xF59E0B))
+                .set_italic();
+            let note = "⚠ ROAS в native-единицах (TRP/GRP + ₽) — несопоставим между \
+                        каналами разных единиц. Укажи CPP в блоке «Проверка» для перевода в ₽.";
+            ws.merge_range(
+                note_row, 0,
+                note_row, scenarios.len() as u16,
+                note, &note_fmt
+            ).map_err(|e| format!("{e}"))?;
+        }
+
+        ws.set_column_width(0, 22).map_err(|e| format!("{e}"))?;
+        for c in 1..=(scenarios.len() as u16) {
+            ws.set_column_width(c, 20).map_err(|e| format!("{e}"))?;
+        }
     }
 
     // ── Sheet: Данные (сырой time-series для графиков) ───────

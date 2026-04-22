@@ -27,11 +27,45 @@ pub struct ProjectInfo {
     pub unit_costs: HashMap<String, f64>,
 }
 
-/// Get the projects root directory: %APPDATA%/<identifier>/projects/
-fn projects_dir() -> Result<PathBuf, String> {
+/// Get the projects root directory.
+/// Priority: env AURORA_PROJECTS_ROOT > user_config.econometrica_projects_root > default.
+/// Default: %APPDATA%/<identifier>/projects/
+pub fn projects_dir() -> Result<PathBuf, String> {
     let appdata = std::env::var("APPDATA")
         .map_err(|_| "APPDATA not set".to_string())?;
     let identifier = env!("CARGO_PKG_NAME");
+
+    // Env override — для тестов и advanced users.
+    if let Ok(env_root) = std::env::var("AURORA_PROJECTS_ROOT") {
+        if !env_root.trim().is_empty() {
+            let dir = PathBuf::from(env_root.trim());
+            std::fs::create_dir_all(&dir)
+                .map_err(|e| format!("Failed to create projects dir (env): {e}"))?;
+            return Ok(dir);
+        }
+    }
+
+    // User-configured override — читаем user_config.json напрямую с диска
+    // (без AppHandle — чтобы не менять сигнатуру во всех вызовах вверх по стеку).
+    let config_dir = PathBuf::from(&appdata).join(identifier);
+    let config_path = config_dir.join("user_config.json");
+    if config_path.exists() {
+        if let Ok(data) = std::fs::read_to_string(&config_path) {
+            if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&data) {
+                if let Some(root) = cfg.get("econometrica_projects_root").and_then(|v| v.as_str()) {
+                    let trimmed = root.trim();
+                    if !trimmed.is_empty() {
+                        let dir = PathBuf::from(trimmed);
+                        std::fs::create_dir_all(&dir)
+                            .map_err(|e| format!("Failed to create projects dir (config): {e}"))?;
+                        return Ok(dir);
+                    }
+                }
+            }
+        }
+    }
+
+    // Default
     let dir = PathBuf::from(appdata)
         .join(identifier)
         .join("projects");
@@ -39,7 +73,7 @@ fn projects_dir() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-fn project_dir(project_id: &str) -> Result<PathBuf, String> {
+pub fn project_dir(project_id: &str) -> Result<PathBuf, String> {
     let dir = projects_dir()?.join(project_id);
     Ok(dir)
 }
@@ -316,5 +350,146 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
         "modelDiagnostics": read_json("model-diagnostics.json"),
         "decomposition":    read_json("decomposition.json"),
         "optimization":     read_json("optimization.json"),
+    }))
+}
+
+// ── Archive import/export (.aurora) ──────────────────────────────────────────
+//
+// Save: упаковывает весь project_dir (data + models + results + scenarios + exports +
+// project.json) в единый zip-архив с расширением .aurora. Клиент может передать его
+// на другую машину / сохранить как бэкап.
+//
+// Load: распаковывает архив в новый project_id, перезаписывает поле id в project.json
+// на новый (чтобы не было конфликта с существующим проектом того же имени). Возвращает
+// new project_id, который фронтенд сразу активирует.
+
+/// Экспорт проекта в zip-архив .aurora. Возвращает путь к созданному файлу.
+/// output_path — обычно путь из dialog.save на фронте.
+#[tauri::command]
+pub async fn project_export_archive(
+    project_id: String,
+    output_path: String,
+) -> Result<String, String> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let src = project_dir(&project_id)?;
+    if !src.exists() {
+        return Err("Проект не найден".to_string());
+    }
+    info!("project_export_archive: {} → {}", project_id, output_path);
+
+    let out = PathBuf::from(&output_path);
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("create parent: {e}"))?;
+    }
+
+    let file = std::fs::File::create(&out).map_err(|e| format!("create archive: {e}"))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options: SimpleFileOptions = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+
+    // Пишем в архив относительные пути (без project_id как root), чтобы при распаковке
+    // можно было восстановить в новый project_dir. root entry — файл project.json.
+    let mut file_count = 0u32;
+    for entry in walkdir::WalkDir::new(&src).into_iter().filter_map(|e| e.ok()) {
+        let path = entry.path();
+        let rel = path.strip_prefix(&src).map_err(|e| format!("strip_prefix: {e}"))?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if path.is_dir() {
+            zip.add_directory(format!("{rel_str}/"), options)
+                .map_err(|e| format!("add_directory: {e}"))?;
+        } else if path.is_file() {
+            zip.start_file(&rel_str, options)
+                .map_err(|e| format!("start_file: {e}"))?;
+            let data = std::fs::read(path).map_err(|e| format!("read {path:?}: {e}"))?;
+            zip.write_all(&data).map_err(|e| format!("write {rel_str}: {e}"))?;
+            file_count += 1;
+        }
+    }
+
+    zip.finish().map_err(|e| format!("zip finish: {e}"))?;
+    let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+    info!("archive created: {} files, {} bytes", file_count, size);
+    Ok(output_path)
+}
+
+/// Импорт проекта из zip-архива .aurora. Распаковывает в новый project_id,
+/// обновляет project.json (id, created_at — current). Возвращает новый project_id.
+#[tauri::command]
+pub async fn project_import_archive(archive_path: String) -> Result<Value, String> {
+    let archive = PathBuf::from(&archive_path);
+    if !archive.exists() {
+        return Err("Файл архива не найден".to_string());
+    }
+    info!("project_import_archive: {}", archive_path);
+
+    // Generate new project_id
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let new_id = format!("imported-{timestamp}");
+    let dest = projects_dir()?.join(&new_id);
+
+    if dest.exists() {
+        return Err(format!("Целевая папка уже существует: {}", dest.display()));
+    }
+    std::fs::create_dir_all(&dest).map_err(|e| format!("create dest: {e}"))?;
+
+    // Unzip
+    let file = std::fs::File::open(&archive).map_err(|e| format!("open archive: {e}"))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
+    let mut file_count = 0u32;
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| format!("zip entry {i}: {e}"))?;
+        let enclosed = match entry.enclosed_name() {
+            Some(p) => p.to_path_buf(),
+            None => continue, // skip malformed paths (zip-slip protection)
+        };
+        let outpath = dest.join(&enclosed);
+        if entry.is_dir() {
+            std::fs::create_dir_all(&outpath).map_err(|e| format!("mkdir {outpath:?}: {e}"))?;
+        } else {
+            if let Some(parent) = outpath.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("mkdir parent: {e}"))?;
+            }
+            let mut outfile = std::fs::File::create(&outpath)
+                .map_err(|e| format!("create {outpath:?}: {e}"))?;
+            std::io::copy(&mut entry, &mut outfile)
+                .map_err(|e| format!("copy {enclosed:?}: {e}"))?;
+            file_count += 1;
+        }
+    }
+    info!("archive extracted: {} files into {}", file_count, dest.display());
+
+    // Rewrite project.json → new id + touch updated_at
+    let project_json_path = dest.join("project.json");
+    if !project_json_path.exists() {
+        // Убрать битый импорт
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err("Архив не содержит project.json — это не проект Aurora Econometrica".to_string());
+    }
+    let data = std::fs::read_to_string(&project_json_path)
+        .map_err(|e| format!("read project.json: {e}"))?;
+    let mut info_val: Value = serde_json::from_str(&data)
+        .map_err(|e| format!("parse project.json: {e}"))?;
+    if let Some(obj) = info_val.as_object_mut() {
+        obj.insert("id".to_string(), Value::String(new_id.clone()));
+        obj.insert(
+            "updated_at".to_string(),
+            Value::String(chrono::Local::now().to_rfc3339()),
+        );
+    }
+    std::fs::write(
+        &project_json_path,
+        serde_json::to_string_pretty(&info_val).map_err(|e| e.to_string())?,
+    ).map_err(|e| format!("write project.json: {e}"))?;
+
+    info!("project imported: new_id={}", new_id);
+    Ok(serde_json::json!({
+        "project_id": new_id,
+        "info": info_val,
     }))
 }

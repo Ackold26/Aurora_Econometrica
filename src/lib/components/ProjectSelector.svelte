@@ -1,5 +1,6 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
+  import { save as saveDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
   import { onMount } from 'svelte';
   import { activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
 
@@ -8,6 +9,9 @@
   let showCreate = $state(false);
   let newName = $state('');
   let loading = $state(false);
+  let archiving = $state(false);
+  /** @type {string} */
+  let archiveMsg = $state('');
 
   onMount(() => {
     loadProjects();
@@ -96,6 +100,80 @@
     }
     loading = false;
   }
+
+  /** Экспорт текущего активного проекта в .aurora архив. */
+  async function exportCurrentProject() {
+    if (!$activeProject || archiving) return;
+    const safeName = ($activeProject.name || 'project')
+      .replace(/[^\p{L}\p{N}._ -]/gu, '_')
+      .slice(0, 100);
+    const suggested = `${safeName}.aurora`;
+    archiving = true;
+    archiveMsg = '';
+    try {
+      const outputPath = await saveDialog({
+        defaultPath: suggested,
+        filters: [{ name: 'Aurora Project', extensions: ['aurora', 'zip'] }],
+        title: 'Сохранить проект как архив',
+      });
+      if (!outputPath) {
+        archiving = false;
+        return;
+      }
+      await invoke('project_export_archive', {
+        projectId: $activeProjectId,
+        outputPath,
+      });
+      archiveMsg = `✓ Сохранено: ${outputPath}`;
+      setTimeout(() => { archiveMsg = ''; }, 6000);
+    } catch (e) {
+      archiveMsg = `Ошибка: ${e}`;
+      setTimeout(() => { archiveMsg = ''; }, 8000);
+    } finally {
+      archiving = false;
+    }
+  }
+
+  /** Импорт проекта из .aurora архива — создаёт новый project_id и активирует. */
+  async function importProjectFromArchive() {
+    if (archiving) return;
+    archiving = true;
+    archiveMsg = '';
+    try {
+      const selected = await openDialog({
+        filters: [{ name: 'Aurora Project', extensions: ['aurora', 'zip'] }],
+        multiple: false,
+        title: 'Выбрать .aurora архив проекта',
+      });
+      if (!selected || typeof selected !== 'string') {
+        archiving = false;
+        return;
+      }
+      const result = /** @type {any} */ (await invoke('project_import_archive', {
+        archivePath: selected,
+      }));
+      const newId = result.project_id;
+      const info = result.info;
+
+      // Активировать импортированный проект
+      await invoke('project_activate', { projectId: newId });
+      activeProject.set(info);
+      activeProjectId.set(newId);
+      resetPipeline();
+      projects = [...projects, info];
+      showCreate = false;
+      archiveMsg = `✓ Проект «${info.name ?? newId}» импортирован`;
+      setTimeout(() => { archiveMsg = ''; }, 6000);
+
+      // Перезагрузить полный список с диска (чтобы подхватить existing сохранёнки)
+      await loadProjects();
+    } catch (e) {
+      archiveMsg = `Ошибка импорта: ${e}`;
+      setTimeout(() => { archiveMsg = ''; }, 8000);
+    } finally {
+      archiving = false;
+    }
+  }
 </script>
 
 <div class="project-selector">
@@ -145,6 +223,32 @@
           {loading ? '...' : 'Создать'}
         </button>
       </div>
+
+      <div class="project-archive-row">
+        {#if $activeProject}
+          <button
+            class="archive-btn"
+            onclick={exportCurrentProject}
+            disabled={archiving}
+            title="Сохранить активный проект в один .aurora файл (данные + модель + результаты + сценарии)"
+          >
+            💾 Сохранить как архив
+          </button>
+        {/if}
+        <button
+          class="archive-btn"
+          onclick={importProjectFromArchive}
+          disabled={archiving}
+          title="Загрузить ранее сохранённый .aurora файл как новый проект"
+        >
+          📦 Загрузить из архива
+        </button>
+      </div>
+      {#if archiveMsg}
+        <div class="archive-msg" class:archive-err={archiveMsg.startsWith('Ошибка')}>
+          {archiveMsg}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -296,4 +400,42 @@
   }
 
   .create-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .project-archive-row {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    flex-wrap: wrap;
+  }
+
+  .archive-btn {
+    flex: 1;
+    min-width: 140px;
+    padding: 7px 10px;
+    background: transparent;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+    color: var(--text-secondary, #94a3b8);
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+  }
+  .archive-btn:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, transparent);
+    color: var(--text-primary, #e2e8f0);
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
+  }
+  .archive-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .archive-msg {
+    padding: 8px 12px;
+    color: var(--success, #22c55e);
+    font-size: 11px;
+    line-height: 1.4;
+    word-break: break-all;
+  }
+  .archive-msg.archive-err { color: var(--danger, #ef4444); }
 </style>

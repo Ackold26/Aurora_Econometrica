@@ -25,6 +25,24 @@
   import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
+  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
+  import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
+  import { TOURS } from '$lib/pipeline-tours.js';
+  import { shouldShowOnboarding } from '$lib/onboarding-state.js';
+
+  let showOnboarding = $state(false);
+  let onboardingChecked = false;
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    if (onboardingChecked) return;
+    // Запускаем только когда decompose data отрендерилась (ждём data из store)
+    const d = $decomposeData;
+    if (!d || !d.channels || d.channels.length === 0) return;
+    onboardingChecked = true;
+    if (shouldShowOnboarding('decompose')) {
+      requestAnimationFrame(() => { showOnboarding = true; });
+    }
+  });
 
   /** @type {Record<string, string>} */
   const CATEGORY_LABEL = {
@@ -252,29 +270,26 @@
     {/if}
 
     <!-- Waterfall — full width -->
-    <div class="card">
-      <div class="card-title">Декомпозиция продаж</div>
+    <ExpandableCard title="Декомпозиция продаж" tourKey="decompose-waterfall">
       <WaterfallChart waterfall={data.waterfall} />
-    </div>
+    </ExpandableCard>
 
     <!-- Two-column: ROI | Timeline -->
     <div class="charts-grid">
-      <div class="card">
-        <div class="card-title">Расходы vs Эффект</div>
+      <ExpandableCard title="Расходы vs Эффект" tourKey="decompose-roi">
         <ROIComparison channels={data.channels} />
-      </div>
-      <div class="card">
-        <div class="card-title">Динамика по периодам</div>
+      </ExpandableCard>
+      <ExpandableCard title="Динамика по периодам" tourKey="decompose-timeline">
         {#if data.time_series?.dates?.length}
           <ChannelTimeline timeSeries={data.time_series} />
         {:else}
           <div class="no-data">Нет данных для временного ряда</div>
         {/if}
-      </div>
+      </ExpandableCard>
     </div>
 
     <!-- Channel table -->
-    <div class="card">
+    <div class="card" data-tour="decompose-table">
       <div class="card-title">Детализация по каналам</div>
       <div class="channel-table">
         <table>
@@ -338,6 +353,14 @@
 
   {#if $expertMode}
     <ExpertDecomposePanel />
+  {/if}
+
+  {#if showOnboarding}
+    <PipelineOnboarding
+      steps={TOURS.decompose}
+      stepKey="decompose"
+      onDone={() => { showOnboarding = false; }}
+    />
   {/if}
 
 </div>

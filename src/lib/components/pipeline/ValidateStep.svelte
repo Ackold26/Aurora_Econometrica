@@ -23,7 +23,15 @@
   import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
   import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
   import UnitCostsPanel from '$lib/components/pipeline/UnitCostsPanel.svelte';
+  import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
+  import { TOURS } from '$lib/pipeline-tours.js';
+  import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { get } from 'svelte/store';
+
+  // Обучающий тур — запускается при первом визите на шаг, если
+  // результат валидации отрендерен и тур не пройден ранее.
+  let showOnboarding = $state(false);
+  let onboardingChecked = false;
 
   // ── State ──────────────────────────────────────────
   let loading = $state(false);
@@ -63,6 +71,18 @@
     if (activeWarnings.length === 0 && result.status !== 'error') return 'Валидация пройдена';
     if (result.status === 'error') return 'Обнаружены критические проблемы';
     return `Готово с предупреждениями (${activeWarnings.length})`;
+  });
+
+  // Онбординг — запуск только после того как result отрендерен
+  // (иначе спотлайты указывают на пустой DOM).
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    if (onboardingChecked) return;
+    if (!result) return;
+    onboardingChecked = true;
+    if (shouldShowOnboarding('validate')) {
+      requestAnimationFrame(() => { showOnboarding = true; });
+    }
   });
 
   // ── Validate ───────────────────────────────────────
@@ -247,7 +267,7 @@
     <div class="results-stack">
 
       <!-- TrafficLight -->
-      <section class="section-full">
+      <section class="section-full" data-tour="validation-result">
         <button class="section-toggle" onclick={() => showValidation = !showValidation}>
           <span>{showValidation ? '▼' : '▶'}</span>
           <h4 class="section-title">Результат валидации</h4>
@@ -270,7 +290,7 @@
 
       <!-- Auto-fix suggestions -->
       {#if activeWarnings.length > 0}
-        <section class="section-full">
+        <section class="section-full" data-tour="validation-recs">
           <button class="section-toggle" onclick={() => showRecs = !showRecs}>
             <span>{showRecs ? '▼' : '▶'}</span>
             <h4 class="section-title">Рекомендации ({activeWarnings.length})</h4>
@@ -303,12 +323,12 @@
       {/if}
 
       <!-- Trust Level 2: unit_costs для не-денежных каналов -->
-      <section class="section-full">
+      <section class="section-full" data-tour="unit-costs">
         <UnitCostsPanel columns={result.columns ?? []} />
       </section>
 
       <!-- ColumnMapper -->
-      <section class="section-full">
+      <section class="section-full" data-tour="column-mapper">
         <button class="section-toggle" onclick={() => showMapper = !showMapper}>
           <span>{showMapper ? '▼' : '▶'}</span>
           <h4 class="section-title">Назначение столбцов</h4>
@@ -342,6 +362,14 @@
 
   {#if $expertMode}
     <ExpertValidatePanel />
+  {/if}
+
+  {#if showOnboarding}
+    <PipelineOnboarding
+      steps={TOURS.validate}
+      stepKey="validate"
+      onDone={() => { showOnboarding = false; }}
+    />
   {/if}
 
 </div>

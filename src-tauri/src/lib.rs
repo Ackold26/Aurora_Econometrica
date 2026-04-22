@@ -1928,6 +1928,79 @@ fn set_model_settings(model: String, effort: String, app_handle: tauri::AppHandl
     user_config::save(&config_dir, &config)
 }
 
+// ============== Econometrica Projects Root ==============
+
+/// Get current projects root path + default path for UI display.
+#[tauri::command]
+fn get_econometrica_projects_root(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config = user_config::load(&config_dir);
+    let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not set".to_string())?;
+    let identifier = env!("CARGO_PKG_NAME");
+    let default_path = std::path::PathBuf::from(&appdata)
+        .join(identifier)
+        .join("projects");
+    let current = config.econometrica_projects_root.clone()
+        .unwrap_or_else(|| default_path.to_string_lossy().to_string());
+    Ok(serde_json::json!({
+        "current": current,
+        "default": default_path.to_string_lossy(),
+        "is_custom": config.econometrica_projects_root.is_some(),
+    }))
+}
+
+/// Задать кастомную директорию для Econometrica-проектов.
+/// Пустая строка = сбросить на дефолт. Существующие проекты НЕ переносятся —
+/// они остаются в старой папке. Новый `projects_dir()` начнёт указывать на новую папку.
+#[tauri::command]
+fn set_econometrica_projects_root(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    let trimmed = path.trim().to_string();
+    if trimmed.is_empty() {
+        config.econometrica_projects_root = None;
+    } else {
+        // Проверка существования / попытка создать
+        let p = std::path::PathBuf::from(&trimmed);
+        std::fs::create_dir_all(&p)
+            .map_err(|e| format!("Не удалось создать/проверить папку {trimmed}: {e}"))?;
+        config.econometrica_projects_root = Some(trimmed);
+    }
+    user_config::save(&config_dir, &config)
+}
+
+/// Открыть текущую папку с проектами в проводнике.
+#[tauri::command]
+fn open_econometrica_projects_root(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config = user_config::load(&config_dir);
+    let path = match config.econometrica_projects_root {
+        Some(p) => std::path::PathBuf::from(p),
+        None => {
+            let appdata = std::env::var("APPDATA").map_err(|_| "APPDATA not set".to_string())?;
+            let identifier = env!("CARGO_PKG_NAME");
+            std::path::PathBuf::from(appdata).join(identifier).join("projects")
+        }
+    };
+    let _ = std::fs::create_dir_all(&path);
+
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer")
+            .arg(path.to_str().unwrap_or("."))
+            .spawn()
+            .map_err(|e| format!("Не удалось открыть папку: {e}"))?;
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(path.to_str().unwrap_or("."))
+            .spawn()
+            .map_err(|e| format!("Не удалось открыть папку: {e}"))?;
+    }
+    Ok(())
+}
+
 // ============== Metrics Commands ==============
 
 #[tauri::command]
@@ -3064,6 +3137,9 @@ fn build_app() -> Result<(), String> {
             get_cabinet_path,
             set_cabinet_path,
             reset_cabinet_path,
+            get_econometrica_projects_root,
+            set_econometrica_projects_root,
+            open_econometrica_projects_root,
             get_model_settings,
             set_model_settings,
             list_vault_status,
@@ -3141,6 +3217,7 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_chart,
             commands::econometrica::econ_data_preview,
             commands::econometrica::econ_export_pptx,
+            commands::econometrica::econ_export_html,
             commands::econometrica::econ_adstock_select,
             // Project management commands
             commands::project::project_list,
@@ -3154,6 +3231,8 @@ fn build_app() -> Result<(), String> {
             commands::project::project_get_dir,
             commands::project::project_stats,
             commands::project::project_load_results,
+            commands::project::project_export_archive,
+            commands::project::project_import_archive,
             // Report generation commands
             commands::report::econ_generate_report,
             commands::report::econ_export_xlsx,
