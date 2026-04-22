@@ -2,6 +2,47 @@
 
 ---
 
+## v1.0.9-rc2 — Stability + multi-core MCMC (2026-04-22)
+
+Follow-up к v1.0.9-rc1 (port isolation) — 7 технических фиксов по результатам live-теста IT Паши на CLOUDEAI RDP 2026-04-21.
+
+### Stability
+- **FastAPI**: глобальный exception handler возвращает JSON на 500 (фикс парсинг-ошибки GUI под RemoteApp). HTTPException pass-through сохранён — 400/404 работают как раньше.
+- **Validator**: try/except вокруг записи `validation.json` + `default=str` для numpy-типов. Под roaming profile запись может упасть с PermissionError — result всё равно возвращается в GUI.
+- **PyInstaller bundle**: arviz 0.23.4 split-пакеты (`arviz_base`, `arviz_stats`, `arviz_plots`) добавлены в `--collect-all` — фикс `FileNotFoundError` при импорте arviz.
+- **Build script**: `PYTHONIOENCODING=utf-8` + `stdout.reconfigure` — фикс UnicodeEncodeError на cp1251 серверах. Post-build freshness check не пропускает stale exe в Tauri bundle.
+
+### Performance
+- **MCMC chain_method**: динамический выбор — `parallel` на multi-core CPU (`jax.devices() > 1`), `vectorized` fallback на одном устройстве.
+- **JAX multi-core**: `XLA_FLAGS=--xla_force_host_platform_device_count=N` устанавливается в startup server.py до любого `import jax`. Дефолт `N = min(cpu_count, 8)`.
+- **Ожидаемый speedup**: 3-8× на 4-8-ядерных серверах (rc1: 25% CPU = 1 ядро → rc2: все ядра под MCMC).
+
+### Diagnostics
+- `/health` возвращает версии `numpyro`, `jax`, `arviz`, `pytensor` (было: эти поля отсутствовали → FAIL в диагностическом чеклисте).
+- `/health` packages handler расширен с `except ImportError` на `except Exception` — ловит partially-loaded modules.
+- Startup log: `JAX devices: N × backend (expected=M)` + `AURORA_MCMC_CORES=N`.
+- **Surgical asyncio filter**: убирает Windows-специфичный спам `_ProactorBasePipeTransport._call_connection_lost` из sidecar.log, реальные asyncio errors сохранены.
+
+### Dependencies
+- `requirements.txt`: добавлены pinned `numpyro==0.20.1`, `jax[cpu]==0.7.2`, `jaxlib==0.7.2`, `arviz==0.23.4` (+ 3 split-пакета), `pymc==5.28.4`, `pymc-marketing==0.19.2`, `pytensor>=2.24.0`. Pinned значения — production versions с CLOUDEAI.
+
+### Env flags (новые)
+- `AURORA_MCMC_CORES=N` — переопределить число виртуальных JAX host devices (дефолт `min(cpu, 8)`).
+- `AURORA_MCMC_CHAIN_METHOD=parallel|vectorized|sequential` — форсировать chain distribution, минуя автодетект.
+- (существующий) `AURORA_NUTS_BACKEND=auto|numpyro|pymc` — выбор backend.
+
+### Files changed
+- `sidecar/econometrica/server.py`
+- `sidecar/econometrica/engines/validator.py`
+- `sidecar/econometrica/engines/modeler.py`
+- `sidecar/econometrica/build_sidecar.py`
+- `sidecar/econometrica/requirements.txt`
+- `CHANGELOG.md`
+
+Rust-сторона (src-tauri/) не трогалась — v1.0.9-rc1 port isolation работает без изменений.
+
+---
+
 ## v1.0.7 — S10: Help System + UX Polish (2026-04-20)
 
 ### Справочная система

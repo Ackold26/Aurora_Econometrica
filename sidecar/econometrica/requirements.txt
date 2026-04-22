@@ -1,11 +1,35 @@
-pymc-marketing>=0.19.0,<1.0
-pymc>=5.10.0,<6.0
+# Aurora AI Econometrica — Python sidecar runtime
+# Pinned versions = версии, работающие на production (CLOUDEAI, 2026-04-21).
+# Диапазоны = где совместимость шире.
+
+# ── Core MMM (Bayesian MMM stack) ──────────────────────────────
+pymc==5.28.4
+pymc-marketing==0.19.2
+pytensor>=2.24.0,<3.0
+arviz==0.23.4
+# arviz 0.23.4+ разделён на split-пакеты — обязательны для рантайма
+arviz-base
+arviz-stats
+arviz-plots
+
+# ── NumPyro NUTS (Tier-1 sampler, 5-15× speedup vs PyTensor) ───
+# CPU-only JAX — GPU wheels (+2GB) намеренно исключены.
+numpyro==0.20.1
+jax[cpu]==0.7.2
+jaxlib==0.7.2
+
+# ── Data ───────────────────────────────────────────────────────
 pandas>=2.0.0
-numpy>=1.24.0
+numpy>=1.24.0,<3.0
 scipy>=1.10.0
+scikit-learn>=1.3.0
 matplotlib>=3.7.0
 openpyxl>=3.1.0
-scikit-learn>=1.3.0
+
+# ── Server ─────────────────────────────────────────────────────
 fastapi>=0.104.0
 uvicorn>=0.24.0
 python-multipart>=0.0.6
+
+# ── Export ─────────────────────────────────────────────────────
+python-pptx>=0.6.21

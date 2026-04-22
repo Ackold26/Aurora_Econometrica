@@ -291,10 +291,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # ───────────────────────────────────────────────────────────────
             _backend = os.environ.get('AURORA_NUTS_BACKEND', 'auto').lower()
             _use_numpyro = False
+            _jax_ref = None  # сохранить модуль jax для probe devices ниже
             if _backend in ('auto', 'numpyro'):
                 try:
                     import numpyro  # noqa: F401
-                    import jax  # noqa: F401
+                    import jax
+                    _jax_ref = jax
                     _use_numpyro = True
                     logger.info(
                         f'MCMC backend: NumPyro NUTS (JAX) — '
@@ -318,10 +320,26 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
             # ── Tier 1: NumPyro NUTS ───────────────────────────────────
             if _use_numpyro and _backend != 'pymc':
+                # Auto-select chain_method:
+                #   - parallel если JAX видит >1 host device (XLA_FLAGS сработал в server.py)
+                #     → цепи реально распараллелены по ядрам, ускорение ×N.
+                #   - vectorized fallback если 1 device (старый jax, либо пользователь
+                #     задал AURORA_MCMC_CORES=1) → безопасный single-device путь.
+                # Override: env AURORA_MCMC_CHAIN_METHOD=parallel|vectorized|sequential
+                _n_devices = len(_jax_ref.devices()) if _jax_ref is not None else 1
+                _chain_method_env = os.environ.get('AURORA_MCMC_CHAIN_METHOD', '').lower()
+                if _chain_method_env in ('parallel', 'vectorized', 'sequential'):
+                    _chain_method = _chain_method_env
+                else:
+                    _chain_method = 'parallel' if _n_devices > 1 else 'vectorized'
+                logger.info(
+                    f'NumPyro chain_method={_chain_method} '
+                    f'(jax_devices={_n_devices}, chains={chains})'
+                )
                 try:
                     logger.info(
                         f'Sampling: Tier-1 NumPyro NUTS '
-                        f'(chains={chains}, draws={draws}, tune={tune})'
+                        f'(chains={chains}, draws={draws}, tune={tune}, method={_chain_method})'
                     )
                     trace = pm.sample(
                         draws=draws,
@@ -330,7 +348,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                         return_inferencedata=True,
                         progressbar=True,
                         nuts_sampler='numpyro',
-                        chain_method='vectorized',
+                        chain_method=_chain_method,
                     )
                     logger.info('Tier-1 NumPyro NUTS: SUCCESS')
                 except AttributeError as e:

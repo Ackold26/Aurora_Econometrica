@@ -13,8 +13,22 @@ Notes:
     - Bundled directory is referenced in tauri.conf.json as external binary resource
     - After build: copy dist/econometrica-sidecar/ → src-tauri/binaries/
 """
-import subprocess
+# ── Unicode-safe I/O ────────────────────────────────────────────────────
+# На серверах с кодировкой cp1251 (Windows RU) print('✓') / любой не-ASCII
+# символ → UnicodeEncodeError → sync-фаза build падает. PyInstaller сборка
+# при этом завершается, но exe не копируется в sidecar/econometrica/.
+# Инцидент: CLOUDEAI 2026-04-21. Fix универсальный, не точечный.
+import os
 import sys
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
+import subprocess
 import shutil
 from pathlib import Path
 
@@ -74,6 +88,12 @@ PYINSTALLER_ARGS = [
     # gets --collect-all (binaries + submodules + data) — safest against the class of
     # "FileNotFoundError at import" bugs (arviz icons, pytensor scan_perform.c, etc).
     '--collect-all=arviz',
+    # arviz 0.23.4+ разделён на split packages (arviz_base, arviz_stats, arviz_plots).
+    # --collect-all=arviz не тянет split-пакеты автоматически → FileNotFoundError
+    # на импорте. Инцидент: CLOUDEAI 2026-04-21.
+    '--collect-all=arviz_base',
+    '--collect-all=arviz_stats',
+    '--collect-all=arviz_plots',
     '--collect-all=pymc',
     '--collect-all=pymc_marketing',
     '--collect-all=pytensor',          # scan_perform.c, configdefaults, compile templates
@@ -163,6 +183,32 @@ def main():
         except Exception as e:
             print(f'  ERROR copying {item.name}: {e}')
     print(f'  ✓ {copied} items synced into {ROOT}')
+
+    # ── Freshness check (защита от stale exe в Tauri bundle) ───────────
+    # npm run tauri build НЕ пересобирает sidecar — берёт готовый exe.
+    # Если .py новее exe → installer попадёт старый sidecar, runtime
+    # словит handshake mismatch / отсутствие эндпоинтов. Инцидент 2026-04-21.
+    exe = ROOT / f'{OUTPUT_NAME}.exe'
+    if exe.exists():
+        exe_mtime = exe.stat().st_mtime
+        stale = []
+        for p in ROOT.rglob('*.py'):
+            # Игнорируем build_tmp/ (если вдруг остался), dist/ и _internal/
+            if any(part in ('build_tmp', 'dist', '_internal') for part in p.parts):
+                continue
+            if p.stat().st_mtime > exe_mtime:
+                stale.append(p)
+        if stale:
+            print(f'\n[ERROR] Found {len(stale)} .py file(s) newer than {exe.name}:',
+                  file=sys.stderr)
+            for p in stale[:5]:
+                print(f'  {p.relative_to(ROOT)}', file=sys.stderr)
+            if len(stale) > 5:
+                print(f'  ... +{len(stale) - 5} more', file=sys.stderr)
+            print('Sync failed — exe was not refreshed. Re-run build.', file=sys.stderr)
+            sys.exit(1)
+        print(f'  [OK] Freshness verified (exe newer than all .py sources)')
+
     print(f'\nNext step: cd .. && npm run tauri build')
 
 

@@ -9,6 +9,21 @@ Product ID: из env AURORA_PRODUCT_ID (fallback 'com.aurora.econometrica').
 Per-user RDP изоляция обеспечивается на Rust-стороне — этот сервер
 просто слушает переданный ему порт.
 """
+# ── JAX multi-core setup — MUST be before any `import jax` ──────────────
+# На CPU JAX по умолчанию видит 1 host device → NumPyro NUTS свёртывает все
+# цепи в 1 ядро (vectorized). Выставляем N виртуальных devices → NumPyro
+# раскладывает цепи через pmap по реальным ядрам.
+# Override: env AURORA_MCMC_CORES=N (по умолчанию min(cpu_count, 8)).
+import os as _os_early
+_mcmc_cores = int(_os_early.environ.get(
+    'AURORA_MCMC_CORES',
+    min(_os_early.cpu_count() or 1, 8)
+))
+_os_early.environ.setdefault(
+    'XLA_FLAGS',
+    f'--xla_force_host_platform_device_count={_mcmc_cores}'
+)
+
 import json
 import logging
 import logging.handlers
@@ -66,10 +81,22 @@ logging.basicConfig(
     force=True,
 )
 logger = logging.getLogger('econometrica')
+
+# ── Silence known-benign Windows asyncio spam ───────────────────────────
+# uvicorn on Windows + HTTP client disconnect = hundreds of
+# `_ProactorBasePipeTransport._call_connection_lost` tracebacks per session.
+# Surgical filter — preserves legitimate asyncio errors, убирает только этот тип.
+class _SkipProactorNoise(logging.Filter):
+    def filter(self, record):
+        return '_ProactorBasePipeTransport._call_connection_lost' not in record.getMessage()
+
+logging.getLogger('asyncio').addFilter(_SkipProactorNoise())
+
 logger.info(
     f'=== Sidecar starting: product={PRODUCT_ID} version={VERSION} '
     f'session={SESSION_ID[:8]}… pid={os.getpid()} log={_log_file} ==='
 )
+logger.info(f'AURORA_MCMC_CORES={_mcmc_cores} (XLA_FLAGS={_os_early.environ.get("XLA_FLAGS")})')
 
 # Dump bundle integrity + PyTensor/MSVC diagnostic on startup.
 # Purpose: when sidecar fails at /health or model training, these logs tell
@@ -109,6 +136,19 @@ try:
     # Probe arviz to surface its FileNotFoundError early with a clear message
     import arviz  # noqa: F401
     logger.info('arviz import: OK')
+
+    # Probe JAX devices — подтверждение что XLA_FLAGS применился до init.
+    # Если XLA_FLAGS не сработал (старый jax, ручной override) — devices=1,
+    # NumPyro chain_method auto-fallback на 'vectorized' в modeler.py.
+    try:
+        import jax as _jax  # noqa: F401
+        _devices = _jax.devices()
+        logger.info(
+            f'JAX devices: {len(_devices)} × {_jax.default_backend()} '
+            f'(expected={_mcmc_cores})'
+        )
+    except Exception as _e:
+        logger.warning(f'JAX probe failed: {_e}')
 except Exception as e:
     logger.exception(f'Startup diagnostic failed: {e}')
 
@@ -117,6 +157,32 @@ app = FastAPI(
     version=VERSION,
     description='Local MMM computation engine (0 tokens)',
 )
+
+
+# ── Global exception handler (JSON envelope) ─────────────────────────────────
+# Без него любая необработанная ошибка возвращается uvicorn'ом как plain text
+# `Internal Server Error`. Rust-сторона валится на парсинге с «expected value
+# at line 1 column 1». Под RemoteApp (другой профиль/env/тайминги) вероятность
+# неожиданных ошибок выше — пример: PermissionError на записи результата.
+#
+# HTTPException и RequestValidationError обрабатываются встроенными handler'ами
+# FastAPI — явно пропускаем их (re-raise) чтобы не перехватить 400/404/422.
+from starlette.exceptions import HTTPException as _StarletteHTTPException
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, _StarletteHTTPException):
+        raise exc
+    logger.exception(f'Unhandled exception on {request.method} {request.url.path}')
+    return JSONResponse(
+        status_code=500,
+        content={
+            'status': 'error',
+            'message': str(exc)[:500],  # truncate — избегаем длинных путей в body
+            'type': type(exc).__name__,
+            'path': str(request.url.path),
+        },
+    )
 
 
 # ── Session middleware (handshake protection) ────────────────────────────────
@@ -313,11 +379,12 @@ async def health():
     в Rust-стороне. Старые GUI-клиенты (pre-v1.0.9) игнорируют новые поля.
     """
     packages = {}
-    for pkg in ['pymc', 'pymc_marketing', 'pandas', 'scipy', 'matplotlib', 'numpy']:
+    for pkg in ['pymc', 'pymc_marketing', 'pandas', 'scipy', 'matplotlib', 'numpy',
+                'numpyro', 'jax', 'arviz', 'pytensor']:
         try:
             mod = __import__(pkg)
             packages[pkg] = getattr(mod, '__version__', 'installed')
-        except ImportError:
+        except Exception:  # ImportError | AttributeError | RuntimeError
             packages[pkg] = None
 
     return {
