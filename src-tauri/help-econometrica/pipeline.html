@@ -50,6 +50,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
     <div class="io-box"><div class="lbl">Output</div><div class="val">Статус «готов / требует доработки», автороли, matrix корреляций, гистограммы</div></div>
   </div>
   <div class="ui-ref">UI: шаг «Проверка» в pipeline. Добавь стоимость юнита в ₽ если есть TRP/impressions.</div>
+  <div class="ui-ref" style="margin-top: 8px;"><strong>v1.0.10:</strong> если у тебя 3+ слабых каналов — появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
 </div>
 
 <div class="step-card">
@@ -84,12 +85,12 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 
 <div class="step-card">
   <h3><span class="step-num">5</span> Отчёт <span class="time-tag">~20 сек</span></h3>
-  <p>Генерация PPTX (презентация руководству: executive summary, методология, результаты, рекомендации) и XLSX (сырые данные + графики + лист «Данные» для своих диаграмм).</p>
+  <p>Генерация PPTX (презентация руководству: executive summary, методология, результаты, рекомендации), XLSX (сырые данные + графики + лист «Данные» для своих диаграмм) и HTML (самодостаточный отчёт для отправки клиентам).</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">все предыдущие шаги</div></div>
-    <div class="io-box"><div class="lbl">Output</div><div class="val">PPTX + XLSX в папке <code>exports</code> активного проекта. «Открыть папку» в UI открывает её в проводнике.</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">PPTX + XLSX + HTML в папке <code>exports</code> активного проекта. «Открыть папку» в UI открывает её в проводнике.</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Отчёт». Email-текст на карточках — динамический, берётся из твоих реальных результатов.</div>
+  <div class="ui-ref">UI: шаг «Отчёт». Email-текст на карточках — динамический, берётся из твоих реальных результатов. HTML (v1.0.10) — 15-30 KB standalone через ECharts CDN, открывается в браузере без установки Aurora.</div>
 </div>
 
 <h2>Повторные запуски</h2>

@@ -637,7 +637,16 @@ fn load_snapshot(project_id: &str) -> Result<Value, String> {
     if !dir.exists() {
         return Err(format!("Проект «{project_id}» не найден"));
     }
-    let info = read_project(&dir)?;
+    load_snapshot_from_dir(&dir)
+}
+
+/// Pure-функция чтения snapshot'а из директории проекта.
+/// Не зависит от project_id / projects_dir() — для тестируемости.
+fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
+    if !dir.exists() {
+        return Err(format!("Директория не найдена: {}", dir.display()));
+    }
+    let info = read_project(dir)?;
     let results = dir.join("results");
 
     let read_json = |name: &str| -> Value {
@@ -716,4 +725,79 @@ pub async fn project_load_comparison(
         "primary":   primary,
         "secondary": secondary,
     }))
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod comparison_tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    /// Создаёт минимальную валидную структуру проекта в tmp dir.
+    /// `scenario_count` > 0 → в results/scenarios кладутся N JSON-файлов
+    /// с убывающим mtime (последний файл — самый свежий).
+    fn make_project(dir: &Path, scenario_count: usize) {
+        let info = serde_json::json!({
+            "id": "test-project",
+            "name": "Test",
+            "description": "",
+            "created_at": "2026-04-23T00:00:00Z",
+            "updated_at": "2026-04-23T00:00:00Z",
+            "kpi_column": null,
+            "media_columns": [],
+            "control_columns": [],
+            "data_file": null,
+            "unit_costs": {},
+        });
+        fs::write(dir.join("project.json"), info.to_string()).unwrap();
+
+        if scenario_count > 0 {
+            let scenarios = dir.join("results").join("scenarios");
+            fs::create_dir_all(&scenarios).unwrap();
+            for i in 0..scenario_count {
+                // Имя кодирует индекс — поможет позже проверить порядок.
+                let path = scenarios.join(format!("scenario_{i:04}.json"));
+                fs::write(&path, format!(r#"{{"idx":{i}}}"#)).unwrap();
+                // Выставляем mtime: более высокий индекс = более свежий.
+                let mtime = std::time::SystemTime::UNIX_EPOCH
+                    + std::time::Duration::from_secs(1_700_000_000 + i as u64);
+                filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(mtime)).ok();
+            }
+        }
+    }
+
+    #[test]
+    fn nonexistent_dir_returns_err() {
+        let tmp = TempDir::new().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        let result = load_snapshot_from_dir(&missing);
+        assert!(result.is_err(), "nonexistent dir должен вернуть Err, got {result:?}");
+    }
+
+    #[test]
+    fn zero_scenarios_returns_empty_array() {
+        let tmp = TempDir::new().unwrap();
+        make_project(tmp.path(), 0);
+        let snapshot = load_snapshot_from_dir(tmp.path()).expect("valid project");
+        assert_eq!(snapshot["scenarios"].as_array().unwrap().len(), 0);
+        assert_eq!(snapshot["scenarios_total"].as_u64().unwrap(), 0);
+    }
+
+    #[test]
+    fn limits_to_50_newest_by_mtime() {
+        let tmp = TempDir::new().unwrap();
+        make_project(tmp.path(), 100);
+        let snapshot = load_snapshot_from_dir(tmp.path()).expect("valid project");
+        let scenarios = snapshot["scenarios"].as_array().unwrap();
+        assert_eq!(scenarios.len(), 50, "должно быть ровно 50 сценариев");
+        assert_eq!(snapshot["scenarios_total"].as_u64().unwrap(), 100);
+        // Проверяем что выбраны именно 50 свежих (индексы 50-99).
+        // Порядок внутри массива — от newest (idx=99) к старейшим (idx=50).
+        let first_idx = scenarios[0]["idx"].as_u64().unwrap();
+        let last_idx = scenarios[49]["idx"].as_u64().unwrap();
+        assert_eq!(first_idx, 99, "первый = самый свежий");
+        assert_eq!(last_idx, 50, "50-й = граница");
+    }
 }

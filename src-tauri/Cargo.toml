@@ -82,3 +82,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security_Authorization",
     "Win32_System_Threading",
 ] }
+
+[dev-dependencies]
+# filetime для тестов mtime-sort логики в project_load_comparison.
+filetime = "0.2"

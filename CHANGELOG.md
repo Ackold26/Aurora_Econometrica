@@ -2,6 +2,38 @@
 
 ---
 
+## v1.0.10 — Stable: merge_rules e2e + UX wave + hardening (2026-04-23)
+
+Промо rc1.4 в stable + Session B tooling hardening.
+
+### Новое
+- **Сравнение двух моделей (Comparison)**: side-by-side overlay с 6 секциями (KPI / каналы / waterfalls / ROI / optimize / insights) без переключения активного проекта.
+- **Save/Load .aurora**: полный перенос проекта между машинами — atomic write + streaming + zip-slip защита + pre-validation.
+- **HTML-экспорт отчёта**: самодостаточный 15-30 KB файл с интерактивными графиками через ECharts CDN.
+- **Merge recommendation**: на Validate шаге — рекомендация «Объединить слабые каналы в Малые медиа». 4-layer materialization (modeler/decomposer/optimizer/awareness) без изменения исходных данных. Merged name наследует money-marker (до НДС / ₽ / руб).
+- **UnitCostsPanel money-filter**: каналы с валютным маркером скрыты из dropdown «Добавить unit cost» (backward-compat с existing stored values).
+- **Settings → Папка проектов**: кастомный путь хранения проектов.
+- **Справочная система v1.0.10**: новые разделы Comparison / .aurora / HTML-экспорт / Слияние каналов в user-guide + index + pipeline + faq.
+- **Session B hardening**: V40 AST linter (svelte/compiler `HtmlTag` ноды), lefthook pre-commit hook, release-notes.py generator, aurora-tag safety wrapper (fixed-string grep против regex injection).
+- **JSON schema CI** для updater manifest: check-jsonschema на rosst-updates при push/PR в main.
+
+### Фиксы
+- **DecomposeStep onMount guard**: защита от spam `/compute/decompose` пока модель не обучена (регрессия ловилась 4 раза подряд — теперь + grep-guard в lefthook).
+- **Pydantic TrainRequest/TrainStartRequest**: `merge_rules: dict[str, list[str]] = {}` поле явно задекларировано — fix silent-drop через `extra='ignore'`.
+- **V40 linter bypass regex ужесточён**: требует формат HTML-комментария `<!-- aurora-fix:safe ... -->` (регрессия false-bypass через title-атрибут закрыта).
+- **Schema URL pattern `^https://\S+$`**: защита от trailing whitespace в download_url.
+- **rosst-updates CI fix**: drop `cache: 'pip'` (нет requirements.txt в deployment-repo, CI падал на всех коммитах Session B).
+- **release-notes.py git PATH guard**: try/except FileNotFoundError + graceful warning.
+
+### Tests (Track D)
+- **Rust unit tests** для `project_load_comparison`: extract pure helper `load_snapshot_from_dir(dir)` + 3 теста (nonexistent / 0 scenarios / 100 → 50 newest по mtime).
+- **DecomposeStep regression guard** в lefthook: grep на наличие `channelParams` guard'а — catches accidental removal at commit time.
+
+### Rollback
+Runbook: `memory/reference_econometrica_rollback.md`. Dry-run: `bash tools/rollback.sh 1.0.9`.
+
+---
+
 ## v1.0.10-rc1.1 — Comparison polish + a11y (2026-04-22)
 
 Follow-up к v1.0.10-rc1 (Comparison feature) — после self-audit всей сессии 17 findings; критическое fix'nуто сразу, остальное в этом rc.

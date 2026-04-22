@@ -111,6 +111,43 @@ Pipeline ProjectSelector использует native `confirm()` — не testи
 - [ ] Если ⚖ на активном — кликается, в PickerModal активный исключается.
 - [ ] Если ⚖ только на не-активных — логично.
 
+## Flow I: DecomposeStep quiet on Validate (regression — rc1.4)
+
+Защита от регрессии `29fd0c6` (onMount спамит /compute/decompose пока нет модели).
+
+1. Dev-server: `AIAGENCY_DEV=1 CARGO_TARGET_DIR="D:/cargo-targets/econometrica" npm run tauri dev`
+2. Открыть новый проект (чистый state, модель НЕ обучена).
+3. Загрузить данные (Import) → перейти на Validate step.
+4. Дождаться 3-5 сек (любые fetch'и должны случиться).
+
+### Verify
+
+Открыть sidecar.log (`%APPDATA%/com.aurora.econometrica-gui/sidecar.log` или dev-path).
+
+- [ ] `grep -c "/compute/decompose" sidecar.log` = **0** пока пользователь не дошёл до Model step.
+- [ ] После Train модель → пользователь переключается на Decompose → `/compute/decompose` появляется ровно 1 раз.
+
+**Regression signal:** если /compute/decompose спамит при Validate — guard сломан, rollback на commit `29fd0c6` + hotfix.
+
+## Flow J: merge_rules end-to-end (regression — rc1.2/1.3)
+
+Защита от регрессии Pydantic silent-drop + 4-layer materialization (rc1.2 → rc1.3).
+
+1. Импортировать датасет где есть weak channels (Retail Media, Радио, Пресса, ООН).
+2. Validate step → в рекомендациях появляется «Объединить слабые каналы в Малые медиа».
+3. Применить merge recommendation.
+4. Train модель.
+
+### Verify
+
+`sidecar.log` должен содержать (последовательно):
+
+- [ ] `/compute/train/start: merge_rules={'Малые медиа': [...]}`  — Pydantic принял поле (fail = silent-drop bug).
+- [ ] `df.columns BEFORE: N → AFTER: N+1` — merge применён в modeler.py.
+- [ ] `Training MMM: X obs, Y media, Z control` — модель обучается (fail = MISSING_MEDIA_COLUMNS).
+
+**Regression signal:** если merge_rules={} в логе — Pydantic снова silent-drop, проверить `TrainRequest` / `TrainStartRequest` модели в `sidecar/econometrica/models/train.py`.
+
 ## Regression checks
 
 1. Old features работают:
