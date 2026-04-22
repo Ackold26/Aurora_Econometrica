@@ -15,7 +15,7 @@ const ENABLED_KEY = 'aurora-econ-onboarding-enabled';
 const STEP_KEY_PREFIX = 'aurora-econ-onboarded:';
 
 /** @type {string[]} Канонические имена шагов с турами. */
-export const TOUR_STEP_KEYS = ['validate', 'model', 'decompose', 'optimize', 'report'];
+export const TOUR_STEP_KEYS = ['import', 'validate', 'model', 'decompose', 'optimize', 'report'];
 
 /** Прочитать enabled из localStorage. Default true (показываем туры новым юзерам). */
 function readEnabled() {

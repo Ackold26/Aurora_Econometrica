@@ -12,8 +12,15 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
+  import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
+  import { TOURS } from '$lib/pipeline-tours.js';
+  import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
   import { get } from 'svelte/store';
+
+  // Обучающий тур — запускается на mount, независимо от состояния импорта.
+  let showOnboarding = $state(false);
+  let onboardingChecked = false;
 
   // Загрузка ранее сохранённого проекта из .aurora архива. После успешного
   // импорта активируется новый project_id и происходит resetPipeline → система
@@ -106,6 +113,16 @@
 
   onMount(() => {
     const win = getCurrentWindow();
+
+    // Онбординг — запускаем с отложенной постановкой флага, чтобы DOM
+    // успел отрисоваться (intro-options, drop-zone должны быть в DOM для
+    // querySelector).
+    if (!onboardingChecked && shouldShowOnboarding('import')) {
+      onboardingChecked = true;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => { showOnboarding = true; });
+      });
+    }
 
     win.onDragDropEvent((event) => {
       const payload = event.payload;
@@ -360,6 +377,14 @@
         Далее: Валидация →
       </button>
     </div>
+  {/if}
+
+  {#if showOnboarding}
+    <PipelineOnboarding
+      steps={TOURS.import}
+      stepKey="import"
+      onDone={() => { showOnboarding = false; }}
+    />
   {/if}
 
 </div>

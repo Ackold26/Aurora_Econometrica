@@ -11,6 +11,7 @@
    *
    * @component ValidateStep
    */
+  import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import ColumnMapper from '$lib/components/pipeline/ColumnMapper.svelte';
   import TrafficLight from '$lib/components/pipeline/TrafficLight.svelte';
@@ -73,15 +74,18 @@
     return `Готово с предупреждениями (${activeWarnings.length})`;
   });
 
-  // Онбординг — запуск только после того как result отрендерен
-  // (иначе спотлайты указывают на пустой DOM).
-  $effect(() => {
+  // Онбординг — запускается на mount даже без result: первый шаг тура
+  // (selector=null) объясняет что ждёт на шаге; последующие шаги
+  // querySelector'ят DOM — если target не найден, карточка центрируется.
+  onMount(() => {
     if (typeof window === 'undefined') return;
     if (onboardingChecked) return;
-    if (!result) return;
     onboardingChecked = true;
     if (shouldShowOnboarding('validate')) {
-      requestAnimationFrame(() => { showOnboarding = true; });
+      // 2 кадра чтобы ObjectiveSelector overlay успел смонтироваться
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => { showOnboarding = true; });
+      });
     }
   });
 

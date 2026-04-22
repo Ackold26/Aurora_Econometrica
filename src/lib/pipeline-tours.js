@@ -12,6 +12,25 @@
 
 /** @typedef {{ selector: string | null, title: string, body: string }} TourStep */
 
+/** @type {TourStep[]} — Тур шага «Импорт данных» (1). */
+export const IMPORT_TOUR = [
+  {
+    selector: null,
+    title: 'Импорт данных',
+    body: 'Точка входа в пайплайн. Здесь вы выбираете с чего начать — загрузить новые данные или открыть ранее сохранённый проект.',
+  },
+  {
+    selector: '.intro-options',
+    title: 'Новый проект или ранее сохранённый',
+    body: 'Два варианта: xlsx/csv с историческими данными для полного цикла MMM-анализа (слева) — или .aurora архив с завершённым проектом для продолжения работы с него (справа).',
+  },
+  {
+    selector: '.drop-zone',
+    title: 'Зона загрузки файла',
+    body: 'Перетащите файл или нажмите для выбора. Поддерживаются .xlsx, .xls, .csv. Минимум 20 периодов × 2 колонки (дата + KPI).',
+  },
+];
+
 /** @type {TourStep[]} — Тур шага «Валидация данных» (2). */
 export const VALIDATE_TOUR = [
   {
@@ -161,6 +180,7 @@ export const REPORT_TOUR = [
  * @type {Record<string, TourStep[]>}
  */
 export const TOURS = {
+  import: IMPORT_TOUR,
   validate: VALIDATE_TOUR,
   model: MODEL_TOUR,
   decompose: DECOMPOSE_TOUR,
