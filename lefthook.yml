@@ -6,7 +6,8 @@ pre-commit:
   parallel: true
   commands:
     v40-xss:
-      glob: "src/**/*.svelte"
+      # Без glob-фильтра: линтер сам сканирует весь src/ (<1с) и срабатывает
+      # на любой коммит, включая изменения самого линтера или bypass-комментов.
+      # С glob: "src/**/*.svelte" hook пропускался если модифицировался только
+      # tools/lint-xss.mjs — линтер мог сломаться в мастере молча.
       run: node tools/lint-xss.mjs
-      # Линтер сам сканирует весь src/ — не передаём {staged_files},
-      # иначе AST-проверка пропустит сайты вне staged.
