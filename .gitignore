@@ -58,3 +58,6 @@ sidecar/econometrica/*/project.json
 sidecar/econometrica/1test/
 sidecar/econometrica/венарус-ммх-*/
 sidecar/econometrica/mmx-*/
+
+# Diagnostic PPTX artifacts from tools/ (verify_signature_lime.py, pseudo_dogfood_kagocel.py)
+tools/*.pptx
