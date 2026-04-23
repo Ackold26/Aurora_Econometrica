@@ -344,6 +344,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "ed25519-dalek",
+ "filetime",
  "flate2",
  "futures-util",
  "hex",

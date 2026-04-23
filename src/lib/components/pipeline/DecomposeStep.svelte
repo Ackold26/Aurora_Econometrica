@@ -237,8 +237,13 @@
     if (md === lastModelRef) return;
     const firstFire = lastModelRef === null;
     lastModelRef = md;
-    // При первом запуске (onMount ещё подхватит) — не дублируем работу.
-    if (firstFire && stepState !== 'error') return;
+    // При первом запуске onMount уже отработал:
+    //   • если onMount увидел channelParams → он вызвал runDecompose, skipping $effect здесь.
+    //   • если onMount увидел idle (channelParams появились ПОСЛЕ mount через async train) →
+    //     $effect должен запустить runDecompose, т.к. onMount уже ушёл в 'idle' и return;
+    // Race, исправленный в rc1.5: раньше firstFire всегда skipping привело к пустой decompose
+    // если DecomposeStep mount'ился до завершения train (типичный pipeline-first flow).
+    if (firstFire && stepState !== 'idle' && stepState !== 'error') return;
     // Защита от race: если уже идёт runDecompose — не запускаем второй параллельно.
     if (stepState === 'loading') return;
     errorMessage = null;

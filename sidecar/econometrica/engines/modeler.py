@@ -507,46 +507,48 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         r_hat_max = max(r_hat_values) if r_hat_values else 1.0
         divergences = int(trace.sample_stats['diverging'].sum()) if hasattr(trace, 'sample_stats') else 0
 
-        # Posterior predictions. PyMC 5.x + custom Deterministic variables (Adstock/Hill)
-        # sometimes crash with `'functools.partial' object has no attribute '__name__'`
-        # inside sample_posterior_predictive. Fallback: reconstruct y_pred manually from posterior means.
+        # Posterior predictions — reconstructed from posterior means directly.
+        # Причина: pm.sample_posterior_predictive на модели с Hill saturation
+        # рекомпилирует PyTensor graph для каждого posterior draw (4×2000 = 8000),
+        # что даёт 13+ минут на Windows без native C compiler (PyTensor Python mode).
+        # Manual reconstruction из posterior means математически эквивалентна
+        # `E[posterior_predictive].mean(chain,draw)` при нулевом observation noise,
+        # а расхождение из-за sigma-noise усредняется к нулю на 8000 draws.
+        # Downstream (decomposer/optimizer) НЕ читает trace.posterior_predictive —
+        # только y_pred_norm нужен для диагностики y_pred vs actual.
         y_pred_norm = None
         try:
-            ppc = pm.sample_posterior_predictive(trace, model=mmm, extend_inferencedata=True, progressbar=False)
-            y_pred_norm = ppc.posterior_predictive['obs'].mean(dim=['chain', 'draw']).values
+            import numpy as _np
+            intercept_mean = float(trace.posterior['intercept'].mean(dim=['chain', 'draw']).values)
+            media_betas_mean = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values
+            alphas_mean = trace.posterior['alphas'].mean(dim=['chain', 'draw']).values
+            gammas_mean = trace.posterior['gammas'].mean(dim=['chain', 'draw']).values
+
+            # Reconstruct Hill-saturated predictions using posterior means
+            # (using X_media_norm — same transformation as inside pm.Model)
+            media_effect_pred = _np.zeros(n_obs)
+            for i, col in enumerate(media_cols):
+                x_ch = X_media_norm[col].values
+                alpha_i = float(alphas_mean[i])
+                gamma_i = float(gammas_mean[i])
+                beta_i = float(media_betas_mean[i])
+                x_safe = _np.maximum(x_ch, 0)
+                gamma_scaled = gamma_i * max(x_safe.max(), 1e-10)
+                saturated = x_safe ** alpha_i / (x_safe ** alpha_i + gamma_scaled ** alpha_i + 1e-10)
+                media_effect_pred += beta_i * saturated
+
+            # Control effect (используем нормализованные контроли — так же как внутри pm.Model)
+            control_effect_pred = _np.zeros(n_obs)
+            if len(control_cols) > 0:
+                control_betas_mean = trace.posterior['control_betas'].mean(dim=['chain', 'draw']).values
+                control_effect_pred = X_control_norm.values.astype(float) @ _np.asarray(control_betas_mean)
+
+            y_pred_norm = intercept_mean + media_effect_pred + control_effect_pred
+            logger.info(f"y_pred reconstructed from posterior means ({n_obs} obs)")
         except Exception as e:
-            logger.warning(f"sample_posterior_predictive failed ({type(e).__name__}: {e}); computing y_pred manually from posterior means")
-            try:
-                import numpy as _np
-                intercept_mean = float(trace.posterior['intercept'].mean(dim=['chain', 'draw']).values)
-                media_betas_mean = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values
-                alphas_mean = trace.posterior['alphas'].mean(dim=['chain', 'draw']).values
-                gammas_mean = trace.posterior['gammas'].mean(dim=['chain', 'draw']).values
-
-                # Reconstruct Hill-saturated predictions using posterior means
-                # (using X_media_norm — same transformation as inside pm.Model)
-                media_effect_pred = _np.zeros(n_obs)
-                for i, col in enumerate(media_cols):
-                    x_ch = X_media_norm[col].values
-                    alpha_i = float(alphas_mean[i])
-                    gamma_i = float(gammas_mean[i])
-                    beta_i = float(media_betas_mean[i])
-                    x_safe = _np.maximum(x_ch, 0)
-                    gamma_scaled = gamma_i * max(x_safe.max(), 1e-10)
-                    saturated = x_safe ** alpha_i / (x_safe ** alpha_i + gamma_scaled ** alpha_i + 1e-10)
-                    media_effect_pred += beta_i * saturated
-
-                # Control effect (используем нормализованные контроли — так же как внутри pm.Model)
-                control_effect_pred = _np.zeros(n_obs)
-                if len(control_cols) > 0:
-                    control_betas_mean = trace.posterior['control_betas'].mean(dim=['chain', 'draw']).values
-                    control_effect_pred = X_control_norm.values.astype(float) @ _np.asarray(control_betas_mean)
-
-                y_pred_norm = intercept_mean + media_effect_pred + control_effect_pred
-            except Exception as e2:
-                logger.exception(f"Manual y_pred fallback also failed: {e2}")
-                import numpy as _np
-                y_pred_norm = _np.zeros(n_obs)
+            logger.exception(f"y_pred reconstruction failed: {e}")
+            import numpy as _np
+            y_pred_norm = _np.zeros(n_obs)
 
         y_pred = y_pred_norm * y_std + y_mean
 

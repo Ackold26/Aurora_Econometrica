@@ -13,18 +13,8 @@ pre-commit:
       run: node tools/lint-xss.mjs
 
     decomposestep-regression-guard:
-      # Защита от удаления DecomposeStep onMount guard (регрессия ловилась 4 раза подряд).
-      # Reference commit: 29fd0c6 (rc1.4) — fix(decompose): не вызывать runDecompose пока нет обученной модели.
-      # Ловит accidental removal at commit time, не runtime regression
-      # (для runtime — см. src/tests/decompose-step.test.js, D2 Level 2).
+      # Защита от удаления DecomposeStep onMount guard (регрессия ловилась 4+ раза).
+      # Reference: 29fd0c6 (rc1.4 onMount guard), rc1.5 ($effect idle-aware).
+      # Ловит accidental removal at commit time.
       glob: "src/lib/components/pipeline/DecomposeStep.svelte"
-      run: |
-        if ! grep -q "channelParams" {staged_files}; then
-          echo ""
-          echo "❌ DecomposeStep.svelte не содержит guard для channelParams."
-          echo "   Регрессия: onMount спамит /compute/decompose на Validate step."
-          echo "   Reference commit: 29fd0c6 (rc1.4)"
-          echo "   Ожидаемый паттерн: if (!get(modelData)?.channelParams) { ... return; }"
-          echo ""
-          exit 1
-        fi
+      run: grep -q channelParams {staged_files} || (echo ERROR DecomposeStep channelParams guard missing; exit 1)
