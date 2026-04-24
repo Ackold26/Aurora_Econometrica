@@ -47,6 +47,16 @@ def bootstrap_js(
   var PREFERS_REDUCED_MOTION = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+  // ─── Haptic feedback (mobile/trackpad with haptic support) ────────
+  // Respect prefers-reduced-motion; `navigator.vibrate` is a no-op on
+  // desktop browsers without haptic hardware, so guard is just taste.
+  function haptic(duration) {{
+    if (PREFERS_REDUCED_MOTION) return;
+    try {{
+      if (navigator.vibrate) navigator.vibrate(duration || 8);
+    }} catch (e) {{}}
+  }}
+
   // ─── Storage wrappers (Safari file:// tolerance) ──────────────────
   function storageGet(key) {{
     try {{ return localStorage.getItem(key); }} catch (e) {{}}
@@ -74,7 +84,8 @@ def bootstrap_js(
     return document.documentElement.getAttribute('data-theme') || 'light';
   }}
 
-  function applyTheme(name) {{
+  function applyTheme(name, opts) {{
+    opts = opts || {{}};
     if (THEMES.indexOf(name) < 0) name = 'light';
     document.documentElement.setAttribute('data-theme', name);
     storageSet(THEME_STORAGE_KEY, name);
@@ -83,8 +94,14 @@ def bootstrap_js(
       var icons = {{ light: '☼', dark: '☾', fun: '✦' }};
       btn.textContent = icons[name] || '☼';
       btn.setAttribute('data-current-theme', name);
+      btn.setAttribute('aria-label', 'Тема: ' + name + ' (нажмите T для смены)');
+      // Subtle icon rotation on change (CSS handles transition)
+      if (opts.animated && !PREFERS_REDUCED_MOTION) {{
+        btn.style.transform = 'rotate(180deg) scale(1.1)';
+        setTimeout(function() {{ btn.style.transform = ''; }}, 320);
+      }}
     }}
-    // Re-theme all active charts
+    // Re-theme all active charts — smooth via ECharts animation
     var pal = window.AURORA_THEMES && window.AURORA_THEMES[name];
     if (pal) {{
       Object.keys(AURORA_CHARTS).forEach(function(id) {{
@@ -99,7 +116,11 @@ def bootstrap_js(
 
   function cycleTheme() {{
     var next = THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length];
-    applyTheme(next);
+    applyTheme(next, {{ animated: true }});
+    haptic(10);
+    // Flash theme name briefly
+    var label = (STRINGS.theme && STRINGS.theme[next]) || next;
+    toast('Тема: ' + label);
   }}
 
   function themeOptionOverrides(pal) {{
@@ -365,6 +386,10 @@ def bootstrap_js(
     if (titleEl) titleEl.textContent = title;
     body.innerHTML = contentHtml;
     panel.setAttribute('aria-hidden', 'false');
+    haptic(8);
+    // Focus first actionable element for keyboard accessibility
+    var closeBtn = document.getElementById('btn-close-drill');
+    if (closeBtn) setTimeout(function() {{ closeBtn.focus(); }}, 300);
   }}
   function closeDrillPanel() {{
     var p = document.getElementById('drill-panel');
@@ -887,6 +912,7 @@ def bootstrap_js(
     if (navigator.clipboard && navigator.clipboard.writeText) {{
       navigator.clipboard.writeText(url).then(function() {{
         toast((STRINGS.toasts && STRINGS.toasts.link_copied) || 'Ссылка скопирована');
+        haptic(12);
       }}).catch(function() {{ toast('Не удалось скопировать'); }});
     }} else {{
       toast('Clipboard API недоступен');

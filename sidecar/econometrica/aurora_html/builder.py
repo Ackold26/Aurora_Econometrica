@@ -49,12 +49,13 @@ def _fmt_human_time(dt: datetime) -> str:
     return dt.strftime("%d.%m.%Y %H:%M")
 
 
-# SVG favicon: Aurora wordmark dot + sacred lime accent
+# SVG favicon: Aurora sigil — navy square + sacred lime dot + gold arc.
+# Renders crisp at any size (16/32/180/512px). High recognisability in browser tab.
 _FAVICON_SVG = """<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-<rect width="32" height="32" rx="6" fill="#0A1628"/>
-<circle cx="16" cy="16" r="6" fill="#CCFF00"/>
-<path d="M16 20l-2.5 4h5z" fill="#C5A46D"/>
+<rect width="32" height="32" rx="7" fill="#0A1628"/>
+<circle cx="16" cy="15" r="5.2" fill="none" stroke="#C5A46D" stroke-width="1.4" stroke-dasharray="18 12" stroke-linecap="round" transform="rotate(-30 16 15)"/>
+<circle cx="16" cy="15" r="3" fill="#CCFF00"/>
 </svg>"""
 
 
