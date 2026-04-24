@@ -790,7 +790,10 @@ def export_pptx(req: PptxExportRequest):
                     continue
         logger.info(f'PPTX inputs: model={has_model} decompose={has_decomp} optimize={has_optim} scenarios={len(scenarios)}')
 
-        result = build_pptx(req.model_data, req.decompose_data, req.optimize_data, output_path, scenarios=scenarios)
+        result = build_pptx(
+            req.model_data, req.decompose_data, req.optimize_data,
+            output_path, scenarios=scenarios, project_id=req.project_id,
+        )
         logger.info(f'PPTX export OK: {result}')
         return JSONResponse(content=result)
     except Exception as e:
