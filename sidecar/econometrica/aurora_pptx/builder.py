@@ -491,6 +491,88 @@ class AuroraPPTXBuilder:
     # Narrative helpers (Session C — Path C parametrization)
     # ----------------------------------------------------------------
 
+    def _build_at_a_glance_findings(self):
+        """Five findings for s02, slot-filled from self.channels + self.facts.
+        Returns list of (num, finding, support) tuples. Safe when some fields
+        are None — missing data is elided rather than showing '-'.
+        """
+        f = self.facts or {}
+        leader = f.get("leader_channel") or "Лидер"
+        hero = f.get("hero_channel") or leader
+        leader_contrib_pct = f.get("leader_share_contrib_pct")
+        leader_spend_pct = f.get("leader_share_spend_pct")
+        weighted_roi = f.get("weighted_roi")
+        reallocation_mln = f.get("reallocation_mln")
+        expected_lift_pct = f.get("expected_lift_pct")
+
+        by_mroas = sorted(self.channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
+        hero_ch = by_mroas[0] if by_mroas else {}
+        hero_mroas = float(hero_ch.get("mroas") or 0)
+        hero_spend_pct = None
+        if self.facts and self.facts.get("total_budget_mln"):
+            hero_spend_mln = float(hero_ch.get("spend") or 0) / 1_000_000
+            total_mln = self.facts.get("total_budget_mln") or 0
+            if total_mln > 0:
+                hero_spend_pct = hero_spend_mln / total_mln * 100
+
+        # Finding 1 — leader contribution vs budget share
+        f1 = f"{leader} обеспечивает "
+        if leader_contrib_pct is not None and leader_spend_pct is not None:
+            f1 += f"{leader_contrib_pct:.0f}% инкрементальных продаж при {leader_spend_pct:.0f}% доли бюджета"
+        else:
+            f1 += "максимальный вклад в продажи"
+        if weighted_roi is not None:
+            s1 = f"ROI {weighted_roi:.1f}× средневзвешенный по каналам"
+        else:
+            s1 = "Основной драйвер портфеля"
+
+        # Finding 2 — hero channel by mROAS
+        if hero_mroas > 0:
+            f2 = f"{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×"
+        else:
+            f2 = f"{hero} - наиболее эффективный канал по mROAS"
+        if hero_spend_pct is not None:
+            s2 = f"Текущий бюджет на нём {hero_spend_pct:.0f}%"
+        else:
+            s2 = "Потенциал для перераспределения бюджета"
+
+        # Finding 3 — reallocation recommendation
+        if reallocation_mln and reallocation_mln >= 1 and hero != leader:
+            f3 = f"Recommendation: reallocate {reallocation_mln:.0f} млн из {leader} в {hero}"
+        else:
+            f3 = "Recommendation: сохранить текущую аллокацию по лидеру портфеля"
+        if expected_lift_pct is not None:
+            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп"
+        else:
+            s3 = "Ожидаемый эффект - положительный при сохранении общего бюджета"
+
+        # Finding 4 — verdict distribution (how portfolio looks)
+        verdicts = [c.get("verdict") for c in self.channels]
+        scale_n = sum(1 for v in verdicts if v == "Scale")
+        cut_n = sum(1 for v in verdicts if v in ("Cut", "Reduce"))
+        f4 = f"Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению"
+        s4 = f"Из {len(self.channels)} активных каналов — чёткий verdict по каждому"
+
+        # Finding 5 — MQS quality signal
+        mqs = self.mqs_score
+        if mqs >= 80:
+            f5 = f"Качество модели: MQS {mqs:.0f}/100 - готовность к production"
+            s5 = "Можно опираться на рекомендации в планировании"
+        elif mqs >= 60:
+            f5 = f"Качество модели: MQS {mqs:.0f}/100 - приемлемо"
+            s5 = "Рекомендации валидны с учётом диагностических метрик"
+        else:
+            f5 = f"Качество модели: MQS {mqs:.0f}/100 - требует доработки"
+            s5 = "Следует расширить период данных перед финальными решениями"
+
+        return [
+            ("01", f1, s1),
+            ("02", f2, s2),
+            ("03", f3, s3),
+            ("04", f4, s4),
+            ("05", f5, s5),
+        ]
+
     def _build_action_table_rows(self, channels):
         """Format merged channels list into the (name, budget, contrib, mROAS,
         share_pct, verdict, footnote) tuples consumed by s07 action table.
@@ -621,7 +703,9 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, self.safe, 1.50, 1.2, weight=0.75, color=self.gold)
 
-        findings = [
+        # Five findings — slot-fill from facts when channels present,
+        # else Kagocel pilot text (preview / wireframe mode).
+        findings = self._build_at_a_glance_findings() if (self.facts and self.channels) else [
             ("01", "TV обеспечивает 42% инкрементальных продаж при 28% доли бюджета",
              "ROI 1.8× выше среднего по каналам"),
             ("02", "Saturation на TV начинается с 80 TRP/нед",
@@ -775,9 +859,22 @@ class AuroraPPTXBuilder:
             slide, self.safe + 4.3, 3.7, 8.0, 0.3, "ОСНОВНОЙ ВЫВОД",
             font=self.sans, size=8, bold=True, color=self.gold,
         )
+        if self.facts:
+            leader = self.facts.get("leader_channel") or "Лидер"
+            cpct = self.facts.get("leader_share_contrib_pct")
+            spct = self.facts.get("leader_share_spend_pct")
+            if cpct is not None and spct is not None:
+                takeaway = (
+                    f"{leader} генерирует {cpct:.0f}% продаж при {spct:.0f}% бюджета - "
+                    "основная точка оптимизации портфеля"
+                )
+            else:
+                takeaway = f"{leader} - основной драйвер портфеля и точка оптимизации"
+        else:
+            takeaway = "TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации портфеля"
         self._text(
             slide, self.safe + 4.3, 4.05, 8.0, 1.3,
-            "TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации портфеля",
+            takeaway,
             font=self.serif, size=20, italic=True, color=self.deep_80,
             line_spacing=1.3,
         )
@@ -815,18 +912,58 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "КЛЮЧЕВОЙ ВЫВОД")
 
+        # Title + big number + pull quote — slot-fill from facts when present,
+        # else Kagocel pilot (preview / wireframe mode).
+        if self.facts and self.channels:
+            leader = self.facts.get("leader_channel") or "Лидер"
+            hero = self.facts.get("hero_channel") or leader
+            cpct = self.facts.get("leader_share_contrib_pct")
+            spct = self.facts.get("leader_share_spend_pct")
+            wr = self.facts.get("weighted_roi")
+
+            # Action title — leader's position statement
+            title = f"{leader} остаётся основным драйвером, но эффективность требует проверки saturation"
+            # Big number — leader contribution share
+            big_number = f"{cpct:.0f}%" if cpct is not None else "-"
+            big_label = f"Доля {leader} в инкрементальных продажах"
+            if spct is not None and wr is not None:
+                big_support = f"При {spct:.0f}% доли бюджета. ROI портфеля {wr:.1f}× средневзвешенный."
+            else:
+                big_support = "Лидер по вкладу в продажи"
+            # Pull quote — hero outperforms leader, reallocate signal
+            if hero != leader:
+                quote_txt = (
+                    f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
+                    f"Сигнал к reallocate части бюджета в digital."
+                )
+            else:
+                quote_txt = (
+                    f"{leader} - единственный лидер и по вкладу и по эффективности. "
+                    "Бюджет следует сохранить до признаков saturation."
+                )
+        else:
+            title = "TV остаётся основным драйвером, но эффективность достигла локального максимума"
+            big_number = "42%"
+            big_label = "Доля TV в инкрементальных продажах Q1"
+            big_support = "При 28% доли бюджета. ROI 1.8× выше среднего."
+            quote_txt = (
+                "Каждый рубль в TV возвращает в 1.8 раза больше, "
+                "чем среднее по каналам. Однако начиная с 80 TRP/нед "
+                "маржинальный возврат падает - сигнал к reallocate в digital."
+            )
+
         self._action_title(
             slide,
-            "TV остаётся основным драйвером, но эффективность достигла локального максимума",
+            title,
             show_lime=True, y=0.80, height=0.90,
         )
 
         # Left: big number
         self._big_number(
             slide, self.safe, 3.3,
-            number="42%",
-            label="Доля TV в инкрементальных продажах Q1",
-            support="При 28% доли бюджета. ROI 1.8× выше среднего.",
+            number=big_number,
+            label=big_label,
+            support=big_support,
             size=140,
         )
 
@@ -836,11 +973,7 @@ class AuroraPPTXBuilder:
         quote_w = self.w - self.safe - quote_x
         self._pull_quote(
             slide, quote_x, quote_y, quote_w, 2.6,
-            (
-                "Каждый рубль в TV возвращает в 1.8 раза больше, "
-                "чем среднее по каналам. Однако начиная с 80 TRP/нед "
-                "маржинальный возврат падает - сигнал к reallocate в digital."
-            ),
+            quote_txt,
             size=18, with_bar=True,
         )
 
