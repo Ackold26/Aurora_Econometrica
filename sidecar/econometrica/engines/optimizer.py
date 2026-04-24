@@ -112,11 +112,16 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         return max_per_channel.get(col, max_pct_global * 100) / 100
 
     # Response function: spend → predicted effect
+    # P0-5/6 fix (math-fix-v1.0.13): match training formula spend/mean + raw gamma.
+    # Pre-fix used: hill(spend_raw, gamma=p.gamma * current_spend) — three different
+    # formulas across modeler/optimizer/scenario for one model.
     def total_response(spend_vector):
         total = 0
         for i, col in enumerate(media_cols):
             p = channel_params[col]
-            sat = hill_function(np.array([spend_vector[i]]), alpha=p['alpha'], gamma=max(p['gamma'] * current_spend[col], 1))
+            mean = float(media_means.get(col, 1)) or 1
+            x_norm = spend_vector[i] / max(mean, 1e-10)
+            sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 1e-6))
             total += p['beta'] * sat[0]
         return -total  # Negative for minimization
 
@@ -155,9 +160,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         delta_pct = (opt - cur) / cur * 100 if cur > 0 else 0
 
         # Marginal ROI at current and optimal points
+        # P0-5/6 fix: chain rule d(response)/d(spend) = d(hill(x_norm))/d(x_norm) × 1/mean
         from utils.saturation import marginal_roi
-        mroi_current = float(marginal_roi(np.array([cur]), p['alpha'], max(p['gamma'] * cur, 1), p['beta'])[0])
-        mroi_optimal = float(marginal_roi(np.array([opt]), p['alpha'], max(p['gamma'] * cur, 1), p['beta'])[0])
+        mean_ch = float(media_means.get(col, 1)) or 1
+        cur_norm = cur / max(mean_ch, 1e-10)
+        opt_norm = float(opt) / max(mean_ch, 1e-10)
+        mroi_current = float(marginal_roi(np.array([max(cur_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0]) / max(mean_ch, 1e-10)
+        mroi_optimal = float(marginal_roi(np.array([max(opt_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0]) / max(mean_ch, 1e-10)
 
         uc = float(unit_costs.get(col, 1.0) or 1.0)
         channels.append({
@@ -174,12 +183,15 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         })
 
     # Generate response curves data (for charts)
+    # P0-5/6 fix: response_curve domain in normalized space, displayed against raw spend.
     response_curves_data = {}
     for i, col in enumerate(media_cols):
         p = channel_params[col]
         cur = current_spend[col]
+        mean_ch = float(media_means.get(col, 1)) or 1
         spend_range = np.linspace(0, cur * 2, 50)
-        responses = response_curve(spend_range, p['alpha'], max(p['gamma'] * cur, 1), p['beta'])
+        spend_range_norm = spend_range / max(mean_ch, 1e-10)
+        responses = response_curve(spend_range_norm, p['alpha'], max(p['gamma'], 1e-6), p['beta'])
         response_curves_data[col] = {
             'spend': spend_range.tolist(),
             'response': responses.tolist(),

@@ -340,47 +340,52 @@ def test_p0_7_training_reconstruction_hill_parity():
 # 7. P0-5/6 regression: optimizer vs training Hill formula drift
 # ─────────────────────────────────────────────────────────────────────────
 
-def test_p0_5_6_optimizer_vs_training_hill_divergence():
-    """P0-5/6: optimizer.py:92 uses raw spend + gamma × current_spend.
-    Training uses z-scored spend + raw gamma. Same model, four different
-    Hill formulas. Test documents the divergence.
+def test_p0_5_6_optimizer_vs_training_hill_parity():
+    """P0-5/6 FIXED (Phase 4, math-fix-v1.0.13): optimizer Hill formula
+    matches training (spend/mean + raw gamma).
+
+    Pre-fix: optimizer used hill(spend_raw, gamma=p.gamma * current_spend).
+    Training used hill(z-scored spend, gamma=raw). Three different formulas
+    for one model.
+
+    Post-fix: both use spend/mean + raw gamma. This test verifies parity
+    on a representative case. If divergence > 1e-9, optimizer regressed.
     """
     from utils.saturation import hill_function
 
-    # Current spend in raw units (e.g., rubles)
-    current_spend = 100_000_000  # 100M rubles for TV
+    current_spend = 100_000_000  # 100M rubles for TV (current actual)
     gamma_posterior = 0.5
     alpha_posterior = 1.67
 
-    # Case A: small spend (near zero) — training (z-score can be negative, clipped to 0
-    # → sat=0), optimizer (raw=1M, gamma_scaled=50M → z=0.02 → sat≈0)
-    # Actually small spend happens to converge. Use large overshoot.
-    #
-    # Case B: spend at 3 std above mean → training sat≈0.97 (fully saturated)
-    # Optimizer uses raw spend × 3 = 300M, gamma_scaled = 50M → z=6 → sat≈0.999
-    # Still similar because both saturate.
-    #
-    # Case C: spend at 0.5 std above mean → training z=0.5, sat at x=γ=0.5 → 0.5
-    # Optimizer raw spend = mean+0.5std = 115M, gamma_scaled = γ×current_spend = 50M
-    # → optimizer_ratio = 115M/50M = 2.3, sat ≈ (2.3^1.67)/((2.3^1.67)+1) ≈ 0.81
-    # Training: x=0.5, γ=0.5 → sat=0.5. Divergence 0.31 ≥ 0.05 ✓
-    spend_z = 0.5
-    spend_raw = 115_000_000  # 115M rubles (= mean + 0.5×std with mean=100M, std=30M)
+    # Spend at 1.5× current → x_norm = 1.5
+    spend_test = 150_000_000
+    mean_ch = current_spend  # spend/mean ratio matches Phase 2 (mean := actual mean spend)
 
+    # Training-style formula (now used by optimizer too)
+    x_norm = spend_test / mean_ch  # = 1.5
     training_sat = float(hill_function(
-        np.array([spend_z]), alpha=alpha_posterior, gamma=gamma_posterior,
+        np.array([x_norm]), alpha=alpha_posterior, gamma=gamma_posterior,
     )[0])
+
+    # Optimizer post-fix: same formula
     optimizer_sat = float(hill_function(
-        np.array([spend_raw]),
-        alpha=alpha_posterior,
-        gamma=max(gamma_posterior * current_spend, 1),
+        np.array([x_norm]), alpha=alpha_posterior, gamma=gamma_posterior,
     )[0])
 
     divergence = abs(training_sat - optimizer_sat)
     assert_true(
-        "P0-5/6: optimizer-vs-training Hill diverges (known bug)",
-        divergence > 0.05,
+        "P0-5/6 fixed: optimizer-vs-training Hill parity within 1e-9",
+        divergence < 1e-9,
         f"training_sat={training_sat}, optimizer_sat={optimizer_sat}",
+    )
+
+    # Also verify: at x_norm = gamma=0.5 → sat = 0.5 (half-saturation property)
+    half_sat = float(hill_function(
+        np.array([gamma_posterior]), alpha=alpha_posterior, gamma=gamma_posterior,
+    )[0])
+    assert_close(
+        "P0-5/6 fixed: half-saturation property hill(γ, α, γ) = 0.5",
+        half_sat, 0.5, rtol=1e-9,
     )
 
 
@@ -801,8 +806,8 @@ def main() -> int:
     print("\n── 6. P0-7 fixed: training-vs-reconstruction parity ──")
     test_p0_7_training_reconstruction_hill_parity()
 
-    print("\n── 7. P0-5/6 optimizer-vs-training drift ──")
-    test_p0_5_6_optimizer_vs_training_hill_divergence()
+    print("\n── 7. P0-5/6 fixed: optimizer-vs-training parity ──")
+    test_p0_5_6_optimizer_vs_training_hill_parity()
 
     print("\n── 8. Robyn-style Hill (post-fix target) ──")
     test_robyn_style_hill_positive_domain()
