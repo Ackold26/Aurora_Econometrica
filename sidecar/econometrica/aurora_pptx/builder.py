@@ -872,9 +872,25 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "ROI ПО КАНАЛАМ")
 
+        # Title — slot-fill from facts when present, else Kagocel pilot line
+        if self.facts and self.channels:
+            by_mroas = sorted(self.channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
+            top_names = [c.get("name") for c in by_mroas[:2] if c.get("name")]
+            leader = self.facts.get("leader_channel")
+            if len(top_names) >= 2 and leader and leader not in top_names:
+                action_title = f"{top_names[0]} и {top_names[1]} опережают {leader} по mROAS - они должны получить приоритет"
+            elif len(top_names) >= 2:
+                action_title = f"{top_names[0]} и {top_names[1]} делят лидерство по mROAS - портфель под пересмотром"
+            elif top_names:
+                action_title = f"{top_names[0]} - лидер по mROAS, портфель требует перебалансировки"
+            else:
+                action_title = "Портфель требует перебалансировки по mROAS"
+        else:
+            action_title = "Digital video и Search опережают TV по mROAS - они должны получить приоритет"
+
         self._action_title(
             slide,
-            "Digital video и Search опережают TV по mROAS - они должны получить приоритет",
+            action_title,
             show_lime=True, y=0.80, height=0.80,
         )
 
@@ -897,10 +913,21 @@ class AuroraPPTXBuilder:
         )
         # Hairline removed per brand rule - minimize horizontal lines
 
-        # NATIVE PPTX CHART (production-ready) - editable в PowerPoint, real data
-        bar_labels = ["Digital video", "Search", "TV", "OOH", "Social", "Print"]
-        bar_values = [1.9, 1.7, 1.5, 1.2, 1.0, 0.7]
-        hero_idx = 0  # Digital video - the hero
+        # NATIVE PPTX CHART (production-ready) - editable в PowerPoint
+        # Data source: adapter-supplied channels sorted by mROAS desc (up to 10),
+        # else Kagocel pilot bars for preview / wireframe mode.
+        if self.channels:
+            by_mroas = sorted(
+                self.channels,
+                key=lambda c: float(c.get("mroas") or 0),
+                reverse=True,
+            )[:10]
+            bar_labels = [c.get("name") or "-" for c in by_mroas]
+            bar_values = [float(c.get("mroas") or 0) for c in by_mroas]
+        else:
+            bar_labels = ["Digital video", "Search", "TV", "OOH", "Social", "Print"]
+            bar_values = [1.9, 1.7, 1.5, 1.2, 1.0, 0.7]
+        hero_idx = 0  # by_mroas[0] after sort — highest mROAS (the hero)
 
         chart_data = CategoryChartData()
         # Reversed: PPTX bar chart renders first category at bottom
@@ -956,7 +983,9 @@ class AuroraPPTXBuilder:
         val_axis.visible = False  # hide numeric value axis (labels are direct)
         val_axis.major_unit = 0.5
         val_axis.minimum_scale = 0
-        val_axis.maximum_scale = 2.2
+        # Adaptive axis max: accommodate real client mROAS values up to 5×+
+        _max_v = max(bar_values) if bar_values else 2.0
+        val_axis.maximum_scale = max(2.2, _max_v * 1.15)
 
         # Gap between bars
         from pptx.oxml.ns import qn
@@ -996,14 +1025,53 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, right_x, chart_y + 0.3, 1.0, weight=0.75, color=self.gold)
 
-        commentary = [
-            ("Digital video обогнал TV.",
-             " mROAS 1.9× означает, что каждый дополнительный рубль в digital video возвращает в 1.9 раза больше. Сейчас канал получает менее 15% бюджета - явный потенциал scale-up."),
-            ("Search устойчиво эффективен.",
-             " mROAS 1.7× при текущих расходах. Менее волатилен, чем social, и не подвержен saturation в обозримой перспективе."),
-            ("Print и Radio под угрозой.",
-             " mROAS 0.7× и 0.75× - оба ниже breakeven. Рекомендуется reallocate их бюджеты в топ-2 канала."),
-        ]
+        # Commentary — slot-fill from facts+channels when present, else Kagocel
+        if self.channels and self.facts:
+            by_mroas = sorted(self.channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
+            hero = by_mroas[0] if by_mroas else {}
+            second = by_mroas[1] if len(by_mroas) > 1 else {}
+            leader = self.facts.get("leader_channel")
+            hero_name = hero.get("name") or "Лидер"
+            hero_m = float(hero.get("mroas") or 0)
+            second_name = second.get("name") or ""
+            second_m = float(second.get("mroas") or 0)
+            # Underperformers = channels with mROAS < 1.0 (below breakeven)
+            underperf = [c.get("name") for c in self.channels if float(c.get("mroas") or 0) < 1.0]
+            commentary: list[tuple[str, str]] = []
+            # Block 1 — hero vs leader
+            if leader and hero_name and leader != hero_name:
+                commentary.append((
+                    f"{hero_name} обогнал {leader}.",
+                    f" mROAS {hero_m:.1f}× означает, что каждый дополнительный рубль в {hero_name.lower()} возвращает в {hero_m:.1f} раза больше. Явный потенциал scale-up.",
+                ))
+            elif hero_name:
+                commentary.append((
+                    f"{hero_name} - лидер по mROAS.",
+                    f" mROAS {hero_m:.1f}×. Бюджет следует наращивать до признаков saturation.",
+                ))
+            # Block 2 — stable second
+            if second_name and second_m >= 1.0:
+                commentary.append((
+                    f"{second_name} устойчиво эффективен.",
+                    f" mROAS {second_m:.1f}× при текущих расходах - низкая волатильность, потенциал удержания бюджета.",
+                ))
+            # Block 3 — underperformers (breakeven)
+            if underperf:
+                names_str = " и ".join(underperf[:2]) if underperf else ""
+                if names_str:
+                    commentary.append((
+                        f"{names_str} под угрозой.",
+                        f" mROAS ниже breakeven. Рекомендуется reallocate их бюджеты в топ-2 канала.",
+                    ))
+        else:
+            commentary = [
+                ("Digital video обогнал TV.",
+                 " mROAS 1.9× означает, что каждый дополнительный рубль в digital video возвращает в 1.9 раза больше. Сейчас канал получает менее 15% бюджета - явный потенциал scale-up."),
+                ("Search устойчиво эффективен.",
+                 " mROAS 1.7× при текущих расходах. Менее волатилен, чем social, и не подвержен saturation в обозримой перспективе."),
+                ("Print и Radio под угрозой.",
+                 " mROAS 0.7× и 0.75× - оба ниже breakeven. Рекомендуется reallocate их бюджеты в топ-2 канала."),
+            ]
         cy = chart_y + 0.55
         for lead, body in commentary:
             self._rich(
