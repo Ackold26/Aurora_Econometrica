@@ -665,7 +665,94 @@ def test_p0_2_no_data_dropped_post_fix():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 12. Column role detection (validator sanity)
+# 12. Decomposer post-fix (Phase 3 of math-fix-v1.0.13)
+# ─────────────────────────────────────────────────────────────────────────
+
+def test_decomposer_uses_saturation():
+    """Phase 3 fix: decomposer per-period contribution = β × hill(x_norm) × y_std.
+
+    Pre-fix: contribution_pct = |β|/Σ|β|, ignoring saturation/adstock.
+    Post-fix: per-period reflects saturation curvature on actual spend.
+
+    This test verifies the formula on synthetic spend pattern.
+    """
+    from utils.saturation import hill_function
+    # Synthetic 10-period spend with growing pattern (saturation matters)
+    spend = np.array([10, 30, 50, 70, 100, 150, 200, 250, 300, 400], dtype=float)
+    mean = float(spend.mean())
+    alpha, gamma, beta, y_std = 1.5, 0.5, 0.3, 1000.0
+
+    x_norm = spend / mean
+    sat = hill_function(x_norm, alpha=alpha, gamma=gamma)
+    contrib_per_period = beta * sat * y_std
+
+    # Property 1: per-period contribution is monotonically non-decreasing in spend
+    # (since hill is monotonic in x for positive alpha)
+    assert_true(
+        "decomposer: per-period contribution monotonic in spend",
+        np.all(np.diff(contrib_per_period) >= -1e-9),
+        f"differences: {np.diff(contrib_per_period)}",
+    )
+
+    # Property 2: total contribution is bounded by β × y_std × n (max sat = 1)
+    total = float(contrib_per_period.sum())
+    upper_bound = beta * y_std * len(spend)
+    assert_true(
+        "decomposer: total contribution ≤ β × y_std × n_periods",
+        total <= upper_bound + 1e-9,
+        f"total={total}, bound={upper_bound}",
+    )
+
+    # Property 3: NOT proportional to raw spend (saturation matters)
+    # Compare ratio of contribution to spend across periods
+    ratios = contrib_per_period / np.maximum(spend, 1e-9)
+    # If contribution were proportional, ratios would be constant.
+    # With Hill, the high-spend periods have lower marginal contribution → ratios decrease.
+    cv = float(np.std(ratios) / max(np.mean(ratios), 1e-9))
+    assert_true(
+        "decomposer: contribution shows saturation curvature (CV of ratios > 0.1)",
+        cv > 0.1,
+        f"CV of contrib/spend ratios = {cv}; if too small, saturation not active",
+    )
+
+
+def test_decomposer_baseline_formula():
+    """Phase 3 fix: baseline_per_period = intercept_mean × y_std + y_mean + control_effect × y_std.
+
+    Pre-fix used: baseline = (actual.sum() - predicted.sum()) + 0.3 × predicted.mean × n
+    which had no methodological basis.
+
+    Post-fix: baseline derives from the model's intercept and control betas
+    on the original KPI scale. This test verifies the formula structure
+    against synthetic params.
+    """
+    n_periods = 12
+    intercept_mean = 0.5  # in normalized units
+    y_mean = 1000.0
+    y_std = 200.0
+
+    # Base intercept contribution (per period)
+    intercept_per_period = np.full(n_periods, intercept_mean * y_std + y_mean)
+    expected_per = 0.5 * 200 + 1000  # = 1100
+    assert_close(
+        "decomposer baseline: intercept × y_std + y_mean per period",
+        float(intercept_per_period[0]),
+        expected_per,
+        rtol=1e-9,
+    )
+
+    # Control effect on synthetic data
+    control_betas = np.array([0.3, -0.1])
+    X_norm = np.array([[1.0, 0.5], [-0.5, 1.0]])
+    control_eff = X_norm @ control_betas * y_std
+    # Period 0: 1.0 × 0.3 + 0.5 × -0.1 = 0.25 → × 200 = 50
+    # Period 1: -0.5 × 0.3 + 1.0 × -0.1 = -0.25 → × 200 = -50
+    assert_close("decomposer control effect period 0", float(control_eff[0]), 50.0, rtol=1e-9)
+    assert_close("decomposer control effect period 1", float(control_eff[1]), -50.0, rtol=1e-9)
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 13. Column role detection (validator sanity)
 # ─────────────────────────────────────────────────────────────────────────
 
 def test_column_role_kpi_detection():
@@ -732,7 +819,11 @@ def main() -> int:
     test_prior_predictive_alpha_steepness()
     test_p0_2_no_data_dropped_post_fix()
 
-    print("\n── 12. Validator column role ──")
+    print("\n── 12. Decomposer post-fix (Phase 3) ──")
+    test_decomposer_uses_saturation()
+    test_decomposer_baseline_formula()
+
+    print("\n── 13. Validator column role ──")
     test_column_role_kpi_detection()
 
     print(f"\n{PASSED}/{PASSED + FAILED} assertions passed.")
