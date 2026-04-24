@@ -1,12 +1,27 @@
 """
 aurora_html.interactive - JS bundle composer.
 
-M3 full interactivity: chart initialization (5 ECharts with SVG renderer),
-sortable table, drill-down side-panel, scenario switcher, budget what-if
-slider (Hill saturation formula), animated number counters, search filter,
-skeleton hide on ready, plus M2 basics (theme, TOC, shortcuts, modals).
+Full tier-1 interactivity in a single IIFE (CSP hashes as one block):
+- Theme resolution chain (URL -> localStorage -> sessionStorage -> prefers-
+  color-scheme -> default) with Safari file:// tolerance
+- 5 ECharts initialization (SVG renderer, theme-aware palettes from
+  window.AURORA_THEMES)
+- Sortable action table (localStorage-persisted sort state)
+- Drill-down side-panel (click chart bar or table row)
+- Budget what-if slider (Hill saturation formula in-browser)
+- Scenario switcher dropdown (gated on CHART_DATA.scenarios.length >= 2)
+- Animated big-number counters (IntersectionObserver, easeOutQuart,
+  respects prefers-reduced-motion)
+- Fuzzy search (Ctrl+K) over sections + channel names
+- Copy helpers: report link, table as CSV, chart as PNG
+- Keyboard shortcuts (T / ? / 1-9 / Ctrl+K / Esc / P / C)
+- Haptic feedback on tactile actions (navigator.vibrate, no-op desktop)
+- Toast notifications (aria-live polite)
+- Scroll progress bar + TOC scroll-spy
 
-All composed into one IIFE so CSP hashes it once.
+Defense-in-depth: escapeHtml/escapeAttr helpers used before any innerHTML
+concat with user-controlled strings even though hash-based CSP blocks
+inline script/event-handler injection.
 """
 from __future__ import annotations
 
@@ -55,6 +70,21 @@ def bootstrap_js(
     try {{
       if (navigator.vibrate) navigator.vibrate(duration || 8);
     }} catch (e) {{}}
+  }}
+
+  // ─── HTML escape (defense-in-depth; CSP already blocks script) ────
+  // Even with hash-based CSP blocking <script>/event handlers, we escape
+  // before any innerHTML concat with user-controlled strings (channel
+  // names, scenario names, etc) to prevent DOM structure attacks via
+  // unclosed tags or attribute injection. Uses textContent round-trip.
+  var _ESC_DIV = document.createElement('div');
+  function escapeHtml(s) {{
+    if (s == null) return '';
+    _ESC_DIV.textContent = String(s);
+    return _ESC_DIV.innerHTML;
+  }}
+  function escapeAttr(s) {{
+    return escapeHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }}
 
   // ─── Storage wrappers (Safari file:// tolerance) ──────────────────
@@ -175,7 +205,7 @@ def bootstrap_js(
       tooltip: Object.assign(baseTooltip(pal), {{
         formatter: function(ps) {{
           var p = Array.isArray(ps) ? ps[0] : ps;
-          return '<b>' + p.name + '</b><br/>mROAS: ' + p.value.toFixed(2) + '×';
+          return '<b>' + escapeHtml(p.name) + '</b><br/>mROAS: ' + p.value.toFixed(2) + '×';
         }}
       }}),
       xAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal), {{
@@ -318,7 +348,7 @@ def bootstrap_js(
         formatter: function(ps) {{
           if (!Array.isArray(ps)) ps = [ps];
           return ps.map(function(p) {{
-            return '<b>' + p.name + '</b><br/>' + p.seriesName + ': ' + p.value.toFixed(0) + ' млн';
+            return '<b>' + escapeHtml(p.name) + '</b><br/>' + escapeHtml(p.seriesName) + ': ' + p.value.toFixed(0) + ' млн';
           }}).join('<br/>');
         }}
       }}),
@@ -387,9 +417,15 @@ def bootstrap_js(
     body.innerHTML = contentHtml;
     panel.setAttribute('aria-hidden', 'false');
     haptic(8);
-    // Focus first actionable element for keyboard accessibility
+    // Focus first actionable element for keyboard accessibility.
+    // preventScroll avoids the browser scrolling the fixed panel into view
+    // (which would shift the main content visually even though panel is
+    // position:fixed - some browsers still trigger scrollIntoView).
     var closeBtn = document.getElementById('btn-close-drill');
-    if (closeBtn) setTimeout(function() {{ closeBtn.focus(); }}, 300);
+    if (closeBtn) setTimeout(function() {{
+      try {{ closeBtn.focus({{ preventScroll: true }}); }}
+      catch (e) {{ closeBtn.focus(); }}
+    }}, 300);
   }}
   function closeDrillPanel() {{
     var p = document.getElementById('drill-panel');
@@ -404,13 +440,15 @@ def bootstrap_js(
     if (!d) return '<p style="color:var(--text-muted);">Нет детализации</p>';
     function row(lbl, val) {{
       return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--rule-subtle);font-size:13px;">' +
-             '<span style="color:var(--text-muted);">' + lbl + '</span>' +
-             '<span style="color:var(--text);font-weight:600;">' + val + '</span></div>';
+             '<span style="color:var(--text-muted);">' + escapeHtml(lbl) + '</span>' +
+             '<span style="color:var(--text);font-weight:600;">' + escapeHtml(val) + '</span></div>';
     }}
     var verdictText = (STRINGS.verdicts && STRINGS.verdicts[d.verdict]) || d.verdict;
+    // Whitelist verdict against known values to avoid class-attr injection.
+    var safeVerdict = /^[A-Za-z]+$/.test(String(d.verdict || '')) ? d.verdict : 'Watch';
     return '<div>' +
-      '<div style="font-family:var(--font-serif);font-size:26px;margin-bottom:4px;">' + name + '</div>' +
-      '<div><span class="verdict-badge verdict-' + d.verdict + '">' + verdictText + '</span></div>' +
+      '<div style="font-family:var(--font-serif);font-size:26px;margin-bottom:4px;">' + escapeHtml(name) + '</div>' +
+      '<div><span class="verdict-badge verdict-' + escapeAttr(safeVerdict) + '">' + escapeHtml(verdictText) + '</span></div>' +
       '<div style="margin-top:20px;">' +
         row('Бюджет, млн ₽',       d.spend_mln.toFixed(1)) +
         row('Вклад, млн ₽',         d.contrib_mln.toFixed(1)) +
@@ -635,24 +673,41 @@ def bootstrap_js(
     var baseline = MODEL_CTX.baseline_sum || 0;
     var currentSpends = MODEL_CTX.current_spends_mln || {{}};
 
-    // Baseline KPI with current spends
+    // Baseline KPI with current spends. Guards against div-by-zero,
+    // NaN propagation, and invalid Hill params (negative/zero alpha or gamma).
     function predictKPI(spendsMln) {{
       var total_norm_contrib = 0;
       Object.keys(params).forEach(function(ch) {{
         var p = params[ch] || {{}};
-        var mean = mediaMeans[ch] || 1;
+        var mean = mediaMeans[ch];
+        // Skip channel if mean is missing, 0 or non-finite (can't normalize).
+        if (!mean || !isFinite(mean) || mean <= 0) return;
+        // Skip if alpha/gamma invalid (Hill formula requires positive params).
+        if (!p.alpha || !p.gamma || p.alpha <= 0 || p.gamma <= 0) return;
         var spend = (spendsMln[ch] || 0) * 1e6;
+        if (spend <= 0) return;
         var z = spend / mean;
-        if (z <= 0 || !p.alpha || !p.gamma) return;
-        var sat = Math.pow(z, p.alpha) / (Math.pow(z, p.alpha) + Math.pow(p.gamma, p.alpha));
+        // Compute Hill saturation - guard against any remaining NaN/Infinity.
+        var za = Math.pow(z, p.alpha);
+        var ga = Math.pow(p.gamma, p.alpha);
+        var sat = za / (za + ga);
+        if (!isFinite(sat)) return;
         total_norm_contrib += (p.beta || 0) * sat;
       }});
+      if (!isFinite(total_norm_contrib)) total_norm_contrib = 0;
       // Denormalize: contribution is in normalized units; multiply by y_std
       // and add baseline (already in rubles domain) for absolute KPI.
-      return baseline + total_norm_contrib * yStd;
+      var kpi = baseline + total_norm_contrib * yStd;
+      return isFinite(kpi) ? kpi : 0;
     }}
 
     var currentKPI = predictKPI(currentSpends);
+    // Guard: if currentKPI is 0 OR not finite, skip entire what-if UI.
+    // Delta % would be NaN / Infinity, worse than useless.
+    if (!isFinite(currentKPI) || currentKPI <= 0) {{
+      console.warn('Aurora HTML: what-if skipped - currentKPI invalid', currentKPI);
+      return;
+    }}
 
     // Inject what-if panel above table
     var panel = document.createElement('details');
@@ -662,22 +717,23 @@ def bootstrap_js(
     var channelRows = Object.keys(currentSpends).map(function(ch) {{
       var cur = currentSpends[ch] || 0;
       var maxVal = Math.max(cur * 2, 100).toFixed(0);
+      var chSafe = escapeAttr(ch);
       return '<div style="display:grid;grid-template-columns:130px 1fr 70px;gap:12px;align-items:center;padding:6px 0;">' +
-        '<span style="font-size:13px;color:var(--text);">' + ch + '</span>' +
+        '<span style="font-size:13px;color:var(--text);">' + escapeHtml(ch) + '</span>' +
         '<input type="range" min="0" max="' + maxVal + '" value="' + cur.toFixed(0) + '" step="1" ' +
-          'data-whatif-ch="' + ch + '" style="accent-color:var(--accent);" aria-label="Бюджет ' + ch + '">' +
-        '<span class="whatif-val" data-whatif-val="' + ch + '" style="font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:var(--text-muted);">' +
+          'data-whatif-ch="' + chSafe + '" style="accent-color:var(--accent);" aria-label="Бюджет ' + chSafe + '">' +
+        '<span class="whatif-val" data-whatif-val="' + chSafe + '" style="font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:var(--text-muted);">' +
           cur.toFixed(0) + ' млн</span>' +
       '</div>';
     }}).join('');
 
     panel.innerHTML =
       '<summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;font-size:14px;">' +
-        '🎚 Бюджет what-if (Hill saturation model)' +
+        'Бюджет what-if · Hill saturation model' +
       '</summary>' +
       '<div style="padding-top:12px;">' +
         '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' +
-          'Перетаскивайте ползунки для моделирования реаллокации. KPI пересчитывается по формуле модели.' +
+          'Перетаскивайте ползунки для моделирования реаллокации. KPI пересчитывается по Hill-формуле (приближение без adstock; полная модель - в PPTX-отчёте и оптимизаторе).' +
         '</div>' +
         channelRows +
         '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-subtle);display:flex;justify-content:space-between;align-items:center;gap:16px;">' +
@@ -750,7 +806,7 @@ def bootstrap_js(
                          'border:1px solid var(--rule);border-radius:var(--radius-md);' +
                          'display:flex;align-items:center;gap:16px;flex-wrap:wrap;';
     var options = scenarios.map(function(s, i) {{
-      return '<option value="' + i + '">' + s.name + '</option>';
+      return '<option value="' + i + '">' + escapeHtml(s.name) + '</option>';
     }}).join('');
     wrap.innerHTML =
       '<label for="scenario-select" style="font-size:12px;color:var(--text-muted);font-weight:600;' +
@@ -862,9 +918,9 @@ def bootstrap_js(
         return;
       }}
       results.innerHTML = matches.map(function(m, i) {{
-        return '<div class="search-result' + (i === 0 ? ' active' : '') + '" data-target="' + m.target + '" data-channel="' + (m.kind === 'channel' ? m.label : '') + '">' +
+        return '<div class="search-result' + (i === 0 ? ' active' : '') + '" data-target="' + escapeAttr(m.target) + '" data-channel="' + escapeAttr(m.kind === 'channel' ? m.label : '') + '">' +
           '<div class="search-result-kind">' + (m.kind === 'section' ? 'Раздел' : 'Канал') + '</div>' +
-          '<div>' + m.label + '</div>' +
+          '<div>' + escapeHtml(m.label) + '</div>' +
         '</div>';
       }}).join('');
       results.querySelectorAll('.search-result').forEach(function(r) {{

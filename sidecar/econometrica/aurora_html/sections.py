@@ -262,11 +262,26 @@ def render_at_a_glance(ctx: dict) -> str:
         for f, s in findings
     )
 
+    # Waterfall chart renders underneath findings list when decompose data
+    # is present. JS no-ops silently if CHART_DATA.waterfall is empty -
+    # keeps section visible without layout collapse.
     body = f"""
 {_action_title(strings["action_titles"]["s02_five"])}
 <ol class="findings-list">
 {items}
-</ol>"""
+</ol>
+<div class="chart-container" style="margin-top:32px;">
+  <div class="chart-title-bar">
+    <div>
+      <div class="chart-title">Декомпозиция продаж · вклад компонент</div>
+      <div class="chart-subtitle">Baseline + вклад каналов = итоговые продажи</div>
+    </div>
+    <button class="btn-inline" data-copy-chart="chart-waterfall">Сохранить PNG</button>
+  </div>
+  <div class="chart-host" id="chart-waterfall" data-chart="waterfall" style="height:320px;">
+    <div class="chart-skeleton" aria-hidden="true"></div>
+  </div>
+</div>"""
     return _section("findings", kicker, body)
 
 
@@ -650,6 +665,9 @@ def render_recommendation(ctx: dict) -> str:
         for num, lead, desc in actions
     )
 
+    # Optimize comparison chart (current vs optimal spend per channel)
+    # rendered only when optimize data is available - JS checks CHART_DATA
+    # shape and silently no-ops if empty.
     body = f"""
 {_action_title(title)}
 <div class="recommendations">
@@ -660,6 +678,18 @@ def render_recommendation(ctx: dict) -> str:
   <div class="impact-hairline" aria-hidden="true"></div>
   <div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>
   <div class="impact-period">ROAS к следующему периоду</div>
+</div>
+<div class="chart-container" style="margin-top:28px;">
+  <div class="chart-title-bar">
+    <div>
+      <div class="chart-title">Текущий vs оптимальный бюджет · млн ₽</div>
+      <div class="chart-subtitle">Рекомендация оптимизатора по каналам</div>
+    </div>
+    <button class="btn-inline" data-copy-chart="chart-optimize">Сохранить PNG</button>
+  </div>
+  <div class="chart-host" id="chart-optimize" data-chart="optimize" style="height:320px;">
+    <div class="chart-skeleton" aria-hidden="true"></div>
+  </div>
 </div>"""
     return _section("recommend", kicker, body)
 

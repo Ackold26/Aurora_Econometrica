@@ -152,7 +152,24 @@ ${bootstrap_js}
 
 <!-- Progressive enhancement note for JS-disabled readers -->
 <noscript>
-  <style>.app-shell .drill-panel, .modal, .btn-ghost { display: none; }</style>
+  <style>
+    /* Hide all interactive shell bits (drill panel, modals, buttons). */
+    .drill-panel, .modal, .btn-ghost, #scroll-progress { display: none !important; }
+    /* Hide chart skeletons so JS-disabled users don't see infinite shimmer.
+       Chart containers render as empty boxes with a helpful note below. */
+    .chart-skeleton { display: none !important; }
+    .chart-host::before {
+      content: 'График доступен в версии с включённым JavaScript';
+      display: block;
+      padding: 40px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-style: italic;
+    }
+    /* Section fade-in animation start-state traps content invisible; show. */
+    .section { opacity: 1 !important; transform: none !important; animation: none !important; }
+  </style>
   <div class="noscript-banner">
     <strong>Интерактивность отключена.</strong> Все разделы отчёта читаемы без JavaScript, но графики и переключатели темы недоступны. Для полного опыта откройте файл в браузере с включённым JS.
   </div>

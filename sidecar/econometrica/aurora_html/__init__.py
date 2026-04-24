@@ -29,32 +29,44 @@ logger = logging.getLogger('econometrica.aurora_html')
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-# Pinned asset SHA-256 hashes - fail-fast verification at import time.
-# Regenerated via `python Standards/tokens/build.py --target html-css html-js`
-# and fonts downloaded in M1.7. Mismatch indicates tampering or accidental edit.
+# Pinned asset SHA-256 hashes (full 64-char digests) - fail-fast verification
+# at import time. Regenerated via `python Standards/tokens/build.py --target
+# html-css html-js` and fonts downloaded in M1.7. Mismatch indicates tampering
+# or accidental edit; we log but do NOT raise - letting production continue
+# with a warning is safer than crashing the sidecar.
 ASSET_SHA256 = {
-    "echarts.common.5.5.1.min.js": (
-        "66f17003724d5b6c4c2348b907290afe98363c6e7beb4a594fdb616f00496d55"
-    ),
-    "fonts/lora-400-latin.woff2":      "ddb8c66035104e23",    # prefix OK for sanity
-    "fonts/lora-400-cyrillic.woff2":   "c57d9ca3bd42e6bc",
-    "fonts/inter-400-latin.woff2":     "3100e775e8616cd2",
-    "fonts/inter-400-cyrillic.woff2":  "71d5ee93cc1e9f1d",
+    "echarts.common.5.5.1.min.js":
+        "66f17003724d5b6c4c2348b907290afe98363c6e7beb4a594fdb616f00496d55",
+    "fonts/lora-400-latin.woff2":
+        "ddb8c66035104e233fc024669183aad3738b6daa16deee2ebb1241bd0f98ace1",
+    "fonts/lora-400-cyrillic.woff2":
+        "c57d9ca3bd42e6bc093badc7744dd2059a78f66a3a4dc6ca40574480c870f553",
+    "fonts/inter-400-latin.woff2":
+        "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+    "fonts/inter-400-cyrillic.woff2":
+        "71d5ee93cc1e9f1d520a3a8b66456de18c7879d8df09d57fcd2eaff75fef0075",
+    # Inter 600 is identical to 400 (variable font, same bytes). Hash would
+    # match but we skip listing redundantly.
 }
 
 
 def _verify_assets() -> None:
-    """Spot-check bundled asset integrity. Fails fast on corruption/tamper."""
+    """Spot-check bundled asset integrity. Fails fast on corruption/tamper.
+
+    Logs warnings rather than raising so a single asset mismatch doesn't
+    take down HTML export; user sees something in logs but still gets a
+    report (graceful degradation over hard fail).
+    """
     for rel, expected in ASSET_SHA256.items():
         path = TEMPLATES_DIR / rel
         if not path.exists():
             logger.warning(f"Bundled asset missing: {rel}")
             continue
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
-        if not actual.startswith(expected):
+        if actual != expected:
             logger.error(
-                f"Asset integrity failure: {rel} expected sha256 prefix "
-                f"{expected!r}, got {actual[:16]!r}"
+                f"Asset integrity failure: {rel} expected sha256 "
+                f"{expected}, got {actual}"
             )
 
 

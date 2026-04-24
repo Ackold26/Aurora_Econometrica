@@ -1,17 +1,13 @@
 """
 aurora_html.builder - AuroraHTMLBuilder orchestrator.
 
-Assembles the 14-section HTML report by composing:
+Assembles the 14-section interactive HTML report by composing:
 - outer shell.html (string.Template)
 - inline assets (CSS, tokens JS, ECharts, WOFF2 fonts as data URIs, SVG favicon)
 - section renderers (sections.py, 14 functions)
-- interactivity JS (interactive.py - stubs in M2, full in M3)
-- hash-based CSP (security.py)
-- trust signals (report ID, methodology badge)
-
-M2 scope: full narrative + static layout + CSP + fonts + ECharts bundled.
-M3 adds interactive bootstrap JS.
-M4 polish.
+- interactive bootstrap JS (interactive.py)
+- hash-based CSP per inline block (security.py)
+- trust signals: Report ID SHA-256, methodology badge, confidentiality watermark
 """
 from __future__ import annotations
 
@@ -109,12 +105,37 @@ class AuroraHTMLBuilder:
         return json.loads(strings_path.read_text(encoding='utf-8'))
 
     def _compute_report_id(self) -> str:
-        """Client-facing traceability hash."""
+        """Client-facing traceability hash.
+
+        Hash is stable across rebuilds for the SAME data - deliberately
+        excludes timestamp so clients can verify "this is report abc123"
+        regardless of when it was re-exported. Includes channel data
+        (names + spend + contribution) so different model runs produce
+        different IDs.
+
+        Format: `aurora-mmm-{12-hex}` (SHA-256 prefix).
+        """
+        # Deterministic channel signature: sorted (name, spend_rounded,
+        # contrib_rounded, verdict) per channel so payloads with same
+        # pipeline output hash to same ID.
+        ch_sig = sorted(
+            (
+                c.get("name") or "",
+                int(round(float(c.get("spend") or 0))),
+                int(round(float(c.get("contribution") or 0))),
+                c.get("verdict") or "",
+            )
+            for c in self.channels
+        )
+        # Round diagnostics to 3 decimals to tolerate float drift.
+        diag_sig = sorted(
+            (k, round(float(v), 3) if isinstance(v, (int, float)) else str(v))
+            for k, v in self.diagnostics.items()
+        )
         fp_input = (
             f"{self.client}|{self.project_id}|{self.version}|"
-            f"n_channels={len(self.channels)}|"
-            f"diag={sorted(self.diagnostics.items())}|"
-            f"ts={self.generated_iso}"
+            f"channels={ch_sig}|"
+            f"diag={diag_sig}"
         )
         h = hashlib.sha256(fp_input.encode('utf-8')).hexdigest()[:12]
         return f"aurora-mmm-{h}"
