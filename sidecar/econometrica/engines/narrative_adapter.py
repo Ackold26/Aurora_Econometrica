@@ -21,6 +21,7 @@ Changelog:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from datetime import datetime
@@ -145,12 +146,28 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
     (no decompose match) are dropped with a warning.
     """
     def key(name): return (name or "").strip().lower()
-    opt_by_key = {
-        key(_normalize_channel_name(c.get("name")) or c.get("name")): c
-        for c in (opt_chs or []) if c
-    }
+
+    # Post-audit: log when normalization collapses different optimize columns
+    # onto the same key (silent overwrite masked real channel data pre-fix).
+    opt_by_key: dict[str, dict] = {}
+    opt_collisions: list[tuple[str, str]] = []
+    for c in (opt_chs or []):
+        if not c:
+            continue
+        clean = _normalize_channel_name(c.get("name")) or c.get("name")
+        k = key(clean)
+        if k in opt_by_key:
+            opt_collisions.append((opt_by_key[k].get("name") or "", c.get("name") or ""))
+        opt_by_key[k] = c
+    if opt_collisions:
+        logger.warning(
+            f"optimize channels collapse to same normalized key: {opt_collisions}"
+        )
+
     merged: list[dict] = []
+    seen_keys: set[str] = set()
     dropped_empty = []
+    collision_pairs: list[tuple[str, str]] = []
     for dc in (decomp_chs or []):
         if not dc:
             continue
@@ -161,7 +178,16 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             # column that shouldn't be treated as a media channel).
             dropped_empty.append(raw_name)
             continue
-        oc = opt_by_key.get(key(clean_name), {}) or {}
+        k = key(clean_name)
+        if k in seen_keys:
+            # Another decomp row already produced this key. We keep the first
+            # (higher-contribution by upstream sort is typical) and surface
+            # the collision so downstream analysis isn't silently corrupted.
+            prev = next((m["name"] for m in merged if key(m["name"]) == k), "")
+            collision_pairs.append((prev, raw_name or ""))
+            continue
+        seen_keys.add(k)
+        oc = opt_by_key.get(k, {}) or {}
         merged.append({
             "name": clean_name,
             "spend": dc.get("spend") or oc.get("current_spend"),
@@ -175,6 +201,10 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
     if dropped_empty:
         logger.warning(
             f"Channels dropped (likely total-budget columns): {dropped_empty}"
+        )
+    if collision_pairs:
+        logger.warning(
+            f"decompose channels collapse to same normalized key (first wins): {collision_pairs}"
         )
     if opt_chs:
         decomp_keys = {key(c["name"]) for c in merged}
@@ -253,6 +283,55 @@ def derive_verdict(channel: dict) -> str:
     return "Watch"
 
 
+def compute_report_id(
+    client: str | None,
+    project_id: str | None,
+    channels: list[dict] | None,
+    diagnostics: dict | None,
+) -> str:
+    """Shared deterministic trace hash for Aurora AI MMM reports.
+
+    Post-audit fix (2026-04-25): HTML and PPTX builders previously each
+    computed their own Report ID with subtly different inputs - HTML
+    included `version`, PPTX didn't; HTML used dynamic diagnostic keys,
+    PPTX used hardcoded 5-key tuple mixed with Kagocel fallback
+    defaults. Same pipeline output → different IDs. This helper is now
+    the single source of truth both builders delegate to.
+
+    Invariants:
+      1. Report ID is ONLY derived from the data itself (client + project
+         + channels + diagnostics). Product version not included — the
+         ID identifies the *report*, not the software release.
+      2. Diagnostics tuple is built dynamically from the dict's items;
+         absent keys are genuinely absent (no fallback substitution).
+         This matches HTML's prior behaviour and fixes the mixed
+         real+pilot hash that PPTX used to compute.
+      3. Channel order invariant: sorted by (name, spend, contrib,
+         verdict) so dict-ordering across Python builds doesn't affect
+         output.
+      4. Numeric diagnostics rounded to 3 decimals to tolerate float
+         drift from repeated pipeline runs.
+
+    Format: `aurora-mmm-{12hex}` (SHA-256 prefix).
+    """
+    ch_sig = sorted(
+        (
+            c.get("name") or "",
+            int(round(float(c.get("spend") or 0))),
+            int(round(float(c.get("contribution") or 0))),
+            c.get("verdict") or "",
+        )
+        for c in (channels or [])
+    )
+    diag_sig = sorted(
+        (k, round(float(v), 3) if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v))
+        for k, v in (diagnostics or {}).items()
+    )
+    fp = f"{client or ''}|{project_id or ''}|channels={ch_sig}|diag={diag_sig}"
+    h = hashlib.sha256(fp.encode("utf-8")).hexdigest()[:12]
+    return f"aurora-mmm-{h}"
+
+
 def derive_action_headline(
     channels: list[dict],
     facts: dict | None,
@@ -282,11 +361,23 @@ def derive_action_headline(
     hero_ch = next((c for c in channels if c.get("name") == hero), {}) or {}
     hero_m = float(hero_ch.get("mroas") or 0)
 
-    # Zero-effect guard: lift признаётся достоверным только >=0.5pp
-    has_lift = lift is not None and abs(float(lift)) >= 0.5
-    lift_txt = f"+{float(lift):.0f} пп к ROAS" if has_lift else None
+    # Post-audit: positive-lift guard (not abs). Negative lift means the
+    # optimizer couldn't find an improvement — emitting "+-1 пп" was broken
+    # formatting AND misleading narrative (a promised improvement that isn't).
+    try:
+        lift_val = float(lift) if lift is not None else None
+    except (TypeError, ValueError):
+        lift_val = None
+    has_lift = lift_val is not None and lift_val >= 0.5
+    lift_txt = f"+{lift_val:.0f} пп к ROAS" if has_lift else None
 
-    all_underperf = underperf and len(underperf) >= max(1, len(channels) // 2)
+    # Post-audit: strict-majority threshold. Old `>= n//2` triggered "risk"
+    # scenario on 1-of-3 underperformers — too aggressive, fabricates a
+    # "сократить X" recommendation when portfolio is actually healthy.
+    # Now requires at least half the channels to be flagged, with a floor
+    # of 2 (a single underperformer out of 2+ is not a "portfolio-wide risk").
+    total_ch = len(channels) or 1
+    all_underperf = len(underperf) >= max(2, (total_ch + 1) // 2)
 
     if slide_hint == "mroas":
         # s06: action = grow hero / rebalance against leader

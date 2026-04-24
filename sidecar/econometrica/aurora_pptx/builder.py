@@ -37,7 +37,10 @@ import math
 import zlib
 from datetime import datetime
 
-from econometrica.engines.narrative_adapter import derive_action_headline
+from econometrica.engines.narrative_adapter import (
+    compute_report_id,
+    derive_action_headline,
+)
 
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -178,41 +181,15 @@ class AuroraPPTXBuilder:
         self.channels = self.data.get("channels") or []
         self.facts = self.data.get("narrative_facts")
 
-        # --- Report ID (Stage B.4) ---
-        # Deterministic trace hash (same algorithm as aurora_html.builder).
-        # Shown in source notes INSTEAD of internal product version (v1.0.11).
-        # Clients can verify "same report across regenerations" and trace
-        # back to exact model run; no product-internal data leaks.
-        self.report_id = self.data.get("report_id") or self._compute_report_id()
-
-    def _compute_report_id(self) -> str:
-        """Deterministic aurora-mmm-{12hex} hash over channel + diag signature.
-        Mirrors aurora_html.builder._compute_report_id so HTML and PPTX
-        reports built from the same pipeline output share one trace ID.
-        """
-        import hashlib
-        ch_sig = sorted(
-            (
-                c.get("name") or "",
-                int(round(float(c.get("spend") or 0))),
-                int(round(float(c.get("contribution") or 0))),
-                c.get("verdict") or "",
-            )
-            for c in self.channels
+        # --- Report ID (Stage B.4, post-audit unified 2026-04-25) ---
+        # Deterministic trace hash shared with aurora_html. Uses the raw
+        # diagnostics dict from data (NOT the Kagocel fallback attrs like
+        # self.mqs_score=87), so partial-data runs don't leak pilot values
+        # into the hash. Same pipeline output → same ID in HTML and PPTX.
+        raw_diagnostics = self.data.get("diagnostics") or {}
+        self.report_id = self.data.get("report_id") or compute_report_id(
+            self.client, self.project_id, self.channels, raw_diagnostics,
         )
-        diag_sig = sorted([
-            ("mqs_score", round(float(self.mqs_score or 0), 3)),
-            ("r_squared", round(float(self.r_squared or 0), 3)),
-            ("mape_pct", round(float(self.mape_pct or 0), 3)),
-            ("r_hat_max", round(float(self.r_hat_max or 0), 3)),
-            ("ess_min", round(float(self.ess_min or 0), 3)),
-        ])
-        fp_input = (
-            f"{self.client}|{self.project_id}|"
-            f"channels={ch_sig}|diag={diag_sig}"
-        )
-        h = hashlib.sha256(fp_input.encode('utf-8')).hexdigest()[:12]
-        return f"aurora-mmm-{h}"
 
     # ---------- Primitives ----------
 
@@ -467,15 +444,21 @@ class AuroraPPTXBuilder:
 
     # ---------- Footer (minimal: mini wordmark + page num) ----------
 
-    def _footer(self, slide, page_num, *, show_page=True):
+    def _footer(self, slide, page_num, *, show_page=True, show_wordmark=True):
         """Footer: hairline at y=7.05 (fixed safe_bottom boundary).
         Elements (wordmark + page num) visually centered between hairline and slide bottom (7.50).
-        Midpoint = 7.275 → element_y = 7.20."""
+        Midpoint = 7.275 → element_y = 7.20.
+
+        `show_wordmark=False` suppresses the left-rail wordmark (used on the
+        colophon which renders a hero wordmark in its body — avoids the
+        tiny-wordmark-plus-hero-wordmark visual repetition).
+        """
         self._hairline(slide, self.safe, 7.05, self.w - 2 * self.safe, weight=0.25)
         element_y = 7.20  # visual center of (7.05, 7.50) zone
-        # Left: mini wordmark
-        self._wordmark(slide, self.safe, element_y, size=8, color=self.deep_60)
-        # Center: page num в формате "N\Total"
+        # Left: mini wordmark (suppressed on colophon)
+        if show_wordmark:
+            self._wordmark(slide, self.safe, element_y, size=8, color=self.deep_60)
+        # Center: page num в формате "N/Total"
         if show_page:
             self._text(
                 slide, 0, element_y, self.w, 0.18,
@@ -2449,14 +2432,9 @@ class AuroraPPTXBuilder:
             font=self.sans, size=7, italic=True, color=self.deep_60,
             align=PP_ALIGN.CENTER,
         )
-        # Footer hairline + page num (centered between hairline 7.05 and bottom 7.50)
-        self._hairline(slide, self.safe, 7.05, self.w - 2 * self.safe, weight=0.25)
-        self._text(
-            slide, 0, 7.20, self.w, 0.18,
-            f"{self.total_slides}/{self.total_slides}",
-            font=self.sans, size=9, color=self.deep_60,
-            align=PP_ALIGN.CENTER,
-        )
+        # Post-audit: use the shared footer helper (suppress left wordmark to
+        # avoid duplicating the hero wordmark in the colophon body).
+        self._footer(slide, self.total_slides, show_wordmark=False)
 
     # ---------- Build ----------
 

@@ -1328,6 +1328,10 @@ fn build_xlsx(
 /// Rewrite xl/worksheets/sheet*.xml inside the XLSX zip to put <tabColor>
 /// BEFORE <pageSetUpPr> in <sheetPr>. No-op for sheets that have only one
 /// (or neither) element. Uses `zip` and `regex` crates already in deps.
+///
+/// Post-audit (2026-04-25): writes to a sibling `.tmp` file then
+/// `std::fs::rename` over the target, so a crash mid-write leaves the
+/// original file intact instead of a half-overwritten corrupted XLSX.
 fn fix_sheetpr_element_order(xlsx_path: &Path) -> Result<(), String> {
     use zip::read::ZipArchive;
     use zip::write::{SimpleFileOptions, ZipWriter};
@@ -1339,7 +1343,8 @@ fn fix_sheetpr_element_order(xlsx_path: &Path) -> Result<(), String> {
 
     // Matches <sheetPr [attrs]><pageSetUpPr .../><tabColor .../></sheetPr>
     // and emits <sheetPr [attrs]><tabColor .../><pageSetUpPr .../></sheetPr>.
-    // Only triggers when both elements present in the wrong order.
+    // Only triggers when both elements present in the wrong order. Idempotent
+    // when order is already correct (no match → no replacement).
     let re = regex::Regex::new(
         r"<sheetPr([^>]*)><pageSetUpPr([^/]*)/><tabColor([^/]*)/></sheetPr>",
     )
@@ -1386,7 +1391,18 @@ fn fix_sheetpr_element_order(xlsx_path: &Path) -> Result<(), String> {
     let final_cursor = writer
         .finish()
         .map_err(|e| format!("post-process zip finish: {e}"))?;
-    std::fs::write(xlsx_path, final_cursor.into_inner())
-        .map_err(|e| format!("post-process write final: {e}"))?;
+
+    // Atomic write: stage to `<path>.tmp`, then rename. On Windows rename
+    // over an existing file requires `fs::rename` which performs a
+    // ReplaceFile equivalent on modern Windows (atomic on same volume).
+    let tmp_path = xlsx_path.with_extension("xlsx.tmp");
+    std::fs::write(&tmp_path, final_cursor.into_inner())
+        .map_err(|e| format!("post-process write staged {tmp_path:?}: {e}"))?;
+    std::fs::rename(&tmp_path, xlsx_path).map_err(|e| {
+        // Best-effort cleanup of the staged file on rename failure so the
+        // exports folder doesn't accrete stale .tmp turds.
+        let _ = std::fs::remove_file(&tmp_path);
+        format!("post-process rename {tmp_path:?} → {xlsx_path:?}: {e}")
+    })?;
     Ok(())
 }

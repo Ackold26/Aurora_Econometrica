@@ -12,7 +12,6 @@ Assembles the 14-section interactive HTML report by composing:
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import logging
 import re
@@ -26,6 +25,7 @@ from . import themes as themes_mod
 from . import security
 from .sections import SECTION_RENDERERS
 from .interactive import bootstrap_js
+from econometrica.engines.narrative_adapter import compute_report_id
 
 logger = logging.getLogger('econometrica.aurora_html')
 
@@ -124,48 +124,18 @@ class AuroraHTMLBuilder:
         self.generated_iso = self.generated_dt.isoformat(timespec='seconds')
         self.generated_human = _fmt_human_time(self.generated_dt)
 
-        self.report_id = self._compute_report_id()
+        # Post-audit (2026-04-25): delegate to shared compute_report_id
+        # so HTML and PPTX produce identical IDs for same pipeline output.
+        # Product version removed from hash - Report ID identifies the
+        # *report content*, not the software build that produced it.
+        self.report_id = compute_report_id(
+            self.client, self.project_id, self.channels, self.diagnostics,
+        )
         self.strings = self._load_strings()
 
     def _load_strings(self) -> dict:
         strings_path = Path(__file__).parent / "strings_ru.json"
         return json.loads(strings_path.read_text(encoding='utf-8'))
-
-    def _compute_report_id(self) -> str:
-        """Client-facing traceability hash.
-
-        Hash is stable across rebuilds for the SAME data - deliberately
-        excludes timestamp so clients can verify "this is report abc123"
-        regardless of when it was re-exported. Includes channel data
-        (names + spend + contribution) so different model runs produce
-        different IDs.
-
-        Format: `aurora-mmm-{12-hex}` (SHA-256 prefix).
-        """
-        # Deterministic channel signature: sorted (name, spend_rounded,
-        # contrib_rounded, verdict) per channel so payloads with same
-        # pipeline output hash to same ID.
-        ch_sig = sorted(
-            (
-                c.get("name") or "",
-                int(round(float(c.get("spend") or 0))),
-                int(round(float(c.get("contribution") or 0))),
-                c.get("verdict") or "",
-            )
-            for c in self.channels
-        )
-        # Round diagnostics to 3 decimals to tolerate float drift.
-        diag_sig = sorted(
-            (k, round(float(v), 3) if isinstance(v, (int, float)) else str(v))
-            for k, v in self.diagnostics.items()
-        )
-        fp_input = (
-            f"{self.client}|{self.project_id}|{self.version}|"
-            f"channels={ch_sig}|"
-            f"diag={diag_sig}"
-        )
-        h = hashlib.sha256(fp_input.encode('utf-8')).hexdigest()[:12]
-        return f"aurora-mmm-{h}"
 
     # ─── Inline assets ────────────────────────────────────────────────────
 
