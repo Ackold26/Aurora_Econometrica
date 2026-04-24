@@ -1,0 +1,77 @@
+{
+  "_meta": {
+    "lang": "ru",
+    "version": "1.0.0",
+    "last_updated": "2026-04-24"
+  },
+  "product": {
+    "name": "Aurora AI Econometrica",
+    "subtitle": "MMM отчёт по кампании"
+  },
+  "cover": {
+    "confidentiality": "CONFIDENTIAL — For {client} only",
+    "version_prefix": "v",
+    "date_format": "%d %B %Y г."
+  },
+  "breadcrumb": {
+    "template": "AURORA AI · {date} · v{version} · DEL-{project_id}"
+  },
+  "toc": {
+    "title": "Содержание",
+    "sections": [
+      "Executive summary",
+      "Методология",
+      "Данные и качество",
+      "Модель и спецификация",
+      "Декомпозиция вкладов",
+      "Оптимизация бюджета",
+      "Рекомендации",
+      "Приложение и источники"
+    ]
+  },
+  "section_divider": {
+    "numbers": ["01", "02", "03", "04", "05", "06", "07", "08"]
+  },
+  "exec_summary": {
+    "situation_label": "SITUATION",
+    "complication_label": "COMPLICATION",
+    "resolution_label": "RESOLUTION"
+  },
+  "methodology": {
+    "title": "Методология",
+    "mmm_line": "Bayesian MMM с адstock и saturation — MCMC NUTS",
+    "spec_header": "Спецификация модели:",
+    "diagnostics_header": "Диагностика:"
+  },
+  "sources": {
+    "title": "Источники данных и MQS",
+    "mqs_label": "MQS",
+    "period_label": "Период",
+    "completeness_label": "Полнота данных"
+  },
+  "colophon": {
+    "title": "Meta & replay",
+    "model_version_label": "Версия модели",
+    "dataset_label": "Dataset SHA256",
+    "generated_label": "Сгенерировано",
+    "replay_label": "Replay URL",
+    "copyright": "© 2026 Aurora AI. Все права защищены."
+  },
+  "charts": {
+    "roi_label": "ROI",
+    "spend_label": "Бюджет, ₽ млн",
+    "contribution_label": "Вклад, ₽ млн",
+    "channel_label": "Канал",
+    "no_data": "Данные недоступны"
+  },
+  "verdict": {
+    "good": "GOOD",
+    "acceptable": "ACCEPTABLE",
+    "poor": "POOR",
+    "insufficient": "INSUFFICIENT"
+  },
+  "footnote": {
+    "source_prefix": "Источник",
+    "aurora_attribution": "анализ Aurora AI"
+  }
+}
