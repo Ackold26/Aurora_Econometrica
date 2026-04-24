@@ -79,6 +79,11 @@ PYINSTALLER_ARGS = [
     '--add-data', f'{ROOT / "engines"}:engines',
     '--add-data', f'{ROOT / "charts"}:charts',
     '--add-data', f'{ROOT / "utils"}:utils',
+    # aurora_pptx/ module + templates subfolder + strings_*.json (client-ready deliverables).
+    # aurora_tokens.py is generated from Standards/tokens/tokens.json via build.py — see
+    # regen step below in main(). Must be bundled as data so import works at runtime.
+    '--add-data', f'{ROOT / "aurora_pptx"}:aurora_pptx',
+    '--add-data', f'{ROOT / "aurora_tokens.py"}:.',
 
     # Collect data files for packages that ship non-Python resources at runtime.
     # --hidden-import alone copies only .py; runtime resources (HTML/JSON/C templates/
@@ -125,8 +130,39 @@ PYINSTALLER_ARGS = [
 ]
 
 
+def regenerate_tokens():
+    """Regenerate aurora_tokens.py from Standards/tokens/tokens.json before bundle.
+
+    Standards/tokens/build.py outputs aurora_tokens.py to sidecar/econometrica/
+    (see build.py DEFAULT_OUT_PY). Without this step a fresh clone or stale file
+    causes ImportError at sidecar startup. Gitignored so must be regenerated
+    on every build.
+    """
+    standards_build = ROOT.parent.parent.parent / 'Standards' / 'tokens' / 'build.py'
+    if not standards_build.exists():
+        print(f'WARNING: {standards_build} not found - aurora_tokens.py may be stale')
+        return
+    tokens_target = ROOT / 'aurora_tokens.py'
+    print(f'Regenerating {tokens_target.name} from tokens.json...')
+    result = subprocess.run(
+        [sys.executable, str(standards_build), '--target', 'python'],
+        cwd=standards_build.parent,
+    )
+    if result.returncode != 0:
+        print('ERROR: aurora_tokens.py regeneration failed')
+        sys.exit(1)
+    if not tokens_target.exists():
+        print(f'ERROR: {tokens_target} not produced by build.py')
+        sys.exit(1)
+    print(f'  [OK] {tokens_target.name} ({tokens_target.stat().st_size} bytes)')
+
+
 def main():
-    print(f'Building {OUTPUT_NAME} with PyInstaller (--onedir)...')
+    # ── Prerequisite: regenerate aurora_tokens.py from Standards/tokens/ ──
+    # Without this, sidecar import econometrica.aurora_tokens fails at runtime.
+    regenerate_tokens()
+
+    print(f'\nBuilding {OUTPUT_NAME} with PyInstaller (--onedir)...')
     print(f'Output: {DIST / OUTPUT_NAME}/\n')
 
     result = subprocess.run(PYINSTALLER_ARGS, cwd=ROOT)

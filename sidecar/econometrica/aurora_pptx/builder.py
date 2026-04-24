@@ -41,7 +41,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 from pptx.enum.shapes import MSO_CONNECTOR, MSO_SHAPE
 from pptx.enum.text import PP_ALIGN
-from pptx.util import Emu, Inches, Pt
+from pptx.util import Inches, Pt
 
 try:
     from econometrica.aurora_tokens import COLORS, TYPOGRAPHY, SIZING
@@ -51,20 +51,8 @@ except ImportError as e:
     ) from e
 
 
-def leaf(d):
-    return d.get("$value", d) if isinstance(d, dict) else d
-
-
 def hex_to_rgb(h):
     return RGBColor.from_string(h.lstrip("#").upper())
-
-
-def _nested(d, path):
-    """Walk nested dict by dotted path e.g. 'brand.deep.100'."""
-    cursor = d
-    for key in path.split("."):
-        cursor = cursor[key]
-    return cursor
 
 
 class AuroraPPTXBuilder:
