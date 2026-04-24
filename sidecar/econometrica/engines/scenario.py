@@ -41,6 +41,16 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     with open(model_path, 'rb') as f:
         model_data = pickle.load(f)
 
+    # P0-1/2/9 fix: pickle compat detection. Old z-score models (no model_version
+    # or '1.0') used different normalization → can't be reused with spend/mean engine.
+    model_version = model_data.get('model_version', '1.0')
+    if model_version == '1.0':
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_OUTDATED',
+            'message': 'Модель обучена до v1.0.13. Нормализация изменилась — переобучите модель в кабинете "Модель".',
+        }
+
     config_model = model_data['config']
     channel_params = model_data['channel_params']
     norm = model_data['normalization']
@@ -80,10 +90,9 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             spend_t = spend[t] if t < len(spend) else 0
 
             p = channel_params[col]
-            # Normalize like training
-            mean = norm['media_means'].get(col, 0)
-            std = norm['media_stds'].get(col, 1)
-            x_norm = (spend_t - mean) / std if std > 0 else 0
+            # P0-1/2/9 fix: spend/mean Robyn-style normalization matching training.
+            mean = norm['media_means'].get(col, 1)
+            x_norm = spend_t / max(mean, 1e-10) if mean > 0 else 0
 
             # Saturate
             sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 0.01))

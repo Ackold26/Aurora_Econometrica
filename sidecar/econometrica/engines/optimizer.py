@@ -39,8 +39,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     with open(model_path, 'rb') as f:
         model_data = pickle.load(f)
 
+    # P0-1/2/9 fix: pickle compat detection.
+    model_version = model_data.get('model_version', '1.0')
+    if model_version == '1.0':
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_OUTDATED',
+            'message': 'Модель обучена до v1.0.13. Нормализация изменилась — переобучите модель в кабинете "Модель".',
+        }
+
     config_model = model_data['config']
     channel_params = model_data['channel_params']
+    norm = model_data['normalization']
     media_cols = config_model['media_columns']
     # Override > pickle-config (аналогично decomposer).
     unit_costs_override = config.get('unit_costs')

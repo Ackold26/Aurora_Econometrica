@@ -30,6 +30,15 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     with open(model_path, 'rb') as f:
         model_data = pickle.load(f)
 
+    # P0-1/2/9 fix: pickle compat detection.
+    model_version = model_data.get('model_version', '1.0')
+    if model_version == '1.0':
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_OUTDATED',
+            'message': 'Модель обучена до v1.0.13. Нормализация изменилась — переобучите модель в кабинете "Модель".',
+        }
+
     config = model_data['config']
     channel_params = model_data['channel_params']
     y_actual = np.array(model_data['y_actual'])

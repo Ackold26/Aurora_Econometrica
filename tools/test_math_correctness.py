@@ -627,26 +627,40 @@ def test_prior_predictive_alpha_steepness():
     )
 
 
-def test_p0_2_half_data_silent_drop():
-    """P0-2 regression: simulate z-scored spend (half below 0), apply the
-    clip, verify half the periods contribute zero to media effect.
+def test_p0_2_no_data_dropped_post_fix():
+    """P0-2 FIXED (Phase 2, math-fix-v1.0.13): spend/mean normalization
+    keeps non-negative scale, clip at line 310 never fires.
 
-    This test documents the P0-2 bug — current code silently drops ~50%
-    of data. When Hill fix lands (spend/mean, always ≥ 0), this test
-    will fail meaningfully (clip becomes no-op).
+    Pre-fix: z-score (X - mean) / std produced negative values clipped to 0
+    by pm.math.maximum, silently dropping ~50% of periods.
+
+    Post-fix: spend/mean → all non-negative (since spend ≥ 0). Clip is
+    a defensive no-op for valid input. This test simulates spend/mean
+    normalization on log-normal-like positive spend, asserts ZERO drop.
     """
     rng = np.random.default_rng(SEED + 3)
     n_periods = 100
-    spend_z = rng.normal(0, 1, size=n_periods)
-    spend_clipped = np.maximum(spend_z, 0)
+    # Realistic positive spend pattern (log-normal-like)
+    raw_spend = np.abs(rng.normal(100, 30, size=n_periods)) + 10
+    mean = raw_spend.mean()
 
-    # Fraction dropped to zero (was negative)
+    # Post-fix normalization
+    spend_norm = raw_spend / mean
+    spend_clipped = np.maximum(spend_norm, 0)
+
+    # Should be EXACTLY zero values dropped (clip is no-op)
     dropped = float((spend_clipped == 0).mean())
-    # For N(0,1) clip(·, 0), ~50% of values become exactly 0
     assert_true(
-        "P0-2: z-score + clip drops ~50% of data (bug signature)",
-        0.4 <= dropped <= 0.6,
-        f"dropped fraction={dropped}",
+        "P0-2 fixed: spend/mean normalization drops zero data",
+        dropped == 0.0,
+        f"dropped fraction={dropped}; should be 0.0 (was ~0.5 with z-score)",
+    )
+    # And mean of normalized is exactly 1.0 (Robyn property)
+    assert_close(
+        "P0-2 fixed: spend/mean normalization → mean(x_norm) ≈ 1.0",
+        float(spend_norm.mean()),
+        1.0,
+        rtol=1e-9,
     )
 
 
@@ -716,7 +730,7 @@ def main() -> int:
     test_prior_predictive_sanity_zscore_domain()
     test_prior_predictive_saturation_coverage()
     test_prior_predictive_alpha_steepness()
-    test_p0_2_half_data_silent_drop()
+    test_p0_2_no_data_dropped_post_fix()
 
     print("\n── 12. Validator column role ──")
     test_column_role_kpi_detection()

@@ -245,10 +245,15 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     X_control = df[control_cols].fillna(0).astype(float) if control_cols else pd.DataFrame()
 
-    # Normalize media
-    media_means = X_media.mean()
-    media_stds = X_media.std().replace(0, 1)
-    X_media_norm = (X_media - media_means) / media_stds
+    # Normalize media — Robyn-style spend/mean (P0-1/2/9 fix, math-fix-v1.0.13).
+    # Pre-fix: z-score (X - mean) / std produced negative values that were clipped
+    # at line 310 by pm.math.maximum(x, 0), silently dropping ~50% of data and
+    # destroying response curve curvature. Result: scenario/optimizer/what-if
+    # showed near-zero sensitivity to budget changes.
+    # Post-fix: spend/mean keeps non-negative scale, gamma stays in [0,1] range.
+    media_means = X_media.mean().replace(0, 1)  # avoid div/0 for empty channels
+    X_media_norm = X_media / media_means
+    # media_stds removed — not used in spend/mean normalization
 
     # Normalize controls — критично: без этого большие контроли (price, budget) дают
     # огромный control_effect, y_pred улетает в ∞, R² получается астрономически отрицательным.
@@ -604,17 +609,27 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # `'functools.partial' object has no attribute '__name__'`.
         # Downstream engines (decomposer/optimizer/scenario) only need channel_params +
         # posterior means + normalization — not the raw trace or model graph.
+        # Extract intercept + control betas posterior means for decomposer baseline (Phase 3).
+        intercept_mean_posterior = float(trace.posterior['intercept'].mean(dim=['chain', 'draw']).values)
+        control_betas_mean_posterior = []
+        if len(control_cols) > 0:
+            control_betas_mean_posterior = trace.posterior['control_betas'].mean(dim=['chain', 'draw']).values.tolist()
+
         model_data = {
             'config': config,
             'channel_params': channel_params,
             'normalization': {
+                # P0-1/2/9 fix: spend/mean normalization, media_stds removed (not used)
                 'media_means': media_means.to_dict(),
-                'media_stds': media_stds.to_dict(),
                 'control_means': control_means.to_dict() if len(control_cols) > 0 else {},
                 'control_stds': control_stds.to_dict() if len(control_cols) > 0 else {},
                 'y_mean': float(y_mean),
                 'y_std': float(y_std),
+                # Phase 3 dependency: decomposer baseline = intercept + control effects
+                'intercept_mean': intercept_mean_posterior,
+                'control_betas_mean': control_betas_mean_posterior,
             },
+            'model_version': '1.1',  # P0-1/2/9 schema; older pickles rejected by engines
             'y_actual': y.tolist(),
             'y_predicted': y_pred.tolist(),
         }
