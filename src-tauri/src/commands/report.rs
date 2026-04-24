@@ -92,6 +92,21 @@ fn apply_base_cols(ws: &mut rust_xlsxwriter::Worksheet, fmt: &Format) -> Result<
     Ok(())
 }
 
+/// Tier-1 print setup per Standards/04 §print: landscape, 1-page-wide fit,
+/// gridlines off, header/footer with confidentiality + page numbers.
+fn apply_print_setup(
+    ws: &mut rust_xlsxwriter::Worksheet,
+    sheet_name: &str,
+) -> Result<(), String> {
+    ws.set_print_gridlines(false);
+    ws.set_landscape();
+    ws.set_print_fit_to_pages(1, 0); // 1 wide, unlimited tall
+    ws.set_margins(0.5, 0.5, 0.75, 0.75, 0.3, 0.3);
+    ws.set_header(&format!("&LAurora AI Econometrica - {sheet_name}&R&D"));
+    ws.set_footer("&LConfidential | Aurora AI&CPage &P of &N&R&F");
+    Ok(())
+}
+
 /// Pull a fit metric out of `model.diagnostics`.
 /// Backend nests them under `diagnostics.metrics.*` (with `mape_pct`),
 /// older payloads kept them flat under `diagnostics.*`.
@@ -659,6 +674,8 @@ fn build_xlsx(
         ws.set_name("Executive Summary").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x3B82F6));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(4, 0).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Executive Summary")?;
 
         let mqs       = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
         let mqs_label = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
@@ -706,6 +723,8 @@ fn build_xlsx(
         ws.set_name("Спецификация").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x8B5CF6));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 0).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Спецификация")?;
 
         let spec = model_spec_value(model);
         let title = spec["title"].as_str().unwrap_or("Спецификация модели");
@@ -797,6 +816,8 @@ fn build_xlsx(
         ws.set_name("Декомпозиция").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x22C55E));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 1).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Декомпозиция")?;
 
         ws.write_with_format(0, 0, "Категория", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(0, 1, "Вклад", &header_fmt).map_err(|e| format!("{e}"))?;
@@ -838,6 +859,8 @@ fn build_xlsx(
         ws.set_name("ROI каналов").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0xF59E0B));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 1).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "ROI каналов")?;
 
         let headers = ["Канал", "Расход", "Вклад", "ROI", "CI нижний", "CI верхний", "Вердикт"];
         for (c, h) in headers.iter().enumerate() {
@@ -900,6 +923,8 @@ fn build_xlsx(
         ws.set_name("Spend vs Effect").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x8B5CF6));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 1).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Spend vs Effect")?;
 
         let headers = ["Канал", "Расход", "% бюджета", "Вклад", "% эффекта", "Efficiency"];
         for (c, h) in headers.iter().enumerate() {
@@ -962,6 +987,8 @@ fn build_xlsx(
                 ws.set_name("Динамика").map_err(|e| format!("{e}"))?;
                 ws.set_tab_color(Color::RGB(0x14B8A6));
                 apply_base_cols(ws, &base_fmt)?;
+                ws.set_freeze_panes(1, 2).map_err(|e| format!("{e}"))?;
+                apply_print_setup(ws, "Динамика")?;
 
                 // Header row
                 ws.write_with_format(0, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
@@ -1024,6 +1051,8 @@ fn build_xlsx(
         ws.set_name("Оптимизация").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x0EA5E9));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 1).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Оптимизация")?;
 
         let headers = ["Канал", "Текущий", "Оптимальный", "Δ", "Δ%", "Текущий ROI"];
         for (c, h) in headers.iter().enumerate() {
@@ -1096,6 +1125,8 @@ fn build_xlsx(
         ws.set_name("Сценарии").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0xEC4899));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 1).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Сценарии")?;
 
         let homogeneous_money = scenarios.iter()
             .all(|s| s["totals"]["roas_money"].as_f64().is_some());
@@ -1178,6 +1209,8 @@ fn build_xlsx(
         ws.set_name("Данные").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x22C55E));
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 2).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Данные")?;
 
         let ts = &decompose["time_series"];
         let dates = ts["dates"].as_array().cloned().unwrap_or_default();
@@ -1235,6 +1268,8 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Глоссарий").map_err(|e| format!("{e}"))?;
         apply_base_cols(ws, &base_fmt)?;
+        ws.set_freeze_panes(1, 0).map_err(|e| format!("{e}"))?;
+        apply_print_setup(ws, "Глоссарий")?;
 
         ws.write_with_format(0, 0, "Термин", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(0, 1, "Определение", &header_fmt).map_err(|e| format!("{e}"))?;
@@ -1260,6 +1295,15 @@ fn build_xlsx(
         ws.set_column_width(0, 18).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 80).map_err(|e| format!("{e}"))?;
     }
+
+    // ── Named ranges (tier-1 anchor; analyst drill-back) ─────────────────────
+    // Only single-cell names — multi-row ranges brittle on variable channel
+    // counts (audit M1). `define_name` is ignored if referenced sheet/row
+    // never materialized (Executive Summary always present).
+    wb.define_name("MQS_Score",    "='Executive Summary'!$B$5")
+        .map_err(|e| format!("define_name MQS_Score: {e}"))?;
+    wb.define_name("Total_Budget", "='Executive Summary'!$B$9")
+        .map_err(|e| format!("define_name Total_Budget: {e}"))?;
 
     wb.save(path).map_err(|e| format!("XLSX save error: {e}"))?;
     Ok(())
