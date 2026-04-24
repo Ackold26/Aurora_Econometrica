@@ -24,6 +24,13 @@ import sys
 import zipfile
 from pathlib import Path
 
+# Force UTF-8 stdout on Windows cp1251 consoles so special chars in labels
+# (e.g. '×', '₽') do not crash with UnicodeEncodeError.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 REPO = Path(__file__).resolve().parents[1]
 SIDECAR = REPO / "sidecar"
 sys.path.insert(0, str(SIDECAR))
@@ -163,6 +170,44 @@ def main() -> int:
                           res.get("slides") == 13))
     results.append(_check("Case 6: no exception, output valid",
                           len(xml) > 1000))
+
+    # ─── Case 7: no-TV client (digital-only, 4 channels) ───────────────────
+    # Strictest multi-client safety check: ZERO residual Kagocel pilot
+    # narrative when client has no TV / Digital video / Search / OOH / Social /
+    # Print channel names. Asserts data-driven slot-fills replace ALL
+    # hardcoded wireframe strings.
+    decomp_chs, opt_chs = _chs([
+        ("Yandex Direct", 40, 78,  1.95, 70),
+        ("YouTube",       35, 55,  1.57, 58),
+        ("Instagram",     22, 30,  1.36, 28),
+        ("TikTok",        18, 22,  1.22, 20),
+    ])
+    model = {"diagnostics": {"mqs": {"score": 76, "tier_label": "GOOD"},
+                              "metrics": {"r_squared": 0.81, "mape_pct": 9.1,
+                                          "r_hat_max": 1.012, "ess_min": 1110}}}
+    opt = {"channels": opt_chs, "expected_lift_pct": 10.5}
+    res, xml = _build(model, {"channels": decomp_chs}, opt, project_id="DigitalOnlyCo")
+    results.append(_check("Case 7 (no-TV): 13 slides", res.get("slides") == 13))
+    results.append(_check("Case 7: DigitalOnlyCo propagates",
+                          "DigitalOnlyCo" in xml))
+    results.append(_check("Case 7: Yandex Direct hero name present",
+                          "Yandex Direct" in xml))
+    # ZERO leaks of Kagocel pilot narrative pieces - hardcoded channel
+    # names, flight annotations, pilot numbers, competitor MMM tools.
+    for leak in (
+        "Kagocel", "KAGOCEL",
+        '"TV"', ">TV<",  # loose - real TV token inside XML tags
+        "Digital video", "Print", "Radio", "OOH",
+        # W06/W11 appear as generic x-axis period labels (W01..W13),
+        # not as Kagocel flight annotations - those are gated behind
+        # preview_mode now. Skip them in the leak list.
+        "TV FLIGHT", "HOLIDAY PUSH",
+        "286 млн", "25 млн из TV", "Weekly bursts",
+        "Robyn", "LightweightMMM",
+        "80 TRP", "1.8x",
+    ):
+        # Use raw substring; XML is full slide concatenation.
+        results.append(_check(f"Case 7: no '{leak}' leak", leak not in xml))
 
     # ─── Summary ────────────────────────────────────────────────────────────
     passed = sum(1 for r in results if r)

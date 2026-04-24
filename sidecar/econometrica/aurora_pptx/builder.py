@@ -1240,9 +1240,32 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "ПОРТФЕЛЬ КАНАЛОВ")
 
+        # Action title - data-driven: top-N contributors covering >=85% of
+        # incremental sales. Fallback ("Пять каналов...") applies only in
+        # preview / wireframe mode when no channels supplied.
+        if self.channels:
+            contribs = sorted(
+                (float(c.get("contribution") or 0) for c in self.channels),
+                reverse=True,
+            )
+            total_c = sum(contribs) or 1.0
+            acc = 0.0
+            top_n = 0
+            for v in contribs:
+                acc += v
+                top_n += 1
+                if acc / total_c >= 0.85:
+                    break
+            pct = int(round(acc / total_c * 100))
+            other_n = len(self.channels) - top_n
+            if other_n > 0:
+                s07_title = f"{top_n} канал(ов) генерируют {pct}% продаж - остальные рекомендованы к консолидации"
+            else:
+                s07_title = f"Портфель из {top_n} канал(ов) сбалансирован - все активно работают"
+        else:
+            s07_title = "Пять каналов генерируют 87% продаж - остальные рекомендованы к консолидации"
         self._action_title(
-            slide,
-            "Пять каналов генерируют 87% продаж - остальные рекомендованы к консолидации",
+            slide, s07_title,
             show_lime=True, y=0.80, height=0.80,
         )
 
@@ -1386,13 +1409,29 @@ class AuroraPPTXBuilder:
             x += w
         self._hairline(slide, table_x, row_y + 0.32, table_w, weight=0.75, color=self.deep_100)
 
-        # Unified bottom block: ПРИМЕЧАНИЯ label + 3 footnotes + source,
-        # packed tight upward from footer hairline (6.85) with 0.03 clearance
-        footnotes = [
-            ("1", "TV: mROAS считается при текущих 85 TRP/нед; выше 100 TRP/нед ROI падает ниже 1.2×."),
-            ("2", "Social volatile - mROAS 1.3× median, но CI 0.8 1.8× (высокая неопределённость)."),
-            ("3", "Print: ниже breakeven; рекомендация основана на 3-квартальном тренде."),
-        ]
+        # Unified bottom block: ПРИМЕЧАНИЯ label + up to 3 data-driven footnotes
+        # generated from flagged channels (Reduce/Cut) - matches footnote
+        # numbers already assigned in _build_action_table_rows. Preview /
+        # wireframe mode falls back to Kagocel pilot footnotes below.
+        if self.channels:
+            flagged = [c for c in self.channels if c.get("verdict") in ("Reduce", "Cut")][:3]
+            reason_by_verdict = {
+                "Cut": "ниже breakeven по mROAS; рекомендовано остановить или перевести в другие каналы.",
+                "Reduce": "saturation-bound; мargin от дополнительного рубля ниже портфельного среднего.",
+            }
+            footnotes = [
+                (str(i + 1), f"{c.get('name') or '-'}: {reason_by_verdict.get(c.get('verdict'), 'рекомендовано пересмотреть аллокацию.')}")
+                for i, c in enumerate(flagged)
+            ]
+            if not footnotes:
+                # No flagged channels - single informational note.
+                footnotes = [("1", "Все каналы портфеля в рабочем диапазоне mROAS; критических рекомендаций нет.")]
+        else:
+            footnotes = [
+                ("1", "TV: mROAS считается при текущих 85 TRP/нед; выше 100 TRP/нед ROI падает ниже 1.2×."),
+                ("2", "Social volatile - mROAS 1.3× median, но CI 0.8 1.8× (высокая неопределённость)."),
+                ("3", "Print: ниже breakeven; рекомендация основана на 3-квартальном тренде."),
+            ]
         line_h = 0.14
         # Layout (bottom-up): source (6.87) · fn3 (6.73) · fn2 (6.59) · fn1 (6.45) · label (6.30)
         label_y = 6.30
@@ -1468,36 +1507,65 @@ class AuroraPPTXBuilder:
         area_w = chart_w - 2.8  # leave space for legend on right
         area_h = 2.6
 
-        # Band heights scaled so that sum × max seasonal multiplier ≤ area_h (2.6")
-        # TV mod 1.6 at peaks; others ≤ 1.1. Sum at peak W06: 0.85+0.55·1.6+0.35+0.17+0.12+0.07 ≈ 2.44 < 2.6 ✓
-        bands = [
-            ("Baseline",      self.deep_40, 0.85),
-            ("TV",            self.gold,    0.55),
-            ("Digital video", self.deep_80, 0.35),
-            ("Search",        self.deep_60, 0.17),
-            ("OOH",           self.deep_20, 0.12),
-            ("Social",        self.deep_20, 0.07),
-        ]
+        # Bands - data-driven from top contributors when channels present,
+        # else Kagocel pilot bands (preview / wireframe mode).
+        # Target peak-sum under area_h (2.6") accounting for leader seasonal
+        # multiplier up to 1.6×.
+        palette = [self.gold, self.deep_80, self.deep_60, self.deep_40, self.deep_20, self.deep_20]
+        if self.channels:
+            by_contrib = sorted(
+                self.channels,
+                key=lambda c: float(c.get("contribution") or 0),
+                reverse=True,
+            )[:5]
+            total_c = sum(float(c.get("contribution") or 0) for c in by_contrib) or 1.0
+            # Channel bands occupy ~55% of total height; baseline ~45%.
+            channel_h_budget = 1.10  # inches, fits sum × peak mod ≤ area_h
+            baseline_h = 0.85
+            bands = [("Baseline", self.deep_40, baseline_h)]
+            for i, c in enumerate(by_contrib):
+                share = float(c.get("contribution") or 0) / total_c
+                bands.append((
+                    c.get("name") or "-",
+                    palette[i % len(palette)],
+                    max(0.05, share * channel_h_budget),
+                ))
+            # Leader name = first channel after baseline (highest contribution)
+            leader_name = bands[1][0] if len(bands) > 1 else None
+        else:
+            bands = [
+                ("Baseline",      self.deep_40, 0.85),
+                ("TV",            self.gold,    0.55),
+                ("Digital video", self.deep_80, 0.35),
+                ("Search",        self.deep_60, 0.17),
+                ("OOH",           self.deep_20, 0.12),
+                ("Social",        self.deep_20, 0.07),
+            ]
+            leader_name = "TV"
         seg_w = area_w / weeks
 
-        # Draw stacked with seasonal modulation
+        # Draw stacked with seasonal modulation.
+        # Preview mode retains W06/W11 TV flights; real-data mode uses generic
+        # sinusoidal seasonality without synthetic flight spikes.
+        preview_mode = not self.channels
         for w_idx in range(weeks):
             week_x = area_x + w_idx * seg_w
-            # Flight multiplier: spike on W06 and W11 (TV campaign peaks)
             base_mod = 0.9 + 0.15 * math.sin(w_idx / 13 * 2 * math.pi)
-            if w_idx in (5, 10):  # W06, W11 - flights
-                tv_mod = 1.6
+            if preview_mode and w_idx in (5, 10):
+                leader_mod = 1.6
+            elif preview_mode:
+                leader_mod = 0.85 if w_idx in (4, 6, 9, 11) else 0.7
             else:
-                tv_mod = 0.85 if w_idx in (4, 6, 9, 11) else 0.7
+                leader_mod = 0.95 + 0.15 * math.sin(w_idx / 4.2 + 0.7)
 
             y_top = area_y + area_h
             for name, col, base_h in bands:
-                if name == "TV":
-                    h_band = base_h * tv_mod
+                if name == leader_name:
+                    h_band = base_h * leader_mod
                 elif name == "Baseline":
                     h_band = base_h * base_mod
                 else:
-                    h_band = base_h * (0.95 + 0.1 * math.sin(w_idx / 5))
+                    h_band = base_h * (0.95 + 0.1 * math.sin(w_idx / 5 + hash(name) % 7))
                 y_top -= h_band
                 self._rect(slide, week_x, y_top, seg_w, h_band, fill=col)
 
@@ -1520,28 +1588,26 @@ class AuroraPPTXBuilder:
                 font=self.sans, size=7, color=self.deep_60, align=PP_ALIGN.CENTER,
             )
 
-        # Annotations - labels above chart, no arrows (avoid line clutter on chart)
-        w06_x = area_x + 5 * seg_w + seg_w / 2
-        ann_y_top = area_y - 0.3
-        self._text(
-            slide, w06_x - 0.9, ann_y_top, 1.8, 0.2,
-            "TV FLIGHT . 95 TRP/нед",
-            font=self.sans, size=7, bold=True, color=self.gold, align=PP_ALIGN.CENTER,
-        )
-        # Small gold tick marker на оси X под label (не arrow, а marker)
-        self._vline(
-            slide, w06_x, area_y, 0.08, weight=1.5, color=self.gold
-        )
+        # Annotations - only in preview mode (TV flight narrative is Kagocel-
+        # specific). Real-data runs show clean bands without flight callouts;
+        # per-week peak detection is deferred to XLSX "Динамика" sheet.
+        if preview_mode:
+            w06_x = area_x + 5 * seg_w + seg_w / 2
+            ann_y_top = area_y - 0.3
+            self._text(
+                slide, w06_x - 0.9, ann_y_top, 1.8, 0.2,
+                "TV FLIGHT . 95 TRP/нед",
+                font=self.sans, size=7, bold=True, color=self.gold, align=PP_ALIGN.CENTER,
+            )
+            self._vline(slide, w06_x, area_y, 0.08, weight=1.5, color=self.gold)
 
-        w11_x = area_x + 10 * seg_w + seg_w / 2
-        self._text(
-            slide, w11_x - 0.9, ann_y_top, 1.8, 0.2,
-            "HOLIDAY PUSH . DIGITAL",
-            font=self.sans, size=7, bold=True, color=self.gold, align=PP_ALIGN.CENTER,
-        )
-        self._vline(
-            slide, w11_x, area_y, 0.08, weight=1.5, color=self.gold
-        )
+            w11_x = area_x + 10 * seg_w + seg_w / 2
+            self._text(
+                slide, w11_x - 0.9, ann_y_top, 1.8, 0.2,
+                "HOLIDAY PUSH . DIGITAL",
+                font=self.sans, size=7, bold=True, color=self.gold, align=PP_ALIGN.CENTER,
+            )
+            self._vline(slide, w11_x, area_y, 0.08, weight=1.5, color=self.gold)
 
         # Legend on the right
         leg_x = area_x + area_w + 0.3
@@ -1885,7 +1951,7 @@ class AuroraPPTXBuilder:
         # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
         self._source(
             slide, 6.87,
-            text="Приоры: Robyn, LightweightMMM + 12 FMCG-проектов Aurora (2024-2026).",
+            text="Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM.",
         )
 
         self._footer(slide, 10)
