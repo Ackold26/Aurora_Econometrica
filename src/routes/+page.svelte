@@ -188,7 +188,7 @@
   <div class="home">
     <div style="display: flex; align-items: center; justify-content: center; height: 100vh;">
       <div class="spinner"></div>
-      <p style="margin-left: 12px; opacity: 0.6; font-size: 13px;">Открытие кабинета...</p>
+      <p style="margin-left: 12px; opacity: 0.6; font-size: 13px;">Открытие рабочей области...</p>
     </div>
   </div>
 {:else}
@@ -290,7 +290,7 @@
       <div class="state-panel">
         <div class="spinner"></div>
         {#if vaultProgress}
-          <p class="state-text">Загрузка кабинетов... ({vaultProgress.current}/{vaultProgress.total})</p>
+          <p class="state-text">Загрузка данных... ({vaultProgress.current}/{vaultProgress.total})</p>
           <p class="state-subtext">{vaultProgress.file}</p>
         {:else}
           <p class="state-text">Проверка лицензии...</p>
@@ -308,8 +308,8 @@
     {:else if cabinets.length === 0}
       <div class="state-panel glass-panel">
         <div class="state-icon">📦</div>
-        <h2 class="state-title">Нет доступных кабинетов</h2>
-        <p class="state-desc">В вашей лицензии нет активных кабинетов</p>
+        <h2 class="state-title">Рабочая область недоступна</h2>
+        <p class="state-desc">В вашей лицензии не активирована Econometrica. Обратитесь в поддержку.</p>
       </div>
 
     {:else}

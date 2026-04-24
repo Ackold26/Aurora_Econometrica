@@ -46,7 +46,7 @@ from pptx.enum.text import PP_ALIGN
 from pptx.util import Inches, Pt
 
 try:
-    from econometrica.aurora_tokens import COLORS, TYPOGRAPHY, SIZING
+    from aurora_tokens import COLORS, TYPOGRAPHY, SIZING
 except ImportError as e:
     raise RuntimeError(
         "aurora_tokens not generated. Run: python Standards/tokens/build.py --target python"

@@ -886,8 +886,12 @@ fn build_xlsx(
             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, contrib, &num_fmt).map_err(|e| format!("{e}"))?;
-            // ROI formula
-            ws.write_formula_with_format(row, 3, Formula::new(format!("=IF(B{r}>0,C{r}/B{r},0)", r = row + 1)), &roi_fmt).map_err(|e| format!("{e}"))?;
+            // ROI as precomputed number (not formula): rust_xlsxwriter 0.79
+            // не записывает formula values в chart numCache → Excel считает
+            // workbook повреждённым. Плюс user получает корректные значения
+            // сразу без пересчёта Excel'ем.
+            let roi = if spend > 0.0 { contrib / spend } else { 0.0 };
+            ws.write_with_format(row, 3, roi, &roi_fmt).map_err(|e| format!("{e}"))?;
             ws.write(row, 4, ci_lo).map_err(|e| format!("{e}"))?;
             ws.write(row, 5, ci_hi).map_err(|e| format!("{e}"))?;
             ws.write(row, 6, verdict).map_err(|e| format!("{e}"))?;

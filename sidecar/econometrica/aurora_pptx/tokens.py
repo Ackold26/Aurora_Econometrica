@@ -18,7 +18,7 @@ from pptx.util import Emu, Inches, Pt
 
 try:
     # aurora_tokens is generated from Standards/tokens/tokens.json via build.py
-    from econometrica.aurora_tokens import (
+    from aurora_tokens import (
         COLORS,
         TYPOGRAPHY,
         SIZING,

@@ -58,7 +58,18 @@
     try {
       const p = await invoke('econ_train_progress');
 
-      if (p.status === 'done' || (p.pct >= 100 && p.status !== 'running')) {
+      // Guard: sidecar `/progress` возвращает GLOBAL last-task state.
+      // Первые poll'ы после mount (500ms) приходят до того как sidecar
+      // переключил state на новую task → terminal status предыдущей
+      // task показывается как error/done текущей. Игнорируем если task_id
+      // не совпадает. Если task_id отсутствует (старая sidecar сборка) -
+      // пропускаем только если статус terminal И pct=0 (idle предыдущей).
+      const isStaleTerminal = (
+        (p.task_id && p.task_id !== taskId) ||
+        (!p.task_id && p.pct === 0 && p.status !== 'running')
+      );
+
+      if ((p.status === 'done' || (p.pct >= 100 && p.status !== 'running')) && !isStaleTerminal) {
         // Fetch result
         try {
           const result = await invoke('econ_train_result', { taskId });
@@ -73,7 +84,7 @@
         return;
       }
 
-      if (p.status === 'error') {
+      if (p.status === 'error' && !isStaleTerminal) {
         active = false;
         try {
           const result = /** @type {any} */ (await invoke('econ_train_result', { taskId }));
@@ -84,7 +95,7 @@
         return;
       }
 
-      if (p.status === 'cancelled') {
+      if (p.status === 'cancelled' && !isStaleTerminal) {
         active = false;
         onStop?.();
         return;

@@ -95,7 +95,7 @@ def build_html(
         or {"status": "error", "message": ..., "type": ...} on failure.
     """
     try:
-        from econometrica.aurora_html import build_html as _aurora_build
+        from aurora_html import build_html as _aurora_build
     except ImportError as e:
         msg = f'aurora_html package unavailable: {e}'
         logger.error(msg)

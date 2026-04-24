@@ -70,11 +70,11 @@ def build_pptx(
                     cover until pipeline exposes a dedicated display name.
 
     Returns:
-        {"status": "success", "path": ..., "slides": 13}
+        {"status": "ok", "path": ..., "slides": 13}
         or {"status": "error", "message": ..., "type": ...} on failure.
     """
     try:
-        from econometrica.aurora_pptx import build_pptx as _aurora_build
+        from aurora_pptx import build_pptx as _aurora_build
     except ImportError as e:
         msg = f"aurora_pptx package unavailable: {e}"
         logger.error(msg)
@@ -89,7 +89,7 @@ def build_pptx(
         slides_count = len(prs.slides)
         logger.info(f"build_pptx OK: slides={slides_count} path={output_path}")
         return {
-            "status": "success",
+            "status": "ok",
             "path": output_path,
             "slides": slides_count,
         }

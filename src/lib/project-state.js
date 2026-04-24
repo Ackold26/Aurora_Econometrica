@@ -369,7 +369,19 @@ export function completeStep(step) {
 export function setStepError(step, message) {
   pipelineStepMeta.update(steps => {
     const copy = steps.map(s => ({ ...s }));
-    copy[step] = { status: 'error', errorMessage: message ?? null };
+    if (message) {
+      copy[step] = { status: 'error', errorMessage: message };
+    } else {
+      // Clear error: если статус был 'error', откатываемся к 'ready'.
+      // Иначе (complete / ready / locked) оставляем как есть.
+      // Иначе вызов setStepError(n, null) из retry-flow ложно устанавливал
+      // status='error' с пустым сообщением → залипший "Ошибка" badge без текста.
+      if (copy[step].status === 'error') {
+        copy[step] = { status: 'ready', errorMessage: null };
+      } else {
+        copy[step] = { ...copy[step], errorMessage: null };
+      }
+    }
     return copy;
   });
   const pid = get(activeProjectId);

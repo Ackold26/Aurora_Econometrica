@@ -10,6 +10,7 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { openPath } from '@tauri-apps/plugin-opener';
+  import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import {
     activeProjectId,
@@ -59,6 +60,30 @@
       recomputing = false;
     }
   }
+
+  // Auto-reload at mount: если stores пустые (cold start сессии), но на disk
+  // есть results - подтянуть их молча. Avoids ложный banner "Данные не
+  // загружены в память" когда pipelineStepMeta уже говорит complete по disk flags.
+  // Если какие-то результаты отсутствуют и на диске - автоматически пересчитать.
+  onMount(async () => {
+    if (!get(activeProjectId)) return;
+    const needReload = () => {
+      const m = get(modelData);
+      const d = get(decomposeData);
+      const o = get(optimizeData);
+      return !m?.diagnostics || !d || !o;
+    };
+    if (!needReload()) return;
+    await reloadFromDisk();
+    // Tier-2 fallback: после reload stores всё ещё неполные (например disk
+    // содержит только decompose, optimization.json отсутствует) - запускаем
+    // автоматический пересчёт downstream (decompose + optimize) из модели.
+    // Модель на диске должна быть - иначе пользователь не дошёл бы до Report.
+    if (needReload() && get(modelData)?.diagnostics) {
+      recomputeError = null;
+      await recomputeDownstream();
+    }
+  });
 
   async function recomputeDownstream() {
     const pid = get(activeProjectId);
