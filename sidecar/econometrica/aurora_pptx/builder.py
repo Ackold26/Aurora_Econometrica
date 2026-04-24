@@ -132,6 +132,15 @@ class AuroraPPTXBuilder:
         # Source-note label template (client name substituted)
         self.sources_client_label = meta.get("sources_client_label", self.client)
 
+        # --- Diagnostics (Phase 2 numbers — parametrized metric callouts) ---
+        diag = self.data.get("diagnostics") or {}
+        self.mqs_score = diag.get("mqs_score", 87)
+        self.mqs_tier_label = diag.get("mqs_tier_label", "GOOD - готовность к production")
+        self.r_squared = diag.get("r_squared", 0.872)
+        self.mape_pct = diag.get("mape_pct", 8.3)
+        self.r_hat_max = diag.get("r_hat_max", 1.008)
+        self.ess_min = diag.get("ess_min", 1247)
+
     # ---------- Primitives ----------
 
     def _blank(self):
@@ -1305,7 +1314,7 @@ class AuroraPPTXBuilder:
             {
                 "label":  "SITUATION",
                 "height": 0.6,
-                "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Weighted ROI 1.5×, MQS модели 87/100 (GOOD).",
+                "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Weighted ROI 1.5×, MQS модели {self.mqs_score:.0f}/100.",
             },
             {
                 "label":  "COMPLICATION",
@@ -1463,10 +1472,10 @@ class AuroraPPTXBuilder:
         self._hairline(slide, left_x, diag_y + 0.28, 1.0, weight=0.75, color=self.gold)
 
         diag = [
-            ("R²",                "0.872"),
-            ("MAPE",              "8.3%"),
-            ("R-hat (max)",       "1.008"),
-            ("ESS (min)",         "1 247"),
+            ("R²",                f"{self.r_squared:.3f}"),
+            ("MAPE",              f"{self.mape_pct:.1f}%"),
+            ("R-hat (max)",       f"{self.r_hat_max:.3f}"),
+            ("ESS (min)",         f"{self.ess_min:,}".replace(",", " ")),
         ]
         dy = diag_y + 0.4
         for label, val in diag:
@@ -1559,10 +1568,10 @@ class AuroraPPTXBuilder:
             font=self.sans, size=10, bold=True, color=self.gold,
         )
 
-        # The big 87 + /100 pair - centered horizontally in card
-        # "87" box width 2.0 (fits 120pt 2-digit glyphs without wrap)
+        # The big MQS score + /100 pair - centered horizontally in card
+        # score box width 2.0 (fits 120pt 2-3 digit glyphs without wrap)
         self._text(
-            slide, card_x + 0.95, card_y + 0.50, 2.0, 1.8, "87",
+            slide, card_x + 0.95, card_y + 0.50, 2.0, 1.8, f"{self.mqs_score:.0f}",
             font=self.serif, size=120, color=self.deep_100,
         )
         # "/100" baseline-aligned to right of 87
@@ -1575,7 +1584,7 @@ class AuroraPPTXBuilder:
         self._hairline(slide, card_x + 0.35, card_y + 2.55, card_w - 0.7, weight=0.5)
         self._text(
             slide, card_x + 0.35, card_y + 2.7, card_w - 0.7, 0.3,
-            "GOOD - готовность к production",
+            self.mqs_tier_label,
             font=self.sans, size=12, italic=True, color=self.deep_100,
         )
 
@@ -1583,10 +1592,10 @@ class AuroraPPTXBuilder:
         km_y = card_y + 3.1
         km_col_w = (card_w - 0.7) / 2
         mets = [
-            ("R²",     "0.87"),
-            ("MAPE",   "8.3%"),
-            ("R-hat",  "1.008"),
-            ("ESS",    "1 247"),
+            ("R²",     f"{self.r_squared:.2f}"),
+            ("MAPE",   f"{self.mape_pct:.1f}%"),
+            ("R-hat",  f"{self.r_hat_max:.3f}"),
+            ("ESS",    f"{self.ess_min:,}".replace(",", " ")),
         ]
         for i, (label, val) in enumerate(mets):
             row, col = divmod(i, 2)
