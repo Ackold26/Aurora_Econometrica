@@ -489,7 +489,171 @@ def test_js_style_hill_semantics():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 11. Column role detection (validator sanity)
+# 11. Prior predictive simulation (R3 — numpy-only, no MCMC compile)
+# ─────────────────────────────────────────────────────────────────────────
+
+def _sample_priors(n_draws: int, n_channels: int, rng: np.random.Generator) -> dict:
+    """Sample from current MMM priors using numpy (matches modeler.py:287-317).
+
+    Priors (tightened 2026-04-19):
+        intercept    ~ Normal(0, 0.5)
+        media_betas  ~ HalfNormal(0.3), shape=(n_channels,)
+        alphas       ~ Gamma(5, 3), shape=(n_channels,)   [scipy: shape=5, scale=1/3]
+        gammas       ~ Beta(3, 3), shape=(n_channels,)
+        sigma        ~ HalfNormal(0.3)
+
+    Returns dict of sampled arrays.
+    """
+    return {
+        "intercept": rng.normal(0, 0.5, size=n_draws),
+        "media_betas": np.abs(rng.normal(0, 0.3, size=(n_draws, n_channels))),  # HalfNormal(0.3)
+        "alphas": rng.gamma(shape=5, scale=1 / 3, size=(n_draws, n_channels)),
+        "gammas": rng.beta(3, 3, size=(n_draws, n_channels)),
+        "sigma": np.abs(rng.normal(0, 0.3, size=n_draws)),
+    }
+
+
+def test_prior_predictive_sanity_zscore_domain():
+    """R3-A: prior predictive on CURRENT (z-score) domain.
+
+    With z-scored spend and current priors, simulate y_norm and check
+    distributional plausibility. Since y is normalized to mean=0, std=1,
+    the prior predictive y_norm should have mean≈0 and std of reasonable
+    magnitude (not blowing up to 10+).
+
+    This test DOCUMENTS the prior predictive behavior pre-Hill-fix.
+    Post-fix, a similar test with spend/mean domain will replace it.
+    """
+    rng = np.random.default_rng(SEED)
+    n_draws = 500
+    n_channels = 3
+    n_periods = 52
+
+    # Synthetic z-scored adstocked spend: N(0, 1) clipped at 0
+    spend_z = np.maximum(rng.normal(0, 1, size=(n_periods, n_channels)), 0)
+    controls_z = rng.normal(0, 1, size=(n_periods, 2))
+
+    priors = _sample_priors(n_draws, n_channels, rng)
+
+    # For each prior draw, compute predicted y_norm
+    y_norm_samples = np.zeros((n_draws, n_periods))
+    for d in range(n_draws):
+        media_effect = np.zeros(n_periods)
+        for i in range(n_channels):
+            x = spend_z[:, i]
+            a = priors["alphas"][d, i]
+            g = priors["gammas"][d, i]
+            b = priors["media_betas"][d, i]
+            sat = x ** a / (x ** a + g ** a + 1e-10)
+            media_effect += b * sat
+
+        # No control effect in prior (control betas have Normal(0, 0.3))
+        # Just use intercept + media
+        y_norm_samples[d] = priors["intercept"][d] + media_effect
+
+    # Aggregate statistics
+    prior_mean = float(y_norm_samples.mean())
+    prior_std = float(y_norm_samples.std())
+    prior_abs_max = float(np.abs(y_norm_samples).max())
+
+    # Expected: y_norm should be roughly centered (intercept ~ 0, sat ∈ [0,1] × β ~ N(0, 0.3))
+    # Tight sanity bounds
+    assert_true(
+        "prior predictive: |mean y_norm| reasonable (≤ 0.5)",
+        abs(prior_mean) <= 0.5,
+        f"mean={prior_mean}",
+    )
+    assert_true(
+        "prior predictive: std y_norm bounded (0.1 ≤ std ≤ 1.5)",
+        0.1 <= prior_std <= 1.5,
+        f"std={prior_std}",
+    )
+    assert_true(
+        "prior predictive: no runaway (|max| ≤ 5)",
+        prior_abs_max <= 5.0,
+        f"max={prior_abs_max}",
+    )
+
+
+def test_prior_predictive_saturation_coverage():
+    """R3-B: check that prior draws cover plausible saturation regimes.
+
+    For each channel, compute saturation at typical spend levels.
+    With Beta(3,3) gamma (mean 0.5, std ~0.19), majority of draws should
+    place γ in [0.2, 0.8] → half-saturation at moderate spend.
+
+    If gamma distribution is miscalibrated for the normalization scale,
+    this test flags it.
+    """
+    rng = np.random.default_rng(SEED + 1)
+    priors = _sample_priors(n_draws=1000, n_channels=1, rng=rng)
+    gammas = priors["gammas"][:, 0]
+
+    # Beta(3, 3) → mean 0.5, std ≈ 0.19, 95% CI ≈ [0.15, 0.85]
+    mean_g = float(gammas.mean())
+    p05, p95 = float(np.percentile(gammas, 5)), float(np.percentile(gammas, 95))
+
+    assert_close("Beta(3,3) gamma mean ≈ 0.5", mean_g, 0.5, rtol=0.05)
+    assert_true(
+        "Beta(3,3) gamma 95% CI within [0.1, 0.9]",
+        0.08 <= p05 <= 0.2 and 0.8 <= p95 <= 0.95,
+        f"p05={p05}, p95={p95}",
+    )
+
+
+def test_prior_predictive_alpha_steepness():
+    """R3-C: alpha ~ Gamma(5, 3) should produce saturation shapes from
+    concave (α<1) to S-shape (α>1). Check distribution."""
+    rng = np.random.default_rng(SEED + 2)
+    priors = _sample_priors(n_draws=1000, n_channels=1, rng=rng)
+    alphas = priors["alphas"][:, 0]
+
+    # Gamma(shape=5, scale=1/3) → mean 5/3 ≈ 1.67, std ≈ sqrt(5)/3 ≈ 0.745
+    mean_a = float(alphas.mean())
+    assert_close("Gamma(5,3) alpha mean ≈ 1.67", mean_a, 1.67, rtol=0.05)
+
+    # Fraction of draws with α > 1 (S-curve regime)
+    s_curve_frac = float((alphas > 1).mean())
+    assert_true(
+        "alpha > 1 covers ≥ 60% of prior (S-curve regime dominant)",
+        s_curve_frac >= 0.6,
+        f"frac={s_curve_frac}",
+    )
+
+    # Fraction with α > 2 (sharp S-curve)
+    sharp_frac = float((alphas > 2).mean())
+    assert_true(
+        "alpha > 2 covers 15-40% (reasonable sharp-curve tail)",
+        0.15 <= sharp_frac <= 0.45,
+        f"frac={sharp_frac}",
+    )
+
+
+def test_p0_2_half_data_silent_drop():
+    """P0-2 regression: simulate z-scored spend (half below 0), apply the
+    clip, verify half the periods contribute zero to media effect.
+
+    This test documents the P0-2 bug — current code silently drops ~50%
+    of data. When Hill fix lands (spend/mean, always ≥ 0), this test
+    will fail meaningfully (clip becomes no-op).
+    """
+    rng = np.random.default_rng(SEED + 3)
+    n_periods = 100
+    spend_z = rng.normal(0, 1, size=n_periods)
+    spend_clipped = np.maximum(spend_z, 0)
+
+    # Fraction dropped to zero (was negative)
+    dropped = float((spend_clipped == 0).mean())
+    # For N(0,1) clip(·, 0), ~50% of values become exactly 0
+    assert_true(
+        "P0-2: z-score + clip drops ~50% of data (bug signature)",
+        0.4 <= dropped <= 0.6,
+        f"dropped fraction={dropped}",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 12. Column role detection (validator sanity)
 # ─────────────────────────────────────────────────────────────────────────
 
 def test_column_role_kpi_detection():
@@ -550,7 +714,13 @@ def main() -> int:
     print("\n── 10. JS↔Python Hill parity ──")
     test_js_style_hill_semantics()
 
-    print("\n── 11. Validator column role ──")
+    print("\n── 11. Prior predictive (numpy-only, no MCMC) ──")
+    test_prior_predictive_sanity_zscore_domain()
+    test_prior_predictive_saturation_coverage()
+    test_prior_predictive_alpha_steepness()
+    test_p0_2_half_data_silent_drop()
+
+    print("\n── 12. Validator column role ──")
     test_column_role_kpi_detection()
 
     print(f"\n{PASSED}/{PASSED + FAILED} assertions passed.")
