@@ -152,6 +152,42 @@ class AuroraPPTXBuilder:
         self.channels = self.data.get("channels") or []
         self.facts = self.data.get("narrative_facts")
 
+        # --- Report ID (Stage B.4) ---
+        # Deterministic trace hash (same algorithm as aurora_html.builder).
+        # Shown in source notes INSTEAD of internal product version (v1.0.11).
+        # Clients can verify "same report across regenerations" and trace
+        # back to exact model run; no product-internal data leaks.
+        self.report_id = self.data.get("report_id") or self._compute_report_id()
+
+    def _compute_report_id(self) -> str:
+        """Deterministic aurora-mmm-{12hex} hash over channel + diag signature.
+        Mirrors aurora_html.builder._compute_report_id so HTML and PPTX
+        reports built from the same pipeline output share one trace ID.
+        """
+        import hashlib
+        ch_sig = sorted(
+            (
+                c.get("name") or "",
+                int(round(float(c.get("spend") or 0))),
+                int(round(float(c.get("contribution") or 0))),
+                c.get("verdict") or "",
+            )
+            for c in self.channels
+        )
+        diag_sig = sorted([
+            ("mqs_score", round(float(self.mqs_score or 0), 3)),
+            ("r_squared", round(float(self.r_squared or 0), 3)),
+            ("mape_pct", round(float(self.mape_pct or 0), 3)),
+            ("r_hat_max", round(float(self.r_hat_max or 0), 3)),
+            ("ess_min", round(float(self.ess_min or 0), 3)),
+        ])
+        fp_input = (
+            f"{self.client}|{self.project_id}|"
+            f"channels={ch_sig}|diag={diag_sig}"
+        )
+        h = hashlib.sha256(fp_input.encode('utf-8')).hexdigest()[:12]
+        return f"aurora-mmm-{h}"
+
     # ---------- Primitives ----------
 
     def _blank(self):
@@ -353,8 +389,15 @@ class AuroraPPTXBuilder:
     # ---------- Running header (top of content slides) ----------
 
     def _header(self, slide, *, section_idx, section_label,
-                include_confidential=True, include_project=True):
-        """Slim running header: closer to top edge (y=0.25) to reclaim content space."""
+                include_confidential=True, include_project=False):
+        """Slim running header: closer to top edge (y=0.25) to reclaim content space.
+
+        Stage B.2: center "project identifier" textbox removed — it was
+        leaking internal project slug + MMM REPORT + period into every
+        slide (35 chars of visual noise). Tier-1 minimalism: left section
+        label + right CONFIDENTIAL only. `include_project` kept as a
+        parameter (default False) for explicit opt-in if ever needed.
+        """
         y = 0.25  # compact safe_top zone
         # Left: section tag like "03 / 08 . Methodology"
         self._text(
@@ -362,7 +405,7 @@ class AuroraPPTXBuilder:
             f"{section_idx:02d} / {self.total_sections:02d} . {section_label.upper()}",
             font=self.sans, size=8, bold=True, color=self.deep_100, align=PP_ALIGN.LEFT,
         )
-        # Center: project identifier
+        # Center: project identifier — DISABLED by default (Stage B.2)
         if include_project:
             self._text(
                 slide, 4.5, y, 4.333, 0.2,
@@ -395,7 +438,7 @@ class AuroraPPTXBuilder:
         if show_page:
             self._text(
                 slide, 0, element_y, self.w, 0.18,
-                f"{page_num}\\{self.total_slides}",
+                f"{page_num}/{self.total_slides}",
                 font=self.sans, size=9, color=self.deep_60,
                 align=PP_ALIGN.CENTER,
             )
@@ -672,7 +715,7 @@ class AuroraPPTXBuilder:
         cols = [
             ("ПОДГОТОВЛЕНО ДЛЯ", self.client),
             ("ДАТА",              self.report_date),
-            ("ВЕРСИЯ",            f"v{self.version}"),
+            ("REPORT ID",         self.report_id),
             ("КЛАССИФИКАЦИЯ",    "Confidential"),
         ]
         col_w = (self.w - 2 * self.safe - 0.2) / 4
@@ -847,7 +890,7 @@ class AuroraPPTXBuilder:
         slide = self._blank()
         self._header(
             slide, section_idx=5, section_label="Декомпозиция вкладов",
-            include_project=True, include_confidential=True,
+            include_confidential=True,
         )
 
         # Big number
@@ -1004,7 +1047,7 @@ class AuroraPPTXBuilder:
         self._source(
             slide, 6.87,
             text=(
-                f"Источник: Bayesian MMM v{self.version}; данные {self.sources_client_label} {self.data_window_label}; "
+                f"Источник: Bayesian MMM · {self.report_id}; данные {self.sources_client_label} {self.data_window_label}; "
                 "модель откалибрована под FMCG-бенчмарки."
             ),
         )
@@ -1160,7 +1203,7 @@ class AuroraPPTXBuilder:
         # Source at bottom (unified position max low to footer hairline)
         self._source(
             slide, 6.87,
-            text=f"Источник: MMM Aurora AI v{self.version}, posterior means, 95% CI omitted for clarity",
+            text=f"Источник: Bayesian MMM Aurora AI · {self.report_id}; медианы апостериорного распределения",
         )
 
         # Right rail: commentary (42%)
@@ -1474,7 +1517,7 @@ class AuroraPPTXBuilder:
         # Source at y=6.67 (max close to footer hairline 6.85)
         self._source(
             slide, 6.87,
-            text=f"Источник: Bayesian MMM Aurora AI v{self.version}; CI 95%, posterior means reported."
+            text=f"Источник: Bayesian MMM Aurora AI · {self.report_id}; доверительный интервал 95%, медианы апостериорного распределения."
         )
 
         self._footer(slide, 7)
@@ -1658,7 +1701,7 @@ class AuroraPPTXBuilder:
         # Source at bottom (unified position)
         self._source(
             slide, 6.87,
-            text=f"Источник: {self.sources_client_label} sales ledger {self.data_window_label}; декомпозиция Bayesian MMM v{self.version}",
+            text=f"Источник: {self.sources_client_label}, продажи за период {self.data_window_label}; декомпозиция Bayesian MMM · {self.report_id}",
         )
 
         self._footer(slide, 8)
@@ -2272,12 +2315,12 @@ class AuroraPPTXBuilder:
 
         # Narrative paragraph - platform philosophy (positioned AFTER CTA as rationale footer)
         narrative = (
-            "Aurora AI Econometrica превращает медиабюджет из статьи затрат в управляемый инструмент роста. "
-            "Bayesian inference позволяет не просто измерить эффективность каналов, но понять границы "
+            "Aurora AI превращает медиабюджет из статьи затрат в управляемый инструмент роста. "
+            "Байесовский вывод позволяет не просто измерить эффективность каналов, но понять границы "
             "неопределённости - основу доверия к любым модельным решениям. Методология, откалиброванная "
-            "под industry-стандарты, даёт результаты уровня tier-1 консалтинговых групп без необходимости "
-            "содержать собственную data science команду. Платформа масштабируется от quarterly report до "
-            "ежемесячного pulse-tracking, от одной SKU до портфеля брендов."
+            "под индустриальные стандарты, даёт результаты уровня ведущих консалтинговых групп без "
+            "необходимости содержать собственную команду аналитиков. Платформа масштабируется от "
+            "ежеквартального отчёта до ежемесячного пульс-мониторинга, от одной SKU до портфеля брендов."
         )
         self._text(
             slide, self.safe, 5.00, self.w - 2 * self.safe, 1.5,
@@ -2299,7 +2342,7 @@ class AuroraPPTXBuilder:
         self._hairline(slide, self.safe, 7.05, self.w - 2 * self.safe, weight=0.25)
         self._text(
             slide, 0, 7.20, self.w, 0.18,
-            f"{self.total_slides}\\{self.total_slides}",
+            f"{self.total_slides}/{self.total_slides}",
             font=self.sans, size=9, color=self.deep_60,
             align=PP_ALIGN.CENTER,
         )

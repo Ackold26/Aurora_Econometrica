@@ -123,14 +123,26 @@ def main() -> int:
         ))
 
     # Custom meta propagates to output XML.
+    # Stage B.2: center header removed, so ACME CORP uppercase no longer
+    # required. Client name only needs to appear in cover metadata.
     results.append(_check(
-        "custom client name reaches output",
-        "Acme Corp" in xml_custom and "ACME CORP" in xml_custom,
-        "Acme Corp and ACME CORP both present in slides",
+        "custom client name reaches output (cover metadata)",
+        "Acme Corp" in xml_custom,
+        "'Acme Corp' present in cover metadata tiles",
     ))
+    # Stage B.4: internal product version replaced by deterministic Report ID
+    # (aurora-mmm-{12hex}) as client-facing trace. No more "v2.0.0" leaking.
+    import re as _re
+    report_id_match = _re.search(r'aurora-mmm-[a-f0-9]{12}', xml_custom)
     results.append(_check(
-        "custom version reaches output",
-        "v2.0.0" in xml_custom,
+        "Report ID (aurora-mmm-XX) present in sources instead of product version",
+        report_id_match is not None,
+        f"found: {report_id_match.group(0) if report_id_match else 'none'}",
+    ))
+    # Affirmatively ensure product version pattern is NOT present anywhere
+    results.append(_check(
+        "no 'v1.0.X' / 'v2.0.X' product version leak in slides",
+        _re.search(r'\bv\d+\.\d+\.\d+\b', xml_custom) is None,
     ))
     results.append(_check(
         "custom diagnostics reach output",

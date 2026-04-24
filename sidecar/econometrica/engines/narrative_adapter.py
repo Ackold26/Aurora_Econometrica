@@ -22,6 +22,7 @@ Changelog:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -41,6 +42,81 @@ _RU_MONTHS = [
 
 def _fmt_ru_date(dt: datetime) -> str:
     return f"{dt.day} {_RU_MONTHS[dt.month]} {dt.year}"
+
+
+# Internal-tag tokens that should be dropped from project slugs before they
+# become client-facing labels. Applied case-insensitively.
+_SLUG_INTERNAL_MARKERS = {
+    "исходник", "источник", "dataset", "data", "source",
+    "test", "debug", "tmp", "temp", "backup", "bak",
+    "ммх", "mmx", "mmm",  # platform/methodology tags - not client name
+}
+
+
+def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
+    """Turn an internal project slug into a human-readable (client_label,
+    project_code) tuple suitable for client-facing deliverables.
+
+    Input examples (all live-test seen):
+      - "mmx-2021-2025-исходник-ммх-2404-26--4"  → ("2021-2025", "...")
+      - "венарус-ммх-2404-26--2"                 → ("Венарус", "...")
+      - "Kagocel"                                 → ("Kagocel", "Kagocel")
+      - None                                       → ("Client", "PROJECT")
+
+    Rules:
+      1. Strip trailing duplicate markers like `--4`, `-v2`, `_tmp`.
+      2. Split by hyphens, drop internal markers (see _SLUG_INTERNAL_MARKERS).
+      3. Capitalize remaining tokens; prefer the first alphabetic token as
+         client_label, with year ranges kept as secondary info.
+      4. Fallback: "Client" + "PROJECT" if everything got stripped.
+    """
+    if not raw:
+        return ("Client", "PROJECT")
+
+    s = str(raw).strip()
+    # Strip trailing --N / -N / _N revision suffix
+    s = re.sub(r'[-_]{1,2}\d+$', '', s)
+
+    parts = [p for p in re.split(r'[-_\s]+', s) if p]
+    clean_parts = []
+    year_range = None
+    for p in parts:
+        # Detect year range like "2021-2025" (already a token or captured)
+        if re.fullmatch(r'\d{4}', p):
+            clean_parts.append(p)
+            continue
+        if p.lower() in _SLUG_INTERNAL_MARKERS:
+            continue
+        # Drop pure-digit suffix tokens shorter than 4 chars (revisions)
+        if re.fullmatch(r'\d{1,3}', p):
+            continue
+        clean_parts.append(p)
+
+    # Post-process: collapse adjacent year tokens into ranges
+    def _fmt_token(tok: str) -> str:
+        if re.fullmatch(r'\d{4}', tok):
+            return tok  # year stays as-is
+        return tok[:1].upper() + tok[1:]  # gentle capitalization
+
+    if not clean_parts:
+        return ("Client", raw or "PROJECT")
+
+    # Group consecutive years into a single range
+    labels = []
+    i = 0
+    while i < len(clean_parts):
+        tok = clean_parts[i]
+        if re.fullmatch(r'\d{4}', tok) and i + 1 < len(clean_parts) and re.fullmatch(r'\d{4}', clean_parts[i + 1]):
+            labels.append(f"{tok}-{clean_parts[i + 1]}")
+            i += 2
+        else:
+            labels.append(_fmt_token(tok))
+            i += 1
+
+    client_label = " ".join(labels)
+    # Project code: uppercase, hyphen-joined
+    project_code = "-".join(labels).upper()
+    return (client_label, project_code)
 
 
 def _get_nested(d: dict, *keys, default=None):
@@ -231,13 +307,13 @@ def _map_pipeline_to_builder_data(
     decompose_data = decompose_data or {}
     optimize_data = optimize_data or {}
 
-    # --- Meta ---
-    client_label = project_id or "Client"
+    # --- Meta (Stage B.1: sanitize project slug → human-readable client) ---
+    client_label, project_code = _sanitize_project_slug(project_id)
 
     now = datetime.now()
     meta = {
         "client": client_label,
-        "project_id": project_id or "PROJECT",
+        "project_id": project_code,
         "version": version,
         "report_date": _fmt_ru_date(now),
     }
