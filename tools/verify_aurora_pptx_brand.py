@@ -82,13 +82,13 @@ def main() -> int:
 
     # Slide count (wireframe v3 = 13).
     results.append(_check(
-        "default deck has 13 slides",
-        len(prs.slides) == 13,
+        "default deck has 16 slides",
+        len(prs.slides) == 16,
         f"got {len(prs.slides)}",
     ))
     results.append(_check(
-        "custom deck has 13 slides",
-        len(prs2.slides) == 13,
+        "custom deck has 16 slides",
+        len(prs2.slides) == 16,
         f"got {len(prs2.slides)}",
     ))
 

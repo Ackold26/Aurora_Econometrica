@@ -110,38 +110,42 @@ class AuroraPPTXBuilder:
         self.period_label = meta.get("period_label", "Q1 2026")
         self.forecast_period_label = meta.get("forecast_period_label", "Q3-Q4 2026")
         self.data_window_label = meta.get("data_window_label", "W01 W13 2026")
+        # Stage C.6.3: TOC shrunk to 5 real sections with content (Option B
+        # symmetric tier-1 structure). Previous 8-section layout promised
+        # sections 4/6/7 (Модель / Оптимизация / Рекомендации) with no
+        # dedicated slides; now each section-divider slide precedes real
+        # content. Header "01 / 05" honest across the deck.
         self.section_names = meta.get("section_names", [
-            "Executive summary",
-            "Методология",
-            "Данные и качество",
-            "Модель и спецификация",
-            "Декомпозиция вкладов",
-            "Оптимизация бюджета",
-            "Рекомендации",
-            "Приложение и источники",
+            "Executive summary",        # 1: TOC + ataglance + keymsg + SCQAR
+            "Декомпозиция вкладов",     # 2: divider + chart + table + timeline
+            "Методология",              # 3: divider + methodology
+            "Данные и качество",        # 4: divider + sources
+            "Приложение и источники",   # 5: divider + glossary + colophon
         ])
         self.total_sections = len(self.section_names)
-        self.total_slides = meta.get("total_slides", 13)
-        self.toc_page_refs = meta.get("toc_page_refs", [4, 5, 6, 7, 8, 9, 10, 11])
-        # Stage C.6.2: physical-slide → (section_idx, section_label) map.
-        # Single source of truth for header section tags — prior hardcoded
-        # `section_idx=N` at every slide method was fragile when the build()
-        # order changed (Stage C.6.1 TOC swap missed footer updates in 2
-        # places). `_header` now looks up via this map when a slide_num is
-        # passed; explicit args remain as a manual override for edge cases.
+        self.total_slides = meta.get("total_slides", 16)
+        # Physical page where each section begins (first content slide).
+        self.toc_page_refs = meta.get("toc_page_refs", [3, 4, 10, 12, 14])
+        # Stage C.6.2/C.6.3: physical-slide → (section_idx, section_label) map.
+        # 16-slide expanded layout: 3 new section dividers (s_div_meth @ 10,
+        # s_div_data @ 12, s_div_appendix @ 14) provide visual anchoring
+        # symmetric to the existing Декомпозиция divider at page 4.
         self.slide_to_section = meta.get("slide_to_section") or {
             2:  (1, "Executive summary"),          # TOC
             3:  (1, "Executive summary"),          # At a glance
-            4:  (5, "Декомпозиция вкладов"),       # Section divider
+            4:  (2, "Декомпозиция вкладов"),       # Section divider (existing)
             5:  (1, "Executive summary"),          # Key message
-            6:  (5, "Декомпозиция вкладов"),       # Action chart (mROAS)
-            7:  (5, "Декомпозиция вкладов"),       # Action table (portfolio)
-            8:  (5, "Декомпозиция вкладов"),       # Action timeline
+            6:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS)
+            7:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
+            8:  (2, "Декомпозиция вкладов"),       # Action timeline
             9:  (1, "Executive summary"),          # SCQAR
-            10: (2, "Методология"),                # Methodology
-            11: (3, "Данные и качество"),          # Sources
-            12: (8, "Приложение и источники"),     # Glossary
-            13: (8, "Приложение и источники"),     # Colophon
+            10: (3, "Методология"),                # NEW: Methodology divider
+            11: (3, "Методология"),                # Methodology content
+            12: (4, "Данные и качество"),          # NEW: Data divider
+            13: (4, "Данные и качество"),          # Sources content
+            14: (5, "Приложение и источники"),     # NEW: Appendix divider
+            15: (5, "Приложение и источники"),     # Glossary
+            16: (5, "Приложение и источники"),     # Colophon
         }
         # Header center label (shown on every content slide)
         self.header_project_label = meta.get(
@@ -868,7 +872,7 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, self.safe, 1.50, 1.2, weight=0.75, color=self.gold)
 
-        # Main list (8 sections)
+        # Main list (5 sections - Stage C.6.3 honest TOC)
         y = 1.85
         for i, (name, pg) in enumerate(zip(self.section_names, self.toc_page_refs), start=1):
             # Number
@@ -939,35 +943,71 @@ class AuroraPPTXBuilder:
     # SLIDE 04 - SECTION DIVIDER WITH TAKEAWAY
     # ----------------------------------------------------------------
 
-    def s04_section_divider(self):
+    def _render_section_divider(self, slide_num, *, takeaway, topics):
+        """Tier-1 section-divider slide with big number, takeaway, topic list.
+
+        Stage C.6.3: extracted from s04 for reuse by 3 new dividers
+        (Методология / Данные / Приложение). `takeaway` may be any string;
+        `topics` is a list of short phrases rendered as bullets.
+        """
         slide = self._blank()
-        self._header(slide, slide_num=4, include_confidential=True)
+        self._header(slide, slide_num=slide_num, include_confidential=True)
+        section_idx, section_label = self.slide_to_section[slide_num]
 
         # Big number
         self._text(
             slide, self.safe, 1.3, 4.5, 3.5,
-            "05",
+            f"{section_idx:02d}",
             font=self.serif, size=220, color=self.deep_20,
         )
 
         # Section label
         self._text(
-            slide, self.safe + 4.3, 2.1, 8.0, 0.3, "РАЗДЕЛ 05 / 08",
+            slide, self.safe + 4.3, 2.1, 8.0, 0.3,
+            f"РАЗДЕЛ {section_idx:02d} / {self.total_sections:02d}",
             font=self.sans, size=9, bold=True, color=self.gold,
         )
         # Section name
         self._text(
             slide, self.safe + 4.3, 2.5, 8.0, 0.8,
-            "Декомпозиция вкладов",
+            section_label,
             font=self.serif, size=40, color=self.deep_100,
         )
         self._lime_under(slide, self.safe + 4.3, 3.35, 2.5)
 
-        # KEY TAKEAWAY - the value-add of tier-1 section divider
+        # KEY TAKEAWAY
         self._text(
             slide, self.safe + 4.3, 3.7, 8.0, 0.3, "ОСНОВНОЙ ВЫВОД",
             font=self.sans, size=8, bold=True, color=self.gold,
         )
+        self._text(
+            slide, self.safe + 4.3, 4.05, 8.0, 1.3,
+            takeaway,
+            font=self.serif, size=20, italic=True, color=self.deep_80,
+            line_spacing=1.3,
+        )
+
+        # In this section
+        self._text(
+            slide, self.safe + 4.3, 5.6, 8.0, 0.25, "В ЭТОМ РАЗДЕЛЕ",
+            font=self.sans, size=8, bold=True, color=self.deep_60,
+        )
+        ty = 5.9
+        for topic in topics:
+            self._text(
+                slide, self.safe + 4.3, ty, 8.0, 0.3, f"·  {topic}",
+                font=self.sans, size=11, color=self.deep_100,
+            )
+            ty += 0.28
+
+        # Progress bar
+        self._section_progress(slide, self.safe, 6.3, current=section_idx)
+
+        self._footer(slide, slide_num)
+        return slide
+
+    def s04_section_divider(self):
+        """Divider for section 2 'Декомпозиция вкладов'."""
         if self.facts:
             leader = self.facts.get("leader_channel") or "Лидер"
             cpct = self.facts.get("leader_share_contrib_pct")
@@ -981,35 +1021,68 @@ class AuroraPPTXBuilder:
                 takeaway = f"{leader} - основной драйвер портфеля и точка оптимизации"
         else:
             takeaway = "TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации портфеля"
-        self._text(
-            slide, self.safe + 4.3, 4.05, 8.0, 1.3,
-            takeaway,
-            font=self.serif, size=20, italic=True, color=self.deep_80,
-            line_spacing=1.3,
+        self._render_section_divider(
+            slide_num=4,
+            takeaway=takeaway,
+            topics=[
+                "Индивидуальные вклады каналов и ROI ранжирование",
+                "Портфельная таблица с вердиктами по каналам",
+                "Декомпозиция недельной динамики продаж",
+            ],
         )
 
-        # In this section
-        self._text(
-            slide, self.safe + 4.3, 5.6, 8.0, 0.25, "В ЭТОМ РАЗДЕЛЕ",
-            font=self.sans, size=8, bold=True, color=self.deep_60,
+    def s_divider_methodology(self):
+        """NEW divider for section 3 'Методология'."""
+        self._render_section_divider(
+            slide_num=10,
+            takeaway=(
+                "Байесовский MMM с адстоком и Hill-насыщением - "
+                "прозрачная математическая модель с интервалами доверия"
+            ),
+            topics=[
+                "Спецификация модели и уравнение отклика",
+                "Априорные распределения и ограничения параметров",
+                "Диагностика сходимости MCMC",
+            ],
         )
-        topics = [
-            "Методология декомпозиции и precautionary notes",
-            "Индивидуальные вклады каналов и ROI ранжирование",
-            "Paneldata: декомпозиция недельной динамики",
-        ]
-        ty = 5.9
-        for topic in topics:
-            self._text(
-                slide, self.safe + 4.3, ty, 8.0, 0.3, f"·  {topic}",
-                font=self.sans, size=11, color=self.deep_100,
+
+    def s_divider_data(self):
+        """NEW divider for section 4 'Данные и качество'."""
+        tb_mln = self.facts.get("total_budget_mln") if self.facts else None
+        if tb_mln:
+            takeaway = (
+                f"Данные охватывают {self.data_window_label}, бюджет {tb_mln:.0f} млн руб - "
+                f"MQS модели {self.mqs_score:.0f}/100"
             )
-            ty += 0.28
+        else:
+            takeaway = (
+                f"Данные охватывают {self.data_window_label} - "
+                f"MQS модели {self.mqs_score:.0f}/100, готовность к production"
+            )
+        self._render_section_divider(
+            slide_num=12,
+            takeaway=takeaway,
+            topics=[
+                "Источники данных и период наблюдения",
+                "Процедуры очистки и обработка выбросов",
+                "Метрики качества модели и спецификация",
+            ],
+        )
 
-        # Progress bar - positioned above footer with clearance
-        self._section_progress(slide, self.safe, 6.3, current=5)
-
-        self._footer(slide, 4)
+    def s_divider_appendix(self):
+        """NEW divider for section 5 'Приложение и источники'."""
+        self._render_section_divider(
+            slide_num=14,
+            takeaway=(
+                "Справочные материалы отчёта - глоссарий терминов, "
+                "методологические ссылки и контактная информация"
+            ),
+            topics=[
+                "Глоссарий ключевых терминов и метрик",
+                "Источники данных и референсы",
+                "Контакты команды Aurora AI",
+            ],
+        )
 
     # ----------------------------------------------------------------
     # SLIDE 05 - KEY MESSAGE (Big Number + Pull Quote)
@@ -1936,9 +2009,10 @@ class AuroraPPTXBuilder:
     # SLIDE 10 - METHODOLOGY + LIMITATIONS
     # ----------------------------------------------------------------
 
+    # C.6.3: s10 methodology content now at physical page 11 (divider at 10).
     def s10_methodology(self):
         slide = self._blank()
-        self._header(slide, slide_num=10)
+        self._header(slide, slide_num=11)
 
         self._category(slide, self.safe, 0.60, "ПОДХОД")
 
@@ -2054,15 +2128,16 @@ class AuroraPPTXBuilder:
             text="Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM.",
         )
 
-        self._footer(slide, 10)
+        self._footer(slide, 11)
 
     # ----------------------------------------------------------------
     # SLIDE 11 - SOURCES + MQS
     # ----------------------------------------------------------------
 
+    # C.6.3: s11 sources content now at physical page 13 (divider at 12).
     def s11_sources(self):
         slide = self._blank()
-        self._header(slide, slide_num=11)
+        self._header(slide, slide_num=13)
 
         self._category(slide, self.safe, 0.60, "ДАННЫЕ")
 
@@ -2213,7 +2288,7 @@ class AuroraPPTXBuilder:
             )
             sy += 0.23
 
-        self._footer(slide, 11)
+        self._footer(slide, 13)
 
     # ----------------------------------------------------------------
     # SLIDE 12 - COLOPHON (narrative)
@@ -2223,10 +2298,11 @@ class AuroraPPTXBuilder:
     # SLIDE 12 - GLOSSARY (тезаурус терминов)
     # ----------------------------------------------------------------
 
+    # C.6.3: s12 glossary content now at physical page 15 (appendix divider at 14).
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
         slide = self._blank()
-        self._header(slide, slide_num=12)
+        self._header(slide, slide_num=15)
 
         self._category(slide, self.safe, 0.60, "ПРИЛОЖЕНИЕ А")
 
@@ -2304,18 +2380,19 @@ class AuroraPPTXBuilder:
                 )
                 ey += entry_h
 
-        self._footer(slide, 12)
+        self._footer(slide, 15)
 
     # ----------------------------------------------------------------
     # SLIDE 13 - COLOPHON (closing)
     # ----------------------------------------------------------------
 
+    # C.6.3: s13 colophon content now at physical page 16 (final slide).
     def s13_colophon(self):
         """Closing slide - inspirational brand statement + forward-looking CTA + narrative.
         Flow: statement → CTA (with lime) → narrative → wordmark → copyright.
         No duplication of metrics from other slides."""
         slide = self._blank()
-        self._header(slide, slide_num=13)
+        self._header(slide, slide_num=16)
 
         # Big closing statement - starts higher (more top breathing), no category tag
         self._text(
@@ -2384,11 +2461,13 @@ class AuroraPPTXBuilder:
     # ---------- Build ----------
 
     def build(self):
+        # Stage C.6.3 (Option B): 16-slide layout with 4 section dividers.
+        # Cover(1) → TOC(2) → Exec Summary block (3,5,9) with Декомпозиция
+        # divider at (4) + chart/table/timeline (6,7,8) → SCQAR (9) →
+        # Методология divider (10) + content (11) → Данные divider (12) +
+        # sources (13) → Приложение divider (14) + glossary (15) +
+        # colophon (16). Symmetric tier-1 structure; TOC 5-section honest.
         self.s01_cover()
-        # Stage C.6.1: TOC (Содержание) comes BEFORE Executive Summary.
-        # Tier-1 standard — reader sees document structure first, then
-        # dives into findings. Physical slide numbers: Cover=1, TOC=2,
-        # Executive Summary=3, rest unchanged.
         self.s03_toc()
         self.s02_at_a_glance()
         self.s04_section_divider()
@@ -2397,8 +2476,11 @@ class AuroraPPTXBuilder:
         self.s07_action_table()
         self.s08_action_timeline()
         self.s09_scqar()
+        self.s_divider_methodology()
         self.s10_methodology()
+        self.s_divider_data()
         self.s11_sources()
+        self.s_divider_appendix()
         self.s12_glossary()
         self.s13_colophon()
         return self.prs

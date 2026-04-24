@@ -94,7 +94,7 @@ def main() -> int:
 
     # ─── Case 1: default (data=None) — pilot narrative preserved ───────────
     res, xml = _build({}, {}, {})
-    results.append(_check("Case 1 (default): 13 slides", res.get("slides") == 13))
+    results.append(_check("Case 1 (default): 16 slides", res.get("slides") == 16))
     # Without explicit project_id, adapter uses client_label="Client" —
     # "Kagocel" body text only surfaces in pilot slides not client meta.
     results.append(_check("Case 1 (default): 'Digital video' pilot bars present",
@@ -117,7 +117,7 @@ def main() -> int:
                                           "r_hat_max": 1.008, "ess_min": 1247}}}
     opt = {"channels": opt_chs, "expected_lift_pct": 12}
     res, xml = _build(model, {"channels": decomp_chs}, opt, project_id="Kagocel")
-    results.append(_check("Case 2 (kagocel-like): 13 slides", res.get("slides") == 13))
+    results.append(_check("Case 2 (kagocel-like): 16 slides", res.get("slides") == 16))
     results.append(_check("Case 2: TV leader propagates (contrib=180)",
                           xml.count("TV") >= 5))
     results.append(_check("Case 2: Digital video hero propagates (mROAS=1.9)",
@@ -135,7 +135,7 @@ def main() -> int:
     model = {"diagnostics": {"mqs": {"score": 78, "tier_label": "GOOD"}}}
     opt = {"channels": opt_chs, "expected_lift_pct": 12.5}
     res, xml = _build(model, {"channels": decomp_chs}, opt, project_id="AcmeCo")
-    results.append(_check("Case 3 (3-ch min): 13 slides", res.get("slides") == 13))
+    results.append(_check("Case 3 (3-ch min): 16 slides", res.get("slides") == 16))
     results.append(_check("Case 3: TV leader present", xml.count("TV") >= 3))
     results.append(_check("Case 3: Digital hero present", xml.count("Digital") >= 3))
     results.append(_check("Case 3: AcmeCo meta propagates", "AcmeCo" in xml))
@@ -149,7 +149,7 @@ def main() -> int:
     decomp_chs, opt_chs = _chs(specs10)
     opt = {"channels": opt_chs, "expected_lift_pct": 8.0}
     res, xml = _build({}, {"channels": decomp_chs}, opt, project_id="MegaCorp")
-    results.append(_check("Case 4 (10-ch max): 13 slides", res.get("slides") == 13))
+    results.append(_check("Case 4 (10-ch max): 16 slides", res.get("slides") == 16))
     # Ch9 has highest mROAS (1.0 + 9*0.15 = 2.35) — hero
     results.append(_check("Case 4: Ch9 hero propagates", "Ch9" in xml))
     # Ch0 has lowest — should be underperformer
@@ -157,7 +157,7 @@ def main() -> int:
 
     # ─── Case 5: empty channels + meta only — adapter falls back ─────────────
     res, xml = _build({"diagnostics": {"mqs": {"score": 50}}}, {}, {}, project_id="FallbackCo")
-    results.append(_check("Case 5 (empty-ch fallback): 13 slides", res.get("slides") == 13))
+    results.append(_check("Case 5 (empty-ch fallback): 16 slides", res.get("slides") == 16))
     results.append(_check("Case 5: FallbackCo propagates (meta client)",
                           "FallbackCo" in xml))
     results.append(_check("Case 5: Kagocel narrative still renders as pilot",
@@ -167,8 +167,8 @@ def main() -> int:
     model = {"diagnostics": {"metrics": {"r_squared": 0.7}}}  # no mqs
     decomp_chs, opt_chs = _chs([("A", 10, 15, 1.5), ("B", 5, 8, 1.2)])
     res, xml = _build(model, {"channels": decomp_chs}, {"channels": opt_chs})
-    results.append(_check("Case 6 (partial diag): 13 slides",
-                          res.get("slides") == 13))
+    results.append(_check("Case 6 (partial diag): 16 slides",
+                          res.get("slides") == 16))
     results.append(_check("Case 6: no exception, output valid",
                           len(xml) > 1000))
 
@@ -188,7 +188,7 @@ def main() -> int:
                                           "r_hat_max": 1.012, "ess_min": 1110}}}
     opt = {"channels": opt_chs, "expected_lift_pct": 10.5}
     res, xml = _build(model, {"channels": decomp_chs}, opt, project_id="DigitalOnlyCo")
-    results.append(_check("Case 7 (no-TV): 13 slides", res.get("slides") == 13))
+    results.append(_check("Case 7 (no-TV): 16 slides", res.get("slides") == 16))
     results.append(_check("Case 7: DigitalOnlyCo propagates",
                           "DigitalOnlyCo" in xml))
     results.append(_check("Case 7: Yandex Direct hero name present",
