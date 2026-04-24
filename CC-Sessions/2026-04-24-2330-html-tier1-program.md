@@ -256,9 +256,108 @@ interactive.py polish:
 
 ---
 
+## Post-ship audit (commit `b68cf5b`, +191/-96, 6 files)
+
+Critical self-review after v1.0.12-html-tier1 ship found 8 defects.
+All fixed, 137/137 automated checks still PASS.
+
+### Defects found and fixed
+
+1. **XSS defense-in-depth** (interactive.py) — CSP hash-based already
+   blocks inline script + event handlers, но 6 innerHTML sites
+   concatenated user-controlled channel names без escape. Added
+   `escapeHtml()` (textContent round-trip) + `escapeAttr()` helpers.
+   Applied to: chart tooltip formatters × 2, drill-down content,
+   search results, scenario dropdown, what-if slider rows. Verdict
+   class attribute whitelisted `/^[A-Za-z]+$/` against injection.
+
+2. **Drill-panel focus scroll jank** (interactive.py) —
+   `closeBtn.focus()` without preventScroll option caused browsers
+   to scrollIntoView despite panel being position:fixed. Added
+   `{preventScroll: true}` with catch fallback for older engines.
+
+3. **Chart skeleton infinite shimmer without JS** (shell.html) —
+   PE baseline was broken. `.chart-skeleton` CSS animation ran
+   forever for JS-disabled readers. Added `<noscript><style>`:
+   - `.chart-skeleton { display: none !important }`
+   - `.chart-host::before` with helpful "требует JS" message
+   - `.section { opacity: 1; transform: none; animation: none }`
+     override (section fade-in keyframes start at opacity 0)
+
+4. **What-if div-by-zero / NaN propagation** (interactive.py) —
+   If media_means[channel] = 0, Hill formula `z = spend / mean`
+   produces Infinity, `Math.pow(Infinity, alpha)` = Infinity,
+   `sat = Infinity / (Infinity + ga)` = NaN. Propagates to delta %.
+   Fixed with 5 guards in `predictKPI`:
+     - Skip channel if mean falsy/non-finite/<=0
+     - Skip if alpha/gamma invalid
+     - Skip if spend <= 0
+     - Check sat is finite after Hill computation
+     - Return 0 if final KPI non-finite
+   Plus outer guard: skip entire what-if UI if currentKPI non-finite.
+
+5. **Adstock silently ignored in what-if** (interactive.py label) —
+   Hill-only formula omits adstock decay (theta). Updated helper
+   text: "Hill-формуле (приближение без adstock; полная модель - в
+   PPTX-отчёте и оптимизаторе)".
+
+6. **ASSET_SHA256 uses 16-char prefix for fonts** (__init__.py) —
+   Fonts pinned with 16-char SHA-256 prefix (weaker). Computed full
+   64-char digests, switched from `startswith` to exact equality.
+   Documented graceful degradation: logs errors, doesn't raise
+   (single asset mismatch → report with warning, not HTTP 500).
+
+7. **Dead charts.py + 2 chart containers missing** (sections.py,
+   charts.py deleted) — interactive.py initialized `chart-waterfall`
+   + `chart-optimize` but sections.py had no DOM hosts → data wasted.
+   Added:
+     - `chart-waterfall` in render_at_a_glance (below findings list,
+       visual decomposition reinforcement)
+     - `chart-optimize` in render_recommendation (current vs optimal
+       budget bars alongside 3 action numbers)
+   Both JS-gated: silently no-op if CHART_DATA block is empty.
+   Removed dead charts.py (never imported after M3 moved chart logic
+   entirely to JS).
+
+8. **Report ID includes timestamp** (builder.py) — old hash included
+   `generated_iso`, making every rebuild produce different ID even
+   with identical model output. Clients couldn't verify "this is
+   report abc123" across re-exports. Fixed: hash over deterministic
+   `(client + project_id + version + sorted channels signature + diag
+   rounded to 3 decimals)`. Verified: 3 builds same data → identical
+   `aurora-mmm-a2535beec908`.
+
+### Red-team verification
+
+- Determinism: 3 builds with same data produce identical Report ID ✅
+- XSS: crafted `<img src=x onerror=...>` channel name — all 6
+  occurrences in output live inside JS string literals, safe (JS
+  doesn't parse as HTML); escapeHtml converts before DOM innerHTML ✅
+- Div-by-zero: `media_means[B] = 0` — no NaN propagation, channel
+  skipped correctly ✅
+- Empty path: `build_html({}, {}, {})` produces valid 1005 KB HTML ✅
+
+### Final verification after audit
+
+| Suite | Result |
+|-------|--------|
+| verify_aurora_html_brand     | 30/30 PASS |
+| verify_aurora_html_narrative | 35/35 PASS |
+| verify_aurora_html_a11y      | 15/15 PASS |
+| verify_aurora_pptx_narrative | 43/43 PASS (regression clean) |
+| verify_aurora_pptx_brand     | 14/14 PASS (regression clean) |
+| **Total**                    | **137/137 PASS** |
+
+### Tag policy
+
+- `v1.0.12-html-tier1` pinned on `3be60e4` (pre-audit ship-ready reference)
+- `b68cf5b` audit fixes live past the tag
+- During live-test: if all PASS, may re-tag `v1.0.12-html-tier1-audited`
+  on `b68cf5b` to signal fully-audited shipment
+
 ## Related memory
 
-- `project_client_ready_templates_2026-04-24.md` — program-level M0-M5 log
-- `feedback_no_em_dash.md` — strict rule
+- `project_client_ready_templates_2026-04-24.md` — program-level M0-M5 log + post-audit
+- `feedback_no_em_dash.md` — strict rule (38 em dashes replaced в M5 sweep)
 - `feedback_value_perception_tier1.md` — no MCMC time / speedup
 - `feedback_online_only_license.md` — license handling (Aurora-wide)
