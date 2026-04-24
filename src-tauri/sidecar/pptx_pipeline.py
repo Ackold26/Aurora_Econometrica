@@ -522,6 +522,7 @@ def generate_docx(input_path, notes_path, styles_path, output_path):
                 run.bold = True
                 run.font.size = DocxPt(12)
                 run.font.color.rgb = RGBColor(0x1E, 0x40, 0xAF)  # blue
+                _add_signature_lime_docx(para)
             elif line.startswith("[CEO]"):
                 run_marker = para.add_run("[CEO] ")
                 run_marker.bold = True
@@ -737,6 +738,7 @@ def generate_docx_with_synthesis(input_path, notes_path, styles_path, synthesis_
                 run.font.name = primary_font
                 run.font.size = DocxPt(body_size + 1)
                 run.font.color.rgb = RGBColor(0x1E, 0x40, 0xAF)
+                _add_signature_lime_docx(para)
             elif line.startswith("[CEO]"):
                 run_marker = para.add_run("[CEO] ")
                 run_marker.bold = True
@@ -854,6 +856,43 @@ def _add_signature_lime(slide, title_box):
     line.line.color.rgb = RGBColor(*SIGNATURE_LIME_HEX)
     line.line.width = Pt(2)
     return line
+
+
+def _add_signature_lime_docx(para):
+    """Aurora Hybrid signature in DOCX: 2pt lime bottom border on action-title paragraph.
+
+    Mirrors the PPTX 2pt lime line under action-titles so DOCX commentary
+    deliverables carry the same brand marker (Standards P0.5b, plan
+    proud-purring-deer § M4 Done criteria).
+
+    python-docx has no paragraph-border API, so we inject
+    `<w:pPr><w:pBdr><w:bottom .../></w:pBdr></w:pPr>` directly via
+    the underlying OOXML element tree. Safe to call on any paragraph.
+
+    Args:
+        para: python-docx Paragraph object whose bottom border should carry
+              the signature-lime marker.
+
+    Returns:
+        None (mutates paragraph in place).
+    """
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    pPr = para._p.get_or_add_pPr()
+    # Strip any pre-existing pBdr so repeated calls don't stack borders.
+    for existing in pPr.findall(qn("w:pBdr")):
+        pPr.remove(existing)
+
+    pBdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    # w:sz in eighths of a point → 2pt = 16. w:space in points.
+    bottom.set(qn("w:sz"), "16")
+    bottom.set(qn("w:space"), "4")
+    bottom.set(qn("w:color"), "CCFF00")
+    pBdr.append(bottom)
+    pPr.append(pBdr)
 
 
 def inject_summary_slides(input_pptx, synthesis_md_path, styles_json_path, slides_json_path, output_pptx):
