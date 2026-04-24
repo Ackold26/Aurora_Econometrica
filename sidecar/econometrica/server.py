@@ -834,9 +834,15 @@ def export_html(req: HtmlExportRequest):
                 except Exception:
                     continue
 
+        # Inject project_dir hint so html_export can load full model pickle
+        # for budget what-if slider (Hill params + normalization).
+        decompose_for_build = dict(req.decompose_data or {})
+        decompose_for_build.setdefault('project_dir', str(project_path))
+
         result = build_html(
-            req.model_data, req.decompose_data, req.optimize_data, output_path,
+            req.model_data, decompose_for_build, req.optimize_data, output_path,
             scenarios=scenarios, project_name=req.project_name,
+            project_id=req.project_id,
         )
         logger.info(f'HTML export OK: {result}')
         return JSONResponse(content=result)

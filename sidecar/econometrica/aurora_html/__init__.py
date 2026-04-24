@@ -58,13 +58,25 @@ def _verify_assets() -> None:
             )
 
 
-def build_html(data: dict, initial_theme: str = 'light') -> str:
+def build_html(
+    data: dict,
+    initial_theme: str = 'light',
+    raw_model: dict | None = None,
+    raw_decompose: dict | None = None,
+    raw_optimize: dict | None = None,
+    scenarios: list[dict] | None = None,
+) -> str:
     """Build tier-1 interactive HTML deliverable from narrative_adapter data.
 
     Args:
         data: output of `narrative_adapter._map_pipeline_to_builder_data(...)`.
               Shape: {meta, diagnostics?, channels?, narrative_facts?}.
         initial_theme: one of 'light' | 'dark' | 'fun' (default 'light').
+        raw_model: optional full model_data pickle-derived dict (passes
+                   channel_params + normalization for budget what-if slider).
+        raw_decompose: optional decompose_data for waterfall + timeline charts.
+        raw_optimize: optional optimize_data for optimize comparison chart.
+        scenarios: optional list of scenario dicts for scenario switcher.
 
     Returns:
         Complete standalone HTML string (~1MB with inline assets).
@@ -76,7 +88,14 @@ def build_html(data: dict, initial_theme: str = 'light') -> str:
         logger.warning(f"unknown theme {initial_theme!r}, falling back to 'light'")
         initial_theme = 'light'
 
-    builder = AuroraHTMLBuilder(data or {}, initial_theme=initial_theme)
+    builder = AuroraHTMLBuilder(
+        data or {},
+        initial_theme=initial_theme,
+        raw_model=raw_model or {},
+        raw_decompose=raw_decompose or {},
+        raw_optimize=raw_optimize or {},
+        scenarios=scenarios or [],
+    )
     return builder.build()
 
 

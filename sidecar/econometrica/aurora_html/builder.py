@@ -72,13 +72,25 @@ def _woff2_to_data_uri(path: Path) -> str:
 class AuroraHTMLBuilder:
     """Build tier-1 Aurora AI interactive HTML report."""
 
-    def __init__(self, data: dict, initial_theme: str = 'light'):
+    def __init__(
+        self,
+        data: dict,
+        initial_theme: str = 'light',
+        raw_model: dict | None = None,
+        raw_decompose: dict | None = None,
+        raw_optimize: dict | None = None,
+        scenarios: list[dict] | None = None,
+    ):
         self.data = data or {}
         self.meta = self.data.get('meta', {}) or {}
         self.diagnostics = self.data.get('diagnostics', {}) or {}
         self.channels = self.data.get('channels') or []
         self.facts = self.data.get('narrative_facts') or {}
         self.initial_theme = themes_mod.resolve_initial_theme(initial_theme)
+        self.raw_model = raw_model or {}
+        self.raw_decompose = raw_decompose or {}
+        self.raw_optimize = raw_optimize or {}
+        self.scenarios = scenarios or []
 
         self.client = self.meta.get('client') or 'Client'
         self.project_id = self.meta.get('project_id') or 'PROJECT'
@@ -177,31 +189,93 @@ class AuroraHTMLBuilder:
         return bootstrap
 
     def _chart_data_json(self) -> str:
-        """ECharts data payload, safely embedded (ensure_ascii=True)."""
-        # Full chart data preparation lives in M3 charts.py.
-        # M2: minimal shape so chart containers don't throw on missing keys.
+        """Full ECharts data payload, safely embedded (ensure_ascii=True).
+
+        All 5 charts get their data here so JS can initialize without any
+        further Python interaction. Each chart block is optional — JS checks
+        presence before initializing.
+        """
         channels_sorted_m = sorted(
             self.channels,
             key=lambda c: float(c.get("mroas") or 0),
             reverse=True,
         )
+
+        # ─── Waterfall (decomposition) ─────────────────────────────────
+        waterfall = self.raw_decompose.get("waterfall") or {}
+        if isinstance(waterfall, dict):
+            wf_labels = waterfall.get("labels") or []
+            wf_values = waterfall.get("values") or []
+        else:
+            wf_labels = [str(w.get("category", "")) for w in waterfall]
+            wf_values = [float(w.get("value", 0) or 0) for w in waterfall]
+
+        # ─── Timeline stacked area ─────────────────────────────────────
+        ts = self.raw_decompose.get("time_series") or {}
+        ts_weeks = ts.get("dates") or ts.get("weeks") or []
+        ts_baseline = ts.get("baseline") or []
+        ts_channels = ts.get("channels") or {}
+
+        # ─── Optimize comparison ───────────────────────────────────────
+        opt_chs = self.raw_optimize.get("channels") or []
+        opt_names = [c.get("name", "") for c in opt_chs]
+        opt_current = [float(c.get("current_spend", 0) or 0) / 1_000_000.0 for c in opt_chs]
+        opt_optimal = [float(c.get("optimal_spend", 0) or 0) / 1_000_000.0 for c in opt_chs]
+
+        # ─── Scenarios (for switcher dropdown) ─────────────────────────
+        scenarios_payload = []
+        for sc in self.scenarios:
+            totals = sc.get("totals") or {}
+            scenarios_payload.append({
+                "name":   sc.get("scenario_name") or sc.get("name") or "Сценарий",
+                "lift":   float(totals.get("lift_pct") or 0),
+                "roas":   float(totals.get("roas_money") or totals.get("roas") or 0),
+                "budget": float(totals.get("total_spend_money") or totals.get("total_spend") or 0),
+                "kpi":    float(totals.get("predicted_kpi") or 0),
+            })
+
         payload = {
+            "waterfall": {
+                "labels": wf_labels,
+                "values": [float(v) for v in wf_values],
+            },
             "mroas": {
                 "names":  [c.get("name") for c in channels_sorted_m],
                 "values": [float(c.get("mroas") or 0) for c in channels_sorted_m],
                 "hero":   channels_sorted_m[0].get("name") if channels_sorted_m else None,
+                # Drill-down details per channel (for side-panel)
+                "details": {
+                    c.get("name"): {
+                        "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
+                        "contrib_mln":  round(float(c.get("contribution") or 0) / 1e6, 2),
+                        "mroas":        float(c.get("mroas") or 0),
+                        "verdict":      c.get("verdict") or "Watch",
+                        "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
+                        "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
+                    }
+                    for c in self.channels if c.get("name")
+                },
             },
             "share": {
-                "names": [c.get("name") for c in self.channels],
+                "names":      [c.get("name") for c in self.channels],
                 "spend_pct":  self._spend_pct_series(),
                 "effect_pct": self._effect_pct_series(),
             },
             "timeline": {
-                # M3 will wire real time_series; M2 emits placeholder.
-                "weeks":   [],
-                "baseline": [],
-                "channels": {},
+                "weeks":    ts_weeks,
+                "baseline": [float(v) for v in ts_baseline],
+                "channels": {
+                    name: [float(v) for v in series]
+                    for name, series in ts_channels.items()
+                },
+                "channel_order": [c.get("name") for c in self.channels],
             },
+            "optimize": {
+                "names":   opt_names,
+                "current": opt_current,
+                "optimal": opt_optimal,
+            },
+            "scenarios": scenarios_payload,
         }
         return security.escape_js_embed(payload)
 
@@ -214,11 +288,62 @@ class AuroraHTMLBuilder:
         return [round(float(c.get("contribution") or 0) / total * 100, 1) for c in self.channels]
 
     def _model_context_json(self) -> str:
-        """Model params passed to JS for budget what-if slider (M3 feature)."""
+        """Model params for budget what-if slider.
+
+        Structure:
+          {
+            channel_params: { "TV": {beta, alpha, gamma, adstock}, ... },
+            normalization: { y_mean, y_std, media_means: {"TV": ...} },
+            baseline_sum: float (сумма baseline за период для denormalization),
+            current_spends_mln: { "TV": 120, ... },  # для reset button
+            media_stds: { "TV": ... },  # для нормализации spend
+          }
+
+        If raw_model is absent, emits empty object and JS hides what-if UI.
+        """
+        channel_params = self.raw_model.get("channel_params", {}) or {}
+        norm = self.raw_model.get("normalization", {}) or {}
+
+        # Extract media_means and media_stds per channel (scalar per channel)
+        media_means = norm.get("media_means") or {}
+        media_stds = norm.get("media_stds") or {}
+
+        # Baseline sum: from waterfall "Base" or time_series baseline
+        baseline_sum = 0.0
+        wf = self.raw_decompose.get("waterfall") or {}
+        if isinstance(wf, dict):
+            labels = wf.get("labels") or []
+            values = wf.get("values") or []
+            for lbl, v in zip(labels, values):
+                if str(lbl).lower() in ("base", "baseline", "base sales", "base_sales"):
+                    try:
+                        baseline_sum = float(v)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+        if baseline_sum == 0.0:
+            ts_base = self.raw_decompose.get("time_series", {}).get("baseline") or []
+            try:
+                baseline_sum = float(sum(ts_base))
+            except (TypeError, ValueError):
+                baseline_sum = 0.0
+
+        current_spends = {
+            c.get("name"): round(float(c.get("spend") or 0) / 1e6, 2)
+            for c in self.channels if c.get("name")
+        }
+
         payload = {
-            "channel_params": self.data.get("model_channel_params", {}),
-            "normalization":  self.data.get("model_normalization", {}),
-            "baseline":       self.data.get("decompose_baseline", 0),
+            "channel_params":    channel_params,
+            "normalization": {
+                "y_mean":      float(norm.get("y_mean", 0) or 0),
+                "y_std":       float(norm.get("y_std", 1) or 1),
+                "media_means": media_means,
+                "media_stds":  media_stds,
+            },
+            "baseline_sum":       float(baseline_sum),
+            "current_spends_mln": current_spends,
+            "enabled": bool(channel_params and media_means and norm.get("y_std")),
         }
         return security.escape_js_embed(payload)
 
