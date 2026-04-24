@@ -633,8 +633,7 @@ class AuroraPPTXBuilder:
 
         # Main list (8 sections)
         y = 1.85
-        page_refs = [4, 5, 6, 7, 8, 9, 10, 11]  # faux refs
-        for i, (name, pg) in enumerate(zip(self.section_names, page_refs), start=1):
+        for i, (name, pg) in enumerate(zip(self.section_names, self.toc_page_refs), start=1):
             # Number
             self._text(
                 slide, self.safe, y, 0.8, 0.4,
