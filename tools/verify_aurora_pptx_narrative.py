@@ -122,8 +122,9 @@ def main() -> int:
                           xml.count("TV") >= 5))
     results.append(_check("Case 2: Digital video hero propagates (mROAS=1.9)",
                           "Digital video" in xml))
-    results.append(_check("Case 2: Print marked Cut (mROAS<0.8)",
-                          "Cut" in xml))
+    # Stage C.3: verdict labels localized - enum "Cut" renders as "Остановить"
+    results.append(_check("Case 2: Print marked Cut (mROAS<0.8) → shown as Остановить",
+                          "Остановить" in xml))
 
     # ─── Case 3: 3-channel minimal (AcmeCo) ─────────────────────────────────
     decomp_chs, opt_chs = _chs([

@@ -470,12 +470,16 @@ class AuroraPPTXBuilder:
 
     # ---------- Action title block (full pattern with lime) ----------
 
-    def _action_title(self, slide, text, *, show_lime=True, y=1.0, height=0.95):
+    def _action_title(self, slide, text, *, show_lime=True, y=1.0, height=0.95,
+                      size=22):
+        """Stage C.4: size made overridable so long titles (4+ lines) can
+        shrink to 18-20pt to fit. Default 22pt preserved for short titles.
+        """
         left = self.safe
         width = self.w - 2 * self.safe
         self._text(
             slide, left, y, width, height,
-            text, font=self.serif, size=22, bold=True,
+            text, font=self.serif, size=size, bold=True,
             color=self.deep_100, line_spacing=1.0,
         )
         if show_lime:
@@ -589,20 +593,29 @@ class AuroraPPTXBuilder:
             return f"{v:.1f}" if v < 10 else f"{v:.0f}"
 
         if reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
-            f3 = f"Recommendation: reallocate {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
+            f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
         else:
-            f3 = "Recommendation: сохранить текущую аллокацию по лидеру портфеля"
+            f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
         if expected_lift_pct is not None:
             s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп"
         else:
             s3 = "Ожидаемый эффект - положительный при сохранении общего бюджета"
 
         # Finding 4 — verdict distribution (how portfolio looks)
+        # Stage C.3: idiomatic Russian plural forms (no lazy "канал(ов)" hack).
         verdicts = [c.get("verdict") for c in self.channels]
         scale_n = sum(1 for v in verdicts if v == "Scale")
         cut_n = sum(1 for v in verdicts if v in ("Cut", "Reduce"))
-        f4 = f"Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению"
-        s4 = f"Из {len(self.channels)} активных каналов - чёткий verdict по каждому"
+        def _ru_channels(n: int) -> str:
+            if n == 0:
+                return "ни одного канала"
+            if n % 10 == 1 and n % 100 != 11:
+                return f"{n} канал"
+            if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+                return f"{n} канала"
+            return f"{n} каналов"
+        f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
+        s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
 
         # Finding 5 — MQS quality signal (guards None / non-numeric mqs_score)
         try:
@@ -610,7 +623,7 @@ class AuroraPPTXBuilder:
         except (TypeError, ValueError):
             mqs = 0.0
         if mqs >= 80:
-            f5 = f"Качество модели: MQS {mqs:.0f}/100 - готовность к production"
+            f5 = f"Качество модели: MQS {mqs:.0f}/100 - готовность к использованию"
             s5 = "Можно опираться на рекомендации в планировании"
         elif mqs >= 60:
             f5 = f"Качество модели: MQS {mqs:.0f}/100 - приемлемо"
@@ -767,16 +780,19 @@ class AuroraPPTXBuilder:
         findings = self._build_at_a_glance_findings() if (self.facts and self.channels) else [
             ("01", "TV обеспечивает 42% инкрементальных продаж при 28% доли бюджета",
              "ROI 1.8× выше среднего по каналам"),
-            ("02", "Saturation на TV начинается с 80 TRP/нед",
-             "Marginal ROI падает на 22% относительно Q4 2025"),
+            ("02", "Насыщение на TV начинается с 80 TRP/нед",
+             "Предельный ROI падает на 22% относительно IV кв. 2025"),
             ("03", "Digital video - самый эффективный канал с mROAS 1.9×",
              "Текущий бюджет на нём меньше 15%"),
-            ("04", "Baseline растёт на 8% YoY - кампании работают на долгосроке",
-             "Brand building дивиденды видны"),
-            ("05", "Recommendation: reallocate 25 млн из TV в digital video",
-             "Ожидаемый прирост ROAS: +12 пп к Q3 2026"),
+            ("04", "Базовый уровень растёт на 8% год к году - кампании работают на долгосроке",
+             "Бренд-эффект виден в динамике"),
+            ("05", "Рекомендация: перераспределить 25 млн из TV в digital video",
+             "Ожидаемый прирост ROAS: +12 пп к III-IV кв. 2026"),
         ]
-        y = 1.80
+        # Stage C.4: findings_y 1.80 → 1.95 (more breathing room below title);
+        # finding height 0.45 → 0.55, support y-offset 0.42 → 0.55,
+        # step 0.92 → 1.02 (italic subtitle was overlapping next finding).
+        y = 1.95
         for i, (num, finding, support) in enumerate(findings):
             # Number
             self._text(
@@ -785,20 +801,20 @@ class AuroraPPTXBuilder:
             )
             # Finding in Georgia bold
             self._text(
-                slide, self.safe + 0.9, y, 9.0, 0.45, finding,
+                slide, self.safe + 0.9, y, 9.0, 0.55, finding,
                 font=self.serif, size=15, bold=True, color=self.deep_100,
             )
-            # Support text
+            # Support text (moved lower so italic subtitle doesn't overlap)
             self._text(
-                slide, self.safe + 0.9, y + 0.42, 9.0, 0.3, support,
+                slide, self.safe + 0.9, y + 0.55, 9.0, 0.3, support,
                 font=self.sans, size=10, italic=True, color=self.deep_60,
             )
             # Hairline between items only (not after last - footer has its own rule)
             if i < len(findings) - 1:
-                self._hairline(slide, self.safe, y + 0.8, self.w - 2 * self.safe, weight=0.25)
-            y += 0.92
+                self._hairline(slide, self.safe, y + 0.92, self.w - 2 * self.safe, weight=0.25)
+            y += 1.02
 
-        self._footer(slide, 2)
+        self._footer(slide, 3)  # Stage C.6.1: was 2 (TOC moved ahead of Executive Summary)
 
     # ----------------------------------------------------------------
     # SLIDE 03 - TOC
@@ -880,7 +896,7 @@ class AuroraPPTXBuilder:
             )
             my += 0.3
 
-        self._footer(slide, 3)
+        self._footer(slide, 2)  # Stage C.6.1: was 3 (TOC now physical slide 2)
 
     # ----------------------------------------------------------------
     # SLIDE 04 - SECTION DIVIDER WITH TAKEAWAY
@@ -981,7 +997,7 @@ class AuroraPPTXBuilder:
             wr = self.facts.get("weighted_roi")
 
             # Action title — leader's position statement
-            title = f"{leader} остаётся основным драйвером, но эффективность требует проверки saturation"
+            title = f"{leader} остаётся основным драйвером, но эффективность требует проверки насыщения"
             # Big number — leader contribution share
             big_number = f"{cpct:.0f}%" if cpct is not None else "-"
             big_label = f"Доля {leader} в инкрементальных продажах"
@@ -993,22 +1009,22 @@ class AuroraPPTXBuilder:
             if hero != leader:
                 quote_txt = (
                     f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                    f"Сигнал к reallocate части бюджета в digital."
+                    "Сигнал к перераспределению части бюджета в digital."
                 )
             else:
                 quote_txt = (
-                    f"{leader} - единственный лидер и по вкладу и по эффективности. "
-                    "Бюджет следует сохранить до признаков saturation."
+                    f"{leader} - единственный лидер и по вкладу, и по эффективности. "
+                    "Бюджет следует сохранить до признаков насыщения."
                 )
         else:
             title = "TV остаётся основным драйвером, но эффективность достигла локального максимума"
             big_number = "42%"
-            big_label = "Доля TV в инкрементальных продажах Q1"
+            big_label = "Доля TV в инкрементальных продажах, I кв."
             big_support = "При 28% доли бюджета. ROI 1.8× выше среднего."
             quote_txt = (
                 "Каждый рубль в TV возвращает в 1.8 раза больше, "
                 "чем среднее по каналам. Однако начиная с 80 TRP/нед "
-                "маржинальный возврат падает - сигнал к reallocate в digital."
+                "маржинальный возврат падает - сигнал к перераспределению в digital."
             )
 
         self._action_title(
@@ -1080,10 +1096,13 @@ class AuroraPPTXBuilder:
         else:
             action_title = "Digital video и Search опережают TV по mROAS - они должны получить приоритет"
 
+        # Stage C.4: action title on s06 can run 4+ lines when channel
+        # names are long. Height bumped to 1.10 (was 0.80) + font 20pt
+        # (was 22pt) to prevent overflow into label row below.
         self._action_title(
             slide,
             action_title,
-            show_lime=True, y=0.80, height=0.80,
+            show_lime=True, y=0.80, height=1.10, size=20,
         )
 
         # Chart zone (left 58%)
@@ -1195,7 +1214,7 @@ class AuroraPPTXBuilder:
         # Breakeven reference note above chart (small, tier-1 annotation)
         self._text(
             slide, chart_x + chart_w - 2.5, bar_area_y - 0.22, 2.5, 0.18,
-            "1.0× = breakeven  .  выше = прибыльно",
+            "1.0× = безубыточность  ·  выше = прибыльно",
             font=self.sans, size=7, italic=True, color=self.deep_60,
             align=PP_ALIGN.RIGHT,
         )
@@ -1234,12 +1253,12 @@ class AuroraPPTXBuilder:
             if leader and hero_name and leader != hero_name:
                 commentary.append((
                     f"{hero_name} обогнал {leader}.",
-                    f" mROAS {hero_m:.1f}× означает, что каждый дополнительный рубль в {hero_name.lower()} возвращает в {hero_m:.1f} раза больше. Явный потенциал scale-up.",
+                    f" mROAS {hero_m:.1f}× означает, что каждый дополнительный рубль в {hero_name.lower()} возвращает в {hero_m:.1f} раза больше. Явный потенциал для наращивания.",
                 ))
             elif hero_name:
                 commentary.append((
                     f"{hero_name} - лидер по mROAS.",
-                    f" mROAS {hero_m:.1f}×. Бюджет следует наращивать до признаков saturation.",
+                    f" mROAS {hero_m:.1f}×. Бюджет следует наращивать до признаков насыщения.",
                 ))
             # Block 2 — stable second
             if second_name and second_m >= 1.0:
@@ -1253,16 +1272,16 @@ class AuroraPPTXBuilder:
                 if names_str:
                     commentary.append((
                         f"{names_str} под угрозой.",
-                        f" mROAS ниже breakeven. Рекомендуется reallocate их бюджеты в топ-2 канала.",
+                        " mROAS ниже точки безубыточности. Рекомендуется перераспределить их бюджеты в топ-2 канала.",
                     ))
         else:
             commentary = [
                 ("Digital video обогнал TV.",
-                 " mROAS 1.9× означает, что каждый дополнительный рубль в digital video возвращает в 1.9 раза больше. Сейчас канал получает менее 15% бюджета - явный потенциал scale-up."),
+                 " mROAS 1.9× означает, что каждый дополнительный рубль в digital video возвращает в 1.9 раза больше. Сейчас канал получает менее 15% бюджета - явный потенциал для наращивания."),
                 ("Search устойчиво эффективен.",
-                 " mROAS 1.7× при текущих расходах. Менее волатилен, чем social, и не подвержен saturation в обозримой перспективе."),
+                 " mROAS 1.7× при текущих расходах. Менее волатилен, чем social, и не подвержен насыщению в обозримой перспективе."),
                 ("Print и Radio под угрозой.",
-                 " mROAS 0.7× и 0.75× - оба ниже breakeven. Рекомендуется reallocate их бюджеты в топ-2 канала."),
+                 " mROAS 0.7× и 0.75× - оба ниже точки безубыточности. Рекомендуется перераспределить их бюджеты в топ-2 канала."),
             ]
         cy = chart_y + 0.55
         for lead, body in commentary:
@@ -1383,6 +1402,16 @@ class AuroraPPTXBuilder:
             "Reduce": (self.gold_muted, True),
             "Cut":    (self.gold, True),
         }
+        # Stage C.3: display verdicts in Russian. Enum keys stay English
+        # internally so derive_verdict() and downstream narrative helpers
+        # remain unchanged.
+        verdict_ru = {
+            "Scale":  "Увеличить",
+            "Hold":   "Держать",
+            "Watch":  "Наблюдать",
+            "Reduce": "Сократить",
+            "Cut":    "Остановить",
+        }
         row_y = table_y + 0.65
         for row in rows:
             channel, budget, contrib, roi, share, verdict, footnote = row
@@ -1434,8 +1463,9 @@ class AuroraPPTXBuilder:
             x += col_widths[4]
             # Verdict — fallback to Hold styling if unknown key
             vcolor, vbold = verdict_colors.get(verdict, (self.deep_60, False))
+            verdict_label = verdict_ru.get(verdict, verdict)
             self._text(
-                slide, x + 0.05, row_y, col_widths[5] - 0.1, 0.3, verdict,
+                slide, x + 0.05, row_y, col_widths[5] - 0.1, 0.3, verdict_label,
                 font=self.sans, size=11, bold=vbold, color=vcolor,
             )
             # Row hairline
@@ -1480,8 +1510,8 @@ class AuroraPPTXBuilder:
             # so bottom-block text pairs with the rendered row superscripts.
             flagged = [c for c in self.channels[:10] if c.get("verdict") in ("Reduce", "Cut")][:3]
             reason_by_verdict = {
-                "Cut": "ниже breakeven по mROAS; рекомендовано остановить или перевести в другие каналы.",
-                "Reduce": "saturation-bound; маржинальный возврат от дополнительного рубля ниже среднего по портфелю.",
+                "Cut": "ниже точки безубыточности по mROAS; рекомендовано остановить или перевести в другие каналы.",
+                "Reduce": "достигнуто насыщение; маржинальный возврат от дополнительного рубля ниже среднего по портфелю.",
             }
             footnotes = [
                 (str(i + 1), f"{c.get('name') or '-'}: {reason_by_verdict.get(c.get('verdict'), 'рекомендовано пересмотреть аллокацию.')}")
@@ -1538,9 +1568,9 @@ class AuroraPPTXBuilder:
         # in the XLSX "Динамика" sheet). Parametrize leader + baseline only.
         if self.facts:
             leader = self.facts.get("leader_channel") or "Лидер"
-            title = f"{leader}-всплески выделяются на устойчивом baseline - медиа-активность видна по неделям"
+            title = f"{leader}: всплески выделяются на устойчивой базовой линии - медиа-активность прослеживается понедельно"
         else:
-            title = "TV-всплески W06 и W11 выделяются на устойчивом baseline +8% YoY"
+            title = "TV-всплески W06 и W11 выделяются на устойчивой базе +8% год к году"
         self._action_title(
             slide,
             title,
@@ -1559,7 +1589,7 @@ class AuroraPPTXBuilder:
         )
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
-            f"Декомпозиция: baseline + вклад каждого канала, {self.data_window_label}",
+            f"Декомпозиция: базовый уровень + вклад каждого канала, {self.data_window_label}",
             font=self.sans, size=9, italic=True, color=self.deep_60,
         )
         # Hairline removed per brand rule - minimize horizontal lines
@@ -1732,66 +1762,67 @@ class AuroraPPTXBuilder:
             hero_m = float(hero_ch.get("mroas") or 0)
             # Underperformer names
             underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut", "Reduce")]
-            underperf_str = ", ".join(underperf) if underperf else "underperformers"
+            underperf_str = ", ".join(underperf) if underperf else "отстающие каналы"
 
-            # Action title — hero-focused for recommendation
+            # Action title — hero-focused, action-first (no self-reference).
+            # Stage C.3 + C.5: no more "Aurora рекомендует" product voice.
             if hero != leader:
-                action_title = f"Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}"
+                action_title = f"Нарастить {hero} и пересмотреть позицию {leader}"
             else:
-                action_title = f"Aurora рекомендует сохранить приоритет {leader} с учётом saturation"
+                action_title = f"Сохранить приоритет {leader} с учётом насыщения"
 
             situation_body = (
                 f"{self.client} размещает {tb:.0f} млн ₽ в квартал через {n_ch} активных каналов. "
-                + (f"Weighted ROI {wr:.1f}×, " if wr is not None else "")
+                + (f"Средневзвешенный ROI {wr:.1f}×, " if wr is not None else "")
                 + f"MQS модели {self.mqs_score:.0f}/100."
             )
 
             complication_parts = []
             if leader_spend_pct is not None:
                 complication_parts.append(
-                    f"{leader} доминирует бюджет ({leader_spend_pct:.0f}% portfolio)"
+                    f"{leader} доминирует в бюджете ({leader_spend_pct:.0f}% портфеля)"
                 )
             if hero != leader and hero_m >= 1.0:
                 complication_parts.append(f"но по mROAS {hero} опережает ({hero_m:.1f}×)")
             if underperf:
-                complication_parts.append(f"underperformers {underperf_str} тянут портфель вниз")
+                complication_parts.append(f"{underperf_str} тянут портфель вниз")
             complication_body = ". ".join(complication_parts) + (". Портфель требует перебалансировки." if complication_parts else "Портфель требует перебалансировки.")
 
             # Answer — summary reallocation direction
             answer_parts = []
             if hero != leader and realloc >= 1:
-                answer_parts.append(f"Перебалансировать {realloc:.0f} млн ₽ из {leader} в {hero}")
+                answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {leader} в {hero}")
             if underperf:
                 answer_parts.append(f"остановить {underperf_str}")
-            answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем saturation."
+            answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
 
             blocks = [
-                {"label": "SITUATION", "height": 0.6, "body": situation_body},
-                {"label": "COMPLICATION", "height": 0.8, "body": complication_body},
-                {"label": "QUESTION", "height": 0.55,
-                 "body": f"Как перераспределить бюджет {self.forecast_period_label}, чтобы поднять ROAS не снижая awareness?",
+                {"label": "СИТУАЦИЯ", "height": 0.6, "body": situation_body},
+                {"label": "ПРОБЛЕМА", "height": 0.8, "body": complication_body},
+                {"label": "ВОПРОС", "height": 0.55,
+                 "body": f"Как перераспределить бюджет на {self.forecast_period_label}, чтобы поднять ROAS без снижения охвата знания?",
                  "accent": True},
-                {"label": "ANSWER", "height": 0.6, "body": answer_body},
-                {"label": "RECOMMENDATION", "height": 2.0, "body": None},
+                {"label": "ОТВЕТ", "height": 0.6, "body": answer_body},
+                {"label": "РЕКОМЕНДАЦИИ", "height": 2.3, "body": None},
             ]
         else:
-            action_title = "Aurora рекомендует сократить TV до 60 TRP/нед и удвоить Digital Video"
+            action_title = "Сократить TV до 60 TRP/нед и удвоить Digital Video"
             blocks = [
-                {"label":  "SITUATION",
+                {"label":  "СИТУАЦИЯ",
                  "height": 0.6,
-                 "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Weighted ROI 1.5×, MQS модели {self.mqs_score:.0f}/100."},
-                {"label":  "COMPLICATION",
+                 "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Средневзвешенный ROI 1.5×, MQS модели {self.mqs_score:.0f}/100."},
+                {"label":  "ПРОБЛЕМА",
                  "height": 0.8,
-                 "body":   "TV достиг saturation: выше 80 TRP/нед marginal ROI падает на 22% YoY. Digital video недоинвестирован (<15% бюджета при mROAS 1.9×). Портфель не оптимизирован."},
-                {"label":  "QUESTION",
+                 "body":   "TV достиг насыщения: выше 80 TRP/нед маржинальный ROI падает на 22% год к году. Digital video недоинвестирован (<15% бюджета при mROAS 1.9×). Портфель не оптимизирован."},
+                {"label":  "ВОПРОС",
                  "height": 0.55,
-                 "body":   f"Как перераспределить бюджет {self.forecast_period_label}, чтобы поднять ROAS не снижая awareness?",
+                 "body":   f"Как перераспределить бюджет на {self.forecast_period_label}, чтобы поднять ROAS без снижения охвата знания?",
                  "accent": True},
-                {"label":  "ANSWER",
+                {"label":  "ОТВЕТ",
                  "height": 0.6,
                  "body":   "Сократить TV с 120 до 90 млн ₽/квартал, увеличить Digital video с 65 до 100 млн, сохранить Search/OOH, остановить Print и Radio."},
-                {"label":  "RECOMMENDATION",
-                 "height": 2.0,
+                {"label":  "РЕКОМЕНДАЦИИ",
+                 "height": 2.3,  # Stage C.4: was 2.0; 3 actions need more room
                  "body":   None},
             ]
 
@@ -1813,15 +1844,15 @@ class AuroraPPTXBuilder:
                 font=self.sans, size=9, bold=True,
                 color=self.gold if accent else self.deep_60,
             )
-            # Body
+            # Body (Stage C.4: font 12→11 reduces wrap → no overlap between blocks)
             if b["body"]:
                 self._text(
                     slide, self.safe + 2.3, y, 7.5, b["height"] - 0.1,
                     b["body"],
-                    font=self.sans, size=12,
+                    font=self.sans, size=11,
                     italic=accent,
                     color=self.deep_100,
-                    line_spacing=1.35,
+                    line_spacing=1.3,
                 )
             else:
                 # Recommendation - 3 templated actions when facts present
@@ -1836,29 +1867,29 @@ class AuroraPPTXBuilder:
 
                     actions = [
                         ("01",
-                         "Перебалансировать бюджет.",
-                         f" {realloc:.0f} млн ₽ из {leader} в {hero}. Adstock компенсирует краткосрочный спад awareness."
+                         "Перераспределить бюджет.",
+                         f" {realloc:.0f} млн ₽ из {leader} в {hero}. Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
                             if hero != leader and realloc >= 1 else
-                         f" Сохранить аллокацию по {leader} с контролем индикаторов saturation."),
+                         f" Сохранить аллокацию по {leader} с контролем индикаторов насыщения."),
                         ("02",
-                         "Burst-планирование вместо continuity.",
-                         f" Короткие flights {leader} с паузами - ~15-20% экономии бюджета при сохранении awareness."),
+                         "Пульсирующее размещение вместо непрерывного.",
+                         f" Короткие флайты {leader} с паузами - экономия бюджета 15-20% при сохранении охвата."),
                         ("03",
-                         "Целевой retargeting через эффективные сегменты.",
-                         f" Segment приоритета {hero}; {lift_txt}."
-                            + (f" Переводим бюджет из {', '.join(underperf[:2])}." if underperf else "")),
+                         "Целевой ретаргетинг через эффективные сегменты.",
+                         f" Приоритетный сегмент - {hero}; {lift_txt}."
+                            + (f" Бюджет переводим из {', '.join(underperf[:2])}." if underperf else "")),
                     ]
                 else:
                     actions = [
                         ("01",
-                         "Перебалансировать бюджет.",
-                         " 25 млн ₽ из TV в Digital video. Saving при сохранении incremental sales (adstock компенсирует)."),
+                         "Перераспределить бюджет.",
+                         " 25 млн ₽ из TV в Digital video. Экономия при сохранении инкрементальных продаж (отложенный эффект компенсирует)."),
                         ("02",
-                         "Weekly bursts вместо continuity.",
-                         " TV flights 60 TRP × 3 недели + паузы. 18% экономии, awareness устойчив."),
+                         "Недельные пульсы вместо непрерывного размещения.",
+                         " TV флайты по 60 TRP × 3 недели с паузами. Экономия 18%, охват устойчив."),
                         ("03",
-                         "Targeted retargeting W25 54 через CTV/OLV.",
-                         " Segment с prior ROI 2.1×; сейчас недоинвестирован. Потенциал +12 млн ₽ incremental sales."),
+                         "Целевой ретаргетинг W25-54 через CTV/OLV.",
+                         " Сегмент с априорным ROI 2.1×; сейчас недоинвестирован. Потенциал +12 млн ₽ инкрементальных продаж."),
                     ]
                 ay = y
                 for num, lead, body in actions:
@@ -1915,7 +1946,7 @@ class AuroraPPTXBuilder:
 
         self._action_title(
             slide,
-            "Bayesian MMM с адstock + saturation - NUTS NumPyro, 4 chains × 2 000 iter",
+            "Байесовская MMM с adstock + Hill-насыщением",
             show_lime=True, y=0.80, height=0.80,
         )
 
@@ -1993,15 +2024,15 @@ class AuroraPPTXBuilder:
 
         limits = [
             ("Долгосрочные бренд-эффекты (>26 недель).",
-             "Модель captures short-to-medium term, но не long-term brand building."),
-            ("Cross-category cannibalization.",
-             f"Если {self.client} имеет несколько SKU - модель считает их единым KPI."),
-            ("Creative quality variation.",
-             "Влияние качества роликов на ROI не моделируется - predполагается constant."),
-            ("Competitor media pressure.",
-             "Share of Voice competitors в модели отсутствует - оценка для стабильной категории."),
-            ("Macroeconomic shocks.",
-             "Экстремальные события (валютные скачки, регуляторные) вне scope."),
+             "Модель учитывает краткосрочный и среднесрочный эффект, но не долгосрочное строительство бренда."),
+            ("Каннибализация между категориями.",
+             f"Если у клиента несколько SKU - модель считает их единым KPI."),
+            ("Вариация качества креативов.",
+             "Влияние качества роликов на ROI не моделируется - предполагается постоянным."),
+            ("Конкурентная медиа-активность.",
+             "Доля голоса (SoV) конкурентов в модели отсутствует - оценка справедлива для стабильной категории."),
+            ("Макроэкономические шоки.",
+             "Экстремальные события (валютные скачки, регуляторные изменения) вне области анализа."),
         ]
         ly = left_y + 0.5
         for lead, body in limits:
@@ -2223,30 +2254,30 @@ class AuroraPPTXBuilder:
         columns = [
             ("МЕТОДОЛОГИЯ MMM", [
                 ("MMM", "Marketing Mix Modeling - статистическая декомпозиция вклада каналов в продажи."),
-                ("Bayesian inference", "Вероятностный подход: posterior distributions вместо точечных оценок."),
-                ("NUTS", "No-U-Turn Sampler - эффективный MCMC для многомерных posteriors."),
-                ("NumPyro / JAX", "Python-стек Bayesian computing с compiled-speed acceleration."),
-                ("Prior / Posterior", "Априорные предположения → обновлённая оценка после данных."),
-                ("Adstock", "Carryover-эффект медиа: часть воздействия переносится на следующие периоды."),
-                ("Saturation", "Diminishing returns: кривая Hill-функции, S-образное насыщение эффекта."),
+                ("Байесовский вывод", "Вероятностный подход: апостериорные распределения вместо точечных оценок."),
+                ("NUTS", "No-U-Turn Sampler - эффективный метод MCMC для многомерных распределений."),
+                ("NumPyro / JAX", "Python-стек для байесовских вычислений с компиляцией JIT."),
+                ("Априорное / апостериорное", "Исходные предположения → обновлённая оценка после данных."),
+                ("Adstock", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
+                ("Насыщение", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
             ]),
             ("КАЧЕСТВО МОДЕЛИ", [
                 ("R²", "Доля объяснённой моделью вариации продаж (0 до 1). Целевое > 0.7."),
-                ("MAPE", "Mean Absolute Percentage Error - средняя процентная ошибка прогноза."),
+                ("MAPE", "Средняя абсолютная процентная ошибка прогноза."),
                 ("R-hat", "Диагностика сходимости MCMC-цепей; целевое значение ≤ 1.01."),
-                ("ESS", "Effective Sample Size - число независимых samples из posterior."),
-                ("CI (95%)", "Credible Interval - диапазон, содержащий истинное значение с 95% вероятностью."),
-                ("MQS", "Model Quality Score - composite индекс качества Aurora (0-100)."),
-                ("Baseline / Incremental", "Органические продажи без медиа vs продажи, вызванные медиа-инвестициями."),
+                ("ESS", "Effective Sample Size - число независимых выборок из апостериорного распределения."),
+                ("CI (95%)", "Байесовский интервал правдоподобия - в нём истинное значение лежит с 95% вероятностью."),
+                ("MQS", "Model Quality Score - композитный индекс качества Aurora (0-100)."),
+                ("Базовый / инкрементальный", "Органические продажи без медиа и продажи, вызванные медиа-инвестициями."),
             ]),
             ("МЕДИА-МЕТРИКИ", [
                 ("mROAS", "Marginal ROAS - возврат с последнего вложенного рубля (×-коэффициент)."),
-                ("ROI", "Return on Investment - общая возвратность вложений (incremental / spend)."),
+                ("ROI", "Return on Investment - общая возвратность вложений (инкрементальный вклад / расход)."),
                 ("TRP / GRP", "Target / Gross Rating Points - охват целевой аудитории в рейтинг-пунктах."),
                 ("CPP", "Cost per Point - стоимость одного рейтингового пункта в рублях."),
-                ("Reach", "Охват: % целевой аудитории, встретивших рекламу минимум один раз."),
-                ("Share of Voice", "Доля рекламного голоса бренда относительно конкурентов в категории."),
-                ("Verdict", "Рекомендация по каналу: Scale (увеличить) / Hold / Watch / Cut (остановить)."),
+                ("Охват (Reach)", "Процент целевой аудитории, встретивших рекламу минимум один раз."),
+                ("Доля голоса (SoV)", "Доля рекламного голоса бренда относительно конкурентов в категории."),
+                ("Рекомендация", "Вердикт по каналу: Увеличить / Держать / Наблюдать / Сократить / Остановить."),
             ]),
         ]
 
@@ -2356,8 +2387,12 @@ class AuroraPPTXBuilder:
 
     def build(self):
         self.s01_cover()
-        self.s02_at_a_glance()
+        # Stage C.6.1: TOC (Содержание) comes BEFORE Executive Summary.
+        # Tier-1 standard — reader sees document structure first, then
+        # dives into findings. Physical slide numbers: Cover=1, TOC=2,
+        # Executive Summary=3, rest unchanged.
         self.s03_toc()
+        self.s02_at_a_glance()
         self.s04_section_divider()
         self.s05_key_message()
         self.s06_action_chart()
