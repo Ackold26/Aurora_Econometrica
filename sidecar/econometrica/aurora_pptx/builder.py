@@ -1419,9 +1419,18 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "ДИНАМИКА")
 
+        # Action title — slot-fill on leader when facts present.
+        # Full peak-detection from time_series deferred (band chart below
+        # is a wireframe visualization; real per-week decomposition lives
+        # in the XLSX "Динамика" sheet). Parametrize leader + baseline only.
+        if self.facts:
+            leader = self.facts.get("leader_channel") or "Лидер"
+            title = f"{leader}-всплески выделяются на устойчивом baseline - медиа-активность видна по неделям"
+        else:
+            title = "TV-всплески W06 и W11 выделяются на устойчивом baseline +8% YoY"
         self._action_title(
             slide,
-            "TV-всплески W06 и W11 выделяются на устойчивом baseline +8% YoY",
+            title,
             show_lime=True, y=0.80, height=0.80,
         )
 
@@ -1560,41 +1569,90 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "РЕКОМЕНДАЦИЯ")
 
+        # Build SCQAR blocks from facts when present, else Kagocel pilot.
+        if self.facts and self.channels:
+            f = self.facts
+            leader = f.get("leader_channel") or "Лидер"
+            hero = f.get("hero_channel") or leader
+            tb = f.get("total_budget_mln") or 0
+            n_ch = f.get("n_active_channels") or len(self.channels)
+            wr = f.get("weighted_roi")
+            leader_spend_pct = f.get("leader_share_spend_pct")
+            realloc = f.get("reallocation_mln") or 0
+            lift = f.get("expected_lift_pct")
+            # Hero mROAS
+            hero_ch = next((c for c in self.channels if c.get("name") == hero), {})
+            hero_m = float(hero_ch.get("mroas") or 0)
+            # Underperformer names
+            underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut", "Reduce")]
+            underperf_str = ", ".join(underperf) if underperf else "underperformers"
+
+            # Action title — hero-focused for recommendation
+            if hero != leader:
+                action_title = f"Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}"
+            else:
+                action_title = f"Aurora рекомендует сохранить приоритет {leader} с учётом saturation"
+
+            situation_body = (
+                f"{self.client} размещает {tb:.0f} млн ₽ в квартал через {n_ch} активных каналов. "
+                + (f"Weighted ROI {wr:.1f}×, " if wr is not None else "")
+                + f"MQS модели {self.mqs_score:.0f}/100."
+            )
+
+            complication_parts = []
+            if leader_spend_pct is not None:
+                complication_parts.append(
+                    f"{leader} доминирует бюджет ({leader_spend_pct:.0f}% portfolio)"
+                )
+            if hero != leader and hero_m >= 1.0:
+                complication_parts.append(f"но по mROAS {hero} опережает ({hero_m:.1f}×)")
+            if underperf:
+                complication_parts.append(f"underperformers {underperf_str} тянут портфель вниз")
+            complication_body = ". ".join(complication_parts) + (". Портфель требует перебалансировки." if complication_parts else "Портфель требует перебалансировки.")
+
+            # Answer — summary reallocation direction
+            answer_parts = []
+            if hero != leader and realloc >= 1:
+                answer_parts.append(f"Перебалансировать {realloc:.0f} млн ₽ из {leader} в {hero}")
+            if underperf:
+                answer_parts.append(f"остановить {underperf_str}")
+            answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем saturation."
+
+            blocks = [
+                {"label": "SITUATION", "height": 0.6, "body": situation_body},
+                {"label": "COMPLICATION", "height": 0.8, "body": complication_body},
+                {"label": "QUESTION", "height": 0.55,
+                 "body": f"Как перераспределить бюджет {self.forecast_period_label}, чтобы поднять ROAS не снижая awareness?",
+                 "accent": True},
+                {"label": "ANSWER", "height": 0.6, "body": answer_body},
+                {"label": "RECOMMENDATION", "height": 2.0, "body": None},
+            ]
+        else:
+            action_title = "Aurora рекомендует сократить TV до 60 TRP/нед и удвоить Digital Video"
+            blocks = [
+                {"label":  "SITUATION",
+                 "height": 0.6,
+                 "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Weighted ROI 1.5×, MQS модели {self.mqs_score:.0f}/100."},
+                {"label":  "COMPLICATION",
+                 "height": 0.8,
+                 "body":   "TV достиг saturation: выше 80 TRP/нед marginal ROI падает на 22% YoY. Digital video недоинвестирован (<15% бюджета при mROAS 1.9×). Портфель не оптимизирован."},
+                {"label":  "QUESTION",
+                 "height": 0.55,
+                 "body":   f"Как перераспределить бюджет {self.forecast_period_label}, чтобы поднять ROAS не снижая awareness?",
+                 "accent": True},
+                {"label":  "ANSWER",
+                 "height": 0.6,
+                 "body":   "Сократить TV с 120 до 90 млн ₽/квартал, увеличить Digital video с 65 до 100 млн, сохранить Search/OOH, остановить Print и Radio."},
+                {"label":  "RECOMMENDATION",
+                 "height": 2.0,
+                 "body":   None},
+            ]
+
         self._action_title(
             slide,
-            "Aurora рекомендует сократить TV до 60 TRP/нед и удвоить Digital Video",
+            action_title,
             show_lime=True, y=0.80, height=0.85,
         )
-
-        # SCQAR blocks - compressed to fit under footer zone (ends ~6.5)
-        blocks = [
-            {
-                "label":  "SITUATION",
-                "height": 0.6,
-                "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Weighted ROI 1.5×, MQS модели {self.mqs_score:.0f}/100.",
-            },
-            {
-                "label":  "COMPLICATION",
-                "height": 0.8,
-                "body":   "TV достиг saturation: выше 80 TRP/нед marginal ROI падает на 22% YoY. Digital video недоинвестирован (<15% бюджета при mROAS 1.9×). Портфель не оптимизирован.",
-            },
-            {
-                "label":  "QUESTION",
-                "height": 0.55,
-                "body":   f"Как перераспределить бюджет {self.forecast_period_label}, чтобы поднять ROAS не снижая awareness?",
-                "accent": True,
-            },
-            {
-                "label":  "ANSWER",
-                "height": 0.6,
-                "body":   "Сократить TV с 120 до 90 млн ₽/квартал, увеличить Digital video с 65 до 100 млн, сохранить Search/OOH, остановить Print и Radio.",
-            },
-            {
-                "label":  "RECOMMENDATION",
-                "height": 2.0,
-                "body":   None,
-            },
-        ]
 
         y = 2.3
         for b in blocks:
@@ -1619,18 +1677,42 @@ class AuroraPPTXBuilder:
                     line_spacing=1.35,
                 )
             else:
-                # Recommendation - 3 actions
-                actions = [
-                    ("01",
-                     "Перебалансировать бюджет.",
-                     " 25 млн ₽ из TV в Digital video. Saving при сохранении incremental sales (adstock компенсирует)."),
-                    ("02",
-                     "Weekly bursts вместо continuity.",
-                     " TV flights 60 TRP × 3 недели + паузы. 18% экономии, awareness устойчив."),
-                    ("03",
-                     "Targeted retargeting W25 54 через CTV/OLV.",
-                     " Segment с prior ROI 2.1×; сейчас недоинвестирован. Потенциал +12 млн ₽ incremental sales."),
-                ]
+                # Recommendation - 3 templated actions when facts present
+                if self.facts and self.channels:
+                    f = self.facts
+                    leader = f.get("leader_channel") or "Лидер"
+                    hero = f.get("hero_channel") or leader
+                    realloc = f.get("reallocation_mln") or 0
+                    lift = f.get("expected_lift_pct")
+                    underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut",)]
+                    lift_txt = f"+{lift:.1f} пп к ROAS по прогнозу" if lift is not None else "Положительный прирост ROAS по прогнозу"
+
+                    actions = [
+                        ("01",
+                         "Перебалансировать бюджет.",
+                         f" {realloc:.0f} млн ₽ из {leader} в {hero}. Adstock компенсирует краткосрочный спад awareness."
+                            if hero != leader and realloc >= 1 else
+                         f" Сохранить аллокацию по {leader} с контролем индикаторов saturation."),
+                        ("02",
+                         "Burst-планирование вместо continuity.",
+                         f" Короткие flights {leader} с паузами - ~15-20% экономии бюджета при сохранении awareness."),
+                        ("03",
+                         "Целевой retargeting через эффективные сегменты.",
+                         f" Segment приоритета {hero}; {lift_txt}."
+                            + (f" Переводим бюджет из {', '.join(underperf[:2])}." if underperf else "")),
+                    ]
+                else:
+                    actions = [
+                        ("01",
+                         "Перебалансировать бюджет.",
+                         " 25 млн ₽ из TV в Digital video. Saving при сохранении incremental sales (adstock компенсирует)."),
+                        ("02",
+                         "Weekly bursts вместо continuity.",
+                         " TV flights 60 TRP × 3 недели + паузы. 18% экономии, awareness устойчив."),
+                        ("03",
+                         "Targeted retargeting W25 54 через CTV/OLV.",
+                         " Segment с prior ROI 2.1×; сейчас недоинвестирован. Потенциал +12 млн ₽ incremental sales."),
+                    ]
                 ay = y
                 for num, lead, body in actions:
                     # Number
@@ -1659,12 +1741,16 @@ class AuroraPPTXBuilder:
             font=self.sans, size=8, bold=True, color=self.gold,
         )
         self._hairline(slide, impact_x, impact_y + 0.27, 1.2, weight=0.75, color=self.gold)
+        if self.facts and self.facts.get("expected_lift_pct") is not None:
+            impact_num = f"+{self.facts['expected_lift_pct']:.0f} пп"
+        else:
+            impact_num = "+12 пп"
         self._text(
-            slide, impact_x, impact_y + 0.35, 2.5, 0.7, "+12 пп",
+            slide, impact_x, impact_y + 0.35, 2.5, 0.7, impact_num,
             font=self.serif, size=42, color=self.deep_100,
         )
         self._text(
-            slide, impact_x, impact_y + 1.1, 2.5, 0.22, "ROAS к Q3 2026",
+            slide, impact_x, impact_y + 1.1, 2.5, 0.22, f"ROAS к {self.forecast_period_label}",
             font=self.sans, size=10, italic=True, color=self.deep_60,
         )
 
