@@ -1,12 +1,161 @@
-<!-- M1 skeleton — full shell in M2.
-     This file is a template placeholder: AuroraHTMLBuilder.build() currently
-     emits a minimal inline HTML directly. M2 will move to string.Template
-     substitution against this shell and inject:
-       - {CSP_META}         — hash-based Content-Security-Policy
-       - {ASSETS_INLINE}    — inlined CSS + tokens-JS + ECharts + fonts
-       - {HEADER}           — Aurora wordmark + theme toggle + confidentiality
-       - {TOC}              — sticky sidebar
-       - {SECTIONS}         — 14 rendered sections concatenated
-       - {FOOTER}           — Report ID + copyright + last-generated
-       - {INTERACTIVE_JS}   — bootstrap + shortcuts + number counters
--->
+<!DOCTYPE html>
+<html lang="ru" data-theme="${initial_theme}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${doc_title}</title>
+<meta name="description" content="${doc_description}">
+<meta name="generator" content="Aurora AI HTML v${version}">
+<meta name="robots" content="noindex, nofollow">
+
+<!-- Open Graph for link sharing (Slack/Telegram/WhatsApp previews) -->
+<meta property="og:type"        content="website">
+<meta property="og:title"       content="${doc_title}">
+<meta property="og:description" content="${doc_description}">
+<meta property="og:site_name"   content="Aurora AI">
+
+<!-- Favicon: sacred lime dot on navy deep -->
+<link rel="icon" type="image/svg+xml" href="${favicon_data_uri}">
+<link rel="apple-touch-icon" href="${favicon_data_uri}">
+
+${csp_meta}
+
+<!-- Embedded font subsets (WOFF2 base64 data URIs). All offline. -->
+<style id="aurora-fonts">
+${fonts_css}
+</style>
+
+<!-- Theme tokens (3 [data-theme] selectors, shared defaults) -->
+<style id="aurora-tokens">
+${tokens_css}
+</style>
+
+<!-- Main stylesheet (layout, components, micro-interactions) -->
+<style id="aurora-layout">
+${layout_css}
+</style>
+</head>
+<body>
+<!-- A11y: skip-to-content (hidden until focused via keyboard) -->
+<a class="skip-link" href="#main">Перейти к содержимому</a>
+
+<!-- Sticky scroll progress bar (sacred lime, 1px) -->
+<div class="scroll-progress" id="scroll-progress" aria-hidden="true"></div>
+
+<!-- Sticky header: wordmark + confidentiality watermark + theme toggle + copy-link -->
+<header class="app-header" role="banner">
+  <div class="header-inner">
+    <div class="header-left">
+      <span class="wordmark">${brand_wordmark}</span>
+      <span class="confidentiality">${confidentiality_label}${client_suffix}</span>
+    </div>
+    <nav class="header-nav" aria-label="Глобальная навигация">
+      <button class="btn-ghost" id="btn-toc-toggle" aria-label="${toc_toggle_label}" aria-expanded="false" aria-controls="toc-sidebar">☰</button>
+      <button class="btn-ghost" id="btn-search" aria-label="${search_label}" title="Ctrl+K">🔎</button>
+      <button class="btn-ghost" id="btn-theme-toggle" aria-label="${theme_label}" title="T" data-current-theme="${initial_theme}">${theme_icon}</button>
+      <button class="btn-ghost" id="btn-copy-link" aria-label="${copy_link_label}" title="C">⧉</button>
+      <button class="btn-ghost" id="btn-shortcuts" aria-label="${shortcuts_label}" title="?">?</button>
+    </nav>
+  </div>
+</header>
+
+<!-- App shell: sidebar TOC + main content -->
+<div class="app-shell">
+  <!-- Sticky TOC sidebar -->
+  <aside class="toc-sidebar" id="toc-sidebar" aria-label="${toc_title}" role="navigation">
+    <div class="toc-title">${toc_title}</div>
+    <ol class="toc-list">
+${toc_items}
+    </ol>
+  </aside>
+
+  <!-- Main content: 14 sections -->
+  <main id="main" class="main-content" role="main">
+${sections}
+  </main>
+</div>
+
+<!-- Footer: Report ID, generated timestamp, copyright -->
+<footer class="app-footer" role="contentinfo">
+  <div class="footer-inner">
+    <div class="footer-section footer-report-id">
+      <div class="footer-label">${report_id_label}</div>
+      <code class="report-id">${report_id}</code>
+    </div>
+    <div class="footer-section footer-generated">
+      <div class="footer-label">${generated_label}</div>
+      <span class="footer-value" title="${generated_iso}">${generated_human}</span>
+    </div>
+    <div class="footer-section footer-copyright">
+      ${copyright_line}
+    </div>
+  </div>
+</footer>
+
+<!-- Search modal (hidden by default) -->
+<div class="modal" id="search-modal" role="dialog" aria-labelledby="search-modal-title" aria-hidden="true">
+  <div class="modal-backdrop" data-close-modal></div>
+  <div class="modal-panel modal-panel-search">
+    <header class="modal-header">
+      <h2 id="search-modal-title" class="modal-title">${search_label}</h2>
+      <button class="btn-ghost" data-close-modal aria-label="${close_label}">×</button>
+    </header>
+    <div class="modal-body">
+      <input type="search" id="search-input" class="search-input" placeholder="${search_placeholder}" autocomplete="off">
+      <div class="search-results" id="search-results" role="listbox"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Shortcuts help modal -->
+<div class="modal" id="shortcuts-modal" role="dialog" aria-labelledby="shortcuts-modal-title" aria-hidden="true">
+  <div class="modal-backdrop" data-close-modal></div>
+  <div class="modal-panel">
+    <header class="modal-header">
+      <h2 id="shortcuts-modal-title" class="modal-title">${shortcuts_title}</h2>
+      <button class="btn-ghost" data-close-modal aria-label="${close_label}">×</button>
+    </header>
+    <div class="modal-body">
+      <table class="shortcuts-table">
+${shortcuts_rows}
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Drill-down side-panel (hidden by default, slides from right) -->
+<aside class="drill-panel" id="drill-panel" aria-hidden="true" aria-labelledby="drill-panel-title">
+  <header class="drill-panel-header">
+    <h3 id="drill-panel-title" class="drill-panel-title">Детали</h3>
+    <button class="btn-ghost" id="btn-close-drill" aria-label="${close_label}">×</button>
+  </header>
+  <div class="drill-panel-body" id="drill-panel-body"></div>
+</aside>
+
+<!-- Toast notifications (aria-live for screen readers) -->
+<div class="toast-container" id="toast-container" role="status" aria-live="polite"></div>
+
+<!-- Inline ECharts bundle -->
+<script id="aurora-echarts">
+${echarts_js}
+</script>
+
+<!-- Theme palette tokens for ECharts -->
+<script id="aurora-tokens-js">
+${tokens_js}
+</script>
+
+<!-- Chart options + data + interactive bootstrap -->
+<script id="aurora-bootstrap">
+${bootstrap_js}
+</script>
+
+<!-- Progressive enhancement note for JS-disabled readers -->
+<noscript>
+  <style>.app-shell .drill-panel, .modal, .btn-ghost { display: none; }</style>
+  <div class="noscript-banner">
+    <strong>Интерактивность отключена.</strong> Все разделы отчёта читаемы без JavaScript, но графики и переключатели темы недоступны. Для полного опыта откройте файл в браузере с включённым JS.
+  </div>
+</noscript>
+</body>
+</html>
