@@ -67,10 +67,27 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     current_spend = {col: float(df[col].fillna(0).sum()) for col in media_cols}
     total_current = sum(current_spend.values())
 
+    # Phase 2 normalization (spend/mean Robyn-style)
+    media_means = norm.get('media_means', {}) or {}
+
     # Money constraint: если задан total_budget_money, constraint считается в money
     # (Σ x_native × unit_cost == total_budget_money). Иначе — native constraint как раньше.
     total_budget_money_target = config.get('total_budget_money')
     uc_arr = [float(unit_costs.get(col, 1.0) or 1.0) for col in media_cols]
+
+    # P0-11 fix (math-fix-v1.0.13): mixed-units guard for native-mode budget.
+    # Native total constraint Σ x makes no sense across channels in different units
+    # (TRPs + rubles → arithmetic nonsense). Either all-money (uc=1.0) or all-native
+    # (uc≠1.0) channels OR explicit money-mode (total_budget_money) is required.
+    if total_budget_money_target is None:
+        is_all_money = all(uc == 1.0 for uc in uc_arr)
+        is_all_native = all(uc != 1.0 for uc in uc_arr)
+        if not (is_all_money or is_all_native):
+            return {
+                'status': 'error',
+                'error_code': 'MIXED_UNITS',
+                'message': 'Каналы в смешанных единицах (часть в рублях, часть в TRP/показах). Укажите total_budget_money либо unit_costs для всех каналов.',
+            }
 
     if total_budget_money_target is not None:
         # В money-режиме total_budget для логов/insight = native-эквивалент (пропорция).
