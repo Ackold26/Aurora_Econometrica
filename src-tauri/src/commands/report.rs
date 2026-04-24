@@ -6,11 +6,80 @@
 
 use chrono::Local;
 use log::info;
-use rust_xlsxwriter::{Format, Workbook};
+use rust_xlsxwriter::{DocProperties, Format, FormatAlign, FormatBorder, Workbook};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
+/// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
+/// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
+/// empty string if no printable chars remain — caller falls back to legacy
+/// mmm_report_{ts}.xlsx.
+fn sanitize_slug(s: &str) -> String {
+    let table: &[(char, &str)] = &[
+        ('а', "a"), ('б', "b"), ('в', "v"), ('г', "g"), ('д', "d"),
+        ('е', "e"), ('ё', "yo"), ('ж', "zh"), ('з', "z"), ('и', "i"),
+        ('й', "j"), ('к', "k"), ('л', "l"), ('м', "m"), ('н', "n"),
+        ('о', "o"), ('п', "p"), ('р', "r"), ('с', "s"), ('т', "t"),
+        ('у', "u"), ('ф', "f"), ('х', "h"), ('ц', "c"), ('ч', "ch"),
+        ('ш', "sh"), ('щ', "shch"), ('ъ', ""), ('ы', "y"), ('ь', ""),
+        ('э', "e"), ('ю', "yu"), ('я', "ya"),
+    ];
+    let mut out = String::new();
+    for ch in s.chars() {
+        let lower = ch.to_lowercase().next().unwrap_or(ch);
+        let is_upper = ch.is_uppercase();
+        if let Some((_, repl)) = table.iter().find(|(k, _)| *k == lower) {
+            // Preserve case on first char of transliterated pair
+            let mut chars = repl.chars();
+            if let Some(first) = chars.next() {
+                if is_upper {
+                    out.extend(first.to_uppercase());
+                } else {
+                    out.push(first);
+                }
+                out.extend(chars);
+            }
+        } else if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else if matches!(ch, ' ' | '-' | '_' | '.') {
+            if !out.ends_with('_') {
+                out.push('_');
+            }
+        }
+        // Everything else is dropped
+    }
+    // Trim trailing underscores + truncate to 40 chars
+    let trimmed = out.trim_matches('_').to_string();
+    trimmed.chars().take(40).collect()
+}
+
+/// Scan exports directory for previous Aurora_Econometrica_{slug}_Model_*_v{NN}.xlsx
+/// files, parse the max version number, return next. Default: 1.
+fn detect_version(exports_dir: &Path, slug: &str) -> u32 {
+    if slug.is_empty() { return 1; }
+    let prefix = format!("Aurora_Econometrica_{slug}_Model_");
+    let entries = match std::fs::read_dir(exports_dir) {
+        Ok(e) => e,
+        Err(_) => return 1,
+    };
+    let mut max_v: u32 = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.starts_with(&prefix) || !name_str.ends_with(".xlsx") { continue; }
+        // Extract _v{NN}.xlsx suffix
+        if let Some(v_pos) = name_str.rfind("_v") {
+            let v_part = &name_str[v_pos + 2..name_str.len() - 5]; // strip "_v" ... ".xlsx"
+            if let Ok(v) = v_part.parse::<u32>() {
+                if v > max_v { max_v = v; }
+            }
+        }
+    }
+    max_v + 1
+}
 
 /// Pull a fit metric out of `model.diagnostics`.
 /// Backend nests them under `diagnostics.metrics.*` (with `mape_pct`),
@@ -380,15 +449,26 @@ pub async fn econ_export_xlsx(
     info!("econ_export_xlsx: project={project_id}");
 
     let exports = exports_dir(&project_id)?;
-    let ts = Local::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("mmm_report_{ts}.xlsx");
+    let date = Local::now().format("%Y-%m-%d").to_string();
+    // Tier-1 filename convention per Standards/04_XLSX_STANDARD §file-naming.
+    // client_name derived from project_id until pipeline surfaces a stable
+    // display name in model_data.meta (TBD v1.0.12).
+    let slug = sanitize_slug(&project_id);
+    let filename = if slug.is_empty() {
+        // Fallback for edge cases (empty/all-non-alpha project_id).
+        let ts = Local::now().format("%Y%m%d_%H%M%S");
+        format!("mmm_report_{ts}.xlsx")
+    } else {
+        let version = detect_version(&exports, &slug);
+        format!("Aurora_Econometrica_{slug}_Model_{date}_v{version:02}.xlsx")
+    };
     let path = exports.join(&filename);
 
     // Сценарии — опциональные. Если папки нет / JSON невалиден — пустой vec,
     // лист «Сценарии» просто не добавится.
     let scenarios = read_scenarios(&project_id);
 
-    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, &path)?;
+    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, &project_id, &path)?;
 
     info!("XLSX saved: {}", path.display());
     Ok(serde_json::json!({
@@ -425,19 +505,142 @@ pub async fn econ_open_exports(project_id: String) -> Result<(), String> {
 
 // ── XLSX builder ──────────────────────────────────────────────────────────────
 
-fn build_xlsx(model: &Value, decompose: &Value, optimize: &Value, scenarios: &[Value], path: &PathBuf) -> Result<(), String> {
+fn build_xlsx(
+    model: &Value,
+    decompose: &Value,
+    optimize: &Value,
+    scenarios: &[Value],
+    project_id: &str,
+    path: &PathBuf,
+) -> Result<(), String> {
     use rust_xlsxwriter::{Chart, ChartType, Color, ConditionalFormatCell, ConditionalFormatCellRule, Formula};
 
+    // ── Tier-1 brand tokens (mirror Standards/tokens/tokens.json) ────────────
+    // Keep in sync with const block; duplicated here (not imported) because
+    // cross-crate SSOT for Rust tokens is out of scope for v1.0.11 (A2 defer).
+    const DEEP_100: u32 = 0x0A1628;
+    const DEEP_80:  u32 = 0x1E3A5F; // header bg
+    const DEEP_60:  u32 = 0x547090;
+    const DEEP_20:  u32 = 0xD6DFE8;
+    #[allow(dead_code)] const GOLD: u32 = 0xC5A46D;
+    const GO:       u32 = 0x269924; // ROI ≥ 2 / positive delta
+    const STOP:     u32 = 0xED2124; // ROI < 1
+    const BERRY:    u32 = 0xD3086F; // negative delta
+    const WHITE:    u32 = 0xFFFFFF;
+
     let mut wb = Workbook::new();
-    let bold = Format::new().set_bold();
-    let header_fmt = Format::new()
+
+    // ── Workbook metadata (DocProperties) ────────────────────────────────────
+    // Visible in Excel: File → Info → Properties.
+    let client_label = project_id; // TBD v1.0.12 — pipeline meta.client when stabilized
+    let props = DocProperties::new()
+        .set_title(&format!("Aurora AI MMM — {client_label}"))
+        .set_subject("Marketing Mix Model - аналитический отчёт")
+        .set_author("Aurora AI Econometrica")
+        .set_company("Aurora AI")
+        .set_category("Econometrics")
+        .set_keywords("MMM, marketing-mix, ROI, optimization")
+        .set_comment(&format!(
+            "Generated by Aurora AI Econometrica v1.0.11, project {project_id}"
+        ));
+    wb.set_properties(&props);
+
+    // ── Format library ────────────────────────────────────────────────────────
+    // base_fmt seeds every derived Format via .clone() — column-level formats
+    // in rust_xlsxwriter do NOT cascade to cells with explicit format, so all
+    // font-family/size inheritance must happen at Format construction time.
+    let base_fmt = Format::new().set_font_name("Arial").set_font_size(10);
+    let bold = base_fmt.clone().set_bold();
+    let header_fmt = base_fmt.clone()
         .set_bold()
-        .set_background_color(Color::RGB(0x1E212C))
-        .set_font_color(Color::RGB(0x94A3B8))
-        .set_border_bottom(rust_xlsxwriter::FormatBorder::Thin);
-    let pct_fmt = Format::new().set_num_format("0.0%");
-    let num_fmt = Format::new().set_num_format("#,##0");
-    let roi_fmt = Format::new().set_num_format("0.00\"x\"");
+        .set_font_size(14)
+        .set_background_color(Color::RGB(DEEP_80))
+        .set_font_color(Color::RGB(WHITE))
+        .set_border_bottom(FormatBorder::Thin);
+    #[allow(dead_code)]
+    let subheader_fmt = base_fmt.clone()
+        .set_italic()
+        .set_font_size(9)
+        .set_font_color(Color::RGB(DEEP_60));
+    let pct_fmt = base_fmt.clone().set_num_format("0.0%");
+    let num_fmt = base_fmt.clone().set_num_format("#,##0");
+    #[allow(dead_code)]
+    let num_neg_fmt = base_fmt.clone().set_num_format("#,##0;(#,##0)");
+    let roi_fmt = base_fmt.clone().set_num_format("0.00\"x\"");
+
+    // ── Sheet 0: Cover ───────────────────────────────────────────────────────
+    // Standards/04 §structural-elements: MERGE FORBIDDEN. Use
+    // FormatAlign::CenterAcross so Excel visually centers across empty
+    // cells A1:D1 without an actual merge.
+    // Internal hyperlinks to sheets deferred to v1.0.12 — tab bar already
+    // provides navigation; TOC here gives content overview.
+    {
+        let ws = wb.add_worksheet();
+        ws.set_name("Обзор").map_err(|e| format!("{e}"))?;
+        ws.set_tab_color(Color::RGB(DEEP_80));
+
+        let title_fmt = base_fmt.clone()
+            .set_bold()
+            .set_font_size(24)
+            .set_font_color(Color::RGB(DEEP_100))
+            .set_align(FormatAlign::CenterAcross);
+        ws.write_with_format(0, 0, "Aurora AI - Marketing Mix Model", &title_fmt)
+            .map_err(|e| format!("{e}"))?;
+        // Empty siblings enable CenterAcross rendering across A1:D1
+        for col in 1..4u16 {
+            ws.write_with_format(0, col, "", &title_fmt).map_err(|e| format!("{e}"))?;
+        }
+
+        let label_fmt = base_fmt.clone().set_bold().set_font_color(Color::RGB(DEEP_60));
+        let value_fmt = base_fmt.clone().set_font_color(Color::RGB(DEEP_100));
+
+        let today = Local::now().format("%d.%m.%Y").to_string();
+        let meta_rows: &[(&str, String)] = &[
+            ("Клиент:",          client_label.to_string()),
+            ("Проект:",          project_id.to_string()),
+            ("Дата:",            today),
+            ("Версия:",          "v1.0.11".to_string()),
+            ("Confidentiality:", "Подготовлено исключительно для указанного клиента".to_string()),
+        ];
+        for (i, (k, v)) in meta_rows.iter().enumerate() {
+            let row = (i + 2) as u32; // start at row 3 (index 2) — visual gap after title
+            ws.write_with_format(row, 0, *k, &label_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 1, v.as_str(), &value_fmt).map_err(|e| format!("{e}"))?;
+        }
+
+        // Section heading "Содержание"
+        let toc_heading_fmt = base_fmt.clone()
+            .set_bold()
+            .set_font_size(12)
+            .set_background_color(Color::RGB(DEEP_80))
+            .set_font_color(Color::RGB(WHITE));
+        ws.write_with_format(9, 0, "Содержание", &toc_heading_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(9, 1, "", &toc_heading_fmt).map_err(|e| format!("{e}"))?;
+
+        let toc: &[(&str, &str)] = &[
+            ("Executive Summary", "Ключевые метрики: MQS, R², MAPE, прирост, бюджет"),
+            ("Спецификация",      "Формула Bayesian MMM и априоры"),
+            ("Декомпозиция",      "Вклад каналов в продажи"),
+            ("ROI каналов",       "ROI по каналам с CI"),
+            ("Spend vs Effect",   "Доля бюджета vs доля эффекта"),
+            ("Динамика",          "Еженедельная декомпозиция"),
+            ("Оптимизация",       "Текущая vs оптимальная аллокация"),
+            ("Сценарии",          "Сравнение сохранённых сценариев"),
+            ("Данные",            "Полный временной ряд для аналитика"),
+            ("Глоссарий",         "Определения терминов"),
+        ];
+        let sheet_fmt = base_fmt.clone().set_bold().set_font_color(Color::RGB(DEEP_100));
+        let desc_fmt  = base_fmt.clone().set_font_color(Color::RGB(DEEP_60));
+        for (i, (sheet, desc)) in toc.iter().enumerate() {
+            let row = (10 + i) as u32;
+            ws.write_with_format(row, 0, *sheet, &sheet_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 1, *desc,  &desc_fmt).map_err(|e| format!("{e}"))?;
+        }
+
+        ws.set_column_width(0, 28.0).map_err(|e| format!("{e}"))?;
+        ws.set_column_width(1, 60.0).map_err(|e| format!("{e}"))?;
+    }
+    let _ = DEEP_20; // retained for Commit B2 zebra striping use
 
     // ── Sheet 1: Executive Summary ──────────────────────────
     {
