@@ -134,21 +134,36 @@ def _get_nested(d: dict, *keys, default=None):
 def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]:
     """Merge decompose.channels with optimize.channels by case-insensitive name.
 
+    Stage C.1: additionally normalizes channel names by stripping Excel
+    column-header noise like "Бюджет", "до НДС", "без НДС", "ДО НДС до АК",
+    "Вклад, млн" etc. If normalization produces an empty string, the channel
+    is dropped (it was a total-budget column, not an actual media channel).
+
     Guards against drift like "TV"/"Tv"/"ТВ" via strip+lowercase key. Decompose
     is the source (name + spend + contribution + roi); optimize adds
     current_spend/optimal_spend/miroas when present. Orphan optimize channels
     (no decompose match) are dropped with a warning.
     """
     def key(name): return (name or "").strip().lower()
-    opt_by_key = {key(c.get("name")): c for c in (opt_chs or []) if c}
+    opt_by_key = {
+        key(_normalize_channel_name(c.get("name")) or c.get("name")): c
+        for c in (opt_chs or []) if c
+    }
     merged: list[dict] = []
+    dropped_empty = []
     for dc in (decomp_chs or []):
         if not dc:
             continue
-        name = dc.get("name")
-        oc = opt_by_key.get(key(name), {}) or {}
+        raw_name = dc.get("name")
+        clean_name = _normalize_channel_name(raw_name)
+        if clean_name is None:
+            # Column has only noise tokens (probably a total-budget aggregate
+            # column that shouldn't be treated as a media channel).
+            dropped_empty.append(raw_name)
+            continue
+        oc = opt_by_key.get(key(clean_name), {}) or {}
         merged.append({
-            "name": name,
+            "name": clean_name,
             "spend": dc.get("spend") or oc.get("current_spend"),
             "contribution": dc.get("contribution"),
             "roi": dc.get("roi") or oc.get("current_roi"),
@@ -157,12 +172,56 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             "optimal_spend": oc.get("optimal_spend"),
             # verdict filled in after merge by derive_verdict
         })
+    if dropped_empty:
+        logger.warning(
+            f"Channels dropped (likely total-budget columns): {dropped_empty}"
+        )
     if opt_chs:
         decomp_keys = {key(c["name"]) for c in merged}
-        dropped = [c.get("name") for c in opt_chs if c and key(c.get("name")) not in decomp_keys]
+        dropped = [
+            c.get("name") for c in opt_chs
+            if c and key(_normalize_channel_name(c.get("name")) or c.get("name"))
+            not in decomp_keys
+        ]
         if dropped:
             logger.warning(f"optimize channels not in decompose: {dropped}")
     return merged
+
+
+# Stop-tokens stripped from channel names to leave only the media instrument.
+# Case-insensitive match; also handles Cyrillic variants. Order matters: longer
+# phrases before shorter to avoid leaving orphan fragments.
+_CHANNEL_NAME_STOP_PHRASES = [
+    r'ДО\s*НДС\s+до\s+АК', r'после\s*АК', r'с\s*НДС', r'без\s*НДС', r'до\s*НДС',
+    r'Бюджет', r'Вклад', r'млн\s*₽?', r'руб\.?', r'Доля',
+]
+_CHANNEL_NAME_RE = re.compile(
+    r'\b(?:' + '|'.join(_CHANNEL_NAME_STOP_PHRASES) + r')\b',
+    re.IGNORECASE,
+)
+
+
+def _normalize_channel_name(raw: str | None) -> str | None:
+    """Strip Excel column-header noise from a channel name, leaving only
+    the media instrument identifier. Returns None if nothing substantive
+    remains (→ treat as a total-budget / non-channel column).
+
+    Examples:
+      "Performance Бюджет до НДС"   → "Performance"
+      "Спецпроект Бюджет ДО НДС"     → "Спецпроект"
+      "Banners Бюджет до НДС до АК"  → "Banners"
+      "Бюджет до НДС"                → None  (signals total budget column)
+      "TRPs бренд (W 25-50)"         → "TRPs бренд (W 25-50)"  (parentheses kept)
+      "TV"                           → "TV"
+    """
+    if not raw:
+        return None
+    s = str(raw)
+    cleaned = _CHANNEL_NAME_RE.sub('', s)
+    # Collapse whitespace + strip punctuation edges, but keep parentheses/
+    # hyphens inside (audience quantifiers like "W 25-50" are signal).
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,.;:-_')
+    return cleaned if cleaned else None
 
 
 def derive_verdict(channel: dict) -> str:

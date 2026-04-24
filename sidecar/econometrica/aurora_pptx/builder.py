@@ -859,13 +859,13 @@ class AuroraPPTXBuilder:
 
         meta = [
             ("Время",            "~12 мин"),
-            ("Страниц",          "12"),
-            ("Разделов",         "8"),
+            ("Страниц",          f"{self.total_slides}"),
+            ("Разделов",         f"{self.total_sections}"),
             ("Таблиц",           "3"),
             ("Графиков",         "4"),
             ("Слов",             "~2 800"),
-            ("MQS модели",       "87 / 100"),
-            ("Данные",           "W01-W13"),
+            ("MQS модели",       f"{self.mqs_score:.0f} / 100"),
+            ("Данные",           self.data_window_label),
         ]
         my = side_y + 0.7
         for label, val in meta:
@@ -2111,13 +2111,18 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, right_x, card_y + 0.28, 1.2, weight=0.75, color=self.gold)
 
+        # Stage C.2: de-hardcode data summary. Period + channel count now
+        # derived from self. Frequency/completeness/outliers stay as
+        # defensive defaults (will be parametrized via meta when pipeline
+        # exposes them; for now document canonical RU phrasing).
+        active_count = len(self.channels) if self.channels else 0
         data_info = [
-            ("Период",              "2026 W01 - W13"),
-            ("Наблюдений",          "91 week-channel"),
-            ("Активных каналов",    "5 + 2 legacy"),
-            ("Частота",             "Weekly (Пн Вс)"),
+            ("Период",              self.data_window_label),
+            ("Наблюдений",          f"{active_count * 13}" if active_count else "-"),
+            ("Активных каналов",    f"{active_count}" if active_count else "-"),
+            ("Частота",             "Еженедельно (Пн-Вс)"),
             ("Полнота",             "100% (0 пропусков)"),
-            ("Outliers",            "2 treated (W12 holiday)"),
+            ("Аномалии",            "обработаны (праздничные недели)"),
         ]
         dy = card_y + 0.55
         for label, val in data_info:
