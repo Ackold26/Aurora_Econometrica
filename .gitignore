@@ -65,3 +65,6 @@ tools/*.pptx
 # Generated tokens from Standards/tokens/build.py — regenerate on build, do not edit
 src/tokens.generated.css
 sidecar/econometrica/aurora_tokens.py
+# HTML tier-1 generated artifacts (Standards/tokens/build.py --target html-css/html-js)
+sidecar/econometrica/aurora_html/templates/aurora_html.css
+sidecar/econometrica/aurora_html/templates/aurora_html_tokens.js

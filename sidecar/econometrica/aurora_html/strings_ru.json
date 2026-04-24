@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "lang": "ru",
+    "version": "0.1.0",
+    "generated_by": "M1 skeleton; full population in M2"
+  },
+  "brand": {
+    "wordmark": "Aurora AI",
+    "tagline": "Marketing Mix Modeling · Quarterly Report",
+    "confidentiality": "CONFIDENTIAL",
+    "copyright": "Aurora AI. Все права защищены."
+  },
+  "sections": {
+    "cover": "Обложка",
+    "summary": "Резюме",
+    "findings": "Ключевые находки",
+    "divider": "Декомпозиция вкладов",
+    "key": "Главный вывод",
+    "mroas": "mROAS по каналам",
+    "share": "Доля бюджета vs доля эффекта",
+    "table": "Портфель каналов",
+    "timeline": "Динамика по неделям",
+    "recommend": "Рекомендация",
+    "method": "Методология",
+    "sources": "Источники",
+    "glossary": "Глоссарий",
+    "closing": "Заключение"
+  },
+  "ui": {
+    "theme_toggle": "Тема",
+    "theme_light": "Светлая",
+    "theme_dark": "Тёмная",
+    "theme_fun": "Тёплая",
+    "toc_title": "Содержание",
+    "search_placeholder": "Поиск по отчёту... (Ctrl+K)",
+    "verify_button": "Проверить",
+    "copy_link": "Копировать ссылку",
+    "copy_csv": "Копировать таблицу в CSV",
+    "copy_png": "Сохранить график",
+    "shortcuts_title": "Горячие клавиши",
+    "close": "Закрыть"
+  },
+  "empty_states": {
+    "no_data": "Нет данных для отображения",
+    "needs_channels": "Требует не менее 2 каналов для сравнения",
+    "calc_pending": "Вклад каналов требует пересчёта"
+  }
+}

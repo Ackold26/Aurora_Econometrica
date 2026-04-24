@@ -84,6 +84,12 @@ PYINSTALLER_ARGS = [
     # regen step below in main(). Must be bundled as data so import works at runtime.
     '--add-data', f'{ROOT / "aurora_pptx"}:aurora_pptx',
     '--add-data', f'{ROOT / "aurora_tokens.py"}:.',
+    # aurora_html/ — tier-1 interactive HTML deliverable (v1.0.12 program).
+    # Ships bundled ECharts (common build), WOFF2 font subsets (Lora + Inter
+    # cyrillic + latin), and generated aurora_html.css + aurora_html_tokens.js
+    # from Standards/tokens/build.py html-css + html-js targets. Full tree
+    # goes in as data so templates/ and fonts/ subdirs are available at runtime.
+    '--add-data', f'{ROOT / "aurora_html"}:aurora_html',
 
     # Collect data files for packages that ship non-Python resources at runtime.
     # --hidden-import alone copies only .py; runtime resources (HTML/JSON/C templates/
@@ -131,30 +137,34 @@ PYINSTALLER_ARGS = [
 
 
 def regenerate_tokens():
-    """Regenerate aurora_tokens.py from Standards/tokens/tokens.json before bundle.
+    """Regenerate aurora_tokens.py + aurora_html/templates/aurora_html.css +
+    aurora_html/templates/aurora_html_tokens.js from Standards/tokens/tokens.json
+    before bundle.
 
-    Standards/tokens/build.py outputs aurora_tokens.py to sidecar/econometrica/
-    (see build.py DEFAULT_OUT_PY). Without this step a fresh clone or stale file
-    causes ImportError at sidecar startup. Gitignored so must be regenerated
-    on every build.
+    Standards/tokens/build.py emits three generated files (Python for PPTX,
+    CSS + JS for HTML). All are gitignored so must be regenerated on every
+    build. Skipping any one causes ImportError or broken theming at runtime.
     """
     standards_build = ROOT.parent.parent.parent / 'Standards' / 'tokens' / 'build.py'
     if not standards_build.exists():
-        print(f'WARNING: {standards_build} not found - aurora_tokens.py may be stale')
+        print(f'WARNING: {standards_build} not found - tokens may be stale')
         return
-    tokens_target = ROOT / 'aurora_tokens.py'
-    print(f'Regenerating {tokens_target.name} from tokens.json...')
+    print(f'Regenerating tokens artifacts from tokens.json...')
     result = subprocess.run(
-        [sys.executable, str(standards_build), '--target', 'python'],
+        [sys.executable, str(standards_build), '--target', 'all'],
         cwd=standards_build.parent,
     )
     if result.returncode != 0:
-        print('ERROR: aurora_tokens.py regeneration failed')
+        print('ERROR: tokens regeneration failed')
         sys.exit(1)
-    if not tokens_target.exists():
-        print(f'ERROR: {tokens_target} not produced by build.py')
-        sys.exit(1)
-    print(f'  [OK] {tokens_target.name} ({tokens_target.stat().st_size} bytes)')
+    tokens_target = ROOT / 'aurora_tokens.py'
+    html_css_target = ROOT / 'aurora_html' / 'templates' / 'aurora_html.css'
+    html_js_target = ROOT / 'aurora_html' / 'templates' / 'aurora_html_tokens.js'
+    for t in (tokens_target, html_css_target, html_js_target):
+        if not t.exists():
+            print(f'ERROR: {t} not produced by build.py')
+            sys.exit(1)
+        print(f'  [OK] {t.name} ({t.stat().st_size} bytes)')
 
 
 def main():
