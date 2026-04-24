@@ -253,6 +253,103 @@ def derive_verdict(channel: dict) -> str:
     return "Watch"
 
 
+def derive_action_headline(
+    channels: list[dict],
+    facts: dict | None,
+    slide_hint: str,
+) -> str | None:
+    """McKinsey-style action-first headline for a given slide hint.
+
+    Stage C.5: replaces data-describing titles ("Digital опережает TV по
+    mROAS") with action+impact formulation ("Нарастить Digital - mROAS 1.9x
+    даёт +8 пп к ROAS"). Zero-effect guard: if the quantified impact is
+    None / <0.5pp / absent, returns a neutral "portfolio balanced" headline
+    rather than fabricating a promise.
+
+    slide_hint: "mroas" | "portfolio" | "timeline" | "scqar"
+    Returns None when caller should fall back to preview/wireframe text.
+    """
+    if not channels or not facts:
+        return None
+
+    lift = facts.get("expected_lift_pct")
+    realloc = facts.get("reallocation_mln") or 0.0
+    leader = facts.get("leader_channel")
+    hero = facts.get("hero_channel") or leader
+    underperf = facts.get("underperformer_names") or []
+
+    # Hero mROAS lookup
+    hero_ch = next((c for c in channels if c.get("name") == hero), {}) or {}
+    hero_m = float(hero_ch.get("mroas") or 0)
+
+    # Zero-effect guard: lift признаётся достоверным только >=0.5pp
+    has_lift = lift is not None and abs(float(lift)) >= 0.5
+    lift_txt = f"+{float(lift):.0f} пп к ROAS" if has_lift else None
+
+    all_underperf = underperf and len(underperf) >= max(1, len(channels) // 2)
+
+    if slide_hint == "mroas":
+        # s06: action = grow hero / rebalance against leader
+        if hero and leader and hero != leader and hero_m >= 1.2:
+            if has_lift:
+                return f"Нарастить {hero} и сократить {leader} - {lift_txt}"
+            return f"Нарастить {hero} - mROAS {hero_m:.1f}x против {leader}"
+        if hero and hero_m >= 1.2:
+            return f"Защитить лидерство {hero} - mROAS {hero_m:.1f}x устойчив"
+        if all_underperf:
+            return "Сократить неэффективные каналы и сфокусировать бюджет"
+        return "Сбалансировать портфель по mROAS - один канал не доминирует"
+
+    if slide_hint == "portfolio":
+        # s07: action = consolidation recommendation with quantified target share
+        contribs = sorted(
+            (float(c.get("contribution") or 0) for c in channels),
+            reverse=True,
+        )
+        total = sum(contribs) or 1.0
+        if total <= 0:
+            return "Перепроверить входные данные - вклад каналов не рассчитывается"
+        acc = 0.0
+        top_n = 0
+        for v in contribs:
+            acc += v
+            top_n += 1
+            if acc / total >= 0.85:
+                break
+        pct = int(round(acc / total * 100))
+        other_n = max(0, len(channels) - top_n)
+        if len(channels) == 1:
+            return "Портфель состоит из одного канала - рекомендуется диверсификация"
+        if other_n == 0:
+            return "Все каналы работают - консолидация не требуется"
+        if top_n == 1:
+            return f"Сфокусировать бюджет на одном канале - он даёт {pct}% продаж"
+        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {pct}% продаж"
+
+    if slide_hint == "timeline":
+        # s08: schedule action
+        if leader:
+            return f"Перейти на пульсирующее размещение {leader} - экономия 15-20% без потери охвата"
+        return "Пульсирующее размещение вместо непрерывного - экономия без потери охвата"
+
+    if slide_hint == "scqar":
+        # s09 — 3 scenarios: Rebalance / Hold+control / Risk
+        if all_underperf and hero:
+            # Risk scenario — net portfolio underperformance
+            names = ", ".join(underperf[:2])
+            return f"Сократить {names} и сфокусировать бюджет на {hero}"
+        if has_lift and hero and leader and hero != leader and realloc >= 1:
+            # Rebalance scenario — quantified reallocation
+            return f"Перераспределить {realloc:.0f} млн руб в {hero} - {lift_txt}"
+        if hero and leader and hero != leader and realloc >= 1:
+            # Rebalance без верного lift — action без числа
+            return f"Перераспределить {realloc:.0f} млн руб из {leader} в {hero}"
+        # Hold + control scenario
+        return "Портфель сбалансирован - рекомендуется A/B тест перед ре-аллокацией"
+
+    return None
+
+
 def _derive_narrative_facts(
     channels: list[dict],
     optimize_data: dict,

@@ -37,6 +37,8 @@ import math
 import zlib
 from datetime import datetime
 
+from econometrica.engines.narrative_adapter import derive_action_headline
+
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.dml.color import RGBColor
@@ -1080,21 +1082,12 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "ROI ПО КАНАЛАМ")
 
-        # Title — slot-fill from facts when present, else Kagocel pilot line
-        if self.facts and self.channels:
-            by_mroas = sorted(self.channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
-            top_names = [c.get("name") for c in by_mroas[:2] if c.get("name")]
-            leader = self.facts.get("leader_channel")
-            if len(top_names) >= 2 and leader and leader not in top_names:
-                action_title = f"{top_names[0]} и {top_names[1]} опережают {leader} по mROAS - они должны получить приоритет"
-            elif len(top_names) >= 2:
-                action_title = f"{top_names[0]} и {top_names[1]} делят лидерство по mROAS - портфель под пересмотром"
-            elif top_names:
-                action_title = f"{top_names[0]} - лидер по mROAS, портфель требует перебалансировки"
-            else:
-                action_title = "Портфель требует перебалансировки по mROAS"
-        else:
-            action_title = "Digital video и Search опережают TV по mROAS - они должны получить приоритет"
+        # Stage C.5: McKinsey action-first headline via narrative_adapter.
+        # Shared helper keeps PPTX+HTML in sync and applies zero-effect guard.
+        action_title = (
+            derive_action_headline(self.channels, self.facts, "mroas")
+            or "Сбалансировать портфель по mROAS"
+        )
 
         # Stage C.4: action title on s06 can run 4+ lines when channel
         # names are long. Height bumped to 1.10 (was 0.80) + font 20pt
@@ -1313,38 +1306,12 @@ class AuroraPPTXBuilder:
         # contributions, balanced portfolio) with idiomatic Russian phrasing.
         # Fallback ("Пять каналов...") applies only in preview / wireframe
         # mode when no channels supplied.
-        if self.channels:
-            contribs = sorted(
-                (float(c.get("contribution") or 0) for c in self.channels),
-                reverse=True,
-            )
-            total_real = sum(contribs)
-            total_c = total_real or 1.0
-            acc = 0.0
-            top_n = 0
-            for v in contribs:
-                acc += v
-                top_n += 1
-                if acc / total_c >= 0.85:
-                    break
-            pct = int(round(acc / total_c * 100))
-            other_n = len(self.channels) - top_n
-            if total_real <= 0:
-                # All-zero contributions - signal calculation failure,
-                # avoid claiming "0% продаж" or "сбалансирован" (misleading).
-                s07_title = "Вклад каналов требует пересчёта - проверьте входные данные"
-            elif len(self.channels) == 1:
-                # Single-channel portfolio - "balanced" would be misleading,
-                # report factually instead.
-                s07_title = "Один канал портфеля обеспечивает 100% продаж"
-            elif top_n == 1:
-                s07_title = f"Один канал даёт {pct}% продаж - остальные рекомендованы к консолидации"
-            elif other_n > 0:
-                s07_title = f"Топ-{top_n} каналов дают {pct}% продаж - остальные рекомендованы к консолидации"
-            else:
-                s07_title = "Все каналы портфеля активно работают - консолидация не требуется"
-        else:
-            s07_title = "Пять каналов генерируют 87% продаж - остальные рекомендованы к консолидации"
+        # Stage C.5: McKinsey action-first headline via narrative_adapter.
+        # Covers all edge cases (all-zero / single-channel / consolidate / balanced).
+        s07_title = (
+            derive_action_headline(self.channels, self.facts, "portfolio")
+            or "Консолидировать до топ-5 каналов - они обеспечивают 87% продаж"
+        )
         self._action_title(
             slide, s07_title,
             show_lime=True, y=0.80, height=0.80,
@@ -1562,15 +1529,11 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "ДИНАМИКА")
 
-        # Action title — slot-fill on leader when facts present.
-        # Full peak-detection from time_series deferred (band chart below
-        # is a wireframe visualization; real per-week decomposition lives
-        # in the XLSX "Динамика" sheet). Parametrize leader + baseline only.
-        if self.facts:
-            leader = self.facts.get("leader_channel") or "Лидер"
-            title = f"{leader}: всплески выделяются на устойчивой базовой линии - медиа-активность прослеживается понедельно"
-        else:
-            title = "TV-всплески W06 и W11 выделяются на устойчивой базе +8% год к году"
+        # Stage C.5: timeline action headline = schedule recommendation.
+        title = (
+            derive_action_headline(self.channels, self.facts, "timeline")
+            or "Пульсирующее размещение вместо непрерывного - экономия 15-20% без потери охвата"
+        )
         self._action_title(
             slide,
             title,
@@ -1764,12 +1727,15 @@ class AuroraPPTXBuilder:
             underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut", "Reduce")]
             underperf_str = ", ".join(underperf) if underperf else "отстающие каналы"
 
-            # Action title — hero-focused, action-first (no self-reference).
-            # Stage C.3 + C.5: no more "Aurora рекомендует" product voice.
-            if hero != leader:
-                action_title = f"Нарастить {hero} и пересмотреть позицию {leader}"
-            else:
-                action_title = f"Сохранить приоритет {leader} с учётом насыщения"
+            # Stage C.5: McKinsey 3-scenario SCQAR action headline.
+            # narrative_adapter.derive_action_headline handles:
+            #   - Risk (all underperf) → "Сократить X и сфокусировать на Y"
+            #   - Rebalance (lift ≥ 0.5pp) → "Перераспределить N млн ₽ в Y - +X пп к ROAS"
+            #   - Hold + control (weak lift) → "Портфель сбалансирован - A/B тест"
+            action_title = (
+                derive_action_headline(self.channels, self.facts, "scqar")
+                or f"Пересмотреть аллокацию {leader}"
+            )
 
             situation_body = (
                 f"{self.client} размещает {tb:.0f} млн ₽ в квартал через {n_ch} активных каналов. "
