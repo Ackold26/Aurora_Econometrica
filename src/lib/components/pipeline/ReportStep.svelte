@@ -9,6 +9,7 @@
    * @component ReportStep
    */
   import { invoke } from '@tauri-apps/api/core';
+  import { openPath } from '@tauri-apps/plugin-opener';
   import { get } from 'svelte/store';
   import {
     activeProjectId,
@@ -652,6 +653,20 @@
     }
   }
 
+  /**
+   * M5a: открыть сгенерированный PPTX через OS default handler.
+   * Клиент делает File → Save As → PDF/XPS для публикации (v1.0.11 MVP;
+   * автоконвертация через LibreOffice headless запланирована на v1.0.12).
+   */
+  async function openPptxFile() {
+    if (!pptxPath) return;
+    try {
+      await openPath(pptxPath);
+    } catch (/** @type {any} */ e) {
+      console.error('Open PPTX error:', e);
+    }
+  }
+
   function finishAnalysis() {
     completeStep(5);
     triggerCompletion();
@@ -762,6 +777,11 @@
             <div class="file-row">
               <span class="file-icon">📽</span>
               <span class="file-path">{pptxPath}</span>
+              <button
+                class="btn-open-file"
+                onclick={openPptxFile}
+                title="Для экспорта в PDF откройте файл → File → Save As → PDF/XPS"
+              >Открыть</button>
             </div>
           {/if}
           {#if htmlPath}
@@ -1347,6 +1367,23 @@
     font-family: monospace;
     color: var(--text-secondary, #94a3b8);
     word-break: break-all;
+    flex: 1;
+  }
+
+  .btn-open-file {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 6px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .btn-open-file:hover {
+    border-color: rgba(255,255,255,0.3);
+    color: var(--text-primary, #e2e8f0);
   }
 
   .more-exports {
