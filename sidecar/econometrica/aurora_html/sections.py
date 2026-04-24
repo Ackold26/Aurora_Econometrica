@@ -1,5 +1,5 @@
 """
-aurora_html.sections — 14 section renderers.
+aurora_html.sections - 14 section renderers.
 
 Each function emits an HTML fragment wrapped in `<section id="{id}">...`,
 aligned with PPTX S7 slides:
@@ -24,21 +24,21 @@ from .security import escape
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
-def _fmt_int(v: Any, fallback: str = "—") -> str:
+def _fmt_int(v: Any, fallback: str = "-") -> str:
     try:
         return f"{int(round(float(v))):,}".replace(",", " ")
     except (TypeError, ValueError):
         return fallback
 
 
-def _fmt_num(v: Any, fallback: str = "—") -> str:
+def _fmt_num(v: Any, fallback: str = "-") -> str:
     try:
         return f"{float(v):.0f}"
     except (TypeError, ValueError):
         return fallback
 
 
-def _fmt_mln(v: Any, fallback: str = "—") -> str:
+def _fmt_mln(v: Any, fallback: str = "-") -> str:
     """0 if <10 decimals → 1, else integer millions."""
     try:
         x = float(v)
@@ -47,14 +47,14 @@ def _fmt_mln(v: Any, fallback: str = "—") -> str:
         return fallback
 
 
-def _fmt_x(v: Any, fallback: str = "—") -> str:
+def _fmt_x(v: Any, fallback: str = "-") -> str:
     try:
         return f"{float(v):.2f}×"
     except (TypeError, ValueError):
         return fallback
 
 
-def _fmt_pct(v: Any, fallback: str = "—") -> str:
+def _fmt_pct(v: Any, fallback: str = "-") -> str:
     try:
         return f"{float(v):.0f}%"
     except (TypeError, ValueError):
@@ -90,7 +90,7 @@ def render_cover(ctx: dict) -> str:
   <dl class="cover-meta">
     <div class="cover-meta-cell">
       <dt class="cover-meta-label">Подготовлено для</dt>
-      <dd class="cover-meta-value">{escape(meta.get("client") or "—")}</dd>
+      <dd class="cover-meta-value">{escape(meta.get("client") or "-")}</dd>
     </div>
     <div class="cover-meta-cell">
       <dt class="cover-meta-label">Дата</dt>
@@ -126,7 +126,7 @@ def render_executive_summary(ctx: dict) -> str:
         n_ch = facts.get("n_active_channels") or len(ctx["channels"])
         wr = facts.get("weighted_roi") or 1.0
         mqs = ctx.get("diagnostics", {}).get("mqs_score") or 0
-        leader = facts.get("leader_channel") or "—"
+        leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
         leader_pct = facts.get("leader_share_spend_pct") or 0
         hero_m = 0.0
@@ -135,7 +135,7 @@ def render_executive_summary(ctx: dict) -> str:
                 hero_m = float(c.get("mroas") or 0)
                 break
         realloc = facts.get("reallocation_mln") or 0
-        underperf = ", ".join(facts.get("underperformer_names") or []) or "—"
+        underperf = ", ".join(facts.get("underperformer_names") or []) or "-"
         lift = facts.get("expected_lift_pct") or 0
 
         situation = scqar["situation"]["template"].format(
@@ -191,7 +191,7 @@ def render_at_a_glance(ctx: dict) -> str:
 
     findings = []
     if facts and channels:
-        leader = facts.get("leader_channel") or "—"
+        leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
         f1 = strings["findings_templates"]["f1_leader"].format(
             leader=leader,
@@ -277,7 +277,7 @@ def render_section_divider(ctx: dict) -> str:
     kicker = strings["sections"]["divider"]["kicker"]
 
     if facts:
-        leader = facts.get("leader_channel") or "—"
+        leader = facts.get("leader_channel") or "-"
         cpct = facts.get("leader_share_contrib_pct") or 0
         spct = facts.get("leader_share_spend_pct") or 0
         takeaway = strings["action_titles"]["s04_takeaway"].format(
@@ -305,7 +305,7 @@ def render_key_message(ctx: dict) -> str:
     kicker = strings["sections"]["key"]["kicker"]
 
     if facts:
-        leader = facts.get("leader_channel") or "—"
+        leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
         cpct = facts.get("leader_share_contrib_pct") or 0
         spct = facts.get("leader_share_spend_pct") or 0
@@ -325,7 +325,7 @@ def render_key_message(ctx: dict) -> str:
             quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков saturation."
     else:
         title = "Главный вывод появится после обучения модели"
-        big = "—"
+        big = "-"
         big_label = "Доля лидера в продажах"
         big_support = "По результатам декомпозиции"
         quote = "Pull quote сформируется автоматически на основе leader + hero каналов"
@@ -334,7 +334,7 @@ def render_key_message(ctx: dict) -> str:
 {_action_title(title)}
 <div class="key-message" data-animate-counter>
   <div>
-    <div class="big-number" data-counter-end="{escape(big.replace('%','').replace('—','0'))}">{escape(big)}</div>
+    <div class="big-number" data-counter-end="{escape(big.replace('%','').replace('-','0'))}">{escape(big)}</div>
     <div class="big-number-label">{escape(big_label)}</div>
     <div class="big-number-support">{escape(big_support)}</div>
   </div>
@@ -358,7 +358,7 @@ def render_mroas(ctx: dict) -> str:
         by_m = sorted(channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
         hero_ch = by_m[0] if by_m else {}
         second = by_m[1] if len(by_m) > 1 else {}
-        hero_name = hero_ch.get("name") or "—"
+        hero_name = hero_ch.get("name") or "-"
         hero_m = float(hero_ch.get("mroas") or 0)
         second_name = second.get("name") or ""
         second_m = float(second.get("mroas") or 0)
@@ -483,7 +483,7 @@ def render_action_table(ctx: dict) -> str:
 
     rows_html = []
     for c in visible:
-        name = c.get("name") or "—"
+        name = c.get("name") or "-"
         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
         contrib_mln = float(c.get("contribution") or 0) / 1_000_000.0
         mroas = c.get("mroas")
@@ -513,7 +513,7 @@ def render_action_table(ctx: dict) -> str:
             f'<td>{escape(headers["totals"])}</td>'
             f'<td class="num">{_fmt_mln(tb)}</td>'
             f'<td class="num">{_fmt_mln(tc)}</td>'
-            f'<td class="num">{_fmt_x(wr) if wr else "—"}</td>'
+            f'<td class="num">{_fmt_x(wr) if wr else "-"}</td>'
             f'<td class="num">100</td>'
             f'<td></td>'
             f'</tr>'
@@ -526,7 +526,7 @@ def render_action_table(ctx: dict) -> str:
         fn_items = []
         for i, c in enumerate(flagged):
             num = str(i + 1)
-            name = c.get("name") or "—"
+            name = c.get("name") or "-"
             reason = v_reasons.get(c.get("verdict"), "")
             fn_items.append(
                 f'<li><span class="fn-num">{num}</span>{escape(name)}: {escape(reason)}</li>'
@@ -540,7 +540,7 @@ def render_action_table(ctx: dict) -> str:
         fn_html = """
 <div class="footnotes">
   <div class="footnotes-label">Примечания</div>
-  <ol class="footnotes-list"><li><span class="fn-num">—</span>Все каналы портфеля в рабочем диапазоне mROAS; критических рекомендаций нет.</li></ol>
+  <ol class="footnotes-list"><li><span class="fn-num">-</span>Все каналы портфеля в рабочем диапазоне mROAS; критических рекомендаций нет.</li></ol>
 </div>"""
     else:
         fn_html = ""
@@ -608,7 +608,7 @@ def render_recommendation(ctx: dict) -> str:
     kicker = strings["sections"]["recommend"]["kicker"]
 
     if facts and channels:
-        leader = facts.get("leader_channel") or "—"
+        leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
         if hero != leader:
             title = strings["action_titles"]["s09_scale_hero"].format(hero=hero, leader=leader)
@@ -699,7 +699,7 @@ def render_methodology(ctx: dict) -> str:
     <pre class="formula-box">{escape(formulas_text)}</pre>
     <div class="method-col-label" style="margin-top:24px;">{escape(meth["diag_header"])}</div>
     <ul class="diag-list">
-{diag_html if diag_html else '<li><span class="diag-label">—</span><span class="diag-value">Данные появятся после обучения</span></li>'}
+{diag_html if diag_html else '<li><span class="diag-label">-</span><span class="diag-value">Данные появятся после обучения</span></li>'}
     </ul>
   </div>
   <div>
@@ -720,11 +720,11 @@ def render_sources(ctx: dict) -> str:
     kicker = strings["sections"]["sources"]["kicker"]
 
     mqs = diag.get("mqs_score")
-    mqs_tier = diag.get("mqs_tier_label") or "—"
+    mqs_tier = diag.get("mqs_tier_label") or "-"
     try:
-        mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else "—"
+        mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else "-"
     except (TypeError, ValueError):
-        mqs_display = "—"
+        mqs_display = "-"
 
     mqs_diag_html = ""
     for lbl, key, fmt in [

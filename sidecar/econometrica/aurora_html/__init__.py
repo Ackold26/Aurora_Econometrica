@@ -1,5 +1,5 @@
 """
-aurora_html — Aurora AI tier-1 interactive HTML deliverable.
+aurora_html - Aurora AI tier-1 interactive HTML deliverable.
 
 Generates standalone HTML report with:
 - 14-section narrative (mirrors PPTX S7 structure, data-driven slot-fills)
@@ -29,7 +29,7 @@ logger = logging.getLogger('econometrica.aurora_html')
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-# Pinned asset SHA-256 hashes — fail-fast verification at import time.
+# Pinned asset SHA-256 hashes - fail-fast verification at import time.
 # Regenerated via `python Standards/tokens/build.py --target html-css html-js`
 # and fonts downloaded in M1.7. Mismatch indicates tampering or accidental edit.
 ASSET_SHA256 = {

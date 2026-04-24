@@ -1,5 +1,5 @@
 """
-aurora_html.themes — theme metadata (non-CSS config).
+aurora_html.themes - theme metadata (non-CSS config).
 
 CSS variables per theme live in templates/aurora_html.css (generated from
 Standards/tokens/build.py --target html-css).

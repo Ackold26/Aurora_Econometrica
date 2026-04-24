@@ -1,5 +1,5 @@
 """
-aurora_html.charts — ECharts JSON config generators.
+aurora_html.charts - ECharts JSON config generators.
 
 Emits ECharts option objects for 5 chart types:
 - Waterfall (decomposition)

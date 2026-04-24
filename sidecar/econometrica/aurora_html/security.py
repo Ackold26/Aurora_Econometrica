@@ -1,10 +1,10 @@
 """
-aurora_html.security — hash-based CSP + escape utilities.
+aurora_html.security - hash-based CSP + escape utilities.
 
 Hash-based CSP:
     - Compute SHA-256 of each inline <script> and <style> block at build time.
     - Emit CSP meta tag with 'sha256-{b64hash}' allow-list.
-    - Browser refuses to execute ANY script not matching the hash — fundamental
+    - Browser refuses to execute ANY script not matching the hash - fundamental
       XSS defense that doesn't rely on perfect input escaping.
 
 Escape utilities:
@@ -71,7 +71,7 @@ def csp_sha256(content: str) -> str:
 def build_csp_meta(script_content: str, style_content: str) -> str:
     """Emit full <meta http-equiv='Content-Security-Policy'> element.
 
-    No 'unsafe-inline' — browser refuses to execute anything not matching
+    No 'unsafe-inline' - browser refuses to execute anything not matching
     the hashes. Tight deny policy for network/fetch/connect.
     """
     script_hash = csp_sha256(script_content)

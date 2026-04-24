@@ -1,5 +1,5 @@
 """
-aurora_html.interactive — JS bundle composer.
+aurora_html.interactive - JS bundle composer.
 
 M3 full interactivity: chart initialization (5 ECharts with SVG renderer),
 sortable table, drill-down side-panel, scenario switcher, budget what-if
@@ -101,7 +101,7 @@ def bootstrap_js(
         setTimeout(function() {{ btn.style.transform = ''; }}, 320);
       }}
     }}
-    // Re-theme all active charts — smooth via ECharts animation
+    // Re-theme all active charts - smooth via ECharts animation
     var pal = window.AURORA_THEMES && window.AURORA_THEMES[name];
     if (pal) {{
       Object.keys(AURORA_CHARTS).forEach(function(id) {{
@@ -765,7 +765,7 @@ def bootstrap_js(
       var s = scenarios[idx];
       if (!s) return;
       info.innerHTML = '<span style="color:var(--text-muted);">KPI:</span> <b>' +
-                       (s.kpi ? Math.round(s.kpi).toLocaleString('ru-RU') : '—') + '</b> · ' +
+                       (s.kpi ? Math.round(s.kpi).toLocaleString('ru-RU') : '-') + '</b> · ' +
                        '<span style="color:var(--text-muted);">Лифт:</span> ' +
                        '<b style="color:var(--success);">+' + (s.lift || 0).toFixed(1) + '%</b>';
     }}

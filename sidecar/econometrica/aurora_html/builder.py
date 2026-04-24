@@ -1,5 +1,5 @@
 """
-aurora_html.builder — AuroraHTMLBuilder orchestrator.
+aurora_html.builder - AuroraHTMLBuilder orchestrator.
 
 Assembles the 14-section HTML report by composing:
 - outer shell.html (string.Template)
@@ -49,7 +49,7 @@ def _fmt_human_time(dt: datetime) -> str:
     return dt.strftime("%d.%m.%Y %H:%M")
 
 
-# SVG favicon: Aurora sigil — navy square + sacred lime dot + gold arc.
+# SVG favicon: Aurora sigil - navy square + sacred lime dot + gold arc.
 # Renders crisp at any size (16/32/180/512px). High recognisability in browser tab.
 _FAVICON_SVG = """<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
@@ -193,7 +193,7 @@ class AuroraHTMLBuilder:
         """Full ECharts data payload, safely embedded (ensure_ascii=True).
 
         All 5 charts get their data here so JS can initialize without any
-        further Python interaction. Each chart block is optional — JS checks
+        further Python interaction. Each chart block is optional - JS checks
         presence before initializing.
         """
         channels_sorted_m = sorted(
