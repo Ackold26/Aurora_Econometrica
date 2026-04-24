@@ -81,6 +81,17 @@ fn detect_version(exports_dir: &Path, slug: &str) -> u32 {
     max_v + 1
 }
 
+/// Apply the base Arial-10pt format to all typical data columns of a sheet so
+/// bare `ws.write(row, col, val)` calls inherit font family/size without
+/// per-cell formatting. Explicit-format cells retain their own set attributes
+/// while inheriting unset column-level attributes (Format merging rule).
+fn apply_base_cols(ws: &mut rust_xlsxwriter::Worksheet, fmt: &Format) -> Result<(), String> {
+    for c in 0..20u16 {
+        ws.set_column_format(c, fmt).map_err(|e| format!("{e}"))?;
+    }
+    Ok(())
+}
+
 /// Pull a fit metric out of `model.diagnostics`.
 /// Backend nests them under `diagnostics.metrics.*` (with `mape_pct`),
 /// older payloads kept them flat under `diagnostics.*`.
@@ -558,14 +569,14 @@ fn build_xlsx(
         .set_font_color(Color::RGB(WHITE))
         .set_border_bottom(FormatBorder::Thin);
     #[allow(dead_code)]
-    let subheader_fmt = base_fmt.clone()
+    let _subheader_fmt = base_fmt.clone()
         .set_italic()
         .set_font_size(9)
         .set_font_color(Color::RGB(DEEP_60));
     let pct_fmt = base_fmt.clone().set_num_format("0.0%");
     let num_fmt = base_fmt.clone().set_num_format("#,##0");
     #[allow(dead_code)]
-    let num_neg_fmt = base_fmt.clone().set_num_format("#,##0;(#,##0)");
+    let _num_neg_fmt = base_fmt.clone().set_num_format("#,##0;(#,##0)");
     let roi_fmt = base_fmt.clone().set_num_format("0.00\"x\"");
 
     // ── Sheet 0: Cover ───────────────────────────────────────────────────────
@@ -647,6 +658,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Executive Summary").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x3B82F6));
+        apply_base_cols(ws, &base_fmt)?;
 
         let mqs       = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
         let mqs_label = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
@@ -693,6 +705,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Спецификация").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x8B5CF6));
+        apply_base_cols(ws, &base_fmt)?;
 
         let spec = model_spec_value(model);
         let title = spec["title"].as_str().unwrap_or("Спецификация модели");
@@ -783,6 +796,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Декомпозиция").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x22C55E));
+        apply_base_cols(ws, &base_fmt)?;
 
         ws.write_with_format(0, 0, "Категория", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(0, 1, "Вклад", &header_fmt).map_err(|e| format!("{e}"))?;
@@ -823,6 +837,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("ROI каналов").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0xF59E0B));
+        apply_base_cols(ws, &base_fmt)?;
 
         let headers = ["Канал", "Расход", "Вклад", "ROI", "CI нижний", "CI верхний", "Вердикт"];
         for (c, h) in headers.iter().enumerate() {
@@ -854,12 +869,14 @@ fn build_xlsx(
 
         // Conditional formatting: ROI > 2 = green, ROI < 1 = red
         let last_row = chs.len() as u32;
+        // Conditional formatting with brand semantic tokens (GO / STOP) per
+        // Standards/04 §color-contract; font inherited from apply_base_cols.
         let green_cond = ConditionalFormatCell::new()
             .set_rule(ConditionalFormatCellRule::GreaterThanOrEqualTo(2.0))
-            .set_format(Format::new().set_font_color(Color::RGB(0x22C55E)));
+            .set_format(Format::new().set_font_color(Color::RGB(GO)));
         let red_cond = ConditionalFormatCell::new()
             .set_rule(ConditionalFormatCellRule::LessThan(1.0))
-            .set_format(Format::new().set_font_color(Color::RGB(0xEF4444)));
+            .set_format(Format::new().set_font_color(Color::RGB(STOP)));
         ws.add_conditional_format(1, 3, last_row, 3, &green_cond).map_err(|e| format!("{e}"))?;
         ws.add_conditional_format(1, 3, last_row, 3, &red_cond).map_err(|e| format!("{e}"))?;
 
@@ -882,6 +899,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Spend vs Effect").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x8B5CF6));
+        apply_base_cols(ws, &base_fmt)?;
 
         let headers = ["Канал", "Расход", "% бюджета", "Вклад", "% эффекта", "Efficiency"];
         for (c, h) in headers.iter().enumerate() {
@@ -943,6 +961,7 @@ fn build_xlsx(
                 let ws = wb.add_worksheet();
                 ws.set_name("Динамика").map_err(|e| format!("{e}"))?;
                 ws.set_tab_color(Color::RGB(0x14B8A6));
+                apply_base_cols(ws, &base_fmt)?;
 
                 // Header row
                 ws.write_with_format(0, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
@@ -1004,6 +1023,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Оптимизация").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x0EA5E9));
+        apply_base_cols(ws, &base_fmt)?;
 
         let headers = ["Канал", "Текущий", "Оптимальный", "Δ", "Δ%", "Текущий ROI"];
         for (c, h) in headers.iter().enumerate() {
@@ -1031,10 +1051,10 @@ fn build_xlsx(
         let last_row = opt_chs.len() as u32;
         let green_d = ConditionalFormatCell::new()
             .set_rule(ConditionalFormatCellRule::GreaterThan(0.0))
-            .set_format(Format::new().set_font_color(Color::RGB(0x22C55E)));
+            .set_format(Format::new().set_font_color(Color::RGB(GO)));
         let red_d = ConditionalFormatCell::new()
             .set_rule(ConditionalFormatCellRule::LessThan(0.0))
-            .set_format(Format::new().set_font_color(Color::RGB(0xEF4444)));
+            .set_format(Format::new().set_font_color(Color::RGB(BERRY)));
         ws.add_conditional_format(1, 3, last_row, 3, &green_d).map_err(|e| format!("{e}"))?;
         ws.add_conditional_format(1, 3, last_row, 3, &red_d).map_err(|e| format!("{e}"))?;
         ws.add_conditional_format(1, 4, last_row, 4, &green_d).map_err(|e| format!("{e}"))?;
@@ -1075,6 +1095,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Сценарии").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0xEC4899));
+        apply_base_cols(ws, &base_fmt)?;
 
         let homogeneous_money = scenarios.iter()
             .all(|s| s["totals"]["roas_money"].as_f64().is_some());
@@ -1122,8 +1143,8 @@ fn build_xlsx(
             })
             .map(|(i, _)| i);
         if let Some(bi) = best_idx {
-            let best_fmt = Format::new()
-                .set_font_color(Color::RGB(0x22C55E))
+            let best_fmt = base_fmt.clone()
+                .set_font_color(Color::RGB(GO))
                 .set_bold();
             let v = scenarios[bi]["totals"][roas_field].as_f64().unwrap_or(0.0);
             ws.write_with_format(roas_row, (bi + 1) as u16, v, &best_fmt)
@@ -1156,6 +1177,7 @@ fn build_xlsx(
         let ws = wb.add_worksheet();
         ws.set_name("Данные").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(0x22C55E));
+        apply_base_cols(ws, &base_fmt)?;
 
         let ts = &decompose["time_series"];
         let dates = ts["dates"].as_array().cloned().unwrap_or_default();
@@ -1212,6 +1234,7 @@ fn build_xlsx(
     {
         let ws = wb.add_worksheet();
         ws.set_name("Глоссарий").map_err(|e| format!("{e}"))?;
+        apply_base_cols(ws, &base_fmt)?;
 
         ws.write_with_format(0, 0, "Термин", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(0, 1, "Определение", &header_fmt).map_err(|e| format!("{e}"))?;
