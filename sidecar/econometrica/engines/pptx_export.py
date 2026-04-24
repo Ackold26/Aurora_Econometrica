@@ -308,7 +308,7 @@ def _map_pipeline_to_builder_data(
         data["narrative_facts"] = narrative_facts
     elif channels:
         logger.warning(
-            f"pptx_export adapter: only {len(channels)} channel(s) — "
+            f"pptx_export adapter: only {len(channels)} channel(s) - "
             f"falling back to Kagocel narrative defaults for slide content."
         )
 

@@ -34,6 +34,7 @@ Brand principles applied (per Standards/CLIENT_READY_ANATOMY.md):
 from __future__ import annotations
 
 import math
+import zlib
 from datetime import datetime
 
 from pptx import Presentation
@@ -558,7 +559,7 @@ class AuroraPPTXBuilder:
         scale_n = sum(1 for v in verdicts if v == "Scale")
         cut_n = sum(1 for v in verdicts if v in ("Cut", "Reduce"))
         f4 = f"Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению"
-        s4 = f"Из {len(self.channels)} активных каналов — чёткий verdict по каждому"
+        s4 = f"Из {len(self.channels)} активных каналов - чёткий verdict по каждому"
 
         # Finding 5 — MQS quality signal (guards None / non-numeric mqs_score)
         try:
@@ -590,8 +591,13 @@ class AuroraPPTXBuilder:
         keyed by order (max 3 footnotes to fit bottom-block layout).
         """
         total_contrib = sum(float(c.get("contribution") or 0) for c in channels) or 1.0
-        # Assign footnote numbers to the first 3 flagged channels (Reduce/Cut)
-        flagged = [c for c in channels if c.get("verdict") in ("Reduce", "Cut")][:3]
+        # Assign footnote numbers to the first 3 flagged channels (Reduce/Cut).
+        # Filter within channels[:10] (same slice the row loop uses) so the
+        # bottom-block footnote text and the row superscript always pair up.
+        # (Pre-fix bug: flagged could include channel 15+ which has no rendered
+        # row, leaving the bottom-block footnote orphaned.)
+        visible = channels[:10]
+        flagged = [c for c in visible if c.get("verdict") in ("Reduce", "Cut")][:3]
         fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
 
         rows = []
@@ -1241,14 +1247,17 @@ class AuroraPPTXBuilder:
         self._category(slide, self.safe, 0.60, "ПОРТФЕЛЬ КАНАЛОВ")
 
         # Action title - data-driven: top-N contributors covering >=85% of
-        # incremental sales. Fallback ("Пять каналов...") applies only in
-        # preview / wireframe mode when no channels supplied.
+        # incremental sales. Handles edge cases (single channel, all-zero
+        # contributions, balanced portfolio) with idiomatic Russian phrasing.
+        # Fallback ("Пять каналов...") applies only in preview / wireframe
+        # mode when no channels supplied.
         if self.channels:
             contribs = sorted(
                 (float(c.get("contribution") or 0) for c in self.channels),
                 reverse=True,
             )
-            total_c = sum(contribs) or 1.0
+            total_real = sum(contribs)
+            total_c = total_real or 1.0
             acc = 0.0
             top_n = 0
             for v in contribs:
@@ -1258,10 +1267,20 @@ class AuroraPPTXBuilder:
                     break
             pct = int(round(acc / total_c * 100))
             other_n = len(self.channels) - top_n
-            if other_n > 0:
-                s07_title = f"{top_n} канал(ов) генерируют {pct}% продаж - остальные рекомендованы к консолидации"
+            if total_real <= 0:
+                # All-zero contributions - signal calculation failure,
+                # avoid claiming "0% продаж" or "сбалансирован" (misleading).
+                s07_title = "Вклад каналов требует пересчёта - проверьте входные данные"
+            elif len(self.channels) == 1:
+                # Single-channel portfolio - "balanced" would be misleading,
+                # report factually instead.
+                s07_title = "Один канал портфеля обеспечивает 100% продаж"
+            elif top_n == 1:
+                s07_title = f"Один канал даёт {pct}% продаж - остальные рекомендованы к консолидации"
+            elif other_n > 0:
+                s07_title = f"Топ-{top_n} каналов дают {pct}% продаж - остальные рекомендованы к консолидации"
             else:
-                s07_title = f"Портфель из {top_n} канал(ов) сбалансирован - все активно работают"
+                s07_title = "Все каналы портфеля активно работают - консолидация не требуется"
         else:
             s07_title = "Пять каналов генерируют 87% продаж - остальные рекомендованы к консолидации"
         self._action_title(
@@ -1414,10 +1433,12 @@ class AuroraPPTXBuilder:
         # numbers already assigned in _build_action_table_rows. Preview /
         # wireframe mode falls back to Kagocel pilot footnotes below.
         if self.channels:
-            flagged = [c for c in self.channels if c.get("verdict") in ("Reduce", "Cut")][:3]
+            # Filter flagged within the same [:10] window the table rows use,
+            # so bottom-block text pairs with the rendered row superscripts.
+            flagged = [c for c in self.channels[:10] if c.get("verdict") in ("Reduce", "Cut")][:3]
             reason_by_verdict = {
                 "Cut": "ниже breakeven по mROAS; рекомендовано остановить или перевести в другие каналы.",
-                "Reduce": "saturation-bound; мargin от дополнительного рубля ниже портфельного среднего.",
+                "Reduce": "saturation-bound; маржинальный возврат от дополнительного рубля ниже среднего по портфелю.",
             }
             footnotes = [
                 (str(i + 1), f"{c.get('name') or '-'}: {reason_by_verdict.get(c.get('verdict'), 'рекомендовано пересмотреть аллокацию.')}")
@@ -1565,7 +1586,14 @@ class AuroraPPTXBuilder:
                 elif name == "Baseline":
                     h_band = base_h * base_mod
                 else:
-                    h_band = base_h * (0.95 + 0.1 * math.sin(w_idx / 5 + hash(name) % 7))
+                    # zlib.crc32 is deterministic across processes (unlike
+                    # built-in hash() which is salted with PYTHONHASHSEED).
+                    # Keeps band modulation phase stable between builds so
+                    # slide XML content is reproducible for diffing / review.
+                    # (Outer PPTX SHA still varies due to python-pptx save-time
+                    # timestamps in docProps/core.xml - that is outside scope.)
+                    jitter = zlib.crc32(name.encode("utf-8")) % 7
+                    h_band = base_h * (0.95 + 0.1 * math.sin(w_idx / 5 + jitter))
                 y_top -= h_band
                 self._rect(slide, week_x, y_top, seg_w, h_band, fill=col)
 
