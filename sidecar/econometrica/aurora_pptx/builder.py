@@ -488,6 +488,39 @@ class AuroraPPTXBuilder:
         )
 
     # ----------------------------------------------------------------
+    # Narrative helpers (Session C — Path C parametrization)
+    # ----------------------------------------------------------------
+
+    def _build_action_table_rows(self, channels):
+        """Format merged channels list into the (name, budget, contrib, mROAS,
+        share_pct, verdict, footnote) tuples consumed by s07 action table.
+        Auto-generates footnote superscripts only for Reduce/Cut verdicts,
+        keyed by order (max 3 footnotes to fit bottom-block layout).
+        """
+        total_contrib = sum(float(c.get("contribution") or 0) for c in channels) or 1.0
+        # Assign footnote numbers to the first 3 flagged channels (Reduce/Cut)
+        flagged = [c for c in channels if c.get("verdict") in ("Reduce", "Cut")][:3]
+        fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
+
+        rows = []
+        for c in channels[:10]:
+            name = c.get("name") or "-"
+            spend = float(c.get("spend") or 0)
+            contrib = float(c.get("contribution") or 0)
+            mroas = c.get("mroas")
+            verdict = c.get("verdict", "Watch")
+
+            budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
+            contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
+            roi_str = f"{float(mroas):.1f}" if mroas else "-"
+            share_pct = int(round(contrib / total_contrib * 100))
+            share_str = f"{share_pct}" if share_pct > 0 else "0"
+            footnote = fn_by_name.get(name, "")
+
+            rows.append((name, budget_str, contrib_str, roi_str, share_str, verdict, footnote))
+        return rows
+
+    # ----------------------------------------------------------------
     # SLIDE 01 - COVER
     # ----------------------------------------------------------------
 
@@ -1033,21 +1066,26 @@ class AuroraPPTXBuilder:
         # Header hairline (thick)
         self._hairline(slide, table_x, table_y + 0.55, table_w, weight=0.75, color=self.deep_100)
 
-        # Data rows with footnote superscripts
-        rows = [
-            ("Digital video", "65",  "110",  "1.9", "26",  "Scale",  ""),
-            ("TV",            "120", "180",  "1.5", "42",  "Scale",  "1"),
-            ("Search",        "28",  "48",   "1.7", "11",  "Scale",  ""),
-            ("OOH",           "35",  "52",   "1.5", "12",  "Hold",   ""),
-            ("Social",        "18",  "24",   "1.3", "6",   "Watch",  "2"),
-            ("Print",         "12",  "8",    "0.7", "2",   "Cut",    "3"),
-            ("Radio",         "8",   "6",    "0.8", "1",   "Cut",    ""),
-        ]
+        # Data rows — sourced from adapter-supplied self.channels when present;
+        # fallback to Kagocel pilot rows for preview / wireframe mode.
+        if self.channels:
+            rows = self._build_action_table_rows(self.channels)
+        else:
+            rows = [
+                ("Digital video", "65",  "110",  "1.9", "26",  "Scale",  ""),
+                ("TV",            "120", "180",  "1.5", "42",  "Scale",  "1"),
+                ("Search",        "28",  "48",   "1.7", "11",  "Scale",  ""),
+                ("OOH",           "35",  "52",   "1.5", "12",  "Hold",   ""),
+                ("Social",        "18",  "24",   "1.3", "6",   "Watch",  "2"),
+                ("Print",         "12",  "8",    "0.7", "2",   "Cut",    "3"),
+                ("Radio",         "8",   "6",    "0.8", "1",   "Cut",    ""),
+            ]
         verdict_colors = {
-            "Scale": (self.deep_100, True),
-            "Hold":  (self.deep_60, False),
-            "Watch": (self.deep_60, False),
-            "Cut":   (self.gold, True),
+            "Scale":  (self.deep_100, True),
+            "Hold":   (self.deep_60, False),
+            "Watch":  (self.deep_60, False),
+            "Reduce": (self.gold_muted, True),
+            "Cut":    (self.gold, True),
         }
         row_y = table_y + 0.65
         for row in rows:
@@ -1098,8 +1136,8 @@ class AuroraPPTXBuilder:
                 align=PP_ALIGN.RIGHT,
             )
             x += col_widths[4]
-            # Verdict
-            vcolor, vbold = verdict_colors[verdict]
+            # Verdict — fallback to Hold styling if unknown key
+            vcolor, vbold = verdict_colors.get(verdict, (self.deep_60, False))
             self._text(
                 slide, x + 0.05, row_y, col_widths[5] - 0.1, 0.3, verdict,
                 font=self.sans, size=11, bold=vbold, color=vcolor,
@@ -1108,13 +1146,24 @@ class AuroraPPTXBuilder:
             self._hairline(slide, table_x, row_y + 0.32, table_w, weight=0.25, color=self.deep_20)
             row_y += 0.35
 
-        # Total row (compact)
+        # Total row (compact) — data-driven when facts present, else Kagocel pilot
         self._text(
             slide, table_x + 0.05, row_y + 0.02, col_widths[0] - 0.1, 0.25,
             "ИТОГО",
             font=self.sans, size=10, bold=True, color=self.deep_100,
         )
-        totals = ["286", "428", "1.50", "100"]
+        if self.facts:
+            tb = self.facts.get("total_budget_mln") or 0
+            tc = self.facts.get("total_contrib_mln") or 0
+            wr = self.facts.get("weighted_roi")
+            totals = [
+                f"{tb:.0f}",
+                f"{tc:.0f}",
+                f"{wr:.2f}" if wr is not None else "-",
+                "100",
+            ]
+        else:
+            totals = ["286", "428", "1.50", "100"]
         aligns = [PP_ALIGN.RIGHT] * 4
         x = table_x + col_widths[0]
         for w, v, al in zip(col_widths[1:5], totals, aligns):
