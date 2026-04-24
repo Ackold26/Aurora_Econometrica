@@ -33,6 +33,12 @@ AURORA_MUTED  = RGBColor(0x94, 0xA3, 0xB8) if HAS_PPTX else None
 WHITE         = RGBColor(0xFF, 0xFF, 0xFF) if HAS_PPTX else None
 BLACK         = RGBColor(0x00, 0x00, 0x00) if HAS_PPTX else None
 
+# Aurora Hybrid · bridge signature (P0.5)
+# TODO(P0.2): source from Standards/tokens.json after SSOT pipeline is in place.
+# brand.signature.lime — 2pt line under every action-title.
+# See Standards/BRAND_DECISION.md § DECISION for context.
+SIGNATURE_LIME = RGBColor(0xCC, 0xFF, 0x00) if HAS_PPTX else None
+
 CHANNEL_COLORS = [
     RGBColor(0x3B, 0x82, 0xF6),  # blue
     RGBColor(0x22, 0xC5, 0x5E),  # green
@@ -55,8 +61,14 @@ def _set_slide_bg(slide, color=None):
     fill.fore_color.rgb = color
 
 
-def _add_title_text(slide, text, left=0.5, top=0.3, width=9, height=0.6, size=28, color=None, bold=True):
-    """Add a title textbox."""
+def _add_title_text(slide, text, left=0.5, top=0.3, width=9, height=0.6, size=28, color=None, bold=True, signature=True):
+    """Add a title textbox + Aurora Hybrid signature-lime 2pt line under it.
+
+    The signature-lime line is a sacred bridge element of Aurora Hybrid brand
+    (see Standards/BRAND_DECISION.md § DECISION). Appears on every Econometrica
+    PPTX Report slide. Pass signature=False to suppress (e.g. for cover slides
+    where signature appears elsewhere).
+    """
     txBox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
     tf = txBox.text_frame
     tf.word_wrap = True
@@ -65,6 +77,24 @@ def _add_title_text(slide, text, left=0.5, top=0.3, width=9, height=0.6, size=28
     p.font.size = Pt(size)
     p.font.color.rgb = color or WHITE
     p.font.bold = bold
+
+    # Aurora Hybrid signature — 2pt lime line under action-title (P0.5).
+    if signature and HAS_PPTX and SIGNATURE_LIME is not None:
+        try:
+            from pptx.enum.shapes import MSO_CONNECTOR
+            line_y = txBox.top + txBox.height + Pt(6)
+            line = slide.shapes.add_connector(
+                MSO_CONNECTOR.STRAIGHT,
+                txBox.left,
+                line_y,
+                txBox.left + txBox.width,
+                line_y,
+            )
+            line.line.color.rgb = SIGNATURE_LIME
+            line.line.width = Pt(2)
+        except Exception as e:
+            logger.warning(f"signature-lime skipped on title '{text[:40]}...': {e}")
+
     return txBox
 
 

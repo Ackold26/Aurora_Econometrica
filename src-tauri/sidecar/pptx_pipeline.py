@@ -802,6 +802,11 @@ def parse_synthesis_sections(text):
 
 
 # ── Aurora Hybrid · bridge signature ─────────────────────────────────
+# This file generates PPTX for the MEDIA-ANALYST cabinet (inject_summary_slides).
+# The ECONOMETRICA cabinet has its own generator at
+# sidecar/econometrica/engines/pptx_export.py — both locations must carry the
+# signature-lime for consistent branding across Aurora products.
+#
 # TODO(P0.2): source from Standards/tokens.json after SSOT pipeline is in place.
 # brand.signature.lime — 2pt line under every action-title.
 # See Standards/BRAND_DECISION.md § DECISION for context.
