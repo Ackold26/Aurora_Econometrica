@@ -123,6 +123,26 @@ class AuroraPPTXBuilder:
         self.total_sections = len(self.section_names)
         self.total_slides = meta.get("total_slides", 13)
         self.toc_page_refs = meta.get("toc_page_refs", [4, 5, 6, 7, 8, 9, 10, 11])
+        # Stage C.6.2: physical-slide → (section_idx, section_label) map.
+        # Single source of truth for header section tags — prior hardcoded
+        # `section_idx=N` at every slide method was fragile when the build()
+        # order changed (Stage C.6.1 TOC swap missed footer updates in 2
+        # places). `_header` now looks up via this map when a slide_num is
+        # passed; explicit args remain as a manual override for edge cases.
+        self.slide_to_section = meta.get("slide_to_section") or {
+            2:  (1, "Executive summary"),          # TOC
+            3:  (1, "Executive summary"),          # At a glance
+            4:  (5, "Декомпозиция вкладов"),       # Section divider
+            5:  (1, "Executive summary"),          # Key message
+            6:  (5, "Декомпозиция вкладов"),       # Action chart (mROAS)
+            7:  (5, "Декомпозиция вкладов"),       # Action table (portfolio)
+            8:  (5, "Декомпозиция вкладов"),       # Action timeline
+            9:  (1, "Executive summary"),          # SCQAR
+            10: (2, "Методология"),                # Methodology
+            11: (3, "Данные и качество"),          # Sources
+            12: (8, "Приложение и источники"),     # Glossary
+            13: (8, "Приложение и источники"),     # Colophon
+        }
         # Header center label (shown on every content slide)
         self.header_project_label = meta.get(
             "header_project_label",
@@ -390,7 +410,7 @@ class AuroraPPTXBuilder:
 
     # ---------- Running header (top of content slides) ----------
 
-    def _header(self, slide, *, section_idx, section_label,
+    def _header(self, slide, *, slide_num=None, section_idx=None, section_label=None,
                 include_confidential=True, include_project=False):
         """Slim running header: closer to top edge (y=0.25) to reclaim content space.
 
@@ -399,7 +419,22 @@ class AuroraPPTXBuilder:
         slide (35 chars of visual noise). Tier-1 minimalism: left section
         label + right CONFIDENTIAL only. `include_project` kept as a
         parameter (default False) for explicit opt-in if ever needed.
+
+        Stage C.6.2: prefer `slide_num` which resolves (section_idx,
+        section_label) via self.slide_to_section. Explicit section_idx /
+        section_label still accepted for backward compat and edge overrides.
         """
+        if slide_num is not None and slide_num in self.slide_to_section:
+            mapped_idx, mapped_label = self.slide_to_section[slide_num]
+            if section_idx is None:
+                section_idx = mapped_idx
+            if section_label is None:
+                section_label = mapped_label
+        if section_idx is None or section_label is None:
+            raise ValueError(
+                "_header requires either slide_num (mapped in slide_to_section) "
+                "or explicit section_idx + section_label"
+            )
         y = 0.25  # compact safe_top zone
         # Left: section tag like "03 / 08 . Methodology"
         self._text(
@@ -767,7 +802,7 @@ class AuroraPPTXBuilder:
 
     def s02_at_a_glance(self):
         slide = self._blank()
-        self._header(slide, section_idx=1, section_label="Executive summary")
+        self._header(slide, slide_num=3)
 
         self._category(slide, self.safe, 0.60, "ОТЧЁТ ЗА 60 СЕКУНД")
         self._text(
@@ -824,7 +859,7 @@ class AuroraPPTXBuilder:
 
     def s03_toc(self):
         slide = self._blank()
-        self._header(slide, section_idx=1, section_label="Executive summary")
+        self._header(slide, slide_num=2)
 
         self._category(slide, self.safe, 0.60, "AGENDA")
         self._text(
@@ -906,10 +941,7 @@ class AuroraPPTXBuilder:
 
     def s04_section_divider(self):
         slide = self._blank()
-        self._header(
-            slide, section_idx=5, section_label="Декомпозиция вкладов",
-            include_confidential=True,
-        )
+        self._header(slide, slide_num=4, include_confidential=True)
 
         # Big number
         self._text(
@@ -985,7 +1017,7 @@ class AuroraPPTXBuilder:
 
     def s05_key_message(self):
         slide = self._blank()
-        self._header(slide, section_idx=1, section_label="Executive summary")
+        self._header(slide, slide_num=5)
 
         self._category(slide, self.safe, 0.60, "КЛЮЧЕВОЙ ВЫВОД")
 
@@ -1078,7 +1110,7 @@ class AuroraPPTXBuilder:
 
     def s06_action_chart(self):
         slide = self._blank()
-        self._header(slide, section_idx=5, section_label="Декомпозиция вкладов")
+        self._header(slide, slide_num=6)
 
         self._category(slide, self.safe, 0.60, "ROI ПО КАНАЛАМ")
 
@@ -1297,7 +1329,7 @@ class AuroraPPTXBuilder:
 
     def s07_action_table(self):
         slide = self._blank()
-        self._header(slide, section_idx=5, section_label="Декомпозиция вкладов")
+        self._header(slide, slide_num=7)
 
         self._category(slide, self.safe, 0.60, "ПОРТФЕЛЬ КАНАЛОВ")
 
@@ -1525,7 +1557,7 @@ class AuroraPPTXBuilder:
 
     def s08_action_timeline(self):
         slide = self._blank()
-        self._header(slide, section_idx=5, section_label="Декомпозиция вкладов")
+        self._header(slide, slide_num=8)
 
         self._category(slide, self.safe, 0.60, "ДИНАМИКА")
 
@@ -1705,7 +1737,7 @@ class AuroraPPTXBuilder:
 
     def s09_scqar(self):
         slide = self._blank()
-        self._header(slide, section_idx=1, section_label="Executive summary")
+        self._header(slide, slide_num=9)
 
         self._category(slide, self.safe, 0.60, "РЕКОМЕНДАЦИЯ")
 
@@ -1906,7 +1938,7 @@ class AuroraPPTXBuilder:
 
     def s10_methodology(self):
         slide = self._blank()
-        self._header(slide, section_idx=2, section_label="Методология")
+        self._header(slide, slide_num=10)
 
         self._category(slide, self.safe, 0.60, "ПОДХОД")
 
@@ -2030,7 +2062,7 @@ class AuroraPPTXBuilder:
 
     def s11_sources(self):
         slide = self._blank()
-        self._header(slide, section_idx=3, section_label="Данные и качество")
+        self._header(slide, slide_num=11)
 
         self._category(slide, self.safe, 0.60, "ДАННЫЕ")
 
@@ -2194,7 +2226,7 @@ class AuroraPPTXBuilder:
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
         slide = self._blank()
-        self._header(slide, section_idx=8, section_label="Приложение и источники")
+        self._header(slide, slide_num=12)
 
         self._category(slide, self.safe, 0.60, "ПРИЛОЖЕНИЕ А")
 
@@ -2283,7 +2315,7 @@ class AuroraPPTXBuilder:
         Flow: statement → CTA (with lime) → narrative → wordmark → copyright.
         No duplication of metrics from other slides."""
         slide = self._blank()
-        self._header(slide, section_idx=8, section_label="Приложение и источники")
+        self._header(slide, slide_num=13)
 
         # Big closing statement - starts higher (more top breathing), no category tag
         self._text(
