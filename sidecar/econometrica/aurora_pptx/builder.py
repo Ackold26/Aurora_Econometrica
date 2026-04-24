@@ -34,6 +34,7 @@ Brand principles applied (per Standards/CLIENT_READY_ANATOMY.md):
 from __future__ import annotations
 
 import math
+from datetime import datetime
 
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -124,10 +125,11 @@ class AuroraPPTXBuilder:
             "header_project_label",
             f"{self.client.upper()} . MMM REPORT . {self.period_label}",
         )
-        # Copyright footer on cover
+        # Copyright footer on cover — dynamic year for future-proofing
+        _year = datetime.now().year
         self.copyright_line = meta.get(
             "copyright_line",
-            f"© 2026 Aurora AI  .  Prepared exclusively for {self.client}  .  Not for redistribution",
+            f"© {_year} Aurora AI  .  Prepared exclusively for {self.client}  .  Not for redistribution",
         )
         # Source-note label template (client name substituted)
         self.sources_client_label = meta.get("sources_client_label", self.client)
@@ -536,9 +538,14 @@ class AuroraPPTXBuilder:
         else:
             s2 = "Потенциал для перераспределения бюджета"
 
-        # Finding 3 — reallocation recommendation
-        if reallocation_mln and reallocation_mln >= 1 and hero != leader:
-            f3 = f"Recommendation: reallocate {reallocation_mln:.0f} млн из {leader} в {hero}"
+        # Finding 3 — reallocation recommendation (fmt adapts to magnitude)
+        def _fmt_mln(v):
+            if v is None:
+                return "0"
+            return f"{v:.1f}" if v < 10 else f"{v:.0f}"
+
+        if reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
+            f3 = f"Recommendation: reallocate {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
         else:
             f3 = "Recommendation: сохранить текущую аллокацию по лидеру портфеля"
         if expected_lift_pct is not None:
@@ -553,8 +560,11 @@ class AuroraPPTXBuilder:
         f4 = f"Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению"
         s4 = f"Из {len(self.channels)} активных каналов — чёткий verdict по каждому"
 
-        # Finding 5 — MQS quality signal
-        mqs = self.mqs_score
+        # Finding 5 — MQS quality signal (guards None / non-numeric mqs_score)
+        try:
+            mqs = float(self.mqs_score) if self.mqs_score is not None else 0.0
+        except (TypeError, ValueError):
+            mqs = 0.0
         if mqs >= 80:
             f5 = f"Качество модели: MQS {mqs:.0f}/100 - готовность к production"
             s5 = "Можно опираться на рекомендации в планировании"

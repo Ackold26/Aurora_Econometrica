@@ -295,6 +295,9 @@ def _map_pipeline_to_builder_data(
         decompose_data.get("channels"),
         optimize_data.get("channels"),
     )
+    # Canonical order: contribution desc — keeps table and narrative consistent
+    # (chart still sorts by mROAS locally for display discipline).
+    channels.sort(key=lambda c: float(c.get("contribution") or 0), reverse=True)
     for ch in channels:
         ch["verdict"] = derive_verdict(ch)
 

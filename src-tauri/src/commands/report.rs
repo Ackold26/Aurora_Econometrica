@@ -336,7 +336,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("| Категория | Вклад | % |\n");
         md.push_str("|-----------|------:|--:|\n");
         for item in wf {
-            let cat = item["category"].as_str().unwrap_or("—");
+            let cat = item["category"].as_str().unwrap_or("-");
             let val = item["value"].as_f64().unwrap_or(0.0);
             let pct = item["contribution_pct"].as_f64().unwrap_or(0.0);
             md.push_str(&format!("| {cat} | {val:.0} | {pct:.1}% |\n"));
@@ -350,11 +350,11 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("| Канал | Расход | Вклад | ROI | Вердикт |\n");
         md.push_str("|-------|-------:|------:|----:|---------|\n");
         for ch in chs {
-            let name   = ch["name"].as_str().unwrap_or("—");
+            let name   = ch["name"].as_str().unwrap_or("-");
             let spend  = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
             let roi    = ch["roi"].as_f64().unwrap_or(0.0);
-            let verdict = ch["verdict"].as_str().unwrap_or("—");
+            let verdict = ch["verdict"].as_str().unwrap_or("-");
             md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi:.2}x | {verdict} |\n"));
         }
         md.push('\n');
@@ -387,7 +387,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("| Канал | Текущий | Оптимальный | Δ | Δ% |\n");
         md.push_str("|-------|--------:|------------:|--:|---:|\n");
         for ch in opt_chs {
-            let name  = ch["name"].as_str().unwrap_or("—");
+            let name  = ch["name"].as_str().unwrap_or("-");
             let curr  = ch["current_spend"].as_f64().unwrap_or(0.0);
             let opt   = ch["optimal_spend"].as_f64().unwrap_or(0.0);
             let delta = opt - curr;
@@ -558,9 +558,12 @@ fn build_xlsx(
 
     // ── Workbook metadata (DocProperties) ────────────────────────────────────
     // Visible in Excel: File → Info → Properties.
-    let client_label = project_id; // TBD v1.0.12 — pipeline meta.client when stabilized
+    // client_label derived from project_id until pipeline surfaces a stable
+    // display name in model_data.meta (TBD v1.0.12). Empty project_id falls
+    // back to "Client" so DocProperties title is never malformed.
+    let client_label = if project_id.is_empty() { "Client" } else { project_id };
     let props = DocProperties::new()
-        .set_title(&format!("Aurora AI MMM — {client_label}"))
+        .set_title(&format!("Aurora AI MMM - {client_label}"))
         .set_subject("Marketing Mix Model - аналитический отчёт")
         .set_author("Aurora AI Econometrica")
         .set_company("Aurora AI")
@@ -687,7 +690,7 @@ fn build_xlsx(
         let lift      = optimize["expected_lift_pct"].as_f64().unwrap_or(0.0);
         let budget    = optimize["total_budget"].as_f64().unwrap_or(0.0);
 
-        ws.write_with_format(0, 0, "Marketing Mix Model — Аналитический отчёт", &bold).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(0, 0, "Marketing Mix Model - Аналитический отчёт", &bold).map_err(|e| format!("{e}"))?;
         ws.write(1, 0, &format!("Дата: {}", chrono::Local::now().format("%d.%m.%Y"))).map_err(|e| format!("{e}"))?;
 
         ws.write_with_format(3, 0, "Метрика", &header_fmt).map_err(|e| format!("{e}"))?;
@@ -825,7 +828,7 @@ fn build_xlsx(
 
         for (i, item) in wf.iter().enumerate() {
             let row = (i + 1) as u32;
-            let cat = item["category"].as_str().unwrap_or("—");
+            let cat = item["category"].as_str().unwrap_or("-");
             let val = item["value"].as_f64().unwrap_or(0.0);
             ws.write(row, 0, cat).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, val, &num_fmt).map_err(|e| format!("{e}"))?;
@@ -871,10 +874,10 @@ fn build_xlsx(
 
         for (i, ch) in chs.iter().enumerate() {
             let row = (i + 1) as u32;
-            let name = ch["name"].as_str().unwrap_or("—");
+            let name = ch["name"].as_str().unwrap_or("-");
             let spend = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
-            let verdict = ch["verdict"].as_str().unwrap_or("—");
+            let verdict = ch["verdict"].as_str().unwrap_or("-");
             let (ci_lo, ci_hi) = ch_params.as_ref()
                 .and_then(|p| p.get(name))
                 .map(|p| (p["roi_ci_lower"].as_f64().unwrap_or(0.0), p["roi_ci_upper"].as_f64().unwrap_or(0.0)))
@@ -936,7 +939,7 @@ fn build_xlsx(
 
         for (i, ch) in chs.iter().enumerate() {
             let row = (i + 1) as u32;
-            let name = ch["name"].as_str().unwrap_or("—");
+            let name = ch["name"].as_str().unwrap_or("-");
             let spend = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
             let spend_pct = if total_spend > 0.0 { spend / total_spend } else { 0.0 };
@@ -1061,7 +1064,7 @@ fn build_xlsx(
 
         for (i, ch) in opt_chs.iter().enumerate() {
             let row = (i + 1) as u32;
-            let name = ch["name"].as_str().unwrap_or("—");
+            let name = ch["name"].as_str().unwrap_or("-");
             let curr = ch["current_spend"].as_f64().unwrap_or(0.0);
             let opt = ch["optimal_spend"].as_f64().unwrap_or(0.0);
             let curr_roi = ch["current_roi"].as_f64().unwrap_or(0.0);
@@ -1138,7 +1141,7 @@ fn build_xlsx(
         // Header: Метрика | scenario1 | scenario2 | ...
         ws.write_with_format(0, 0, "Метрика", &header_fmt).map_err(|e| format!("{e}"))?;
         for (i, s) in scenarios.iter().enumerate() {
-            let name = s["scenario_name"].as_str().unwrap_or("—");
+            let name = s["scenario_name"].as_str().unwrap_or("-");
             ws.write_with_format(0, (i + 1) as u16, name, &header_fmt).map_err(|e| format!("{e}"))?;
         }
 
