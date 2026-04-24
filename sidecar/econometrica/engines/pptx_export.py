@@ -54,6 +54,143 @@ def _get_nested(d: dict, *keys, default=None):
     return cur
 
 
+def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]:
+    """Merge decompose.channels with optimize.channels by case-insensitive name.
+
+    Guards against drift like "TV"/"Tv"/"ТВ" via strip+lowercase key. Decompose
+    is the source (name + spend + contribution + roi); optimize adds
+    current_spend/optimal_spend/miroas when present. Orphan optimize channels
+    (no decompose match) are dropped with a warning.
+    """
+    def key(name): return (name or "").strip().lower()
+    opt_by_key = {key(c.get("name")): c for c in (opt_chs or []) if c}
+    merged: list[dict] = []
+    for dc in (decomp_chs or []):
+        if not dc:
+            continue
+        name = dc.get("name")
+        oc = opt_by_key.get(key(name), {}) or {}
+        merged.append({
+            "name": name,
+            "spend": dc.get("spend") or oc.get("current_spend"),
+            "contribution": dc.get("contribution"),
+            "roi": dc.get("roi") or oc.get("current_roi"),
+            "mroas": oc.get("miroas") or oc.get("mroas") or dc.get("roi"),
+            "current_spend": oc.get("current_spend"),
+            "optimal_spend": oc.get("optimal_spend"),
+            # verdict filled in after merge by derive_verdict
+        })
+    if opt_chs:
+        decomp_keys = {key(c["name"]) for c in merged}
+        dropped = [c.get("name") for c in opt_chs if c and key(c.get("name")) not in decomp_keys]
+        if dropped:
+            logger.warning(f"optimize channels not in decompose: {dropped}")
+    return merged
+
+
+def derive_verdict(channel: dict) -> str:
+    """5-way verdict encoding both efficiency (mROAS) and schedule direction
+    (optimal vs current spend). Returns one of:
+      Cut / Reduce / Watch / Hold / Scale
+
+    Honest signal — Reduce means "profitable but saturation-bound, cut spend"
+    (resolves wireframe v3 TV self-contradiction: Scale-table vs Cut-SCQAR).
+    """
+    curr = channel.get("current_spend") or channel.get("spend") or 0.0
+    opt = channel.get("optimal_spend") or curr
+    mroas = channel.get("mroas") or 0.0
+    try:
+        curr = float(curr) or 1e-6
+        opt = float(opt)
+        mroas = float(mroas)
+    except (TypeError, ValueError):
+        return "Watch"
+    ratio = opt / max(curr, 1e-6)
+    if mroas < 0.8 or ratio < 0.5:
+        return "Cut"
+    if mroas >= 1.2 and ratio >= 1.2:
+        return "Scale"
+    if ratio < 0.9:
+        return "Reduce"
+    if mroas >= 1.2:
+        return "Hold"
+    return "Watch"
+
+
+def _derive_narrative_facts(
+    channels: list[dict],
+    optimize_data: dict,
+    scenarios: list[dict] | None,
+) -> dict:
+    """Compute business-logic values used by slide templates (s02/s04/s05/s07/s09).
+
+    Assumes channels is non-empty merged list (caller guards). Returns dict
+    with keys: leader_channel, hero_channel, n_active_channels,
+    total_budget_mln, total_contrib_mln, weighted_roi, leader_share_spend,
+    leader_share_contrib, top_2, top_2_contrib_pct, underperformers,
+    reallocation_mln, expected_lift_pct.
+    """
+    # Sort copy by contribution desc (non-destructive)
+    by_contrib = sorted(channels, key=lambda c: float(c.get("contribution") or 0), reverse=True)
+    by_mroas = sorted(channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
+
+    leader = by_contrib[0] if by_contrib else {}
+    hero = by_mroas[0] if by_mroas else {}
+
+    total_spend = sum(float(c.get("spend") or 0) for c in channels)
+    total_contrib = sum(float(c.get("contribution") or 0) for c in channels)
+    n_active = sum(1 for c in channels if (float(c.get("spend") or 0) > 0))
+
+    weighted_roi = (total_contrib / total_spend) if total_spend > 0 else None
+
+    leader_spend = float(leader.get("spend") or 0)
+    leader_contrib = float(leader.get("contribution") or 0)
+
+    top_2 = by_contrib[:2]
+    top_2_contrib = sum(float(c.get("contribution") or 0) for c in top_2)
+
+    underperformers = [c for c in channels if c.get("verdict") in ("Cut", "Watch")]
+
+    # Reallocation = net shift between current and optimal (half of absolute sum
+    # to avoid double-counting the same dollar leaving X entering Y)
+    reallocation = 0.0
+    for c in channels:
+        curr = c.get("current_spend")
+        opt = c.get("optimal_spend")
+        if curr is None or opt is None:
+            continue
+        try:
+            reallocation += abs(float(opt) - float(curr))
+        except (TypeError, ValueError):
+            pass
+    reallocation /= 2.0
+
+    expected_lift = optimize_data.get("expected_lift_pct")
+    if expected_lift is None and scenarios:
+        # Pick scenario with max lift_pct
+        try:
+            best = max(scenarios, key=lambda s: float((s.get("totals") or {}).get("lift_pct") or 0))
+            expected_lift = float((best.get("totals") or {}).get("lift_pct") or 0)
+        except (ValueError, TypeError):
+            expected_lift = None
+
+    return {
+        "leader_channel": leader.get("name"),
+        "hero_channel": hero.get("name"),
+        "n_active_channels": n_active,
+        "total_budget_mln": total_spend / 1_000_000.0 if total_spend else 0.0,
+        "total_contrib_mln": total_contrib / 1_000_000.0 if total_contrib else 0.0,
+        "weighted_roi": weighted_roi,
+        "leader_share_spend_pct": (leader_spend / total_spend * 100) if total_spend > 0 else None,
+        "leader_share_contrib_pct": (leader_contrib / total_contrib * 100) if total_contrib > 0 else None,
+        "top_2_names": [c.get("name") for c in top_2],
+        "top_2_contrib_pct": (top_2_contrib / total_contrib * 100) if total_contrib > 0 else None,
+        "underperformer_names": [c.get("name") for c in underperformers],
+        "reallocation_mln": reallocation / 1_000_000.0 if reallocation else 0.0,
+        "expected_lift_pct": expected_lift,
+    }
+
+
 def _map_pipeline_to_builder_data(
     model_data: dict | None,
     decompose_data: dict | None,
@@ -148,10 +285,35 @@ def _map_pipeline_to_builder_data(
     if diagnostics:
         data["diagnostics"] = diagnostics
 
+    # --- Channels + narrative facts (Session C, Path C narrative parametrization) ---
+    # Adapter merges decompose + optimize channel lists by name (normalized),
+    # derives verdicts per 5-way rule (Cut/Reduce/Watch/Hold/Scale) with
+    # optimize direction, then computes narrative_facts used by slide
+    # templates (s02/s04/s05/s06/s07/s08/s09). When channels list is
+    # <2 entries, skip — builder falls back to Kagocel pilot defaults.
+    channels = _merge_channels(
+        decompose_data.get("channels"),
+        optimize_data.get("channels"),
+    )
+    for ch in channels:
+        ch["verdict"] = derive_verdict(ch)
+
+    narrative_facts: dict | None = None
+    if len(channels) >= 2:
+        narrative_facts = _derive_narrative_facts(channels, optimize_data, scenarios)
+        data["channels"] = channels
+        data["narrative_facts"] = narrative_facts
+    elif channels:
+        logger.warning(
+            f"pptx_export adapter: only {len(channels)} channel(s) — "
+            f"falling back to Kagocel narrative defaults for slide content."
+        )
+
     logger.info(
         f"pptx_export adapter: client={client_label!r} "
         f"diagnostics_keys={list(diagnostics.keys())} "
-        f"channels={len(decompose_data.get('channels', []) or [])} "
+        f"channels={len(channels)} "
+        f"facts={'yes' if narrative_facts else 'fallback'} "
         f"scenarios={len(scenarios or [])}"
     )
     return data

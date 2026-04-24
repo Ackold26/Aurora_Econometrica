@@ -141,6 +141,14 @@ class AuroraPPTXBuilder:
         self.r_hat_max = diag.get("r_hat_max", 1.008)
         self.ess_min = diag.get("ess_min", 1247)
 
+        # --- Channels + narrative facts (Session C — Path C parametrization) ---
+        # If adapter supplied channels + facts: real client data drives slide
+        # templates. Otherwise builder keeps its Kagocel pilot narrative
+        # (wireframe / preview mode) — single source-of-truth guard lives
+        # with `self.facts is None` checks in each slide method.
+        self.channels = self.data.get("channels") or []
+        self.facts = self.data.get("narrative_facts")
+
     # ---------- Primitives ----------
 
     def _blank(self):
