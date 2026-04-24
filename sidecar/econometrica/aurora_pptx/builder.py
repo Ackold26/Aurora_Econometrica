@@ -1523,7 +1523,7 @@ class AuroraPPTXBuilder:
             footnotes = [
                 ("1", "TV: mROAS считается при текущих 85 TRP/нед; выше 100 TRP/нед ROI падает ниже 1.2×."),
                 ("2", "Social volatile - mROAS 1.3× median, но CI 0.8 1.8× (высокая неопределённость)."),
-                ("3", "Print: ниже breakeven; рекомендация основана на 3-квартальном тренде."),
+                ("3", "Print: ниже точки безубыточности; рекомендация основана на 3-квартальном тренде."),
             ]
         line_h = 0.14
         # Layout (bottom-up): source (6.87) · fn3 (6.73) · fn2 (6.59) · fn1 (6.45) · label (6.30)
@@ -1611,7 +1611,7 @@ class AuroraPPTXBuilder:
             # Channel bands occupy ~55% of total height; baseline ~45%.
             channel_h_budget = 1.10  # inches, fits sum × peak mod ≤ area_h
             baseline_h = 0.85
-            bands = [("Baseline", self.deep_40, baseline_h)]
+            bands = [("Базовый уровень", self.deep_40, baseline_h)]
             for i, c in enumerate(by_contrib):
                 share = float(c.get("contribution") or 0) / total_c
                 bands.append((
@@ -1623,7 +1623,7 @@ class AuroraPPTXBuilder:
             leader_name = bands[1][0] if len(bands) > 1 else None
         else:
             bands = [
-                ("Baseline",      self.deep_40, 0.85),
+                ("Базовый уровень", self.deep_40, 0.85),
                 ("TV",            self.gold,    0.55),
                 ("Digital video", self.deep_80, 0.35),
                 ("Search",        self.deep_60, 0.17),
