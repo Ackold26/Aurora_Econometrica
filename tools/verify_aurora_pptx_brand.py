@@ -20,6 +20,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SIDECAR = REPO / "sidecar"
 sys.path.insert(0, str(SIDECAR))
+sys.path.insert(0, str(SIDECAR / "econometrica"))  # aurora_tokens top-level
 
 # Aurora rules
 FORBIDDEN_EM_DASH = "\u2014"          # "—"

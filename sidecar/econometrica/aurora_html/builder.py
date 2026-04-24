@@ -40,6 +40,33 @@ def _fmt_ru_date(dt: datetime) -> str:
     return f"{dt.day} {_RU_MONTHS[dt.month]} {dt.year}"
 
 
+# Cached extraction of the static <noscript><style>...</style></noscript> block
+# from shell.html. Computed once per process, hashed into CSP style-src so the
+# noscript fallback styles render under strict CSP even when JS is enabled
+# (Chrome parses and enforces CSP on noscript CSS regardless of JS state).
+_NOSCRIPT_STYLE_CACHE: str | None = None
+
+
+def _extract_noscript_style() -> str:
+    """Extract the content of <noscript><style>...</style></noscript> from
+    shell.html so its SHA-256 can be added to CSP style-src. Cached: the
+    noscript block is static (no template variables), safe to memoize.
+    """
+    global _NOSCRIPT_STYLE_CACHE
+    if _NOSCRIPT_STYLE_CACHE is not None:
+        return _NOSCRIPT_STYLE_CACHE
+    shell = (TEMPLATES_DIR / "shell.html").read_text(encoding='utf-8')
+    # Match the first <style> ... </style> *inside* <noscript>. Non-greedy.
+    m = re.search(r'<noscript>\s*<style>(.*?)</style>', shell, re.DOTALL)
+    if not m:
+        raise RuntimeError(
+            "shell.html: <noscript><style>...</style></noscript> block not "
+            "found; cannot compute CSP hash."
+        )
+    _NOSCRIPT_STYLE_CACHE = m.group(1)
+    return _NOSCRIPT_STYLE_CACHE
+
+
 def _fmt_human_time(dt: datetime) -> str:
     """Human-friendly timestamp for footer."""
     return dt.strftime("%d.%m.%Y %H:%M")
@@ -414,15 +441,26 @@ class AuroraHTMLBuilder:
         bootstrap = self._bootstrap_js()
 
         # 3. CSP hashes (must match exact bytes of inline <style> and <script>)
-        #    We compute hashes of the CONCATENATED styles and CONCATENATED scripts
-        #    but CSP v3 supports multiple hashes, so we hash each block separately.
-        #    Shell has 3 style blocks (fonts/tokens/layout) and 3 script blocks.
-        style_hashes = [
-            security.csp_sha256(s) for s in (fonts_css, tokens_css, layout_css)
-        ]
-        script_hashes = [
-            security.csp_sha256(s) for s in (echarts_js, tokens_js, bootstrap)
-        ]
+        #    Shell wraps each substitution with newlines:
+        #        <style>\n${fonts_css}\n</style>
+        #    The browser computes sha256 over EVERYTHING between the tags
+        #    (including those wrapper newlines), so we must hash the wrapped
+        #    form, not the raw substitution value. Static noscript block is
+        #    also read from shell.html exactly as written (incl. indentation).
+        noscript_css = _extract_noscript_style()
+        style_blocks_as_emitted = (
+            f"\n{fonts_css}\n",
+            f"\n{tokens_css}\n",
+            f"\n{layout_css}\n",
+            noscript_css,  # already includes its own leading/trailing whitespace
+        )
+        script_blocks_as_emitted = (
+            f"\n{echarts_js}\n",
+            f"\n{tokens_js}\n",
+            f"\n{bootstrap}\n",
+        )
+        style_hashes = [security.csp_sha256(s) for s in style_blocks_as_emitted]
+        script_hashes = [security.csp_sha256(s) for s in script_blocks_as_emitted]
         csp_meta = self._build_csp_meta(style_hashes, script_hashes)
 
         # 4. Shell template substitution
@@ -476,7 +514,17 @@ class AuroraHTMLBuilder:
         return html
 
     def _build_csp_meta(self, style_hashes: list[str], script_hashes: list[str]) -> str:
-        """Emit CSP meta using all inline hashes (no unsafe-inline)."""
+        """Emit CSP meta using all inline hashes.
+
+        `style-src` stays hash-based (no 'unsafe-inline') - strict XSS defense
+        over <style> blocks. `style-src-attr 'unsafe-inline'` explicitly
+        permits inline style="..." attributes (used for dynamic data-driven
+        widths, colors, etc. in sections.py that can't be static classes).
+        CSP3 separates these directives; modern browsers (Chrome 77+, FF 86+,
+        Safari 16+) honour the split. All user-controlled strings embedded
+        into style attrs are escape()'d via security.escape, so XSS surface
+        for inline attrs is closed upstream.
+        """
         style_src = " ".join(style_hashes)
         script_src = " ".join(script_hashes)
         policy = "; ".join([
@@ -484,6 +532,7 @@ class AuroraHTMLBuilder:
             "img-src 'self' data: blob:",
             "font-src data:",
             f"style-src {style_src}",
+            "style-src-attr 'unsafe-inline'",
             f"script-src {script_src}",
             "connect-src 'none'",
             "base-uri 'none'",

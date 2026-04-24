@@ -8,6 +8,7 @@ use chrono::Local;
 use log::info;
 use rust_xlsxwriter::{DocProperties, Format, FormatAlign, FormatBorder, Workbook};
 use serde_json::Value;
+use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1313,5 +1314,79 @@ fn build_xlsx(
         .map_err(|e| format!("define_name Total_Budget: {e}"))?;
 
     wb.save(path).map_err(|e| format!("XLSX save error: {e}"))?;
+
+    // Post-process: fix sheetPr child element order to match OOXML XSD schema.
+    // rust_xlsxwriter 0.79 emits <pageSetUpPr> BEFORE <tabColor>, but XSD
+    // CT_SheetPr requires: tabColor → outlinePr → pageSetUpPr. Excel strict
+    // validation rejects the sheet content → opens recovery dialog and strips
+    // all data from affected sheets (9 of 11 broken). We swap back to correct
+    // order here in-place.
+    fix_sheetpr_element_order(path)?;
+    Ok(())
+}
+
+/// Rewrite xl/worksheets/sheet*.xml inside the XLSX zip to put <tabColor>
+/// BEFORE <pageSetUpPr> in <sheetPr>. No-op for sheets that have only one
+/// (or neither) element. Uses `zip` and `regex` crates already in deps.
+fn fix_sheetpr_element_order(xlsx_path: &Path) -> Result<(), String> {
+    use zip::read::ZipArchive;
+    use zip::write::{SimpleFileOptions, ZipWriter};
+
+    let bytes = std::fs::read(xlsx_path)
+        .map_err(|e| format!("post-process read {xlsx_path:?}: {e}"))?;
+    let mut archive = ZipArchive::new(Cursor::new(bytes))
+        .map_err(|e| format!("post-process zip open: {e}"))?;
+
+    // Matches <sheetPr [attrs]><pageSetUpPr .../><tabColor .../></sheetPr>
+    // and emits <sheetPr [attrs]><tabColor .../><pageSetUpPr .../></sheetPr>.
+    // Only triggers when both elements present in the wrong order.
+    let re = regex::Regex::new(
+        r"<sheetPr([^>]*)><pageSetUpPr([^/]*)/><tabColor([^/]*)/></sheetPr>",
+    )
+    .map_err(|e| format!("post-process regex: {e}"))?;
+
+    let out_buf: Vec<u8> = Vec::with_capacity(archive.len() * 4096);
+    let mut writer = ZipWriter::new(Cursor::new(out_buf));
+
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| format!("post-process entry {i}: {e}"))?;
+        let name = entry.name().to_string();
+        let options = SimpleFileOptions::default().compression_method(entry.compression());
+
+        let is_worksheet =
+            name.starts_with("xl/worksheets/sheet") && name.ends_with(".xml");
+
+        writer
+            .start_file(&name, options)
+            .map_err(|e| format!("post-process start {name}: {e}"))?;
+
+        if is_worksheet {
+            let mut content = String::new();
+            entry
+                .read_to_string(&mut content)
+                .map_err(|e| format!("post-process read {name}: {e}"))?;
+            let fixed =
+                re.replace_all(&content, "<sheetPr$1><tabColor$3/><pageSetUpPr$2/></sheetPr>");
+            writer
+                .write_all(fixed.as_bytes())
+                .map_err(|e| format!("post-process write {name}: {e}"))?;
+        } else {
+            let mut content = Vec::with_capacity(entry.size() as usize);
+            entry
+                .read_to_end(&mut content)
+                .map_err(|e| format!("post-process read {name}: {e}"))?;
+            writer
+                .write_all(&content)
+                .map_err(|e| format!("post-process write {name}: {e}"))?;
+        }
+    }
+
+    let final_cursor = writer
+        .finish()
+        .map_err(|e| format!("post-process zip finish: {e}"))?;
+    std::fs::write(xlsx_path, final_cursor.into_inner())
+        .map_err(|e| format!("post-process write final: {e}"))?;
     Ok(())
 }

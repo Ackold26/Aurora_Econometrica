@@ -11,8 +11,10 @@ Exit 0 on success, 1 on any assertion failure.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -124,12 +126,61 @@ def main() -> int:
                           "Content-Security-Policy" in html))
     results.append(_check("CSP uses sha256 hashes",
                           "'sha256-" in html))
-    results.append(_check("NO 'unsafe-inline' in CSP",
-                          "'unsafe-inline'" not in html))
+
+    # Parse CSP directives for per-directive 'unsafe-inline' checks.
+    # style-src-attr 'unsafe-inline' is LEGITIMATE (permits inline style=""
+    # attributes for dynamic data-driven styling in sections.py). But
+    # style-src / script-src MUST remain hash-only — these cover <style>
+    # and <script> blocks where XSS via injection would execute.
+    _csp_match = re.search(r'Content-Security-Policy[^>]+content="([^"]+)"', html)
+    _csp = _csp_match.group(1) if _csp_match else ""
+    _directives = {}
+    for d in _csp.split(";"):
+        d = d.strip()
+        if not d:
+            continue
+        parts = d.split(None, 1)
+        _directives[parts[0]] = parts[1] if len(parts) > 1 else ""
+
+    style_src = _directives.get("style-src", "")
+    script_src = _directives.get("script-src", "")
+    results.append(_check("style-src uses hashes (no 'unsafe-inline')",
+                          "'unsafe-inline'" not in style_src,
+                          f"style-src: {style_src[:60]}..." if style_src else "missing"))
+    results.append(_check("script-src uses hashes (no 'unsafe-inline')",
+                          "'unsafe-inline'" not in script_src))
+    results.append(_check("style-src-attr 'unsafe-inline' present (explicit, covers inline style='')",
+                          "'unsafe-inline'" in _directives.get("style-src-attr", "")))
     results.append(_check("NO 'unsafe-eval' in CSP",
                           "'unsafe-eval'" not in html))
     results.append(_check("frame-ancestors 'none' in CSP",
                           "frame-ancestors 'none'" in html))
+
+    # Hash coverage: every inline <style> and <script> block must match a CSP hash.
+    _style_csp_hashes = set(re.findall(r"'sha256-([^']+)'", style_src))
+    _script_csp_hashes = set(re.findall(r"'sha256-([^']+)'", script_src))
+    _style_blocks = re.findall(r'<style[^>]*>(.*?)</style>', html, re.DOTALL)
+    _script_blocks = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
+    # Filter out <script src="..."> (external) - they don't need content hash
+    _script_blocks = [s for s in _script_blocks if s.strip()]
+    _style_matched = sum(
+        1 for b in _style_blocks
+        if base64.b64encode(hashlib.sha256(b.encode('utf-8')).digest()).decode() in _style_csp_hashes
+    )
+    _script_matched = sum(
+        1 for b in _script_blocks
+        if base64.b64encode(hashlib.sha256(b.encode('utf-8')).digest()).decode() in _script_csp_hashes
+    )
+    results.append(_check(
+        "Every <style> block hash present in CSP style-src",
+        _style_matched == len(_style_blocks),
+        f"{_style_matched}/{len(_style_blocks)} blocks hashed"
+    ))
+    results.append(_check(
+        "Every <script> block hash present in CSP script-src",
+        _script_matched == len(_script_blocks),
+        f"{_script_matched}/{len(_script_blocks)} blocks hashed"
+    ))
 
     # ─── Structural (14 sections) ─────────────────────────────
     section_ids = ['cover', 'summary', 'findings', 'divider', 'key', 'mroas',
@@ -168,7 +219,6 @@ def main() -> int:
     # ─── Em dash (user-visible content only) ─────────────────
     # Exclude bundled ECharts Chinese i18n strings (third-party)
     # Heuristic: find em dashes NOT surrounded by CJK characters
-    import re
     non_cjk_em_dashes = 0
     for m in re.finditer(r'.{2}—.{2}', html):
         ctx = m.group()
