@@ -295,17 +295,16 @@ def test_marginal_roi_matches_numerical_derivative():
 # 6. P0-7 regression: training vs reconstruction Hill formula drift
 # ─────────────────────────────────────────────────────────────────────────
 
-def test_p0_7_training_reconstruction_hill_divergence():
-    """P0-7: modeler.py:312 (training) uses raw `gammas[i]`.
-    modeler.py:537 (reconstruction) uses `gammas[i] * max(x, 1e-10)`.
+def test_p0_7_training_reconstruction_hill_parity():
+    """P0-7 FIXED (Phase 1, math-fix-v1.0.13): modeler.py:537 now uses raw
+    `gamma_i` matching training formula at line 312.
 
-    Fed same posterior means + same X_media_norm, the two compute DIFFERENT
-    media_effect. This test constructs a synthetic X_media_norm and verifies
-    that the two formulas DO diverge — if they ever converge (someone fixed
-    P0-7), this test fails and should be updated.
+    Pre-fix: reconstruction used `gamma * max(x)` → diverged from training
+    formula → R²/MAPE/RMSE diagnostics computed from wrong y_pred.
 
-    This is a PINNING test: current code has a known divergence (P0-7).
-    Test documents and asserts it until fix lands.
+    Post-fix: same formula → exact numerical parity. This test asserts
+    parity within float64 precision (1e-9). If the test ever fails (delta > 1e-9),
+    someone reintroduced gamma_scaled — STOP and verify modeler.py:537.
     """
     # Synthetic positive-only z-scored spend
     x = np.array([0.1, 0.3, 0.7, 1.2, 1.8, 2.1])
@@ -317,24 +316,23 @@ def test_p0_7_training_reconstruction_hill_divergence():
     training_sat = x ** alpha / (x ** alpha + gamma ** alpha + 1e-10)
     training_effect = beta * training_sat
 
-    # Reconstruction formula (matches modeler.py:537 exactly)
-    gamma_scaled = gamma * max(x.max(), 1e-10)
-    reconstruction_sat = x ** alpha / (x ** alpha + gamma_scaled ** alpha + 1e-10)
+    # Reconstruction formula POST-FIX (matches modeler.py:537 exactly)
+    reconstruction_sat = x ** alpha / (x ** alpha + gamma ** alpha + 1e-10)
     reconstruction_effect = beta * reconstruction_sat
 
-    # They must DIVERGE (this is the bug)
+    # They must MATCH within float precision
     divergence = float(np.abs(training_effect - reconstruction_effect).max())
     assert_true(
-        "P0-7: training-vs-reconstruction Hill diverges (known bug)",
-        divergence > 0.01,
-        f"divergence = {divergence}; if <=0.01, someone fixed P0-7 — update test",
+        "P0-7 fixed: training-vs-reconstruction Hill parity within 1e-9",
+        divergence < 1e-9,
+        f"divergence = {divergence}; if > 1e-9, gamma_scaled regression at modeler.py:537",
     )
-    # And specifically, reconstruction_sat < training_sat at saturation
-    # (because gamma_scaled > gamma means half-saturation point pushed right)
-    assert_true(
-        "P0-7: reconstruction underestimates saturation vs training",
-        reconstruction_sat[-1] < training_sat[-1],
-        f"reconstruction={reconstruction_sat[-1]}, training={training_sat[-1]}",
+    # Saturation values match
+    assert_close(
+        "P0-7 fixed: reconstruction_sat == training_sat at saturation point",
+        reconstruction_sat[-1],
+        training_sat[-1],
+        rtol=1e-9,
     )
 
 
@@ -699,8 +697,8 @@ def main() -> int:
     print("\n── 5. Marginal ROI ──")
     test_marginal_roi_matches_numerical_derivative()
 
-    print("\n── 6. P0-7 training-vs-reconstruction drift ──")
-    test_p0_7_training_reconstruction_hill_divergence()
+    print("\n── 6. P0-7 fixed: training-vs-reconstruction parity ──")
+    test_p0_7_training_reconstruction_hill_parity()
 
     print("\n── 7. P0-5/6 optimizer-vs-training drift ──")
     test_p0_5_6_optimizer_vs_training_hill_divergence()

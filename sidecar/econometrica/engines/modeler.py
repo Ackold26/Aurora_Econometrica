@@ -533,8 +533,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 gamma_i = float(gammas_mean[i])
                 beta_i = float(media_betas_mean[i])
                 x_safe = _np.maximum(x_ch, 0)
-                gamma_scaled = gamma_i * max(x_safe.max(), 1e-10)
-                saturated = x_safe ** alpha_i / (x_safe ** alpha_i + gamma_scaled ** alpha_i + 1e-10)
+                # P0-7 fix (math audit): use raw gamma matching training formula at line 312.
+                # Pre-fix: gamma_scaled = gamma × max(x) created divergent y_pred → wrong R²/MAPE.
+                saturated = x_safe ** alpha_i / (x_safe ** alpha_i + gamma_i ** alpha_i + 1e-10)
                 media_effect_pred += beta_i * saturated
 
             # Control effect (используем нормализованные контроли — так же как внутри pm.Model)
