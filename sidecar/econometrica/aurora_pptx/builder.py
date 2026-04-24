@@ -63,6 +63,10 @@ class AuroraPPTXBuilder:
     """
 
     def __init__(self, data=None, lang="ru"):
+        if lang != "ru":
+            raise NotImplementedError(
+                f"lang={lang!r} not yet supported. RU-only pilot; EN scheduled for v1.0.12."
+            )
         self.data = data or {}
         self.lang = lang
         # Tokens now come from generated aurora_tokens module (not JSON load)
@@ -93,14 +97,16 @@ class AuroraPPTXBuilder:
         self.w = 13.333
         self.h = 7.5
 
-        self.project_id = "KAGOCEL-Q1-2026"
-        self.version = "1.0.11"
-        self.report_date = "24 апреля 2026"
-        self.client = "Kagocel"
-        self.total_sections = 8
-        self.total_slides = 13
-
-        self.section_names = [
+        # --- Meta (Session 4 M4: parametrized via data.meta, fallback = Kagocel pilot) ---
+        meta = self.data.get("meta") or {}
+        self.client = meta.get("client", "Kagocel")
+        self.project_id = meta.get("project_id", "KAGOCEL-Q1-2026")
+        self.version = meta.get("version", "1.0.11")
+        self.report_date = meta.get("report_date", "24 апреля 2026")
+        self.period_label = meta.get("period_label", "Q1 2026")
+        self.forecast_period_label = meta.get("forecast_period_label", "Q3-Q4 2026")
+        self.data_window_label = meta.get("data_window_label", "W01 W13 2026")
+        self.section_names = meta.get("section_names", [
             "Executive summary",
             "Методология",
             "Данные и качество",
@@ -109,7 +115,22 @@ class AuroraPPTXBuilder:
             "Оптимизация бюджета",
             "Рекомендации",
             "Приложение и источники",
-        ]
+        ])
+        self.total_sections = len(self.section_names)
+        self.total_slides = meta.get("total_slides", 13)
+        self.toc_page_refs = meta.get("toc_page_refs", [4, 5, 6, 7, 8, 9, 10, 11])
+        # Header center label (shown on every content slide)
+        self.header_project_label = meta.get(
+            "header_project_label",
+            f"{self.client.upper()} . MMM REPORT . {self.period_label}",
+        )
+        # Copyright footer on cover
+        self.copyright_line = meta.get(
+            "copyright_line",
+            f"© 2026 Aurora AI  .  Prepared exclusively for {self.client}  .  Not for redistribution",
+        )
+        # Source-note label template (client name substituted)
+        self.sources_client_label = meta.get("sources_client_label", self.client)
 
     # ---------- Primitives ----------
 
@@ -325,7 +346,7 @@ class AuroraPPTXBuilder:
         if include_project:
             self._text(
                 slide, 4.5, y, 4.333, 0.2,
-                f"KAGOCEL . MMM REPORT . Q1 2026",
+                self.header_project_label,
                 font=self.sans, size=8, color=self.deep_60,
                 align=PP_ALIGN.CENTER,
             )
@@ -490,7 +511,7 @@ class AuroraPPTXBuilder:
         # Subtitle in italic
         self._text(
             slide, self.safe, 4.0, self.w - 2 * self.safe, 0.55,
-            "и рекомендации по оптимизации на Q3-Q4 2026",
+            f"и рекомендации по оптимизации на {self.forecast_period_label}",
             font=self.serif, size=24, italic=True, color=self.deep_80,
         )
 
@@ -529,7 +550,7 @@ class AuroraPPTXBuilder:
         # Midpoint 7.30; text box height 0.15 → y = 7.225
         self._text(
             slide, self.safe, 7.225, self.w - 2 * self.safe - 0.15, 0.15,
-            f"© 2026 Aurora AI  .  Prepared exclusively for {self.client}  .  Not for redistribution",
+            self.copyright_line,
             font=self.sans, size=7, italic=True, color=self.deep_60,
             align=PP_ALIGN.CENTER,
         )
@@ -785,7 +806,7 @@ class AuroraPPTXBuilder:
         self._source(
             slide, 6.87,
             text=(
-                "Источник: Bayesian MMM v1.0.11; данные Kagocel W01 W13 2026; "
+                f"Источник: Bayesian MMM v{self.version}; данные {self.sources_client_label} {self.data_window_label}; "
                 "модель откалибрована под FMCG-бенчмарки."
             ),
         )
@@ -912,7 +933,7 @@ class AuroraPPTXBuilder:
         # Source at bottom (unified position max low to footer hairline)
         self._source(
             slide, 6.87,
-            text="Источник: MMM Aurora AI v1.0.11, posterior means, 95% CI omitted for clarity",
+            text=f"Источник: MMM Aurora AI v{self.version}, posterior means, 95% CI omitted for clarity",
         )
 
         # Right rail: commentary (42%)
@@ -1117,7 +1138,7 @@ class AuroraPPTXBuilder:
         # Source at y=6.67 (max close to footer hairline 6.85)
         self._source(
             slide, 6.87,
-            text="Источник: Bayesian MMM Aurora AI v1.0.11; CI 95%, posterior means reported."
+            text=f"Источник: Bayesian MMM Aurora AI v{self.version}; CI 95%, posterior means reported."
         )
 
         self._footer(slide, 7)
@@ -1150,7 +1171,7 @@ class AuroraPPTXBuilder:
         )
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
-            "Декомпозиция: baseline + вклад каждого канала, 2026 W01 W13",
+            f"Декомпозиция: baseline + вклад каждого канала, {self.data_window_label}",
             font=self.sans, size=9, italic=True, color=self.deep_60,
         )
         # Hairline removed per brand rule - minimize horizontal lines
@@ -1258,7 +1279,7 @@ class AuroraPPTXBuilder:
         # Source at bottom (unified position)
         self._source(
             slide, 6.87,
-            text="Источник: Kagocel sales ledger 2026 W01 W13; декомпозиция Bayesian MMM v1.0.11",
+            text=f"Источник: {self.sources_client_label} sales ledger {self.data_window_label}; декомпозиция Bayesian MMM v{self.version}",
         )
 
         self._footer(slide, 8)
@@ -1284,7 +1305,7 @@ class AuroraPPTXBuilder:
             {
                 "label":  "SITUATION",
                 "height": 0.6,
-                "body":   "Kagocel размещает 286 млн ₽ в квартал через 5 активных каналов. Weighted ROI 1.5×, MQS модели 87/100 (GOOD).",
+                "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Weighted ROI 1.5×, MQS модели 87/100 (GOOD).",
             },
             {
                 "label":  "COMPLICATION",
@@ -1294,7 +1315,7 @@ class AuroraPPTXBuilder:
             {
                 "label":  "QUESTION",
                 "height": 0.55,
-                "body":   "Как перераспределить бюджет Q3-Q4 2026, чтобы поднять ROAS не снижая awareness?",
+                "body":   f"Как перераспределить бюджет {self.forecast_period_label}, чтобы поднять ROAS не снижая awareness?",
                 "accent": True,
             },
             {
@@ -1475,7 +1496,7 @@ class AuroraPPTXBuilder:
             ("Долгосрочные бренд-эффекты (>26 недель).",
              "Модель captures short-to-medium term, но не long-term brand building."),
             ("Cross-category cannibalization.",
-             "Если Kagocel имеет несколько SKU - модель считает их единым KPI."),
+             f"Если {self.client} имеет несколько SKU - модель считает их единым KPI."),
             ("Creative quality variation.",
              "Влияние качества роликов на ROI не моделируется - predполагается constant."),
             ("Competitor media pressure.",
@@ -1622,8 +1643,8 @@ class AuroraPPTXBuilder:
         self._hairline(slide, self.safe, src_y + 0.22, 0.8, weight=0.5, color=self.gold)
 
         primary = [
-            "Mediascope TV W01 W13 2026 (TRP / Reach / CPP по target W25-54)",
-            "Kagocel internal sales ledger (weekly, SKU-aggregated)",
+            f"Mediascope TV {self.data_window_label} (TRP / Reach / CPP по target W25-54)",
+            f"{self.sources_client_label} internal sales ledger (weekly, SKU-aggregated)",
         ]
         py = src_y + 0.32
         for i, s in enumerate(primary, start=1):
@@ -1646,7 +1667,7 @@ class AuroraPPTXBuilder:
         secondary = [
             "Yandex.Metrica + Google Analytics (digital clicks, conversions)",
             "VK Ads + MyTarget (social impressions / clicks)",
-            "Kagocel бренд-трекер (quarterly W25 54)",
+            f"{self.sources_client_label} бренд-трекер (quarterly W25 54)",
         ]
         sy = src_y + 0.32
         for i, s in enumerate(secondary, start=1):
