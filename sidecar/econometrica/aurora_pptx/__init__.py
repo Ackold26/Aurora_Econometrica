@@ -34,18 +34,22 @@ __version__ = "0.1.0"
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "blank_with_theme.pptx"
 
 
-def build_pptx(data, lang: str = "ru"):
-    """Build a full client-ready PPTX deliverable from Econometrica pipeline data.
+def build_pptx(data=None, lang: str = "ru"):
+    """Build a full client-ready 13-slide PPTX deliverable.
 
     Args:
-        data: dict with model_data, decompose_data, optimize_data, project_meta
-        lang: 'ru' (default) | 'en' (v1.0.12)
+        data: dict with report content. Session 3 pilot: default Kagocel data.
+              Session 4 (M4 refactor): parametrized from Econometrica pipeline.
+        lang: 'ru' (default) | 'en' (v1.0.12 scope)
 
     Returns:
         pptx.Presentation instance. Caller does .save(path).
 
-    Stub: M3 Session 3 will implement. Currently raises NotImplementedError.
+    Usage:
+        from econometrica.aurora_pptx import build_pptx
+        prs = build_pptx(data=None, lang='ru')  # pilot: uses default data
+        prs.save('output.pptx')
     """
-    raise NotImplementedError(
-        "aurora_pptx.build_pptx is a stub — M3 layout implementation in next session"
-    )
+    from .builder import AuroraPPTXBuilder
+    builder = AuroraPPTXBuilder(data=data, lang=lang)
+    return builder.build()
