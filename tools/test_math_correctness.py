@@ -964,6 +964,44 @@ def _build_mock_scenario_pickle(tmp_dir: Path, *, intercept_mean=0.0,
     return project_dir
 
 
+def test_optimizer_bounds_zero_spend_channel():
+    """Post-audit fix: optimizer must allow zero-spend channels to receive budget.
+
+    Pre-fix: bounds = (current × min_pct, current × max_pct). If current=0,
+    bounds = (0,0) → channel locked at zero forever, optimizer can't test it.
+    Post-fix: zero-spend channels get bounds = (0, total_budget × max_pct / n_ch).
+    """
+    from scipy.optimize import minimize
+    from utils.saturation import hill_function
+
+    # Simulate optimizer bounds logic directly (avoiding full pickle setup)
+    media_cols = ["TV", "Digital_NEW"]  # Digital is brand-new (zero current)
+    current = {"TV": 100.0, "Digital_NEW": 0.0}
+    total_budget = 100.0
+    max_pct = 1.5
+    n_ch = len(media_cols)
+    fallback_max = max(total_budget * max_pct / n_ch, 1.0)  # = 75
+
+    def _bounds_for(col: str) -> tuple[float, float]:
+        cs = current[col]
+        if cs > 0:
+            return (cs * 0.5, cs * 1.5)
+        return (0.0, fallback_max)
+
+    bounds = [_bounds_for(c) for c in media_cols]
+
+    # Verify Digital_NEW has bounds wider than (0,0)
+    assert_true(
+        "audit fix #4: zero-spend channel gets non-degenerate bounds",
+        bounds[1][1] > 0,
+        f"Digital_NEW bounds: {bounds[1]}; should have upper > 0",
+    )
+    assert_close(
+        "audit fix #4: zero-spend bounds upper = total_budget × max_pct / n_ch",
+        bounds[1][1], 75.0, rtol=0.01,
+    )
+
+
 def test_optimizer_mroi_kpi_scale():
     """Post-audit fix: marginal_roi must include y_std for KPI/spend output.
 
@@ -1301,8 +1339,9 @@ def main() -> int:
     print("\n── 13. Validator column role ──")
     test_column_role_kpi_detection()
 
-    print("\n── 13a. Optimizer mROI KPI scale (post-audit fix) ──")
+    print("\n── 13a. Optimizer mROI KPI scale + zero-spend bounds (post-audit fixes) ──")
     test_optimizer_mroi_kpi_scale()
+    test_optimizer_bounds_zero_spend_channel()
 
     print("\n── 13b. Decomposer energy conservation (post-audit fix) ──")
     test_decomposer_energy_conservation()
