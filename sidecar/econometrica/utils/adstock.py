@@ -49,10 +49,14 @@ def apply_adstock(series: np.ndarray, adstock_type: str, params: dict | None = N
 
     Args:
         series: Input time series
-        adstock_type: 'geometric' or 'weibull'
+        adstock_type: 'geometric', 'weibull', or 'noop' (passthrough, used in tests)
         params: Optional parameters override
     """
     params = params or {}
+    if adstock_type in ('noop', 'none'):
+        # F0.5 (Phase 0.1): no carryover — used for analytical math tests where
+        # adstock_factor must equal 1.0. Not used in production training.
+        return np.asarray(series, dtype=float).copy()
     if adstock_type == 'weibull':
         return weibull_adstock(
             series,

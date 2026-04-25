@@ -84,7 +84,7 @@ def _chs(names_specs):
             "name": name,
             "current_spend": spend_mln * 1_000_000,
             "optimal_spend": opt_mln * 1_000_000,
-            "miroas": roi,
+            "mroi_current": roi,
         })
     return decomp_chs, opt_chs
 

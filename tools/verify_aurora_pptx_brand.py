@@ -225,8 +225,8 @@ def main() -> int:
             {"name": "Digital", "spend": 5e6, "contribution": 8e6, "roi": 1.6},
         ]},
         {"channels": [
-            {"name": "TV", "current_spend": 10e6, "optimal_spend": 8e6, "miroas": 1.2},
-            {"name": "Digital", "current_spend": 5e6, "optimal_spend": 7e6, "miroas": 1.8},
+            {"name": "TV", "current_spend": 10e6, "optimal_spend": 8e6, "mroi_current": 1.2},
+            {"name": "Digital", "current_spend": 5e6, "optimal_spend": 7e6, "mroi_current": 1.8},
         ]},
         str(dirty_out),
         project_id="mmx-2021-2025-исходник-ммх-2404-26--4",

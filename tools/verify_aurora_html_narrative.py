@@ -78,7 +78,7 @@ def _chs(specs):
         name, sp, co, roi = s[:4]
         opt = s[4] if len(s) > 4 else sp
         dc.append({'name': name, 'spend': sp * 1e6, 'contribution': co * 1e6, 'roi': roi})
-        oc.append({'name': name, 'current_spend': sp * 1e6, 'optimal_spend': opt * 1e6, 'miroas': roi})
+        oc.append({'name': name, 'current_spend': sp * 1e6, 'optimal_spend': opt * 1e6, 'mroi_current': roi})
     return dc, oc
 
 

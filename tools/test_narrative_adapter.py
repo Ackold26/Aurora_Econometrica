@@ -139,8 +139,8 @@ def test_compute_report_id_html_pptx_parity():
         {"name": "Digital", "spend": 65e6, "contribution": 110e6, "roi": 1.7},
     ]}
     opt = {"channels": [
-        {"name": "TV", "current_spend": 120e6, "optimal_spend": 90e6, "miroas": 1.2},
-        {"name": "Digital", "current_spend": 65e6, "optimal_spend": 100e6, "miroas": 2.0},
+        {"name": "TV", "current_spend": 120e6, "optimal_spend": 90e6, "mroi_current": 1.2},
+        {"name": "Digital", "current_spend": 65e6, "optimal_spend": 100e6, "mroi_current": 2.0},
     ], "expected_lift_pct": 8}
 
     data = _map_pipeline_to_builder_data(model, decomp, opt, scenarios=None, project_id="Parity")

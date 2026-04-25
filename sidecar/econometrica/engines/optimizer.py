@@ -29,6 +29,109 @@ def _flat_alloc_adstock_avg(raw_per_period: float, n_periods: int, a_type: str) 
     return float(adstocked.mean())
 
 
+def _adstock_factor(x_per_period: float, n_periods: int, a_type: str) -> float:
+    """∂(_flat_alloc_adstock_avg)/∂(x_per_period) — sensitivity factor.
+
+    F0.2 (Phase 0.1 fix-session): adstock factor is the missing piece in
+    chain rule for marginal ROAS. See docs/MATH_AUDIT_v1_3_PHASE_0_1.md §4.
+
+    Args:
+        x_per_period: spend per period (≥ 0)
+        n_periods: training horizon length
+        a_type: 'geometric' | 'weibull' | 'noop' | 'none'
+    Returns:
+        ∂(adstock_avg)/∂(x_per_period). Constant in x for linear adstock.
+    """
+    if n_periods < 1:
+        return 0.0
+    if a_type in ('noop', 'none'):
+        return 1.0
+    if a_type == 'geometric':
+        # Analytical (exact for linear adstock with constant input).
+        # adstock_avg(x, n) = x · [n - θ·(1-θ^n)/(1-θ)] / [n·(1-θ)]
+        # ∂/∂x = [n - θ·(1-θ^n)/(1-θ)] / [n·(1-θ)]   (constant in x)
+        theta = 0.5  # library default — see modeler.py:240-244 + docs §5
+        if not (0.0 < theta < 1.0):
+            return 1.0
+        n = n_periods
+        return (n - theta * (1.0 - theta ** n) / (1.0 - theta)) / (n * (1.0 - theta))
+    # weibull / unknown — central difference (exact for linear convolution).
+    if x_per_period <= 0:
+        # Use small probe to discover linear factor.
+        eps = 1.0
+        plus = _flat_alloc_adstock_avg(eps, n_periods, a_type)
+        minus = _flat_alloc_adstock_avg(0.0, n_periods, a_type)
+        return float(plus - minus) / eps
+    eps = max(x_per_period * 1e-4, 1e-9)
+    plus = _flat_alloc_adstock_avg(x_per_period + eps, n_periods, a_type)
+    minus = _flat_alloc_adstock_avg(max(x_per_period - eps, 1e-12), n_periods, a_type)
+    return float(plus - minus) / (2.0 * eps)
+
+
+def _compute_mroas_money(
+    *,
+    current_spend_native: float,
+    n_periods: int,
+    mean: float,
+    alpha: float,
+    gamma: float,
+    beta: float,
+    adstock_type: str,
+    y_std: float,
+    unit_cost: float = 1.0,
+) -> float:
+    """Marginal ROAS in money-per-money — single source of truth.
+
+    F0.2 (Phase 0.1 fix-session): canonical mROAS computation. Returns
+    ∂KPI(money)/∂spend(money) at the current point.
+
+    Math derivation: docs/MATH_AUDIT_v1_3_PHASE_0_1.md §3.
+
+    Final formula:
+        mROAS = β · hill'(x_norm) · adstock_factor · y_std / mean / unit_cost
+
+    where:
+        x_pp = current_spend_native / n_periods
+        x_norm = adstock_avg(x_pp, n) / mean
+        adstock_factor = ∂(adstock_avg)/∂(x_pp)
+
+    Args:
+        current_spend_native: total spend over n_periods (≥ 0), native units
+        n_periods: training horizon
+        mean: training-time mean of channel media volume
+        alpha, gamma, beta: Hill saturation parameters
+        adstock_type: 'geometric' | 'weibull' | 'noop'
+        y_std: standard deviation of trained y (KPI scale)
+        unit_cost: ₽ per native unit (e.g. CPP for TRPs); use 1.0 for money channels
+
+    Returns:
+        Marginal ROAS — ∂KPI(money)/∂spend(money). Unitless ratio.
+        Returns 0.0 for degenerate inputs (zero spend, zero mean, zero beta).
+    """
+    if current_spend_native <= 0:
+        return 0.0
+    if mean <= 0 or beta == 0 or n_periods < 1 or unit_cost <= 0:
+        return 0.0
+
+    x_pp = current_spend_native / n_periods
+    adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type)
+    x_norm = adstock_avg / max(mean, 1e-10)
+
+    # Hill derivative (normalized space): hill'(x) = α·γ^α·x^(α-1) / (x^α + γ^α)²
+    g_safe = max(gamma, 1e-10)
+    x_safe = max(x_norm, 1e-10)
+    hill_deriv = (alpha * (g_safe ** alpha) * (x_safe ** (alpha - 1))) / (
+        (x_safe ** alpha + g_safe ** alpha) ** 2
+    )
+
+    af = _adstock_factor(x_pp, n_periods, adstock_type)
+
+    # Chain rule: KPI(money) per native spend
+    mroas_native = beta * hill_deriv * af * y_std / max(mean, 1e-10)
+    # Convert to per-money axis
+    return float(mroas_native / unit_cost)
+
+
 def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     """Optimize budget allocation across channels.
 
@@ -239,25 +342,42 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         opt = optimal_spend[i]
         delta_pct = (opt - cur) / cur * 100 if cur > 0 else 0
 
-        # F1+F2+F4 fix (math-audit v1.3): mROI evaluated at PER-PERIOD scale to
-        # match training Hill geometry (was: total spend / mean → x_norm 30×+ →
-        # gradient at saturation plateau ≈ 0). Now: per-period avg adstocked,
-        # chain rule × n_periods (because total = n × per-period contribution).
-        from utils.saturation import marginal_roi
+        # F0.2 (Phase 0.1 fix-session 2026-04-25): canonical mROAS chain rule
+        # with adstock_factor + unit_cost normalization. See
+        # docs/MATH_AUDIT_v1_3_PHASE_0_1.md §3 for full derivation.
+        #
+        # Pre-fix bugs (closed by F0.2):
+        #   #11 missing adstock_factor → mROAS off by 2-15× depending on θ
+        #   #12 missing /unit_cost     → TRPs (uc=250000) showed 1780× absurd
+        # Both closed by single helper _compute_mroas_money() that returns
+        # ∂KPI(money)/∂s(money) — comparable across native and money channels.
         mean_ch = float(media_means.get(col, 1)) or 1
         a_type = _adstock_type(col)
-        cur_avg_adstock = _flat_alloc_adstock_avg(cur / n_periods, n_periods, a_type)
-        opt_avg_adstock = _flat_alloc_adstock_avg(float(opt) / n_periods, n_periods, a_type)
-        cur_norm = cur_avg_adstock / max(mean_ch, 1e-10)
-        opt_norm = opt_avg_adstock / max(mean_ch, 1e-10)
-        mroi_current_norm = float(marginal_roi(np.array([max(cur_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0])
-        mroi_optimal_norm = float(marginal_roi(np.array([max(opt_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0])
-        # d(KPI)/d(total_spend) = d(β·hill(x_norm))/d(x_norm) × (1/mean) × y_std × n_periods × (1/n_periods)
-        # = marginal × y_std / mean. n_periods cancels (per-period contribution scales linearly).
-        mroi_current = mroi_current_norm * y_std / max(mean_ch, 1e-10)
-        mroi_optimal = mroi_optimal_norm * y_std / max(mean_ch, 1e-10)
-
         uc = float(unit_costs.get(col, 1.0) or 1.0)
+
+        mroi_current = _compute_mroas_money(
+            current_spend_native=cur,
+            n_periods=n_periods,
+            mean=mean_ch,
+            alpha=p['alpha'],
+            gamma=p['gamma'],
+            beta=p['beta'],
+            adstock_type=a_type,
+            y_std=y_std,
+            unit_cost=uc,
+        )
+        mroi_optimal = _compute_mroas_money(
+            current_spend_native=float(opt),
+            n_periods=n_periods,
+            mean=mean_ch,
+            alpha=p['alpha'],
+            gamma=p['gamma'],
+            beta=p['beta'],
+            adstock_type=a_type,
+            y_std=y_std,
+            unit_cost=uc,
+        )
+
         channels.append({
             'name': col,
             'current_spend': round(cur, 0),

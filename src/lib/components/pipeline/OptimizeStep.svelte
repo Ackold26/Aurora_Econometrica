@@ -218,29 +218,53 @@
   const displayKPI = $derived(dData?.total_sales ?? currentKPI);
 
   /**
-   * miROAS per channel — marginal ROI следующего рубля при ТЕКУЩИХ значениях слайдеров.
-   * Возвращает map: { ch: { value, status } }.
+   * miROAS per channel — marginal ROAS следующего рубля.
+   *
+   * F0.3 (Phase 0.1 fix-session 2026-04-25): primary source is now backend
+   * optimization.json mroi_current (money-per-money, authoritative, includes
+   * adstock factor + unit_cost normalization — see optimizer.py
+   * _compute_mroas_money). JS marginalROI is kept as fallback only for
+   * pre-optimize idle state (rough estimate, normalized scale, not money).
+   *
+   * Returns map: { ch: { value, status, source } }.
    * status:
-   *   'unused'      — spend = 0, канал не используется (≠ перенасыщен)
-   *   'scale'       — value > 1.5 — недонасыщен, можно масштабировать
+   *   'unused'      — spend = 0, канал не используется
+   *   'scale'       — value > 1.5 — отдача высокая, можно масштабировать
    *   'stable'      — 0.8-1.5 — стабильная зона
    *   'saturated'   — < 0.8 — перенасыщен
+   * source:
+   *   'backend'     — authoritative из optimization.json (money-per-money)
+   *   'js-estimate' — JS approximation pre-optimize (normalized scale)
    */
   const miROASMap = $derived.by(() => {
-    /** @type {Record<string, {value: number, status: 'unused'|'scale'|'stable'|'saturated'}>} */
+    /** @type {Record<string, {value: number, status: 'unused'|'scale'|'stable'|'saturated', source: 'backend'|'js-estimate'}>} */
     const map = {};
+
+    // Source #1: backend authoritative (after optimize)
+    const opt = $optimizeData;
+    if (opt?.channels && opt.channels.length > 0) {
+      for (const ch of opt.channels) {
+        const v = Number(ch.mroi_current ?? 0);
+        const status = v <= 0 ? 'unused' :
+                       v > 1.5 ? 'scale' :
+                       v > 0.8 ? 'stable' : 'saturated';
+        map[ch.name] = { value: v, status, source: 'backend' };
+      }
+      return map;
+    }
+
+    // Source #2: JS fallback for idle state (rough, normalized — replaced after first optimize)
     for (const ch of channels) {
       const p = scaledParams[ch];
       if (!p) continue;
       const spend = channelBudgets[ch] ?? currentSpend[ch] ?? 0;
       if (!spend || spend < 1) {
-        map[ch] = { value: 0, status: 'unused' };
+        map[ch] = { value: 0, status: 'unused', source: 'js-estimate' };
         continue;
       }
-      // Денормализация через y_std → реальные рубли KPI на рубль расхода.
       const v = marginalROI(spend, p.alpha, p.gammaScaled, p.beta, yNorm);
       const status = v > 1.5 ? 'scale' : v > 0.8 ? 'stable' : 'saturated';
-      map[ch] = { value: v, status };
+      map[ch] = { value: v, status, source: 'js-estimate' };
     }
     return map;
   });

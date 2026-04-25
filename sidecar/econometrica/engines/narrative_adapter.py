@@ -142,8 +142,16 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
 
     Guards against drift like "TV"/"Tv"/"ТВ" via strip+lowercase key. Decompose
     is the source (name + spend + contribution + roi); optimize adds
-    current_spend/optimal_spend/miroas when present. Orphan optimize channels
-    (no decompose match) are dropped with a warning.
+    current_spend/optimal_spend/mroi_current when present. Orphan optimize
+    channels (no decompose match) are dropped with a warning.
+
+    F0.1 fix (Phase 0.1 fix-session 2026-04-25): previously this merged
+    `miroas` (typo, with one i) which was never present in optimize JSON
+    — the field is `mroi_current` (see optimizer.py). The typo silently
+    fell through to `dc.roi` which is AVERAGE ROI from decomposer, not
+    marginal. HTML/PPTX reports were showing average ROI in fields
+    labeled "mROAS". This is fixed below + `avg_roi` is exposed as a
+    separate field so reports can show both metrics.
     """
     def key(name): return (name or "").strip().lower()
 
@@ -188,12 +196,27 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             continue
         seen_keys.add(k)
         oc = opt_by_key.get(k, {}) or {}
+        # F0.1: read marginal ROAS from optimizer.json correctly.
+        # `mroi_current` is the marginal value (∂KPI/∂spend at current point).
+        # `roi` from decomposer is AVERAGE ROI (contribution/spend) — different
+        # metric with different semantic. Both are valid; expose them under
+        # distinct field names so downstream renderers can show each correctly.
+        avg_roi = dc.get("roi") or oc.get("current_roi") or 0.0
+        marginal = oc.get("mroi_current") or oc.get("mroas")
+        if marginal is None:
+            # Fallback policy when optimize hasn't run: use avg_roi as
+            # placeholder so verdict logic still produces something, but
+            # downstream reports will show both fields and clients can
+            # see "(не оптимизировано)" in mROAS column. UI must rerun
+            # optimize to get real marginal values.
+            marginal = avg_roi
         merged.append({
             "name": clean_name,
             "spend": dc.get("spend") or oc.get("current_spend"),
             "contribution": dc.get("contribution"),
             "roi": dc.get("roi") or oc.get("current_roi"),
-            "mroas": oc.get("miroas") or oc.get("mroas") or dc.get("roi"),
+            "avg_roi": avg_roi,
+            "mroas": marginal,
             "current_spend": oc.get("current_spend"),
             "optimal_spend": oc.get("optimal_spend"),
             # verdict filled in after merge by derive_verdict
