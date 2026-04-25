@@ -10,7 +10,8 @@ from scipy.optimize import minimize
 from typing import Any
 
 from utils.adstock import apply_adstock
-from utils.saturation import hill_function, response_curve
+from utils.saturation import hill_function, response_curve, hill_derivative_batch
+from utils.posterior_propagation import compute_ci_hdi, load_posterior_samples, per_channel_samples
 
 
 def _flat_alloc_adstock_avg(raw_per_period: float, n_periods: int, a_type: str) -> float:
@@ -132,6 +133,59 @@ def _compute_mroas_money(
     return float(mroas_native / unit_cost)
 
 
+def _compute_mroas_money_samples(
+    *,
+    current_spend_native: float,
+    n_periods: int,
+    mean: float,
+    alpha_samples: np.ndarray,
+    gamma_samples: np.ndarray,
+    beta_samples: np.ndarray,
+    adstock_type: str,
+    y_std: float,
+    unit_cost: float = 1.0,
+) -> np.ndarray:
+    """Vectorized mROAS over posterior samples (Phase 1.9).
+
+    Returns array of mROAS values across all posterior draws — caller computes
+    HDI/percentile for honest CI. Joint correlation preserved: sample i uses
+    (alpha_samples[i], gamma_samples[i], beta_samples[i]) from same MCMC draw.
+
+    Math: same chain rule as scalar _compute_mroas_money, applied per-sample.
+        mROAS_i = β_i · hill'(x_norm; α_i, γ_i) · adstock_factor · y_std / mean / unit_cost
+
+    Note: adstock_factor is sample-INVARIANT in Phase 1.9 (decay hardcoded);
+    will become per-sample in Phase 1.1 (adstock decay learnable).
+
+    Args:
+        current_spend_native: total spend over n_periods (≥ 0)
+        n_periods, mean, adstock_type, y_std, unit_cost: same as scalar variant
+        alpha_samples, gamma_samples, beta_samples: 1D arrays shape (n_samples,)
+
+    Returns:
+        np.ndarray shape (n_samples,) of mROAS values. All zeros for degenerate inputs.
+    """
+    n = int(np.asarray(alpha_samples).size)
+    if current_spend_native <= 0 or mean <= 0 or n_periods < 1 or unit_cost <= 0 or n == 0:
+        return np.zeros(max(n, 1), dtype=np.float64)
+
+    x_pp = current_spend_native / n_periods
+    adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type)
+    x_norm = adstock_avg / max(mean, 1e-10)
+
+    # Vectorized Hill derivative across samples; shape (n_samples, 1) because x_norm is scalar.
+    hill_deriv_arr = hill_derivative_batch(
+        np.array([x_norm]), alpha_samples, gamma_samples
+    ).ravel()  # → (n_samples,)
+
+    af = _adstock_factor(x_pp, n_periods, adstock_type)  # scalar — adstock invariant in Phase 1.9
+
+    # Chain rule per-sample
+    beta_arr = np.asarray(beta_samples, dtype=np.float64)
+    mroas_native = beta_arr * hill_deriv_arr * af * y_std / max(mean, 1e-10)
+    return mroas_native / unit_cost
+
+
 def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     """Optimize budget allocation across channels.
 
@@ -174,6 +228,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     media_cols = config_model['media_columns']
     # y_std needed for KPI-scale conversions of mROI and response curves.
     y_std = float(norm.get('y_std', 1.0)) or 1.0
+
+    # Phase 1.9: posterior samples for honest CI on mROAS. None for v1.0/v1.1 pickles.
+    # When available, mroi_current/optimal include {mean, ci_low, ci_high} dicts.
+    posterior_samples = load_posterior_samples(model_data)
 
     # A1 fix (post-audit v1.2): exclude untrained channels from optimization domain.
     # Channels with zero training variance have β from prior (uninformative) — optimizer
@@ -486,7 +544,42 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             unit_cost=uc,
         )
 
-        channels.append({
+        # Phase 1.9: posterior CI on mROAS via vectorized chain rule + arviz.hdi.
+        # Defensive: only compute if samples exist AND channel found in samples ordering.
+        mroi_current_ci_low = None
+        mroi_current_ci_high = None
+        mroi_optimal_ci_low = None
+        mroi_optimal_ci_high = None
+        if posterior_samples is not None:
+            ch_samples = per_channel_samples(posterior_samples, col)
+            if ch_samples is not None:
+                cur_arr = _compute_mroas_money_samples(
+                    current_spend_native=cur,
+                    n_periods=n_periods,
+                    mean=mean_ch,
+                    alpha_samples=ch_samples['alpha'],
+                    gamma_samples=ch_samples['gamma'],
+                    beta_samples=ch_samples['beta'],
+                    adstock_type=a_type,
+                    y_std=y_std,
+                    unit_cost=uc,
+                )
+                _, mroi_current_ci_low, mroi_current_ci_high = compute_ci_hdi(cur_arr)
+
+                opt_arr = _compute_mroas_money_samples(
+                    current_spend_native=float(opt),
+                    n_periods=n_periods,
+                    mean=mean_ch,
+                    alpha_samples=ch_samples['alpha'],
+                    gamma_samples=ch_samples['gamma'],
+                    beta_samples=ch_samples['beta'],
+                    adstock_type=a_type,
+                    y_std=y_std,
+                    unit_cost=uc,
+                )
+                _, mroi_optimal_ci_low, mroi_optimal_ci_high = compute_ci_hdi(opt_arr)
+
+        ch_dict = {
             'name': col,
             'current_spend': round(cur, 0),
             'optimal_spend': round(float(opt), 0),
@@ -497,7 +590,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             'mroi_current': round(mroi_current, 4),
             'mroi_optimal': round(mroi_optimal, 4),
             'action': 'увеличить' if delta_pct > 5 else ('сократить' if delta_pct < -5 else 'сохранить'),
-        })
+        }
+        if mroi_current_ci_low is not None:
+            ch_dict['mroi_current_ci_low'] = round(float(mroi_current_ci_low), 4)
+            ch_dict['mroi_current_ci_high'] = round(float(mroi_current_ci_high), 4)
+            ch_dict['mroi_optimal_ci_low'] = round(float(mroi_optimal_ci_low), 4)
+            ch_dict['mroi_optimal_ci_high'] = round(float(mroi_optimal_ci_high), 4)
+        channels.append(ch_dict)
 
     # Generate response curves data (for charts)
     # Post-audit fix: response_curve domain in normalized space, displayed against
