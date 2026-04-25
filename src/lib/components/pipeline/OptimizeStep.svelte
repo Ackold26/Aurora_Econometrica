@@ -68,8 +68,30 @@
   let playgroundOpen = $state(false);
   /** @type {number | null} */
   let totalBudgetInput = $state(null);
-  let minPct = $state(50);
-  let maxPct = $state(150);
+  // O1.1 (Phase 0.1 fix-session 2026-04-25): defaults расширены 50/150 → 20/200.
+  // Pre-fix: при money_budget = current × 1.5, sum(upper bounds × 1.5) = current × 1.5 →
+  // SLSQP не может двигаться кроме как все каналы to max → trivial scaling.
+  // 20/200 даёт реальную свободу: 10× difference между bounds extremes vs prev 3×.
+  // Insights panel рекомендует 10/300 при binding — это escalation если defaults тоже binding.
+  let minPct = $state(20);
+  let maxPct = $state(200);
+
+  // O1.2 (Phase 0.1): dirty-state — если settings изменились после успешной
+  // оптимизации, показываем индикатор у кнопки. Помогает Антону осознать
+  // что нужно перезапустить optimize чтобы увидеть результат под новыми
+  // settings. Snapshot обновляется AFTER successful response (см. runOptimize).
+  /** @type {string | null} */
+  let lastOptimizeSettings = $state(null);
+  let optimizeSettingsDirty = $derived.by(() => {
+    if (!lastOptimizeSettings) return false;
+    const current = JSON.stringify({
+      minPct, maxPct,
+      cMin: { ...channelMinPct },
+      cMax: { ...channelMaxPct },
+      budget: totalBudgetInput,
+    });
+    return current !== lastOptimizeSettings;
+  });
 
   // Per-channel constraints (экспертный режим). null = используется глобальный min/max.
   /** @type {Record<string, number>} */
@@ -634,6 +656,16 @@
         const ob = /** @type {Record<string, number>} */ ({});
         for (const ch of (result.channels ?? [])) ob[ch.name] = ch.optimal_spend;
         optimalBudgets = ob;
+
+        // O1.2 (Phase 0.1): snapshot settings AFTER success so dirty-state
+        // becomes false until user changes something. Same shape as
+        // optimizeSettingsDirty derived to ensure exact match.
+        lastOptimizeSettings = JSON.stringify({
+          minPct, maxPct,
+          cMin: { ...channelMinPct },
+          cMax: { ...channelMaxPct },
+          budget: totalBudgetInput,
+        });
       } else {
         handleError(result.message || 'Ошибка оптимизации');
       }
@@ -814,6 +846,11 @@
         >
           {stepState === 'optimizing' ? 'Оптимизирую...' : '🎯 Оптимизировать бюджет'}
         </button>
+        {#if optimizeSettingsDirty}
+          <span class="dirty-hint" title="Настройки изменились — перезапустите оптимизацию для актуального результата">
+            ⚙️ Настройки изменились
+          </span>
+        {/if}
       </div>
     </div>
 
@@ -1367,6 +1404,22 @@
   }
   .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-run:hover:not(:disabled) { background: var(--accent-hover); }
+
+  /* O1.2 (Phase 0.1): dirty-state hint after settings change. Subtle amber
+     indicator next to button — клиент видит что нужно перезапустить optimize. */
+  .dirty-hint {
+    font-size: 12px;
+    color: var(--warning, #f59e0b);
+    background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 25%, transparent);
+    padding: 4px 10px;
+    border-radius: 6px;
+    margin-left: 8px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
   .btn-reset-sm {
     padding: 7px 12px;
     background: transparent;

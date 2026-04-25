@@ -314,6 +314,37 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # Even-split fallback if no current spend at all (degenerate but recoverable)
         x0 = np.array([total_budget / n_ch for _ in media_cols])
     bounds = [_bounds_for(col) for col in media_cols]
+
+    # O1.3 (Phase 0.1 fix-session 2026-04-25): pre-flight feasibility check.
+    # Without this, infeasible bounds (e.g. budget > sum(upper bounds)) made
+    # SLSQP iterate fruitlessly until Tauri 60s timeout, leading to sidecar
+    # crash + watchdog respawn. Check in MONEY units (mixed-units safe).
+    sum_upper_money = sum(bounds[i][1] * uc_arr[i] for i in range(n_ch))
+    sum_lower_money = sum(bounds[i][0] * uc_arr[i] for i in range(n_ch))
+    money_target = total_budget_money_target if total_budget_money_target is not None else (
+        sum(current_spend[c] * uc_arr[i] for i, c in enumerate(media_cols))
+    )
+    if money_target > sum_upper_money * 1.001:  # 0.1% float-tolerance
+        return {
+            'status': 'error',
+            'error_code': 'INFEASIBLE_BUDGET_HIGH',
+            'message': (
+                f'Целевой бюджет {money_target:,.0f} ₽ превышает максимально допустимый '
+                f'{sum_upper_money:,.0f} ₽ при текущих границах. Расширьте Макс. % per channel '
+                f'или снизьте бюджет.'
+            ),
+        }
+    if money_target < sum_lower_money * 0.999:
+        return {
+            'status': 'error',
+            'error_code': 'INFEASIBLE_BUDGET_LOW',
+            'message': (
+                f'Целевой бюджет {money_target:,.0f} ₽ ниже минимального '
+                f'{sum_lower_money:,.0f} ₽ при текущих границах. Уменьшите Мин. % per channel '
+                f'или увеличьте бюджет.'
+            ),
+        }
+
     if total_budget_money_target is not None:
         # Money constraint: Σ x × unit_cost == total_budget_money
         constraints = [{
@@ -323,12 +354,41 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     else:
         constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - total_budget}]
 
-    # Optimize
-    result = minimize(total_response, x0, method='SLSQP', bounds=bounds, constraints=constraints)
+    # O2 (Phase 0.1): SLSQP hardening — wrap in try/except, hard maxiter cap.
+    # Previously: a divergent SLSQP iteration could hang Python beyond Tauri's
+    # 60s timeout → watchdog respawn (90s downtime).
+    import logging
+    _logger = logging.getLogger('econometrica')
+    try:
+        result = minimize(
+            total_response, x0,
+            method='SLSQP',
+            bounds=bounds,
+            constraints=constraints,
+            options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
+        )
+    except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
+        _logger.error(f"SLSQP failed for {len(media_cols)} channels: {type(e).__name__}: {e}")
+        class _FailResult:
+            def __init__(self, x0, msg):
+                self.x = x0.copy()
+                self.success = False
+                self.message = msg
+        result = _FailResult(x0, f"{type(e).__name__}: {e}")
+
     if not result.success:
-        import logging
-        logging.getLogger('econometrica').warning(f"Optimization did not converge: {result.message}")
+        _logger.warning(f"Optimization did not converge: {result.message}")
     optimal_spend = result.x if result.success else np.array([current_spend[col] for col in media_cols])
+
+    # O1.3 — binding constraints detection. Relative tolerance scaled by
+    # problem magnitude (avoids absolute-eps issues on budgets in billions).
+    def _is_binding(x_val: float, bound_val: float, scale: float) -> bool:
+        return abs(x_val - bound_val) / max(abs(bound_val), scale * 1e-3, 1.0) < 1e-3
+
+    _binding_scale = total_budget / max(n_ch, 1)
+    _n_at_max = sum(1 for i in range(n_ch) if _is_binding(result.x[i], bounds[i][1], _binding_scale))
+    _n_at_min = sum(1 for i in range(n_ch) if _is_binding(result.x[i], bounds[i][0], _binding_scale))
+    binding_constraints = (_n_at_max == n_ch) or (_n_at_min == n_ch)
 
     # Compare current vs optimal
     current_response = -total_response(np.array([current_spend[col] for col in media_cols]))
@@ -445,6 +505,14 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         'response_curves': response_curves_data,
         'insight': insight,
         'optimization_converged': result.success,
+        # O1.3 (Phase 0.1 fix-session): binding constraints diagnostics. Used by
+        # narrative_adapter to surface "оптимизатор упёрся в границы" instead of
+        # vacuous "сохранить аллокацию" recommendations.
+        'binding_constraints': bool(binding_constraints),
+        'n_channels_at_max': int(_n_at_max),
+        'n_channels_at_min': int(_n_at_min),
+        'min_pct_used': float(min_pct_global * 100),
+        'max_pct_used': float(max_pct_global * 100),
     }
 
     # Save

@@ -1644,6 +1644,26 @@ def test_compute_mroas_geometric_adstock_factor():
     )
 
 
+def test_fmt_pct_no_misleading_zeros():
+    """N1 (Phase 0.1): _fmt_pct must not round 0.4% to 0%, which created
+    absurd narrative claims like 'X% продаж при 0% бюджета'."""
+    sys.path.insert(0, str(Path(__file__).parent.parent / 'sidecar' / 'econometrica'))
+    from aurora_html.sections import _fmt_pct as _fmt_pct_html
+    from aurora_pptx.builder import _fmt_pct as _fmt_pct_pptx
+
+    for name, fmt in (('aurora_html', _fmt_pct_html), ('aurora_pptx', _fmt_pct_pptx)):
+        # Critical regression: 0.4% must NOT round to "0%"
+        assert_true(f"N1 {name}: 0.4 → '0.4%' (NOT '0%')", fmt(0.4) == "0.4%", f"got {fmt(0.4)!r}")
+        assert_true(f"N1 {name}: 0.05 → '<0.1%' (sub-micro)", fmt(0.05) == "<0.1%", f"got {fmt(0.05)!r}")
+        assert_true(f"N1 {name}: -0.05 → '>-0.1%'", fmt(-0.05) == ">-0.1%", f"got {fmt(-0.05)!r}")
+        assert_true(f"N1 {name}: 0 → '0%' (true zero kept)", fmt(0) == "0%")
+        assert_true(f"N1 {name}: 0.9 → '0.9%' (sub-1%)", fmt(0.9) == "0.9%")
+        assert_true(f"N1 {name}: 26.3 → '26%' (round to int)", fmt(26.3) == "26%")
+        assert_true(f"N1 {name}: 26.7 → '27%' (round up)", fmt(26.7) == "27%")
+        assert_true(f"N1 {name}: None → '-' (fallback)", fmt(None) == "-")
+        assert_true(f"N1 {name}: 'bad' → '-' (fallback on invalid)", fmt('bad') == "-")
+
+
 def test_narrative_reads_mroi_current_not_roi():
     """F0.1: regression test for the typo fix in narrative_adapter.py:196.
 
@@ -1767,6 +1787,9 @@ def main() -> int:
     test_compute_mroas_zero_spend_returns_zero()
     test_compute_mroas_geometric_adstock_factor()
     test_narrative_reads_mroi_current_not_roi()
+
+    print("\n── 16. N1 narrative format precision (Phase 0.1) ──")
+    test_fmt_pct_no_misleading_zeros()
 
     print(f"\n{PASSED}/{PASSED + FAILED} assertions passed.")
     return 0 if FAILED == 0 else 1

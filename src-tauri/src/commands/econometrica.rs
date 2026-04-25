@@ -119,8 +119,10 @@ pub async fn econ_optimize(
         "project_dir": project_dir,
         "total_budget": total_budget,
         "total_budget_money": total_budget_money,
-        "min_pct": min_pct.unwrap_or(50.0),
-        "max_pct": max_pct.unwrap_or(150.0),
+        // O1.1 (Phase 0.1 fix-session 2026-04-25): 50/150 → 20/200 для real optimization freedom.
+        // See OptimizeStep.svelte for rationale + docs/MATH_AUDIT_v1_3_PHASE_0_1.md.
+        "min_pct": min_pct.unwrap_or(20.0),
+        "max_pct": max_pct.unwrap_or(200.0),
         "min_per_channel": min_per_channel,
         "max_per_channel": max_per_channel,
         "unit_costs": unit_costs,

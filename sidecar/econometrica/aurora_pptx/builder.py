@@ -68,6 +68,26 @@ def hex_to_rgb(h):
     return RGBColor.from_string(h.lstrip("#").upper())
 
 
+def _fmt_pct(v, fallback="-"):
+    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision — never lies via rounding to 0%.
+    Mirrors aurora_html/sections.py:_fmt_pct. See that file for behavior table.
+    """
+    if v is None:
+        return fallback
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return fallback
+    if f == 0:
+        return "0%"
+    av = abs(f)
+    if av < 0.1:
+        return "<0.1%" if f > 0 else ">-0.1%"
+    if av < 1.0:
+        return f"{f:.1f}%"
+    return f"{round(f)}%"
+
+
 class AuroraPPTXBuilder:
     """Production PPTX builder for Aurora AI Econometrica MMM reports.
 
@@ -603,11 +623,11 @@ class AuroraPPTXBuilder:
         # Honest mode: baseline-dominated → disclose actual media share, not
         # leader's share-of-media (misleading "X% sales" phrasing).
         if honest and media_pct is not None and baseline_pct is not None:
-            f1 = f"Медиа-вклад {media_pct:.1f}%, baseline {baseline_pct:.1f}% - модель объясняет продажи через organic"
-            s1 = f"{leader} - лидер среди медиа ({leader_contrib_pct:.0f}% media-вклада)" if leader_contrib_pct is not None else f"{leader} - лидер среди медиа"
+            f1 = f"Медиа-вклад {_fmt_pct(media_pct)}, baseline {_fmt_pct(baseline_pct)} - модель объясняет продажи через organic"
+            s1 = f"{leader} - лидер среди медиа ({_fmt_pct(leader_contrib_pct)} media-вклада)" if leader_contrib_pct is not None else f"{leader} - лидер среди медиа"
         else:
             if leader_contrib_pct is not None and leader_spend_pct is not None:
-                f1 = f"{leader} - {leader_contrib_pct:.0f}% продаж при {leader_spend_pct:.0f}% бюджета"
+                f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} продаж при {_fmt_pct(leader_spend_pct)} бюджета"
             else:
                 f1 = f"{leader} - максимальный вклад в продажи"
             if weighted_roi is not None:
@@ -621,7 +641,7 @@ class AuroraPPTXBuilder:
             s2 = "ROI < 1× означает что канал тратит больше чем приносит"
         elif hero_mroas > 0:
             f2 = f"{hero} - самый эффективный канал, mROAS {hero_mroas:.1f}×"
-            s2 = f"Текущий бюджет на нём {hero_spend_pct:.0f}%" if hero_spend_pct is not None else "Потенциал для перераспределения бюджета"
+            s2 = f"Текущий бюджет на нём {_fmt_pct(hero_spend_pct)}" if hero_spend_pct is not None else "Потенциал для перераспределения бюджета"
         else:
             f2 = f"{hero} - наиболее эффективный канал по mROAS"
             s2 = "Потенциал для перераспределения бюджета"
@@ -1017,7 +1037,7 @@ class AuroraPPTXBuilder:
             spct = self.facts.get("leader_share_spend_pct")
             if cpct is not None and spct is not None:
                 takeaway = (
-                    f"{leader} генерирует {cpct:.0f}% продаж при {spct:.0f}% бюджета - "
+                    f"{leader} генерирует {_fmt_pct(cpct)} продаж при {_fmt_pct(spct)} бюджета - "
                     "основная точка оптимизации портфеля"
                 )
             else:
@@ -1113,22 +1133,22 @@ class AuroraPPTXBuilder:
                 # Honest narrative: baseline-dominated model (media < 10%).
                 # Disclose this rather than leading with leader's media-share.
                 title = "Модель преимущественно отражает baseline - медиа-вклад ограничен"
-                big_number = f"{media_pct:.1f}%"
+                big_number = _fmt_pct(media_pct)
                 big_label = "Медиа-вклад в продажи"
-                big_support = f"Baseline: {baseline_pct:.1f}%. ROI портфеля {wr:.2f}× средневзвешенный." if wr is not None else f"Baseline: {baseline_pct:.1f}%."
+                big_support = f"Baseline: {_fmt_pct(baseline_pct)}. ROI портфеля {wr:.2f}× средневзвешенный." if wr is not None else f"Baseline: {_fmt_pct(baseline_pct)}."
                 quote_txt = (
-                    f"{leader} - лидер среди медиа ({cpct:.0f}% media-вклада), "
-                    f"но абсолютный media-эффект {media_pct:.1f}% от продаж. "
+                    f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
+                    f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
                     "Низкая инкрементальность - проверить adstock, saturation, качество данных."
                 )
             else:
                 # Action title — leader's position statement
                 title = f"{leader} остаётся основным драйвером, но эффективность требует проверки насыщения"
                 # Big number — leader contribution share
-                big_number = f"{cpct:.0f}%" if cpct is not None else "-"
+                big_number = _fmt_pct(cpct) if cpct is not None else "-"
                 big_label = f"Доля {leader} в инкрементальных продажах"
                 if spct is not None and wr is not None:
-                    big_support = f"При {spct:.0f}% доли бюджета. ROI портфеля {wr:.1f}× средневзвешенный."
+                    big_support = f"При {_fmt_pct(spct)} доли бюджета. ROI портфеля {wr:.1f}× средневзвешенный."
                 else:
                     big_support = "Лидер по вкладу в продажи"
                 # Pull quote — hero outperforms leader, reallocate signal
@@ -1920,7 +1940,7 @@ class AuroraPPTXBuilder:
             complication_parts = []
             if leader_spend_pct is not None:
                 complication_parts.append(
-                    f"{leader} доминирует в бюджете ({leader_spend_pct:.0f}% портфеля)"
+                    f"{leader} доминирует в бюджете ({_fmt_pct(leader_spend_pct)} портфеля)"
                 )
             if hero != leader and hero_m >= 1.0:
                 complication_parts.append(f"но по mROAS {hero} опережает ({hero_m:.1f}×)")

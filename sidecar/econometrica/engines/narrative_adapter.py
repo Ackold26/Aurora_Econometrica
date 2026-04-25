@@ -564,6 +564,16 @@ def _derive_narrative_facts(
     baseline_pct = (baseline_val / total_sales * 100) if total_sales > 0 else None
     honest_narrative = media_contrib_pct is not None and media_contrib_pct < 10.0
 
+    # N3 (Phase 0.1 fix-session): propagate optimizer state to narrative.
+    # binding_constraints + optimization_converged drive consistent SCQAR /
+    # f3 finding / Action 01 logic — without these, narrative claims
+    # "Перебалансировать 0 млн ₽" while real story is "оптимизатор не получил
+    # места для манёвра".
+    binding = bool(optimize_data.get("binding_constraints", False))
+    converged = optimize_data.get("optimization_converged", True)
+    optimize_min_pct = optimize_data.get("min_pct_used")
+    optimize_max_pct = optimize_data.get("max_pct_used")
+
     return {
         "leader_channel": leader.get("name"),
         "hero_channel": hero.get("name"),
@@ -583,6 +593,11 @@ def _derive_narrative_facts(
         "baseline_pct": baseline_pct,
         "media_contribution_pct": media_contrib_pct,
         "honest_narrative": honest_narrative,
+        # Optimizer state (Phase 0.1 fix-session)
+        "binding_constraints": binding,
+        "optimization_converged": converged,
+        "optimize_min_pct": optimize_min_pct,
+        "optimize_max_pct": optimize_max_pct,
     }
 
 

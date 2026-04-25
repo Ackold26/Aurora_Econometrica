@@ -55,10 +55,31 @@ def _fmt_x(v: Any, fallback: str = "-") -> str:
 
 
 def _fmt_pct(v: Any, fallback: str = "-") -> str:
+    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision — never lies via rounding to 0%.
+
+    Pre-fix: `{:.0f}%` rounded 0.4% to 0%, producing absurd narrative claims like
+    "канал даёт 26% продаж при 0% бюджета" (Performance had 0.4% spend share).
+
+    Behavior:
+      0          → "0%"
+      |v| < 0.1  → "<0.1%" (with sign)
+      |v| < 1    → "0.4%"  (one decimal)
+      else       → "26%"   (rounded int)
+    """
+    if v is None:
+        return fallback
     try:
-        return f"{float(v):.0f}%"
+        f = float(v)
     except (TypeError, ValueError):
         return fallback
+    if f == 0:
+        return "0%"
+    av = abs(f)
+    if av < 0.1:
+        return "<0.1%" if f > 0 else ">-0.1%"
+    if av < 1.0:
+        return f"{f:.1f}%"
+    return f"{round(f)}%"
 
 
 def _section(section_id: str, kicker: str, body: str, extra_cls: str = "") -> str:
@@ -139,14 +160,39 @@ def render_executive_summary(ctx: dict) -> str:
             weighted_roi=wr, mqs=mqs
         )
         complication = scqar["complication"]["template"].format(
-            leader=leader, leader_spend_pct=leader_pct,
+            leader=leader, leader_spend_pct_fmt=_fmt_pct(leader_pct),
             hero=hero, hero_mroas=hero_m
         )
         question = scqar["question"]["template"]
-        answer = scqar["answer"]["template"].format(
-            realloc=realloc, leader=leader, hero=hero, underperf=underperf
-        )
-        recommendation = scqar["recommendation"]["template"].format(lift=lift)
+        # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
+        binding = bool(facts.get("binding_constraints"))
+        converged = facts.get("optimization_converged", True)
+        if not converged:
+            answer = (
+                "Оптимизация не сошлась. Перед перераспределением "
+                "необходимо ослабить ограничения и перезапустить расчёт."
+            )
+            recommendation = "Прирост ROAS можно будет оценить после успешной оптимизации."
+        elif binding:
+            answer = (
+                "Оптимизатор упёрся в заданные границы. Расширьте Мин./Макс. % "
+                "(рекомендуем 10-300%) и перезапустите Оптимизацию для реального перераспределения."
+            )
+            recommendation = "Прирост ROAS будет рассчитан после расширения границ."
+        elif realloc >= 0.5 and hero != leader:
+            answer = scqar["answer"]["template"].format(
+                realloc=realloc, leader=leader, hero=hero, underperf=underperf
+            )
+            recommendation = scqar["recommendation"]["template"].format(lift=lift)
+        else:
+            answer = (
+                f"Текущая аллокация близка к оптимуму при заданных границах. "
+                f"Сохранить приоритет {leader} с контролем индикаторов saturation."
+            )
+            recommendation = (
+                "Дальнейший прирост возможен через расширение границ оптимизации "
+                "или сбор большего объёма данных."
+            )
     else:
         situation = f"{client} - демонстрационный preview без переданных данных."
         complication = "Narrative появится после обучения модели и оптимизации."
@@ -195,18 +241,20 @@ def render_at_a_glance(ctx: dict) -> str:
 
         if honest and media_pct is not None and baseline_pct is not None:
             f1 = (
-                f"Медиа-вклад {media_pct:.1f}%, baseline {baseline_pct:.1f}% - "
+                f"Медиа-вклад {_fmt_pct(media_pct)}, baseline {_fmt_pct(baseline_pct)} - "
                 f"модель преимущественно объясняет продажи через organic baseline"
             )
             f1_sup = (
                 f"{leader} - лидер среди медиа "
-                f"({facts.get('leader_share_contrib_pct') or 0:.0f}% media-вклада)"
+                f"({_fmt_pct(facts.get('leader_share_contrib_pct'))} media-вклада)"
             )
         else:
+            # N1 (Phase 0.1): pre-format pct values to avoid {x:.0f} rounding
+            # 0.4% to "0%" — see _fmt_pct conditional precision logic.
             f1 = strings["findings_templates"]["f1_leader"].format(
                 leader=leader,
-                contrib_pct=facts.get("leader_share_contrib_pct") or 0,
-                spend_pct=facts.get("leader_share_spend_pct") or 0,
+                contrib_pct_fmt=_fmt_pct(facts.get("leader_share_contrib_pct") or 0),
+                spend_pct_fmt=_fmt_pct(facts.get("leader_share_spend_pct") or 0),
             )
             f1_sup = strings["findings_templates"]["f1_leader_support"].format(
                 weighted_roi=facts.get("weighted_roi") or 0
@@ -228,20 +276,27 @@ def render_at_a_glance(ctx: dict) -> str:
             f2_sup = "ROI < 1× означает что канал тратит больше чем приносит инкрементала"
         elif honest:
             f2 = f"{hero} - единственный канал близкий к окупаемости (mROAS {hero_m:.1f}×)"
-            f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct=hero_spend_pct)
+            f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         else:
             f2 = strings["findings_templates"]["f2_hero"].format(hero=hero, hero_mroas=hero_m)
-            f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct=hero_spend_pct)
+            f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         findings.append((f2, f2_sup))
 
         realloc = facts.get("reallocation_mln") or 0
         lift = facts.get("expected_lift_pct") or 0
+        binding = bool(facts.get("binding_constraints"))
         all_below_breakeven = bool(channels) and all(
             (float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in channels
         )
+        # N3 (Phase 0.1): if optimizer hit binding constraints, surface that
+        # explicitly — otherwise narrative says "сохранить аллокацию" while
+        # the real story is "оптимизатор не получил места для манёвра".
         if honest and all_below_breakeven:
             f3 = "Все медиа-каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
             f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+        elif binding:
+            f3 = "Оптимизатор упёрся в заданные границы - расширьте Мин./Макс. % и перезапустите"
+            f3_sup = "Текущие границы зажимают пространство решений - реальное перераспределение скрыто"
         elif realloc >= 0.5 and hero != leader:
             f3 = strings["findings_templates"]["f3_realloc"].format(
                 realloc=realloc, leader=leader, hero=hero)
@@ -320,7 +375,9 @@ def render_section_divider(ctx: dict) -> str:
         cpct = facts.get("leader_share_contrib_pct") or 0
         spct = facts.get("leader_share_spend_pct") or 0
         takeaway = strings["action_titles"]["s04_takeaway"].format(
-            leader=leader, contrib_pct=cpct, spend_pct=spct)
+            leader=leader,
+            contrib_pct_fmt=_fmt_pct(cpct),
+            spend_pct_fmt=_fmt_pct(spct))
     else:
         takeaway = "Декомпозиция покажет, какие каналы генерируют какой вклад"
 
@@ -354,17 +411,17 @@ def render_key_message(ctx: dict) -> str:
             )
             big = _fmt_pct(media_pct)
             big_label = "Медиа-вклад в продажи"
-            big_support = f"Baseline: {baseline_pct:.1f}% · ROI портфеля {wr:.2f}×"
+            big_support = f"Baseline: {_fmt_pct(baseline_pct)} · ROI портфеля {wr:.2f}×"
             quote = (
-                f"{leader} - лидер среди медиа ({cpct:.0f}% media-вклада), "
-                f"но абсолютный media-эффект {media_pct:.1f}% от продаж. "
+                f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
+                f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
                 "Низкая инкрементальность - проверить adstock, saturation, качество данных."
             )
         else:
             title = strings["action_titles"]["s05_default"].format(leader=leader)
             big = _fmt_pct(cpct)
             big_label = f"Доля {leader} в инкрементальных продажах"
-            big_support = f"При {int(spct)}% доли бюджета · ROI портфеля {wr:.2f}×"
+            big_support = f"При {_fmt_pct(spct)} доли бюджета · ROI портфеля {wr:.2f}×"
 
             if hero != leader:
                 quote = (
@@ -516,9 +573,9 @@ def render_action_table(ctx: dict) -> str:
         elif len(channels) == 1:
             title = strings["action_titles"]["s07_single"]
         elif top_n == 1:
-            title = strings["action_titles"]["s07_dominant"].format(pct=pct)
+            title = strings["action_titles"]["s07_dominant"].format(pct_fmt=_fmt_pct(pct))
         elif other_n > 0:
-            title = strings["action_titles"]["s07_top_n"].format(top_n=top_n, pct=pct)
+            title = strings["action_titles"]["s07_top_n"].format(top_n=top_n, pct_fmt=_fmt_pct(pct))
         else:
             title = strings["action_titles"]["s07_balanced"]
     else:
@@ -651,7 +708,16 @@ def render_timeline(ctx: dict) -> str:
 
 
 def render_recommendation(ctx: dict) -> str:
-    """Section 10: SCQAR recommendation - 3 actions + lift."""
+    """Section 10: SCQAR recommendation - 3 data-driven actions + lift.
+
+    N3+N4 (Phase 0.1 fix-session 2026-04-25):
+      - Action 01 derives from optimizer.json (reallocation, binding, converged).
+        If optimizer hit binding constraints or didn't converge → priority text
+        explaining how to unblock instead of vacuous "перебалансировать 0 млн".
+      - Actions 02/03 replaced from generic boilerplate (Burst-планирование,
+        Targeted retargeting) to data-driven monitoring guidance. Generic
+        "best practices" moved to render_best_practices() with disclaimer.
+    """
     strings = ctx["strings"]
     facts = ctx.get("facts") or {}
     channels = ctx.get("channels") or []
@@ -668,26 +734,79 @@ def render_recommendation(ctx: dict) -> str:
         realloc = facts.get("reallocation_mln") or 0
         lift = facts.get("expected_lift_pct")
         underperf = [c.get("name") for c in channels if c.get("verdict") == "Cut"]
-        lift_txt = f"+{lift:.1f} пп к ROAS" if lift else "положительный эффект на ROAS"
+        binding = bool(facts.get("binding_constraints"))
+        converged = facts.get("optimization_converged", True)
+
+        # N3 — Action 01: derived from optimizer state, not heuristics.
+        if not converged:
+            action_01_text = (
+                "Оптимизация не сошлась — попробуйте ослабить ограничения по каналам "
+                "или сократить число каналов в модели и перезапустите Оптимизацию."
+            )
+        elif binding:
+            min_pct = facts.get("optimize_min_pct")
+            max_pct = facts.get("optimize_max_pct")
+            bounds_txt = (
+                f"(текущие границы Мин. {round(min_pct)}% / Макс. {round(max_pct)}%)"
+                if min_pct is not None and max_pct is not None
+                else "(текущие границы зажимают результат)"
+            )
+            action_01_text = (
+                f"Все каналы упёрлись в заданные границы {bounds_txt}. "
+                "Расширьте до 10-20% / 200-300% и перезапустите Оптимизацию — "
+                "она найдёт реальное перераспределение."
+            )
+        elif hero != leader and realloc >= 0.5:
+            action_01_text = (
+                f"{realloc:.0f} млн ₽ из {leader} в {hero}. "
+                "Adstock компенсирует краткосрочный спад awareness."
+            )
+        else:
+            action_01_text = (
+                f"Портфель близок к оптимуму при заданных границах. "
+                f"Сохранить аллокацию по {leader} с контролем индикаторов saturation."
+            )
+
+        # N4 — Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
+        n_saturated = sum(
+            1 for c in channels
+            if (c.get("mroas") or 0) > 0 and (c.get("mroas") or 0) < 1.0
+        )
+        if n_saturated > 0:
+            action_02_text = (
+                f"{n_saturated} канал(ов) под breakeven (mROAS < 1×) — "
+                "проверить data quality, adstock decay и сравнить с industry benchmarks "
+                "перед следующей итерацией."
+            )
+        else:
+            action_02_text = (
+                "Все каналы выше breakeven — мониторить mROAS в следующих периодах "
+                "на признаки saturation."
+            )
+
+        if underperf:
+            action_03_text = (
+                f"Перевести бюджет из {', '.join(underperf[:2])} согласно вердиктам, "
+                "затем измерить эффект через 90 дней (KPI vs baseline)."
+            )
+        else:
+            action_03_text = (
+                "Замерить эффект через 90 дней (KPI vs baseline) — "
+                "перезапустить MMM с обновлёнными данными для калибровки модели."
+            )
 
         actions = [
-            ("01", "Перебалансировать бюджет.",
-             (f"{realloc:.0f} млн ₽ из {leader} в {hero}. Adstock компенсирует краткосрочный спад awareness."
-              if hero != leader and realloc >= 1
-              else f"Сохранить аллокацию по {leader} с контролем индикаторов saturation.")),
-            ("02", "Burst-планирование вместо continuity.",
-             f"Короткие flights {leader} с паузами - 15-20% экономии бюджета при сохранении awareness."),
-            ("03", "Targeted retargeting через эффективные сегменты.",
-             f"Segment приоритета {hero}; {lift_txt}."
-             + (f" Перевести бюджет из {', '.join(underperf[:2])}." if underperf else "")),
+            ("01", "Перебалансировать бюджет.", action_01_text),
+            ("02", "Контролировать saturation.", action_02_text),
+            ("03", "Замерить эффект через 90 дней.", action_03_text),
         ]
         lift_val = lift if lift is not None else 0
     else:
         title = "Рекомендация появится после оптимизации"
         actions = [
             ("01", "Перебалансировать бюджет.", "Из лидера в hero-канал по mROAS"),
-            ("02", "Burst-планирование.", "Flights вместо continuous контакта"),
-            ("03", "Targeted retargeting.", "Эффективные сегменты + саутовер бюджета"),
+            ("02", "Контролировать saturation.", "По каналам с mROAS < 1×"),
+            ("03", "Замерить эффект через 90 дней.", "KPI vs baseline после применения"),
         ]
         lift_val = 0
 
