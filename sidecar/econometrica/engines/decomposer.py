@@ -95,8 +95,18 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         raw_spend_series = df[col].fillna(0).values.astype(float)
         raw_spend_total = float(raw_spend_series.sum())
 
-        # 1. Adstock (matches training)
-        a_type = adstock_config.get(col, {}).get('type', 'geometric') if isinstance(adstock_config.get(col), dict) else adstock_config.get(col, 'geometric')
+        # 1. Adstock (matches training).
+        # adstock_config schema: dict[channel, str] — type only ('geometric' or 'weibull').
+        # Defensive read: tolerate dict-with-'type' format from older pickles or
+        # rare configs, but standardize on str. Hyperparameters use library defaults
+        # (matching modeler.py training-time apply_adstock signature).
+        raw_at = adstock_config.get(col)
+        if isinstance(raw_at, dict):
+            a_type = raw_at.get('type', 'geometric')
+        elif isinstance(raw_at, str):
+            a_type = raw_at
+        else:
+            a_type = 'geometric'
         x_adstock = apply_adstock(raw_spend_series, a_type)
 
         # 2. Normalize spend/mean (matches Phase 2 fix)

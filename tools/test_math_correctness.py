@@ -964,6 +964,39 @@ def _build_mock_scenario_pickle(tmp_dir: Path, *, intercept_mean=0.0,
     return project_dir
 
 
+def test_optimizer_mroi_kpi_scale():
+    """Post-audit fix: marginal_roi must include y_std for KPI/spend output.
+
+    Pre-fix mROI returned d(β·hill(x_norm))/d(x_norm) × (1/mean) = y_norm/spend.
+    Post-fix multiplies by y_std → KPI/spend, matching user expectation.
+    """
+    from utils.saturation import marginal_roi
+
+    # Synthetic params
+    alpha, gamma, beta = 1.5, 0.5, 0.4
+    mean_spend, y_std = 100.0, 200.0
+
+    # Numerically derive d(KPI)/d(spend) at spend=100 (= mean)
+    spend = 100.0
+    dx = 0.001
+    def kpi(s):
+        x_norm = s / mean_spend
+        sat = (x_norm ** alpha) / (x_norm ** alpha + gamma ** alpha + 1e-10)
+        return beta * sat * y_std
+
+    numerical = (kpi(spend + dx) - kpi(spend - dx)) / (2 * dx)
+
+    # Analytical: marginal × y_std × (1/mean)
+    cur_norm = spend / mean_spend
+    mroi_norm = float(marginal_roi(np.array([cur_norm]), alpha, gamma, beta)[0])
+    analytical = mroi_norm * y_std / mean_spend
+
+    assert_close(
+        "mROI KPI-scale: analytical = numerical d(KPI)/d(spend) at x=mean",
+        analytical, numerical, rtol=0.01,
+    )
+
+
 def _build_mock_decomposer_pickle(tmp_dir: Path, *, intercept_mean=0.5,
                                      y_mean=100.0, y_std=20.0,
                                      channels=(("TV", 1.0, 1.5, 0.5, 50.0),),
@@ -1267,6 +1300,9 @@ def main() -> int:
 
     print("\n── 13. Validator column role ──")
     test_column_role_kpi_detection()
+
+    print("\n── 13a. Optimizer mROI KPI scale (post-audit fix) ──")
+    test_optimizer_mroi_kpi_scale()
 
     print("\n── 13b. Decomposer energy conservation (post-audit fix) ──")
     test_decomposer_energy_conservation()
