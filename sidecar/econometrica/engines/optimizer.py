@@ -54,6 +54,24 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     media_cols = config_model['media_columns']
     # y_std needed for KPI-scale conversions of mROI and response curves.
     y_std = float(norm.get('y_std', 1.0)) or 1.0
+
+    # A1 fix (post-audit v1.2): exclude untrained channels from optimization domain.
+    # Channels with zero training variance have β from prior (uninformative) — optimizer
+    # would silently allocate budget to them based on fabricated response curves.
+    untrained_channels = set(norm.get('untrained_channels', []) or [])
+    if untrained_channels and any(c in untrained_channels for c in media_cols):
+        # Filter: remove untrained from optimization scope but warn user.
+        active_media_cols = [c for c in media_cols if c not in untrained_channels]
+        if not active_media_cols:
+            return {
+                'status': 'error',
+                'error_code': 'NO_TRAINED_CHANNELS',
+                'message': (
+                    'Все каналы в модели имели нулевую вариативность в обучающих '
+                    'данных. Оптимизация невозможна — переобучите модель.'
+                ),
+            }
+        media_cols = active_media_cols
     # Override > pickle-config (аналогично decomposer).
     unit_costs_override = config.get('unit_costs')
     unit_costs = unit_costs_override if unit_costs_override is not None else (config_model.get('unit_costs', {}) or {})

@@ -55,6 +55,10 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     y_predicted_saved = np.array(model_data.get('y_predicted', []) or [])
     media_cols = config['media_columns']
     control_cols = config.get('control_columns', []) or []
+    # A1 fix (post-audit v1.2): for decomposition we still report untrained channels
+    # but their contribution will be ~0 (training data was constant → β·sat·y_std≈0).
+    # No need to filter — they self-zero in the per-period contribution math.
+    untrained_channels = set(model_data.get('normalization', {}).get('untrained_channels', []) or [])
     # Override > config. Передан ли override (даже {}) — клиент управляет явно.
     unit_costs = unit_costs_override if unit_costs_override is not None else (config.get('unit_costs', {}) or {})
 
@@ -243,16 +247,25 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             ch['verdict'] = 'Сбалансирован'
             ch['verdict_tone'] = 'neutral'
 
-    # Insight generation (template, 0 tokens)
+    # Insight generation (template, 0 tokens).
+    # B3 fix (post-audit v1.2): removed magic-0.5 lift estimate. Pre-fix code computed
+    # `lift = |efficiency_gap| × 0.5` then claimed "ожидаемый прирост +X% продаж" —
+    # without basis in model. Replaced with descriptive text only; for actual lift
+    # estimate user should run scenario or optimize step (which DO compute against model).
     top = channels[0] if channels else None
     worst = channels[-1] if channels else None
     insight = ''
     if top and worst:
-        insight = (f"{top['name']} — самый эффективный канал (ROI {top['roi']:.1f}×). "
-                   f"{worst['name']} — наименее эффективный (ROI {worst['roi']:.1f}×).")
-        if top['efficiency_gap'] > 5:
-            lift = abs(worst['efficiency_gap']) * 0.5
-            insight += f" Перераспределение {abs(worst['efficiency_gap']):.0f}% бюджета из {worst['name']} в {top['name']} даст ожидаемый прирост +{lift:.1f}% продаж."
+        insight = (
+            f"{top['name']} — самый эффективный канал (ROI {top['roi']:.1f}×). "
+            f"{worst['name']} — наименее эффективный (ROI {worst['roi']:.1f}×)."
+        )
+        if top['efficiency_gap'] > 5 and worst['efficiency_gap'] < -5:
+            insight += (
+                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                f"(gap {worst['efficiency_gap']:+.0f} пп) — рассмотрите перераспределение "
+                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+            )
 
     # Per-period dates
     date_col = config.get('date_column', 'date')

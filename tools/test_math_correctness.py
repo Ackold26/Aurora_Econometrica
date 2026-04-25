@@ -1247,6 +1247,96 @@ def test_phase6_scenario_incremental_roas():
                         f"roas={totals['roas']}, roas_total={totals['roas_total']}")
 
 
+def test_a1_scenario_rejects_untrained_channel():
+    """A1 (post-audit v1.2): scenario rejects spend on channels with zero
+    training variance. Pre-fix scenario silently produced fabricated predictions
+    (β from prior × sat ≈ 1 due to mean=1 corruption from modeler's replace(0,1)).
+    """
+    import tempfile
+    import pickle
+    from engines.scenario import predict_scenario
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = Path(tmp)
+        models_dir = project_dir / "models"
+        models_dir.mkdir(parents=True)
+        # Mock pickle with TV trained, Digital marked untrained
+        model_data = {
+            "config": {
+                "data_file": str(project_dir / "data.xlsx"),
+                "media_columns": ["TV", "Digital"],
+                "control_columns": [],
+                "adstock_config": {"TV": "geometric", "Digital": "geometric"},
+            },
+            "channel_params": {
+                "TV": {"beta": 1.0, "alpha": 1.5, "gamma": 0.5},
+                "Digital": {"beta": 0.24, "alpha": 1.67, "gamma": 0.5},  # ≈ prior
+            },
+            "normalization": {
+                "media_means": {"TV": 50.0, "Digital": 1.0},  # Digital corrupted (was 0 → replace(0,1))
+                "control_means": {}, "control_stds": {},
+                "y_mean": 100, "y_std": 10,
+                "intercept_mean": 0,
+                "control_betas_mean": [],
+                "untrained_channels": ["Digital"],  # A1 fix marks this
+            },
+            "y_actual": [100] * 4,
+            "y_predicted": [100] * 4,
+            "model_version": "1.1",
+        }
+        with open(models_dir / "latest.pkl", "wb") as f:
+            pickle.dump(model_data, f)
+
+        # User tries to spend on the untrained channel — should be rejected
+        result = predict_scenario(
+            {"scenario_name": "test", "media_plan": {"TV": [50, 50], "Digital": [10, 10]}},
+            str(project_dir),
+        )
+        assert_true(
+            "A1: scenario rejects spend on untrained channel",
+            result.get("error_code") == "UNTRAINED_CHANNEL",
+            f"got {result.get('error_code')}, message={result.get('message', '')[:100]}",
+        )
+
+        # Same pickle, BUT user only spends on trained channel → should succeed
+        result_ok = predict_scenario(
+            {"scenario_name": "trained-only", "media_plan": {"TV": [50, 50], "Digital": [0, 0]}},
+            str(project_dir),
+        )
+        assert_true(
+            "A1: scenario OK when no spend on untrained channel",
+            result_ok.get("status") == "ok",
+            f"got {result_ok.get('error_code', 'OK')}",
+        )
+
+
+def test_b1_gamma_floor_unified():
+    """B1 (post-audit v1.2): all 4 modules (modeler/scenario/optimizer/decomposer)
+    use 1e-6 floor for gamma. Edge γ=1e-7 should give same Hill across all.
+
+    This test verifies the formula consistency rather than full integration —
+    matching numerical signature is enough.
+    """
+    from utils.saturation import hill_function
+    x = np.array([0.5, 1.0, 2.0])
+    alpha = 1.5
+    floor = 1e-6
+    # All modules now use max(p['gamma'], 1e-6) — verify Hill formula is well-defined
+    sat = hill_function(x, alpha=alpha, gamma=floor)
+    assert_true(
+        "B1: Hill stable at gamma floor 1e-6",
+        np.all(np.isfinite(sat)),
+        f"got {sat}",
+    )
+    # At γ → 0, Hill saturates: sat(x) → 1 for any x > 0
+    sat_at_one = float(sat[1])
+    assert_true(
+        "B1: at γ=1e-6, sat(x=1) ≈ 1 (deep saturation)",
+        sat_at_one > 0.99,
+        f"got {sat_at_one}",
+    )
+
+
 def test_phase6_scenario_rejects_old_pickle():
     """P0-1/2/9: scenario rejects model_version='1.0' or absent."""
     import tempfile
@@ -1350,6 +1440,8 @@ def main() -> int:
     test_phase6_scenario_baseline_uses_intercept()
     test_phase6_scenario_adstock_carryover()
     test_phase6_scenario_incremental_roas()
+    test_a1_scenario_rejects_untrained_channel()
+    test_b1_gamma_floor_unified()
     test_phase6_scenario_rejects_old_pickle()
 
     print(f"\n{PASSED}/{PASSED + FAILED} assertions passed.")

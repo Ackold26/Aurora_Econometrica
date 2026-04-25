@@ -251,8 +251,22 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # destroying response curve curvature. Result: scenario/optimizer/what-if
     # showed near-zero sensitivity to budget changes.
     # Post-fix: spend/mean keeps non-negative scale, gamma stays in [0,1] range.
-    media_means = X_media.mean().replace(0, 1)  # avoid div/0 for empty channels
+    #
+    # A1 fix (post-audit v1.2): track channels with zero training variance.
+    # Pre-fix `replace(0, 1)` silently corrupted these — pickle stored mean=1,
+    # scenario divided spend by 1 (raw scale!), Hill saturated at huge x_norm,
+    # contribution = β × 1 × y_std fabricated from prior (uninformative).
+    # Post-fix: replace zero with 1 for division safety BUT mark channel as
+    # "untrained" so scenario/optimizer can refuse spend on it.
+    raw_means = X_media.mean()
+    untrained_channels = [c for c in media_cols if float(raw_means.get(c, 0)) == 0]
+    media_means = raw_means.replace(0, 1)  # avoid div/0; flagged separately above
     X_media_norm = X_media / media_means
+    if untrained_channels:
+        logger.warning(
+            f"Untrained channels (zero variance in training data): {untrained_channels}. "
+            f"Scenario / optimizer will reject spend on these to avoid prior-only fabrication."
+        )
     # media_stds removed — not used in spend/mean normalization
 
     # Normalize controls — критично: без этого большие контроли (price, budget) дают
@@ -628,6 +642,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # Phase 3 dependency: decomposer baseline = intercept + control effects
                 'intercept_mean': intercept_mean_posterior,
                 'control_betas_mean': control_betas_mean_posterior,
+                # A1 fix (post-audit v1.2): channels with zero training variance.
+                # Scenario/optimizer reject spend on these to avoid prior-only fabrication.
+                'untrained_channels': untrained_channels,
             },
             'model_version': '1.1',  # P0-1/2/9 schema; older pickles rejected by engines
             'y_actual': y.tolist(),

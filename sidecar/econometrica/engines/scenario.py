@@ -74,6 +74,27 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     if not media_plan:
         return {'status': 'error', 'message': 'Медиаплан пуст. Укажите бюджеты по каналам'}
 
+    # A1 fix (post-audit v1.2): reject spend on channels that had zero variance
+    # during training. Without learned signal, β is from prior (uninformative)
+    # and any "prediction" is fabrication. Better honest error than fake numbers.
+    untrained_channels = norm.get('untrained_channels', []) or []
+    spent_untrained = [
+        col for col in untrained_channels
+        if any(float(v) > 0 for v in media_plan.get(col, []))
+    ]
+    if spent_untrained:
+        return {
+            'status': 'error',
+            'error_code': 'UNTRAINED_CHANNEL',
+            'message': (
+                f'Каналы {spent_untrained} имели нулевую вариативность в данных обучения '
+                f'(модель не училась на них). Сценарий с тратами на эти каналы дал бы '
+                f'фиктивные предсказания из априорного распределения. '
+                f'Уберите их из медиаплана либо переобучите модель с реальными данными.'
+            ),
+            'untrained_channels': spent_untrained,
+        }
+
     # Determine periods
     n_periods = max(len(v) for v in media_plan.values()) if media_plan else 0
     if n_periods == 0:
@@ -116,8 +137,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             mean = norm['media_means'].get(col, 1)
             x_norm = spend_t_adstock / max(mean, 1e-10) if mean > 0 else 0
 
-            # Saturate
-            sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 0.01))
+            # Saturate (B1 fix: unified gamma floor 1e-6 across modeler/scenario/optimizer/decomposer)
+            sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 1e-6))
             contribution = p['beta'] * sat[0]
             total_effect += contribution
             channel_contributions[col].append(round(float(contribution * y_std), 0))
