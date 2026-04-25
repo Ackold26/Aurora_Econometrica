@@ -914,6 +914,176 @@ def test_column_role_kpi_detection():
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# 14. Phase 6: scenario adstock + incremental ROAS (P1-3, P1-4, P1-5)
+# ─────────────────────────────────────────────────────────────────────────
+
+def _build_mock_scenario_pickle(tmp_dir: Path, *, intercept_mean=0.0,
+                                  y_mean=100.0, y_std=10.0,
+                                  channels=(("TV", 1.0, 1.5, 0.5, 50.0),)) -> Path:
+    """Build a minimal mock pickle with model_version='1.1' for scenario testing.
+    channels: tuple of (name, beta, alpha, gamma, mean_spend) per channel.
+    Returns path to project_dir.
+    """
+    import pickle
+    project_dir = tmp_dir
+    models_dir = project_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    media_columns = [c[0] for c in channels]
+    channel_params = {
+        c[0]: {"beta": c[1], "alpha": c[2], "gamma": c[3], "adstock": {"type": "geometric"}}
+        for c in channels
+    }
+    media_means = {c[0]: c[4] for c in channels}
+
+    model_data = {
+        "config": {
+            "data_file": str(project_dir / "data.xlsx"),
+            "kpi_column": "y",
+            "media_columns": media_columns,
+            "control_columns": [],
+            "date_column": "date",
+            "adstock_config": {c[0]: "geometric" for c in channels},
+        },
+        "channel_params": channel_params,
+        "normalization": {
+            "media_means": media_means,
+            "control_means": {},
+            "control_stds": {},
+            "y_mean": y_mean,
+            "y_std": y_std,
+            "intercept_mean": intercept_mean,
+            "control_betas_mean": [],
+        },
+        "y_actual": [y_mean] * 4,
+        "y_predicted": [y_mean] * 4,
+        "model_version": "1.1",
+    }
+    with open(models_dir / "latest.pkl", "wb") as f:
+        pickle.dump(model_data, f)
+    return project_dir
+
+
+def test_phase6_scenario_baseline_uses_intercept():
+    """P1-3: baseline = intercept_mean × y_std + y_mean per period."""
+    import tempfile
+    from engines.scenario import predict_scenario
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = _build_mock_scenario_pickle(
+            Path(tmp),
+            intercept_mean=0.5, y_mean=100, y_std=20,
+            channels=(("TV", 1.0, 1.5, 0.5, 50.0),),
+        )
+        result = predict_scenario(
+            {"scenario_name": "zero", "media_plan": {"TV": [0, 0, 0, 0]}},
+            str(project_dir),
+        )
+        assert_true("Phase 6: scenario zero-spend status ok",
+                    result.get("status") == "ok",
+                    f"got {result}")
+        baseline_kpi = result["totals"]["baseline_kpi"]
+        # baseline_per_period = 0.5 * 20 + 100 = 110, × 4 periods = 440
+        assert_close("Phase 6: baseline = intercept × y_std + y_mean × n",
+                     baseline_kpi, 440.0, rtol=0.01)
+        predicted = result["totals"]["predicted_kpi"]
+        assert_close("Phase 6: zero spend → predicted == baseline",
+                     predicted, baseline_kpi, rtol=0.01)
+
+
+def test_phase6_scenario_adstock_carryover():
+    """P1-5: adstock applied → spend pulse [100, 0, 0, 0] gives non-zero
+    contribution in periods 2+ (carryover effect)."""
+    import tempfile
+    from engines.scenario import predict_scenario
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = _build_mock_scenario_pickle(
+            Path(tmp),
+            intercept_mean=0.0, y_mean=100, y_std=10,
+            channels=(("TV", 0.5, 1.5, 0.5, 50.0),),
+        )
+        result = predict_scenario(
+            {"scenario_name": "pulse", "media_plan": {"TV": [100, 0, 0, 0]}},
+            str(project_dir),
+        )
+        assert_true("Phase 6: pulse scenario ok", result.get("status") == "ok")
+        contribs = result["channel_contributions"]["TV"]
+        assert_true("Phase 6 adstock: period 0 contribution > 0",
+                    contribs[0] > 0, f"contribs={contribs}")
+        assert_true("Phase 6 adstock: period 1 contribution > 0 (carryover)",
+                    contribs[1] > 0, f"contribs={contribs}")
+        assert_true("Phase 6 adstock: period 2 contribution > 0 (carryover)",
+                    contribs[2] > 0, f"contribs={contribs}")
+        assert_true("Phase 6 adstock: carryover decreases over time",
+                    contribs[0] >= contribs[1] >= contribs[2] >= contribs[3],
+                    f"contribs={contribs}")
+
+
+def test_phase6_scenario_incremental_roas():
+    """P1-4: roas (primary) = incremental / spend, NOT total / spend."""
+    import tempfile
+    from engines.scenario import predict_scenario
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = _build_mock_scenario_pickle(
+            Path(tmp),
+            intercept_mean=0.0, y_mean=100, y_std=10,
+            channels=(("TV", 1.0, 1.0, 0.5, 50.0),),
+        )
+        result = predict_scenario(
+            {
+                "scenario_name": "test",
+                "media_plan": {"TV": [50, 50, 50, 50]},
+                "unit_costs": {"TV": 1.0},
+            },
+            str(project_dir),
+        )
+        totals = result["totals"]
+        assert_true("Phase 6: incremental_kpi present in totals",
+                    "incremental_kpi" in totals)
+        assert_true("Phase 6: roas_total legacy field present",
+                    "roas_total" in totals)
+        assert_true("Phase 6: roas_method=incremental",
+                    totals.get("roas_method") == "incremental")
+        assert_close("Phase 6: incremental_kpi = predicted - baseline",
+                     totals["incremental_kpi"],
+                     totals["predicted_kpi"] - totals["baseline_kpi"],
+                     rtol=0.01)
+        if totals["roas"] != 0 and totals["roas_total"] != 0:
+            assert_true("Phase 6: roas (primary) <= roas_total (legacy)",
+                        totals["roas"] <= totals["roas_total"] + 0.01,
+                        f"roas={totals['roas']}, roas_total={totals['roas_total']}")
+
+
+def test_phase6_scenario_rejects_old_pickle():
+    """P0-1/2/9: scenario rejects model_version='1.0' or absent."""
+    import tempfile
+    import pickle
+    from engines.scenario import predict_scenario
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir = Path(tmp)
+        models_dir = project_dir / "models"
+        models_dir.mkdir(parents=True)
+        old_data = {
+            "config": {"media_columns": ["TV"], "data_file": "x"},
+            "channel_params": {"TV": {"beta": 1, "alpha": 1, "gamma": 0.5}},
+            "normalization": {"media_means": {"TV": 50}, "y_mean": 100, "y_std": 10},
+        }
+        with open(models_dir / "latest.pkl", "wb") as f:
+            pickle.dump(old_data, f)
+
+        result = predict_scenario(
+            {"media_plan": {"TV": [50, 50]}},
+            str(project_dir),
+        )
+        assert_true("Phase 6: old pickle rejected with MODEL_OUTDATED",
+                    result.get("error_code") == "MODEL_OUTDATED",
+                    f"got {result}")
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -977,6 +1147,12 @@ def main() -> int:
 
     print("\n── 13. Validator column role ──")
     test_column_role_kpi_detection()
+
+    print("\n── 14. Phase 6: scenario adstock + incremental ROAS (P1-3/4/5) ──")
+    test_phase6_scenario_baseline_uses_intercept()
+    test_phase6_scenario_adstock_carryover()
+    test_phase6_scenario_incremental_roas()
+    test_phase6_scenario_rejects_old_pickle()
 
     print(f"\n{PASSED}/{PASSED + FAILED} assertions passed.")
     return 0 if FAILED == 0 else 1

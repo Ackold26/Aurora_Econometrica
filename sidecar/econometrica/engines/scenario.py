@@ -79,39 +79,67 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     if n_periods == 0:
         return {'status': 'error', 'message': 'Медиаплан не содержит данных'}
 
-    # Apply adstock + saturation → predict
+    # P1-5 fix: apply adstock to scenario media plan matching training-time
+    # transformation. Pre-fix, scenario received raw spend_t straight to Hill,
+    # missing carryover / delayed-effect channels (TV/OOH undercounted).
+    adstock_config = config_model.get('adstock_config', {})
+    adstocked_plan: dict[str, np.ndarray] = {}
+    for col in media_cols:
+        raw_arr = np.array(media_plan.get(col, [0.0] * n_periods), dtype=float)
+        # Pad / truncate to n_periods
+        if len(raw_arr) < n_periods:
+            raw_arr = np.concatenate([raw_arr, np.zeros(n_periods - len(raw_arr))])
+        elif len(raw_arr) > n_periods:
+            raw_arr = raw_arr[:n_periods]
+        a_type = adstock_config.get(col, 'geometric')
+        adstocked_plan[col] = apply_adstock(raw_arr, a_type)
+
+    # P1-3 fix: baseline = intercept × y_std + y_mean per period (intercept-based
+    # counterfactual), not y_mean × n_periods (which excluded model bias).
+    # Controls treated as average (z-scored mean=0 → control_effect=0 in absence
+    # of scenario-period control values).
+    intercept_mean = float(norm.get('intercept_mean', 0.0))
+    y_std = float(norm['y_std'])
+    y_mean = float(norm['y_mean'])
+    baseline_per_period = intercept_mean * y_std + y_mean
+
+    # Predict per period using adstocked spend
     predictions = []
     channel_contributions = {col: [] for col in media_cols}
 
     for t in range(n_periods):
         total_effect = 0
         for col in media_cols:
-            spend = media_plan.get(col, [0] * n_periods)
-            spend_t = spend[t] if t < len(spend) else 0
-
             p = channel_params[col]
+            spend_t_adstock = float(adstocked_plan[col][t])
             # P0-1/2/9 fix: spend/mean Robyn-style normalization matching training.
             mean = norm['media_means'].get(col, 1)
-            x_norm = spend_t / max(mean, 1e-10) if mean > 0 else 0
+            x_norm = spend_t_adstock / max(mean, 1e-10) if mean > 0 else 0
 
             # Saturate
             sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 0.01))
             contribution = p['beta'] * sat[0]
             total_effect += contribution
-            channel_contributions[col].append(round(float(contribution * norm['y_std']), 0))
+            channel_contributions[col].append(round(float(contribution * y_std), 0))
 
-        predicted = total_effect * norm['y_std'] + norm['y_mean']
+        # P1-3: predicted = baseline + media contribution (was: total_effect × y_std + y_mean)
+        predicted = baseline_per_period + total_effect * y_std
         predictions.append(round(float(predicted), 0))
 
-    # Baseline comparison
-    baseline_total = norm['y_mean'] * n_periods
+    baseline_total = baseline_per_period * n_periods
     scenario_total = sum(predictions)
-    lift_pct = (scenario_total - baseline_total) / baseline_total * 100 if baseline_total else 0
+    incremental_total = scenario_total - baseline_total
+    lift_pct = (incremental_total / baseline_total * 100) if baseline_total else 0
 
     # Native spend sum (mixed units — informative only, bogus for ROAS across channels)
     per_channel_native = {col: sum(media_plan.get(col, [])) for col in media_cols}
     total_spend_native = sum(per_channel_native.values())
-    roas_native = scenario_total / total_spend_native if total_spend_native > 0 else 0
+
+    # P1-4 fix: PRIMARY ROAS = incremental / spend (industry standard MMM).
+    # Legacy total ROAS (= scenario_total / spend) kept under '_total' suffix for
+    # backward compat with old scenario.json files и downstream consumers.
+    roas_native = incremental_total / total_spend_native if total_spend_native > 0 else 0
+    roas_native_total = scenario_total / total_spend_native if total_spend_native > 0 else 0
 
     # Money-denominated spend — only valid if unit_costs cover all active channels
     active_channels = [c for c in media_cols if per_channel_native.get(c, 0) > 0]
@@ -123,6 +151,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     units_fully_covered = len(covered) == len(active_channels) and len(active_channels) > 0
     total_spend_money = sum(per_channel_money.values()) if units_fully_covered else None
     roas_money = (
+        incremental_total / total_spend_money
+        if total_spend_money and total_spend_money > 0
+        else None
+    )
+    roas_money_total = (
         scenario_total / total_spend_money
         if total_spend_money and total_spend_money > 0
         else None
@@ -139,12 +172,18 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         'totals': {
             'predicted_kpi': round(scenario_total, 0),
             'baseline_kpi': round(baseline_total, 0),
+            'incremental_kpi': round(incremental_total, 0),  # P1-4: incremental as primary
             'lift_pct': round(lift_pct, 1),
             'total_spend': round(total_spend_native, 0),
             'total_spend_money': round(total_spend_money, 0) if total_spend_money else None,
+            # P1-4: primary ROAS = incremental / spend (industry-standard MMM)
             'roas': round(roas_native, 2),
             'roas_money': round(roas_money, 2) if roas_money else None,
+            # Legacy total ROAS (scenario_total / spend) — back-compat
+            'roas_total': round(roas_native_total, 2),
+            'roas_money_total': round(roas_money_total, 2) if roas_money_total else None,
             'units_fully_covered': units_fully_covered,
+            'roas_method': 'incremental',  # explicit semantic marker
         },
         'per_channel_spend': {
             'native': {k: round(v, 2) for k, v in per_channel_native.items()},
@@ -152,6 +191,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         },
         'unit_costs': unit_costs if unit_costs else None,
         'media_plan': media_plan,
+        'model_version': model_version,  # for downstream UI badge
     }
 
     # Save
@@ -195,32 +235,42 @@ def _migrate_money_fields(data: dict, unit_costs: dict) -> dict:
     Старые сценарии (session 8-) сохранены без unit_costs → у них только native-ROAS.
     При compare_scenarios передаём текущие project-level unit_costs и мигрируем на лету.
     Файлы на диске НЕ переписываются — миграция только для отображения.
+
+    P1-4 fix (2026-04-25): новые scenarios save 'roas_money' как INCREMENTAL.
+    Старые scenarios saved 'roas_money' как TOTAL. Для consistency в comparison
+    также экспортируем roas_money_incremental для legacy если baseline_kpi есть.
     """
     totals = data.get('totals', {})
-    if totals.get('roas_money') is not None:
-        return data  # уже мигрирован
-
     media_plan = data.get('media_plan', {}) or {}
-    if not media_plan or not unit_costs:
-        return data
+    has_money = totals.get('roas_money') is not None
 
-    per_channel_native = {col: sum(vals) for col, vals in media_plan.items()}
-    active = [c for c in per_channel_native if per_channel_native[c] > 0]
-    covered = [c for c in active if unit_costs.get(c, 0) > 0]
-    if not active or len(covered) != len(active):
-        return data  # не все каналы покрыты — money-mode невозможен
+    if not has_money and media_plan and unit_costs:
+        per_channel_native = {col: sum(vals) for col, vals in media_plan.items()}
+        active = [c for c in per_channel_native if per_channel_native[c] > 0]
+        covered = [c for c in active if unit_costs.get(c, 0) > 0]
+        if active and len(covered) == len(active):
+            per_channel_money = {
+                col: per_channel_native[col] * float(unit_costs[col]) for col in active
+            }
+            total_spend_money = sum(per_channel_money.values())
+            predicted_kpi = totals.get('predicted_kpi', 0)
+            baseline_kpi = totals.get('baseline_kpi', 0)
+            # Legacy old code computed roas as total/spend; preserve to keep
+            # backward-compat field semantic where it was already saved.
+            roas_money = predicted_kpi / total_spend_money if total_spend_money > 0 else None
+            totals['total_spend_money'] = round(total_spend_money, 0)
+            totals['roas_money'] = round(roas_money, 2) if roas_money else None
+            # Add explicit incremental if we can derive it (post-P1-4)
+            if baseline_kpi and total_spend_money > 0:
+                inc = (predicted_kpi - baseline_kpi) / total_spend_money
+                totals['roas_money_incremental'] = round(inc, 2)
+            totals['units_fully_covered'] = True
+            totals['_migrated'] = True
+            totals.setdefault('roas_method', 'total')  # legacy default
 
-    per_channel_money = {
-        col: per_channel_native[col] * float(unit_costs[col]) for col in active
-    }
-    total_spend_money = sum(per_channel_money.values())
-    predicted_kpi = totals.get('predicted_kpi', 0)
-    roas_money = predicted_kpi / total_spend_money if total_spend_money > 0 else None
-
-    totals['total_spend_money'] = round(total_spend_money, 0)
-    totals['roas_money'] = round(roas_money, 2) if roas_money else None
-    totals['units_fully_covered'] = True
-    totals['_migrated'] = True  # маркер — legacy-формат, без гарантии совпадения с train
+    # If post-P1-4 saved scenario, roas_method='incremental' уже установлен.
+    # Если legacy без roas_method — помечаем как 'total' для UI badge.
+    totals.setdefault('roas_method', 'total')
     data['totals'] = totals
     return data
 
