@@ -122,8 +122,19 @@
     )
   );
 
-  /** @type {string} выбор в dropdown перед нажатием «Добавить». */
+  /** @type {string} выбор в dropdown перед нажатием «Добавить».
+      Автоподстановка первого auto-detected канала с UNIT_HINT — кнопка
+      «Добавить» сразу активна, не ждёт ручного выбора option в dropdown. */
   let pendingAdd = $state('');
+  $effect(() => {
+    // Если pendingAdd пуст и есть звёздочный (auto-detected) канал в available —
+    // preselect его. Не перетираем если пользователь уже выбрал что-то другое.
+    if (pendingAdd) return;
+    const starred = availableToAdd.find(
+      /** @param {any} c */ (c) => UNIT_HINT.test(String(c.name || ''))
+    );
+    if (starred) pendingAdd = starred.name;
+  });
 
   /** @param {string} name */
   function addChannel(name) {

@@ -36,6 +36,10 @@
 
   const unknownCount = $derived(dataStats.filter(r => !r.role || r.role === 'unknown').length);
 
+  // Если ни VIF, ни stats не посчитаны (objective ещё выбирается / validate не запускался) —
+  // panel пустая обёртка с заголовком "Экспертный режим" сбивает с толку. Скрываем.
+  const hasContent = $derived(vifTable.length > 0 || dataStats.length > 0);
+
   // ── Inline role editor ──
   /** @type {string|null} */
   let editingColumn = $state(null);
@@ -73,6 +77,7 @@
   }
 </script>
 
+{#if hasContent}
 <div class="expert-panel">
   <!--
     Корреляционная матрица уже показывается в основном режиме (ValidateStep) —
@@ -188,6 +193,7 @@
     </div>
   {/if}
 </div>
+{/if}
 
 <style>
   .expert-panel {

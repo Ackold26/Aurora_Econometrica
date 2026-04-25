@@ -193,6 +193,22 @@
     return 'conf-low';
   }
 
+  /** @param {any} col */
+  function zerosPct(col) {
+    const z = col?.stats?.zeros_pct;
+    if (z == null) return null;
+    // Backend (validator.py) уже возвращает значение в процентах (e.g. 25.8).
+    // Округляем до целого; 0 показываем тоже — для табличного выравнивания.
+    return Math.round(z);
+  }
+
+  /** @param {number} pct */
+  function zerosClass(pct) {
+    if (pct < 30) return 'zeros-low';
+    if (pct < 70) return 'zeros-mid';
+    return 'zeros-high';
+  }
+
   // Zone items derived
   let zoneItems = $derived({
     kpi:     mapping.kpi,
@@ -292,6 +308,7 @@
         <div class="zone-items">
           {#each items as name (name)}
             {@const meta = colMeta(name)}
+            {@const zp = zerosPct(meta)}
             <div
               class="zone-chip"
               role="button"
@@ -301,12 +318,16 @@
               onkeydown={(e) => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); returnToUnassigned(name); } }}
             >
               <span class="chip-name">{name}</span>
-              {#if meta.confidence}
+              <div class="chip-stats">
                 <span
-                  class="conf-badge {confidenceClass(meta)}"
-                  title="Уверенность автодетекции: {confidenceLabel(meta)}. Программа распознаёт роль по имени столбца (например, «бюджет», «показы», «продажи»). Чем выше %, тем точнее определение."
-                >{confidenceLabel(meta)}</span>
-              {/if}
+                  class="conf-badge {meta.confidence ? confidenceClass(meta) : 'conf-empty'}"
+                  title={meta.confidence ? `Уверенность автодетекции: ${confidenceLabel(meta)}. Программа распознаёт роль по имени столбца (например, «бюджет», «показы», «продажи»). Чем выше %, тем точнее определение.` : 'Автодетекция не определила роль'}
+                >{meta.confidence ? confidenceLabel(meta) : '—'}</span>
+                <span
+                  class="zeros-badge {zp != null ? zerosClass(zp) : 'zeros-empty'}"
+                  title={zp != null ? `Доля строк с нулевым значением — ${zp}% от общего количества. <30% — канал работает регулярно. 30-70% — пульсирующая активность (всплески). >70% — разреженный канал, рекламные импульсы редки; модель плохо разделит его эффект, но отказываться не обязательно.` : 'Статистика нулей недоступна'}
+                >{zp != null ? `${zp}%` : '—'}</span>
+              </div>
               <button
                 class="remove-btn"
                 aria-label="Убрать {name}"
@@ -642,5 +663,53 @@
 
   .conf-unknown {
     display: none;
+  }
+
+  /* Stats grid: два фиксированных столбца (confidence + zeros) для табличного
+     выравнивания. Каждый столбец — same width, оба badges всегда присутствуют
+     (placeholder "—" если данных нет). */
+  .chip-stats {
+    display: grid;
+    grid-template-columns: 44px 44px;
+    gap: 4px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+  .chip-stats .conf-badge,
+  .chip-stats .zeros-badge {
+    margin: 0;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Zeros% badge — стиль аналогичен conf-badge. */
+  .zeros-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 10px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .zeros-low {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    color: #86efac;
+    border: 1px solid color-mix(in srgb, var(--success) 22%, transparent);
+  }
+  .zeros-mid {
+    background: rgba(251, 191, 36, 0.10);
+    color: #fcd34d;
+    border: 1px solid rgba(251, 191, 36, 0.18);
+  }
+  .zeros-high {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    color: #fca5a5;
+    border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
+  }
+  /* Placeholder для отсутствующих данных — убирает визуальный «провал» */
+  .conf-empty,
+  .zeros-empty {
+    background: transparent;
+    color: var(--text-muted, rgba(148,163,184,0.5));
+    border: 1px dashed color-mix(in srgb, var(--text-muted) 25%, transparent);
   }
 </style>

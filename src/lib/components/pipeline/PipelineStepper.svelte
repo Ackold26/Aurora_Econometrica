@@ -7,30 +7,45 @@
 
 <nav class="pipeline-stepper" aria-label="Шаги pipeline">
   {#each PIPELINE_STEPS as step, i}
-    {@const meta = $pipelineStepMeta[i]}
+    {@const rawMeta = $pipelineStepMeta[i]}
     {@const isCurrent = i === $pipelineCurrentStep}
-    {@const clickable = meta.status !== 'locked'}
+    {@const clickable = rawMeta.status !== 'locked'}
+    <!-- Monotonic visual invariant:
+         • i < curStep + не error → 'complete' (✓ галочка) — защищает от race
+           где completeStep(0) не срабатывает при load-from-disk
+         • i > curStep + был ранее 'complete' (данные на диске остались с прошлой
+           итерации) → понижаем до 'ready', чтобы future шаги не "горели"
+           зелёным когда пользователь ещё на N. Это даёт чёткий визуальный
+           прогресс: пройденные → текущий → будущие.
+         • i === curStep или error → keep raw. -->
+    {@const effectiveStatus = rawMeta.status === 'error'
+      ? 'error'
+      : (i < $pipelineCurrentStep)
+        ? 'complete'
+        : (i > $pipelineCurrentStep && rawMeta.status === 'complete')
+          ? 'ready'
+          : rawMeta.status}
 
     {#if i > 0}
-      <div class="connector" class:filled={$pipelineStepMeta[i - 1]?.status === 'complete'}></div>
+      <div class="connector" class:filled={i <= $pipelineCurrentStep || $pipelineStepMeta[i - 1]?.status === 'complete'}></div>
     {/if}
 
     <button
       class="step-node"
-      class:ready={meta.status === 'ready' && !isCurrent}
+      class:ready={effectiveStatus === 'ready' && !isCurrent}
       class:active={isCurrent}
-      class:complete={meta.status === 'complete'}
-      class:error={meta.status === 'error'}
-      class:locked={meta.status === 'locked'}
+      class:complete={effectiveStatus === 'complete'}
+      class:error={effectiveStatus === 'error'}
+      class:locked={effectiveStatus === 'locked'}
       disabled={!clickable}
       onclick={() => clickable && onNavigate(i)}
       aria-current={isCurrent ? 'step' : undefined}
-      title={meta.errorMessage || step.labelRu}
+      title={rawMeta.errorMessage || step.labelRu}
     >
       <span class="node-circle">
-        {#if meta.status === 'complete'}✓
-        {:else if meta.status === 'error'}✕
-        {:else if meta.status === 'locked'}—
+        {#if effectiveStatus === 'complete'}✓
+        {:else if effectiveStatus === 'error'}✕
+        {:else if effectiveStatus === 'locked'}—
         {:else}{step.icon}{/if}
       </span>
       <span class="node-label">{step.labelRu}</span>
@@ -103,22 +118,20 @@
   .step-node.locked .node-circle,
   .step-node.locked .node-label { opacity: 0.3; }
 
-  /* ready */
-  .step-node.ready .node-circle { border-color: color-mix(in srgb, var(--accent-primary) 50%, transparent); }
-  .step-node.ready .node-label { color: var(--text-primary, #e2e8f0); }
-
-  /* active (current) */
-  .step-node.active .node-circle {
-    border-color: var(--accent-primary, #3b82f6);
-    background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  /* ready — будущий шаг, доступный для клика, но не активный сейчас.
+     Приглушаем чтобы пользователь видел: текущий = яркий, будущие = тусклые. */
+  .step-node.ready .node-circle {
+    border-color: var(--border-subtle, rgba(255,255,255,0.18));
+    opacity: 0.55;
   }
-  .step-node.active .node-label {
-    color: var(--accent-primary, #3b82f6);
-    font-weight: var(--font-weight-heading, 600);
+  .step-node.ready .node-label {
+    color: var(--text-muted, rgba(148,163,184,0.7));
+    opacity: 0.7;
   }
+  .step-node.ready:hover:not(:disabled) .node-circle { opacity: 0.9; }
+  .step-node.ready:hover:not(:disabled) .node-label { opacity: 1; }
 
-  /* complete */
+  /* complete (passed step) */
   .step-node.complete .node-circle {
     border-color: var(--success, #22c55e);
     background: color-mix(in srgb, var(--success) 12%, transparent);
@@ -133,4 +146,23 @@
     color: var(--danger, #ef4444);
   }
   .step-node.error .node-label { color: var(--danger, #ef4444); }
+
+  /* active (current) — последним, чтобы перетирал complete/error visual.
+     Когда current = ранее пройденный шаг (active+complete), всё равно
+     показываем синий active-glow + ✓ галочку (галочка через {#if status==='complete'}). */
+  .step-node.active .node-circle {
+    border-color: var(--accent-primary, #3b82f6);
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 25%, transparent);
+    color: var(--accent-primary, #3b82f6);
+  }
+  .step-node.active .node-label {
+    color: var(--accent-primary, #3b82f6);
+    font-weight: var(--font-weight-heading, 600);
+    opacity: 1;
+  }
+  /* Когда current ещё не закончен (active+ready/locked-after-active) — circle всё равно
+     яркий, не приглушённый. Override .ready opacity. */
+  .step-node.active .node-circle,
+  .step-node.active .node-label { opacity: 1; }
 </style>

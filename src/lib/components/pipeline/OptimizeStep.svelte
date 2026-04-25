@@ -386,15 +386,16 @@
       const projectId = await ensureProjectId();
       if (!projectId) throw new Error('Проект не выбран');
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
-      const totalBudgetNative = nativeForMoneyRatio(whatIfMult);
-      // Важно: per-channel bounds должны покрыть мультипликатор, иначе optimizer
-      // не сможет найти допустимое распределение и fallback вернёт current.
-      // Min=0 (любой канал можно обнулить), Max — с запасом в 2× сверх мультипликатора.
+      // Phase 0.1.B fix: для mixed-units (TRPs+рубли) native total — арифметический
+      // мусор (TRP count + рубли). Money budget — единственный осмысленный
+      // constraint. Передаём его явно — backend auto-derive не сработает (target уже задан),
+      // optimizer корректно scales к whatIfMult × currentTotalBudget.
+      const targetMoneyBudget = currentTotalBudget * whatIfMult;
       const whatIfMax = Math.max(300, Math.ceil(whatIfMult * 200));
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
-        totalBudget: totalBudgetNative,
-        totalBudgetMoney: null,
+        totalBudget: null,
+        totalBudgetMoney: targetMoneyBudget,
         minPct: 0,
         maxPct: whatIfMax,
         minPerChannel: null,
