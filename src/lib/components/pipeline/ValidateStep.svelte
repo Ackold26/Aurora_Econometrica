@@ -74,6 +74,10 @@
     return `Готово с предупреждениями (${activeWarnings.length})`;
   });
 
+  // Key validation metrics — теперь в StepWrapper sticky header
+  // (через derived store validationHeaderMetrics в project-state.js).
+  // Здесь больше не дублируем расчёт.
+
   // Онбординг — запускается на mount даже без result: первый шаг тура
   // (selector=null) объясняет что ждёт на шаге; последующие шаги
   // querySelector'ят DOM — если target не найден, карточка центрируется.
@@ -170,10 +174,41 @@
     runValidate();  // re-invoke Python validator → fresh columns → apply new objective
   }
 
+  /**
+   * Перевести колонку в роль 'unused' (исключить из матрицы) на основе action
+   * из warning. Обновляет result.columns локально, пересчитывает Ratio/issues,
+   * сохраняет в проект.
+   * @param {string} columnName
+   */
+  function excludeColumnByName(columnName) {
+    const data = get(validateData);
+    if (!data?.result?.columns || !columnName) return;
+    const updatedCols = data.result.columns.map(/** @param {any} c */ c =>
+      c.name === columnName ? { ...c, role: 'unused' } : c
+    );
+    const updatedResult = { ...data.result, columns: updatedCols };
+    recomputeResultAfterObjective(updatedResult);
+    validateData.set({ ...data, result: updatedResult });
+
+    // Persist в проект
+    const projectId = get(activeProjectId);
+    if (projectId) {
+      invoke('project_update', {
+        projectId,
+        updates: {
+          kpi_column: updatedCols.find(/** @param {any} c */ c => c.role === 'kpi')?.name ?? null,
+          media_columns: updatedCols.filter(/** @param {any} c */ c => c.role === 'media').map(/** @param {any} c */ c => c.name),
+          control_columns: updatedCols.filter(/** @param {any} c */ c => c.role === 'control').map(/** @param {any} c */ c => c.name),
+        },
+      }).catch(() => { /* best-effort */ });
+    }
+  }
+
   /** @param {any} mapping */
   function onMappingChange(mapping) {
     const projectId = get(activeProjectId);
     if (!projectId || !mapping) return;
+    // Persist roles в проект (best-effort, не блокирует UI).
     invoke('project_update', {
       projectId,
       updates: {
@@ -181,7 +216,12 @@
         media_columns: mapping.media ?? [],
         control_columns: mapping.control ?? [],
       },
-    }).catch(() => { /* best-effort persist */ });
+    }).catch(() => { /* ignore */ });
+    // ВАЖНО: не мутируем validateData отсюда — ColumnMapper $effect Init
+    // ребилдит mapping из detected/columns, ребилд триггерит Emit → onMappingChange,
+    // и если мы здесь снова мутируем validateData — получаем infinite loop
+    // (UI freeze, watchdog strikes). Локальный пересчёт Ratio делаем через
+    // excludeColumnByName + $derived, не из этого hook.
   }
 </script>
 
@@ -305,14 +345,15 @@
               {#if !appliedFixes.has((warn.column ?? '') + warn.type)}
                 <div class="fix-item fix-{warn.severity}">
                   <span class="fix-text">{warn.message}</span>
-                  {#if warn.action === 'exclude'}
+                  {#if warn.action === 'exclude' && warn.column}
                     <button class="fix-btn" onclick={() => {
+                      excludeColumnByName(warn.column);
                       appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
-                    }}>Понятно</button>
+                    }}>Исключить</button>
                   {:else if warn.action === 'merge'}
                     <button class="fix-btn" onclick={() => {
                       appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
-                    }}>Понятно</button>
+                    }} title="Объединение каналов вручную через ColumnMapper">Понятно</button>
                   {:else}
                     <button class="fix-btn" onclick={() => {
                       appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
@@ -509,6 +550,8 @@
     padding: 4px 12px;
     border-radius: 20px;
   }
+
+  /* Key metrics переехали в StepWrapper.svelte sticky header */
 
   .excluded-badge {
     margin-top: 8px;

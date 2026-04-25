@@ -165,6 +165,69 @@ export const importData = writable({ file: null, columns: null, rows: null });
 export const validateData = writable({ result: null, correlationMatrix: null, columnHistograms: null });
 
 /**
+ * Derived store: ключевые параметры валидации для sticky header.
+ * Reactively пересчитывается при смене ролей columns / запуска валидации.
+ * Возвращает null если валидация не выполнена.
+ *
+ * @type {import('svelte/store').Readable<{
+ *   ratio: number,
+ *   ratioStatus: 'ok'|'warn'|'bad',
+ *   maxVif: number|null,
+ *   vifStatus: 'ok'|'warn'|'bad'|'na',
+ *   nObs: number,
+ *   periodStatus: 'ok'|'warn'|'bad',
+ *   mqs: number,
+ *   mqsStatus: 'ok'|'warn'|'bad'
+ * } | null>}
+ */
+export const validationHeaderMetrics = derived(validateData, ($vd) => {
+  const result = $vd?.result;
+  if (!result) return null;
+
+  const ratio = Number(result.detected?.ratio ?? result.ratio ?? 0) || 0;
+  const nObs = Number(result.file?.rows ?? 0) || 0;
+  const cols = /** @type {any[]} */ (result.columns ?? []);
+  const mediaCols = cols.filter(c => c.role === 'media');
+  const activeMedia = mediaCols.length;
+
+  // VIF max — collinearity worst-case среди media каналов
+  const vifs = mediaCols
+    .map(c => Number(c.stats?.vif))
+    .filter(v => Number.isFinite(v));
+  const maxVif = vifs.length ? Math.max(...vifs) : null;
+
+  // MQS prognosis heuristic — sanity check готовности данных до обучения
+  let score = 100;
+  if (ratio < 2) score -= 40;
+  else if (ratio < 4) score -= 25;
+  else if (ratio < 10) score -= 10;
+  if (maxVif != null) {
+    if (maxVif > 10) score -= 25;
+    else if (maxVif > 5) score -= 10;
+  }
+  if (nObs < 12) score -= 25;
+  else if (nObs < 24) score -= 8;
+  if (activeMedia === 0) score = Math.min(score, 20);
+  const mqs = Math.max(0, Math.min(100, score));
+
+  /** @param {number} v @param {number} okMin @param {number} warnMin → 'ok'|'warn'|'bad' */
+  const tierUp = (v, okMin, warnMin) => v >= okMin ? 'ok' : (v >= warnMin ? 'warn' : 'bad');
+  /** @param {number} v @param {number} okMax @param {number} warnMax */
+  const tierDown = (v, okMax, warnMax) => v <= okMax ? 'ok' : (v <= warnMax ? 'warn' : 'bad');
+
+  return {
+    ratio,
+    ratioStatus: tierUp(ratio, 10, 4),
+    maxVif,
+    vifStatus: maxVif == null ? /** @type {'na'} */ ('na') : tierDown(maxVif, 5, 10),
+    nObs,
+    periodStatus: tierUp(nObs, 24, 12),
+    mqs,
+    mqsStatus: tierUp(mqs, 80, 60),
+  };
+});
+
+/**
  * Trust Level 2: стоимость 1 юнита канала в валюте KPI (CPP/CPM).
  * Для каналов в рублях — 1.0 или отсутствие ключа.
  * Загружается из project.unit_costs при активации проекта, сохраняется через project_update.
@@ -260,11 +323,15 @@ async function restoreProjectResults(pid) {
  */
 function reconcileStepMetaFromDisk(flags) {
   const { hasValidation, hasModel, hasDecompose, hasOptimize } = flags;
-  // Step 0 (Import): если есть validation, значит импорт и валидация прошли успешно.
-  // Сам факт наличия validation.json подразумевает что файл был импортирован.
+  // Monotonic invariant: если есть данные на любом downstream шаге, все upstream
+  // шаги успешно прошли (по построению pipeline). Step 0 (Import) → complete если
+  // ЛЮБОЙ из validate/model/decompose/optimize отработал — без этого нельзя было.
+  // Это исправляет race condition где reconcile перезаписывал live-set complete
+  // на ready при временном отсутствии validation.json.
+  const importDone = hasValidation || hasModel || hasDecompose || hasOptimize;
   const stepStatuses = /** @type {StepStatus[]} */ ([
-    hasValidation ? 'complete' : 'ready',         // 0 — Import
-    hasValidation ? 'complete' : 'locked',        // 1 — Validate
+    importDone   ? 'complete' : 'ready',          // 0 — Import
+    hasValidation ? 'complete' : (importDone ? 'ready' : 'locked'),    // 1 — Validate
     hasModel     ? 'complete' : (hasValidation ? 'ready' : 'locked'),  // 2 — Model
     hasDecompose ? 'complete' : (hasModel ? 'ready' : 'locked'),       // 3 — Decompose
     hasOptimize  ? 'complete' : (hasDecompose ? 'ready' : 'locked'),   // 4 — Optimize

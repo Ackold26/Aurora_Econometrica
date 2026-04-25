@@ -97,10 +97,6 @@ def render_cover(ctx: dict) -> str:
       <dd class="cover-meta-value">{escape(period)}</dd>
     </div>
     <div class="cover-meta-cell">
-      <dt class="cover-meta-label">Версия</dt>
-      <dd class="cover-meta-value">v{escape(version)}</dd>
-    </div>
-    <div class="cover-meta-cell">
       <dt class="cover-meta-label">Классификация</dt>
       <dd class="cover-meta-value">Confidential</dd>
     </div>
