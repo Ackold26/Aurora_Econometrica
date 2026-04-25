@@ -54,6 +54,57 @@ def _fmt_x(v: Any, fallback: str = "-") -> str:
         return fallback
 
 
+def _fmt_x_bare(v: Any, fallback: str = "-") -> str:
+    """Same as _fmt_x but без × — для CI bracket inner numbers."""
+    try:
+        return f"{float(v):.2f}"
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _ci_tier_class(mean: Any, ci_low: Any, ci_high: Any) -> str:
+    """Phase 1.9: returns CSS class for CI width tier — green/amber/red badge.
+
+    Per ADR Amendment A5:
+        relative_width < 0.5  → ci-tier-good   (Уверенная)
+        0.5 - 1.0             → ci-tier-warn   (Направленная)
+        > 1.0                 → ci-tier-bad    (Высокая неопределённость)
+
+    Returns empty string when CI unavailable (no badge applied).
+    """
+    try:
+        m = float(mean)
+        lo = float(ci_low)
+        hi = float(ci_high)
+    except (TypeError, ValueError):
+        return ""
+    if abs(m) < 1e-10:
+        return "ci-tier-bad"
+    rw = (hi - lo) / abs(m)
+    if rw < 0.5:
+        return "ci-tier-good"
+    elif rw < 1.0:
+        return "ci-tier-warn"
+    else:
+        return "ci-tier-bad"
+
+
+def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
+    """Format value with optional 90% CI bracket: '2.4× [1.8 — 3.1]'.
+
+    Returns plain '_fmt_x' when CI unavailable (Phase 1.9 backward compat).
+    Bracket span has CSS class ci-bracket plus tier class for color tinting.
+    """
+    base = _fmt_x(mean)
+    if ci_low is None or ci_high is None:
+        return base
+    tier = _ci_tier_class(mean, ci_low, ci_high)
+    return (
+        f'{base} <span class="ci-bracket {tier}">'
+        f'[{_fmt_x_bare(ci_low)} — {_fmt_x_bare(ci_high)}]</span>'
+    )
+
+
 def _fmt_pct(v: Any, fallback: str = "-") -> str:
     """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision — never lies via rounding to 0%.
 
@@ -599,12 +650,18 @@ def render_action_table(ctx: dict) -> str:
         fn = fn_by_name.get(name, "")
         fn_html = f'<sup class="fn-marker">{fn}</sup>' if fn else ''
 
+        # Phase 1.9: bracket display when posterior CI available (90% HDI).
+        # mroas_ci_* aliased from optimizer's mroi_current_ci_* in narrative_adapter._merge_channels.
+        mroas_ci_low = c.get("mroas_ci_low")
+        mroas_ci_high = c.get("mroas_ci_high")
+        mroas_html = _fmt_x_with_ci(mroas, mroas_ci_low, mroas_ci_high)
+
         rows_html.append(
             f'<tr data-channel="{escape(name)}">'
             f'<td>{escape(name)}</td>'
             f'<td class="num" data-sort="{spend_mln:.2f}">{_fmt_mln(spend_mln)}</td>'
             f'<td class="num" data-sort="{contrib_mln:.2f}">{_fmt_mln(contrib_mln)}</td>'
-            f'<td class="num" data-sort="{float(mroas or 0):.3f}">{_fmt_x(mroas)}{fn_html}</td>'
+            f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
             f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
             f'</tr>'
