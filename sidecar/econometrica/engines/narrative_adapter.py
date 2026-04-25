@@ -210,7 +210,7 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             # see "(не оптимизировано)" in mROAS column. UI must rerun
             # optimize to get real marginal values.
             marginal = avg_roi
-        merged.append({
+        merged_ch = {
             "name": clean_name,
             "spend": dc.get("spend") or oc.get("current_spend"),
             "contribution": dc.get("contribution"),
@@ -220,7 +220,21 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             "current_spend": oc.get("current_spend"),
             "optimal_spend": oc.get("optimal_spend"),
             # verdict filled in after merge by derive_verdict
-        })
+        }
+        # Phase 1.9: preserve posterior CI bounds (None for v1.0/v1.1 pickles).
+        # roi_ci_* from decompose (avg ROI = contribution/spend);
+        # mroas_ci_* from optimize (marginal ROAS at current allocation).
+        for ci_field in ('roi_ci_low', 'roi_ci_high', 'contribution_ci_low', 'contribution_ci_high'):
+            if dc.get(ci_field) is not None:
+                merged_ch[ci_field] = dc.get(ci_field)
+        # Optimizer CI uses 'mroi_current_*' naming → alias to 'mroas_ci_*' for downstream renderers.
+        if oc.get('mroi_current_ci_low') is not None:
+            merged_ch['mroas_ci_low'] = oc.get('mroi_current_ci_low')
+            merged_ch['mroas_ci_high'] = oc.get('mroi_current_ci_high')
+        if oc.get('mroi_optimal_ci_low') is not None:
+            merged_ch['mroas_optimal_ci_low'] = oc.get('mroi_optimal_ci_low')
+            merged_ch['mroas_optimal_ci_high'] = oc.get('mroi_optimal_ci_high')
+        merged.append(merged_ch)
     if dropped_empty:
         logger.warning(
             f"Channels dropped (likely total-budget columns): {dropped_empty}"
