@@ -193,14 +193,28 @@ def render_at_a_glance(ctx: dict) -> str:
     if facts and channels:
         leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
-        f1 = strings["findings_templates"]["f1_leader"].format(
-            leader=leader,
-            contrib_pct=facts.get("leader_share_contrib_pct") or 0,
-            spend_pct=facts.get("leader_share_spend_pct") or 0,
-        )
-        f1_sup = strings["findings_templates"]["f1_leader_support"].format(
-            weighted_roi=facts.get("weighted_roi") or 0
-        )
+        honest = bool(facts.get("honest_narrative"))
+        media_pct = facts.get("media_contribution_pct")
+        baseline_pct = facts.get("baseline_pct")
+
+        if honest and media_pct is not None and baseline_pct is not None:
+            f1 = (
+                f"Медиа-вклад {media_pct:.1f}%, baseline {baseline_pct:.1f}% - "
+                f"модель преимущественно объясняет продажи через organic baseline"
+            )
+            f1_sup = (
+                f"{leader} - лидер среди медиа "
+                f"({facts.get('leader_share_contrib_pct') or 0:.0f}% media-вклада)"
+            )
+        else:
+            f1 = strings["findings_templates"]["f1_leader"].format(
+                leader=leader,
+                contrib_pct=facts.get("leader_share_contrib_pct") or 0,
+                spend_pct=facts.get("leader_share_spend_pct") or 0,
+            )
+            f1_sup = strings["findings_templates"]["f1_leader_support"].format(
+                weighted_roi=facts.get("weighted_roi") or 0
+            )
         findings.append((f1, f1_sup))
 
         hero_m = 0
@@ -212,13 +226,27 @@ def render_at_a_glance(ctx: dict) -> str:
                 hero_spend = float(c.get("spend") or 0) / 1_000_000.0
                 hero_spend_pct = (hero_spend / total_budget * 100) if total_budget else 0
                 break
-        f2 = strings["findings_templates"]["f2_hero"].format(hero=hero, hero_mroas=hero_m)
-        f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct=hero_spend_pct)
+
+        if honest and hero_m < 1.0:
+            f2 = f"{hero} - лучший среди медиа, но всё ещё под breakeven (mROAS {hero_m:.1f}×)"
+            f2_sup = "ROI < 1× означает что канал тратит больше чем приносит инкрементала"
+        elif honest:
+            f2 = f"{hero} - единственный канал близкий к окупаемости (mROAS {hero_m:.1f}×)"
+            f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct=hero_spend_pct)
+        else:
+            f2 = strings["findings_templates"]["f2_hero"].format(hero=hero, hero_mroas=hero_m)
+            f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct=hero_spend_pct)
         findings.append((f2, f2_sup))
 
         realloc = facts.get("reallocation_mln") or 0
         lift = facts.get("expected_lift_pct") or 0
-        if realloc >= 0.5 and hero != leader:
+        all_below_breakeven = bool(channels) and all(
+            (float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in channels
+        )
+        if honest and all_below_breakeven:
+            f3 = "Все медиа-каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
+            f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+        elif realloc >= 0.5 and hero != leader:
             f3 = strings["findings_templates"]["f3_realloc"].format(
                 realloc=realloc, leader=leader, hero=hero)
             f3_sup = strings["findings_templates"]["f3_realloc_support"].format(lift=lift)
@@ -301,15 +329,9 @@ def render_section_divider(ctx: dict) -> str:
         takeaway = "Декомпозиция покажет, какие каналы генерируют какой вклад"
 
     body = f"""
-<div style="display:grid;grid-template-columns:auto 1fr;gap:40px;align-items:center;padding:40px 0;">
-  <div style="font-family:var(--font-serif);font-size:180px;line-height:1;color:var(--rule);font-weight:400;letter-spacing:-0.04em;">05</div>
-  <div>
-    <div class="section-kicker" style="margin-bottom:4px;">Раздел 05 / 08</div>
-    <h2 class="action-title" style="margin-top:8px;">Декомпозиция вкладов</h2>
-    <div class="sacred-lime" aria-hidden="true"></div>
-    <p style="font-family:var(--font-serif);font-style:italic;font-size:20px;color:var(--text-secondary);line-height:1.4;max-width:48ch;">{escape(takeaway)}</p>
-  </div>
-</div>"""
+<h2 class="action-title">Декомпозиция вкладов</h2>
+<div class="sacred-lime" aria-hidden="true"></div>
+<p style="font-family:var(--font-serif);font-style:italic;font-size:20px;color:var(--text-secondary);line-height:1.4;max-width:60ch;margin-top:16px;">{escape(takeaway)}</p>"""
     return _section("divider", kicker, body)
 
 
@@ -325,19 +347,36 @@ def render_key_message(ctx: dict) -> str:
         cpct = facts.get("leader_share_contrib_pct") or 0
         spct = facts.get("leader_share_spend_pct") or 0
         wr = facts.get("weighted_roi") or 1.0
+        honest = bool(facts.get("honest_narrative"))
+        media_pct = facts.get("media_contribution_pct")
+        baseline_pct = facts.get("baseline_pct")
 
-        title = strings["action_titles"]["s05_default"].format(leader=leader)
-        big = _fmt_pct(cpct)
-        big_label = f"Доля {leader} в инкрементальных продажах"
-        big_support = f"При {int(spct)}% доли бюджета · ROI портфеля {wr:.2f}×"
-
-        if hero != leader:
+        if honest and media_pct is not None and baseline_pct is not None:
+            title = (
+                "Модель преимущественно отражает baseline - "
+                "медиа-вклад ограничен"
+            )
+            big = _fmt_pct(media_pct)
+            big_label = "Медиа-вклад в продажи"
+            big_support = f"Baseline: {baseline_pct:.1f}% · ROI портфеля {wr:.2f}×"
             quote = (
-                f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                "Сигнал к reallocate части бюджета."
+                f"{leader} - лидер среди медиа ({cpct:.0f}% media-вклада), "
+                f"но абсолютный media-эффект {media_pct:.1f}% от продаж. "
+                "Низкая инкрементальность - проверить adstock, saturation, качество данных."
             )
         else:
-            quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков saturation."
+            title = strings["action_titles"]["s05_default"].format(leader=leader)
+            big = _fmt_pct(cpct)
+            big_label = f"Доля {leader} в инкрементальных продажах"
+            big_support = f"При {int(spct)}% доли бюджета · ROI портфеля {wr:.2f}×"
+
+            if hero != leader:
+                quote = (
+                    f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
+                    "Сигнал к reallocate части бюджета."
+                )
+            else:
+                quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков saturation."
     else:
         title = "Главный вывод появится после обучения модели"
         big = "-"
@@ -677,7 +716,7 @@ def render_recommendation(ctx: dict) -> str:
   <div class="impact-label">Ожидаемый эффект</div>
   <div class="impact-hairline" aria-hidden="true"></div>
   <div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>
-  <div class="impact-period">ROAS к следующему периоду</div>
+  <div class="impact-period">Прогнозный ROAS</div>
 </div>
 <div class="chart-container" style="margin-top:28px;">
   <div class="chart-title-bar">
@@ -845,15 +884,15 @@ def render_closing(ctx: dict) -> str:
 
 SECTION_RENDERERS: tuple = (
     ('cover',     render_cover),
-    ('summary',   render_executive_summary),
     ('findings',  render_at_a_glance),
-    ('divider',   render_section_divider),
     ('key',       render_key_message),
+    ('recommend', render_recommendation),
+    ('summary',   render_executive_summary),
+    ('divider',   render_section_divider),
     ('mroas',     render_mroas),
     ('share',     render_share),
     ('table',     render_action_table),
     ('timeline',  render_timeline),
-    ('recommend', render_recommendation),
     ('method',    render_methodology),
     ('sources',   render_sources),
     ('glossary',  render_glossary),

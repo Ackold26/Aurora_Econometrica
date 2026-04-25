@@ -25,7 +25,10 @@ from . import themes as themes_mod
 from . import security
 from .sections import SECTION_RENDERERS
 from .interactive import bootstrap_js
-from econometrica.engines.narrative_adapter import compute_report_id
+try:
+    from econometrica.engines.narrative_adapter import compute_report_id, _normalize_channel_name
+except ImportError:
+    from engines.narrative_adapter import compute_report_id, _normalize_channel_name
 
 logger = logging.getLogger('econometrica.aurora_html')
 
@@ -233,7 +236,15 @@ class AuroraHTMLBuilder:
         ts = self.raw_decompose.get("time_series") or {}
         ts_weeks = ts.get("dates") or ts.get("weeks") or []
         ts_baseline = ts.get("baseline") or []
-        ts_channels = ts.get("channels") or {}
+        # Normalize channel keys to match self.channels names (which went
+        # through _normalize_channel_name). Without this, JS lookup
+        # data.channels[channel_order[i]] returns undefined → only Baseline
+        # renders. PPTX/XLSX use raw decompose data, so they're unaffected.
+        raw_channels = ts.get("channels") or {}
+        ts_channels: dict[str, list] = {}
+        for raw_name, series in raw_channels.items():
+            norm = _normalize_channel_name(raw_name) or raw_name
+            ts_channels[norm] = series
 
         # ─── Optimize comparison ───────────────────────────────────────
         opt_chs = self.raw_optimize.get("channels") or []

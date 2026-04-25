@@ -169,6 +169,10 @@
   const rhatFailed = $derived(
     Object.values(diagnostics?.per_param_rhat || {}).filter(v => v >= 1.05).length
   );
+  /** MCMC config used in this run — drives context-aware divergence advice. */
+  const mcmcTune = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.tune ?? 2000));
+  const mcmcDraws = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.draws ?? 2000));
+  const mcmcTargetAccept = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.target_accept ?? 0.95));
 
   /** Chart height — scale with number of params */
   const rhatHeight = $derived(`${Math.max(180, rhatCount * 28 + 60)}px`);
@@ -181,8 +185,13 @@
 </script>
 
 {#if diagnostics}
-  <!-- Warning banners -->
-  {#if !convergenceOk}
+  <!-- Warning banners.
+       UI bug fix (Phase 0.1 live-test): show "не сошлась" ONLY when R-hat > 1.05
+       для хотя бы одного параметра. Backend's `checks.convergence` смешивает
+       R-hat и divergences в один флаг — это сбивало пользователя ("не сошлась:
+       0 параметров"). Дивергенции — отдельный signal об эффективности NUTS,
+       не о сходимости. -->
+  {#if rhatFailed > 0}
     <div class="warn-banner warn">
       ⚠ Модель не сошлась: {rhatFailed} параметров с R-hat &gt; 1.05.
       Рекомендуется увеличить draws/tune в расширенных настройках.
@@ -190,7 +199,39 @@
   {/if}
   {#if divergences > 0}
     <div class="warn-banner warn">
-      ⚠ {divergences} дивергенций обнаружено. Возможна слишком сложная модель.
+      ⚠ {divergences} дивергенций обнаружено
+      <span class="muted">(Tune={mcmcTune}, Draws={mcmcDraws}, target_accept={mcmcTargetAccept}).</span>
+      {#if rhatFailed === 0}
+        Параметры сошлись (R-hat &lt; 1.05) — модель готова к использованию.
+        {#if divergences <= 10}
+          {#if mcmcTune < 4000}
+            <strong>Можно продолжать.</strong> Для академической чистоты — увеличьте Tune до 4000-6000 в Эксперт-режиме.
+          {:else if mcmcTargetAccept < 0.99}
+            <strong>Можно продолжать.</strong> Tune уже {mcmcTune} — дальнейшее увеличение не поможет. 1-3 дивергенции практически безвредны для 95% CI; альтернативно — повысьте target_accept до 0.99 (медленнее, но устранит остатки).
+          {:else}
+            <strong>Можно продолжать.</strong> Tune={mcmcTune}, target_accept={mcmcTargetAccept} — настройки максимальные. Остаточные дивергенции говорят о геометрии posterior'а, а не о NUTS adaptation. Безопасно для 95% CI.
+          {/if}
+        {:else if divergences <= 50}
+          {#if mcmcTune < 6000}
+            <strong>Продолжать можно с осторожностью.</strong> Увеличьте Tune до 6000 и Draws до 4000 — обычно уменьшает дивергенции в 5-10 раз.
+          {:else}
+            <strong>Продолжать можно с осторожностью.</strong> Tune={mcmcTune} не помогает уменьшить дивергенции. Альтернативы: target_accept=0.99, упростить модель (исключить коллинеарные каналы — см. VIF в Эксперт-режиме Валидации), или ужесточить приоры.
+          {/if}
+        {:else}
+          {#if mcmcTune < 6000}
+            <strong>Результаты использовать с осторожностью.</strong> Увеличьте Tune до 6000+, Draws до 6000, и/или исключите сильно коллинеарные каналы (см. VIF в Эксперт-режиме Валидации).
+          {:else}
+            <strong>Результаты использовать с осторожностью.</strong> Tune={mcmcTune} максимален — дальнейшее увеличение не поможет. Проблема в геометрии posterior'а: упростите модель (уберите коллинеарные каналы по VIF), сократите количество параметров, или сузьте приоры.
+          {/if}
+        {/if}
+      {:else}
+        Параметры не сошлись (R-hat &gt; 1.05).
+        {#if mcmcTune < 6000}
+          Увеличьте Tune до 6000 и Draws до 4000; если не помогло — упростите модель (исключите коллинеарные каналы).
+        {:else}
+          Tune={mcmcTune} не помогает достичь сходимости. Упростите модель (уберите коллинеарные каналы по VIF) или пересмотрите приоры в Эксперт-режиме.
+        {/if}
+      {/if}
     </div>
   {/if}
 

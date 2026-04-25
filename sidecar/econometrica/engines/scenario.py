@@ -95,10 +95,31 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             'untrained_channels': spent_untrained,
         }
 
-    # Determine periods
-    n_periods = max(len(v) for v in media_plan.values()) if media_plan else 0
-    if n_periods == 0:
+    # F6+F7 fix (math-audit v1.3): single-period media_plan from UI what-if was
+    # zero-padded to training n_periods → effective spend = single-period only,
+    # contribution tiny, predicted_kpi ≈ baseline regardless of slider. Now: if
+    # plan length == 1, treat scalar as TOTAL annual spend и distribute evenly
+    # across training n_periods (matches optimizer flat-alloc semantics + training).
+    plan_n = max(len(v) for v in media_plan.values()) if media_plan else 0
+    if plan_n == 0:
         return {'status': 'error', 'message': 'Медиаплан не содержит данных'}
+
+    # Determine reference n_periods from training data (length of df).
+    data_file = config_model.get('data_file')
+    training_n_periods = plan_n
+    if data_file and plan_n == 1:
+        try:
+            ref_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+            training_n_periods = max(len(ref_df), 1)
+            # Distribute single-period (total) spend evenly across training periods
+            for col in list(media_plan.keys()):
+                if len(media_plan[col]) == 1:
+                    total_for_channel = float(media_plan[col][0])
+                    media_plan[col] = [total_for_channel / training_n_periods] * training_n_periods
+        except Exception:
+            # Fallback: keep original plan, n_periods=1
+            training_n_periods = plan_n
+    n_periods = max(training_n_periods, plan_n)
 
     # P1-5 fix: apply adstock to scenario media plan matching training-time
     # transformation. Pre-fix, scenario received raw spend_t straight to Hill,

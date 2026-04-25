@@ -8,14 +8,14 @@
     "wordmark": "Aurora AI",
     "tagline": "Marketing Mix Modeling · Quarterly Report",
     "confidentiality": "CONFIDENTIAL",
-    "copyright_template": "© {year} Aurora AI. Все права защищены.",
+    "copyright_template": "© {year} Aurora AI. Конфиденциально",
     "methodology_badge": "Bayesian MMM · Tier-1 методология"
   },
   "sections": {
-    "cover":      { "label": "Обложка",             "kicker": "MARKETING MIX MODEL · QUARTERLY REPORT" },
+    "cover":      { "label": "Обложка",             "kicker": "MARKETING MIX MODEL REPORT" },
     "summary":    { "label": "Резюме",              "kicker": "EXECUTIVE SUMMARY" },
     "findings":   { "label": "Ключевые находки",    "kicker": "ОТЧЁТ ЗА 60 СЕКУНД" },
-    "divider":    { "label": "Декомпозиция",         "kicker": "РАЗДЕЛ 05 / 08" },
+    "divider":    { "label": "Декомпозиция",         "kicker": "АНАЛИЗ ВКЛАДОВ КАНАЛОВ" },
     "key":        { "label": "Главный вывод",       "kicker": "КЛЮЧЕВОЙ ВЫВОД" },
     "mroas":      { "label": "mROAS по каналам",    "kicker": "MROAS ПО КАНАЛАМ / МУЛЬТИПЛИКАТОР" },
     "share":      { "label": "Бюджет vs эффект",    "kicker": "ДОЛЯ БЮДЖЕТА vs ДОЛЯ ЭФФЕКТА" },
@@ -32,10 +32,10 @@
     "complication":   { "label": "COMPLICATION",   "template": "{leader} доминирует бюджет ({leader_spend_pct:.0f}% portfolio). По mROAS {hero} опережает ({hero_mroas:.1f}×). Underperformers тянут портфель вниз." },
     "question":       { "label": "QUESTION",       "template": "Как перераспределить бюджет, чтобы поднять ROAS не снижая awareness?" },
     "answer":         { "label": "ANSWER",         "template": "Перебалансировать {realloc:.0f} млн ₽ из {leader} в {hero}; сократить или остановить {underperf}." },
-    "recommendation": { "label": "RECOMMENDATION", "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп к следующему периоду." }
+    "recommendation": { "label": "RECOMMENDATION", "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп." }
   },
   "findings_templates": {
-    "f1_leader":        "{leader} обеспечивает {contrib_pct:.0f}% инкрементальных продаж при {spend_pct:.0f}% доли бюджета",
+    "f1_leader":        "{leader} — {contrib_pct:.0f}% продаж при {spend_pct:.0f}% бюджета",
     "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
     "f2_hero":           "{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×",
     "f2_hero_support":   "Текущий бюджет на нём {hero_spend_pct:.0f}%",

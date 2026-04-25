@@ -419,6 +419,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                         progressbar=True,
                         nuts_sampler='numpyro',
                         chain_method=_chain_method,
+                        target_accept=0.95,  # Phase 0.1 live-test: funnel posterior на тонких данных требует tighter step (default 0.8 даёт 70+ divergences)
                     )
                     logger.info('Tier-1 NumPyro NUTS: SUCCESS')
                 except AttributeError as e:
@@ -462,6 +463,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                             return_inferencedata=True,
                             progressbar=True,
                             callback=_draw_cb,
+                            target_accept=0.95,
                         )
                     except TypeError:
                         # Callback не поддерживается (старая PyMC версия)
@@ -472,6 +474,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                             cores=1,
                             return_inferencedata=True,
                             progressbar=True,
+                            target_accept=0.95,
                         )
                     logger.info('Tier-2 PyTensor NUTS: SUCCESS')
                 except AttributeError as e:
@@ -594,6 +597,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         )
         # Enrich diagnostics with per-param R-hat and actual_vs_predicted
         diagnostics['per_param_rhat'] = per_param_rhat
+        # MCMC config — needed by UI to give context-aware divergence advice
+        # (e.g., "Tune already at 6000 → recommend target_accept=0.99 instead").
+        diagnostics['metrics']['mcmc'] = {
+            'chains': int(chains),
+            'draws': int(draws),
+            'tune': int(tune),
+            'target_accept': 0.95,
+        }
         diagnostics['actual_vs_predicted'] = {
             'actual': [round(float(v), 4) for v in y.tolist()],
             'predicted': [round(float(v), 4) for v in y_pred.tolist()],

@@ -275,7 +275,6 @@ p { margin: 0 0 12px 0; }
   font-weight: 500;
   line-height: 1.3;
   color: var(--text);
-  max-width: 48ch;
   margin: 0 0 12px 0;
   letter-spacing: -0.01em;
 }
@@ -299,10 +298,10 @@ p { margin: 0 0 12px 0; }
 
 /* ─── Cover section ─────────────────────────────────────────────────────── */
 .cover {
-  min-height: 60vh;
-  padding: 80px 0 60px 0;
-  display: grid;
-  align-content: center;
+  padding: 60px 0 40px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 .cover h1 {
   font-size: 56px;
@@ -323,7 +322,7 @@ p { margin: 0 0 12px 0; }
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 24px;
-  margin-top: 64px;
+  margin-top: 32px;
   padding-top: 24px;
   border-top: 1px solid var(--rule);
 }
@@ -373,6 +372,8 @@ p { margin: 0 0 12px 0; }
   font-weight: 500;
   line-height: 1;
   padding-top: 4px;
+  grid-column: 1;
+  grid-row: 1 / span 2;
 }
 .finding-headline {
   font-size: 16px;
@@ -380,12 +381,14 @@ p { margin: 0 0 12px 0; }
   color: var(--text);
   margin: 0 0 4px 0;
   line-height: 1.4;
+  grid-column: 2;
 }
 .finding-support {
   font-size: 13px;
   color: var(--text-muted);
   font-style: italic;
   margin: 0;
+  grid-column: 2;
 }
 
 /* ─── Key message ───────────────────────────────────────────────────────── */
@@ -957,7 +960,8 @@ sup.fn-marker {
   line-height: 1.2;
   color: var(--text);
   margin: 0 auto;
-  max-width: 22ch;
+  max-width: none;
+  white-space: nowrap;
 }
 .closing-emphasis {
   font-family: var(--font-serif);

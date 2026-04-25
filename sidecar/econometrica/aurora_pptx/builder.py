@@ -37,10 +37,16 @@ import math
 import zlib
 from datetime import datetime
 
-from econometrica.engines.narrative_adapter import (
-    compute_report_id,
-    derive_action_headline,
-)
+try:
+    from econometrica.engines.narrative_adapter import (
+        compute_report_id,
+        derive_action_headline,
+    )
+except ImportError:
+    from engines.narrative_adapter import (
+        compute_report_id,
+        derive_action_headline,
+    )
 
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
@@ -128,7 +134,7 @@ class AuroraPPTXBuilder:
         self.total_sections = len(self.section_names)
         self.total_slides = meta.get("total_slides", 16)
         # Physical page where each section begins (first content slide).
-        self.toc_page_refs = meta.get("toc_page_refs", [3, 4, 10, 12, 14])
+        self.toc_page_refs = meta.get("toc_page_refs", [3, 6, 10, 12, 14])
         # Stage C.6.2/C.6.3: physical-slide → (section_idx, section_label) map.
         # 16-slide expanded layout: 3 new section dividers (s_div_meth @ 10,
         # s_div_data @ 12, s_div_appendix @ 14) provide visual anchoring
@@ -136,17 +142,17 @@ class AuroraPPTXBuilder:
         self.slide_to_section = meta.get("slide_to_section") or {
             2:  (1, "Executive summary"),          # TOC
             3:  (1, "Executive summary"),          # At a glance
-            4:  (2, "Декомпозиция вкладов"),       # Section divider (existing)
-            5:  (1, "Executive summary"),          # Key message
-            6:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS)
-            7:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
-            8:  (2, "Декомпозиция вкладов"),       # Action timeline
-            9:  (1, "Executive summary"),          # SCQAR
-            10: (3, "Методология"),                # NEW: Methodology divider
+            4:  (1, "Executive summary"),          # Key message
+            5:  (1, "Executive summary"),          # SCQAR
+            6:  (2, "Декомпозиция вкладов"),       # Section divider
+            7:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS)
+            8:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
+            9:  (2, "Декомпозиция вкладов"),       # Action timeline
+            10: (3, "Методология"),                # Methodology divider
             11: (3, "Методология"),                # Methodology content
-            12: (4, "Данные и качество"),          # NEW: Data divider
+            12: (4, "Данные и качество"),          # Data divider
             13: (4, "Данные и качество"),          # Sources content
-            14: (5, "Приложение и источники"),     # NEW: Appendix divider
+            14: (5, "Приложение и источники"),     # Appendix divider
             15: (5, "Приложение и источники"),     # Glossary
             16: (5, "Приложение и источники"),     # Colophon
         }
@@ -159,7 +165,7 @@ class AuroraPPTXBuilder:
         _year = datetime.now().year
         self.copyright_line = meta.get(
             "copyright_line",
-            f"© {_year} Aurora AI  .  Prepared exclusively for {self.client}  .  Not for redistribution",
+            f"© {_year} Aurora AI. Конфиденциально",
         )
         # Source-note label template (client name substituted)
         self.sources_client_label = meta.get("sources_client_label", self.client)
@@ -180,6 +186,7 @@ class AuroraPPTXBuilder:
         # with `self.facts is None` checks in each slide method.
         self.channels = self.data.get("channels") or []
         self.facts = self.data.get("narrative_facts")
+        self.time_series = self.data.get("time_series") or None
 
         # --- Report ID (Stage B.4, post-audit unified 2026-04-25) ---
         # Deterministic trace hash shared with aurora_html. Uses the raw
@@ -578,6 +585,9 @@ class AuroraPPTXBuilder:
         weighted_roi = f.get("weighted_roi")
         reallocation_mln = f.get("reallocation_mln")
         expected_lift_pct = f.get("expected_lift_pct")
+        honest = bool(f.get("honest_narrative"))
+        media_pct = f.get("media_contribution_pct")
+        baseline_pct = f.get("baseline_pct")
 
         by_mroas = sorted(self.channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
         hero_ch = by_mroas[0] if by_mroas else {}
@@ -590,40 +600,50 @@ class AuroraPPTXBuilder:
                 hero_spend_pct = hero_spend_mln / total_mln * 100
 
         # Finding 1 — leader contribution vs budget share
-        f1 = f"{leader} обеспечивает "
-        if leader_contrib_pct is not None and leader_spend_pct is not None:
-            f1 += f"{leader_contrib_pct:.0f}% инкрементальных продаж при {leader_spend_pct:.0f}% доли бюджета"
+        # Honest mode: baseline-dominated → disclose actual media share, not
+        # leader's share-of-media (misleading "X% sales" phrasing).
+        if honest and media_pct is not None and baseline_pct is not None:
+            f1 = f"Медиа-вклад {media_pct:.1f}%, baseline {baseline_pct:.1f}% - модель объясняет продажи через organic"
+            s1 = f"{leader} - лидер среди медиа ({leader_contrib_pct:.0f}% media-вклада)" if leader_contrib_pct is not None else f"{leader} - лидер среди медиа"
         else:
-            f1 += "максимальный вклад в продажи"
-        if weighted_roi is not None:
-            s1 = f"ROI {weighted_roi:.1f}× средневзвешенный по каналам"
-        else:
-            s1 = "Основной драйвер портфеля"
+            if leader_contrib_pct is not None and leader_spend_pct is not None:
+                f1 = f"{leader} - {leader_contrib_pct:.0f}% продаж при {leader_spend_pct:.0f}% бюджета"
+            else:
+                f1 = f"{leader} - максимальный вклад в продажи"
+            if weighted_roi is not None:
+                s1 = f"ROI {weighted_roi:.1f}× средневзвешенный по каналам"
+            else:
+                s1 = "Основной драйвер портфеля"
 
         # Finding 2 — hero channel by mROAS
-        if hero_mroas > 0:
-            f2 = f"{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×"
+        if honest and hero_mroas < 1.0:
+            f2 = f"{hero} - лучший среди медиа, но под breakeven (mROAS {hero_mroas:.1f}×)"
+            s2 = "ROI < 1× означает что канал тратит больше чем приносит"
+        elif hero_mroas > 0:
+            f2 = f"{hero} - самый эффективный канал, mROAS {hero_mroas:.1f}×"
+            s2 = f"Текущий бюджет на нём {hero_spend_pct:.0f}%" if hero_spend_pct is not None else "Потенциал для перераспределения бюджета"
         else:
             f2 = f"{hero} - наиболее эффективный канал по mROAS"
-        if hero_spend_pct is not None:
-            s2 = f"Текущий бюджет на нём {hero_spend_pct:.0f}%"
-        else:
             s2 = "Потенциал для перераспределения бюджета"
 
-        # Finding 3 — reallocation recommendation (fmt adapts to magnitude)
+        # Finding 3 — reallocation / honest disclosure
         def _fmt_mln(v):
             if v is None:
                 return "0"
             return f"{v:.1f}" if v < 10 else f"{v:.0f}"
 
-        if reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
+        all_below_breakeven = bool(self.channels) and all(
+            (float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in self.channels
+        )
+        if honest and all_below_breakeven:
+            f3 = "Рекомендация: все каналы под breakeven - сократить медиа или диагностика данных"
+            s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+        elif reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
             f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
+            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
-        if expected_lift_pct is not None:
-            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп"
-        else:
-            s3 = "Ожидаемый эффект - положительный при сохранении общего бюджета"
+            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Портфель близок к оптимуму"
 
         # Finding 4 — verdict distribution (how portfolio looks)
         # Stage C.3: idiomatic Russian plural forms (no lazy "канал(ов)" hack).
@@ -725,7 +745,7 @@ class AuroraPPTXBuilder:
         # Category tag
         self._text(
             slide, self.safe, self.safe + 0.65, 10.0, 0.25,
-            "MARKETING MIX MODEL . QUARTERLY REPORT",
+            "MARKETING MIX MODEL REPORT",
             font=self.sans, size=9, color=self.deep_60,
         )
 
@@ -739,7 +759,7 @@ class AuroraPPTXBuilder:
         # Subtitle in italic
         self._text(
             slide, self.safe, 4.0, self.w - 2 * self.safe, 0.55,
-            f"и рекомендации по оптимизации на {self.forecast_period_label}",
+            "и рекомендации по оптимизации",
             font=self.serif, size=24, italic=True, color=self.deep_80,
         )
 
@@ -1005,7 +1025,7 @@ class AuroraPPTXBuilder:
         else:
             takeaway = "TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации портфеля"
         self._render_section_divider(
-            slide_num=4,
+            slide_num=6,
             takeaway=takeaway,
             topics=[
                 "Индивидуальные вклады каналов и ROI ранжирование",
@@ -1073,7 +1093,7 @@ class AuroraPPTXBuilder:
 
     def s05_key_message(self):
         slide = self._blank()
-        self._header(slide, slide_num=5)
+        self._header(slide, slide_num=4)
 
         self._category(slide, self.safe, 0.60, "КЛЮЧЕВОЙ ВЫВОД")
 
@@ -1085,27 +1105,43 @@ class AuroraPPTXBuilder:
             cpct = self.facts.get("leader_share_contrib_pct")
             spct = self.facts.get("leader_share_spend_pct")
             wr = self.facts.get("weighted_roi")
+            honest = bool(self.facts.get("honest_narrative"))
+            media_pct = self.facts.get("media_contribution_pct")
+            baseline_pct = self.facts.get("baseline_pct")
 
-            # Action title — leader's position statement
-            title = f"{leader} остаётся основным драйвером, но эффективность требует проверки насыщения"
-            # Big number — leader contribution share
-            big_number = f"{cpct:.0f}%" if cpct is not None else "-"
-            big_label = f"Доля {leader} в инкрементальных продажах"
-            if spct is not None and wr is not None:
-                big_support = f"При {spct:.0f}% доли бюджета. ROI портфеля {wr:.1f}× средневзвешенный."
-            else:
-                big_support = "Лидер по вкладу в продажи"
-            # Pull quote — hero outperforms leader, reallocate signal
-            if hero != leader:
+            if honest and media_pct is not None and baseline_pct is not None:
+                # Honest narrative: baseline-dominated model (media < 10%).
+                # Disclose this rather than leading with leader's media-share.
+                title = "Модель преимущественно отражает baseline - медиа-вклад ограничен"
+                big_number = f"{media_pct:.1f}%"
+                big_label = "Медиа-вклад в продажи"
+                big_support = f"Baseline: {baseline_pct:.1f}%. ROI портфеля {wr:.2f}× средневзвешенный." if wr is not None else f"Baseline: {baseline_pct:.1f}%."
                 quote_txt = (
-                    f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                    "Сигнал к перераспределению части бюджета в digital."
+                    f"{leader} - лидер среди медиа ({cpct:.0f}% media-вклада), "
+                    f"но абсолютный media-эффект {media_pct:.1f}% от продаж. "
+                    "Низкая инкрементальность - проверить adstock, saturation, качество данных."
                 )
             else:
-                quote_txt = (
-                    f"{leader} - единственный лидер и по вкладу, и по эффективности. "
-                    "Бюджет следует сохранить до признаков насыщения."
-                )
+                # Action title — leader's position statement
+                title = f"{leader} остаётся основным драйвером, но эффективность требует проверки насыщения"
+                # Big number — leader contribution share
+                big_number = f"{cpct:.0f}%" if cpct is not None else "-"
+                big_label = f"Доля {leader} в инкрементальных продажах"
+                if spct is not None and wr is not None:
+                    big_support = f"При {spct:.0f}% доли бюджета. ROI портфеля {wr:.1f}× средневзвешенный."
+                else:
+                    big_support = "Лидер по вкладу в продажи"
+                # Pull quote — hero outperforms leader, reallocate signal
+                if hero != leader:
+                    quote_txt = (
+                        f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
+                        "Сигнал к перераспределению части бюджета в digital."
+                    )
+                else:
+                    quote_txt = (
+                        f"{leader} - единственный лидер и по вкладу, и по эффективности. "
+                        "Бюджет следует сохранить до признаков насыщения."
+                    )
         else:
             title = "TV остаётся основным драйвером, но эффективность достигла локального максимума"
             big_number = "42%"
@@ -1158,7 +1194,7 @@ class AuroraPPTXBuilder:
             ),
         )
 
-        self._footer(slide, 5)
+        self._footer(slide, 4)
 
     # ----------------------------------------------------------------
     # SLIDE 06 - ACTION + CHART + COMMENTARY (with annotation)
@@ -1166,7 +1202,7 @@ class AuroraPPTXBuilder:
 
     def s06_action_chart(self):
         slide = self._blank()
-        self._header(slide, slide_num=6)
+        self._header(slide, slide_num=7)
 
         self._category(slide, self.safe, 0.60, "ROI ПО КАНАЛАМ")
 
@@ -1377,7 +1413,7 @@ class AuroraPPTXBuilder:
             self._vbar(slide, right_x - 0.15, cy + 0.03, 1.2, weight=2, color=self.gold)
             cy += 1.35
 
-        self._footer(slide, 6)
+        self._footer(slide, 7)
 
     # ----------------------------------------------------------------
     # SLIDE 07 - ACTION + TABLE (with conditional formatting & footnotes)
@@ -1385,7 +1421,7 @@ class AuroraPPTXBuilder:
 
     def s07_action_table(self):
         slide = self._blank()
-        self._header(slide, slide_num=7)
+        self._header(slide, slide_num=8)
 
         self._category(slide, self.safe, 0.60, "ПОРТФЕЛЬ КАНАЛОВ")
 
@@ -1613,7 +1649,7 @@ class AuroraPPTXBuilder:
 
     def s08_action_timeline(self):
         slide = self._blank()
-        self._header(slide, slide_num=8)
+        self._header(slide, slide_num=9)
 
         self._category(slide, self.safe, 0.60, "ДИНАМИКА")
 
@@ -1633,19 +1669,69 @@ class AuroraPPTXBuilder:
         chart_w = self.w - 2 * self.safe
         chart_h = 3.7
 
+        # Subtitle: when real time_series is present we know exact period
+        # range; otherwise fall back to data_window_label preview text.
+        ts = self.time_series if isinstance(self.time_series, dict) else None
+        if ts and ts.get("dates"):
+            dates_list = list(ts["dates"])
+            period_label = f"{dates_list[0]} - {dates_list[-1]}" if dates_list else self.data_window_label
+        else:
+            period_label = self.data_window_label
+
         self._text(
             slide, chart_x, chart_y, chart_w, 0.25,
-            "ПРОДАЖИ ПО НЕДЕЛЯМ / ₽ МЛН . STACKED AREA CHART",
+            "ПРОДАЖИ ПО ПЕРИОДАМ / ₽",
             font=self.sans, size=9, bold=True, color=self.deep_80,
         )
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
-            f"Декомпозиция: базовый уровень + вклад каждого канала, {self.data_window_label}",
+            f"Базовый уровень + вклад каждого канала · {period_label}",
             font=self.sans, size=9, italic=True, color=self.deep_60,
         )
         # Hairline removed per brand rule - minimize horizontal lines
 
-        # Area chart (real stacked rects per week)
+        # ── Real stacked area chart from decomposition.time_series ────────
+        # If pipeline provided per-period series, render a native python-pptx
+        # AREA_STACKED chart (real data, real categorical x-axis). Otherwise
+        # fall back to legacy preview/wireframe mode that paints stylized
+        # rectangles week-by-week (Kagocel pilot bands).
+        if ts and ts.get("dates") and ts.get("baseline"):
+            from .charts import make_timeline_area
+
+            chart_inner_x = chart_x
+            chart_inner_y = chart_y + 0.8
+            chart_inner_w = chart_w
+            chart_inner_h = 2.8
+
+            channel_series = ts.get("channels") or {}
+            # Trim to top-5 channels by total contribution to keep legend
+            # readable; small contributors aggregate into baseline visually
+            # (approximation — true total would re-add their per-period sums).
+            ranked = sorted(
+                channel_series.items(),
+                key=lambda kv: sum(float(v) for v in kv[1] or []),
+                reverse=True,
+            )[:5]
+            channel_dict = {name: list(values) for name, values in ranked}
+
+            make_timeline_area(
+                slide,
+                chart_inner_x, chart_inner_y, chart_inner_w, chart_inner_h,
+                dates=list(ts["dates"]),
+                baseline=list(ts["baseline"]),
+                channel_series=channel_dict,
+            )
+
+            # Source at bottom (unified position, real-data variant)
+            self._source(
+                slide, 6.87,
+                text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция Bayesian MMM · {self.report_id}",
+            )
+
+            self._footer(slide, 9)
+            return
+
+        # ── Legacy preview/wireframe path (no real time_series) ───────────
         weeks = 13
         area_x = chart_x + 0.7  # leave space for y-axis labels
         area_y = chart_y + 0.8
@@ -1785,7 +1871,7 @@ class AuroraPPTXBuilder:
             text=f"Источник: {self.sources_client_label}, продажи за период {self.data_window_label}; декомпозиция Bayesian MMM · {self.report_id}",
         )
 
-        self._footer(slide, 8)
+        self._footer(slide, 9)
 
     # ----------------------------------------------------------------
     # SLIDE 09 - EXECUTIVE SUMMARY (SCQAR)
@@ -1793,7 +1879,7 @@ class AuroraPPTXBuilder:
 
     def s09_scqar(self):
         slide = self._blank()
-        self._header(slide, slide_num=9)
+        self._header(slide, slide_num=5)
 
         self._category(slide, self.safe, 0.60, "РЕКОМЕНДАЦИЯ")
 
@@ -1854,7 +1940,7 @@ class AuroraPPTXBuilder:
                 {"label": "СИТУАЦИЯ", "height": 0.6, "body": situation_body},
                 {"label": "ПРОБЛЕМА", "height": 0.8, "body": complication_body},
                 {"label": "ВОПРОС", "height": 0.55,
-                 "body": f"Как перераспределить бюджет на {self.forecast_period_label}, чтобы поднять ROAS без снижения охвата знания?",
+                 "body": "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?",
                  "accent": True},
                 {"label": "ОТВЕТ", "height": 0.6, "body": answer_body},
                 {"label": "РЕКОМЕНДАЦИИ", "height": 2.3, "body": None},
@@ -1870,7 +1956,7 @@ class AuroraPPTXBuilder:
                  "body":   "TV достиг насыщения: выше 80 TRP/нед маржинальный ROI падает на 22% год к году. Digital video недоинвестирован (<15% бюджета при mROAS 1.9×). Портфель не оптимизирован."},
                 {"label":  "ВОПРОС",
                  "height": 0.55,
-                 "body":   f"Как перераспределить бюджет на {self.forecast_period_label}, чтобы поднять ROAS без снижения охвата знания?",
+                 "body":   "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?",
                  "accent": True},
                 {"label":  "ОТВЕТ",
                  "height": 0.6,
@@ -1982,11 +2068,11 @@ class AuroraPPTXBuilder:
             font=self.serif, size=42, color=self.deep_100,
         )
         self._text(
-            slide, impact_x, impact_y + 1.1, 2.5, 0.22, f"ROAS к {self.forecast_period_label}",
+            slide, impact_x, impact_y + 1.1, 2.5, 0.22, "Прогнозный ROAS",
             font=self.sans, size=10, italic=True, color=self.deep_60,
         )
 
-        self._footer(slide, 9)
+        self._footer(slide, 5)
 
     # ----------------------------------------------------------------
     # SLIDE 10 - METHODOLOGY + LIMITATIONS
@@ -2145,15 +2231,16 @@ class AuroraPPTXBuilder:
             font=self.sans, size=10, bold=True, color=self.gold,
         )
 
-        # The big MQS score + /100 pair - centered horizontally in card
-        # score box width 2.0 (fits 120pt 2-3 digit glyphs without wrap)
+        # The big MQS score + /100 pair - centered vertically between
+        # title (top) and status hairline (bottom). Spacing balanced so
+        # "70 → /" gap ≈ "/ → 100" gap (visually symmetric pair).
         self._text(
-            slide, card_x + 0.95, card_y + 0.50, 2.0, 1.8, f"{self.mqs_score:.0f}",
-            font=self.serif, size=120, color=self.deep_100,
+            slide, card_x + 0.45, card_y + 0.30, 2.0, 1.8, f"{self.mqs_score:.0f}",
+            font=self.serif, size=120, color=self.deep_100, align=PP_ALIGN.RIGHT,
         )
-        # "/100" baseline-aligned to right of 87
+        # "/ 100" left-aligned, gap to "70" matches gap "/" → "100"
         self._text(
-            slide, card_x + 2.70, card_y + 1.35, 1.2, 0.5, "/ 100",
+            slide, card_x + 2.55, card_y + 1.10, 1.5, 0.5, "/ 100",
             font=self.serif, size=32, color=self.deep_60,
         )
 
@@ -2448,12 +2535,12 @@ class AuroraPPTXBuilder:
         self.s01_cover()
         self.s03_toc()
         self.s02_at_a_glance()
-        self.s04_section_divider()
         self.s05_key_message()
+        self.s09_scqar()
+        self.s04_section_divider()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()
-        self.s09_scqar()
         self.s_divider_methodology()
         self.s10_methodology()
         self.s_divider_data()

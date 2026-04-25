@@ -579,14 +579,18 @@ fn build_xlsx(
     // base_fmt seeds every derived Format via .clone() — column-level formats
     // in rust_xlsxwriter do NOT cascade to cells with explicit format, so all
     // font-family/size inheritance must happen at Format construction time.
-    let base_fmt = Format::new().set_font_name("Arial").set_font_size(10);
+    // Inter font matches HTML/PPTX hybrid design system (fallback to Aptos
+    // for older Office installs without Inter — Excel auto-substitutes).
+    let base_fmt = Format::new().set_font_name("Inter").set_font_size(10);
     let bold = base_fmt.clone().set_bold();
+    // header_fmt: navy bg + white text + gold underline (hybrid signature combo).
     let header_fmt = base_fmt.clone()
         .set_bold()
-        .set_font_size(14)
+        .set_font_size(11)
         .set_background_color(Color::RGB(DEEP_80))
         .set_font_color(Color::RGB(WHITE))
-        .set_border_bottom(FormatBorder::Thin);
+        .set_border_bottom(FormatBorder::Medium)
+        .set_border_bottom_color(Color::RGB(GOLD));
     #[allow(dead_code)]
     let _subheader_fmt = base_fmt.clone()
         .set_italic()
@@ -607,19 +611,26 @@ fn build_xlsx(
     {
         let ws = wb.add_worksheet();
         ws.set_name("Обзор").map_err(|e| format!("{e}"))?;
-        ws.set_tab_color(Color::RGB(DEEP_80));
+        ws.set_tab_color(Color::RGB(GOLD));
 
-        let title_fmt = base_fmt.clone()
-            .set_bold()
-            .set_font_size(24)
+        // Cover title — Lora serif (matches HTML/PPTX hybrid hero typography).
+        let title_fmt = Format::new()
+            .set_font_name("Lora")
+            .set_font_size(28)
             .set_font_color(Color::RGB(DEEP_100))
             .set_align(FormatAlign::CenterAcross);
-        ws.write_with_format(0, 0, "Aurora AI - Marketing Mix Model", &title_fmt)
+        ws.write_with_format(0, 0, "MARKETING MIX MODEL REPORT", &title_fmt)
             .map_err(|e| format!("{e}"))?;
-        // Empty siblings enable CenterAcross rendering across A1:D1
         for col in 1..4u16 {
             ws.write_with_format(0, col, "", &title_fmt).map_err(|e| format!("{e}"))?;
         }
+
+        // Gold accent stripe row beneath title (hybrid sacred-lime equivalent).
+        let stripe_fmt = Format::new().set_background_color(Color::RGB(GOLD));
+        for col in 0..4u16 {
+            ws.write_with_format(1, col, "", &stripe_fmt).map_err(|e| format!("{e}"))?;
+        }
+        ws.set_row_height(1, 4.0).map_err(|e| format!("{e}"))?;
 
         let label_fmt = base_fmt.clone().set_bold().set_font_color(Color::RGB(DEEP_60));
         let value_fmt = base_fmt.clone().set_font_color(Color::RGB(DEEP_100));
@@ -630,7 +641,7 @@ fn build_xlsx(
             ("Проект:",          project_id.to_string()),
             ("Дата:",            today),
             ("Версия:",          "v1.0.11".to_string()),
-            ("Confidentiality:", "Подготовлено исключительно для указанного клиента".to_string()),
+            ("Confidentiality:", "Конфиденциально".to_string()),
         ];
         for (i, (k, v)) in meta_rows.iter().enumerate() {
             let row = (i + 2) as u32; // start at row 3 (index 2) — visual gap after title
