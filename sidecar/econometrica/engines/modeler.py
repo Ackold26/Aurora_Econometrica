@@ -616,6 +616,30 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         alpha_means = trace.posterior['alphas'].mean(dim=['chain', 'draw']).values.tolist()
         gamma_means = trace.posterior['gammas'].mean(dim=['chain', 'draw']).values.tolist()
 
+        # Phase 1.9: extract FULL posterior samples (joint per channel) for CI propagation.
+        # Shape convention: (n_channels, n_samples) — samples[i, :] = all draws for channel i.
+        # Joint correlation preserved across alphas/gammas/betas via consistent stack order.
+        # float32 halves storage vs float64 with negligible loss for percentile/HDI estimation.
+        media_betas_samples = np.asarray(
+            trace.posterior['media_betas'].stack(sample=('chain', 'draw')).values, dtype=np.float32
+        )
+        alphas_samples = np.asarray(
+            trace.posterior['alphas'].stack(sample=('chain', 'draw')).values, dtype=np.float32
+        )
+        gammas_samples = np.asarray(
+            trace.posterior['gammas'].stack(sample=('chain', 'draw')).values, dtype=np.float32
+        )
+
+        # Tail-ESS check per channel β (Vehtari rule: tail_ess ≥ 100·n_chains for stable percentile estimation).
+        # If any channel fails — CI brackets will be annotated "оценка нестабильна" downstream.
+        try:
+            tail_ess_betas = az.ess(trace, var_names=['media_betas'], method='tail')['media_betas'].values
+            tail_ess_threshold = 100 * int(chains)
+            tail_ess_ok_per_channel = [bool(e >= tail_ess_threshold) for e in tail_ess_betas.tolist()]
+        except Exception as _ess_err:
+            logger.warning(f"Tail-ESS computation failed: {_ess_err}. Treating as OK (defensive).")
+            tail_ess_ok_per_channel = [True] * len(media_cols)
+
         channel_params = {}
         for i, col in enumerate(media_cols):
             channel_params[col] = {
@@ -623,6 +647,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 'alpha': round(alpha_means[i], 4),
                 'gamma': round(gamma_means[i], 4),
                 'adstock': adstock_params_used[col],
+                'tail_ess_ok': tail_ess_ok_per_channel[i],
             }
 
         report('saving', pct=95)
@@ -639,6 +664,18 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         control_betas_mean_posterior = []
         if len(control_cols) > 0:
             control_betas_mean_posterior = trace.posterior['control_betas'].mean(dim=['chain', 'draw']).values.tolist()
+
+        # Phase 1.9: full posterior samples for CI propagation in decomposer/optimizer/scenario.
+        # Shape: intercept (n_samples,), control_betas (n_controls, n_samples) if any.
+        intercept_samples = np.asarray(
+            trace.posterior['intercept'].stack(sample=('chain', 'draw')).values, dtype=np.float32
+        )
+        if len(control_cols) > 0:
+            control_betas_samples = np.asarray(
+                trace.posterior['control_betas'].stack(sample=('chain', 'draw')).values, dtype=np.float32
+            )
+        else:
+            control_betas_samples = np.zeros((0, intercept_samples.shape[0]), dtype=np.float32)
 
         model_data = {
             'config': config,
@@ -657,7 +694,25 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # Scenario/optimizer reject spend on these to avoid prior-only fabrication.
                 'untrained_channels': untrained_channels,
             },
-            'model_version': '1.1',  # P0-1/2/9 schema; older pickles rejected by engines
+            # Phase 1.9: persist full posterior draws for honest uncertainty quantification.
+            # Joint structure preserves per-draw correlation between alpha/gamma/beta of same channel.
+            # Storage: ~864 KB for n=36 × 7 channels × 8000 draws × float32 — negligible vs PyMC pickle overhead.
+            'posterior_samples': {
+                'media_betas': media_betas_samples,        # shape (n_channels, n_samples)
+                'alphas': alphas_samples,                  # shape (n_channels, n_samples)
+                'gammas': gammas_samples,                  # shape (n_channels, n_samples)
+                'intercept': intercept_samples,            # shape (n_samples,)
+                'control_betas': control_betas_samples,    # shape (n_controls, n_samples)
+                'media_columns': list(media_cols),         # ordering reference
+                'control_columns': list(control_cols),     # ordering reference
+                'n_chains': int(chains),
+                'n_draws': int(draws),
+            },
+            # Phase 1.9 schema: model_version 1.1.5 (additive — backward compat for v1.1 readers via .get()).
+            # v1.0/v1.1 pickles → fallback to point estimate with warning banner.
+            # v1.1.5 pickles → full CI display via posterior_samples.
+            # Phase 1.1 will bump to v1.2 (adds adstock decay samples).
+            'model_version': '1.1.5',
             'y_actual': y.tolist(),
             'y_predicted': y_pred.tolist(),
         }
