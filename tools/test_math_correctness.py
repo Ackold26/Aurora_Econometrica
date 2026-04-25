@@ -964,6 +964,126 @@ def _build_mock_scenario_pickle(tmp_dir: Path, *, intercept_mean=0.0,
     return project_dir
 
 
+def _build_mock_decomposer_pickle(tmp_dir: Path, *, intercept_mean=0.5,
+                                     y_mean=100.0, y_std=20.0,
+                                     channels=(("TV", 1.0, 1.5, 0.5, 50.0),),
+                                     n_periods=4) -> tuple[Path, list[float]]:
+    """Build mock pickle + matching xlsx for decomposer testing.
+    Returns (project_dir, y_actual_used).
+    """
+    import pickle
+    import pandas as pd
+    project_dir = tmp_dir
+    models_dir = project_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build df with media spend matching expected normalization mean
+    media_columns = [c[0] for c in channels]
+    means = {c[0]: c[4] for c in channels}
+    df_data = {"date": pd.date_range("2024-01-01", periods=n_periods, freq="W")}
+    for c in channels:
+        # Spend such that mean ≈ provided mean
+        spends = [c[4]] * n_periods
+        df_data[c[0]] = spends
+    # Predict synthetic y using known formula
+    y_actual = []
+    for t in range(n_periods):
+        media_eff = 0.0
+        for c in channels:
+            spend = df_data[c[0]][t]
+            x_norm = spend / means[c[0]]
+            sat = (x_norm ** c[2]) / (x_norm ** c[2] + c[3] ** c[2])
+            media_eff += c[1] * sat
+        y_actual.append(intercept_mean * y_std + y_mean + media_eff * y_std + np.random.uniform(-5, 5))
+    df_data["y"] = y_actual
+    df = pd.DataFrame(df_data)
+    data_file = project_dir / "data.xlsx"
+    df.to_excel(data_file, index=False)
+
+    channel_params = {
+        c[0]: {"beta": c[1], "alpha": c[2], "gamma": c[3], "adstock": {"type": "geometric"}}
+        for c in channels
+    }
+
+    model_data = {
+        "config": {
+            "data_file": str(data_file),
+            "kpi_column": "y",
+            "media_columns": media_columns,
+            "control_columns": [],
+            "date_column": "date",
+            "adstock_config": {c[0]: "geometric" for c in channels},
+        },
+        "channel_params": channel_params,
+        "normalization": {
+            "media_means": means,
+            "control_means": {},
+            "control_stds": {},
+            "y_mean": y_mean,
+            "y_std": y_std,
+            "intercept_mean": intercept_mean,
+            "control_betas_mean": [],
+        },
+        "y_actual": y_actual,
+        "y_predicted": y_actual,  # synthetic perfect fit for residual test
+        "model_version": "1.1",
+    }
+    with open(models_dir / "latest.pkl", "wb") as f:
+        pickle.dump(model_data, f)
+    return project_dir, y_actual
+
+
+def test_decomposer_energy_conservation():
+    """Post-audit fix: sum(baseline) + sum(channels) == sum(y_actual) exactly.
+
+    Pre-fix decomposer baseline derived from intercept + controls only, so when
+    R²<1, waterfall didn't balance: baseline + media != total_sales. Fixed by
+    absorbing residuals into baseline (Robyn convention).
+    """
+    import tempfile
+    np.random.seed(SEED + 100)
+    from engines.decomposer import decompose
+
+    with tempfile.TemporaryDirectory() as tmp:
+        project_dir, y_actual = _build_mock_decomposer_pickle(
+            Path(tmp),
+            intercept_mean=0.5, y_mean=100, y_std=20,
+            channels=(("TV", 0.5, 1.5, 0.5, 50.0), ("Digital", 0.3, 1.2, 0.7, 30.0)),
+            n_periods=12,
+        )
+        result = decompose(str(project_dir))
+        assert_true("decomposer status ok", result.get("status") == "ok",
+                    f"got {result}")
+
+        baseline = float(result["baseline"])
+        media = float(result["media_contribution"])
+        total = float(result["total_sales"])
+
+        # Energy conservation: baseline + sum(channels) ≈ total_sales
+        diff = abs(baseline + media - total)
+        scale = max(abs(total), 1.0)
+        assert_true(
+            "energy conservation: baseline + media == total_sales (within 1%)",
+            diff / scale < 0.01,
+            f"baseline={baseline:.1f}, media={media:.1f}, sum={baseline+media:.1f}, total={total:.1f}, diff={diff:.2f}",
+        )
+
+        # Per-period: same property
+        ts = result["time_series"]
+        baseline_ts = ts["baseline"]
+        channels_ts = ts["channels"]
+        n = len(baseline_ts)
+        for t in range(n):
+            ch_sum_t = sum(channels_ts[c][t] for c in channels_ts)
+            actual_t = float(y_actual[t]) if t < len(y_actual) else 0
+            sum_t = baseline_ts[t] + ch_sum_t
+            assert_true(
+                f"per-period[{t}]: baseline + channels ≈ y_actual",
+                abs(sum_t - actual_t) / max(abs(actual_t), 1.0) < 0.05,
+                f"baseline_ts[{t}]={baseline_ts[t]}, ch_sum={ch_sum_t}, sum={sum_t}, actual={actual_t}",
+            )
+
+
 def test_phase6_scenario_baseline_uses_intercept():
     """P1-3: baseline = intercept_mean × y_std + y_mean per period."""
     import tempfile
@@ -1147,6 +1267,9 @@ def main() -> int:
 
     print("\n── 13. Validator column role ──")
     test_column_role_kpi_detection()
+
+    print("\n── 13b. Decomposer energy conservation (post-audit fix) ──")
+    test_decomposer_energy_conservation()
 
     print("\n── 14. Phase 6: scenario adstock + incremental ROAS (P1-3/4/5) ──")
     test_phase6_scenario_baseline_uses_intercept()

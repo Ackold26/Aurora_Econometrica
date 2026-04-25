@@ -52,6 +52,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     channel_params = model_data['channel_params']
     norm = model_data['normalization']
     media_cols = config_model['media_columns']
+    # y_std needed for KPI-scale conversions of mROI and response curves.
+    y_std = float(norm.get('y_std', 1.0)) or 1.0
     # Override > pickle-config (аналогично decomposer).
     unit_costs_override = config.get('unit_costs')
     unit_costs = unit_costs_override if unit_costs_override is not None else (config_model.get('unit_costs', {}) or {})
@@ -160,13 +162,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         delta_pct = (opt - cur) / cur * 100 if cur > 0 else 0
 
         # Marginal ROI at current and optimal points
-        # P0-5/6 fix: chain rule d(response)/d(spend) = d(hill(x_norm))/d(x_norm) × 1/mean
+        # Post-audit fix: full chain rule + y_std denormalization → KPI/spend.
+        # marginal_roi returns d(β·hill(x_norm))/d(x_norm) in y_norm units.
+        # d(KPI)/d(spend) = d(β·hill(x_norm))/d(x_norm) × dx_norm/dspend × y_std
+        #                 = marginal × (1/mean) × y_std
         from utils.saturation import marginal_roi
         mean_ch = float(media_means.get(col, 1)) or 1
         cur_norm = cur / max(mean_ch, 1e-10)
         opt_norm = float(opt) / max(mean_ch, 1e-10)
-        mroi_current = float(marginal_roi(np.array([max(cur_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0]) / max(mean_ch, 1e-10)
-        mroi_optimal = float(marginal_roi(np.array([max(opt_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0]) / max(mean_ch, 1e-10)
+        mroi_current_norm = float(marginal_roi(np.array([max(cur_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0])
+        mroi_optimal_norm = float(marginal_roi(np.array([max(opt_norm, 1e-10)]), p['alpha'], max(p['gamma'], 1e-6), p['beta'])[0])
+        mroi_current = mroi_current_norm * y_std / max(mean_ch, 1e-10)
+        mroi_optimal = mroi_optimal_norm * y_std / max(mean_ch, 1e-10)
 
         uc = float(unit_costs.get(col, 1.0) or 1.0)
         channels.append({

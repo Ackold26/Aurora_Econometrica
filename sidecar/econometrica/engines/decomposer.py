@@ -52,6 +52,7 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     channel_params = model_data['channel_params']
     norm = model_data['normalization']
     y_actual = np.array(model_data['y_actual'])
+    y_predicted_saved = np.array(model_data.get('y_predicted', []) or [])
     media_cols = config['media_columns']
     control_cols = config.get('control_columns', []) or []
     # Override > config. Передан ли override (даже {}) — клиент управляет явно.
@@ -153,7 +154,25 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         # control_effect normalised → multiply by y_std for original-unit
         control_effect_per_period = (X_control_norm @ beta_c) * y_std
 
-    baseline_per_period = intercept_per_period + control_effect_per_period
+    # Energy conservation (post-audit fix): baseline absorbs residual variance
+    # so that sum(baseline) + sum(channels) == sum(y_actual) exactly.
+    # Standard MMM convention (Robyn, LightweightMMM, Meridian): residual goes
+    # into baseline since by construction it's "unexplained by media".
+    # Compute model-predicted per period (sum of intercept + media + controls):
+    media_contrib_per_period = np.zeros(n_periods, dtype=float)
+    for col in media_cols:
+        ts = time_series_channels.get(col, [])
+        for t, v in enumerate(ts):
+            if t < n_periods:
+                media_contrib_per_period[t] += float(v)
+    raw_baseline = intercept_per_period + control_effect_per_period
+    model_predicted_per_period = raw_baseline + media_contrib_per_period
+    # Residual = actual - model_predicted; absorbed into baseline
+    if len(y_actual) >= n_periods:
+        residual_per_period = y_actual[:n_periods] - model_predicted_per_period
+    else:
+        residual_per_period = np.zeros(n_periods, dtype=float)
+    baseline_per_period = raw_baseline + residual_per_period
     baseline_total = float(baseline_per_period.sum())
     baseline_ts = [round(float(v), 1) for v in baseline_per_period]
 
