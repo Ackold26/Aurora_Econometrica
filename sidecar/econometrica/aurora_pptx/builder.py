@@ -735,7 +735,14 @@ class AuroraPPTXBuilder:
             share_str = f"{share_pct}" if share_pct > 0 else "0"
             footnote = fn_by_name.get(name, "")
 
-            rows.append((name, budget_str, contrib_str, roi_str, share_str, verdict, footnote))
+            # Phase 1.9: posterior 90% HDI bracket on mROAS — None when v1.0/v1.1 pickle.
+            ci_low = c.get("mroas_ci_low")
+            ci_high = c.get("mroas_ci_high")
+            ci_str = ""
+            if ci_low is not None and ci_high is not None:
+                ci_str = f"[{float(ci_low):.1f} - {float(ci_high):.1f}]"
+
+            rows.append((name, budget_str, contrib_str, roi_str, share_str, verdict, footnote, ci_str))
         return rows
 
     # ----------------------------------------------------------------
@@ -1525,7 +1532,11 @@ class AuroraPPTXBuilder:
         }
         row_y = table_y + 0.65
         for row in rows:
-            channel, budget, contrib, roi, share, verdict, footnote = row
+            # Phase 1.9: rows are 8-tuples (added ci_str). Backward compat for fallback
+            # 7-tuple wireframe rows: pad with empty ci_str.
+            if len(row) == 7:
+                row = row + ("",)
+            channel, budget, contrib, roi, share, verdict, footnote, ci_str = row
             # Channel name
             x = table_x
             self._text(
@@ -1548,14 +1559,20 @@ class AuroraPPTXBuilder:
                 align=PP_ALIGN.RIGHT,
             )
             x += col_widths[2]
-            # mROAS (with footnote if present)
+            # mROAS (with footnote and/or Phase 1.9 90% HDI bracket if present)
+            mroas_runs = [(roi, {"font": self.sans, "size": 11, "color": self.deep_100})]
+            if ci_str:
+                mroas_runs.append(
+                    (" " + ci_str, {"font": self.sans, "size": 8, "color": self.deep_60})
+                )
             if footnote:
+                mroas_runs.append(
+                    (footnote, {"font": self.sans, "size": 7, "color": self.gold})
+                )
+            if len(mroas_runs) > 1:
                 self._rich(
                     slide, x, row_y, col_widths[3] - 0.1, 0.3,
-                    runs=[
-                        (roi, {"font": self.sans, "size": 11, "color": self.deep_100}),
-                        (footnote, {"font": self.sans, "size": 7, "color": self.gold}),
-                    ],
+                    runs=mroas_runs,
                     align=PP_ALIGN.RIGHT,
                 )
             else:
