@@ -19,6 +19,108 @@ from utils.adstock import apply_adstock
 from utils.saturation import hill_function
 
 
+# Hybrid ROI thresholds (Phase 0.2 — plan immutable-bouncing-noodle §0.2, L4).
+# Calibration sources documented в docs/ROI_THRESHOLDS.md.
+ROI_DEEP_LOSS = 0.5         # < 0.5× = глубоко убыточный
+ROI_LOSS = 0.8              # < 0.8× = убыточный
+ROI_BREAKEVEN = 1.0         # < 1.0× = на грани окупаемости
+ROI_HIGH_ABS = 5.0          # > 5× = высокоэффективен (small-N absolute fallback)
+ROI_UNIT_SMELL_FLOOR = 50.0 # > 50× при unit_smell = "не рубли?" (preserved)
+ROI_ARTIFACT = 100.0        # > 100× = artifact warning (regardless of unit_smell)
+GAP_OVERSAT = -10.0         # пп — перенасыщен
+GAP_UNDER = -5.0            # пп — слабее своей доли
+GAP_HIGH = 10.0             # пп — высокоэффективен по share
+GAP_GOOD = 5.0              # пп — эффективен по share
+QUANTILE_MIN_N = 20         # ниже — relative quantile mode disabled
+
+
+def compute_roi_verdict(
+    roi: float,
+    efficiency_gap: float,
+    *,
+    category: str = 'mixed',
+    unit_smell: bool = False,
+    roi_ci_low: float | None = None,
+    roi_ci_high: float | None = None,
+    n_channels: int = 0,
+    category_quantiles: dict[str, dict[str, float]] | None = None,
+) -> tuple[str, str]:
+    """Hybrid ROI verdict combining absolute + relative + posterior CI.
+
+    Per plan immutable-bouncing-noodle §0.2 (L4 fix):
+      Step 1 — posterior uncertainty: CI width > ROI itself → low-confidence warn
+      Step 2 — absolute hard caps (artifact/glubokaya-ubitochnost regardless of category)
+      Step 3 — relative quantile (only if N ≥ 20 portfolio data + category mapping)
+      Step 4 — efficiency gap fallback (small-N safe per-channel)
+
+    Args:
+      roi: канальный ROI (contribution_money / spend_money), unitless.
+      efficiency_gap: share_of_effect - share_of_spend (пп).
+      category: 'brand_reach' / 'performance' / 'mixed' (для quantile lookup).
+      unit_smell: True если канал в TRP/clicks/impressions (не деньги) и unit_cost=1.
+      roi_ci_low, roi_ci_high: posterior 90% CI bounds (Phase 1.9 — пока None).
+      n_channels: total channels в выборке (для quantile-mode gating).
+      category_quantiles: {category: {p10, p25, p75, p90}} portfolio benchmarks.
+
+    Returns:
+      (verdict_label, verdict_tone) where tone ∈ {good, warn, bad, neutral}.
+    """
+    # Step 1 — posterior uncertainty (когда CI данные доступны)
+    if (
+        roi_ci_low is not None
+        and roi_ci_high is not None
+        and roi > 0
+        and (roi_ci_high - roi_ci_low) > roi
+    ):
+        return ('Высокая неопределённость', 'warn')
+
+    # Step 2 — absolute hard caps (regardless of category)
+    if roi > ROI_UNIT_SMELL_FLOOR and unit_smell:
+        return ('ROI завышен (не рубли?)', 'warn')
+    if roi > ROI_ARTIFACT:
+        return ('ROI нереалистичен (артефакт)', 'warn')
+    if roi < ROI_DEEP_LOSS:
+        return ('Глубоко убыточный', 'bad')
+    if roi < ROI_LOSS:
+        return ('Убыточный', 'bad')
+    if roi < ROI_BREAKEVEN:
+        return ('На грани окупаемости', 'warn')
+
+    # Step 3 — category-relative quantile (gated by min N)
+    if (
+        n_channels >= QUANTILE_MIN_N
+        and category_quantiles
+        and category in category_quantiles
+    ):
+        q = category_quantiles[category]
+        p10 = q.get('p10')
+        p25 = q.get('p25')
+        p75 = q.get('p75')
+        p90 = q.get('p90')
+        if p10 is not None and roi < p10:
+            return ('Bottom-10% по категории', 'bad')
+        if p90 is not None and roi >= p90:
+            return ('Top-10% по категории', 'good')
+        if p75 is not None and roi >= p75:
+            return ('Top-25% по категории', 'good')
+        if p25 is not None and roi < p25:
+            return ('Bottom-25% по категории', 'warn')
+        return ('Средний по категории', 'neutral')
+
+    # Step 4 — efficiency gap fallback (per-channel small-N safe)
+    if roi > ROI_HIGH_ABS and not unit_smell:
+        return ('Высокоэффективен', 'good')
+    if efficiency_gap <= GAP_OVERSAT:
+        return ('Перенасыщен', 'warn')
+    if efficiency_gap <= GAP_UNDER:
+        return ('Слабее своей доли', 'warn')
+    if efficiency_gap >= GAP_HIGH:
+        return ('Высокоэффективен', 'good')
+    if efficiency_gap >= GAP_GOOD:
+        return ('Эффективен', 'good')
+    return ('Сбалансирован', 'neutral')
+
+
 def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict[str, Any]:
     """Decompose sales into baseline + channel contributions using trained model.
 
@@ -200,13 +302,16 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         ch['share_of_effect'] = ch['contribution_pct']
         ch['efficiency_gap'] = round(ch['share_of_effect'] - ch['share_of_spend'], 1)
 
-    # Verdict logic (preserved from pre-fix — depends on roi + efficiency_gap + unit_smell)
+    # Category + unit_smell detection (used by hybrid verdict)
     UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ', 'ОХВАТ', 'РЕЙТИНГ')
     BRAND_HINTS = ('TRP', 'GRP', 'OTS', 'ОХВАТ', 'РЕЙТИНГ', 'TV', 'ТВ', 'OOH', 'НАРУЖК', 'РАДИО', 'RADIO', 'БРЕНД', 'BRAND')
     PERF_HINTS = ('DIGITAL', 'SEARCH', 'ПОИСК', 'CONTEXT', 'КОНТЕКСТ', 'SOCIAL', 'СОЦ', 'CTR', 'CPC', 'CPA', 'PERFORMANCE', 'ПЕРФ', 'ЯНДЕКС', 'GOOGLE', 'VK', 'ВК', 'TELEGRAM', 'ТЕЛЕГРАМ', 'МЕТА', 'META', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ')
+
+    # Optional portfolio quantiles (Phase 1+ groundwork — None until aggregator ships).
+    category_quantiles = config.get('category_quantiles') if isinstance(config, dict) else None
+    n_channels = len(channels)
+
     for ch in channels:
-        roi = ch['roi']
-        gap = ch['efficiency_gap']
         name_upper = (ch['name'] or '').upper()
         looks_like_non_money = any(hint in name_upper for hint in UNIT_HINTS)
         is_brand = any(hint in name_upper for hint in BRAND_HINTS)
@@ -219,33 +324,19 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             ch['category'] = 'mixed'
         ch['unit_smell'] = bool(looks_like_non_money and abs(ch['unit_cost'] - 1.0) < 1e-9)
 
-        if roi > 50 and ch['unit_smell']:
-            ch['verdict'] = 'ROI завышен (не рубли?)'
-            ch['verdict_tone'] = 'warn'
-        elif roi > 50:
-            ch['verdict'] = 'ROI подозрительно высок'
-            ch['verdict_tone'] = 'warn'
-        elif roi < 0.8:
-            ch['verdict'] = 'Убыточный'
-            ch['verdict_tone'] = 'bad'
-        elif roi < 1.0:
-            ch['verdict'] = 'На грани окупаемости'
-            ch['verdict_tone'] = 'warn'
-        elif gap <= -10:
-            ch['verdict'] = 'Перенасыщен'
-            ch['verdict_tone'] = 'warn'
-        elif gap <= -5:
-            ch['verdict'] = 'Слабее своей доли'
-            ch['verdict_tone'] = 'warn'
-        elif gap >= 10:
-            ch['verdict'] = 'Высокоэффективен'
-            ch['verdict_tone'] = 'good'
-        elif gap >= 5:
-            ch['verdict'] = 'Эффективен'
-            ch['verdict_tone'] = 'good'
-        else:
-            ch['verdict'] = 'Сбалансирован'
-            ch['verdict_tone'] = 'neutral'
+        # Hybrid verdict (absolute + relative + posterior CI) — see compute_roi_verdict docstring
+        verdict_label, verdict_tone = compute_roi_verdict(
+            roi=ch['roi'],
+            efficiency_gap=ch['efficiency_gap'],
+            category=ch['category'],
+            unit_smell=ch['unit_smell'],
+            roi_ci_low=ch.get('roi_ci_low'),
+            roi_ci_high=ch.get('roi_ci_high'),
+            n_channels=n_channels,
+            category_quantiles=category_quantiles,
+        )
+        ch['verdict'] = verdict_label
+        ch['verdict_tone'] = verdict_tone
 
     # Insight generation (template, 0 tokens).
     # B3 fix (post-audit v1.2): removed magic-0.5 lift estimate. Pre-fix code computed
