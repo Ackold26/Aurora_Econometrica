@@ -383,16 +383,33 @@ tr:hover td { background: var(--bg3); }
     <div class="step-sub">Hill function · SLSQP · сценарное моделирование</div></div>
   </div>
 
-  <p>Введите <strong>общий бюджет</strong> и нажмите «Оптимизировать» — система найдёт распределение, максимизирующее отдачу.</p>
+  <p>Установите <strong>границы Мин./Макс. % per channel</strong> (по умолчанию 20%-200%) и нажмите «Оптимизировать бюджет» — система найдёт распределение, максимизирующее отдачу.</p>
 
   <h3>Как работает оптимизация</h3>
   <ul>
-    <li><strong>Кривые насыщения</strong> — Hill function: <code>f(x) = α · x^γ / (β^γ + x^γ)</code>. Каждый канал имеет свою точку насыщения.</li>
-    <li><strong>Оптимизатор SLSQP</strong> (scipy) — перераспределяет бюджет с учётом ограничений: min/max по каждому каналу, общий бюджет.</li>
-    <li><strong>Прирост от оптимизации</strong> — сравнение текущего распределения vs оптимального: % прироста KPI при том же бюджете.</li>
+    <li><strong>Кривые насыщения Hill</strong> — <code>f(x) = β · x^α / (γ^α + x^α)</code>, where α — крутизна, γ — точка половинного насыщения. Каждый канал имеет свои параметры из обученной модели.</li>
+    <li><strong>SLSQP с multi-start</strong> (scipy) — оптимизатор запускается из 3 стартовых точек (текущее распределение + 2 случайные перестановки), выбирается лучший результат. Защита от застревания в локальном минимуме.</li>
+    <li><strong>Money mode constraint</strong> — оптимизация в рублёвом эквиваленте (Σ x_i × unit_cost = const). Корректно работает на смешанных единицах (TRPs + рубли) при заданных CPP.</li>
+    <li><strong>Marginal ROAS (mROAS)</strong> — отдача следующего рубля в канал в текущей точке: <code>∂KPI/∂spend = β · hill'(x_norm) · adstock_factor · y_std / mean / unit_cost</code>. Канал с mROAS &gt; 1× прибыльный на марже, &lt; 1× — saturated.</li>
+    <li><strong>Прирост от оптимизации (Lift %)</strong> — сравнение текущего распределения vs оптимального: % прироста KPI при том же money budget.</li>
   </ul>
 
-  <div class="tip"><strong>Сценарное моделирование</strong> — через кабинет эконометриста: <code>/scenario</code> или <code>/optimize</code> с произвольными параметрами.</div>
+  <h3>Метрики в портфельной таблице</h3>
+  <ul>
+    <li><strong>Avg ROI</strong> — средняя отдача на текущем уровне инвестиций (contribution / spend). Например, 5× = «канал вернул 5 рублей продаж на каждый вложенный рубль».</li>
+    <li><strong>mROAS</strong> — Marginal ROAS, отдача <em>следующего</em> вложенного рубля. Ключевая метрика для оптимизации: показывает, в какой канал переложить +1 рубль для максимизации продаж.</li>
+    <li><strong>Verdict</strong>: <code>Scale</code> (high mROAS + opt &gt; current) · <code>Hold</code> (mROAS &gt; 1.2 stable) · <code>Watch</code> (mROAS 0.8-1.2) · <code>Reduce</code> (saturation-bound, opt &lt; current) · <code>Cut</code> (mROAS &lt; 0.8, под breakeven).</li>
+  </ul>
+
+  <h3>Диагностика результата</h3>
+  <ul>
+    <li><strong>«Прирост ≈ 0%»</strong> в Insights — оптимизатор не нашёл выигрыша. Причины: текущее распределение уже близко к оптимуму ИЛИ границы зажимают пространство решений.</li>
+    <li><strong>«Оптимизатор упёрся в границы»</strong> — все каналы прижаты к Мин./Макс. Расширьте границы (рекомендуем 10% / 300%) и перезапустите. Без этого SLSQP не имеет места для манёвра.</li>
+    <li><strong>«N каналов перенасыщены»</strong> — каналы в saturated zone (mROAS &lt; 1×). Перераспределение от них к высокомаржинальным каналам — основной источник Lift.</li>
+    <li><strong>INFEASIBLE_BUDGET</strong> — целевой бюджет вне допустимого диапазона при текущих границах. Pre-flight check ловит это мгновенно (без 60-секундного hang оптимизатора).</li>
+  </ul>
+
+  <div class="tip"><strong>Сценарное моделирование</strong> — слайдер «What-if: изменённый бюджет» в блоке C моделирует ±50% бюджета с adstock-aware прогнозом KPI. Используйте для оценки эффекта роста или сокращения общих инвестиций.</div>
 </div>
 
 <h2>Шаг 6: AI-отчёт</h2>
@@ -481,8 +498,10 @@ tr:hover td { background: var(--bg3); }
   <tr><td>Вычислительный движок</td><td>Python FastAPI, порт 7430 (только localhost)</td></tr>
   <tr><td>MMM-модель</td><td>PyMC-Marketing — Bayesian Marketing Mix Model</td></tr>
   <tr><td>MCMC-семплер</td><td>PyMC (NUTS, по умолчанию 1000 draws × 4 chains)</td></tr>
-  <tr><td>Оптимизация бюджета</td><td>scipy SLSQP (client-side Hill function)</td></tr>
-  <tr><td>Кривые насыщения</td><td>Hill function: <code>f(x) = α · x^γ / (β^γ + x^γ)</code></td></tr>
+  <tr><td>Оптимизация бюджета</td><td>scipy SLSQP с multi-start (3 starting points), money-mode constraint</td></tr>
+  <tr><td>Кривые насыщения</td><td>Hill function: <code>f(x) = β · x^α / (γ^α + x^α)</code> · α — крутизна · γ — точка половинного насыщения</td></tr>
+  <tr><td>Adstock</td><td>Geometric (digital, по умолчанию θ=0.5) или Weibull (TV/offline) — авто-выбор</td></tr>
+  <tr><td>Marginal ROAS</td><td><code>∂KPI/∂spend = β · hill'(x_norm) · adstock_factor · y_std / mean / unit_cost</code> · единая формула для всех экспортов</td></tr>
   <tr><td>Хранение данных</td><td>Локально в папке проекта, без облака</td></tr>
 </table>
 
