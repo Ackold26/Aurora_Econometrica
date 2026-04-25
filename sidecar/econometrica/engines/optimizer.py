@@ -357,24 +357,72 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # O2 (Phase 0.1): SLSQP hardening — wrap in try/except, hard maxiter cap.
     # Previously: a divergent SLSQP iteration could hang Python beyond Tauri's
     # 60s timeout → watchdog respawn (90s downtime).
+    #
+    # Phase 0.1 hotfix #19 (2026-04-26): MULTI-START SLSQP. Live-test revealed
+    # that with money_target = current (no budget change), SLSQP starts at
+    # current allocation = local minimum для objective и не двигается → lift=0%.
+    # Solution: try 3 starting points (current + 2 perturbed) and keep best
+    # converged result. Cheap (n_periods × 6 channels × 200 iter × 3 starts =
+    # ~20k function evals, sub-second). Catches local optima without UX changes.
     import logging
     _logger = logging.getLogger('econometrica')
-    try:
-        result = minimize(
-            total_response, x0,
-            method='SLSQP',
-            bounds=bounds,
-            constraints=constraints,
-            options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
-        )
-    except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
-        _logger.error(f"SLSQP failed for {len(media_cols)} channels: {type(e).__name__}: {e}")
+
+    def _safe_minimize(x_start):
+        try:
+            r = minimize(
+                total_response, x_start,
+                method='SLSQP',
+                bounds=bounds,
+                constraints=constraints,
+                options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
+            )
+            return r
+        except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
+            _logger.warning(f"SLSQP attempt failed: {type(e).__name__}: {e}")
+            return None
+
+    # Multi-start: current allocation + 2 perturbed (random shifts within bounds,
+    # respecting sum constraint via projection).
+    rng = np.random.default_rng(42)  # deterministic across calls
+    starts = [x0]
+    for _ in range(2):
+        # Random allocation within bounds, then scale to match sum constraint.
+        perturbed = np.array([
+            rng.uniform(bounds[i][0], bounds[i][1]) for i in range(n_ch)
+        ])
+        # Scale to satisfy sum constraint approximately (SLSQP will fine-tune).
+        if total_budget_money_target is not None:
+            current_money_sum = float(np.sum(perturbed * np.asarray(uc_arr)))
+            if current_money_sum > 0:
+                scale = float(total_budget_money_target) / current_money_sum
+                perturbed = perturbed * scale
+        else:
+            current_sum = float(np.sum(perturbed))
+            if current_sum > 0:
+                perturbed = perturbed * (total_budget / current_sum)
+        # Clip to bounds (after scaling some may slip outside).
+        for i in range(n_ch):
+            perturbed[i] = max(bounds[i][0], min(bounds[i][1], perturbed[i]))
+        starts.append(perturbed)
+
+    candidates = []
+    for x_start in starts:
+        r = _safe_minimize(x_start)
+        if r is not None and r.success:
+            candidates.append(r)
+
+    if candidates:
+        # Pick the result with highest objective (= lowest -response since we minimize -response)
+        result = min(candidates, key=lambda r: r.fun)
+    else:
+        # All failed — fallback to current allocation, mark non-converged.
         class _FailResult:
             def __init__(self, x0, msg):
                 self.x = x0.copy()
                 self.success = False
+                self.fun = 0.0
                 self.message = msg
-        result = _FailResult(x0, f"{type(e).__name__}: {e}")
+        result = _FailResult(x0, "All SLSQP starts failed")
 
     if not result.success:
         _logger.warning(f"Optimization did not converge: {result.message}")

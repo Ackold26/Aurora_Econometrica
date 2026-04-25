@@ -623,24 +623,43 @@
 
     try {
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
-      // В экспертном режиме передаём per-channel ограничения (только те, что отличаются
-      // от глобальных — backend применит глобальный fallback для остальных).
+      // Phase 0.1 hotfix #18 (2026-04-26): pass per-channel constraints
+      // ONLY when they differ from current global. Pre-fix bug: $effect:355
+      // auto-initialized channelMinPct[ch] = minPct on first render. When user
+      // moved global slider after that, per-channel остались на старом значении
+      // and **overrode** new global → backend получал stale 100/190 вместо
+      // 10/300. Now: skip пере-channel value if it equals global (user не
+      // меняла его явно) — backend applies new global automatically.
       let minPerChannel = null;
       let maxPerChannel = null;
       if ($expertMode && channels.length > 0) {
         const minMap = /** @type {Record<string, number>} */ ({});
         const maxMap = /** @type {Record<string, number>} */ ({});
         for (const ch of channels) {
-          if (channelMinPct[ch] != null) minMap[ch] = channelMinPct[ch];
-          if (channelMaxPct[ch] != null) maxMap[ch] = channelMaxPct[ch];
+          // Передаём ТОЛЬКО если значение отличается от текущего global —
+          // тогда это явная per-channel настройка экспертного режима.
+          if (channelMinPct[ch] != null && channelMinPct[ch] !== minPct) {
+            minMap[ch] = channelMinPct[ch];
+          }
+          if (channelMaxPct[ch] != null && channelMaxPct[ch] !== maxPct) {
+            maxMap[ch] = channelMaxPct[ch];
+          }
         }
         if (Object.keys(minMap).length > 0) minPerChannel = minMap;
         if (Object.keys(maxMap).length > 0) maxPerChannel = maxMap;
       }
+      // Phase 0.1 hotfix #17 (2026-04-26): pass money budget explicitly.
+      // Pre-fix: totalBudgetMoney=null → backend native sum constraint.
+      // На mixed-units (TRPs + рубли) native sum арифметически бессмыслен —
+      // optimizer не находил redistribution, all caps на current. Money mode
+      // даёт physically meaningful constraint (sum money = const), позволяет
+      // SLSQP redistribute между каналами при условии same total money budget.
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
-        totalBudget: totalBudgetInput,
-        totalBudgetMoney: null,
+        totalBudget: null,
+        totalBudgetMoney: Number.isFinite(currentTotalBudget) && currentTotalBudget > 0
+          ? currentTotalBudget
+          : null,
         minPct,
         maxPct,
         minPerChannel,
