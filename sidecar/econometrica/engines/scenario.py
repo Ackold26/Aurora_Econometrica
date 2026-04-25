@@ -10,7 +10,12 @@ from pathlib import Path
 from typing import Any
 
 from utils.adstock import apply_adstock
-from utils.saturation import hill_function
+from utils.saturation import hill_function, hill_function_batch
+from utils.posterior_propagation import (
+    compute_ci_hdi,
+    load_posterior_samples,
+    per_channel_samples,
+)
 
 
 def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
@@ -55,6 +60,9 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     channel_params = model_data['channel_params']
     norm = model_data['normalization']
     media_cols = config_model['media_columns']
+    # Phase 1.9: posterior samples → CI on predicted_kpi/roas/lift_pct in totals.
+    # None for v1.0/v1.1 pickles → totals stay with point estimates only.
+    posterior_samples = load_posterior_samples(model_data)
     # Sanitize: отрицательные / NaN unit_costs → отфильтровываются (канал без
     # валидной цены считается не покрытым деньгами, money-mode не включится).
     unit_costs = _sanitize_unit_costs(config.get('unit_costs'))
@@ -173,6 +181,64 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     incremental_total = scenario_total - baseline_total
     lift_pct = (incremental_total / baseline_total * 100) if baseline_total else 0
 
+    # Phase 1.9: posterior CI on totals via vectorized per-sample reconstruction.
+    # baseline_per_period uses intercept_mean (point) — Phase 1.9 also propagates
+    # intercept_samples to make baseline a distribution. Memory: 8000×n_periods×n_channels
+    # floats = ~2MB peak per scenario for Kagocel; acceptable, no thinning needed (Vehtari rule).
+    # We DON'T persist raw samples per scenario — only summary stats — to avoid RAM blow-up
+    # when user creates 5+ scenarios in single session.
+    predicted_kpi_ci = None  # tuple (low, high) when computable
+    incremental_kpi_ci = None
+    roas_native_ci = None
+    roas_money_ci = None
+    lift_pct_ci = None
+    if posterior_samples is not None:
+        try:
+            n_samples_post = int(posterior_samples['intercept'].shape[0])
+            # Sum of media contributions per period × sample → (n_samples, n_periods)
+            total_contrib_samples = np.zeros((n_samples_post, n_periods), dtype=np.float64)
+            for col in media_cols:
+                ch_samples = per_channel_samples(posterior_samples, col)
+                if ch_samples is None:
+                    continue
+                mean = norm['media_means'].get(col, 1) or 1
+                # x_norm uses adstocked plan (already computed as adstocked_plan[col])
+                x_norm = adstocked_plan[col] / max(mean, 1e-10)  # shape (n_periods,)
+                sat_samples = hill_function_batch(
+                    x_norm, ch_samples['alpha'], ch_samples['gamma']
+                )  # (n_samples, n_periods)
+                total_contrib_samples += (
+                    ch_samples['beta'].reshape(-1, 1).astype(np.float64) * sat_samples
+                )
+
+            # baseline distribution: intercept_samples × y_std + y_mean per period
+            intercept_samples = np.asarray(posterior_samples['intercept'], dtype=np.float64)
+            baseline_per_sample_period = intercept_samples * y_std + y_mean  # (n_samples,)
+            # predicted_kpi_samples — per period sum, then sum over periods
+            predicted_per_period_samples = (
+                baseline_per_sample_period.reshape(-1, 1)
+                + total_contrib_samples * y_std
+            )  # (n_samples, n_periods)
+            predicted_total_samples = predicted_per_period_samples.sum(axis=1)  # (n_samples,)
+            baseline_total_samples = baseline_per_sample_period * n_periods  # (n_samples,)
+            incremental_total_samples = predicted_total_samples - baseline_total_samples
+
+            _, p_lo, p_hi = compute_ci_hdi(predicted_total_samples)
+            predicted_kpi_ci = (p_lo, p_hi)
+            _, i_lo, i_hi = compute_ci_hdi(incremental_total_samples)
+            incremental_kpi_ci = (i_lo, i_hi)
+
+            if baseline_total > 0:
+                lift_samples = incremental_total_samples / baseline_total_samples * 100
+                _, l_lo, l_hi = compute_ci_hdi(lift_samples)
+                lift_pct_ci = (l_lo, l_hi)
+        except Exception as _ci_err:
+            # Defensive: any failure in CI computation falls back to point estimates only.
+            # No banner shown — user sees point KPI as before.
+            predicted_kpi_ci = None
+            incremental_kpi_ci = None
+            lift_pct_ci = None
+
     # Native spend sum (mixed units — informative only, bogus for ROAS across channels)
     per_channel_native = {col: sum(media_plan.get(col, [])) for col in media_cols}
     total_spend_native = sum(per_channel_native.values())
@@ -203,6 +269,12 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         else None
     )
 
+    # Phase 1.9: ROAS CI propagation from incremental KPI samples (denominator = scalar spend).
+    if incremental_kpi_ci is not None and total_spend_native > 0:
+        roas_native_ci = (incremental_kpi_ci[0] / total_spend_native, incremental_kpi_ci[1] / total_spend_native)
+    if incremental_kpi_ci is not None and total_spend_money and total_spend_money > 0:
+        roas_money_ci = (incremental_kpi_ci[0] / total_spend_money, incremental_kpi_ci[1] / total_spend_money)
+
     scenario_name = config.get('scenario_name', 'custom')
 
     result = {
@@ -226,6 +298,17 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             'roas_money_total': round(roas_money_total, 2) if roas_money_total else None,
             'units_fully_covered': units_fully_covered,
             'roas_method': 'incremental',  # explicit semantic marker
+            # Phase 1.9: 90% HDI bounds (None if posterior unavailable / v1.0-v1.1 pickle).
+            'predicted_kpi_ci_low': round(predicted_kpi_ci[0], 0) if predicted_kpi_ci else None,
+            'predicted_kpi_ci_high': round(predicted_kpi_ci[1], 0) if predicted_kpi_ci else None,
+            'incremental_kpi_ci_low': round(incremental_kpi_ci[0], 0) if incremental_kpi_ci else None,
+            'incremental_kpi_ci_high': round(incremental_kpi_ci[1], 0) if incremental_kpi_ci else None,
+            'roas_ci_low': round(roas_native_ci[0], 2) if roas_native_ci else None,
+            'roas_ci_high': round(roas_native_ci[1], 2) if roas_native_ci else None,
+            'roas_money_ci_low': round(roas_money_ci[0], 2) if roas_money_ci else None,
+            'roas_money_ci_high': round(roas_money_ci[1], 2) if roas_money_ci else None,
+            'lift_pct_ci_low': round(lift_pct_ci[0], 1) if lift_pct_ci else None,
+            'lift_pct_ci_high': round(lift_pct_ci[1], 1) if lift_pct_ci else None,
         },
         'per_channel_spend': {
             'native': {k: round(v, 2) for k, v in per_channel_native.items()},
