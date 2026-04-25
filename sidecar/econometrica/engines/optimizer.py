@@ -128,11 +128,25 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         return -total  # Negative for minimization
 
     # Constraints
-    x0 = np.array([current_spend[col] * total_budget / total_current for col in media_cols])
-    bounds = [
-        (current_spend[col] * channel_min(col), current_spend[col] * channel_max(col))
-        for col in media_cols
-    ]
+    # Post-audit fix: zero-spend channels would have bounds=(0,0) → fixed at zero.
+    # Allow optimizer to test channels with current=0 by giving them a default
+    # bound = (0, total_budget × max_pct/n_channels) so they CAN receive budget.
+    n_ch = max(len(media_cols), 1)
+    fallback_max = max(total_budget * max_pct_global / n_ch, 1.0)
+
+    def _bounds_for(col: str) -> tuple[float, float]:
+        cs = current_spend[col]
+        if cs > 0:
+            return (cs * channel_min(col), cs * channel_max(col))
+        # Zero-spend channel: allow up to fallback_max
+        return (0.0, fallback_max)
+
+    if total_current > 0:
+        x0 = np.array([current_spend[col] * total_budget / total_current for col in media_cols])
+    else:
+        # Even-split fallback if no current spend at all (degenerate but recoverable)
+        x0 = np.array([total_budget / n_ch for _ in media_cols])
+    bounds = [_bounds_for(col) for col in media_cols]
     if total_budget_money_target is not None:
         # Money constraint: Σ x × unit_cost == total_budget_money
         constraints = [{
@@ -190,18 +204,22 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         })
 
     # Generate response curves data (for charts)
-    # P0-5/6 fix: response_curve domain in normalized space, displayed against raw spend.
+    # Post-audit fix: response_curve domain in normalized space, displayed against
+    # raw spend. Response × y_std → KPI scale (was: y_norm scale, mis-leading numbers).
     response_curves_data = {}
     for i, col in enumerate(media_cols):
         p = channel_params[col]
         cur = current_spend[col]
         mean_ch = float(media_means.get(col, 1)) or 1
-        spend_range = np.linspace(0, cur * 2, 50)
+        # If channel has zero current spend, render curve in [0, 2×mean_ch] for sensible display
+        upper = cur * 2 if cur > 0 else mean_ch * 2
+        spend_range = np.linspace(0, upper, 50)
         spend_range_norm = spend_range / max(mean_ch, 1e-10)
-        responses = response_curve(spend_range_norm, p['alpha'], max(p['gamma'], 1e-6), p['beta'])
+        responses_norm = response_curve(spend_range_norm, p['alpha'], max(p['gamma'], 1e-6), p['beta'])
+        responses_kpi = responses_norm * y_std
         response_curves_data[col] = {
             'spend': spend_range.tolist(),
-            'response': responses.tolist(),
+            'response': responses_kpi.tolist(),
             'current_x': cur,
             'optimal_x': float(optimal_spend[i]),
         }
