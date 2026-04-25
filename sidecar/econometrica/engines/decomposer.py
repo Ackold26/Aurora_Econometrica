@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from utils.adstock import apply_adstock
-from utils.saturation import hill_function
+from utils.saturation import hill_function, hill_function_batch
+from utils.posterior_propagation import (
+    compute_ci_hdi,
+    load_posterior_samples,
+    per_channel_samples,
+)
 
 
 # Hybrid ROI thresholds (Phase 0.2 — plan immutable-bouncing-noodle §0.2, L4).
@@ -153,6 +158,10 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     config = model_data['config']
     channel_params = model_data['channel_params']
     norm = model_data['normalization']
+    # Phase 1.9: posterior samples for honest CI on contribution/ROI per channel.
+    # None for v1.0/v1.1 pickles → ch dict skips ci_low/ci_high → compute_roi_verdict
+    # Step 1 silently falls through (point-estimate verdict path preserved).
+    posterior_samples = load_posterior_samples(model_data)
     y_actual = np.array(model_data['y_actual'])
     y_predicted_saved = np.array(model_data.get('y_predicted', []) or [])
     media_cols = config['media_columns']
@@ -235,7 +244,7 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
 
         roi = channel_total / spend_money if spend_money > 0 else 0
 
-        channels.append({
+        ch_dict = {
             'name': col,
             'spend': round(spend_money, 0),
             'raw_spend': round(raw_spend_total, 2),
@@ -246,7 +255,35 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'beta': beta,
             'verdict': '',
             'verdict_tone': 'neutral',
-        })
+        }
+
+        # Phase 1.9: posterior CI on contribution and ROI via vectorized chain.
+        # Skip channels with zero spend (CI undefined for ROI = contribution / 0).
+        # Same x_adstock/x_norm as point estimate → only Hill (α, γ) and β vary across samples.
+        if posterior_samples is not None and spend_money > 0:
+            ch_samples = per_channel_samples(posterior_samples, col)
+            if ch_samples is not None:
+                # sat_samples shape (n_samples, n_periods)
+                sat_samples = hill_function_batch(
+                    x_norm, ch_samples['alpha'], ch_samples['gamma']
+                )
+                # contribution per period × sample, summed over time → (n_samples,)
+                contrib_total_samples = (
+                    ch_samples['beta'].reshape(-1, 1).astype(np.float64)
+                    * sat_samples
+                    * y_std
+                ).sum(axis=1)
+                _, contrib_ci_low, contrib_ci_high = compute_ci_hdi(contrib_total_samples)
+                ch_dict['contribution_ci_low'] = round(float(contrib_ci_low), 0)
+                ch_dict['contribution_ci_high'] = round(float(contrib_ci_high), 0)
+
+                # ROI distribution: contribution / spend_money (constant denominator)
+                roi_samples = contrib_total_samples / spend_money
+                _, roi_ci_low, roi_ci_high = compute_ci_hdi(roi_samples)
+                ch_dict['roi_ci_low'] = round(float(roi_ci_low), 4)
+                ch_dict['roi_ci_high'] = round(float(roi_ci_high), 4)
+
+        channels.append(ch_dict)
 
     # Fill contribution_pct relative to total media contribution
     for ch in channels:
