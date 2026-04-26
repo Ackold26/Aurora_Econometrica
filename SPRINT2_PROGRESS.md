@@ -1,9 +1,17 @@
 # Sprint 2 + Sprint 1.5 (A4) — Live Progress
 
-**Last updated:** 2026-04-27 ~01:00 — UI Method toggle work in progress
+**Last updated:** 2026-04-27 ~02:00 — Sprint 2 SECOND audit fix-session COMPLETE + Conformal Prediction shipped
 **Branch:** `math-fix-v1.0.13` (pushed)
-**Active phase:** Backend полностью готов (Sprint 1+2+1.5 + 9 audit fixes). UI Method toggle в Train step — последний remaining Sprint 2 item.
-**HEAD:** `7741017` (audit fix-session complete)
+**Active phase:** Sprint 2 small-data path PRODUCTION-IDEAL. 6 critical/high issues fixed + S-OLS-1 Conformal Prediction killer differentiator.
+**HEAD:** `aeb137f` (Sprint 2 audit fixes + conformal)
+
+**Sprint 2 audit fix-session results (1 commit, 6 issues):**
+- 🔴 C-OLS-1: Bootstrap Jensen-bias eliminated — real per-period adstock+Hill matching decomposer (10-30% drift fixed)
+- 🔴 C-OLS-2: Bootstrap presence mask — zeros from skipped iterations no longer contaminate CI
+- 🟡 H-OLS-2: Untrained channel guard в decomposer — prevents spurious contributions от zero-variance channels
+- 🟢 M-OLS-1: Bootstrap → HDI (was percentile) — unified semantics с Bayesian path
+- 🟢 M-OLS-2: ci_method marker symmetry — Bayesian path explicitly marked
+- ✨ S-OLS-1: **Conformal Prediction (utils/conformal.py)** — distribution-free guaranteed-coverage PI. Auto-select jackknife+ (n<30) или split-conformal (n≥30). Aurora становится единственным MMM-tool с conformal prediction.
 
 **Current task:** Sprint 2 small-data path EXTENSION — расширить OLS engine за пределами basic frequentist β CI.
 
