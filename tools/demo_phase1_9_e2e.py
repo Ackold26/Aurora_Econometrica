@@ -59,10 +59,11 @@ def make_data_file(out_path: Path):
     return df
 
 
-def make_pickle(model_path: Path, data_file: Path, with_samples: bool):
+def make_pickle(model_path: Path, data_file: Path, with_samples: bool, with_adstock_decay: bool = False):
     """Create synthetic trained model pickle.
 
-    with_samples=True → v1.1.5 (Phase 1.9 CI capable)
+    with_samples=True + with_adstock_decay=True → v1.2 (Phase 1.1 CI + decay)
+    with_samples=True + with_adstock_decay=False → v1.1.5 (Phase 1.9 CI, hardcoded decay)
     with_samples=False → v1.1 (backward compat, no CI)
     """
     rng = np.random.default_rng(0)
@@ -77,14 +78,24 @@ def make_pickle(model_path: Path, data_file: Path, with_samples: bool):
     # Synthetic point estimates (means)
     channel_params = {}
     for c in media_cols:
-        channel_params[c] = {
+        ch_params = {
             "beta": float(rng.uniform(0.1, 0.5)),
             "alpha": float(rng.uniform(1.0, 2.5)),
             "gamma": float(rng.uniform(0.3, 0.9)),
             "adstock": "geometric",
             "tail_ess_ok": True,
         }
+        if with_adstock_decay:
+            # Phase 1.1: posterior mean decay per channel (mixed TV-like + Digital-like)
+            ch_params["decay"] = float(rng.uniform(0.05, 0.5))
+        channel_params[c] = ch_params
 
+    if with_adstock_decay:
+        version = "1.2"
+    elif with_samples:
+        version = "1.1.5"
+    else:
+        version = "1.1"
     model_data = {
         "config": {
             "data_file": str(data_file),
@@ -108,7 +119,7 @@ def make_pickle(model_path: Path, data_file: Path, with_samples: bool):
         },
         "y_actual": y.tolist(),
         "y_predicted": (y * 0.95).tolist(),
-        "model_version": "1.1.5" if with_samples else "1.1",
+        "model_version": version,
     }
 
     if with_samples:
@@ -123,7 +134,7 @@ def make_pickle(model_path: Path, data_file: Path, with_samples: bool):
             alphas_samples[i] = rng.gamma(channel_params[c]["alpha"] * 3, 1/3, N_SAMPLES).astype(np.float32)
             gammas_samples[i] = rng.beta(channel_params[c]["gamma"] * 5, (1-channel_params[c]["gamma"]) * 5, N_SAMPLES).astype(np.float32)
 
-        model_data["posterior_samples"] = {
+        post = {
             "media_betas": media_betas_samples,
             "alphas": alphas_samples,
             "gammas": gammas_samples,
@@ -134,6 +145,18 @@ def make_pickle(model_path: Path, data_file: Path, with_samples: bool):
             "n_chains": 4,
             "n_draws": 2000,
         }
+        if with_adstock_decay:
+            # Phase 1.1: synthetic adstock_decay samples per channel (logit-normal-shaped)
+            decay_samples_full = np.zeros((N_CHANNELS, N_SAMPLES), dtype=np.float32)
+            for i, c in enumerate(media_cols):
+                center = channel_params[c]["decay"]
+                # Sample around posterior mean with reasonable dispersion
+                logit_samples = rng.normal(np.log(center / (1 - center)), 0.3, N_SAMPLES)
+                decay_samples_full[i] = (1 / (1 + np.exp(-logit_samples))).astype(np.float32)
+            post["adstock_decay"] = decay_samples_full
+            post["adstock_mu_logit_mean"] = -1.4
+            post["adstock_sigma_logit_mean"] = 0.5
+        model_data["posterior_samples"] = post
 
     model_path.parent.mkdir(parents=True, exist_ok=True)
     with open(model_path, "wb") as f:
@@ -148,15 +171,19 @@ def run_demo():
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        # Two project dirs — with and without posterior samples
-        for label, with_samples in [("v1.1.5_with_samples", True), ("v1.1_legacy", False)]:
+        # Three project dirs: v1.2 (Phase 1.1), v1.1.5 (Phase 1.9), v1.1 (legacy)
+        for label, with_samples, with_decay in [
+            ("v1.2_phase_1_1_decay", True, True),
+            ("v1.1.5_with_samples", True, False),
+            ("v1.1_legacy", False, False),
+        ]:
             print(f"\n{'='*60}\nDEMO: {label}\n{'='*60}")
             project_dir = tmp_path / label
             data_file = project_dir / "data.xlsx"
             project_dir.mkdir(parents=True, exist_ok=True)
             make_data_file(data_file)
             model_path = project_dir / "models" / "latest.pkl"
-            make_pickle(model_path, data_file, with_samples=with_samples)
+            make_pickle(model_path, data_file, with_samples=with_samples, with_adstock_decay=with_decay)
             size_kb = model_path.stat().st_size / 1024
             print(f"  Pickle size: {size_kb:.1f} KB")
 
@@ -205,10 +232,11 @@ def run_demo():
     print("\n" + "=" * 60)
     print("DEMO COMPLETE")
     print("=" * 60)
-    print("\n✅ Phase 1.9 backend smoke test: BOTH paths work")
-    print("   - v1.1.5 with samples → CI fields populated through full pipeline")
+    print("\n✅ Phase 1.9 + 1.1 backend smoke test: ALL THREE paths work")
+    print("   - v1.2 with adstock_decay → Phase 1.1 sampled decay propagation through CI")
+    print("   - v1.1.5 with samples → Phase 1.9 hardcoded decay + CI fields populated")
     print("   - v1.1 legacy → graceful fallback to point estimates only")
-    print("\nReady for T16 live-test on real Kagocel data.")
+    print("\nReady for live-test on real Kagocel data (T16 + T1.8).")
 
 
 if __name__ == "__main__":
