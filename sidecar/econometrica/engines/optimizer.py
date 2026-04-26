@@ -768,7 +768,6 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             'delta_pct': round(delta_pct, 1),
             'mroi_current': round(mroi_current, 4),
             'mroi_optimal': round(mroi_optimal, 4),
-            'action': 'увеличить' if delta_pct > 5 else ('сократить' if delta_pct < -5 else 'сохранить'),
         }
         if mroi_current_ci_low is not None:
             ch_dict['mroi_current_ci_low'] = round(float(mroi_current_ci_low), 4)
@@ -776,6 +775,29 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             ch_dict['mroi_optimal_ci_low'] = round(float(mroi_optimal_ci_low), 4)
             ch_dict['mroi_optimal_ci_high'] = round(float(mroi_optimal_ci_high), 4)
         channels.append(ch_dict)
+
+    # L4 (math-fix v1.4 Section C, 2026-04-28): decorate с prescriptive action
+    # fields через single-source-of-truth compute_channel_action. Replaces old
+    # primitive `action: 'увеличить'/'сократить'/'сохранить'` (delta_pct heuristic)
+    # с full ACTION_KEYS vocabulary (Scale/Hold/Watch/Reduce/Cut/Uncertain). Same
+    # helper used decomposer.py + narrative_adapter.py — three-way alignment.
+    from engines.channel_action import compute_channel_action
+    for ch in channels:
+        # alias mroi_current → mroas + mroi_current_ci_* → mroas_ci_* per
+        # compute_channel_action API contract (matches narrative_adapter pattern).
+        action_input = {
+            **ch,
+            'mroas': ch.get('mroi_current'),
+            'mroas_ci_low': ch.get('mroi_current_ci_low'),
+            'mroas_ci_high': ch.get('mroi_current_ci_high'),
+        }
+        action = compute_channel_action(action_input)
+        ch['action'] = action.key
+        ch['action_label'] = action.label_ru
+        ch['action_tone'] = action.tone
+        ch['action_reasoning'] = action.reasoning
+        ch['action_priority'] = action.priority
+        ch['action_confidence'] = action.confidence
 
     # Generate response curves data (for charts)
     # Post-audit fix: response_curve domain in normalized space, displayed against

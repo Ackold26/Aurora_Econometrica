@@ -224,6 +224,7 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
                 'verdict_tone': 'neutral',
                 'untrained': True,
                 'ci_skip_reason': 'untrained_channel',
+                'mroi_current': 0.0,
             }
             channels.append(ch_dict_untr)
             continue
@@ -277,6 +278,25 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
 
         roi = channel_total / spend_money if spend_money > 0 else 0
 
+        # L4 (math-fix v1.4 Section C, 2026-04-28): mroi_current at current allocation
+        # via single-source-of-truth helper. Optimize UI miROASMap reads this field
+        # in idle state (pre-optimize) instead of broken JS fallback `marginalROI`
+        # which was missing /unit_cost /mean /adstock_factor → mixed units (Kagocel
+        # TRPs showed 110.93× pre-optimize vs 0.0285× post-optimize).
+        from engines.optimizer import _compute_mroas_money
+        mroi_current_pt = float(_compute_mroas_money(
+            current_spend_native=raw_spend_total,
+            n_periods=n_periods,
+            mean=mean,
+            alpha=alpha,
+            gamma=gamma,
+            beta=beta,
+            adstock_type=a_type,
+            y_std=y_std,
+            unit_cost=unit_cost,
+            decay=decay_point,
+        ))
+
         ch_dict = {
             'name': col,
             'spend': round(spend_money, 0),
@@ -285,6 +305,7 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'contribution': round(channel_total, 0),
             'contribution_pct': 0,  # filled after total computed below
             'roi': round(roi, 2),
+            'mroi_current': round(mroi_current_pt, 4),
             'beta': beta,
             'verdict': '',
             'verdict_tone': 'neutral',
@@ -466,6 +487,24 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         )
         ch['verdict'] = verdict_label
         ch['verdict_tone'] = verdict_tone
+
+    # L4 (math-fix v1.4 Section C, 2026-04-28): decorate каждый channel с
+    # prescriptive action fields через single-source-of-truth helper. Same
+    # compute_channel_action used в optimizer.py + narrative_adapter.py →
+    # three-way alignment (decompose UI ↔ optimize UI ↔ HTML/PPTX commentary).
+    # При idle state (pre-optimize) optimal_spend отсутствует → action falls back
+    # к mROAS-only heuristic. После optimize backend overrides с optimizer signal.
+    from engines.channel_action import compute_channel_action
+    for ch in channels:
+        # alias mroi_current → mroas для compute_channel_action API contract
+        action_input = {**ch, 'mroas': ch.get('mroi_current')}
+        action = compute_channel_action(action_input)
+        ch['action'] = action.key
+        ch['action_label'] = action.label_ru
+        ch['action_tone'] = action.tone
+        ch['action_reasoning'] = action.reasoning
+        ch['action_priority'] = action.priority
+        ch['action_confidence'] = action.confidence
 
     # Insight generation (template, 0 tokens).
     # B3 fix (post-audit v1.2): removed magic-0.5 lift estimate. Pre-fix code computed

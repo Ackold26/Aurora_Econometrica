@@ -737,7 +737,34 @@ trained model uses exactly active set
 **Priority:** v1.0.16 medium (UI consistency, не blocker для real optimize result).
 
 
-### 🔴 L4 — Optimize page mROAS display + light logic bugs (Антон 2026-04-28)
+### 🟢 L4 — Optimize page mROAS display + light logic bugs (CLOSED 2026-04-28)
+
+**STATUS:** ✅ FIXED — math-fix v1.4 Section C. Three-way alignment shipped: decomposer.py + optimizer.py + narrative_adapter.py все используют `_compute_mroas_money` + `compute_channel_action` (single source of truth).
+
+**Root cause confirmed (vs initial hypothesis):**
+- 110.93× НЕ из backend (`optimization.json` показывает 0.0285×). Источник — **JS fallback `marginalROI()` в `hill.js:43`**, активный когда `$optimizeData` пуст (idle/pre-optimize state).
+- JS formula = `β · α · γ^α · x^(α-1) / (x^α + γ^α)² · y_std` — отсутствует `/unit_cost`, `/mean`, `adstock_factor`. Для TRPs (x=22100, β=0.0475, α=2, γ_scaled≈11050, y_std=180e6) → ≈110-150 (mixed native axis). Verification math на real Kagocel pickle.
+- Customer видел 110.93 в idle state, потом 0.03 после optimize — два разных code path.
+
+**Fix shipped:**
+1. **decomposer.py** — добавлен `mroi_current` per channel (через `_compute_mroas_money`) + decoration с `action`/`action_label`/`action_tone`/`action_reasoning`/`action_priority`/`action_confidence` через `compute_channel_action()`. `+39 LOC`.
+2. **optimizer.py** — primitive `'action': 'увеличить'/'сократить'/'сохранить'` (delta_pct heuristic) заменён на structured action fields через тот же helper. `+24 LOC`.
+3. **OptimizeStep.svelte** — JS fallback `marginalROI()` удалён. miROASMap читает: Source #1 = `$optimizeData.channels[i]` (post-optimize), Source #2 = `$decomposeData.channels[i]` (idle). Empty state когда нет ни decompose, ни optimize. Light logic switch с local thresholds (`v > 1.5 ? 'scale'...`) на `actionToStatus(ch.action)` mapping (Scale→good, Hold/Watch→ok, Reduce/Cut→low, Uncertain→unused). `+66 / -48 LOC`.
+4. **Tests** — 8 new L4 lock-in tests в `test_optimizer_kagocel_redistribution.py`: mroi_current + action decoration verified, **three-way alignment confirmed (decompose mroi_current ≈ optimize mroi_current, max Δ=0.0000)**, TRPs money-axis < 1× (post-fix 0.0217×), TRPs action ∈ {Cut/Reduce/Watch}, Performance action == Scale. `+71 LOC`.
+
+**Verification на real Kagocel pickle (`-26--4`):**
+- TRPs decompose: `mroi_current=0.0285×`, action='Cut' (bad tone) ✓
+- TRPs optimize: `mroi_current=0.0285×`, action='Cut' ✓ (same identity)
+- Performance optimize: `mroi_current=9.7453×`, action='Scale' ✓
+- Все 552/552 тестов PASS (was 544 + 8 new L4 lock-ins, no regressions)
+
+**Trade-off:** Live mROAS recomputation на slider drag отключена (была математически broken — mixed units). mROAS блок теперь = snapshot at last computed state. Customer видит KPI прогноз live (через `predictKPI`, который работает корректно). Подпись «при текущей аллокации» для clarity.
+
+**Discovered side-finding (separate L21):** `optimization.json` returns `lift_pct: None` на real Kagocel. Backend computes it (used at line 660 in convergence check), но в response payload null. Не блокер L4. Заносить в backlog.
+
+---
+
+### 🔴 L4 (orig) — Optimize page mROAS display + light logic bugs (Антон 2026-04-28)
 
 **Symptom:** на Optimize page после оптимизации блок «MIROAS — предельная отдача следующего рубля»:
 - Performance: 0.25× → 🔴 Перенасыщен (но он на upper bound 200%, optimizer его ВЫРАСТИЛ)
@@ -1320,4 +1347,78 @@ tools/test_optimizer_kagocel_redistribution.py (+90 LOC, 3 new tests)
 docs/MATH_AUDIT_v1_5_L10_FIX.md               (NEW, audit-trail)
 SPRINT3_PROGRESS.md                            (this entry)
 ```
+
+
+---
+
+## v1.0.16 Day 1 — L4 mROAS three-way alignment FIX (2026-04-28)
+
+### Fix
+
+**Backend — `engines/decomposer.py`:**
+- Compute `mroi_current` per channel via `_compute_mroas_money` helper from `optimizer.py` (single source of truth, money axis with adstock_factor + unit_cost normalization).
+- Decorate channels с `action`/`action_label`/`action_tone`/`action_reasoning`/`action_priority`/`action_confidence` через `compute_channel_action()` после verdict computation. Aliasing: `mroas: mroi_current` для API contract.
+- Untrained channels get `mroi_current=0.0`.
+
+**Backend — `engines/optimizer.py`:**
+- Заменили primitive `'action': 'увеличить'/'сократить'/'сохранить'` (delta_pct heuristic) на full ACTION_KEYS vocabulary (Scale/Hold/Watch/Reduce/Cut/Uncertain) via `compute_channel_action()`. Aliasing включает `mroas_ci_low/high` ← `mroi_current_ci_low/high`.
+
+**Frontend — `OptimizeStep.svelte`:**
+- Removed JS fallback `marginalROI()` import + Source #2 path (was: `β · α · γ^α · x^(α-1) / (x^α + γ^α)² · y_std` без `/unit_cost`, `/mean`, `adstock_factor` → mixed units).
+- New miROASMap chain: Source #1 = `$optimizeData.channels[i]` (post-optimize), Source #2 = `$decomposeData.channels[i]` (idle, pre-optimize). Empty map когда нет ни одного — table hidden.
+- Status field derivation: `actionToStatus(ch.action)` → Scale=good, Hold/Watch=ok, Reduce/Cut=low, Uncertain=unused. Replaces local thresholds.
+- UI table: emoji + `actionLabel` from backend (Russian: «Масштабировать»/«Удерживать»/«Сократить»/etc).
+
+### Test additions
+
+`tools/test_optimizer_kagocel_redistribution.py` — 8 new L4 lock-in tests:
+- L4-1: decomposer populates mroi_current per channel
+- L4-2: decomposer decorates action / action_label / action_tone
+- L4-3: optimizer decorates action_label / action_tone
+- L4-4: **three-way alignment** — `decompose mroi_current ≈ optimize mroi_current` (max Δ < 0.01) — both engines must use same `_compute_mroas_money`
+- L4-5: TRPs `mroi_current` < 1× (money axis, was ~110× pre-fix)
+- L4-6: TRPs action ∈ {Cut, Reduce, Watch, Uncertain}
+- L4-7: Performance action == Scale
+
+### Validation
+
+**Synthetic Kagocel fixture (lock-in test):**
+```
+Decompose vs Optimize mroi_current alignment: max Δ = 0.0000 ✓
+TRPs:        mroi=0.0217  action=Cut  (money axis, pre-fix would be ~110×)
+Performance: mroi=high    action=Scale
+```
+
+**Real Kagocel pickle (`-26--4`):**
+```
+TRPs:                  mroi=0.0285  action=Cut    (decompose + optimize identical)
+Performance:           mroi=9.7453  action=Scale
+Social/Retail/Banners/OLV: action=Scale (decompose) или Scale (optimize)
+```
+
+**Regression:** 552/552 (was 544 + 8 L4 lock-ins), zero regressions across:
+- test_optimizer_kagocel_redistribution.py: 20/20
+- test_narrative_coherence.py: 24/24
+- test_narrative_adapter.py: 65/65
+- test_math_correctness.py: 156/156
+- test_posterior_ci.py: 82/82
+- test_roi_verdict.py: 36/36
+- test_audit_of_sprint3.py: 20/20
+- test_causal_m0-m4.py: 149/149
+
+**svelte-check:** 0 new errors (33 errors pre-existing in `insights-rules.js`/`hill.js` — unchanged).
+
+### Files changed
+
+```
+sidecar/econometrica/engines/decomposer.py     (+39 LOC)
+sidecar/econometrica/engines/optimizer.py      (+24 / -3 LOC)
+src/lib/components/pipeline/OptimizeStep.svelte (+66 / -48 LOC)
+tools/test_optimizer_kagocel_redistribution.py (+71 LOC, 8 new tests)
+SPRINT3_PROGRESS.md                             (this entry + L4 status update)
+```
+
+### Discovered side-finding — L21 (separate)
+
+`optimization.json` returns `lift_pct: None` для real Kagocel (recently confirmed via direct optimize() call). Backend computes lift_pct internally (used at line 660 convergence check), но в response payload null. Не блокер L4 — L21 backlog.
 

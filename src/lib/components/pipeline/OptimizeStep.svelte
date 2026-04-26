@@ -9,7 +9,6 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
-  import { marginalROI } from '$lib/hill.js';
   import {
     activeProjectId,
     modelData,
@@ -242,66 +241,88 @@
   /**
    * miROAS per channel — marginal ROAS следующего рубля.
    *
-   * F0.3 (Phase 0.1 fix-session 2026-04-25): primary source is now backend
-   * optimization.json mroi_current (money-per-money, authoritative, includes
-   * adstock factor + unit_cost normalization — see optimizer.py
-   * _compute_mroas_money). JS marginalROI is kept as fallback only for
-   * pre-optimize idle state (rough estimate, normalized scale, not money).
+   * L4 (math-fix v1.4 Section C, 2026-04-28): unified backend source. Both
+   * decompose.json (idle) и optimize.json (post-optimize) теперь содержат
+   * `mroi_current` в money axis (через _compute_mroas_money helper) + structured
+   * `action`/`action_label`/`action_tone` (через compute_channel_action). UI
+   * читает оба от backend → three-way alignment с HTML/PPTX commentary.
    *
-   * Returns map: { ch: { value, status, source } }.
-   * status:
-   *   'unused'      — spend = 0, канал не используется
-   *   'scale'       — value > 1.5 — отдача высокая, можно масштабировать
-   *   'stable'      — 0.8-1.5 — стабильная зона
-   *   'saturated'   — < 0.8 — перенасыщен
+   * Pre-fix (2026-04-25 → 2026-04-28): JS marginalROI fallback в Source #2 не
+   * учитывал /unit_cost, /mean, adstock_factor → mixed units (Kagocel TRPs
+   * pre-optimize 110.93× vs post-optimize 0.0285×). Closed by L4.
+   *
+   * Returns map: { ch: { value, status, action, actionLabel, actionTone, source } }.
+   * status (для светофора): 'good'|'ok'|'low'|'unused' derived from action_tone:
+   *   action='Scale'                  → 'good'  (🟢 масштабировать)
+   *   action='Hold' | 'Watch'         → 'ok'    (🟡 стабильно/наблюдать)
+   *   action='Reduce' | 'Cut'         → 'low'   (🔴 сократить)
+   *   action='Uncertain' | spend=0    → 'unused' (⚪ нет данных)
    * source:
-   *   'backend'     — authoritative из optimization.json (money-per-money)
-   *   'js-estimate' — JS approximation pre-optimize (normalized scale)
+   *   'backend-optimize'   — после optimize (mroi_current от optimizer.py)
+   *   'backend-decompose'  — idle, pre-optimize (mroi_current от decomposer.py)
    */
   const miROASMap = $derived.by(() => {
-    /** @type {Record<string, {value: number, status: 'unused'|'scale'|'stable'|'saturated', source: 'backend'|'js-estimate'}>} */
+    /** @type {Record<string, {value: number, status: 'unused'|'good'|'ok'|'low', action: string, actionLabel: string, actionTone: string, source: 'backend-optimize'|'backend-decompose'}>} */
     const map = {};
 
-    // Source #1: backend authoritative (after optimize)
+    /** @param {string} action */
+    const actionToStatus = (action) => {
+      if (action === 'Scale') return /** @type {const} */ ('good');
+      if (action === 'Hold' || action === 'Watch') return /** @type {const} */ ('ok');
+      if (action === 'Reduce' || action === 'Cut') return /** @type {const} */ ('low');
+      return /** @type {const} */ ('unused');
+    };
+
+    // Source #1: post-optimize (authoritative с optimizer signal)
     const opt = $optimizeData;
     if (opt?.channels && opt.channels.length > 0) {
       for (const ch of opt.channels) {
-        const v = Number(ch.mroi_current ?? 0);
-        const status = v <= 0 ? 'unused' :
-                       v > 1.5 ? 'scale' :
-                       v > 0.8 ? 'stable' : 'saturated';
-        map[ch.name] = { value: v, status, source: 'backend' };
+        const action = String(ch.action ?? 'Watch');
+        map[ch.name] = {
+          value: Number(ch.mroi_current ?? 0),
+          status: actionToStatus(action),
+          action,
+          actionLabel: String(ch.action_label ?? ''),
+          actionTone: String(ch.action_tone ?? 'neutral'),
+          source: 'backend-optimize',
+        };
       }
       return map;
     }
 
-    // Source #2: JS fallback for idle state (rough, normalized — replaced after first optimize)
-    for (const ch of channels) {
-      const p = scaledParams[ch];
-      if (!p) continue;
-      const spend = channelBudgets[ch] ?? currentSpend[ch] ?? 0;
-      if (!spend || spend < 1) {
-        map[ch] = { value: 0, status: 'unused', source: 'js-estimate' };
-        continue;
+    // Source #2: pre-optimize idle — use decompose action (mROAS-only heuristic,
+    // optimizer signal joins after run). Backend uses same _compute_mroas_money
+    // helper — guaranteed money-axis math, no mixed-unit drift.
+    const dec = $decomposeData;
+    if (dec?.channels && dec.channels.length > 0) {
+      for (const ch of dec.channels) {
+        const action = String(ch.action ?? 'Watch');
+        map[ch.name] = {
+          value: Number(ch.mroi_current ?? 0),
+          status: actionToStatus(action),
+          action,
+          actionLabel: String(ch.action_label ?? ''),
+          actionTone: String(ch.action_tone ?? 'neutral'),
+          source: 'backend-decompose',
+        };
       }
-      const v = marginalROI(spend, p.alpha, p.gammaScaled, p.beta, yNorm);
-      const status = v > 1.5 ? 'scale' : v > 0.8 ? 'stable' : 'saturated';
-      map[ch] = { value: v, status, source: 'js-estimate' };
+      return map;
     }
+
     return map;
   });
 
-  /** Светофор: подсчёт каналов по категориям насыщения (для блока A). */
+  /** Светофор: подсчёт каналов по категориям насыщения (для блока A).
+   *  L4: status field теперь derived напрямую от backend action_tone, не от
+   *  локальных JS thresholds. Mapping: Scale→good, Hold/Watch→ok, Reduce/Cut→low,
+   *  Uncertain→unused. */
   const saturationCount = $derived.by(() => {
     /** @type {{good: number, ok: number, low: number, unused: number}} */
     const counts = { good: 0, ok: 0, low: 0, unused: 0 };
     for (const ch of channels) {
       const r = miROASMap[ch];
       if (!r) continue;
-      if (r.status === 'unused') counts.unused++;
-      else if (r.status === 'scale') counts.good++;
-      else if (r.status === 'stable') counts.ok++;
-      else counts.low++;
+      counts[r.status] += 1;
     }
     return counts;
   });
@@ -1002,22 +1023,21 @@
           </div>
           <div class="miroas-table">
             {#each channels as ch}
-              {@const r = miROASMap[ch] ?? { value: 0, status: 'unused' }}
+              {@const r = miROASMap[ch] ?? { value: 0, status: 'unused', action: 'Watch', actionLabel: '', actionTone: 'neutral' }}
               {@const cls =
-                r.status === 'scale'     ? 'miroas-good' :
-                r.status === 'stable'    ? 'miroas-ok' :
-                r.status === 'saturated' ? 'miroas-low' : 'miroas-unused'}
-              {@const label =
-                r.status === 'scale'     ? '🟢 Масштабировать' :
-                r.status === 'stable'    ? '🟡 Стабильно' :
-                r.status === 'saturated' ? '🔴 Перенасыщен' :
-                                           '⚪ Не используется'}
+                r.status === 'good' ? 'miroas-good' :
+                r.status === 'ok'   ? 'miroas-ok' :
+                r.status === 'low'  ? 'miroas-low' : 'miroas-unused'}
+              {@const emoji =
+                r.status === 'good' ? '🟢' :
+                r.status === 'ok'   ? '🟡' :
+                r.status === 'low'  ? '🔴' : '⚪'}
               <div class="miroas-row {cls}">
                 <span class="miroas-name">{ch}</span>
                 <span class="miroas-value">
                   {r.status === 'unused' ? '—' : r.value.toFixed(2) + '×'}
                 </span>
-                <span class="miroas-hint">{label}</span>
+                <span class="miroas-hint" title={r.actionLabel}>{emoji} {r.actionLabel || 'Под наблюдением'}</span>
               </div>
             {/each}
           </div>

@@ -378,6 +378,77 @@ def main() -> int:
             hint='Hill saturation монотонна — больше budget должен давать больше lift',
         )
 
+        # ──────────────────────────────────────────────────────────────
+        # L4 — math-fix v1.4 Section C lock-in:
+        #   1. Decomposer output contains mroi_current per channel (money axis)
+        #   2. Decomposer + optimizer decorate action / action_label / action_tone
+        #   3. Three-way alignment: decompose mroi_current ≈ optimize mroi_current
+        #   4. TRPs in money axis (< 1×) — pre-fix JS fallback showed ~110× (native)
+        # ──────────────────────────────────────────────────────────────
+        print('── L4: action decoration + mROAS unification lock-in ──')
+        from engines.decomposer import decompose
+
+        dec_result = decompose(str(proj))
+        dec_channels = dec_result.get('channels', [])
+        check('L4 setup: decompose returned channels', len(dec_channels) > 0)
+
+        # L4-1: each decompose channel has mroi_current
+        all_have_mroi = all('mroi_current' in ch for ch in dec_channels)
+        check('L4-1: decomposer populates mroi_current per channel', all_have_mroi)
+
+        # L4-2: each decompose channel has action + action_label
+        all_have_action = all(
+            'action' in ch and 'action_label' in ch and 'action_tone' in ch
+            for ch in dec_channels
+        )
+        check('L4-2: decomposer decorates action / action_label / action_tone', all_have_action)
+
+        # L4-3: optimizer channels have structured action fields (was: primitive 'увеличить'/'сократить')
+        opt_channels = result_default.get('channels', [])
+        all_opt_have_label = all(
+            'action_label' in ch and 'action_tone' in ch
+            for ch in opt_channels
+        )
+        check('L4-3: optimizer decorates action_label / action_tone per channel', all_opt_have_label)
+
+        # L4-4: three-way alignment — decompose mroi_current ≈ optimize mroi_current
+        # Same _compute_mroas_money helper at same current spend → math identity (within rounding).
+        opt_mroi = {ch['name']: float(ch.get('mroi_current') or 0) for ch in opt_channels}
+        dec_mroi = {ch['name']: float(ch.get('mroi_current') or 0) for ch in dec_channels}
+        common = set(opt_mroi) & set(dec_mroi)
+        max_drift = max(
+            abs(opt_mroi[name] - dec_mroi[name]) for name in common
+        ) if common else 999.0
+        check(
+            f'L4-4: decompose vs optimize mroi_current alignment (max Δ={max_drift:.4f})',
+            max_drift < 0.01,
+            hint='Both engines must use same _compute_mroas_money — drift signals divergent math paths',
+        )
+
+        # L4-5: TRPs (low mROAS, native unit) — money-axis verification
+        trps_opt = next((ch for ch in opt_channels if 'trps' in ch['name'].lower()), None)
+        trps_mroi = float(trps_opt.get('mroi_current') or 0) if trps_opt else 0
+        check(
+            f'L4-5: TRPs mroi_current in money axis < 1× (got {trps_mroi:.4f})',
+            0.0 <= trps_mroi < 1.0,
+            hint='Pre-fix JS fallback showed TRPs ~110× (native axis); post-fix backend ≈ 0.03× (money axis)',
+        )
+
+        # L4-6: TRPs action ∈ {Cut, Reduce, Watch} — low mROAS → не должен быть Scale/Hold
+        trps_action = trps_opt.get('action') if trps_opt else None
+        check(
+            f'L4-6: TRPs optimizer action ∈ {{Cut, Reduce, Watch, Uncertain}} — got {trps_action!r}',
+            trps_action in ('Cut', 'Reduce', 'Watch', 'Uncertain'),
+        )
+
+        # L4-7: high-mROAS channel (Performance) — должен быть Scale
+        perf_opt = next((ch for ch in opt_channels if 'performance' in ch['name'].lower()), None)
+        perf_action = perf_opt.get('action') if perf_opt else None
+        check(
+            f'L4-7: Performance optimizer action == Scale (got {perf_action!r})',
+            perf_action == 'Scale',
+        )
+
     finally:
         # Cleanup
         try:
