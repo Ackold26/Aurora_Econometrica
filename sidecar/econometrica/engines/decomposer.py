@@ -290,6 +290,13 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'verdict_tone': 'neutral',
         }
 
+        # F1 fix (audit 2026-04-27): per-sample training adstock mean for math
+        # consistency with in-model `adstock_full[s,:].mean()` normalization.
+        # Pre-fix used scalar `adstock_mean_posterior` for all samples → CI
+        # distribution shape distorted when decay varies across draws (which is
+        # the whole point of hierarchical learnable adstock — Phase 1.1).
+        # Same class-of-bug as C1 (audit 2026-04-26), but missed by C1 fix
+        # which closed only the POINT estimate path.
         # Phase 1.9 + 1.1: posterior CI on contribution and ROI via vectorized chain.
         # C3 fix (audit 2026-04-26): explicit CI semantics для spend=0 channels.
         # Pre-fix: spend=0 channels skipped from CI (asymmetric — point estimate populated
@@ -325,12 +332,20 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
                 if decay_samples is not None and a_type == 'geometric':
                     # Phase 1.1: per-sample adstock + Hill, joint correlation preserved.
                     x_adstock_2d = geometric_adstock_batch(raw_spend_series, decay_samples)
-                    x_norm_2d = x_adstock_2d / max(mean, 1e-10)
+                    # F1 fix: in decomposer, raw_spend_series IS training data (df reloaded
+                    # from config.data_file at line 180), so x_adstock_2d.mean(axis=1) is
+                    # the per-sample training adstock mean — exactly what model used during
+                    # training. Use as per-sample divisor to restore math consistency.
+                    mean_per_sample = np.maximum(
+                        x_adstock_2d.mean(axis=1, keepdims=True), 1e-10
+                    )
+                    x_norm_2d = x_adstock_2d / mean_per_sample
                     sat_samples = hill_function_batch_2d(
                         x_norm_2d, ch_samples['alpha'], ch_samples['gamma']
                     )
                 else:
-                    # Phase 1.9 fallback (v1.1.5 pickles or weibull channels)
+                    # Phase 1.9 fallback (v1.1.5 pickles or weibull channels) — decay
+                    # constant across samples, so scalar `mean` is consistent with training.
                     sat_samples = hill_function_batch(
                         x_norm, ch_samples['alpha'], ch_samples['gamma']
                     )
@@ -340,17 +355,23 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
                     * sat_samples
                     * y_std
                 ).sum(axis=1)
-                _, contrib_ci_low, contrib_ci_high = compute_ci_hdi(contrib_total_samples)
+                _, contrib_ci_low, contrib_ci_high, _method_c = compute_ci_hdi(contrib_total_samples)
                 ch_dict['contribution_ci_low'] = round(float(contrib_ci_low), 0)
                 ch_dict['contribution_ci_high'] = round(float(contrib_ci_high), 0)
 
                 # ROI distribution: contribution / spend_money (constant denominator)
                 roi_samples = contrib_total_samples / spend_money
-                _, roi_ci_low, roi_ci_high = compute_ci_hdi(roi_samples)
+                _, roi_ci_low, roi_ci_high, _method_r = compute_ci_hdi(roi_samples)
                 ch_dict['roi_ci_low'] = round(float(roi_ci_low), 4)
                 ch_dict['roi_ci_high'] = round(float(roi_ci_high), 4)
-                # M-OLS-2: explicit ci_method marker для UI consumer parity (vs OLS bootstrap path).
-                ch_dict['ci_method'] = 'bayesian_hdi_phase11' if decay_samples is not None else 'bayesian_hdi'
+                # F5 fix: ci_method reflects ACTUAL HDI computation (not silent fallback).
+                # Suffix '_pct' indicates percentile fallback fired (arviz unavailable/failed).
+                _is_pct = _method_r == 'percentile_fallback'
+                if decay_samples is not None:
+                    base = 'bayesian_hdi_phase11_pct' if _is_pct else 'bayesian_hdi_phase11'
+                else:
+                    base = 'bayesian_hdi_pct' if _is_pct else 'bayesian_hdi'
+                ch_dict['ci_method'] = base
 
         channels.append(ch_dict)
 

@@ -174,7 +174,7 @@ def bootstrap_roi_ci(
             result[col] = {'ci_low': None, 'ci_high': None, 'ci_mean': None, 'ci_median': None}
             continue
         if _has_hdi:
-            mean_v, ci_low, ci_high = compute_ci_hdi(valid, hdi_prob=hdi_prob)
+            mean_v, ci_low, ci_high, _method = compute_ci_hdi(valid, hdi_prob=hdi_prob)
         else:
             alpha = (1.0 - hdi_prob) / 2.0
             mean_v = float(np.mean(valid))

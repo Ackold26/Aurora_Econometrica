@@ -8,9 +8,9 @@
 
 ## Current task
 
-**Step D — DONE. Awaiting 3 decisions для F1/F2/F3 → fix-session → MIN-LIVE.**
+**Step D + Fix-session DONE. Next: MIN-LIVE через FastAPI.**
 
-Step D was: independent math review (3-5h time-box).
+Antón confirmed defaults F1(b) + F2(a) + F3(a) + caught optimizer too (3 places, not 2). All 5 fixes shipped + 339/339 tests PASS.
 
 Fresh-context skeptic review кода без чтения SPRINT*_PROGRESS / ADR (те написаны same blind-spot session).
 
@@ -33,6 +33,15 @@ Goal: ≥3 hidden bugs/inconsistencies. Если zero — дальше копа�
 - [x] 2026-04-27 — Created SPRINT3_PROGRESS.md (this file)
 - [x] 2026-04-27 — Baseline tests verified (156+73+36+65 = 330 PASS, HEAD 92108dc clean)
 - [x] 2026-04-27 — **Step D complete:** read 5 ключевых files (decomposer/modeler/optimizer/posterior_propagation/ols_bootstrap/conformal). Surface 6 findings, 3 high-severity (F1 math drift Phase 1.1 samples path, F2 jackknife_plus actually plain jackknife, F3 conformal exchangeability violated time-series). 3 medium/low (F4-F6).
+- [x] 2026-04-27 — **Fix-session complete (~3h):** Antón approved defaults + caught optimizer also affected by F1.
+  - **F1(b)** [3 places, not 2]: per-sample training adstock mean recompute. Helper `compute_train_adstock_mean_samples` в posterior_propagation.py. Patched decomposer.py (in-place mean from x_adstock_2d), scenario.py (load training data unconditionally + helper), optimizer.py (changed `_compute_mroas_money_samples` signature `mean: float` → `mean: float | np.ndarray`, caller pre-computes per-sample mean from training df).
+  - **F2(a)**: renamed `jackknife_plus_intervals` → `jackknife_intervals` + honest docstring + `coverage_caveat` field. Backward-compat alias kept. `conformal_intervals_auto` updated.
+  - **F3(a)**: module docstring + `exchangeability_caveat` field в conformal_intervals_auto output. Honest positioning revision.
+  - **F4**: extended tail-ESS gate в modeler.py от `['media_betas']` к `['media_betas', 'alphas', 'gammas', 'adstock_decay']`. Per-channel AND aggregation.
+  - **F5**: `compute_ci_hdi` returns 4-tuple `(mean, low, high, method)` где method ∈ {'hdi', 'percentile_fallback', 'degenerate', 'empty'}. All 10 callers updated (decomposer/scenario/optimizer/ols_bootstrap + tests). Decomposer ci_method получает суффикс `_pct` когда percentile fallback fired.
+  - **F6** deferred — UI work, post-MIN-LIVE.
+  - **Tests:** 339/339 PASS (was 330, +9 from F1 + F5 marker tests). New F1 tests check: scalar fallback, geometric+decay shape, constant decay sanity, high-vs-low decay carryover monotonicity, variable decay produces variable means (>5% std), per-sample distortion when using scalar (max abs diff >10%) — direct lock-in for the bug.
+  - **Smoke imports:** all engines + utils import clean. `jackknife_intervals` exists, alias `jackknife_plus_intervals` works.
 
 ---
 

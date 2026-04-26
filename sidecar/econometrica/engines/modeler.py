@@ -739,12 +739,39 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # Fallback: use pre-computed default-decay mean (v1.1.5 semantic)
                 adstock_means_posterior[col] = float(media_means.get(col, 1.0))
 
-        # Tail-ESS check per channel β (Vehtari rule: tail_ess ≥ 100·n_chains for stable percentile estimation).
-        # If any channel fails — CI brackets will be annotated "оценка нестабильна" downstream.
+        # Tail-ESS check per channel (Vehtari rule: tail_ess ≥ 100·n_chains for stable percentile estimation).
+        # F4 fix (audit 2026-04-27): extended from media_betas only к β + α + γ + adstock_decay.
+        # ROI/mROAS CI propagation chain involves all four params via Hill saturation —
+        # if α/γ/decay tail-ESS bad, CI bounds unreliable даже когда β tail-ESS ok.
+        # Per-channel tail_ess_ok = AND of all four params для that channel.
         try:
-            tail_ess_betas = az.ess(trace, var_names=['media_betas'], method='tail')['media_betas'].values
             tail_ess_threshold = 100 * int(chains)
-            tail_ess_ok_per_channel = [bool(e >= tail_ess_threshold) for e in tail_ess_betas.tolist()]
+            param_var_names = ['media_betas', 'alphas', 'gammas']
+            try:
+                # adstock_decay only present для v1.2 pickles (Phase 1.1+)
+                _ = trace.posterior['adstock_decay']
+                param_var_names.append('adstock_decay')
+            except (KeyError, AttributeError):
+                pass
+            ess_per_param: dict[str, np.ndarray] = {}
+            for vname in param_var_names:
+                try:
+                    ess_per_param[vname] = az.ess(trace, var_names=[vname], method='tail')[vname].values
+                except Exception as _vess_err:
+                    logger.warning(f"Tail-ESS failed для {vname}: {_vess_err}. Skipping.")
+            # Per-channel AND aggregation — pass только если все доступные params выше threshold.
+            tail_ess_ok_per_channel = []
+            for i in range(len(media_cols)):
+                ok = True
+                for vname, ess_arr in ess_per_param.items():
+                    try:
+                        if i < len(ess_arr) and float(ess_arr[i]) < tail_ess_threshold:
+                            ok = False
+                            break
+                    except (IndexError, ValueError, TypeError):
+                        # Defensive — ambiguous result treated as ok (don't block training)
+                        pass
+                tail_ess_ok_per_channel.append(bool(ok))
         except Exception as _ess_err:
             logger.warning(f"Tail-ESS computation failed: {_ess_err}. Treating as OK (defensive).")
             tail_ess_ok_per_channel = [True] * len(media_cols)

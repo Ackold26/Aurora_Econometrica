@@ -11,7 +11,12 @@ from typing import Any
 
 from utils.adstock import apply_adstock, geometric_adstock_batch, adstock_factor_batch
 from utils.saturation import hill_function, response_curve, hill_derivative_batch
-from utils.posterior_propagation import compute_ci_hdi, load_posterior_samples, per_channel_samples
+from utils.posterior_propagation import (
+    compute_ci_hdi,
+    compute_train_adstock_mean_samples,
+    load_posterior_samples,
+    per_channel_samples,
+)
 
 
 def _flat_alloc_adstock_avg(
@@ -156,7 +161,7 @@ def _compute_mroas_money_samples(
     *,
     current_spend_native: float,
     n_periods: int,
-    mean: float,
+    mean: float | np.ndarray,
     alpha_samples: np.ndarray,
     gamma_samples: np.ndarray,
     beta_samples: np.ndarray,
@@ -189,7 +194,12 @@ def _compute_mroas_money_samples(
         np.ndarray shape (n_samples,) of mROAS values. All zeros for degenerate inputs.
     """
     n = int(np.asarray(alpha_samples).size)
-    if current_spend_native <= 0 or mean <= 0 or n_periods < 1 or unit_cost <= 0 or n == 0:
+    # F1 fix (audit 2026-04-27): mean may be scalar (legacy v1.0/v1.1.5 fallback)
+    # or per-sample 1D array (Phase 1.1 path with training adstock means).
+    # Sanity guard works on either.
+    is_arr_mean = isinstance(mean, np.ndarray) and mean.ndim >= 1
+    mean_scalar_for_guard = float(np.min(mean)) if is_arr_mean else float(mean)
+    if current_spend_native <= 0 or mean_scalar_for_guard <= 0 or n_periods < 1 or unit_cost <= 0 or n == 0:
         return np.zeros(max(n, 1), dtype=np.float64)
 
     x_pp = current_spend_native / n_periods
@@ -197,11 +207,17 @@ def _compute_mroas_money_samples(
     if decay_samples is not None and adstock_type == 'geometric':
         # Phase 1.1: vectorized per-sample adstock_avg + adstock_factor
         # H4 fix (audit 2026-04-26): reuse adstock_factor_batch(...) единый source of
-        # truth для analytical formula (was: inline duplicated math here AND в
-        # utils/adstock.py — drift risk при future updates только в одном месте).
+        # truth для analytical formula.
         af_per_sample = adstock_factor_batch(decay_samples, n_periods, adstock_type)
         adstock_avg_per_sample = x_pp * af_per_sample  # (n_samples,)
-        x_norm_per_sample = adstock_avg_per_sample / max(mean, 1e-10)  # (n_samples,)
+        # F1 fix: per-sample TRAINING adstock mean. mean_arr varies per sample
+        # to match in-model `adstock_full[s,:].mean()` normalization. When caller
+        # passed scalar (legacy/fallback), broadcasts across all samples.
+        if is_arr_mean:
+            mean_arr = np.maximum(np.asarray(mean, dtype=np.float64), 1e-10)
+        else:
+            mean_arr = np.full(n, max(float(mean), 1e-10), dtype=np.float64)
+        x_norm_per_sample = adstock_avg_per_sample / mean_arr  # (n_samples,)
 
         # Per-sample Hill derivative — broadcast manually for joint correlation.
         # hill'(x) = α · γ^α · x^(α-1) / (x^α + γ^α)²
@@ -215,16 +231,19 @@ def _compute_mroas_money_samples(
         af_arr = np.asarray(af_per_sample, dtype=np.float64)
     else:
         # Phase 1.9 fallback: scalar adstock_avg/factor (decay constant 0.5).
+        # mean is scalar в этом path (decay constant → adstock_full constant across samples).
+        mean_scalar = mean_scalar_for_guard
         adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type)
-        x_norm = adstock_avg / max(mean, 1e-10)
+        x_norm = adstock_avg / max(mean_scalar, 1e-10)
         hill_deriv_arr = hill_derivative_batch(
             np.array([x_norm]), alpha_samples, gamma_samples
         ).ravel()
         af_arr = _adstock_factor(x_pp, n_periods, adstock_type)
+        mean_arr = max(mean_scalar, 1e-10)  # Use scalar in chain rule
 
     # Chain rule per-sample
     beta_arr = np.asarray(beta_samples, dtype=np.float64)
-    mroas_native = beta_arr * hill_deriv_arr * af_arr * y_std / max(mean, 1e-10)
+    mroas_native = beta_arr * hill_deriv_arr * af_arr * y_std / mean_arr
     return mroas_native / unit_cost
 
 
@@ -604,10 +623,21 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             ch_samples = per_channel_samples(posterior_samples, col)
             if ch_samples is not None:
                 decay_s = ch_samples.get('decay')  # Phase 1.1: per-sample decay or None
+                # F1 fix (audit 2026-04-27): per-sample TRAINING adstock mean for math
+                # consistency with in-model normalization. df is training data (loaded
+                # at line 302 from config_model.data_file). When decay_s is None
+                # (legacy pickles), helper returns scalar fallback = mean_ch.
+                train_raw_for_col = df[col].fillna(0).values.astype(float) if col in df.columns else None
+                if train_raw_for_col is not None:
+                    mean_for_samples = compute_train_adstock_mean_samples(
+                        train_raw_for_col, decay_s, a_type=a_type, fallback_scalar=mean_ch
+                    )
+                else:
+                    mean_for_samples = mean_ch
                 cur_arr = _compute_mroas_money_samples(
                     current_spend_native=cur,
                     n_periods=n_periods,
-                    mean=mean_ch,
+                    mean=mean_for_samples,
                     alpha_samples=ch_samples['alpha'],
                     gamma_samples=ch_samples['gamma'],
                     beta_samples=ch_samples['beta'],
@@ -616,12 +646,12 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     unit_cost=uc,
                     decay_samples=decay_s,
                 )
-                _, mroi_current_ci_low, mroi_current_ci_high = compute_ci_hdi(cur_arr)
+                _, mroi_current_ci_low, mroi_current_ci_high, _m_cur = compute_ci_hdi(cur_arr)
 
                 opt_arr = _compute_mroas_money_samples(
                     current_spend_native=float(opt),
                     n_periods=n_periods,
-                    mean=mean_ch,
+                    mean=mean_for_samples,
                     alpha_samples=ch_samples['alpha'],
                     gamma_samples=ch_samples['gamma'],
                     beta_samples=ch_samples['beta'],
@@ -630,7 +660,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     unit_cost=uc,
                     decay_samples=decay_s,
                 )
-                _, mroi_optimal_ci_low, mroi_optimal_ci_high = compute_ci_hdi(opt_arr)
+                _, mroi_optimal_ci_low, mroi_optimal_ci_high, _m_opt = compute_ci_hdi(opt_arr)
 
         ch_dict = {
             'name': col,

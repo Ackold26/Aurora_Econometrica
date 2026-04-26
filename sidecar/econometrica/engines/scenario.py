@@ -13,6 +13,7 @@ from utils.adstock import apply_adstock, geometric_adstock_batch
 from utils.saturation import hill_function, hill_function_batch, hill_function_batch_2d
 from utils.posterior_propagation import (
     compute_ci_hdi,
+    compute_train_adstock_mean_samples,
     load_posterior_samples,
     per_channel_samples,
 )
@@ -199,6 +200,23 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     roas_native_ci = None
     roas_money_ci = None
     lift_pct_ci = None
+    # F1 fix (audit 2026-04-27): load training raw spend per channel for per-sample
+    # adstock_mean computation. Required to match in-model `adstock_full[s,:].mean()`
+    # normalization when adstock decay varies across posterior draws (Phase 1.1).
+    # Conditional load: only when posterior_samples available + at least one geometric
+    # channel has decay samples. Defensive — fallback to scalar mean when load fails.
+    train_raw_per_channel: dict[str, np.ndarray] = {}
+    if posterior_samples is not None and data_file:
+        try:
+            from utils.merge_rules import apply_merge_rules
+            train_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+            apply_merge_rules(train_df, config_model.get('merge_rules'))
+            for col in media_cols:
+                if col in train_df.columns:
+                    train_raw_per_channel[col] = train_df[col].fillna(0).values.astype(float)
+        except Exception:
+            train_raw_per_channel = {}  # graceful fallback к scalar mean
+
     if posterior_samples is not None:
         # Audit H1 (2026-04-26): keep defensive try/except для production stability
         # (any numerical edge case in CI math falls back к point estimate без crash),
@@ -222,12 +240,28 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 if decay_samples is not None and a_type == 'geometric':
                     # Phase 1.1: per-sample adstock varies → Hill on 2D x_norm.
                     x_adstock_2d = geometric_adstock_batch(raw_plan[col], decay_samples)
-                    x_norm_2d = x_adstock_2d / max(mean, 1e-10)
+                    # F1 fix (audit 2026-04-27): per-sample TRAINING adstock mean
+                    # (computed from training raw spend × per-sample decay) for math
+                    # consistency with in-model normalization. Pre-fix used scalar
+                    # `adstock_mean_posterior` for all samples → CI shape distorted
+                    # when decay variability high. Same class-of-bug as C1 in samples path.
+                    train_raw = train_raw_per_channel.get(col)
+                    mean_samples = compute_train_adstock_mean_samples(
+                        train_raw if train_raw is not None else raw_plan[col],
+                        decay_samples,
+                        a_type=a_type,
+                        fallback_scalar=mean,
+                    )
+                    if isinstance(mean_samples, np.ndarray):
+                        denom = np.maximum(mean_samples, 1e-10)[:, None]
+                    else:
+                        denom = max(float(mean_samples), 1e-10)
+                    x_norm_2d = x_adstock_2d / denom
                     sat_samples = hill_function_batch_2d(
                         x_norm_2d, ch_samples['alpha'], ch_samples['gamma']
                     )
                 else:
-                    # Phase 1.9 fallback: x_norm same across samples.
+                    # Phase 1.9 fallback: x_norm same across samples (decay constant).
                     x_norm = adstocked_plan[col] / max(mean, 1e-10)
                     sat_samples = hill_function_batch(
                         x_norm, ch_samples['alpha'], ch_samples['gamma']
@@ -248,14 +282,14 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             baseline_total_samples = baseline_per_sample_period * n_periods  # (n_samples,)
             incremental_total_samples = predicted_total_samples - baseline_total_samples
 
-            _, p_lo, p_hi = compute_ci_hdi(predicted_total_samples)
+            _, p_lo, p_hi, _m_p = compute_ci_hdi(predicted_total_samples)
             predicted_kpi_ci = (p_lo, p_hi)
-            _, i_lo, i_hi = compute_ci_hdi(incremental_total_samples)
+            _, i_lo, i_hi, _m_i = compute_ci_hdi(incremental_total_samples)
             incremental_kpi_ci = (i_lo, i_hi)
 
             if baseline_total > 0:
                 lift_samples = incremental_total_samples / baseline_total_samples * 100
-                _, l_lo, l_hi = compute_ci_hdi(lift_samples)
+                _, l_lo, l_hi, _m_l = compute_ci_hdi(lift_samples)
                 lift_pct_ci = (l_lo, l_hi)
         except Exception as _ci_err:
             # Defensive: any failure in CI computation falls back to point estimates only.

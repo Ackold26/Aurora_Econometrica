@@ -35,7 +35,7 @@ DEFAULT_HDI_PROB = 0.9
 def compute_ci_hdi(
     samples: np.ndarray,
     hdi_prob: float = DEFAULT_HDI_PROB,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, str]:
     """Compute mean + HDI bounds from posterior samples.
 
     Uses arviz.hdi (Highest Density Interval) — narrowest interval containing
@@ -43,31 +43,37 @@ def compute_ci_hdi(
     optimizer lift). Falls back to equal-tail percentile if arviz unavailable
     or computation fails.
 
+    F5 fix (audit 2026-04-27): returns 4-tuple including `method` marker to
+    distinguish HDI from percentile fallback. Pre-fix silently degraded HDI →
+    percentile when arviz raised, but caller-side `ci_method` was unconditionally
+    set to 'bayesian_hdi*'. Now: callers read `method` and propagate accurately.
+
     Args:
         samples: 1D array of posterior draws (after flattening chains × draws).
         hdi_prob: probability mass (default 0.9 = 90% CI).
 
     Returns:
-        (mean, ci_low, ci_high). All floats. Returns (0, 0, 0) for empty/invalid.
-        For samples.size < 4 (degenerate), returns mean as both bounds.
+        (mean, ci_low, ci_high, method). method ∈ {'hdi', 'percentile_fallback',
+        'degenerate', 'empty'}. Returns (0, 0, 0, 'empty') for empty/invalid.
+        For samples.size < 4 (degenerate), returns mean as both bounds + 'degenerate'.
     """
     arr = np.asarray(samples).ravel()
     if arr.size == 0:
-        return (0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0, 'empty')
 
     # Filter NaN/inf defensively
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:
-        return (0.0, 0.0, 0.0)
+        return (0.0, 0.0, 0.0, 'empty')
 
     mean = float(arr.mean())
     if arr.size < 4:
-        return (mean, mean, mean)
+        return (mean, mean, mean, 'degenerate')
 
     if _HAS_ARVIZ:
         try:
             hdi = az.hdi(arr, hdi_prob=hdi_prob)
-            return (mean, float(hdi[0]), float(hdi[1]))
+            return (mean, float(hdi[0]), float(hdi[1]), 'hdi')
         except Exception:
             pass
 
@@ -75,7 +81,47 @@ def compute_ci_hdi(
     alpha = (1.0 - hdi_prob) / 2.0
     low = float(np.percentile(arr, alpha * 100))
     high = float(np.percentile(arr, (1.0 - alpha) * 100))
-    return (mean, low, high)
+    return (mean, low, high, 'percentile_fallback')
+
+
+def compute_train_adstock_mean_samples(
+    raw_train_spend: np.ndarray,
+    decay_samples: np.ndarray | None,
+    a_type: str = 'geometric',
+    fallback_scalar: float = 1.0,
+) -> np.ndarray | float:
+    """Per-sample training adstock mean for math-consistent CI normalization.
+
+    F1 fix (audit 2026-04-27): Phase 1.1 training computes per-draw normalization
+    `x_norm[s,t] = adstock_full[s,t] / mean(adstock_full[s,:])`. Persistence stored
+    only the posterior MEAN of these per-sample means (single scalar per channel).
+    Inference samples-path divided per-sample adstock by single scalar → CI
+    distribution shape distorted when decay varies across draws (which is the
+    whole point of hierarchical learnable adstock).
+
+    Recomputes per-sample training adstock mean on-demand from raw spend ×
+    decay_samples, avoiding schema bump (no client re-train cost).
+
+    Args:
+        raw_train_spend: 1D array of training-time raw spend (n_periods,).
+        decay_samples: 1D array of posterior decay draws (n_samples,) or None.
+        a_type: adstock type. Only 'geometric' uses per-sample math; others fallback.
+        fallback_scalar: scalar mean to use when per-sample unavailable
+            (legacy v1.0/v1.1.5 pickles, or non-geometric channels).
+
+    Returns:
+        np.ndarray shape (n_samples,) when computable; float scalar fallback otherwise.
+    """
+    if decay_samples is None or a_type != 'geometric':
+        return float(fallback_scalar)
+    arr = np.asarray(raw_train_spend, dtype=np.float64)
+    if arr.size == 0:
+        return float(fallback_scalar)
+    from utils.adstock import geometric_adstock_batch
+    train_adstock_2d = geometric_adstock_batch(arr, np.asarray(decay_samples, dtype=np.float64))
+    means = train_adstock_2d.mean(axis=1)  # (n_samples,)
+    # Floor для div safety — но НЕ применяем pre-emptively, оставляем callerу для clarity
+    return means
 
 
 def tail_ess_threshold(n_chains: int) -> int:

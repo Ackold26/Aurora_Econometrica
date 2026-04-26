@@ -30,6 +30,7 @@ import numpy as np
 
 from utils.posterior_propagation import (
     compute_ci_hdi,
+    compute_train_adstock_mean_samples,
     tail_ess_threshold,
     load_posterior_samples,
     verdict_tier,
@@ -78,7 +79,7 @@ np.random.seed(42)
 
 # Normal posterior — HDI ≈ 1.645 sigmas each side at 90%
 samples_normal = np.random.normal(2.0, 0.5, size=8000)
-mean_n, low_n, high_n = compute_ci_hdi(samples_normal)
+mean_n, low_n, high_n, method_n = compute_ci_hdi(samples_normal)
 expected_width_normal = 2 * 1.645 * 0.5  # ~1.645
 check(
     "HDI normal mean ≈ 2.0",
@@ -93,7 +94,7 @@ check(
 
 # Lognormal (skewed — typical mROAS shape)
 samples_skew = np.random.lognormal(mean=0.5, sigma=0.5, size=8000)
-mean_s, low_s, high_s = compute_ci_hdi(samples_skew)
+mean_s, low_s, high_s, method_s = compute_ci_hdi(samples_skew)
 check(
     "HDI lognormal: low < mean < high",
     low_s < mean_s < high_s,
@@ -103,17 +104,25 @@ check(
 check("HDI lognormal: low > 0 (positive support)", low_s > 0)
 
 # Degenerate cases
-check("HDI empty array → (0,0,0)", compute_ci_hdi(np.array([])) == (0.0, 0.0, 0.0))
-check("HDI scalar → (x,x,x)", compute_ci_hdi(np.array([1.5])) == (1.5, 1.5, 1.5))
+# F5: 4-tuple return now includes method marker
+check("HDI empty array → (0,0,0,'empty')", compute_ci_hdi(np.array([])) == (0.0, 0.0, 0.0, 'empty'))
+check("HDI scalar → (x,x,x,'degenerate')", compute_ci_hdi(np.array([1.5])) == (1.5, 1.5, 1.5, 'degenerate'))
 
 # All-NaN
 check(
-    "HDI all-NaN → (0,0,0)",
-    compute_ci_hdi(np.full(100, np.nan)) == (0.0, 0.0, 0.0),
+    "HDI all-NaN → (0,0,0,'empty')",
+    compute_ci_hdi(np.full(100, np.nan)) == (0.0, 0.0, 0.0, 'empty'),
+)
+
+# F5: method marker is 'hdi' for valid samples (when arviz available)
+check(
+    "HDI normal samples → method='hdi' (or 'percentile_fallback' если arviz unavailable)",
+    method_n in ('hdi', 'percentile_fallback'),
+    f"got method={method_n}",
 )
 
 # 80% HDI tighter than 90% HDI on same data
-mean80, low80, high80 = compute_ci_hdi(samples_normal, hdi_prob=0.8)
+mean80, low80, high80, method80 = compute_ci_hdi(samples_normal, hdi_prob=0.8)
 check(
     "HDI 80% tighter than 90%",
     (high80 - low80) < (high_n - low_n),
@@ -287,7 +296,7 @@ zero_spend = _compute_mroas_money_samples(
 check("mROAS zero spend → zeros", np.all(zero_spend == 0))
 
 # Compute CI from samples
-m_mean, m_low, m_high = compute_ci_hdi(batch_8k)
+m_mean, m_low, m_high, m_method = compute_ci_hdi(batch_8k)
 check("mROAS CI ordering: low < mean < high", m_low < m_mean < m_high)
 
 
@@ -452,6 +461,56 @@ check("Variable decay → mROAS varies", np.std(mroas_var) > 1e-3)
 af_low = adstock_factor_batch(np.array([0.1]), 10, 'geometric')[0]
 af_high = adstock_factor_batch(np.array([0.7]), 10, 'geometric')[0]
 check("Higher decay → higher adstock_factor (chain rule input)", af_high > af_low)
+
+# ────────────────────────────────────────────────────────────────────
+# F1 fix tests (audit 2026-04-27): per-sample training adstock mean
+# ────────────────────────────────────────────────────────────────────
+print("\n── F1: compute_train_adstock_mean_samples ──")
+
+# Realistic training raw spend pattern (n=24 weeks с some variance — typical TV channel)
+np.random.seed(42)
+raw_train = np.abs(np.random.normal(100, 30, size=24))
+
+# Variable decay samples — exactly the case where F1 bug bit pre-fix
+decay_low = np.full(1000, 0.1)   # constant low decay
+decay_high = np.full(1000, 0.8)  # constant high decay
+decay_mixed = np.random.uniform(0.05, 0.85, size=1000)  # variable
+
+# Test 1: scalar fallback when decay_samples is None
+fallback = compute_train_adstock_mean_samples(raw_train, None, 'geometric', fallback_scalar=42.0)
+check("F1: None decay → scalar fallback", isinstance(fallback, float) and fallback == 42.0)
+
+# Test 2: scalar fallback for non-geometric adstock
+weibull_fb = compute_train_adstock_mean_samples(raw_train, decay_low, 'weibull', fallback_scalar=42.0)
+check("F1: weibull adstock → scalar fallback (Phase 1.5 deferred)", isinstance(weibull_fb, float) and weibull_fb == 42.0)
+
+# Test 3: returns 1D array of correct shape for geometric + decay_samples
+mean_low = compute_train_adstock_mean_samples(raw_train, decay_low, 'geometric')
+check("F1: geometric + decay → 1D array shape (n_samples,)", isinstance(mean_low, np.ndarray) and mean_low.shape == (1000,))
+
+# Test 4: per-sample means identical when decay constant (sanity)
+check("F1: constant decay → per-sample means identical", np.allclose(mean_low, mean_low[0]))
+
+# Test 5: high decay → larger per-sample means (geometric carryover accumulates)
+mean_high = compute_train_adstock_mean_samples(raw_train, decay_high, 'geometric')
+check("F1: high decay > low decay per-sample mean (carryover accumulation)", mean_high[0] > mean_low[0] * 1.5)
+
+# Test 6: variable decay → variable per-sample means (THE bug F1 closes)
+mean_mixed = compute_train_adstock_mean_samples(raw_train, decay_mixed, 'geometric')
+check("F1: variable decay → variable per-sample means (varies > 5% std)", np.std(mean_mixed) / np.mean(mean_mixed) > 0.05)
+
+# Test 7: scalar mean of mean_mixed != per-sample bug shows distortion
+# Pre-F1 code used `posterior_mean_of_per_sample_means` for ALL samples → loses variability
+scalar_post_mean = float(np.mean(mean_mixed))
+distortion_per_sample = mean_mixed - scalar_post_mean
+check(
+    "F1: per-sample distortion when using scalar (max abs diff > 10% of scalar)",
+    np.max(np.abs(distortion_per_sample)) / scalar_post_mean > 0.1,
+)
+
+# Test 8: empty raw_train → fallback
+empty_fb = compute_train_adstock_mean_samples(np.array([]), decay_low, 'geometric', fallback_scalar=99.0)
+check("F1: empty raw_train → scalar fallback", isinstance(empty_fb, float) and empty_fb == 99.0)
 
 # ────────────────────────────────────────────────────────────────────
 # Summary
