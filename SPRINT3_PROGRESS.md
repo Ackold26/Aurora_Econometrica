@@ -8,11 +8,21 @@
 
 ## Current task
 
-**Sprint 3 Pharma Causal ADR drafted — pending Антон approval.**
+**M0 Pharma Causal stack scaffolding DONE. Continue M1 (DiD endpoint) ~6-8h.**
 
-`docs/SPRINT3_PHARMA_CAUSAL_ADR.md` ready. 4 architectural decisions (Q1-Q4) require Антон's call. After approval → start M0 backend (~3h) autonomously, then M1-M4 (~25-40h total).
+ADR APPROVED with 4 refinements (Q1-Q4 + per-M MIN-LIVE checkpoint + scipy isolation interface + Афала validation diversification + optional causal_artifact_path hint). M0 ships:
 
-D + Fix-session + MIN-LIVE + audit-of-audit all SHIPPED + PUSHED to `origin/math-fix-v1.0.13` (HEAD `f04b85c`).
+- requirements.txt: +linearmodels>=6.0 +econml>=0.15 +statsmodels>=0.14 (NO pysyncon, NO cvxpy per Q2(B))
+- engines/causal/{__init__.py, common.py, _panel_data.py} namespace создан
+- tools/test_causal_m0.py — 39 assertions per-M MIN-LIVE checkpoint, all PASS
+- Panel data loader/validator (synthetic + real format), synthesize_geo_split fallback для aggregated→panel
+- ATT + HonestDisclosure dataclasses + uniform error_response shape
+- 378/378 total tests PASS (was 339 + 39 new)
+
+⚠️ Pre-launch блокер flagged: Kagocel и Афала both AGGREGATED brand-level — нет geo split. M1+ нужны panel data. Fallback options:
+1. synthesize_geo_split() для DGP-controlled validation (synthetic ground truth)
+2. Real geo data request от Materia Medica для true validation
+3. М0 dataset-agnostic — продолжается independently от panel-data resolution
 
 Fresh-context skeptic review кода без чтения SPRINT*_PROGRESS / ADR (те написаны same blind-spot session).
 

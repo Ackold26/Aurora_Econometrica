@@ -1,7 +1,7 @@
 # Sprint 3 Pharma Causal — Architectural Decision Record
 
 **Created:** 2026-04-27
-**Status:** DRAFT — pending Антон review
+**Status:** APPROVED 2026-04-27 with 4 refinements (Q1-Q4 confirmed, see §11)
 **Predecessor:** `docs/SPRINT1_FOUNDATION_ADR.md`, `project_econometrica_premium_avatars.md` (memory), `SPRINT3_PROGRESS.md`
 **Branch:** `math-fix-v1.0.13` (or new `sprint3-pharma-causal` после approval)
 **Estimated scope:** ~25-40h backend + ~10-15h UI parallel track
@@ -270,6 +270,67 @@ Recommendation: **Option A** для now, **Option B** as Sprint 4+ enhancement �
 | Causal Forest slow on n>10k | Low | Add timeout + n_estimators cap + progress reporting. |
 | Geo-data not standardized across clients | High | Pre-load validation в `_panel_data.py`. Reject malformed input early с clear error. |
 | Same blind-spot pattern as F1/A1 | High | Mandatory fresh-context independent audit before ship (per §5 gate 3). |
+
+---
+
+## 11. Antón's approval + 4 refinements (2026-04-27)
+
+All 4 questions answered with refinements that strengthen the design:
+
+### Q1 confirmed: B (single ship M0-M4 vместе) + per-M MIN-LIVE checkpoint refinement
+
+**Refinement:** add internal MIN-LIVE checkpoint at end of each M (not ship gate, internal sanity check ~30min). Closes accumulating-bugs risk that F1+A1 confirmed: bigger work = more hidden bugs. Per-M verification surfaces drift early. ~2h total across 4 M's = cheap insurance.
+
+Per-M checkpoint structure: load relevant pickle/data → call new endpoint → verify response shape, math invariants (CI monotonic, sensible magnitude vs known ground truth), no NaN propagation, honest_disclosure populated. NOT full SBC, just smoke gate.
+
+### Q2 confirmed: B (manual scipy SCM) + interface isolation refinement
+
+**Refinement:** define explicit `_solve_scm_weights(Y_treated_pre, Y_donors_pre)` interface that returns weights array. Implementation today = scipy.optimize.minimize with SLSQP + simplex constraints. Future drop-in replacement to cvxpy (Augmented SCM/BSCM) is one-line swap внутри function — caller doesn't know the difference. Clean refactor path.
+
+### Q3 confirmed: A modified — Kagocel + Афала double validation
+
+**Refinement:** add Афала dataset (MMX_2021-2025_source.xlsx, sheet 'Афала', n=43 monthly, 5 channels Mr different from Kagocel's 7) to validation set. Same client (Materia Medica) — no calendar slip / new contract. Closes "single dataset = blind spot" risk: real validation diversity без waiting external client.
+
+⚠️ **PANEL DATA CAVEAT:** both Kagocel и Афала are AGGREGATED brand-level data (no geo split). Causal methods (DiD/SCM/Forest) require PANEL data with multiple units (regions/cities). Pre-launch блокер per memory: "geo-data в фарме у всех" — but where в TestData this lives is not yet identified. **M1 cannot run without panel data.** This is a separate workstream:
+- Synthetic geo split via stratified sampling от monthly data (DGP-controlled validation)
+- Or request real geo-disaggregated data from Materia Medica для validation
+- M0 scaffolding is dataset-agnostic — proceeds independently, panel-data resolution happens in parallel with stack install.
+
+### Q4 confirmed: A (separation) + optional `causal_artifact_path` hint refinement
+
+**Refinement:** добавить `optional causal_artifact_path: str | None = None` field в MMM pickle schema (next training write). Hint, не requirement. MMM training сохраняет path к latest causal artifact in same project. UI knows where to look для combined view. Backward-compat preserved (legacy pickles миss field → fall back к MMM-only view). Independent lifecycles preserved (refresh geo experiment не invalidates MMM training).
+
+Schema impact: minor — one optional string field в pickle dict. v1.2 pickles (current production) get field on next train (not retroactive — readers use `.get('causal_artifact_path', None)` defensive).
+
+---
+
+## 12. M0 execution plan (ready to start autonomously)
+
+Per Антон mandate "стартуй M0 автономно с моими 4 поправками. Если M0 разрезается на нюансы — пинай."
+
+**M0 scope (~3h):**
+
+1. **Update `requirements.txt`** (additive):
+   - Add `linearmodels >= 6.0` — DiD via Callaway-Santanna
+   - Add `econml >= 0.15` — Causal Forest (Wager-Athey)
+   - **NOT pysyncon** (per Q2(B)): manual scipy SCM solver
+   - **NOT cvxpy** (per Q2(B)): isolated `_solve_scm_weights()` interface
+
+2. **Create namespace** `engines/causal/`:
+   - `__init__.py` — exports + version marker
+   - `common.py` — shared utilities (HonestDisclosure schema, error codes, panel-data validators)
+   - `_panel_data.py` — load + validate panel format (long: unit×time×kpi×treatment)
+
+3. **Smoke test** (M0 MIN-LIVE checkpoint):
+   - Imports clean from все 3 deps
+   - Create + delete dummy panel data structure
+   - PyInstaller bundle config validated (--collect-all targets identified)
+
+4. **Commit M0** with concrete next-step note.
+
+5. **Surface to Антон if any nuance** — e.g., panel data blocker для M1, dependency conflict, bundle size shock.
+
+After M0 → continue M1 (DiD endpoint) автономно с per-M MIN-LIVE checkpoint pattern.
 
 ---
 
