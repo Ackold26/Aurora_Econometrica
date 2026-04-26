@@ -253,6 +253,16 @@ activeProject.subscribe((p) => {
  */
 export const analysisObjective = writable('roi');
 
+/**
+ * v1.0.16: модель-движок selector (Import шаг).
+ * 'bayesian' (default, NUTS NumPyro) — полный posterior, CI, ~20-60 сек train.
+ * 'ols' (Sprint 2 small-data fallback) — closed-form OLS, frequentist β CI,
+ *   ~2-5 сек, для n<30 наблюдений где Bayesian funnel/divergences likely.
+ * Auto-recommend: n<30 → OLS, n≥30 → Bayesian. Customer может override.
+ * @type {import('svelte/store').Writable<'bayesian' | 'ols'>}
+ */
+export const modelEngine = writable('bayesian');
+
 /** @type {import('svelte/store').Writable<{diagnostics: any|null, channelParams: any|null, picklePath: string|null, normalization?: {y_mean: number, y_std: number}|null}>} */
 export const modelData = writable({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
 

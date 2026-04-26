@@ -15,7 +15,7 @@
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
-  import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
+  import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject, resetPipeline, modelEngine } from '$lib/project-state.js';
   import { get } from 'svelte/store';
 
   // Обучающий тур — запускается на mount, независимо от состояния импорта.
@@ -77,6 +77,10 @@
   /** @type {{rows: number, cols: number} | null} */
   let shape = $state(null);
   let sizeKb = $state(0);
+
+  /** v1.0.16: derived helpers для engine selector recommendation badge. */
+  const nRows = $derived(/** @type {{rows: number} | null} */ (shape)?.rows ?? previewRows.length);
+  const recommendOls = $derived(nRows > 0 && nRows < 30);
 
   // Restore from memory store on mount (A4: data is memory-only)
   const stored = get(importData);
@@ -389,6 +393,57 @@
         emptyMessage="Нет данных для отображения"
       />
 
+      <!-- v1.0.16: Модель-движок selector. Auto-recommend на основе n_rows:
+           <30 → OLS (closed-form, frequentist CI, fast),
+           ≥30 → Bayesian (full NUTS posterior, ~20-60s train).
+           Customer override allowed — radio + recommendation hint. -->
+      <div class="engine-selector">
+        <h4 class="engine-title">Тип модели для обучения</h4>
+        <div class="engine-options">
+          <label class="engine-radio" class:active={$modelEngine === 'bayesian'}>
+            <input
+              type="radio"
+              name="model-engine"
+              value="bayesian"
+              checked={$modelEngine === 'bayesian'}
+              onchange={() => modelEngine.set('bayesian')}
+            />
+            <div class="engine-content">
+              <div class="engine-label">
+                <span class="engine-icon">🎯</span>
+                Полная (Bayesian MMM)
+                {#if !recommendOls}<span class="engine-recommend">рекомендуется</span>{/if}
+              </div>
+              <p class="engine-desc">
+                NUTS-сэмплер NumPyro · полный posterior · доверительные интервалы для ROI · ~20-60 сек обучение.
+                Для устойчивых решений по перераспределению бюджета.
+              </p>
+            </div>
+          </label>
+          <label class="engine-radio" class:active={$modelEngine === 'ols'}>
+            <input
+              type="radio"
+              name="model-engine"
+              value="ols"
+              checked={$modelEngine === 'ols'}
+              onchange={() => modelEngine.set('ols')}
+            />
+            <div class="engine-content">
+              <div class="engine-label">
+                <span class="engine-icon">⚡</span>
+                Упрощённая (OLS)
+                {#if recommendOls}<span class="engine-recommend">рекомендуется для {nRows} строк</span>{/if}
+              </div>
+              <p class="engine-desc">
+                Closed-form regression · frequentist CI через bootstrap · ~2-5 сек.
+                Для small-data сценариев (n&lt;30) где Bayesian funnel'ы и divergences вероятны.
+                Honest disclosure: «модель обучена на ограниченных данных, β с широкими bounds».
+              </p>
+            </div>
+          </label>
+        </div>
+      </div>
+
       <button
         class="quick-btn"
         onclick={() => pipelineCurrentStep.set(1)}
@@ -621,6 +676,82 @@
     cursor: pointer; transition: opacity 0.15s;
   }
   .quick-btn:hover { opacity: 0.85; }
+
+  /* v1.0.16: Engine selector (Bayesian / OLS) */
+  .engine-selector {
+    margin-top: 16px;
+    padding: 16px 18px;
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 10px;
+  }
+  .engine-title {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .engine-options { display: flex; flex-direction: column; gap: 10px; }
+  .engine-radio {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .engine-radio:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.16);
+  }
+  .engine-radio.active {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, transparent);
+  }
+  .engine-radio input[type="radio"] {
+    appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+    margin: 2px 0 0 0;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .engine-radio.active input[type="radio"] { border-color: var(--accent-primary, #3b82f6); }
+  .engine-radio.active input[type="radio"]::after {
+    content: ''; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent-primary, #3b82f6);
+  }
+  .engine-content { flex: 1; }
+  .engine-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13.5px; font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    margin-bottom: 4px;
+  }
+  .engine-icon { font-size: 16px; }
+  .engine-recommend {
+    margin-left: auto;
+    padding: 2px 8px;
+    background: color-mix(in srgb, var(--success, #22c55e) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #22c55e) 30%, transparent);
+    border-radius: 12px;
+    color: #4ade80;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .engine-desc {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-secondary, #94a3b8);
+  }
 
   /* ── Import mode chooser (New project / Load archive) ────────────── */
   .import-intro {

@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
@@ -262,6 +262,11 @@
         }
       }
 
+      // v1.0.16: read model engine choice от Import шага. 'bayesian' (default
+       // NUTS) | 'ols' (closed-form fallback для small data n<30). Backend Pydantic
+       // OptimizeRequest.mode accepts both. mcmc_override irrelevant для OLS path.
+      const engine = get(modelEngine);
+
       const config = {
         project_dir: projectDir,
         data_file: dataFile,
@@ -272,9 +277,12 @@
         adstock_config: Object.fromEntries(
           enabledChannels.map(ch => [ch, channelAdstock[ch] || 'geometric'])
         ),
-        mcmc_override: showAdvanced ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune } : null,
+        mcmc_override: (engine === 'bayesian' && showAdvanced)
+          ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune }
+          : null,
         unit_costs: get(unitCosts) || {},
         merge_rules: mergeRules,
+        mode: engine,
       };
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)
