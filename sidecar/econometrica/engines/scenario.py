@@ -9,8 +9,8 @@ import pandas as pd
 from pathlib import Path
 from typing import Any
 
-from utils.adstock import apply_adstock
-from utils.saturation import hill_function, hill_function_batch
+from utils.adstock import apply_adstock, geometric_adstock_batch
+from utils.saturation import hill_function, hill_function_batch, hill_function_batch_2d
 from utils.posterior_propagation import (
     compute_ci_hdi,
     load_posterior_samples,
@@ -132,8 +132,10 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # P1-5 fix: apply adstock to scenario media plan matching training-time
     # transformation. Pre-fix, scenario received raw spend_t straight to Hill,
     # missing carryover / delayed-effect channels (TV/OOH undercounted).
+    # Phase 1.1: use posterior mean decay from channel_params['decay'] when v1.2 pickle.
     adstock_config = config_model.get('adstock_config', {})
     adstocked_plan: dict[str, np.ndarray] = {}
+    raw_plan: dict[str, np.ndarray] = {}  # Phase 1.1: keep raw for batch CI propagation
     for col in media_cols:
         raw_arr = np.array(media_plan.get(col, [0.0] * n_periods), dtype=float)
         # Pad / truncate to n_periods
@@ -141,8 +143,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             raw_arr = np.concatenate([raw_arr, np.zeros(n_periods - len(raw_arr))])
         elif len(raw_arr) > n_periods:
             raw_arr = raw_arr[:n_periods]
+        raw_plan[col] = raw_arr
         a_type = adstock_config.get(col, 'geometric')
-        adstocked_plan[col] = apply_adstock(raw_arr, a_type)
+        decay_point = channel_params.get(col, {}).get('decay')
+        adstock_params_override = {'alpha': float(decay_point)} if decay_point is not None else None
+        adstocked_plan[col] = apply_adstock(raw_arr, a_type, adstock_params_override)
 
     # P1-3 fix: baseline = intercept × y_std + y_mean per period (intercept-based
     # counterfactual), not y_mean × n_periods (which excluded model bias).
@@ -202,11 +207,21 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 if ch_samples is None:
                     continue
                 mean = norm['media_means'].get(col, 1) or 1
-                # x_norm uses adstocked plan (already computed as adstocked_plan[col])
-                x_norm = adstocked_plan[col] / max(mean, 1e-10)  # shape (n_periods,)
-                sat_samples = hill_function_batch(
-                    x_norm, ch_samples['alpha'], ch_samples['gamma']
-                )  # (n_samples, n_periods)
+                a_type = adstock_config.get(col, 'geometric')
+                decay_samples = ch_samples.get('decay')
+                if decay_samples is not None and a_type == 'geometric':
+                    # Phase 1.1: per-sample adstock varies → Hill on 2D x_norm.
+                    x_adstock_2d = geometric_adstock_batch(raw_plan[col], decay_samples)
+                    x_norm_2d = x_adstock_2d / max(mean, 1e-10)
+                    sat_samples = hill_function_batch_2d(
+                        x_norm_2d, ch_samples['alpha'], ch_samples['gamma']
+                    )
+                else:
+                    # Phase 1.9 fallback: x_norm same across samples.
+                    x_norm = adstocked_plan[col] / max(mean, 1e-10)
+                    sat_samples = hill_function_batch(
+                        x_norm, ch_samples['alpha'], ch_samples['gamma']
+                    )
                 total_contrib_samples += (
                     ch_samples['beta'].reshape(-1, 1).astype(np.float64) * sat_samples
                 )

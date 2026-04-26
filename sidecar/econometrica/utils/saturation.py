@@ -126,3 +126,29 @@ def hill_derivative_batch(
     numerator = alpha * gamma_pow_alpha * (x_safe ** (alpha - 1.0))
     denominator = (x_pow_alpha + gamma_pow_alpha) ** 2
     return numerator / denominator
+
+
+def hill_function_batch_2d(
+    x_norm_2d: np.ndarray,
+    alpha_samples: np.ndarray,
+    gamma_samples: np.ndarray,
+) -> np.ndarray:
+    """Phase 1.1 — Hill on per-sample x_norm (when adstock varies per sample).
+
+    Used when adstock decay is itself sampled (Phase 1.1+) and x_norm becomes
+    sample-dependent: x_norm[i, t] = adstock(raw[t]; decay_i) / mean.
+
+    Args:
+        x_norm_2d: 2D array shape (n_samples, n_periods) — per-sample normalized spend
+        alpha_samples: 1D shape (n_samples,)
+        gamma_samples: 1D shape (n_samples,)
+    Returns:
+        Saturated values shape (n_samples, n_periods) — sat[i, t] uses (alpha_i, gamma_i, x_norm[i,t]).
+    """
+    alpha = np.asarray(alpha_samples, dtype=np.float64).reshape(-1, 1)
+    gamma = np.asarray(gamma_samples, dtype=np.float64).reshape(-1, 1)
+    x_safe = np.maximum(np.asarray(x_norm_2d, dtype=np.float64), 1e-10)
+    gamma_safe = np.maximum(gamma, 1e-10)
+    x_pow = x_safe ** alpha
+    gamma_pow = gamma_safe ** alpha
+    return x_pow / (x_pow + gamma_pow)

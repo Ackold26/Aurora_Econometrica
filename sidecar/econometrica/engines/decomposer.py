@@ -15,8 +15,8 @@ import pandas as pd
 from pathlib import Path
 from typing import Any
 
-from utils.adstock import apply_adstock
-from utils.saturation import hill_function, hill_function_batch
+from utils.adstock import apply_adstock, geometric_adstock_batch
+from utils.saturation import hill_function, hill_function_batch, hill_function_batch_2d
 from utils.posterior_propagation import (
     compute_ci_hdi,
     load_posterior_samples,
@@ -222,7 +222,12 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             a_type = raw_at
         else:
             a_type = 'geometric'
-        x_adstock = apply_adstock(raw_spend_series, a_type)
+
+        # Phase 1.1: when v1.2 pickle, use posterior mean decay from channel_params.
+        # Falls back to library default (0.5/2.0/3.0) для v1.0/v1.1/v1.1.5 pickles.
+        decay_point = params.get('decay')  # None for legacy pickles
+        adstock_params_override = {'alpha': float(decay_point)} if decay_point is not None else None
+        x_adstock = apply_adstock(raw_spend_series, a_type, adstock_params_override)
 
         # 2. Normalize spend/mean (matches Phase 2 fix)
         mean = float(media_means.get(col, 1)) or 1
@@ -257,16 +262,27 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'verdict_tone': 'neutral',
         }
 
-        # Phase 1.9: posterior CI on contribution and ROI via vectorized chain.
+        # Phase 1.9 + 1.1: posterior CI on contribution and ROI via vectorized chain.
         # Skip channels with zero spend (CI undefined for ROI = contribution / 0).
-        # Same x_adstock/x_norm as point estimate → only Hill (α, γ) and β vary across samples.
+        # Phase 1.1 path: when ch_samples has 'decay', x_norm varies per sample
+        # via geometric_adstock_batch — use hill_function_batch_2d.
+        # Phase 1.9 path (v1.1.5 pickles): decay constant, use hill_function_batch (1D x_norm).
         if posterior_samples is not None and spend_money > 0:
             ch_samples = per_channel_samples(posterior_samples, col)
             if ch_samples is not None:
-                # sat_samples shape (n_samples, n_periods)
-                sat_samples = hill_function_batch(
-                    x_norm, ch_samples['alpha'], ch_samples['gamma']
-                )
+                decay_samples = ch_samples.get('decay')
+                if decay_samples is not None and a_type == 'geometric':
+                    # Phase 1.1: per-sample adstock + Hill, joint correlation preserved.
+                    x_adstock_2d = geometric_adstock_batch(raw_spend_series, decay_samples)
+                    x_norm_2d = x_adstock_2d / max(mean, 1e-10)
+                    sat_samples = hill_function_batch_2d(
+                        x_norm_2d, ch_samples['alpha'], ch_samples['gamma']
+                    )
+                else:
+                    # Phase 1.9 fallback (v1.1.5 pickles or weibull channels)
+                    sat_samples = hill_function_batch(
+                        x_norm, ch_samples['alpha'], ch_samples['gamma']
+                    )
                 # contribution per period × sample, summed over time → (n_samples,)
                 contrib_total_samples = (
                     ch_samples['beta'].reshape(-1, 1).astype(np.float64)

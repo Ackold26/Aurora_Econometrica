@@ -236,11 +236,20 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # Apply adstock transformations
     from utils.adstock import apply_adstock
 
+    # Phase 1.1: pre-compute X_media с default decay (0.5) ONLY для media_means estimate.
+    # Inside model, per-channel adstock уже использует sampled decay (hierarchical
+    # logit-normal prior, see lines below). This keeps media_means semantically
+    # consistent с v1.1.5 pickles for downstream code that uses pre-computed mean.
+    # Pragmatic tradeoff: training-time adstock varies per draw via scan;
+    # mean normalization uses fixed point estimate. Documented in ADR §5.
     X_media = pd.DataFrame()
     adstock_params_used = {}
+    raw_media = pd.DataFrame()  # Phase 1.1: keep raw spend for in-model scan-based adstock
     for col in media_cols:
         a_type = adstock_config.get(col, 'geometric')
-        X_media[col] = apply_adstock(df[col].fillna(0).values.astype(float), a_type)
+        raw_arr = df[col].fillna(0).values.astype(float)
+        raw_media[col] = raw_arr
+        X_media[col] = apply_adstock(raw_arr, a_type)  # default decay для mean estimate
         adstock_params_used[col] = {'type': a_type}
 
     X_control = df[control_cols].fillna(0).astype(float) if control_cols else pd.DataFrame()
@@ -321,13 +330,48 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # gamma — half-point of saturation, концентрируемся около 0.5
             gammas = pm.Beta('gammas', alpha=3, beta=3, shape=len(media_cols))  # было Beta(2, 2) too wide
 
-            # Saturated media effect
-            from utils.saturation import hill_function
+            # ─────────────────────────────────────────────────────────────────
+            # Phase 1.1 — hierarchical adstock decay (logit-normal parameterization)
+            # ─────────────────────────────────────────────────────────────────
+            # Pilot validated logit-normal vs Beta-Beta (docs/PHASE_1_1_PILOT_RESULTS.md):
+            # logit-normal 35% faster, R-hat 1.000 vs 1.020, ESS 5× better.
+            # Hyperprior calibration per ADR §3.A1 + A2 (monthly data, mean ~0.20).
+            # Non-centered z parameterization avoids funnel geometry on small N.
+            import pytensor.tensor as pt
+            from pytensor.scan import scan as pt_scan
+
+            adstock_mu_logit = pm.Normal('adstock_mu_logit', mu=-1.4, sigma=0.7)
+            adstock_sigma_logit = pm.HalfNormal('adstock_sigma_logit', sigma=1.0)
+            adstock_z = pm.Normal('adstock_z', mu=0.0, sigma=1.0, shape=len(media_cols))
+            adstock_decay = pm.Deterministic(
+                'adstock_decay',
+                pm.math.sigmoid(adstock_mu_logit + adstock_sigma_logit * adstock_z),
+            )
+
+            # Saturated media effect — Phase 1.1 per-channel scan-based adstock with sampled decay.
+            # Geometric channels: scan-based recursive adstock with per-sample decay.
+            # Weibull channels: pre-computed (decay sampling deferred to Phase 1.5).
             media_effect = 0
             for i, col in enumerate(media_cols):
-                x_ch = X_media_norm[col].values
-                x_safe = pm.math.maximum(x_ch, 0)
-                # Простой Hill без gamma_scaled — стабильнее при x.max() низком
+                a_type = adstock_config.get(col, 'geometric')
+                mean_ch = float(media_means[col]) if media_means[col] != 0 else 1.0
+                if a_type == 'geometric':
+                    # scan-based adstock: result_t = raw_t + decay * result_{t-1}
+                    raw_x = raw_media[col].values
+                    adstock_init = pt.as_tensor_variable(raw_x[0])
+                    adstock_seq, _ = pt_scan(
+                        fn=lambda x_t, prev, d: x_t + d * prev,
+                        sequences=[pt.as_tensor_variable(raw_x[1:])],
+                        outputs_info=[adstock_init],
+                        non_sequences=[adstock_decay[i]],
+                    )
+                    adstock_full = pt.concatenate([[adstock_init], adstock_seq])
+                else:
+                    # Weibull stays hardcoded (Phase 1.5 task to make learnable)
+                    adstock_full = pt.as_tensor_variable(X_media[col].values)
+                # Normalize by pre-computed default-decay mean (semantic consistency v1.1.5)
+                x_norm = adstock_full / max(mean_ch, 1e-10)
+                x_safe = pm.math.maximum(x_norm, 0)
                 saturated = x_safe ** alphas[i] / (x_safe ** alphas[i] + gammas[i] ** alphas[i] + 1e-10)
                 media_effect = media_effect + media_betas[i] * saturated
 
@@ -630,6 +674,25 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             trace.posterior['gammas'].stack(sample=('chain', 'draw')).values, dtype=np.float32
         )
 
+        # Phase 1.1: hierarchical adstock decay samples.
+        # Shape (n_channels, n_samples) — same as alphas/gammas. Used by downstream
+        # decomposer/scenario/optimizer for honest mROAS CI through adstock chain.
+        try:
+            adstock_decay_samples = np.asarray(
+                trace.posterior['adstock_decay'].stack(sample=('chain', 'draw')).values, dtype=np.float32
+            )
+            adstock_decay_means = trace.posterior['adstock_decay'].mean(dim=['chain', 'draw']).values.tolist()
+            adstock_mu_logit_mean = float(trace.posterior['adstock_mu_logit'].mean().values)
+            adstock_sigma_logit_mean = float(trace.posterior['adstock_sigma_logit'].mean().values)
+        except KeyError:
+            # Defensive: if model didn't include adstock_decay (shouldn't happen post Phase 1.1),
+            # fall back to default 0.5 per channel for backward compat with v1.1.5 readers.
+            logger.warning("adstock_decay not in trace — falling back to defaults (v1.1.5 compat)")
+            adstock_decay_samples = np.full((len(media_cols), media_betas_samples.shape[1]), 0.5, dtype=np.float32)
+            adstock_decay_means = [0.5] * len(media_cols)
+            adstock_mu_logit_mean = -1.4
+            adstock_sigma_logit_mean = 0.5
+
         # Tail-ESS check per channel β (Vehtari rule: tail_ess ≥ 100·n_chains for stable percentile estimation).
         # If any channel fails — CI brackets will be annotated "оценка нестабильна" downstream.
         try:
@@ -648,6 +711,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 'gamma': round(gamma_means[i], 4),
                 'adstock': adstock_params_used[col],
                 'tail_ess_ok': tail_ess_ok_per_channel[i],
+                # Phase 1.1: posterior mean of learnable decay. Used by downstream
+                # engines for point-estimate adstock + as fallback when posterior_samples
+                # fields missing.
+                'decay': round(float(adstock_decay_means[i]), 4),
             }
 
         report('saving', pct=95)
@@ -703,16 +770,20 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 'gammas': gammas_samples,                  # shape (n_channels, n_samples)
                 'intercept': intercept_samples,            # shape (n_samples,)
                 'control_betas': control_betas_samples,    # shape (n_controls, n_samples)
+                # Phase 1.1: hierarchical adstock decay samples per channel.
+                'adstock_decay': adstock_decay_samples,    # shape (n_channels, n_samples)
+                'adstock_mu_logit_mean': adstock_mu_logit_mean,    # hyperparameter point estimate
+                'adstock_sigma_logit_mean': adstock_sigma_logit_mean,
                 'media_columns': list(media_cols),         # ordering reference
                 'control_columns': list(control_cols),     # ordering reference
                 'n_chains': int(chains),
                 'n_draws': int(draws),
             },
-            # Phase 1.9 schema: model_version 1.1.5 (additive — backward compat for v1.1 readers via .get()).
-            # v1.0/v1.1 pickles → fallback to point estimate with warning banner.
-            # v1.1.5 pickles → full CI display via posterior_samples.
-            # Phase 1.1 will bump to v1.2 (adds adstock decay samples).
-            'model_version': '1.1.5',
+            # Phase 1.1 schema: model_version='1.2' adds adstock_decay samples + per-channel
+            # decay point estimate в channel_params. Backward compat for v1.1.5 readers
+            # via .get() — they see full Hill posterior CI but ignore decay samples
+            # (revert to default 0.5). Phase 1.5+ will sample Weibull decay too.
+            'model_version': '1.2',
             'y_actual': y.tolist(),
             'y_predicted': y_pred.tolist(),
         }

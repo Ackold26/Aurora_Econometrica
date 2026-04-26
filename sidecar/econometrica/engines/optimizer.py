@@ -9,12 +9,17 @@ from pathlib import Path
 from scipy.optimize import minimize
 from typing import Any
 
-from utils.adstock import apply_adstock
+from utils.adstock import apply_adstock, geometric_adstock_batch, adstock_factor_batch
 from utils.saturation import hill_function, response_curve, hill_derivative_batch
 from utils.posterior_propagation import compute_ci_hdi, load_posterior_samples, per_channel_samples
 
 
-def _flat_alloc_adstock_avg(raw_per_period: float, n_periods: int, a_type: str) -> float:
+def _flat_alloc_adstock_avg(
+    raw_per_period: float,
+    n_periods: int,
+    a_type: str,
+    decay: float | None = None,
+) -> float:
     """F2 fix (math-audit v1.3): среднее adstocked spend под flat allocation.
 
     Optimizer оперирует с total spend per channel (scalar). Hill ожидает
@@ -22,24 +27,37 @@ def _flat_alloc_adstock_avg(raw_per_period: float, n_periods: int, a_type: str) 
     raw_t = const повторяется по периодам, applied adstock декомпозирует carryover.
     Берём среднее за период — это эквивалент того что training Hill видел
     усреднённо.
+
+    Phase 1.1: optional decay parameter — when v1.2 pickle, posterior mean decay
+    is used; for v1.0/v1.1/v1.1.5 pickles decay=None falls back to library default 0.5.
     """
     if n_periods < 1 or raw_per_period <= 0:
         return float(raw_per_period)
     flat = np.full(n_periods, float(raw_per_period))
-    adstocked = apply_adstock(flat, a_type)
+    params = {'alpha': float(decay)} if decay is not None else None
+    adstocked = apply_adstock(flat, a_type, params)
     return float(adstocked.mean())
 
 
-def _adstock_factor(x_per_period: float, n_periods: int, a_type: str) -> float:
+def _adstock_factor(
+    x_per_period: float,
+    n_periods: int,
+    a_type: str,
+    decay: float | None = None,
+) -> float:
     """∂(_flat_alloc_adstock_avg)/∂(x_per_period) — sensitivity factor.
 
     F0.2 (Phase 0.1 fix-session): adstock factor is the missing piece in
     chain rule for marginal ROAS. See docs/MATH_AUDIT_v1_3_PHASE_0_1.md §4.
 
+    Phase 1.1: optional decay parameter from posterior mean (v1.2 pickle).
+    None falls back to library default 0.5 (v1.0/v1.1/v1.1.5 pickles).
+
     Args:
         x_per_period: spend per period (≥ 0)
         n_periods: training horizon length
         a_type: 'geometric' | 'weibull' | 'noop' | 'none'
+        decay: optional posterior mean decay; None → library default 0.5
     Returns:
         ∂(adstock_avg)/∂(x_per_period). Constant in x for linear adstock.
     """
@@ -51,7 +69,7 @@ def _adstock_factor(x_per_period: float, n_periods: int, a_type: str) -> float:
         # Analytical (exact for linear adstock with constant input).
         # adstock_avg(x, n) = x · [n - θ·(1-θ^n)/(1-θ)] / [n·(1-θ)]
         # ∂/∂x = [n - θ·(1-θ^n)/(1-θ)] / [n·(1-θ)]   (constant in x)
-        theta = 0.5  # library default — see modeler.py:240-244 + docs §5
+        theta = float(decay) if decay is not None else 0.5
         if not (0.0 < theta < 1.0):
             return 1.0
         n = n_periods
@@ -60,12 +78,12 @@ def _adstock_factor(x_per_period: float, n_periods: int, a_type: str) -> float:
     if x_per_period <= 0:
         # Use small probe to discover linear factor.
         eps = 1.0
-        plus = _flat_alloc_adstock_avg(eps, n_periods, a_type)
-        minus = _flat_alloc_adstock_avg(0.0, n_periods, a_type)
+        plus = _flat_alloc_adstock_avg(eps, n_periods, a_type, decay)
+        minus = _flat_alloc_adstock_avg(0.0, n_periods, a_type, decay)
         return float(plus - minus) / eps
     eps = max(x_per_period * 1e-4, 1e-9)
-    plus = _flat_alloc_adstock_avg(x_per_period + eps, n_periods, a_type)
-    minus = _flat_alloc_adstock_avg(max(x_per_period - eps, 1e-12), n_periods, a_type)
+    plus = _flat_alloc_adstock_avg(x_per_period + eps, n_periods, a_type, decay)
+    minus = _flat_alloc_adstock_avg(max(x_per_period - eps, 1e-12), n_periods, a_type, decay)
     return float(plus - minus) / (2.0 * eps)
 
 
@@ -80,6 +98,7 @@ def _compute_mroas_money(
     adstock_type: str,
     y_std: float,
     unit_cost: float = 1.0,
+    decay: float | None = None,
 ) -> float:
     """Marginal ROAS in money-per-money — single source of truth.
 
@@ -115,7 +134,7 @@ def _compute_mroas_money(
         return 0.0
 
     x_pp = current_spend_native / n_periods
-    adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type)
+    adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type, decay)
     x_norm = adstock_avg / max(mean, 1e-10)
 
     # Hill derivative (normalized space): hill'(x) = α·γ^α·x^(α-1) / (x^α + γ^α)²
@@ -125,7 +144,7 @@ def _compute_mroas_money(
         (x_safe ** alpha + g_safe ** alpha) ** 2
     )
 
-    af = _adstock_factor(x_pp, n_periods, adstock_type)
+    af = _adstock_factor(x_pp, n_periods, adstock_type, decay)
 
     # Chain rule: KPI(money) per native spend
     mroas_native = beta * hill_deriv * af * y_std / max(mean, 1e-10)
@@ -144,23 +163,27 @@ def _compute_mroas_money_samples(
     adstock_type: str,
     y_std: float,
     unit_cost: float = 1.0,
+    decay_samples: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Vectorized mROAS over posterior samples (Phase 1.9).
+    """Vectorized mROAS over posterior samples (Phase 1.9 + 1.1).
 
     Returns array of mROAS values across all posterior draws — caller computes
     HDI/percentile for honest CI. Joint correlation preserved: sample i uses
-    (alpha_samples[i], gamma_samples[i], beta_samples[i]) from same MCMC draw.
+    (alpha_samples[i], gamma_samples[i], beta_samples[i], decay_samples[i])
+    from same MCMC draw.
 
     Math: same chain rule as scalar _compute_mroas_money, applied per-sample.
-        mROAS_i = β_i · hill'(x_norm; α_i, γ_i) · adstock_factor · y_std / mean / unit_cost
+        mROAS_i = β_i · hill'(x_norm_i; α_i, γ_i) · adstock_factor_i · y_std / mean / unit_cost
 
-    Note: adstock_factor is sample-INVARIANT in Phase 1.9 (decay hardcoded);
-    will become per-sample in Phase 1.1 (adstock decay learnable).
+    Phase 1.1: when decay_samples provided, adstock_factor and x_norm both vary per
+    sample (geometric channels). Phase 1.9 fallback uses default 0.5 decay (constant).
 
     Args:
         current_spend_native: total spend over n_periods (≥ 0)
         n_periods, mean, adstock_type, y_std, unit_cost: same as scalar variant
         alpha_samples, gamma_samples, beta_samples: 1D arrays shape (n_samples,)
+        decay_samples: optional 1D shape (n_samples,) — Phase 1.1 sampled adstock decay.
+            None → falls back to library default 0.5 (Phase 1.9 path).
 
     Returns:
         np.ndarray shape (n_samples,) of mROAS values. All zeros for degenerate inputs.
@@ -170,19 +193,42 @@ def _compute_mroas_money_samples(
         return np.zeros(max(n, 1), dtype=np.float64)
 
     x_pp = current_spend_native / n_periods
-    adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type)
-    x_norm = adstock_avg / max(mean, 1e-10)
 
-    # Vectorized Hill derivative across samples; shape (n_samples, 1) because x_norm is scalar.
-    hill_deriv_arr = hill_derivative_batch(
-        np.array([x_norm]), alpha_samples, gamma_samples
-    ).ravel()  # → (n_samples,)
+    if decay_samples is not None and adstock_type == 'geometric':
+        # Phase 1.1: vectorized per-sample adstock_avg + adstock_factor
+        decays = np.asarray(decay_samples, dtype=np.float64)
+        # adstock_avg(x_pp, n; θ) = x_pp · [n - θ·(1 - θ^n)/(1-θ)] / [n·(1-θ)]
+        theta = np.clip(decays, 0.0, 1.0 - 1e-9)
+        n_p = n_periods
+        with np.errstate(divide='ignore', invalid='ignore'):
+            geom_sum = (1.0 - theta ** n_p) / (1.0 - theta)
+            af_per_sample = (n_p - theta * geom_sum) / (n_p * (1.0 - theta))
+        af_per_sample = np.where(theta < 1e-9, 1.0, af_per_sample)
+        adstock_avg_per_sample = x_pp * af_per_sample  # (n_samples,)
+        x_norm_per_sample = adstock_avg_per_sample / max(mean, 1e-10)  # (n_samples,)
 
-    af = _adstock_factor(x_pp, n_periods, adstock_type)  # scalar — adstock invariant in Phase 1.9
+        # Per-sample Hill derivative — broadcast manually for joint correlation.
+        # hill'(x) = α · γ^α · x^(α-1) / (x^α + γ^α)²
+        alpha = np.asarray(alpha_samples, dtype=np.float64)
+        gamma = np.asarray(gamma_samples, dtype=np.float64)
+        x_safe = np.maximum(x_norm_per_sample, 1e-10)
+        gamma_safe = np.maximum(gamma, 1e-10)
+        x_pow = x_safe ** alpha
+        gamma_pow = gamma_safe ** alpha
+        hill_deriv_arr = (alpha * gamma_pow * (x_safe ** (alpha - 1.0))) / ((x_pow + gamma_pow) ** 2)
+        af_arr = af_per_sample
+    else:
+        # Phase 1.9 fallback: scalar adstock_avg/factor (decay constant 0.5).
+        adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type)
+        x_norm = adstock_avg / max(mean, 1e-10)
+        hill_deriv_arr = hill_derivative_batch(
+            np.array([x_norm]), alpha_samples, gamma_samples
+        ).ravel()
+        af_arr = _adstock_factor(x_pp, n_periods, adstock_type)
 
     # Chain rule per-sample
     beta_arr = np.asarray(beta_samples, dtype=np.float64)
-    mroas_native = beta_arr * hill_deriv_arr * af * y_std / max(mean, 1e-10)
+    mroas_native = beta_arr * hill_deriv_arr * af_arr * y_std / max(mean, 1e-10)
     return mroas_native / unit_cost
 
 
@@ -345,8 +391,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         for i, col in enumerate(media_cols):
             p = channel_params[col]
             mean = float(media_means.get(col, 1)) or 1
+            decay_pt = p.get('decay')  # Phase 1.1: None for v1.0/v1.1/v1.1.5 → default 0.5
             x_avg_raw = spend_vector[i] / n_periods
-            x_avg_adstock = _flat_alloc_adstock_avg(x_avg_raw, n_periods, _adstock_type(col))
+            x_avg_adstock = _flat_alloc_adstock_avg(x_avg_raw, n_periods, _adstock_type(col), decay_pt)
             x_norm = x_avg_adstock / max(mean, 1e-10)
             sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 1e-6))
             total += p['beta'] * sat[0] * n_periods
@@ -521,6 +568,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         a_type = _adstock_type(col)
         uc = float(unit_costs.get(col, 1.0) or 1.0)
 
+        decay_pt = p.get('decay')  # Phase 1.1: posterior mean decay; None for legacy pickles
         mroi_current = _compute_mroas_money(
             current_spend_native=cur,
             n_periods=n_periods,
@@ -531,6 +579,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             adstock_type=a_type,
             y_std=y_std,
             unit_cost=uc,
+            decay=decay_pt,
         )
         mroi_optimal = _compute_mroas_money(
             current_spend_native=float(opt),
@@ -542,6 +591,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             adstock_type=a_type,
             y_std=y_std,
             unit_cost=uc,
+            decay=decay_pt,
         )
 
         # Phase 1.9: posterior CI on mROAS via vectorized chain rule + arviz.hdi.
@@ -553,6 +603,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         if posterior_samples is not None:
             ch_samples = per_channel_samples(posterior_samples, col)
             if ch_samples is not None:
+                decay_s = ch_samples.get('decay')  # Phase 1.1: per-sample decay or None
                 cur_arr = _compute_mroas_money_samples(
                     current_spend_native=cur,
                     n_periods=n_periods,
@@ -563,6 +614,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     adstock_type=a_type,
                     y_std=y_std,
                     unit_cost=uc,
+                    decay_samples=decay_s,
                 )
                 _, mroi_current_ci_low, mroi_current_ci_high = compute_ci_hdi(cur_arr)
 
@@ -576,6 +628,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     adstock_type=a_type,
                     y_std=y_std,
                     unit_cost=uc,
+                    decay_samples=decay_s,
                 )
                 _, mroi_optimal_ci_low, mroi_optimal_ci_high = compute_ci_hdi(opt_arr)
 
@@ -614,7 +667,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         spend_range = np.linspace(0, upper, 50)
         # Per-period equivalent for Hill input
         per_period_avg = spend_range / n_periods
-        adstocked_avg = np.array([_flat_alloc_adstock_avg(float(x), n_periods, a_type) for x in per_period_avg])
+        decay_pt_rc = p.get('decay')  # Phase 1.1: posterior mean decay for response curve adstock
+        adstocked_avg = np.array([_flat_alloc_adstock_avg(float(x), n_periods, a_type, decay_pt_rc) for x in per_period_avg])
         spend_range_norm = adstocked_avg / max(mean_ch, 1e-10)
         responses_norm = response_curve(spend_range_norm, p['alpha'], max(p['gamma'], 1e-6), p['beta'])
         # Total contribution = per-period response × n_periods × y_std

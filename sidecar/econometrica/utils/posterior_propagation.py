@@ -175,18 +175,26 @@ def channel_index(samples: dict, channel_name: str) -> int | None:
 def per_channel_samples(samples: dict, channel_name: str) -> dict[str, np.ndarray] | None:
     """Extract joint posterior arrays for a single channel.
 
-    Joint structure preserved — alpha/gamma/beta arrays indexed by same draws,
-    so correlation between params on the same draw is intact.
+    Joint structure preserved — alpha/gamma/beta/decay arrays indexed by same
+    draws, so correlation between params on the same draw is intact.
+
+    Phase 1.1 addition: if 'adstock_decay' present in samples (v1.2 pickles),
+    return 'decay' key. None for v1.1.5 (decay hardcoded at default).
 
     Returns:
-        {'alpha': arr, 'gamma': arr, 'beta': arr} each shape (n_samples,) float32.
-        None if channel not found.
+        {'alpha': arr, 'gamma': arr, 'beta': arr [, 'decay': arr]}
+        each shape (n_samples,) float32. None if channel not found.
     """
     idx = channel_index(samples, channel_name)
     if idx is None:
         return None
-    return {
+    out = {
         'alpha': np.asarray(samples['alphas'][idx], dtype=np.float32),
         'gamma': np.asarray(samples['gammas'][idx], dtype=np.float32),
         'beta': np.asarray(samples['media_betas'][idx], dtype=np.float32),
     }
+    if 'adstock_decay' in samples:
+        decay_arr = np.asarray(samples['adstock_decay'], dtype=np.float32)
+        if decay_arr.ndim == 2 and decay_arr.shape[0] > idx:
+            out['decay'] = decay_arr[idx]
+    return out
