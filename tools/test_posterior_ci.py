@@ -40,8 +40,15 @@ from utils.posterior_propagation import (
 from utils.saturation import (
     hill_function,
     hill_function_batch,
+    hill_function_batch_2d,
     hill_derivative_batch,
     marginal_roi,
+)
+from utils.adstock import (
+    apply_adstock,
+    geometric_adstock,
+    geometric_adstock_batch,
+    adstock_factor_batch,
 )
 from engines.optimizer import _compute_mroas_money, _compute_mroas_money_samples
 from engines.narrative_adapter import _merge_channels
@@ -310,6 +317,139 @@ merged2 = _merge_channels(decomp2, opt2)
 check("Merged backward compat: no CI input → no CI output", "roi_ci_low" not in merged2[0])
 check("Merged backward compat: no mroas CI", "mroas_ci_low" not in merged2[0])
 
+
+# ────────────────────────────────────────────────────────────────────
+# 9. Phase 1.1 — geometric_adstock_batch + adstock_factor_batch
+# ────────────────────────────────────────────────────────────────────
+
+print("\n── Phase 1.1: geometric_adstock_batch ──")
+
+# Single-sample matches scalar
+raw = np.array([1.0, 2.0, 1.5, 0.5, 3.0])
+batch_single = geometric_adstock_batch(raw, np.array([0.5]))
+scalar = geometric_adstock(raw, alpha=0.5)
+check("geometric_adstock_batch shape (1, n)", batch_single.shape == (1, 5))
+check("geometric_adstock_batch[0] == scalar(0.5)", np.allclose(batch_single[0], scalar))
+
+# Multiple decays — first sample 0.0 (no carryover) = raw, second 0.9 (long decay) = ramping
+batch_multi = geometric_adstock_batch(raw, np.array([0.0, 0.9]))
+check("Adstock decay=0 returns raw", np.allclose(batch_multi[0], raw))
+check("Adstock decay=0.9 increases monotonically (long carryover)", batch_multi[1, -1] > batch_multi[1, 0])
+check("Adstock decay=0.9 > decay=0 at each step except first", np.all(batch_multi[1, 1:] >= batch_multi[0, 1:]))
+
+# 8000 samples × 36 periods (Kagocel-scale)
+decays_8k = np.random.uniform(0.05, 0.6, size=8000)
+raw_36 = np.random.exponential(2.0, size=36)
+batch_full = geometric_adstock_batch(raw_36, decays_8k)
+check("Adstock batch shape (8000, 36)", batch_full.shape == (8000, 36))
+check("Adstock all finite", np.all(np.isfinite(batch_full)))
+check("Adstock non-negative for non-negative input", np.all(batch_full >= 0))
+
+print("\n── Phase 1.1: adstock_factor_batch ──")
+
+# Geometric factor at theta=0.5 для n=10: should match scalar _adstock_factor
+from engines.optimizer import _adstock_factor as _af_scalar
+factor_batch_05 = adstock_factor_batch(np.array([0.5]), n_periods=10, adstock_type='geometric')
+factor_scalar_05 = _af_scalar(1.0, 10, 'geometric', decay=0.5)
+check("adstock_factor_batch theta=0.5 matches scalar", abs(factor_batch_05[0] - factor_scalar_05) < 1e-9)
+
+# theta=0 → factor=1.0
+check("adstock_factor_batch theta=0 → 1.0", abs(adstock_factor_batch(np.array([0.0]), 10, 'geometric')[0] - 1.0) < 1e-9)
+
+# noop → 1.0
+check("adstock_factor_batch noop → 1.0", abs(adstock_factor_batch(np.array([0.5]), 10, 'noop')[0] - 1.0) < 1e-9)
+
+# Vectorized: 8000 samples
+factor_8k = adstock_factor_batch(decays_8k, n_periods=36, adstock_type='geometric')
+check("adstock_factor_batch shape (8000,)", factor_8k.shape == (8000,))
+check("adstock_factor_batch finite", np.all(np.isfinite(factor_8k)))
+check("adstock_factor_batch ≥ 1.0 for any decay≥0", np.all(factor_8k >= 1.0 - 1e-9))
+
+print("\n── Phase 1.1: hill_function_batch_2d ──")
+
+# Per-sample x_norm + per-sample alpha/gamma
+x_norm_2d = np.random.uniform(0, 5, size=(100, 36))
+alphas_100 = np.random.gamma(5, 1/3, size=100)
+gammas_100 = np.random.beta(3, 3, size=100)
+sat_2d = hill_function_batch_2d(x_norm_2d, alphas_100, gammas_100)
+check("hill_function_batch_2d shape (100, 36)", sat_2d.shape == (100, 36))
+check("hill_function_batch_2d values [0, 1]", np.all((sat_2d >= 0) & (sat_2d <= 1)))
+
+# Cross-check: batch_2d with constant x_norm row matches batch_1d
+x_const = np.array([1.0, 2.0, 3.0])
+x_2d_replicated = np.tile(x_const, (10, 1))  # (10, 3) all rows = x_const
+alphas_10 = np.full(10, 1.5)
+gammas_10 = np.full(10, 0.5)
+sat_2d_repl = hill_function_batch_2d(x_2d_replicated, alphas_10, gammas_10)
+sat_1d = hill_function_batch(x_const, alphas_10, gammas_10)
+check("batch_2d vs batch_1d parity (constant x)", np.allclose(sat_2d_repl, sat_1d))
+
+print("\n── Phase 1.1: per_channel_samples decay support ──")
+
+# v1.2 pickle includes adstock_decay
+samples_with_decay = {
+    'media_betas': np.zeros((2, 8000), dtype=np.float32),
+    'alphas': np.ones((2, 8000), dtype=np.float32),
+    'gammas': np.ones((2, 8000), dtype=np.float32) * 0.5,
+    'intercept': np.zeros(8000, dtype=np.float32),
+    'control_betas': np.zeros((0, 8000), dtype=np.float32),
+    'media_columns': ["TV", "Digital"],
+    'adstock_decay': np.array([[0.4]*8000, [0.05]*8000], dtype=np.float32),  # (2 ch, 8000)
+}
+ch_tv = per_channel_samples(samples_with_decay, "TV")
+check("per_channel_samples returns 'decay' for v1.2", 'decay' in ch_tv)
+check("decay shape (8000,)", ch_tv['decay'].shape == (8000,))
+check("decay value matches synthesis", abs(float(ch_tv['decay'][0]) - 0.4) < 1e-6)
+
+# v1.1.5 pickle without adstock_decay
+samples_v1_1_5 = {k: v for k, v in samples_with_decay.items() if k != 'adstock_decay'}
+ch_tv_legacy = per_channel_samples(samples_v1_1_5, "TV")
+check("per_channel_samples v1.1.5 no decay key", 'decay' not in ch_tv_legacy)
+
+print("\n── Phase 1.1: _compute_mroas_money_samples with decay_samples ──")
+
+from engines.optimizer import _compute_mroas_money_samples
+
+alpha_s = np.full(1000, 1.5)
+gamma_s = np.full(1000, 0.5)
+beta_s = np.full(1000, 100.0)
+decay_s = np.full(1000, 0.3)
+
+# With decay_samples
+mroas_with_decay = _compute_mroas_money_samples(
+    current_spend_native=1000, n_periods=10, mean=100,
+    alpha_samples=alpha_s, gamma_samples=gamma_s, beta_samples=beta_s,
+    adstock_type='geometric', y_std=1000, unit_cost=5,
+    decay_samples=decay_s,
+)
+check("mroas with decay_samples shape (1000,)", mroas_with_decay.shape == (1000,))
+check("mroas with constant samples → all values ≈ same", np.std(mroas_with_decay) < 1e-6)
+
+# Without decay_samples (Phase 1.9 fallback uses default 0.5)
+mroas_without = _compute_mroas_money_samples(
+    current_spend_native=1000, n_periods=10, mean=100,
+    alpha_samples=alpha_s, gamma_samples=gamma_s, beta_samples=beta_s,
+    adstock_type='geometric', y_std=1000, unit_cost=5,
+)
+check("mroas without decay (default 0.5) differs from decay=0.3 path",
+      not np.isclose(float(mroas_with_decay[0]), float(mroas_without[0]), atol=1e-3))
+
+# Variable decay → mROAS varies per sample
+decay_var = np.linspace(0.05, 0.8, 1000)
+mroas_var = _compute_mroas_money_samples(
+    current_spend_native=1000, n_periods=10, mean=100,
+    alpha_samples=alpha_s, gamma_samples=gamma_s, beta_samples=beta_s,
+    adstock_type='geometric', y_std=1000, unit_cost=5,
+    decay_samples=decay_var,
+)
+check("Variable decay → mROAS varies", np.std(mroas_var) > 1e-3)
+
+# Higher decay → higher adstock_factor BUT also higher x_norm → may saturate
+# Hill differential. Net effect mROAS may go either way. Just check finite + monotonic
+# behavior of adstock_factor itself (already in adstock_factor_batch tests above).
+af_low = adstock_factor_batch(np.array([0.1]), 10, 'geometric')[0]
+af_high = adstock_factor_batch(np.array([0.7]), 10, 'geometric')[0]
+check("Higher decay → higher adstock_factor (chain rule input)", af_high > af_low)
 
 # ────────────────────────────────────────────────────────────────────
 # Summary
