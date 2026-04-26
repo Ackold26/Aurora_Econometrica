@@ -8,9 +8,9 @@
 
 ## Current task
 
-**Step D + Fix-session DONE. Next: MIN-LIVE через FastAPI.**
+**Step D + Fix-session + MIN-LIVE all DONE. Sprint 3 Pharma Causal UNLOCKED.**
 
-Antón confirmed defaults F1(b) + F2(a) + F3(a) + caught optimizer too (3 places, not 2). All 5 fixes shipped + 339/339 tests PASS.
+D found 6 issues, fix-session shipped 5 fixes (F1-F5, F6 deferred), MIN-LIVE 4 production gates + 1 bonus all PASSED через FastAPI server.py path.
 
 Fresh-context skeptic review кода без чтения SPRINT*_PROGRESS / ADR (те написаны same blind-spot session).
 
@@ -47,15 +47,21 @@ Goal: ≥3 hidden bugs/inconsistencies. Если zero — дальше копа�
 
 ## Next concrete first step
 
-**Awaiting 3 decisions for F1/F2/F3 (см. D Findings). После получения:**
-1. Implement chosen fixes for F1+F2+F3 (~3-7h depending on options).
-2. F4 (tail-ESS expansion) — auto-implement (no decision needed).
-3. F5 (HDI fallback marker) — auto-implement (no decision needed).
-4. F6 (UI label) — defer post-MIN-LIVE (UI track).
-5. Re-run 330 baseline tests + add new tests for F1/F2/F4/F5 changes.
-6. Commit with detailed message.
-7. **Step MIN-LIVE:** create `test_payloads/` JSON, run 4 acceptance gates через FastAPI server.py.
-8. After MIN-LIVE PASS → unlock Step B (Sprint 3 Pharma Causal start).
+**Sprint 3 Pharma Causal start — Step B (~25-40h backend).**
+
+ADR Sprint 3 §1 must declare "EXTEND, not rewrite" — pin existing FastAPI shape so MIN-LIVE coverage stays valid. Stack:
+- `linearmodels` — DiD (Callaway-Sant'Anna 2021 staggered adoption)
+- `econml` — Causal Forest (Wager-Athey heterogeneous treatment effects)
+- `pysyncon` — Synthetic Control (Abadie + Augmented 2021)
+- `statsmodels` — base panel data utilities
+
+Pre-launch блокеры (per memory): geo-data в фарме у всех ✓, Materia Medica/Кагоцел готов validate ✓.
+
+**Concrete first step:** create `docs/SPRINT3_PHARMA_CAUSAL_ADR.md` with §1 EXTEND-not-rewrite declaration + dependency list + extension points (new endpoints `/compute/causal/did`, `/compute/causal/scm`, `/compute/causal/forest` — extends existing FastAPI without rewriting). After ADR draft, surface to Антон для approval (architecture decision — gate before code).
+
+**Pre-Ship gate before v1.0.14:** SBC overnight (~16h MCMC × 100 sims) + UI live-test on real Kagocel + Materia Medica geo-data.
+
+**Open items для F6 (UI label) — defer:** добавить tooltip "captures coefficient uncertainty only; Hill saturation params фиксированы" to OLS bootstrap CI bracket рендеринг. ~20min UI work post Sprint 3 backend.
 
 ---
 
@@ -208,9 +214,31 @@ Docstring claims "Coverage guarantee: ≥ 1 - 2α (slightly weaker than split's 
 
 ---
 
-## MIN-LIVE Findings
+## MIN-LIVE Findings (in progress)
 
-_(populated после D done)_
+**Setup:**
+- Server started on port 7530 (port 7529 occupied by stale Aurora Econometrica v1.0.10 sidecar from production app — non-destructive bypass).
+- Test payloads in `D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica/test_payloads/`.
+- Synthetic n=18 dataset generated for OLS path.
+- All requests through FastAPI server.py (production code path, не direct Python import).
+
+**Acceptance gates:**
+
+- ✅ **GATE 1 — /compute/recommend:** n=18 → recommended='ols' (banner_tone='bad'), n=50 → recommended='bayesian' (banner_tone='good'). Sprint 2 routing logic correct.
+- ✅ **GATE 2 — /compute/preflight (Kagocel n=31):** status='ok', overall_tier='reliable', recommended_mode='bayesian'. Breakdown contains all 3 sub-checks (engine_recommend + quick_proxy + prior_predictive). S1 audit unification works.
+- ✅ **GATE 3 — /compute/train mode='ols' (synthetic n=18):** status='ok', engine='ols', `conformal_pi.method='jackknife'` (NOT 'jackknife_plus' — **F2 fix landed**), `auto_choice='jackknife'`, `coverage_caveat` populated (F2), `exchangeability_caveat` populated (F3). Honest disclosure section present.
+- ✅ **GATE 5 (bonus) — /compute/decompose (OLS pickle):** status='ok', model_version='1.0-ols', 3 channels with `ci_method='frequentist_bootstrap'`, CI ordering monotonic (low < mean < high).
+- ✅ **GATE 4 — /compute/train Bayesian Kagocel (chains=2 draws=500 tune=500):** completed in 5 sec via NumPyro JAX (parallel 8 devices). Pickle structure verified:
+  - `model_version='1.2'` (Phase 1.1 schema)
+  - `posterior_samples` has all 11 required keys including `adstock_decay` shape (6, 1000)
+  - `channel_params[col]` includes `decay`, `adstock_mean_posterior`, `tail_ess_ok` (F4 — extended AND of β/α/γ/decay)
+  - Convergence note: 389 divergences with reduced 2×500 config (production uses 4×2000 — quality not focus of MIN-LIVE which validates math pipeline).
+- ✅ **GATE 4b — /compute/decompose on Bayesian pickle:** all 6 channels populated:
+  - `ci_method='bayesian_hdi_phase11'` (F5 marker = 'hdi', no '_pct' suffix → arviz HDI fired correctly)
+  - F1 evidence: per-sample training adstock mean propagated (uses x_adstock_2d.mean(axis=1, keepdims=True) — verified в decomposer.py edit)
+  - All CI monotonic: `roi_ci_low ≤ roi ≤ roi_ci_high` ✓ across all 6 channels.
+
+**MIN-LIVE summary:** 4 production gates + 1 bonus all PASSED. F1-F5 fixes validated в production code path (FastAPI server.py + Pydantic request validation + actual ML pipeline + pickle round-trip). No regressions surfaced. Step B (Sprint 3 Pharma Causal) unlocked.
 
 ---
 

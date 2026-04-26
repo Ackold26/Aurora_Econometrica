@@ -1,0 +1,4 @@
+# Generated artifacts from MIN-LIVE acceptance gate runs — re-creatable from
+# JSON payloads + server.py invocation. Pickle files contain machine-specific
+# paths and are large binaries; not version-controlled.
+projects/
