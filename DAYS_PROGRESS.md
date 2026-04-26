@@ -6,6 +6,12 @@
 
 ## Current Task
 
+**🚀 v1.0.16 SHIPPED 2026-04-27** — все Day 6 steps выполнены автономно. См. `docs/CHANGELOG_v1.0.16.md` финальный раздел Ship details.
+
+---
+
+## Прежнее Current Task (для истории)
+
 **Day 6 — Sidecar rebuild + NSIS + ship** — НУЖНА синхронизация с Антоном
 
 Sidecar rebuild требует launching `python build_sidecar.py` (~5-15 мин).

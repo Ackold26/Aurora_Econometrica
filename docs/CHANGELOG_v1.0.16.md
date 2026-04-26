@@ -149,11 +149,21 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 - **Real Kagocel verification:** mroi_current alignment max Δ=0.0000, action labels match expected (TRPs=Cut, Performance=Scale)
 - **cargo check:** clean compile
 
-## Ship details (placeholder для финала)
+## Ship details (FINAL — 2026-04-27)
 
-- NSIS installer SHA256: `<TBD после build>`
-- Installer size: `<TBD>`
-- Branch: `math-fix-v1.0.13` (HEAD `<TBD>` после release commit)
-- GitHub Release: `https://github.com/Ackold26/aurora-releases/releases/tag/v1.0.16`
-- Auto-update channel: `latest.json` обновлён к v1.0.16
-- Customer IT-doc: `PASHE_IT.MD` обновлён с new SHA256
+- **NSIS installer SHA256:** `2cf603f95a34294f2ca5df272d2be933b7c741e1152260609b00fd267060cf94`
+- **Installer size:** 189.3 MB (198,521,281 bytes)
+- **Branch:** `math-fix-v1.0.13` (HEAD `90de35d`, tag `v1.0.16` pushed)
+- **GitHub Release:** https://github.com/Ackold26/aurora-releases/releases/tag/v1.0.16 ✓
+- **Supabase app_versions:** UPDATED ✓
+- **rosst-updates `latest.json`:** commit `533d218` ✓
+- **Edge Function verified:** `/functions/v1/app-update` returns v1.0.16 + correct download URL ✓
+- **Customer IT-doc:** `PASHE_IT.MD` updated с new SHA256 + v1.0.16 changelog summary ✓
+
+## Auto-update path (для клиентов v1.0.10+)
+
+1. App startup → Edge Function `app-update` request
+2. Edge Function reads Supabase `app_versions` → returns 1.0.16 + GH download URL
+3. App compares с локальной версией → show update banner
+4. Customer clicks «Обновить» → downloads from GitHub Releases
+5. Per-machine NSIS install (admin required)
