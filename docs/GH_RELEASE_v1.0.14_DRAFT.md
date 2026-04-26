@@ -62,8 +62,10 @@ POST /compute/causal/forest        — Wager-Athey HTE
 
 Auto-update from v1.0.13 supported. Или manual install — keeps existing projects/data intact.
 
-**SHA256:** `<TO_BE_FILLED_AFTER_BUILD>`
-**Bundle size:** ~210MB (was ~180MB в v1.0.13 — +30MB Sprint 3 deps: linearmodels, econml)
+**SHA256:** `31822fae4115df931a2528da2e074fe39fc8e46fbb93ae0a50293644b9110c51`
+**Bundle size:** 189MB (was 178MB в v1.0.13 — +11MB compressed; +80MB sidecar uncompressed для linearmodels/econml/statsmodels)
+**Local path:** `D:/cargo-targets/aurora-econometrica/release/bundle/nsis/Aurora AI Econometrica_1.0.14_x64-setup.exe`
+**Built:** 2026-04-27 (build duration ~5 min)
 
 ## 📚 Documentation
 
@@ -94,7 +96,7 @@ Before clicking "Publish release":
 - [x] CHANGELOG_v1.0.14.md
 - [x] Version bumps (Cargo.toml + tauri.conf.json + package.json)
 - [x] PyInstaller sidecar bundle с new deps (linearmodels, econml)
-- [ ] **NSIS installer build** (TODO this session, в parallel с release prep)
+- [x] **NSIS installer build** — DONE 2026-04-27, 189MB, SHA256 `31822fae...110c51`
 - [ ] **Independent fresh-context audit pass** (next session, mandatory per ADR §5 #3)
 - [ ] **MIN-LIVE gates 6-9 production scenario** (next session)
 - [ ] SHA256 checksum в release notes
