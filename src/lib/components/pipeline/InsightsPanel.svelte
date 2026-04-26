@@ -7,12 +7,27 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { get } from 'svelte/store';
   import {
-    pipelineCurrentStep,
+    pipelineCurrentStep, activeProjectId,
     importData, validateData, modelData, decomposeData, optimizeData, optimizeLiveState,
     analysisObjective, completeStep, setStepError,
   } from '$lib/project-state.js';
   import { recomputeResultAfterObjective } from '$lib/objective-engine.js';
+  import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
+
+  /** Persist column-role state к project.json (best-effort, non-blocking).
+   *  L1 (math-fix v1.4 Section C, 2026-04-29): unified persistence — same call
+   *  used by InsightsPanel.applyAction, ValidateStep.excludeColumnByName,
+   *  ValidateStep.onMappingChange. Adds explicit excluded_columns list для
+   *  cross-session restore.
+   *  @param {any[]} columns */
+  function persistColumnRoles(columns) {
+    const projectId = get(activeProjectId);
+    if (!projectId || !columns) return;
+    const updates = buildProjectUpdates(columns);
+    invoke('project_update', { projectId, updates }).catch(() => { /* best-effort */ });
+  }
   import {
     importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, reportInsights,
   } from '$lib/insights-rules.js';
@@ -35,61 +50,53 @@
     const val = $validateData;
     if (!val?.result?.columns) return;
 
-    const updated = { ...val, result: { ...val.result, columns: val.result.columns.map(/** @param {any} c */ c => ({ ...c })) } };
+    // L1 (math-fix v1.4 Section C, 2026-04-29): use shared setColumnRolesBulk
+    // helper для consistent vocabulary с ColumnMapper drag-drop and
+    // ValidateStep.excludeColumnByName. Single source of truth → no drift
+    // между mutator paths (vocabulary, persistence, undo capture).
     /** @type {Record<string, string>} */
     const previousRoles = {};
     /** @type {string | undefined} */
     let mergedName;
 
+    // Capture previous roles for undo BEFORE mutation
+    const captureNames = action.type === 'keep_only' ? (action.exclude ?? []) : (action.columns ?? []);
+    for (const col of val.result.columns) {
+      if (captureNames.includes(col.name)) {
+        previousRoles[col.name] = col.role || 'unknown';
+      }
+    }
+
+    let nextColumns = val.result.columns;
+
     if (action.type === 'exclude') {
-      for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'unused';
-        }
-      }
+      nextColumns = setColumnRolesBulk(nextColumns, action.columns, 'unused');
     } else if (action.type === 'keep_only') {
-      const toExclude = action.exclude ?? [];
-      for (const col of updated.result.columns) {
-        if (toExclude.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'unused';
-        }
-      }
+      nextColumns = setColumnRolesBulk(nextColumns, action.exclude ?? [], 'unused');
     } else if (action.type === 'set_role') {
-      for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'kpi';
-        }
-      }
+      nextColumns = setColumnRolesBulk(nextColumns, action.columns, 'kpi');
     } else if (action.type === 'merge') {
       mergedName = action.mergedName || 'Объединённый канал';
-      const mergedCols = updated.result.columns.filter(/** @param {any} c */ c => action.columns.includes(c.name));
-
+      const mergedCols = nextColumns.filter(/** @param {any} c */ (c) => action.columns.includes(c.name));
       const totalMean = mergedCols.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.stats?.mean ?? 0), 0);
-      const minZeros = Math.min(...mergedCols.map(/** @param {any} c */ c => c.stats?.zeros_pct ?? 100));
-
-      for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'unused';
-        }
-      }
-
-      updated.result.columns.push({
+      const minZeros = Math.min(...mergedCols.map(/** @param {any} c */ (c) => c.stats?.zeros_pct ?? 100));
+      nextColumns = setColumnRolesBulk(nextColumns, action.columns, 'unused');
+      nextColumns = [...nextColumns, {
         name: mergedName,
         role: 'media',
         dtype: 'float64',
         confidence: 0.9,
         merged_from: [...action.columns],
         stats: { mean: totalMean, zeros_pct: minZeros, missing_pct: 0, min: 0, max: 0 },
-      });
+      }];
     }
 
+    const updated = { ...val, result: { ...val.result, columns: nextColumns } };
     recomputeResultAfterObjective(updated.result);
     syncStepLockAfterValidate(updated.result);
     validateData.set(updated);
+    persistColumnRoles(updated.result.columns);
+
     const nextMap = new Map(appliedActions);
     nextMap.set(idx, { previousRoles, mergedName });
     appliedActions = nextMap;
@@ -122,6 +129,7 @@
     recomputeResultAfterObjective(updated.result);
     syncStepLockAfterValidate(updated.result);
     validateData.set(updated);
+    persistColumnRoles(updated.result.columns);
     const nextMap = new Map(appliedActions);
     nextMap.delete(idx);
     appliedActions = nextMap;

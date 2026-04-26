@@ -25,6 +25,14 @@ pub struct ProjectInfo {
     /// Для каналов в рублях — 1.0 или отсутствие записи.
     #[serde(default)]
     pub unit_costs: HashMap<String, f64>,
+    /// L1 (math-fix v1.4 Section C, 2026-04-29): explicit excluded columns
+    /// для cross-session restore. Pre-fix: excluded set was derived from
+    /// "not in kpi/media/control/date" — fragile когда new columns появляются
+    /// в re-validation (validator might detect them as media). Explicit list
+    /// preserves user's «не использовать» decision across project reload.
+    /// Backward compat: default empty for projects saved до v1.0.16.
+    #[serde(default)]
+    pub excluded_columns: Vec<String>,
 }
 
 /// Get the projects root directory.
@@ -150,6 +158,7 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
         control_columns: Vec::new(),
         data_file: None,
         unit_costs: HashMap::new(),
+        excluded_columns: Vec::new(),
     };
     write_project(&dir, &info)?;
 
@@ -196,6 +205,10 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
         info.unit_costs = uc.iter()
             .filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f)))
             .collect();
+    }
+    // L1 persistence (math-fix v1.4 Section C): explicit excluded_columns set
+    if let Some(excluded) = updates.get("excluded_columns").and_then(|v| v.as_array()) {
+        info.excluded_columns = excluded.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
     }
 
     info.updated_at = now_iso();

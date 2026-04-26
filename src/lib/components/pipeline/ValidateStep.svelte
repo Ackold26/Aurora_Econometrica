@@ -22,6 +22,7 @@
     activeProjectId, expertMode, analysisObjective,
   } from '$lib/project-state.js';
   import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
+  import { setColumnRole, applyMapping, buildProjectUpdates, restoreExcludedColumns, isExcluded } from '$lib/column-roles.js';
   import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
   import UnitCostsPanel from '$lib/components/pipeline/UnitCostsPanel.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
@@ -132,6 +133,21 @@
         recomputeResultAfterObjective(res);
       }
 
+      // L1 (math-fix v1.4 Section C, 2026-04-29): restore explicit excluded set
+      // from project.json — preserves user's «не использовать» decision across
+      // re-validation. Auto-detected roles (validator) могут вернуть «media»
+      // для канала который user explicitly excluded; explicit set is authoritative.
+      if (projectId) {
+        try {
+          /** @type {any} */
+          const project = await invoke('project_get', { projectId });
+          if (project?.excluded_columns && Array.isArray(project.excluded_columns) && project.excluded_columns.length > 0) {
+            res.columns = restoreExcludedColumns(res.columns ?? [], project.excluded_columns);
+            recomputeResultAfterObjective(res);
+          }
+        } catch { /* best-effort — fresh project may not exist yet */ }
+      }
+
       validateData.set({
         result: res,
         correlationMatrix: res.full_correlation_matrix ?? null,
@@ -174,79 +190,59 @@
     runValidate();  // re-invoke Python validator → fresh columns → apply new objective
   }
 
+  /** L1 (math-fix v1.4 Section C, 2026-04-29): unified persistence helper.
+   *  Same call site как InsightsPanel.persistColumnRoles — single source of
+   *  truth для what's saved к project.json (включая explicit excluded_columns).
+   *  @param {any[]} columns */
+  function persistColumnRoles(columns) {
+    const projectId = get(activeProjectId);
+    if (!projectId || !columns) return;
+    const updates = buildProjectUpdates(columns);
+    invoke('project_update', { projectId, updates }).catch(() => { /* best-effort */ });
+  }
+
   /**
    * Перевести колонку в роль 'unused' (исключить из матрицы) на основе action
-   * из warning. Обновляет result.columns локально, пересчитывает Ratio/issues,
-   * сохраняет в проект.
+   * из warning. L1 refactor: использует setColumnRole shared helper для
+   * vocabulary consistency с другими mutator paths.
    * @param {string} columnName
    */
   function excludeColumnByName(columnName) {
     const data = get(validateData);
     if (!data?.result?.columns || !columnName) return;
-    const updatedCols = data.result.columns.map(/** @param {any} c */ c =>
-      c.name === columnName ? { ...c, role: 'unused' } : c
-    );
+    const updatedCols = setColumnRole(data.result.columns, columnName, 'unused');
     const updatedResult = { ...data.result, columns: updatedCols };
     recomputeResultAfterObjective(updatedResult);
     validateData.set({ ...data, result: updatedResult });
-
-    // Persist в проект
-    const projectId = get(activeProjectId);
-    if (projectId) {
-      invoke('project_update', {
-        projectId,
-        updates: {
-          kpi_column: updatedCols.find(/** @param {any} c */ c => c.role === 'kpi')?.name ?? null,
-          media_columns: updatedCols.filter(/** @param {any} c */ c => c.role === 'media').map(/** @param {any} c */ c => c.name),
-          control_columns: updatedCols.filter(/** @param {any} c */ c => c.role === 'control').map(/** @param {any} c */ c => c.name),
-        },
-      }).catch(() => { /* best-effort */ });
-    }
+    persistColumnRoles(updatedCols);
   }
 
-  /** @param {any} mapping */
+  /** L1 refactor: ColumnMapper drag-drop / click → applyMapping shared helper.
+   *  Pre-fix: inline duplication of mapping-to-role conversion logic.
+   *  @param {any} mapping */
   function onMappingChange(mapping) {
-    const projectId = get(activeProjectId);
-    if (!projectId || !mapping) return;
-    // Persist roles в проект (best-effort, не блокирует UI).
-    invoke('project_update', {
-      projectId,
-      updates: {
-        kpi_column: mapping.kpi?.[0] ?? null,
-        media_columns: mapping.media ?? [],
-        control_columns: mapping.control ?? [],
-      },
-    }).catch(() => { /* ignore */ });
-
-    // BUGFIX 2026-04-27: ОБНОВЛЯЕМ validateData.columns[i].role согласно
-    // user mapping. Pre-fix: ConfigPanel (Model шаг) читал stale validation snapshot
-    // с initial detected roles → user-удалённые каналы продолжали checking
-    // в Model checkboxes → train запускался на полном наборе.
-    //
-    // Безопасно благодаря парному fix в ColumnMapper.svelte: $effect init
-    // теперь использует "columns SET key" — re-init только при смене column set
-    // (новый file), не при mutation roles. Infinite loop из старого комментария
-    // больше невозможен.
+    if (!mapping) return;
     const data = get(validateData);
-    if (data?.result?.columns && Array.isArray(data.result.columns)) {
-      const kpiSet = new Set(mapping.kpi ?? []);
-      const mediaSet = new Set(mapping.media ?? []);
-      const controlSet = new Set(mapping.control ?? []);
-      const dateName = mapping.date ?? null;
-      const updatedCols = data.result.columns.map(/** @param {any} c */ (c) => {
-        let newRole = 'unknown';
-        if (kpiSet.has(c.name)) newRole = 'kpi';
-        else if (mediaSet.has(c.name)) newRole = 'media';
-        else if (controlSet.has(c.name)) newRole = 'control';
-        else if (dateName === c.name) newRole = 'date';
-        return c.role === newRole ? c : { ...c, role: newRole };
-      });
-      // Mutate validateData store — same reference path used by ConfigPanel.
-      validateData.update(/** @param {any} d */ (d) => {
-        if (!d?.result) return d;
-        return { ...d, result: { ...d.result, columns: updatedCols } };
-      });
+    if (!data?.result?.columns || !Array.isArray(data.result.columns)) {
+      // Persist mapping anyway (legacy path — no validation snapshot loaded yet)
+      persistColumnRoles([
+        ...(mapping.kpi ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'kpi' })),
+        ...(mapping.media ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'media' })),
+        ...(mapping.control ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'control' })),
+        ...(mapping.date ? [{ name: mapping.date, role: 'date' }] : []),
+      ]);
+      return;
     }
+    // BUGFIX 2026-04-27 (preserved): ОБНОВЛЯЕМ validateData.columns[i].role
+    // согласно user mapping. Безопасно благодаря парному fix в ColumnMapper:
+    // $effect init использует "columns SET key" — re-init только при смене
+    // column set (новый file), не при mutation roles.
+    const updatedCols = applyMapping(data.result.columns, mapping);
+    validateData.update(/** @param {any} d */ (d) => {
+      if (!d?.result) return d;
+      return { ...d, result: { ...d.result, columns: updatedCols } };
+    });
+    persistColumnRoles(updatedCols);
   }
 </script>
 

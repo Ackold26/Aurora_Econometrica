@@ -6,12 +6,14 @@
 
 ## Current Task
 
-**Day 2 — L1 Validate state sync (8-10h, multi-component refactor)**
+**Day 3 — Narrative cluster (L15, L14, L11, L12, L13, L2)** — pending
 
-Single source of truth = `validateData.columns[i].excluded` flag.
-All mutators (drag-drop, Insights button, matrix click) → один handler `setColumnRole(idx, role|excluded)`.
-All consumers (ratio, recommendations, ConfigPanel media list) → derive через `$derived`.
-Persistence: add `excluded_columns` к `project.json` schema.
+L15 SCQAR Answer/Action 01 inverted (cut_source / scale_destination)
+L14 «Performance доминирует бюджет» (budget_dominator separate from leader)
+L11 Channel name normalization в interpretation
+L12 channels_by_action['Scale'] full list (not top-2)
+L13 grammar fixes
+L2 Decomposer descriptive verdict CI re-ordering
 
 ---
 
@@ -27,11 +29,19 @@ Persistence: add `excluded_columns` к `project.json` schema.
   - Audit-fix: legacy action migration, delta persistence, NaN guards, reasoning tooltip
   - Tests: 552/552 PASS (was 544 + 8 L4 lock-ins)
 
+- ✅ **Day 2 — L1 Validate state sync** — pending push (single commit + 17 vitest lock-ins)
+  - Rust schema migration: `ProjectInfo.excluded_columns: Vec<String>` (`#[serde(default)]` для backward compat)
+  - New `src/lib/column-roles.js` shared utility (ROLES, isExcluded, setColumnRole, setColumnRolesBulk, applyMapping, deriveMapping, deriveExcludedColumns, restoreExcludedColumns, buildProjectUpdates)
+  - Refactored InsightsPanel.applyAction + ValidateStep.excludeColumnByName + onMappingChange to use shared helper (vocabulary consistency)
+  - Persistence: project.json gains `excluded_columns` field saved on every role change
+  - Restore: ValidateStep.runValidate fetches project_get → restoreExcludedColumns to preserve user's «не использовать» across re-validation
+  - Tests: 31/31 vitest PASS (14 pre-existing + 17 new L1 lock-ins, 3-mutator-path consistency verified)
+
 ---
 
 ## Next (concrete first step)
 
-Read `src/lib/components/pipeline/ValidateStep.svelte` + `ColumnMapper.svelte` + `InsightsPanel.svelte` to map all mutator paths and identify shared state pattern. Then design unified `setColumnRole` handler signature.
+Read `sidecar/econometrica/engines/narrative_adapter.py` + `aurora_html/strings_ru.json` to identify L15 SCQAR Answer/Action 01 templates. Add `cut_source` and `scale_destination` to `_derive_narrative_facts` (currently uses `leader=top_contribution_channel` which can be small-budget Performance, not actual overspender like TRPs). Update HTML/PPTX templates to use new placeholders.
 
 ---
 
