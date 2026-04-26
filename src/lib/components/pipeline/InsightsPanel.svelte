@@ -76,7 +76,20 @@
     } else if (action.type === 'set_role') {
       nextColumns = setColumnRolesBulk(nextColumns, action.columns, 'kpi');
     } else if (action.type === 'merge') {
-      mergedName = action.mergedName || 'Объединённый канал';
+      // Audit fix (2026-04-29): detect name collision when customer creates
+      // multiple merge actions с одинаковым default name «Объединённый канал».
+      // Pre-fix: silent duplicate column entries → downstream lookups by name
+      // hit first match, second merge effectively orphaned. Post-fix: auto-suffix
+      // (Объединённый канал, Объединённый канал 2, Объединённый канал 3, ...).
+      const baseName = action.mergedName || 'Объединённый канал';
+      let candidateName = baseName;
+      let suffix = 2;
+      const existingNames = new Set(nextColumns.map(/** @param {any} c */ (c) => c.name));
+      while (existingNames.has(candidateName)) {
+        candidateName = `${baseName} ${suffix}`;
+        suffix += 1;
+      }
+      mergedName = candidateName;
       const mergedCols = nextColumns.filter(/** @param {any} c */ (c) => action.columns.includes(c.name));
       const totalMean = mergedCols.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.stats?.mean ?? 0), 0);
       const minZeros = Math.min(...mergedCols.map(/** @param {any} c */ (c) => c.stats?.zeros_pct ?? 100));

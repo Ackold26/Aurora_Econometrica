@@ -2064,7 +2064,9 @@ class AuroraPPTXBuilder:
                     line_spacing=1.3,
                 )
             else:
-                # Recommendation - 3 templated actions when facts present
+                # Recommendation - 3 templated actions when facts present.
+                # L15 audit fix (2026-04-29): Action 01 uses cut_source/scale_dest
+                # from action_summary (NOT leader/hero) — same fix как s09 SCQAR.
                 if self.facts and self.channels:
                     f = self.facts
                     leader = f.get("leader_channel") or "Лидер"
@@ -2073,19 +2075,41 @@ class AuroraPPTXBuilder:
                     lift = f.get("expected_lift_pct")
                     underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut",)]
                     lift_txt = f"+{lift:.1f} пп к ROAS по прогнозу" if lift is not None else "Положительный прирост ROAS по прогнозу"
+                    cut_source = f.get("cut_source_channel")
+                    scale_dest = f.get("scale_destination_channel")
+
+                    if cut_source and scale_dest and realloc >= 1:
+                        action_01_body = (
+                            f" {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}. "
+                            "Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
+                        )
+                    elif scale_dest and realloc >= 1:
+                        action_01_body = (
+                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ — "
+                            "за счёт roll-over бюджета или дополнительных средств."
+                        )
+                    elif cut_source and realloc >= 1:
+                        action_01_body = (
+                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) — "
+                            "текущая аллокация неэффективна."
+                        )
+                    elif hero != leader and realloc >= 1:
+                        # Legacy fallback (cut_source/scale_dest unavailable)
+                        action_01_body = (
+                            f" {realloc:.0f} млн ₽ из {leader} в {hero}. "
+                            "Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
+                        )
+                    else:
+                        action_01_body = f" Сохранить аллокацию по {leader} с контролем индикаторов насыщения."
 
                     actions = [
-                        ("01",
-                         "Перераспределить бюджет.",
-                         f" {realloc:.0f} млн ₽ из {leader} в {hero}. Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
-                            if hero != leader and realloc >= 1 else
-                         f" Сохранить аллокацию по {leader} с контролем индикаторов насыщения."),
+                        ("01", "Перераспределить бюджет.", action_01_body),
                         ("02",
                          "Пульсирующее размещение вместо непрерывного.",
                          f" Короткие флайты {leader} с паузами - экономия бюджета 15-20% при сохранении охвата."),
                         ("03",
                          "Целевой ретаргетинг через эффективные сегменты.",
-                         f" Приоритетный сегмент - {hero}; {lift_txt}."
+                         f" Приоритетный сегмент - {scale_dest or hero}; {lift_txt}."
                             + (f" Бюджет переводим из {', '.join(underperf)}." if underperf else "")),
                     ]
                 else:

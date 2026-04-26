@@ -425,7 +425,12 @@ def render_at_a_glance(ctx: dict) -> str:
         # had 5 tiers (excellent/good/acceptable/weak/poor at 85/70/55/40/<40)
         # → MQS=70 showed «Хорошее» (sources block) vs «приемлемо» (findings).
         diag_tier = (ctx.get("diagnostics") or {}).get("mqs_tier_label")
-        if diag_tier:
+        # Audit fix (2026-04-29): explicit `is not None` check distinguishes
+        # «backend not provided» vs «backend provided non-empty string».
+        # Pre-fix: `if diag_tier:` falsy для empty string '' → silent fallback
+        # к local computation, masking backend issues. Post-fix: trust backend
+        # value when present (even if empty), only fallback when truly absent.
+        if diag_tier is not None and diag_tier != "":
             tier_label_text = diag_tier
         elif mqs_val >= 85:
             tier_label_text = 'Отличное'

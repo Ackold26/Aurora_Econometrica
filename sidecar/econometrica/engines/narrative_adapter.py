@@ -597,8 +597,11 @@ def _derive_narrative_facts(
     # separate field for budget-share leader.
     by_spend = sorted(channels, key=lambda c: float(c.get("spend") or 0), reverse=True)
     budget_dominator = by_spend[0] if by_spend else {}
-    bd_spend = float(budget_dominator.get("spend") or 0)
-    bd_contrib = float(budget_dominator.get("contribution") or 0)
+    # Audit fix (2026-04-29): clamp negative spend к 0. Negative spend = data
+    # corruption (validator should catch, но defensive guard protects narrative
+    # template от rendering negative percentages). Same для contribution.
+    bd_spend = max(float(budget_dominator.get("spend") or 0), 0.0)
+    bd_contrib = max(float(budget_dominator.get("contribution") or 0), 0.0)
 
     # L15 (math-fix v1.4 Section C, 2026-04-29): cut_source / scale_destination
     # for accurate reallocation narrative. Pre-fix: «Перебалансировать из {leader}
