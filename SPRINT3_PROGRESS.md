@@ -8,18 +8,39 @@
 
 ## Current task
 
-**M1 DiD endpoint DONE. Continue M2 (SCM, ~7-10h) → M3 (Causal Forest, ~8-12h) → M4 (integration, ~3-5h).**
+**🟢 SPRINT 3 BACKEND M0-M4 ALL DONE.** Ready для Pre-Ship gate (SBC + audit + UI live-test) before v1.0.14.
 
-M1 ship details:
-- `engines/causal/did.py` (~190 LOC) — TWFE DiD via linearmodels.PanelOLS с cluster-robust SE
-- `_detect_staggered()` flags Goodman-Bacon 2021 caveat (TWFE biased для staggered → defer Callaway-Santanna к Sprint 4+)
-- `_parallel_trends_test()` — pre-treatment trajectory comparison via OLS interaction term
-- POST `/compute/causal/did` endpoint в server.py + Pydantic CausalDiDRequest
-- HonestDisclosure surfaces parallel-trends + SUTVA + no-anticipation + common-shocks assumptions
-- Artifacts saved to `project_dir/causal/did_<timestamp>.json`
-- M1 MIN-LIVE: 25 assertions, ATT recovered 49.16 vs true 50 (error 1.7%), CI contains true value, staggered detection works
+Total: 5 commits + 488/488 tests PASS.
 
-Tests: 403/403 PASS (was 378 + 25 new M1).
+| Milestone | Commit | LOC | Tests | Recovery error |
+|-----------|--------|-----|-------|----------------|
+| M0 stack scaffolding | `8a35680` | ~340 | 39 | (smoke) |
+| M1 DiD endpoint | `cd13021` | ~190 | 25 | 1.7% |
+| M2 SCM endpoint | `5ac8352` | ~330 | 34 | 40% (CI contains) |
+| M3 Causal Forest | `9e2a974` | ~280 | 23 | 12.3% |
+| M4 integration | (this) | ~330 | 28 | (validation) |
+
+**5 endpoints exposed:**
+- `POST /compute/causal/preflight` — unified validation + method recommendation
+- `POST /compute/causal/list` — list artifacts in project
+- `POST /compute/causal/consistency` — cross-method ATT triangulation
+- `POST /compute/causal/did` — TWFE DiD (Callaway-Santanna deferred Sprint 4+)
+- `POST /compute/causal/scm` — Abadie classic via manual scipy SLSQP
+- `POST /compute/causal/forest` — econml CausalForestDML with honest_split CI
+
+**Architecture invariants preserved (per ADR §1):**
+- Existing endpoints/pickle schemas/engines untouched
+- Causal artifacts in `project_dir/causal/*.json` (separate from MMM models/)
+- All causal methods return uniform schema: `{status, method, att, diagnostics, honest_disclosure, artifact_path, created_at}`
+
+**Pre-Ship gate before v1.0.14 (per ADR §5):**
+- [ ] SBC overnight (~16h MCMC × 100 sims for CI coverage validation)
+- [ ] UI live-test on Materia Medica/Кагоцел real geo data + Афала (2-dataset diversification per Q3)
+- [ ] Independent fresh-context audit pass (D-style — same blind-spot doctrine that caught F1/A1)
+- [ ] MIN-LIVE gates 6-9 production scenario через все 3 method'а
+- [ ] UI parallel track (~10-15h: Causal tab в кабинете Econometrica)
+
+⚠️ Pre-launch блокер still open per ADR §11/Q3: real geo data для Kagocel/Афала. M0-M4 validated на synthetic + `synthesize_geo_split()` fallback. Real-customer validation требует geo data resolution.
 
 ADR APPROVED with 4 refinements (Q1-Q4 + per-M MIN-LIVE checkpoint + scipy isolation interface + Афала validation diversification + optional causal_artifact_path hint). M0 ships:
 

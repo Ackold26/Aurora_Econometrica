@@ -347,6 +347,29 @@ class ScenarioRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────────
 
 
+class CausalPreflightRequest(BaseModel):
+    """Sprint 3 M4: Unified validation + method recommendation."""
+    file_path: str
+    unit_column: str
+    time_column: str
+    kpi_column: str
+    treatment_column: str | None = None
+    treated_unit: Any = None
+    treatment_period: Any = None
+    feature_columns: list[str] | None = None
+    sheet_name: str | None = None
+
+
+class CausalListRequest(BaseModel):
+    """Sprint 3 M4: List causal artifacts in project."""
+    project_dir: str
+
+
+class CausalConsistencyRequest(BaseModel):
+    """Sprint 3 M4: Cross-method consistency check."""
+    project_dir: str
+
+
 class CausalForestRequest(BaseModel):
     """Sprint 3 M3: Causal Forest для Heterogeneous Treatment Effects (HTE)."""
     project_dir: str
@@ -927,6 +950,44 @@ def delete_scenario(req: ScenarioDeleteRequest):
 # ──────────────────────────────────────────────────────────────────
 # Sprint 3 Pharma Causal — endpoints (M1 ship)
 # ──────────────────────────────────────────────────────────────────
+
+
+@app.post('/compute/causal/preflight')
+def causal_preflight_endpoint(req: CausalPreflightRequest):
+    """Sprint 3 M4: Unified pre-causal validation + method recommendation.
+
+    Returns: applicable methods (DiD/SCM/Forest), per-method validation
+    breakdown, recommended order, common caveats. Analogous к existing
+    /compute/preflight для MMM training.
+    """
+    from engines.causal.preflight import causal_preflight
+    cfg = req.model_dump()
+    file_path = cfg.pop('file_path')
+    result = causal_preflight(file_path, **cfg)
+    return JSONResponse(content=result)
+
+
+@app.post('/compute/causal/list')
+def causal_list_endpoint(req: CausalListRequest):
+    """Sprint 3 M4: List causal artifacts в project.
+
+    Returns artifacts sorted by created_at desc with method, ATT, CI summary.
+    UI uses for history view + cross-method comparison.
+    """
+    from engines.causal.preflight import list_causal_artifacts
+    return JSONResponse(content=list_causal_artifacts(req.project_dir))
+
+
+@app.post('/compute/causal/consistency')
+def causal_consistency_endpoint(req: CausalConsistencyRequest):
+    """Sprint 3 M4: Cross-method consistency check.
+
+    Compares latest ATT estimates across DiD/SCM/Forest для same project.
+    Triangulation: methods should agree (CI overlap, low divergence). Significant
+    disagreement signals identification problem.
+    """
+    from engines.causal.preflight import cross_method_consistency
+    return JSONResponse(content=cross_method_consistency(req.project_dir))
 
 
 @app.post('/compute/causal/forest')
