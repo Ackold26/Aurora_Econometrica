@@ -347,6 +347,25 @@ class ScenarioRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────────
 
 
+class CausalSCMRequest(BaseModel):
+    """Sprint 3 M2: Synthetic Control Method (Abadie classic).
+
+    treated_unit must exist в data; treatment_period splits panel into
+    pre/post (≥6 pre-periods, ≥1 post-period). Inference via permutation
+    placebo test.
+    """
+    project_dir: str
+    data_file: str
+    unit_column: str
+    time_column: str
+    kpi_column: str
+    treated_unit: Any  # type matching unit_column dtype (str typical)
+    treatment_period: Any  # type matching time_column dtype (str/date/int)
+    confidence: float = 0.9
+    sheet_name: str | None = None
+    run_placebo: bool = True
+
+
 class CausalDiDRequest(BaseModel):
     """Sprint 3 M1: Difference-in-Differences (TWFE).
 
@@ -892,6 +911,26 @@ def delete_scenario(req: ScenarioDeleteRequest):
 # ──────────────────────────────────────────────────────────────────
 # Sprint 3 Pharma Causal — endpoints (M1 ship)
 # ──────────────────────────────────────────────────────────────────
+
+
+@app.post('/compute/causal/scm')
+def causal_scm(req: CausalSCMRequest):
+    """Sprint 3 M2: Synthetic Control Method (Abadie classic) ATT estimation.
+
+    Returns ATT с placebo-permutation CI + honest_disclosure (convex-hull,
+    pre-treatment RMSE quality, donor weight concentration HHI).
+
+    Per ADR §3.1 + Q2(B): manual scipy SLSQP via _solve_scm_weights() interface
+    — clean swap path к cvxpy (Augmented SCM, Sprint 4+).
+
+    See docs/SPRINT3_PHARMA_CAUSAL_ADR.md §4 для request/response schema.
+    """
+    from engines.causal.scm import estimate_scm
+    cfg = req.model_dump()
+    project_dir = cfg.pop('project_dir')
+    file_path = cfg.pop('data_file')
+    result = estimate_scm(file_path, project_dir=project_dir, **cfg)
+    return JSONResponse(content=result)
 
 
 @app.post('/compute/causal/did')
