@@ -42,6 +42,13 @@ PASHE_IT.MD update (SHA256 + version).
   - Audit-fix: legacy action migration, delta persistence, NaN guards, reasoning tooltip
   - Tests: 552/552 PASS (was 544 + 8 L4 lock-ins)
 
+- ✅ **Day 6 prep — version bumps + ship docs** — pending push
+  - package.json + Cargo.toml + tauri.conf.json: 1.0.15 → 1.0.16
+  - cargo check clean compile as v1.0.16
+  - docs/CHANGELOG_v1.0.16.md draft создан (full Day 1-5 summary)
+  - docs/GH_RELEASE_v1.0.16_DRAFT.md создан (release notes)
+  - PASHE_IT.MD update — TBD после Антона's NSIS build (нужен SHA256)
+
 - ✅ **Day 5 — Help docs update** — pending push (3 files updated)
   - `methodology.html` — Action Labels Glossary section с full ACTION_KEYS vocabulary (Scale/Hold/Watch/Reduce/Cut/Uncertain). Triggers + confidence levels documented.
   - `econometrica.html` Step 5 (Оптимизация) — обновлён с Section A multi-start, money-axis mROAS, three-way alignment, auto-apply, edge banners, action labels. Plus «Что нового в v1.0.16» section.
