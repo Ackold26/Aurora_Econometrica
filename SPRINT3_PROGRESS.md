@@ -8,7 +8,18 @@
 
 ## Current task
 
-**M0 Pharma Causal stack scaffolding DONE. Continue M1 (DiD endpoint) ~6-8h.**
+**M1 DiD endpoint DONE. Continue M2 (SCM, ~7-10h) → M3 (Causal Forest, ~8-12h) → M4 (integration, ~3-5h).**
+
+M1 ship details:
+- `engines/causal/did.py` (~190 LOC) — TWFE DiD via linearmodels.PanelOLS с cluster-robust SE
+- `_detect_staggered()` flags Goodman-Bacon 2021 caveat (TWFE biased для staggered → defer Callaway-Santanna к Sprint 4+)
+- `_parallel_trends_test()` — pre-treatment trajectory comparison via OLS interaction term
+- POST `/compute/causal/did` endpoint в server.py + Pydantic CausalDiDRequest
+- HonestDisclosure surfaces parallel-trends + SUTVA + no-anticipation + common-shocks assumptions
+- Artifacts saved to `project_dir/causal/did_<timestamp>.json`
+- M1 MIN-LIVE: 25 assertions, ATT recovered 49.16 vs true 50 (error 1.7%), CI contains true value, staggered detection works
+
+Tests: 403/403 PASS (was 378 + 25 new M1).
 
 ADR APPROVED with 4 refinements (Q1-Q4 + per-M MIN-LIVE checkpoint + scipy isolation interface + Афала validation diversification + optional causal_artifact_path hint). M0 ships:
 

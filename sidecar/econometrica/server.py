@@ -340,6 +340,30 @@ class ScenarioRequest(BaseModel):
     unit_costs: dict[str, float] | None = None
 
 
+# ──────────────────────────────────────────────────────────────────
+# Sprint 3 Pharma Causal — request models (per ADR §4.2)
+# Per ADR §1: EXTEND-not-rewrite. New endpoints в /compute/causal/* namespace,
+# не touching existing /compute/{train,decompose,optimize,scenario,...}.
+# ──────────────────────────────────────────────────────────────────
+
+
+class CausalDiDRequest(BaseModel):
+    """Sprint 3 M1: Difference-in-Differences (TWFE).
+
+    treatment_column convention: 1 if (unit treated AND time >= treatment_start),
+    else 0. User responsible for proper encoding before passing to endpoint.
+    """
+    project_dir: str
+    data_file: str
+    unit_column: str
+    time_column: str
+    kpi_column: str
+    treatment_column: str
+    control_columns: list[str] = []
+    confidence: float = 0.9
+    sheet_name: str | None = None  # Excel sheet selector (used для MMX dataset Афала/etc)
+
+
 class AwarenessRequest(BaseModel):
     project_dir: str
     data_file: str
@@ -862,6 +886,31 @@ def delete_scenario(req: ScenarioDeleteRequest):
     """Delete a saved scenario JSON file."""
     from engines.scenario import delete_scenario as _delete
     result = _delete(req.project_dir, req.scenario_name)
+    return JSONResponse(content=result)
+
+
+# ──────────────────────────────────────────────────────────────────
+# Sprint 3 Pharma Causal — endpoints (M1 ship)
+# ──────────────────────────────────────────────────────────────────
+
+
+@app.post('/compute/causal/did')
+def causal_did(req: CausalDiDRequest):
+    """Sprint 3 M1: Difference-in-Differences (TWFE) ATT estimation.
+
+    Returns ATT с frequentist cluster-robust CI + honest_disclosure (parallel-
+    trends test, staggered detection per Goodman-Bacon 2021, SUTVA assumption).
+
+    For staggered adoption treatment timing, returns ATT с warning flag in
+    diagnostics_failed — consider Sprint 4+ Callaway-Santanna для proper estimator.
+
+    See docs/SPRINT3_PHARMA_CAUSAL_ADR.md §4 для request/response schema.
+    """
+    from engines.causal.did import estimate_did
+    cfg = req.model_dump()
+    project_dir = cfg.pop('project_dir')
+    file_path = cfg.pop('data_file')
+    result = estimate_did(file_path, project_dir=project_dir, **cfg)
     return JSONResponse(content=result)
 
 
