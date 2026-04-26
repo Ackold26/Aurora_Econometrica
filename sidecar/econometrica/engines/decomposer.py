@@ -280,6 +280,18 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             ch_dict['roi_ci_low'] = 0.0
             ch_dict['roi_ci_high'] = 0.0
             ch_dict['ci_skip_reason'] = 'zero_spend'
+
+        # Sprint 2 extension (small-data path): for '1.0-ols' pickles, populate
+        # roi_ci_low/high from stored bootstrap CI (no posterior_samples available).
+        # This gives OLS path same UI semantics as Bayesian — UI renders brackets
+        # uniformly without engine-specific code paths.
+        if posterior_samples is None and spend_money > 0:
+            roi_ci_low_boot = params.get('roi_ci_low_bootstrap')
+            roi_ci_high_boot = params.get('roi_ci_high_bootstrap')
+            if roi_ci_low_boot is not None and roi_ci_high_boot is not None:
+                ch_dict['roi_ci_low'] = round(float(roi_ci_low_boot), 4)
+                ch_dict['roi_ci_high'] = round(float(roi_ci_high_boot), 4)
+                ch_dict['ci_method'] = 'frequentist_bootstrap'
         # Phase 1.1 path: when ch_samples has 'decay', x_norm varies per sample
         # via geometric_adstock_batch — use hill_function_batch_2d.
         # Phase 1.9 path (v1.1.5 pickles): decay constant, use hill_function_batch (1D x_norm).

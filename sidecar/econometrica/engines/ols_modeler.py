@@ -238,6 +238,35 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     except Exception:
         t_crit = 1.645  # fallback к large-sample normal
 
+    # ── Sprint 2 extension (small-data path): bootstrap ROI CI + OLS diagnostics ──
+    # Closes gap "у OLS только β CI, не ROI CI" — bootstrap дает honest ROI distribution.
+    # Computed once at training time, stored в pickle для downstream consumption.
+    raw_spend_totals_dict = {}
+    for col in trained_media_cols:
+        raw_spend_totals_dict[col] = float(df[col].fillna(0).sum())
+
+    bootstrap_roi_results = {}
+    ols_diag_results = {}
+    try:
+        from utils.ols_bootstrap import bootstrap_roi_ci, ols_diagnostics
+        bootstrap_roi_results = bootstrap_roi_ci(
+            X=X, y=y_norm,
+            media_means={c: media_means[c] for c in trained_media_cols},
+            media_cols=trained_media_cols,
+            y_std=y_std,
+            n_periods=n_obs,
+            raw_spend_totals=raw_spend_totals_dict,
+            unit_costs=config.get('unit_costs', {}),
+            n_boot=200,
+            seed=42,
+        )
+        ols_diag_results = ols_diagnostics(X, y_norm, beta_hat, XtX_inv if 'XtX_inv' in dir() else None)
+    except Exception as _boot_err:
+        logger.warning(
+            f"Bootstrap ROI CI / OLS diagnostics failed (continuing without): "
+            f"{type(_boot_err).__name__}: {_boot_err}"
+        )
+
     # Build channel_params (compatible с decomposer/optimizer expectations).
     # All media_cols enumerated так что downstream sees все каналы — untrained
     # marked explicit с beta=0 + flag.
@@ -261,7 +290,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             continue
         j = trained_media_cols.index(col)
         beta_ci_half = t_crit * float(media_betas_se[j]) if not np.isnan(media_betas_se[j]) else 0.0
-        channel_params[col] = {
+        ch_dict = {
             'beta': round(float(media_betas[j]), 4),
             'alpha': DEFAULT_ALPHA,
             'gamma': DEFAULT_GAMMA,
@@ -273,6 +302,15 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             'beta_ci_low_freq': round(float(media_betas[j] - beta_ci_half), 4),
             'beta_ci_high_freq': round(float(media_betas[j] + beta_ci_half), 4),
         }
+        # Sprint 2 extension: bootstrap ROI CI when computed успешно. These map
+        # to roi_ci_low/high downstream (decomposer reads channel_params['roi_ci_low_bootstrap']
+        # if posterior samples отсутствуют — '1.0-ols' pickles).
+        boot = bootstrap_roi_results.get(col)
+        if boot is not None and boot.get('ci_low') is not None:
+            ch_dict['roi_ci_low_bootstrap'] = round(boot['ci_low'], 4)
+            ch_dict['roi_ci_high_bootstrap'] = round(boot['ci_high'], 4)
+            ch_dict['roi_bootstrap_mean'] = round(boot['ci_mean'], 4)
+        channel_params[col] = ch_dict
 
     diagnostics = {
         'engine': 'ols',
@@ -288,6 +326,9 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             # No MCMC diagnostics — OLS has no chains/divergences/r_hat
             'mcmc': None,
         },
+        # Sprint 2 extension: standard OLS quality diagnostics (leverage, Cook's, VIF).
+        # Empty dict if computation failed (defensive — no crash на degenerate data).
+        'ols_quality': ols_diag_results,
         'actual_vs_predicted': {
             'actual': [round(float(v), 4) for v in y.tolist()],
             'predicted': [round(float(v), 4) for v in y_pred.tolist()],

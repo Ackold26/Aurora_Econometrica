@@ -1,9 +1,20 @@
 # Sprint 2 + Sprint 1.5 (A4) — Live Progress
 
-**Last updated:** 2026-04-27 ~00:30 — AUDIT FIX-SESSION COMPLETE
-**Branch:** `math-fix-v1.0.13` (pushed to remote)
-**Active phase:** All Sprint 1+2+1.5 backend + 9 audit fixes done. UI + live-test pending Антоном.
-**HEAD:** `9cb5751` (S1 unified preflight endpoint)
+**Last updated:** 2026-04-27 ~01:00 — UI Method toggle work in progress
+**Branch:** `math-fix-v1.0.13` (pushed)
+**Active phase:** Backend полностью готов (Sprint 1+2+1.5 + 9 audit fixes). UI Method toggle в Train step — последний remaining Sprint 2 item.
+**HEAD:** `7741017` (audit fix-session complete)
+
+**Current task:** Sprint 2 small-data path EXTENSION — расширить OLS engine за пределами basic frequentist β CI.
+
+**3 new features (per Антон clarification):**
+1. Bootstrap ROI CI для OLS — refit OLS на N=200 bootstrap resamples, posterior-style ROI distribution с честным CI на ratios (не на parameters). Закрывает gap "у OLS только β CI, не ROI CI".
+2. Predictive intervals на y forecasts — `ŷ ± t · σ · √(1 + x_new'(X'X)^(-1)x_new)` — для scenario predictions с honest uncertainty bounds.
+3. OLS-specific diagnostics — leverage h_ii, Cook's distance, VIF (variance inflation factor) — стандартные small-N quality checks отсутствующие в Bayesian path.
+
+**Next concrete step:** Add utils/ols_bootstrap.py с bootstrap_roi_ci function + extend ols_modeler.py diagnostics + integrate в decomposer для OLS pickles.
+
+**UI Method toggle deferred:** требует frontend SvelteKit deep work (ConfigPanel+ModelTrainingStep wiring + Tauri command schema), отдельная задача.
 
 **Audit fix-session 2026-04-27 (4 commits, 9 issues closed):**
 - `1b29c6d` C1 Phase 1.1 mean-normalization mathematical drift eliminated
