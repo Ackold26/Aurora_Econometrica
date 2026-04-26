@@ -130,6 +130,7 @@ def fit_pymc_hierarchy(
     """
     import pymc as pm
     import pytensor.tensor as pt
+    from pytensor.scan import scan as pt_scan
     import arviz as az
 
     n_obs = data["n_obs"]
@@ -167,7 +168,7 @@ def fit_pymc_hierarchy(
             x_j = raw_spend[:, j]
             # Geometric adstock (recursive)
             adstock_init = pt.as_tensor_variable(x_j[0])
-            adstock_seq, _ = pm.pytensorf.scan(
+            adstock_seq, _ = pt_scan(
                 fn=lambda x_t, prev, d: x_t + d * prev,
                 sequences=[pt.as_tensor_variable(x_j[1:])],
                 outputs_info=[adstock_init],
