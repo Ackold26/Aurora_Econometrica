@@ -347,6 +347,22 @@ class ScenarioRequest(BaseModel):
 # ──────────────────────────────────────────────────────────────────
 
 
+class CausalForestRequest(BaseModel):
+    """Sprint 3 M3: Causal Forest для Heterogeneous Treatment Effects (HTE)."""
+    project_dir: str
+    data_file: str
+    kpi_column: str
+    treatment_column: str
+    feature_columns: list[str]
+    confounder_columns: list[str] | None = None
+    confidence: float = 0.9
+    n_estimators: int = 200
+    sheet_name: str | None = None
+    random_state: int = 42
+    unit_column: str | None = None  # optional, для panel context
+    time_column: str | None = None
+
+
 class CausalSCMRequest(BaseModel):
     """Sprint 3 M2: Synthetic Control Method (Abadie classic).
 
@@ -911,6 +927,24 @@ def delete_scenario(req: ScenarioDeleteRequest):
 # ──────────────────────────────────────────────────────────────────
 # Sprint 3 Pharma Causal — endpoints (M1 ship)
 # ──────────────────────────────────────────────────────────────────
+
+
+@app.post('/compute/causal/forest')
+def causal_forest(req: CausalForestRequest):
+    """Sprint 3 M3: Causal Forest для HTE estimation.
+
+    Returns ATE с honest-split CI + heterogeneity diagnostics + feature
+    importance. Surfaces в каких сегментах (по features) treatment effect
+    сильнее. Honest disclosure: CIA, overlap, SUTVA assumptions.
+
+    See docs/SPRINT3_PHARMA_CAUSAL_ADR.md §4 для request/response schema.
+    """
+    from engines.causal.causal_forest import estimate_causal_forest
+    cfg = req.model_dump()
+    project_dir = cfg.pop('project_dir')
+    file_path = cfg.pop('data_file')
+    result = estimate_causal_forest(file_path, project_dir=project_dir, **cfg)
+    return JSONResponse(content=result)
 
 
 @app.post('/compute/causal/scm')
