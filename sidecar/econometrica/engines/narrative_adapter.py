@@ -292,32 +292,24 @@ def _normalize_channel_name(raw: str | None) -> str | None:
 
 
 def derive_verdict(channel: dict) -> str:
-    """5-way verdict encoding both efficiency (mROAS) and schedule direction
-    (optimal vs current spend). Returns one of:
-      Cut / Reduce / Watch / Hold / Scale
+    """Prescriptive action key для канала.
 
-    Honest signal - Reduce means "profitable but saturation-bound, cut spend"
-    (resolves wireframe v3 TV self-contradiction: Scale-table vs Cut-SCQAR).
+    math-fix v1.0.14.1, B refactor (2026-04-28):
+        Migrated к engines.channel_action.compute_channel_action — single source
+        of truth. Returns one of 6 keys: Scale / Hold / Watch / Reduce / Cut /
+        Uncertain. CSS classes verdict-{Key} в HTML/PPTX templates.
+
+    Pre-refactor: ad-hoc mROAS+ratio логика что давала разные ответы относительно
+    decomposer.compute_roi_verdict — root cause «Hold table» vs «scale-up
+    commentary» противоречий (Kagocel live-test 2026-04-27).
+
+    Post-refactor: тонкий wrapper вокруг compute_channel_action для backward
+    compat. Все callers получают same answer. Reasoning + tone доступны через
+    channel['action_reasoning'] и channel['action_tone'] (decorated в
+    _map_pipeline_to_builder_data).
     """
-    curr = channel.get("current_spend") or channel.get("spend") or 0.0
-    opt = channel.get("optimal_spend") or curr
-    mroas = channel.get("mroas") or 0.0
-    try:
-        curr = float(curr) or 1e-6
-        opt = float(opt)
-        mroas = float(mroas)
-    except (TypeError, ValueError):
-        return "Watch"
-    ratio = opt / max(curr, 1e-6)
-    if mroas < 0.8 or ratio < 0.5:
-        return "Cut"
-    if mroas >= 1.2 and ratio >= 1.2:
-        return "Scale"
-    if ratio < 0.9:
-        return "Reduce"
-    if mroas >= 1.2:
-        return "Hold"
-    return "Watch"
+    from .channel_action import compute_channel_action
+    return compute_channel_action(channel).key
 
 
 def compute_report_id(
@@ -587,6 +579,16 @@ def _derive_narrative_facts(
     converged = optimize_data.get("optimization_converged", True)
     optimize_min_pct = optimize_data.get("min_pct_used")
     optimize_max_pct = optimize_data.get("max_pct_used")
+    # math-fix v1.0.14.1, A4 (audit-of-audit 2026-04-28): false convergence
+    # detection. SLSQP success=True at iter=1 (returns current allocation) —
+    # narrative banner объясняет «оптимизатор не нашёл лучшего», не vacuous
+    # «Сохранить аллокацию».
+    converged_at_current = bool(optimize_data.get("converged_at_current", False))
+
+    # math-fix v1.0.14.1, B (audit-of-audit 2026-04-28): action summary —
+    # counts portfolio actions для consistent f4 counts + commentary planning.
+    from engines.channel_action import build_action_summary
+    action_summary = build_action_summary(channels)
 
     return {
         "leader_channel": leader.get("name"),
@@ -607,11 +609,16 @@ def _derive_narrative_facts(
         "baseline_pct": baseline_pct,
         "media_contribution_pct": media_contrib_pct,
         "honest_narrative": honest_narrative,
-        # Optimizer state (Phase 0.1 fix-session)
+        # Optimizer state (Phase 0.1 fix-session + v1.0.14.1)
         "binding_constraints": binding,
         "optimization_converged": converged,
         "optimize_min_pct": optimize_min_pct,
         "optimize_max_pct": optimize_max_pct,
+        "converged_at_current": converged_at_current,
+        # Action summary (B refactor) — counts + channels_by_action + top_action
+        "action_counts": action_summary["counts"],
+        "channels_by_action": action_summary["channels_by_action"],
+        "top_action": action_summary["top_action"],
     }
 
 
@@ -712,8 +719,19 @@ def _map_pipeline_to_builder_data(
     )
     # Canonical order: contribution desc - keeps tables and narrative consistent
     channels.sort(key=lambda c: float(c.get("contribution") or 0), reverse=True)
+    # math-fix v1.0.14.1, B (2026-04-28): decorate с action structured data.
+    # Templates (HTML/PPTX) reads ch['action_label']/['action_reasoning'] вместо
+    # генерируя свои hardcoded строки → coherence between table + commentary.
+    from engines.channel_action import compute_channel_action
     for ch in channels:
-        ch["verdict"] = derive_verdict(ch)
+        action = compute_channel_action(ch)
+        ch["verdict"] = action.key
+        ch["action"] = action.key
+        ch["action_label"] = action.label_ru
+        ch["action_reasoning"] = action.reasoning
+        ch["action_tone"] = action.tone
+        ch["action_priority"] = action.priority
+        ch["action_confidence"] = action.confidence
 
     narrative_facts: dict | None = None
     if len(channels) >= 2:

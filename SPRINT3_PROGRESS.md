@@ -511,3 +511,133 @@ Plan revisions identified 5+ narrative sites + 2 parallel verdict systems requir
 ### Customer ship status
 
 v1.0.14 NSIS installer (189MB SHA256 31822fae) **остаётся на hold** до Section B + C fixes. Текущий math-fix branch HEAD после этой session — internal testing only. После Section B → version bump 1.0.14.1, rebuild sidecar + NSIS, ship.
+
+---
+
+## v1.0.14.1 — Narrative consistency fix (2026-04-28, Section B)
+
+After Section A optimizer fix (`fe42e7f` — pushed). Section B addresses 4 narrative
+contradictions found Kagocel live-test 2026-04-27.
+
+### Root cause (Phase 1 meta-audit B1+B3 findings)
+
+TWO PARALLEL VERDICT SYSTEMS in production code:
+- `decomposer.compute_roi_verdict` — 16 ROI-based labels for Decomposition UI table
+- `narrative_adapter.derive_verdict` — 5 mROAS+ratio labels for HTML/PPTX action table
+
+Plus 5+ hardcoded narrative sites (sections.py:526-541, builder.py:1395-1430)
+generating commentary independently from derive_verdict.
+
+Result: same channel showed «Hold verdict» in HTML table + «явный потенциал scale-up»
+in commentary because two code paths generated each independently.
+
+### Single source of truth — engines/channel_action.py (NEW, 280 LOC)
+
+Decision tree (top-to-bottom):
+0. Bad input → Watch (backward compat fallback)
+1. Untrained → Uncertain
+2. Zero spend → Uncertain
+3. Severe optimizer cut (ratio < 0.5) → Cut
+4. Below breakeven (mROAS < 0.8) → Cut
+5. Optimizer reduce (ratio ≤ 0.95 + mROAS ≥ 1.0) → Reduce
+6. Near breakeven (mROAS < 1.0) → Reduce
+7. Optimizer scale (ratio ≥ 1.05 + mROAS ≥ 1.0) → Scale
+8. mROAS+gap heuristic (mROAS ≥ 1.5 + gap ≥ +5pp) → Scale
+9. CI uncertainty (width > mROAS) — EVALUATED LAST → Uncertain
+10. Hold (mROAS ≥ 1.1 + |gap| < 5pp) → Hold
+11. Watch (fallback) → Watch
+
+Critical design choice — CI step ordering: optimizer's redistribution implicitly
+integrates joint posterior, so meaningful ratio reflects already-confidence-aware
+ranking даже с individual-channel wide CI. Pre-design (CI early): Real Kagocel
+n=31 wide CI → ALL 6 channels Uncertain → product value suppressed despite
+optimizer +28.3% lift. Post-design (CI late): 5 Scale + 1 Cut + 0 Uncertain.
+
+### Vocabulary — 6 keys, 5 backward compat preserved
+
+```
+Scale     → Масштабировать
+Hold      → Удерживать
+Watch     → Под наблюдением
+Reduce    → Сократить умеренно
+Cut       → Сократить
+Uncertain → Недостаточно данных  (NEW)
+```
+
+### Refactored sites
+
+- narrative_adapter.derive_verdict — wrapper around compute_channel_action
+- narrative_adapter._map_pipeline_to_builder_data — channels decorated с
+  action_label/action_reasoning/action_tone/action_priority/action_confidence
+- narrative_adapter._derive_narrative_facts — added action_counts +
+  channels_by_action + top_action + converged_at_current passthrough
+- aurora_html/sections.py render_mroas — top-3 unique-action commentary blocks
+  (was: 3 hardcoded mROAS-rank blocks)
+- aurora_html/sections.py render_recommendation + render_executive_summary —
+  added converged_at_current banner («Расширьте границы Min/Max»)
+- aurora_pptx/builder.py s06 commentary — same action-driven pattern as HTML
+
+### Validation
+
+Coherence test (NEW, tools/test_narrative_coherence.py, 280 LOC):
+- 10 unit tests on compute_channel_action mapping
+- 6 integration tests on HTML render coherence (table verdict == commentary action)
+- 4 tests on render_at_a_glance counts (using build_action_summary)
+- 3 tests on converged_at_current banner surfacing
+- 1 test on hardcoded «scale-up» absence
+
+Result: 24/24 GREEN.
+
+Real Kagocel post-fix:
+```
+action_counts: {'Scale': 5, 'Hold': 0, 'Watch': 0, 'Reduce': 0, 'Cut': 1, 'Uncertain': 0}
+Performance  | mROAS=9.83  | ratio=2.00 | Scale
+Social       | mROAS=10.49 | ratio=2.00 | Scale
+Banners      | mROAS=1.08  | ratio=2.00 | Scale
+OLV          | mROAS=1.04  | ratio=2.00 | Scale
+Retail Media | mROAS=7.41  | ratio=2.00 | Scale
+TRPs         | mROAS=0.03  | ratio=0.92 | Cut
+```
+
+Antón's product mandate «понять что изменить» — restored. Scale signal на 5 каналов
++ Cut на TRPs + lift +28.3% surface'ит coherently across HTML table + commentary.
+
+### Regression check
+
+```
+test_audit_of_sprint3      : 20/20 PASS
+test_causal_m0..m4         : 149/149 PASS
+test_math_correctness      : 156/156 PASS
+test_narrative_adapter     : 65/65 PASS  (backward compat preserved)
+test_posterior_ci          : 82/82 PASS
+test_roi_verdict           : 36/36 PASS
+test_optimizer_kagocel...  : 9/9 PASS  (Section A)
+test_narrative_coherence   : 24/24 PASS  (Section B, NEW)
+                            ━━━━━━━━━━━━
+Total: 541/541 (was 517 + 24 new, no regressions)
+```
+
+### Files changed
+
+```
+sidecar/econometrica/engines/channel_action.py      (NEW, 280 LOC)
+sidecar/econometrica/engines/narrative_adapter.py   (+30/-30 LOC)
+sidecar/econometrica/aurora_html/sections.py        (+60/-30 LOC)
+sidecar/econometrica/aurora_pptx/builder.py         (+40/-40 LOC)
+tools/test_narrative_coherence.py                   (NEW, 280 LOC)
+docs/MATH_AUDIT_v1_4_NARRATIVE_FIX.md               (NEW, audit-trail)
+SPRINT3_PROGRESS.md                                  (this entry)
+```
+
+### Known limitations
+
+- PPTX optimizer state awareness deferred (HTML refactored, PPTX still generic
+  recommendation banners). Sprint 4+ task.
+- compute_descriptive_state не implemented (plan's option (b) feature). Existing
+  decomposer.compute_roi_verdict already handles descriptive labels for UI page;
+  separate structured class deferred — Decomposition UI unaffected.
+
+### Section C next — version bump + ship
+
+After Section B GREEN: bump 1.0.14 → 1.0.14.1, rebuild sidecar + NSIS, update
+CHANGELOG + GH Release draft + PASHE_IT.MD. Customer ship UNBLOCKED.

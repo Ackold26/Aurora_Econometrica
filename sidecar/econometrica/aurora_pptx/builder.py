@@ -1380,52 +1380,62 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, right_x, chart_y + 0.3, 1.0, weight=0.75, color=self.gold)
 
-        # Commentary — slot-fill from facts+channels when present, else Kagocel
+        # Commentary — math-fix v1.0.14.1 B refactor (2026-04-28).
+        # Pre-fix: hardcoded «явный потенциал для наращивания» / «потенциал
+        # удержания» / «топ-2 канала» blocks based на mROAS rank — independent
+        # от derive_verdict в action table → contradictions.
+        # Post-fix: action-driven. Reads ch['action_label']/['action_reasoning']
+        # populated narrative_adapter via single-source-of-truth
+        # engines.channel_action.compute_channel_action. Action в s07 table cell
+        # + s06 commentary lead garanteed identical per channel.
         if self.channels and self.facts:
-            by_mroas = sorted(self.channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
-            hero = by_mroas[0] if by_mroas else {}
-            second = by_mroas[1] if len(by_mroas) > 1 else {}
-            leader = self.facts.get("leader_channel")
-            hero_name = hero.get("name") or "Лидер"
-            hero_m = float(hero.get("mroas") or 0)
-            second_name = second.get("name") or ""
-            second_m = float(second.get("mroas") or 0)
-            # Underperformers = channels with mROAS < 1.0 (below breakeven)
-            underperf = [c.get("name") for c in self.channels if float(c.get("mroas") or 0) < 1.0]
+            # Sort by action priority (Scale=5 first, ..., Cut=0). De-dup по
+            # action key so same action не shown 3× для 3 Scale channels.
+            by_priority = sorted(
+                self.channels,
+                key=lambda c: (
+                    -int(c.get("action_priority") or 0),
+                    -float(c.get("mroas") or 0),
+                ),
+            )
             commentary: list[tuple[str, str]] = []
-            # Block 1 — hero vs leader
-            if leader and hero_name and leader != hero_name:
+            seen_actions: set[str] = set()
+            for ch in by_priority:
+                ch_action = ch.get("action") or "Watch"
+                if ch_action == "Uncertain":
+                    continue
+                if ch_action in seen_actions:
+                    continue
+                seen_actions.add(ch_action)
+                ch_name = ch.get("name") or "-"
+                label = ch.get("action_label") or ch_action
+                reasoning = ch.get("action_reasoning") or (
+                    f"mROAS {float(ch.get('mroas') or 0):.1f}× - рекомендация по портфелю."
+                )
                 commentary.append((
-                    f"{hero_name} обогнал {leader}.",
-                    f" mROAS {hero_m:.1f}× означает, что каждый дополнительный рубль в {hero_name.lower()} возвращает в {hero_m:.1f} раза больше. Явный потенциал для наращивания.",
+                    f"{ch_name} - {label}.",
+                    f" {reasoning}",
                 ))
-            elif hero_name:
+                if len(commentary) >= 3:
+                    break
+            # Fallback (legacy callers без action decoration)
+            if not commentary:
+                hero = by_priority[0] if by_priority else {}
+                hero_name = hero.get("name") or "Лидер"
+                hero_m = float(hero.get("mroas") or 0)
                 commentary.append((
                     f"{hero_name} - лидер по mROAS.",
-                    f" mROAS {hero_m:.1f}×. Бюджет следует наращивать до признаков насыщения.",
+                    f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом saturation.",
                 ))
-            # Block 2 — stable second
-            if second_name and second_m >= 1.0:
-                commentary.append((
-                    f"{second_name} устойчиво эффективен.",
-                    f" mROAS {second_m:.1f}× при текущих расходах - низкая волатильность, потенциал удержания бюджета.",
-                ))
-            # Block 3 — underperformers (breakeven)
-            if underperf:
-                names_str = " и ".join(underperf[:2]) if underperf else ""
-                if names_str:
-                    commentary.append((
-                        f"{names_str} под угрозой.",
-                        " mROAS ниже точки безубыточности. Рекомендуется перераспределить их бюджеты в топ-2 канала.",
-                    ))
         else:
+            # Wireframe placeholder when no channels (preview mode)
             commentary = [
-                ("Digital video обогнал TV.",
-                 " mROAS 1.9× означает, что каждый дополнительный рубль в digital video возвращает в 1.9 раза больше. Сейчас канал получает менее 15% бюджета - явный потенциал для наращивания."),
-                ("Search устойчиво эффективен.",
-                 " mROAS 1.7× при текущих расходах. Менее волатилен, чем social, и не подвержен насыщению в обозримой перспективе."),
-                ("Print и Radio под угрозой.",
-                 " mROAS 0.7× и 0.75× - оба ниже точки безубыточности. Рекомендуется перераспределить их бюджеты в топ-2 канала."),
+                ("Digital video - Масштабировать.",
+                 " mROAS 1.9× — Optimizer рекомендует +50%, недо-инвестирован."),
+                ("Search - Удерживать.",
+                 " mROAS 1.7× стабилен, gap +1пп — баланс."),
+                ("Print и Radio - Сократить.",
+                 " mROAS 0.7-0.75× ниже breakeven — бюджет приносит убыток."),
             ]
         cy = chart_y + 0.55
         for lead, body in commentary:

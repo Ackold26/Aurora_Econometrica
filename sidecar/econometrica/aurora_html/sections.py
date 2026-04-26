@@ -216,8 +216,12 @@ def render_executive_summary(ctx: dict) -> str:
         )
         question = scqar["question"]["template"]
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
+        # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state — SLSQP
+        # вернул current allocation без binding (false convergence). Honest
+        # banner вместо vacuous «Сохранить аллокацию».
         binding = bool(facts.get("binding_constraints"))
         converged = facts.get("optimization_converged", True)
+        converged_at_current = bool(facts.get("converged_at_current"))
         if not converged:
             answer = (
                 "Оптимизация не сошлась. Перед перераспределением "
@@ -230,6 +234,17 @@ def render_executive_summary(ctx: dict) -> str:
                 "(рекомендуем 10-300%) и перезапустите Оптимизацию для реального перераспределения."
             )
             recommendation = "Прирост ROAS будет рассчитан после расширения границ."
+        elif converged_at_current:
+            answer = (
+                "Оптимизатор сошёлся на текущем распределении — лучшее решение "
+                "при заданных границах не найдено. Это может означать что границы "
+                "Min/Max задают слишком узкий коридор либо текущая аллокация уже "
+                "близка к локальному оптимуму."
+            )
+            recommendation = (
+                "Расширьте границы (10/300% рекомендуется) или используйте "
+                "экспертный режим для канал-специфичных ограничений."
+            )
         elif realloc >= 0.5 and hero != leader:
             answer = scqar["answer"]["template"].format(
                 realloc=realloc, leader=leader, hero=hero, underperf=underperf
@@ -511,34 +526,54 @@ def render_mroas(ctx: dict) -> str:
     hero = facts.get("hero_channel") if facts else None
     title = strings["action_titles"]["s06_hero"].format(hero=hero or "лидер портфеля")
 
-    # Commentary blocks
+    # Commentary blocks — math-fix v1.0.14.1 B refactor (2026-04-28).
+    # Pre-fix: hardcoded «явный потенциал scale-up» / «потенциал удержания» /
+    # «топ-2 канала» based на mROAS rank — independent от derive_verdict в
+    # action table → contradictions (Kagocel live-test 2026-04-27).
+    # Post-fix: action-driven commentary. Each block reads ch['action_label']
+    # + ch['action_reasoning'] populated by narrative_adapter via single source
+    # of truth (engines.channel_action.compute_channel_action). Action в table
+    # cell + commentary lead garanteed identical per channel.
     if channels and facts:
-        by_m = sorted(channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
-        hero_ch = by_m[0] if by_m else {}
-        second = by_m[1] if len(by_m) > 1 else {}
-        hero_name = hero_ch.get("name") or "-"
-        hero_m = float(hero_ch.get("mroas") or 0)
-        second_name = second.get("name") or ""
-        second_m = float(second.get("mroas") or 0)
-        underperf = [c.get("name") for c in channels if float(c.get("mroas") or 0) < 1.0]
+        # Sort by action priority (Scale=5 first, Hold=4, ..., Cut=0) тогда
+        # самые actionable items appear first в commentary. Stable secondary
+        # sort by mROAS so within same action group лидер shows first.
+        by_priority = sorted(
+            channels,
+            key=lambda c: (
+                -int(c.get("action_priority") or 0),
+                -float(c.get("mroas") or 0),
+            ),
+        )
 
+        # Show top-3 наиболее actionable channels — covers Scale/Reduce/Cut signals
+        # + leaves room для Hold + Watch когда no decisive action в портфеле.
+        # Skip duplicate action keys (e.g. 4 Scale channels — show only first).
+        seen_actions: set[str] = set()
         commentary_blocks = []
-        if hero_name:
+        for ch in by_priority:
+            ch_action = ch.get("action") or "Watch"
+            if ch_action == "Uncertain":
+                continue  # uncertain suppressed from commentary
+            if ch_action in seen_actions:
+                continue
+            seen_actions.add(ch_action)
+            ch_name = ch.get("name") or "-"
+            label = ch.get("action_label") or ch_action
+            reasoning = ch.get("action_reasoning") or ""
             commentary_blocks.append((
-                f"{hero_name} - лидер по mROAS.",
-                f"mROAS {hero_m:.2f}× - каждый дополнительный рубль возвращает больше, чем в других каналах. Явный потенциал scale-up."
+                f"{ch_name} — {label}.",
+                reasoning or f"mROAS {float(ch.get('mroas') or 0):.2f}×, рекомендация по портфелю.",
             ))
-        if second_name and second_m >= 1.0:
-            commentary_blocks.append((
-                f"{second_name} устойчиво эффективен.",
-                f"mROAS {second_m:.2f}× при текущих расходах. Низкая волатильность, потенциал удержания."
-            ))
-        if underperf:
-            names_str = " и ".join(underperf[:2])
-            commentary_blocks.append((
-                f"{names_str} ниже breakeven.",
-                "mROAS <1.0× - бюджет рекомендуется перевести в топ-2 канала портфеля."
-            ))
+            if len(commentary_blocks) >= 3:
+                break
+        # Fallback когда channels not decorated (legacy callers без narrative_adapter)
+        if not commentary_blocks:
+            top_m = by_priority[0] if by_priority else {}
+            commentary_blocks = [(
+                f"{top_m.get('name', '-')} — лидер по mROAS.",
+                f"mROAS {float(top_m.get('mroas') or 0):.2f}× по результатам декомпозиции.",
+            )]
     else:
         commentary_blocks = [
             ("Chart появится после декомпозиции", "Горизонтальные bar'ы покажут mROAS по каналам с gold hero bar"),
@@ -793,8 +828,10 @@ def render_recommendation(ctx: dict) -> str:
         underperf = [c.get("name") for c in channels if c.get("verdict") == "Cut"]
         binding = bool(facts.get("binding_constraints"))
         converged = facts.get("optimization_converged", True)
+        converged_at_current = bool(facts.get("converged_at_current"))
 
         # N3 — Action 01: derived from optimizer state, not heuristics.
+        # math-fix v1.0.14.1: + converged_at_current branch (false convergence).
         if not converged:
             action_01_text = (
                 "Оптимизация не сошлась — попробуйте ослабить ограничения по каналам "
@@ -812,6 +849,12 @@ def render_recommendation(ctx: dict) -> str:
                 f"Все каналы упёрлись в заданные границы {bounds_txt}. "
                 "Расширьте до 10-20% / 200-300% и перезапустите Оптимизацию — "
                 "она найдёт реальное перераспределение."
+            )
+        elif converged_at_current:
+            action_01_text = (
+                "Оптимизатор не нашёл лучшего распределения — оставил текущую "
+                "аллокацию. Расширьте границы Min/Max или используйте экспертный "
+                "режим для разблокировки реального перераспределения."
             )
         elif hero != leader and realloc >= 0.5:
             action_01_text = (
