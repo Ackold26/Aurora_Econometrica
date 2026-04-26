@@ -1,9 +1,9 @@
 # Sprint 1 Foundation — Live Progress (resume after compress)
 
-**Last updated:** 2026-04-26 ~18:30 — Phase 1.9 backend COMPLETE, awaits live-test
+**Last updated:** 2026-04-26 ~19:30 — Phase 1.9 backend + Phase 1.1 pilot DONE
 **Branch:** `math-fix-v1.0.13`
-**Active phase:** Phase 1.9 backend done; T16 live-test pending Антона's UI interaction
-**HEAD:** `1e77421` (test suite for Phase 1.9, 46 assertions)
+**Active phase:** Phase 1.9 backend complete + Phase 1.1 pilot empirical validation done
+**HEAD:** `3929ce6` (Phase 1.1 pilot results)
 
 > **If you read this after a compress:** continue from "Next concrete step" below WITHOUT confirmation per Антон's protocol 2026-04-26. Only stop for: architecture decisions, push to remote, fundamental schema migration. Auto-commit local OK. Show diff before push.
 
@@ -44,7 +44,26 @@
 | T15 | DONE in T3 | ArviZ integration through compute_ci_hdi() |
 | T16 | PENDING | Live-test Kagocel — interactive (Антон) |
 
-**Total commits Phase 1.9: 9** on `math-fix-v1.0.13` branch.
+**Total commits Phase 1.9 backend: 10** on `math-fix-v1.0.13` branch.
+
+### Phase 1.1 prep work (autonomous, ahead of schedule)
+
+| Task | Commit | Brief |
+|---|---|---|
+| Pilot script | `91677c2` | tools/pilot_phase11_hierarchy.py — logit-normal vs Beta-Beta synthetic test framework |
+| Pilot results | `3929ce6` | docs/PHASE_1_1_PILOT_RESULTS.md — empirical validation of ADR §3.A1 logit-normal default |
+
+**Pilot quick-mode result (n=36, 5 channels, chains=2, draws=500):**
+
+| Metric | Beta-Beta | Logit-Normal | Winner |
+|---|---|---|---|
+| Elapsed | 9.9s | **6.5s** | LN (35% faster) |
+| R-hat max | 1.020 | **1.000** | LN |
+| ESS bulk min | 92 | **475** | LN (5×) |
+| Recovery 90% HDI | 5/5 (100%) | 4/5 (80%) | BB (chance) |
+| Divergences | 1 | 1 | tie |
+
+**Conclusion:** Logit-normal validated for Phase 1.1. Convergence quality dominates (R-hat 1.000 + ESS 475 vs 92). Recovery difference (4/5 vs 5/5) likely quick-mode noise — re-run with chains=4, draws=2000 before production ship.
 
 ---
 
