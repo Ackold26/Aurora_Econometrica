@@ -1,7 +1,7 @@
 # Math Audit v1.4 — Optimizer false-convergence fix
 
 **Created:** 2026-04-28
-**Branch:** math-fix-v1.0.13 (HEAD will become v1.0.14.1)
+**Branch:** math-fix-v1.0.13 (HEAD will become v1.0.15)
 **Predecessor:** docs/MATH_AUDIT_v1_3_PHASE_0_1.md
 **Trigger:** Live-test Kagocel (n=31, 6 channels, 7 controls) на v1.0.14 NSIS installer показал что Optimizer возвращает `lift=0.0%` при ВСЕХ настройках (включая Min/Max 20/200 — Phase 0.1 рекомендованные defaults). Customer ship blocked.
 

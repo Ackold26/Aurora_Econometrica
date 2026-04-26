@@ -434,7 +434,7 @@ _(populated после MIN-LIVE PASS)_
 
 ---
 
-## v1.0.14.1 — Optimizer false-convergence fix (2026-04-28, math-fix v1.4)
+## v1.0.15 — Optimizer false-convergence fix (2026-04-28, math-fix v1.4)
 
 **Trigger:** Live-test Kagocel на v1.0.14 NSIS установке выявил что Optimizer выдаёт `lift=0.0%` для всех настроек включая Phase 0.1 рекомендованные defaults 20/200. Customer ship blocked.
 
@@ -510,11 +510,11 @@ Plan revisions identified 5+ narrative sites + 2 parallel verdict systems requir
 
 ### Customer ship status
 
-v1.0.14 NSIS installer (189MB SHA256 31822fae) **остаётся на hold** до Section B + C fixes. Текущий math-fix branch HEAD после этой session — internal testing only. После Section B → version bump 1.0.14.1, rebuild sidecar + NSIS, ship.
+v1.0.14 NSIS installer (189MB SHA256 31822fae) **остаётся на hold** до Section B + C fixes. Текущий math-fix branch HEAD после этой session — internal testing only. После Section B → version bump 1.0.15, rebuild sidecar + NSIS, ship.
 
 ---
 
-## v1.0.14.1 — Narrative consistency fix (2026-04-28, Section B)
+## v1.0.15 — Narrative consistency fix (2026-04-28, Section B)
 
 After Section A optimizer fix (`fe42e7f` — pushed). Section B addresses 4 narrative
 contradictions found Kagocel live-test 2026-04-27.
@@ -639,5 +639,5 @@ SPRINT3_PROGRESS.md                                  (this entry)
 
 ### Section C next — version bump + ship
 
-After Section B GREEN: bump 1.0.14 → 1.0.14.1, rebuild sidecar + NSIS, update
+After Section B GREEN: bump 1.0.14 → 1.0.15, rebuild sidecar + NSIS, update
 CHANGELOG + GH Release draft + PASHE_IT.MD. Customer ship UNBLOCKED.
