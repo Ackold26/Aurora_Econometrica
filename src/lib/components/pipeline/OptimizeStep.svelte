@@ -427,6 +427,14 @@
            (channelMaxPct[ch] != null && channelMaxPct[ch] !== maxPct);
   }
 
+  /** L8 (math-fix v1.4 Section C, 2026-04-29): количество каналов с per-channel
+   *  override. Pre-fix: customer движет global Min/Max slider, но per-channel
+   *  overrides остаются tacit — глобальные limits не применяются. Confusion source.
+   *  Banner с reset action surfaces проблему когда expert section collapsed. */
+  const overrideCount = $derived(
+    channels.filter((/** @type {string} */ ch) => hasCustomLimit(ch)).length
+  );
+
   /** Дожидаемся, пока projectId станет валидным (макс. 2с). */
   function waitForProjectId(timeoutMs = 2000) {
     return new Promise(/** @param {(id: string|null) => void} resolve */ (resolve) => {
@@ -921,6 +929,23 @@
       </div>
     </div>
 
+    <!-- L8: per-channel override warning. Persistent banner когда есть каналы
+         с individual Min/Max — surfaces проблему когда expert section collapsed
+         (где иначе orange dot indicators скрыты). -->
+    {#if overrideCount > 0}
+      <div class="override-banner">
+        <span class="banner-icon">🎚️</span>
+        <p class="banner-text">
+          У <strong>{overrideCount}</strong>
+          {overrideCount === 1 ? 'канала' : (overrideCount < 5 ? 'каналов' : 'каналов')}
+          задан per-channel Мин/Макс — глобальные ограничения выше для них не применяются.
+        </p>
+        <button class="btn-override-reset" onclick={resetChannelLimits}>
+          ↺ Сбросить все
+        </button>
+      </div>
+    {/if}
+
     <!-- Экспертный режим: per-channel ограничения Мин/Макс -->
     {#if $expertMode && channels.length > 0}
       <div class="expert-limits">
@@ -981,6 +1006,42 @@
         <p class="expert-hint">
           <span class="help-icon" title="Зафиксирован: годовая сделка, бюджет неизменен. Только ↑: фиксированный минимум, можно увеличивать. Только ↓: бюджет ограничен сверху, можно сокращать. Гибкий: ±50%. Свободно: без ограничений.">?</span>
           Глобальные Мин/Макс выше применяются ко всем каналам по умолчанию. Здесь можно переопределить для каждого канала отдельно — пресеты как быстрая точка старта.
+        </p>
+      </div>
+    {/if}
+
+    <!-- L7 (math-fix v1.4 Section C, 2026-04-29): edge-case banners для honest
+         объяснения когда optimizer не нашёл lift или не может оптимизировать.
+         Mutually exclusive (priority order: baseline_zero > binding > converged).
+         Pre-fix: customer видел только «+0.0%» без context — терял доверие к
+         optimizer'у думая что он сломан, даже когда он correctly reported
+         constraint state. Surfaces backend flags из Section A + L10 fix. -->
+    {#if optData?.baseline_zero}
+      <div class="edge-banner banner-error">
+        <span class="banner-icon">🚨</span>
+        <p class="banner-text">
+          <strong>Медиа-вклад равен нулю.</strong>
+          Текущая аллокация не даёт измеримого эффекта на KPI — оптимизация
+          невозможна. Проверьте качество данных на шаге «Валидация» (нулевые
+          spend, отсутствие связи с KPI, untrained channels).
+        </p>
+      </div>
+    {:else if optData?.binding_constraints}
+      <div class="edge-banner banner-warn">
+        <span class="banner-icon">⚠️</span>
+        <p class="banner-text">
+          <strong>Все каналы упёрлись в границы.</strong>
+          Optimizer не может найти улучшение при текущих ограничениях. Расширьте
+          глобальные Мин/Макс или сбросьте per-channel overrides (рекомендуем 10/300%).
+        </p>
+      </div>
+    {:else if optData?.converged_at_current}
+      <div class="edge-banner banner-info">
+        <span class="banner-icon">ℹ️</span>
+        <p class="banner-text">
+          <strong>Текущая аллокация уже близка к оптимуму</strong> при заданных
+          ограничениях. Чтобы найти больший lift, попробуйте расширить границы
+          (Мин 10% / Макс 300%) или сбросить per-channel overrides.
         </p>
       </div>
     {/if}
@@ -1845,6 +1906,67 @@
   }
   .insight-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
   .insight-text { flex: 1; font-size: 13px; color: var(--text-secondary, #94a3b8); line-height: 1.6; margin: 0; }
+
+  /* L7: edge-case banners — mutually exclusive с insight banner */
+  .edge-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+  }
+  .edge-banner .banner-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .edge-banner .banner-text { flex: 1; font-size: 13px; line-height: 1.55; margin: 0; }
+  .edge-banner .banner-text strong { font-weight: 600; }
+  .banner-error {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+    color: #fecaca;
+  }
+  .banner-warn {
+    background: color-mix(in srgb, #f59e0b 10%, transparent);
+    border: 1px solid color-mix(in srgb, #f59e0b 28%, transparent);
+    color: #fde68a;
+  }
+  .banner-info {
+    background: color-mix(in srgb, #3b82f6 8%, transparent);
+    border: 1px solid color-mix(in srgb, #3b82f6 22%, transparent);
+    color: #bfdbfe;
+  }
+
+  /* L8: per-channel override warning — gentler tone (informational, not error) */
+  .override-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    margin-top: 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, #f97316 8%, transparent);
+    border: 1px solid color-mix(in srgb, #f97316 24%, transparent);
+    color: #fed7aa;
+    font-size: 13px;
+  }
+  .override-banner .banner-icon { font-size: 16px; flex-shrink: 0; }
+  .override-banner .banner-text { flex: 1; line-height: 1.4; margin: 0; }
+  .override-banner .banner-text strong { font-weight: 700; color: #fff; }
+  .btn-override-reset {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    background: color-mix(in srgb, #f97316 18%, transparent);
+    border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
+    border-radius: 6px;
+    color: #fed7aa;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-override-reset:hover {
+    background: color-mix(in srgb, #f97316 30%, transparent);
+    color: #fff;
+  }
   .lift-badge {
     flex-shrink: 0;
     padding: 4px 10px;

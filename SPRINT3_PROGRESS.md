@@ -896,7 +896,38 @@ Recommendation: (a) для clarity — пользователь видит «о�
 **Implication для Section A repro testing:** все мои Section A unit tests проходят (backend math correct), НО end-user никогда не видит результаты optimize в UI. Customer impact того же класса что Section A bug — optimizer effectively не работает с user perspective, despite backend success.
 
 
-### 🟡 L7 — Optimize page не surface'ит binding_constraints / converged_at_current banner (Антон 2026-04-28)
+### 🟢 L7+L8 — Optimize page UX banners (CLOSED 2026-04-29)
+
+**STATUS:** ✅ FIXED — math-fix v1.4 Section C continued. Three new banners surface backend signals + override state.
+
+**L7 — Edge-case banners (mutually exclusive, priority order):**
+1. **`baseline_zero`** (🚨 error tone) — «Медиа-вклад равен нулю — оптимизация невозможна. Проверьте качество данных.» Highest priority.
+2. **`binding_constraints`** (⚠️ warn tone) — «Все каналы упёрлись в границы. Расширьте Min/Max или сбросьте per-channel overrides.»
+3. **`converged_at_current`** (ℹ️ info tone) — «Текущая аллокация уже близка к оптимуму при заданных ограничениях. Попробуйте 10/300%.»
+
+Pre-fix: customer видел только «+0.0%» badge без context, думая что optimizer broken (как было в v1.0.14 до Section A fix). Surfaces flags из backend Section A + L10 fix → restoration trust.
+
+**L8 — Per-channel override warning:**
+- New `overrideCount = $derived(channels.filter(hasCustomLimit).length)` — counts channels с individual Min/Max ≠ global.
+- Persistent banner (🎚️ orange) когда `overrideCount > 0`: «У N канал(ов) задан per-channel Мин/Макс — глобальные ограничения для них не применяются» + «↺ Сбросить все» button.
+- Visible regardless of expert section toggle (orange-dot indicators в expert table раньше hidden когда expert collapsed).
+
+**Verification:**
+- svelte-check 0 new errors (33 pre-existing in hill.js / insights-rules.js)
+- Backend tests 552/552 PASS, no regression
+- Manual QA: real Kagocel pickle → flags = False/False/False → no banner shows (success path); если scenario сворачивается до точки (Min=100/Max=100) → backend returns binding_constraints=True → ⚠️ banner.
+
+**Trade-off:** Banner шo conjunction с insight banner (которая показывает «Оптимальное перераспределение... +0.0%»). В edge cases insight string redundant с banner. Acceptable — insight = backend's narrative, banner = UI's structured signal. Iterate если customer feedback shows redundancy.
+
+**Files changed:**
+```
+src/lib/components/pipeline/OptimizeStep.svelte    (+74 LOC: 3 banners + CSS)
+SPRINT3_PROGRESS.md                                 (this entry)
+```
+
+---
+
+### 🟡 L7 (orig) — Optimize page не surface'ит binding_constraints / converged_at_current banner (Антон 2026-04-28)
 
 **Symptom:** в Scenario 5 (Min=100/Max=300 per channel — feasibility свёрнута в точку) backend честно возвращает lift=0% + binding_constraints=True. UI показывает только banner «+0.0%» без объяснения.
 
