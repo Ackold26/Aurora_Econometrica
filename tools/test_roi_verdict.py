@@ -65,13 +65,25 @@ def assert_tone(label: str, got: tuple[str, str], expected_tone: str) -> None:
         _fail(label, f"got tone {got[1]!r}, expected {expected_tone!r} (label was {got[0]!r})")
 
 
-# ── Step 1: posterior CI uncertainty ─────────────────────────────────────────
+# ── Step 1 (L2 refactor 2026-04-29): posterior CI uncertainty as suffix ─────
 def test_ci_uncertainty_triggers_when_ci_wider_than_roi():
-    # ROI=2.0, CI=[0.5, 3.0] — width=2.5 > 2.0 → uncertainty
+    # ROI=2.0, CI=[0.5, 3.0] — width=2.5 > 2.0 → suffix appended.
+    # Pre-fix: returned 'Высокая неопределённость' (suppressed informative
+    # descriptive verdict). Post-fix (L2): keeps base verdict ('Сбалансирован'
+    # for ROI=2.0 / gap=0) and appends ' (низкая уверенность)' suffix —
+    # honest disclosure без потери informativeness.
     got = compute_roi_verdict(roi=2.0, efficiency_gap=0.0,
                               roi_ci_low=0.5, roi_ci_high=3.0)
-    assert_verdict("CI wider than ROI → uncertainty", got,
-                   'Высокая неопределённость', 'warn')
+    assert_verdict("CI wider than ROI → uncertainty suffix", got,
+                   'Сбалансирован (низкая уверенность)', 'neutral')
+
+
+def test_ci_uncertainty_demotes_good_to_warn():
+    # ROI=12.0 (Высокоэффективен → good) + wide CI → suffix + tone demoted к warn
+    got = compute_roi_verdict(roi=12.0, efficiency_gap=8.0,
+                              roi_ci_low=0.5, roi_ci_high=15.0)
+    assert_verdict("Wide CI demotes good→warn", got,
+                   'Высокоэффективен (низкая уверенность)', 'warn')
 
 
 def test_ci_uncertainty_not_triggered_when_ci_narrow():
@@ -339,6 +351,7 @@ def test_compute_roi_verdict_signature_compatibility():
 def main() -> int:
     print("── Step 1: posterior CI uncertainty ──")
     test_ci_uncertainty_triggers_when_ci_wider_than_roi()
+    test_ci_uncertainty_demotes_good_to_warn()
     test_ci_uncertainty_not_triggered_when_ci_narrow()
     test_ci_uncertainty_skipped_when_ci_missing()
     test_ci_uncertainty_partial_data_ignored()

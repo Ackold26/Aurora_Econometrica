@@ -758,8 +758,12 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                 )
                 _, mroi_optimal_ci_low, mroi_optimal_ci_high, _m_opt = compute_ci_hdi(opt_arr)
 
+        # L11 (math-fix v1.4 Section C, 2026-04-29): display_name для UI consistency.
+        from engines.narrative_adapter import _normalize_channel_name
+        display_name = _normalize_channel_name(col) or col
         ch_dict = {
             'name': col,
+            'display_name': display_name,
             'current_spend': round(cur, 0),
             'optimal_spend': round(float(opt), 0),
             'current_spend_money': round(cur * uc, 0),

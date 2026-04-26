@@ -52,8 +52,18 @@ def compute_roi_verdict(
 ) -> tuple[str, str]:
     """Hybrid ROI verdict combining absolute + relative + posterior CI.
 
-    Per plan immutable-bouncing-noodle §0.2 (L4 fix):
-      Step 1 — posterior uncertainty: CI width > ROI itself → low-confidence warn
+    Per plan immutable-bouncing-noodle §0.2 (L4 fix), and L2 (math-fix v1.4
+    Section C, 2026-04-29) re-ordering:
+
+      Pre-fix (L4): Step 1 — wide CI → 'Высокая неопределённость' (suppressed
+        ALL informative labels на small-N data — customer never saw «Перенасыщен»
+        / «Высокоэффективен» when CI was wide regardless of point estimate).
+      Post-fix (L2): wide CI → suffix « (низкая уверенность)» appended к
+        existing label. Keeps informative descriptive verdict (mROAS-derived)
+        while honestly disclosing CI uncertainty. Customer sees full picture.
+
+    Order:
+      Step 1 — posterior uncertainty flag (computed, applied at end as suffix)
       Step 2 — absolute hard caps (artifact/glubokaya-ubitochnost regardless of category)
       Step 3 — relative quantile (only if N ≥ 20 portfolio data + category mapping)
       Step 4 — efficiency gap fallback (small-N safe per-channel)
@@ -70,26 +80,33 @@ def compute_roi_verdict(
     Returns:
       (verdict_label, verdict_tone) where tone ∈ {good, warn, bad, neutral}.
     """
-    # Step 1 — posterior uncertainty (когда CI данные доступны)
-    if (
+    # Step 1 (L2 refactor): compute wide-CI flag для последующего suffix.
+    # Pre-fix: this was the FIRST gate suppressing all informative labels.
+    # Post-fix: descriptive verdict computed first, CI uncertainty added как
+    # honest disclosure suffix (customer sees what AND how confident).
+    wide_ci = (
         roi_ci_low is not None
         and roi_ci_high is not None
         and roi > 0
         and (roi_ci_high - roi_ci_low) > roi
-    ):
-        return ('Высокая неопределённость', 'warn')
+    )
+
+    def _apply_ci_suffix(label, tone):
+        if wide_ci:
+            return (f"{label} (низкая уверенность)", 'warn' if tone == 'good' else tone)
+        return (label, tone)
 
     # Step 2 — absolute hard caps (regardless of category)
     if roi > ROI_UNIT_SMELL_FLOOR and unit_smell:
-        return ('ROI завышен (не рубли?)', 'warn')
+        return _apply_ci_suffix('ROI завышен (не рубли?)', 'warn')
     if roi > ROI_ARTIFACT:
-        return ('ROI нереалистичен (артефакт)', 'warn')
+        return _apply_ci_suffix('ROI нереалистичен (артефакт)', 'warn')
     if roi < ROI_DEEP_LOSS:
-        return ('Глубоко убыточный', 'bad')
+        return _apply_ci_suffix('Глубоко убыточный', 'bad')
     if roi < ROI_LOSS:
-        return ('Убыточный', 'bad')
+        return _apply_ci_suffix('Убыточный', 'bad')
     if roi < ROI_BREAKEVEN:
-        return ('На грани окупаемости', 'warn')
+        return _apply_ci_suffix('На грани окупаемости', 'warn')
 
     # Step 3 — category-relative quantile (gated by min N)
     if (
@@ -103,27 +120,27 @@ def compute_roi_verdict(
         p75 = q.get('p75')
         p90 = q.get('p90')
         if p10 is not None and roi < p10:
-            return ('Bottom-10% по категории', 'bad')
+            return _apply_ci_suffix('Bottom-10% по категории', 'bad')
         if p90 is not None and roi >= p90:
-            return ('Top-10% по категории', 'good')
+            return _apply_ci_suffix('Top-10% по категории', 'good')
         if p75 is not None and roi >= p75:
-            return ('Top-25% по категории', 'good')
+            return _apply_ci_suffix('Top-25% по категории', 'good')
         if p25 is not None and roi < p25:
-            return ('Bottom-25% по категории', 'warn')
-        return ('Средний по категории', 'neutral')
+            return _apply_ci_suffix('Bottom-25% по категории', 'warn')
+        return _apply_ci_suffix('Средний по категории', 'neutral')
 
     # Step 4 — efficiency gap fallback (per-channel small-N safe)
     if roi > ROI_HIGH_ABS and not unit_smell:
-        return ('Высокоэффективен', 'good')
+        return _apply_ci_suffix('Высокоэффективен', 'good')
     if efficiency_gap <= GAP_OVERSAT:
-        return ('Перенасыщен', 'warn')
+        return _apply_ci_suffix('Перенасыщен', 'warn')
     if efficiency_gap <= GAP_UNDER:
-        return ('Слабее своей доли', 'warn')
+        return _apply_ci_suffix('Слабее своей доли', 'warn')
     if efficiency_gap >= GAP_HIGH:
-        return ('Высокоэффективен', 'good')
+        return _apply_ci_suffix('Высокоэффективен', 'good')
     if efficiency_gap >= GAP_GOOD:
-        return ('Эффективен', 'good')
-    return ('Сбалансирован', 'neutral')
+        return _apply_ci_suffix('Эффективен', 'good')
+    return _apply_ci_suffix('Сбалансирован', 'neutral')
 
 
 def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict[str, Any]:
@@ -211,8 +228,10 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         # spend non-zero (mean fallback к 1.0 → x_norm = adstocked/1.0 = full raw → Hill saturation).
         # Post-fix: explicit zero contribution + skip CI computation.
         if params.get('untrained'):
+            from engines.narrative_adapter import _normalize_channel_name as _norm
             ch_dict_untr = {
                 'name': col,
+                'display_name': _norm(col) or col,
                 'spend': 0.0,
                 'raw_spend': 0.0,
                 'unit_cost': float(unit_costs.get(col, 1.0) or 1.0),
@@ -297,8 +316,16 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             decay=decay_point,
         ))
 
+        # L11 (math-fix v1.4 Section C, 2026-04-29): display_name strips Excel
+        # column-header noise («Performance Бюджет до НДС до АК» → «Performance»).
+        # `name` field preserved for data lookups; `display_name` для UI rendering
+        # consistency (interpretation block, charts, narrative tooltips).
+        from engines.narrative_adapter import _normalize_channel_name
+        display_name = _normalize_channel_name(col) or col
+
         ch_dict = {
             'name': col,
+            'display_name': display_name,
             'spend': round(spend_money, 0),
             'raw_spend': round(raw_spend_total, 2),
             'unit_cost': unit_cost,

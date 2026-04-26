@@ -29,9 +29,14 @@
   },
   "scqar": {
     "situation":      { "label": "SITUATION",      "template": "{client} размещает {budget_mln:.0f} млн ₽ в квартал через {n_channels} активных каналов. Weighted ROI {weighted_roi:.1f}×, MQS модели {mqs:.0f}/100." },
-    "complication":   { "label": "COMPLICATION",   "template": "{leader} доминирует бюджет ({leader_spend_pct_fmt} portfolio). По mROAS {hero} опережает ({hero_mroas:.1f}×). Underperformers тянут портфель вниз." },
+    "complication":   { "label": "COMPLICATION",   "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Underperformers тянут портфель вниз." },
+    "complication_fallback": { "label": "COMPLICATION", "template": "Портфель сбалансирован — резких диспропорций между бюджетом и эффектом не выявлено." },
     "question":       { "label": "QUESTION",       "template": "Как перераспределить бюджет, чтобы поднять ROAS не снижая awareness?" },
-    "answer":         { "label": "ANSWER",         "template": "Перебалансировать {realloc:.0f} млн ₽ из {leader} в {hero}; сократить или остановить {underperf}." },
+    "answer":         { "label": "ANSWER",         "template": "Перебалансировать {realloc:.0f} млн ₽ из {cut_source} в {scale_destination}; сократить или остановить {underperf}." },
+    "answer_no_cut":  { "label": "ANSWER",         "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт roll-over бюджета или дополнительных средств." },
+    "answer_no_scale": { "label": "ANSWER",        "template": "Сократить {cut_source} ({realloc:.0f} млн ₽) — текущая аллокация неэффективна. Нет явного канала для роста — рассмотрите расширение медиа-микса." },
+    "answer_all_hold": { "label": "ANSWER",        "template": "Сохранить текущее распределение — оптимизатор не нашёл значимого перераспределения. Возможные пути роста: расширение бюджета или новые каналы." },
+    "answer_uncertain": { "label": "ANSWER",       "template": "Недостаточно данных для уверенной рекомендации перераспределения. Расширьте период данных (≥52 недель) либо упростите модель." },
     "recommendation": { "label": "RECOMMENDATION", "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп." }
   },
   "findings_templates": {

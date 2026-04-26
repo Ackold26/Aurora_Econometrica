@@ -6,14 +6,12 @@
 
 ## Current Task
 
-**Day 3 — Narrative cluster (L15, L14, L11, L12, L13, L2)** — pending
+**Day 4 — Settings + L9 quick disable + MQS (L9, L18-L20, L16, L3)** — pending
 
-L15 SCQAR Answer/Action 01 inverted (cut_source / scale_destination)
-L14 «Performance доминирует бюджет» (budget_dominator separate from leader)
-L11 Channel name normalization в interpretation
-L12 channels_by_action['Scale'] full list (not top-2)
-L13 grammar fixes
-L2 Decomposer descriptive verdict CI re-ordering
+L9 disable «Фиксировать бюджет» checkbox + tooltip + budget_mode forward-compat
+L18-L20 Settings page cleanup (remove license file block, rename, remove version content)
+L16 MQS labels mismatch backend single source
+L3 Slider 0₽ preview fix per-channel range
 
 ---
 
@@ -29,6 +27,15 @@ L2 Decomposer descriptive verdict CI re-ordering
   - Audit-fix: legacy action migration, delta persistence, NaN guards, reasoning tooltip
   - Tests: 552/552 PASS (was 544 + 8 L4 lock-ins)
 
+- ✅ **Day 3 — Narrative cluster** — pending push (single commit, 6 findings closed)
+  - L15 cut_source/scale_destination — narrative_adapter._derive_narrative_facts adds new fields, sections.py + builder.py use action-driven subjects вместо leader/hero. Real Kagocel verification: cut_source=TRPs (correct overspender), scale_destination=Performance.
+  - L14 budget_dominator — separate field from contribution leader. complication template now reads «{TRPs} занимает 92.3% бюджета, но даёт 10.5% эффекта» (honest contradiction framing). Fallback template для balanced portfolios.
+  - L11 channel name normalization — display_name field added к decomposer + optimizer ch_dict (calls _normalize_channel_name). ReportStep.svelte interpretation block uses dispName(c) helper.
+  - L12 channels_by_action['Scale']/Cut full lists — removed `[:2]` slice in sections.py action_03 + builder.py action_03. Customer sees full picture (5 каналов на Kagocel вместо 2).
+  - L13 grammar — Russian period plural form (1 период / 2-4 периода / 5+ периодов с правильными edge cases для 21/31). MAPE «менее 10%» вместо «меньше десятой части».
+  - L2 verdict CI re-ordering — wide-CI suffix «(низкая уверенность)» appended к existing verdict вместо suppressing к 'Высокая неопределённость'. Customer sees descriptive label AND uncertainty disclosure.
+  - Tests: 37/37 roi_verdict (was 36 + 1 new), 552+/552+ across full suite
+
 - ✅ **Day 2 — L1 Validate state sync** — pending push (single commit + 17 vitest lock-ins)
   - Rust schema migration: `ProjectInfo.excluded_columns: Vec<String>` (`#[serde(default)]` для backward compat)
   - New `src/lib/column-roles.js` shared utility (ROLES, isExcluded, setColumnRole, setColumnRolesBulk, applyMapping, deriveMapping, deriveExcludedColumns, restoreExcludedColumns, buildProjectUpdates)
@@ -41,7 +48,7 @@ L2 Decomposer descriptive verdict CI re-ordering
 
 ## Next (concrete first step)
 
-Read `sidecar/econometrica/engines/narrative_adapter.py` + `aurora_html/strings_ru.json` to identify L15 SCQAR Answer/Action 01 templates. Add `cut_source` and `scale_destination` to `_derive_narrative_facts` (currently uses `leader=top_contribution_channel` which can be small-budget Performance, not actual overspender like TRPs). Update HTML/PPTX templates to use new placeholders.
+Read `src/lib/components/pipeline/OptimizeStep.svelte` line ~905 (Фиксировать бюджет checkbox). Disable input + add tooltip «Запланировано в v1.1». Add forward-compat `budget_mode: Literal['fixed'] = 'fixed'` field в OptimizeRequest (Pydantic, sidecar/econometrica/server.py).
 
 ---
 

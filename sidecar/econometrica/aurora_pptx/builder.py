@@ -658,7 +658,16 @@ class AuroraPPTXBuilder:
         if honest and all_below_breakeven:
             f3 = "Рекомендация: все каналы под breakeven - сократить медиа или диагностика данных"
             s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+        elif reallocation_mln and reallocation_mln >= 0.5 and (
+            f.get("cut_source_channel") and f.get("scale_destination_channel")
+        ):
+            # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
+            cut_source = f.get("cut_source_channel")
+            scale_dest = f.get("scale_destination_channel")
+            f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {cut_source} в {scale_dest}"
+            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         elif reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
+            # Legacy fallback when cut_source/scale_destination not yet populated
             f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
             s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         else:
@@ -1964,21 +1973,34 @@ class AuroraPPTXBuilder:
                 + f"MQS модели {self.mqs_score:.0f}/100."
             )
 
+            # L14 (math-fix v1.4 Section C, 2026-04-29): use budget_dominator
+            # вместо leader (top contribution). budget_dominator = max spend.
+            budget_dom = f.get("budget_dominator_channel") or leader
+            bd_spend_pct = f.get("budget_dominator_spend_pct") or leader_spend_pct
+            bd_contrib_pct = f.get("budget_dominator_contrib_pct") or 0.0
             complication_parts = []
-            if leader_spend_pct is not None:
+            if budget_dom and bd_spend_pct is not None and abs((bd_spend_pct or 0) - (bd_contrib_pct or 0)) >= 5.0:
                 complication_parts.append(
-                    f"{leader} доминирует в бюджете ({_fmt_pct(leader_spend_pct)} портфеля)"
+                    f"{budget_dom} занимает {_fmt_pct(bd_spend_pct)} бюджета, "
+                    f"но даёт {_fmt_pct(bd_contrib_pct)} эффекта"
                 )
             if hero != leader and hero_m >= 1.0:
-                complication_parts.append(f"но по mROAS {hero} опережает ({hero_m:.1f}×)")
+                complication_parts.append(f"по mROAS {hero} опережает ({hero_m:.1f}×)")
             if underperf:
                 complication_parts.append(f"{underperf_str} тянут портфель вниз")
             complication_body = ". ".join(complication_parts) + (". Портфель требует перебалансировки." if complication_parts else "Портфель требует перебалансировки.")
 
-            # Answer — summary reallocation direction
+            # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
+            # scale_destination from action_summary вместо leader/hero.
+            cut_source = f.get("cut_source_channel")
+            scale_dest = f.get("scale_destination_channel")
             answer_parts = []
-            if hero != leader and realloc >= 1:
-                answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {leader} в {hero}")
+            if cut_source and scale_dest and realloc >= 1:
+                answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}")
+            elif scale_dest and realloc >= 1:
+                answer_parts.append(f"Нарастить {scale_dest} на ~{realloc:.0f} млн ₽")
+            elif cut_source and realloc >= 1:
+                answer_parts.append(f"Сократить {cut_source} ({realloc:.0f} млн ₽)")
             if underperf:
                 answer_parts.append(f"остановить {underperf_str}")
             answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
@@ -2064,7 +2086,7 @@ class AuroraPPTXBuilder:
                         ("03",
                          "Целевой ретаргетинг через эффективные сегменты.",
                          f" Приоритетный сегмент - {hero}; {lift_txt}."
-                            + (f" Бюджет переводим из {', '.join(underperf[:2])}." if underperf else "")),
+                            + (f" Бюджет переводим из {', '.join(underperf)}." if underperf else "")),
                     ]
                 else:
                     actions = [

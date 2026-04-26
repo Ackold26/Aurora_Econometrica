@@ -205,15 +205,30 @@ def render_executive_summary(ctx: dict) -> str:
         realloc = facts.get("reallocation_mln") or 0
         underperf = ", ".join(facts.get("underperformer_names") or []) or "-"
         lift = facts.get("expected_lift_pct") or 0
+        # L14/L15 (math-fix v1.4 Section C, 2026-04-29): use action-driven facts.
+        budget_dom = facts.get("budget_dominator_channel") or leader
+        bd_spend_pct = facts.get("budget_dominator_spend_pct") or leader_pct
+        bd_contrib_pct = facts.get("budget_dominator_contrib_pct") or 0.0
+        cut_source = facts.get("cut_source_channel")
+        scale_dest = facts.get("scale_destination_channel")
 
         situation = scqar["situation"]["template"].format(
             client=client, budget_mln=budget, n_channels=n_ch,
             weighted_roi=wr, mqs=mqs
         )
-        complication = scqar["complication"]["template"].format(
-            leader=leader, leader_spend_pct_fmt=_fmt_pct(leader_pct),
-            hero=hero, hero_mroas=hero_m
-        )
+        # L14: complication uses budget_dominator (not leader). Fallback when
+        # all channels balanced (no clear dominator OR balanced contribution).
+        if budget_dom and bd_spend_pct and abs(bd_spend_pct - bd_contrib_pct) >= 5.0:
+            complication = scqar["complication"]["template"].format(
+                budget_dominator=budget_dom,
+                budget_dom_spend_pct_fmt=_fmt_pct(bd_spend_pct),
+                budget_dom_contrib_pct_fmt=_fmt_pct(bd_contrib_pct),
+                hero=hero, hero_mroas=hero_m,
+            )
+        else:
+            complication = scqar.get("complication_fallback", {}).get(
+                "template", "Портфель сбалансирован."
+            )
         question = scqar["question"]["template"]
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
         # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state — SLSQP
@@ -245,16 +260,38 @@ def render_executive_summary(ctx: dict) -> str:
                 "Расширьте границы (10/300% рекомендуется) или используйте "
                 "экспертный режим для канал-специфичных ограничений."
             )
-        elif realloc >= 0.5 and hero != leader:
-            answer = scqar["answer"]["template"].format(
-                realloc=realloc, leader=leader, hero=hero, underperf=underperf
-            )
+        elif realloc >= 0.5 and (cut_source or scale_dest):
+            # L15 (math-fix v1.4 Section C): use cut_source / scale_destination
+            # from action_summary instead of leader/hero. Fallback templates
+            # для edge cases (only-Cut, only-Scale, all-Hold, all-Uncertain).
+            if cut_source and scale_dest:
+                answer = scqar["answer"]["template"].format(
+                    realloc=realloc, cut_source=cut_source,
+                    scale_destination=scale_dest, underperf=underperf,
+                )
+            elif scale_dest:  # no Cut signal but Scale opportunity exists
+                answer = scqar.get("answer_no_cut", {}).get("template", scqar["answer"]["template"]).format(
+                    realloc=realloc, scale_destination=scale_dest,
+                )
+            else:  # cut_source present but no Scale destination
+                answer = scqar.get("answer_no_scale", {}).get("template", scqar["answer"]["template"]).format(
+                    realloc=realloc, cut_source=cut_source,
+                )
             recommendation = scqar["recommendation"]["template"].format(lift=lift)
         else:
-            answer = (
-                f"Текущая аллокация близка к оптимуму при заданных границах. "
-                f"Сохранить приоритет {leader} с контролем индикаторов saturation."
-            )
+            # SA19: portfolio with no clear redistribution direction
+            counts = facts.get("action_counts") or {}
+            uncertain_n = (counts.get("Uncertain") or 0) + (counts.get("Watch") or 0)
+            if uncertain_n >= n_ch * 0.5:  # majority uncertain → honest fallback
+                answer = scqar.get("answer_uncertain", {}).get(
+                    "template",
+                    "Недостаточно данных для уверенной рекомендации перераспределения."
+                )
+            else:
+                answer = scqar.get("answer_all_hold", {}).get(
+                    "template",
+                    f"Сохранить приоритет {leader} с контролем saturation."
+                )
             recommendation = (
                 "Дальнейший прирост возможен через расширение границ оптимизации "
                 "или сбор большего объёма данных."
@@ -856,7 +893,17 @@ def render_recommendation(ctx: dict) -> str:
                 "аллокацию. Расширьте границы Min/Max или используйте экспертный "
                 "режим для разблокировки реального перераспределения."
             )
+        elif facts.get("cut_source_channel") and facts.get("scale_destination_channel") and realloc >= 0.5:
+            # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
+            # вместо leader/hero. cut_source = optimizer's biggest cut, scale_dest
+            # = biggest grow recommendation. Avoids «из Performance в Social»
+            # когда Performance — small-budget сhannel.
+            action_01_text = (
+                f"{realloc:.0f} млн ₽ из {facts['cut_source_channel']} в {facts['scale_destination_channel']}. "
+                "Adstock компенсирует краткосрочный спад awareness."
+            )
         elif hero != leader and realloc >= 0.5:
+            # Legacy fallback (cut_source/scale_dest unavailable)
             action_01_text = (
                 f"{realloc:.0f} млн ₽ из {leader} в {hero}. "
                 "Adstock компенсирует краткосрочный спад awareness."
@@ -885,8 +932,12 @@ def render_recommendation(ctx: dict) -> str:
             )
 
         if underperf:
+            # L12 (math-fix v1.4 Section C, 2026-04-29): full list, не top-2 slice.
+            # Pre-fix: hardcoded [:2] hid 3-5 underperformers in commentary,
+            # creating false impression of «small problem». Post-fix: all
+            # action='Cut' channels listed → customer sees full picture.
             action_03_text = (
-                f"Перевести бюджет из {', '.join(underperf[:2])} согласно вердиктам, "
+                f"Перевести бюджет из {', '.join(underperf)} согласно вердиктам, "
                 "затем измерить эффект через 90 дней (KPI vs baseline)."
             )
         else:

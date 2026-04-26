@@ -260,10 +260,22 @@
     decChannels.filter(/** @param {any} c */ c => (c.efficiency_gap ?? 0) <= -15)
   );
 
+  /** L13 (math-fix v1.4 Section C, 2026-04-29): Russian plural form для слова
+   *  «период» с правильным склонением. Pre-fix: `nPeriods > 4 ? 'ов' : 'а'`
+   *  ломалось на 1, 21, 31 (даёт «31 периодов», нужно «31 период»).
+   *  @param {number} n */
+  function ruPeriodForm(n) {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${n} период`;
+    if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return `${n} периода`;
+    return `${n} периодов`;
+  }
+
   /** Текст «Что такое MMM простыми словами» — адаптирован под эту модель. */
   const interpretationMMM = $derived.by(() => {
     if (!mData?.diagnostics) return '';
-    return `Marketing Mix Modeling (MMM) — это статистический способ разложить продажи на вклад каждого канала медиа и «органический» фон (base). Модель смотрит на вашу историю ${nPeriods > 0 ? `за ${nPeriods} период${nPeriods > 4 ? 'ов' : 'а'}` : ''} и ищет закономерности: «когда я добавлял бюджет в TV — продажи через 2-3 недели росли», «когда Performance выключали — падали сразу». На основе найденных закономерностей модель говорит сколько инкремента даёт каждый рубль в каждом канале.`;
+    return `Marketing Mix Modeling (MMM) — это статистический способ разложить продажи на вклад каждого канала медиа и «органический» фон (base). Модель смотрит на вашу историю ${nPeriods > 0 ? `за ${ruPeriodForm(nPeriods)}` : ''} и ищет закономерности: «когда я добавлял бюджет в TV — продажи через 2-3 недели росли», «когда Performance выключали — падали сразу». На основе найденных закономерностей модель говорит сколько инкремента даёт каждый рубль в каждом канале.`;
   });
 
   /** Интерпретация качества модели. */
@@ -279,12 +291,19 @@
       else parts.push(`R² = ${rSq.toFixed(3)} — модель объясняет только ${(rSq * 100).toFixed(0)}% динамики. Возможно, не хватает данных по каналам или есть сильное внешнее влияние.`);
     }
     if (mape != null) {
-      if (mape <= 10) parts.push(`MAPE ${mape.toFixed(1)}% — в среднем прогноз отклоняется от факта меньше чем на десятую часть. Это очень точно.`);
+      if (mape <= 10) parts.push(`MAPE ${mape.toFixed(1)}% — прогноз модели отклоняется от факта менее чем на 10%. Это очень точно.`);
       else if (mape <= 20) parts.push(`MAPE ${mape.toFixed(1)}% — приемлемая точность для стратегических решений.`);
       else parts.push(`MAPE ${mape.toFixed(1)}% — ошибка прогноза высокая, результаты используйте как ориентир.`);
     }
     return parts.join(' ');
   });
+
+  /** L11 (math-fix v1.4 Section C, 2026-04-29): use display_name from backend
+   *  (decomposer.py + optimizer.py call _normalize_channel_name). Pre-fix: raw
+   *  column names («Performance Бюджет до НДС до АК») leaked в interpretation
+   *  text. Fallback к c.name when display_name missing (legacy data).
+   *  @param {any} c */
+  const dispName = (c) => c?.display_name || c?.name || '—';
 
   /** Интерпретация декомпозиции (бренд vs перформанс). */
   const interpretationDecomposition = $derived.by(() => {
@@ -294,12 +313,13 @@
     else if (basePct >= 40) parts.push(`**Бренд и медиа работают вместе.** База = ${basePct.toFixed(0)}%, медиа-вклад = ${(100 - basePct).toFixed(0)}%.`);
     else parts.push(`**Продажи держатся на рекламе.** База всего ${basePct.toFixed(0)}% — если остановить медиа, продажи упадут на ${(100 - basePct).toFixed(0)}%. Это характерно для молодых брендов или категорий с короткой лояльностью.`);
     if (topDriver) {
-      parts.push(`**Главный медиа-драйвер — «${escapeHtml(topDriver.name)}»** (${topDriver.contribution_pct?.toFixed(0) ?? '—'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
+      parts.push(`**Главный медиа-драйвер — «${escapeHtml(dispName(topDriver))}»** (${topDriver.contribution_pct?.toFixed(0) ?? '—'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
     }
     return parts.join(' ');
   });
 
-  /** Интерпретация возможностей оптимизации. */
+  /** Интерпретация возможностей оптимизации. L12 (math-fix v1.4): underfundedChannels
+   *  и oversaturatedChannels lists теперь полные (раньше hardcoded top-2). */
   const interpretationOptimization = $derived.by(() => {
     if (!oData) return '';
     const parts = [];
@@ -310,11 +330,11 @@
       else parts.push(`**Прирост ≈0%** — план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
     }
     if (underfundedChannels.length > 0) {
-      const names = underfundedChannels.map(/** @param {any} c */ c => `«${escapeHtml(c.name)}»`).join(', ');
+      const names = underfundedChannels.map(/** @param {any} c */ c => `«${escapeHtml(dispName(c))}»`).join(', ');
       parts.push(`**Недоинвестированные каналы** (дают непропорционально много эффекта): ${names}. Логика: если вложить больше денег — прирост KPI будет выше среднего.`);
     }
     if (oversaturatedChannels.length > 0) {
-      const names = oversaturatedChannels.map(/** @param {any} c */ c => `«${escapeHtml(c.name)}»`).join(', ');
+      const names = oversaturatedChannels.map(/** @param {any} c */ c => `«${escapeHtml(dispName(c))}»`).join(', ');
       parts.push(`**Перенасыщенные каналы** (денег много, а эффекта относительно мало): ${names}. Если убрать часть бюджета — потеряете меньше чем получите в альтернативных каналах.`);
     }
     return parts.join(' ');
@@ -334,7 +354,7 @@
       actions.push(`**Не заливать дальше** перенасыщенные каналы — дополнительные рубли там дают всё меньший возврат (Hill saturation).`);
     }
     if (lossChannels.length > 0) {
-      actions.push(`Проверить **unit_costs и чистоту данных** для убыточных каналов (${lossChannels.map(/** @param {any} c */ c => escapeHtml(c.name)).join(', ')}) — часто причина в неправильных единицах измерения, а не в самом канале.`);
+      actions.push(`Проверить **unit_costs и чистоту данных** для убыточных каналов (${lossChannels.map(/** @param {any} c */ c => escapeHtml(dispName(c))).join(', ')}) — часто причина в неправильных единицах измерения, а не в самом канале.`);
     }
     if (ratio != null && ratio < 4) {
       actions.push(`**Накопить больше данных.** Сейчас Ratio ${ratio.toFixed(1)}:1 — мало для узких доверительных интервалов. ≥ 4:1 = ROI уверенные.`);

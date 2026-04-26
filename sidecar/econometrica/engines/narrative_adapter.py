@@ -590,6 +590,29 @@ def _derive_narrative_facts(
     from engines.channel_action import build_action_summary
     action_summary = build_action_summary(channels)
 
+    # L14 (math-fix v1.4 Section C, 2026-04-29): budget_dominator separate from
+    # contribution leader. Pre-fix: complication template said «{leader}
+    # доминирует бюджет» but `leader = top_contribution_channel` — могло быть
+    # Performance с 0.7% бюджета, не overspender. Honest framing requires
+    # separate field for budget-share leader.
+    by_spend = sorted(channels, key=lambda c: float(c.get("spend") or 0), reverse=True)
+    budget_dominator = by_spend[0] if by_spend else {}
+    bd_spend = float(budget_dominator.get("spend") or 0)
+    bd_contrib = float(budget_dominator.get("contribution") or 0)
+
+    # L15 (math-fix v1.4 Section C, 2026-04-29): cut_source / scale_destination
+    # for accurate reallocation narrative. Pre-fix: «Перебалансировать из {leader}
+    # в {hero}» где leader=top contribution (could be small-budget channel),
+    # hero=top mROAS (could be high-mROAS but tiny channel). Both могут быть
+    # неправильным subjects для reallocation. Use channels_by_action signals:
+    # Cut[0] = channel optimizer wants to shrink the most, Scale[0] = wants
+    # to grow the most. SA19: fallback templates для all-Hold or all-Uncertain.
+    cut_candidates = action_summary["channels_by_action"].get("Cut", []) + \
+                     action_summary["channels_by_action"].get("Reduce", [])
+    scale_candidates = action_summary["channels_by_action"].get("Scale", [])
+    cut_source = cut_candidates[0] if cut_candidates else None
+    scale_destination = scale_candidates[0] if scale_candidates else None
+
     return {
         "leader_channel": leader.get("name"),
         "hero_channel": hero.get("name"),
@@ -619,6 +642,13 @@ def _derive_narrative_facts(
         "action_counts": action_summary["counts"],
         "channels_by_action": action_summary["channels_by_action"],
         "top_action": action_summary["top_action"],
+        # L14: budget_dominator separate from contribution leader
+        "budget_dominator_channel": budget_dominator.get("name"),
+        "budget_dominator_spend_pct": (bd_spend / total_spend * 100) if total_spend > 0 else None,
+        "budget_dominator_contrib_pct": (bd_contrib / total_contrib * 100) if total_contrib > 0 else None,
+        # L15: action-driven reallocation subjects
+        "cut_source_channel": cut_source,
+        "scale_destination_channel": scale_destination,
     }
 
 
