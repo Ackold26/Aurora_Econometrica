@@ -51,6 +51,8 @@ code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 
 <a href="#commands">Команды</a>
 <a href="#guide">Подробные инструкции</a>
 <a href="#data">Подготовка данных</a>
+<a href="#data-panel">Panel-данные (causal)</a>
+<a href="#causal">Причинность (v1.0.14)</a>
 <a href="#examples">Примеры</a>
 <a href="#glossary">Словарь терминов</a>
 <a href="#mqs">Шкала качества</a>
@@ -73,6 +75,7 @@ code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 
     <li><strong>Что будет, если изменить бюджет?</strong> — смоделировать сценарии до реальных трат</li>
     <li><strong>Как реклама влияет на знание бренда?</strong> — спрогнозировать рост или падение awareness</li>
     <li><strong>Как уровень знания бренда влияет на продажи?</strong> — оцифровать связь между awareness и выручкой</li>
+    <li><strong>Какой причинный эффект кампании в пилотных регионах?</strong> <span style="color:#0EA5E9">v1.0.14</span> — DiD/SCM/Causal Forest для оценки эффекта geo-holdout тестов и heterogeneous treatment effects (нужны panel-данные с региональной разбивкой)</li>
 </ul>
 <p><strong>Для кого:</strong> маркетинг-директор (CMO), медиа-директор, медиа-стратег, аналитик, финансовый директор (для обоснования бюджетов).</p>
 
@@ -127,6 +130,7 @@ code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 
 <div class="step"><span class="step-num">3.</span> <strong>Проверьте данные:</strong> нажмите <code>/mmm-prepare</code>. Система проверит формат, найдёт проблемы и подскажет, что исправить.</div>
 <div class="step"><span class="step-num">4.</span> <strong>Обучите модель:</strong> нажмите <code>/mmm-model</code>. Ответьте на несколько вопросов (какой столбец — продажи, какие — каналы). Дождитесь результата (2-30 минут).</div>
 <div class="step"><span class="step-num">5.</span> <strong>Получите ответы:</strong> используйте <code>/mmm-decomposition</code> (кто сколько принёс), <code>/mmm-optimize</code> (куда перенаправить бюджет), <code>/mmm-scenarios</code> (что будет, если...).</div>
+<div class="step"><span class="step-num">6. <span style="color:#0EA5E9">v1.0.14</span></span> <strong>Причинный анализ (опционально):</strong> для оценки причинного эффекта пилотных кампаний используйте раздел «Причинность» — DiD (geo-holdout tests), SCM (synthetic control), Causal Forest (heterogeneous effects). Требуют panel-данные с разбивкой по регионам и treatment markers. Подробности — в разделах 6.1 (подготовка panel-данных) и 9.5 (методология causal).</div>
 <div class="step"><span class="step-num">6.</span> <strong>Соберите отчёт:</strong> нажмите <code>/mmm-report</code> — получите готовый документ для руководства.</div>
 
 <div class="warn">
@@ -450,6 +454,86 @@ code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 
 <strong>Правило 10:1.</strong> На каждый столбец (переменную) должно приходиться минимум 10 строк данных. Если у вас 20 столбцов — нужно минимум 200 строк (≈ 4 года еженедельных данных). С 10 столбцами хватит 100 строк (≈ 2 года).
 </div>
 
+<!-- ========== 6.1 PANEL DATA для CAUSAL (v1.0.14) ========== -->
+<h2 id="data-panel">6.1. Panel-данные для causal-методов <span style="font-size:14px;color:#0EA5E9">v1.0.14</span></h2>
+
+<p>Раздел «Причинность» (DiD/SCM/Causal Forest) требует <strong>panel-данные</strong> — это другой формат, чем обычная агрегированная MMM-таблица. Каждая строка = одна точка <code>регион × период × KPI</code> + treatment-маркер.</p>
+
+<h3>Формат panel-данных (long format)</h3>
+<table>
+    <tr><th>region</th><th>period</th><th>sales</th><th>treated</th><th>x1_optional</th></tr>
+    <tr><td>Москва</td><td>2024-01</td><td>15200000</td><td>0</td><td>...</td></tr>
+    <tr><td>Москва</td><td>2024-07</td><td>18500000</td><td>1</td><td>...</td></tr>
+    <tr><td>СПб</td><td>2024-01</td><td>9200000</td><td>0</td><td>...</td></tr>
+    <tr><td>СПб</td><td>2024-07</td><td>9800000</td><td>0</td><td>...</td></tr>
+    <tr><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td></tr>
+</table>
+
+<p>Каждый регион появляется в каждом периоде → если 5 регионов × 24 месяца = 120 строк. Если у вас была wide-таблица (один столбец на регион) — её нужно «расплавить» в long через pandas <code>melt()</code> или Excel pivot.</p>
+
+<h3>Что такое treatment column</h3>
+<p>Бинарный флаг 0/1: получал ли этот регион в этом периоде специфическую маркетинговую активность. Кодировка: <code>1</code> только когда регион AND treated AND период ≥ начала кампании; иначе <code>0</code>.</p>
+
+<table>
+    <tr><th>Сценарий</th><th>Кодировка</th></tr>
+    <tr><td>Регион A получил TV-флайт с июля</td><td><code>treated=1</code> в A с июля; <code>0</code> до июля и в других регионах</td></tr>
+    <tr><td>Регионы A,B,C получили промо-кампанию (синхронно)</td><td><code>treated=1</code> в A/B/C с момента начала; <code>0</code> в остальных</td></tr>
+    <tr><td>Staggered roll-out: A с мая, B с июля, C с сентября</td><td>Каждый со своей даты; ⚠ Aurora detects это и предупреждает (TWFE biased для staggered)</td></tr>
+</table>
+
+<h3>Минимальные требования по методам</h3>
+<table>
+    <tr><th>Метод</th><th>Минимум регионов</th><th>Минимум периодов</th><th>Какой treatment</th></tr>
+    <tr><td><strong>DiD (TWFE)</strong></td><td>4 (минимум 1 treated + 3 control)</td><td>4 (≥1 pre + ≥1 post)</td><td>treatment_column 0/1</td></tr>
+    <tr><td><strong>SCM (Abadie)</strong></td><td>5 (1 treated + ≥4 donors)</td><td>≥6 pre-периодов + ≥1 post</td><td>1 указанный treated_unit + treatment_period</td></tr>
+    <tr><td><strong>Causal Forest</strong></td><td>—</td><td>n ≥ 100 observations</td><td>treatment_column + ≥1 feature</td></tr>
+</table>
+
+<div class="warn">
+<strong>Pre-launch блокер для большинства проектов.</strong> Большинство клиентов имеют только агрегированные brand-level продажи (без региональной разбивки). Если у вас нет panel-данных — сначала запросите их у источника (типичные ритейл-аудит провайдеры предоставляют): <em>Materia Medica</em>/Кагоцел/Афала пример — заявка отправлена для v1.0.15 case-study.
+</div>
+
+<h3>Что система проверяет автоматически</h3>
+<ul>
+    <li><code>/compute/causal/preflight</code> — анализ загруженного файла: достаточен ли формат? применимы ли все 3 метода? рекомендации по доработке данных.</li>
+    <li>Tier-вердикт: <strong>reliable</strong> (≥2 методов применимы → triangulation), <strong>directional</strong> (1 метод → directional only), <strong>insufficient</strong> (нужно собрать данные).</li>
+</ul>
+
+<!-- ========== 6.2 ПРИЧИННОСТЬ — НОВЫЙ РАЗДЕЛ v1.0.14 ========== -->
+<h2 id="causal">6.2. Раздел «Причинность» — DiD / SCM / Causal Forest <span style="font-size:14px;color:#0EA5E9">v1.0.14</span></h2>
+
+<p>Causal-методы дополняют MMM: MMM отвечает «какой ROI канала на агрегированных данных», causal — «какой incremental эффект конкретной кампании в конкретных регионах». Используется для compliance narrative фарма-сегмента (ФЗ-38, ОРД, ФАС) и обоснования тестовых кампаний.</p>
+
+<h3>Difference-in-Differences (DiD)</h3>
+<p><strong>Когда использовать:</strong> у вас есть тестовые регионы (получили активность) и контрольные (не получили). Хотите оценить average treatment effect (ATT) — на сколько выросли продажи в test-регионах относительно control-регионов после старта.</p>
+<p><strong>Что система делает:</strong> two-way fixed effects regression (TWFE) с cluster-robust SE. Автоматически проверяет parallel-trends assumption (важно — сравниваемые регионы должны иметь похожий тренд до начала кампании).</p>
+<p><strong>Ограничения:</strong> для staggered adoption (регионы стартовали в разные даты) TWFE даёт biased estimate — система detects и flags. Для small n_clusters (&lt; 10) cluster-robust SE может underestimate uncertainty — используйте wider confidence (0.95+) или triangulate с SCM.</p>
+
+<h3>Synthetic Control Method (SCM)</h3>
+<p><strong>Когда использовать:</strong> у вас один treated регион и набор donor-регионов. Хотите построить «синтетический контроль» = взвешенная комбинация donors, которая повторяет траекторию treated до старта. Эффект = разница между фактической и синтетической траекторией после старта.</p>
+<p><strong>Что система делает:</strong> SLSQP-оптимизация simplex-весов (sum=1, nonneg) для минимизации pre-treatment RMSE. Placebo permutation test для p-value.</p>
+<p><strong>Ограничения:</strong> требуется convex hull — treated регион должен быть «внутри» характеристик donor pool. Если treated отличается экстремально (highest или lowest baseline) — SCM экстраполирует, что даёт biased результат. Pre-RMSE diagnostic surfaces это автоматически.</p>
+
+<h3>Causal Forest</h3>
+<p><strong>Когда использовать:</strong> у вас много observations (n ≥ 100) с binary treatment + features (демография, доход, размер региона, etc). Хотите узнать: <em>в каких сегментах</em> эффект сильнее? Какие features modulate response?</p>
+<p><strong>Что система делает:</strong> Wager-Athey 2018 honest random forest с DML cross-fitting. Возвращает ATE + per-observation CATE distribution + feature importances + propensity overlap check.</p>
+<p><strong>Ограничения:</strong> требуется CIA (conditional independence) — все confounders включены в features или confounders_columns. Если есть omitted variables — biased.</p>
+
+<h3>Cross-method triangulation</h3>
+<p>Если у вас есть данные для ≥2 методов — запустите их и используйте кнопку <strong>Cross-method consistency</strong> в разделе «Артефакты». Система сравнивает ATT-оценки и выдаёт verdict:</p>
+<ul>
+    <li><strong>agree</strong> — CIs пересекаются + divergence &lt; 30% → triangulated estimate надёжен</li>
+    <li><strong>partial</strong> — частичное согласие, проверьте assumptions</li>
+    <li><strong>disagree</strong> — methods конфликтуют → identification problem (assumption violation в одном из методов)</li>
+</ul>
+
+<h3>Honest disclosure — обязательно читать</h3>
+<p>Каждый causal-метод возвращает блок <strong>Honest disclosure</strong> с явными assumptions (parallel-trends для DiD, convex-hull для SCM, positivity/overlap для Forest), references на академические источники, и diagnostics_passed/failed. Если diagnostic failed — ATT estimate под вопросом, читайте caveats.</p>
+
+<div class="warn">
+<strong>v1.0.14 ship — synthetic-only validation.</strong> Causal endpoints validated на synthetic DGP-controlled данных + 100-sim SBC harness. Real-customer validation запланирован v1.0.15 после получения geo-disaggregated данных от Materia Medica. Используйте с осторожностью на real client data — проверяйте assumptions через honest_disclosure.
+</div>
+
 <!-- ========== 7. ПРИМЕРЫ ========== -->
 <h2 id="examples">7. Типовые сценарии использования</h2>
 
@@ -517,6 +601,27 @@ code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 
 
     <dt>R² (R-squared)</dt>
     <dd>Показывает, какую долю продаж модель может объяснить. R²=0.85 означает: 85% изменений продаж объяснены моделью. Чем ближе к 1.0 — тем лучше.</dd>
+
+    <dt>ATT (Average Treatment Effect on Treated) <span style="color:#0EA5E9">v1.0.14</span></dt>
+    <dd>Средний причинный эффект на регионы/единицы, которые получили treatment. Возвращается всеми тремя causal-методами (DiD/SCM/Forest). Например, ATT=50 на KPI «продажи в рублях/месяц» означает: пилотные регионы получили на 50 рублей больше продаж в среднем за период по сравнению с counterfactual без кампании.</dd>
+
+    <dt>DiD (Difference-in-Differences) <span style="color:#0EA5E9">v1.0.14</span></dt>
+    <dd>Метод оценки причинного эффекта через сравнение «до vs после» в treated и control регионах. Aurora использует TWFE (two-way fixed effects) — Wooldridge 2010. Critical assumption: parallel trends — пре-treatment траектории треш и контрольных регионов должны быть параллельны. Goodman-Bacon 2021 показал bias TWFE для staggered roll-outs — Aurora detects и flags.</dd>
+
+    <dt>SCM (Synthetic Control Method) <span style="color:#0EA5E9">v1.0.14</span></dt>
+    <dd>Метод, который строит «синтетический контроль» для одного treated региона как взвешенную комбинацию donor-регионов, минимизируя pre-treatment RMSE. После начала кампании разница treated vs synthetic = causal effect. Reference: Abadie, Diamond, Hainmueller 2010 (JASA). Aurora использует scipy SLSQP оптимизатор, placebo permutation test для p-value.</dd>
+
+    <dt>Causal Forest <span style="color:#0EA5E9">v1.0.14</span></dt>
+    <dd>Random forest, оптимизированный для оценки heterogeneous treatment effects (HTE). В отличие от MMM (один ROI на канал) и DiD (один ATT на panel), Causal Forest показывает <em>в каких сегментах</em> эффект сильнее — например «эффект кампании выше в регионах с молодой аудиторией». Reference: Wager-Athey 2018 (JASA), DML по Chernozhukov 2018.</dd>
+
+    <dt>CATE (Conditional Average Treatment Effect)</dt>
+    <dd>Эффект treatment, обусловленный значениями features. Например, «CATE для X1=high = 25, для X1=low = 5». Heterogeneous treatment effects — выводы которые невозможно получить из MMM или DiD. Causal Forest возвращает CATE для каждого наблюдения + percentile distribution.</dd>
+
+    <dt>Honest disclosure (HonestDisclosure)</dt>
+    <dd>Структурированный блок, который Aurora возвращает для каждого causal-метода: список assumptions (parallel-trends, convex-hull, overlap), references на академические источники, diagnostics_passed/failed, caveats. Это ключевой принцип v1.0.14: «не magic causal MMM», а honest exposure of method limitations.</dd>
+
+    <dt>Panel data (long format)</dt>
+    <dd>Формат данных где каждая строка = (unit, time, kpi, ...). Например, регион × месяц × продажи. Отличается от обычной MMM-таблицы (одна строка per период с агрегированными channels). Causal-методы работают только с panel-данными — нужна региональная разбивка.</dd>
 
     <dt>MAPE (Mean Absolute Percentage Error)</dt>
     <dd>Средняя ошибка прогноза в процентах. MAPE=8% означает: модель в среднем ошибается на 8%. Чем меньше — тем лучше.</dd>
