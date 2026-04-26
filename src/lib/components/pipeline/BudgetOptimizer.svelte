@@ -136,7 +136,7 @@
            Persistent backend-aligned delta_pct preserves «optimizer recommended
            +X% relative to original current» signal even after auto-apply. -->
       {@const deltaRaw = opt != null && initRef >= 1 ? ((opt - initRef) / initRef * 100) : null}
-      {@const deltaLabel = opt == null ? null : initRef < 1 ? (opt < 1 ? '—' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
+      {@const deltaLabel = opt == null ? null : (initRef < 1 || deltaRaw == null) ? (opt < 1 ? '—' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
       {@const initMoney = initRef * uc(ch)}
       {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}

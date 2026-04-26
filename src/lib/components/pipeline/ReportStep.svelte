@@ -121,8 +121,8 @@
     }
   }
 
-  /** @type {'idle' | 'generating-report' | 'generating-xlsx' | 'done' | 'error'} */
-  let stepState = $state('idle');
+  /** @typedef {'idle' | 'generating-report' | 'generating-xlsx' | 'done' | 'error'} StepState */
+  let stepState = $state(/** @type {StepState} */ ('idle'));
   /** @type {string | null} */
   let errorMessage = $state(null);
   /** @type {string | null} */
@@ -135,6 +135,24 @@
   let htmlPath = $state(null);
   /** @type {string | null} */
   let executiveSummary = $state(null);
+
+  /** v1.0.16: unified «Создать отчёт» — selector chooses one format per click,
+   *  prevents simultaneous generation of all formats (token/CPU economy).
+   *  @type {'pptx' | 'xlsx' | 'html'} */
+  let selectedFormat = $state('pptx');
+
+  /** Dispatch к exporter according к selectedFormat. */
+  async function generateSelected() {
+    if (selectedFormat === 'pptx') return exportPptx();
+    if (selectedFormat === 'xlsx') return exportXlsx();
+    if (selectedFormat === 'html') return exportHtml();
+  }
+
+  /** True when generation в progress (any format). Derived to bypass svelte-check
+   *  type-narrowing quirk on `stepState` literal comparisons in template. */
+  const isGenerating = $derived(
+    String(stepState) === 'generating-xlsx' || String(stepState) === 'generating-report'
+  );
 
   // Reactive store reads
   const mData = $derived($modelData);
@@ -847,31 +865,50 @@
         </div>
       {/if}
 
-      <div class="export-buttons" data-tour="report-exports">
+      <!-- v1.0.16: единая кнопка «Создать отчёт» с выбором формата.
+           Pre-fix: 3 кнопки одновременно располагались — customer мог нажать
+           все три подряд, генерируя избыточные форматы (CPU/disk waste).
+           Post-fix: 1 button + selector — один файл per click. Радио-кнопки
+           делают выбор visible, format cards ниже подсказывают разницу. -->
+      <div class="export-unified" data-tour="report-exports">
+        <div class="format-selector" role="radiogroup" aria-label="Тип отчёта">
+          <label class="format-radio" class:active={selectedFormat === 'pptx'}>
+            <input type="radio" name="report-format" value="pptx" bind:group={selectedFormat} />
+            <span class="format-icon-sm">📽</span>
+            <span class="format-radio-label">PPTX
+              {#if pptxPath}<span class="format-radio-status">✓</span>{/if}
+            </span>
+          </label>
+          <label class="format-radio" class:active={selectedFormat === 'xlsx'}>
+            <input type="radio" name="report-format" value="xlsx" bind:group={selectedFormat} />
+            <span class="format-icon-sm">📊</span>
+            <span class="format-radio-label">XLSX
+              {#if xlsxPath}<span class="format-radio-status">✓</span>{/if}
+            </span>
+          </label>
+          <label class="format-radio" class:active={selectedFormat === 'html'}>
+            <input type="radio" name="report-format" value="html" bind:group={selectedFormat} />
+            <span class="format-icon-sm">🌐</span>
+            <span class="format-radio-label">HTML
+              {#if htmlPath}<span class="format-radio-status">✓</span>{/if}
+            </span>
+          </label>
+        </div>
         <button
-          class="btn-export pptx"
-          onclick={exportPptx}
-          disabled={!hasData}
+          class="btn-export-unified"
+          onclick={generateSelected}
+          disabled={!hasData || isGenerating}
         >
-          <span class="btn-icon">📽</span>
-          {pptxPath ? 'PPTX — пересоздать' : 'Презентация (PPTX)'}
-        </button>
-        <button
-          class="btn-export secondary"
-          onclick={exportXlsx}
-          disabled={!hasData}
-        >
-          <span class="btn-icon">📊</span>
-          {xlsxPath ? 'XLSX — пересоздать' : 'Данные (XLSX)'}
-        </button>
-        <button
-          class="btn-export html"
-          onclick={exportHtml}
-          disabled={!hasData}
-          title="Интерактивный HTML-отчёт — открывается в браузере без установки приложения"
-        >
-          <span class="btn-icon">🌐</span>
-          {htmlPath ? 'HTML — пересоздать' : 'Интерактивный (HTML)'}
+          {#if isGenerating}
+            <span class="btn-spinner"></span>
+            Генерирую...
+          {:else}
+            {#if (selectedFormat === 'pptx' && pptxPath) || (selectedFormat === 'xlsx' && xlsxPath) || (selectedFormat === 'html' && htmlPath)}
+              ⟲ Пересоздать {selectedFormat.toUpperCase()}
+            {:else}
+              ✨ Создать отчёт ({selectedFormat.toUpperCase()})
+            {/if}
+          {/if}
         </button>
       </div>
 
@@ -1311,6 +1348,113 @@
   .btn-export:hover:not(:disabled) { opacity: 0.85; }
   .btn-export:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-icon { font-size: 16px; }
+
+  /* v1.0.16: unified Create Report selector */
+  .export-unified {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 12px;
+    margin-top: 8px;
+  }
+  .format-selector {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .format-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary, #94a3b8);
+    transition: all 0.15s ease;
+  }
+  .format-radio:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.16);
+  }
+  .format-radio.active {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, transparent);
+    color: var(--text-primary, #e2e8f0);
+  }
+  .format-radio input[type="radio"] {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+    margin: 0;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .format-radio.active input[type="radio"] {
+    border-color: var(--accent-primary, #3b82f6);
+  }
+  .format-radio.active input[type="radio"]::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent-primary, #3b82f6);
+  }
+  .format-icon-sm { font-size: 14px; }
+  .format-radio-label {
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .format-radio-status {
+    color: #22c55e;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .btn-export-unified {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: var(--accent-primary, #3b82f6);
+    border: 1px solid var(--accent-primary, #3b82f6);
+    border-radius: 8px;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-export-unified:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 90%, white);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, transparent);
+  }
+  .btn-export-unified:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .export-hint {
     font-size: 12px;
