@@ -525,6 +525,166 @@ def recommend_engine_endpoint(req: RecommendRequest):
     return JSONResponse(content=recommend_engine(req.n_obs, override=req.override))
 
 
+class PreflightRequest(BaseModel):
+    """S1 (audit synergy 2026-04-26): unified pre-train orchestration.
+
+    UI один call вместо 3 (validate + recommend + quick_proxy + prior_predictive).
+    Backend chains all reliability checks + returns aggregated tier + recommendation.
+    """
+    project_dir: str
+    file_path: str
+    media_columns: list[str]
+    control_columns: list[str] = []
+    kpi_column: str
+    date_column: str = 'date'
+    adstock_config: dict[str, str] = {}
+    mode_override: str | None = None  # 'bayesian' | 'ols' | None — для recommend
+    skip_prior_predictive: bool = False  # для fast iteration UI
+
+
+@app.post('/compute/preflight')
+def preflight(req: PreflightRequest):
+    """Unified pre-train reliability pipeline (S1 audit synergy).
+
+    Orchestrates в правильном порядке:
+      1. Engine recommendation (n_obs based)
+      2. A4 quick proxy — multicollinearity + variance + correlation (~1 sec)
+      3. (Bayesian only, if not skipped) Prior predictive check (~5-15 sec)
+
+    Returns aggregated tier ('reliable' | 'directional' | 'insufficient') +
+    recommended_mode + breakdown of all checks + actionable recommendation +
+    overrideable flag. UI renders single banner вместо five individual.
+
+    Skip prior_predictive_check для OLS recommendations (frequentist mode не
+    использует priors). Also skipped explicitly via skip_prior_predictive=True
+    (for fast iteration when user экспериментирует с config).
+    """
+    import logging as _logging
+    _preflight_logger = _logging.getLogger(__name__)
+
+    # Validate mode override first
+    mode_override, mode_err = _validate_mode(req.mode_override)
+    if mode_err is not None:
+        return JSONResponse(content=mode_err)
+
+    # Step 1: read data + basic shape check
+    try:
+        if req.file_path.endswith('.csv'):
+            import pandas as _pd
+            df = _pd.read_csv(req.file_path)
+        else:
+            import pandas as _pd
+            df = _pd.read_excel(req.file_path)
+    except Exception as e:
+        return JSONResponse(content={
+            'status': 'error', 'error_code': 'DATA_LOAD_FAILED',
+            'message': f'Не удалось прочитать файл: {type(e).__name__}: {e}',
+        })
+
+    n_obs = len(df)
+    missing_cols = [c for c in req.media_columns + [req.kpi_column] if c not in df.columns]
+    if missing_cols:
+        return JSONResponse(content={
+            'status': 'error', 'error_code': 'COLUMNS_MISSING',
+            'message': f'Колонки не найдены в файле: {missing_cols}',
+            'available_columns': df.columns.tolist(),
+        })
+
+    # Step 2: engine recommendation
+    from engines.ols_modeler import recommend_engine
+    recommend = recommend_engine(n_obs, override=mode_override)
+    recommended_mode = recommend['recommended']
+
+    # Step 3: A4 quick proxy на media matrix
+    from utils.reliability_quick_proxy import quick_proxy_check
+    media_matrix = df[req.media_columns].fillna(0).values.astype(float)
+    quick_proxy = quick_proxy_check(media_matrix, req.media_columns)
+
+    # Step 4: prior predictive (Bayesian only, optional skip)
+    prior_predictive = None
+    if recommended_mode == 'bayesian' and not req.skip_prior_predictive:
+        try:
+            from utils.reliability_a4 import prior_predictive_check
+            y_obs = df[req.kpi_column].fillna(0).values.astype(float)
+            prior_predictive = prior_predictive_check(
+                y_obs, media_matrix, n_samples=300,  # 300 fast enough для preflight
+            )
+        except Exception as e:
+            _preflight_logger.warning(
+                f"Prior predictive check failed in preflight (degrading к quick_proxy only): "
+                f"{type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            prior_predictive = None
+
+    # ── Aggregate tier ──────────────────────────────────────────────────
+    # Conservative aggregation: tier = worst of (recommend, quick_proxy, prior_predictive).
+    # Mapping:
+    #   recommend.banner_tone: good→reliable, warn→directional, bad→insufficient
+    #   quick_proxy.tier: reliable | directional | insufficient (already correct)
+    #   prior_predictive.status: pass→reliable, warn→directional, fail→insufficient
+    tier_rank = {'reliable': 0, 'directional': 1, 'insufficient': 2}
+    tone_to_tier = {'good': 'reliable', 'warn': 'directional', 'bad': 'insufficient'}
+    status_to_tier = {'pass': 'reliable', 'warn': 'directional', 'fail': 'insufficient'}
+
+    tiers = ['reliable']  # baseline
+    tiers.append(tone_to_tier.get(recommend.get('banner_tone'), 'reliable'))
+    tiers.append(quick_proxy.get('tier', 'reliable'))
+    if prior_predictive is not None:
+        tiers.append(status_to_tier.get(prior_predictive.get('status'), 'reliable'))
+    overall_tier = max(tiers, key=lambda t: tier_rank.get(t, 0))
+
+    # Aggregate warnings + recommendation
+    all_warnings = []
+    if recommend.get('reason') and recommend['banner_tone'] != 'good':
+        all_warnings.append(recommend['reason'])
+    all_warnings.extend(quick_proxy.get('warnings', []))
+    if prior_predictive and prior_predictive.get('warning'):
+        all_warnings.append(prior_predictive['warning'])
+
+    # Override flag — when overall not reliable but user can still train
+    overrideable = quick_proxy.get('overrideable', True)
+
+    return JSONResponse(content={
+        'status': 'ok',
+        'overall_tier': overall_tier,
+        'recommended_mode': recommended_mode,
+        'allowed_modes': recommend.get('allowed', ['bayesian', 'ols']),
+        'overrideable': overrideable,
+        'n_obs': n_obs,
+        'n_channels': len(req.media_columns),
+        'breakdown': {
+            'engine_recommend': recommend,
+            'quick_proxy': quick_proxy,
+            'prior_predictive': prior_predictive,
+        },
+        'warnings': all_warnings,
+        'recommendation': _aggregate_recommendation(overall_tier, recommended_mode, len(all_warnings)),
+    })
+
+
+def _aggregate_recommendation(tier: str, mode: str, n_warnings: int) -> str:
+    """Build single human-readable recommendation from aggregated tier + mode."""
+    if tier == 'reliable':
+        return (
+            f'Данные прошли все проверки. Рекомендуемый режим обучения: '
+            f'{"Bayesian MMM" if mode == "bayesian" else "OLS (small data)"}.'
+        )
+    if tier == 'directional':
+        return (
+            f'Данные имеют {n_warnings} предупреждений (см. breakdown.warnings). '
+            f'Можно обучаться в режиме {"Bayesian" if mode == "bayesian" else "OLS"}, '
+            f'но используйте результаты как направление, не точную оценку.'
+        )
+    # insufficient
+    return (
+        f'Данные требуют внимания: {n_warnings} проблем (см. breakdown.warnings). '
+        f'Перед обучением рекомендуется: собрать больше данных, упростить медиа-микс, '
+        f'либо устранить multicollinearity. Можно обучить с override-предупреждением '
+        f'(результаты помечены как fragile).'
+    )
+
+
 @app.post('/compute/train/start')
 def train_start(req: TrainStartRequest):
     """Start async training. Returns task_id immediately."""
