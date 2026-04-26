@@ -274,6 +274,8 @@ class TrainRequest(BaseModel):
     date_column: str = 'date'
     adstock_config: dict[str, str] = {}
     mcmc_override: dict | None = None
+    # Sprint 2 (small-data path): 'bayesian' (default, NUTS) | 'ols' (closed-form, n<30 fallback)
+    mode: str | None = None
     # Стоимость 1 юнита канала в валюте KPI для не-денежных каналов (CPP/CPM).
     # {channel: cost_per_unit}. Если задано — decomposer/optimizer используют
     # spend × unit_cost для отображения и расчёта ROI. На обучение модели не
@@ -294,6 +296,8 @@ class TrainStartRequest(BaseModel):
     date_column: str = 'date'
     adstock_config: dict[str, str] = {}
     mcmc_override: dict | None = None
+    # Sprint 2: 'bayesian' | 'ols'
+    mode: str | None = None
     unit_costs: dict[str, float] = {}
     merge_rules: dict[str, list[str]] = {}
 
@@ -448,13 +452,40 @@ def validate_preview(req: PreviewRequest):
 
 @app.post('/compute/train')
 def train_model(req: TrainRequest):
-    """Train Bayesian MMM model. Long-running (3-15 min).
+    """Train Bayesian MMM или OLS small-data model.
+
+    Mode selection (Sprint 2):
+      - config.mode == 'ols' → engines/ols_modeler.train_ols (closed-form, < 1 sec)
+      - config.mode == 'bayesian' or absent → engines/modeler.train_model (NUTS, 3-15 min)
+      - When mode absent, server can call /compute/recommend для auto-recommend hint.
+
     sync def — FastAPI runs in thread pool, event loop stays free for /health polling."""
-    from engines.modeler import train_model as _train
     config = req.model_dump()
     project_dir = config.pop('project_dir')
+    mode = (config.get('mode') or 'bayesian').lower()
+    if mode == 'ols':
+        from engines.ols_modeler import train_ols as _train
+    else:
+        from engines.modeler import train_model as _train
     result = _train(config, project_dir)
     return JSONResponse(content=result)
+
+
+class RecommendRequest(BaseModel):
+    """Sprint 2: auto-recommend Bayesian vs OLS based on n_obs."""
+    n_obs: int
+    override: str | None = None  # 'bayesian' | 'ols' | None
+
+
+@app.post('/compute/recommend')
+def recommend_engine_endpoint(req: RecommendRequest):
+    """Sprint 2 — return engine recommendation for given dataset size.
+
+    UI calls this after user selects data file (n_obs from validate result)
+    to render banner: "Рекомендуем Bayesian" / "Рекомендуем OLS (small data)".
+    """
+    from engines.ols_modeler import recommend_engine
+    return JSONResponse(content=recommend_engine(req.n_obs, override=req.override))
 
 
 @app.post('/compute/train/start')
@@ -484,7 +515,12 @@ def train_start(req: TrainStartRequest):
         }
 
     def run():
-        from engines.modeler import train_model as _train
+        # Sprint 2: route to OLS engine when config.mode == 'ols'
+        mode = (config.get('mode') or 'bayesian').lower()
+        if mode == 'ols':
+            from engines.ols_modeler import train_ols as _train
+        else:
+            from engines.modeler import train_model as _train
 
         def progress_callback(info: dict):
             with _training_lock:

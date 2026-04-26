@@ -147,6 +147,8 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         model_data = pickle.load(f)
 
     # P0-1/2/9 fix: pickle compat detection.
+    # Sprint 2: '1.0-ols' accepted as small-data fallback path (treats как v1.1
+    # downstream — point estimates only, no posterior CI, frequentist β CI на channel level).
     model_version = model_data.get('model_version', '1.0')
     if model_version == '1.0':
         return {
@@ -450,8 +452,18 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     # Phase 1.1: model_version warning — flag legacy pickles for re-training.
     # v1.1.5 pickles use hardcoded adstock decay (0.5) — CI not honest about
     # carryover uncertainty. UI can render banner suggesting re-train for v1.2.
+    # Sprint 2: '1.0-ols' = small-data fallback, frequentist semantics (no posterior CI).
     model_warning = None
-    if model_version == '1.1.5':
+    if model_version == '1.0-ols':
+        n_obs_ols = len(y_actual) if isinstance(y_actual, (list, np.ndarray)) else 0
+        model_warning = (
+            f'OLS-режим (small data fallback): n={n_obs_ols} наблюдений. '
+            f'Hill α=1.5, γ=0.5, decay=0.5 — фиксированы (не обучаются). '
+            f'Доверительные интервалы — frequentist на β-коэффициенты + predictive '
+            f'intervals на y. Posterior CI на ROI/mROAS недоступны (нужен n≥30 для '
+            f'Bayesian). Соберите больше данных для премиум-модели.'
+        )
+    elif model_version == '1.1.5':
         model_warning = (
             'Эта модель обучена с фиксированным adstock-затуханием (0.5). '
             'Доверительные интервалы не учитывают неопределённость carryover. '
