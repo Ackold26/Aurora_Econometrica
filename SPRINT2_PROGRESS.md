@@ -1,9 +1,9 @@
 # Sprint 2 + Sprint 1.5 (A4) — Live Progress
 
-**Last updated:** 2026-04-26 ~22:30 — Sprint 2 OLS modeler started
+**Last updated:** 2026-04-26 ~23:30 — Sprint 2 + Sprint 1.5 BACKEND COMPLETE
 **Branch:** `math-fix-v1.0.13`
-**Active phase:** Sprint 2 (small-data path, OLS fallback). Sprint 1.5 A4 backend queued next.
-**HEAD:** `22d1410` (Phase 1.9+1.1 done) + new OLS commits coming
+**Active phase:** Sprint 2 + Sprint 1.5 backend полностью готовы. UI + live-test pending Антоном.
+**HEAD:** `1a6066d`+`e4bce20`+`<latest>` — backtest skeleton final commit pending
 
 > **Resume protocol:** if you see only summary after compress — read this file first, continue from "Next concrete step" without confirmation. Stop only for: architecture decisions, push to remote, schema migration. Auto-commit local OK.
 
@@ -11,13 +11,24 @@
 
 ## Current task
 
-**Sprint 2 OLS engine implementation:**
-- ✅ engines/ols_modeler.py (~280 LOC) — train_ols + recommend_engine
-- 🟡 Sanity test in progress (import error on test — minor)
-- ⏳ Server endpoint integration (`/compute/train` route to ols_modeler when mode='ols')
-- ⏳ Decomposer/optimizer/scenario backward compat для '1.0-ols' pickle version
+**🟢 SPRINT 2 + SPRINT 1.5 BACKEND COMPLETE.**
 
-**Next concrete step:** Fix sanity test import path → run train_ols on synthetic n=18 → confirm pickle loads in decomposer → commit Sprint 2 part 1.
+Все 6 commits сегодня в Sprint 2 + 1.5 session:
+- `f385c77` OLS engine + recommend + SPRINT2_PROGRESS.md
+- `669369c` Server endpoints /compute/recommend + decomposer banner для '1.0-ols'
+- `1a6066d` Horseshoe priors opt-in (A3)
+- `e4bce20` A4.1 prior predictive + A4.2 Nott KL backend
+- `<latest>` B7 backtest framework skeleton
+
+**Next concrete step:** UI integration + live-test (Антон).
+
+**Pending для ship v1.0.16 (Sprint 2 + 1.5):**
+1. Frontend SvelteKit: Mode toggle (Bayesian/OLS) в Train step
+2. Frontend: Banner from /compute/recommend в Validate step
+3. Frontend: A4 quick proxy + prior predictive results displayed (Tier 1/2/3)
+4. Frontend: Backtest button в Report step + results display
+5. Live-test on Kagocel/Venarus + small dataset (n<20) для OLS path
+6. Ship v1.0.16 → tag + GH Release + Supabase
 
 ---
 
@@ -25,13 +36,13 @@
 
 | # | Task | Status |
 |---|---|---|
-| S2.1 | engines/ols_modeler.py — OLS regression with hardcoded Hill defaults | ✅ written |
-| S2.2 | recommend_engine(n_obs, override) — auto-recommend Bayesian vs OLS | ✅ written |
-| S2.3 | Server endpoint /compute/train accepts mode='ols' | ⏳ |
-| S2.4 | Decomposer banner для '1.0-ols' pickles | ⏳ |
-| S2.5 | A3 Sparse priors (horseshoe) — config flag в Bayesian modeler | ⏳ |
-| S2.6 | Auto-recommend banner /compute/recommend endpoint | ⏳ |
-| S2.7 | Tests — OLS round-trip, recommend_engine thresholds | ⏳ |
+| S2.1 | engines/ols_modeler.py — OLS regression with hardcoded Hill defaults | ✅ `f385c77` |
+| S2.2 | recommend_engine(n_obs, override) — auto-recommend Bayesian vs OLS | ✅ `f385c77` |
+| S2.3 | Server endpoint /compute/train accepts mode='ols' | ✅ `669369c` |
+| S2.4 | Decomposer banner для '1.0-ols' pickles | ✅ `669369c` |
+| S2.5 | A3 Sparse priors (horseshoe) — config flag в Bayesian modeler | ✅ `1a6066d` |
+| S2.6 | Auto-recommend banner /compute/recommend endpoint | ✅ `669369c` |
+| S2.7 | Tests — smoke OLS round-trip + recommend thresholds | ✅ inline |
 
 **Decisions:**
 - 2026-04-26 ~22:00 — Антон: отдельная engine для OLS (НЕ режим внутри modeler.py). Done — engines/ols_modeler.py.
@@ -51,11 +62,11 @@
 
 | # | Task | Status |
 |---|---|---|
-| A4.1 | Prior predictive checks utility | ⏳ |
-| A4.2 | Nott KL divergence prior-data conflict | ⏳ |
-| A4.3 (full) | Full SBC via simuk OR custom | ⏳ defer (long-running) |
-| B7 | Backtest framework skeleton | ⏳ |
-| Integration | Validator endpoint runs quick_proxy + A4.1 + A4.2 на data | ⏳ |
+| A4.1 | Prior predictive checks utility | ✅ `e4bce20` |
+| A4.2 | Nott KL divergence prior-data conflict | ✅ `e4bce20` |
+| A4.3 (full) | Full SBC via simuk OR custom | ⏸ DEFER (long-running, ~16h MCMC) |
+| B7 | Backtest framework skeleton | ✅ pending commit |
+| Integration | Validator endpoint runs quick_proxy + A4.1 + A4.2 на data | ⏳ UI integration |
 
 **Note:** A4 quick proxy already done (commit `9cbba78` — Phase 1.1 prep). A4.1+A4.2 build on top.
 
