@@ -9,6 +9,7 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
+  import { tick } from 'svelte';
   import {
     activeProjectId,
     modelData,
@@ -233,11 +234,6 @@
   /** Current KPI at current_spend (baseline for lift% — per-period prediction в рублях). */
   const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm));
 
-  /** Display-KPI для блока A. Используем total_sales из декомпозиции — это KPI
-   *  за весь период анализа (в одной шкале с total budget). Если decompose
-   *  ещё не запущен — fallback на predictKPI (one-period). */
-  const displayKPI = $derived(dData?.total_sales ?? currentKPI);
-
   /**
    * miROAS per channel — marginal ROAS следующего рубля.
    *
@@ -339,6 +335,26 @@
 
   /** Optimal budgets from last run */
   let optimalBudgets = $state(/** @type {Record<string, number> | null} */ (null));
+
+  /** Live KPI at channelBudgets (per-period prediction). Reacts to slider drag
+   *  + L5 auto-apply animation. Used to scale displayKPI к live allocation. */
+  const liveKPI = $derived(
+    Object.keys(channelBudgets).length > 0 && Object.keys(scaledParams).length > 0
+      ? predictKPI(channelBudgets, scaledParams, yNorm)
+      : currentKPI
+  );
+
+  /** Display-KPI для блока A. baseTotal = decompose total_sales (KPI за весь
+   *  период анализа в одной шкале с total budget). L5 (math-fix v1.4 Section C,
+   *  2026-04-28): при applyOptimal channelBudgets анимируется к optimal_spend →
+   *  liveKPI/currentKPI ratio scales displayKPI монотонно вверх в same period
+   *  scale. Customer видит Прогноз KPI обновляющийся вместе со sliders, не
+   *  frozen на baseline. */
+  const displayKPI = $derived.by(() => {
+    const baseTotal = dData?.total_sales ?? currentKPI;
+    if (!currentKPI || currentKPI <= 0 || !liveKPI) return baseTotal;
+    return baseTotal * (liveKPI / currentKPI);
+  });
 
   // Init channelBudgets when optData OR decomposeData arrives.
   // IMPORTANT: don't read stepState — recursive dep.
@@ -696,6 +712,17 @@
         const ob = /** @type {Record<string, number>} */ ({});
         for (const ch of (result.channels ?? [])) ob[ch.name] = ch.optimal_spend;
         optimalBudgets = ob;
+
+        // L5 (math-fix v1.4 Section C, 2026-04-28): auto-apply optimal allocation
+        // к sliders. Pre-fix: customer кликал «Оптимизировать» → backend возвращал
+        // optimal_spend, Δ% labels рядом со sliders отображались, но slider positions
+        // + money values + Прогноз KPI оставались на current. Customer не видел
+        // результат своей оптимизации без manual click. Auto-apply устраняет UX gap.
+        // Animation 800ms (через requestAnimationFrame) визуально показывает движение.
+        // tick() ensures $effect at line ~340 fires first (resets channelBudgets к
+        // current_spend); applyOptimal then animates from clean baseline → optimal.
+        await tick();
+        applyOptimal();
 
         // O1.2 (Phase 0.1): snapshot settings AFTER success so dirty-state
         // becomes false until user changes something. Same shape as

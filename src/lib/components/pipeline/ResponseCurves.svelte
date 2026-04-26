@@ -51,6 +51,28 @@
   }
 
   /**
+   * Linear interpolate Y on backend response curve at given native spend X.
+   * Used для markPoint static positions (current_x / optimal_x). Backend
+   * curve denormalized to KPI scale + adstock_factor → matches series Y axis.
+   * @param {{spend: number[], response: number[]} | null | undefined} curve
+   * @param {number} x — native spend
+   * @returns {number}
+   */
+  function curveResponseAt(curve, x) {
+    if (!curve || !curve.spend?.length) return 0;
+    if (x <= curve.spend[0]) return curve.response[0];
+    for (let i = 1; i < curve.spend.length; i++) {
+      if (curve.spend[i] >= x) {
+        const x0 = curve.spend[i - 1], y0 = curve.response[i - 1];
+        const x1 = curve.spend[i], y1 = curve.response[i];
+        const dx = x1 - x0;
+        return dx > 0 ? y0 + (y1 - y0) * (x - x0) / dx : y0;
+      }
+    }
+    return curve.response[curve.response.length - 1];
+  }
+
+  /**
    * Build graphic elements (draggable points) for all channels.
    * @returns {any[]}
    */
@@ -102,6 +124,35 @@
         ? curve.spend.map((s, i) => [s * u, curve.response[i]])
         : [];
 
+      // L5 extension (math-fix v1.4 Section C, 2026-04-28): static markers для
+      // current_x (○ серый) + optimal_x (★ золотой). Pre-fix: только draggable
+      // point показывал текущую позицию — customer не видел WHERE оптимум на
+      // кривой. Post-fix: visual cue «отсюда → сюда» — после applyOptimal
+      // draggable point переходит к ★, indicating «you're at optimum».
+      /** @type {any[]} */
+      const markData = [];
+      if (curve && Number.isFinite(curve.current_x)) {
+        markData.push({
+          coord: [curve.current_x * u, curveResponseAt(curve, curve.current_x)],
+          symbol: 'circle',
+          symbolSize: 9,
+          itemStyle: { color: 'rgba(148,163,184,0.85)', borderColor: '#fff', borderWidth: 1.5 },
+          label: { show: false },
+          tooltip: { formatter: () => `${ch} — текущий бюджет` },
+        });
+      }
+      if (curve && Number.isFinite(curve.optimal_x)) {
+        markData.push({
+          coord: [curve.optimal_x * u, curveResponseAt(curve, curve.optimal_x)],
+          symbol: 'pin',
+          symbolSize: 26,
+          symbolOffset: [0, '-50%'],
+          itemStyle: { color, borderColor: '#fff', borderWidth: 2, opacity: 0.95 },
+          label: { show: true, formatter: '★', color: '#fff', fontSize: 11, fontWeight: 'bold', position: 'inside' },
+          tooltip: { formatter: () => `${ch} — оптимальный бюджет` },
+        });
+      }
+
       return {
         name: ch,
         type: 'line',
@@ -111,6 +162,7 @@
         lineStyle: { width: 2, color },
         itemStyle: { color },
         emphasis: { focus: 'none' },
+        markPoint: markData.length ? { data: markData, animation: false } : undefined,
       };
     });
 

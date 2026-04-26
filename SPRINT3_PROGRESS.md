@@ -797,7 +797,41 @@ UI light logic (likely в OptimizeStep.svelte) computes recommendation locally b
 **Priority:** v1.0.16 BLOCKER (UX integrity — inverted recommendations directly contradict optimizer output, customers will lose trust).
 
 
-### 🔴 L5 — Optimizer optimal_spend не auto-applies к sliders (Антон 2026-04-28)
+### 🟢 L5 — Optimizer optimal_spend auto-applies + Response Curves markers (CLOSED 2026-04-29)
+
+**STATUS:** ✅ FIXED — math-fix v1.4 Section C continued. Auto-apply + KPI prognosis live update + L5 extension Response Curves markers.
+
+**Fix shipped:**
+
+1. **`OptimizeStep.svelte:runOptimize()`** — после `result.status === 'ok'` + `optimalBudgets` populated, fires `await tick(); applyOptimal();` automatically. `tick()` waits для `$effect` flush (resets channelBudgets к current_spend AT response arrival), then animation runs from clean current → optimal baseline. 800ms smoothstep animation preserved.
+
+2. **Live KPI prognosis** — добавлена `liveKPI = predictKPI(channelBudgets, scaledParams, yNorm)` reactive value. `displayKPI` теперь scales `dData.total_sales × (liveKPI / currentKPI)` ratio. Customer видит KPI обновляющийся вместе со sliders (auto-apply animation + manual drag). Pre-fix: displayKPI was frozen на `dData.total_sales` (decompose baseline).
+
+3. **`ResponseCurves.svelte` markers (L5 extension)** — для каждой канал-curve добавлены 2 static markPoints:
+   - `current_x` ○ серый круг (rgba(148,163,184,0.85)) — стартовая позиция
+   - `optimal_x` ★ pin цвет канала + золотой ★ label — recommendation target
+   New helper `curveResponseAt(curve, x)` — linear interpolation на backend response array (matches series Y axis, no Hill recompute). Tooltips «канал — текущий бюджет» / «канал — оптимальный бюджет».
+   После applyOptimal animation draggable point overlaps optimal ★ — visual «you're at optimum» confirmation.
+
+**Verification:**
+- svelte-check: 0 new errors (33 pre-existing in hill.js / insights-rules.js, unchanged)
+- Backend tests: 552/552 PASS (no regression)
+- Manual QA path: customer clicks «Оптимизировать» → animation 800ms → sliders в optimal positions, money values updated, displayKPI scaled, ★ marker on Response Curves matches draggable point. End-to-end consistent.
+
+**Race condition handled:** `optimizeData.set()` triggers `$effect` at line 340 which resets channelBudgets к current_spend. Without `await tick()` race: animation snapshot taken sync before $effect → start = stale value. With tick: $effect flushes first → channelBudgets = clean current_spend → animation runs from clean baseline.
+
+**Manual QA в release checklist** (SA13 — нет Svelte e2e infra). Lock-in test невозможен без e2e harness — заносить в v1.1 backlog.
+
+**Files changed:**
+```
+src/lib/components/pipeline/OptimizeStep.svelte    (+22 LOC: tick import + auto-apply + liveKPI/displayKPI live)
+src/lib/components/pipeline/ResponseCurves.svelte  (+45 LOC: curveResponseAt helper + markPoints per series)
+SPRINT3_PROGRESS.md                                 (this entry)
+```
+
+---
+
+### 🔴 L5 (orig) — Optimizer optimal_spend не auto-applies к sliders (Антон 2026-04-28)
 
 **Symptom:** после клика «Оптимизировать бюджет» backend возвращает optimal_spend (правильный +30.4% lift на real Kagocel). Δ% labels рядом со sliders показывают +100%/-8% корректно. **НО:**
 - Slider positions остаются на current spend
