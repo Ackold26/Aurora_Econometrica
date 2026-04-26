@@ -64,6 +64,41 @@
   let errorMessage = $state(null);
   /** @type {boolean} */
   let budgetLocked = $state(true);
+
+  /** v1.0.16: state для collapsible expert disclosure под Optimize controls.
+   *  Default collapsed — customer notices availability через arrow icon, может
+   *  expand если нужны per-channel constraints. */
+  let expertExpanded = $state(false);
+  /** Forecast inflation overlay внутри Block C (What-if). Default closed —
+   *  customer открывает disclosure если хочет применить медиаинфляцию следующего
+   *  периода. Hydration inflation values gated на это, чтобы default forecast
+   *  не выполнялся automatically. */
+  let forecastExpanded = $state(false);
+  /** v1.0.16: applyInflation = «учесть инфляцию в сохраняемом сценарии».
+   *  Когда true — saveWhatIfAsScenario использует ucNew вместо unit_costs. */
+  let applyInflation = $state(false);
+  // ucOldMap / ucNewMap declared LATER (after `channels`) to avoid TDZ.
+
+  /** Bidirectional sync для global $expertMode и local disclosures.
+   *  Forward (global → local): customer click «Эксперт» в header → expand both.
+   *  Reverse (local → global): customer manually opens a disclosure → header
+   *  badge активируется, signaling expert mode active.
+   *  Cascade trade-off: открытие одного locally также раскрывает другое — это
+   *  acceptable «expert mode is all-or-nothing» semantics. */
+  $effect(() => {
+    if ($expertMode) {
+      expertExpanded = true;
+      forecastExpanded = true;
+    } else {
+      expertExpanded = false;
+      forecastExpanded = false;
+    }
+  });
+  $effect(() => {
+    const anyOpen = expertExpanded || forecastExpanded;
+    if (anyOpen && !$expertMode) expertMode.set(true);
+    else if (!anyOpen && $expertMode) expertMode.set(false);
+  });
   /** @type {boolean} */
   let playgroundOpen = $state(false);
   /** @type {number | null} */
@@ -207,6 +242,12 @@
     dData?.channels?.map(/** @type {(c: any) => string} */ (c) => c.name) ??
     []
   );
+
+  /** v1.0.16: derived inflation maps для inline overlay в Block C. */
+  const ucOldMap = $derived($unitCosts ?? {});
+  const ucNewMap = $derived(Object.fromEntries(channels.map((/** @type {string} */ ch) => [
+    ch, (ucOldMap[ch] ?? 1.0) * (1 + (channelInflation[ch] ?? 0) / 100)
+  ])));
 
   /** @type {Record<string, number>} current spend в НАТИВНЫХ единицах канала (raw).
    *  Hill-функции обучены на raw, поэтому слайдеры/scaledParams работают именно тут.
@@ -546,20 +587,37 @@
     whatIfError = null;
   }
 
-  /** Сохранить What-if result как именованный сценарий. */
-  async function saveWhatIfAsScenario() {
-    if (!whatIfResult?.channels) return;
+  /** Сохранить What-if result как именованный сценарий.
+   *  v1.0.16: optional unitCostsOverride — когда applyInflation=true,
+   *  передаётся ucNew (uc0 × (1+infl/100)), сценарий сохраняется с post-inflation
+   *  unit_costs. Backend econ_scenario принимает unit_costs для пересчёта money.
+   *  KPI прогноз не меняется — объём медиа preserved через media_plan.
+   *  @param {Record<string, number> | null} unitCostsOverride */
+  async function saveWhatIfAsScenario(unitCostsOverride = null) {
+    // v1.0.16: zero-scenario support — если whatIf не запущен но customer
+    // активировал applyInflation, сохраняется current allocation с inflation
+    // overlay. media_plan = current spend per channel (объём не меняется).
     const projectId = await ensureProjectId();
     if (!projectId) return;
     try {
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
       /** @type {Record<string, number[]>} */
       const mediaPlan = {};
-      for (const c of whatIfResult.channels) mediaPlan[c.name] = [c.optimal_spend ?? 0];
-      const name = `what-if-${Math.round(whatIfMult * 100)}pct-${Date.now().toString().slice(-6)}`;
-      const r = /** @type {any} */ (await invoke('econ_scenario', {
+      const sourceChannels = whatIfResult?.channels;
+      if (sourceChannels) {
+        for (const c of sourceChannels) mediaPlan[c.name] = [c.optimal_spend ?? 0];
+      } else {
+        // Zero scenario — use current allocation
+        for (const ch of channels) mediaPlan[ch] = [currentSpend[ch] ?? 0];
+      }
+      const inflTag = unitCostsOverride ? '-infl' : '';
+      const multTag = whatIfResult ? `${Math.round(whatIfMult * 100)}pct` : 'current';
+      const name = `what-if-${multTag}${inflTag}-${Date.now().toString().slice(-6)}`;
+      const payload = /** @type {any} */ ({
         projectDir, scenarioName: name, mediaPlan,
-      }));
+      });
+      if (unitCostsOverride) payload.unitCosts = unitCostsOverride;
+      const r = /** @type {any} */ (await invoke('econ_scenario', payload));
       if (r.status === 'ok') {
         whatIfSuccess = '✓ Сохранено как сценарий «' + name + '»';
         setTimeout(() => { whatIfSuccess = null; }, 3500);
@@ -579,9 +637,15 @@
     return INFLATION_DEFAULTS[/** @type {keyof typeof INFLATION_DEFAULTS} */ (cat)] ?? 8;
   }
 
-  // Hydrate channelInflation при появлении каналов.
+  // v1.0.16: Hydrate channelInflation ТОЛЬКО когда forecast блок expanded.
+  // Pre-fix: defaults (8% per category) populated automatically при появлении
+  // каналов — customer не активировал блок но «по-умолчанию» имел inflation
+  // recommendations, что можно интерпретировать как авто-расчёт без согласия.
+  // Post-fix: hydration deferred до момента когда customer открывает блок D
+  // (expert disclosure). До тех пор channelInflation = {} → forecast не
+  // выполняется автоматически.
   $effect(() => {
-    if (channels.length === 0) return;
+    if (!forecastExpanded || channels.length === 0) return;
     const next = /** @type {Record<string, number>} */ ({ ...channelInflation });
     let changed = false;
     for (const ch of channels) {
@@ -597,10 +661,6 @@
     forecastRunning = true;
     forecastError = null;
     try {
-      const projectId = await ensureProjectId();
-      if (!projectId) throw new Error('Проект не выбран');
-      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
-
       // Новые unit_costs: старые × (1 + inflation%).
       const uc0 = get(unitCosts) ?? {};
       /** @type {Record<string, number>} */
@@ -610,25 +670,63 @@
         const infl = (channelInflation[ch] ?? 0) / 100;
         ucNew[ch] = oldU * (1 + infl);
       }
-
-      // Режимы:
-      // 'volume' — сохраняем native объём (Σ native const) → money вырастет на инфляцию.
-      // 'budget' — сохраняем money (Σ native × new_uc == currentMoney), native упадёт.
-      //           Передаём backend total_budget_money, он применит money-constraint.
-      const currentNative = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0), 0);
       const currentMoney = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0) * (uc0[ch] ?? 1.0), 0);
 
-      /** @type {{ totalBudget: number | null, totalBudgetMoney: number | null }} */
-      const budgetParams = forecastMode === 'budget'
-        ? { totalBudget: null, totalBudgetMoney: currentMoney }
-        : { totalBudget: currentNative, totalBudgetMoney: null };
+      // ── Режим «Сохранить объём»: raw_spend per channel НЕ меняется ──
+      // v1.0.16 audit fix: pre-fix вызывал optimizer с native-budget constraint
+      // и maxPct=300 → optimizer redistributed allocation в новой экономике,
+      // показывал KPI lift +35%. Customer ожидал противоположного — объём
+      // медиа сохраняется, цена растёт, KPI = неизменный (Hill saturation на
+      // raw_spend которые остались прежними). Fix: skip optimizer для volume
+      // mode, build static result локально (per-channel raw_spend = current,
+      // money = raw × ucNew, lift_pct = 0).
+      if (forecastMode === 'volume') {
+        const newMoneyTotal = channels.reduce(
+          (s, ch) => s + (currentSpend[ch] ?? 0) * (ucNew[ch] ?? 1.0), 0
+        );
+        const channelsResult = channels.map((ch) => {
+          const raw = currentSpend[ch] ?? 0;
+          const oldMoney = raw * (uc0[ch] ?? 1.0);
+          const newMoney = raw * (ucNew[ch] ?? 1.0);
+          return {
+            name: ch,
+            current_spend: raw,
+            optimal_spend: raw, // объём не меняется
+            current_spend_money: oldMoney,
+            optimal_spend_money: newMoney,
+            unit_cost: ucNew[ch] ?? 1.0,
+            delta_pct: 0,
+          };
+        });
+        forecastResult = {
+          status: 'ok',
+          mode: 'volume',
+          ucOld: uc0,
+          ucNew,
+          currentMoney,
+          total_budget_money: newMoneyTotal,
+          expected_lift_pct: 0, // KPI не меняется при сохранении объёма
+          channels: channelsResult,
+          insight: (
+            `При сохранении медиа-объёма потребуется ${(newMoneyTotal / 1e6).toFixed(1)} млн ₽ ` +
+            `(было ${(currentMoney / 1e6).toFixed(1)} млн ₽, рост ${((newMoneyTotal / Math.max(currentMoney, 1) - 1) * 100).toFixed(1)}%). ` +
+            `KPI остаётся прежним — медиа-объём (TRP/показы) не изменился, выросли лишь закупочные цены.`
+          ),
+        };
+        return;
+      }
 
-      // Расширенные bounds — инфляция меняет экономику каналов, оптимизатору
-      // нужна свобода перекладывать бюджет сильнее ±50%.
+      // ── Режим «Сохранить бюджет»: total money = currentMoney, optimizer ──
+      // redistributes raw_spend per channel. Объём упадёт (меньше единиц
+      // медиа на ту же сумму при выросших ценах), KPI снизится через Hill.
+      const projectId = await ensureProjectId();
+      if (!projectId) throw new Error('Проект не выбран');
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
-        totalBudget: budgetParams.totalBudget,
-        totalBudgetMoney: budgetParams.totalBudgetMoney,
+        totalBudget: null,
+        totalBudgetMoney: currentMoney,
         minPct: 0,
         maxPct: 300,
         minPerChannel: null,
@@ -936,24 +1034,24 @@
       <div class="controls-row">
         <label class="ctrl-label">
           <span class="ctrl-name">Мин. %<span class="help-icon" title={HELP.minPct}>?</span></span>
-          <input type="range" min={10} max={100} step={5} bind:value={minPct} class="mini-slider" />
+          <input type="range" min={0} max={100} step={5} bind:value={minPct} class="mini-slider" />
           <span class="mini-val">{minPct}%</span>
         </label>
         <label class="ctrl-label">
           <span class="ctrl-name">Макс. %<span class="help-icon" title={HELP.maxPct}>?</span></span>
-          <input type="range" min={100} max={300} step={10} bind:value={maxPct} class="mini-slider" />
+          <input type="range" min={100} max={500} step={10} bind:value={maxPct} class="mini-slider" />
           <span class="mini-val">{maxPct}%</span>
         </label>
-        <!-- L9 (math-fix v1.4 Section C, 2026-04-29): disabled до v1.1.
-             Pre-fix: checkbox активен и переключал budget mode, но free-budget
-             implementation incomplete (validation gaps, untested paths). UX
-             promise > delivery. Disabled с tooltip объясняет deferral.
-             Backend forward-compat: OptimizeRequest.budget_mode='fixed' default
-             rejects 'free' с TODO error. -->
-        <label class="lock-label" title="Запланировано в v1.1 — оптимизатор пока всегда сохраняет бюджет (фиксированный режим)">
-          <input type="checkbox" bind:checked={budgetLocked} class="lock-check" disabled />
-          <span class="lock-text-disabled">Фиксировать бюджет<span class="help-icon" title={HELP.lockBudget}>?</span></span>
-        </label>
+        <!-- L9 final (math-fix v1.4 Section C, 2026-04-29): UI-control скрыт до
+             v1.1. Pre-fix v1.0.15: checkbox активен, переключал budget mode но
+             free-budget implementation incomplete. v1.0.16 Day 4: disabled с
+             tooltip — UX дискомфорт (customer видит control без возможности
+             использовать). Final v1.0.16: скрыт полностью, backend всегда
+             получает budget_mode='fixed' (default). Возвращаем в UI когда
+             true free-budget mode будет реализован в v1.1 (~16-24h работы:
+             optimizer math + small-data validation + UX paths).
+             budgetLocked store сохранён к Day 4 default (true) — passes к
+             BudgetOptimizer locked prop без визуального selector. -->
         <button
           class="btn-run"
           onclick={runOptimize}
@@ -988,12 +1086,24 @@
     {/if}
 
     <!-- Экспертный режим: per-channel ограничения Мин/Макс -->
-    {#if $expertMode && channels.length > 0}
-      <div class="expert-limits">
-        <div class="expert-header">
+    <!-- v1.0.16: collapsible expert disclosure (visible to all users, not gated
+         to global $expertMode). Default collapsed — customer notices availability
+         через arrow icon. Click expand → per-channel Min/Max + preset buttons.
+         Same info-toggle pattern как ReportStep cover letter / interpretation. -->
+    {#if channels.length > 0}
+      <details class="expert-disclosure" open={expertExpanded} ontoggle={(/** @type {any} */ e) => expertExpanded = e.currentTarget.open}>
+        <summary class="expert-toggle">
+          <span class="expert-arrow">▸</span>
           <span class="expert-badge">ЭКСПЕРТ</span>
-          <h4 class="expert-title">Ограничения по каналам</h4>
-          <span class="expert-subtitle">— разные пределы изменения для каждого канала (баинговые сделки, фиксированные контракты и т.д.)</span>
+          <span class="expert-toggle-title">Ограничения по каналам</span>
+          <span class="expert-toggle-hint">— per-channel Мин/Макс для баинговых сделок и фиксированных контрактов</span>
+          {#if overrideCount > 0}
+            <span class="expert-toggle-count">{overrideCount} активных</span>
+          {/if}
+        </summary>
+        <div class="expert-disclosure-body">
+        <div class="expert-header">
+          <span class="expert-subtitle">Глобальные Мин/Макс выше применяются ко всем каналам по умолчанию. Здесь — индивидуальные ограничения для каждого канала.</span>
           <button class="btn-reset-limits" onclick={resetChannelLimits} title="Сбросить все на глобальные Мин/Макс">↺ Сбросить</button>
         </div>
         <div class="limits-table">
@@ -1046,9 +1156,10 @@
         </div>
         <p class="expert-hint">
           <span class="help-icon" title="Зафиксирован: годовая сделка, бюджет неизменен. Только ↑: фиксированный минимум, можно увеличивать. Только ↓: бюджет ограничен сверху, можно сокращать. Гибкий: ±50%. Свободно: без ограничений.">?</span>
-          Глобальные Мин/Макс выше применяются ко всем каналам по умолчанию. Здесь можно переопределить для каждого канала отдельно — пресеты как быстрая точка старта.
+          Пресеты — быстрая точка старта; ручной ввод даёт полный контроль.
         </p>
-      </div>
+        </div>
+      </details>
     {/if}
 
     <!-- L7 (math-fix v1.4 Section C, 2026-04-29): edge-case banners для honest
@@ -1246,7 +1357,22 @@
         <div class="inline-success">{whatIfSuccess}</div>
       {/if}
 
-      {#if whatIfResult}
+      <!-- v1.0.16: compare-row visible всегда (когда есть channels). Levels:
+           1. baseline: показывается только Current cell
+           2. + whatIfResult: добавляется Right cell с New budget
+           3. + applyInflation: Right cell shows inflated total
+           4. whatIfResult + applyInflation: Right cell shows New + inflation. -->
+      {#if channels.length > 0}
+        {@const inflatedOptimal = whatIfResult?.channels
+          ? whatIfResult.channels.reduce((/** @type {number} */ s, /** @type {any} */ c) =>
+              s + (c.optimal_spend ?? 0) * (ucNewMap[c.name] ?? 1.0), 0)
+          : 0}
+        {@const inflatedCurrent = channels.reduce((/** @type {number} */ s, /** @type {string} */ ch) =>
+          s + (currentSpend[ch] ?? 0) * (ucNewMap[ch] ?? 1.0), 0)}
+        {@const rightTotal = whatIfResult
+          ? (applyInflation ? inflatedOptimal : newMoney)
+          : (applyInflation ? inflatedCurrent : null)}
+        {@const showRight = rightTotal != null}
         <div class="whatif-compare">
           <div class="compare-row">
             <div class="compare-cell">
@@ -1254,144 +1380,120 @@
               <div class="compare-value">{fmtBudget(curMoney)}</div>
               <div class="compare-sub">KPI: {fmtBudget(dData?.total_sales ?? 0)}</div>
             </div>
-            <div class="compare-arrow">→</div>
-            <div class="compare-cell highlight">
-              <div class="compare-label">Новый бюджет</div>
-              <div class="compare-value">{fmtBudget(newMoney)}</div>
-              <div class="compare-sub">
-                KPI: {fmtBudget(whatIfKPI ?? 0)}
-                <span class="lift" class:positive={whatIfResult.expected_lift_pct > 0} class:negative={whatIfResult.expected_lift_pct < 0}>
-                  ({whatIfResult.expected_lift_pct > 0 ? '+' : ''}{whatIfResult.expected_lift_pct.toFixed(1)}%)
-                </span>
+            {#if showRight}
+              <div class="compare-arrow">→</div>
+              <div class="compare-cell highlight">
+                <div class="compare-label">
+                  {#if whatIfResult}Новый бюджет{:else}С учётом инфляции{/if}{#if applyInflation && whatIfResult} <span class="inflation-tag">+ инфляция</span>{/if}
+                </div>
+                <div class="compare-value">{fmtBudget(rightTotal)}</div>
+                <div class="compare-sub">
+                  {#if whatIfResult}
+                    KPI: {fmtBudget(whatIfKPI ?? 0)}
+                    <span class="lift" class:positive={whatIfResult.expected_lift_pct > 0} class:negative={whatIfResult.expected_lift_pct < 0}>
+                      ({whatIfResult.expected_lift_pct > 0 ? '+' : ''}{whatIfResult.expected_lift_pct.toFixed(1)}%)
+                    </span>
+                    {#if applyInflation && (inflatedOptimal - newMoney) > 0}
+                      <span class="inflation-extra">+ {fmtBudget(inflatedOptimal - newMoney)} на инфляцию (без изменения KPI)</span>
+                    {/if}
+                  {:else}
+                    KPI: {fmtBudget(dData?.total_sales ?? 0)} <span class="inflation-extra">— без изменений (объём медиа сохранён)</span>
+                  {/if}
+                </div>
               </div>
+            {/if}
+          </div>
+          {#if whatIfResult?.insight}
+            <div class="whatif-insight">{whatIfResult.insight}</div>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- v1.0.16: интегрированный inflation overlay (был Block D). Customer
+           опционально активирует — учёт медиа-инфляции на следующий период.
+           Объём медиа не меняется → KPI не меняется. Растёт лишь бюджет
+           (CPP/CPM × 1+infl). Сохраняется в сценарии если флаг включён.
+           Disclosure visible всегда — customer может настроить inflation
+           заранее, до запуска what-if. Save button — только после whatIfResult. -->
+      <details class="forecast-inline expert-disclosure" open={forecastExpanded} ontoggle={(/** @type {any} */ e) => forecastExpanded = e.currentTarget.open}>
+        <summary class="forecast-inline-summary expert-toggle">
+          <span class="forecast-arrow expert-arrow">▸</span>
+          <span class="expert-badge">ЭКСПЕРТ</span>
+          <span class="forecast-inline-icon">📈</span>
+          <span class="forecast-inline-title expert-toggle-title">Учесть инфляцию следующего периода</span>
+          <span class="forecast-inline-hint expert-toggle-hint">— объём не меняется, цены растут</span>
+        </summary>
+        <div class="forecast-inline-body expert-disclosure-body">
+          <label class="apply-inflation-toggle">
+            <input type="checkbox" bind:checked={applyInflation} />
+            <span><strong>Применить медиаинфляцию на следующий период</strong></span>
+          </label>
+          <div class="forecast-table">
+            <div class="forecast-head">
+              <div class="fc-name">Канал</div>
+              <div class="fc-infl">Инфляция %</div>
+              <div class="fc-cpp">Новый CPP / эффект</div>
             </div>
+            {#each channels as ch}
+              {@const oldU = ucOldMap[ch] ?? 1.0}
+              {@const infl = channelInflation[ch] ?? 0}
+              {@const newU = oldU * (1 + infl / 100)}
+              <div class="forecast-row">
+                <div class="fc-name">{ch}</div>
+                <div class="fc-infl">
+                  <input type="number" class="fc-input" min={0} max={100} step={1} value={infl}
+                    oninput={(/** @type {any} */ e) => channelInflation = { ...channelInflation, [ch]: Number(e.target.value) }} />
+                  <span class="fc-pct">%</span>
+                </div>
+                <div class="fc-cpp">
+                  {#if oldU > 1.0}
+                    {fmtBudget(newU)} <span class="fc-cpp-old">(было {fmtBudget(oldU)})</span>
+                  {:else if infl > 0}
+                    <span class="fc-cpp-money" title="Канал в деньгах — инфляция прибавляет к самому бюджету">+{infl}% к бюджету</span>
+                  {:else}—{/if}
+                </div>
+              </div>
+            {/each}
           </div>
-          <div class="whatif-insight">{whatIfResult.insight}</div>
-          <div>
-            <button class="btn-save-scenario" onclick={saveWhatIfAsScenario}>💾 Сохранить как сценарий</button>
-          </div>
+          <p class="forecast-inline-note">
+            <span class="help-icon" title="Объём медиа (TRP/показы/клики) остаётся прежним — Hill saturation возвращает тот же эффект → KPI не меняется. Растёт лишь сумма в рублях из-за подорожания закупок.">?</span>
+            Средняя инфляция: <b>+{avgInflation.toFixed(0)}%</b>. KPI не меняется при сохранении объёма; меняется только сумма бюджета на следующий период.
+          </p>
+        </div>
+      </details>
+
+      <!-- v1.0.16: save scenario доступно даже при «нулевом» what-if (slider=1.0)
+           если applyInflation активирован — customer может сохранить current
+           allocation + inflation как сценарий следующего периода без необходимости
+           двигать бюджет. -->
+      {#if whatIfResult || (applyInflation && channels.length > 0)}
+        <div class="whatif-save-row">
+          <button
+            class="btn-save-scenario"
+            onclick={() => saveWhatIfAsScenario(applyInflation ? ucNewMap : null)}
+            disabled={!whatIfResult && !applyInflation}
+          >
+            💾 Сохранить как сценарий {#if applyInflation}(с инфляцией){/if}
+          </button>
+          {#if !whatIfResult && applyInflation}
+            <span class="save-hint">Сохранится текущая аллокация с поправкой на медиаинфляцию следующего периода</span>
+          {/if}
         </div>
       {/if}
     </section>
   {/if}
 
-  <!-- ════════════════ БЛОК D — Прогноз на будущий период (медиаинфляция) ════════════════ -->
-  {#if channels.length > 0}
-    <section class="block block-forecast">
-      <div class="block-header">
-        <span class="block-letter">D</span>
-        <h3 class="block-title">Прогноз на будущий период</h3>
-        <span class="block-subtitle">— с учётом медиаинфляции по каналам</span>
-      </div>
-
-      <div class="forecast-mode">
-        <label class="mode-radio">
-          <input type="radio" name="forecast-mode" value="volume" bind:group={forecastMode} />
-          <span>Сохранить объём</span>
-          <span class="mode-hint">— нужно больше денег</span>
-        </label>
-        <label class="mode-radio">
-          <input type="radio" name="forecast-mode" value="budget" bind:group={forecastMode} />
-          <span>Сохранить бюджет</span>
-          <span class="mode-hint">— объём упадёт, оптимум пересчитается</span>
-        </label>
-      </div>
-
-      <div class="forecast-table">
-        <div class="forecast-head">
-          <div class="fc-name">Канал</div>
-          <div class="fc-infl">Инфляция %</div>
-          <div class="fc-cpp">Новый CPP</div>
-        </div>
-        {#each channels as ch}
-          {@const oldU = ($unitCosts?.[ch]) ?? 1.0}
-          {@const infl = (channelInflation[ch] ?? 0)}
-          {@const newU = oldU * (1 + infl / 100)}
-          <div class="forecast-row">
-            <div class="fc-name">{ch}</div>
-            <div class="fc-infl">
-              <input
-                type="number"
-                class="fc-input"
-                min={0}
-                max={100}
-                step={1}
-                value={infl}
-                oninput={(/** @type {any} */ e) => channelInflation = { ...channelInflation, [ch]: Number(e.target.value) }}
-              /><span class="fc-pct">%</span>
-            </div>
-            <div class="fc-cpp">
-              {#if oldU > 1.0}
-                {fmtBudget(newU)} <span class="fc-cpp-old">(было {fmtBudget(oldU)})</span>
-              {:else if infl > 0}
-                <span class="fc-cpp-money" title="Канал уже в деньгах — инфляция повышает сам бюджет канала">+{infl}% к бюджету</span>
-              {:else}
-                —
-              {/if}
-            </div>
-          </div>
-        {/each}
-      </div>
-
-      <div class="forecast-actions">
-        <button class="btn-run" onclick={runForecast} disabled={forecastRunning}>
-          {forecastRunning ? 'Считаю…' : 'Построить прогноз'}
-        </button>
-        <button class="btn-reset-sm" onclick={resetForecast} disabled={forecastRunning}>↺ Сбросить</button>
-        <span class="forecast-avg">Средняя инфляция: <b>+{avgInflation.toFixed(0)}%</b></span>
-      </div>
-
-      {#if forecastError}
-        <div class="inline-error">⚠ {forecastError}</div>
-      {/if}
-      {#if forecastSuccess}
-        <div class="inline-success">{forecastSuccess}</div>
-      {/if}
-
-      {#if forecastResult}
-        {@const curMoney = forecastResult.currentMoney}
-        {@const newMoney = forecastResult.total_budget_money ?? forecastResult.total_budget}
-        {@const deltaMoney = newMoney - curMoney}
-        {@const forecastKPI = dData?.total_sales
-          ? dData.total_sales * (1 + (forecastResult.expected_lift_pct ?? 0) / 100)
-          : 0}
-        <div class="whatif-compare">
-          <div class="compare-row">
-            <div class="compare-cell">
-              <div class="compare-label">Сейчас</div>
-              <div class="compare-value">{fmtBudget(curMoney)}</div>
-              <div class="compare-sub">KPI: {fmtBudget(dData?.total_sales ?? 0)}</div>
-            </div>
-            <div class="compare-arrow">→</div>
-            <div class="compare-cell highlight">
-              <div class="compare-label">После инфляции ({forecastMode === 'volume' ? 'объём сохранён' : 'бюджет сохранён'})</div>
-              <div class="compare-value">{fmtBudget(newMoney)}
-                <span class="lift" class:positive={deltaMoney > 0} class:negative={deltaMoney < 0}>
-                  ({deltaMoney > 0 ? '+' : ''}{fmtBudget(Math.abs(deltaMoney))})
-                </span>
-              </div>
-              <div class="compare-sub">
-                KPI: {fmtBudget(forecastKPI)}
-                <span class="lift" class:positive={forecastResult.expected_lift_pct > 0} class:negative={forecastResult.expected_lift_pct < 0}>
-                  ({forecastResult.expected_lift_pct > 0 ? '+' : ''}{forecastResult.expected_lift_pct.toFixed(1)}%)
-                </span>
-              </div>
-            </div>
-          </div>
-          <div class="whatif-insight">{forecastResult.insight}</div>
-          <div>
-            <button class="btn-save-scenario" onclick={saveForecastAsScenario}>💾 Сохранить как сценарий</button>
-          </div>
-        </div>
-      {/if}
-    </section>
-  {/if}
+  <!-- v1.0.16: standalone Block D «Прогноз на будущий период» удалён —
+       функциональность интегрирована в Block C What-if как опциональный
+       inflation overlay над «Сохранить как сценарий». Customer выбирает учёт
+       инфляции на уровне сценария. expectedLiftPct=0 при volume mode (Hill
+       saturation на raw_spend = unchanged → KPI = unchanged). -->
 
   <!-- ════════════════ Сценарии (постоянно видимы, переедут в Phase 5) ════════════════ -->
   {#if channels.length > 0}
     <section class="block block-scenarios">
       <div class="block-header">
-        <span class="block-letter">E</span>
+        <span class="block-letter">D</span>
         <h3 class="block-title">Сценарный анализ</h3>
         <span class="block-subtitle">— что будет, если изменить бюджет канала на N%?</span>
         <button
@@ -1774,7 +1876,125 @@
   .status-traffic { display: flex; gap: 10px; font-size: 14px; }
   .traffic-good, .traffic-ok, .traffic-low { font-weight: 600; cursor: help; }
 
-  /* ── Экспертная панель per-channel ограничений ───────────── */
+  /* v1.0.16: Block D collapsible (Прогноз на будущий период) */
+  .forecast-disclosure { padding: 0; overflow: hidden; }
+  .forecast-disclosure[open] .forecast-arrow { transform: rotate(90deg); }
+  .forecast-summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+    padding: 16px 18px;
+  }
+  .forecast-summary::-webkit-details-marker { display: none; }
+  .forecast-summary:hover { background: color-mix(in srgb, var(--accent-primary, #3b82f6) 4%, transparent); }
+  .forecast-arrow {
+    font-size: 12px;
+    color: var(--text-muted, #94a3b8);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+    margin-right: 6px;
+  }
+  .forecast-expert-badge {
+    margin-left: auto;
+    padding: 2px 8px;
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    color: var(--danger);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    border-radius: 4px;
+  }
+  .forecast-disclosure > .forecast-mode,
+  .forecast-disclosure > .forecast-table,
+  .forecast-disclosure > .forecast-actions,
+  .forecast-disclosure > .whatif-compare,
+  .forecast-disclosure > .inline-error,
+  .forecast-disclosure > .inline-success { padding: 0 18px; }
+  .forecast-disclosure > .forecast-actions { padding-bottom: 18px; }
+
+  /* v1.0.16: collapsible expert disclosure — visible to all, default closed */
+  .expert-disclosure {
+    margin-top: 4px;
+    border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--danger) 4%, transparent);
+    overflow: hidden;
+  }
+  .expert-disclosure[open] .expert-arrow { transform: rotate(90deg); }
+  .expert-toggle {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    user-select: none;
+    transition: background 0.15s ease;
+  }
+  .expert-toggle::-webkit-details-marker { display: none; }
+  .expert-toggle:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
+  .expert-arrow {
+    font-size: 12px;
+    color: var(--text-muted, #94a3b8);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+  }
+  .expert-toggle-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .expert-toggle-hint {
+    font-size: 12px;
+    color: var(--text-muted, #94a3b8);
+    flex: 1;
+  }
+  .expert-toggle-count {
+    padding: 2px 8px;
+    background: color-mix(in srgb, #f97316 18%, transparent);
+    border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
+    border-radius: 12px;
+    color: #fed7aa;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .expert-disclosure-body {
+    padding: 0 16px 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid color-mix(in srgb, var(--danger) 15%, transparent);
+    padding-top: 14px;
+  }
+
+  /* v1.0.16: apply-inflation toggle — выделено отступом сверху чтобы не сливаться
+     с заголовком disclosure (было слишком близко к summary line). */
+  .apply-inflation-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .apply-inflation-toggle input[type="checkbox"] {
+    width: 16px; height: 16px;
+    accent-color: var(--danger);
+    cursor: pointer;
+  }
+  .apply-inflation-toggle:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .apply-inflation-toggle strong { font-weight: 600; }
+
+  /* ── Экспертная панель per-channel ограничений (legacy class, сохранён) ──── */
   .expert-limits {
     display: flex;
     flex-direction: column;

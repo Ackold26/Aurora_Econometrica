@@ -78,9 +78,18 @@
   let shape = $state(null);
   let sizeKb = $state(0);
 
-  /** v1.0.16: derived helpers для engine selector recommendation badge. */
+  /** v1.0.16: derived helpers для engine selector. */
   const nRows = $derived(/** @type {{rows: number} | null} */ (shape)?.rows ?? previewRows.length);
   const recommendOls = $derived(nRows > 0 && nRows < 30);
+
+  /** v1.0.16: автоматический выбор движка на основе объёма данных.
+   *  n<30 → OLS (small-data), n≥30 → Bayesian. Customer не управляет вручную —
+   *  система делает выбор сама, чтобы избежать неправильного соотношения engine
+   *  к данным. */
+  $effect(() => {
+    if (nRows <= 0) return;
+    modelEngine.set(recommendOls ? 'ols' : 'bayesian');
+  });
 
   // Restore from memory store on mount (A4: data is memory-only)
   const stored = get(importData);
@@ -393,55 +402,30 @@
         emptyMessage="Нет данных для отображения"
       />
 
-      <!-- v1.0.16: Модель-движок selector. Auto-recommend на основе n_rows:
-           <30 → OLS (closed-form, frequentist CI, fast),
-           ≥30 → Bayesian (full NUTS posterior, ~20-60s train).
-           Customer override allowed — radio + recommendation hint. -->
-      <div class="engine-selector">
-        <h4 class="engine-title">Тип модели для обучения</h4>
-        <div class="engine-options">
-          <label class="engine-radio" class:active={$modelEngine === 'bayesian'}>
-            <input
-              type="radio"
-              name="model-engine"
-              value="bayesian"
-              checked={$modelEngine === 'bayesian'}
-              onchange={() => modelEngine.set('bayesian')}
-            />
-            <div class="engine-content">
-              <div class="engine-label">
-                <span class="engine-icon">🎯</span>
-                Полная (Bayesian MMM)
-                {#if !recommendOls}<span class="engine-recommend">рекомендуется</span>{/if}
-              </div>
-              <p class="engine-desc">
-                NUTS-сэмплер NumPyro · полный posterior · доверительные интервалы для ROI · ~20-60 сек обучение.
-                Для устойчивых решений по перераспределению бюджета.
-              </p>
-            </div>
-          </label>
-          <label class="engine-radio" class:active={$modelEngine === 'ols'}>
-            <input
-              type="radio"
-              name="model-engine"
-              value="ols"
-              checked={$modelEngine === 'ols'}
-              onchange={() => modelEngine.set('ols')}
-            />
-            <div class="engine-content">
-              <div class="engine-label">
-                <span class="engine-icon">⚡</span>
-                Упрощённая (OLS)
-                {#if recommendOls}<span class="engine-recommend">рекомендуется для {nRows} строк</span>{/if}
-              </div>
-              <p class="engine-desc">
-                Closed-form regression · frequentist CI через bootstrap · ~2-5 сек.
-                Для small-data сценариев (n&lt;30) где Bayesian funnel'ы и divergences вероятны.
-                Honest disclosure: «модель обучена на ограниченных данных, β с широкими bounds».
-              </p>
-            </div>
-          </label>
+      <!-- v1.0.16: автоматический выбор движка на основе n_rows.
+           n<30 → OLS (small-data fallback, closed-form, ~2-5 сек),
+           n≥30 → Bayesian (full NUTS posterior, ~20-60 сек).
+           Без manual override — система выбирает сама, чтобы избежать
+           некорректного соотношения движка и объёма данных. -->
+      <div class="engine-auto">
+        <div class="engine-auto-header">
+          <span class="engine-auto-icon">{$modelEngine === 'bayesian' ? '🎯' : '⚡'}</span>
+          <div class="engine-auto-title">
+            Тип модели для обучения:
+            <strong>{$modelEngine === 'bayesian' ? 'Полное Bayesian MMM' : 'Упрощённое OLS-MMM'}</strong>
+            <span class="engine-auto-badge">выбрано автоматически по {nRows} наблюдениям</span>
+          </div>
         </div>
+        {#if $modelEngine === 'bayesian'}
+          <p class="engine-desc">
+            Объёма данных достаточно для применения Bayesian-моделирования — <strong>золотого стандарта в современной MMM-эконометрике</strong>.<br />
+            NUTS-сэмплер (NumPyro) оценивает полное апостериорное распределение для параметров каждого канала, обеспечивая корректные доверительные интервалы ROI и mROAS, устойчивость к выбросам и калиброванную неопределённость для рекомендаций. Подходит для решений с финансовыми последствиями.
+          </p>
+        {:else}
+          <p class="engine-desc">
+            Оптимально для <strong>small-data сценариев</strong> (менее 30 наблюдений), где Bayesian-сэмплер сталкивается с нехваткой данных для устойчивой оценки posterior. OLS-регрессия с аналитическим решением и bootstrap-доверительными интервалами (частотный подход): численно стабильное решение ценой статистической мощности. Подходит для пилотных проектов и предварительного анализа. <em>Рекомендации следует трактовать как направление, а не точное число.</em>
+          </p>
+        {/if}
       </div>
 
       <button
@@ -677,7 +661,47 @@
   }
   .quick-btn:hover { opacity: 0.85; }
 
-  /* v1.0.16: Engine selector (Bayesian / OLS) */
+  /* v1.0.16: Engine auto-selection info card (Bayesian / OLS, no manual override) */
+  .engine-auto {
+    margin-top: 16px;
+    padding: 16px 18px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
+    border-radius: 10px;
+  }
+  .engine-auto-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .engine-auto-icon { font-size: 22px; flex-shrink: 0; }
+  .engine-auto-title {
+    flex: 1;
+    font-size: 13.5px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.5;
+  }
+  .engine-auto-title strong {
+    color: var(--text-primary, #e2e8f0);
+    font-weight: 600;
+    margin: 0 4px;
+  }
+  .engine-auto-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 8px;
+    background: color-mix(in srgb, var(--success, #22c55e) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #22c55e) 30%, transparent);
+    border-radius: 12px;
+    color: #4ade80;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+
+  /* legacy selector classes (unused after v1.0.16 auto-selection refactor)
+     kept for CSS compatibility — to remove in next cleanup pass */
   .engine-selector {
     margin-top: 16px;
     padding: 16px 18px;
