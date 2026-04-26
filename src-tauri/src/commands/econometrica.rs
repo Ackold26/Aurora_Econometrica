@@ -312,6 +312,50 @@ pub async fn econ_export_html(
     post_json("/export/html", &body, quick_client()).await
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Sprint 3 Pharma Causal — frontend invokers (per ADR §1 EXTEND-not-rewrite)
+// All causal endpoints вызываются через единый pass-through pattern: frontend
+// builds request JSON, Rust forwards to FastAPI sidecar, returns Value verbatim.
+// ──────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn econ_causal_preflight(config: Value) -> Result<Value, String> {
+    info!("econ_causal_preflight");
+    post_json("/compute/causal/preflight", &config, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_causal_list(project_dir: String) -> Result<Value, String> {
+    info!("econ_causal_list: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/causal/list", &body, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_causal_consistency(project_dir: String) -> Result<Value, String> {
+    info!("econ_causal_consistency: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/causal/consistency", &body, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_causal_did(config: Value) -> Result<Value, String> {
+    info!("econ_causal_did");
+    post_json("/compute/causal/did", &config, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_causal_scm(config: Value) -> Result<Value, String> {
+    info!("econ_causal_scm");
+    post_json("/compute/causal/scm", &config, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_causal_forest(config: Value) -> Result<Value, String> {
+    info!("econ_causal_forest");
+    post_json("/compute/causal/forest", &config, quick_client()).await
+}
+
 // ── Helper ───────────────────────────────────────────
 
 /// POST with auto-recovery:

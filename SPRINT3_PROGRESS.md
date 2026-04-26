@@ -8,7 +8,19 @@
 
 ## Current task
 
-**🟢 SPRINT 3 BACKEND M0-M4 ALL DONE.** Ready для Pre-Ship gate (SBC + audit + UI live-test) before v1.0.14.
+**🟢 SPRINT 3 BACKEND M0-M4 + UI TRACK ALL DONE.** Ready для Pre-Ship gate (SBC + independent audit) before v1.0.14.
+
+**UI Track (Causal cabinet route):**
+- `src/routes/causal/+page.svelte` — main route с sticky header (v1.0.14 honest caveat banner) + 2-column grid (form + result) + footer (artifact list)
+- `src/lib/components/causal/CausalMethodForm.svelte` — dynamic form для DiD/SCM/Forest с conditional fields
+- `src/lib/components/causal/CausalResultCard.svelte` — uniform result display (ATT card с tone-coded CI + honest_disclosure block + method-specific diagnostics)
+- `src/lib/components/causal/CausalArtifactList.svelte` — history view + cross-method consistency button с triangulation verdict (good/warn/bad/neutral)
+- `src-tauri/src/commands/econometrica.rs` — 6 new pass-through Tauri commands
+- Home page (`/`) gets new "Причинность →" button когда active project выбран
+
+Honest caveat banner на page header (v1.0.14 ship): "backend validated на synthetic data + DGP-controlled ground truth recovery. Real-customer geo-disaggregated validation запланирован в v1.0.15..."
+
+**Quality:** 0 causal-specific Svelte type errors, Rust compiles clean (cargo check 22s).
 
 Total: 5 commits + 488/488 tests PASS.
 

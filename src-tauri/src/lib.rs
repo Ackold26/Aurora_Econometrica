@@ -3219,6 +3219,13 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_export_pptx,
             commands::econometrica::econ_export_html,
             commands::econometrica::econ_adstock_select,
+            // Sprint 3 Pharma Causal — 6 endpoints pass-through
+            commands::econometrica::econ_causal_preflight,
+            commands::econometrica::econ_causal_list,
+            commands::econometrica::econ_causal_consistency,
+            commands::econometrica::econ_causal_did,
+            commands::econometrica::econ_causal_scm,
+            commands::econometrica::econ_causal_forest,
             // Project management commands
             commands::project::project_list,
             commands::project::project_create,

@@ -347,6 +347,15 @@
             >
               Новый проект
             </button>
+            {#if $activeProject}
+              <button
+                class="pipeline-promo-btn pipeline-promo-secondary"
+                onclick={() => goto('/causal')}
+                title="Sprint 3 Pharma Causal — DiD / SCM / Causal Forest"
+              >
+                Причинность →
+              </button>
+            {/if}
           </div>
         </div>
       </div>
