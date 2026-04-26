@@ -1647,7 +1647,11 @@
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 12px;
     overflow: hidden;
+    margin-top: 12px;
   }
+  /* v1.0.16: also gap для format-cards row vs info-blocks below — раньше
+     блоки слипались плотно. */
+  .format-cards { margin-bottom: 4px; }
   .info-toggle {
     display: flex;
     align-items: center;
