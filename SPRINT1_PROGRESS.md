@@ -1,9 +1,9 @@
 # Sprint 1 Foundation — Live Progress (resume after compress)
 
-**Last updated:** 2026-04-26 ~19:30 — Phase 1.9 backend + Phase 1.1 pilot DONE
+**Last updated:** 2026-04-26 ~20:00 — Phase 1.9 backend E2E verified + Phase 1.1 pilot done
 **Branch:** `math-fix-v1.0.13`
-**Active phase:** Phase 1.9 backend complete + Phase 1.1 pilot empirical validation done
-**HEAD:** `3929ce6` (Phase 1.1 pilot results)
+**Active phase:** Phase 1.9 backend COMPLETE (E2E verified on synthetic) + Phase 1.1 pilot validated logit-normal
+**HEAD:** `2269d10` (E2E demo smoke test)
 
 > **If you read this after a compress:** continue from "Next concrete step" below WITHOUT confirmation per Антон's protocol 2026-04-26. Only stop for: architecture decisions, push to remote, fundamental schema migration. Auto-commit local OK. Show diff before push.
 
@@ -52,6 +52,12 @@
 |---|---|---|
 | Pilot script | `91677c2` | tools/pilot_phase11_hierarchy.py — logit-normal vs Beta-Beta synthetic test framework |
 | Pilot results | `3929ce6` | docs/PHASE_1_1_PILOT_RESULTS.md — empirical validation of ADR §3.A1 logit-normal default |
+| Progress | `8c5415e` | SPRINT1_PROGRESS.md update with pilot table |
+| **E2E demo** | `2269d10` | tools/demo_phase1_9_e2e.py — synthetic pickle → decompose/scenario CI verified |
+
+**E2E demo result:**
+- v1.1.5 with samples (502 KB pickle): roi_ci [0.41, 0.82], predicted_kpi_ci [5359, 5728], roas_ci [0.20, 0.27], lift_pct_ci [18.6, 25.1] ✅
+- v1.1 legacy (1.6 KB pickle): graceful fallback, no CI fields, no crashes ✅
 
 **Pilot quick-mode result (n=36, 5 channels, chains=2, draws=500):**
 
