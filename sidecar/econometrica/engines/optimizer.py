@@ -395,57 +395,65 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     def channel_max(col: str) -> float:
         return max_per_channel.get(col, max_pct_global * 100) / 100
 
+    # ─────────────────────────────────────────────────────────────────────
+    # math-fix v1.0.14.1, A1 (audit-of-audit 2026-04-28):
+    # Money-axis rescaling. Pre-fix optimizer worked в native units, constraint
+    # в money — bounds spread 10⁵× (TRPs ~10⁴ vs OLV ~10⁸), gradient spread
+    # 10⁴×, conditioning ужасный. SLSQP застревал в success=True at iter=1
+    # стартуя от current. Доказательство: scipy direct repro на Kagocel pickle
+    # 2026-04-28: start=current → lift=+0.00%; start=extreme (small=200%, TRPs
+    # balance) → lift=+28.30%. Multi-start с random perturbation + clip давал
+    # точки слишком близко к current чтобы выбраться.
+    # Post-fix: optimize в money axis — uniform scale, well-conditioned.
+    # See docs/MATH_AUDIT_v1_4_OPTIMIZER_FIX.md.
+    # ─────────────────────────────────────────────────────────────────────
     # F1+F2 fix (math-audit v1.3): per-period averaging + adstock matches
-    # training and scenario semantics. Pre-fix optimizer used:
-    #     x_norm = spend_vector[i] / mean    # spend_vector = TOTAL spend over n_periods!
-    # → x_norm typically 30-100× для TRPs-heavy → Hill saturated ≈1.0 → SLSQP stuck.
-    # Now: per-period avg + adstock factor matching training, contribution × n_periods
-    # to scale to total predicted KPI delta units.
-    def total_response(spend_vector):
-        total = 0
+    # training and scenario semantics. Hill input still computed in native units
+    # (matches modeler.py training math), но input в objective — money vector.
+    n_ch = max(len(media_cols), 1)
+
+    def total_response_money(x_money):
+        """Objective: maximize total predicted KPI lift over n_periods.
+
+        Input: x_money[i] = spend per channel в money axis (₽).
+        Inside: convert to native via x_native = x_money / unit_cost,
+        then per-period adstock + Hill saturation matches training.
+        Returns: negative total (for scipy minimize).
+        """
+        total = 0.0
         for i, col in enumerate(media_cols):
             p = channel_params[col]
             # C1 fix: prefer adstock_mean_posterior (v1.2+) for math consistency.
             mean_posterior = p.get('adstock_mean_posterior')
             mean = float(mean_posterior) if mean_posterior is not None else (float(media_means.get(col, 1)) or 1)
             decay_pt = p.get('decay')  # Phase 1.1: None for v1.0/v1.1/v1.1.5 → default 0.5
-            x_avg_raw = spend_vector[i] / n_periods
+            x_native_total = x_money[i] / max(uc_arr[i], 1e-10)
+            x_avg_raw = x_native_total / n_periods
             x_avg_adstock = _flat_alloc_adstock_avg(x_avg_raw, n_periods, _adstock_type(col), decay_pt)
             x_norm = x_avg_adstock / max(mean, 1e-10)
             sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 1e-6))
             total += p['beta'] * sat[0] * n_periods
-        return -total  # Negative for minimization
+        return -total
 
-    # Constraints
-    # Post-audit fix: zero-spend channels would have bounds=(0,0) → fixed at zero.
-    # Allow optimizer to test channels with current=0 by giving them a default
-    # bound = (0, total_budget × max_pct/n_channels) so they CAN receive budget.
-    n_ch = max(len(media_cols), 1)
-    fallback_max = max(total_budget * max_pct_global / n_ch, 1.0)
-
-    def _bounds_for(col: str) -> tuple[float, float]:
-        cs = current_spend[col]
-        if cs > 0:
-            return (cs * channel_min(col), cs * channel_max(col))
-        # Zero-spend channel: allow up to fallback_max
-        return (0.0, fallback_max)
-
-    if total_current > 0:
-        x0 = np.array([current_spend[col] * total_budget / total_current for col in media_cols])
-    else:
-        # Even-split fallback if no current spend at all (degenerate but recoverable)
-        x0 = np.array([total_budget / n_ch for _ in media_cols])
-    bounds = [_bounds_for(col) for col in media_cols]
-
-    # O1.3 (Phase 0.1 fix-session 2026-04-25): pre-flight feasibility check.
-    # Without this, infeasible bounds (e.g. budget > sum(upper bounds)) made
-    # SLSQP iterate fruitlessly until Tauri 60s timeout, leading to sidecar
-    # crash + watchdog respawn. Check in MONEY units (mixed-units safe).
-    sum_upper_money = sum(bounds[i][1] * uc_arr[i] for i in range(n_ch))
-    sum_lower_money = sum(bounds[i][0] * uc_arr[i] for i in range(n_ch))
+    # ─ Money-axis bounds (replace native bounds + money constraint) ─
+    # Constraint trivializes к sum(x_money) == money_target — uniform scale.
     money_target = total_budget_money_target if total_budget_money_target is not None else (
         sum(current_spend[c] * uc_arr[i] for i, c in enumerate(media_cols))
     )
+    fallback_max_money = max(money_target * max_pct_global / n_ch, 1.0)
+
+    def _bounds_money_for(col: str, i: int) -> tuple[float, float]:
+        cs_money = current_spend[col] * uc_arr[i]
+        if cs_money > 0:
+            return (cs_money * channel_min(col), cs_money * channel_max(col))
+        # Zero-spend channel: allow up to fallback_max
+        return (0.0, fallback_max_money)
+
+    bounds_money = [_bounds_money_for(col, i) for i, col in enumerate(media_cols)]
+
+    # O1.3 (Phase 0.1) — pre-flight feasibility (already в money).
+    sum_upper_money = sum(b[1] for b in bounds_money)
+    sum_lower_money = sum(b[0] for b in bounds_money)
     if money_target > sum_upper_money * 1.001:  # 0.1% float-tolerance
         return {
             'status': 'error',
@@ -467,34 +475,74 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             ),
         }
 
-    if total_budget_money_target is not None:
-        # Money constraint: Σ x × unit_cost == total_budget_money
-        constraints = [{
-            'type': 'eq',
-            'fun': lambda x: float(np.sum(np.asarray(x) * np.asarray(uc_arr)) - total_budget_money_target),
-        }]
-    else:
-        constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - total_budget}]
+    # Money sum constraint (trivial — uniform scale в money axis)
+    constraints = [{'type': 'eq', 'fun': lambda x: float(np.sum(x) - money_target)}]
 
-    # O2 (Phase 0.1): SLSQP hardening — wrap in try/except, hard maxiter cap.
-    # Previously: a divergent SLSQP iteration could hang Python beyond Tauri's
-    # 60s timeout → watchdog respawn (90s downtime).
-    #
-    # Phase 0.1 hotfix #19 (2026-04-26): MULTI-START SLSQP. Live-test revealed
-    # that with money_target = current (no budget change), SLSQP starts at
-    # current allocation = local minimum для objective и не двигается → lift=0%.
-    # Solution: try 3 starting points (current + 2 perturbed) and keep best
-    # converged result. Cheap (n_periods × 6 channels × 200 iter × 3 starts =
-    # ~20k function evals, sub-second). Catches local optima without UX changes.
     import logging
     _logger = logging.getLogger('econometrica')
 
-    def _safe_minimize(x_start):
+    def _project_to_budget(x: np.ndarray) -> np.ndarray:
+        """Scale x then clip to bounds, repeat ≤3 iters until sum(x) ≈ money_target.
+
+        Used for multi-start initialization. SLSQP equality constraint will
+        fine-tune anyway, но close-to-feasible start helps convergence.
+        """
+        x = np.asarray(x, dtype=float).copy()
+        for _ in range(3):
+            s = float(np.sum(x))
+            if s <= 1e-10:
+                # Degenerate — distribute evenly within bounds
+                x = np.array([(b[0] + b[1]) / 2 for b in bounds_money])
+                continue
+            x = x * (money_target / s)
+            for i in range(len(x)):
+                x[i] = max(bounds_money[i][0], min(bounds_money[i][1], x[i]))
+        return x
+
+    # ─ Multi-start: channel-pivot extremes + current + all-upper ─
+    # Pre-fix (Phase 0.1 hotfix #19): random uniform + scale + clip — точки
+    # клипались к current, SLSQP застревал. Audit 2026-04-28 confirmed empirically.
+    # Post-fix (math-fix v1.0.14.1): channel-pivot starts — для каждого канала
+    # i пробуем «канал i на upper, остальные на lower, project». Это даёт SLSQP
+    # стартовые точки в разных корнерах feasible region.
+    x0_money = np.array([current_spend[col] * uc_arr[i] for i, col in enumerate(media_cols)])
+    x0_money = _project_to_budget(x0_money)
+
+    starts_money: list[tuple[str, np.ndarray]] = [('current', x0_money)]
+
+    for pivot_idx in range(n_ch):
+        # Pivot канал на upper, остальные на lower, project к budget
+        extreme = np.array([bounds_money[i][0] for i in range(n_ch)])
+        extreme[pivot_idx] = bounds_money[pivot_idx][1]
+        starts_money.append((
+            f'pivot_up_{pivot_idx}',
+            _project_to_budget(extreme),
+        ))
+
+    # «others-at-upper, one-balances» — ключевой паттерн для mixed-units money budget.
+    # На Kagocel-shape problem (TRPs ≈ 92% бюджета, 5 small money channels) global
+    # optimum обычно: small channels at 200%, TRPs balances вниз. Pivot starts (один
+    # на upper, остальные на lower) этот корнер не охватывают — projection пропорционально
+    # тянет все. Этот паттерн ставит N-1 каналов на upper и точно вычисляет balance.
+    for balance_idx in range(n_ch):
+        candidate = np.array([bounds_money[i][1] for i in range(n_ch)], dtype=float)
+        other_money = float(sum(candidate[i] for i in range(n_ch) if i != balance_idx))
+        balance_money = money_target - other_money
+        if bounds_money[balance_idx][0] <= balance_money <= bounds_money[balance_idx][1]:
+            candidate[balance_idx] = balance_money
+            # Точно feasible — projection не требуется, но защитный clip + check.
+            starts_money.append((f'others_up_balance_{balance_idx}', candidate))
+
+    # All-upper start — общий рост сценарий (projection scales всех вниз пропорц.)
+    all_upper = np.array([bounds_money[i][1] for i in range(n_ch)])
+    starts_money.append(('all_upper', _project_to_budget(all_upper)))
+
+    def _safe_minimize_money(x_start: np.ndarray):
         try:
             r = minimize(
-                total_response, x_start,
+                total_response_money, x_start,
                 method='SLSQP',
-                bounds=bounds,
+                bounds=bounds_money,
                 constraints=constraints,
                 options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
             )
@@ -503,38 +551,27 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             _logger.warning(f"SLSQP attempt failed: {type(e).__name__}: {e}")
             return None
 
-    # Multi-start: current allocation + 2 perturbed (random shifts within bounds,
-    # respecting sum constraint via projection).
-    rng = np.random.default_rng(42)  # deterministic across calls
-    starts = [x0]
-    for _ in range(2):
-        # Random allocation within bounds, then scale to match sum constraint.
-        perturbed = np.array([
-            rng.uniform(bounds[i][0], bounds[i][1]) for i in range(n_ch)
-        ])
-        # Scale to satisfy sum constraint approximately (SLSQP will fine-tune).
-        if total_budget_money_target is not None:
-            current_money_sum = float(np.sum(perturbed * np.asarray(uc_arr)))
-            if current_money_sum > 0:
-                scale = float(total_budget_money_target) / current_money_sum
-                perturbed = perturbed * scale
-        else:
-            current_sum = float(np.sum(perturbed))
-            if current_sum > 0:
-                perturbed = perturbed * (total_budget / current_sum)
-        # Clip to bounds (after scaling some may slip outside).
-        for i in range(n_ch):
-            perturbed[i] = max(bounds[i][0], min(bounds[i][1], perturbed[i]))
-        starts.append(perturbed)
-
+    # Run all starts, collect diagnostics + successful candidates.
+    slsqp_attempts: list[dict] = []
     candidates = []
-    for x_start in starts:
-        r = _safe_minimize(x_start)
-        if r is not None and r.success:
+    for name, x_start in starts_money:
+        obj_start = float(total_response_money(x_start))
+        r = _safe_minimize_money(x_start)
+        success = r is not None and r.success
+        attempt = {
+            'start_name': name,
+            'success': bool(success),
+            'iterations': int(getattr(r, 'nit', 0)) if r is not None else 0,
+            'objective_at_start': obj_start,
+            'objective_at_optimal': float(r.fun) if r is not None else None,
+            'message': (str(r.message)[:120] if r is not None else 'minimize raised'),
+        }
+        slsqp_attempts.append(attempt)
+        if success:
             candidates.append(r)
 
     if candidates:
-        # Pick the result with highest objective (= lowest -response since we minimize -response)
+        # Best = lowest -response (since we minimize -response).
         result = min(candidates, key=lambda r: r.fun)
     else:
         # All failed — fallback to current allocation, mark non-converged.
@@ -542,28 +579,54 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             def __init__(self, x0, msg):
                 self.x = x0.copy()
                 self.success = False
-                self.fun = 0.0
+                self.fun = float(total_response_money(x0))
                 self.message = msg
-        result = _FailResult(x0, "All SLSQP starts failed")
+        result = _FailResult(x0_money, "All SLSQP starts failed")
 
     if not result.success:
         _logger.warning(f"Optimization did not converge: {result.message}")
-    optimal_spend = result.x if result.success else np.array([current_spend[col] for col in media_cols])
+
+    # Convert money result back to native for downstream (mROAS, response curves).
+    if result.success:
+        optimal_spend = np.array([result.x[i] / max(uc_arr[i], 1e-10) for i in range(n_ch)])
+    else:
+        optimal_spend = np.array([current_spend[col] for col in media_cols])
+
+    # Unified bounds reference for binding-constraint detection (line 553+).
+    # Both bounds and result.x в money axis после refactor.
+    bounds = bounds_money
 
     # O1.3 — binding constraints detection. Relative tolerance scaled by
     # problem magnitude (avoids absolute-eps issues on budgets in billions).
     def _is_binding(x_val: float, bound_val: float, scale: float) -> bool:
         return abs(x_val - bound_val) / max(abs(bound_val), scale * 1e-3, 1.0) < 1e-3
 
-    _binding_scale = total_budget / max(n_ch, 1)
+    # math-fix v1.0.14.1 — binding scale в money axis (matches refactored bounds).
+    _binding_scale = money_target / max(n_ch, 1)
     _n_at_max = sum(1 for i in range(n_ch) if _is_binding(result.x[i], bounds[i][1], _binding_scale))
     _n_at_min = sum(1 for i in range(n_ch) if _is_binding(result.x[i], bounds[i][0], _binding_scale))
     binding_constraints = (_n_at_max == n_ch) or (_n_at_min == n_ch)
 
-    # Compare current vs optimal
-    current_response = -total_response(np.array([current_spend[col] for col in media_cols]))
-    optimal_response = -total_response(optimal_spend)
+    # Compare current vs optimal — both в money axis (objective scale).
+    current_response = -total_response_money(x0_money)
+    optimal_response = -total_response_money(result.x)
     lift_pct = (optimal_response - current_response) / current_response * 100 if current_response else 0
+
+    # math-fix v1.0.14.1 — false convergence detector. SLSQP может вернуть
+    # success=True at iter=1 если стартовая точка локально стабильна (KKT
+    # удовлетворяется тривиально). Этот flag поднимается когда optimizer
+    # вернул practically current allocation БЕЗ binding constraints —
+    # narrative показывает honest banner вместо vacuous «сохранить аллокацию».
+    _max_abs_delta_money = float(max(
+        abs(result.x[i] - x0_money[i]) for i in range(n_ch)
+    )) if n_ch else 0.0
+    _normalized_delta = _max_abs_delta_money / max(money_target / max(n_ch, 1), 1.0)
+    converged_at_current = (
+        result.success
+        and not binding_constraints
+        and abs(lift_pct) < 0.5
+        and _normalized_delta < 0.01  # < 1% of average channel money
+    )
 
     channels = []
     for i, col in enumerate(media_cols):
@@ -718,13 +781,25 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                               for col in media_cols)
 
     _sign = '+' if lift_pct >= 0 else ''
-    insight = f"Оптимальное перераспределение бюджета ({round(total_budget_money, 0):,.0f} ₽) даёт ожидаемый прирост {_sign}{lift_pct:.1f}%."
-    top_increase = max(channels, key=lambda x: x['delta_pct'])
-    top_decrease = min(channels, key=lambda x: x['delta_pct'])
-    if top_increase['delta_pct'] > 5:
-        insight += f" Увеличить {top_increase['name']} на {top_increase['delta_pct']:.0f}%."
-    if top_decrease['delta_pct'] < -5:
-        insight += f" Сократить {top_decrease['name']} на {abs(top_decrease['delta_pct']):.0f}%."
+    # math-fix v1.0.14.1 — narrative-aware insight. Когда converged_at_current,
+    # honest формулировка вместо vacuous «прирост 0%». Narrative_adapter
+    # читает converged_at_current flag для полного баннера.
+    if converged_at_current:
+        insight = (
+            f"Оптимизатор сошёлся на текущем распределении (бюджет "
+            f"{round(total_budget_money, 0):,.0f} ₽). Это может означать что "
+            f"границы Min/Max задают слишком узкий коридор, либо текущая "
+            f"аллокация уже близка к локальному оптимуму. Попробуйте расширить "
+            f"границы (10/300%) или экспертный режим."
+        )
+    else:
+        insight = f"Оптимальное перераспределение бюджета ({round(total_budget_money, 0):,.0f} ₽) даёт ожидаемый прирост {_sign}{lift_pct:.1f}%."
+        top_increase = max(channels, key=lambda x: x['delta_pct'])
+        top_decrease = min(channels, key=lambda x: x['delta_pct'])
+        if top_increase['delta_pct'] > 5:
+            insight += f" Увеличить {top_increase['name']} на {top_increase['delta_pct']:.0f}%."
+        if top_decrease['delta_pct'] < -5:
+            insight += f" Сократить {top_decrease['name']} на {abs(top_decrease['delta_pct']):.0f}%."
 
     result_data = {
         'status': 'ok',
@@ -744,6 +819,16 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         'n_channels_at_min': int(_n_at_min),
         'min_pct_used': float(min_pct_global * 100),
         'max_pct_used': float(max_pct_global * 100),
+        # math-fix v1.0.14.1, A1 (audit-of-audit 2026-04-28):
+        # — converged_at_current: SLSQP отдал current allocation без binding (false convergence).
+        # — slsqp_diagnostics: per-start outcomes для post-mortem (UI/log debugging).
+        'converged_at_current': bool(converged_at_current),
+        'slsqp_diagnostics': {
+            'n_starts': len(slsqp_attempts),
+            'n_converged': sum(1 for a in slsqp_attempts if a['success']),
+            'best_objective': float(result.fun) if result.success else None,
+            'attempts': slsqp_attempts,
+        },
     }
 
     # Save

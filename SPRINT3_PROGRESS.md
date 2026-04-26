@@ -431,3 +431,83 @@ _(populated после MIN-LIVE PASS)_
 **ADR §1 must declare "EXTEND, not rewrite"** — pin existing FastAPI shape so MIN-LIVE coverage stays valid.
 
 **Pre-Ship gate before v1.0.14:** SBC overnight + UI live-test on Kagocel + Materia Medica geo-data.
+
+---
+
+## v1.0.14.1 — Optimizer false-convergence fix (2026-04-28, math-fix v1.4)
+
+**Trigger:** Live-test Kagocel на v1.0.14 NSIS установке выявил что Optimizer выдаёт `lift=0.0%` для всех настроек включая Phase 0.1 рекомендованные defaults 20/200. Customer ship blocked.
+
+### Phase 1 — meta-audit плана аудита (fresh-context)
+
+Reviewer (Маша) прочитала AUDIT_PLAN_2026-04-28.md + код empirically. **6 critical gaps в плане найдены:**
+
+1. План's infeasibility hypothesis (Section A.2.1) emperically WRONG — Kagocel feasible (sum_lower 718M ≤ target 3.59B ≤ sum_upper 7.18B).
+2. Two parallel verdict systems (compute_roi_verdict в decomposer + derive_verdict в narrative_adapter) — план не упомянул, это structural root cause всех 4 narrative contradictions.
+3. План пропустил `aurora_pptx/builder.py` (5 narrative sites duplicated там).
+4. План пропустил `render_mroas` hardcoded строки в `aurora_html/sections.py:526-541` — реальное место "явный потенциал scale-up" vs "Hold" противоречия.
+5. Acceptance criteria не measurable.
+6. Time estimate занижен (8-12h → реалистично 14.5-20.5h, 2 сессии).
+
+Output: `C:/Users/ackol/Desktop/AUDIT_PLAN_REVISIONS.md`. Antón approved.
+
+### Phase 2 — Section A implementation
+
+Empirical proof root cause через scipy direct repro:
+- start = current → SLSQP success=True iter=1 → lift=+0.00% (false convergence)
+- start = extreme → lift=+28.30% (real optimum)
+
+3 fixes implemented в `engines/optimizer.py`:
+
+**L1 — Money-axis rescaling** (Fix Candidate 5, primary):
+- `total_response_money(x_money)` принимает money vector, конвертирует к native через /uc_arr inside для Hill input
+- bounds в money axis (cs_money × min_pct, cs_money × max_pct)
+- Constraint trivializes к sum(x) = money_target (uniform scale)
+- Conditioning improvement: bounds spread 220× (was 48 461× в native), gradient uniform
+
+**L2 — Channel-pivot + balancer multi-start** (Fix Candidate 1, secondary):
+- 13 starts: current + N pivot_up + N others_up_balance + all_upper
+- «others_up_balance_{i}» — все каналы кроме i на upper, i exactly balances. Ключевой паттерн для money-constrained problems когда крупный канал доминирует бюджет.
+- Cost: ~31k function evals, sub-second
+
+**L3 — Diagnostics + false convergence detector** (Fix Candidates 4+6):
+- `converged_at_current` flag когда все starts → current, no binding, lift < 0.5%
+- `slsqp_diagnostics` — per-start outcomes для post-mortem debugging
+- Honest insight string когда converged_at_current=True
+
+### Test fixture + validation
+
+- `tools/test_optimizer_kagocel_redistribution.py` (230 LOC, NEW) — synthetic Kagocel-like 6-channel pickle с такой же mathematical pathology.
+- 9 acceptance gates (G1-G6), pre-fix RED 6/9, post-fix GREEN 9/9.
+- Real Kagocel pickle: lift = +28.30% (matches scipy direct repro).
+
+### Regression check
+
+```
+test_audit_of_sprint3      : 20/20 PASS
+test_causal_m0..m4         : 149/149 PASS
+test_math_correctness      : 156/156 PASS
+test_narrative_adapter     : 65/65 PASS
+test_posterior_ci          : 82/82 PASS
+test_roi_verdict           : 36/36 PASS
+test_optimizer_kagocel...  : 9/9 PASS (NEW)
+                          ━━━━━━━━━━
+Total: 517/517 (was 508 + 9 new, no regressions)
+```
+
+### Files changed
+
+```
+sidecar/econometrica/engines/optimizer.py     (~+85/-50 LOC)
+tools/test_optimizer_kagocel_redistribution.py (NEW, 230 LOC)
+docs/MATH_AUDIT_v1_4_OPTIMIZER_FIX.md         (NEW, audit-trail)
+SPRINT3_PROGRESS.md                            (this entry)
+```
+
+### Section B (narrative consistency) — deferred к next session
+
+Plan revisions identified 5+ narrative sites + 2 parallel verdict systems requiring unification. Estimated 5-7h, separate session per AUDIT_PLAN_REVISIONS recommendation.
+
+### Customer ship status
+
+v1.0.14 NSIS installer (189MB SHA256 31822fae) **остаётся на hold** до Section B + C fixes. Текущий math-fix branch HEAD после этой session — internal testing only. После Section B → version bump 1.0.14.1, rebuild sidecar + NSIS, ship.
