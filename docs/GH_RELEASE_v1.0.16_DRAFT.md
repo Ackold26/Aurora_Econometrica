@@ -59,8 +59,9 @@ Performance: mroi=9.7453  action=Scale
 ## 🛠️ Installation
 
 - Download `Aurora AI Econometrica_1.0.16_x64-setup.exe`
-- SHA256: `<TBD после NSIS build>`
-- Auto-updater: existing v1.0.15 customers get notification through `rosst-updates` channel.
+- SHA256: `2cf603f95a34294f2ca5df272d2be933b7c741e1152260609b00fd267060cf94`
+- Size: 189.3 MB
+- Auto-updater: existing v1.0.13/14/15 customers get notification through `rosst-updates` channel.
 
 ## 📚 Documentation
 

@@ -101,6 +101,45 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 - **L9 full** — Free-budget mode полная реализация — 16-24h
 - **Svelte e2e test infrastructure** — 4-6h initial setup, lock-in tests для UI flows
 - **L21** `lift_pct: None` в optimization.json — investigate when touching result_data shape (low priority — есть `expected_lift_pct` fallback)
+- **L24** Finding #2 семантически инвертирован — «единственный близкий к окупаемости» → «единственный ниже окупаемости»
+- **L25** MQS thinness penalty при baseline-dominated моделях (R²/MAPE тривиально достижимы) — нужен warning в Tier
+- **L26** ROI 3-5× с low gap → «Сбалансирован» edge case (Статьи Венарус)
+
+## Live-test session — UX дополнения (2026-04-29)
+
+Реализованы во время live-testing с customer'ом в dev mode:
+
+**Import шаг — model engine selector:**
+- Auto-выбор движка на основе n_rows: <30 → OLS (small-data fallback), ≥30 → Bayesian
+- Customer-facing описания: Bayesian как «золотой стандарт MMM-эконометрики», OLS с honest disclosure
+- Backend Pydantic TrainRequest.mode принимает оба значения
+
+**Optimize шаг — UX refactor:**
+- Min/Max sliders bounds расширены: Min 0..100% (was 10..100), Max 100..500% (was 100..300)
+- Скрыт «Фиксировать бюджет» checkbox (free-budget mode → v1.1)
+- Block D «Прогноз на будущий период» интегрирован в Block C как inline expert disclosure (был standalone)
+- Block E «Сценарии» переименован в D
+- Forecast volume mode math fix: skip optimizer (KPI unchanged при сохранении объёма медиа, растёт лишь сумма)
+- Compare row visible always: показывает Текущий/Новый бюджет с inflation overlay опционально
+- Save scenario с zero-baseline support: customer может сохранить current allocation × ucNew как сценарий
+- Per-channel constraints в collapsible expert disclosure (red border, ЭКСПЕРТ badge)
+- Bidirectional sync с глобальным «Эксперт» toggle
+
+**Report шаг — единая кнопка:**
+- 3 separate buttons (PPTX/XLSX/HTML) → 1 unified «✨ Создать отчёт» с radio-селектором
+- Один файл per click — explicit choice, экономия CPU/времени
+- Зелёная ✓ checkmark «уже создано в текущей сессии» → меняет CTA на «⟲ Пересоздать»
+- HTML добавлен в insight «Форматы экспорта»
+
+**Narrative consistency (Венарус live-test):**
+- **L22:** scale_destination = top mROAS (был top contribution) — narrative consistent с COMPLICATION «По mROAS Social опережает»
+- **L23:** dedup cut_source из underperformer_names — устранён дубликат «из TRPs ... остановить TRPs»
+
+**Audit-fix (Day 2-5 hardening):**
+- PPTX s10 leftover (L15 missed location)
+- L14 negative spend guard
+- L16 empty-string MQS distinction
+- InsightsPanel merge name auto-suffix (collision detection)
 
 ## Тесты
 
