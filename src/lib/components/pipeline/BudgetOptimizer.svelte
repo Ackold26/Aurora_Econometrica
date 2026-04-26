@@ -129,9 +129,15 @@
       {@const cur = channelBudgets[ch] ?? 0}
       {@const curMoney = cur * uc(ch)}
       {@const opt = optimalBudgets?.[ch]}
-      {@const deltaRaw = opt != null && cur >= 1 ? ((opt - cur) / cur * 100) : null}
-      {@const deltaLabel = opt == null ? null : cur < 1 ? (opt < 1 ? '—' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
-      {@const initMoney = (initialSpend[ch] ?? cur) * uc(ch)}
+      {@const initRef = initialSpend[ch] ?? cur}
+      <!-- Audit fix (2026-04-29): delta computed vs initialSpend (real current
+           from optData), NOT vs live channelBudgets. After L5 auto-apply
+           channelBudgets = optimal → cur === opt → delta = 0% (lost info).
+           Persistent backend-aligned delta_pct preserves «optimizer recommended
+           +X% relative to original current» signal even after auto-apply. -->
+      {@const deltaRaw = opt != null && initRef >= 1 ? ((opt - initRef) / initRef * 100) : null}
+      {@const deltaLabel = opt == null ? null : initRef < 1 ? (opt < 1 ? '—' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
+      {@const initMoney = initRef * uc(ch)}
       {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
 

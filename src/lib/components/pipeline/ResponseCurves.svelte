@@ -146,7 +146,9 @@
           coord: [curve.optimal_x * u, curveResponseAt(curve, curve.optimal_x)],
           symbol: 'pin',
           symbolSize: 26,
-          symbolOffset: [0, '-50%'],
+          // Audit fix (2026-04-29): removed symbolOffset [0, '-50%'] — pin's
+          // anchor is bottom-tip by default, offset shifted tip away from data
+          // coord (visual mismatch). Default behavior places tip ON the curve.
           itemStyle: { color, borderColor: '#fff', borderWidth: 2, opacity: 0.95 },
           label: { show: true, formatter: '★', color: '#fff', fontSize: 11, fontWeight: 'bold', position: 'inside' },
           tooltip: { formatter: () => `${ch} — оптимальный бюджет` },

@@ -258,28 +258,58 @@
    *   'backend-decompose'  — idle, pre-optimize (mroi_current от decomposer.py)
    */
   const miROASMap = $derived.by(() => {
-    /** @type {Record<string, {value: number, status: 'unused'|'good'|'ok'|'low', action: string, actionLabel: string, actionTone: string, source: 'backend-optimize'|'backend-decompose'}>} */
+    /** @type {Record<string, {value: number, status: 'unused'|'good'|'ok'|'low', action: string, actionLabel: string, actionTone: string, actionReasoning: string, source: 'backend-optimize'|'backend-decompose'}>} */
     const map = {};
 
-    /** @param {string} action */
-    const actionToStatus = (action) => {
+    /** Audit fix (2026-04-29): legacy optimization.json (saved pre-v1.0.16) had
+     *  primitive Russian action vocabulary ('увеличить'/'сократить'/'сохранить').
+     *  After Section C refactor, vocabulary = ACTION_KEYS ('Scale'/'Cut'/'Hold').
+     *  Migration map handles cross-version display when customer loads old project.
+     *  @type {Record<string, string>} */
+    const LEGACY_ACTION_MIGRATION = {
+      'увеличить': 'Scale',
+      'сократить': 'Cut',
+      'сохранить': 'Hold',
+    };
+
+    /** Audit fix (2026-04-29): Uncertain action covers 3 distinct causes —
+     *  (a) zero spend (channel not in portfolio, no signal possible),
+     *  (b) untrained channel (zero training variance), no useful mroi,
+     *  (c) wide CI (value present but uncertain). Pre-fix: all 3 mapped к
+     *  'unused' status which hides value via «—» display. Cause (c) had legit
+     *  mroi (e.g. 1.5×) hidden, confusing customer. Fix: split by value —
+     *  zero value → 'unused' (canonical no signal), non-zero → 'ok' (display
+     *  value with neutral status, customer sees number with reasoning tooltip).
+     *  @param {string} action @param {number} value */
+    const actionToStatus = (action, value) => {
       if (action === 'Scale') return /** @type {const} */ ('good');
       if (action === 'Hold' || action === 'Watch') return /** @type {const} */ ('ok');
       if (action === 'Reduce' || action === 'Cut') return /** @type {const} */ ('low');
-      return /** @type {const} */ ('unused');
+      // Uncertain: zero value = unused (canonical), non-zero = ok (CI/untrained edge)
+      if (!Number.isFinite(value) || value === 0) return /** @type {const} */ ('unused');
+      return /** @type {const} */ ('ok');
+    };
+
+    /** Resolve action key handling legacy migration + null fallback.
+     *  @param {any} raw */
+    const resolveAction = (raw) => {
+      const s = raw == null ? 'Watch' : String(raw);
+      return LEGACY_ACTION_MIGRATION[s] ?? s;
     };
 
     // Source #1: post-optimize (authoritative с optimizer signal)
     const opt = $optimizeData;
     if (opt?.channels && opt.channels.length > 0) {
       for (const ch of opt.channels) {
-        const action = String(ch.action ?? 'Watch');
+        const action = resolveAction(ch.action);
+        const value = Number(ch.mroi_current ?? 0);
         map[ch.name] = {
-          value: Number(ch.mroi_current ?? 0),
-          status: actionToStatus(action),
+          value: Number.isFinite(value) ? value : 0,
+          status: actionToStatus(action, value),
           action,
           actionLabel: String(ch.action_label ?? ''),
           actionTone: String(ch.action_tone ?? 'neutral'),
+          actionReasoning: String(ch.action_reasoning ?? ''),
           source: 'backend-optimize',
         };
       }
@@ -292,13 +322,15 @@
     const dec = $decomposeData;
     if (dec?.channels && dec.channels.length > 0) {
       for (const ch of dec.channels) {
-        const action = String(ch.action ?? 'Watch');
+        const action = resolveAction(ch.action);
+        const value = Number(ch.mroi_current ?? 0);
         map[ch.name] = {
-          value: Number(ch.mroi_current ?? 0),
-          status: actionToStatus(action),
+          value: Number.isFinite(value) ? value : 0,
+          status: actionToStatus(action, value),
           action,
           actionLabel: String(ch.action_label ?? ''),
           actionTone: String(ch.action_tone ?? 'neutral'),
+          actionReasoning: String(ch.action_reasoning ?? ''),
           source: 'backend-decompose',
         };
       }
@@ -349,10 +381,13 @@
    *  2026-04-28): при applyOptimal channelBudgets анимируется к optimal_spend →
    *  liveKPI/currentKPI ratio scales displayKPI монотонно вверх в same period
    *  scale. Customer видит Прогноз KPI обновляющийся вместе со sliders, не
-   *  frozen на baseline. */
+   *  frozen на baseline.
+   *  Audit fix (2026-04-29): explicit Number.isFinite checks вместо truthiness
+   *  (`!liveKPI` was true for legitimate 0 values too — false positive guard). */
   const displayKPI = $derived.by(() => {
-    const baseTotal = dData?.total_sales ?? currentKPI;
-    if (!currentKPI || currentKPI <= 0 || !liveKPI) return baseTotal;
+    const baseTotal = Number.isFinite(dData?.total_sales) ? dData.total_sales : currentKPI;
+    if (!Number.isFinite(currentKPI) || currentKPI <= 0) return baseTotal;
+    if (!Number.isFinite(liveKPI)) return baseTotal;
     return baseTotal * (liveKPI / currentKPI);
   });
 
@@ -1111,7 +1146,7 @@
           </div>
           <div class="miroas-table">
             {#each channels as ch}
-              {@const r = miROASMap[ch] ?? { value: 0, status: 'unused', action: 'Watch', actionLabel: '', actionTone: 'neutral' }}
+              {@const r = miROASMap[ch] ?? { value: 0, status: 'unused', action: 'Watch', actionLabel: '', actionTone: 'neutral', actionReasoning: '' }}
               {@const cls =
                 r.status === 'good' ? 'miroas-good' :
                 r.status === 'ok'   ? 'miroas-ok' :
@@ -1120,12 +1155,17 @@
                 r.status === 'good' ? '🟢' :
                 r.status === 'ok'   ? '🟡' :
                 r.status === 'low'  ? '🔴' : '⚪'}
+              <!-- Audit fix (2026-04-29): tooltip surfaces action_reasoning from
+                   backend (compute_channel_action). For Uncertain channels с wide
+                   CI tooltip объясняет «CI [...] шире чем mROAS» вместо
+                   misleading «Под наблюдением» без context. -->
+              {@const tooltip = r.actionReasoning || r.actionLabel || 'Под наблюдением'}
               <div class="miroas-row {cls}">
                 <span class="miroas-name">{ch}</span>
                 <span class="miroas-value">
                   {r.status === 'unused' ? '—' : r.value.toFixed(2) + '×'}
                 </span>
-                <span class="miroas-hint" title={r.actionLabel}>{emoji} {r.actionLabel || 'Под наблюдением'}</span>
+                <span class="miroas-hint" title={tooltip}>{emoji} {r.actionLabel || 'Под наблюдением'}</span>
               </div>
             {/each}
           </div>
