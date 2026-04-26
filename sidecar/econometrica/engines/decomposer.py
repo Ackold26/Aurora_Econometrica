@@ -269,7 +269,17 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         }
 
         # Phase 1.9 + 1.1: posterior CI on contribution and ROI via vectorized chain.
-        # Skip channels with zero spend (CI undefined for ROI = contribution / 0).
+        # C3 fix (audit 2026-04-26): explicit CI semantics для spend=0 channels.
+        # Pre-fix: spend=0 channels skipped from CI (asymmetric — point estimate populated
+        # как roi=0 но без ci_low/ci_high → UI shows "ROI 0× (no CI)" without explanation).
+        # Post-fix: explicit ci_low=ci_high=0 with marker 'ci_skip_reason' = 'zero_spend'
+        # so UI can render "Канал без бюджета — ROI = 0 (CI неприменим)".
+        if posterior_samples is not None and spend_money <= 0:
+            ch_dict['contribution_ci_low'] = 0.0
+            ch_dict['contribution_ci_high'] = 0.0
+            ch_dict['roi_ci_low'] = 0.0
+            ch_dict['roi_ci_high'] = 0.0
+            ch_dict['ci_skip_reason'] = 'zero_spend'
         # Phase 1.1 path: when ch_samples has 'decay', x_norm varies per sample
         # via geometric_adstock_batch — use hill_function_batch_2d.
         # Phase 1.9 path (v1.1.5 pickles): decay constant, use hill_function_batch (1D x_norm).

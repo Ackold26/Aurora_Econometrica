@@ -456,6 +456,32 @@ def validate_preview(req: PreviewRequest):
     return JSONResponse(content=result)
 
 
+_VALID_MODES = ('bayesian', 'ols')
+
+
+def _validate_mode(mode: str | None) -> tuple[str | None, dict | None]:
+    """Audit H5 (2026-04-26): whitelist mode values + return user-friendly error.
+
+    Returns (resolved_mode, error_response).
+    error_response is None on success — caller proceeds with resolved_mode.
+    """
+    if mode is None:
+        return 'bayesian', None
+    normalized = str(mode).strip().lower()
+    if normalized not in _VALID_MODES:
+        return None, {
+            'status': 'error',
+            'error_code': 'INVALID_MODE',
+            'message': (
+                f'Неизвестный режим обучения "{mode}". '
+                f'Допустимые: {", ".join(_VALID_MODES)}. '
+                f'Опечатки в API call могут silently отправить вас на wrong engine — '
+                f'этот guard защищает от такого.'
+            ),
+        }
+    return normalized, None
+
+
 @app.post('/compute/train')
 def train_model(req: TrainRequest):
     """Train Bayesian MMM или OLS small-data model.
@@ -465,10 +491,15 @@ def train_model(req: TrainRequest):
       - config.mode == 'bayesian' or absent → engines/modeler.train_model (NUTS, 3-15 min)
       - When mode absent, server can call /compute/recommend для auto-recommend hint.
 
+    Audit H5 (2026-04-26): mode value validated against whitelist —
+    typo 'olss' returns 422-style error instead of silently routing к Bayesian.
+
     sync def — FastAPI runs in thread pool, event loop stays free for /health polling."""
     config = req.model_dump()
     project_dir = config.pop('project_dir')
-    mode = (config.get('mode') or 'bayesian').lower()
+    mode, err = _validate_mode(config.get('mode'))
+    if err is not None:
+        return JSONResponse(content=err)
     if mode == 'ols':
         from engines.ols_modeler import train_ols as _train
     else:
@@ -520,10 +551,20 @@ def train_start(req: TrainStartRequest):
             'error': None,
         }
 
+    # Audit H5: validate mode BEFORE async run starts — fail-fast user feedback.
+    _resolved_mode, _mode_err = _validate_mode(config.get('mode'))
+    if _mode_err is not None:
+        with _training_lock:
+            _training_tasks[task_id] = {
+                'status': 'error', 'phase': 'invalid_mode', 'pct': 0,
+                'elapsed_sec': 0, 'started_at': time.time(),
+                'result': _mode_err, 'error': _mode_err.get('message'),
+            }
+        return JSONResponse(content={'task_id': task_id, 'status': 'error', 'message': _mode_err['message']})
+
     def run():
         # Sprint 2: route to OLS engine when config.mode == 'ols'
-        mode = (config.get('mode') or 'bayesian').lower()
-        if mode == 'ols':
+        if _resolved_mode == 'ols':
             from engines.ols_modeler import train_ols as _train
         else:
             from engines.modeler import train_model as _train

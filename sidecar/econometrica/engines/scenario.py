@@ -200,6 +200,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     roas_money_ci = None
     lift_pct_ci = None
     if posterior_samples is not None:
+        # Audit H1 (2026-04-26): keep defensive try/except для production stability
+        # (any numerical edge case in CI math falls back к point estimate без crash),
+        # но добавляем structured logger.warning чтобы issues были visible в logs.
+        # Pre-fix: silent fallback hid bugs which surfaced только когда client
+        # сообщал "почему predicted_kpi_ci всегда null?".
         try:
             n_samples_post = int(posterior_samples['intercept'].shape[0])
             # Sum of media contributions per period × sample → (n_samples, n_periods)
@@ -254,7 +259,15 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 lift_pct_ci = (l_lo, l_hi)
         except Exception as _ci_err:
             # Defensive: any failure in CI computation falls back to point estimates only.
-            # No banner shown — user sees point KPI as before.
+            # H1 (audit 2026-04-26): log warning so issues surface in production logs,
+            # not just when client complains. Use exc_info=True для full stack trace.
+            import logging as _logging
+            _scenario_logger = _logging.getLogger(__name__)
+            _scenario_logger.warning(
+                f"Scenario CI computation failed (falling back к point estimate only): "
+                f"{type(_ci_err).__name__}: {_ci_err}",
+                exc_info=True,
+            )
             predicted_kpi_ci = None
             incremental_kpi_ci = None
             lift_pct_ci = None
@@ -290,9 +303,13 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     )
 
     # Phase 1.9: ROAS CI propagation from incremental KPI samples (denominator = scalar spend).
-    if incremental_kpi_ci is not None and total_spend_native > 0:
+    # C2 fix (audit 2026-04-26): guard против division by near-zero. Pre-fix CI explodes
+    # к ±inf когда total_spend_money micro (e.g. user creates "near-zero plan" scenario).
+    # Threshold 100₽ — reasonable absolute floor; below this scenario сам по себе degenerate.
+    _MIN_SPEND_FOR_ROAS_CI = 100.0
+    if incremental_kpi_ci is not None and total_spend_native > _MIN_SPEND_FOR_ROAS_CI:
         roas_native_ci = (incremental_kpi_ci[0] / total_spend_native, incremental_kpi_ci[1] / total_spend_native)
-    if incremental_kpi_ci is not None and total_spend_money and total_spend_money > 0:
+    if incremental_kpi_ci is not None and total_spend_money and total_spend_money > _MIN_SPEND_FOR_ROAS_CI:
         roas_money_ci = (incremental_kpi_ci[0] / total_spend_money, incremental_kpi_ci[1] / total_spend_money)
 
     scenario_name = config.get('scenario_name', 'custom')
