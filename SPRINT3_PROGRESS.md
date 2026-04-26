@@ -8,9 +8,11 @@
 
 ## Current task
 
-**Step D + Fix-session + MIN-LIVE all DONE. Sprint 3 Pharma Causal UNLOCKED.**
+**Sprint 3 Pharma Causal ADR drafted — pending Антон approval.**
 
-D found 6 issues, fix-session shipped 5 fixes (F1-F5, F6 deferred), MIN-LIVE 4 production gates + 1 bonus all PASSED через FastAPI server.py path.
+`docs/SPRINT3_PHARMA_CAUSAL_ADR.md` ready. 4 architectural decisions (Q1-Q4) require Антон's call. After approval → start M0 backend (~3h) autonomously, then M1-M4 (~25-40h total).
+
+D + Fix-session + MIN-LIVE + audit-of-audit all SHIPPED + PUSHED to `origin/math-fix-v1.0.13` (HEAD `f04b85c`).
 
 Fresh-context skeptic review кода без чтения SPRINT*_PROGRESS / ADR (те написаны same blind-spot session).
 
