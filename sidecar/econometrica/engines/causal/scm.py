@@ -180,6 +180,7 @@ def _placebo_inference(
     time_col: str,
     kpi_col: str,
     donor_units: list,
+    treated_unit: Any = None,
     pre_rmse_threshold_factor: float = 5.0,
 ) -> dict[str, Any]:
     """Permutation inference via placebo test.
@@ -191,14 +192,31 @@ def _placebo_inference(
     Per Abadie 2021: "discard placebos with poor pre-treatment fit (RMSE >>
     treated unit's RMSE)". Implementation: drop placebos whose pre-RMSE > k×
     treated unit's pre-RMSE.
+
+    B1 audit fix (audit-of-Sprint3 2026-04-27): EXCLUDE the original treated_unit
+    from placebo donor pool. Per Abadie convention, true treated unit's post-
+    treatment values are influenced by treatment, so including it as donor for
+    placebo runs contaminates the null distribution. Pre-fix, _build_panel_arrays
+    used the full df where original treated_unit's post-period values are
+    treatment-contaminated → placebo ATTs biased toward the true effect direction
+    → p-values too small (false significance).
     """
     placebo_atts = []
     placebo_failures = 0
 
+    # B1 fix: build df_no_true (data WITHOUT original treated unit) for placebo runs.
+    # Each placebo run uses df_no_true → donors = (donors_orig - {placebo_unit})
+    # excluding the true treated unit. Matches Abadie convention.
+    if treated_unit is not None:
+        df_no_true = df[df[unit_col] != treated_unit].copy()
+    else:
+        # Backward-compat fallback (legacy callers without treated_unit kwarg)
+        df_no_true = df
+
     for placebo_unit in donor_units:
         try:
             arrays = _build_panel_arrays(
-                df, placebo_unit, treatment_period, unit_col, time_col, kpi_col
+                df_no_true, placebo_unit, treatment_period, unit_col, time_col, kpi_col
             )
             if arrays is None:
                 placebo_failures += 1
@@ -229,15 +247,19 @@ def _placebo_inference(
     # Standard permutation p-value — добавляем +1 в numerator (treated unit included
     # в "наблюдаемое" значение) per Abadie convention.
     p_value = (n_extreme + 1) / (len(placebo_atts) + 1)
+    placebo_arr = np.asarray(placebo_atts, dtype=np.float64)
     return {
         'p_value': round(p_value, 4),
         'n_placebos': len(placebo_atts),
         'n_more_extreme': n_extreme,
         'failures': placebo_failures,
         'placebo_atts_summary': {
-            'min': round(float(np.min(placebo_atts)), 4),
-            'median': round(float(np.median(placebo_atts)), 4),
-            'max': round(float(np.max(placebo_atts)), 4),
+            'min': round(float(placebo_arr.min()), 4),
+            'median': round(float(np.median(placebo_arr)), 4),
+            'max': round(float(placebo_arr.max()), 4),
+            # B2 audit fix: store actual std for honest CI scale (was: range/4 proxy
+            # in caller, biased for non-normal distributions).
+            'std': round(float(placebo_arr.std(ddof=1)) if len(placebo_arr) > 1 else 0.0, 4),
         },
     }
 
@@ -351,26 +373,35 @@ def estimate_scm(
         )
     disclosure.diagnostics_passed.append(f'weight_concentration_hhi={weight_hhi:.3f}_n_eff={n_eff_donors:.1f}')
 
+    # B8 audit fix: arbitrary confidence values via scipy.stats.norm.ppf
+    # (was: hardcoded {0.9, 0.95, 0.99} lookup with silent fallback to 0.9).
+    try:
+        from scipy.stats import norm as _scipy_norm
+        z_crit = float(_scipy_norm.ppf(1.0 - (1.0 - confidence) / 2.0))
+    except Exception:
+        z_crit = float({0.9: 1.6449, 0.95: 1.96, 0.99: 2.5758}.get(confidence, 1.6449))
+
     # Placebo inference
     if run_placebo and len(donor_units) >= 3:
+        # B1 audit fix: pass treated_unit so placebo donor pool excludes original treated.
         placebo_result = _placebo_inference(
-            df, att_mean, treatment_period, unit_column, time_column, kpi_column, donor_units
+            df, att_mean, treatment_period, unit_column, time_column, kpi_column,
+            donor_units, treated_unit=treated_unit,
         )
-        ci_method = 'placebo_permutation'
-        # CI from placebo distribution: empirical ±α/2 percentile placeholders
-        # Note: SCM placebo gives p-value but standard CI is harder — use post/pre
-        # RMSE ratio как proxy uncertainty bound.
-        # Conservative CI: ATT ± k × pre_rmse where k = z_{1-α/2}
-        alpha = confidence_to_alpha(confidence)
-        z_crit = float({0.9: 1.6449, 0.95: 1.96, 0.99: 2.5758}.get(confidence, 1.6449))
-        # Use placebo std as scale если placebos available
+        # B2 audit fix: ci_method reflects ACTUAL computation path (was: silent fallback
+        # к pre_rmse but ci_method='placebo_permutation' reported regardless).
         if placebo_result['n_placebos'] >= 3 and placebo_result.get('placebo_atts_summary'):
-            # Reconstruct placebo std from min/max — rough placeholder
+            # B2 fix: use actual std (now stored in summary) instead of range/4 proxy.
             p_summary = placebo_result['placebo_atts_summary']
-            placebo_range = p_summary['max'] - p_summary['min']
-            scale = placebo_range / 4  # rough — assumes ~normal placebo distribution
+            scale = float(p_summary.get('std') or 0.0)
+            if scale <= 0:
+                # All placebo ATTs identical — degenerate. Fall back to range proxy.
+                scale = max(p_summary['max'] - p_summary['min'], 0.0) / 4
+            ci_method = 'placebo_permutation'
         else:
+            # Insufficient placebos succeeded — honest fallback marker (B2 fix).
             scale = pre_rmse
+            ci_method = 'placebo_pre_rmse_fallback'
         att_ci_low = att_mean - z_crit * scale
         att_ci_high = att_mean + z_crit * scale
     else:
@@ -379,7 +410,6 @@ def estimate_scm(
             'detail': 'Placebo inference skipped (run_placebo=False or insufficient donors).',
         }
         ci_method = 'pre_rmse_proxy'
-        z_crit = float({0.9: 1.6449, 0.95: 1.96, 0.99: 2.5758}.get(confidence, 1.6449))
         att_ci_low = att_mean - z_crit * pre_rmse
         att_ci_high = att_mean + z_crit * pre_rmse
 

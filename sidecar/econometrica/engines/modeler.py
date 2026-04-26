@@ -864,6 +864,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'model_version': '1.2',
             'y_actual': y.tolist(),
             'y_predicted': y_pred.tolist(),
+            # Sprint 3 ADR §11/Q4 refinement: optional hint к причинному артефакту
+            # в same project. Backward-compat: legacy readers ignore via .get().
+            # MMM model lifecycle independent от causal artifact (refresh causal experiment
+            # не invalidates MMM training), but UI knows where to look для combined view.
+            'causal_artifact_path': None,
         }
 
         model_path = models_dir / 'latest.pkl'

@@ -141,19 +141,63 @@ def validate_for_scm(
     treated_unit: Any,
     treatment_period: Any,
 ) -> dict | None:
-    """SCM-specific validation."""
+    """SCM-specific validation.
+
+    B9 audit fix: defensive type coercion для treatment_period comparison —
+    if metadata periods are timestamps and user passes string, attempt coerce.
+    Pre-fix, type mismatch silently filtered all periods to one side.
+    """
     if treated_unit not in metadata.units_list:
         return error_response('TREATED_UNIT_MISSING', f'Unit {treated_unit} не в данных. Есть: {metadata.units_list[:10]}')
     n_donors = metadata.n_units - 1
     if n_donors < 3:
         return error_response('INSUFFICIENT_DONORS', f'Donor pool {n_donors} < 3.')
+
+    # B9: type coercion for treatment_period comparison
+    sample_period = metadata.periods_list[0] if metadata.periods_list else None
+    if sample_period is not None and type(sample_period) is not type(treatment_period):
+        try:
+            if isinstance(sample_period, (int, float)):
+                treatment_period = type(sample_period)(treatment_period)
+            elif hasattr(sample_period, 'year'):  # pd.Timestamp / datetime
+                treatment_period = pd.to_datetime(treatment_period)
+        except Exception:
+            return error_response(
+                'TREATMENT_PERIOD_INVALID',
+                f'treatment_period {treatment_period!r} не coerces к dtype panel periods ({type(sample_period).__name__}).'
+            )
+
     # Pre-treatment period count
-    pre_periods = [p for p in metadata.periods_list if p < treatment_period]
+    try:
+        pre_periods = [p for p in metadata.periods_list if p < treatment_period]
+        post_periods = [p for p in metadata.periods_list if p >= treatment_period]
+    except TypeError as e:
+        return error_response(
+            'TREATMENT_PERIOD_INVALID',
+            f'treatment_period сравнение failed: {e}. Проверь dtype.'
+        )
+
     if len(pre_periods) < 6:
         return error_response('INSUFFICIENT_PRE_PERIODS', f'Pre-treatment periods {len(pre_periods)} < 6.')
-    post_periods = [p for p in metadata.periods_list if p >= treatment_period]
     if len(post_periods) < 1:
         return error_response('TREATMENT_PERIOD_INVALID', 'Нет post-treatment periods.')
+
+    # B7 audit fix: warn (not block) when n_pre < n_donors + 1.
+    # Per Abadie literature, SCM may overfit (perfect pre-match) когда n_donors > n_pre.
+    # We don't BLOCK because SCM still computable — just store warning meta для UI.
+    # (caller in scm.py can read this from metadata if needed; non-blocking.)
+    if len(pre_periods) < n_donors + 1:
+        # Stamp on metadata for caller to surface (don't reject — allow SCM to run)
+        metadata.units_list  # no-op accessor, just to assert metadata still usable
+        # Note: metadata is dataclass — we attach a soft attribute via setattr
+        try:
+            object.__setattr__(metadata, '_overfit_warning',
+                f'n_pre ({len(pre_periods)}) < n_donors+1 ({n_donors+1}) — SCM may overfit '
+                f'pre-treatment match. Pre-RMSE will look excellent но post-period extrapolation '
+                f'unreliable. Per Abadie 2021, prefer n_pre ≥ n_donors+1.')
+        except Exception:
+            pass
+
     return None
 
 
@@ -194,17 +238,20 @@ def synthesize_geo_split(
         df_panel — long-format с new geo column added. Each original row
         becomes n_geo rows (one per region) with proportionally split KPI.
     """
+    # B10 audit fix: hoist numeric_cols computation outside double loop (was: re-evaluated
+    # N×n_geo times = O(N×n_geo) wasted column lookups). Comment "additive noise" was wrong —
+    # scaling is multiplicative (kept as-is, just labeled correctly now).
     rng = np.random.default_rng(seed)
     region_multipliers = rng.uniform(0.5, 1.5, n_geo)
     region_multipliers = region_multipliers / region_multipliers.sum() * n_geo  # normalize sum
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
 
     panel_rows = []
     for _, row in df.iterrows():
         for r_idx in range(n_geo):
             new_row = row.copy()
             new_row[geo_column_name] = f'region_{r_idx}'
-            # Scale numeric columns by region multiplier (additive noise)
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            # Multiplicative scaling by region-specific factor (NOT additive noise).
             for c in numeric_cols:
                 new_row[c] = row[c] * region_multipliers[r_idx] / n_geo
             panel_rows.append(new_row)

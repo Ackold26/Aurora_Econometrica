@@ -310,18 +310,33 @@ def cross_method_consistency(project_dir: str) -> dict[str, Any]:
     }
 
     # Pairwise CI overlap
-    ci_overlap: dict[str, bool] = {}
+    # B9 audit fix (audit-of-Sprint3 2026-04-27): skip pair when CI is None
+    # (instead of false-flag overlap=False which biased verdict toward 'disagree'
+    # for any CI-missing pair). Now: incomplete pairs marked 'skipped' и не
+    # counted в n_pairs/n_overlap denominators.
+    ci_overlap: dict[str, bool | str] = {}
     relative_divergences = []
+    n_overlap = 0
+    n_pairs_with_ci = 0
     for i in range(len(methods)):
         for j in range(i + 1, len(methods)):
             m1, m2 = methods[i], methods[j]
             a1, a2 = att_values[m1], att_values[m2]
-            # Overlap: max(low1, low2) <= min(high1, high2)
+            pair_key = f'{m1}_vs_{m2}'
+            # Skip pair если CI bounds missing
+            if (a1['ci_low'] is None or a1['ci_high'] is None or
+                    a2['ci_low'] is None or a2['ci_high'] is None):
+                ci_overlap[pair_key] = 'skipped_ci_missing'
+                continue
             try:
                 overlap = max(a1['ci_low'], a2['ci_low']) <= min(a1['ci_high'], a2['ci_high'])
+                ci_overlap[pair_key] = overlap
+                n_pairs_with_ci += 1
+                if overlap:
+                    n_overlap += 1
             except (TypeError, ValueError):
-                overlap = False
-            ci_overlap[f'{m1}_vs_{m2}'] = overlap
+                ci_overlap[pair_key] = 'skipped_invalid_types'
+                continue
             try:
                 divergence = abs(a1['point'] - a2['point']) / max(abs(a1['point']), abs(a2['point']), 1e-10)
                 relative_divergences.append(divergence)
@@ -330,12 +345,10 @@ def cross_method_consistency(project_dir: str) -> dict[str, Any]:
 
     max_div = max(relative_divergences) if relative_divergences else 0.0
 
-    # Verdict
-    n_overlap = sum(ci_overlap.values())
-    n_pairs = len(ci_overlap)
-    if n_pairs == 0:
-        verdict = 'unknown'
-    elif n_overlap == n_pairs and max_div < 0.30:
+    # Verdict — B9 audit fix: use n_pairs_with_ci (excluding skipped) as denominator
+    if n_pairs_with_ci == 0:
+        verdict = 'unknown'  # all pairs skipped (insufficient CI data)
+    elif n_overlap == n_pairs_with_ci and max_div < 0.30:
         verdict = 'agree'
     elif n_overlap == 0 or max_div > 0.70:
         verdict = 'disagree'

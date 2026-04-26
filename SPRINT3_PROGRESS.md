@@ -22,6 +22,67 @@ Honest caveat banner на page header (v1.0.14 ship): "backend validated на sy
 
 **Quality:** 0 causal-specific Svelte type errors, Rust compiles clean (cargo check 22s).
 
+---
+
+## Audit-of-Sprint3 fix-session (2026-04-27 fresh-eyes pass)
+
+Антон requested critical re-audit of all Sprint 3 work. Re-read each component с red-team mindset, traced data flows, enumerated edge cases. **15 issues considered, 10 fixed before push.**
+
+### HIGH severity (5 — all fixed):
+
+**B1 [scm.py]:** placebo donor pool included original treated_unit. Per Abadie convention treated unit's post-period values are treatment-contaminated → biases placebo distribution toward true effect direction → false significance.
+- **Fix:** `_placebo_inference` accepts `treated_unit` kwarg, builds `df_no_true = df[df[unit_col] != treated_unit]` for placebo runs.
+- Backward-compat: legacy callers without kwarg fall through к full df (deprecated path).
+
+**B2 [scm.py]:** ci_method='placebo_permutation' reported even когда placebos all failed → fell back к pre_rmse silently. F5-class bug (silent fallback).
+- **Fix:** explicit `'placebo_pre_rmse_fallback'` marker когда n_placebos < 3. Also added `std` field to placebo_atts_summary (was: range/4 proxy biased для non-normal distributions).
+
+**B3 [causal_forest.py]:** "bootstrap" fallback resampled FROM `cate_pred` (fixed point estimates), не from data. Computes SE-of-mean of fixed estimates, NOT bootstrap of estimator. Underestimates uncertainty significantly.
+- **Fix:** rename ci_method к `'cate_mean_se_fallback'` + explicit caveat in honest_disclosure: "underestimates true uncertainty because ignores estimator variance. Используй ATT point estimate как directional, не quantitative." True bootstrap (refit forest each iter) deferred (~minutes per iter).
+
+**B4 [did.py]:** `_parallel_trends_test` used standard OLS SE without clustering. Panel data residuals correlate within unit → understated SE → false rejection of parallel trends assumption.
+- **Fix:** statsmodels OLS с `cov_type='cluster', cov_kwds={'groups': pre_df[unit_col]}` для ≥2 units. Standard SE only когда n_clusters=1 (degenerate). Added `se_method` field to result.
+
+**B5 [modeler.py]:** ADR Q4 promise of `causal_artifact_path` field в MMM pickle not delivered.
+- **Fix:** added `'causal_artifact_path': None` к pickle dict. v1.2 pickles forward-compat. Future binding к UI deferred.
+
+### MEDIUM severity (5 — all fixed):
+
+**B6 [causal_forest.py]:** Overlap propensity check used in-sample LogisticRegression fit без StandardScaler → overfit + slow convergence on unscaled features.
+- **Fix:** `Pipeline(StandardScaler + LogisticRegression)` + `cross_val_predict(cv=min(5, n//20))` для honest out-of-sample propensity scores.
+
+**B7 [_panel_data.py]:** `validate_for_scm` не проверяла `n_pre >= n_donors + 1` (Abadie 2021 overfit risk).
+- **Fix:** non-blocking `_overfit_warning` attribute set when condition violated. Caller in scm.py can surface к UI. Не block (SCM still computable, just warn).
+
+**B8 [scm.py + did.py + causal_forest.py]:** `z_crit` lookup hardcoded `{0.9, 0.95, 0.99}` → silent precision loss для arbitrary confidence (e.g., 0.92 falls back to 0.9 = 1.6449).
+- **Fix:** `scipy.stats.norm.ppf(1.0 - alpha/2.0)` для exact value. Lookup retained as fallback if scipy unavailable.
+
+**B9 [preflight.py]:** `cross_method_consistency` set `overlap=False` когда any CI bound is None → false-flagged 'disagree' verdict for any CI-missing pair.
+- **Fix:** mark pair `'skipped_ci_missing'` (string), exclude from `n_pairs_with_ci` denominator. Verdict='unknown' когда all pairs skipped (was 'disagree').
+
+**B10 [_panel_data.py]:** `synthesize_geo_split` re-evaluated `numeric_cols` inside double loop (O(N×n_geo) wasted column lookups). Comment said "additive noise" but code does multiplicative scaling.
+- **Fix:** hoisted `numeric_cols = df.select_dtypes(...).columns.tolist()` outside loops. Comment corrected.
+
+### Lock-in tests (`tools/test_audit_of_sprint3.py` — 20 assertions):
+- B1 source-level structural verification + both code paths return valid results
+- B2 ci_method ∈ honest set
+- B3 source references cate_mean_se_fallback + caveat string
+- B4 se_method='cluster' returned для panel ≥2 units
+- B5 modeler.py pickle schema includes causal_artifact_path
+- B7 _overfit_warning meta attribute set when triggered
+- B9 verdict='unknown' when all pairs ci-missing (not false-flag 'disagree')
+- B10 synthesize_geo_split functions correctly post-refactor
+
+**Tests:** 508/508 PASS (was 488 + 20 new audit). No regressions.
+
+### Deferred (low priority):
+- Pydantic `Any` typing for treated_unit/treatment_period — type coercion via panel_data
+- F2/F3 caveats consolidation в HonestDisclosure structure (synergy refactor)
+- HonestDisclosure soft/hard distinction в diagnostics_failed
+- UI: file picker via Tauri dialog API (currently text path input)
+- UI: column auto-detect from file (currently manual entry)
+- True bootstrap для Causal Forest (currently fallback uses SE-of-mean honestly labeled)
+
 Total: 5 commits + 488/488 tests PASS.
 
 | Milestone | Commit | LOC | Tests | Recovery error |

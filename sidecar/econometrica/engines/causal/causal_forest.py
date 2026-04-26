@@ -44,14 +44,32 @@ def _check_overlap(T: np.ndarray, X: np.ndarray, threshold: float = 0.05) -> dic
 
     Threshold: any propensity ∉ [threshold, 1-threshold] indicates positivity violation
     в that region of feature space — HTE there unidentifiable.
+
+    B6 audit fix: cross-validated propensity (5-fold) + StandardScaler. Pre-fix
+    fit LogisticRegression on entire X without scaling → overfit propensity scores
+    (in-sample fit understates overlap violations for high-dim data) + lbfgs slow
+    on unscaled features. Now: honest out-of-sample propensity via cross_val_predict.
     """
     try:
         from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.pipeline import Pipeline
+        from sklearn.model_selection import cross_val_predict
         if len(np.unique(T)) < 2:
             return {'passed': False, 'detail': 'Treatment имеет только одно значение — overlap не identifiable.'}
-        clf = LogisticRegression(max_iter=200, solver='lbfgs')
-        clf.fit(X, T)
-        propensity = clf.predict_proba(X)[:, 1]
+        pipe = Pipeline([
+            ('scaler', StandardScaler()),
+            ('clf', LogisticRegression(max_iter=500, solver='lbfgs')),
+        ])
+        # B6 fix: cross_val_predict gives honest out-of-sample propensity scores.
+        # min(n // 20, 5) folds to avoid stratified-CV issues on small samples.
+        n_folds = max(2, min(5, len(T) // 20))
+        try:
+            propensity = cross_val_predict(pipe, X, T, cv=n_folds, method='predict_proba')[:, 1]
+        except Exception:
+            # Fallback: in-sample fit (less honest но не crash на degenerate folds)
+            pipe.fit(X, T)
+            propensity = pipe.predict_proba(X)[:, 1]
         n_violations = int(np.sum((propensity < threshold) | (propensity > 1 - threshold)))
         violation_pct = n_violations / len(propensity)
         return {
@@ -219,19 +237,31 @@ def estimate_causal_forest(
             ate_ci_high = float(np.mean(cate_ci[1]))
             ci_method = 'honest_split'
         except Exception as e:
-            logger.warning(f'effect_interval failed: {e}, falling back to bootstrap')
-            # Bootstrap fallback
-            n_boot = 100
-            ate_boots = []
-            rng = np.random.default_rng(random_state)
-            for _ in range(n_boot):
-                idx = rng.integers(0, len(Y), size=len(Y))
-                ate_boots.append(float(np.mean(cate_pred[idx])))
-            z_crit = float({0.9: 1.6449, 0.95: 1.96, 0.99: 2.5758}.get(confidence, 1.6449))
-            ate_se = float(np.std(ate_boots))
+            logger.warning(f'effect_interval failed: {e}, falling back to cate_mean_se proxy')
+            # B3 audit fix (audit-of-Sprint3 2026-04-27): RENAME bootstrap →
+            # cate_mean_se. Pre-fix code resampled FROM cate_pred (per-obs CATE
+            # point estimates) which gives SE of mean of FIXED estimates, NOT
+            # bootstrap of estimator. True bootstrap requires refitting Causal
+            # Forest on resampled (Y,T,X) — expensive (~minutes per iteration).
+            # Honest naming + use simple SE-of-mean which is what's actually
+            # computed.
+            # Coverage caveat: this CI underestimates uncertainty (ignores
+            # estimator variance). Honest_disclosure gets explicit caveat.
+            # B8 fix: scipy.stats.norm.ppf для arbitrary confidence values.
+            try:
+                from scipy.stats import norm as _scipy_norm
+                z_crit = float(_scipy_norm.ppf(1.0 - alpha / 2.0))
+            except Exception:
+                z_crit = float({0.9: 1.6449, 0.95: 1.96, 0.99: 2.5758}.get(confidence, 1.6449))
+            ate_se = float(np.std(cate_pred, ddof=1) / np.sqrt(len(cate_pred)))
             ate_ci_low = ate - z_crit * ate_se
             ate_ci_high = ate + z_crit * ate_se
-            ci_method = 'bootstrap'
+            ci_method = 'cate_mean_se_fallback'
+            disclosure.caveats.append(
+                'CI computed via SE-of-mean of CATE estimates (cate_mean_se_fallback) — '
+                'underestimates true uncertainty because ignores estimator variance. '
+                'Используй ATT point estimate как directional, не quantitative.'
+            )
 
     except Exception as e:
         logger.exception(f'Causal Forest fit failed: {e}')

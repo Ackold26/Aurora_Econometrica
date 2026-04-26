@@ -85,19 +85,37 @@ def _parallel_trends_test(
     pre_df['_t_x_treated'] = pre_df['_t_num'] * pre_df['_is_treated_unit']
 
     # OLS: kpi ~ t_num + is_treated_unit + t_num*is_treated_unit
+    # B4 audit fix (audit-of-Sprint3 2026-04-27): cluster-robust SE by unit.
+    # Pre-fix used standard OLS SE которая underestimated стандартную ошибку
+    # interaction term because errors correlate within unit (panel structure).
+    # Result: false rejections of parallel trends — too many tests "fail".
+    # Now: clustered SE by unit_col → honest SE → calibrated p-values.
     try:
         from statsmodels.regression.linear_model import OLS
         from statsmodels.tools import add_constant
         X = add_constant(pre_df[['_t_num', '_is_treated_unit', '_t_x_treated']])
         y = pre_df[kpi_col]
-        model = OLS(y, X).fit()
+        n_unique_units = int(pre_df[unit_col].nunique())
+        # Need ≥2 clusters for cluster-robust SE; fallback to standard OLS when n=1.
+        if n_unique_units >= 2:
+            model = OLS(y, X).fit(
+                cov_type='cluster',
+                cov_kwds={'groups': pre_df[unit_col]},
+            )
+            se_method = 'cluster'
+        else:
+            model = OLS(y, X).fit()
+            se_method = 'standard'
         interaction_p = float(model.pvalues['_t_x_treated'])
         # If interaction p < 0.05 → trends differ significantly = violation
         passed = interaction_p > 0.05
         return {
             'passed': passed,
             'p_value': round(interaction_p, 4),
-            'detail': (f'p-value interaction t × treated_unit = {interaction_p:.4f}. '
+            'se_method': se_method,
+            'n_clusters': n_unique_units,
+            'detail': (f'p-value interaction t × treated_unit = {interaction_p:.4f} '
+                       f'(SE: {se_method}). '
                        f'{"OK" if passed else "ВНИМАНИЕ: trends differ"} (threshold p>0.05)'),
         }
     except Exception as e:
@@ -227,8 +245,14 @@ def estimate_did(
 
     # Step 5: Compute CI using normal approximation (large-N panel)
     # ATT ± z_{α/2} · SE
+    # B8 audit fix: scipy.stats.norm.ppf для arbitrary confidence values
+    # (was: hardcoded {0.9, 0.95, 0.99} lookup → silent precision loss for 0.92, 0.85, etc).
     alpha = confidence_to_alpha(confidence)
-    z_crit = float({0.9: 1.6449, 0.95: 1.96, 0.99: 2.5758}.get(confidence, 1.6449))
+    try:
+        from scipy.stats import norm as _scipy_norm
+        z_crit = float(_scipy_norm.ppf(1.0 - alpha / 2.0))
+    except Exception:
+        z_crit = float({0.9: 1.6449, 0.95: 1.96, 0.99: 2.5758}.get(confidence, 1.6449))
     att_ci_low = att_coef - z_crit * att_se
     att_ci_high = att_coef + z_crit * att_se
 
