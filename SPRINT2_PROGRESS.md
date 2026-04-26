@@ -1,9 +1,29 @@
 # Sprint 2 + Sprint 1.5 (A4) — Live Progress
 
-**Last updated:** 2026-04-26 ~23:30 — Sprint 2 + Sprint 1.5 BACKEND COMPLETE
-**Branch:** `math-fix-v1.0.13`
-**Active phase:** Sprint 2 + Sprint 1.5 backend полностью готовы. UI + live-test pending Антоном.
-**HEAD:** `1a6066d`+`e4bce20`+`<latest>` — backtest skeleton final commit pending
+**Last updated:** 2026-04-27 ~00:30 — AUDIT FIX-SESSION COMPLETE
+**Branch:** `math-fix-v1.0.13` (pushed to remote)
+**Active phase:** All Sprint 1+2+1.5 backend + 9 audit fixes done. UI + live-test pending Антоном.
+**HEAD:** `9cb5751` (S1 unified preflight endpoint)
+
+**Audit fix-session 2026-04-27 (4 commits, 9 issues closed):**
+- `1b29c6d` C1 Phase 1.1 mean-normalization mathematical drift eliminated
+- `79dde5f` H5 mode validation + H1 scenario logging + C2 ROAS guard + C3 spend=0 semantics
+- `f678463` H4 DRY adstock_factor + H3 OLS untrained exclude + H2 verdict gate + M1 decay key
+- `9cb5751` S1 unified /compute/preflight endpoint (UI один call вместо 4)
+
+**Fixes applied:**
+- 🔴 C1: Phase 1.1 in-model mean normalization (5-15% ROI bias eliminated)
+- 🔴 C2: ROAS CI division-by-near-zero guard (100₽ floor)
+- 🔴 C3: spend=0 channels explicit ci=0 + skip reason marker
+- 🟡 H1: scenario CI failure logger.warning (visibility)
+- 🟡 H2: verdict_tier tail_ess_ok=None default (forces explicit caller)
+- 🟡 H3: OLS untrained channels excluded from X matrix
+- 🟡 H4: DRY adstock_factor_batch reuse в _compute_mroas_money_samples
+- 🟡 H5: server.py mode validation whitelist (typo protection)
+- 🟢 M1: per_channel_samples 'decay' key always present (None when missing)
+- ✨ S1: unified /compute/preflight orchestrating recommend + quick_proxy + prior_predictive
+
+**Test status:** 330 unit tests PASS (156+73+36+65). +1 new для M1 contract. Zero regressions.
 
 > **Resume protocol:** if you see only summary after compress — read this file first, continue from "Next concrete step" without confirmation. Stop only for: architecture decisions, push to remote, schema migration. Auto-commit local OK.
 
