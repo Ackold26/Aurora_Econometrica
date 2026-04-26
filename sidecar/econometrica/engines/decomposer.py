@@ -365,8 +365,10 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
                 ch_dict['roi_ci_low'] = round(float(roi_ci_low), 4)
                 ch_dict['roi_ci_high'] = round(float(roi_ci_high), 4)
                 # F5 fix: ci_method reflects ACTUAL HDI computation (not silent fallback).
-                # Suffix '_pct' indicates percentile fallback fired (arviz unavailable/failed).
-                _is_pct = _method_r == 'percentile_fallback'
+                # A2 audit-of-audit (2026-04-27): conservative OR semantic — flag '_pct'
+                # if EITHER contrib OR roi fell back к percentile (in case arviz fails on
+                # one but not the other due to numerical edge cases).
+                _is_pct = (_method_c == 'percentile_fallback') or (_method_r == 'percentile_fallback')
                 if decay_samples is not None:
                     base = 'bayesian_hdi_phase11_pct' if _is_pct else 'bayesian_hdi_phase11'
                 else:

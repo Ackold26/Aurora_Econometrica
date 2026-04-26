@@ -245,13 +245,23 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                     # consistency with in-model normalization. Pre-fix used scalar
                     # `adstock_mean_posterior` for all samples → CI shape distorted
                     # when decay variability high. Same class-of-bug as C1 in samples path.
+                    #
+                    # A1 audit-of-audit (2026-04-27 second-pass): when training data
+                    # unavailable, MUST fall back к scalar mean (training-time stored
+                    # `adstock_mean_posterior`). Pre-fix fell back to raw_plan[col]
+                    # (scenario data) → normalized scenario by ITSELF, math-incorrect:
+                    # x_norm averaged ~1 across samples regardless of how scenario
+                    # related к training scale, Hill saturated at constant level →
+                    # CI artificially tight. Now: explicit scalar fallback preserves
+                    # training-vs-scenario scale relationship correctly.
                     train_raw = train_raw_per_channel.get(col)
-                    mean_samples = compute_train_adstock_mean_samples(
-                        train_raw if train_raw is not None else raw_plan[col],
-                        decay_samples,
-                        a_type=a_type,
-                        fallback_scalar=mean,
-                    )
+                    if train_raw is not None:
+                        mean_samples = compute_train_adstock_mean_samples(
+                            train_raw, decay_samples, a_type=a_type, fallback_scalar=mean,
+                        )
+                    else:
+                        # Training data unavailable → scalar fallback (NOT scenario plan)
+                        mean_samples = mean
                     if isinstance(mean_samples, np.ndarray):
                         denom = np.maximum(mean_samples, 1e-10)[:, None]
                     else:

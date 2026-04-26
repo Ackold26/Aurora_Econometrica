@@ -238,7 +238,70 @@ Docstring claims "Coverage guarantee: ≥ 1 - 2α (slightly weaker than split's 
   - F1 evidence: per-sample training adstock mean propagated (uses x_adstock_2d.mean(axis=1, keepdims=True) — verified в decomposer.py edit)
   - All CI monotonic: `roi_ci_low ≤ roi ≤ roi_ci_high` ✓ across all 6 channels.
 
-**MIN-LIVE summary:** 4 production gates + 1 bonus all PASSED. F1-F5 fixes validated в production code path (FastAPI server.py + Pydantic request validation + actual ML pipeline + pickle round-trip). No regressions surfaced. Step B (Sprint 3 Pharma Causal) unlocked.
+**MIN-LIVE summary:** 4 production gates + 1 bonus all PASSED. F1-F5 fixes validated в production code path (FastAPI server.py + Pydantic request validation + actual ML pipeline + pickle round-trip). No regressions surfaced.
+
+---
+
+## Second-pass Audit Findings (2026-04-27 — fresh-eyes review of own fix-session)
+
+Antón requested critical re-audit of the work just completed before push (recognizing same blind-spot pattern that surfaced original C1/F1 bugs могла повториться в audit-fix-session itself). Re-read each F1-F5 edit с red-team mindset, traced data flow, enumerated edge cases.
+
+### A1 [HIGH — fixed before push]: F1 scenario.py training-data fallback bug
+
+**Discovery:** when training data file unavailable (load failed / file moved / corrupted), F1 fix fell back to `raw_plan[col]` (scenario data) для per-sample mean computation. Helper computed `geometric_adstock_batch(raw_plan[col], decay_samples).mean(axis=1)` — i.e., normalized SCENARIO BY ITSELF.
+
+**Math impact:** x_norm averaged ~1 across samples regardless of how scenario related к training scale. Hill saturated at constant level → CI artificially tight. Model was trained with x_norm using TRAINING mean, so dividing by scenario's own mean broke the calibration — Hill coefficients no longer correspond к actual saturation curve.
+
+**Severity:** HIGH — silent math error в edge case. Production triggers: data file moved/renamed между train+scenario, or scenario uses dataset different from training.
+
+**Fix:** explicit scalar fallback. When `train_raw is None`, set `mean_samples = mean` (training-time stored `adstock_mean_posterior`). Preserves training-vs-scenario scale relationship correctly.
+
+**Class-of-bug:** same fallback-to-wrong-data pattern that existed in C1 (defaults vs posterior means). Caught only on second pass — confirms blind-spot doctrine.
+
+### A2 [MEDIUM — fixed before push]: F5 method aggregation OR semantic
+
+**Discovery:** decomposer captured `_method_c` (contribution HDI method) and `_method_r` (ROI HDI method) but only checked `_method_r` for `_pct` suffix decision. If arviz failed on contrib but succeeded on ROI (numerical edge case), ci_method label would say 'bayesian_hdi' даже когда контрибуция fell back к percentile.
+
+**Fix:** OR semantic — flag '_pct' suffix if EITHER method fell back. Conservative — surfaces honest fallback to UI.
+
+### A3 [MEDIUM — defer]: F1 + F4 synergy gap
+
+**Discovery:** when adstock_decay tail-ESS bad для channel i, F4 marks tail_ess_ok[i]=False, but F1 path STILL uses those unstable samples для CI propagation. Verdict_tier downstream treats tail_ess_ok=False as annotation only (CI computed but flagged "оценка нестабильна"), not as fall-back trigger.
+
+**Could:** when tail_ess_ok=False для channel, fall back к Phase 1.9 path (scalar mean, decay_samples=None semantics) for THAT channel's CI. Сейчас design gracefully — bad CI computed + flagged. Defer to Sprint 3+ unless data shows real impact.
+
+### A4 [LOW — observed]: scenario/optimizer ci_method не expose
+
+**Discovery:** scenario.py captures `_m_p, _m_i, _m_l` for predicted_kpi/incremental/lift HDI methods. Optimizer captures `_m_cur, _m_opt`. Neither propagates these через response. UI can't tell if percentile fallback fired для these CIs.
+
+**Fix priority:** LOW — analogous к decomposer ci_method exposure for symmetry, but UI doesn't currently consume them. Defer until UI track.
+
+### A5 [LOW — observed]: F2 backward-compat alias
+
+**Discovery:** `jackknife_plus_intervals = jackknife_intervals` alias preserves call sites, but `result['method']` returns 'jackknife' (was 'jackknife_plus' pre-F2). External callers checking string would silently fail. Searched codebase — no string check exists. ✓
+
+### A6 [Synergy opportunity — defer]: Code duplication CI block
+
+**Discovery:** decomposer + scenario have parallel ~40-LOC blocks computing per-sample contribution from posterior_samples. Could extract `compute_phase11_contribution_samples(raw, decay_samples, alpha_samples, gamma_samples, beta_samples, mean_or_array, y_std)` helper. ~40 → ~10+ ~5+ ~5 = 20 LOC, eliminates drift risk.
+
+**Defer:** decomposer aggregates total (sum over time), scenario aggregates per-period (for time-series chart). Different output shapes — would need 2 helpers or careful design. Sprint 3+ refactor when adding causal endpoints needs similar batch math.
+
+### A7 [Tests gap — accepted risk]: scenario F1 fallback path не покрыт unit test
+
+**Discovery:** A1 bug class — fallback к scenario plan when training data unavailable — has no unit test. F1 tests cover helper correctness и decomposer flow, но scenario error-path nuances не tested.
+
+**Assessment:** acceptable risk — A1 fix makes fallback a constant-scalar (provable correct), test would just verify branch taken. MIN-LIVE Bayesian decompose validated F1 happy-path. Defer test addition.
+
+### Audit summary (15 issues considered, 6 surfaced, 2 fixed before push):
+
+- **HIGH:** A1 (math correctness in edge case) — fixed.
+- **MEDIUM:** A2 (F5 OR semantic) — fixed. A3 (F1+F4 synergy) — defer documented.
+- **LOW:** A4 (ci_method UI exposure) — defer. A5 (alias string) — observed clean. A6 (code dedup) — defer.
+- **Risk-accepted:** A7 (test gap on rare error-path).
+
+Re-run baseline tests after A1+A2: 339/339 PASS. No regressions.
+
+**Step B (Sprint 3 Pharma Causal) unlocked.**
 
 ---
 
