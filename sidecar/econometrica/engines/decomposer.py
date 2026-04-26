@@ -205,6 +205,28 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
 
     for col in media_cols:
         params = channel_params[col]
+        # H-OLS-2 (audit 2026-04-27): explicit guard для untrained channels.
+        # OLS engine marks channels with zero training variance via 'untrained': True flag.
+        # Pre-fix: such channels могли silently get spurious contribution когда production
+        # spend non-zero (mean fallback к 1.0 → x_norm = adstocked/1.0 = full raw → Hill saturation).
+        # Post-fix: explicit zero contribution + skip CI computation.
+        if params.get('untrained'):
+            ch_dict_untr = {
+                'name': col,
+                'spend': 0.0,
+                'raw_spend': 0.0,
+                'unit_cost': float(unit_costs.get(col, 1.0) or 1.0),
+                'contribution': 0.0,
+                'contribution_pct': 0,
+                'roi': 0.0,
+                'beta': 0.0,
+                'verdict': 'Не обучен',
+                'verdict_tone': 'neutral',
+                'untrained': True,
+                'ci_skip_reason': 'untrained_channel',
+            }
+            channels.append(ch_dict_untr)
+            continue
         beta = float(params.get('beta', 0))
         alpha = max(float(params.get('alpha', 1)), 1e-6)
         gamma = max(float(params.get('gamma', 0.5)), 1e-6)
@@ -280,6 +302,7 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             ch_dict['roi_ci_low'] = 0.0
             ch_dict['roi_ci_high'] = 0.0
             ch_dict['ci_skip_reason'] = 'zero_spend'
+            ch_dict['ci_method'] = 'unavailable_zero_spend'
 
         # Sprint 2 extension (small-data path): for '1.0-ols' pickles, populate
         # roi_ci_low/high from stored bootstrap CI (no posterior_samples available).
@@ -326,6 +349,8 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
                 _, roi_ci_low, roi_ci_high = compute_ci_hdi(roi_samples)
                 ch_dict['roi_ci_low'] = round(float(roi_ci_low), 4)
                 ch_dict['roi_ci_high'] = round(float(roi_ci_high), 4)
+                # M-OLS-2: explicit ci_method marker для UI consumer parity (vs OLS bootstrap path).
+                ch_dict['ci_method'] = 'bayesian_hdi_phase11' if decay_samples is not None else 'bayesian_hdi'
 
         channels.append(ch_dict)
 

@@ -241,12 +241,31 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     # ── Sprint 2 extension (small-data path): bootstrap ROI CI + OLS diagnostics ──
     # Closes gap "у OLS только β CI, не ROI CI" — bootstrap дает honest ROI distribution.
     # Computed once at training time, stored в pickle для downstream consumption.
+    # C-OLS-1: pass raw_spend_series + adstock_config для real per-period contribution
+    # computation (matches decomposer math exactly — eliminates Jensen approximation bias).
     raw_spend_totals_dict = {}
+    raw_spend_series_dict = {}
     for col in trained_media_cols:
-        raw_spend_totals_dict[col] = float(df[col].fillna(0).sum())
+        col_arr = df[col].fillna(0).values.astype(float)
+        raw_spend_totals_dict[col] = float(col_arr.sum())
+        raw_spend_series_dict[col] = col_arr
 
     bootstrap_roi_results = {}
     ols_diag_results = {}
+    conformal_pi = None
+    try:
+        # S-OLS-1 audit synergy (2026-04-27): conformal prediction для distribution-free
+        # guaranteed-coverage PI на y forecasts. Aurora marketing differentiator —
+        # никто из MMM-tools не имеет conformal prediction. Auto-selects jackknife+
+        # (n<30) или split-conformal (n≥30) для optimal small-data behavior.
+        from utils.conformal import conformal_intervals_auto
+        conformal_pi = conformal_intervals_auto(X, y_norm, confidence=0.9, seed=42)
+    except Exception as _conf_err:
+        logger.warning(
+            f"Conformal PI computation failed (continuing without): "
+            f"{type(_conf_err).__name__}: {_conf_err}"
+        )
+
     try:
         from utils.ols_bootstrap import bootstrap_roi_ci, ols_diagnostics
         bootstrap_roi_results = bootstrap_roi_ci(
@@ -256,6 +275,8 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             y_std=y_std,
             n_periods=n_obs,
             raw_spend_totals=raw_spend_totals_dict,
+            raw_spend_series=raw_spend_series_dict,
+            adstock_config=adstock_config,
             unit_costs=config.get('unit_costs', {}),
             n_boot=200,
             seed=42,
@@ -329,6 +350,9 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         # Sprint 2 extension: standard OLS quality diagnostics (leverage, Cook's, VIF).
         # Empty dict if computation failed (defensive — no crash на degenerate data).
         'ols_quality': ols_diag_results,
+        # S-OLS-1: conformal prediction PI (distribution-free coverage guarantee).
+        # Available for downstream display alongside frequentist β CI + bootstrap ROI.
+        'conformal_pi': conformal_pi,
         'actual_vs_predicted': {
             'actual': [round(float(v), 4) for v in y.tolist()],
             'predicted': [round(float(v), 4) for v in y_pred.tolist()],

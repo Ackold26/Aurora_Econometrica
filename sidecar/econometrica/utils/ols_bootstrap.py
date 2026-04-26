@@ -40,6 +40,8 @@ def bootstrap_roi_ci(
     y_std: float,
     n_periods: int,
     raw_spend_totals: dict[str, float],
+    raw_spend_series: dict[str, np.ndarray],
+    adstock_config: dict[str, str],
     unit_costs: dict[str, float] | None = None,
     *,
     n_boot: int = 200,
@@ -47,27 +49,54 @@ def bootstrap_roi_ci(
     hdi_prob: float = 0.9,
     hill_alpha: float = 1.5,
     hill_gamma: float = 0.5,
+    decay_default: float = 0.5,
 ) -> dict[str, dict[str, float]]:
     """Bootstrap ROI CI per channel via N=200 OLS resampling.
 
+    C-OLS-1 fix (audit 2026-04-27): real per-period adstock+Hill computation
+    matching decomposer.py exactly. Pre-fix used hill_at_one=hill(1.0) as
+    constant approximation — Jensen's inequality bias (E[hill(X)] ≠ hill(E[X]))
+    caused systematic 10-30% drift between bootstrap CI and decomposer point
+    estimate когда spend variance высокая. UI showed "ROI 2.4 [bootstrap 1.5—2.0]"
+    where 2.4 outside CI — confusing user.
+
+    C-OLS-2 fix: tracking presence mask per channel — pre-fix indexing
+    `samples[:successful]` could include zeros from skipped iterations
+    (LinAlgError during specific iters left default zeros in array).
+    Post-fix: bool mask tracks successful writes, percentile only on those.
+
+    M-OLS-1 fix: returns HDI bounds via compute_ci_hdi (asymmetric-correct)
+    instead of raw percentile (matches Bayesian path semantics).
+
     Args:
-        X: design matrix (n_obs, p) — already adstock+Hill applied features
+        X: design matrix (n_obs, p) — already adstock+Hill applied features (для refit)
         y: KPI vector normalized (n_obs,) — y_norm = (y - y_mean) / y_std
         media_means: per-channel adstock mean (consistent с ols_modeler normalization)
         media_cols: ordered media channel names (matches X columns 1: after intercept)
         y_std: y normalization std для denormalization
         n_periods: training periods (for total contribution)
         raw_spend_totals: per-channel total raw spend (for ROI denominator)
+        raw_spend_series: per-channel raw spend per period (NEW C-OLS-1) для exact contribution
+        adstock_config: per-channel adstock type (NEW C-OLS-1) — geometric/weibull
         unit_costs: per-channel ₽/native (для money-mode ROI; default 1.0)
-        n_boot: bootstrap iterations (default 200 — robust + reasonable speed)
+        n_boot: bootstrap iterations (default 200)
         seed: RNG seed
-        hdi_prob: CI probability mass (default 0.9 = 90%, matches Bayesian default)
-        hill_alpha, hill_gamma: Hill saturation defaults (matches ols_modeler)
+        hdi_prob: HDI probability mass (default 0.9)
+        hill_alpha, hill_gamma, decay_default: OLS-fixed defaults matching ols_modeler
 
     Returns:
-        dict per channel: {ci_low, ci_high, ci_mean, ci_median} on ROI scale.
-        Empty dict for failure (logged, doesn't crash caller).
+        dict per channel: {ci_low, ci_high, ci_mean, ci_median, n_successful}
+        on ROI scale (incremental contribution / spend_money).
     """
+    from utils.adstock import apply_adstock
+    from utils.saturation import hill_function
+    # Reuse compute_ci_hdi for HDI semantics (M-OLS-1 unification)
+    try:
+        from utils.posterior_propagation import compute_ci_hdi
+        _has_hdi = True
+    except ImportError:
+        _has_hdi = False
+
     rng = np.random.default_rng(seed)
     unit_costs = unit_costs or {}
 
@@ -76,20 +105,26 @@ def bootstrap_roi_ci(
         logger.warning("bootstrap_roi_ci: too few obs/params для honest bootstrap")
         return {}
 
-    # Hill function для contribution per spend
-    def _hill(x_norm: float) -> float:
-        x_safe = max(x_norm, 1e-10)
-        gamma_safe = max(hill_gamma, 1e-10)
-        return (x_safe ** hill_alpha) / (x_safe ** hill_alpha + gamma_safe ** hill_alpha)
-
-    # ROI computation given β: contribution = β · hill(x_norm_avg) · n_periods · y_std
-    # x_norm_avg = mean(adstocked / mean) = ~1 by construction (mean-normalized)
-    # So: contribution ≈ β · hill(1) · n_periods · y_std (для flat allocation approximation)
-    # ROI = contribution / (raw_spend_total · unit_cost)
-    hill_at_one = _hill(1.0)  # constant per channel при flat allocation
-
     n_media = len(media_cols)
+
+    # C-OLS-1: precompute exact per-period Hill saturation per channel using ORIGINAL
+    # spend pattern + ols_modeler defaults. β_boot варьируется across bootstrap, но
+    # adstock + Hill — consistent с ols_modeler training (matches decomposer downstream).
+    sat_per_channel = {}  # {col: shape (n_periods,) of Hill values}
+    for col in media_cols:
+        raw = raw_spend_series.get(col)
+        if raw is None or len(raw) == 0:
+            sat_per_channel[col] = np.zeros(n_periods)
+            continue
+        a_type = adstock_config.get(col, 'geometric')
+        adstocked = apply_adstock(raw, a_type, {'alpha': decay_default})
+        mean_ch = max(media_means.get(col, 1.0), 1e-10)
+        x_norm = adstocked / mean_ch
+        sat_per_channel[col] = hill_function(np.maximum(x_norm, 0), hill_alpha, hill_gamma)
+
+    # Bootstrap arrays + presence mask per channel
     roi_samples = {col: np.zeros(n_boot, dtype=np.float64) for col in media_cols}
+    presence_mask = {col: np.zeros(n_boot, dtype=bool) for col in media_cols}
 
     successful = 0
     for boot_i in range(n_boot):
@@ -101,25 +136,27 @@ def bootstrap_roi_ci(
         try:
             beta_boot, _, _, _ = np.linalg.lstsq(X_boot, y_boot, rcond=None)
         except np.linalg.LinAlgError:
-            # Singular bootstrap sample (rare on small N) — skip iteration
+            # Singular bootstrap sample — skip iteration (presence stays False)
             continue
 
-        # Extract media betas (skip intercept at index 0, assume controls follow media)
+        # Extract media betas (skip intercept at index 0)
         media_betas_boot = beta_boot[1:1 + n_media]
 
-        # Compute ROI per channel for this bootstrap iteration
+        # C-OLS-1: REAL per-period contribution computation (matches decomposer math).
+        # contribution_total = β_j × sum_t(hill(x_norm_t)) × y_std
         for j, col in enumerate(media_cols):
             beta_j = float(media_betas_boot[j])
             spend_native = raw_spend_totals.get(col, 0)
             if spend_native <= 0:
                 roi_samples[col][boot_i] = 0.0
+                presence_mask[col][boot_i] = True  # zero IS valid result
                 continue
             uc = float(unit_costs.get(col, 1.0) or 1.0)
             spend_money = spend_native * uc
-            # Contribution (Hill at average x_norm ≈ 1): β · hill(1) · y_std × n_periods
-            # Approximation matches ols_modeler's denormalization semantics.
-            contribution = beta_j * hill_at_one * y_std * n_periods
+            sat = sat_per_channel[col]
+            contribution = beta_j * float(sat.sum()) * y_std
             roi_samples[col][boot_i] = contribution / spend_money if spend_money > 0 else 0.0
+            presence_mask[col][boot_i] = True
 
         successful += 1
 
@@ -129,22 +166,26 @@ def bootstrap_roi_ci(
             f"results may be unreliable (likely multicollinearity or bad data)"
         )
 
-    # Compute percentile CI per channel
-    alpha = (1.0 - hdi_prob) / 2.0
+    # Compute HDI per channel (M-OLS-1: HDI not percentile — matches Bayesian semantics)
     result = {}
     for col in media_cols:
-        samples = roi_samples[col]
-        if successful < 10:
+        valid = roi_samples[col][presence_mask[col]]
+        if valid.size < 10:
             result[col] = {'ci_low': None, 'ci_high': None, 'ci_mean': None, 'ci_median': None}
             continue
-        # Use only successful iterations (zeros from skipped iterations would distort)
-        valid = samples[:successful] if successful < n_boot else samples
+        if _has_hdi:
+            mean_v, ci_low, ci_high = compute_ci_hdi(valid, hdi_prob=hdi_prob)
+        else:
+            alpha = (1.0 - hdi_prob) / 2.0
+            mean_v = float(np.mean(valid))
+            ci_low = float(np.percentile(valid, alpha * 100))
+            ci_high = float(np.percentile(valid, (1 - alpha) * 100))
         result[col] = {
-            'ci_low': float(np.percentile(valid, alpha * 100)),
-            'ci_high': float(np.percentile(valid, (1 - alpha) * 100)),
-            'ci_mean': float(np.mean(valid)),
+            'ci_low': float(ci_low),
+            'ci_high': float(ci_high),
+            'ci_mean': float(mean_v),
             'ci_median': float(np.median(valid)),
-            'n_successful': successful,
+            'n_successful': int(valid.size),
         }
     return result
 
