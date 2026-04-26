@@ -182,6 +182,20 @@ def estimate_did(
         ],
     )
 
+    # SBC-found caveat (audit-of-Sprint3 + SBC 100 sims на synthetic DGP):
+    # DiD coverage under-estimated для small n_clusters (<10). Cluster-robust
+    # SE asymptotics requires n_clusters → ∞ для validity. Empirical: n=6 →
+    # coverage 0.72 vs nominal 0.90. Per Cameron, Gelbach, Miller 2008
+    # "Bootstrap-Based Improvements for Inference with Clustered Errors" —
+    # wild-cluster bootstrap recommended для small G. Future v1.0.15 enhancement.
+    n_clusters_total = metadata.n_units
+    if n_clusters_total < 10:
+        disclosure.caveats.append(
+            f'Small n_clusters={n_clusters_total} (<10) — cluster-robust SE может '
+            f'under-estimate uncertainty. SBC empirically coverage ~0.72 vs nominal 0.90 '
+            f'для similar panels. Используй wider confidence (0.95+) или triangulate с SCM/Forest.'
+        )
+
     # Detection 1: Staggered adoption
     is_staggered = _detect_staggered(df, unit_column, time_column, treatment_column)
     if is_staggered:

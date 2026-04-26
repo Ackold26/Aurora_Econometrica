@@ -122,6 +122,12 @@ PYINSTALLER_ARGS = [
     '--collect-data=numba',            # header files for JIT
     '--collect-data=pandas',           # io/formats/templates/*.tpl
 
+    # Sprint 3 Pharma Causal — added 2026-04-27 для v1.0.14 ship (per ADR §3.1).
+    # Per Q2(B): NO pysyncon, NO cvxpy. Manual scipy SLSQP for SCM weights.
+    '--collect-all=linearmodels',      # DiD Callaway-Santanna 2021 (panel data)
+    '--collect-all=econml',            # Causal Forest Wager-Athey (HTE)
+    '--collect-data=statsmodels',      # panel utilities (transitive bumped explicit)
+
     # Exclude torch — would add 2GB, not needed (FTS5/keyword ML only)
     '--exclude-module=torch',
     '--exclude-module=torchvision',

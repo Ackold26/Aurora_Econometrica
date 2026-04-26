@@ -1,0 +1,5 @@
+# SBC workdir — generated artifacts (results JSON + reports + run logs).
+# Re-creatable via `python tools/sbc_causal_overnight.py`.
+*.json
+*.txt
+*.log
