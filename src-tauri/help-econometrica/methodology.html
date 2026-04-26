@@ -139,6 +139,19 @@ MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
 <h3>Level 3 — Brand vs Performance split (в разработке)</h3>
 <p>Hierarchical Bayesian модель с разделением каналов на brand-building (длинный adstock, ROI через mental availability) и performance (короткий adstock, прямой ROI). Оцениваются отдельно, объединяются через иерархическую структуру.</p>
 
+<h2>Глоссарий рекомендаций (Action Labels v1.0.16)</h2>
+<p>Каждому каналу при декомпозиции и оптимизации присваивается одна из шести меток-рекомендаций (prescriptive action). Метки рассчитываются единым алгоритмом <code>compute_channel_action()</code>, поэтому совпадают между интерфейсом «Декомпозиция», «Оптимизация» и финальным отчётом (HTML/PPTX).</p>
+<div class="table-wrap"><table>
+<tr><th>Метка</th><th>Смысл</th><th>Триггер</th></tr>
+<tr><td><strong>Масштабировать</strong> (Scale)</td><td>Канал недо-инвестирован — каждый дополнительный рубль работает выше среднего</td><td>mROAS ≥ 1.0 + optimizer recommends ≥ +5% OR mROAS ≥ 1.5 + efficiency_gap ≥ +5пп</td></tr>
+<tr><td><strong>Удерживать</strong> (Hold)</td><td>Канал в стабильной зоне — не трогать без специальной причины</td><td>mROAS ≥ 1.1 + |gap| &lt; 5пп</td></tr>
+<tr><td><strong>Под наблюдением</strong> (Watch)</td><td>Нет явного сигнала на действие — мониторить mROAS в следующих периодах</td><td>1.0 ≤ mROAS &lt; 1.1 OR значительный gap без optimizer signal</td></tr>
+<tr><td><strong>Сократить умеренно</strong> (Reduce)</td><td>Канал близок к breakeven или optimizer recommends -5..-50%</td><td>mROAS &lt; 1.0 OR optimizer ratio ≤ 0.95 + mROAS ≥ 1.0 (saturation-bound)</td></tr>
+<tr><td><strong>Сократить</strong> (Cut)</td><td>Канал глубоко убыточен — каждый рубль приносит убыток</td><td>mROAS &lt; 0.8 OR optimizer ratio &lt; 0.5 (severe redistribution)</td></tr>
+<tr><td><strong>Недостаточно данных</strong> (Uncertain)</td><td>CI шире самой mROAS, untrained канал, либо нулевой бюджет — оценка ненадёжна</td><td>CI width &gt; mROAS OR untrained=True OR spend ≤ 0</td></tr>
+</table></div>
+<p><em>Уверенность (confidence)</em> по каждой метке: <strong>high</strong> когда CI &lt; 50% mROAS, <strong>medium</strong> когда CI &lt; mROAS, иначе <strong>low</strong>.</p>
+
 <h2>Позиционирование vs. другие решения</h2>
 <div class="table-wrap"><table>
 <tr><th></th><th>Aurora AI Econometrica</th><th>Robyn (Meta)</th><th>LightweightMMM (Google)</th></tr>

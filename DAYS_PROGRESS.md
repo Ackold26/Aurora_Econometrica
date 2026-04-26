@@ -6,11 +6,27 @@
 
 ## Current Task
 
-**Day 5 — Help docs обновление к v1.0.16** — pending
+**Day 6 — Sidecar rebuild + NSIS + ship** — НУЖНА синхронизация с Антоном
 
-methodology.html action labels glossary (Scale/Hold/Watch/Reduce/Cut/Uncertain)
-econometrica.html Step 6 (Optimize) update reflecting Section A multi-start + L4 mROAS axis
-index.html v1.0.16 changelog entry
+Sidecar rebuild требует launching `python build_sidecar.py` (~5-15 мин).
+NSIS rebuild через `npm run tauri build` (~3-7 мин).
+GH Release + Supabase + rosst-updates latest.json — operations требуют credentials.
+PASHE_IT.MD update (SHA256 + version).
+
+**Что я могу сделать автономно:**
+- Version bumps в package.json + tauri.conf.json + Cargo.toml (1.0.15 → 1.0.16)
+- Подготовить CHANGELOG_v1.0.16.md draft
+- Подготовить GH_RELEASE_v1.0.16_DRAFT.md
+- Подготовить PASHE_IT.MD update template (SHA256 placeholder)
+- Help docs sync к target/ build directories
+
+**Что требует Антона:**
+- Sidecar build run (long-running)
+- NSIS build run (long-running)
+- GH release publish (auth)
+- Supabase upload (auth)
+- rosst-updates push (auth)
+- Customer PASHE_IT.MD update final SHA256
 
 ---
 
@@ -25,6 +41,11 @@ index.html v1.0.16 changelog entry
   - L21 backlog entry (lift_pct=None)
   - Audit-fix: legacy action migration, delta persistence, NaN guards, reasoning tooltip
   - Tests: 552/552 PASS (was 544 + 8 L4 lock-ins)
+
+- ✅ **Day 5 — Help docs update** — pending push (3 files updated)
+  - `methodology.html` — Action Labels Glossary section с full ACTION_KEYS vocabulary (Scale/Hold/Watch/Reduce/Cut/Uncertain). Triggers + confidence levels documented.
+  - `econometrica.html` Step 5 (Оптимизация) — обновлён с Section A multi-start, money-axis mROAS, three-way alignment, auto-apply, edge banners, action labels. Plus «Что нового в v1.0.16» section.
+  - `index.html` — добавлен Changelog v1.0.16 block (math-fix v1.4 Section C). Все Day 1-4 features documented.
 
 - ✅ **Day 4 — Settings + L9 + MQS** — pending push (4 findings: L9, L16, L18-L20)
   - L9 disable «Фиксировать бюджет» checkbox с tooltip «Запланировано в v1.1». OptimizeRequest gains `budget_mode: str = 'fixed'`. Backend rejects `budget_mode != 'fixed'` с error_code='BUDGET_MODE_NOT_IMPLEMENTED' (forward-compat для UI bypass callers).
@@ -54,7 +75,11 @@ index.html v1.0.16 changelog entry
 
 ## Next (concrete first step)
 
-Find help HTML files location — likely `src-tauri/help/` или resources. Search для existing `methodology.html`, `econometrica.html`, `index.html`. Update action labels glossary в methodology с full ACTION_KEYS vocabulary.
+1. Bump versions: package.json + src-tauri/Cargo.toml + src-tauri/tauri.conf.json (1.0.15 → 1.0.16)
+2. Draft CHANGELOG_v1.0.16.md (Day 1-5 summary)
+3. Draft GH_RELEASE_v1.0.16_DRAFT.md
+4. Show batch diff к Антону — get push approval для всех Day 2-5 commits + version bumps
+5. Антон runs sidecar rebuild + NSIS build + ship (Day 6 final)
 
 ---
 
