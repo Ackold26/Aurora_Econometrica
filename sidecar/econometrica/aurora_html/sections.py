@@ -264,11 +264,23 @@ def render_executive_summary(ctx: dict) -> str:
             # L15 (math-fix v1.4 Section C): use cut_source / scale_destination
             # from action_summary instead of leader/hero. Fallback templates
             # для edge cases (only-Cut, only-Scale, all-Hold, all-Uncertain).
+            # L23 fix (Венарус 2026-04-29): underperf list уже dedup'нут от
+            # cut_source в narrative_adapter. Если empty («-») — пропускаем
+            # «сократить или остановить» clause целиком чтобы избежать
+            # «Перебалансировать ... в Social; сократить или остановить -.»
+            has_extra_underperf = bool(facts.get("underperformer_names"))
             if cut_source and scale_dest:
-                answer = scqar["answer"]["template"].format(
-                    realloc=realloc, cut_source=cut_source,
-                    scale_destination=scale_dest, underperf=underperf,
-                )
+                if has_extra_underperf:
+                    answer = scqar["answer"]["template"].format(
+                        realloc=realloc, cut_source=cut_source,
+                        scale_destination=scale_dest, underperf=underperf,
+                    )
+                else:
+                    # Без underperf clause — основная часть только
+                    answer = (
+                        f"Перебалансировать {realloc:.0f} млн ₽ из {cut_source} "
+                        f"в {scale_dest}."
+                    )
             elif scale_dest:  # no Cut signal but Scale opportunity exists
                 answer = scqar.get("answer_no_cut", {}).get("template", scqar["answer"]["template"]).format(
                     realloc=realloc, scale_destination=scale_dest,

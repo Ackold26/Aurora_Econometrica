@@ -1953,8 +1953,15 @@ class AuroraPPTXBuilder:
             # Hero mROAS
             hero_ch = next((c for c in self.channels if c.get("name") == hero), {})
             hero_m = float(hero_ch.get("mroas") or 0)
-            # Underperformer names
-            underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut", "Reduce")]
+            # Underperformer names. L23 fix (2026-04-29): dedup от cut_source —
+            # narrative_adapter уже исключил cut_source из underperformer_names
+            # в facts dict, но self.channels — raw merged list. Apply here
+            # locally for PPTX consistency (avoid «из TRPs ... остановить TRPs»).
+            cut_source_local = (self.facts or {}).get("cut_source_channel")
+            underperf = [
+                c.get("name") for c in self.channels
+                if c.get("verdict") in ("Cut", "Reduce") and c.get("name") != cut_source_local
+            ]
             underperf_str = ", ".join(underperf) if underperf else "отстающие каналы"
 
             # Stage C.5: McKinsey 3-scenario SCQAR action headline.

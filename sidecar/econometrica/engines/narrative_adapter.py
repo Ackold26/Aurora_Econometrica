@@ -604,17 +604,31 @@ def _derive_narrative_facts(
     bd_contrib = max(float(budget_dominator.get("contribution") or 0), 0.0)
 
     # L15 (math-fix v1.4 Section C, 2026-04-29): cut_source / scale_destination
-    # for accurate reallocation narrative. Pre-fix: «Перебалансировать из {leader}
-    # в {hero}» где leader=top contribution (could be small-budget channel),
-    # hero=top mROAS (could be high-mROAS but tiny channel). Both могут быть
-    # неправильным subjects для reallocation. Use channels_by_action signals:
-    # Cut[0] = channel optimizer wants to shrink the most, Scale[0] = wants
-    # to grow the most. SA19: fallback templates для all-Hold or all-Uncertain.
-    cut_candidates = action_summary["channels_by_action"].get("Cut", []) + \
-                     action_summary["channels_by_action"].get("Reduce", [])
-    scale_candidates = action_summary["channels_by_action"].get("Scale", [])
-    cut_source = cut_candidates[0] if cut_candidates else None
-    scale_destination = scale_candidates[0] if scale_candidates else None
+    # for accurate reallocation narrative.
+    # L22 fix (Венарус live-test 2026-04-29): sort by mROAS вместо contribution
+    # order — narrative consistency. Pre-fix: customer reads «По mROAS Social
+    # опережает (11.1×)» → ANSWER «в OLV» (top contribution Scale, mROAS 3.76×).
+    # Disconnect между tweets COMPLICATION (mROAS-based hero) и ANSWER
+    # (contribution-based scale_destination). Post-fix: scale_destination = top
+    # mROAS Scale (best marginal effectiveness for reallocation), cut_source =
+    # worst mROAS Cut/Reduce (deepest cut needed). Action template now reads
+    # «Перебалансировать из TRPs (mROAS 0.03×) в Social (mROAS 11.1×)» —
+    # consistent с COMPLICATION «Social опережает».
+    cut_candidate_chs = [c for c in channels if c.get("action") in ("Cut", "Reduce")]
+    cut_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0))  # asc — worst first
+    scale_candidate_chs = [c for c in channels if c.get("action") == "Scale"]
+    scale_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0), reverse=True)  # desc — best first
+    cut_source = cut_candidate_chs[0].get("name") if cut_candidate_chs else None
+    scale_destination = scale_candidate_chs[0].get("name") if scale_candidate_chs else None
+
+    # L23 fix (Венарус live-test 2026-04-29): dedup cut_source from
+    # underperformer_names. Pre-fix: ANSWER «из TRPs в OLV; сократить или
+    # остановить TRPs» — TRPs дважды (cut_source AND underperformer overlap).
+    # Post-fix: underperf list excludes cut_source (it's already named explicitly
+    # в reallocation segment). Если remaining list empty → underperf section
+    # пропускается template'ом.
+    underperformer_names_raw = [c.get("name") for c in underperformers if c.get("name")]
+    underperformer_names_dedup = [n for n in underperformer_names_raw if n != cut_source]
 
     return {
         "leader_channel": leader.get("name"),
@@ -627,7 +641,7 @@ def _derive_narrative_facts(
         "leader_share_contrib_pct": (leader_contrib / total_contrib * 100) if total_contrib > 0 else None,
         "top_2_names": [c.get("name") for c in top_2],
         "top_2_contrib_pct": (top_2_contrib / total_contrib * 100) if total_contrib > 0 else None,
-        "underperformer_names": [c.get("name") for c in underperformers],
+        "underperformer_names": underperformer_names_dedup,
         "reallocation_mln": reallocation / 1_000_000.0 if reallocation else 0.0,
         "expected_lift_pct": expected_lift,
         # Honest narrative inputs (Phase 0.7 — narrative_adapter v2)
