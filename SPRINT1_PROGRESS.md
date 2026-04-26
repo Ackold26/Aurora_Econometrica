@@ -1,9 +1,10 @@
 # Sprint 1 Foundation — Live Progress (resume after compress)
 
-**Last updated:** 2026-04-26 ~20:00 — Phase 1.9 backend E2E verified + Phase 1.1 pilot done
+**Last updated:** 2026-04-26 ~21:30 — Phase 1.9 + Phase 1.1 backend BOTH COMPLETE
 **Branch:** `math-fix-v1.0.13`
-**Active phase:** Phase 1.9 backend COMPLETE (E2E verified on synthetic) + Phase 1.1 pilot validated logit-normal
-**HEAD:** `2269d10` (E2E demo smoke test)
+**Active phase:** Phase 1.1 backend complete + tests + migration banner. Pending live-test (Антон).
+**HEAD:** `54fc39b` (Phase 1.1 tests 72/72 PASS) + new migration banner commit pending
+**Test status:** 156+36+72 = 264 unit tests PASS + 65 narrative_adapter = 329 total
 
 > **If you read this after a compress:** continue from "Next concrete step" below WITHOUT confirmation per Антон's protocol 2026-04-26. Only stop for: architecture decisions, push to remote, fundamental schema migration. Auto-commit local OK. Show diff before push.
 
@@ -92,23 +93,50 @@
 
 ---
 
-## Phase 1.1 task list (queued, after 31 May Платформа)
+## Phase 1.1 — BACKEND COMPLETE 2026-04-26
 
-Per ADR §5. Logit-normal hierarchy preferred over Beta-Beta (avoids funnel geometry).
+Per ADR §5 + ADR Amendment A1 (logit-normal). Implemented ahead of original
+calendar (planned после 31 May) thanks to autonomous mode.
 
-| # | Task | Status |
-|---|---|---|
-| T1.1 | Logit-normal vs Beta-Beta pilot 2h synthetic | ⏳ |
-| T1.2 | modeler hierarchical decay sampling в NUTS | ⏳ |
-| T1.3 | utils/adstock.py accept dict of decays | ⏳ |
-| T1.4 | All downstream — use sampled decays | ⏳ |
-| T1.5 | Pickle schema bump v1.2 + decay_samples field | ⏳ |
-| T1.6 | Migration messaging для v1.1.5 pickles | ⏳ |
-| T1.7 | tools/test_sbc_adstock.py — Coverage Probability ≥85% | ⏳ |
-| T1.8 | Live-test all 3 datasets (Kagocel/Venarus/MMX) | ⏳ |
-| T1.9 | Pathfinder init NumPyro (T14 deferred from 1.9) | ⏳ |
+| # | Task | Status | Commit |
+|---|---|---|---|
+| T1.1 | Logit-normal vs Beta-Beta pilot 2h synthetic | ✅ | `91677c2`+`3929ce6` |
+| T1.2 | modeler hierarchical decay sampling в NUTS | ✅ | `dbabdb3` |
+| T1.3 | utils/adstock.py accept dict of decays | ✅ | `dbabdb3` |
+| T1.4 | All downstream — use sampled decays | ✅ | `dbabdb3` |
+| T1.5 | Pickle schema bump v1.2 + decay_samples field | ✅ | `dbabdb3` |
+| T1.6 | Migration messaging для v1.1.5 pickles | ✅ | (pending commit) |
+| T1.7 | tools/test_sbc_adstock.py — Coverage Probability ≥85% | ⏸ DEFER | requires MCMC ~10min × 100 sims = 16h |
+| T1.8 | Live-test all 3 datasets (Kagocel/Venarus/MMX) | ⏳ pending | needs Антон UI flow |
+| T1.9 | Pathfinder init NumPyro (T14 deferred from 1.9) | ⏸ DEFER | requires pure NumPyro flow rewrite |
+| Tests | 26 new Phase 1.1 assertions | ✅ | `54fc39b` |
+| E2E demo | extended для v1.2 path | ✅ | `a072276` |
 
-**Phase 1.1 ETA:** 13-16h (per ADR §5)
+**Phase 1.1 implementation total:** ~325 LOC + 140 LOC tests across 7 engine files.
+
+**Pickle schema v1.2:**
+- Inherits all v1.1.5 posterior_samples (media_betas, alphas, gammas, intercept, control_betas)
+- Adds `adstock_decay` shape (n_channels, n_samples) hierarchical samples
+- Adds `adstock_mu_logit_mean`, `adstock_sigma_logit_mean` hyperparameter point estimates
+- channel_params[col]['decay'] = posterior mean per-channel
+- Backward compat: v1.0/v1.1/v1.1.5 readers work via .get() fallback patterns
+
+**Hierarchical priors (validated by pilot):**
+```python
+adstock_mu_logit ~ Normal(-1.4, 0.7)        # sigmoid mean ~0.20 (monthly)
+adstock_sigma_logit ~ HalfNormal(1.0)        # moderate dispersion
+adstock_z ~ Normal(0, 1, shape=n_channels)   # non-centered per-channel
+adstock_decay = sigmoid(mu_logit + sigma_logit * z)
+```
+
+**In-model adstock:** scan-based geometric per channel (decay sampled in NUTS).
+Weibull stays hardcoded (Phase 1.5 task). Pre-fit X_media at default decay 0.5
+для media_means estimate (semantic consistency v1.1.5 downstream).
+
+**Vectorized CI propagation:**
+- decomposer/scenario use `geometric_adstock_batch` + `hill_function_batch_2d` when v1.2 pickle
+- optimizer `_compute_mroas_money_samples` supports decay_samples → per-sample adstock_factor analytical
+- Joint correlation preserved (alpha_i, gamma_i, beta_i, decay_i from same draw)
 
 ---
 
