@@ -505,8 +505,20 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # Post-fix (math-fix v1.0.14.1): channel-pivot starts — для каждого канала
     # i пробуем «канал i на upper, остальные на lower, project». Это даёт SLSQP
     # стартовые точки в разных корнерах feasible region.
-    x0_money = np.array([current_spend[col] * uc_arr[i] for i, col in enumerate(media_cols)])
-    x0_money = _project_to_budget(x0_money)
+    #
+    # math-fix v1.0.16, L10 (Антон's live-test 2026-04-28): SEPARATE real-current
+    # from projected-current. Pre-fix (commit fe42e7f) использовал projected x0_money
+    # для current_response baseline, что инфлятило lift_pct на What-if scenarios
+    # где money_target ≠ current_total_money. Customer testing budget changes
+    # получал wrong KPI predictions (e.g. -50% budget → +124% «lift», +100% budget
+    # → +10% «lift»). Mathematically невозможно — Hill saturation монотонна.
+    # Fix: x0_money_real (real current, never projected) для baseline; projected
+    # x0_money — только для SLSQP multi-start initialization.
+    x0_money_real = np.array(
+        [current_spend[col] * uc_arr[i] for i, col in enumerate(media_cols)],
+        dtype=float,
+    )
+    x0_money = _project_to_budget(x0_money_real.copy())
 
     starts_money: list[tuple[str, np.ndarray]] = [('current', x0_money)]
 
@@ -607,16 +619,37 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     _n_at_min = sum(1 for i in range(n_ch) if _is_binding(result.x[i], bounds[i][0], _binding_scale))
     binding_constraints = (_n_at_max == n_ch) or (_n_at_min == n_ch)
 
-    # Compare current vs optimal — both в money axis (objective scale).
-    current_response = -total_response_money(x0_money)
+    # Compare current vs optimal — math-fix v1.0.16 L10:
+    # current_response computed at REAL current allocation (x0_money_real),
+    # NOT projected (x0_money). Pre-fix using projected made lift_pct artifact
+    # of scale-down/scale-up baseline shift, не measure of redistribution gain.
+    # Edge case: if real media spend = 0 (all channels at 0), current_response_real
+    # ≤ 0 — division would explode. Guard explicitly.
+    current_response_real = -total_response_money(x0_money_real)
     optimal_response = -total_response_money(result.x)
-    lift_pct = (optimal_response - current_response) / current_response * 100 if current_response else 0
+    if current_response_real > 1e-9:
+        lift_pct = (optimal_response - current_response_real) / current_response_real * 100
+        baseline_zero = False
+    else:
+        # Degenerate baseline — no current media contribution to compare against.
+        # Report 0% lift_pct + flag for UI to suppress percentage display.
+        lift_pct = 0.0
+        baseline_zero = True
+        _logger.warning(
+            "current_response_real ≤ 0 — degenerate baseline. lift_pct undefined; flagged for UI."
+        )
 
-    # math-fix v1.0.14.1 — false convergence detector. SLSQP может вернуть
-    # success=True at iter=1 если стартовая точка локально стабильна (KKT
-    # удовлетворяется тривиально). Этот flag поднимается когда optimizer
-    # вернул practically current allocation БЕЗ binding constraints —
-    # narrative показывает honest banner вместо vacuous «сохранить аллокацию».
+    # math-fix v1.0.14.1 + v1.0.16 — false convergence detector.
+    # SLSQP может вернуть success=True at iter=1 если стартовая точка локально
+    # стабильна (KKT удовлетворяется тривиально). Этот flag поднимается когда
+    # optimizer вернул practically projected-current allocation (i.e. no
+    # redistribution found within new money_target).
+    #
+    # SA6 (audit 2026-04-28): сравниваем result.x с x0_money (projected),
+    # NOT x0_money_real. Logic: «no redistribution» = result ≈ scaled-current.
+    # When money_target = current_total → x0_money == x0_money_real → unchanged
+    # behavior. When money_target ≠ current → projected baseline detects
+    # «proportional cut/grow without redistribution» = the meaningful warning.
     _max_abs_delta_money = float(max(
         abs(result.x[i] - x0_money[i]) for i in range(n_ch)
     )) if n_ch else 0.0
@@ -781,10 +814,17 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                               for col in media_cols)
 
     _sign = '+' if lift_pct >= 0 else ''
-    # math-fix v1.0.14.1 — narrative-aware insight. Когда converged_at_current,
-    # honest формулировка вместо vacuous «прирост 0%». Narrative_adapter
-    # читает converged_at_current flag для полного баннера.
-    if converged_at_current:
+    # math-fix v1.0.14.1 + v1.0.16 — narrative-aware insight.
+    # baseline_zero (L10 edge case): real current media contribution = 0 → lift_pct
+    # undefined. Honest message вместо vacuous «прирост 0%».
+    if baseline_zero:
+        insight = (
+            f"Текущее распределение даёт нулевой медиа-вклад — невозможно "
+            f"вычислить прирост в процентах. Оптимизатор предлагает распределение "
+            f"({round(total_budget_money, 0):,.0f} ₽), но baseline для сравнения "
+            f"degenerate. Проверьте данные media_columns."
+        )
+    elif converged_at_current:
         insight = (
             f"Оптимизатор сошёлся на текущем распределении (бюджет "
             f"{round(total_budget_money, 0):,.0f} ₽). Это может означать что "
@@ -823,6 +863,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # — converged_at_current: SLSQP отдал current allocation без binding (false convergence).
         # — slsqp_diagnostics: per-start outcomes для post-mortem (UI/log debugging).
         'converged_at_current': bool(converged_at_current),
+        # math-fix v1.0.16, L10: baseline_zero flag — real current media contribution = 0,
+        # lift_pct undefined. UI должен suppress lift display + show diagnostic banner.
+        'baseline_zero': bool(baseline_zero),
         'slsqp_diagnostics': {
             'n_starts': len(slsqp_attempts),
             'n_converged': sum(1 for a in slsqp_attempts if a['success']),

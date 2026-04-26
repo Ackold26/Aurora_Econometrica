@@ -295,6 +295,89 @@ def main() -> int:
               ('Увеличить' in insight) or ('Сократить' in insight),
               hint=f'insight="{insight[:120]}"')
 
+        # ──────────────────────────────────────────────────────────────
+        # L10 — math-fix v1.0.16 lock-in: lift_pct correct когда
+        # money_target ≠ current_total_money (What-if scenarios).
+        # Pre-fix regression: x0_money projected to money_target inflated
+        # baseline → lift_pct artifacts (-50% budget → +124% «lift»).
+        # ──────────────────────────────────────────────────────────────
+        print('── L10: What-if budget regression lock-in ──')
+        from engines.optimizer import optimize as _optimize
+
+        # Compute current money total через config + xlsx (matches optimizer.py logic)
+        import pandas as pd
+        with open(proj / 'models' / 'latest.pkl', 'rb') as f:
+            md = pickle.load(f)
+        df_m = pd.read_excel(md['config']['data_file'])
+        media_cols_m = md['config']['media_columns']
+        uc_m = md['config']['unit_costs']
+        current_total_money = sum(
+            float(df_m[c].fillna(0).sum()) * float(uc_m.get(c, 1.0))
+            for c in media_cols_m
+        )
+
+        # L10a — half budget should give SMALL or NEGATIVE lift_pct
+        # (Hill saturation monotonic — less spend = less media response,
+        # max possible: optimizer redistributes within smaller budget).
+        result_half = _optimize({
+            'min_pct': 10.0,
+            'max_pct': 300.0,
+            'total_budget_money': current_total_money * 0.5,
+        }, str(proj))
+        lift_half = float(result_half.get('expected_lift_pct') or 0)
+        # Pre-fix этот test failed с lift_half ≈ +124%.
+        # Post-fix expected: lift_half < 50% (если позитив, то скромный
+        # redistribution gain в смягчающем budget).
+        check(
+            f'L10a: half budget lift_pct < +50 (got {lift_half:+.2f}%)',
+            lift_half < 50.0,
+            hint='lift_pct inflated when money_target < current_total — L10 regression',
+        )
+
+        # L10b — double budget should give POSITIVE lift bigger than default
+        # (more money → more media potential, but diminishing returns)
+        result_default = _optimize({
+            'min_pct': 10.0,
+            'max_pct': 300.0,
+            'total_budget_money': current_total_money,
+        }, str(proj))
+        lift_default = float(result_default.get('expected_lift_pct') or 0)
+
+        result_double = _optimize({
+            'min_pct': 10.0,
+            'max_pct': 300.0,
+            'total_budget_money': current_total_money * 2.0,
+        }, str(proj))
+        lift_double = float(result_double.get('expected_lift_pct') or 0)
+        # Pre-fix этот test failed с lift_double ≈ +10% (меньше default 30%).
+        # Post-fix expected: lift_double > lift_default (more budget → more lift).
+        check(
+            f'L10b: 2× budget lift > default (got {lift_double:.2f}% vs default {lift_default:.2f}%)',
+            lift_double > lift_default,
+            hint='2× budget should give more lift, not less — L10 inverted relationship',
+        )
+
+        # L10c — property-based monotonicity test (SA18)
+        # Lift_pct должно strictly не-decreasing с money_target ratio.
+        # Hill saturation монотонна — больше spend → больше effect.
+        targets = [0.5, 0.75, 1.0, 1.5, 2.0]
+        lifts = []
+        for ratio in targets:
+            r = _optimize({
+                'min_pct': 10.0, 'max_pct': 300.0,
+                'total_budget_money': current_total_money * ratio,
+            }, str(proj))
+            lifts.append(float(r.get('expected_lift_pct') or 0))
+        monotonic = all(
+            lifts[i + 1] >= lifts[i] - 0.5  # 0.5pp tolerance for numerical jitter
+            for i in range(len(lifts) - 1)
+        )
+        check(
+            f'L10c: lift_pct monotonic in budget — {dict(zip(targets, [round(l, 1) for l in lifts]))}',
+            monotonic,
+            hint='Hill saturation монотонна — больше budget должен давать больше lift',
+        )
+
     finally:
         # Cleanup
         try:

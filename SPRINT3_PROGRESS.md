@@ -641,3 +641,683 @@ SPRINT3_PROGRESS.md                                  (this entry)
 
 After Section B GREEN: bump 1.0.14 → 1.0.15, rebuild sidecar + NSIS, update
 CHANGELOG + GH Release draft + PASHE_IT.MD. Customer ship UNBLOCKED.
+
+---
+
+## Live-test 2026-04-28 (post-v1.0.15) — findings backlog
+
+### 🔴 BLOCKER L1 — Insights panel ↔ Column role matrix desync на Validate page
+
+**Symptom (Антон, 2026-04-28):** На этапе Валидации правый Insights panel предложил исключить Пресса/OOH/Радио/Спецпроект. Кнопка «Исключить» подняла ratio с 1.7:1 → 2.2:1 ✓. НО матрица «Медиа и управляемые факторы» в центре страницы оставила эти 4 канала с ролью «Медиа» — auto-removal не сработал.
+
+**Inverse failure:** ручное изменение роли в Column matrix не пересчитывает ratio + не обновляет Insights рекомендации.
+
+**Class-of-bug:** аналогичен Validate→Model state desync (fixed v1.0.14 `0eeb715`). Two UI components share computed state но НЕ share underlying SST.
+
+**Hypothesis:**
+- Insights panel мутирует `validateData.excluded_channels` (или подобное)
+- Column matrix читает `validateData.columns[i].role`
+- Эти states не sync'нутся → desync
+
+**Fix candidate:**
+- Single source of truth: insights button should call same handler как Column matrix role change → mutate `validateData.columns[i].role = 'excluded'` (или add a flag `excluded: true`)
+- Column matrix render — visual indicator (crossed out / faded) для excluded channels
+- Test: lock-in test проверяющий что Insights "Exclude" → ConfigPanel media_columns reflects change
+
+**Priority:** v1.0.16 blocker (similar severity к Optimizer 0% lift bug — UX integrity issue, customer trust).
+
+
+### L1 — formal acceptance criteria (Антон 2026-04-28)
+
+**Requirement:** bi-directional binding между Insights panel + Column role matrix + ratio/recommendations через единый source of truth.
+
+**Architecture:**
+- SST: `validateData.columns[i].role` (или новый flag `excluded`)
+- All mutators → один handler `setColumnRole(idx, role)` который mutates SST
+- All consumers (ratio, recommendations, ConfigPanel media list) → derive через `$derived` from SST
+
+**Acceptance gates:**
+1. Insights «Исключить» X → row X в Column matrix визуально crossed-out + role меняется на excluded
+2. Drag X из «Медиа» в «Не использовать» → Insights убирает рекомендацию по X + ratio пересчитывается
+3. Insights «Включить обратно» → role восстанавливается к prev (или default)
+4. ratio + рекомендации всегда reflect *active* channel set
+5. Lock-in test (`tools/test_validate_state_sync.py`) — programmatically toggle через каждый mutator, assert все consumers consistent
+
+
+### L1 — end-to-end consistency (Антон, добавлено 2026-04-28)
+
+**Финальное требование:** state на Validate (после ВСЕХ мутаций) → передаётся на Model training точно как user видит. Объединяет v1.0.14 fix (`0eeb715` — drag-drop only) с новым L1 (insights + любые другие mutators) под единым решением.
+
+**Pipeline contract:**
+```
+validateData.columns (SST)
+  ↓ derive
+active_media_columns + active_control_columns (computed)
+  ↓ ConfigPanel reads
+media_columns / control_columns sent to /compute/train
+  ↓
+trained model uses exactly active set
+```
+
+**Acceptance gate #6:**
+- Active set на Validate (после всех мутаций) = media_columns на Model = train(media_columns) — byte-for-byte идентично
+- E2E test: программно меняем через все 3 mutator-paths (drag-drop / Insights button / matrix click) → assert train config matches active Validate state byte-for-byte
+
+
+### 🟡 L2 — descriptive verdict «Высокая неопределённость» suppression на small-N (Антон 2026-04-28)
+
+**Symptom:** на decompose page для Kagocel после v1.0.15 train (6 channels, n=31, ratio 2.2:1) ВСЕ 6 каналов получают verdict «Высокая неопределённость» в декомпозиции, несмотря на clear Gap signals (TRPs gap -82%, Performance gap +32%, etc) и большой ROI spread (0.04× ↔ 16.12×).
+
+**Root cause:** `decomposer.py:73` `compute_roi_verdict` Step 1 — early CI uncertainty check. При CI width > ROI → returns «Высокая неопределённость». На small-N с hierarchical shrinkage (Phase 1.1) CI почти всегда wide → suppresses ВСЕ informative labels.
+
+**Подход** (mirrors Section B channel_action.py CI re-ordering):
+- Move CI uncertainty check AFTER absolute caps + Gap-based fallback steps
+- Keep CI uncertainty as final fallback ONLY когда no other clear signal (small Gap, mid ROI)
+- При clear Gap (|gap| ≥ 10pp) OR clear ROI (>5× или <0.5×) — descriptive verdict выдаётся даже при wide CI, с caveat в reasoning text
+
+**Acceptance criteria для v1.0.16 fix:**
+1. Kagocel decompose post-fix: TRPs → «Перенасыщен» (Gap -82pp), Performance → «Эффективен» (ROI 16× + Gap +32pp), etc.
+2. UI optionally показывает CI bracket рядом с verdict (existing _ci_tier_class CSS hint) для visual «несмотря на wide CI» disclosure
+3. Channels с small Gap + small ROI spread → continue to get «Высокая неопределённость» (legitimate use)
+4. Lock-in test: 6-канальный Kagocel-like fixture → verdict counts {Эффективен: 4-5, Перенасыщен: 1, Высокая неопределённость: 0-1} вместо текущего {Высокая: 6}
+
+**Priority:** v1.0.16 (вместе с L1 — Validate state sync). Both UX-credibility blockers.
+
+
+### 🟡 L3 — Optimize page slider preview shows 0 ₽ для small-spend channels (Антон 2026-04-28)
+
+**Symptom:** на Optimize page блок «Распределение бюджета» preview slider — Social и Retail Media показывают 0 ₽ хотя current spend = 15.5M и 15.3M. Performance/Banners/OLV/TRPs отображаются корректно.
+
+**Hypothesis:** slider position default initialization не учитывает scale разнообразие. Возможно slider bounds derive от max channel spend (TRPs 3.3B) → small channels (15M) попадают в visual zero band на global scale.
+
+**Impact:** preview KPI (10748.5M, -4.3% к текущему) reflect эти zero slider positions, не actual current spend. Misleading UI до клика «Оптимизировать бюджет».
+
+**Fix candidate:** initialize каждый slider с his own (min, max) range based on канал's bounds (cur×min_pct, cur×max_pct), не на global scale.
+
+**Priority:** v1.0.16 medium (UI consistency, не blocker для real optimize result).
+
+
+### 🔴 L4 — Optimize page mROAS display + light logic bugs (Антон 2026-04-28)
+
+**Symptom:** на Optimize page после оптимизации блок «MIROAS — предельная отдача следующего рубля»:
+- Performance: 0.25× → 🔴 Перенасыщен (но он на upper bound 200%, optimizer его ВЫРАСТИЛ)
+- Social: 0.27× → 🔴 Перенасыщен (upper bound, ВЫРАСТИЛ)
+- Retail Media: 0.19× → 🔴 Перенасыщен (upper bound, ВЫРАСТИЛ)
+- Banners/OLV: 0.03× → 🔴 Перенасыщен (upper bound, ВЫРАСТИЛ)
+- TRPs: 110.93× → 🟢 Масштабировать (но optimizer его СОКРАТИЛ до ~92%)
+
+**Two bugs:**
+
+**Bug 1 — mixed display units.** TRPs 110.93× = mROAS_native (per TRP), money channels 0.03-0.27× = mROAS_money (per ₽). Сравнение бессмысленно — это разные единицы. Section A optimizer fix внутренне работает в money axis, но UI отображения смешивает обе.
+
+**Bug 2 — inverted light logic relative к bounds.** Все 5 small channels на upper bound 200% — означает optimizer хотел бы их еще нарастить если бы границы позволяли (это «Scale-blocked», не «Перенасыщен»). TRPs at ratio 0.92 = optimizer slightly cut — это «Reduce», не «Scale-up».
+
+UI light logic (likely в OptimizeStep.svelte) computes recommendation locally based on mROAS thresholds, не используя channel_action.compute_channel_action (которая знает про optimizer ratio + bound state).
+
+**Fix candidate:**
+- Unify display: показывать mROAS_money везде (TRPs * unit_cost в backend перед UI render)
+- Migrate UI light logic к compute_channel_action — это та же function что HTML/PPTX используют (Section B). Ratio-aware logic правильно классифицирует:
+  * Optimal ratio ≥ 1.05 + at upper bound → «Scale» (blocked by constraint)
+  * Optimal ratio < 0.95 → «Reduce»
+  * Etc
+
+**Acceptance criteria для v1.0.16:**
+1. Все каналы display mROAS в одной axis (money) — units consistent
+2. Light recommendation derived from compute_channel_action(channel_dict including optimal_spend), not raw mROAS thresholds
+3. Kagocel post-fix: 5 small channels show «🟢 Масштабировать» (at upper bound, optimizer grows), TRPs «🟠 Сократить умеренно» (optimizer cuts -8%)
+4. Lock-in test: synthetic Kagocel-like fixture → light counts match expected
+
+**Priority:** v1.0.16 BLOCKER (UX integrity — inverted recommendations directly contradict optimizer output, customers will lose trust).
+
+
+### 🔴 L5 — Optimizer optimal_spend не auto-applies к sliders (Антон 2026-04-28)
+
+**Symptom:** после клика «Оптимизировать бюджет» backend возвращает optimal_spend (правильный +30.4% lift на real Kagocel). Δ% labels рядом со sliders показывают +100%/-8% корректно. **НО:**
+- Slider positions остаются на current spend
+- Money values рядом со sliders = current (107.1M OLV, 3315M TRPs etc)
+- Total budget = current 3590.4M
+- Прогноз KPI = current 11226M (вместо ожидаемых 14749M post-optimization)
+
+**Root cause:** `OptimizeStep.svelte:applyOptimal()` функция с slider animation существует, но не auto-fires после successful optimize. Пользователь видит «оптимум найден» (через Δ% labels) но не видит фактическое распределение.
+
+**Two display states existing in code:**
+1. `channelBudgets` store — current slider values (used for displayed money)
+2. `optimalBudgets` store — populated после optimize, target для applyOptimal()
+
+После optimize: optimalBudgets = backend.channels[i].optimal_spend, но channelBudgets не обновляется автоматически. Результат: UI показывает old current values.
+
+**Fix candidate:**
+- (a) Auto-apply: после successful optimize → `applyOptimal()` immediately (animation 800ms на user-perceived smoothness)
+- (b) Prominent banner+button: «✅ Оптимум найден (+30.4% lift). Применить → [BUTTON]» — explicit user action для безопасности
+
+Recommendation: (a) — пользователь нажал «Оптимизировать» = explicit consent для применения. (b) добавляет лишний клик. Reset button уже есть для отката.
+
+**Acceptance criteria для v1.0.16:**
+1. После клика «Оптимизировать бюджет» status='ok' → sliders animate к optimal positions
+2. Money values + total budget + KPI прогноз обновляются к optimal numbers
+3. Δ% labels продолжают показываться (для visibility что было vs что стало)
+4. «Сбросить» кнопка возвращает к current
+5. Lock-in test: e2e в Svelte component test что post-optimize sliders match optimalBudgets
+
+**Priority:** v1.0.16 BLOCKER (rivals L4 — UX integrity, customer не видит результат своей optimization).
+
+
+### L5 extension — Response Curves chart также показывает только current_x markers
+
+**Symptom:** Response Curves chart рендерит crucial Hill saturation curves правильно (математика работает после Section A fix). Но markers (точки) на curves показывают только `current_x` positions для каждого канала. Optimal_x markers отсутствуют.
+
+**Backend state:** `optimizer.py:706-712` возвращает оба значения:
+```python
+response_curves_data[col] = {
+    'current_x': cur,
+    'optimal_x': float(optimal_spend[i]),  # populated, но frontend не использует
+}
+```
+
+**Same root cause as L5:** UI компоненты не sync с optimal allocation after optimize. Frontend chart рендерит marker только для current_x.
+
+**Fix options:**
+- (a) Two markers per канал — current (faded) + optimal (bright) — visualization showing transition
+- (b) Single marker animates current → optimal (consistent с slider animation в applyOptimal())
+- (c) Toggle button «Текущее ↔ Оптимум» — explicit comparison view
+
+Recommendation: (a) для clarity — пользователь видит «откуда / куда» одновременно. Slider animation отдельная UX (sliders blow chart on Optimize page).
+
+**Priority:** v1.0.16 BLOCKER (часть L5 — UX of post-optimize visualization).
+
+
+### L5 confirmation (Антон 2026-04-28): нет manual «Применить» button
+
+**Confirmed:** в OptimizeStep UI **отсутствует** кнопка «Применить оптимум» или эквивалент. После клика «Оптимизировать бюджет» пользователь не имеет способа активировать применение optimal allocation.
+
+**Status:** baseline UX broken — fix-strategy MUST be option (a) auto-apply (см. оригинальный L5). Manual button (b) workaround не существует even как fallback.
+
+**Implication для Section A repro testing:** все мои Section A unit tests проходят (backend math correct), НО end-user никогда не видит результаты optimize в UI. Customer impact того же класса что Section A bug — optimizer effectively не работает с user perspective, despite backend success.
+
+
+### 🟡 L7 — Optimize page не surface'ит binding_constraints / converged_at_current banner (Антон 2026-04-28)
+
+**Symptom:** в Scenario 5 (Min=100/Max=300 per channel — feasibility свёрнута в точку) backend честно возвращает lift=0% + binding_constraints=True. UI показывает только banner «+0.0%» без объяснения.
+
+**Implication:** customer не понимает почему optimizer не нашёл улучшения. Может думать что optimizer broken (как было в v1.0.14 до Section A fix). Подрывает доверие к оптимизатору даже когда он работает correctly.
+
+**Fix candidate:** OptimizeStep.svelte should detect:
+- `result.binding_constraints === true` → banner: «Все каналы упёрлись в границы. Расширьте Min/Max или сбросьте per-channel ограничения.»
+- `result.converged_at_current === true` → banner: «Оптимум близок к текущему распределению. Попробуйте расширить границы (10/300% рекомендуется).»
+- `result.expected_lift_pct < 0.5 AND not binding AND not converged_at_current` → banner: «Текущая аллокация уже близка к локальному оптимуму при заданных constraints.»
+
+**Priority:** v1.0.16 medium (UX clarity, не critical math issue).
+
+### 🟡 L8 — Per-channel expert constraints не сбрасываются между сценариями
+
+**Symptom:** Антон установил per-channel Min=100/Max=300 в Scenario 1. Перешёл в Scenario 5 — global slider к 95/110. **Per-channel остался 100/300**, эффективно overrid'ит global. Только orange dot indicator показывает override status — easy to miss.
+
+**Implication:** пользователь думает что меняет глобальные границы, но per-channel overrides блокируют изменения. Confusion source.
+
+**Fix candidates (выбрать 1):**
+- (a) При движении global slider — auto-reset per-channel overrides если они равны старому global (не явные user overrides)
+- (b) Явное warning: «У X каналов есть override настройки. Сбросить → [BUTTON] / Игнорировать»
+- (c) Кнопка «Сбросить per-channel» прямо рядом с global slider (она уже есть — но в expert section, не visible если expert collapsed)
+
+Recommendation: (b) — explicit confirmation, чтобы не потерять user's intent (он мог намеренно поставить overrides ранее).
+
+**Priority:** v1.0.16 low-medium (UX clarity, не корректность).
+
+
+### 🔴 L9 — Checkbox «Фиксировать бюджет» косметический, не передаётся в backend (Антон 2026-04-28)
+
+**Symptom:** в Optimize page есть checkbox «Фиксировать бюджет» (default checked). Снятие галки не меняет результат optimizer — те же +43.3% lift с теми же per-channel deltas.
+
+**Root cause:** `OptimizeStep.svelte:runOptimize()` всегда передаёт `totalBudgetMoney: currentTotalBudget` независимо от состояния checkbox. Backend `optimizer.py` всегда работает в money-equality mode `Σ x × uc == target`.
+
+**Two issues bundled:**
+
+1. **UI lies к user** — checkbox visible but does nothing.
+2. **Missing feature** — free-budget optimization mode не реализован в backend. Если включить (frontend pass `totalBudgetMoney: null` когда unchecked) — backend пойдёт в `else` branch:
+```python
+else:
+    constraints = [{'type': 'eq', 'fun': lambda x: np.sum(x) - total_budget}]
+```
+Но `total_budget` там тоже current value (line 376-382). Не настоящий free-budget mode.
+
+**Real free-budget mode requires:**
+- Optimizer accepts `mode='free'` flag
+- Constraints = empty or inequality cap (e.g. `sum(x) ≤ max_budget_user_specified`)
+- Per-channel bounds remain
+- Result includes `optimal_total_budget` (может отличаться от current)
+
+**Business case:** CFO рассматривает увеличение marketing budget ЕСЛИ ROI uplift достаточный. Optimizer answers: «при дополнительных 900M ₽ в OLV/Performance, KPI growth +X%».
+
+**Acceptance criteria для v1.0.16 (or possibly v1.1):**
+1. Frontend conditionally passes `totalBudgetMoney`:
+   - Checkbox=ON → currentTotalBudget (current behavior)
+   - Checkbox=OFF → null + new field `max_total_budget` (user input or default 2× current)
+2. Backend optimizer.py adds `'mode'` parameter:
+   - `'fixed_budget'` → equality constraint (current behaviour)
+   - `'free_budget'` → inequality constraint `sum(x) ≤ max`, per-channel bounds enforced
+3. Result includes `total_budget_optimal` if free mode + delta from current
+4. UI banner shows budget delta: «Оптимизатор предлагает увеличить бюджет на X% для +Y% lift»
+5. Lock-in test: synthetic fixture, free mode → optimal sum > current_sum (если bounds позволяют рост и mROAS высокий)
+
+**Priority:** v1.1 NEW FEATURE (не блокер для current shipping, но «Фиксировать бюджет» checkbox должен ИЛИ работать ИЛИ быть удалён до тех пор. Misleading UI = customer trust risk).
+
+**Quick fix для v1.0.16:** удалить checkbox или disable с tooltip «Будет реализовано в v1.1». Менее ambitious чем full feature, но честнее.
+
+
+### 🔴🔴 L10 — CRITICAL math regression: lift_pct inflated when money_target ≠ current_total (Антон 2026-04-28)
+
+**Symptom:** в What-if scenario с budget -50% (1795M vs current 3590M) backend выдаёт «KPI: 11226M → 25247M (+124.9%)». Mathematically impossible — Hill saturation монотонна, меньше total spend = меньше total effect. KPI cannot more than double when budget halved.
+
+**Root cause introduced by Section A refactor (commit `fe42e7f`, math-fix v1.0.15):**
+
+```python
+# Bug в engines/optimizer.py:589-591:
+x0_money = np.array([current_spend[col] * uc_arr[i] for ...])
+x0_money = _project_to_budget(x0_money)  # scales к money_target — WRONG for current_response
+
+# Line 605:
+current_response = -total_response_money(x0_money)  # evaluated at SCALED current, NOT real
+optimal_response = -total_response_money(result.x)  # correctly at optimal-at-new-budget
+lift_pct = (optimal - scaled_current) / scaled_current * 100  # INFLATED
+```
+
+Когда money_target == current_total_money (default Optimize page) — projection no-op, всё correct. Section A unit tests + real Kagocel +28.3% работают потому что money_target = current_total. **Test gap:** не проверял случай money_target ≠ current.
+
+Когда money_target ≠ current (What-if -50%): x0_money scaled to 50% of each channel → media contribution computed at half-current → much smaller current_response → lift_pct artificially inflated.
+
+**Fix:**
+```python
+# Real current — never projected (для response baseline + delta computation)
+x0_money_real = np.array([current_spend[col] * uc_arr[i] for i, col in enumerate(media_cols)])
+# Projected — для SLSQP multi-start initialization (нужно satisfy money_target constraint)
+x0_money_for_slsqp = _project_to_budget(x0_money_real.copy())
+
+starts_money = [('current', x0_money_for_slsqp)]
+# ... pivot_up, others_up_balance, all_upper used x0_money_for_slsqp
+
+# В Сравнение current vs optimal — REAL current
+current_response = -total_response_money(x0_money_real)  # FIXED
+
+# В converged_at_current detector — REAL current
+_max_abs_delta_money = float(max(
+    abs(result.x[i] - x0_money_real[i]) for i in range(n_ch)
+))
+```
+
+**Lock-in test (add к tools/test_optimizer_kagocel_redistribution.py):**
+```python
+def test_what_if_half_budget():
+    """Lift cannot exceed +50% when budget halved."""
+    # Build same Kagocel-like fixture
+    proj = build_synthetic_kagocel_fixture(...)
+    current_total_money = sum(...)
+    
+    # What-if: 50% of current
+    result = optimize({
+        'min_pct': 0, 'max_pct': 500,  # full freedom
+        'total_budget_money': current_total_money * 0.5,
+    }, proj)
+    
+    assert result['expected_lift_pct'] < 30.0  # Can't double KPI on half budget
+    # Real lift bound: optimal media at 50% budget vs real current media
+    # Even if redistribution boosts media efficiency, total media response < real current
+```
+
+**Priority:** v1.0.16 BLOCKER. Это regression от моего Section A что я push'нула в `fe42e7f`. Wide use of What-if scenarios → all customers affected if не зафиксен до next ship.
+
+**Customer impact:** customer testing budget reductions get artificially inflated KPI predictions → могут принимать wrong business decisions (cut budget thinking it'll grow KPI).
+
+
+### L10 extension — bug confirmed bidirectional (Антон 2026-04-28)
+
+**Additional symptom:** при бюджете +100% (7180M, 2× current):
+- UI shows lift +10.8%, KPI 12438M
+- Real expectation: ~+30-50% KPI growth for 2× spend (Hill diminishing returns + saturated TRPs gain little, but small channels can grow significantly + baseline constant ≈ 11000M, media should ~double)
+
+**Inverted relationship pattern:**
+| Budget | Reported lift | Real expectation |
+|---|---|---|
+| 50% (-50%) | **+124.9%** ❌ | Negative (less budget → less media) |
+| 100% (default) | +30.4% ✓ | matches scipy direct repro |
+| 200% (+100%) | **+10.8%** ❌ | should be +30-50% |
+
+**Pattern:** lift_pct корректен ТОЛЬКО когда money_target = current_total_money. Дальше inflated в обе стороны: artificially high когда -50%, artificially low когда +100%.
+
+**Confirms root cause:** lift_pct = (optimal - **scaled_current**) / **scaled_current**. Scaled_current is artifact от `_project_to_budget(x0_money)` introduced in Section A. Scaling x0 к money_target makes baseline wrong — when money_target larger, scaled_current bigger (channels more saturated, plateau), small numerator/large denominator → small lift. When money_target smaller, scaled_current smaller (channels under-saturated), larger upside from redistribution → big lift.
+
+**Real lift_pct formula should be:**
+```python
+# Real current — never scaled
+x0_money_real = current_spend × uc_arr  # NOT projected
+current_response_real = -total_response_money(x0_money_real)
+
+# Optimal at money_target — found by SLSQP
+optimal_response = -total_response_money(result.x)
+
+lift_pct = (optimal_response - current_response_real) / current_response_real * 100
+```
+
+This compares «optimal at new budget» vs «real current actual» — meaningful business metric. Customer answer: «при изменении бюджета на X, KPI изменится на Y».
+
+**Acceptance criteria для v1.0.16 fix:**
+1. lift_pct monotonic с money_target (more budget → more lift, modulo saturation curve)
+2. lift_pct(money_target=current) === current behavior (no regression)
+3. lift_pct(money_target=0.5×current) <= 0% (less spend → less effect, при правильно work optimizer)
+4. lift_pct(money_target=2×current) > lift_pct(default)
+5. Lock-in test: 3 scenarios (0.5×, 1×, 2×) на synthetic Kagocel — all monotonic relative к budget
+
+
+### 🟡 L11 — Channel names не normalized в interpretation text (Антон 2026-04-28)
+
+**Symptom:** в HTML отчёте блок «Как интерпретировать модель» использует raw column names: «Performance Бюджет До НДС до АК», «Social Бюджет ДО НДС до АК», «TRPs бренд (W 25-54)» вместо canonical «Performance», «Social», «TRPs (W 25-54)».
+
+**Root cause:** `narrative_adapter._normalize_channel_name` уже очищает «Бюджет до НДС до АК» suffix, но используется только в `_merge_channels`. Interpretation block likely читает column names напрямую от backend без normalization.
+
+**Fix candidate:** ensure all narrative-facing channel name renders через `_normalize_channel_name` (single source of truth для display names).
+
+**Priority:** v1.0.16 medium (UX cosmetic, customer-facing).
+
+### 🟡 L12 — Interpretation block lists only top-2 «Недо-инвестированных», должно быть всё что Scale (Антон 2026-04-28)
+
+**Symptom:** interpretation text упоминает только Performance + Social как «Недо-инвестированные каналы», хотя actual optimizer (per моему Section B compute_channel_action) marked **5 small каналов как Scale**: Performance, Social, Retail Media, Banners, OLV — все рекомендованы +100%.
+
+**Root cause:** interpretation block использует hardcoded top-2 by mROAS heuristic (or `top_2_names` from narrative_facts which based on contribution). Не использует `narrative_facts.channels_by_action['Scale']` from action_summary (Section B addition).
+
+**Fix candidate:** migrate interpretation block к channels_by_action['Scale'] для «Недо-инвестированные» и channels_by_action['Cut'+'Reduce'] для «Перенасыщенные». Show full list, не arbitrary top-N.
+
+**Priority:** v1.0.16 medium (customer-facing accuracy — partial list misleading).
+
+### 🟢 L13 — Грамматика + формулировка (Антон 2026-04-28)
+
+**Minor edits:**
+- «Модель смотрит на вашу историю за 31 периодов» → «...за 31 период» (правильное склонение)
+- «MAPE 7.1% — в среднем прогноз отклоняется от факта меньше чем на десятую часть» → «...менее 10%» или «...около 7%» (clearer)
+
+**Priority:** v1.0.16 low (cosmetic).
+
+
+### 🔴 L14 — SCQAR «Performance доминирует бюджет (0.7%)» semantically wrong (Антон 2026-04-28)
+
+**Symptom:** в HTML отчёте SCQAR Complication: «Performance доминирует бюджет (0.7% portfolio). По mROAS Social опережает (10.3×)».
+
+**Logic issue:** Performance имеет 0.7% бюджета — это противоречие со словом «доминирует». Реально TRPs доминирует (92% бюджета). Performance leader by contribution (33% эффекта), не leader by spend.
+
+**Root cause:** `strings_ru.scqar.complication.template` = «{leader} доминирует бюджет ({leader_spend_pct_fmt} portfolio)». `leader = by_contrib[0]` — но шаблон applies him as «budget dominator». Wrong assumption: contribution leader != spend leader для high-ROI small-budget channels.
+
+**Fix candidate:** разделить «contribution leader» и «budget leader» в narrative_facts. Use «budget_dominator = max(channels, key=spend)» отдельно. Шаблон Complication: «{budget_dominator} занимает {budget_dominator_pct} бюджета, но даёт {budget_dominator_contrib_pct} эффекта; {contribution_leader} — {leader_share_contrib_pct} эффекта при {leader_share_spend_pct} бюджета — мисматч».
+
+**Priority:** v1.0.16 medium (customer-facing inconsistency, undermines trust в narrative).
+
+### 🔴 L15 — SCQAR Answer + Recommendation 01 inverted reallocation direction (Антон 2026-04-28)
+
+**Symptom:** в HTML отчёте:
+- SCQAR Answer: «Перебалансировать 275 млн ₽ из Performance в Social»
+- Action 01: «Перебалансировать бюджет. 275 млн ₽ из Performance в Social.»
+- Action 03: «Перевести бюджет из TRPs бренд (W 25-54) согласно вердиктам» ← correct
+
+**Internal conflict в одном отчёте:** Action 01 говорит «из Performance», Action 03 говорит «из TRPs». Performance optimizer recommends **+100% (вырастить)**, не cut.
+
+**Root cause:** `strings_ru.scqar.answer.template` = «...из {leader} в {hero}; сократить {underperf}». Где `leader` = top-contribution channel (Performance), `hero` = top-mROAS channel (Social). Template assumes leader is overspending channel — false для high-ROI small-budget channels.
+
+**Fix candidate:** Update narrative_facts:
+- Add `cut_source = channels_by_action['Cut'][0] or channels_by_action['Reduce'][0]` (= TRPs)
+- Add `scale_destination = channels_by_action['Scale'][0]` (= Performance or Social)
+- Fix template: «...из {cut_source} в {scale_destination}»
+
+**Priority:** v1.0.16 BLOCKER (внутренний conflict в одном отчёте — customer trust collapse).
+
+### 🟡 L16 — MQS дважды labeled differently for same value (Антон 2026-04-28)
+
+**Symptom:** в HTML отчёте same MQS=70 получает разные tier labels:
+- Findings #5: «MQS 70/100 - приемлемо» (from `strings_ru.f5_mqs_fair`)
+- Sources section: «Model Quality Score 70/100 Хорошее» (from backend `diagnostics.mqs.tier_label`)
+
+**Root cause:** two independent label sources не synchronized. Backend diagnostics tier_label uses one threshold scheme, frontend strings_ru.f5_mqs_* uses another.
+
+**Fix candidate:** single source — backend diagnostics computes tier_label, frontend f5_mqs_* templates accept it as parameter. Eliminate duplicate threshold logic.
+
+**Priority:** v1.0.16 low (cosmetic, не blocking math/recommendations).
+
+
+### 🟢 L17 — Data-readiness tier indicator + manual override на Import page (Антон 2026-04-28, FEATURE REQUEST)
+
+**Requirement:** на Import page показать explicit indicator тип моделирования (OLS / Bayesian-warn / Bayesian-premium) на базе n_obs + estimated params. Должен быть «один из ключевых моментов интерфейса».
+
+**Architecture:**
+
+**Tier classification:**
+- 🟢 **Premium Bayesian**: n ≥ 4 × params → полный posterior, learnable adstock decay, honest CI
+- 🟡 **Bayesian с предупреждениями**: 2:1 ≤ ratio < 4:1 → posterior wide, hierarchical shrinkage active
+- 🟠 **OLS fallback**: ratio < 2:1 → frequentist β CI + bootstrap, Hill params fixed
+
+**Backend ready:** `/compute/recommend` endpoint already returns tier recommendation (per MIN-LIVE GATE 1 в memory). Нужен только UI surface.
+
+**UI placement:** под таблицей предпросмотра данных, до кнопки «Далее: Валидация».
+
+**Components:**
+1. Banner с tier indicator (large, visible, ключевой момент)
+2. Tentative metrics: n_obs, columns count, estimated ratio range
+3. Manual override radio: Auto (default) / OLS forced / Bayesian forced
+4. Dynamic guidance: «После агрегации до 5-7 каналов на Валидации → premium tier доступен»
+5. Реактивность: tier пересчитывается после Validate когда channels finalized
+
+**State propagation:**
+- Tier choice persisted в project_state.modeling_tier
+- ConfigPanel → /compute/train с modeling_tier flag
+- /compute/recommend endpoint реализует tier logic backend-side (already partial implemented)
+- Decompose / Optimize aware of tier (e.g., OLS pickle получает different verdict labels per моему compute_channel_action)
+
+**Acceptance criteria для v1.0.16 (or v1.1 if scope big):**
+1. Import page shows tier indicator после загрузки данных
+2. Tier обновляется после Validate channel selection
+3. Manual override работает (forced OLS даже когда Bayesian doable)
+4. Visual hierarchy — tier — один из 3-х largest UI elements на Import page
+5. Tooltip/help: explain тяжёлые/лёгкие модели, why выбор имеет значение
+6. Lock-in test: synthetic data → tier auto-selection match expected (n=31 + 7 params → Premium; n=18 + 5 params → OLS)
+
+**Priority:** v1.1 NEW FEATURE (не блокер для current ship, but explicitly requested как «ключевой момент интерфейса»). Большой UX impact — пользователь upfront знает что его ждёт.
+
+
+### L17 update — Bayesian hard floor (Антон 2026-04-28)
+
+**Update:** manual override Bayesian forced МОЖЕТ быть disabled полностью когда data insufficient. Не warning — physical block.
+
+**Hard floor для Bayesian (BOTH conditions must be met):**
+- n_obs ≥ 20 (minimum для MCMC convergence + hierarchical priors)
+- ratio ≥ 2:1 (n_obs / (active_params + 1) ≥ 2)
+
+**Below floor:**
+- UI radio button «Bayesian» visually disabled (greyed + lock icon)
+- Tooltip explains exact unlock conditions
+- Click attempt → no action, snackbar message
+- Auto tier always = OLS
+
+**Backend safeguard:** even если frontend bypass'ит, `/compute/train` validates:
+```python
+if mode == 'bayesian' and (n_obs < 20 or ratio < 2.0):
+    return {'status': 'error',
+            'error_code': 'BAYESIAN_INSUFFICIENT_DATA',
+            'message': 'Bayesian model requires ≥20 observations and ratio ≥2:1...'}
+```
+
+**Tier matrix:**
+
+| n_obs | Ratio | Tier | Bayesian doable? | Auto picks |
+|---|---|---|---|---|
+| < 20 | любое | OLS only | ❌ blocked | OLS |
+| ≥ 20 | < 2:1 | OLS only | ❌ blocked | OLS |
+| ≥ 20 | 2:1 - 4:1 | Bayesian-warn | ✅ available | Bayesian (с предупреждениями) |
+| ≥ 20 | ≥ 4:1 | Premium | ✅ available | Bayesian (premium) |
+
+**Acceptance criteria (extends earlier):**
+1. Bayesian radio disabled когда data insufficient (visually + functionally)
+2. Tooltip provides exact unlock formula
+3. Backend rejects bayesian mode при insufficient data — guard от API bypass
+4. Lock-in test: synthetic n=18 → forced bayesian → frontend blocked + backend returns BAYESIAN_INSUFFICIENT_DATA
+
+
+### L17 final — Pure auto, no manual override (Антон 2026-04-28)
+
+**Final decision:** убрать manual override полностью. Tier = automatic consequence of data, not user choice.
+
+**Rationale (product wisdom):**
+- User error prevention (forced wrong choice = catastrophic results)
+- Simpler UX (one less decision point)
+- Backend single source of truth (no client-server tier mismatch possible)
+
+**UI changes vs earlier draft:**
+- ❌ Radio buttons «Auto / OLS forced / Bayesian forced» — REMOVED
+- ✅ Tier display only (informational)
+- ✅ Education hints: «как улучшить tier» (через data changes, не override)
+- ✅ Time-cost transparency: 5-15 мин Bayesian vs 10-30 сек OLS
+
+**API contract:**
+- `/compute/train` accepts NO mode parameter (removed from OptimizeRequest et al.)
+- Backend dispatches к engine based on preflight tier
+- Returns `model_version` ('1.2' = Bayesian premium, '1.1.5' = Bayesian-warn, '1.0-ols' = OLS) reflecting chosen path
+- Frontend reads model_version from train response → знает что было запущено
+
+**Implementation tasks для v1.0.16:**
+1. Remove `modeling_tier` and override params from frontend ConfigPanel/Train
+2. Add `/compute/preflight` returns full tier struct (already partial из MIN-LIVE GATE 1)
+3. Import page renders tier display from preflight result, no radio
+4. Backend train auto-dispatches without mode parameter
+5. Tier reactive — recomputed после Validate channel changes
+6. Lock-in test: 3 synthetic scenarios (n=18→OLS, n=31+9params→warn, n=31+5params→premium)
+
+**Tier matrix (final):**
+
+| n_obs | Ratio | Tier | Display |
+|---|---|---|---|
+| < 20 | any | OLS | 🟠 Упрощённая модель |
+| ≥ 20 | < 2:1 | OLS | 🟠 Упрощённая модель |
+| ≥ 20 | 2:1 - 4:1 | Bayesian-warn | 🟡 Bayesian с предупреждениями |
+| ≥ 20 | ≥ 4:1 | Premium | 🟢 Premium Bayesian |
+
+
+### 🔴 L18 — Conflicting license status indicators в Settings (Антон 2026-04-28)
+
+**Symptom:** Settings page показывает два независимых блока с противоречивыми статусами:
+- Лицензия: 🔴 «Лицензия не найдена [LI-001] License file not found» (file-based system)
+- Подключение к серверу: 🟢 «Подключён к серверу. Лицензия до: 10.04.2029» (online auth)
+
+**Root cause:** dual licensing architecture — `online_auth.rs` (приоритетная) и `license.rs` (Ed25519 file-based, legacy). Когда online auth активна — file-based не нужен, но UI показывает оба статуса параллельно без context.
+
+**Customer impact:** пользователь видит «проблема с лицензией» когда реально всё работает (онлайн авторизация подтверждена сервером).
+
+**Fix candidate:** в Settings UI добавить hierarchical logic:
+- Если online auth.connected = True → показать unified status «✓ Лицензия активна (онлайн до {expiry})», file-based блок скрыть
+- Если online auth.connected = False → fallback к file-based block + warning
+- Никогда не показывать оба блока с conflicting statuses одновременно
+
+**Priority:** v1.0.16 medium (UX confusion, не функциональная проблема — само лицензирование работает).
+
+### 🟡 L19 — Settings показывает команды Aurora Agency в Aurora Econometrica build
+
+**Symptom:** в Aurora AI Econometrica Settings раздел «Использование команд» содержит slash-команды от Aurora AI Agency (`/analytics 42`, `/aurora-ind... 16`, `/benchmark 2` etc), но Aurora Econometrica — pipeline-based продукт без chat-команд.
+
+**Root cause:** Settings UI shared между Aurora products (общий codebase per CLAUDE.md «Один код, разные конфиги»). Statistics pulled from common profile без product-specific filter.
+
+**Fix candidate:**
+- (a) Filter usage stats by current product identifier (`com.aurora.econometrica`) — показывать только econometrica-specific события
+- (b) Скрыть «Использование команд» секцию полностью в pipeline-based продуктах (Econometrica), оставить в chat-based (Agency / Creative Hub)
+
+Recommendation: (b) — для Econometrica командные метрики не значимы.
+
+**Priority:** v1.0.16 low (cosmetic, не misleading в смысле data privacy).
+
+### 🟡 L20 — «Версия контента: c1» unclear notation
+
+**Symptom:** в Settings строка «Версия контента: c1». User-facing string без context — что значит «c1»?
+
+**Hypothesis:** legacy marker от Aurora Agency Cabinet system (c1 = cabinet 1). Aurora Econometrica — single-product без cabinets, marker irrelevant.
+
+**Fix candidate:** скрыть в Econometrica или заменить к meaningful version (e.g., «Версия данных: 1.0.15» или «Шаблоны отчётов: v1.0.15»).
+
+**Priority:** v1.0.16 low.
+
+
+### L18-L20 — Settings page cleanup (Антон final decision 2026-04-28)
+
+**Final scope:** unified fix — remove obsolete blocks + rename remaining.
+
+**Changes:**
+
+1. **Remove** «Статистика использования» block полностью — irrelevant для Econometrica (pipeline product без chat commands).
+
+2. **Remove** «Лицензия» block (file-based с «[LI-001] License file not found») — legacy from offline-licensing era. После migration к online auth этот блок misleading.
+
+3. **Rename** «Подключение к серверу» → «Лицензия». Expiry date уже там, status «Подключён к серверу» становится «Активна (онлайн)».
+
+4. **Clean up** «Версия контента: c1» — либо убрать, либо заменить meaningful label (e.g. «Шаблоны отчётов: v1.0.15»).
+
+**Final Settings layout:**
+```
+┌─ ЛИЦЕНЗИЯ ─────────────────────┐
+│  ✓ Активна (онлайн)             │
+│  Действует до: 10.04.2029       │
+│  Instance: c8780e5963d2          │
+└─────────────────────────────────┘
+
+(плюс Папка проектов и прочие пользовательские настройки)
+```
+
+**Implementation tasks для v1.0.16:**
+1. Удалить компонент UsageStatistics.svelte (или его imports в Settings page)
+2. Удалить компонент LegacyLicenseStatus.svelte (file-based)
+3. Переименовать ServerConnection.svelte → License (или rebrand title)
+4. Удалить «Версия контента: c1» из ServerConnection (decide if replace or remove)
+5. Сохранить «Папка проектов» / другие user settings
+6. Lock-in test (e2e Svelte) — Settings page показывает только license + user settings, нет statistics
+
+**Priority:** v1.0.16 medium-high (legacy UX cruft, undermines polish при customer demo).
+
+
+### L20 final — «Версия контента: c1» убрать (Антон 2026-04-28)
+Removed entirely. No replacement. Settings stays minimal.
+
+
+---
+
+## v1.0.16 Day 1 — L10 critical regression FIX (2026-04-28)
+
+After live-test session ending. Антон approved Plan + asked critical audit (17 SA gaps found). Started implementation с L10 (highest priority — мой собственный regression от Section A `fe42e7f`).
+
+### Fix
+
+`engines/optimizer.py`:
+- Separate `x0_money_real` (real current spend in money) from `x0_money` (projected к money_target)
+- `current_response_real = -total_response_money(x0_money_real)` baseline для lift_pct
+- Edge case `current_response_real ≤ 0` → `lift_pct = 0.0`, `baseline_zero = True` flag
+- `_max_abs_delta_money` uses projected `x0_money` (KKT-perspective convergence detection — SA6)
+- Insight string handles baseline_zero case
+- `result_data['baseline_zero']` exposed для UI
+
+### Test additions
+
+`tools/test_optimizer_kagocel_redistribution.py`:
+- L10a: half budget lift_pct < +50% (was +124.9% pre-fix)
+- L10b: 2× budget lift > default (was inverted +10.8% < +30%)
+- L10c: property-based monotonicity (5 budget ratios — strictly non-decreasing)
+
+### Validation
+
+**Real Kagocel pickle:**
+```
+Default 20/200:  lift +28.30%   (Section A baseline preserved ✓)
+What-if -50%:    lift +31.50%   (was +124.9% inflated ✓ FIXED)
+What-if +100%:   lift +42.60%   (was +10.8% deflated ✓ FIXED)
+Monotonic:       31.5 → 35.1 → 37.8 → 40.9 → 42.6 ✓
+```
+
+**Regression:** 544/544 (was 541 + 3 new), zero regressions.
+
+### Files changed
+
+```
+sidecar/econometrica/engines/optimizer.py     (~+25/-8 LOC)
+tools/test_optimizer_kagocel_redistribution.py (+90 LOC, 3 new tests)
+docs/MATH_AUDIT_v1_5_L10_FIX.md               (NEW, audit-trail)
+SPRINT3_PROGRESS.md                            (this entry)
+```
+
