@@ -368,10 +368,19 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # Saturated media effect — Phase 1.1 per-channel scan-based adstock with sampled decay.
             # Geometric channels: scan-based recursive adstock with per-sample decay.
             # Weibull channels: pre-computed (decay sampling deferred to Phase 1.5).
+            #
+            # C1 fix (2026-04-26 audit): normalize on adstock_full.mean() per draw —
+            # NOT on pre-computed default-decay mean. Pre-fix had mathematical drift:
+            # model trained on adstock(raw; sampled_decay) / mean(adstock(raw; 0.5)),
+            # downstream inference used adstock(raw; posterior_mean_decay) / pre-computed
+            # mean. When posterior decay diverged sharply from 0.5 (TV brand 0.6+, Digital
+            # 0.05) β-coefficients absorbed the mismatch, biasing ROI by 5-15% per channel.
+            # Post-fix: in-model mean per draw + persist posterior_mean_adstock_mean per
+            # channel for downstream consistency.
+            adstock_means_per_channel = []  # collect Deterministic refs for posterior extraction
             media_effect = 0
             for i, col in enumerate(media_cols):
                 a_type = adstock_config.get(col, 'geometric')
-                mean_ch = float(media_means[col]) if media_means[col] != 0 else 1.0
                 if a_type == 'geometric':
                     # scan-based adstock: result_t = raw_t + decay * result_{t-1}
                     raw_x = raw_media[col].values
@@ -386,8 +395,15 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 else:
                     # Weibull stays hardcoded (Phase 1.5 task to make learnable)
                     adstock_full = pt.as_tensor_variable(X_media[col].values)
-                # Normalize by pre-computed default-decay mean (semantic consistency v1.1.5)
-                x_norm = adstock_full / max(mean_ch, 1e-10)
+                # C1 fix: normalize by IN-MODEL mean per draw (correct math), not pre-computed.
+                # For untrained channels (zero raw), guard with 1e-10 floor.
+                in_model_mean = adstock_full.mean()
+                in_model_mean_safe = pt.maximum(in_model_mean, 1e-10)
+                # Persist as Deterministic for posterior extraction → downstream uses these.
+                adstock_means_per_channel.append(
+                    pm.Deterministic(f'adstock_mean_{i}', in_model_mean_safe)
+                )
+                x_norm = adstock_full / in_model_mean_safe
                 x_safe = pm.math.maximum(x_norm, 0)
                 saturated = x_safe ** alphas[i] / (x_safe ** alphas[i] + gammas[i] ** alphas[i] + 1e-10)
                 media_effect = media_effect + media_betas[i] * saturated
@@ -710,6 +726,19 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             adstock_mu_logit_mean = -1.4
             adstock_sigma_logit_mean = 0.5
 
+        # C1 fix (audit 2026-04-26): extract in-model adstock_mean per channel posterior.
+        # These replace pre-computed default-decay means для downstream normalization
+        # consistency. Without this, decomposer/scenario/optimizer use stale 0.5-decay
+        # mean while model trained on per-draw mean → 5-15% ROI bias on extreme decays.
+        adstock_means_posterior = {}  # {channel: posterior_mean_adstock_mean}
+        for i, col in enumerate(media_cols):
+            try:
+                am_mean = float(trace.posterior[f'adstock_mean_{i}'].mean(dim=['chain', 'draw']).values)
+                adstock_means_posterior[col] = am_mean
+            except (KeyError, ValueError):
+                # Fallback: use pre-computed default-decay mean (v1.1.5 semantic)
+                adstock_means_posterior[col] = float(media_means.get(col, 1.0))
+
         # Tail-ESS check per channel β (Vehtari rule: tail_ess ≥ 100·n_chains for stable percentile estimation).
         # If any channel fails — CI brackets will be annotated "оценка нестабильна" downstream.
         try:
@@ -732,6 +761,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # engines for point-estimate adstock + as fallback when posterior_samples
                 # fields missing.
                 'decay': round(float(adstock_decay_means[i]), 4),
+                # C1 fix (audit 2026-04-26): posterior-consistent adstock mean per channel.
+                # Downstream normalizes spend_adstocked / adstock_mean_posterior (not
+                # pre-computed default-decay mean). Eliminates math drift identified in
+                # Phase 1.1 audit. None for legacy v1.0/v1.1/v1.1.5/v1.0-ols pickles.
+                'adstock_mean_posterior': round(float(adstock_means_posterior.get(col, 1.0)), 4),
             }
 
         report('saving', pct=95)

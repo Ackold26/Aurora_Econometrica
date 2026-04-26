@@ -168,7 +168,9 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             p = channel_params[col]
             spend_t_adstock = float(adstocked_plan[col][t])
             # P0-1/2/9 fix: spend/mean Robyn-style normalization matching training.
-            mean = norm['media_means'].get(col, 1)
+            # C1 fix (audit 2026-04-26): prefer in-model adstock_mean_posterior (v1.2+).
+            mean_posterior = p.get('adstock_mean_posterior')
+            mean = float(mean_posterior) if mean_posterior is not None else norm['media_means'].get(col, 1)
             x_norm = spend_t_adstock / max(mean, 1e-10) if mean > 0 else 0
 
             # Saturate (B1 fix: unified gamma floor 1e-6 across modeler/scenario/optimizer/decomposer)
@@ -206,7 +208,10 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 ch_samples = per_channel_samples(posterior_samples, col)
                 if ch_samples is None:
                     continue
-                mean = norm['media_means'].get(col, 1) or 1
+                # C1 fix: prefer adstock_mean_posterior for math consistency
+                p_ch = channel_params.get(col, {})
+                mean_posterior = p_ch.get('adstock_mean_posterior')
+                mean = float(mean_posterior) if mean_posterior is not None else (norm['media_means'].get(col, 1) or 1)
                 a_type = adstock_config.get(col, 'geometric')
                 decay_samples = ch_samples.get('decay')
                 if decay_samples is not None and a_type == 'geometric':

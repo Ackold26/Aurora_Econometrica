@@ -390,7 +390,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         total = 0
         for i, col in enumerate(media_cols):
             p = channel_params[col]
-            mean = float(media_means.get(col, 1)) or 1
+            # C1 fix: prefer adstock_mean_posterior (v1.2+) for math consistency.
+            mean_posterior = p.get('adstock_mean_posterior')
+            mean = float(mean_posterior) if mean_posterior is not None else (float(media_means.get(col, 1)) or 1)
             decay_pt = p.get('decay')  # Phase 1.1: None for v1.0/v1.1/v1.1.5 → default 0.5
             x_avg_raw = spend_vector[i] / n_periods
             x_avg_adstock = _flat_alloc_adstock_avg(x_avg_raw, n_periods, _adstock_type(col), decay_pt)
@@ -564,7 +566,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         #   #12 missing /unit_cost     → TRPs (uc=250000) showed 1780× absurd
         # Both closed by single helper _compute_mroas_money() that returns
         # ∂KPI(money)/∂s(money) — comparable across native and money channels.
-        mean_ch = float(media_means.get(col, 1)) or 1
+        # C1 fix (audit 2026-04-26): prefer adstock_mean_posterior (v1.2+) for math consistency.
+        mean_post_opt = p.get('adstock_mean_posterior')
+        mean_ch = float(mean_post_opt) if mean_post_opt is not None else (float(media_means.get(col, 1)) or 1)
         a_type = _adstock_type(col)
         uc = float(unit_costs.get(col, 1.0) or 1.0)
 

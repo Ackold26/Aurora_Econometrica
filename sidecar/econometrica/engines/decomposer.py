@@ -231,8 +231,12 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         adstock_params_override = {'alpha': float(decay_point)} if decay_point is not None else None
         x_adstock = apply_adstock(raw_spend_series, a_type, adstock_params_override)
 
-        # 2. Normalize spend/mean (matches Phase 2 fix)
-        mean = float(media_means.get(col, 1)) or 1
+        # 2. Normalize spend/mean (matches Phase 2 fix).
+        # C1 fix (audit 2026-04-26): prefer in-model adstock_mean_posterior (Phase 1.1+ v1.2 pickles)
+        # for math consistency with training. Fallback to pre-computed media_means для legacy
+        # pickles (v1.0-ols, v1.1, v1.1.5) where this field absent.
+        mean_posterior = params.get('adstock_mean_posterior')
+        mean = float(mean_posterior) if mean_posterior is not None else float(media_means.get(col, 1)) or 1
         x_norm = x_adstock / max(mean, 1e-10)
 
         # 3. Hill saturation
