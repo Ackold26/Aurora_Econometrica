@@ -1422,3 +1422,31 @@ SPRINT3_PROGRESS.md                             (this entry + L4 status update)
 
 `optimization.json` returns `lift_pct: None` для real Kagocel (recently confirmed via direct optimize() call). Backend computes lift_pct internally (used at line 660 convergence check), но в response payload null. Не блокер L4 — L21 backlog.
 
+---
+
+### 🟡 L21 — `lift_pct: None` в optimization.json при real Kagocel call (discovered 2026-04-29)
+
+**Symptom:** Direct repro `optimize(config, project_dir)` на real Kagocel pickle (`-26--4`) returns `result['lift_pct'] = None` в payload, при том что backend computes lift_pct internally (used at convergence check `abs(lift_pct) < 0.5` в optimizer.py).
+
+**Verification:** synthetic Kagocel fixture lock-in test возвращает корректный lift_pct (16.40% default, 31.50%/42.60% для what-ifs). Поэтому это edge case на real pickle.
+
+**Hypothesis:**
+- Связано с baseline_zero handling в L10 fix (`current_response_real ≤ 0` → `lift_pct = 0.0`)
+- Возможно JSON serialization edge для NaN/None float — somewhere converts NaN → None during json.dumps
+- Или conditional code path в optimizer.py result_data assembly skips lift_pct когда какой-то flag set
+
+**Repro:**
+```python
+from engines.optimizer import optimize
+proj = r'C:/Users/ackol/AppData/Roaming/aurora-econometrica-gui/projects/кагоцел-рф-ммх-2604-26--4'
+result = optimize({'min_pct': 20.0, 'max_pct': 200.0}, proj)
+# result['lift_pct'] is None
+# But result['expected_lift_pct'] populated normally (28.30%)
+```
+
+**Priority:** v1.0.16 LOW. Не блокирует UI (есть `expected_lift_pct` fallback). Investigate когда touching optimizer.py result_data shape (потенциально вместе с L7 binding/converged_at_current banner).
+
+**Acceptance:**
+1. Real Kagocel optimize() returns numeric `lift_pct` (not None)
+2. Lock-in test extension в test_optimizer_kagocel_redistribution.py — assert `result['lift_pct']` is float on real pickle path
+
