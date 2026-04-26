@@ -447,8 +447,26 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'severity': 'medium',
         })
 
+    # Phase 1.1: model_version warning — flag legacy pickles for re-training.
+    # v1.1.5 pickles use hardcoded adstock decay (0.5) — CI not honest about
+    # carryover uncertainty. UI can render banner suggesting re-train for v1.2.
+    model_warning = None
+    if model_version == '1.1.5':
+        model_warning = (
+            'Эта модель обучена с фиксированным adstock-затуханием (0.5). '
+            'Доверительные интервалы не учитывают неопределённость carryover. '
+            'Переобучите модель для получения honest CI на adstock (Phase 1.1, v1.2).'
+        )
+    elif model_version == '1.1':
+        model_warning = (
+            'Эта модель обучена до Phase 1.9 — посterior samples отсутствуют. '
+            'Доверительные интервалы недоступны. Переобучите модель для CI поддержки.'
+        )
+
     result = {
         'status': 'ok',
+        'model_version': model_version,
+        'model_warning': model_warning,  # None for v1.2 (current production), banner string for legacy
         'smell_flags': smell_flags,
         'total_sales': round(total_sales, 0),
         'baseline': round(baseline_total, 0),
