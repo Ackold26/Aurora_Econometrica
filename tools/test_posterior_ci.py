@@ -211,9 +211,11 @@ print("\n── per_channel_samples ──")
 samples_dict = valid["posterior_samples"]
 ch_tv = per_channel_samples(samples_dict, "TV")
 check("per_channel found TV", ch_tv is not None)
-check("per_channel keys: alpha/gamma/beta", set(ch_tv.keys()) == {"alpha", "gamma", "beta"})
+# M1 fix (2026-04-26): 'decay' key always present (None when missing) for API ergonomics
+check("per_channel keys include alpha/gamma/beta/decay", set(ch_tv.keys()) == {"alpha", "gamma", "beta", "decay"})
 check("per_channel arrays shape (8000,)", ch_tv["alpha"].shape == (8000,))
 check("per_channel α index 0 (TV)", float(ch_tv["alpha"][0]) == 1.0)
+check("per_channel decay None (no adstock_decay в samples)", ch_tv["decay"] is None)
 
 ch_unknown = per_channel_samples(samples_dict, "NotFound")
 check("per_channel unknown channel → None", ch_unknown is None)
@@ -401,10 +403,10 @@ check("per_channel_samples returns 'decay' for v1.2", 'decay' in ch_tv)
 check("decay shape (8000,)", ch_tv['decay'].shape == (8000,))
 check("decay value matches synthesis", abs(float(ch_tv['decay'][0]) - 0.4) < 1e-6)
 
-# v1.1.5 pickle without adstock_decay
+# v1.1.5 pickle without adstock_decay — M1 fix: 'decay' key present but None
 samples_v1_1_5 = {k: v for k, v in samples_with_decay.items() if k != 'adstock_decay'}
 ch_tv_legacy = per_channel_samples(samples_v1_1_5, "TV")
-check("per_channel_samples v1.1.5 no decay key", 'decay' not in ch_tv_legacy)
+check("per_channel_samples v1.1.5 has 'decay' key set to None", ch_tv_legacy.get('decay') is None)
 
 print("\n── Phase 1.1: _compute_mroas_money_samples with decay_samples ──")
 

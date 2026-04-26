@@ -196,14 +196,10 @@ def _compute_mroas_money_samples(
 
     if decay_samples is not None and adstock_type == 'geometric':
         # Phase 1.1: vectorized per-sample adstock_avg + adstock_factor
-        decays = np.asarray(decay_samples, dtype=np.float64)
-        # adstock_avg(x_pp, n; θ) = x_pp · [n - θ·(1 - θ^n)/(1-θ)] / [n·(1-θ)]
-        theta = np.clip(decays, 0.0, 1.0 - 1e-9)
-        n_p = n_periods
-        with np.errstate(divide='ignore', invalid='ignore'):
-            geom_sum = (1.0 - theta ** n_p) / (1.0 - theta)
-            af_per_sample = (n_p - theta * geom_sum) / (n_p * (1.0 - theta))
-        af_per_sample = np.where(theta < 1e-9, 1.0, af_per_sample)
+        # H4 fix (audit 2026-04-26): reuse adstock_factor_batch(...) единый source of
+        # truth для analytical formula (was: inline duplicated math here AND в
+        # utils/adstock.py — drift risk при future updates только в одном месте).
+        af_per_sample = adstock_factor_batch(decay_samples, n_periods, adstock_type)
         adstock_avg_per_sample = x_pp * af_per_sample  # (n_samples,)
         x_norm_per_sample = adstock_avg_per_sample / max(mean, 1e-10)  # (n_samples,)
 
@@ -216,7 +212,7 @@ def _compute_mroas_money_samples(
         x_pow = x_safe ** alpha
         gamma_pow = gamma_safe ** alpha
         hill_deriv_arr = (alpha * gamma_pow * (x_safe ** (alpha - 1.0))) / ((x_pow + gamma_pow) ** 2)
-        af_arr = af_per_sample
+        af_arr = np.asarray(af_per_sample, dtype=np.float64)
     else:
         # Phase 1.9 fallback: scalar adstock_avg/factor (decay constant 0.5).
         adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type)

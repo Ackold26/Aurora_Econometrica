@@ -131,7 +131,12 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
 
     media_means = {}
     untrained_channels = []
-    X_features = np.zeros((n_obs, len(media_cols)), dtype=np.float64)
+    # H3 fix (audit 2026-04-26): build feature matrix только для trained channels.
+    # Pre-fix: untrained channels (zero variance) добавлялись как zero column в X →
+    # OLS computed β для них (small spurious signal от noise correlation). Post-fix:
+    # exclude untrained from X completely + persist channel order для downstream mapping.
+    trained_media_cols = []
+    trained_features = []
 
     for j, col in enumerate(media_cols):
         a_type = adstock_config.get(col, 'geometric')
@@ -140,12 +145,25 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         mean_j = float(adstocked.mean())
         if mean_j == 0:
             untrained_channels.append(col)
-            mean_j = 1.0
-            X_features[:, j] = 0.0
-        else:
-            x_norm = adstocked / max(mean_j, 1e-10)
-            X_features[:, j] = hill_function(np.maximum(x_norm, 0), DEFAULT_ALPHA, DEFAULT_GAMMA)
+            media_means[col] = 1.0  # safety value for downstream divisions
+            continue  # H3: don't add to X
+        x_norm = adstocked / max(mean_j, 1e-10)
+        feat = hill_function(np.maximum(x_norm, 0), DEFAULT_ALPHA, DEFAULT_GAMMA)
+        trained_features.append(feat)
+        trained_media_cols.append(col)
         media_means[col] = mean_j
+
+    if not trained_media_cols:
+        return {
+            'status': 'error',
+            'error_code': 'NO_TRAINED_CHANNELS',
+            'message': (
+                'Все media-каналы имели нулевую вариативность в данных обучения. '
+                'OLS не может построить модель — соберите данные с реальной spend variation.'
+            ),
+            'untrained_channels': untrained_channels,
+        }
+    X_features = np.column_stack(trained_features)
 
     # Controls: z-score standardize (same as Bayesian)
     if control_cols:
@@ -205,21 +223,43 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     except np.linalg.LinAlgError:
         beta_se_norm = np.full(p, np.nan)
 
-    # Extract β per channel (skip intercept at index 0)
+    # Extract β per channel (skip intercept at index 0).
+    # H3 fix: media_betas length = trained_media_cols (untrained excluded from X).
     intercept_norm = float(beta_hat[0])
-    media_betas = beta_hat[1:1 + len(media_cols)]
-    control_betas = beta_hat[1 + len(media_cols):]
-    media_betas_se = beta_se_norm[1:1 + len(media_cols)]
+    n_trained = len(trained_media_cols)
+    media_betas = beta_hat[1:1 + n_trained]
+    control_betas = beta_hat[1 + n_trained:]
+    media_betas_se = beta_se_norm[1:1 + n_trained]
 
-    # Build channel_params (compatible с decomposer/optimizer expectations)
-    channel_params = {}
-    for j, col in enumerate(media_cols):
-        # Frequentist 90% CI on beta: β ± 1.645·SE (large-sample) or t-distribution на small N
+    # Frequentist t-critical: imported once at module top (stylistic improvement)
+    try:
         from scipy import stats as scipy_stats
-        try:
-            t_crit = float(scipy_stats.t.ppf(0.95, dof))
-        except Exception:
-            t_crit = 1.645  # fallback to normal
+        t_crit = float(scipy_stats.t.ppf(0.95, dof))
+    except Exception:
+        t_crit = 1.645  # fallback к large-sample normal
+
+    # Build channel_params (compatible с decomposer/optimizer expectations).
+    # All media_cols enumerated так что downstream sees все каналы — untrained
+    # marked explicit с beta=0 + flag.
+    channel_params = {}
+    trained_set = set(trained_media_cols)
+    for col in media_cols:
+        if col not in trained_set:
+            # Untrained channel: explicit zero β + flag so downstream skip
+            channel_params[col] = {
+                'beta': 0.0,
+                'alpha': DEFAULT_ALPHA,
+                'gamma': DEFAULT_GAMMA,
+                'adstock': {'type': adstock_config.get(col, 'geometric')},
+                'decay': DEFAULT_DECAY,
+                'tail_ess_ok': True,
+                'beta_se': None,
+                'beta_ci_low_freq': 0.0,
+                'beta_ci_high_freq': 0.0,
+                'untrained': True,
+            }
+            continue
+        j = trained_media_cols.index(col)
         beta_ci_half = t_crit * float(media_betas_se[j]) if not np.isnan(media_betas_se[j]) else 0.0
         channel_params[col] = {
             'beta': round(float(media_betas[j]), 4),

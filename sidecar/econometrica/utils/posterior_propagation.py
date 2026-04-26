@@ -114,7 +114,7 @@ def verdict_tier(
     *,
     n_obs: int | None = None,
     r_hat: float | None = None,
-    tail_ess_ok: bool = True,
+    tail_ess_ok: bool | None = None,
 ) -> tuple[str, str, float]:
     """3-tier verdict per ADR Amendment A5 + conditional gates.
 
@@ -130,6 +130,11 @@ def verdict_tier(
           CI itself is unreliable)
         - tail_ess_ok=False → caller should annotate "оценка нестабильна" (does
           NOT change tier — annotation only, since CI is still computable just less precise)
+
+    H2 fix (audit 2026-04-26): default tail_ess_ok changed True → None to force
+    explicit caller decision. None means "not checked" (skip gate); True/False means
+    explicit assertion. Pre-fix default True silently skipped warning even when
+    caller forgot to compute it.
 
     Returns:
         (tier_label, tone, relative_width).
@@ -192,6 +197,11 @@ def per_channel_samples(samples: dict, channel_name: str) -> dict[str, np.ndarra
         'alpha': np.asarray(samples['alphas'][idx], dtype=np.float32),
         'gamma': np.asarray(samples['gammas'][idx], dtype=np.float32),
         'beta': np.asarray(samples['media_betas'][idx], dtype=np.float32),
+        # M1 fix (audit 2026-04-26): always set 'decay' key (None when missing) для
+        # API ergonomics. Pre-fix conditionally added — caller had to check `if 'decay' in ch`
+        # which differs from "decay is None" semantically. Now uniformly: ch_samples['decay']
+        # always present; None means not learnable (v1.0/v1.1.5/v1.0-ols pickles).
+        'decay': None,
     }
     if 'adstock_decay' in samples:
         decay_arr = np.asarray(samples['adstock_decay'], dtype=np.float32)
