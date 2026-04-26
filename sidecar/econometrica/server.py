@@ -276,6 +276,10 @@ class TrainRequest(BaseModel):
     mcmc_override: dict | None = None
     # Sprint 2 (small-data path): 'bayesian' (default, NUTS) | 'ols' (closed-form, n<30 fallback)
     mode: str | None = None
+    # Sprint 2 / A3: opt-in horseshoe priors для sparse channel selection.
+    # Когда True, каналы с истинным β≈0 получают strong shrinkage to zero,
+    # уменьшая overfit на small N. Не влияет на mode='ols'.
+    use_horseshoe: bool = False
     # Стоимость 1 юнита канала в валюте KPI для не-денежных каналов (CPP/CPM).
     # {channel: cost_per_unit}. Если задано — decomposer/optimizer используют
     # spend × unit_cost для отображения и расчёта ROI. На обучение модели не
@@ -298,6 +302,8 @@ class TrainStartRequest(BaseModel):
     mcmc_override: dict | None = None
     # Sprint 2: 'bayesian' | 'ols'
     mode: str | None = None
+    # Sprint 2 / A3: opt-in horseshoe priors
+    use_horseshoe: bool = False
     unit_costs: dict[str, float] = {}
     merge_rules: dict[str, list[str]] = {}
 

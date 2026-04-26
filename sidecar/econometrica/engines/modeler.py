@@ -314,8 +314,25 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # created poorly identified Hill saturation geometry → 1600+ divergences.
             intercept = pm.Normal('intercept', mu=0, sigma=0.5)  # было sigma=1
 
-            # Media coefficients — более консервативный HalfNormal, меньший разброс
-            media_betas = pm.HalfNormal('media_betas', sigma=0.3, shape=len(media_cols))  # было 0.5
+            # Media coefficients — более консервативный HalfNormal, меньший разброс.
+            # Sprint 2 / A3: opt-in horseshoe priors для sparse channel selection.
+            # Каналы с истинным β≈0 получают сильную shrinkage к нулю, что снижает
+            # overfit на small N + предотвращает spurious channel effects.
+            # Reference: Carvalho/Polson/Scott 2010 "Horseshoe estimator".
+            use_horseshoe = bool(config.get('use_horseshoe', False))
+            if use_horseshoe:
+                # Global shrinkage parameter (controls overall sparsity level)
+                horseshoe_tau = pm.HalfCauchy('horseshoe_tau', beta=0.1)
+                # Local shrinkage per channel (allows individual β to escape global shrinkage)
+                horseshoe_lambda = pm.HalfCauchy('horseshoe_lambda', beta=1.0, shape=len(media_cols))
+                # Media β with horseshoe sparsity: σ = τ × λ_i
+                media_betas = pm.HalfNormal(
+                    'media_betas',
+                    sigma=horseshoe_tau * horseshoe_lambda,
+                    shape=len(media_cols),
+                )
+            else:
+                media_betas = pm.HalfNormal('media_betas', sigma=0.3, shape=len(media_cols))  # было 0.5
 
             # Control coefficients (используем нормализованные X_control_norm)
             if len(control_cols) > 0:
