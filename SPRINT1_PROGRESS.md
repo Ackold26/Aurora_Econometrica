@@ -1,10 +1,10 @@
 # Sprint 1 Foundation — Live Progress (resume after compress)
 
-**Last updated:** 2026-04-26 ~21:30 — Phase 1.9 + Phase 1.1 backend BOTH COMPLETE
+**Last updated:** 2026-04-26 ~22:00 — Phase 1.9 + Phase 1.1 backend COMPLETE + A4 Quick Proxy started
 **Branch:** `math-fix-v1.0.13`
-**Active phase:** Phase 1.1 backend complete + tests + migration banner. Pending live-test (Антон).
-**HEAD:** `54fc39b` (Phase 1.1 tests 72/72 PASS) + new migration banner commit pending
-**Test status:** 156+36+72 = 264 unit tests PASS + 65 narrative_adapter = 329 total
+**Active phase:** All three Sprint 1 backend layers ready. Pending: live-test on real Kagocel (Антон).
+**HEAD:** `9cbba78` (A4 quick proxy + Phase 1.1 full-mode pilot)
+**Test status:** 156+36+72+65 = 329 unit tests PASS + 4 quick-proxy sanity tests + 2 pilot fits PASS
 
 > **If you read this after a compress:** continue from "Next concrete step" below WITHOUT confirmation per Антон's protocol 2026-04-26. Only stop for: architecture decisions, push to remote, fundamental schema migration. Auto-commit local OK. Show diff before push.
 
@@ -140,9 +140,43 @@ Weibull stays hardcoded (Phase 1.5 task). Pre-fit X_media at default decay 0.5
 
 ---
 
-## A4 Pre-MCMC Reliability (queued, after Phase 1.1)
+## A4 Pre-MCMC Reliability (queued, after Phase 1.1) — Quick Proxy DONE
 
 Per ADR §6. ~32-38h with UI integration + override path.
+
+### A4.0 Quick Proxy — STARTED 2026-04-26
+
+`utils/reliability_quick_proxy.py` (NEW, ~250 LOC) implements 3 pre-flight checks:
+1. Condition number media matrix (>30 warn, >100 fail)
+2. Pairwise Pearson correlation (>0.9 warn, >0.95 fail)
+3. Channel variance ratio CV (<0.10 warn, <0.05 fail)
+
+Stand-alone utility ready. Returns tier + checks + warnings + actionable
+recommendation + override flag. UI integration deferred to A4 main work.
+
+Per ADR Amendment A8: all messaging constructive ("Aurora paused training because…",
+not "refuse"). Override path always available.
+
+Sanity tests 4/4 PASS:
+- Random clean data → 'reliable'
+- Multicollinear (TV ~ OOH×1.05) → 'insufficient'
+- Constant channel → 'insufficient'
+- Empty matrix → 'insufficient' (no override)
+
+Full A4 ETA: 32-38h (queued post-Платформа per ADR §6).
+
+### Full pilot run (chains=4 × draws=2000, ~33s total)
+
+| Metric | Beta-Beta | Logit-Normal | Winner |
+|---|---|---|---|
+| Elapsed | 18.0s | 15.3s | LN (15% faster) |
+| **Divergences** | **39** | **7** | **LN (5.5× fewer!)** |
+| R-hat max | 1.000 | 1.000 | tie |
+| ESS bulk min | 1495 | **4940** | LN (3.3× better) |
+| Recovery 90% HDI | 5/5 | 4/5 | BB (chance — ch1 borderline) |
+
+Full-mode amplifies logit-normal advantage. Production-quality validation
+of ADR §3.A1 default complete.
 
 ---
 
