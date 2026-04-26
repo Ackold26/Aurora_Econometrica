@@ -330,6 +330,12 @@ class OptimizeRequest(BaseModel):
     max_per_channel: dict[str, float] | None = None
     # Override unit_costs (аналогично DecomposeRequest).
     unit_costs: dict[str, float] | None = None
+    # L9 (math-fix v1.4 Section C, 2026-04-29): forward-compat budget_mode.
+    # Currently only 'fixed' supported (optimizer always preserves budget).
+    # 'free' planned для v1.1 — optimizer chooses any total в каналах bounds.
+    # Validation rejects 'free' с TODO error чтобы early callers не shipped
+    # against unimplemented behavior.
+    budget_mode: str = 'fixed'
 
 
 class ScenarioRequest(BaseModel):
@@ -897,6 +903,19 @@ def decompose_sales(req: DecomposeRequest):
 @app.post('/compute/optimize')
 def optimize_budget(req: OptimizeRequest):
     """Optimize budget allocation across channels."""
+    # L9 (math-fix v1.4 Section C, 2026-04-29): explicit reject 'free' mode
+    # until v1.1 implementation. UI checkbox disabled with tooltip — but if
+    # caller bypasses UI (direct API), error message points к v1.1 plan.
+    if req.budget_mode != 'fixed':
+        return JSONResponse(content={
+            'status': 'error',
+            'error_code': 'BUDGET_MODE_NOT_IMPLEMENTED',
+            'message': (
+                f"budget_mode='{req.budget_mode}' пока не реализован. "
+                f"Доступен только budget_mode='fixed'. Free-budget mode "
+                f"запланирован в v1.1 (см. roadmap)."
+            ),
+        }, status_code=400)
     from engines.optimizer import optimize as _optimize
     config = {
         'total_budget': req.total_budget,

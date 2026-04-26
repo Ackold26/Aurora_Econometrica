@@ -944,9 +944,15 @@
           <input type="range" min={100} max={300} step={10} bind:value={maxPct} class="mini-slider" />
           <span class="mini-val">{maxPct}%</span>
         </label>
-        <label class="lock-label">
-          <input type="checkbox" bind:checked={budgetLocked} class="lock-check" />
-          <span>Фиксировать бюджет<span class="help-icon" title={HELP.lockBudget}>?</span></span>
+        <!-- L9 (math-fix v1.4 Section C, 2026-04-29): disabled до v1.1.
+             Pre-fix: checkbox активен и переключал budget mode, но free-budget
+             implementation incomplete (validation gaps, untested paths). UX
+             promise > delivery. Disabled с tooltip объясняет deferral.
+             Backend forward-compat: OptimizeRequest.budget_mode='fixed' default
+             rejects 'free' с TODO error. -->
+        <label class="lock-label" title="Запланировано в v1.1 — оптимизатор пока всегда сохраняет бюджет (фиксированный режим)">
+          <input type="checkbox" bind:checked={budgetLocked} class="lock-check" disabled />
+          <span class="lock-text-disabled">Фиксировать бюджет<span class="help-icon" title={HELP.lockBudget}>?</span></span>
         </label>
         <button
           class="btn-run"

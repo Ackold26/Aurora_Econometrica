@@ -513,64 +513,30 @@
       </button>
     </section>
 
+    <!-- L18-L20 (math-fix v1.4 Section C, 2026-04-29): Settings cleanup.
+         Removed: file-based «Лицензия» block (legacy [LI-001] error pattern),
+         «Версия контента: c1» (unclear notation). Renamed: «Подключение к
+         серверу» → «Лицензия» (online auth = primary licensing path).
+         Backend code preserved (SA15) — Ed25519 + license.rs остаются для
+         legacy fallback в online_auth.rs flow. -->
     <section class="section">
       <h2 class="section-title">Лицензия</h2>
-      {#if licenseError}
-        <div class="status-card status-error">
-          <span class="status-dot error"></span>
-          <div>
-            <p class="status-label">Лицензия не найдена</p>
-            <p class="status-detail">{licenseError}</p>
-          </div>
-        </div>
-      {:else if licenseStatus}
-        <div class="status-card" class:status-ok={licenseStatus.valid} class:status-error={!licenseStatus.valid}>
-          <span class="status-dot" class:ok={licenseStatus.valid} class:error={!licenseStatus.valid}></span>
-          <div>
-            <p class="status-label">
-              {licenseStatus.valid ? 'Лицензия активна' : 'Лицензия невалидна'}
-            </p>
-            {#if licenseStatus.error}
-              <p class="status-detail">{licenseStatus.error}</p>
-            {/if}
-            <p class="status-detail">Компания: {licenseStatus.issued_to}</p>
-            <p class="status-detail">Истекает: {licenseStatus.expires_at}</p>
-            {#if licenseStatus.cabinets.length > 0}
-              <p class="status-detail">Кабинеты: {licenseStatus.cabinets.join(', ')}</p>
-            {/if}
-          </div>
-        </div>
-      {/if}
-
-      <button class="btn btn-accent" onclick={importLicense}>
-        Импортировать лицензию
-      </button>
-      {#if importStatus}
-        <p class="import-status">{importStatus}</p>
-      {/if}
-    </section>
-
-    <section class="section">
-      <h2 class="section-title">Подключение к серверу</h2>
       <div class="connection-status">
         {#if onlineStatus}
           <div class="status-row">
             <span class="status-dot" class:dot-ok={onlineStatus.status === 'ok'} class:dot-cached={onlineStatus.status === 'cached'} class:dot-offline={onlineStatus.status === 'offline' || onlineStatus.status === 'blocked'}></span>
             <span class="status-text-label">
               {#if onlineStatus.status === 'ok'}
-                Подключён к серверу
+                Лицензия активна
               {:else if onlineStatus.status === 'cached'}
-                Работа по кэшу
+                Работа по кэшу (соединение временно недоступно)
               {:else}
-                Офлайн
+                Лицензия не подтверждена
               {/if}
             </span>
           </div>
           {#if onlineStatus.expires_at}
-            <p class="connection-detail">Лицензия до: {new Date(onlineStatus.expires_at).toLocaleDateString('ru-RU')}</p>
-          {/if}
-          {#if contentVersion}
-            <p class="connection-detail">Версия контента: {contentVersion}</p>
+            <p class="connection-detail">Действует до: {new Date(onlineStatus.expires_at).toLocaleDateString('ru-RU')}</p>
           {/if}
           {#if onlineStatus.machine_id}
             <p class="connection-detail">Instance: {onlineStatus.machine_id}</p>
@@ -584,57 +550,8 @@
       </div>
     </section>
 
-    <section class="section">
-      <h2 class="section-title">Статистика использования</h2>
-      {#if usageMetrics}
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.total_sessions}</span>
-            <span class="metric-label">Сессий</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.total_messages}</span>
-            <span class="metric-label">Сообщений</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.total_exports}</span>
-            <span class="metric-label">Экспортов</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.avg_response_time_secs > 0 ? usageMetrics.avg_response_time_secs.toFixed(0) + 'с' : '—'}</span>
-            <span class="metric-label">Ср. время ответа</span>
-          </div>
-        </div>
-        {#if usageMetrics.first_use}
-          <p class="metric-detail">Используется с {usageMetrics.first_use.split('T')[0]}</p>
-        {/if}
-        {#if usageMetrics.command_counts && Object.keys(usageMetrics.command_counts).length > 0}
-          {@const allowedCmds = ['analytics', 'check', 'action-title', 'executive-summary', 'bridges', 'batch-analytics', 'data-analysis', 'benchmark', 'aurora-index']}
-          {@const entries = Object.entries(usageMetrics.command_counts).filter(([cmd]) => allowedCmds.includes(cmd)).sort((a, b) => b[1] - a[1]).slice(0, 10)}
-          {@const maxCount = entries.length > 0 ? Math.max(...entries.map(e => e[1])) : 1}
-          <div class="chart-section">
-            <h3 class="chart-title">Использование команд</h3>
-            <div class="chart-bars">
-              {#each entries as [cmd, count]}
-                <div class="chart-row">
-                  <span class="chart-label">/{cmd}</span>
-                  <div class="chart-bar-track">
-                    <div
-                      class="chart-bar-fill"
-                      style="width: {(count / maxCount) * 100}%"
-                    ></div>
-                  </div>
-                  <span class="chart-value">{count}</span>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-        <button class="reset-metrics-btn" onclick={resetMetrics}>Сбросить статистику</button>
-      {:else}
-        <p class="section-desc">Данных пока нет — начните работу с кабинетами</p>
-      {/if}
-    </section>
+    <!-- L18-L20: «Статистика использования» block removed entirely (irrelevant
+         для Econometrica build, leaked Aurora Agency commands в UI). -->
 
     {#if vaultStatus.length > 0}
       <section class="section">

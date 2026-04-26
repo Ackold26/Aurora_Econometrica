@@ -419,15 +419,36 @@ def render_at_a_glance(ctx: dict) -> str:
             mqs_val = float(mqs) if mqs is not None else 0
         except (TypeError, ValueError):
             mqs_val = 0
-        if mqs_val >= 80:
-            f5 = strings["findings_templates"]["f5_mqs_good"].format(mqs=mqs_val)
-            f5_sup = strings["findings_templates"]["f5_mqs_good_support"]
-        elif mqs_val >= 60:
-            f5 = strings["findings_templates"]["f5_mqs_fair"].format(mqs=mqs_val)
-            f5_sup = strings["findings_templates"]["f5_mqs_fair_support"]
+        # L16 (math-fix v1.4 Section C, 2026-04-29): align frontend tier labels
+        # с backend (utils/diagnostics.py:62-72) — single 5-tier source of truth.
+        # Pre-fix: frontend had 3 tiers (good/fair/poor at 80/60/<60), backend
+        # had 5 tiers (excellent/good/acceptable/weak/poor at 85/70/55/40/<40)
+        # → MQS=70 showed «Хорошее» (sources block) vs «приемлемо» (findings).
+        diag_tier = (ctx.get("diagnostics") or {}).get("mqs_tier_label")
+        if diag_tier:
+            tier_label_text = diag_tier
+        elif mqs_val >= 85:
+            tier_label_text = 'Отличное'
+        elif mqs_val >= 70:
+            tier_label_text = 'Хорошее'
+        elif mqs_val >= 55:
+            tier_label_text = 'Приемлемое'
+        elif mqs_val >= 40:
+            tier_label_text = 'Слабое'
         else:
-            f5 = strings["findings_templates"]["f5_mqs_poor"].format(mqs=mqs_val)
-            f5_sup = strings["findings_templates"]["f5_mqs_poor_support"]
+            tier_label_text = 'Ненадёжное'
+        # Support text per tier
+        support_key = {
+            'Отличное': 'f5_mqs_support_excellent',
+            'Хорошее': 'f5_mqs_support_good',
+            'Приемлемое': 'f5_mqs_support_acceptable',
+            'Слабое': 'f5_mqs_support_weak',
+            'Ненадёжное': 'f5_mqs_support_poor',
+        }.get(tier_label_text, 'f5_mqs_support_acceptable')
+        f5 = strings["findings_templates"]["f5_mqs"].format(
+            mqs=mqs_val, tier_label=tier_label_text
+        )
+        f5_sup = strings["findings_templates"][support_key]
         findings.append((f5, f5_sup))
     else:
         # Preview mode

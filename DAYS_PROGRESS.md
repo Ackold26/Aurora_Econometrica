@@ -6,12 +6,11 @@
 
 ## Current Task
 
-**Day 4 — Settings + L9 quick disable + MQS (L9, L18-L20, L16, L3)** — pending
+**Day 5 — Help docs обновление к v1.0.16** — pending
 
-L9 disable «Фиксировать бюджет» checkbox + tooltip + budget_mode forward-compat
-L18-L20 Settings page cleanup (remove license file block, rename, remove version content)
-L16 MQS labels mismatch backend single source
-L3 Slider 0₽ preview fix per-channel range
+methodology.html action labels glossary (Scale/Hold/Watch/Reduce/Cut/Uncertain)
+econometrica.html Step 6 (Optimize) update reflecting Section A multi-start + L4 mROAS axis
+index.html v1.0.16 changelog entry
 
 ---
 
@@ -26,6 +25,13 @@ L3 Slider 0₽ preview fix per-channel range
   - L21 backlog entry (lift_pct=None)
   - Audit-fix: legacy action migration, delta persistence, NaN guards, reasoning tooltip
   - Tests: 552/552 PASS (was 544 + 8 L4 lock-ins)
+
+- ✅ **Day 4 — Settings + L9 + MQS** — pending push (4 findings: L9, L16, L18-L20)
+  - L9 disable «Фиксировать бюджет» checkbox с tooltip «Запланировано в v1.1». OptimizeRequest gains `budget_mode: str = 'fixed'`. Backend rejects `budget_mode != 'fixed'` с error_code='BUDGET_MODE_NOT_IMPLEMENTED' (forward-compat для UI bypass callers).
+  - L18-L20 Settings cleanup: removed «Статистика использования» block + file-based «Лицензия» block. Renamed «Подключение к серверу» → «Лицензия» (online-auth = primary path). Removed «Версия контента: c1». Backend Ed25519 + license.rs preserved для legacy fallback (SA15).
+  - L16 MQS labels single source: f5_mqs template now accepts `{tier_label}` parameter from backend. Aligned frontend tiers с utils/diagnostics.py 5-tier system (≥85 Отличное / ≥70 Хорошее / ≥55 Приемлемое / ≥40 Слабое / <40 Ненадёжное). Pre-fix: MQS=70 showed «Хорошее» в sources vs «приемлемо» в findings — now consistent.
+  - L3 already resolved by L5 init logic (per-slider maxMoney calculation existed; channelBudgets populated from current_spend on $effect).
+  - Tests: 552+/552+ no regression, svelte-check 0 new errors.
 
 - ✅ **Day 3 — Narrative cluster** — pending push (single commit, 6 findings closed)
   - L15 cut_source/scale_destination — narrative_adapter._derive_narrative_facts adds new fields, sections.py + builder.py use action-driven subjects вместо leader/hero. Real Kagocel verification: cut_source=TRPs (correct overspender), scale_destination=Performance.
@@ -48,7 +54,7 @@ L3 Slider 0₽ preview fix per-channel range
 
 ## Next (concrete first step)
 
-Read `src/lib/components/pipeline/OptimizeStep.svelte` line ~905 (Фиксировать бюджет checkbox). Disable input + add tooltip «Запланировано в v1.1». Add forward-compat `budget_mode: Literal['fixed'] = 'fixed'` field в OptimizeRequest (Pydantic, sidecar/econometrica/server.py).
+Find help HTML files location — likely `src-tauri/help/` или resources. Search для existing `methodology.html`, `econometrica.html`, `index.html`. Update action labels glossary в methodology с full ACTION_KEYS vocabulary.
 
 ---
 
