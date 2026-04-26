@@ -217,11 +217,36 @@
         control_columns: mapping.control ?? [],
       },
     }).catch(() => { /* ignore */ });
-    // ВАЖНО: не мутируем validateData отсюда — ColumnMapper $effect Init
-    // ребилдит mapping из detected/columns, ребилд триггерит Emit → onMappingChange,
-    // и если мы здесь снова мутируем validateData — получаем infinite loop
-    // (UI freeze, watchdog strikes). Локальный пересчёт Ratio делаем через
-    // excludeColumnByName + $derived, не из этого hook.
+
+    // BUGFIX 2026-04-27: ОБНОВЛЯЕМ validateData.columns[i].role согласно
+    // user mapping. Pre-fix: ConfigPanel (Model шаг) читал stale validation snapshot
+    // с initial detected roles → user-удалённые каналы продолжали checking
+    // в Model checkboxes → train запускался на полном наборе.
+    //
+    // Безопасно благодаря парному fix в ColumnMapper.svelte: $effect init
+    // теперь использует "columns SET key" — re-init только при смене column set
+    // (новый file), не при mutation roles. Infinite loop из старого комментария
+    // больше невозможен.
+    const data = get(validateData);
+    if (data?.result?.columns && Array.isArray(data.result.columns)) {
+      const kpiSet = new Set(mapping.kpi ?? []);
+      const mediaSet = new Set(mapping.media ?? []);
+      const controlSet = new Set(mapping.control ?? []);
+      const dateName = mapping.date ?? null;
+      const updatedCols = data.result.columns.map(/** @param {any} c */ (c) => {
+        let newRole = 'unknown';
+        if (kpiSet.has(c.name)) newRole = 'kpi';
+        else if (mediaSet.has(c.name)) newRole = 'media';
+        else if (controlSet.has(c.name)) newRole = 'control';
+        else if (dateName === c.name) newRole = 'date';
+        return c.role === newRole ? c : { ...c, role: newRole };
+      });
+      // Mutate validateData store — same reference path used by ConfigPanel.
+      validateData.update(/** @param {any} d */ (d) => {
+        if (!d?.result) return d;
+        return { ...d, result: { ...d.result, columns: updatedCols } };
+      });
+    }
   }
 </script>
 

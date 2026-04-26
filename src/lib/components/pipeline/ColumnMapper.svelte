@@ -39,9 +39,21 @@
     unknown: [],
   });
 
-  // Init from detected props
+  // Init from detected props.
+  // BUGFIX 2026-04-27 (Validate→Model state desync): init только когда columns SET
+  // изменился (новый file uploaded), не на каждый prop change. Pre-fix: $effect
+  // re-ran on каждой mutation validation prop → сбрасывал mapping к initial detected
+  // roles → user reassignments терялись на ConfigPanel/Model шаге. Симптом:
+  // user убрал «Социальный»+«Статьи» в Validate matrix, но Model checkboxes
+  // показывали 7 channels (включая удалённые) → train запускался на полном наборе.
+  // Fix: track "columns SET key" — re-init только при смене set имён.
+  let lastColumnsKey = $state('');
   $effect(() => {
     if (!columns.length) return;
+    // Stable hash of column names (order-independent — only set membership matters).
+    const key = columns.map(/** @param {any} c */ (c) => c.name).slice().sort().join('|');
+    if (lastColumnsKey === key) return;  // Same column SET → preserve user mapping
+    lastColumnsKey = key;
 
     const kpi   = /** @type {string[]} */ ([...(detected?.kpi ?? [])]);
     const media  = /** @type {string[]} */ ([...(detected?.media ?? [])]);
