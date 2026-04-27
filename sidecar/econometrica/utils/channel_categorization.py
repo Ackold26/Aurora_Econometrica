@@ -33,6 +33,17 @@ PERF_HINTS: tuple[str, ...] = (
     'SOCIAL', 'СОЦ', 'CTR', 'CPC', 'CPA', 'PERFORMANCE', 'ПЕРФ',
     'ЯНДЕКС', 'GOOGLE', 'VK', 'ВК', 'TELEGRAM', 'ТЕЛЕГРАМ',
     'МЕТА', 'META', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ',
+    'PROGRAMMATIC', 'ПРОГРАММАТИК', 'DSP',
+)
+
+# Strong performance signals — auto-bidding / response-direct маркеры,
+# которые overrid'ят brand classification если оба совпадают (Антон 2026-04-27).
+# Пример: "OLV programmatic" → brand-hint OLV + strong-perf programmatic → performance.
+# Без этого override был бы mixed (ambiguous).
+STRONG_PERF_HINTS: tuple[str, ...] = (
+    'PROGRAMMATIC', 'ПРОГРАММАТИК', 'DSP',
+    'CPC', 'CPA', 'CTR',
+    'PERFORMANCE', 'ПЕРФ',
 )
 
 
@@ -100,6 +111,16 @@ def auto_suggest_category(channel_name: str) -> CategorySuggestion:
             'reasoning': f"performance hints: {', '.join(perf_matches)}",
         }
     if is_brand and is_perf:
+        # Strong-perf override: programmatic / CPC / CPA / DSP / Performance
+        # — auto-bidding markers, явный response-direct сигнал, overrid'ят brand.
+        # Пример: "OLV programmatic" → brand(OLV) + perf(programmatic) → strong-perf → performance.
+        strong_matches = [h for h in STRONG_PERF_HINTS if h in normalized]
+        if strong_matches:
+            return {
+                'category': 'performance',
+                'confidence': 0.8,  # high — strong signal overrides brand
+                'reasoning': f"strong-perf override: {', '.join(strong_matches)} (brand hints {brand_matches} ignored)",
+            }
         return {
             'category': 'mixed',
             'confidence': 0.5,
