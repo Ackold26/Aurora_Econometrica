@@ -338,6 +338,9 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'beta': beta,
             'verdict': '',
             'verdict_tone': 'neutral',
+            # Trust Level 3 (v1.1.0): adstock decay posterior summary для UI display.
+            # Decompose grouping panel показывает effective half-life per channel.
+            'adstock_decay_mean': float(decay_point) if decay_point is not None else None,
         }
 
         # F1 fix (audit 2026-04-27): per-sample training adstock mean for math
@@ -421,6 +424,16 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
                 _is_pct = (_method_c == 'percentile_fallback') or (_method_r == 'percentile_fallback')
                 if decay_samples is not None:
                     base = 'bayesian_hdi_phase11_pct' if _is_pct else 'bayesian_hdi_phase11'
+                    # Trust Level 3: 50% CI для decay (Critical Audit issue M).
+                    # 95% would показывать decay 0.30-0.95 → uninterpretable. 50% (q25/q75) tighter.
+                    try:
+                        import numpy as _np2
+                        ds = _np2.asarray(decay_samples, dtype=float)
+                        ch_dict['adstock_decay_mean'] = float(_np2.mean(ds))
+                        ch_dict['adstock_decay_ci_low'] = float(_np2.quantile(ds, 0.25))
+                        ch_dict['adstock_decay_ci_high'] = float(_np2.quantile(ds, 0.75))
+                    except Exception:
+                        pass
                 else:
                     base = 'bayesian_hdi_pct' if _is_pct else 'bayesian_hdi'
                 ch_dict['ci_method'] = base

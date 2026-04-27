@@ -328,41 +328,64 @@
               <th class="num">Вклад<span class="help-icon" title={CH_HELP.contrib}>?</span></th>
               <th class="num">ROI<span class="help-icon" title={CH_HELP.roi}>?</span></th>
               <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
+              <th class="num">Decay<span class="help-icon" title="Adstock decay — доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50% CI показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
               <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
             </tr>
           </thead>
           <tbody>
-            {#each data.channels as ch}
-              <tr>
-                <td class="ch-name">
-                  {ch.name}
-                  {#if ch.category}
-                    <span
-                      class="ch-cat"
-                      class:cat-brand={ch.category === 'brand_reach'}
-                      class:cat-perf={ch.category === 'performance'}
-                      class:cat-mixed={ch.category === 'mixed'}
-                      title={CATEGORY_HELP[ch.category]}
-                    >{CATEGORY_LABEL[ch.category]}</span>
-                  {/if}
-                </td>
-                <td class="num" title={ch.unit_cost && ch.unit_cost !== 1 ? `${(ch.raw_spend ?? 0).toLocaleString('ru-RU')} юнитов × ${ch.unit_cost.toLocaleString('ru-RU')}₽ = ${ch.spend.toLocaleString('ru-RU')}₽` : ''}>
-                  {ch.spend.toLocaleString('ru-RU')}
-                  {#if ch.unit_cost && ch.unit_cost !== 1}
-                    <span class="spend-sub">{(ch.raw_spend ?? 0).toLocaleString('ru-RU')} × {ch.unit_cost.toLocaleString('ru-RU')}₽</span>
-                  {/if}
-                </td>
-                <td class="num">{ch.contribution.toLocaleString('ru-RU')}</td>
-                <td class="num" class:roi-good={ch.roi > 2 && ch.roi <= 50} class:roi-mid={ch.roi >= 0.8 && ch.roi <= 2} class:roi-bad={ch.roi < 0.8} class:roi-warn={ch.roi > 50}>
-                  {ch.roi.toFixed(2)}×
-                </td>
-                <td class="num" class:gap-pos={ch.efficiency_gap >= 5} class:gap-neg={ch.efficiency_gap <= -5}>
-                  {ch.efficiency_gap > 0 ? '+' : ''}{ch.efficiency_gap}%
-                </td>
-                <td class:verdict-good={ch.verdict_tone === 'good'} class:verdict-warn={ch.verdict_tone === 'warn'} class:verdict-bad={ch.verdict_tone === 'bad'}>
-                  {ch.verdict}
-                </td>
-              </tr>
+            {#each ['brand_reach', 'performance', 'mixed'] as groupKey}
+              {@const groupChannels = data.channels.filter(/** @param {any} c */ c => (c.category || 'mixed') === groupKey)}
+              {#if groupChannels.length > 0}
+                <!-- Trust Level 3 (v1.1.0): visual grouping per category -->
+                <tr class="group-header" class:gh-brand={groupKey === 'brand_reach'} class:gh-perf={groupKey === 'performance'} class:gh-mixed={groupKey === 'mixed'}>
+                  <td colspan="7">
+                    {#if groupKey === 'brand_reach'}🎯 Brand-каналы — long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}📊 Performance-каналы — short-decay (Search/Social){:else}⚪ Смешанные (single-prior){/if}
+                    <span class="group-count">{groupChannels.length}</span>
+                  </td>
+                </tr>
+                {#each groupChannels as ch}
+                  <tr>
+                    <td class="ch-name">
+                      {ch.name}
+                      {#if ch.category}
+                        <span
+                          class="ch-cat"
+                          class:cat-brand={ch.category === 'brand_reach'}
+                          class:cat-perf={ch.category === 'performance'}
+                          class:cat-mixed={ch.category === 'mixed'}
+                          title={CATEGORY_HELP[ch.category]}
+                        >{CATEGORY_LABEL[ch.category]}</span>
+                      {/if}
+                    </td>
+                    <td class="num" title={ch.unit_cost && ch.unit_cost !== 1 ? `${(ch.raw_spend ?? 0).toLocaleString('ru-RU')} юнитов × ${ch.unit_cost.toLocaleString('ru-RU')}₽ = ${ch.spend.toLocaleString('ru-RU')}₽` : ''}>
+                      {ch.spend.toLocaleString('ru-RU')}
+                      {#if ch.unit_cost && ch.unit_cost !== 1}
+                        <span class="spend-sub">{(ch.raw_spend ?? 0).toLocaleString('ru-RU')} × {ch.unit_cost.toLocaleString('ru-RU')}₽</span>
+                      {/if}
+                    </td>
+                    <td class="num">{ch.contribution.toLocaleString('ru-RU')}</td>
+                    <td class="num" class:roi-good={ch.roi > 2 && ch.roi <= 50} class:roi-mid={ch.roi >= 0.8 && ch.roi <= 2} class:roi-bad={ch.roi < 0.8} class:roi-warn={ch.roi > 50}>
+                      {ch.roi.toFixed(2)}×
+                    </td>
+                    <td class="num" class:gap-pos={ch.efficiency_gap >= 5} class:gap-neg={ch.efficiency_gap <= -5}>
+                      {ch.efficiency_gap > 0 ? '+' : ''}{ch.efficiency_gap}%
+                    </td>
+                    <td class="num decay-cell">
+                      {#if ch.adstock_decay_mean != null}
+                        {ch.adstock_decay_mean.toFixed(2)}
+                        {#if ch.adstock_decay_ci_low != null && ch.adstock_decay_ci_high != null}
+                          <span class="decay-ci">{ch.adstock_decay_ci_low.toFixed(2)}–{ch.adstock_decay_ci_high.toFixed(2)}</span>
+                        {/if}
+                      {:else}
+                        —
+                      {/if}
+                    </td>
+                    <td class:verdict-good={ch.verdict_tone === 'good'} class:verdict-warn={ch.verdict_tone === 'warn'} class:verdict-bad={ch.verdict_tone === 'bad'}>
+                      {ch.verdict}
+                    </td>
+                  </tr>
+                {/each}
+              {/if}
             {/each}
           </tbody>
         </table>
@@ -575,6 +598,34 @@
   .ch-cat.cat-mixed {
     background: color-mix(in srgb, var(--text-muted, #64748b) 14%, transparent);
     color: var(--text-muted, #64748b);
+  }
+  /* Trust Level 3 (v1.1.0): group headers и decay column */
+  .group-header td {
+    padding: 8px 10px !important;
+    font-weight: 600;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary, #94a3b8);
+  }
+  .group-header.gh-brand td { border-left: 3px solid rgba(110, 168, 254, 0.7); }
+  .group-header.gh-perf td { border-left: 3px solid rgba(110, 220, 158, 0.7); }
+  .group-header.gh-mixed td { border-left: 3px solid rgba(200, 200, 200, 0.4); }
+  .group-count {
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .decay-cell { font-variant-numeric: tabular-nums; }
+  .decay-ci {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    margin-top: 2px;
   }
   .roi-good { color: var(--success); font-weight: 600; }
   .roi-mid { color: var(--warning); }

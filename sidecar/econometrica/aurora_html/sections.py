@@ -1037,6 +1037,68 @@ def render_recommendation(ctx: dict) -> str:
     return _section("recommend", kicker, body)
 
 
+def _render_brand_perf_split_block(ctx: dict) -> str:
+    """Trust Level 3 (v1.1.0) — auto-generated methodology section про brand vs performance.
+
+    Reads actual prior values из pickle config (issue K — methodology auto-syncs с code).
+    Returns empty string если модель не использовала hierarchical priors.
+    """
+    diag = ctx.get("diagnostics") or {}
+    hier = diag.get("hierarchical") or {}
+    if not hier.get("enabled"):
+        return ""
+    cats = hier.get("channel_categories") or {}
+    priors = hier.get("priors_summary") or {}
+    if not cats:
+        return ""
+    n_brand = sum(1 for v in cats.values() if v == 'brand')
+    n_perf = sum(1 for v in cats.values() if v == 'performance')
+    n_mixed = sum(1 for v in cats.values() if v == 'mixed')
+
+    import math
+    def _half_life(mu_logit: float | None) -> str:
+        if mu_logit is None:
+            return "—"
+        decay = 1 / (1 + math.exp(-mu_logit))
+        if decay <= 0 or decay >= 1:
+            return "—"
+        hl = math.log(0.5) / math.log(decay)
+        return f"{hl:.1f} периодов"
+
+    brand_mu = priors.get('brand_mu_logit_mean')
+    perf_mu = priors.get('performance_mu_logit_mean') or priors.get('perf_mu_logit_mean')
+    rows = []
+    if n_brand:
+        rows.append(f'<li><strong>Brand:</strong> {n_brand} канал(ов), effective half-life ≈ {_half_life(brand_mu)} (long-horizon decay)</li>')
+    if n_perf:
+        rows.append(f'<li><strong>Performance:</strong> {n_perf} канал(ов), effective half-life ≈ {_half_life(perf_mu)} (short-horizon decay)</li>')
+    if n_mixed:
+        rows.append(f'<li><strong>Смешанные:</strong> {n_mixed} канал(ов), single-prior fallback</li>')
+
+    warning_html = ""
+    rwarn = hier.get('rhat_warning')
+    if rwarn:
+        warning_html = f'<p style="color:var(--warning,#d97706);font-size:11px;margin-top:8px;">⚠ {escape(rwarn)}</p>'
+
+    return f"""
+<div class="brand-perf-block" style="margin-top:24px;padding:14px;background:rgba(127,90,240,0.05);border-left:3px solid rgba(127,90,240,0.5);border-radius:6px;">
+  <div class="method-col-label" style="margin-bottom:8px;">Brand vs Performance моделирование (v1.1.0)</div>
+  <p style="font-size:12px;line-height:1.5;color:var(--text-secondary,#94a3b8);">
+    Модель разделяет каналы на brand (long-horizon decay) и performance (short-horizon decay).
+    Brand-каналы получают hierarchical prior с большей variance — отражает unknown brand-build duration.
+    Performance-каналы используют тесный prior на короткий decay.
+  </p>
+  <ul style="font-size:12px;line-height:1.7;margin-top:8px;padding-left:16px;">
+{chr(10).join(rows)}
+  </ul>
+  <p style="font-size:11px;font-style:italic;color:var(--text-muted,#64748b);margin-top:8px;">
+    Атрибуция между brand и performance имеет fundamental uncertainty — мы используем priors based on industry norms.
+    Если категория канала вызывает сомнения, проверьте классификацию на шаге Validate.
+  </p>
+  {warning_html}
+</div>"""
+
+
 def render_methodology(ctx: dict) -> str:
     """Section 11: Methodology + limitations."""
     strings = ctx["strings"]
@@ -1064,6 +1126,9 @@ def render_methodology(ctx: dict) -> str:
         for lim in meth["limits"]
     )
 
+    # Trust Level 3 (v1.1.0): auto-generated brand vs performance block.
+    brand_perf_html = _render_brand_perf_split_block(ctx)
+
     body = f"""
 {_action_title(strings["action_titles"]["s10_methodology"])}
 <div class="methodology-grid">
@@ -1082,7 +1147,8 @@ def render_methodology(ctx: dict) -> str:
     </div>
   </div>
 </div>
-<p style="margin-top:24px;font-size:11px;font-style:italic;color:var(--text-muted);">{escape(meth["prior_note"])}</p>"""
+<p style="margin-top:24px;font-size:11px;font-style:italic;color:var(--text-muted);">{escape(meth["prior_note"])}</p>
+{brand_perf_html}"""
     return _section("method", kicker, body)
 
 
