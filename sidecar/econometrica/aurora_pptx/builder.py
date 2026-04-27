@@ -2291,11 +2291,30 @@ class AuroraPPTXBuilder:
             self._rect(slide, right_x, ly + 0.07, 0.08, 0.08, fill=self.deep_60)
             ly += 0.80
 
-        # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
-        self._source(
-            slide, 6.87,
-            text="Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM.",
-        )
+        # Trust Level 3 (v1.1.0): brand vs performance disclosure если активен.
+        # Speaker note + bottom note — minimal disclosure без layout disruption.
+        # HTML report имеет full block в methodology; здесь kompakt single-line note.
+        hier = (self.data.get('diagnostics') or {}).get('hierarchical') or {}
+        if hier.get('enabled'):
+            cats = hier.get('channel_categories') or {}
+            n_brand = sum(1 for v in cats.values() if v == 'brand')
+            n_perf = sum(1 for v in cats.values() if v == 'performance')
+            t3_text = (
+                f"v1.1.0: Brand vs Performance split — {n_brand} brand, {n_perf} performance каналов. "
+                f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
+            )
+            self._source(slide, 6.65, text=t3_text)
+            # Existing bottom note pushed чуть выше
+            self._source(
+                slide, 6.97,
+                text="Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM.",
+            )
+        else:
+            # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
+            self._source(
+                slide, 6.87,
+                text="Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM.",
+            )
 
         self._footer(slide, 11)
 

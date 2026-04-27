@@ -18,7 +18,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
   import {
-    activeProjectId, channelCategories,
+    activeProjectId, activeProject, channelCategories,
     decomposeData, optimizeData,
   } from '$lib/project-state.js';
 
@@ -102,10 +102,13 @@
     const projectId = get(activeProjectId);
     if (!projectId) return;
     try {
-      await invoke('project_update', {
+      const info = /** @type {any} */ (await invoke('project_update', {
         projectId,
         updates: { channel_categories: cats },
-      });
+      }));
+      // Synergy with UnitCostsPanel pattern: keep activeProject store in sync after persist.
+      // Иначе ProjectSelector / ImportStep / др. components могут показывать stale data.
+      if (info) activeProject.set(info);
     } catch (e) {
       console.warn('Failed to persist channel_categories:', e);
     }
@@ -139,11 +142,19 @@
    */
   function setCategory(channel, category) {
     const current = get(channelCategories);
+    if (current[channel] === category) {
+      // No-op — no need to persist same value or invalidate downstream.
+      editingChannel = null;
+      return;
+    }
     const updated = { ...current, [channel]: category };
     channelCategories.set(updated);
     persist(updated);
-    // Invalidate downstream — модель нужно переобучить с новой категоризацией.
-    // (decompose/optimize remain readable as-is — категория lives в pickle).
+    // Категория влияет на priors при training. Старая модель использовала
+    // другую категорию → её декомпозиция/оптимизация теперь не consistent с UI.
+    // Inval'ить downstream → user видит «требуется переобучение» в pipeline.
+    decomposeData.set(null);
+    optimizeData.set(null);
     editingChannel = null;
   }
 
