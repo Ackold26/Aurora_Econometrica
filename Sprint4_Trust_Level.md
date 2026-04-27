@@ -9,10 +9,34 @@
 
 ## Current Status
 
-**Phase:** D — Frontend
-**In progress:** project.rs schema + ValidateStep + DecomposeStep + Report
-**Blocking:** None
-**Next concrete step:** Update src-tauri/src/commands/project.rs ProjectInfo с channel_categories field (HashMap<String,String>, serde default)
+**Phase:** ALPHA GATE — Live alpha gate (Антон) + ship workflow
+**In progress:** Документация готова, await Antón's manual test session на Kagocel + Венарус
+**Blocking:** Live alpha gate (manual test) — нужно подтвердить что NumPyro JAX hierarchical sampling сходится на real data и что split даёт sensible ROI changes
+**Next concrete step:**
+  1. Антон запускает `npm run tauri dev` → открывает Kagocel project → Validate → assigns brand/perf categories → Train → Decompose → проверяет что hierarchical работает
+  2. Повторяет на Венарус
+  3. Если PASS → bump version 1.0.16 → 1.1.0 (Cargo.toml + tauri.conf.json) + NSIS build + GH Release
+  4. Если FAIL — log issue → continue iteration
+
+**Build commands после alpha gate:**
+```bash
+# Bump version
+sed -i 's/version = "1.0.16"/version = "1.1.0"/' src-tauri/Cargo.toml
+sed -i 's/"version": "1.0.16"/"version": "1.1.0"/' src-tauri/tauri.conf.json
+
+# Build sidecar
+python sidecar/econometrica/build_sidecar.py
+
+# Build NSIS
+CARGO_TARGET_DIR="D:/cargo-targets/aurora-econometrica" npm run tauri build
+
+# Tag + ship
+git tag v1.1.0
+git push --tags
+gh release create v1.1.0 --title "Aurora Econometrica v1.1.0 — Brand vs Performance Split"
+# + rosst-updates latest.json PATCH
+# + Supabase app_versions PATCH
+```
 
 ---
 
@@ -32,6 +56,19 @@
 - [x] 2026-04-27 Phase C: ВСЕ engines (decomposer/optimizer/scenario/backtest/html_export) → load_model_with_compat
 - [x] 2026-04-27 Phase C: decomposer использует explicit categories (heuristic fallback for pre-v1.3 pickles)
 - [x] 2026-04-27 Regression: 75/75 sanity tests PASS (no behavior change для existing models)
+- [x] 2026-04-27 Phase D: project.rs ProjectInfo.channel_categories + serde(default) [commit `eb3f4f9`]
+- [x] 2026-04-27 Phase D: project_update orphan cleanup на rename/delete media columns
+- [x] 2026-04-27 Phase D: validation accepts только brand/performance/mixed values
+- [x] 2026-04-27 Phase D: Tauri command econ_categorize_channels + register в lib.rs
+- [x] 2026-04-27 Phase D: src/lib/project-state.js channelCategories writable store
+- [x] 2026-04-27 Phase D: ConfigPanel pass channel_categories в TrainRequest
+- [x] 2026-04-27 Phase D: NEW ChannelCategoriesPanel.svelte (~370 LOC) + mounted в ValidateStep
+- [x] 2026-04-27 Phase D: DecomposeStep visual grouping + Decay column ± 50% CI [commit `e864716`]
+- [x] 2026-04-27 Phase D: aurora_html/sections.py NEW _render_brand_perf_split_block (auto-gen methodology)
+- [x] 2026-04-27 Phase D: backend exposes adstock_decay_mean/_ci_low/_ci_high в ch_dict
+- [x] 2026-04-27 Phase E: tools/test_brand_perf_split.py 10/10 PASS (synthetic + smoke)
+- [x] 2026-04-27 Phase F: docs/MATH_AUDIT_v1_6_BRAND_PERFORMANCE_SPLIT.md (10 sections, 350+ LOC)
+- [x] 2026-04-27 Phase F: docs/CHANGELOG_v1.1.0.md (release notes + migration guide)
 
 ---
 
@@ -69,3 +106,5 @@
 
 - `c8efaa5` 2026-04-27 — feat(trust3): channel categorization util + pickle compat helper (Sprint 4 foundation)
 - `f45f97b` 2026-04-27 — feat(trust3): hierarchical Bayesian priors brand vs performance + R-hat gate
+- `eb3f4f9` 2026-04-27 — feat(trust3): Validate UI badges + ChannelCategoriesPanel + Tauri schema
+- `e864716` 2026-04-27 — feat(trust3): Decompose grouping + decay column + HTML methodology auto-gen
