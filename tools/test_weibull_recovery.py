@@ -26,50 +26,18 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'sidecar'))
 
+# Use shared helpers из utils/adstock.py (B2.1 production helpers)
+from econometrica.utils.adstock import (
+    compute_weibull_half_life,
+    compute_weibull_peak,
+    peak_week_to_lambda,
+    tail_decay_to_k,
+    weibull_convolution_toeplitz,
+    weibull_kernel_survival,
+)
+
 
 # ─── Synthetic generator ────────────────────────────────────────────────────
-
-def weibull_kernel_survival(
-    max_decay: int,
-    peak_week: float,
-    tail_decay: float,
-) -> np.ndarray:
-    """Compute discrete Weibull adstock kernel using survival function diff.
-
-    H8 fix: kernel[t] = S(t) - S(t+1) где S(t) = exp(-(t/λ)^k)
-    More accurate discrete probability mass than raw PDF discretization.
-
-    Reparameterization (H7):
-    - peak_week (interpretable): mode of continuous Weibull
-    - tail_decay (interpretable): rate of tail (faster decay = higher rate)
-    - λ (scale), k (shape) computed внутри
-
-    Args:
-        max_decay: max τ (number of weeks support)
-        peak_week: where Weibull peaks (mode)
-        tail_decay: 0..1 — tail rate (Beta-like)
-
-    Returns:
-        kernel: shape (max_decay,), normalized к sum=1
-    """
-    # Convert (peak_week, tail_decay) → (lam, k):
-    # k = 1 + 1/tail_decay (lower tail_decay → higher k → faster tail)
-    k = 1.0 + 1.0 / max(tail_decay, 0.05)  # avoid div-by-zero
-    # Mode of Weibull = λ * ((k-1)/k)^(1/k) for k>1
-    if k > 1:
-        lam = peak_week / ((k - 1) / k) ** (1.0 / k)
-    else:
-        lam = peak_week  # exponential case fallback
-
-    # Survival function S(t) = exp(-(t/λ)^k)
-    tau = np.arange(max_decay + 1, dtype=np.float64)
-    S = np.exp(-(tau / lam) ** k)
-    kernel = S[:-1] - S[1:]  # length max_decay
-
-    # Normalize к sum=1 (identifiability — separates kernel shape от β scale)
-    kernel = kernel / np.sum(kernel)
-    return kernel
-
 
 def generate_synthetic_weibull_data(
     n_obs: int = 52,
@@ -85,29 +53,22 @@ def generate_synthetic_weibull_data(
 
     y_t = β × convolution(media, weibull(peak_week, tail_decay))[t] + noise
 
-    Returns:
-        {
-            'X_media': (n_obs, n_channels) raw media spend,
-            'y': (n_obs,) observed outcome,
-            'true_kernel': (max_decay,) Weibull kernel used,
-            'true_peak_week': float,
-            'true_tail_decay': float,
-            'true_beta': float,
-        }
+    Uses utils.adstock.weibull_convolution_toeplitz (production helper) — ensures
+    test и in-model implementation share semantics.
     """
     rng = np.random.default_rng(seed)
     X_media = rng.lognormal(mean=2, sigma=0.5, size=(n_obs, n_channels))
 
-    kernel = weibull_kernel_survival(max_decay, peak_week, tail_decay)
-
-    # Apply convolution per channel
+    # Apply convolution per channel using shared helper
     y = np.zeros(n_obs)
     for ch in range(n_channels):
-        for t in range(n_obs):
-            for tau in range(min(t + 1, max_decay)):
-                y[t] += beta * X_media[t - tau, ch] * kernel[tau]
+        adstocked = weibull_convolution_toeplitz(
+            X_media[:, ch], peak_week=peak_week, tail_decay=tail_decay, max_decay=max_decay,
+        )
+        y += beta * adstocked
     y += rng.normal(0, noise_sigma * np.std(y), size=n_obs)
 
+    kernel = weibull_kernel_survival(max_decay, peak_week, tail_decay)
     return {
         'X_media': X_media,
         'y': y,
@@ -188,6 +149,72 @@ def test_synthetic_data_deterministic_with_seed():
     data2 = generate_synthetic_weibull_data(seed=42)
     np.testing.assert_array_equal(data1['X_media'], data2['X_media'])
     np.testing.assert_array_equal(data1['y'], data2['y'])
+
+
+# ─── utils/adstock.py shared helpers tests (B2.1 math layer) ────────────────
+
+def test_tail_decay_to_k_inverse_relationship():
+    """tail_decay=0.5 → k=3; tail_decay=0.2 → k=6 (faster tail)."""
+    assert tail_decay_to_k(0.5) == 3.0
+    assert tail_decay_to_k(0.2) == 6.0
+
+
+def test_tail_decay_to_k_handles_near_zero():
+    """tail_decay→0 без div-by-zero."""
+    k = tail_decay_to_k(0.01)
+    assert np.isfinite(k)
+    assert k > 0
+
+
+def test_peak_week_to_lambda_inverse_at_known_point():
+    """Verify mode formula round-trips: λ from (peak, k), peak from (λ, k)."""
+    pw_input = 4.0
+    k = 3.0
+    lam = peak_week_to_lambda(pw_input, k)
+    # Mode = λ * ((k-1)/k)^(1/k) → should ≈ pw_input
+    pw_recovered = lam * ((k - 1) / k) ** (1.0 / k)
+    assert np.isclose(pw_recovered, pw_input, atol=1e-6)
+
+
+def test_compute_weibull_peak_matches_input():
+    """compute_weibull_peak возвращает int week of kernel argmax."""
+    for pw in [2, 3, 5, 8]:
+        peak = compute_weibull_peak(peak_week=pw, tail_decay=0.4)
+        assert abs(peak - pw) <= 1, f'peak_week={pw}: computed={peak}'
+
+
+def test_compute_weibull_half_life_increases_with_slower_tail():
+    """Slower tail = longer half-life."""
+    half_fast = compute_weibull_half_life(peak_week=3, tail_decay=0.2)
+    half_slow = compute_weibull_half_life(peak_week=3, tail_decay=0.7)
+    assert half_slow > half_fast
+
+
+def test_weibull_convolution_toeplitz_zero_input_zero_output():
+    """Sanity: zero input → zero output."""
+    out = weibull_convolution_toeplitz(np.zeros(20), peak_week=3, tail_decay=0.5)
+    np.testing.assert_array_equal(out, np.zeros(20))
+
+
+def test_weibull_convolution_toeplitz_impulse_response_matches_kernel():
+    """Impulse input (single 1.0 at t=0) → output ≈ kernel."""
+    x = np.zeros(20)
+    x[0] = 1.0
+    max_decay = 15
+    out = weibull_convolution_toeplitz(x, peak_week=3, tail_decay=0.5, max_decay=max_decay)
+    expected_kernel = weibull_kernel_survival(max_decay, peak_week=3, tail_decay=0.5)
+    # First max_decay timesteps должны match kernel
+    np.testing.assert_allclose(out[:max_decay], expected_kernel, atol=1e-9)
+
+
+def test_weibull_convolution_toeplitz_preserves_total_mass():
+    """Sum of adstocked output ≈ sum of input (since kernel sum=1)."""
+    rng = np.random.default_rng(42)
+    x = rng.lognormal(2, 0.5, size=100)
+    out = weibull_convolution_toeplitz(x, peak_week=3, tail_decay=0.5, max_decay=20)
+    # Sum is approximately preserved (some tail mass cut off из-за boundary effects)
+    # Check within reasonable tolerance — основная mass в первых ~15 weeks для these params
+    assert 0.7 * np.sum(x) < np.sum(out) < 1.05 * np.sum(x)
 
 
 # ─── Recovery tests (require B2 implementation) ─────────────────────────────

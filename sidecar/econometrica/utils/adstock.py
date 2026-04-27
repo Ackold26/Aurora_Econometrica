@@ -1,6 +1,12 @@
 """
 Adstock transformations for Marketing Mix Modeling.
 Geometric (digital channels) and Weibull (TV/offline with delayed peak).
+
+v1.2.0 additions (Phase 1.5 — Weibull learnable):
+- weibull_kernel_survival: discrete kernel via S(t)-S(t+1) (H8 fix)
+- weibull_convolution_toeplitz: numpy reference impl для testing math
+- compute_weibull_peak / compute_weibull_half_life: metric helpers для reporting
+- peak_week_to_lambda / tail_decay_to_k: parameter conversion helpers
 """
 import numpy as np
 
@@ -143,3 +149,121 @@ def adstock_factor_batch(
         # weibull doesn't actually use decay scalar — kept for API symmetry; return 1.0 fallback
         out[i] = 1.0
     return out
+
+
+# ─── v1.2.0: Weibull Learnable Adstock helpers ──────────────────────────────
+
+
+def tail_decay_to_k(tail_decay: float) -> float:
+    """Convert tail_decay (Beta-like 0..1) → k (Weibull shape).
+
+    Higher tail_decay = slower tail = lower k.
+    Lower tail_decay = faster tail = higher k.
+
+    Formula: k = 1 + 1/tail_decay (clamped к avoid div-by-zero).
+    """
+    return 1.0 + 1.0 / max(float(tail_decay), 0.05)
+
+
+def peak_week_to_lambda(peak_week: float, k: float) -> float:
+    """Convert (peak_week, k) → λ (Weibull scale).
+
+    Mode of continuous Weibull = λ × ((k-1)/k)^(1/k) для k > 1.
+    Inverse: λ = peak_week / ((k-1)/k)^(1/k).
+    """
+    if k <= 1:
+        return float(peak_week)  # exponential fallback
+    return float(peak_week) / ((k - 1) / k) ** (1.0 / k)
+
+
+def weibull_kernel_survival(
+    max_decay: int,
+    peak_week: float,
+    tail_decay: float,
+) -> np.ndarray:
+    """Discrete Weibull adstock kernel via survival function differences (H8 fix).
+
+    kernel[t] = S(t) - S(t+1) где S(t) = exp(-(t/λ)^k).
+    Normalized к sum=1 для identifiability (kernel shape vs β scale).
+
+    Args:
+        max_decay: kernel support length (typically min(T//4, 52))
+        peak_week: where Weibull peaks (mode), interpretable parameter
+        tail_decay: tail rate (0..1, Beta-like), interpretable
+
+    Returns:
+        kernel: shape (max_decay,), sums к 1.0
+    """
+    k = tail_decay_to_k(tail_decay)
+    lam = peak_week_to_lambda(peak_week, k)
+
+    tau = np.arange(max_decay + 1, dtype=np.float64)
+    S = np.exp(-(tau / lam) ** k)
+    kernel = S[:-1] - S[1:]
+    kernel_sum = np.sum(kernel)
+    if kernel_sum < 1e-12:
+        # Degenerate case — return uniform fallback
+        return np.full(max_decay, 1.0 / max_decay, dtype=np.float64)
+    return kernel / kernel_sum
+
+
+def weibull_convolution_toeplitz(
+    x: np.ndarray,
+    peak_week: float = 3.0,
+    tail_decay: float = 0.5,
+    max_decay: int = 26,
+) -> np.ndarray:
+    """Numpy reference implementation of Weibull adstock convolution.
+
+    adstock[t] = Σ_τ x[t-τ] × kernel[τ]   для τ ∈ [0, min(t, max_decay))
+
+    Uses Toeplitz-style accumulation. Reference for PyTensor in-model implementation
+    (matches semantics 1:1 для test parity).
+
+    Args:
+        x: media spend time series, shape (T,)
+        peak_week: Weibull mode (interpretable param)
+        tail_decay: tail rate 0..1 (interpretable param)
+        max_decay: kernel support length
+
+    Returns:
+        adstocked: shape (T,)
+    """
+    x = np.asarray(x, dtype=np.float64)
+    T = len(x)
+    kernel = weibull_kernel_survival(max_decay, peak_week, tail_decay)
+
+    # Convolution (causal — only past contributions)
+    adstocked = np.zeros(T)
+    for t in range(T):
+        for tau in range(min(t + 1, max_decay)):
+            adstocked[t] += x[t - tau] * kernel[tau]
+    return adstocked
+
+
+def compute_weibull_peak(peak_week: float, tail_decay: float) -> int:
+    """Return integer week of kernel peak (argmax) для reporting/UI."""
+    kernel = weibull_kernel_survival(max_decay=52, peak_week=peak_week, tail_decay=tail_decay)
+    return int(np.argmax(kernel))
+
+
+def compute_weibull_half_life(peak_week: float, tail_decay: float) -> float:
+    """Half-life: smallest week k где cumulative kernel mass ≥ 0.5.
+
+    Returns:
+        Half-life в weeks (float, may be fractional via interpolation).
+    """
+    kernel = weibull_kernel_survival(max_decay=52, peak_week=peak_week, tail_decay=tail_decay)
+    cum = np.cumsum(kernel)
+    half_idx = np.searchsorted(cum, 0.5, side='left')
+    if half_idx == 0:
+        return 0.5
+    if half_idx >= len(cum):
+        return float(len(cum))
+    # Linear interp between half_idx-1 (cum<0.5) и half_idx (cum≥0.5)
+    prev_cum = cum[half_idx - 1]
+    cur_cum = cum[half_idx]
+    if cur_cum == prev_cum:
+        return float(half_idx)
+    frac = (0.5 - prev_cum) / (cur_cum - prev_cum)
+    return float(half_idx - 1) + frac
