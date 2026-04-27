@@ -34,7 +34,7 @@
     }));
   });
 
-  const unknownCount = $derived(dataStats.filter(r => !r.role || r.role === 'unknown').length);
+  const unknownCount = $derived(dataStats.filter(/** @param {any} r */ r => !r.role || r.role === 'unknown').length);
 
   // Если ни VIF, ни stats не посчитаны (objective ещё выбирается / validate не запускался) —
   // panel пустая обёртка с заголовком "Экспертный режим" сбивает с толку. Скрываем.

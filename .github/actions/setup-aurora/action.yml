@@ -1,0 +1,67 @@
+name: Setup Aurora environment
+description: |
+  Composite action: настраивает Python + pip cache + (optional) Rust toolchain.
+  DRY pattern для CI jobs (Sprint 5 Infrastructure Hardening).
+
+inputs:
+  python-version:
+    description: Python version
+    required: false
+    default: '3.12'
+  install-rust:
+    description: Install Rust toolchain (with clippy)
+    required: false
+    default: 'false'
+  install-python:
+    description: Install Python + pip deps
+    required: false
+    default: 'true'
+  install-test-deps:
+    description: Install pytest + pytest-xdist (без heavy MCMC stack)
+    required: false
+    default: 'true'
+  install-mcmc-deps:
+    description: Install full sidecar requirements (PyMC, NumPyro, JAX) — slow
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      if: inputs.install-python == 'true'
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: 'pip'
+
+    - name: Install pytest deps (lightweight)
+      if: inputs.install-python == 'true' && inputs.install-test-deps == 'true' && inputs.install-mcmc-deps == 'false'
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-xdist
+
+    - name: Install full sidecar deps (PyMC + NumPyro)
+      if: inputs.install-python == 'true' && inputs.install-mcmc-deps == 'true'
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r sidecar/econometrica/requirements.txt pytest pytest-xdist
+
+    - name: Setup Rust toolchain
+      if: inputs.install-rust == 'true'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+
+    - name: Cache cargo
+      if: inputs.install-rust == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: ${{ runner.os }}-cargo-

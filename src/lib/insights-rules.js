@@ -1,5 +1,5 @@
 /**
- * Rule-Based Insights Engine (Tier 1 — offline, always works).
+ * Rule-Based Insights Engine (Tier 1 - offline, always works).
  * Generates contextual recommendations from pipeline data without API calls.
  * Covers ~80% of insight value at 0% cost.
  *
@@ -10,10 +10,10 @@ import { marginalROI, buildScaledParams } from './hill.js';
 /**
  * @typedef {Object} InsightAction
  * @property {'exclude'|'keep_only'|'set_role'|'merge'} type
- * @property {string[]} columns — columns to act on
- * @property {string[]} [exclude] — columns to exclude (for keep_only)
- * @property {string} [label] — button label override
- * @property {string} [mergedName] — name for merged column (type=merge)
+ * @property {string[]} columns - columns to act on
+ * @property {string[]} [exclude] - columns to exclude (for keep_only)
+ * @property {string} [label] - button label override
+ * @property {string} [mergedName] - name for merged column (type=merge)
  */
 
 /**
@@ -22,6 +22,7 @@ import { marginalROI, buildScaledParams } from './hill.js';
  * @property {string} text
  * @property {string} [tip]
  * @property {InsightAction} [action]
+ * @property {InsightAction} [secondaryAction] - дополнительная alternative action (paired metrics)
  */
 
 // ── Import Step ─────────────────────────────────────────
@@ -239,6 +240,7 @@ export function validateInsights(result, objective = 'roi') {
 
     if (!channelGroups.has(prefix)) channelGroups.set(prefix, { volume: [], cost: [] });
     const g = channelGroups.get(prefix);
+    if (!g) continue;  // unreachable due к has() above, но TS narrowing requires explicit guard
     if (type === 'volume') g.volume.push(c);
     else g.cost.push(c);
   }
@@ -395,7 +397,7 @@ export function validateInsights(result, objective = 'roi') {
     ];
     let nameSuffix = '';
     for (const m of MONEY_MARKERS) {
-      if (weakNames.every(n => m.re.test(String(n)))) {
+      if (weakNames.every(/** @param {any} n */ n => m.re.test(String(n)))) {
         nameSuffix = m.suffix;
         break;
       }
@@ -485,10 +487,10 @@ export function validateInsights(result, objective = 'roi') {
  * @returns {Insight[]}
  */
 /**
- * Pre-training insights — shown on Model step BEFORE training is launched.
+ * Pre-training insights - shown on Model step BEFORE training is launched.
  * Uses the validated data context to educate & warn the user.
  *
- * @param {any} validateResult — the validator output stored in validateData.result
+ * @param {any} validateResult - the validator output stored in validateData.result
  * @returns {Insight[]}
  */
 export function modelPreTrainingInsights(validateResult) {
@@ -528,7 +530,7 @@ export function modelPreTrainingInsights(validateResult) {
 
   // ── 4. Ratio-based warning ──
   if (ratio > 0 && ratio < 4) {
-    const severity = /** @type {const} */ (ratio < 2 ? 'error' : 'warning');
+    const severity = /** @type {'error' | 'warning'} */ (ratio < 2 ? 'error' : 'warning');
     out.push({
       severity,
       text: `Ratio ${ratio.toFixed(1)}:1 — ниже идеала 4:1. Модель запустится, но доверительные интервалы будут широкими.`,
@@ -574,6 +576,7 @@ export function modelPreTrainingInsights(validateResult) {
   return out;
 }
 
+/** @param {any} data */
 export function modelInsights(data) {
   /** @type {Insight[]} */
   const out = [];
@@ -743,7 +746,7 @@ export function modelInsights(data) {
 // ── Decompose Step ──────────────────────────────────────
 
 /**
- * @param {{ base_pct: number, channels: Array<{ name: string, contribution_pct: number, spend: number, roi: number }> }} data
+ * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string }> }} data
  * @returns {Insight[]}
  */
 export function decomposeInsights(data) {
@@ -902,20 +905,21 @@ export function decomposeInsights(data) {
 
 /**
  * @typedef {Object} OptimizeContext
- * @property {any} [dec] — decomposeData (для pre-state)
- * @property {any} [mod] — modelData (для pre-state)
- * @property {Record<string, number>} [channelMinPct] — per-channel custom лимиты (если были заданы в expert)
+ * @property {any} [dec] - decomposeData (для pre-state)
+ * @property {any} [mod] - modelData (для pre-state)
+ * @property {Record<string, number>} [channelMinPct] - per-channel custom лимиты (если были заданы в expert)
  * @property {Record<string, number>} [channelMaxPct]
  * @property {number} [globalMinPct]
  * @property {number} [globalMaxPct]
+ * @property {Record<string, number>} [channelBudgets] - per-channel optimal budgets (post-optimize)
  */
 
 /**
  * Реактивные инсайты оптимизации.
- * Без `data` (до запуска) — pre-state на основе decompose: что MMM посчитает, какой потенциал.
- * С `data` — post-state с lift, главные сдвиги, особый случай +0%, влияние custom-лимитов.
+ * Без `data` (до запуска) - pre-state на основе decompose: что MMM посчитает, какой потенциал.
+ * С `data` - post-state с lift, главные сдвиги, особый случай +0%, влияние custom-лимитов.
  *
- * @param {any} data — optimizeData (опционально)
+ * @param {any} data - optimizeData (опционально)
  * @param {OptimizeContext} [ctx]
  * @returns {Insight[]}
  */
@@ -996,8 +1000,8 @@ export function optimizeInsights(data, ctx = {}) {
 
   // ── Базовый ROI и средняя отдача ──
   const decChannels = dec?.channels ?? [];
-  const totalSpendDec = decChannels.reduce((s, /** @type {any} */ c) => s + (c.spend || 0), 0);
-  const totalContribDec = decChannels.reduce((s, /** @type {any} */ c) => s + (c.contribution || 0), 0);
+  const totalSpendDec = decChannels.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.spend || 0), 0);
+  const totalContribDec = decChannels.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.contribution || 0), 0);
   const avgROI = totalSpendDec > 0 ? totalContribDec / totalSpendDec : 0;
 
   // ── 1. Headline lift ──
@@ -1163,9 +1167,9 @@ export function optimizeInsights(data, ctx = {}) {
     }))
     .sort((/** @type {any} */ a, /** @type {any} */ b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct));
 
-  const significantChanges = changes.filter(c => Math.abs(c.deltaPct) > 5);
+  const significantChanges = changes.filter(/** @param {any} c */ c => Math.abs(c.deltaPct) > 5);
   if (significantChanges.length > 0) {
-    const lines = significantChanges.slice(0, 4).map(c => {
+    const lines = significantChanges.slice(0, 4).map(/** @param {any} c */ c => {
       const arrow = c.deltaPct > 0 ? '↑' : '↓';
       const sign = c.deltaPct > 0 ? '+' : '';
       const deltaAbs = Math.abs(c.delta).toLocaleString('ru-RU');
@@ -1248,7 +1252,7 @@ export function optimizeInsights(data, ctx = {}) {
 }
 
 /**
- * Report step insights — structured per-stage summary + recommendations.
+ * Report step insights - structured per-stage summary + recommendations.
  * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь
  * увидел итоговую картину одним взглядом.
  *
@@ -1308,9 +1312,9 @@ export function reportInsights(ctx = {}) {
 
   // ════════════════ ЭТАП 2: Декомпозиция ════════════════
   if (basePct != null || decChannels.length > 0) {
-    const sortedByContrib = [...decChannels].sort((a, b) => (b.contribution_pct || 0) - (a.contribution_pct || 0));
+    const sortedByContrib = [...decChannels].sort(/** @param {any} a @param {any} b */ (a, b) => (b.contribution_pct || 0) - (a.contribution_pct || 0));
     const top = sortedByContrib[0];
-    const suspicious = decChannels.filter(c => /подозрительно/i.test(c.verdict || ''));
+    const suspicious = decChannels.filter(/** @param {any} c */ c => /подозрительно/i.test(c.verdict || ''));
 
     /** @type {'success' | 'warning' | 'info'} */
     let sev = 'info';
@@ -1337,7 +1341,7 @@ export function reportInsights(ctx = {}) {
       reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '—'}% от медиа-вклада, ROI ${top.roi?.toFixed(2) ?? '—'}×).`;
     }
     if (suspicious.length > 0) {
-      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI (${suspicious.map(s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные — только относительно.`;
+      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI (${suspicious.map(/** @param {any} s */ s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные — только относительно.`;
     }
 
     out.push({

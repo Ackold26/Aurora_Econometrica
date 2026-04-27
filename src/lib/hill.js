@@ -2,7 +2,7 @@
  * Client-side Hill function for budget optimizer.
  * A1: gamma MUST be pre-scaled before calling hillFunction:
  *     gammaScaled = Math.max(params.gamma * currentSpend, 1)
- * This matches optimizer.py:58 — `max(p['gamma'] * current_spend[col], 1)`.
+ * This matches optimizer.py:58 - `max(p['gamma'] * current_spend[col], 1)`.
  *
  * @module hill
  */
@@ -30,7 +30,7 @@ export function hillFunction(x, alpha, gamma) {
  */
 /**
  * Marginal ROI = ∂KPI/∂spend в точке x. Denomalization: returned value
- * — в нормализованной KPI-шкале (beta из priors). Чтобы получить в исходных
+ * - в нормализованной KPI-шкале (beta из priors). Чтобы получить в исходных
  * единицах KPI на рубль расхода, умножьте на y_std.
  *
  * @param {number} x
@@ -56,7 +56,7 @@ export function marginalROI(x, alpha, gamma, beta, normalization = null) {
  * Predict total KPI from budget allocation.
  * @param {Record<string, number>} budgets - {channelName: spendValue}
  * @param {Record<string, {alpha: number, gammaScaled: number, beta: number}>} scaledParams
- * @param {{y_mean?: number, y_std?: number} | null} [normalization] — Денормализация
+ * @param {{y_mean?: number, y_std?: number} | null} [normalization] - Денормализация
  *        в исходные единицы KPI (y = y_norm * y_std + y_mean). Без неё возвращается
  *        значение в normalized-шкале (≈0-2), бесполезное для отображения пользователю.
  * @returns {number}

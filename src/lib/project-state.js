@@ -158,7 +158,19 @@ export const pipelineStepMeta = writable(defaultStepMeta());
 
 // --- A4: In-memory data stores — never persisted to localStorage ---
 
-/** @type {import('svelte/store').Writable<{file: string|null, columns: any[]|null, rows: any[]|null}>} */
+/**
+ * Imported file state. Optional fields populated после econ_data_preview:
+ * - shape: {rows, cols} от backend preview response
+ * - fileName: original filename (для UI display)
+ *
+ * @type {import('svelte/store').Writable<{
+ *   file: string|null,
+ *   columns: any[]|null,
+ *   rows: any[]|null,
+ *   shape?: {rows: number, cols: number}|null,
+ *   fileName?: string|null
+ * }>}
+ */
 export const importData = writable({ file: null, columns: null, rows: null });
 
 /** @type {import('svelte/store').Writable<{result: any|null, correlationMatrix: any|null, columnHistograms: any|null}>} */
@@ -210,9 +222,15 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
   if (activeMedia === 0) score = Math.min(score, 20);
   const mqs = Math.max(0, Math.min(100, score));
 
-  /** @param {number} v @param {number} okMin @param {number} warnMin → 'ok'|'warn'|'bad' */
+  /**
+   * @param {number} v @param {number} okMin @param {number} warnMin
+   * @returns {'ok'|'warn'|'bad'}
+   */
   const tierUp = (v, okMin, warnMin) => v >= okMin ? 'ok' : (v >= warnMin ? 'warn' : 'bad');
-  /** @param {number} v @param {number} okMax @param {number} warnMax */
+  /**
+   * @param {number} v @param {number} okMax @param {number} warnMax
+   * @returns {'ok'|'warn'|'bad'}
+   */
   const tierDown = (v, okMax, warnMax) => v <= okMax ? 'ok' : (v <= warnMax ? 'warn' : 'bad');
 
   return {
@@ -484,7 +502,7 @@ export function completeStep(step) {
 /**
  * Mark a step as errored.
  * @param {number} step
- * @param {string} [message]
+ * @param {string|null} [message]
  */
 export function setStepError(step, message) {
   pipelineStepMeta.update(steps => {

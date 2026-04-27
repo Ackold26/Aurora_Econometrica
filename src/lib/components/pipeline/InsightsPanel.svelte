@@ -300,7 +300,7 @@
                   {#if insight.action && !appliedActions.has(i)}
                     <button
                       class="action-btn"
-                      onclick={() => applyAction(insight.action, i)}
+                      onclick={() => insight.action && applyAction(insight.action, i)}
                     >
                       {insight.action.label || 'Применить'}
                     </button>
