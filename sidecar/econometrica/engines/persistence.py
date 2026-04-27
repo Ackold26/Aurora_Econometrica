@@ -12,6 +12,12 @@ Migration ladder:
 - v1.1.1     — Phase 1.1 hierarchical adstock decay (logit-normal, sampled per channel)
 - v1.2       — v1.0.16 baseline (post-audit fixes, three-way alignment)
 - v1.3       — Trust Level 3 (Brand vs Performance Split, channel_categories field)
+- v2.0       — v1.2.0 (Awareness KPI + Weibull learnable). Additive optional fields:
+               * kpi_type, kpi_likelihood, ceiling
+               * awareness_aggregation_mode
+               * channel_adstock_types, weibull_params_per_channel
+               * comparison_baseline_posterior (для ROI shift dual-posterior)
+               * feature_flags_used (telemetry)
 """
 
 from __future__ import annotations
@@ -45,7 +51,66 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     model_data.setdefault('model_version', '1.0')
     model_data.setdefault('channel_categories', {})
 
+    # v2.0 additive fields (default к pre-v2.0 behavior)
+    model_data.setdefault('kpi_type', 'sales')
+    model_data.setdefault('kpi_likelihood', 'normal')
+    model_data.setdefault('awareness_aggregation_mode', None)
+    model_data.setdefault('channel_adstock_types', {})       # default per-channel = 'geometric'
+    model_data.setdefault('weibull_params_per_channel', {})  # learned (peak_week, tail_decay)
+    model_data.setdefault('comparison_baseline_posterior', None)  # для ROI shift toggle
+    model_data.setdefault('feature_flags_used', [])          # telemetry
+
     return model_data
+
+
+def get_kpi_type(model_data: dict[str, Any]) -> str:
+    """Return KPI type из pickle. Default 'sales' для backward compat."""
+    return str(model_data.get('kpi_type') or 'sales')
+
+
+def is_awareness_model(model_data: dict[str, Any]) -> bool:
+    """True если pickle обучен в awareness mode."""
+    return get_kpi_type(model_data) == 'awareness'
+
+
+def get_adstock_type(model_data: dict[str, Any], channel: str) -> str:
+    """Return adstock type для конкретного канала.
+
+    Returns:
+        'geometric' (default) or 'weibull'.
+    """
+    types = model_data.get('channel_adstock_types') or {}
+    return str(types.get(channel) or 'geometric')
+
+
+def get_weibull_params(
+    model_data: dict[str, Any], channel: str
+) -> dict[str, float] | None:
+    """Return learned Weibull params для канала, None если geometric.
+
+    Returns:
+        {'peak_week_median', 'tail_decay_median', 'lam_median', 'k_median'} or None.
+    """
+    if get_adstock_type(model_data, channel) != 'weibull':
+        return None
+    params = model_data.get('weibull_params_per_channel') or {}
+    return params.get(channel)
+
+
+def has_baseline_posterior(model_data: dict[str, Any]) -> bool:
+    """True если pickle содержит cached single-prior baseline для ROI shift comparison."""
+    return model_data.get('comparison_baseline_posterior') is not None
+
+
+def get_baseline_posterior(model_data: dict[str, Any]) -> dict[str, Any] | None:
+    """Return cached baseline posterior summary, или None."""
+    return model_data.get('comparison_baseline_posterior')
+
+
+def get_feature_flags(model_data: dict[str, Any]) -> list[str]:
+    """Return telemetry feature flags used during training."""
+    flags = model_data.get('feature_flags_used') or []
+    return list(flags)
 
 
 def get_channel_categories(

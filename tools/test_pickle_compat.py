@@ -18,7 +18,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'sidecar'))
 
 from econometrica.engines.persistence import (
+    get_adstock_type,
+    get_baseline_posterior,
     get_channel_categories,
+    get_feature_flags,
+    get_kpi_type,
+    get_weibull_params,
+    has_baseline_posterior,
+    is_awareness_model,
     is_hierarchical_model,
     load_model_with_compat,
 )
@@ -149,6 +156,114 @@ def test_is_hierarchical_model_all_mixed():
     assert is_hierarchical_model(model_data) is False
 
 
+# ─── v2.0 Awareness/Weibull additive fields (Phase B0.2) ────────────────────
+
+def test_load_v13_pickle_defaults_to_sales_kpi():
+    """Pre-v2.0 pickle → kpi_type defaults к 'sales'."""
+    p = _write_pickle({'model_version': '1.3', 'channel_categories': {}})
+    try:
+        loaded = load_model_with_compat(p)
+        assert loaded['kpi_type'] == 'sales'
+        assert loaded['kpi_likelihood'] == 'normal'
+    finally:
+        p.unlink()
+
+
+def test_load_v13_pickle_defaults_adstock_types_empty():
+    """Pre-v2.0 → channel_adstock_types empty dict (geometric implied)."""
+    p = _write_pickle({'model_version': '1.3'})
+    try:
+        loaded = load_model_with_compat(p)
+        assert loaded['channel_adstock_types'] == {}
+        assert loaded['weibull_params_per_channel'] == {}
+    finally:
+        p.unlink()
+
+
+def test_load_v20_awareness_pickle_roundtrip():
+    """v2.0 awareness pickle round-trip (write + load + helpers)."""
+    p = _write_pickle({
+        'model_version': '2.0',
+        'channel_categories': {'TV': 'brand', 'Search': 'performance'},
+        'kpi_type': 'awareness',
+        'kpi_likelihood': 'logit_normal',
+        'awareness_aggregation_mode': 'monthly_interpolated',
+    })
+    try:
+        loaded = load_model_with_compat(p)
+        assert get_kpi_type(loaded) == 'awareness'
+        assert is_awareness_model(loaded) is True
+        assert loaded['awareness_aggregation_mode'] == 'monthly_interpolated'
+    finally:
+        p.unlink()
+
+
+def test_get_kpi_type_default_sales():
+    """Empty pickle → defaults к 'sales'."""
+    assert get_kpi_type({}) == 'sales'
+    assert is_awareness_model({}) is False
+
+
+def test_get_adstock_type_default_geometric():
+    """Channel не в dict → defaults к 'geometric'."""
+    assert get_adstock_type({'channel_adstock_types': {}}, 'TV') == 'geometric'
+    assert get_adstock_type({}, 'unknown') == 'geometric'
+
+
+def test_get_adstock_type_explicit_weibull():
+    model_data = {'channel_adstock_types': {'TV': 'weibull', 'Search': 'geometric'}}
+    assert get_adstock_type(model_data, 'TV') == 'weibull'
+    assert get_adstock_type(model_data, 'Search') == 'geometric'
+
+
+def test_get_weibull_params_returns_none_for_geometric():
+    model_data = {
+        'channel_adstock_types': {'Search': 'geometric'},
+        'weibull_params_per_channel': {},
+    }
+    assert get_weibull_params(model_data, 'Search') is None
+
+
+def test_get_weibull_params_returns_dict_for_weibull():
+    model_data = {
+        'channel_adstock_types': {'TV': 'weibull'},
+        'weibull_params_per_channel': {
+            'TV': {'peak_week_median': 3.0, 'tail_decay_median': 0.4, 'lam_median': 4.5, 'k_median': 2.5}
+        },
+    }
+    params = get_weibull_params(model_data, 'TV')
+    assert params is not None
+    assert params['peak_week_median'] == 3.0
+    assert params['k_median'] == 2.5
+
+
+def test_has_baseline_posterior_false_when_none():
+    assert has_baseline_posterior({}) is False
+    assert has_baseline_posterior({'comparison_baseline_posterior': None}) is False
+
+
+def test_has_baseline_posterior_true_when_present():
+    model_data = {'comparison_baseline_posterior': {'TV': {'roi_median': 1.5}}}
+    assert has_baseline_posterior(model_data) is True
+    baseline = get_baseline_posterior(model_data)
+    assert baseline is not None
+    assert baseline['TV']['roi_median'] == 1.5
+
+
+def test_get_feature_flags_default_empty():
+    assert get_feature_flags({}) == []
+
+
+def test_get_feature_flags_returns_list_copy():
+    model_data = {'feature_flags_used': ['awareness_mode', 'weibull_learnable']}
+    flags = get_feature_flags(model_data)
+    assert 'awareness_mode' in flags
+    assert 'weibull_learnable' in flags
+    # Verify это копия (mutation safety)
+    flags.append('XXX')
+    assert 'XXX' not in model_data['feature_flags_used']
+
+
 def main():
     tests = [
         test_load_v12_pickle_no_categories_field,
@@ -161,6 +276,19 @@ def main():
         test_is_hierarchical_model_v12_rejected,
         test_is_hierarchical_model_n1_group_rejected,
         test_is_hierarchical_model_all_mixed,
+        # v2.0 additive
+        test_load_v13_pickle_defaults_to_sales_kpi,
+        test_load_v13_pickle_defaults_adstock_types_empty,
+        test_load_v20_awareness_pickle_roundtrip,
+        test_get_kpi_type_default_sales,
+        test_get_adstock_type_default_geometric,
+        test_get_adstock_type_explicit_weibull,
+        test_get_weibull_params_returns_none_for_geometric,
+        test_get_weibull_params_returns_dict_for_weibull,
+        test_has_baseline_posterior_false_when_none,
+        test_has_baseline_posterior_true_when_present,
+        test_get_feature_flags_default_empty,
+        test_get_feature_flags_returns_list_copy,
     ]
     passed = 0
     failed = []
