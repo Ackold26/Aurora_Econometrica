@@ -25,6 +25,7 @@
   import { setColumnRole, applyMapping, buildProjectUpdates, restoreExcludedColumns, isExcluded } from '$lib/column-roles.js';
   import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
   import UnitCostsPanel from '$lib/components/pipeline/UnitCostsPanel.svelte';
+  import ChannelCategoriesPanel from '$lib/components/pipeline/ChannelCategoriesPanel.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
@@ -391,6 +392,11 @@
       <!-- Trust Level 2: unit_costs для не-денежных каналов -->
       <section class="section-full" data-tour="unit-costs">
         <UnitCostsPanel columns={result.columns ?? []} />
+      </section>
+
+      <!-- Trust Level 3 (v1.1.0): brand vs performance categorization -->
+      <section class="section-full" data-tour="channel-categories">
+        <ChannelCategoriesPanel columns={result.columns ?? []} />
       </section>
 
       <!-- ColumnMapper -->

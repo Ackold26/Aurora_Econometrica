@@ -245,6 +245,24 @@ activeProject.subscribe((p) => {
 });
 
 /**
+ * Trust Level 3 (v1.1.0): brand vs performance channel categorization.
+ * Values: 'brand' / 'performance' / 'mixed'.
+ * Auto-suggested by backend /utils/auto_suggest_categories на mount Validate шага.
+ * Manual override через ChannelCategoriesPanel popup.
+ * Persisted в project.json через project_update.
+ * @type {import('svelte/store').Writable<Record<string, 'brand' | 'performance' | 'mixed'>>}
+ */
+export const channelCategories = writable({});
+
+activeProject.subscribe((p) => {
+  if (p && p.channel_categories && typeof p.channel_categories === 'object') {
+    channelCategories.set(/** @type {Record<string, 'brand' | 'performance' | 'mixed'>} */ (p.channel_categories));
+  } else if (!p) {
+    channelCategories.set({});
+  }
+});
+
+/**
  * Analysis objective — determines which metric to prefer for paired channels.
  *   'roi'           → keep budgets (measure monetary return)
  *   'effectiveness' → keep natural metrics (impressions/clicks/visits)

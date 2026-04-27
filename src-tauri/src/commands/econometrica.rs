@@ -235,6 +235,14 @@ pub async fn econ_data_preview(file_path: String, n_rows: Option<u32>) -> Result
     post_json("/compute/validate/preview", &body, quick_client()).await
 }
 
+// ── Trust Level 3: Channel Categorization (v1.1.0) ─────
+
+#[tauri::command]
+pub async fn econ_categorize_channels(channels: Vec<String>) -> Result<Value, String> {
+    let body = serde_json::json!({ "channels": channels });
+    post_json("/utils/auto_suggest_categories", &body, quick_client()).await
+}
+
 // ── Charts ───────────────────────────────────────────
 
 #[tauri::command]

@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
@@ -283,6 +283,9 @@
         unit_costs: get(unitCosts) || {},
         merge_rules: mergeRules,
         mode: engine,
+        // Trust Level 3 (v1.1.0): brand vs performance categorization.
+        // Backend modeler decides hierarchical vs single-prior на основе ≥2 в группе.
+        channel_categories: get(channelCategories) || {},
       };
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)

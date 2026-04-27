@@ -3219,6 +3219,8 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_export_pptx,
             commands::econometrica::econ_export_html,
             commands::econometrica::econ_adstock_select,
+            // Trust Level 3 (v1.1.0) — channel categorization
+            commands::econometrica::econ_categorize_channels,
             // Sprint 3 Pharma Causal — 6 endpoints pass-through
             commands::econometrica::econ_causal_preflight,
             commands::econometrica::econ_causal_list,

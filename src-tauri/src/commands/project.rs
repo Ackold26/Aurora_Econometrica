@@ -33,6 +33,13 @@ pub struct ProjectInfo {
     /// Backward compat: default empty for projects saved до v1.0.16.
     #[serde(default)]
     pub excluded_columns: Vec<String>,
+    /// Trust Level 3 (v1.1.0): brand vs performance categorization per channel.
+    /// Values: "brand" / "performance" / "mixed".
+    /// Empty / all-mixed → backward compat single-prior path в modeler.
+    /// ≥2 brand or ≥2 performance каналов → hierarchical priors включаются.
+    /// Backward compat: default empty for projects saved до v1.1.0.
+    #[serde(default)]
+    pub channel_categories: HashMap<String, String>,
 }
 
 /// Get the projects root directory.
@@ -159,6 +166,7 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
         data_file: None,
         unit_costs: HashMap::new(),
         excluded_columns: Vec::new(),
+        channel_categories: HashMap::new(),
     };
     write_project(&dir, &info)?;
 
@@ -194,6 +202,10 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     }
     if let Some(media) = updates.get("media_columns").and_then(|v| v.as_array()) {
         info.media_columns = media.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+        // Trust Level 3 (Critical Audit issue J): cleanup orphaned channel_categories
+        // entries when media columns change (rename/delete).
+        let media_set: std::collections::HashSet<&String> = info.media_columns.iter().collect();
+        info.channel_categories.retain(|k, _| media_set.contains(k));
     }
     if let Some(control) = updates.get("control_columns").and_then(|v| v.as_array()) {
         info.control_columns = control.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
@@ -209,6 +221,18 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     // L1 persistence (math-fix v1.4 Section C): explicit excluded_columns set
     if let Some(excluded) = updates.get("excluded_columns").and_then(|v| v.as_array()) {
         info.excluded_columns = excluded.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+    }
+    // Trust Level 3 (v1.1.0): channel_categories persistence.
+    // Validate values на server side — only accept brand/performance/mixed.
+    if let Some(cats) = updates.get("channel_categories").and_then(|v| v.as_object()) {
+        let allowed: std::collections::HashSet<&str> = ["brand", "performance", "mixed"].iter().copied().collect();
+        info.channel_categories = cats.iter()
+            .filter_map(|(k, v)| {
+                v.as_str().and_then(|s| {
+                    if allowed.contains(s) { Some((k.clone(), s.to_string())) } else { None }
+                })
+            })
+            .collect();
     }
 
     info.updated_at = now_iso();
