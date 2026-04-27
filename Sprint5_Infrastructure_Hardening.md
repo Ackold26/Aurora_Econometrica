@@ -21,6 +21,21 @@
 - [x] 2026-04-27 Plan approved with audit (18 issues found)
 - [x] 2026-04-27 Status file created
 - [x] 2026-04-27 Phase 0 baseline: svelte=31 errors, vitest=31/31 PASS, bundle path = `help-econometrica/`
+- [x] 2026-04-27 Phase 1 SHIPPED [commit `09858b4`]:
+  - Track A complete: svelte-check 31 → **0 errors**
+  - NEW pytest.ini + tools/conftest.py (sys.path injection, fixtures)
+  - NEW tools/run_legacy_tests.py (standalone runner для legacy scripts)
+  - NEW .github/actions/setup-aurora composite action
+- [x] 2026-04-27 Phase 2 — CI extension:
+  - Extended .github/workflows/ci.yml: NEW python-tests job (ubuntu-latest), NEW help-sync job
+  - check job: + V40 XSS + DecomposeStep regression guard (defense-in-depth)
+  - release job: needs [check, python-tests, help-sync] — blocks на ANY failure
+- [x] 2026-04-27 Phase 3 — Help sync + multi-client:
+  - NEW tools/sync_help_lists.py — auto-inject BRAND_HINTS/PERF_HINTS/STRONG_PERF_HINTS via markers
+  - methodology.html updated: Trust Level 3 «в разработке» → «v1.1.0 (shipped)» + auto-sync sections
+  - lefthook.yml: NEW sync-help-lists hook (auto-rebuild + git add)
+  - NEW tools/test_integration_kagocel_pathologies.py — 5 integration tests (using kagocel_pathology fixture)
+- [x] 2026-04-27 Verification: vitest 31/31, pytest 53 (parallel), legacy 10/10, all PASS
 
 ---
 
@@ -82,4 +97,5 @@
 
 ## Commits
 
-(empty — about to start)
+- `09858b4` 2026-04-27 — feat(sprint5): Phase 1 foundation — pytest harness + svelte-check 0 errors + composite CI action
+- (next) 2026-04-27 — feat(sprint5): CI Python tests + help sync auto-inject + multi-client integration fixtures

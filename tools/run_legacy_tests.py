@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
             failed.append(fname)
             print(f'  FAIL: {fname} (exit code {result.returncode})')
 
-    print(f'\n──────────────────')
+    print(f'\n' + '-' * 50)
     print(f'Legacy tests: {total - len(failed)}/{total} passed')
     if failed:
         print(f'Failed: {", ".join(failed)}')

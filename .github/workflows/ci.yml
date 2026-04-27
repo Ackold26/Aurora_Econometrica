@@ -47,9 +47,57 @@ jobs:
       - name: Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 
+      # Sprint 5: lefthook hooks defense-in-depth (catches --no-verify bypass)
+      - name: V40 XSS lint
+        run: node tools/lint-xss.mjs
+
+      - name: DecomposeStep regression guard
+        run: |
+          if (Get-Content src/lib/components/pipeline/DecomposeStep.svelte | Select-String -Quiet 'channelParams') {
+            Write-Host "✓ DecomposeStep channelParams guard intact"
+          } else {
+            Write-Error "DecomposeStep channelParams guard missing"
+            exit 1
+          }
+        shell: pwsh
+
+  python-tests:
+    name: Python Tests
+    runs-on: ubuntu-latest  # Python tests don't need Windows MSVC — faster + cheaper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-aurora
+        with:
+          install-test-deps: 'true'
+          install-mcmc-deps: 'false'  # lightweight — no PyMC/JAX install
+
+      - name: Pytest discovery (unit + smoke)
+        run: python -m pytest -n auto --tb=short -m "not requires_real_data and not slow"
+
+      # Note: Heavy MCMC integration tests (require full sidecar deps) — оставляем
+      # local-only через `pip install -r sidecar/econometrica/requirements.txt`.
+      # CI runs только pytest-discoverable tests без MCMC training.
+
+  help-sync:
+    name: Help Docs Sync Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-aurora
+        with:
+          install-test-deps: 'false'  # no pytest needed
+
+      - name: Verify help auto-sections in sync
+        run: |
+          if [ -f tools/sync_help_lists.py ]; then
+            python tools/sync_help_lists.py --check
+          else
+            echo "sync_help_lists.py not yet present — skip"
+          fi
+
   release:
     name: Build Release
-    needs: check
+    needs: [check, python-tests, help-sync]  # Sprint 5: block release на ALL prior jobs green
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     permissions:
