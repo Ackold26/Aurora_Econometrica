@@ -23,6 +23,9 @@ BRAND_HINTS: tuple[str, ...] = (
     'TRP', 'GRP', 'OTS', 'ОХВАТ', 'РЕЙТИНГ',
     'TV', 'ТВ', 'OOH', 'НАРУЖК', 'РАДИО', 'RADIO',
     'БРЕНД', 'BRAND',
+    # OLV (Online Video) — видеореклама работает на awareness (long-decay) подобно ТВ.
+    # Антон 2026-04-27: классифицируем как brand по-умолчанию.
+    'OLV',
 )
 
 PERF_HINTS: tuple[str, ...] = (
