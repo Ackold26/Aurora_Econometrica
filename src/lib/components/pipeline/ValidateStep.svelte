@@ -20,6 +20,7 @@
   import {
     importData, validateData, completeStep, setStepError,
     activeProjectId, expertMode, analysisObjective,
+    syncChannelCategoriesToMedia,
   } from '$lib/project-state.js';
   import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
   import { setColumnRole, applyMapping, buildProjectUpdates, restoreExcludedColumns, isExcluded } from '$lib/column-roles.js';
@@ -199,6 +200,10 @@
     const projectId = get(activeProjectId);
     if (!projectId || !columns) return;
     const updates = buildProjectUpdates(columns);
+    // Trust Level 3 (v1.1.0): cleanup orphaned channel_categories store entries.
+    // Backend project.rs cleanup'ит project.json, но UI store должен sync immediately
+    // чтобы ChannelCategoriesPanel badges не показывали удалённые каналы.
+    syncChannelCategoriesToMedia(updates.media_columns);
     invoke('project_update', { projectId, updates }).catch(() => { /* best-effort */ });
   }
 

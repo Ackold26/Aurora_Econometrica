@@ -280,6 +280,21 @@
       <TrustBanner flags={data.smell_flags} />
     {/if}
 
+    <!-- Trust Level 3 (v1.1.0): identifiability warnings (single-N group demoted) -->
+    {#if data.hierarchical?.categorization_warnings?.length}
+      <div class="categorization-warning-banner">
+        <span class="cat-warn-icon">⚠</span>
+        <div>
+          <p class="cat-warn-title">Категоризация скорректирована при обучении</p>
+          <ul class="cat-warn-list">
+            {#each data.hierarchical.categorization_warnings as w}
+              <li>{w}</li>
+            {/each}
+          </ul>
+        </div>
+      </div>
+    {/if}
+
     <!-- Insight banner -->
     {#if data.insight}
       <div class="insight-banner">
@@ -599,6 +614,21 @@
     background: color-mix(in srgb, var(--text-muted, #64748b) 14%, transparent);
     color: var(--text-muted, #64748b);
   }
+  /* Trust Level 3 (v1.1.0): categorization warning banner */
+  .categorization-warning-banner {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #d97706) 22%, transparent);
+    border-radius: 10px;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 13px;
+  }
+  .cat-warn-icon { color: var(--warning, #d97706); font-size: 18px; flex-shrink: 0; }
+  .cat-warn-title { margin: 0 0 4px 0; font-weight: 600; font-size: 13px; }
+  .cat-warn-list { margin: 0; padding-left: 18px; line-height: 1.5; color: var(--text-secondary, #94a3b8); }
+
   /* Trust Level 3 (v1.1.0): group headers и decay column */
   .group-header td {
     padding: 8px 10px !important;

@@ -108,3 +108,19 @@ gh release create v1.1.0 --title "Aurora Econometrica v1.1.0 — Brand vs Perfor
 - `f45f97b` 2026-04-27 — feat(trust3): hierarchical Bayesian priors brand vs performance + R-hat gate
 - `eb3f4f9` 2026-04-27 — feat(trust3): Validate UI badges + ChannelCategoriesPanel + Tauri schema
 - `e864716` 2026-04-27 — feat(trust3): Decompose grouping + decay column + HTML methodology auto-gen
+- `269a683` 2026-04-27 — docs(trust3): math audit + CHANGELOG v1.1.0 + brand_perf_split tests
+- (next) 2026-04-27 — fix(trust3): post-audit regression fixes + UI synergy
+
+## Post-audit findings (2026-04-27 deep review)
+
+🔴 **CRITICAL fix:** `validate_categorization_for_hierarchical` auto-fill missing с 'mixed' ломал pre-Trust3 backward compat — pickle saved all-mixed → decomposer пропускал heuristic → пре-existing проекты теряли категоризацию в отчётах. **Fix:** validate возвращает только explicit user entries; modeler use new `resolve_per_channel_categories` для in-model vector. Pickle persists empty {} когда user не assigned.
+
+🟠 `categorization_warnings` saved в pickle но не surface к UI. **Fix:** decomposer response теперь включает `hierarchical: {enabled, channel_categories, categorization_warnings, priors_summary}`. DecomposeStep показывает warning banner.
+
+🟠 `channelCategories` store не cleanup orphans на frontend (backend project.rs делал). **Fix:** NEW `syncChannelCategoriesToMedia()` helper в project-state.js. ValidateStep вызывает после persist.
+
+🟡 Triple `import pytensor.tensor as pt` в modeler — duplicate, грязно. **Fix:** Удалены, использован shared import + `_mu_lookup`/`_sigma_lookup` dicts (cleaner code via dict-comp).
+
+🟡 `mu_per_channel`/`sigma_per_channel` строились через append loops. **Fix:** Replaced с list-comprehension + lookup dicts (DRY + faster).
+
+🟡 `mixed_mu_logit` и `mixed_sigma` semantically duplicate single-prior path. Kept (semantic clarity outweighs ~3 extra hyperparam samples).

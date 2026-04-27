@@ -667,6 +667,14 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'baseline': baseline_ts,
             'channels': time_series_channels,
         },
+        # Trust Level 3 (v1.1.0): hierarchical metadata для UI banner.
+        # Empty / use_hierarchical=False для legacy + non-hierarchical models.
+        'hierarchical': {
+            'enabled': bool(model_data.get('use_hierarchical')),
+            'channel_categories': dict(model_data.get('channel_categories') or {}),
+            'categorization_warnings': list(model_data.get('categorization_warnings') or []),
+            'priors_summary': dict(model_data.get('hierarchical_priors') or {}),
+        },
     }
 
     # Save

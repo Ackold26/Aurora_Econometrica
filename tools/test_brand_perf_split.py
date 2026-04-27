@@ -181,6 +181,34 @@ def test_brand_decay_higher_than_perf_priors():
     assert brand_decay > 2 * perf_decay, 'Brand decay должен быть существенно больше performance'
 
 
+def test_audit_fix_empty_raw_no_autofill():
+    """POST-AUDIT REGRESSION TEST (2026-04-27):
+    Empty raw_categories → validate возвращает {} (NOT auto-filled с mixed).
+    Это критично для backward compat: pre-Trust3 проекты должны сохранять empty
+    в pickle → decomposer применяет heuristic fallback → каналы не теряют классификацию.
+    """
+    media = ['TRPs', 'Search', 'Social']
+    validated, warnings = validate_categorization_for_hierarchical({}, media)
+    assert validated == {}, f'Empty raw should produce empty validated, got {validated}'
+    assert warnings == [], f'No warnings should be generated, got {warnings}'
+
+
+def test_audit_fix_partial_user_assignment():
+    """User assigned только часть каналов → validate keeps only those entries.
+
+    Pre-fix: validate filled missing с mixed → все каналы saved в pickle as 'mixed'
+    → decomposer treated пользователские pure mixed как explicit choice, skipping heuristic.
+    Post-fix: missing каналы остаются вне validated dict → decomposer applies heuristic.
+    """
+    raw = {'TRPs': 'brand', 'OOH': 'brand'}
+    media = ['TRPs', 'OOH', 'Search', 'Social']
+    validated, warnings = validate_categorization_for_hierarchical(raw, media)
+    assert validated == {'TRPs': 'brand', 'OOH': 'brand'}, \
+        f'Should preserve user explicit choices only, got {validated}'
+    assert 'Search' not in validated
+    assert 'Social' not in validated
+
+
 def test_methodology_auto_gen_block():
     """HTML methodology block рендерится из diagnostics.hierarchical."""
     from econometrica.aurora_html.sections import _render_brand_perf_split_block
@@ -221,6 +249,8 @@ def main():
         test_pre_v13_no_categories_heuristic_fallback_in_decomposer,
         test_auto_suggest_endpoint_structure,
         test_brand_decay_higher_than_perf_priors,
+        test_audit_fix_empty_raw_no_autofill,
+        test_audit_fix_partial_user_assignment,
         test_methodology_auto_gen_block,
     ]
     passed = 0

@@ -249,7 +249,8 @@ activeProject.subscribe((p) => {
  * Values: 'brand' / 'performance' / 'mixed'.
  * Auto-suggested by backend /utils/auto_suggest_categories на mount Validate шага.
  * Manual override через ChannelCategoriesPanel popup.
- * Persisted в project.json через project_update.
+ * Persisted в project.json через project_update (backend применяет orphan cleanup
+ * при изменении media_columns).
  * @type {import('svelte/store').Writable<Record<string, 'brand' | 'performance' | 'mixed'>>}
  */
 export const channelCategories = writable({});
@@ -261,6 +262,30 @@ activeProject.subscribe((p) => {
     channelCategories.set({});
   }
 });
+
+/**
+ * Reactive cleanup orphaned channel_categories entries при изменении media_columns
+ * на frontend (post-audit fix 2026-04-27): backend project.rs уже cleanup'ит при
+ * project_update, но UI store должен sync immediately для consistent badge display.
+ * @param {string[]} mediaColumns
+ */
+export function syncChannelCategoriesToMedia(mediaColumns) {
+  const current = get(channelCategories);
+  const mediaSet = new Set(mediaColumns);
+  /** @type {Record<string, 'brand' | 'performance' | 'mixed'>} */
+  const cleaned = {};
+  let hadOrphans = false;
+  for (const [ch, cat] of Object.entries(current)) {
+    if (mediaSet.has(ch)) {
+      cleaned[ch] = cat;
+    } else {
+      hadOrphans = true;
+    }
+  }
+  if (hadOrphans) {
+    channelCategories.set(cleaned);
+  }
+}
 
 /**
  * Analysis objective — determines which metric to prefer for paired channels.

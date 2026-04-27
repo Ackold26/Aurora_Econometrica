@@ -125,27 +125,36 @@ def validate_categorization_for_hierarchical(
         - len(perf_idx)  >= 2 OR demoted к mixed
         - Single-channel groups → degenerate posterior, r_hat > 1.1, fail.
 
+    POST-AUDIT FIX (2026-04-27):
+        Эта функция работает ТОЛЬКО с explicit user entries — НЕ заполняет missing
+        каналы с 'mixed' автоматически. Пре-Trust3 проекты сохраняют empty
+        channel_categories в pickle, decomposer применяет heuristic fallback.
+        Иначе была регрессия: empty raw → fill all с mixed → pickle saves all-mixed
+        → decomposer пропускает heuristic → все каналы становятся 'mixed' в отчёте.
+
+        Если caller хочет per-channel category vector для модели, нужно использовать
+        `resolve_per_channel_categories(validated, media_cols, default='mixed')`.
+
     Returns:
         (validated_categories, warnings)
-        validated_categories: copy of categories с auto-demoted single-N groups
+        validated_categories: только explicit entries из categories (orphans removed,
+                              single-N groups demoted к mixed). Может быть {} если
+                              user не assigned.
         warnings: human-readable strings для UI display
     """
-    validated = dict(categories)
     warnings: list[str] = []
 
-    # Fill missing channels с mixed default
-    for ch in media_cols:
-        if ch not in validated:
-            validated[ch] = 'mixed'
-
-    # Remove orphaned categorization entries (channel deleted from media_cols)
-    orphans = [ch for ch in list(validated.keys()) if ch not in media_cols]
-    for ch in orphans:
-        del validated[ch]
+    # Filter to only entries explicitly provided для existing media_cols.
+    # Orphans (channel deleted) silently dropped — UI store sync handle отдельно.
+    media_set = set(media_cols)
+    validated: dict[str, ChannelCategory] = {
+        ch: cat for ch, cat in categories.items() if ch in media_set
+    }
+    orphans = [ch for ch in categories if ch not in media_set]
     if orphans:
         warnings.append(f"Удалены orphaned категории для каналов: {', '.join(orphans)}")
 
-    # Identifiability check
+    # Identifiability check на explicit entries.
     brand_channels = [ch for ch, cat in validated.items() if cat == 'brand']
     perf_channels = [ch for ch, cat in validated.items() if cat == 'performance']
 
@@ -168,6 +177,23 @@ def validate_categorization_for_hierarchical(
         )
 
     return validated, warnings
+
+
+def resolve_per_channel_categories(
+    explicit: dict[str, ChannelCategory],
+    media_cols: list[str],
+    default: ChannelCategory = 'mixed',
+) -> list[ChannelCategory]:
+    """Resolve per-channel category vector для модели (in-order list).
+
+    Caller всегда нужен per-channel vector для PyMC priors construction.
+    Этот helper conscious о default value — не persists в pickle, только
+    used in-model.
+
+    Returns:
+        list of categories aligned с media_cols order. Missing keys get `default`.
+    """
+    return [explicit.get(ch, default) for ch in media_cols]
 
 
 def is_hierarchical_eligible(categories: dict[str, ChannelCategory]) -> bool:

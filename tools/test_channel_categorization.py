@@ -129,11 +129,33 @@ def test_validate_orphans_removed():
     assert any('orphaned' in w.lower() or 'DELETED_CH' in w for w in warnings)
 
 
-def test_validate_missing_filled_with_mixed():
+def test_validate_missing_NOT_auto_filled():
+    """POST-AUDIT FIX (2026-04-27): missing channels НЕ filled с 'mixed' auto.
+
+    Pre-fix: validate auto-filled → pickle saved all-mixed → decomposer пропускал
+    heuristic → pre-Trust3 проекты теряли категоризацию в отчётах.
+    Post-fix: missing entries left absent. Single-N brand demote'ится к mixed.
+    Caller использует resolve_per_channel_categories() для per-channel vector.
+    """
     cats = {'TRPs': 'brand'}
     media = ['TRPs', 'NewChannel']
     validated, warnings = validate_categorization_for_hierarchical(cats, media)
-    assert validated.get('NewChannel') == 'mixed'
+    # NewChannel НЕ в validated (was missing, не explicit user choice).
+    assert 'NewChannel' not in validated
+    # TRPs demoted to mixed (N=1 brand identifiability fallback).
+    assert validated.get('TRPs') == 'mixed'
+
+
+def test_resolve_per_channel_categories_default():
+    """resolve_per_channel_categories fills missing с default."""
+    from econometrica.utils.channel_categorization import resolve_per_channel_categories
+    explicit = {'TRPs': 'brand', 'OOH': 'brand'}
+    media = ['TRPs', 'OOH', 'Search', 'Social']
+    result = resolve_per_channel_categories(explicit, media)
+    assert result == ['brand', 'brand', 'mixed', 'mixed']
+    # Custom default
+    result2 = resolve_per_channel_categories(explicit, media, default='performance')
+    assert result2 == ['brand', 'brand', 'performance', 'performance']
 
 
 def test_is_hierarchical_eligible_yes():
@@ -203,7 +225,8 @@ def main():
         test_validate_identifiability_perf_n1_demoted,
         test_validate_both_groups_ok,
         test_validate_orphans_removed,
-        test_validate_missing_filled_with_mixed,
+        test_validate_missing_NOT_auto_filled,
+        test_resolve_per_channel_categories_default,
         test_is_hierarchical_eligible_yes,
         test_is_hierarchical_eligible_no_groups_too_small,
         test_is_hierarchical_eligible_all_mixed,

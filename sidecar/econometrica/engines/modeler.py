@@ -178,15 +178,23 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # Trust Level 3 (v1.1.0): channel_categories — brand / performance / mixed.
     # Если ≥2 канала в одной из brand/performance групп → hierarchical priors path.
     # Иначе fallback к single-prior path (backward compatible с v1.2 behavior).
+    #
+    # POST-AUDIT FIX: validate возвращает только explicit user entries (без auto-fill)
+    # → pickle persists empty {} если user не assigned → pre-Trust3 проекты сохраняют
+    # backward compat (decomposer применяет heuristic при decompose).
+    # Per-channel vector для модели вычисляется через resolve_per_channel_categories.
     raw_categories = config.get('channel_categories', {}) or {}
     from utils.channel_categorization import (
         validate_categorization_for_hierarchical,
         is_hierarchical_eligible,
+        resolve_per_channel_categories,
     )
     channel_categories, categorization_warnings = validate_categorization_for_hierarchical(
         raw_categories, media_cols
     )
     use_hierarchical = is_hierarchical_eligible(channel_categories)
+    # Per-channel vector только используется in-model — не persists.
+    per_channel_cats = resolve_per_channel_categories(channel_categories, media_cols)
     if categorization_warnings:
         for w in categorization_warnings:
             logger.warning(f'[Trust3 categorization] {w}')
@@ -349,25 +357,19 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 )
             elif use_hierarchical:
                 # Trust Level 3: hierarchical brand vs performance priors.
-                # Group-conditional sigma — brand wider (HalfNormal 0.7) для accommodation
-                # of long-horizon brand effects, performance tighter (HalfNormal 0.3).
+                # Group-conditional sigma — brand wider (HalfNormal 0.7) accommodate
+                # long-horizon brand effects, performance tighter (HalfNormal 0.3).
                 # Non-centered z reparameterization (Critical Audit issue C) avoids funnel.
+                # Math: HalfNormal(σ) = σ · HalfNormal(1) by scale invariance.
+                # Sampling z ~ HalfNormal(1) и computing β = σ_group × z decouples
+                # σ↔β posterior geometry — flat surface, NUTS converges robustly на small N.
                 import pytensor.tensor as pt
                 brand_sigma = pm.HalfNormal('brand_sigma', sigma=0.7)
                 perf_sigma = pm.HalfNormal('perf_sigma', sigma=0.3)
                 mixed_sigma = pm.HalfNormal('mixed_sigma', sigma=0.4)
-                # Per-channel sigma vector — vectorized assignment by category index.
-                sigma_per_channel = []
-                for col in media_cols:
-                    cat = channel_categories.get(col, 'mixed')
-                    if cat == 'brand':
-                        sigma_per_channel.append(brand_sigma)
-                    elif cat == 'performance':
-                        sigma_per_channel.append(perf_sigma)
-                    else:
-                        sigma_per_channel.append(mixed_sigma)
-                sigma_vec = pt.stack(sigma_per_channel)
-                # Non-centered: z ~ HalfNormal(1), beta = sigma × z (preserves positivity).
+                # Map per-channel category → group sigma reference (Python list comprehension).
+                _sigma_lookup = {'brand': brand_sigma, 'performance': perf_sigma, 'mixed': mixed_sigma}
+                sigma_vec = pt.stack([_sigma_lookup[cat] for cat in per_channel_cats])
                 media_betas_z = pm.HalfNormal('media_betas_z', sigma=1.0, shape=len(media_cols))
                 media_betas = pm.Deterministic('media_betas', sigma_vec * media_betas_z)
             else:
@@ -396,36 +398,24 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             import pytensor.tensor as pt
             from pytensor.scan import scan as pt_scan
 
+            adstock_sigma_logit = pm.HalfNormal('adstock_sigma_logit', sigma=1.0)
+            adstock_z = pm.Normal('adstock_z', mu=0.0, sigma=1.0, shape=len(media_cols))
             if use_hierarchical:
                 # Trust Level 3: group-conditional decay mu.
                 # Brand: mu_logit ~ Normal(0.7, 0.3) → sigmoid ≈ 0.67 → ~12 wk effective half-life.
                 # Performance: mu_logit ~ Normal(-1.4, 0.7) → sigmoid ≈ 0.20 → ~1.3 wk half-life.
-                # Mixed: текущий single hyperprior (compat fallback).
+                # Mixed: same prior shape как single-prior path — semantic compat.
                 brand_mu_logit = pm.Normal('brand_mu_logit', mu=0.7, sigma=0.3)
                 perf_mu_logit = pm.Normal('perf_mu_logit', mu=-1.4, sigma=0.7)
                 mixed_mu_logit = pm.Normal('mixed_mu_logit', mu=-1.4, sigma=0.7)
-                adstock_sigma_logit = pm.HalfNormal('adstock_sigma_logit', sigma=1.0)
-                # Per-channel mu vector — assigned by category.
-                import pytensor.tensor as pt_tensor_mu
-                mu_per_channel = []
-                for col in media_cols:
-                    cat = channel_categories.get(col, 'mixed')
-                    if cat == 'brand':
-                        mu_per_channel.append(brand_mu_logit)
-                    elif cat == 'performance':
-                        mu_per_channel.append(perf_mu_logit)
-                    else:
-                        mu_per_channel.append(mixed_mu_logit)
-                mu_vec = pt_tensor_mu.stack(mu_per_channel)
-                adstock_z = pm.Normal('adstock_z', mu=0.0, sigma=1.0, shape=len(media_cols))
+                _mu_lookup = {'brand': brand_mu_logit, 'performance': perf_mu_logit, 'mixed': mixed_mu_logit}
+                mu_vec = pt.stack([_mu_lookup[cat] for cat in per_channel_cats])
                 adstock_decay = pm.Deterministic(
                     'adstock_decay',
                     pm.math.sigmoid(mu_vec + adstock_sigma_logit * adstock_z),
                 )
             else:
                 adstock_mu_logit = pm.Normal('adstock_mu_logit', mu=-1.4, sigma=0.7)
-                adstock_sigma_logit = pm.HalfNormal('adstock_sigma_logit', sigma=1.0)
-                adstock_z = pm.Normal('adstock_z', mu=0.0, sigma=1.0, shape=len(media_cols))
                 adstock_decay = pm.Deterministic(
                     'adstock_decay',
                     pm.math.sigmoid(adstock_mu_logit + adstock_sigma_logit * adstock_z),
@@ -984,7 +974,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'model_version': '1.3' if use_hierarchical else '1.2',
             # Trust Level 3: persist actual categorization (after identifiability validation,
             # may differ from raw user input если N=1 group → demoted к mixed).
-            'channel_categories': dict(channel_categories) if use_hierarchical else dict(channel_categories or {}),
+            # Backward-compat: empty {} означает «user не assigned» → decomposer применяет heuristic.
+            # Filled values represent EXPLICIT user choices (NOT auto-fills) — single source of truth.
+            'channel_categories': dict(channel_categories),
             'categorization_warnings': list(categorization_warnings),
             'use_hierarchical': bool(use_hierarchical),
             # Group-level hyperparameter posterior means (для methodology auto-gen).
