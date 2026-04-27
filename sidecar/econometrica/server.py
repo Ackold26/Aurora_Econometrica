@@ -289,6 +289,11 @@ class TrainRequest(BaseModel):
     # Frontend InsightsPanel создаёт их как metadata. Backend создаёт
     # df[merged_name] = sum(df[sources]) до column guard. См. utils/merge_rules.py.
     merge_rules: dict[str, list[str]] = {}
+    # Trust Level 3 (v1.1.0): brand vs performance split.
+    # {channel_name: 'brand' | 'performance' | 'mixed'}
+    # Empty / all-mixed → backward compat single-prior path. ≥2 brand or ≥2 perf →
+    # hierarchical priors с group-conditional sigma + decay mu.
+    channel_categories: dict[str, str] = {}
 
 
 class TrainStartRequest(BaseModel):
@@ -306,6 +311,8 @@ class TrainStartRequest(BaseModel):
     use_horseshoe: bool = False
     unit_costs: dict[str, float] = {}
     merge_rules: dict[str, list[str]] = {}
+    # Trust Level 3 (v1.1.0): channel_categories propagated в train_model config.
+    channel_categories: dict[str, str] = {}
 
 
 class DecomposeRequest(BaseModel):
@@ -594,6 +601,24 @@ def train_model(req: TrainRequest):
         from engines.modeler import train_model as _train
     result = _train(config, project_dir)
     return JSONResponse(content=result)
+
+
+class CategorizeRequest(BaseModel):
+    """Trust Level 3: batch auto-suggest channel categorization (issue H).
+
+    Frontend Validate шаг calls этот endpoint при mount → instantly заполняет
+    badges 🎯/📊/⚪ + confidence score. Single source of truth — Python heuristic
+    в utils/channel_categorization.py.
+    """
+    channels: list[str]
+
+
+@app.post('/utils/auto_suggest_categories')
+def auto_suggest_categories_endpoint(req: CategorizeRequest):
+    """Returns {channel: {category, confidence, reasoning}} per channel."""
+    from utils.channel_categorization import auto_suggest_categories
+    suggestions = auto_suggest_categories(req.channels)
+    return JSONResponse(content={'status': 'ok', 'suggestions': suggestions})
 
 
 class RecommendRequest(BaseModel):

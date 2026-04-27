@@ -160,8 +160,10 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     if not model_path.exists():
         return {'status': 'error', 'message': 'Модель не найдена. Сначала обучите модель в кабинете "Данные и Модель"'}
 
-    with open(model_path, 'rb') as f:
-        model_data = pickle.load(f)
+    # Trust Level 3: централизованный pickle compat helper.
+    # Auto-injects channel_categories={} для pre-v1.3 pickles.
+    from engines.persistence import load_model_with_compat
+    model_data = load_model_with_compat(model_path)
 
     # P0-1/2/9 fix: pickle compat detection.
     # Sprint 2: '1.0-ols' accepted as small-data fallback path (treats как v1.1
@@ -480,25 +482,41 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
         ch['efficiency_gap'] = round(ch['share_of_effect'] - ch['share_of_spend'], 1)
 
     # Category + unit_smell detection (used by hybrid verdict)
+    # Trust Level 3: prefer explicit channel_categories из pickle (training-time
+    # decision); fallback к heuristic для pre-v1.3 pickles.
+    from engines.persistence import get_channel_categories
+    explicit_categories = get_channel_categories(model_data, fallback_heuristic=False)
+
     UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ', 'ОХВАТ', 'РЕЙТИНГ')
-    BRAND_HINTS = ('TRP', 'GRP', 'OTS', 'ОХВАТ', 'РЕЙТИНГ', 'TV', 'ТВ', 'OOH', 'НАРУЖК', 'РАДИО', 'RADIO', 'БРЕНД', 'BRAND')
-    PERF_HINTS = ('DIGITAL', 'SEARCH', 'ПОИСК', 'CONTEXT', 'КОНТЕКСТ', 'SOCIAL', 'СОЦ', 'CTR', 'CPC', 'CPA', 'PERFORMANCE', 'ПЕРФ', 'ЯНДЕКС', 'GOOGLE', 'VK', 'ВК', 'TELEGRAM', 'ТЕЛЕГРАМ', 'МЕТА', 'META', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ')
+    # Heuristic fallback hints — single source of truth = utils/channel_categorization.py.
+    from utils.channel_categorization import auto_suggest_category
 
     # Optional portfolio quantiles (Phase 1+ groundwork — None until aggregator ships).
     category_quantiles = config.get('category_quantiles') if isinstance(config, dict) else None
     n_channels = len(channels)
 
     for ch in channels:
-        name_upper = (ch['name'] or '').upper()
+        name = ch['name'] or ''
+        name_upper = name.upper()
         looks_like_non_money = any(hint in name_upper for hint in UNIT_HINTS)
-        is_brand = any(hint in name_upper for hint in BRAND_HINTS)
-        is_perf = any(hint in name_upper for hint in PERF_HINTS)
-        if is_brand and not is_perf:
-            ch['category'] = 'brand_reach'
-        elif is_perf and not is_brand:
-            ch['category'] = 'performance'
+        # Trust Level 3 mapping: 'brand' → 'brand_reach' (preserves verdict thresholds API).
+        if name in explicit_categories:
+            cat_v3 = explicit_categories[name]
+            if cat_v3 == 'brand':
+                ch['category'] = 'brand_reach'
+            elif cat_v3 == 'performance':
+                ch['category'] = 'performance'
+            else:
+                ch['category'] = 'mixed'
         else:
-            ch['category'] = 'mixed'
+            # Heuristic fallback for pre-v1.3 pickles (single source = utils/channel_categorization).
+            sug = auto_suggest_category(name)
+            if sug['category'] == 'brand' and sug['confidence'] >= 0.7:
+                ch['category'] = 'brand_reach'
+            elif sug['category'] == 'performance' and sug['confidence'] >= 0.7:
+                ch['category'] = 'performance'
+            else:
+                ch['category'] = 'mixed'
         ch['unit_smell'] = bool(looks_like_non_money and abs(ch['unit_cost'] - 1.0) < 1e-9)
 
         # Hybrid verdict (absolute + relative + posterior CI) — see compute_roi_verdict docstring

@@ -44,8 +44,9 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     if not model_path.exists():
         return {'status': 'error', 'message': 'Модель не найдена'}
 
-    with open(model_path, 'rb') as f:
-        model_data = pickle.load(f)
+    # Trust Level 3: централизованный pickle compat helper.
+    from engines.persistence import load_model_with_compat
+    model_data = load_model_with_compat(model_path)
 
     # P0-1/2/9 fix: pickle compat detection. Old z-score models (no model_version
     # or '1.0') used different normalization → can't be reused with spend/mean engine.

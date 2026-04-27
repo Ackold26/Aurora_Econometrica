@@ -84,8 +84,9 @@ def run_backtest(
             'message': 'Модель не найдена — обучите модель перед backtest',
         }
 
-    with open(model_path, 'rb') as f:
-        model_data = pickle.load(f)
+    # Trust Level 3: централизованный pickle compat helper.
+    from engines.persistence import load_model_with_compat
+    model_data = load_model_with_compat(model_path)
 
     config = model_data['config']
     data_file = config['data_file']

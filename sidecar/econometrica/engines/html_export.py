@@ -56,8 +56,9 @@ def _try_load_pickle_model(decompose_data: dict, explicit_model_data: dict) -> d
         return explicit_model_data
 
     try:
-        with open(pkl_path, 'rb') as f:
-            full = pickle.load(f)
+        # Trust Level 3: централизованный pickle compat helper.
+        from engines.persistence import load_model_with_compat
+        full = load_model_with_compat(pkl_path)
         logger.info(f'html_export: loaded pickle channel_params for what-if slider ({pkl_path})')
         return full
     except Exception as e:
