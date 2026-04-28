@@ -187,13 +187,23 @@ def weibull_kernel_survival(
     Normalized к sum=1 для identifiability (kernel shape vs β scale).
 
     Args:
-        max_decay: kernel support length (typically min(T//4, 52))
-        peak_week: where Weibull peaks (mode), interpretable parameter
-        tail_decay: tail rate (0..1, Beta-like), interpretable
+        max_decay: kernel support length (typically min(T//4, 52)). Must be ≥ 1.
+        peak_week: where Weibull peaks (mode), > 0
+        tail_decay: tail rate (0..1, Beta-like), interpretable, > 0
 
     Returns:
         kernel: shape (max_decay,), sums к 1.0
+
+    Raises:
+        ValueError: если max_decay < 1 OR peak_week ≤ 0 OR tail_decay ≤ 0.
     """
+    if not isinstance(max_decay, (int, np.integer)) or max_decay < 1:
+        raise ValueError(f"max_decay={max_decay} must be positive integer ≥ 1")
+    if peak_week <= 0:
+        raise ValueError(f"peak_week={peak_week} must be > 0")
+    if tail_decay <= 0:
+        raise ValueError(f"tail_decay={tail_decay} must be > 0 (use small ε для very fast tail)")
+
     k = tail_decay_to_k(tail_decay)
     lam = peak_week_to_lambda(peak_week, k)
 
@@ -250,15 +260,23 @@ def compute_weibull_peak(peak_week: float, tail_decay: float) -> int:
 def compute_weibull_half_life(peak_week: float, tail_decay: float) -> float:
     """Half-life: smallest week k где cumulative kernel mass ≥ 0.5.
 
+    Audit fix: boundary checks ПЕРЕД interpolation (avoid cum[-1] wrap-around
+    при degenerate kernel где first element ≥ 0.5).
+
     Returns:
         Half-life в weeks (float, may be fractional via interpolation).
     """
     kernel = weibull_kernel_survival(max_decay=52, peak_week=peak_week, tail_decay=tail_decay)
     cum = np.cumsum(kernel)
-    half_idx = np.searchsorted(cum, 0.5, side='left')
+    if len(cum) == 0:
+        return 0.0
+    half_idx = int(np.searchsorted(cum, 0.5, side='left'))
+    # Boundary checks FIRST (avoid wrap-around в cum[-1] для degenerate cases)
     if half_idx == 0:
+        # First element already ≥ 0.5 (heavy front-load) → half-life ≈ 0.5 week
         return 0.5
     if half_idx >= len(cum):
+        # Cumulative mass never reaches 0.5 (degenerate) → half-life = full support
         return float(len(cum))
     # Linear interp between half_idx-1 (cum<0.5) и half_idx (cum≥0.5)
     prev_cum = cum[half_idx - 1]

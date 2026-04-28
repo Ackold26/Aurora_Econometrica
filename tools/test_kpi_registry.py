@@ -38,11 +38,36 @@ def test_unknown_kpi_type_raises_value_error():
         get_kpi_config('nonexistent_kpi')
 
 
+def test_get_kpi_config_rejects_non_string():
+    """Audit fix: explicit type check vs silent dict.get behavior."""
+    with pytest.raises(ValueError, match='must be string'):
+        get_kpi_config(None)
+    with pytest.raises(ValueError, match='must be string'):
+        get_kpi_config(123)
+
+
 def test_kpi_config_is_frozen_immutable():
-    """frozen=True dataclass должен запрещать mutation."""
+    """frozen=True dataclass должен запрещать mutation. Specific exception."""
+    from dataclasses import FrozenInstanceError
     config = get_kpi_config('sales')
-    with pytest.raises(Exception):  # FrozenInstanceError или similar
+    with pytest.raises(FrozenInstanceError):
         config.ceiling = 999
+
+
+def test_list_kpi_types_returns_immutable_tuple():
+    """Audit fix: returns tuple (was list — caller could mutate registry)."""
+    types = list_kpi_types()
+    assert isinstance(types, tuple)
+    # Tuples don't have append method
+    assert not hasattr(types, 'append')
+
+
+def test_list_kpi_types_sorted_for_stable_ui():
+    """Sorted output → stable UI dropdown ordering across runs."""
+    types1 = list_kpi_types()
+    types2 = list_kpi_types()
+    assert types1 == types2
+    assert list(types1) == sorted(types1)
 
 
 # ─── Sales config — REGRESSION GUARD (Trust 3 frozen values) ────────────────

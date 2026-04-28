@@ -264,6 +264,54 @@ def test_get_feature_flags_returns_list_copy():
     assert 'XXX' not in model_data['feature_flags_used']
 
 
+# ─── Audit fixes (2026-04-28) ────────────────────────────────────────────────
+
+def test_get_weibull_params_warns_on_malformed_pickle():
+    """Audit fix: declared Weibull но params missing → RuntimeWarning."""
+    import warnings
+    model_data = {
+        'channel_adstock_types': {'TV': 'weibull'},
+        'weibull_params_per_channel': {},  # TV missing!
+    }
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter('always')
+        result = get_weibull_params(model_data, 'TV')
+        assert result is None
+        # Should emit RuntimeWarning
+        assert any(issubclass(warning.category, RuntimeWarning) for warning in w)
+        assert any('Weibull' in str(warning.message) for warning in w)
+
+
+def test_is_hierarchical_model_handles_v1_10_correctly():
+    """Audit fix: semantic version compare. '1.10' >= '1.3' (NOT lex order)."""
+    # Future v1.10 pickle (hypothetical) с hierarchical setup
+    model_data = {
+        'model_version': '1.10',
+        'channel_categories': {'TV': 'brand', 'OOH': 'brand', 'Search': 'performance', 'Social': 'performance'},
+    }
+    # Pre-fix: '1.10' < '1.3' lex → False (hierarchical NOT detected) — BUG
+    # Post-fix: (1, 10, 0) >= (1, 3, 0) → True (hierarchical detected correctly)
+    assert is_hierarchical_model(model_data) is True
+
+
+def test_is_hierarchical_model_handles_v2_correctly():
+    """v2.0 pickle с hierarchical categories → detected."""
+    model_data = {
+        'model_version': '2.0',
+        'channel_categories': {'TV': 'brand', 'OOH': 'brand', 'Search': 'performance', 'Social': 'performance'},
+    }
+    assert is_hierarchical_model(model_data) is True
+
+
+def test_is_hierarchical_model_handles_unparseable_version():
+    """Defensive: unknown version string → defaults к (0,0,0) → not hierarchical."""
+    model_data = {
+        'model_version': 'unknown-format',
+        'channel_categories': {'TV': 'brand', 'OOH': 'brand', 'Search': 'performance', 'Social': 'performance'},
+    }
+    assert is_hierarchical_model(model_data) is False  # version too low
+
+
 def main():
     tests = [
         test_load_v12_pickle_no_categories_field,
@@ -289,6 +337,11 @@ def main():
         test_has_baseline_posterior_true_when_present,
         test_get_feature_flags_default_empty,
         test_get_feature_flags_returns_list_copy,
+        # Audit fixes
+        test_get_weibull_params_warns_on_malformed_pickle,
+        test_is_hierarchical_model_handles_v1_10_correctly,
+        test_is_hierarchical_model_handles_v2_correctly,
+        test_is_hierarchical_model_handles_unparseable_version,
     ]
     passed = 0
     failed = []

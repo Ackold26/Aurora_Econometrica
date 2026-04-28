@@ -23,8 +23,29 @@ Migration ladder:
 from __future__ import annotations
 
 import pickle
+import re
 from pathlib import Path
 from typing import Any
+
+# Semantic version comparison helper (avoids stdlib `packaging` dep)
+_VERSION_RE = re.compile(r'(\d+)\.(\d+)(?:\.(\d+))?')
+
+
+def _parse_version(v: str) -> tuple[int, int, int]:
+    """Parse 'X.Y' or 'X.Y.Z' (with optional suffix like '1.0-ols') → (X, Y, Z) tuple.
+
+    Returns (0, 0, 0) для unparseable strings (defensive default — treated as
+    legacy pre-v1.0).
+
+    Why: string `<` comparison broken — '1.10' < '1.3' lexicographically (audit fix).
+    """
+    if not isinstance(v, str):
+        return (0, 0, 0)
+    m = _VERSION_RE.match(v)
+    if not m:
+        return (0, 0, 0)
+    major, minor, patch = m.groups()
+    return (int(major), int(minor), int(patch) if patch else 0)
 
 
 def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
@@ -88,13 +109,28 @@ def get_weibull_params(
 ) -> dict[str, float] | None:
     """Return learned Weibull params для канала, None если geometric.
 
+    Defensive: если adstock_type='weibull' но params missing — log warning
+    + return None (downstream silently falls back к geometric — better than crash,
+    but warning surfaces malformed pickle).
+
     Returns:
         {'peak_week_median', 'tail_decay_median', 'lam_median', 'k_median'} or None.
     """
     if get_adstock_type(model_data, channel) != 'weibull':
         return None
     params = model_data.get('weibull_params_per_channel') or {}
-    return params.get(channel)
+    channel_params = params.get(channel)
+    if channel_params is None:
+        # Malformed pickle: declares Weibull но params missing
+        import warnings
+        warnings.warn(
+            f"Channel '{channel}' marked as Weibull в pickle, но params missing в "
+            f"weibull_params_per_channel. Falling back к geometric. "
+            f"Возможна corrupted pickle или incomplete training.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return channel_params
 
 
 def has_baseline_posterior(model_data: dict[str, Any]) -> bool:
@@ -141,8 +177,13 @@ def get_channel_categories(
 
 
 def is_hierarchical_model(model_data: dict[str, Any]) -> bool:
-    """True если pickle обучен hierarchical (v1.3+ с непустыми categories)."""
-    if str(model_data.get('model_version', '')) < '1.3':
+    """True если pickle обучен hierarchical (v1.3+ с непустыми categories).
+
+    Audit fix (2026-04-28): semantic version compare — string `<` ломалось на '1.10'
+    vs '1.3' (lex order: '1.10' < '1.3' = True, semantically False).
+    """
+    version = _parse_version(str(model_data.get('model_version') or ''))
+    if version < (1, 3):
         return False
     cats = model_data.get('channel_categories') or {}
     if not cats:

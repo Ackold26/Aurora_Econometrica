@@ -209,6 +209,82 @@ def test_realistic_brand_lock_perf_flexible_scenario():
 
 def test_constraint_bundle_is_frozen():
     """Bundle immutable (defensive use)."""
+    from dataclasses import FrozenInstanceError
     bundle = ConstraintBundle(global_min_pct=0.5, global_max_pct=1.5)
-    with pytest.raises(Exception):  # FrozenInstanceError
+    with pytest.raises(FrozenInstanceError):
         bundle.global_min_pct = 0.9
+
+
+# ─── Audit fixes (2026-04-28) — input validation ────────────────────────────
+
+def test_constraint_bundle_rejects_nan_pct():
+    """Audit fix: NaN values raise ValueError, не silently propagate."""
+    with pytest.raises(ValueError, match='must be finite'):
+        ConstraintBundle(global_min_pct=float('nan'), global_max_pct=1.5)
+
+
+def test_constraint_bundle_rejects_inf_pct():
+    """Audit fix: Inf values raise ValueError."""
+    with pytest.raises(ValueError, match='must be finite'):
+        ConstraintBundle(global_min_pct=0.5, global_max_pct=float('inf'))
+
+
+def test_constraint_bundle_rejects_negative_pct():
+    """Audit fix: negative pct values invalid."""
+    with pytest.raises(ValueError, match='must be non-negative'):
+        ConstraintBundle(global_min_pct=-0.1, global_max_pct=1.5)
+
+
+def test_constraint_bundle_rejects_min_gt_max():
+    """global_min > global_max → incoherent."""
+    with pytest.raises(ValueError, match='incoherent'):
+        ConstraintBundle(global_min_pct=2.0, global_max_pct=1.0)
+
+
+def test_constraint_bundle_rejects_invalid_per_channel_pct():
+    """Per-channel dict values validated."""
+    with pytest.raises(ValueError, match='must be finite non-negative'):
+        ConstraintBundle(
+            global_min_pct=0.5, global_max_pct=1.5,
+            channel_min_pct={'TV': float('inf')},
+        )
+
+
+def test_constraint_bundle_per_channel_dict_immutable_after_init():
+    """Audit fix: dict mutation post-init blocked (MappingProxyType)."""
+    bundle = ConstraintBundle(
+        global_min_pct=0.5, global_max_pct=1.5,
+        channel_min_pct={'TV': 0.8},
+    )
+    with pytest.raises(TypeError):
+        bundle.channel_min_pct['TV'] = 0.99
+    with pytest.raises(TypeError):
+        bundle.channel_min_pct['NEW'] = 0.5
+
+
+def test_resolve_channel_bounds_rejects_negative_money():
+    """Audit fix: negative current_money corrupted data — fail loudly."""
+    bundle = ConstraintBundle(global_min_pct=0.5, global_max_pct=1.5)
+    with pytest.raises(ValueError, match='non-negative'):
+        resolve_channel_bounds('TV', current_money=-1000, channel_categories={'TV': 'brand'}, bundle=bundle)
+
+
+def test_resolve_channel_bounds_rejects_nan_money():
+    """Audit fix: NaN current_money invalid."""
+    bundle = ConstraintBundle(global_min_pct=0.5, global_max_pct=1.5)
+    with pytest.raises(ValueError, match='must be finite'):
+        resolve_channel_bounds('TV', current_money=float('nan'), channel_categories={}, bundle=bundle)
+
+
+def test_feasibility_budget_at_total_min_boundary():
+    """Audit fix: budget == sum(min) — boundary OK (within tolerance)."""
+    bundle = ConstraintBundle(global_min_pct=1.0, global_max_pct=2.0)
+    money = {'TV': 500, 'OOH': 500}  # sum_min = 1000
+    validate_feasibility(money, {}, bundle, budget=1000.0)  # no error
+
+
+def test_feasibility_budget_at_total_max_boundary():
+    """Audit fix: budget == sum(max) — boundary OK."""
+    bundle = ConstraintBundle(global_min_pct=0.5, global_max_pct=2.0)
+    money = {'TV': 500, 'OOH': 500}  # sum_max = 2000
+    validate_feasibility(money, {}, bundle, budget=2000.0)  # no error

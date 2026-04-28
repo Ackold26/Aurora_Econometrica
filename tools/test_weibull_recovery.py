@@ -217,6 +217,66 @@ def test_weibull_convolution_toeplitz_preserves_total_mass():
     assert 0.7 * np.sum(x) < np.sum(out) < 1.05 * np.sum(x)
 
 
+# ─── Audit fixes (2026-04-28) — edge cases + input validation ────────────────
+
+def test_weibull_kernel_rejects_zero_max_decay():
+    """Audit fix: max_decay < 1 invalid."""
+    with pytest.raises(ValueError, match='max_decay'):
+        weibull_kernel_survival(max_decay=0, peak_week=3, tail_decay=0.5)
+
+
+def test_weibull_kernel_rejects_negative_max_decay():
+    with pytest.raises(ValueError, match='max_decay'):
+        weibull_kernel_survival(max_decay=-5, peak_week=3, tail_decay=0.5)
+
+
+def test_weibull_kernel_rejects_zero_peak_week():
+    """Audit fix: peak_week ≤ 0 invalid."""
+    with pytest.raises(ValueError, match='peak_week'):
+        weibull_kernel_survival(max_decay=20, peak_week=0, tail_decay=0.5)
+
+
+def test_weibull_kernel_rejects_negative_peak_week():
+    with pytest.raises(ValueError, match='peak_week'):
+        weibull_kernel_survival(max_decay=20, peak_week=-3, tail_decay=0.5)
+
+
+def test_weibull_kernel_rejects_zero_tail_decay():
+    """Audit fix: tail_decay ≤ 0 invalid (use small ε для very fast tail)."""
+    with pytest.raises(ValueError, match='tail_decay'):
+        weibull_kernel_survival(max_decay=20, peak_week=3, tail_decay=0)
+
+
+def test_weibull_kernel_max_decay_one_returns_single_element():
+    """Edge case: max_decay=1 — kernel is single element [1.0]."""
+    kernel = weibull_kernel_survival(max_decay=1, peak_week=3, tail_decay=0.5)
+    assert len(kernel) == 1
+    assert np.isclose(kernel[0], 1.0)
+
+
+def test_compute_weibull_half_life_extreme_params():
+    """Edge cases: very fast tail, very slow tail."""
+    # Very fast tail
+    fast = compute_weibull_half_life(peak_week=2, tail_decay=0.1)
+    # Very slow tail
+    slow = compute_weibull_half_life(peak_week=2, tail_decay=0.95)
+    assert slow > fast
+    assert np.isfinite(fast) and np.isfinite(slow)
+
+
+def test_compute_weibull_half_life_returns_finite_for_extreme_peak():
+    """Edge case: peak_week very small → don't crash."""
+    half = compute_weibull_half_life(peak_week=0.5, tail_decay=0.5)
+    assert np.isfinite(half) and half >= 0
+
+
+def test_tail_decay_to_k_extreme_low_value():
+    """Audit fix: very small tail_decay clamped к ε (no div-by-zero)."""
+    k = tail_decay_to_k(0.001)  # below 0.05 floor
+    assert np.isfinite(k)
+    assert k > 0
+
+
 # ─── Recovery tests (require B2 implementation) ─────────────────────────────
 
 @pytest.mark.skip(reason='Requires B2 — learnable Weibull в modeler.py. Un-skip after B2 ship.')

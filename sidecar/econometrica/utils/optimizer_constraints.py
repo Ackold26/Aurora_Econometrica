@@ -17,8 +17,21 @@ References:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Optional
+import math
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Dict, Mapping, Optional
+
+
+def _freeze_dict(d: Optional[Dict[str, float]]) -> Optional[Mapping[str, float]]:
+    """Convert dict → MappingProxyType (read-only view) для defensive immutability.
+
+    Audit fix: frozen=True dataclass предотвращает field reassignment, но
+    `bundle.channel_min_pct['TV'] = 0.9` всё равно мутировал shared state.
+    """
+    if d is None:
+        return None
+    return MappingProxyType(dict(d))
 
 
 @dataclass(frozen=True)
@@ -26,6 +39,10 @@ class ConstraintBundle:
     """All constraint sliders applicable к single optimization run.
 
     All `_pct` values fractional (0.5 = 50%, 1.5 = 150%). None = not set.
+
+    Audit fixes (2026-04-28):
+    - per-channel dicts wrapped в MappingProxyType (immutable view)
+    - __post_init__ validates все pct values finite + non-negative
     """
     # Global (always required)
     global_min_pct: float
@@ -37,9 +54,53 @@ class ConstraintBundle:
     perf_min_pct: Optional[float] = None
     perf_max_pct: Optional[float] = None
 
-    # Per-channel (optional — expert mode override)
-    channel_min_pct: Optional[Dict[str, float]] = None
-    channel_max_pct: Optional[Dict[str, float]] = None
+    # Per-channel (optional — expert mode override).
+    # Note: ConstraintBundle freezes contents через __post_init__ → callers
+    # cannot mutate dicts post-hoc.
+    channel_min_pct: Optional[Mapping[str, float]] = None
+    channel_max_pct: Optional[Mapping[str, float]] = None
+
+    def __post_init__(self):
+        # Validate finite + non-negative для всех scalar pct values
+        scalars = {
+            'global_min_pct': self.global_min_pct,
+            'global_max_pct': self.global_max_pct,
+            'brand_min_pct': self.brand_min_pct,
+            'brand_max_pct': self.brand_max_pct,
+            'perf_min_pct': self.perf_min_pct,
+            'perf_max_pct': self.perf_max_pct,
+        }
+        for name, val in scalars.items():
+            if val is None:
+                continue
+            if not isinstance(val, (int, float)):
+                raise ValueError(f"{name}={val!r} must be numeric (int|float|None)")
+            if not math.isfinite(val):
+                raise ValueError(f"{name}={val} must be finite (no NaN/Inf)")
+            if val < 0:
+                raise ValueError(f"{name}={val} must be non-negative (got {val})")
+
+        # Validate global_min ≤ global_max
+        if self.global_min_pct > self.global_max_pct:
+            raise ValueError(
+                f"global_min_pct ({self.global_min_pct}) > global_max_pct "
+                f"({self.global_max_pct}) — incoherent"
+            )
+
+        # Per-channel dict elements: validate finite/non-negative + freeze view
+        for dict_name, d in [('channel_min_pct', self.channel_min_pct),
+                              ('channel_max_pct', self.channel_max_pct)]:
+            if d is None:
+                continue
+            for ch, val in d.items():
+                if not isinstance(val, (int, float)) or not math.isfinite(val) or val < 0:
+                    raise ValueError(
+                        f"{dict_name}[{ch!r}]={val!r} must be finite non-negative number"
+                    )
+
+        # Freeze per-channel dicts (defensive immutability)
+        object.__setattr__(self, 'channel_min_pct', _freeze_dict(self.channel_min_pct))
+        object.__setattr__(self, 'channel_max_pct', _freeze_dict(self.channel_max_pct))
 
 
 class FeasibilityError(ValueError):
@@ -63,13 +124,23 @@ def resolve_channel_bounds(
 
     Args:
         col: channel name
-        current_money: current spend в money axis
+        current_money: current spend в money axis (must be ≥ 0 finite)
         channel_categories: {channel: 'brand'|'performance'|'mixed'}, missing key OK
         bundle: ConstraintBundle с all sliders
 
     Returns:
         (min_money, max_money): bounds for SLSQP optimization.
+
+    Raises:
+        ValueError: если current_money negative or non-finite (audit fix).
     """
+    if not isinstance(current_money, (int, float)) or not math.isfinite(current_money):
+        raise ValueError(f"current_money={current_money!r} must be finite numeric")
+    if current_money < 0:
+        raise ValueError(
+            f"current_money={current_money} must be non-negative (channel='{col}'). "
+            f"Negative spend = corrupted data. Возможно неверный unit_cost."
+        )
     # Resolve min_pct
     if bundle.channel_min_pct and col in bundle.channel_min_pct:
         min_pct = bundle.channel_min_pct[col]  # per-channel override

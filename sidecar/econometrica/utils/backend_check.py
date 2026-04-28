@@ -62,9 +62,10 @@ def enforce_jax_for_weibull(channel_adstock_types: Dict[str, str]) -> None:
     if not is_jax_available():
         raise BackendUnavailableError(
             f"Weibull learnable adstock requires JAX/NumPyro backend, "
-            f"но они недоступны. Channels с Weibull: {weibull_channels}. "
-            f"Решения: (1) install: `pip install jax numpyro`, "
-            f"(2) переключить эти каналы на 'geometric' в Validate UI."
+            f"но они недоступны. Channels с Weibull: {sorted(weibull_channels)}. "
+            f"Решения:\n"
+            f"  (1) install: pip install jax numpyro\n"
+            f"  (2) переключить эти каналы на 'geometric' в Validate UI"
         )
 
 

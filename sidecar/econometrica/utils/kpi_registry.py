@@ -118,20 +118,56 @@ def get_kpi_config(kpi_type: str) -> KPIConfig:
     """Lookup KPI config с explicit error если unknown.
 
     Args:
-        kpi_type: KPI name (e.g. 'sales', 'awareness').
+        kpi_type: KPI name (e.g. 'sales', 'awareness'). Must be non-None string.
 
     Returns:
-        Frozen KPIConfig instance.
+        Frozen KPIConfig instance (safe — frozen dataclass + validated values).
 
     Raises:
-        ValueError: если kpi_type не в KPI_REGISTRY.
+        ValueError: если kpi_type не в KPI_REGISTRY OR not str OR None.
     """
+    if not isinstance(kpi_type, str):
+        raise ValueError(
+            f"kpi_type must be string (got {type(kpi_type).__name__}={kpi_type!r})"
+        )
     if kpi_type not in KPI_REGISTRY:
-        valid = list(KPI_REGISTRY.keys())
+        valid = sorted(KPI_REGISTRY.keys())
         raise ValueError(f"Unknown kpi_type='{kpi_type}'. Valid: {valid}")
     return KPI_REGISTRY[kpi_type]
 
 
-def list_kpi_types() -> list[str]:
-    """Return list of registered KPI types (для UI dropdowns + Pydantic validation)."""
-    return list(KPI_REGISTRY.keys())
+def list_kpi_types() -> tuple[str, ...]:
+    """Return tuple of registered KPI types (UI dropdowns + Pydantic validation).
+
+    Audit fix: returns immutable tuple (was list) — caller cannot mutate registry
+    via returned collection.
+    """
+    return tuple(sorted(KPI_REGISTRY.keys()))
+
+
+# ─── Validation на module import (fail-fast vs runtime surprise) ─────────────
+def _validate_registry() -> None:
+    """Module-load-time sanity check для KPI_REGISTRY entries."""
+    for name, config in KPI_REGISTRY.items():
+        if config.likelihood == 'logit_normal' or config.likelihood == 'beta':
+            if config.ceiling is None or config.ceiling <= 0.1:
+                raise ValueError(
+                    f"KPI_REGISTRY['{name}']: bounded likelihood ({config.likelihood}) "
+                    f"requires ceiling > 0.1 (got {config.ceiling}). "
+                    f"Logit-Normal clipping breaks для small ceiling."
+                )
+        if config.brand_beta_sigma <= 0 or config.perf_beta_sigma <= 0 or config.mixed_beta_sigma <= 0:
+            raise ValueError(
+                f"KPI_REGISTRY['{name}']: beta sigmas must be positive"
+            )
+        if config.gammas_alpha <= 0 or config.gammas_beta <= 0:
+            raise ValueError(
+                f"KPI_REGISTRY['{name}']: Beta(α, β) для gammas requires α>0, β>0"
+            )
+        if config.obs_sigma_prior <= 0:
+            raise ValueError(
+                f"KPI_REGISTRY['{name}']: obs_sigma_prior must be positive"
+            )
+
+
+_validate_registry()
