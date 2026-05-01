@@ -175,6 +175,22 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     adstock_config = config.get('adstock_config', {})
     merge_rules = config.get('merge_rules', {}) or {}
 
+    # ─── KPI registry activation (v2.0 foundation, D.1) ─────────────────
+    # Single source of truth для priors (sales / awareness / future KPIs).
+    # Sales mode uses Trust 3 FROZEN values — no behavior change vs v1.0.16.
+    # `kpi_type` persists в config (saved into pickle) + top-level field
+    # for fast access by downstream consumers (decomposer/optimizer/scenario).
+    from utils.kpi_registry import get_kpi_config
+    kpi_type = config.get('kpi_type', 'sales')
+    config['kpi_type'] = kpi_type  # normalize default into config dict before pickle save
+    kpi_config = get_kpi_config(kpi_type)  # raises ValueError on unknown KPI
+
+    # ─── JAX backend enforcement (v2.0 foundation, D.2) ─────────────────
+    # Weibull learnable adstock requires JAX/NumPyro (Toeplitz pt.scan на CPU = unbearable).
+    # Sales mode без Weibull = no-op (all 'geometric' default).
+    from utils.backend_check import enforce_jax_for_weibull
+    enforce_jax_for_weibull(adstock_config)  # raises BackendUnavailableError если Weibull без JAX
+
     # Trust Level 3 (v1.1.0): channel_categories — brand / performance / mixed.
     # Если ≥2 канала в одной из brand/performance групп → hierarchical priors path.
     # Иначе fallback к single-prior path (backward compatible с v1.2 behavior).
@@ -364,9 +380,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # Sampling z ~ HalfNormal(1) и computing β = σ_group × z decouples
                 # σ↔β posterior geometry — flat surface, NUTS converges robustly на small N.
                 import pytensor.tensor as pt
-                brand_sigma = pm.HalfNormal('brand_sigma', sigma=0.7)
-                perf_sigma = pm.HalfNormal('perf_sigma', sigma=0.3)
-                mixed_sigma = pm.HalfNormal('mixed_sigma', sigma=0.4)
+                brand_sigma = pm.HalfNormal('brand_sigma', sigma=kpi_config.brand_beta_sigma)
+                perf_sigma = pm.HalfNormal('perf_sigma', sigma=kpi_config.perf_beta_sigma)
+                mixed_sigma = pm.HalfNormal('mixed_sigma', sigma=kpi_config.mixed_beta_sigma)
                 # Map per-channel category → group sigma reference (Python list comprehension).
                 _sigma_lookup = {'brand': brand_sigma, 'performance': perf_sigma, 'mixed': mixed_sigma}
                 sigma_vec = pt.stack([_sigma_lookup[cat] for cat in per_channel_cats])
@@ -386,7 +402,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # alpha ≈ 1-2 (типичный saturation shape), Gamma(5, 3) имеет mean=1.67, var=0.56
             alphas = pm.Gamma('alphas', alpha=5, beta=3, shape=len(media_cols))  # было Gamma(3, 1) mean=3
             # gamma — half-point of saturation, концентрируемся около 0.5
-            gammas = pm.Beta('gammas', alpha=3, beta=3, shape=len(media_cols))  # было Beta(2, 2) too wide
+            gammas = pm.Beta('gammas', alpha=kpi_config.gammas_alpha, beta=kpi_config.gammas_beta, shape=len(media_cols))  # KPI registry — sales=Beta(3,3) FROZEN
 
             # ─────────────────────────────────────────────────────────────────
             # Phase 1.1 — hierarchical adstock decay (logit-normal parameterization)
@@ -405,9 +421,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # Brand: mu_logit ~ Normal(0.7, 0.3) → sigmoid ≈ 0.67 → ~12 wk effective half-life.
                 # Performance: mu_logit ~ Normal(-1.4, 0.7) → sigmoid ≈ 0.20 → ~1.3 wk half-life.
                 # Mixed: same prior shape как single-prior path — semantic compat.
-                brand_mu_logit = pm.Normal('brand_mu_logit', mu=0.7, sigma=0.3)
-                perf_mu_logit = pm.Normal('perf_mu_logit', mu=-1.4, sigma=0.7)
-                mixed_mu_logit = pm.Normal('mixed_mu_logit', mu=-1.4, sigma=0.7)
+                _b_mu, _b_sg = kpi_config.brand_mu_logit_prior
+                _p_mu, _p_sg = kpi_config.perf_mu_logit_prior
+                _m_mu, _m_sg = kpi_config.mixed_mu_logit_prior
+                brand_mu_logit = pm.Normal('brand_mu_logit', mu=_b_mu, sigma=_b_sg)
+                perf_mu_logit = pm.Normal('perf_mu_logit', mu=_p_mu, sigma=_p_sg)
+                mixed_mu_logit = pm.Normal('mixed_mu_logit', mu=_m_mu, sigma=_m_sg)
                 _mu_lookup = {'brand': brand_mu_logit, 'performance': perf_mu_logit, 'mixed': mixed_mu_logit}
                 mu_vec = pt.stack([_mu_lookup[cat] for cat in per_channel_cats])
                 adstock_decay = pm.Deterministic(
@@ -415,7 +434,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     pm.math.sigmoid(mu_vec + adstock_sigma_logit * adstock_z),
                 )
             else:
-                adstock_mu_logit = pm.Normal('adstock_mu_logit', mu=-1.4, sigma=0.7)
+                # Single-prior path — fallback к performance-style decay (соответствует kpi_config.perf_mu_logit_prior).
+                _sp_mu, _sp_sg = kpi_config.perf_mu_logit_prior
+                adstock_mu_logit = pm.Normal('adstock_mu_logit', mu=_sp_mu, sigma=_sp_sg)
                 adstock_decay = pm.Deterministic(
                     'adstock_decay',
                     pm.math.sigmoid(adstock_mu_logit + adstock_sigma_logit * adstock_z),
@@ -466,7 +487,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
             # Likelihood
             mu = intercept + media_effect + control_effect
-            sigma = pm.HalfNormal('sigma', sigma=0.3)  # было 0.5 — y_norm std=1, так что 0.3 ок
+            sigma = pm.HalfNormal('sigma', sigma=kpi_config.obs_sigma_prior)  # KPI registry — sales=0.3 FROZEN
             pm.Normal('obs', mu=mu, sigma=sigma, observed=y_norm)
 
             # A1: report sampling start — pct stays at 25 during 3-15 min MCMC
@@ -989,6 +1010,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # MMM model lifecycle independent от causal artifact (refresh causal experiment
             # не invalidates MMM training), but UI knows where to look для combined view.
             'causal_artifact_path': None,
+            # ─── v2.0 foundation top-level fields (D.1 KPI activation) ──────
+            # Sales mode → identical pickle structurally (model_version stays 1.2/1.3),
+            # но top-level kpi_type/kpi_likelihood explicitly persisted для downstream
+            # persistence.get_kpi_type() / is_awareness_model() без digging в config.
+            # Pre-v2.0 readers ignore via .get() (backward-compat preserved).
+            'kpi_type': kpi_type,
+            'kpi_likelihood': kpi_config.likelihood,
+            'channel_adstock_types': dict(adstock_config),
         }
 
         model_path = models_dir / 'latest.pkl'
