@@ -144,12 +144,42 @@
     return current !== lastOptimizeSettings;
   });
 
-  // F.3 — per-group sliders show только если модель hierarchical:
-  // ≥2 канала помечены как brand ИЛИ ≥2 как performance в channelCategories store.
-  // Backend optimizer уже принимает per-group fields даже для не-hierarchical моделей
-  // (channel_categories через heuristic fallback), но UI exposure ограничиваем чтобы
-  // не путать пользователей у которых brand/perf categorization не сделан.
+  // AUDIT-5 — Inline validation: per-group max должен быть ≤ глобального max.
+  // Backend всё равно вернёт INFEASIBLE_GROUP_HIERARCHY, но early UX feedback
+  // экономит roundtrip + наглядно показывает причину рядом со слайдерами.
+  let groupConstraintWarnings = $derived.by(() => {
+    /** @type {string[]} */
+    const warnings = [];
+    if (brandMaxPct != null && brandMaxPct > maxPct) {
+      warnings.push(`Brand Макс. (${brandMaxPct}%) превышает глобальный Макс. (${maxPct}%) — backend вернёт ошибку.`);
+    }
+    if (perfMaxPct != null && perfMaxPct > maxPct) {
+      warnings.push(`Perf Макс. (${perfMaxPct}%) превышает глобальный Макс. (${maxPct}%) — backend вернёт ошибку.`);
+    }
+    if (brandMinPct != null && brandMaxPct != null && brandMinPct > brandMaxPct) {
+      warnings.push(`Brand Мин. (${brandMinPct}%) превышает Brand Макс. (${brandMaxPct}%) — диапазон пуст.`);
+    }
+    if (perfMinPct != null && perfMaxPct != null && perfMinPct > perfMaxPct) {
+      warnings.push(`Perf Мин. (${perfMinPct}%) превышает Perf Макс. (${perfMaxPct}%) — диапазон пуст.`);
+    }
+    return warnings;
+  });
+
+  // F.3 — per-group sliders show только если МОДЕЛЬ hierarchical (не текущий UI state).
+  // AUDIT-3 (post-F audit): authoritative source — backend train response
+  // (`mData.diagnostics.hierarchical.enabled`), не volatile $channelCategories store.
+  // Pre-fix: store отражал latest UI categorization, но обученная модель могла быть flat
+  // (если user поменял категории после train, не переобучая). Frontend разрешал per-group
+  // → backend optimizer.py rejects с PER_GROUP_REQUIRES_HIERARCHICAL_MODEL → confusing UX.
+  // Post-fix: смотрим что фактически закодировано в pickle, fallback к store если
+  // diagnostics недоступны (legacy projects до Trust 3 не имеют этого поля).
   let hasGroupSplit = $derived.by(() => {
+    // Primary: backend authoritative flag из обученной модели.
+    const hierEnabled = mData?.diagnostics?.hierarchical?.enabled;
+    if (hierEnabled === true) return true;
+    if (hierEnabled === false) return false;
+    // Fallback: legacy diagnostics без hierarchical поля → infer из store
+    // (pre-Trust3 проекты или ещё не train'ились в этой сессии).
     const cats = $channelCategories || {};
     let nBrand = 0, nPerf = 0;
     for (const v of Object.values(cats)) {
@@ -602,6 +632,13 @@
         maxPct: whatIfMax,
         minPerChannel: null,
         maxPerChannel: null,
+        // AUDIT-4: pass per-group constraints для consistency с main optimize.
+        // null когда user не задал → backend falls back к global (identical к pre-audit).
+        // Brand max должен быть ≤ whatIfMax (whatIfMax обычно ≥300%, brandMax обычно ≤200%).
+        brandMinPct,
+        brandMaxPct,
+        perfMinPct,
+        perfMaxPct,
         unitCosts: get(unitCosts) ?? {},
       }));
       if (result.status === 'ok') {
@@ -766,6 +803,11 @@
         maxPct: 300,
         minPerChannel: null,
         maxPerChannel: null,
+        // AUDIT-4: pass per-group constraints для consistency с main optimize.
+        brandMinPct,
+        brandMaxPct,
+        perfMinPct,
+        perfMaxPct,
         unitCosts: ucNew,
       }));
       if (result.status === 'ok') {
@@ -1136,10 +1178,12 @@
                   value={brandMinPct ?? minPct}
                   oninput={(/** @type {any} */ e) => brandMinPct = Number(e.currentTarget.value)}
                   class="mini-slider"
+                  aria-label="Brand минимальный процент"
+                  aria-valuetext={brandMinPct != null ? `${brandMinPct} процентов (явно задан)` : `${minPct} процентов (глобальный)`}
                 />
                 <span class="mini-val">{brandMinPct != null ? `${brandMinPct}%` : `— (${minPct}%)`}</span>
                 {#if brandMinPct != null}
-                  <button class="btn-clear" onclick={() => brandMinPct = null} title="Сбросить к глобальному">×</button>
+                  <button class="btn-clear" onclick={() => brandMinPct = null} title="Сбросить к глобальному" aria-label="Сбросить Brand Мин. к глобальному">×</button>
                 {/if}
               </label>
               <label class="ctrl-label">
@@ -1149,10 +1193,12 @@
                   value={brandMaxPct ?? maxPct}
                   oninput={(/** @type {any} */ e) => brandMaxPct = Number(e.currentTarget.value)}
                   class="mini-slider"
+                  aria-label="Brand максимальный процент"
+                  aria-valuetext={brandMaxPct != null ? `${brandMaxPct} процентов (явно задан)` : `${maxPct} процентов (глобальный)`}
                 />
                 <span class="mini-val">{brandMaxPct != null ? `${brandMaxPct}%` : `— (${maxPct}%)`}</span>
                 {#if brandMaxPct != null}
-                  <button class="btn-clear" onclick={() => brandMaxPct = null} title="Сбросить к глобальному">×</button>
+                  <button class="btn-clear" onclick={() => brandMaxPct = null} title="Сбросить к глобальному" aria-label="Сбросить Brand Макс. к глобальному">×</button>
                 {/if}
               </label>
               <button
@@ -1172,10 +1218,12 @@
                   value={perfMinPct ?? minPct}
                   oninput={(/** @type {any} */ e) => perfMinPct = Number(e.currentTarget.value)}
                   class="mini-slider"
+                  aria-label="Performance минимальный процент"
+                  aria-valuetext={perfMinPct != null ? `${perfMinPct} процентов (явно задан)` : `${minPct} процентов (глобальный)`}
                 />
                 <span class="mini-val">{perfMinPct != null ? `${perfMinPct}%` : `— (${minPct}%)`}</span>
                 {#if perfMinPct != null}
-                  <button class="btn-clear" onclick={() => perfMinPct = null} title="Сбросить к глобальному">×</button>
+                  <button class="btn-clear" onclick={() => perfMinPct = null} title="Сбросить к глобальному" aria-label="Сбросить Perf Мин. к глобальному">×</button>
                 {/if}
               </label>
               <label class="ctrl-label">
@@ -1185,10 +1233,12 @@
                   value={perfMaxPct ?? maxPct}
                   oninput={(/** @type {any} */ e) => perfMaxPct = Number(e.currentTarget.value)}
                   class="mini-slider"
+                  aria-label="Performance максимальный процент"
+                  aria-valuetext={perfMaxPct != null ? `${perfMaxPct} процентов (явно задан)` : `${maxPct} процентов (глобальный)`}
                 />
                 <span class="mini-val">{perfMaxPct != null ? `${perfMaxPct}%` : `— (${maxPct}%)`}</span>
                 {#if perfMaxPct != null}
-                  <button class="btn-clear" onclick={() => perfMaxPct = null} title="Сбросить к глобальному">×</button>
+                  <button class="btn-clear" onclick={() => perfMaxPct = null} title="Сбросить к глобальному" aria-label="Сбросить Perf Макс. к глобальному">×</button>
                 {/if}
               </label>
               <button
@@ -1204,6 +1254,13 @@
             Brand/Perf max должны быть ≤ глобального Макс ({maxPct}%) — иначе backend вернёт ошибку constraint hierarchy.
             Mixed-каналы всегда наследуют глобальные ограничения.
           </p>
+          {#if groupConstraintWarnings.length > 0}
+            <div class="group-warnings" role="alert">
+              {#each groupConstraintWarnings as warn}
+                <div class="group-warn-line">⚠ {warn}</div>
+              {/each}
+            </div>
+          {/if}
         </details>
       {/if}
     </div>
@@ -1928,6 +1985,19 @@
     color: var(--text-secondary);
     line-height: 1.5;
   }
+  /* AUDIT-5: inline validation warnings — surfaces constraint hierarchy violation
+     до backend roundtrip. role="alert" для screen readers. */
+  .group-warnings {
+    margin: 8px 4px 4px;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--warning, #f59e0b) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 30%, transparent);
+    border-radius: 4px;
+    color: var(--warning, #f59e0b);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .group-warn-line { margin: 0; }
 
   .inline-error {
     margin-top: 8px;

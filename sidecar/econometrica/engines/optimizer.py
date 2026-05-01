@@ -394,11 +394,34 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         FeasibilityError,
         resolve_channel_bounds,
     )
-    from engines.persistence import get_channel_categories
+    from engines.persistence import get_channel_categories, is_hierarchical_model
 
     def _pct_or_none(key: str) -> float | None:
         v = config.get(key)
         return (v / 100) if v is not None else None
+
+    _per_group_supplied = any(
+        config.get(k) is not None
+        for k in ('brand_min_pct', 'brand_max_pct', 'perf_min_pct', 'perf_max_pct')
+    )
+
+    # AUDIT-2 (post-D.3 hardening): gate per-group constraints для non-hierarchical моделей.
+    # Pre-Trust3 pickles (model_version < 1.3) обучены flat (single global prior).
+    # Heuristic мог бы заполнить categories, но constraints применятся к модели,
+    # которая не обучалась с group-conditional structure → semantic mismatch.
+    # Если user явно передал per-group → reject с указанием на retrain.
+    # Если per-group не передан → behavior identical к pre-D.3 (backward compat).
+    if _per_group_supplied and not is_hierarchical_model(model_data):
+        return {
+            'status': 'error',
+            'error_code': 'PER_GROUP_REQUIRES_HIERARCHICAL_MODEL',
+            'message': (
+                'Per-group ограничения (brand/performance) требуют hierarchical модели '
+                '(model_version ≥ 1.3 с ≥2 brand или ≥2 performance каналами). '
+                'Текущая модель flat — переучите с brand/perf categorization в шаге '
+                '«Валидация» или удалите per-group constraints.'
+            ),
+        }
 
     _ch_min = {c: v / 100 for c, v in (config.get('min_per_channel') or {}).items()}
     _ch_max = {c: v / 100 for c, v in (config.get('max_per_channel') or {}).items()}
@@ -413,7 +436,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         channel_max_pct=_ch_max or None,
     )
 
-    # Channel categories из pickle (heuristic fallback если empty — pre-Trust3 модели).
+    # Channel categories из pickle. Heuristic fallback применяется только когда модель
+    # hierarchical (выше gate) — для flat моделей heuristic нерелевантен (gate уже rejected).
     channel_categories = get_channel_categories(model_data, fallback_heuristic=True)
 
     # Pre-flight Check 1 — group hierarchy (group_max ≤ global_max).

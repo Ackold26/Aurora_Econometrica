@@ -178,18 +178,48 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # ─── KPI registry activation (v2.0 foundation, D.1) ─────────────────
     # Single source of truth для priors (sales / awareness / future KPIs).
     # Sales mode uses Trust 3 FROZEN values — no behavior change vs v1.0.16.
-    # `kpi_type` persists в config (saved into pickle) + top-level field
-    # for fast access by downstream consumers (decomposer/optimizer/scenario).
     from utils.kpi_registry import get_kpi_config
     kpi_type = config.get('kpi_type', 'sales')
-    config['kpi_type'] = kpi_type  # normalize default into config dict before pickle save
     kpi_config = get_kpi_config(kpi_type)  # raises ValueError on unknown KPI
+
+    # AUDIT-1 (post-D.1 hardening): explicit guard для KPI types beyond sales.
+    # KPI_REGISTRY содержит awareness config (likelihood='logit_normal', ceiling,
+    # baseline_drift), но modeler.py пока не реализует logit-Normal likelihood,
+    # ceiling clipping, GaussianRandomWalk baseline drift. Awareness config
+    # priors применятся, но likelihood останется Normal → silently broken model
+    # (awareness data в [0, 100] обучатся как unbounded sales).
+    # Phase A1a (PyMC integration) добавит full awareness support.
+    if kpi_type != 'sales':
+        return {
+            'status': 'error',
+            'error_code': 'KPI_TYPE_NOT_IMPLEMENTED',
+            'message': (
+                f"kpi_type='{kpi_type}' пока не поддержан в production. "
+                f"KPI_REGISTRY содержит config, но likelihood/ceiling/baseline_drift "
+                f"требуют Phase A1a integration (logit-Normal + RW baseline). "
+                f"Сейчас доступен только kpi_type='sales'."
+            ),
+        }
 
     # ─── JAX backend enforcement (v2.0 foundation, D.2) ─────────────────
     # Weibull learnable adstock requires JAX/NumPyro (Toeplitz pt.scan на CPU = unbearable).
     # Sales mode без Weibull = no-op (all 'geometric' default).
+    # AUDIT (post-D.2 hardening): also reject AURORA_NUTS_BACKEND=pymc + weibull —
+    # JAX guard выше пропустит если jax установлен, но user мог форсировать pymc backend
+    # через env var. PyTensor pt.scan + Toeplitz на CPU = unbearable MCMC time.
     from utils.backend_check import enforce_jax_for_weibull
     enforce_jax_for_weibull(adstock_config)  # raises BackendUnavailableError если Weibull без JAX
+    _has_weibull = any(t == 'weibull' for t in adstock_config.values())
+    if _has_weibull and os.environ.get('AURORA_NUTS_BACKEND', 'auto').lower() == 'pymc':
+        return {
+            'status': 'error',
+            'error_code': 'WEIBULL_REQUIRES_JAX_BACKEND',
+            'message': (
+                "AURORA_NUTS_BACKEND=pymc + Weibull adstock = unbearable performance "
+                "(Toeplitz pt.scan on CPU). Переключите AURORA_NUTS_BACKEND на 'auto' "
+                "or 'numpyro', или поставьте все каналы на 'geometric'."
+            ),
+        }
 
     # Trust Level 3 (v1.1.0): channel_categories — brand / performance / mixed.
     # Если ≥2 канала в одной из brand/performance групп → hierarchical priors path.
