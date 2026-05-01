@@ -24,6 +24,7 @@
     sessionStats,
     expertMode,
     unitCosts,
+    channelCategories,
   } from '$lib/project-state.js';
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
@@ -111,6 +112,19 @@
   let minPct = $state(20);
   let maxPct = $state(200);
 
+  // F.1 (D.3 frontend): per-group sliders для Trust 3 brand vs performance.
+  // null = use global. Сохраняем гибкость: пользователь явно opt-in включает per-group.
+  // Видны только когда модель hierarchical (≥2 brand или ≥2 perf — см. hasGroupSplit).
+  /** @type {number | null} */
+  let brandMinPct = $state(null);
+  /** @type {number | null} */
+  let brandMaxPct = $state(null);
+  /** @type {number | null} */
+  let perfMinPct = $state(null);
+  /** @type {number | null} */
+  let perfMaxPct = $state(null);
+  let groupSlidersExpanded = $state(false);
+
   // O1.2 (Phase 0.1): dirty-state — если settings изменились после успешной
   // оптимизации, показываем индикатор у кнопки. Помогает Антону осознать
   // что нужно перезапустить optimize чтобы увидеть результат под новыми
@@ -121,11 +135,28 @@
     if (!lastOptimizeSettings) return false;
     const current = JSON.stringify({
       minPct, maxPct,
+      brandMin: brandMinPct, brandMax: brandMaxPct,
+      perfMin: perfMinPct, perfMax: perfMaxPct,
       cMin: { ...channelMinPct },
       cMax: { ...channelMaxPct },
       budget: totalBudgetInput,
     });
     return current !== lastOptimizeSettings;
+  });
+
+  // F.3 — per-group sliders show только если модель hierarchical:
+  // ≥2 канала помечены как brand ИЛИ ≥2 как performance в channelCategories store.
+  // Backend optimizer уже принимает per-group fields даже для не-hierarchical моделей
+  // (channel_categories через heuristic fallback), но UI exposure ограничиваем чтобы
+  // не путать пользователей у которых brand/perf categorization не сделан.
+  let hasGroupSplit = $derived.by(() => {
+    const cats = $channelCategories || {};
+    let nBrand = 0, nPerf = 0;
+    for (const v of Object.values(cats)) {
+      if (v === 'brand') nBrand++;
+      else if (v === 'performance') nPerf++;
+    }
+    return nBrand >= 2 || nPerf >= 2;
   });
 
   // Per-channel constraints (экспертный режим). null = используется глобальный min/max.
@@ -192,6 +223,10 @@
     totalBudget:    'Общий бюджет — сумма по всем каналам.\n\nПо умолчанию = текущий медиа-бюджет (рассчитан моделью). Изменение здесь = переход в режим What-if (пересчёт оптимума для другого бюджета).\n\nЕсли «Фиксировать бюджет» включён — это значение остаётся неизменным при оптимизации.',
     minPct:         'Мин. % — нижняя граница изменения каждого канала при оптимизации.\n\n50% означает: бюджет канала может уменьшиться максимум вдвое.\n10% = почти любое сокращение разрешено.\n100% = сокращать каналы нельзя (только увеличивать).\n\nДля более радикальной оптимизации — снижайте Мин. %.',
     maxPct:         'Макс. % — верхняя граница изменения каждого канала.\n\n150% = можно увеличить бюджет канала в 1.5 раза.\n100% = увеличивать нельзя (только перераспределять между каналами).\n300% = почти без верхнего лимита.\n\nДля более агрессивной оптимизации — повышайте Макс. %.',
+    brandMin:       'Brand Мин. % — нижняя граница для каналов категории «brand» (TV, OOH, brand-PR).\n\nПереопределяет глобальный Мин. % для brand-каналов. Не задано (—) = используется глобальный.\n\nКлассический use-case: «не сокращать TV ниже 80% — контракт на год».',
+    brandMax:       'Brand Макс. % — верхняя граница для brand-каналов.\n\nДолжен быть ≤ глобального Макс. (иначе ошибка constraint hierarchy). Например: brand_max=120% при global_max=200% означает «brand можно увеличить максимум на 20%, остальные до 200%».',
+    perfMin:        'Performance Мин. % — нижняя граница для каналов категории «performance» (Search, Social, Programmatic).\n\nПереопределяет глобальный Мин. % для performance-каналов. Не задано = глобальный.',
+    perfMax:        'Performance Макс. % — верхняя граница для performance-каналов.\n\nДолжен быть ≤ глобального Макс. Полезно когда performance уже на пике эффективности и дальнейшее наращивание не имеет смысла.',
     lockBudget:     'Фиксировать бюджет — запрет на изменение общей суммы при оптимизации.\n\nВключено: оптимизатор только перераспределяет деньги между каналами, общий бюджет = totalBudget.\nВыключено: общий бюджет может меняться (модель найдёт оптимум любой суммы в рамках Мин/Макс per-channel).\n\nДля стандартной задачи «выжать максимум из имеющегося» — оставить включённым.',
     runOptimize:    'Запускает scipy SLSQP оптимизатор: ищет распределение бюджета, максимизирующее KPI при заданных ограничениях.\n\nВремя: 1-5 секунд для стандартного медиаплана.\n\nРезультат: новое распределение per-channel + ожидаемый прирост KPI (lift %).',
     forecastKPI:    'Прогноз KPI — модельная оценка продаж при текущих значениях ползунков (или после оптимизации).\n\nРассчитывается через Hill saturation: вклад каждого канала суммируется по нормализованной шкале и переводится в реальные продажи.\n\nИспользуется как baseline для расчёта lift % при перераспределении.',
@@ -842,6 +877,11 @@
         maxPct,
         minPerChannel,
         maxPerChannel,
+        // F.2 — per-group constraints (D.3 backend). null = optimizer falls back к global.
+        brandMinPct,
+        brandMaxPct,
+        perfMinPct,
+        perfMaxPct,
         unitCosts: get(unitCosts) ?? {},
       }));
 
@@ -870,6 +910,8 @@
         // optimizeSettingsDirty derived to ensure exact match.
         lastOptimizeSettings = JSON.stringify({
           minPct, maxPct,
+          brandMin: brandMinPct, brandMax: brandMaxPct,
+          perfMin: perfMinPct, perfMax: perfMaxPct,
           cMin: { ...channelMinPct },
           cMax: { ...channelMaxPct },
           budget: totalBudgetInput,
@@ -1066,6 +1108,104 @@
           </span>
         {/if}
       </div>
+
+      <!-- F.1+F.3 (D.3 frontend): per-group sliders для Trust 3 brand vs performance.
+           Collapsed by default. Visible только когда модель hierarchical (≥2 brand или
+           ≥2 perf в channelCategories). Backend применяет 3-level precedence:
+           per-channel > per-group > global. Mixed → fall back к global. -->
+      {#if hasGroupSplit}
+        <details
+          class="group-sliders"
+          open={groupSlidersExpanded}
+          ontoggle={(/** @type {any} */ e) => groupSlidersExpanded = e.currentTarget.open}
+        >
+          <summary class="group-summary">
+            <span class="group-icon">🎚️</span>
+            <span>Per-group ограничения (brand vs performance)</span>
+            {#if brandMinPct != null || brandMaxPct != null || perfMinPct != null || perfMaxPct != null}
+              <span class="group-active-badge" title="Per-group ограничения активны">●</span>
+            {/if}
+          </summary>
+          <div class="group-grid">
+            <div class="group-col">
+              <div class="group-col-title">🎨 Brand-каналы (TV, OOH, Brand-PR)</div>
+              <label class="ctrl-label">
+                <span class="ctrl-name">Brand Мин. %<span class="help-icon" title={HELP.brandMin}>?</span></span>
+                <input
+                  type="range" min={0} max={100} step={5}
+                  value={brandMinPct ?? minPct}
+                  oninput={(/** @type {any} */ e) => brandMinPct = Number(e.currentTarget.value)}
+                  class="mini-slider"
+                />
+                <span class="mini-val">{brandMinPct != null ? `${brandMinPct}%` : `— (${minPct}%)`}</span>
+                {#if brandMinPct != null}
+                  <button class="btn-clear" onclick={() => brandMinPct = null} title="Сбросить к глобальному">×</button>
+                {/if}
+              </label>
+              <label class="ctrl-label">
+                <span class="ctrl-name">Brand Макс. %<span class="help-icon" title={HELP.brandMax}>?</span></span>
+                <input
+                  type="range" min={100} max={500} step={10}
+                  value={brandMaxPct ?? maxPct}
+                  oninput={(/** @type {any} */ e) => brandMaxPct = Number(e.currentTarget.value)}
+                  class="mini-slider"
+                />
+                <span class="mini-val">{brandMaxPct != null ? `${brandMaxPct}%` : `— (${maxPct}%)`}</span>
+                {#if brandMaxPct != null}
+                  <button class="btn-clear" onclick={() => brandMaxPct = null} title="Сбросить к глобальному">×</button>
+                {/if}
+              </label>
+              <button
+                class="btn-lock-group"
+                onclick={() => { brandMinPct = 100; brandMaxPct = 100; }}
+                title="Зафиксировать brand на текущем значении (контрактные обязательства)"
+              >
+                🔒 Lock Brand 100%
+              </button>
+            </div>
+            <div class="group-col">
+              <div class="group-col-title">📈 Performance-каналы (Search, Social, Programmatic)</div>
+              <label class="ctrl-label">
+                <span class="ctrl-name">Perf Мин. %<span class="help-icon" title={HELP.perfMin}>?</span></span>
+                <input
+                  type="range" min={0} max={100} step={5}
+                  value={perfMinPct ?? minPct}
+                  oninput={(/** @type {any} */ e) => perfMinPct = Number(e.currentTarget.value)}
+                  class="mini-slider"
+                />
+                <span class="mini-val">{perfMinPct != null ? `${perfMinPct}%` : `— (${minPct}%)`}</span>
+                {#if perfMinPct != null}
+                  <button class="btn-clear" onclick={() => perfMinPct = null} title="Сбросить к глобальному">×</button>
+                {/if}
+              </label>
+              <label class="ctrl-label">
+                <span class="ctrl-name">Perf Макс. %<span class="help-icon" title={HELP.perfMax}>?</span></span>
+                <input
+                  type="range" min={100} max={500} step={10}
+                  value={perfMaxPct ?? maxPct}
+                  oninput={(/** @type {any} */ e) => perfMaxPct = Number(e.currentTarget.value)}
+                  class="mini-slider"
+                />
+                <span class="mini-val">{perfMaxPct != null ? `${perfMaxPct}%` : `— (${maxPct}%)`}</span>
+                {#if perfMaxPct != null}
+                  <button class="btn-clear" onclick={() => perfMaxPct = null} title="Сбросить к глобальному">×</button>
+                {/if}
+              </label>
+              <button
+                class="btn-lock-group"
+                onclick={() => { perfMinPct = 100; perfMaxPct = 100; }}
+                title="Зафиксировать performance на текущем значении"
+              >
+                🔒 Lock Performance 100%
+              </button>
+            </div>
+          </div>
+          <p class="group-hint">
+            Brand/Perf max должны быть ≤ глобального Макс ({maxPct}%) — иначе backend вернёт ошибку constraint hierarchy.
+            Mixed-каналы всегда наследуют глобальные ограничения.
+          </p>
+        </details>
+      {/if}
     </div>
 
     <!-- L8: per-channel override warning. Persistent banner когда есть каналы
@@ -1706,6 +1846,88 @@
   }
   .btn-reset-sm:hover:not(:disabled) { border-color: rgba(255,255,255,0.25); color: var(--text-primary); }
   .btn-reset-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* F.1 — per-group sliders (Trust 3 brand vs performance) */
+  .group-sliders {
+    margin-top: 10px;
+    background: color-mix(in srgb, var(--bg-surface-quiet, #1a1d22) 60%, transparent);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 4px 12px;
+  }
+  .group-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    user-select: none;
+  }
+  .group-summary:hover { color: var(--accent); }
+  .group-icon { font-size: 14px; }
+  .group-active-badge {
+    color: var(--success, #10b981);
+    font-size: 16px;
+    margin-left: 4px;
+  }
+  .group-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 12px 4px 8px;
+  }
+  @media (max-width: 760px) {
+    .group-grid { grid-template-columns: 1fr; }
+  }
+  .group-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .group-col-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+  }
+  .btn-clear {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    margin-left: 4px;
+  }
+  .btn-clear:hover { color: var(--danger); }
+  .btn-lock-group {
+    margin-top: 4px;
+    padding: 6px 10px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px dashed var(--border-subtle);
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  .btn-lock-group:hover { border-style: solid; color: var(--text-primary); border-color: var(--accent); }
+  .group-hint {
+    margin: 4px 4px 8px;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--bg-surface-quiet, #1a1d22) 50%, transparent);
+    border-left: 2px solid var(--border-subtle);
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
 
   .inline-error {
     margin-top: 8px;

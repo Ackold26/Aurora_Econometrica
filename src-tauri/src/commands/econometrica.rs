@@ -112,6 +112,12 @@ pub async fn econ_optimize(
     max_pct: Option<f64>,
     min_per_channel: Option<Value>,
     max_per_channel: Option<Value>,
+    // F.2 (D.3 frontend): per-group constraints (Trust 3 brand vs performance).
+    // None = optimizer falls back к global. Mixed channels всегда наследуют global.
+    brand_min_pct: Option<f64>,
+    brand_max_pct: Option<f64>,
+    perf_min_pct: Option<f64>,
+    perf_max_pct: Option<f64>,
     unit_costs: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_optimize: {project_dir}");
@@ -125,6 +131,10 @@ pub async fn econ_optimize(
         "max_pct": max_pct.unwrap_or(200.0),
         "min_per_channel": min_per_channel,
         "max_per_channel": max_per_channel,
+        "brand_min_pct": brand_min_pct,
+        "brand_max_pct": brand_max_pct,
+        "perf_min_pct": perf_min_pct,
+        "perf_max_pct": perf_max_pct,
         "unit_costs": unit_costs,
     });
     post_json("/compute/optimize", &body, quick_client()).await
