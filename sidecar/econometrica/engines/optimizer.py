@@ -385,16 +385,59 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     min_pct_global = config.get('min_pct', 50) / 100
     max_pct_global = config.get('max_pct', 150) / 100
 
-    # Per-channel constraints (экспертный режим). Если для канала задан явный
-    # min/max в процентах — используется он, иначе глобальный.
-    min_per_channel = config.get('min_per_channel') or {}
-    max_per_channel = config.get('max_per_channel') or {}
+    # ─── D.3 — Per-group constraints (Trust 3) + ConstraintBundle ───────
+    # 3-level precedence: per-channel > per-group (brand/perf) > global.
+    # Mixed/uncategorized channels → fall back к global (helper handles).
+    # Backward compat: brand_*/perf_* unset → behavior identical к pre-D.3.
+    from utils.optimizer_constraints import (
+        ConstraintBundle,
+        FeasibilityError,
+        resolve_channel_bounds,
+    )
+    from engines.persistence import get_channel_categories
 
-    def channel_min(col: str) -> float:
-        return min_per_channel.get(col, min_pct_global * 100) / 100
+    def _pct_or_none(key: str) -> float | None:
+        v = config.get(key)
+        return (v / 100) if v is not None else None
 
-    def channel_max(col: str) -> float:
-        return max_per_channel.get(col, max_pct_global * 100) / 100
+    _ch_min = {c: v / 100 for c, v in (config.get('min_per_channel') or {}).items()}
+    _ch_max = {c: v / 100 for c, v in (config.get('max_per_channel') or {}).items()}
+    constraint_bundle = ConstraintBundle(
+        global_min_pct=min_pct_global,
+        global_max_pct=max_pct_global,
+        brand_min_pct=_pct_or_none('brand_min_pct'),
+        brand_max_pct=_pct_or_none('brand_max_pct'),
+        perf_min_pct=_pct_or_none('perf_min_pct'),
+        perf_max_pct=_pct_or_none('perf_max_pct'),
+        channel_min_pct=_ch_min or None,
+        channel_max_pct=_ch_max or None,
+    )
+
+    # Channel categories из pickle (heuristic fallback если empty — pre-Trust3 модели).
+    channel_categories = get_channel_categories(model_data, fallback_heuristic=True)
+
+    # Pre-flight Check 1 — group hierarchy (group_max ≤ global_max).
+    # Check 2 (budget feasibility) делается existing INFEASIBLE_BUDGET_HIGH/LOW guard
+    # ниже, чтобы preserve zero-spend fallback semantics в _bounds_money_for.
+    try:
+        if constraint_bundle.brand_max_pct is not None and constraint_bundle.brand_max_pct > constraint_bundle.global_max_pct:
+            raise FeasibilityError(
+                f"Brand max ({constraint_bundle.brand_max_pct * 100:.0f}%) превышает global max "
+                f"({constraint_bundle.global_max_pct * 100:.0f}%). "
+                f"Brand max должен быть ≤ global max — иначе constraint hierarchy нарушается."
+            )
+        if constraint_bundle.perf_max_pct is not None and constraint_bundle.perf_max_pct > constraint_bundle.global_max_pct:
+            raise FeasibilityError(
+                f"Performance max ({constraint_bundle.perf_max_pct * 100:.0f}%) превышает global max "
+                f"({constraint_bundle.global_max_pct * 100:.0f}%). "
+                f"Performance max должен быть ≤ global max — иначе constraint hierarchy нарушается."
+            )
+    except FeasibilityError as _fe:
+        return {
+            'status': 'error',
+            'error_code': 'INFEASIBLE_GROUP_HIERARCHY',
+            'message': str(_fe),
+        }
 
     # ─────────────────────────────────────────────────────────────────────
     # math-fix v1.0.14.1, A1 (audit-of-audit 2026-04-28):
@@ -446,8 +489,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     def _bounds_money_for(col: str, i: int) -> tuple[float, float]:
         cs_money = current_spend[col] * uc_arr[i]
         if cs_money > 0:
-            return (cs_money * channel_min(col), cs_money * channel_max(col))
-        # Zero-spend channel: allow up to fallback_max
+            # D.3: 3-level precedence (per-channel > per-group > global) via helper.
+            return resolve_channel_bounds(col, cs_money, channel_categories, constraint_bundle)
+        # Zero-spend channel: allow up to fallback_max (preserve existing semantics).
         return (0.0, fallback_max_money)
 
     bounds_money = [_bounds_money_for(col, i) for i, col in enumerate(media_cols)]

@@ -335,6 +335,14 @@ class OptimizeRequest(BaseModel):
     # для указанных каналов. Если канал отсутствует в dict — используется глобальный лимит.
     min_per_channel: dict[str, float] | None = None
     max_per_channel: dict[str, float] | None = None
+    # D.3 — Per-group constraints (Trust 3 brand vs performance).
+    # Optional. Unset = behavior identical к pre-D.3 (single global slider).
+    # Mixed/uncategorized channels всегда fall back к global регардлесс этих полей.
+    # Constraint hierarchy: brand_max ≤ global_max + perf_max ≤ global_max enforced.
+    brand_min_pct: float | None = None
+    brand_max_pct: float | None = None
+    perf_min_pct: float | None = None
+    perf_max_pct: float | None = None
     # Override unit_costs (аналогично DecomposeRequest).
     unit_costs: dict[str, float] | None = None
     # L9 (math-fix v1.4 Section C, 2026-04-29): forward-compat budget_mode.
@@ -949,6 +957,11 @@ def optimize_budget(req: OptimizeRequest):
         'max_pct': req.max_pct,
         'min_per_channel': req.min_per_channel,
         'max_per_channel': req.max_per_channel,
+        # D.3 per-group passthrough (None → optimizer falls back к global).
+        'brand_min_pct': req.brand_min_pct,
+        'brand_max_pct': req.brand_max_pct,
+        'perf_min_pct': req.perf_min_pct,
+        'perf_max_pct': req.perf_max_pct,
         'unit_costs': req.unit_costs,  # None → decomposer fallback на pickle config
     }
     result = _optimize(config, req.project_dir)
