@@ -257,38 +257,20 @@
     return out;
   });
 
-  // Audit pass 5 fix (BUG B2): UnitCostsPanel живёт в ValidateStep — РАНЬШЕ
-  // OptimizeStep в pipeline. Глобальный forecastContext store fetched только
-  // в planner mode на OptimizeStep mount → UnitCostsPanel не видел multi-year
-  // detection через стандартный workflow. Делаем independent fetch когда
-  // pickle existed (after train).
-  /** @type {any} */
-  let localForecastContext = $state(null);
-  $effect(() => {
-    const pid = $activeProjectId;
-    if (!pid) { localForecastContext = null; return; }
-    (async () => {
-      try {
-        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
-        const ctx = /** @type {any} */ (await invoke('econ_forecast_context', { projectDir }));
-        if (ctx?.status === 'ok') {
-          localForecastContext = ctx;
-          // Also populate global store для shared consumers
-          forecastContext.set(ctx);
-        } else {
-          localForecastContext = null;
-        }
-      } catch {
-        // Model not trained yet — silent fallback (input не показывается).
-        localForecastContext = null;
-      }
-    })();
+  // Audit pass 5 fix (BUG B2 v2): detect multi-year ПРЯМО из date column stats
+  // в columns prop (validator теперь добавляет date_stats с unique_years). НЕ
+  // зависит от обученного pickle — работает на ValidateStep сразу после
+  // data preview.
+  const dateColumnStats = $derived.by(() => {
+    const dateCol = (columns ?? []).find(/** @param {any} c */ (c) => c.role === 'date');
+    return dateCol?.date_stats || null;
   });
-
-  // Show inflation field только когда training data spans ≥2 years.
-  // Reads localForecastContext (independent fetch) с fallback к global store.
   const isMultiYearTraining = $derived.by(() => {
-    const ranges = (localForecastContext ?? $forecastContext)?.training_year_ranges;
+    if (dateColumnStats && Array.isArray(dateColumnStats.unique_years)) {
+      return dateColumnStats.unique_years.length >= 2;
+    }
+    // Fallback к global forecastContext (if loaded из OptimizeStep)
+    const ranges = $forecastContext?.training_year_ranges;
     return Array.isArray(ranges) && ranges.length >= 2;
   });
 

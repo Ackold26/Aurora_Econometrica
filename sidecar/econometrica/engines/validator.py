@@ -223,6 +223,22 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
         if role == 'date':
             date_col = col
+            # Phase 2 audit pass 5: per-column year span detection — позволяет
+            # frontend (UnitCostsPanel) показать %/год input БЕЗ зависимости от
+            # обученного pickle (econ_forecast_context требует model.latest.pkl).
+            try:
+                _dates = pd.to_datetime(df[col], errors='coerce').dropna()
+                if not _dates.empty:
+                    _years = _dates.dt.year
+                    _unique_years = sorted(set(int(y) for y in _years.unique()))
+                    col_info['date_stats'] = {
+                        'min_date': _dates.min().strftime('%Y-%m-%d'),
+                        'max_date': _dates.max().strftime('%Y-%m-%d'),
+                        'unique_years': _unique_years,
+                        'n_years': len(_unique_years),
+                    }
+            except Exception:
+                pass  # Non-fatal — date detection still works без stats
         elif role == 'kpi':
             kpi_cols.append(col)
         elif role == 'media':
