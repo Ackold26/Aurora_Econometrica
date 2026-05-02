@@ -1892,14 +1892,16 @@
 
 <style>
   /* ─── Phase 2 — Planning Mode toggle ─── */
+  /* Использует те же background/border tokens что существующие .block (Текущий
+     бюджет etc.) — чтобы блок интегрировался с остальными, не выделялся. */
   .planning-mode-toggle {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px 18px;
-    border-radius: 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     margin-bottom: 12px;
   }
   .mode-pills {
@@ -1907,7 +1909,7 @@
     align-self: flex-start;
     gap: 4px;
     padding: 4px;
-    background: var(--bg-tertiary);
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
     border-radius: 10px;
     border: 1px solid var(--border-subtle);
   }
@@ -1924,7 +1926,7 @@
     color: var(--text-secondary);
     transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease;
   }
-  .mode-pills button:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+  .mode-pills button:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 8%, transparent); }
   .mode-pills button.active {
     background: var(--accent-glow);
     color: var(--accent-text-light, var(--accent-primary));

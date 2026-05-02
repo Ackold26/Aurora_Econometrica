@@ -98,6 +98,9 @@
   const seasonalityWarning = $derived.by(() => {
     const s = $forecastContext?.seasonality_detected;
     if (!s) return null;
+    if (customPeriods == null) {
+      return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Выберите период планирования — он повлияет на результат в зависимости от месяца старта.`;
+    }
     return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Прогноз с ${customPeriods} периодов даст разные результаты в зависимости от месяца старта — see methodology.`;
   });
 
@@ -177,10 +180,12 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 18px 20px;
-    border-radius: 12px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
+    padding: 16px 18px;
+    border-radius: 14px;
+    /* Same tokens как .block в OptimizeStep — интегрируется с остальными
+       блоками (Текущий бюджет / Оптимизация распределения), не выделяется. */
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     margin-bottom: 12px;
   }
   h3 {
@@ -202,15 +207,14 @@
     padding: 10px 16px;
     border-radius: 10px;
     border: 1px solid var(--border-subtle);
-    background: var(--bg-tertiary);
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
     color: var(--text-secondary);
     cursor: pointer;
     transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
   }
   .preset:hover {
-    background: var(--bg-card-hover);
+    background: color-mix(in srgb, var(--text-primary) 10%, transparent);
     color: var(--text-primary);
-    border-color: var(--border-subtle);
   }
   .preset.active {
     background: var(--accent-glow);
