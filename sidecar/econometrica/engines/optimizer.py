@@ -328,6 +328,49 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     total_current = sum(current_spend.values())
     n_periods = max(len(df), 1)
 
+    # ─── Phase 2 (Planning Mode) — forecast horizon decoupling ───
+    # Math reference: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis (M9 finding,
+    # L1 lock = Option C in planning mode, preserve current Hill-of-mean in
+    # analyst mode для byte-exact backward compat).
+    #
+    # forecast_periods config = None → analyst mode (current behavior preserved).
+    # forecast_periods config = int  → planning mode → Option C (per-period
+    # Hill summation matching scenario engine).
+    forecast_periods_config = config.get('forecast_periods')
+    planning_mode = False
+    forecast_n_periods = n_periods
+    if forecast_periods_config is not None:
+        try:
+            forecast_n_periods = int(forecast_periods_config)
+        except (TypeError, ValueError):
+            return {
+                'status': 'error',
+                'error_code': 'INVALID_FORECAST_PERIODS',
+                'message': (
+                    f'forecast_periods должно быть целым числом ≥ 1 '
+                    f'(получено {forecast_periods_config!r}).'
+                ),
+            }
+        if forecast_n_periods < 1:
+            return {
+                'status': 'error',
+                'error_code': 'INVALID_FORECAST_PERIODS',
+                'message': 'forecast_periods должно быть ≥ 1.',
+            }
+        # M6 (audit doc L2): hard cap forecast ≤ train_n × 2.
+        if forecast_n_periods > n_periods * 2:
+            return {
+                'status': 'error',
+                'error_code': 'FORECAST_HORIZON_TOO_LONG',
+                'message': (
+                    f'Период планирования ({forecast_n_periods}) превышает '
+                    f'обучающий горизонт более чем в 2 раза ({n_periods * 2}). '
+                    f'Допущение стационарности коэффициентов нарушено. '
+                    f'Переучите модель на расширенных данных или сократите горизонт.'
+                ),
+            }
+        planning_mode = True
+
     # Phase 2 normalization (spend/mean Robyn-style)
     media_means = norm.get('media_means', {}) or {}
 
@@ -503,6 +546,28 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             total += p['beta'] * sat[0] * n_periods
         return -total
 
+    # ─── Phase 2 — Option C planning-mode objective (M9 fix) ───
+    # Per-period Hill summation matches scenario.py:167-186 + decomposer.py:
+    # 289-292 semantics. Restores 3-way alignment в planning mode.
+    # Activates only when planning_mode=True (forecast_periods explicitly given).
+    # Math: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis.
+    def total_response_money_planning(x_money):
+        """Option C — per-period sum-of-Hill, matches scenario engine."""
+        from utils.forecasting import evaluate_flat_allocation_response
+        total = evaluate_flat_allocation_response(
+            media_cols=media_cols,
+            channel_params=channel_params,
+            allocation_money=x_money,
+            unit_costs=uc_arr,
+            media_means=media_means,
+            adstock_config=adstock_config,
+            n_periods=forecast_n_periods,
+        )
+        return -total
+
+    # Active objective dispatch — planning mode → Option C, analyst → legacy.
+    _objective_fn = total_response_money_planning if planning_mode else total_response_money
+
     # ─ Money-axis bounds (replace native bounds + money constraint) ─
     # Constraint trivializes к sum(x_money) == money_target — uniform scale.
     money_target = total_budget_money_target if total_budget_money_target is not None else (
@@ -621,7 +686,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     def _safe_minimize_money(x_start: np.ndarray):
         try:
             r = minimize(
-                total_response_money, x_start,
+                _objective_fn, x_start,
                 method='SLSQP',
                 bounds=bounds_money,
                 constraints=constraints,
@@ -636,7 +701,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     slsqp_attempts: list[dict] = []
     candidates = []
     for name, x_start in starts_money:
-        obj_start = float(total_response_money(x_start))
+        obj_start = float(_objective_fn(x_start))
         r = _safe_minimize_money(x_start)
         success = r is not None and r.success
         attempt = {
@@ -660,7 +725,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             def __init__(self, x0, msg):
                 self.x = x0.copy()
                 self.success = False
-                self.fun = float(total_response_money(x0))
+                self.fun = float(_objective_fn(x0))
                 self.message = msg
         result = _FailResult(x0_money, "All SLSQP starts failed")
 
@@ -694,8 +759,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # of scale-down/scale-up baseline shift, не measure of redistribution gain.
     # Edge case: if real media spend = 0 (all channels at 0), current_response_real
     # ≤ 0 — division would explode. Guard explicitly.
-    current_response_real = -total_response_money(x0_money_real)
-    optimal_response = -total_response_money(result.x)
+    current_response_real = -_objective_fn(x0_money_real)
+    optimal_response = -_objective_fn(result.x)
     if current_response_real > 1e-9:
         lift_pct = (optimal_response - current_response_real) / current_response_real * 100
         baseline_zero = False
@@ -753,9 +818,11 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         uc = float(unit_costs.get(col, 1.0) or 1.0)
 
         decay_pt = p.get('decay')  # Phase 1.1: posterior mean decay; None for legacy pickles
+        # G1 fix: planning mode threads forecast_n_periods через mROAS — marginal
+        # ROI estimated per planning horizon, не training (analyst mode unchanged).
         mroi_current = _compute_mroas_money(
             current_spend_native=cur,
-            n_periods=n_periods,
+            n_periods=forecast_n_periods,
             mean=mean_ch,
             alpha=p['alpha'],
             gamma=p['gamma'],
@@ -767,7 +834,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         )
         mroi_optimal = _compute_mroas_money(
             current_spend_native=float(opt),
-            n_periods=n_periods,
+            n_periods=forecast_n_periods,
             mean=mean_ch,
             alpha=p['alpha'],
             gamma=p['gamma'],
@@ -801,7 +868,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     mean_for_samples = mean_ch
                 cur_arr = _compute_mroas_money_samples(
                     current_spend_native=cur,
-                    n_periods=n_periods,
+                    n_periods=forecast_n_periods,
                     mean=mean_for_samples,
                     alpha_samples=ch_samples['alpha'],
                     gamma_samples=ch_samples['gamma'],
@@ -815,7 +882,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
                 opt_arr = _compute_mroas_money_samples(
                     current_spend_native=float(opt),
-                    n_periods=n_periods,
+                    n_periods=forecast_n_periods,
                     mean=mean_for_samples,
                     alpha_samples=ch_samples['alpha'],
                     gamma_samples=ch_samples['gamma'],
@@ -884,16 +951,19 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # F5 fix (math-audit v1.3): X-axis в total spend (как было), но Hill input
         # — per-period adstocked / mean. Curve теперь показывает realistic S-shape
         # (раньше total/mean = 30+× → asymptotic plateau).
-        upper = cur * 2 if cur > 0 else mean_ch * 2 * n_periods
+        # G1 fix: planning mode response curves в forecast scale (planning horizon
+        # spend on x-axis, planning-period total KPI on y-axis). Analyst mode
+        # behavior unchanged (forecast_n_periods == n_periods).
+        upper = cur * 2 if cur > 0 else mean_ch * 2 * forecast_n_periods
         spend_range = np.linspace(0, upper, 50)
         # Per-period equivalent for Hill input
-        per_period_avg = spend_range / n_periods
+        per_period_avg = spend_range / forecast_n_periods
         decay_pt_rc = p.get('decay')  # Phase 1.1: posterior mean decay for response curve adstock
-        adstocked_avg = np.array([_flat_alloc_adstock_avg(float(x), n_periods, a_type, decay_pt_rc) for x in per_period_avg])
+        adstocked_avg = np.array([_flat_alloc_adstock_avg(float(x), forecast_n_periods, a_type, decay_pt_rc) for x in per_period_avg])
         spend_range_norm = adstocked_avg / max(mean_ch, 1e-10)
         responses_norm = response_curve(spend_range_norm, p['alpha'], max(p['gamma'], 1e-6), p['beta'])
-        # Total contribution = per-period response × n_periods × y_std
-        responses_kpi = responses_norm * y_std * n_periods
+        # Total contribution = per-period response × forecast_n_periods × y_std
+        responses_kpi = responses_norm * y_std * forecast_n_periods
         response_curves_data[col] = {
             'spend': spend_range.tolist(),
             'response': responses_kpi.tolist(),
@@ -961,6 +1031,11 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # math-fix v1.0.16, L10: baseline_zero flag — real current media contribution = 0,
         # lift_pct undefined. UI должен suppress lift display + show diagnostic banner.
         'baseline_zero': bool(baseline_zero),
+        # Phase 2 (Planning Mode) metadata — present always (analyst mode echoes
+        # n_periods == forecast_n_periods and planning_mode=False для UI consistency).
+        'planning_mode': bool(planning_mode),
+        'train_n_periods': int(n_periods),
+        'forecast_n_periods': int(forecast_n_periods),
         'slsqp_diagnostics': {
             'n_starts': len(slsqp_attempts),
             'n_converged': sum(1 for a in slsqp_attempts if a['success']),
