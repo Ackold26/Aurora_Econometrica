@@ -468,7 +468,7 @@
                 {@const inflRate = parsedInflation[ch.name] ?? 0}
                 {@const perYear = (isMultiYearTraining && val != null && inflRate > 0) ? perYearCostBreakdown(val, inflRate) : []}
                 {@const avgCost = perYear.length ? equalWeightAvg(perYear) : null}
-                {@const adjustedPreview = avgCost != null ? rawSum * avgCost : null}
+                {@const adjustedPreview = (avgCost != null && rawSum != null) ? rawSum * avgCost : null}
                 <div class="row-preview">
                   <div class="preview-line">
                     Номинал (последний год): <b>{fmt(rawSum)} × {fmt(val)} ₽ = {fmt(preview)} ₽</b>
