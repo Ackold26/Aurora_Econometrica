@@ -1056,6 +1056,56 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'channel_adstock_types': dict(adstock_config),
         }
 
+        # ─── Phase 2 (Planning Mode) at-fit-time persistence ───
+        # Audit pass 2 2026-05-02: persist granularity + x_norm quantiles +
+        # seasonality detection so planning mode requests skip lazy inference
+        # (G2 still handles legacy v1.3 pickles; new pickles are pre-computed).
+        try:
+            from utils.forecast_validation import (
+                compute_x_norm_quantiles,
+                detect_granularity,
+                detect_seasonality,
+            )
+            # Granularity (peek date column directly here — already loaded df).
+            if date_col in df.columns:
+                gran_result = detect_granularity(df[date_col])
+                if gran_result['confidence'] >= 0.4:
+                    model_data['training_granularity'] = gran_result['granularity']
+            # x_norm quantiles per channel — recompute from raw spend × decay
+            # posterior mean (matches optimizer.py:496 fallback chain semantics).
+            from utils.adstock import apply_adstock as _apply_adstock_fit
+            quantiles_per_channel: dict[str, dict[str, float]] = {}
+            for i, col in enumerate(media_cols):
+                if col not in df.columns:
+                    continue
+                raw = df[col].fillna(0).values.astype(float)
+                if raw.size == 0:
+                    continue
+                decay_pt = float(adstock_decay_means[i]) if i < len(adstock_decay_means) else 0.5
+                a_type = adstock_config.get(col, 'geometric')
+                try:
+                    adstock_series = _apply_adstock_fit(raw, a_type, {'alpha': decay_pt})
+                except Exception:
+                    continue
+                mean = adstock_means_posterior.get(col)
+                if mean is None or mean <= 0:
+                    mean = float(media_means.get(col, 1.0) or 1.0)
+                if mean <= 0:
+                    continue
+                quantiles_per_channel[col] = compute_x_norm_quantiles(adstock_series, mean)
+            if quantiles_per_channel:
+                model_data['train_x_norm_quantiles'] = quantiles_per_channel
+            # Seasonality detection on y_actual (training KPI series).
+            granularity_for_season = model_data.get('training_granularity') or 'W'
+            season_result = detect_seasonality(y, granularity=granularity_for_season)
+            model_data['seasonality_detected'] = season_result  # dict | None
+        except Exception as _phase2_persist_err:
+            # Non-fatal — pre-Phase-2 fields will lazy-inferred at load time.
+            logger.warning(
+                f"Phase 2 at-fit-time persistence failed: {_phase2_persist_err}. "
+                f"Legacy inference helpers will fill on demand."
+            )
+
         model_path = models_dir / 'latest.pkl'
 
         # Model versioning: archive previous model before overwriting

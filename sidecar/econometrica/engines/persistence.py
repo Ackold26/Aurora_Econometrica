@@ -18,6 +18,13 @@ Migration ladder:
                * channel_adstock_types, weibull_params_per_channel
                * comparison_baseline_posterior (для ROI shift dual-posterior)
                * feature_flags_used (telemetry)
+               * Phase 2 additions (Planning Mode, audit pass 2 2026-05-02):
+                 - training_granularity: 'D'|'W'|'M'|'Q'|'Y' (auto-detected)
+                 - train_x_norm_quantiles: dict[channel, {p50,p75,p90,p95,p99}]
+                 - seasonality_detected: dict | None ({period, autocorr})
+                 Pickles trained pre-Phase-2 lack these fields; G2 inference
+                 helpers (infer_*_at_load) compute lazily on first need.
+                 S8 lock — no reserved future fields, additive evolution only.
 """
 
 from __future__ import annotations
@@ -80,6 +87,12 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     model_data.setdefault('weibull_params_per_channel', {})  # learned (peak_week, tail_decay)
     model_data.setdefault('comparison_baseline_posterior', None)  # для ROI shift toggle
     model_data.setdefault('feature_flags_used', [])          # telemetry
+
+    # Phase 2 (Planning Mode) — pre-Phase-2 pickles get None defaults; G2 inference
+    # helpers compute lazily when planning mode actually queries them.
+    model_data.setdefault('training_granularity', None)
+    model_data.setdefault('train_x_norm_quantiles', None)
+    model_data.setdefault('seasonality_detected', None)
 
     return model_data
 
@@ -174,6 +187,152 @@ def get_channel_categories(
     if not media_cols:
         return {}
     return infer_categories_heuristic(list(media_cols))
+
+
+# ─── Phase 2 (Planning Mode) — at-load-time inference helpers (G2 plan gap) ───
+#
+# For pre-Phase-2 customer pickles (v1.3 = current ship), the new Phase 2
+# fields are absent. Rather than force re-train, infer lazily when planning
+# mode actually queries them. Caller is responsible for caching на pickle
+# basis (computation is non-trivial для quantiles + seasonality).
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def get_training_granularity(model_data: dict[str, Any]) -> str | None:
+    """Phase 2 — return persisted training_granularity или infer from data_file.
+
+    Persisted-first; falls back к infer_granularity_at_load() для legacy pickles.
+    Returns None если cannot infer (no data file accessible, e.g., moved/deleted).
+    """
+    persisted = model_data.get('training_granularity')
+    if persisted:
+        return str(persisted)
+    return infer_granularity_at_load(model_data)
+
+
+def infer_granularity_at_load(model_data: dict[str, Any]) -> str | None:
+    """G2 — infer granularity from model_data.config.data_file at load time.
+
+    Heavy I/O — каллер should cache. Returns None when data_file inaccessible.
+    """
+    config = model_data.get('config') or {}
+    data_file = config.get('data_file')
+    date_col = config.get('date_column', 'date')
+    if not data_file:
+        return None
+    try:
+        import pandas as pd
+        df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+        if date_col not in df.columns:
+            return None
+        from utils.forecast_validation import detect_granularity
+        result = detect_granularity(df[date_col])
+        return result['granularity'] if result['confidence'] >= 0.4 else None
+    except Exception:
+        return None
+
+
+def get_seasonality(model_data: dict[str, Any]) -> dict | None:
+    """Phase 2 — return persisted seasonality_detected или infer at load.
+
+    Persisted-first; falls back к infer_seasonality_at_load() для legacy pickles.
+    """
+    persisted = model_data.get('seasonality_detected')
+    if persisted is not None:
+        return persisted if isinstance(persisted, dict) else None
+    return infer_seasonality_at_load(model_data)
+
+
+def infer_seasonality_at_load(model_data: dict[str, Any]) -> dict | None:
+    """G2 — infer seasonality from training y_actual at load time.
+
+    Uses y_actual stored в diagnostics.actual_vs_predicted (always present
+    в v1.1+ pickles). Returns None when unavailable.
+    """
+    diagnostics = model_data.get('diagnostics') or {}
+    avp = diagnostics.get('actual_vs_predicted') or {}
+    y_actual = avp.get('actual')
+    if not y_actual:
+        return None
+    granularity = get_training_granularity(model_data) or 'W'
+    try:
+        from utils.forecast_validation import detect_seasonality
+        return detect_seasonality(y_actual, granularity=granularity)
+    except Exception:
+        return None
+
+
+def get_x_norm_quantiles(
+    model_data: dict[str, Any], channel: str,
+) -> dict[str, float] | None:
+    """Phase 2 — return persisted x_norm quantiles per channel или infer.
+
+    Persisted-first; falls back к infer_x_norm_quantiles_at_load() для legacy.
+    Returns None when channel missing OR inference impossible (no posterior + raw spend).
+    """
+    persisted = model_data.get('train_x_norm_quantiles')
+    if persisted and channel in persisted:
+        return persisted[channel]
+    inferred = infer_x_norm_quantiles_at_load(model_data)
+    return inferred.get(channel) if inferred else None
+
+
+def infer_x_norm_quantiles_at_load(
+    model_data: dict[str, Any],
+) -> dict[str, dict[str, float]] | None:
+    """G2 — recompute x_norm quantiles from training adstock + posterior decay.
+
+    For each channel:
+      adstock_series = geometric_adstock(raw_train_spend, decay_posterior_mean)
+      x_norm_series = adstock_series / adstock_mean_posterior
+      quantiles = {p50, p75, p90, p95, p99}
+
+    Heavy: reads training data, applies adstock per channel. Caller cache.
+    Returns None when raw spend OR posterior decay inaccessible.
+    """
+    config = model_data.get('config') or {}
+    data_file = config.get('data_file')
+    if not data_file:
+        return None
+    channel_params = model_data.get('channel_params') or {}
+    if not channel_params:
+        return None
+
+    try:
+        import pandas as pd
+        df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+        from utils.merge_rules import apply_merge_rules
+        apply_merge_rules(df, config.get('merge_rules'))
+        from utils.adstock import apply_adstock
+        from utils.forecast_validation import compute_x_norm_quantiles
+    except Exception:
+        return None
+
+    out: dict[str, dict[str, float]] = {}
+    for col, p in channel_params.items():
+        if col not in df.columns:
+            continue
+        raw_spend = df[col].fillna(0).values.astype(float)
+        if raw_spend.size == 0:
+            continue
+        decay = p.get('decay')
+        a_type = get_adstock_type(model_data, col)
+        params = {'alpha': float(decay)} if decay is not None else None
+        try:
+            adstock_series = apply_adstock(raw_spend, a_type, params)
+        except Exception:
+            continue
+        # Mean — prefer adstock_mean_posterior, fallback к media_means
+        norm = (model_data.get('normalization') or {})
+        mean_post = p.get('adstock_mean_posterior')
+        if mean_post is not None:
+            mean = float(mean_post)
+        else:
+            mean = float(norm.get('media_means', {}).get(col, 1.0) or 1.0)
+        if mean <= 0:
+            continue
+        out[col] = compute_x_norm_quantiles(adstock_series, mean)
+    return out if out else None
 
 
 def is_hierarchical_model(model_data: dict[str, Any]) -> bool:
