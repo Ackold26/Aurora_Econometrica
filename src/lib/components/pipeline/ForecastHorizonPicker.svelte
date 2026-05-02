@@ -58,7 +58,11 @@
   function selectPreset(label, n) {
     selectedPreset = label;
     customPeriods = n;
-    if (budgetInput == null) budgetInput = suggestBudget(n);
+    // Preset click = «reset to preset defaults» — always recompute budget
+    // proportional to new period. User can manually edit afterward.
+    // Pre-fix: only set когда budget was null → second/third preset clicks
+    // не обновляли цифру (UX bug reported 2026-05-02).
+    budgetInput = suggestBudget(n);
     emitChange();
   }
 
