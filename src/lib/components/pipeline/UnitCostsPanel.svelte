@@ -292,6 +292,30 @@
     return false;
   });
 
+  /** Compute per-year cost breakdown via inflation rollback.
+   * @param {number} currentCost — стоимость в latest year training
+   * @param {number} ratePct — годовой темп инфляции (%)
+   * @returns {Array<{year: number, cost: number}>}
+   */
+  function perYearCostBreakdown(currentCost, ratePct) {
+    if (!dateColumnStats?.unique_years?.length) return [];
+    const years = /** @type {number[]} */ ([...dateColumnStats.unique_years]).sort();
+    const latestYear = years[years.length - 1];
+    const rate = (ratePct || 0) / 100;
+    return years.map((y) => ({
+      year: y,
+      cost: currentCost / Math.pow(1 + rate, latestYear - y),
+    }));
+  }
+
+  /** Equal-year-weighted average (frontend approximation; backend uses spend-weighted).
+   * @param {Array<{cost: number}>} breakdown
+   */
+  function equalWeightAvg(breakdown) {
+    if (!breakdown.length) return 0;
+    return breakdown.reduce((s, x) => s + x.cost, 0) / breakdown.length;
+  }
+
   /** @param {string} name */
   function anomalyHint(name) {
     const def = suggestDefault(name);
@@ -441,8 +465,38 @@
                 <div class="row-default muted">Нет данных по объёму — укажи цену вручную</div>
               {/if}
               {#if preview != null}
+                {@const inflRate = parsedInflation[ch.name] ?? 0}
+                {@const perYear = (isMultiYearTraining && val != null && inflRate > 0) ? perYearCostBreakdown(val, inflRate) : []}
+                {@const avgCost = perYear.length ? equalWeightAvg(perYear) : null}
+                {@const adjustedPreview = avgCost != null ? rawSum * avgCost : null}
                 <div class="row-preview">
-                  Эквивалент: <b>{fmt(rawSum)} × {fmt(val)} ₽ = {fmt(preview)} ₽</b>
+                  <div class="preview-line">
+                    Номинал (последний год): <b>{fmt(rawSum)} × {fmt(val)} ₽ = {fmt(preview)} ₽</b>
+                  </div>
+                  {#if perYear.length > 0 && avgCost != null && adjustedPreview != null}
+                    <div class="preview-line preview-adjusted">
+                      С учётом инфляции <b>{inflRate}%/год</b> ·
+                      средняя по {perYear.length} {perYear.length < 5 ? 'годам' : 'годам'}:
+                      <b>≈ {fmt(adjustedPreview)} ₽</b>
+                    </div>
+                    <div class="preview-line preview-formula" title="Формула: cost(year) = current ÷ (1+rate)^(latest_year − year). Backend применит spend-weighted средневзвешенное при decompose/optimize.">
+                      <span class="muted">Расчёт по годам:</span>
+                      {#each perYear as py, i}
+                        <span class="year-pill">
+                          <span class="year-label">{py.year}</span>
+                          <span class="year-cost">{fmt(py.cost)} ₽</span>
+                        </span>
+                      {/each}
+                      <span class="muted">→ среднее (frontend approx)</span>
+                    </div>
+                    <div class="preview-line preview-explainer">
+                      <span class="muted">Backend применит точный <em>spend-weighted</em> средневзвешенное (учтёт распределение объёма по годам). ROI/mROAS будут считаться от него.</span>
+                    </div>
+                  {:else if isMultiYearTraining && inflRate === 0}
+                    <div class="preview-line muted">
+                      Историческая инфляция = 0% → цена 250k применяется ко всем годам обучения как есть.
+                    </div>
+                  {/if}
                 </div>
               {:else if val != null && rawSum == null}
                 <div class="row-preview muted">
@@ -697,6 +751,48 @@
   }
   .row-preview.muted { color: var(--text-muted); font-style: italic; }
   .row-preview b { color: var(--text-primary, #e2e8f0); font-weight: 600; font-variant-numeric: tabular-nums; }
+  /* Phase 2 audit pass 5 cont — inflation breakdown в preview */
+  .preview-line { display: block; padding: 2px 0; }
+  .preview-line.preview-adjusted {
+    margin-top: 4px;
+    padding: 4px 8px;
+    background: var(--accent-glow);
+    border-left: 2px solid var(--border-active);
+    border-radius: 4px;
+    color: var(--text-primary);
+  }
+  .preview-line.preview-adjusted b { color: var(--accent-text-light, var(--accent-primary)); }
+  .preview-line.preview-formula {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 10.5px;
+  }
+  .year-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+    border: 1px solid var(--border-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .year-pill .year-label {
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .year-pill .year-cost {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  .preview-line.preview-explainer {
+    margin-top: 4px;
+    font-size: 10.5px;
+  }
+  .preview-line.preview-explainer em { color: var(--text-secondary); font-style: normal; font-weight: 600; }
   .row-warn-msg {
     font-size: 11px;
     color: var(--warning, #f59e0b);
