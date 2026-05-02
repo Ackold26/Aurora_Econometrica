@@ -173,6 +173,18 @@
   {#if horizonWarning}
     <div class:critical={customPeriods != null && customPeriods > maxCustom} class="warn">{horizonWarning}</div>
   {/if}
+
+  {#if customPeriods != null && customPeriods >= 1 && budgetInput != null && budgetInput > 0}
+    <div class="planning-summary">
+      <span class="arrow" aria-hidden="true">↓</span>
+      <span class="summary-text">
+        Этот бюджет
+        <strong>{budgetInput.toLocaleString('ru-RU')} ₽</strong>
+        на <strong>{customPeriods}</strong> {customPeriods === 1 ? 'период' : customPeriods < 5 ? 'периода' : 'периодов'}
+        будет использован для оптимизации
+      </span>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -285,4 +297,22 @@
     background: rgba(239, 68, 68, 0.14);
     border-left-color: #ef4444;
   }
+  .planning-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--accent-glow);
+    border: 1px solid var(--border-active);
+    color: var(--text-primary);
+    font-size: 0.88rem;
+    line-height: 1.4;
+  }
+  .planning-summary .arrow {
+    font-size: 1.2rem;
+    color: var(--accent-text-light, var(--accent-primary));
+    font-weight: 600;
+  }
+  .planning-summary strong { color: var(--accent-text-light, var(--accent-primary)); }
 </style>

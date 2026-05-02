@@ -1207,11 +1207,28 @@
       <span class="block-subtitle">— выжать максимум из текущего бюджета</span>
     </div>
 
-    <!-- Planning horizon warning — explicit honest disclosure что цифры в training scale.
-         Phase 1 (2026-05-02): пока Phase 2 (forecast_horizon parameter) не реализована,
-         планнерам нужно понимать что absolute amounts = training period (3 года),
-         а доли каналов универсальны для сопоставимых периодов (год/квартал/полугодие).
-         Roadmap: project_econometrica_forecast_horizon_proposal.md — proper Planning Mode. -->
+    <!-- Phase 2 (Planning Mode active) — explicit context banner показывая
+         связь между ForecastHorizonPicker и текущей оптимизацией. -->
+    {#if $planningMode === 'planner' && $forecastConfig.periods != null && $forecastConfig.budgetMoney != null}
+      <div class="planning-active-banner">
+        <span class="banner-icon">🎯</span>
+        <div class="banner-body">
+          <div class="banner-title">Режим планирования активен</div>
+          <div class="banner-text">
+            Оптимизирую бюджет
+            <strong>{$forecastConfig.budgetMoney.toLocaleString('ru-RU')} ₽</strong>
+            на <strong>{$forecastConfig.periods}</strong> периодов
+            ({$forecastConfig.periodLabel ?? 'custom'}).
+            Аллокация рассчитывается per-period (3-way alignment с scenario engine).
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Planning horizon warning (legacy Phase 1 disclosure) — скрывается в
+         planner mode т.к. Phase 2 уже решает эту проблему. Видимость сохранена
+         в analyst mode для backward compat. -->
+    {#if $planningMode !== 'planner'}
     <div class="planning-warn">
       <div class="planning-warn-icon">📅</div>
       <div class="planning-warn-body">
@@ -1244,6 +1261,7 @@
         </div>
       </div>
     </div>
+    {/if}
 
     <!-- Controls -->
     <div class="controls-card">
@@ -1936,6 +1954,34 @@
   .mode-pills .mode-desc { font-size: 0.75rem; color: var(--text-muted); }
   .mode-pills button.active .mode-desc { color: var(--accent-text-light, var(--accent-primary)); opacity: 0.85; }
   .mode-hint { margin: 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+
+  /* Phase 2 — planning mode active banner в block B */
+  .planning-active-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: var(--accent-glow);
+    border: 1px solid var(--border-active);
+    margin-bottom: 14px;
+  }
+  .planning-active-banner .banner-icon { font-size: 1.4rem; line-height: 1.1; }
+  .planning-active-banner .banner-body { display: flex; flex-direction: column; gap: 4px; }
+  .planning-active-banner .banner-title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--accent-text-light, var(--accent-primary));
+  }
+  .planning-active-banner .banner-text {
+    font-size: 0.86rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+  }
+  .planning-active-banner strong {
+    color: var(--accent-text-light, var(--accent-primary));
+    font-weight: 600;
+  }
 
   .optimize-step {
     /* Скрол владеет .pipeline-main — здесь никаких overflow / height: 100%,
