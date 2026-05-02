@@ -40,6 +40,12 @@ pub struct ProjectInfo {
     /// Backward compat: default empty for projects saved до v1.1.0.
     #[serde(default)]
     pub channel_categories: HashMap<String, String>,
+    /// Phase 2 audit pass 4 (2026-05-02): per-channel annual CPP/CPM inflation
+    /// rate (%/year) для multi-year training data. Customer enters cost в
+    /// последний год training; backend computes weighted-average через rollback.
+    /// Backward compat: default empty (no adjustment) for legacy projects.
+    #[serde(default)]
+    pub unit_cost_inflation_pct: HashMap<String, f64>,
 }
 
 /// Get the projects root directory.
@@ -167,6 +173,7 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
         unit_costs: HashMap::new(),
         excluded_columns: Vec::new(),
         channel_categories: HashMap::new(),
+        unit_cost_inflation_pct: HashMap::new(),
     };
     write_project(&dir, &info)?;
 
@@ -217,6 +224,18 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
         info.unit_costs = uc.iter()
             .filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f)))
             .collect();
+    }
+    // Phase 2 audit pass 5 fix (BUG B5): persist unit_cost_inflation_pct map.
+    // Pre-fix: project_update silently ignored this key → values lost после
+    // save reload. Now: explicit handler + null support (clears map).
+    if let Some(infl_v) = updates.get("unit_cost_inflation_pct") {
+        if infl_v.is_null() {
+            info.unit_cost_inflation_pct.clear();
+        } else if let Some(obj) = infl_v.as_object() {
+            info.unit_cost_inflation_pct = obj.iter()
+                .filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f)))
+                .collect();
+        }
     }
     // L1 persistence (math-fix v1.4 Section C): explicit excluded_columns set
     if let Some(excluded) = updates.get("excluded_columns").and_then(|v| v.as_array()) {

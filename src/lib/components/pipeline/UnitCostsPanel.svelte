@@ -257,9 +257,38 @@
     return out;
   });
 
+  // Audit pass 5 fix (BUG B2): UnitCostsPanel живёт в ValidateStep — РАНЬШЕ
+  // OptimizeStep в pipeline. Глобальный forecastContext store fetched только
+  // в planner mode на OptimizeStep mount → UnitCostsPanel не видел multi-year
+  // detection через стандартный workflow. Делаем independent fetch когда
+  // pickle existed (after train).
+  /** @type {any} */
+  let localForecastContext = $state(null);
+  $effect(() => {
+    const pid = $activeProjectId;
+    if (!pid) { localForecastContext = null; return; }
+    (async () => {
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
+        const ctx = /** @type {any} */ (await invoke('econ_forecast_context', { projectDir }));
+        if (ctx?.status === 'ok') {
+          localForecastContext = ctx;
+          // Also populate global store для shared consumers
+          forecastContext.set(ctx);
+        } else {
+          localForecastContext = null;
+        }
+      } catch {
+        // Model not trained yet — silent fallback (input не показывается).
+        localForecastContext = null;
+      }
+    })();
+  });
+
   // Show inflation field только когда training data spans ≥2 years.
+  // Reads localForecastContext (independent fetch) с fallback к global store.
   const isMultiYearTraining = $derived.by(() => {
-    const ranges = $forecastContext?.training_year_ranges;
+    const ranges = (localForecastContext ?? $forecastContext)?.training_year_ranges;
     return Array.isArray(ranges) && ranges.length >= 2;
   });
 
@@ -359,10 +388,12 @@
       <div class="title">Стоимость юнита для каналов в не-денежных единицах</div>
       <div class="hint">
         Добавь каналы, измеряемые не в рублях (TRP, показы, статьи, спецпроекты),
-        и укажи цену единицы (последний год обучающих данных). Модель пересчитает их в рубли и даст корректный ROI.
+        и укажи цену единицы <strong>в последнем году обучающих данных</strong>. Модель пересчитает их в рубли и даст корректный ROI.
         {#if isMultiYearTraining}
-          <br><strong>Обучение охватывает несколько лет</strong> — задайте годовую инфляцию CPP/CPM
-          (по РФ обычно 25–30%): backend применит weighted-average по периодам обучения. 0 = цена не менялась.
+          <br>📅 <strong>Обучение охватывает несколько лет</strong> — задайте <em>исторический</em> темп инфляции CPP/CPM
+          (по РФ типично 25–30% год к году). Backend пересчитает цену по обучающим периодам:
+          текущая ÷ (1+rate)<sup>лет</sup> и применит weighted-average. 0 = цена не менялась.
+          <br><span class="hint-secondary">⚠ Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в шаге «Оптимизация» (Блок D).</span>
         {/if}
         {#if $analysisObjective !== 'roi'}
           <br><em>Активно только в режиме «ROI» (см. Цель анализа).</em>
@@ -408,10 +439,10 @@
                   inputmode="decimal"
                   bind:value={inflationDraft[ch.name]}
                   placeholder="0"
-                  aria-label="Годовая инфляция CPP для {ch.name}"
-                  title="Среднегодовой рост стоимости юнита за период обучения (например 25 — для 25%/год). 0 = неизменная цена."
+                  aria-label="Историческая годовая инфляция CPP для {ch.name}"
+                  title={'Исторический годовой темп роста стоимости юнита за период обучения (например 25 — для 25%/год). Backend пересчитает цену по training периодам: 2024 = current ÷ 1.25, 2023 = current ÷ 1.25², и т.д. 0 = цена не менялась.\n\nЭто НЕ прогнозная инфляция. Прогнозную (для forecast) задавайте в Блоке D на шаге «Оптимизация».'}
                 />
-                <span class="unit">%/год</span>
+                <span class="unit" title="Историческая инфляция. Прогнозная — в Блоке D на шаге «Оптимизация».">%/год (история)</span>
               {/if}
             </div>
             <div class="row-meta">
@@ -665,6 +696,13 @@
     outline: none;
     border-color: var(--border-active);
     box-shadow: 0 0 0 2px var(--accent-glow);
+  }
+  .hint-secondary {
+    display: inline-block;
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    font-style: italic;
   }
   .row-meta { display: flex; flex-direction: column; gap: 2px; }
   .row-default { font-size: 11px; color: var(--text-secondary, #94a3b8); line-height: 1.3; }

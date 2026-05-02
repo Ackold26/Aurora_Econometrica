@@ -321,16 +321,25 @@ export const unitCosts = writable({});
 export const unitCostInflation = writable(/** @type {Record<string, number>} */ ({}));
 
 // Sync unitCosts + inflation from activeProject when it loads/changes.
+// Audit pass 5 fix (BUG B1): when activeProject is set but doesn't include
+// `unit_cost_inflation_pct` field (legacy projects), reset store к {}. Without
+// this, switch project A (with inflation) → project B (legacy) leaves store
+// with A's inflation values applied к B incorrectly.
 activeProject.subscribe((p) => {
-  if (p && p.unit_costs && typeof p.unit_costs === 'object') {
+  if (!p) {
+    unitCosts.set({});
+    unitCostInflation.set({});
+    return;
+  }
+  if (p.unit_costs && typeof p.unit_costs === 'object') {
     unitCosts.set(/** @type {Record<string, number>} */ (p.unit_costs));
-  } else if (!p) {
+  } else {
     unitCosts.set({});
   }
-  if (p && p.unit_cost_inflation_pct && typeof p.unit_cost_inflation_pct === 'object') {
+  if (p.unit_cost_inflation_pct && typeof p.unit_cost_inflation_pct === 'object') {
     unitCostInflation.set(/** @type {Record<string, number>} */ (p.unit_cost_inflation_pct));
-  } else if (!p) {
-    unitCostInflation.set({});
+  } else {
+    unitCostInflation.set({});  // ← always reset when project switches
   }
 });
 
