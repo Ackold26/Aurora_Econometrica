@@ -998,8 +998,8 @@ def forecast_context(req: ForecastContextRequest):
     """Phase 2 preview — granularity + seasonality + calibration zones."""
     from pathlib import Path
     from engines.persistence import (
-        get_seasonality, get_training_granularity, get_x_norm_quantiles,
-        load_model_with_compat,
+        get_seasonality, get_training_granularity,
+        infer_x_norm_quantiles_at_load, load_model_with_compat,
     )
     project_path = Path(req.project_dir)
     model_path = project_path / 'models' / 'latest.pkl'
@@ -1013,7 +1013,16 @@ def forecast_context(req: ForecastContextRequest):
     granularity = get_training_granularity(model_data)
     seasonality = get_seasonality(model_data)
     media_cols = (model_data.get('config') or {}).get('media_columns') or []
-    quantiles = {col: get_x_norm_quantiles(model_data, col) for col in media_cols}
+    # Audit pass 3 fix (BUG 11): N² regression. Per-channel get_x_norm_quantiles
+    # recomputed adstock for ALL channels per call → 5 channels = 25 adstock comps.
+    # Pre-compute once: persisted dict if available, else single inference pass.
+    persisted_quantiles = model_data.get('train_x_norm_quantiles') or {}
+    if persisted_quantiles and all(col in persisted_quantiles for col in media_cols):
+        quantiles = {col: persisted_quantiles[col] for col in media_cols}
+    else:
+        # Legacy pickle (or partial) — single inference pass for all channels
+        inferred = infer_x_norm_quantiles_at_load(model_data) or {}
+        quantiles = {col: persisted_quantiles.get(col) or inferred.get(col) for col in media_cols}
     train_n = len(model_data.get('y_actual') or [])
     return JSONResponse(content={
         'status': 'ok',

@@ -289,10 +289,17 @@
     })();
   });
 
-  // Reset forecast config on project switch (P5 plan gap)
+  // Reset forecast config on project switch (P5 plan gap).
+  // Audit pass 3 fix (BUG 16): track previous projectId — only reset on actual
+  // change. Pre-fix: $effect fired on initial mount → wiped user input при
+  // every navigation back to OptimizeStep within same project.
+  let _prevProjectIdForReset = /** @type {string | null} */ (null);
   $effect(() => {
-    const _projectId = $activeProjectId;
-    forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+    const projectId = $activeProjectId;
+    if (_prevProjectIdForReset !== null && _prevProjectIdForReset !== projectId) {
+      forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+    }
+    _prevProjectIdForReset = projectId;
   });
 
   // ── Блок A — статус-карточка «Текущий бюджет» ─────────────

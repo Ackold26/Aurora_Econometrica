@@ -184,6 +184,179 @@ class TestT5_WarningCompositionWithMultipleSources:
         assert result['secondary'][0]['severity'] == 'info'
 
 
+class TestAuditPass3RegressionFixes:
+    """Audit pass 3 (2026-05-02) — regression tests for material bugs found."""
+
+    def test_bug1_optimizer_uses_kpi_aware_cap(self, tmp_path):
+        """BUG 1 — optimizer.py /compute/optimize must use S7 KPI-aware cap.
+
+        Pre-fix: hardcoded `forecast_n > n_periods * 2` bypassed S7 для awareness
+        pickle (allows up to 2× when registry says 1.5×). Post-fix: optimizer
+        consults `get_forecast_horizon_max_multiplier(kpi_type)` consistent с
+        /compute/forecast-scaling endpoint.
+        """
+        import pickle
+
+        import pandas as pd
+        from fastapi.testclient import TestClient
+        from server import app
+
+        project = tmp_path / 'awareness_optimize_project'
+        models_dir = project / 'models'
+        models_dir.mkdir(parents=True)
+        data_csv = project / 'training.csv'
+        df = pd.DataFrame({
+            'date': pd.date_range('2023-01-01', periods=52, freq='W'),
+            'Brand': [1000.0] * 52,
+            'awareness': [50.0] * 52,
+        })
+        df.to_csv(data_csv, index=False)
+
+        # Awareness pickle с train_n=52. Cap = 1.5× = 78.
+        pickle_data = {
+            'model_version': '1.3',
+            'channel_categories': {},
+            'kpi_type': 'awareness',
+            'kpi_likelihood': 'logit_normal',
+            'config': {'data_file': str(data_csv), 'date_column': 'date',
+                       'media_columns': ['Brand']},
+            'channel_params': {
+                'Brand': {'alpha': 2.0, 'gamma': 0.3, 'beta': 0.05, 'decay': 0.8,
+                          'adstock_mean_posterior': 1000.0},
+            },
+            'normalization': {'media_means': {'Brand': 1000.0}, 'y_mean': 0, 'y_std': 1},
+            'y_actual': list(range(52)),
+        }
+        with open(models_dir / 'latest.pkl', 'wb') as f:
+            pickle.dump(pickle_data, f)
+
+        client = TestClient(app)
+        # forecast_periods=85 → 85/52 ≈ 1.63× — exceeds 1.5× awareness cap
+        response = client.post('/compute/optimize', json={
+            'project_dir': str(project),
+            'total_budget_money': 1_000_000,
+            'forecast_periods': 85,
+        })
+        # Optimize endpoint returns 200 with status='error' field (не HTTP 400)
+        # because the protocol matches existing optimize errors (UNIT_SMELL etc).
+        body = response.json()
+        assert body.get('status') == 'error'
+        assert body.get('error_code') == 'FORECAST_HORIZON_TOO_LONG'
+        # Message must mention 1.5× (S7 awareness cap), not hardcoded 2×
+        assert '1.5' in body.get('message', '')
+
+    def test_bug1_sales_uses_2x_cap_unchanged(self, tmp_path):
+        """BUG 1 verification: sales pickle still uses 2.0× cap (no regression)."""
+        import pickle
+
+        import pandas as pd
+        from fastapi.testclient import TestClient
+        from server import app
+
+        project = tmp_path / 'sales_optimize_project'
+        models_dir = project / 'models'
+        models_dir.mkdir(parents=True)
+        data_csv = project / 'training.csv'
+        df = pd.DataFrame({
+            'date': pd.date_range('2023-01-01', periods=52, freq='W'),
+            'TV': [5000.0] * 52,
+            'sales': [100.0] * 52,
+        })
+        df.to_csv(data_csv, index=False)
+
+        pickle_data = {
+            'model_version': '1.3',
+            'channel_categories': {},
+            'kpi_type': 'sales',
+            'kpi_likelihood': 'normal',
+            'config': {'data_file': str(data_csv), 'date_column': 'date',
+                       'media_columns': ['TV']},
+            'channel_params': {
+                'TV': {'alpha': 2.0, 'gamma': 0.5, 'beta': 0.05, 'decay': 0.7,
+                       'adstock_mean_posterior': 5000.0},
+            },
+            'normalization': {'media_means': {'TV': 5000.0}, 'y_mean': 0, 'y_std': 1},
+            'y_actual': list(range(52)),
+        }
+        with open(models_dir / 'latest.pkl', 'wb') as f:
+            pickle.dump(pickle_data, f)
+
+        client = TestClient(app)
+        # 85/52 ≈ 1.63× — within sales 2.0× cap, should NOT reject for horizon
+        response = client.post('/compute/optimize', json={
+            'project_dir': str(project),
+            'total_budget_money': 1_000_000,
+            'forecast_periods': 85,
+        })
+        body = response.json()
+        # Не должны получить FORECAST_HORIZON_TOO_LONG — sales cap = 2.0× = 104
+        assert body.get('error_code') != 'FORECAST_HORIZON_TOO_LONG'
+
+    def test_bug11_forecast_context_no_n_squared_inference(self, tmp_path):
+        """BUG 11 — /compute/forecast-context must not recompute adstock N² times.
+
+        Verify legacy pickle с 5 channels triggers single inference pass, не 5.
+        Direct verification: count infer_x_norm_quantiles_at_load calls via mock.
+        """
+        import pickle
+        from unittest.mock import patch
+
+        import pandas as pd
+        from fastapi.testclient import TestClient
+        from server import app
+
+        project = tmp_path / 'legacy_context_project'
+        models_dir = project / 'models'
+        models_dir.mkdir(parents=True)
+        data_csv = project / 'training.csv'
+        cols_5 = ['TV', 'OLV', 'Search', 'Programmatic', 'Print']
+        df = pd.DataFrame({
+            'date': pd.date_range('2023-01-01', periods=52, freq='W'),
+            'sales': [100.0] * 52,
+            **{col: [1000.0] * 52 for col in cols_5},
+        })
+        df.to_csv(data_csv, index=False)
+        # Legacy pickle (no train_x_norm_quantiles persisted) с 5 channels
+        pickle_data = {
+            'model_version': '1.3',
+            'channel_categories': {},
+            'kpi_type': 'sales',
+            'kpi_likelihood': 'normal',
+            'config': {'data_file': str(data_csv), 'date_column': 'date',
+                       'media_columns': ['TV', 'OLV', 'Search', 'Programmatic', 'Print']},
+            'channel_params': {
+                col: {'alpha': 2.0, 'gamma': 0.5, 'beta': 0.05, 'decay': 0.5,
+                      'adstock_mean_posterior': 1000.0}
+                for col in ['TV', 'OLV', 'Search', 'Programmatic', 'Print']
+            },
+            'normalization': {'media_means': {col: 1000.0 for col in
+                              ['TV', 'OLV', 'Search', 'Programmatic', 'Print']},
+                              'y_mean': 0, 'y_std': 1},
+            'y_actual': list(range(52)),
+        }
+        with open(models_dir / 'latest.pkl', 'wb') as f:
+            pickle.dump(pickle_data, f)
+
+        client = TestClient(app)
+        # Patch infer_x_norm_quantiles_at_load to count invocations
+        from engines import persistence as persistence_module
+        original_infer = persistence_module.infer_x_norm_quantiles_at_load
+        with patch.object(
+            persistence_module, 'infer_x_norm_quantiles_at_load',
+            wraps=original_infer,
+        ) as mock_infer:
+            response = client.post('/compute/forecast-context', json={
+                'project_dir': str(project),
+            })
+            # Pre-fix: 5 channels × 1 call per channel = 5 calls
+            # Post-fix: 1 call total (pre-computed once outside loop)
+            assert mock_infer.call_count <= 1, (
+                f"BUG 11 regression — expected ≤1 infer call для 5 channels, "
+                f"got {mock_infer.call_count}"
+            )
+        assert response.status_code == 200
+
+
 class TestT6_PlanningModePlanFlow:
     """G5 T6 — end-to-end mock-pickle integration (forecast-scaling endpoint)."""
 
@@ -197,6 +370,16 @@ class TestT6_PlanningModePlanFlow:
         project = tmp_path / 'integration_project'
         models_dir = project / 'models'
         models_dir.mkdir(parents=True)
+        data_csv = project / 'training.csv'
+        # T6 doesn't actually need data_csv to load (preview-only endpoint),
+        # но since pickle.config.data_file resolves through persistence layer,
+        # provide a stub csv for safety.
+        import pandas as pd
+        pd.DataFrame({
+            'date': pd.date_range('2023-01-01', periods=52, freq='W'),
+            'Brand': [1000.0] * 52,
+            'awareness': [50.0] * 52,
+        }).to_csv(data_csv, index=False)
 
         # Awareness pickle → S7 should give 1.5× cap, not 2.0×
         pickle_data = {
@@ -204,7 +387,7 @@ class TestT6_PlanningModePlanFlow:
             'channel_categories': {},
             'kpi_type': 'awareness',
             'kpi_likelihood': 'logit_normal',
-            'config': {'data_file': 'irrelevant.csv', 'date_column': 'date',
+            'config': {'data_file': str(data_csv), 'date_column': 'date',
                        'media_columns': ['Brand']},
             'channel_params': {
                 'Brand': {'alpha': 2.0, 'gamma': 0.3, 'beta': 0.05, 'decay': 0.8,

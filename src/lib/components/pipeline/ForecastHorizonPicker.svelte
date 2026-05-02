@@ -75,9 +75,16 @@
       forecastConfig.update(c => ({ ...c, periods: null, periodLabel: null, budgetMoney: null }));
       return;
     }
+    // Audit pass 3 fix (BUG 19): force integer для Tauri Option<i64> compat.
+    // step={1} on input не блокирует typed decimals в некоторых browsers.
+    const periodsInt = Math.floor(Number(customPeriods));
+    if (!Number.isFinite(periodsInt) || periodsInt < 1) {
+      forecastConfig.update(c => ({ ...c, periods: null, periodLabel: null, budgetMoney: null }));
+      return;
+    }
     const cfg = {
-      periods: customPeriods,
-      periodLabel: selectedPreset || `${customPeriods} periods`,
+      periods: periodsInt,
+      periodLabel: selectedPreset || `${periodsInt} periods`,
       budgetMoney: budgetInput,
     };
     forecastConfig.update(c => ({ ...c, ...cfg }));
@@ -128,6 +135,7 @@
         oninput={onCustomChange}
         min={1}
         max={maxCustom}
+        step={1}
         placeholder={`до ${maxCustom}`}
       />
     </label>

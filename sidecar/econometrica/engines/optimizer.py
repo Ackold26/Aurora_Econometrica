@@ -357,16 +357,26 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                 'error_code': 'INVALID_FORECAST_PERIODS',
                 'message': 'forecast_periods должно быть ≥ 1.',
             }
-        # M6 (audit doc L2): hard cap forecast ≤ train_n × 2.
-        if forecast_n_periods > n_periods * 2:
+        # M6 (audit doc L2) + S7 (audit pass 2 — KPI-aware cap):
+        # Audit pass 3 fix (2026-05-02): hardcoded 2× bypassed S7 для awareness
+        # pickles. /compute/forecast-scaling уже использует KPI-aware multiplier;
+        # /compute/optimize должен делать то же самое — иначе frontend caller
+        # мог бы обойти 1.5× cap (awareness) через direct optimize call.
+        from engines.persistence import get_kpi_type
+        from utils.forecast_validation import get_forecast_horizon_max_multiplier
+        _kpi_type = get_kpi_type(model_data)
+        _max_mult = get_forecast_horizon_max_multiplier(_kpi_type)
+        _max_horizon = int(n_periods * _max_mult)
+        if forecast_n_periods > _max_horizon:
             return {
                 'status': 'error',
                 'error_code': 'FORECAST_HORIZON_TOO_LONG',
                 'message': (
                     f'Период планирования ({forecast_n_periods}) превышает '
-                    f'обучающий горизонт более чем в 2 раза ({n_periods * 2}). '
-                    f'Допущение стационарности коэффициентов нарушено. '
-                    f'Переучите модель на расширенных данных или сократите горизонт.'
+                    f'обучающий горизонт более чем в {_max_mult:.1f}× '
+                    f'({_max_horizon}). Допущение стационарности коэффициентов '
+                    f'нарушено. Переучите модель на расширенных данных или '
+                    f'сократите горизонт.'
                 ),
             }
         planning_mode = True
