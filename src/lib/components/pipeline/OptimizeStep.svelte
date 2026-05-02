@@ -1895,11 +1895,11 @@
   .planning-mode-toggle {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px 16px;
+    gap: 10px;
+    padding: 14px 18px;
     border-radius: 12px;
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.92));
-    border: 1px solid var(--border-subtle, rgba(0,0,0,0.08));
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
     margin-bottom: 12px;
   }
   .mode-pills {
@@ -1907,27 +1907,33 @@
     align-self: flex-start;
     gap: 4px;
     padding: 4px;
-    background: rgba(0,0,0,0.04);
+    background: var(--bg-tertiary);
     border-radius: 10px;
+    border: 1px solid var(--border-subtle);
   }
   .mode-pills button {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    padding: 6px 14px;
+    gap: 2px;
+    padding: 8px 16px;
     border: none;
     background: transparent;
     border-radius: 8px;
     cursor: pointer;
-    transition: background 160ms ease, color 160ms ease;
+    color: var(--text-secondary);
+    transition: background 180ms ease, color 180ms ease, box-shadow 180ms ease;
   }
+  .mode-pills button:hover { color: var(--text-primary); background: var(--bg-card-hover); }
   .mode-pills button.active {
-    background: var(--bg-surface-focus, white);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    background: var(--accent-glow);
+    color: var(--accent-text-light, var(--accent-primary));
+    box-shadow: 0 0 0 1px var(--border-active), 0 1px 3px var(--accent-glow-strong);
   }
   .mode-pills .mode-label { font-weight: 600; font-size: 0.95rem; }
-  .mode-pills .mode-desc { font-size: 0.75rem; opacity: 0.7; }
-  .mode-hint { margin: 0; font-size: 0.85rem; opacity: 0.75; }
+  .mode-pills .mode-desc { font-size: 0.75rem; color: var(--text-muted); }
+  .mode-pills button.active .mode-desc { color: var(--accent-text-light, var(--accent-primary)); opacity: 0.85; }
+  .mode-hint { margin: 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
 
   .optimize-step {
     /* Скрол владеет .pipeline-main — здесь никаких overflow / height: 100%,

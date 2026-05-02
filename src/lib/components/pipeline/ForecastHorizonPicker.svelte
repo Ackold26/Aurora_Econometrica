@@ -141,13 +141,22 @@
     </label>
     <label>
       <span>Бюджет периода (₽)</span>
-      <input
-        type="number"
-        bind:value={budgetInput}
-        oninput={emitChange}
-        min={1}
-        placeholder="auto"
-      />
+      <div class="budget-input-wrapper">
+        <input
+          class="budget-input"
+          type="text"
+          inputmode="numeric"
+          value={budgetInput != null ? budgetInput.toLocaleString('ru-RU') : ''}
+          oninput={(e) => {
+            // @ts-ignore
+            const raw = String(e.target.value || '').replace(/\D/g, '');
+            budgetInput = raw === '' ? null : Number(raw);
+            emitChange();
+          }}
+          placeholder="авто"
+        />
+        <span class="budget-suffix">₽</span>
+      </div>
     </label>
   </div>
 
@@ -163,62 +172,109 @@
   .forecast-horizon-picker {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 16px;
+    gap: 14px;
+    padding: 18px 20px;
     border-radius: 12px;
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.92));
-    border: 1px solid var(--border-subtle, rgba(0,0,0,0.08));
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    margin-bottom: 12px;
   }
   h3 {
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
+    color: var(--text-primary);
   }
   .presets {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
   }
   .preset {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 2px;
-    padding: 8px 14px;
+    gap: 3px;
+    padding: 10px 16px;
     border-radius: 10px;
-    border: 1px solid var(--border-subtle, rgba(0,0,0,0.12));
-    background: transparent;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
     cursor: pointer;
-    transition: background 160ms ease, border-color 160ms ease;
+    transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
   }
-  .preset:hover { background: var(--bg-hover, rgba(0,0,0,0.04)); }
+  .preset:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--border-subtle);
+  }
   .preset.active {
-    border-color: var(--accent-primary, #6c3aff);
-    background: var(--accent-primary-soft, rgba(108,58,255,0.08));
+    background: var(--accent-glow);
+    border-color: var(--border-active);
+    color: var(--accent-text-light, var(--accent-primary));
+    box-shadow: 0 1px 3px var(--accent-glow-strong);
   }
   .preset-label { font-weight: 600; font-size: 0.95rem; }
-  .preset-n { font-size: 0.78rem; opacity: 0.7; }
+  .preset-n { font-size: 0.78rem; color: var(--text-muted); }
+  .preset.active .preset-n { color: var(--accent-text-light, var(--accent-primary)); opacity: 0.85; }
   .custom-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 14px;
   }
-  .custom-row label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
-  .custom-row input {
-    padding: 8px 10px;
+  .custom-row label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+  .custom-row input,
+  .custom-row .budget-input {
+    padding: 10px 12px;
     border-radius: 8px;
-    border: 1px solid var(--border-subtle, rgba(0,0,0,0.12));
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--text-primary);
     font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .custom-row input:focus,
+  .custom-row .budget-input:focus {
+    outline: none;
+    border-color: var(--border-active);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .budget-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+  }
+  .budget-input {
+    flex: 1;
+    padding-right: 28px;
+  }
+  .budget-suffix {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    pointer-events: none;
   }
   .warn {
-    padding: 8px 12px;
+    padding: 10px 14px;
     border-radius: 8px;
-    background: rgba(255, 196, 0, 0.10);
-    border-left: 3px solid #d97706;
-    font-size: 0.85rem;
+    background: rgba(217, 119, 6, 0.12);
+    border-left: 3px solid #f59e0b;
+    color: var(--text-primary);
+    font-size: 0.86rem;
+    line-height: 1.5;
   }
   .warn.critical {
-    background: rgba(239, 68, 68, 0.10);
-    border-left-color: #dc2626;
+    background: rgba(239, 68, 68, 0.14);
+    border-left-color: #ef4444;
   }
 </style>
