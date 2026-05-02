@@ -161,6 +161,7 @@ def verdict_tier(
     n_obs: int | None = None,
     r_hat: float | None = None,
     tail_ess_ok: bool | None = None,
+    extrapolation_severity: int = 0,
 ) -> tuple[str, str, float]:
     """3-tier verdict per ADR Amendment A5 + conditional gates.
 
@@ -176,11 +177,22 @@ def verdict_tier(
           CI itself is unreliable)
         - tail_ess_ok=False → caller should annotate "оценка нестабильна" (does
           NOT change tier — annotation only, since CI is still computable just less precise)
+        - extrapolation_severity (Phase 2 S3 synergy — replaces ad-hoc γ inflation):
+          0 = in-zone (≤ p95) → no effect
+          1 = p95 boundary    → no auto-downgrade (caller may annotate)
+          2 = p99 extrapolation → force ≥ "Направленная" tier
+          3 = ≥3× p99 extreme   → force "Высокая неопределённость"
 
     H2 fix (audit 2026-04-26): default tail_ess_ok changed True → None to force
     explicit caller decision. None means "not checked" (skip gate); True/False means
     explicit assertion. Pre-fix default True silently skipped warning even when
     caller forgot to compute it.
+
+    Phase 2 S3 (audit pass 2 2026-05-02): extrapolation_severity gate replaces
+    plan's separate inflate_extrapolation_uncertainty(γ=0.3) helper. Reuses
+    Aurora's established 3-tier vocabulary вместо ad-hoc CI multiplier — single
+    mental model для customer (model fit verdicts AND forecast verdicts in same
+    taxonomy). См. docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §10 S3.
 
     Returns:
         (tier_label, tone, relative_width).
@@ -200,10 +212,20 @@ def verdict_tier(
     if r_hat is not None and r_hat > 1.05:
         return ("Высокая неопределённость", "bad", relative_width)
 
+    # Hard gate 2 (Phase 2 S3): extreme extrapolation overrides everything
+    if extrapolation_severity >= 3:
+        return ("Высокая неопределённость", "bad", relative_width)
+
     # Soft gate: small-N + narrow CI → suspect over-confidence
     if (n_obs is not None and n_obs < 30
             and relative_width < 0.5):
         return ("Направленная", "warn", relative_width)
+
+    # Soft gate (Phase 2 S3): p99 extrapolation forces ≥ "Направленная"
+    if extrapolation_severity >= 2:
+        if relative_width < 0.5:
+            return ("Направленная", "warn", relative_width)
+        # else: 0.5+ relative_width already lands in Направленная или hard tier
 
     # Standard 3-tier classification
     if relative_width < 0.5:

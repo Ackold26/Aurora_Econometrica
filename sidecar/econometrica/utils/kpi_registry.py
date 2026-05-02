@@ -61,6 +61,16 @@ class KPIConfig:
     # Observation noise prior σ (HalfNormal sigma).
     obs_sigma_prior: float
 
+    # Phase 2 S7 (audit pass 2 2026-05-02) — KPI-aware forecast horizon settings.
+    # Hard cap multiplier для forecast_periods / train_n. Sales=2.0 (Robyn/Meridian
+    # convention); awareness ставит tighter (1.5) т.к. brand build-up длиннее →
+    # β stationarity слабее. Backward compat: existing entries не нужно
+    # обновлять — registered after these fields just inherit defaults.
+    forecast_horizon_max_multiplier: float = 2.0
+    # Soft warning threshold (forecast / train ratio above which user sees
+    # «extrapolation warning»). Sales=1.5×, awareness=1.2×.
+    forecast_horizon_warn_multiplier: float = 1.5
+
 
 # ─── Registered KPIs ────────────────────────────────────────────────────────
 
@@ -110,6 +120,10 @@ KPI_REGISTRY: Dict[str, KPIConfig] = {
         baseline_drift=True,
         # Logit-scale obs sigma — typically smaller (data в [-∞, ∞] post-logit).
         obs_sigma_prior=0.5,
+        # Phase 2 S7: awareness has longer brand build-up → tighter forecast cap.
+        # Plan / Customer feedback recalibrates после Phase 3 awareness ship.
+        forecast_horizon_max_multiplier=1.5,
+        forecast_horizon_warn_multiplier=1.2,
     ),
 }
 
