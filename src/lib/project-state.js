@@ -153,6 +153,68 @@ function createExpertStore() {
 /** @type {import('svelte/store').Writable<boolean>} */
 export const expertMode = createExpertStore();
 
+// ─── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ───
+// Opt-in planning mode toggle. analyst (default) = current behavior preserved
+// byte-exact. planner = Option C per-period Hill summation + forecast horizon
+// decoupling. Persisted per session (NOT per project — global preference).
+
+/**
+ * Planning mode toggle for OptimizeStep. Phase 2 — Aurora Econometrica next-gen
+ * mode. analyst = look at past performance (current behavior); planner = future
+ * allocation для planning horizon.
+ * @returns {import('svelte/store').Writable<'analyst'|'planner'>}
+ */
+function createPlanningModeStore() {
+  /** @type {'analyst'|'planner'} */
+  let initial = 'analyst';
+  try {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem('econ-planning-mode') : null;
+    if (v === 'planner' || v === 'analyst') initial = v;
+  } catch { /* default */ }
+  const store = writable(/** @type {'analyst'|'planner'} */ (initial));
+  store.subscribe(v => {
+    try { localStorage.setItem('econ-planning-mode', v); } catch { /* ignore */ }
+  });
+  return store;
+}
+/** @type {import('svelte/store').Writable<'analyst'|'planner'>} */
+export const planningMode = createPlanningModeStore();
+
+/**
+ * Forecast configuration for planning mode. Reactive: changes trigger forecast-
+ * scaling preview (see OptimizeStep $effect). Cleared when planningMode = analyst.
+ * @typedef {{
+ *   periods: number | null,
+ *   periodLabel: string | null,
+ *   budgetMoney: number | null,
+ *   inflationPerChannel: Record<string, number> | null,
+ * }} ForecastConfig
+ *
+ * @type {import('svelte/store').Writable<ForecastConfig>}
+ */
+export const forecastConfig = writable({
+  periods: null,
+  periodLabel: null,
+  budgetMoney: null,
+  inflationPerChannel: null,
+});
+
+/**
+ * Cached forecast-context preview (from /compute/forecast-context endpoint).
+ * Populated when planning mode activated; cleared on project change.
+ * @typedef {{
+ *   training_granularity: string | null,
+ *   seasonality_detected: { period: number, autocorr: number } | null,
+ *   train_n_periods: number,
+ *   train_x_norm_quantiles: Record<string, Record<string, number>>,
+ *   forecast_horizon_max_multiplier: number,
+ *   forecast_horizon_warn_multiplier: number,
+ * } | null}
+ *
+ * @type {import('svelte/store').Writable<any>}
+ */
+export const forecastContext = writable(null);
+
 /** @type {import('svelte/store').Writable<StepMeta[]>} Step metadata (statuses only, no data) */
 export const pipelineStepMeta = writable(defaultStepMeta());
 

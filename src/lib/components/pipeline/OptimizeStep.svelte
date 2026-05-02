@@ -25,12 +25,16 @@
     expertMode,
     unitCosts,
     channelCategories,
+    planningMode,
+    forecastConfig,
+    forecastContext,
   } from '$lib/project-state.js';
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
+  import ForecastHorizonPicker from '$lib/components/pipeline/ForecastHorizonPicker.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
@@ -266,6 +270,30 @@
     avgROI:         'Средний ROI = суммарный вклад медиа в продажи ÷ суммарный бюджет.\n\nИндустриальный benchmark: > 2× — отлично, 1-2× — приемлемо, < 1× — медиа в среднем не окупается.',
     saturation:     'Светофор насыщения каналов:\n🟢 Недонасыщен (mROAS > 1.5×) — кандидат на масштабирование\n🟡 Стабилен (0.8-1.5×) — оптимальная зона\n🔴 Перенасыщен (< 0.8×) — каждый дополнительный рубль работает в убыток',
   };
+
+  // ── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ──
+  // Auto-fetch forecast context when planning mode toggled. Cleared on project change.
+  $effect(() => {
+    const mode = $planningMode;
+    const projectId = $activeProjectId;
+    if (!projectId || mode !== 'planner') {
+      forecastContext.set(null);
+      return;
+    }
+    (async () => {
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+        const ctx = /** @type {any} */ (await invoke('econ_forecast_context', { projectDir }));
+        if (ctx?.status === 'ok') forecastContext.set(ctx);
+      } catch { /* silent — planning mode degrades gracefully without context */ }
+    })();
+  });
+
+  // Reset forecast config on project switch (P5 plan gap)
+  $effect(() => {
+    const _projectId = $activeProjectId;
+    forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+  });
 
   // ── Блок A — статус-карточка «Текущий бюджет» ─────────────
   // Display-бюджет всегда в money (рубли), чтобы суммы между каналами были сопоставимы.
@@ -641,6 +669,8 @@
         perfMinPct,
         perfMaxPct,
         unitCosts: get(unitCosts) ?? {},
+        forecastPeriods: null,
+        forecastPeriodLabel: null,
       }));
       if (result.status === 'ok') {
         whatIfResult = result;
@@ -810,6 +840,8 @@
         perfMinPct,
         perfMaxPct,
         unitCosts: ucNew,
+        forecastPeriods: null,
+        forecastPeriodLabel: null,
       }));
       if (result.status === 'ok') {
         forecastResult = { ...result, mode: forecastMode, ucOld: uc0, ucNew, currentMoney };
@@ -910,12 +942,21 @@
       // optimizer не находил redistribution, all caps на current. Money mode
       // даёт physically meaningful constraint (sum money = const), позволяет
       // SLSQP redistribute между каналами при условии same total money budget.
+      // Phase 2 — planning mode dispatch. analyst → forecast_periods=null
+      // (byte-exact backward compat). planner → forecast_periods + budget from
+      // forecastConfig store. forecastConfig.budgetMoney overrides currentTotalBudget.
+      const fcfg = get(forecastConfig);
+      const isPlanning = get(planningMode) === 'planner' && fcfg.periods != null && fcfg.periods >= 1;
+      const planningBudget = isPlanning && fcfg.budgetMoney != null && fcfg.budgetMoney > 0
+        ? fcfg.budgetMoney
+        : null;
+      const finalTotalBudgetMoney = planningBudget
+        ?? (Number.isFinite(currentTotalBudget) && currentTotalBudget > 0 ? currentTotalBudget : null);
+
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
         totalBudget: null,
-        totalBudgetMoney: Number.isFinite(currentTotalBudget) && currentTotalBudget > 0
-          ? currentTotalBudget
-          : null,
+        totalBudgetMoney: finalTotalBudgetMoney,
         minPct,
         maxPct,
         minPerChannel,
@@ -926,6 +967,9 @@
         perfMinPct,
         perfMaxPct,
         unitCosts: get(unitCosts) ?? {},
+        // Phase 2 — null преserves analyst mode byte-exact
+        forecastPeriods: isPlanning ? fcfg.periods : null,
+        forecastPeriodLabel: isPlanning ? fcfg.periodLabel : null,
       }));
 
       if (result.status === 'ok') {
@@ -1056,6 +1100,48 @@
   <!-- Trust banner — наследуем smell_flags от decompose -->
   {#if dData?.smell_flags?.length}
     <TrustBanner flags={dData.smell_flags} />
+  {/if}
+
+  <!-- ══════════ Phase 2 — Mode toggle (Analyst | Planner) ══════════ -->
+  <section class="planning-mode-toggle" aria-label="Режим работы">
+    <div class="mode-pills" role="radiogroup">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={$planningMode === 'analyst'}
+        class:active={$planningMode === 'analyst'}
+        onclick={() => planningMode.set('analyst')}
+      >
+        <span class="mode-label">Аналитик</span>
+        <span class="mode-desc">обучающий период</span>
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={$planningMode === 'planner'}
+        class:active={$planningMode === 'planner'}
+        onclick={() => planningMode.set('planner')}
+      >
+        <span class="mode-label">Планнер</span>
+        <span class="mode-desc">будущий период</span>
+      </button>
+    </div>
+    <p class="mode-hint">
+      {#if $planningMode === 'planner'}
+        Подберите оптимальное распределение бюджета для будущего периода — оптимизатор переключился на планирующий режим
+        (per-period Hill summation, 3-way alignment с scenario engine).
+      {:else}
+        Оптимизатор работает в обучающем масштабе времени. Доли каналов валидны для сопоставимого периода.
+      {/if}
+    </p>
+  </section>
+
+  <!-- Phase 2 — Forecast horizon picker (только в planner mode) -->
+  {#if $planningMode === 'planner' && currentTotalBudget > 0}
+    <ForecastHorizonPicker
+      trainNPeriods={$forecastContext?.train_n_periods ?? 52}
+      currentBudgetMoney={currentTotalBudget}
+    />
   {/if}
 
   <!-- ════════════════ БЛОК A — Текущий бюджет (статус-карточка) ════════════════ -->
@@ -1798,6 +1884,44 @@
 </div>
 
 <style>
+  /* ─── Phase 2 — Planning Mode toggle ─── */
+  .planning-mode-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: var(--bg-surface-quiet, rgba(255,255,255,0.92));
+    border: 1px solid var(--border-subtle, rgba(0,0,0,0.08));
+    margin-bottom: 12px;
+  }
+  .mode-pills {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(0,0,0,0.04);
+    border-radius: 10px;
+  }
+  .mode-pills button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 6px 14px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 160ms ease, color 160ms ease;
+  }
+  .mode-pills button.active {
+    background: var(--bg-surface-focus, white);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .mode-pills .mode-label { font-weight: 600; font-size: 0.95rem; }
+  .mode-pills .mode-desc { font-size: 0.75rem; opacity: 0.7; }
+  .mode-hint { margin: 0; font-size: 0.85rem; opacity: 0.75; }
+
   .optimize-step {
     /* Скрол владеет .pipeline-main — здесь никаких overflow / height: 100%,
        иначе двойной скрол + фантомное пустое пространство (см. DecomposeStep). */
