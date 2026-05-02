@@ -25,7 +25,7 @@
   // ── Tooltip-помощь по каждому показателю и параметру: «что это» + «почему важно» ──
   const HELP = {
     rHat:  'R-hat (Gelman-Rubin) — мера сходимости параллельных цепей Markov Chain Monte Carlo.\n\nЧто это: насколько разные цепи пришли к одному распределению (1.0 = идеально, > 1.05 = не сошлись).\n\nПочему важно: если цепи не сошлись — оценки ROI и CI ненадёжны, результаты случайны.',
-    divs:  'Дивергенции (divergences) — количество шагов сэмплера NUTS, которые «соскочили» с траектории.\n\nЧто это: индикатор сложной геометрии posterior — модель плохо параметризована или priors слишком широкие.\n\nПочему важно: при дивергенциях > 0 часть пространства параметров не исследована — оценки могут быть смещены. Цель = 0.',
+    divs:  'Дивергенции (divergences) — количество шагов сэмплера NUTS, которые «соскочили» с траектории.\n\nЧто это: индикатор сложной геометрии posterior. Судить нужно по ДОЛЕ от общего числа draws (chains × draws), а не по абсолютному значению.\n\nКоличественные градации (industry standard, Stan/PyMC docs):\n• 0% — Чисто. Идеальная сходимость.\n• <0.5% — Низкая. Безопасно, R-hat и оценки надёжны.\n• 0.5–2% — Несколько. Внимание, но обычно ОК если R-hat ≤ 1.01.\n• 2–5% — Заметно. Стоит пересмотреть priors или увеличить tune.\n• ≥5% — Много. Модель не сошлась, оценки могут быть смещены.\n\nПример: 9 дивергенций при 4 chains × 2000 draws = 9/8000 ≈ 0.11% → Низкая, безопасно.',
     rSq:   'R² (коэффициент детерминации) — доля вариации KPI, объяснённая моделью.\n\nЧто это: 0 = модель не лучше среднего, 1 = идеальный fit. ≥ 0.7 — хорошо, ≥ 0.9 — отлично.\n\nПочему важно: показывает, насколько модель захватывает динамику продаж. Низкий R² = вы что-то упустили (промо, сезонность, конкуренты).',
     mape:  'MAPE (Mean Absolute Percentage Error) — средняя абсолютная ошибка прогноза в процентах.\n\nЧто это: на сколько процентов в среднем прогноз отличается от факта. < 10% — отлично, 10-20% — приемлемо, > 20% — плохо.\n\nПочему важно: дополняет R². Можно иметь высокий R² и большие отклонения в отдельных периодах — MAPE это ловит.',
     mqs:   'MQS (Model Quality Score) — агрегированная оценка качества модели от 0 до 100.\n\nЧто это: взвешенная комбинация R² (40%), MAPE (30%) и сходимости MCMC (30%). ≥ 80 = отлично, 60-80 = хорошо.\n\nПочему важно: одно число для быстрой оценки — стоит ли доверять выводам модели.',
@@ -47,13 +47,23 @@
     return { text: 'Не сошлось', tone: 'bad' };
   }
   /**
-   * @param {number} v
+   * Дивергенции NUTS — судить нужно по ДОЛЕ от total draws, не absolute count.
+   * Industry standard (Stan/PyMC docs): <0.5% безопасно, <2% acceptable, ≥5% bad.
+   * Pre-fix (2026-05-01): абсолютный порог 10 для 8000 draws = 0.125% помечал
+   * как warn → создавал ложное впечатление проблемы при идеальной сходимости.
+   * Post-fix: пропорциональные пороги соответствуют профессиональному стандарту.
+   * @param {number} v divergence count
+   * @param {number} totalDraws total posterior samples (chains × draws)
    */
-  function divsLabel(v) {
+  function divsLabel(v, totalDraws) {
     if (v == null) return { text: '—', tone: 'neutral' };
     if (v === 0) return { text: 'Чисто', tone: 'good' };
-    if (v < 10) return { text: 'Несколько', tone: 'warn' };
-    return { text: 'Много', tone: 'bad' };
+    const denom = totalDraws > 0 ? totalDraws : 8000;  // fallback если mcmc meta отсутствует
+    const pct = v / denom;
+    if (pct < 0.005) return { text: 'Низкая', tone: 'good' };       // <0.5% — безопасно
+    if (pct < 0.02) return { text: 'Несколько', tone: 'warn' };     // 0.5–2% — внимание
+    if (pct < 0.05) return { text: 'Заметно', tone: 'warn' };       // 2–5% — пересмотр priors
+    return { text: 'Много', tone: 'bad' };                           // ≥5% — модель не сошлась
   }
   /**
    * @param {number} v
@@ -95,8 +105,9 @@
     {@const mape = m.mape_pct ?? diagnostics.mape}
     {@const mqsScore = diagnostics.mqs?.score}
     {@const mqsTier = diagnostics.mqs?.tier_label ?? ''}
+    {@const totalDraws = (m.mcmc?.chains ?? 4) * (m.mcmc?.draws ?? 2000)}
     {@const rh = rHatLabel(rHat)}
-    {@const dv = divsLabel(divs)}
+    {@const dv = divsLabel(divs, totalDraws)}
     {@const rsq = rSqLabel(rSq)}
     {@const mp = mapeLabel(mape)}
     <div class="section-title">Диагностика Markov Chain Monte Carlo</div>
@@ -113,7 +124,9 @@
       <div class="diag-item">
         <span class="diag-label">Дивергенции<span class="help-icon" title={HELP.divs}>?</span></span>
         <span class="diag-value" class:good={dv.tone === 'good'} class:warn={dv.tone === 'warn'} class:bad={dv.tone === 'bad'}>
-          {divs ?? 0}
+          {divs ?? 0}{#if divs > 0 && totalDraws > 0}
+            <span class="diag-pct">({(divs / totalDraws * 100).toFixed(2)}%)</span>
+          {/if}
         </span>
         <span class="diag-tier" class:good={dv.tone === 'good'} class:warn={dv.tone === 'warn'} class:bad={dv.tone === 'bad'}>
           {dv.text}
@@ -170,8 +183,20 @@
               <td class="mono">{row.alpha?.toFixed(3) ?? '—'}</td>
               <td class="mono">{row.gamma?.toFixed(4) ?? '—'}</td>
               <td class="mono">{row.beta?.toFixed(4) ?? '—'}</td>
-              <td class="mono" class:good={row.roi > 2} class:warn={row.roi < 1}>{row.roi?.toFixed(2) ?? '—'}x</td>
-              <td class="mono ci">[{row.roi_ci_lower?.toFixed(2) ?? '?'}, {row.roi_ci_upper?.toFixed(2) ?? '?'}]</td>
+              <td class="mono" class:good={row.roi > 2} class:warn={row.roi < 1}>
+                {#if row.roi != null && Number.isFinite(row.roi)}
+                  {row.roi.toFixed(2)}x
+                {:else}
+                  <span class="placeholder-hint" title="ROI вычисляется на следующем шаге — Декомпозиции. Здесь показаны только posterior-параметры sampler'а.">→ После декомпозиции</span>
+                {/if}
+              </td>
+              <td class="mono ci">
+                {#if row.roi_ci_lower != null && row.roi_ci_upper != null && Number.isFinite(row.roi_ci_lower) && Number.isFinite(row.roi_ci_upper)}
+                  [{row.roi_ci_lower.toFixed(2)}, {row.roi_ci_upper.toFixed(2)}]
+                {:else}
+                  <span class="placeholder-hint" title="Доверительный интервал ROI вычисляется на шаге Декомпозиции из 8000 posterior draws.">→ После декомпозиции</span>
+                {/if}
+              </td>
             </tr>
           {/each}
         </tbody>
@@ -181,6 +206,21 @@
 </div>
 
 <style>
+  /* Inline placeholder для ROI/CI на этапе Train — values вычисляются в Decompose. */
+  .placeholder-hint {
+    color: var(--text-secondary, rgba(255, 255, 255, 0.5));
+    font-size: 11px;
+    font-style: italic;
+    cursor: help;
+  }
+  /* % от total draws в скобках рядом с absolute count (вторичная инфо). */
+  .diag-pct {
+    margin-left: 4px;
+    font-size: 0.7em;
+    font-weight: 400;
+    opacity: 0.75;
+    color: inherit;
+  }
   .expert-panel {
     display: flex; flex-direction: column; gap: 16px; margin-top: 24px;
     padding: 16px; border-radius: var(--radius-md, 10px);

@@ -78,8 +78,12 @@
   let shape = $state(null);
   let sizeKb = $state(0);
 
-  /** v1.0.16: derived helpers для engine selector. */
-  const nRows = $derived(/** @type {{rows: number} | null} */ (shape)?.rows ?? previewRows.length);
+  /** v1.1.0+: derived helpers для engine selector.
+   *  FIX: nRows ТОЛЬКО из shape.rows (real backend response). Раньше fallback
+   *  на previewRows.length (20 — preview limit) приводил к ложной OLS-рекомендации
+   *  для проектов с ≥30 строк когда shape ещё/уже не загружен.
+   *  Если shape null → nRows=0 → recommendOls=false → engine не меняется. */
+  const nRows = $derived(/** @type {{rows: number} | null} */ (shape)?.rows ?? 0);
   const recommendOls = $derived(nRows > 0 && nRows < 30);
 
   /** v1.0.16: автоматический выбор движка на основе объёма данных.
@@ -98,6 +102,15 @@
     fileName = stored.file.split(/[\\/]/).pop() || '';
     if (stored.rows && stored.rows.length) {
       previewRows = stored.rows;
+    }
+    // FIX: restore shape from store. Без этого после navigate-out/in shape=null →
+    // nRows fallback к previewRows.length (20 — preview limit) → recommendOls=true →
+    // OLS выбирается на проектах с ≥30 строк (баг увиденный в скрине).
+    if (stored.shape && typeof stored.shape.rows === 'number') {
+      shape = { rows: stored.shape.rows, cols: stored.shape.cols ?? 0 };
+    }
+    if (stored.columns && Array.isArray(stored.columns)) {
+      previewHeaders = stored.columns.map(/** @param {any} c */ (c) => c.name ?? c);
     }
   }
 
@@ -402,30 +415,50 @@
         emptyMessage="Нет данных для отображения"
       />
 
-      <!-- v1.0.16: автоматический выбор движка на основе n_rows.
+      <!-- v1.0.16+: автоматический выбор движка на основе n_rows.
            n<30 → OLS (small-data fallback, closed-form, ~2-5 сек),
            n≥30 → Bayesian (full NUTS posterior, ~20-60 сек).
-           Без manual override — система выбирает сама, чтобы избежать
-           некорректного соотношения движка и объёма данных. -->
-      <div class="engine-auto">
-        <div class="engine-auto-header">
-          <span class="engine-auto-icon">{$modelEngine === 'bayesian' ? '🎯' : '⚡'}</span>
-          <div class="engine-auto-title">
-            Тип модели для обучения:
-            <strong>{$modelEngine === 'bayesian' ? 'Полное Bayesian MMM' : 'Упрощённое OLS-MMM'}</strong>
-            <span class="engine-auto-badge">выбрано автоматически по {nRows} наблюдениям</span>
+           UI: ОБА варианта показаны рядом, выбранный подсвечен accent-цветом,
+           не выбранный — muted. Без manual override — система выбирает сама. -->
+      <div class="engine-section">
+        <div class="engine-section-header">
+          <span class="engine-section-title">Тип моделирования</span>
+          {#if nRows > 0}
+            <span class="engine-section-meta">выбрано автоматически по {nRows} наблюдениям</span>
+          {:else}
+            <span class="engine-section-meta">ожидание данных…</span>
+          {/if}
+        </div>
+        <div class="engine-cards">
+          <div class="engine-card" class:engine-card-active={$modelEngine === 'bayesian'} class:engine-card-muted={$modelEngine !== 'bayesian'}>
+            <div class="engine-card-head">
+              <span class="engine-card-icon">🎯</span>
+              <div class="engine-card-name">Полное Bayesian MMM</div>
+              {#if $modelEngine === 'bayesian'}
+                <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
+              {:else}
+                <span class="engine-card-badge engine-card-badge-muted">Доступно при n ≥ 30</span>
+              {/if}
+            </div>
+            <p class="engine-card-desc">
+              Золотой стандарт MMM-эконометрики. NUTS-сэмплер (NumPyro) оценивает полное апостериорное распределение для параметров каждого канала: корректные доверительные интервалы ROI и mROAS, устойчивость к выбросам, калиброванная неопределённость. Для решений с финансовыми последствиями.
+            </p>
+          </div>
+          <div class="engine-card" class:engine-card-active={$modelEngine === 'ols'} class:engine-card-muted={$modelEngine !== 'ols'}>
+            <div class="engine-card-head">
+              <span class="engine-card-icon">⚡</span>
+              <div class="engine-card-name">Упрощённое OLS-MMM</div>
+              {#if $modelEngine === 'ols'}
+                <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
+              {:else}
+                <span class="engine-card-badge engine-card-badge-muted">Используется при n &lt; 30</span>
+              {/if}
+            </div>
+            <p class="engine-card-desc">
+              Small-data fallback. OLS-регрессия с аналитическим решением и bootstrap-доверительными интервалами (частотный подход): численно стабильное решение ценой статистической мощности. Для пилотных проектов и предварительного анализа — рекомендации трактовать как направление, а не точное число.
+            </p>
           </div>
         </div>
-        {#if $modelEngine === 'bayesian'}
-          <p class="engine-desc">
-            Объёма данных достаточно для применения Bayesian-моделирования — <strong>золотого стандарта в современной MMM-эконометрике</strong>.<br />
-            NUTS-сэмплер (NumPyro) оценивает полное апостериорное распределение для параметров каждого канала, обеспечивая корректные доверительные интервалы ROI и mROAS, устойчивость к выбросам и калиброванную неопределённость для рекомендаций. Подходит для решений с финансовыми последствиями.
-          </p>
-        {:else}
-          <p class="engine-desc">
-            Оптимально для <strong>small-data сценариев</strong> (менее 30 наблюдений), где Bayesian-сэмплер сталкивается с нехваткой данных для устойчивой оценки posterior. OLS-регрессия с аналитическим решением и bootstrap-доверительными интервалами (частотный подход): численно стабильное решение ценой статистической мощности. Подходит для пилотных проектов и предварительного анализа. <em>Рекомендации следует трактовать как направление, а не точное число.</em>
-          </p>
-        {/if}
       </div>
 
       <button
@@ -661,43 +694,91 @@
   }
   .quick-btn:hover { opacity: 0.85; }
 
-  /* v1.0.16: Engine auto-selection info card (Bayesian / OLS, no manual override) */
-  .engine-auto {
+  /* v1.1.0+: Engine auto-selection — две карточки рядом (Bayesian | OLS),
+     выбранная подсвечена accent-цветом, не выбранная в muted state. */
+  .engine-section {
     margin-top: 16px;
-    padding: 16px 18px;
-    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
-    border-radius: 10px;
   }
-  .engine-auto-header {
+  .engine-section-header {
     display: flex;
-    align-items: center;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
+    padding: 0 4px;
   }
-  .engine-auto-icon { font-size: 22px; flex-shrink: 0; }
-  .engine-auto-title {
+  .engine-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    letter-spacing: 0.02em;
+  }
+  .engine-section-meta {
+    font-size: 11px;
+    color: var(--text-secondary, #94a3b8);
+    font-style: italic;
+  }
+  .engine-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 760px) {
+    .engine-cards { grid-template-columns: 1fr; }
+  }
+  .engine-card {
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    transition: opacity 0.15s, border-color 0.15s;
+  }
+  .engine-card-active {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 10%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 45%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
+  }
+  .engine-card-muted {
+    opacity: 0.55;
+  }
+  .engine-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .engine-card-icon { font-size: 20px; flex-shrink: 0; }
+  .engine-card-name {
     flex: 1;
     font-size: 13.5px;
-    color: var(--text-secondary, #94a3b8);
-    line-height: 1.5;
-  }
-  .engine-auto-title strong {
-    color: var(--text-primary, #e2e8f0);
     font-weight: 600;
-    margin: 0 4px;
+    color: var(--text-primary, #e2e8f0);
+    min-width: 140px;
   }
-  .engine-auto-badge {
-    display: inline-block;
-    margin-left: 6px;
+  .engine-card-badge {
     padding: 2px 8px;
-    background: color-mix(in srgb, var(--success, #22c55e) 15%, transparent);
-    border: 1px solid color-mix(in srgb, var(--success, #22c55e) 30%, transparent);
     border-radius: 12px;
-    color: #4ade80;
     font-size: 10.5px;
     font-weight: 500;
     letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .engine-card-badge-active {
+    background: color-mix(in srgb, var(--success, #22c55e) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #22c55e) 35%, transparent);
+    color: #4ade80;
+  }
+  .engine-card-badge-muted {
+    background: color-mix(in srgb, var(--text-secondary, #94a3b8) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-secondary, #94a3b8) 22%, transparent);
+    color: var(--text-secondary, #94a3b8);
+  }
+  .engine-card-desc {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-secondary, #94a3b8);
   }
 
   /* legacy selector classes (unused after v1.0.16 auto-selection refactor)

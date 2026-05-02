@@ -29,6 +29,7 @@
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
+  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
@@ -1113,6 +1114,44 @@
       <span class="block-subtitle">— выжать максимум из текущего бюджета</span>
     </div>
 
+    <!-- Planning horizon warning — explicit honest disclosure что цифры в training scale.
+         Phase 1 (2026-05-02): пока Phase 2 (forecast_horizon parameter) не реализована,
+         планнерам нужно понимать что absolute amounts = training period (3 года),
+         а доли каналов универсальны для сопоставимых периодов (год/квартал/полугодие).
+         Roadmap: project_econometrica_forecast_horizon_proposal.md — proper Planning Mode. -->
+    <div class="planning-warn">
+      <div class="planning-warn-icon">📅</div>
+      <div class="planning-warn-body">
+        <div class="planning-warn-title">Текущая версия — анализ исторического распределения</div>
+        <div class="planning-warn-text">
+          Optimizer показывает оптимум для бюджета <strong>периода обучения</strong>
+          (за все годы данных). Для планирования будущего периода:
+        </div>
+        <ul class="planning-warn-list">
+          <li>
+            <strong>Используйте доли каналов</strong> (например, «TV — 84%, Performance — 1.3%, Search — 0.4%»).
+            Они валидны для <strong>сопоставимого</strong> по длине периода (год/полугодие/квартал — если обучали на нескольких годах).
+          </li>
+          <li>
+            <strong>НЕ применяйте absolute суммы напрямую</strong> к forecast budget — они для всего training periodа.
+            Делите на (training_horizon ÷ forecast_horizon): если обучали на 3 годах, для года делите на 3.
+          </li>
+          <li>
+            <strong>Forecast period должен быть ≥ training granularity.</strong>
+            Для месячных данных нельзя планировать на день/неделю — saturation калибрована per month.
+          </li>
+          <li>
+            <strong>Прогноз KPI %</strong> также рассчитан для training horizon. Для другого периода —
+            реальный лифт пропорционален длительности.
+          </li>
+        </ul>
+        <div class="planning-warn-roadmap">
+          🚧 В roadmap: «Период планирования» (год / квартал / полугодие) + «Бюджет на период» —
+          backend пересчитает all numbers в forecast scale напрямую, без manual ratios.
+        </div>
+      </div>
+    </div>
+
     <!-- Controls -->
     <div class="controls-card">
       <div class="controls-row">
@@ -1167,7 +1206,49 @@
             {#if brandMinPct != null || brandMaxPct != null || perfMinPct != null || perfMaxPct != null}
               <span class="group-active-badge" title="Per-group ограничения активны">●</span>
             {/if}
+            {#if brandMinPct != null || brandMaxPct != null || perfMinPct != null || perfMaxPct != null}
+              <button
+                class="btn-reset-group"
+                onclick={(/** @type {any} */ e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  brandMinPct = null;
+                  brandMaxPct = null;
+                  perfMinPct = null;
+                  perfMaxPct = null;
+                }}
+                title="Вернуть per-group ограничения к defaults (использовать глобальные)"
+                aria-label="Сбросить per-group ограничения"
+              >
+                ↺ Сбросить per-group
+              </button>
+            {/if}
           </summary>
+
+          <!-- Инструкции по типичным сценариям использования. -->
+          <div class="group-instructions">
+            <div class="group-instr-title">Типичные сценарии:</div>
+            <ul class="group-instr-list">
+              <li>
+                <strong>«Сохранить TV-контракт»</strong> — Brand закреплён годовым контрактом (нельзя резко сократить). Поставь
+                <code>Brand Мин. = 90%</code>, <code>Brand Макс. = 110%</code>. Performance оставь свободным (Мин. 20%, Макс. 200%) — оптимизатор перераспределит внутри performance + Статьи.
+              </li>
+              <li>
+                <strong>«Растить performance, не трогать brand»</strong> — поставь
+                <code>🔒 Lock Brand 100%</code> (Brand=100/100), Performance оставь свободным. Optimizer перебросит деньги между performance-каналами без касания TV/OOH.
+              </li>
+              <li>
+                <strong>«Точно знаю что хочу +30% в performance»</strong> — <code>Perf Мин. = 130%</code>, остальное free. Optimizer найдёт оптимум при условии что суммарный performance ≥ 130% от текущего.
+              </li>
+              <li>
+                <strong>⚠️ Lock+Lock = 0% lift.</strong> Если оба <code>🔒 Lock 100%</code> заданы и есть только 1 mixed канал — optimizer заморожен (нет степеней свободы). Сначала очисти один из Lock'ов или дай группе свободу (например, Brand 95-105%).
+              </li>
+            </ul>
+            <div class="group-instr-defaults">
+              <strong>По умолчанию</strong> per-group отключены — все каналы используют глобальные Мин/Макс (20% / 200%). Активируй только когда нужны разные правила для brand vs performance.
+            </div>
+          </div>
+
           <div class="group-grid">
             <div class="group-col">
               <div class="group-col-title">🎨 Brand-каналы (TV, OOH, Brand-PR)</div>
@@ -1431,12 +1512,10 @@
             {optimalBudgets}
             unitCosts={$unitCosts}
             displayBaseKPI={displayKPI}
+            backendLiftPct={optData?.expected_lift_pct ?? null}
           />
         </div>
-        <div class="card">
-          <div class="card-title">
-            Response Curves<span class="help-icon" title={HELP.responseCurves}>?</span>
-          </div>
+        <ExpandableCard title="Response Curves" tourKey="optimize-response-curves">
           {#if optData?.response_curves && Object.keys(scaledParams).length > 0}
             <ResponseCurves
               responseCurves={optData.response_curves}
@@ -1449,7 +1528,7 @@
           {:else}
             <div class="no-curves">Запустите оптимизацию для отображения кривых</div>
           {/if}
-        </div>
+        </ExpandableCard>
       </div>
 
       <!-- miROAS table -->
@@ -1984,6 +2063,62 @@
     font-size: 11px;
     color: var(--text-secondary);
     line-height: 1.5;
+  }
+  /* Кнопка сброса per-group в default state. Inline в summary, справа. */
+  .btn-reset-group {
+    margin-left: auto;
+    padding: 4px 10px;
+    background: transparent;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.65));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-reset-group:hover {
+    color: var(--text-primary, rgba(255, 255, 255, 0.92));
+    border-color: var(--accent-primary, #3b82f6);
+  }
+  /* Инструкции по сценариям использования per-group sliders. */
+  .group-instructions {
+    margin: 4px 4px 12px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 5%, transparent);
+    border-left: 3px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 50%, transparent);
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .group-instr-title {
+    font-weight: 600;
+    color: var(--text-primary, rgba(255, 255, 255, 0.92));
+    margin-bottom: 6px;
+  }
+  .group-instr-list {
+    margin: 0 0 8px 0;
+    padding-left: 20px;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  }
+  .group-instr-list li {
+    margin-bottom: 6px;
+  }
+  .group-instr-list li strong {
+    color: var(--text-primary, rgba(255, 255, 255, 0.88));
+  }
+  .group-instr-list code {
+    padding: 1px 5px;
+    background: color-mix(in srgb, var(--text-primary, #fff) 8%, transparent);
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: var(--font-mono, monospace);
+  }
+  .group-instr-defaults {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--text-primary, #fff) 8%, transparent);
+    color: var(--text-secondary, rgba(255, 255, 255, 0.65));
+    font-size: 11px;
   }
   /* AUDIT-5: inline validation warnings — surfaces constraint hierarchy violation
      до backend roundtrip. role="alert" для screen readers. */
@@ -2540,6 +2675,52 @@
     background: color-mix(in srgb, var(--danger) 15%, transparent);
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);
     color: #ef4444;
+  }
+
+  /* Phase 1 (2026-05-02): planning horizon disclosure baner для пленнеров.
+     Объясняет что optimizer выдаёт цифры для training period, не forecast.
+     Будет упрощён в Phase 2 когда forecast_horizon parameter реализован. */
+  .planning-warn {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 7%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
+    border-left: 3px solid var(--accent-primary, #3b82f6);
+    border-radius: 8px;
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .planning-warn-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .planning-warn-body { flex: 1; }
+  .planning-warn-title {
+    font-weight: 600;
+    color: var(--text-primary, rgba(255, 255, 255, 0.92));
+    margin-bottom: 4px;
+  }
+  .planning-warn-text {
+    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+    margin-bottom: 6px;
+  }
+  .planning-warn-list {
+    margin: 0 0 8px 0;
+    padding-left: 20px;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  }
+  .planning-warn-list li { margin-bottom: 4px; }
+  .planning-warn-list strong { color: var(--text-primary, rgba(255, 255, 255, 0.88)); }
+  .planning-warn-roadmap {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--text-primary, #fff) 8%, transparent);
+    color: var(--text-secondary, rgba(255, 255, 255, 0.55));
+    font-size: 11px;
+    font-style: italic;
   }
 
   .controls-card {

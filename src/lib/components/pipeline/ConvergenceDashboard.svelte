@@ -172,7 +172,11 @@
   /** MCMC config used in this run — drives context-aware divergence advice. */
   const mcmcTune = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.tune ?? 2000));
   const mcmcDraws = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.draws ?? 2000));
+  const mcmcChains = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.chains ?? 4));
   const mcmcTargetAccept = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.target_accept ?? 0.95));
+  /** Total posterior samples = chains × draws. Used для divergence percentage display. */
+  const totalDraws = $derived(mcmcChains * mcmcDraws);
+  const divergencesPct = $derived(totalDraws > 0 ? (divergences / totalDraws * 100) : 0);
 
   /** Chart height — scale with number of params */
   const rhatHeight = $derived(`${Math.max(180, rhatCount * 28 + 60)}px`);
@@ -199,7 +203,7 @@
   {/if}
   {#if divergences > 0}
     <div class="warn-banner warn">
-      ⚠ {divergences} дивергенций обнаружено
+      ⚠ {divergences} дивергенций обнаружено <span class="muted">({divergencesPct.toFixed(2)}% от {totalDraws} draws)</span>
       <span class="muted">(Tune={mcmcTune}, Draws={mcmcDraws}, target_accept={mcmcTargetAccept}).</span>
       {#if rhatFailed === 0}
         Параметры сошлись (R-hat &lt; 1.05) — модель готова к использованию.

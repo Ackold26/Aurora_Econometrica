@@ -82,7 +82,15 @@
       const u = uc(ch);
       const xNative = channelBudgets[ch] ?? 0;
       const xMoney = xNative * u;              // ось графика в money
-      const y = responseAt(ch, xNative);        // Hill работает в native
+      // FIX 2026-05-02: точки строго на линии. Раньше использовали responseAt()
+      // (локальная Hill через scaledParams) — могла давать значения, чуть
+      // расходящиеся с backend response curve (разные normalization paths).
+      // Теперь Y берём из backend curve interpolation — same source как линия.
+      // Fallback к responseAt если curve missing (early render до response).
+      const curveSrc = responseCurves?.[ch];
+      const y = curveSrc && curveSrc.spend?.length
+        ? curveResponseAt(curveSrc, xNative)
+        : responseAt(ch, xNative);
       const px = chart.convertToPixel('grid', [xMoney, y]);
       if (!px) return null;
       const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length];

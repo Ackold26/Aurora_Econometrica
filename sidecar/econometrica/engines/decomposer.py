@@ -92,8 +92,13 @@ def compute_roi_verdict(
     )
 
     def _apply_ci_suffix(label, tone):
+        # Подпись смягчена 2026-05-02: было "(низкая уверенность)" — эмоционально
+        # воспринималось как недоверие модели целиком (особенно когда R²/MAPE отличные).
+        # Стало "(широкий ROI-интервал)" — нейтральное техническое описание:
+        # ROI следует трактовать как диапазон, не как точное число. Качество модели
+        # оценивается отдельно через R² / MAPE / R-hat (см. Эксперт-панель Train).
         if wide_ci:
-            return (f"{label} (низкая уверенность)", 'warn' if tone == 'good' else tone)
+            return (f"{label} (широкий ROI-интервал)", 'warn' if tone == 'good' else tone)
         return (label, tone)
 
     # Step 2 — absolute hard caps (regardless of category)

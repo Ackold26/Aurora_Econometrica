@@ -115,15 +115,35 @@
   }
 
   /**
+   * Reactive map канал → resolved категория.
+   * FIX 2026-05-01: было `function getCategory(channel) { return get(channelCategories)[channel] }`,
+   * но `get()` императивно читает store без подписки — Svelte не re-renders при изменении.
+   * Кликаешь option в popup → setCategory() обновляет store → UI остаётся прежним.
+   * `$derived.by` с `$channelCategories` reactivity-tracks store → автоматический re-render.
+   * @type {Record<string, 'brand' | 'performance' | 'mixed'>}
+   */
+  const resolvedCategories = $derived.by(() => {
+    const explicit = $channelCategories;
+    /** @type {Record<string, 'brand' | 'performance' | 'mixed'>} */
+    const result = {};
+    for (const ch of mediaChannels) {
+      const e = explicit[ch];
+      if (e === 'brand' || e === 'performance' || e === 'mixed') {
+        result[ch] = e;
+      } else {
+        const s = suggestions[ch]?.category;
+        result[ch] = (s === 'brand' || s === 'performance' || s === 'mixed') ? s : 'mixed';
+      }
+    }
+    return result;
+  });
+
+  /** Backward-compat helper для остального кода. Use resolvedCategories[ch] в template для reactivity.
    * @param {string} channel
    * @returns {'brand' | 'performance' | 'mixed'}
    */
   function getCategory(channel) {
-    const explicit = get(channelCategories)[channel];
-    if (explicit === 'brand' || explicit === 'performance' || explicit === 'mixed') return explicit;
-    const suggested = suggestions[channel]?.category;
-    if (suggested === 'brand' || suggested === 'performance' || suggested === 'mixed') return suggested;
-    return 'mixed';
+    return resolvedCategories[channel] ?? 'mixed';
   }
 
   /**
@@ -159,13 +179,15 @@
   }
 
   /** @type {Array<'brand' | 'performance' | 'mixed'>} */
-  const CATEGORY_OPTIONS = ['brand', 'performance', 'mixed'];
+  const CATEGORY_OPTIONS = ['brand', 'mixed', 'performance'];
 
-  // Reactive group counts (для insights summary)
+  // Reactive group counts (для insights summary).
+  // Использует resolvedCategories (reactive) вместо getCategory() (imperative)
+  // — раньше counts не пересчитывались после setCategory.
   const groupCounts = $derived.by(() => {
     let brand = 0, perf = 0, mixed = 0;
     for (const ch of mediaChannels) {
-      const cat = getCategory(ch);
+      const cat = resolvedCategories[ch] ?? 'mixed';
       if (cat === 'brand') brand++;
       else if (cat === 'performance') perf++;
       else mixed++;
@@ -194,6 +216,9 @@
       работают по-разному. Модель применяет разные priors для adstock decay
       (long для brand, short для performance) — даёт более точную атрибуцию ROI.
     </p>
+    <p class="panel-hint panel-hint-action">
+      Учитывая характер размещения и креативных материалов, определите категорию для каждого канала.
+    </p>
   </header>
 
   <div class="summary-row" class:hierarchical-active={willUseHierarchical}>
@@ -213,8 +238,7 @@
 
   <div class="badges-list">
     {#each mediaChannels as ch (ch)}
-      {@const cat = getCategory(ch)}
-      {@const conf = getConfidence(ch)}
+      {@const cat = resolvedCategories[ch] ?? 'mixed'}
       {@const badge = BADGES[cat]}
       <button
         type="button"
@@ -222,12 +246,9 @@
         onclick={() => { editingChannel = ch; }}
         aria-haspopup="dialog"
       >
+        <span class="channel-name">{ch}</span>
         <span class="badge-icon">{badge.icon}</span>
         <span class="badge-label">{badge.label}</span>
-        <span class="confidence" title="Уверенность auto-suggest (manual override = 100%)">
-          {conf >= 0.99 ? '100%' : `${Math.round(conf * 100)}%`}
-        </span>
-        <span class="channel-name">{ch}</span>
         <span class="edit-hint">▾</span>
       </button>
     {/each}
@@ -245,7 +266,7 @@
       <div class="popup-options">
         {#each CATEGORY_OPTIONS as opt (opt)}
           {@const badge = BADGES[opt]}
-          {@const isActive = editingChannel ? getCategory(editingChannel) === opt : false}
+          {@const isActive = editingChannel ? (resolvedCategories[editingChannel] ?? 'mixed') === opt : false}
           <button
             type="button"
             class="option tone-{badge.tone}"
@@ -290,6 +311,11 @@
     margin: 0; font-size: 12px; line-height: 1.5;
     color: var(--text-secondary, rgba(255, 255, 255, 0.65));
   }
+  .panel-hint-action {
+    margin-top: 6px;
+    color: var(--text-primary, rgba(255, 255, 255, 0.88));
+    font-weight: 500;
+  }
 
   .summary-row {
     display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
@@ -309,30 +335,38 @@
   }
   .badge-row {
     display: grid;
-    grid-template-columns: auto auto auto 1fr auto;
+    /* Swap 2026-05-01: channel-name → icon → label → hint.
+       Имя канала первое = естественный read order ("Что → Какая категория").
+       Confidence % убран 2026-05-01 — категорий только 3 фиксированных, manual=100%
+       не несёт информации UI-stage. */
+    grid-template-columns: 1fr auto auto auto;
     gap: 10px; align-items: center;
     padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    /* Theme-adaptive contrast (2026-05-01): hardcoded rgba(255,255,255,…) был
+       почти невидим в light/fun темах (white-on-white). color-mix с text-primary
+       даёт consistent subtle contrast независимо от theme background. */
+    background: color-mix(in srgb, var(--text-primary, #fff) 5%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary, #fff) 9%, transparent);
     border-radius: 8px;
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
     text-align: left; font-size: 13px;
     color: inherit;
   }
-  .badge-row:hover { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.12); }
-  .badge-row.tone-brand { border-left: 3px solid rgba(110, 168, 254, 0.7); }
-  .badge-row.tone-performance { border-left: 3px solid rgba(110, 220, 158, 0.7); }
-  .badge-row.tone-mixed { border-left: 3px solid rgba(200, 200, 200, 0.4); }
+  .badge-row:hover {
+    background: color-mix(in srgb, var(--text-primary, #fff) 10%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary, #fff) 18%, transparent);
+  }
+  .badge-row.tone-brand { border-left: 3px solid color-mix(in srgb, #6ea8fe 80%, var(--text-primary, #fff) 0%); }
+  .badge-row.tone-performance { border-left: 3px solid color-mix(in srgb, #4caf50 80%, var(--text-primary, #fff) 0%); }
+  .badge-row.tone-mixed { border-left: 3px solid color-mix(in srgb, var(--text-secondary, #888) 60%, transparent); }
 
   .badge-icon { font-size: 16px; }
   .badge-label { font-weight: 600; min-width: 100px; }
-  .confidence {
-    font-size: 11px; padding: 2px 6px;
-    background: rgba(0, 0, 0, 0.25); border-radius: 4px;
-    color: rgba(255, 255, 255, 0.7);
+  .channel-name {
+    color: var(--text-primary, rgba(255, 255, 255, 0.92));
+    font-weight: 500;
   }
-  .channel-name { color: var(--text-secondary, rgba(255, 255, 255, 0.7)); }
   .edit-hint { color: rgba(255, 255, 255, 0.4); font-size: 12px; }
 
   .popup-overlay {

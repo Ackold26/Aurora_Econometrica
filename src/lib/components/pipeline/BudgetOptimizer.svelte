@@ -23,6 +23,7 @@
    *   optimalBudgets?: Record<string, number> | null,
    *   unitCosts?: Record<string, number>,
    *   displayBaseKPI?: number,
+   *   backendLiftPct?: number | null,
    * }}
    */
   let {
@@ -43,6 +44,10 @@
     // Если задан — Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
     // чтобы число было согласовано с блоком A (8300.6 M ₽, а не 342M per-period).
     displayBaseKPI = 0,
+    // Backend optimizer's expected_lift_pct — single source of truth когда
+    // budgets ≈ optimal_budgets. Frontend predictKPI — fallback approximation
+    // для slider real-time preview (упрощённая Hill без adstock factor).
+    backendLiftPct = null,
   } = $props();
 
   /** Стоимость 1 юнита в ₽ для канала (1.0 — канал уже в рублях). */
@@ -52,9 +57,30 @@
     return (typeof v === 'number' && v > 0) ? v : 1.0;
   }
 
-  // Predicted KPI from current sliders — денормализован в исходные единицы.
+  // Predicted KPI from current sliders — frontend approximation (упрощённая Hill).
   const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization));
-  const liftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
+  const frontendLiftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
+
+  // FIX 2026-05-02: detect когда current budgets ≈ optimal_budgets — тогда показываем
+  // backend authoritative lift вместо frontend approximation.
+  // Tolerance 1% per канал (учитывает float jitter после applyOptimal animation).
+  const atOptimum = $derived.by(() => {
+    if (!optimalBudgets || backendLiftPct == null) return false;
+    for (const ch of channels) {
+      const cur = channelBudgets[ch] ?? 0;
+      const opt = optimalBudgets[ch] ?? 0;
+      if (opt === 0 && cur === 0) continue;
+      const denom = Math.max(Math.abs(opt), Math.abs(cur), 1);
+      if (Math.abs(cur - opt) / denom > 0.01) return false;
+    }
+    return true;
+  });
+
+  // Авторитативный lift: backend (точный, full MMM) когда atOptimum, иначе frontend approx.
+  const liftPct = $derived(atOptimum && backendLiftPct != null ? backendLiftPct : frontendLiftPct);
+  // True если показываем frontend approximation (для UX-пометки «приблизительно»).
+  const liftIsApprox = $derived(!atOptimum && Math.abs(frontendLiftPct) > 0.01);
+
   // Scaled KPI для display: применяем lift% к total KPI за весь период анализа.
   // liftPct scale-invariant (отношение), поэтому умножение на baseKPI корректно.
   const displayKPI = $derived(displayBaseKPI > 0 ? displayBaseKPI * (1 + liftPct / 100) : predictedKPI);
@@ -174,6 +200,14 @@
         <span class="lift" class:positive={liftPct > 0} class:negative={liftPct < 0}>
           {liftPct > 0 ? '+' : ''}{liftPct.toFixed(1)}% к текущему
         </span>
+        {#if liftIsApprox}
+          <span
+            class="lift-approx"
+            title="Приблизительная оценка (упрощённая Hill для real-time preview слайдеров). Точный lift показывается в баннере «Оптимальное перераспределение» после нажатия «Оптимизировать бюджет»."
+          >
+            ≈ приблизительно
+          </span>
+        {/if}
       </div>
     {/if}
   </div>
@@ -304,8 +338,17 @@
   }
   .kpi-label { font-size: 12px; color: var(--text-secondary, #94a3b8); }
   .kpi-value { font-size: 18px; font-weight: 700; color: var(--text-primary, #e2e8f0); font-family: monospace; }
-  .lift-row { margin-top: 4px; }
+  .lift-row { margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .lift { font-size: 12px; font-weight: 600; }
+  .lift-approx {
+    font-size: 10.5px;
+    font-style: italic;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.55));
+    background: color-mix(in srgb, var(--text-primary, #fff) 6%, transparent);
+    cursor: help;
+  }
   .lift.positive { color: #22c55e; }
   .lift.negative { color: #ef4444; }
 

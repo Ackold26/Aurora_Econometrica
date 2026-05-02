@@ -699,6 +699,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         r_hat_values = []
         per_param_rhat = {}
         hierarchical_rhat_warning: str | None = None
+        # FIX 2026-05-02: hierarchical_priors_summary initialized EARLY чтобы избежать
+        # UnboundLocalError в diagnostics block (line ~810). Было: defined только
+        # в posterior extraction (line ~852), но diagnostics использует на line 810
+        # → UnboundLocalError при use_hierarchical=True. Re-populated в posterior
+        # extraction блок ниже когда trace доступен.
+        hierarchical_priors_summary: dict[str, float] = {}
         try:
             import arviz as az
             summary = az.summary(trace)
@@ -849,7 +855,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # decomposer/scenario/optimizer for honest mROAS CI through adstock chain.
         # Trust Level 3: hierarchical model uses brand_mu_logit/perf_mu_logit/mixed_mu_logit
         # вместо single adstock_mu_logit. Extract per-group для diagnostics + methodology.
-        hierarchical_priors_summary: dict[str, float] = {}
+        # NOTE: hierarchical_priors_summary initialized earlier (line ~701) — re-populated here.
         try:
             adstock_decay_samples = np.asarray(
                 trace.posterior['adstock_decay'].stack(sample=('chain', 'draw')).values, dtype=np.float32

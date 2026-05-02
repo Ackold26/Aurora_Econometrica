@@ -1666,6 +1666,10 @@
     text-align: left;
     cursor: pointer;
     transition: background 0.15s;
+    /* FIX 2026-05-02: позволить hint спуститься на следующую строку
+       если title не помещается на одной (узкие экраны / длинные подсказки). */
+    flex-wrap: wrap;
+    row-gap: 4px;
   }
   .info-toggle:hover {
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 5%, transparent);
@@ -1676,15 +1680,24 @@
     font-size: 11px;
     transition: transform 0.2s;
     width: 12px;
+    flex-shrink: 0;
   }
   .info-arrow.open { transform: rotate(90deg); }
   .info-icon { font-size: 18px; flex-shrink: 0; }
-  .info-title { font-weight: 600; }
+  .info-title {
+    font-weight: 600;
+    flex-shrink: 0;
+    /* normal wrap внутри title если очень длинный */
+    overflow-wrap: break-word;
+  }
   .info-hint {
     color: var(--text-secondary, #94a3b8);
     font-size: 13px;
     font-weight: 400;
     margin-left: auto;
+    /* На узких экранах hint опускается ниже title (flex-wrap),
+       тогда margin-left:auto не работает — выравниваем по началу title. */
+    min-width: 0;
   }
   .info-body {
     padding: 4px 20px 20px 40px;

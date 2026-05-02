@@ -39,30 +39,70 @@
     unknown: [],
   });
 
-  // Init from detected props.
+  // Init from detected props + columns[i].role (source of truth когда задано).
+  //
   // BUGFIX 2026-04-27 (Validate→Model state desync): init только когда columns SET
   // изменился (новый file uploaded), не на каждый prop change. Pre-fix: $effect
   // re-ran on каждой mutation validation prop → сбрасывал mapping к initial detected
-  // roles → user reassignments терялись на ConfigPanel/Model шаге. Симптом:
-  // user убрал «Социальный»+«Статьи» в Validate matrix, но Model checkboxes
-  // показывали 7 channels (включая удалённые) → train запускался на полном наборе.
-  // Fix: track "columns SET key" — re-init только при смене set имён.
+  // roles → user reassignments терялись на ConfigPanel/Model шаге.
+  //
+  // BUGFIX 2026-05-01 (Insights ↔ Mapper sync): hash key теперь включает roles
+  // (не только names). Pre-fix: InsightsPanel «Оставить бюджет» меняла
+  // columns[i].role='unused', но column SET тот же → mapping не re-init →
+  // mapper продолжал показывать excluded columns в media zone. Симптом:
+  // SOCIAL «Оставить бюджет» сработал, RETAIL/PERFOR/СТАТЬИ той же кнопкой
+  // визуально не убирали парные метрики из левой матрицы.
+  // Fix: ключ включает (name, role) пары. Init использует columns[i].role
+  // как priority source, fallback к detected. role='unused' → не попадает
+  // ни в одну зону (исключено).
   let lastColumnsKey = $state('');
   $effect(() => {
     if (!columns.length) return;
-    // Stable hash of column names (order-independent — only set membership matters).
-    const key = columns.map(/** @param {any} c */ (c) => c.name).slice().sort().join('|');
-    if (lastColumnsKey === key) return;  // Same column SET → preserve user mapping
+    // Hash now includes (name, role) pair — roles changes (incl. external
+    // mutations from InsightsPanel) trigger re-init.
+    const key = columns
+      .map(/** @param {any} c */ (c) => `${c.name}:${c.role ?? ''}`)
+      .slice().sort().join('|');
+    if (lastColumnsKey === key) return;
     lastColumnsKey = key;
 
-    const kpi   = /** @type {string[]} */ ([...(detected?.kpi ?? [])]);
-    const media  = /** @type {string[]} */ ([...(detected?.media ?? [])]);
-    const ctrl   = /** @type {string[]} */ ([...(detected?.control ?? [])]);
-    const date   = detected?.date ?? null;
-    const assigned = new Set([...kpi, ...media, ...ctrl, ...(date ? [date] : [])]);
-    const unknown = columns
-      .map(c => c.name)
-      .filter(n => !assigned.has(n));
+    /** @type {string[]} */
+    const kpi = [];
+    /** @type {string[]} */
+    const media = [];
+    /** @type {string[]} */
+    const ctrl = [];
+    /** @type {string|null} */
+    let date = null;
+    /** @type {string[]} */
+    const unknown = [];
+
+    const detectedKpi = new Set(detected?.kpi ?? []);
+    const detectedMedia = new Set(detected?.media ?? []);
+    const detectedCtrl = new Set(detected?.control ?? []);
+    const detectedDate = detected?.date ?? null;
+
+    for (const c of columns) {
+      const role = c.role;
+      // Priority: explicit column.role (user/insights mutation) → detected (server) → unknown.
+      if (role === 'kpi') kpi.push(c.name);
+      else if (role === 'media') media.push(c.name);
+      else if (role === 'control') ctrl.push(c.name);
+      else if (role === 'date') date = c.name;
+      else if (role === 'unused') {
+        // Excluded — не попадает ни в одну zone (УЖЕ исключён, не показываем как unknown).
+        continue;
+      } else if (role === 'unknown') {
+        unknown.push(c.name);
+      } else {
+        // role не задана → fallback к detected.
+        if (detectedKpi.has(c.name)) kpi.push(c.name);
+        else if (detectedMedia.has(c.name)) media.push(c.name);
+        else if (detectedCtrl.has(c.name)) ctrl.push(c.name);
+        else if (detectedDate === c.name) date = c.name;
+        else unknown.push(c.name);
+      }
+    }
 
     mapping = { kpi, media, control: ctrl, date, unknown };
   });
