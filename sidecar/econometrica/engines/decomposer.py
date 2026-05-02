@@ -148,7 +148,11 @@ def compute_roi_verdict(
     return _apply_ci_suffix('Сбалансирован', 'neutral')
 
 
-def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict[str, Any]:
+def decompose(
+    project_dir: str,
+    unit_costs_override: dict | None = None,
+    unit_cost_inflation_pct: dict | None = None,
+) -> dict[str, Any]:
     """Decompose sales into baseline + channel contributions using trained model.
 
     Args:
@@ -205,6 +209,18 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     # Материализация виртуальных каналов (если были merge_rules при train)
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config.get('merge_rules'))
+
+    # Phase 2 audit pass 4 — per-channel inflation: customer entered current
+    # cost (latest training year) + annual_inflation_pct → adjust к training-
+    # period weighted average. ROI/mROAS теперь reflect actual training prices.
+    if unit_cost_inflation_pct:
+        from utils.unit_cost_inflation import apply_inflation_to_unit_costs
+        unit_costs = apply_inflation_to_unit_costs(
+            unit_costs=unit_costs,
+            inflation_pct_per_channel=unit_cost_inflation_pct,
+            df=df,
+            date_column=config.get('date_column', 'date'),
+        )
 
     n_periods = len(df)
     total_sales = float(y_actual.sum())

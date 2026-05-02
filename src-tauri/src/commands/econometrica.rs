@@ -94,11 +94,17 @@ pub async fn econ_train(config: Value) -> Result<Value, String> {
 }
 
 #[tauri::command]
-pub async fn econ_decompose(project_dir: String, unit_costs: Option<Value>) -> Result<Value, String> {
+pub async fn econ_decompose(
+    project_dir: String,
+    unit_costs: Option<Value>,
+    // Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rates.
+    unit_cost_inflation_pct: Option<Value>,
+) -> Result<Value, String> {
     info!("econ_decompose: {project_dir}");
     let body = serde_json::json!({
         "project_dir": project_dir,
         "unit_costs": unit_costs,
+        "unit_cost_inflation_pct": unit_cost_inflation_pct,
     });
     post_json("/compute/decompose", &body, quick_client()).await
 }
@@ -123,6 +129,8 @@ pub async fn econ_optimize(
     // preserved byte-exact). Some(int) = Option C per-period Hill summation.
     forecast_periods: Option<i64>,
     forecast_period_label: Option<String>,
+    // Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rates.
+    unit_cost_inflation_pct: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_optimize: {project_dir}");
     let body = serde_json::json!({
@@ -142,6 +150,7 @@ pub async fn econ_optimize(
         "unit_costs": unit_costs,
         "forecast_periods": forecast_periods,
         "forecast_period_label": forecast_period_label,
+        "unit_cost_inflation_pct": unit_cost_inflation_pct,
     });
     post_json("/compute/optimize", &body, quick_client()).await
 }
@@ -182,6 +191,8 @@ pub async fn econ_scenario(
     // по forecast_periods, matching optimizer planner mode).
     forecast_periods: Option<i64>,
     forecast_period_label: Option<String>,
+    // Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rates.
+    unit_cost_inflation_pct: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_scenario: {scenario_name}");
     let body = serde_json::json!({
@@ -192,6 +203,7 @@ pub async fn econ_scenario(
         "unit_costs": unit_costs,
         "forecast_periods": forecast_periods,
         "forecast_period_label": forecast_period_label,
+        "unit_cost_inflation_pct": unit_cost_inflation_pct,
     });
     post_json("/compute/scenario", &body, quick_client()).await
 }

@@ -21,8 +21,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
   import {
-    activeProjectId, activeProject, unitCosts,
-    decomposeData, optimizeData, analysisObjective,
+    activeProjectId, activeProject, unitCosts, unitCostInflation,
+    decomposeData, optimizeData, analysisObjective, forecastContext,
   } from '$lib/project-state.js';
 
   /** @type {{ columns: any[] }} */
@@ -172,6 +172,12 @@
   let draft = $state({});
   /** @type {Record<string, number>} последнее сохранённое состояние — для dirty-detect */
   let savedSnapshot = $state(/** @type {Record<string, number>} */ ({}));
+  // Phase 2 audit pass 4 — per-channel annual inflation. UI input — string,
+  // saved snapshot — number, dirty-detect mirror unit_costs pattern.
+  /** @type {Record<string, string>} */
+  let inflationDraft = $state({});
+  /** @type {Record<string, number>} */
+  let inflationSavedSnapshot = $state(/** @type {Record<string, number>} */ ({}));
   let saving = $state(false);
   /** @type {string} */
   let savedMsg = $state('');
@@ -186,10 +192,15 @@
     lastChannelsSig = sig;
 
     const stored = get(unitCosts) || {};
+    const storedInfl = get(unitCostInflation) || {};
     /** @type {Record<string, string>} */
     const next = {};
     /** @type {Record<string, number>} */
     const snap = {};
+    /** @type {Record<string, string>} */
+    const nextInfl = {};
+    /** @type {Record<string, number>} */
+    const snapInfl = {};
     for (const ch of nonMoneyChannels) {
       const name = ch.name;
       if (stored[name] != null) {
@@ -201,9 +212,17 @@
         // чтобы видеть dirty, если пользователь примет дефолт нажатием «Сохранить».
         next[name] = d ? String(d.value) : '';
       }
+      if (storedInfl[name] != null) {
+        nextInfl[name] = String(storedInfl[name]);
+        snapInfl[name] = storedInfl[name];
+      } else {
+        nextInfl[name] = '';
+      }
     }
     draft = next;
     savedSnapshot = snap;
+    inflationDraft = nextInfl;
+    inflationSavedSnapshot = snapInfl;
   });
 
   /** Распарсить строку в положительное число. Пустая строка → null (=удалить). */
@@ -226,6 +245,24 @@
     return out;
   });
 
+  // Phase 2 audit pass 4 — parsed inflation per channel (numeric).
+  /** @type {Record<string, number>} */
+  const parsedInflation = $derived.by(() => {
+    /** @type {Record<string, number>} */
+    const out = {};
+    for (const [k, v] of Object.entries(inflationDraft)) {
+      const p = parseValue(v);
+      if (p !== null) out[k] = p;
+    }
+    return out;
+  });
+
+  // Show inflation field только когда training data spans ≥2 years.
+  const isMultiYearTraining = $derived.by(() => {
+    const ranges = $forecastContext?.training_year_ranges;
+    return Array.isArray(ranges) && ranges.length >= 2;
+  });
+
   // Dirty-detect: draft отличается от savedSnapshot → есть что сохранять.
   const dirty = $derived.by(() => {
     const keysA = Object.keys(parsed);
@@ -233,6 +270,13 @@
     if (keysA.length !== keysB.length) return true;
     for (const k of keysA) {
       if (Math.abs((parsed[k] ?? 0) - (savedSnapshot[k] ?? 0)) > 1e-9) return true;
+    }
+    // Phase 2 — also dirty when inflation rates changed
+    const inflKeysA = Object.keys(parsedInflation);
+    const inflKeysB = Object.keys(inflationSavedSnapshot);
+    if (inflKeysA.length !== inflKeysB.length) return true;
+    for (const k of inflKeysA) {
+      if (Math.abs((parsedInflation[k] ?? 0) - (inflationSavedSnapshot[k] ?? 0)) > 1e-9) return true;
     }
     return false;
   });
@@ -266,13 +310,26 @@
         }
       }
 
+      // Phase 2 audit pass 4 — persist per-channel inflation pct alongside.
+      // null entries removed (zero inflation = same as not set).
+      /** @type {Record<string, number>} */
+      const fullInflation = {};
+      for (const [k, v] of Object.entries(parsedInflation)) {
+        if (v > 0) fullInflation[k] = v;
+      }
+
       const info = /** @type {any} */ (await invoke('project_update', {
         projectId: pid,
-        updates: { unit_costs: fullCosts },
+        updates: {
+          unit_costs: fullCosts,
+          unit_cost_inflation_pct: Object.keys(fullInflation).length > 0 ? fullInflation : null,
+        },
       }));
       activeProject.set(info);
       unitCosts.set(fullCosts);
+      unitCostInflation.set(fullInflation);
       savedSnapshot = { ...parsed };
+      inflationSavedSnapshot = { ...fullInflation };
       // Инвалидируем downstream результаты — старые числа больше не актуальны.
       decomposeData.set(null);
       optimizeData.set(null);
@@ -302,7 +359,11 @@
       <div class="title">Стоимость юнита для каналов в не-денежных единицах</div>
       <div class="hint">
         Добавь каналы, измеряемые не в рублях (TRP, показы, статьи, спецпроекты),
-        и укажи цену единицы. Модель пересчитает их в рубли и даст корректный ROI.
+        и укажи цену единицы (последний год обучающих данных). Модель пересчитает их в рубли и даст корректный ROI.
+        {#if isMultiYearTraining}
+          <br><strong>Обучение охватывает несколько лет</strong> — задайте годовую инфляцию CPP/CPM
+          (по РФ обычно 25–30%): backend применит weighted-average по периодам обучения. 0 = цена не менялась.
+        {/if}
         {#if $analysisObjective !== 'roi'}
           <br><em>Активно только в режиме «ROI» (см. Цель анализа).</em>
         {/if}
@@ -340,6 +401,18 @@
                 aria-label="Стоимость 1 юнита для {ch.name}"
               />
               <span class="unit">₽ за юнит</span>
+              {#if isMultiYearTraining}
+                <input
+                  class="inflation-input"
+                  type="text"
+                  inputmode="decimal"
+                  bind:value={inflationDraft[ch.name]}
+                  placeholder="0"
+                  aria-label="Годовая инфляция CPP для {ch.name}"
+                  title="Среднегодовой рост стоимости юнита за период обучения (например 25 — для 25%/год). 0 = неизменная цена."
+                />
+                <span class="unit">%/год</span>
+              {/if}
             </div>
             <div class="row-meta">
               {#if rawSum != null}
@@ -576,6 +649,23 @@
     border-color: var(--accent-primary, #3b82f6);
   }
   .unit { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  /* Phase 2 audit pass 4 — annual inflation input (multi-year training only) */
+  .inflation-input {
+    width: 56px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .inflation-input:focus {
+    outline: none;
+    border-color: var(--border-active);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+  }
   .row-meta { display: flex; flex-direction: column; gap: 2px; }
   .row-default { font-size: 11px; color: var(--text-secondary, #94a3b8); line-height: 1.3; }
   .row-default .muted { color: var(--text-muted); opacity: 0.8; margin-left: 4px; }

@@ -9,7 +9,7 @@
    * @component ScenarioPlayground
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, sessionStats, unitCosts } from '$lib/project-state.js';
+  import { activeProjectId, sessionStats, unitCosts, unitCostInflation } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import DataTable from '$lib/components/DataTable.svelte';
 
@@ -69,6 +69,7 @@
         // across forecast_periods (not training_n_periods) когда set.
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
+        unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
       }));
       if (result.status === 'ok') {
         scenarioName = '';

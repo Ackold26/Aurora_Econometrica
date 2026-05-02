@@ -324,6 +324,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config_model.get('merge_rules'))
 
+    # Phase 2 audit pass 4 — per-channel inflation. Apply BEFORE current_spend
+    # money totals computed downstream (current_spend × unit_cost).
+    inflation_pct_per_channel = config.get('unit_cost_inflation_pct')
+    if inflation_pct_per_channel:
+        from utils.unit_cost_inflation import apply_inflation_to_unit_costs
+        unit_costs = apply_inflation_to_unit_costs(
+            unit_costs=unit_costs,
+            inflation_pct_per_channel=inflation_pct_per_channel,
+            df=df,
+            date_column=config_model.get('date_column', 'date'),
+        )
+
     current_spend = {col: float(df[col].fillna(0).sum()) for col in media_cols}
     total_current = sum(current_spend.values())
     n_periods = max(len(df), 1)

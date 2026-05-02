@@ -314,13 +314,23 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
  * @type {import('svelte/store').Writable<Record<string, number>>}
  */
 export const unitCosts = writable({});
+// Phase 2 audit pass 4 — per-channel annual inflation pct (CPP/CPM rate).
+// Customer enters current cost (latest training year) + annual rate; backend
+// computes training-period weighted-average для math-correct ROI/mROAS.
+/** @type {import('svelte/store').Writable<Record<string, number>>} */
+export const unitCostInflation = writable(/** @type {Record<string, number>} */ ({}));
 
-// Sync unitCosts from activeProject when it loads/changes.
+// Sync unitCosts + inflation from activeProject when it loads/changes.
 activeProject.subscribe((p) => {
   if (p && p.unit_costs && typeof p.unit_costs === 'object') {
     unitCosts.set(/** @type {Record<string, number>} */ (p.unit_costs));
   } else if (!p) {
     unitCosts.set({});
+  }
+  if (p && p.unit_cost_inflation_pct && typeof p.unit_cost_inflation_pct === 'object') {
+    unitCostInflation.set(/** @type {Record<string, number>} */ (p.unit_cost_inflation_pct));
+  } else if (!p) {
+    unitCostInflation.set({});
   }
 });
 

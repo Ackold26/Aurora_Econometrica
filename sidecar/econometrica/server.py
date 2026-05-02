@@ -320,6 +320,11 @@ class DecomposeRequest(BaseModel):
     # Trust Level 2: override unit_costs поверх pickle-config.
     # Нужно когда user изменил CPP после тренировки — pickle содержит старые значения.
     unit_costs: dict[str, float] | None = None
+    # Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rate (e.g.
+    # {'TV': 25.0, 'OLV': 18.0}). Customer-entered current cost (latest training
+    # year) gets adjusted к training-period weighted-average via inflation
+    # rollback. None → no adjustment (legacy behavior).
+    unit_cost_inflation_pct: dict[str, float] | None = None
 
 
 class OptimizeRequest(BaseModel):
@@ -360,6 +365,8 @@ class OptimizeRequest(BaseModel):
     # Optional UI label echoed в result (Год/Полугодие/Квартал/Custom). Pure
     # display — backend logic uses forecast_periods only.
     forecast_period_label: str | None = None
+    # Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rate.
+    unit_cost_inflation_pct: dict[str, float] | None = None
 
 
 class ScenarioRequest(BaseModel):
@@ -374,6 +381,8 @@ class ScenarioRequest(BaseModel):
     forecast_period_label: str | None = None
     media_plan_file: str | None = None
     unit_costs: dict[str, float] | None = None
+    # Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rate.
+    unit_cost_inflation_pct: dict[str, float] | None = None
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -942,7 +951,11 @@ def decompose_sales(req: DecomposeRequest):
     from pathlib import Path as _Path
     pickle_exists = (_Path(req.project_dir) / 'models' / 'latest.pkl').exists()
     logger.info(f'/compute/decompose project_dir={req.project_dir} pickle_exists={pickle_exists}')
-    result = _decompose(req.project_dir, unit_costs_override=req.unit_costs)
+    result = _decompose(
+        req.project_dir,
+        unit_costs_override=req.unit_costs,
+        unit_cost_inflation_pct=req.unit_cost_inflation_pct,
+    )
     if result.get('status') != 'ok':
         logger.warning(f'/compute/decompose returned error: {result.get("message")}')
     return JSONResponse(content=result)
@@ -981,6 +994,7 @@ def optimize_budget(req: OptimizeRequest):
         # Phase 2 — None preserves analyst mode byte-exact (verified 162/162 tests).
         'forecast_periods': req.forecast_periods,
         'forecast_period_label': req.forecast_period_label,
+        'unit_cost_inflation_pct': req.unit_cost_inflation_pct,
     }
     result = _optimize(config, req.project_dir)
     return JSONResponse(content=result)

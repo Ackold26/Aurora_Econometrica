@@ -24,6 +24,7 @@
     sessionStats,
     expertMode,
     unitCosts,
+    unitCostInflation,
     channelCategories,
     planningMode,
     forecastConfig,
@@ -883,6 +884,7 @@
         unitCosts: ucNew,
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
+        unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
       }));
       if (result.status === 'ok') {
         forecastResult = { ...result, mode: forecastMode, ucOld: uc0, ucNew, currentMoney: baseMoneyForInflation };
@@ -1005,6 +1007,7 @@
         // Phase 2 — null преserves analyst mode byte-exact
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
+        unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
       }));
 
       if (result.status === 'ok') {

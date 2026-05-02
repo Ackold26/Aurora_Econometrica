@@ -69,6 +69,27 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # валидной цены считается не покрытым деньгами, money-mode не включится).
     unit_costs = _sanitize_unit_costs(config.get('unit_costs'))
 
+    # Phase 2 audit pass 4 — per-channel inflation. Если customer задал годовой
+    # темп инфляции CPP/CPM, scenario money conversion использует weighted-
+    # average training cost (не current). ROI остаётся согласованным с decomposer.
+    inflation_pct_per_channel = config.get('unit_cost_inflation_pct')
+    if inflation_pct_per_channel and unit_costs:
+        try:
+            from utils.merge_rules import apply_merge_rules
+            data_file = config_model.get('data_file')
+            if data_file:
+                _train_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+                apply_merge_rules(_train_df, config_model.get('merge_rules'))
+                from utils.unit_cost_inflation import apply_inflation_to_unit_costs
+                unit_costs = apply_inflation_to_unit_costs(
+                    unit_costs=unit_costs,
+                    inflation_pct_per_channel=inflation_pct_per_channel,
+                    df=_train_df,
+                    date_column=config_model.get('date_column', 'date'),
+                )
+        except Exception:
+            pass  # Non-fatal — fall back к current_cost (no inflation adjustment)
+
     # Load media plan
     media_plan = config.get('media_plan', {})
     if config.get('media_plan_file'):

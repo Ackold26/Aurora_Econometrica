@@ -19,6 +19,7 @@
     computeStatus,
     expertMode,
     unitCosts,
+    unitCostInflation,
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
   import ROIComparison from '$lib/components/pipeline/ROIComparison.svelte';
@@ -117,9 +118,12 @@
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
       // Trust Level 2: override unit_costs из store (если user менял CPP после train,
       // pickle содержит старые значения — override даёт актуальные).
+      // Phase 2 audit pass 4: thread per-channel inflation если customer задал.
+      const inflStore = get(unitCostInflation) ?? {};
       const result = /** @type {any} */ (await invoke('econ_decompose', {
         projectDir,
         unitCosts: get(unitCosts) ?? {},
+        unitCostInflationPct: Object.keys(inflStore).length > 0 ? inflStore : null,
       }));
 
       if (result.status === 'ok') {
