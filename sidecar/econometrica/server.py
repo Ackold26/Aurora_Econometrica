@@ -366,6 +366,12 @@ class ScenarioRequest(BaseModel):
     project_dir: str
     scenario_name: str = 'custom'
     media_plan: dict[str, list[float]] = {}
+    # Phase 2 — planning context (audit pass 4 2026-05-02). Когда forecast_periods
+    # задан, scenario engine распределяет single-period mediaPlan totals по
+    # forecast_periods (вместо training_n_periods) — matches optimizer planning
+    # mode + reports «бюджет 2026 года» (не training horizon).
+    forecast_periods: int | None = None
+    forecast_period_label: str | None = None
     media_plan_file: str | None = None
     unit_costs: dict[str, float] | None = None
 
@@ -1024,6 +1030,12 @@ def forecast_context(req: ForecastContextRequest):
         inferred = infer_x_norm_quantiles_at_load(model_data) or {}
         quantiles = {col: persisted_quantiles.get(col) or inferred.get(col) for col in media_cols}
     train_n = len(model_data.get('y_actual') or [])
+    # Phase 2 (audit pass 4 — Антон 2026-05-02): multi-year detection. При денежной
+    # оценке любого медиа важно учесть, что данные могут быть приведены за
+    # несколько лет — стоимость единицы может значительно отличаться год от года
+    # (медиаинфляция 25-30%). Бэкенд возвращает год-range info для UI prep;
+    # full per-year unit_costs editing → Phase 2.5.
+    training_year_ranges = _detect_training_year_ranges(model_data)
     return JSONResponse(content={
         'status': 'ok',
         'training_granularity': granularity,
@@ -1033,7 +1045,46 @@ def forecast_context(req: ForecastContextRequest):
         # S7 — KPI-aware horizon caps (sales 2.0× / awareness 1.5× и т.п.)
         'forecast_horizon_max_multiplier': _kpi_aware_max_multiplier(model_data),
         'forecast_horizon_warn_multiplier': _kpi_aware_warn_multiplier(model_data),
+        # Multi-year structural data — UI uses для inflation disclosure
+        'training_year_ranges': training_year_ranges,
     })
+
+
+def _detect_training_year_ranges(model_data: dict) -> list[dict] | None:
+    """Return per-year breakdown of training data, или None if unable.
+
+    Phase 2 audit pass 4 — Антон's требование: при денежной оценке учесть, что
+    данные могут быть за несколько лет. UI prep: surface это customer'у.
+
+    Returns:
+        [{'year': 2024, 'n_periods': 52, 'start_date': '2024-01-01',
+          'end_date': '2024-12-31'}, ...] or None.
+    """
+    config = model_data.get('config') or {}
+    data_file = config.get('data_file')
+    date_col = config.get('date_column', 'date')
+    if not data_file:
+        return None
+    try:
+        import pandas as pd
+        df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+        if date_col not in df.columns:
+            return None
+        dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
+        if dates.empty:
+            return None
+        groups = dates.groupby(dates.dt.year)
+        ranges = []
+        for year, group in groups:
+            ranges.append({
+                'year': int(year),
+                'n_periods': int(len(group)),
+                'start_date': group.min().strftime('%Y-%m-%d'),
+                'end_date': group.max().strftime('%Y-%m-%d'),
+            })
+        return ranges
+    except Exception:
+        return None
 
 
 def _kpi_aware_max_multiplier(model_data: dict) -> float:

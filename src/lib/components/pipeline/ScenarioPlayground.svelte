@@ -16,9 +16,14 @@
   /** @type {{
    *   channelBudgets: Record<string, number>,
    *   channels: string[],
-   *   optimalBudgets?: Record<string, number> | null
+   *   optimalBudgets?: Record<string, number> | null,
+   *   planningPeriods?: number | null,
+   *   planningLabel?: string | null,
    * }} */
-  let { channelBudgets, channels, optimalBudgets = null } = $props();
+  let {
+    channelBudgets, channels, optimalBudgets = null,
+    planningPeriods = null, planningLabel = null,
+  } = $props();
 
   /** @type {'idle' | 'saving-current' | 'saving-optimal' | 'comparing'} */
   let status = $state('idle');
@@ -60,6 +65,10 @@
         scenarioName: baseName,
         mediaPlan,
         unitCosts: Object.keys(uc).length > 0 ? uc : null,
+        // Phase 2: planning context — backend distributes mediaPlan total
+        // across forecast_periods (not training_n_periods) когда set.
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
       }));
       if (result.status === 'ok') {
         scenarioName = '';

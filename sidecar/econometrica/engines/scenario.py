@@ -115,21 +115,43 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         return {'status': 'error', 'message': 'Медиаплан не содержит данных'}
 
     # Determine reference n_periods from training data (length of df).
+    # Phase 2 (audit pass 4 2026-05-02): когда config['forecast_periods'] задан,
+    # single-period mediaPlan totals распределяются по forecast_periods (не
+    # training_n_periods). Matches optimizer planning mode semantics — scenario
+    # отражает «бюджет 2026 года», не «бюджет training horizon».
     data_file = config_model.get('data_file')
+    forecast_periods_cfg = config.get('forecast_periods')
     training_n_periods = plan_n
     if data_file and plan_n == 1:
         try:
             ref_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
             training_n_periods = max(len(ref_df), 1)
-            # Distribute single-period (total) spend evenly across training periods
-            for col in list(media_plan.keys()):
-                if len(media_plan[col]) == 1:
-                    total_for_channel = float(media_plan[col][0])
-                    media_plan[col] = [total_for_channel / training_n_periods] * training_n_periods
         except Exception:
-            # Fallback: keep original plan, n_periods=1
             training_n_periods = plan_n
+
+        # Distribution length: forecast (planning mode) > training fallback
+        try:
+            distribution_n = int(forecast_periods_cfg) if forecast_periods_cfg is not None else training_n_periods
+            if distribution_n < 1:
+                distribution_n = training_n_periods
+        except (TypeError, ValueError):
+            distribution_n = training_n_periods
+
+        # Distribute single-period (total) spend evenly across distribution_n periods.
+        for col in list(media_plan.keys()):
+            if len(media_plan[col]) == 1:
+                total_for_channel = float(media_plan[col][0])
+                media_plan[col] = [total_for_channel / distribution_n] * distribution_n
     n_periods = max(training_n_periods, plan_n)
+    # When planning mode active, n_periods reflects forecast horizon for downstream
+    # adstock series + Hill summation (per-period semantics already in scenario engine).
+    if forecast_periods_cfg is not None and plan_n == 1:
+        try:
+            forecast_n = int(forecast_periods_cfg)
+            if forecast_n >= 1:
+                n_periods = forecast_n
+        except (TypeError, ValueError):
+            pass
 
     # P1-5 fix: apply adstock to scenario media plan matching training-time
     # transformation. Pre-fix, scenario received raw spend_t straight to Hill,

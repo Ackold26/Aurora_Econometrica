@@ -271,6 +271,24 @@
     saturation:     'Светофор насыщения каналов:\n🟢 Недонасыщен (mROAS > 1.5×) — кандидат на масштабирование\n🟡 Стабилен (0.8-1.5×) — оптимальная зона\n🔴 Перенасыщен (< 0.8×) — каждый дополнительный рубль работает в убыток',
   };
 
+  // ── Phase 2 (Planning Mode) — derived context для всех downstream operations ──
+  // Audit pass 4 (2026-05-02): planning budget должен ложиться в основу всех
+  // нижележащих процессов: optimize, what-if, forecast inflation, scenarios.
+  // Centralized derived context — single source of truth для всех invoke calls.
+  // NB: effectiveBaseBudget defined later (after currentTotalBudget) для declaration order.
+  const isPlanning = $derived(
+    $planningMode === 'planner'
+    && $forecastConfig.periods != null
+    && $forecastConfig.periods >= 1
+  );
+  const planningBudgetMoney = $derived(
+    isPlanning && $forecastConfig.budgetMoney != null && $forecastConfig.budgetMoney > 0
+      ? $forecastConfig.budgetMoney
+      : null
+  );
+  const planningPeriods = $derived(isPlanning ? $forecastConfig.periods : null);
+  const planningLabel = $derived(isPlanning ? $forecastConfig.periodLabel : null);
+
   // ── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ──
   // Auto-fetch forecast context when planning mode toggled. Cleared on project change.
   $effect(() => {
@@ -316,6 +334,14 @@
     }
     return 0;
   });
+
+  // Phase 2 effectiveBaseBudget — must come after currentTotalBudget declaration.
+  // Single source of truth для optimize / what-if / forecast inflation baseline.
+  const effectiveBaseBudget = $derived(
+    planningBudgetMoney != null
+      ? planningBudgetMoney
+      : (Number.isFinite(currentTotalBudget) && currentTotalBudget > 0 ? currentTotalBudget : 0)
+  );
 
   // ROI × = money contribution / money spend. Оба берутся из decompose (ch.spend уже money).
   const avgROI = $derived.by(() => {
@@ -658,7 +684,9 @@
       // мусор (TRP count + рубли). Money budget — единственный осмысленный
       // constraint. Передаём его явно — backend auto-derive не сработает (target уже задан),
       // optimizer корректно scales к whatIfMult × currentTotalBudget.
-      const targetMoneyBudget = currentTotalBudget * whatIfMult;
+      // Phase 2 audit pass 4: what-if в planner mode = planning budget × multiplier
+      // (вместо training budget × multiplier). Single source of truth: effectiveBaseBudget.
+      const targetMoneyBudget = effectiveBaseBudget * whatIfMult;
       const whatIfMax = Math.max(300, Math.ceil(whatIfMult * 200));
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
@@ -676,8 +704,10 @@
         perfMinPct,
         perfMaxPct,
         unitCosts: get(unitCosts) ?? {},
-        forecastPeriods: null,
-        forecastPeriodLabel: null,
+        // Phase 2: thread planning context — what-if результат в forecast scale
+        // когда планнер активен.
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
       }));
       if (result.status === 'ok') {
         whatIfResult = result;
@@ -833,10 +863,14 @@
       if (!projectId) throw new Error('Проект не выбран');
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
 
+      // Phase 2 audit pass 4: forecast inflation в planner mode использует
+      // planning budget (not training currentMoney). Inflation применяется
+      // к unit_costs независимо от scale — но baseline budget = planning.
+      const baseMoneyForInflation = planningBudgetMoney != null ? planningBudgetMoney : currentMoney;
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
         totalBudget: null,
-        totalBudgetMoney: currentMoney,
+        totalBudgetMoney: baseMoneyForInflation,
         minPct: 0,
         maxPct: 300,
         minPerChannel: null,
@@ -847,11 +881,11 @@
         perfMinPct,
         perfMaxPct,
         unitCosts: ucNew,
-        forecastPeriods: null,
-        forecastPeriodLabel: null,
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
       }));
       if (result.status === 'ok') {
-        forecastResult = { ...result, mode: forecastMode, ucOld: uc0, ucNew, currentMoney };
+        forecastResult = { ...result, mode: forecastMode, ucOld: uc0, ucNew, currentMoney: baseMoneyForInflation };
       } else {
         throw new Error(result.message || 'Ошибка прогноза');
       }
@@ -949,16 +983,10 @@
       // optimizer не находил redistribution, all caps на current. Money mode
       // даёт physically meaningful constraint (sum money = const), позволяет
       // SLSQP redistribute между каналами при условии same total money budget.
-      // Phase 2 — planning mode dispatch. analyst → forecast_periods=null
-      // (byte-exact backward compat). planner → forecast_periods + budget from
-      // forecastConfig store. forecastConfig.budgetMoney overrides currentTotalBudget.
-      const fcfg = get(forecastConfig);
-      const isPlanning = get(planningMode) === 'planner' && fcfg.periods != null && fcfg.periods >= 1;
-      const planningBudget = isPlanning && fcfg.budgetMoney != null && fcfg.budgetMoney > 0
-        ? fcfg.budgetMoney
-        : null;
-      const finalTotalBudgetMoney = planningBudget
-        ?? (Number.isFinite(currentTotalBudget) && currentTotalBudget > 0 ? currentTotalBudget : null);
+      // Phase 2 — main optimize читает централизованный planning context.
+      // Audit pass 4: единый source of truth (effectiveBaseBudget + planningPeriods)
+      // для optimize / what-if / forecast inflation — не дублируем логику.
+      const finalTotalBudgetMoney = effectiveBaseBudget > 0 ? effectiveBaseBudget : null;
 
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
@@ -975,8 +1003,8 @@
         perfMaxPct,
         unitCosts: get(unitCosts) ?? {},
         // Phase 2 — null преserves analyst mode byte-exact
-        forecastPeriods: isPlanning ? fcfg.periods : null,
-        forecastPeriodLabel: isPlanning ? fcfg.periodLabel : null,
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
       }));
 
       if (result.status === 'ok') {
@@ -1892,7 +1920,7 @@
       </div>
       {#if playgroundOpen}
         <div class="card scenario-card">
-          <ScenarioPlayground {channelBudgets} {channels} {optimalBudgets} />
+          <ScenarioPlayground {channelBudgets} {channels} {optimalBudgets} {planningPeriods} {planningLabel} />
         </div>
       {/if}
     </section>

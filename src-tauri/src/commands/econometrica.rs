@@ -177,6 +177,11 @@ pub async fn econ_scenario(
     media_plan: Option<Value>,
     media_plan_file: Option<String>,
     unit_costs: Option<Value>,
+    // Phase 2 (audit pass 4) — planning context. None = analyst (legacy: distribute
+    // single-period totals по training_n_periods). Some(int) = planning (distribute
+    // по forecast_periods, matching optimizer planner mode).
+    forecast_periods: Option<i64>,
+    forecast_period_label: Option<String>,
 ) -> Result<Value, String> {
     info!("econ_scenario: {scenario_name}");
     let body = serde_json::json!({
@@ -185,6 +190,8 @@ pub async fn econ_scenario(
         "media_plan": media_plan.unwrap_or(Value::Object(Default::default())),
         "media_plan_file": media_plan_file,
         "unit_costs": unit_costs,
+        "forecast_periods": forecast_periods,
+        "forecast_period_label": forecast_period_label,
     });
     post_json("/compute/scenario", &body, quick_client()).await
 }
