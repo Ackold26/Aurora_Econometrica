@@ -119,6 +119,10 @@ pub async fn econ_optimize(
     perf_min_pct: Option<f64>,
     perf_max_pct: Option<f64>,
     unit_costs: Option<Value>,
+    // Phase 2 (Planning Mode) — opt-in. None = analyst mode (current behavior
+    // preserved byte-exact). Some(int) = Option C per-period Hill summation.
+    forecast_periods: Option<i64>,
+    forecast_period_label: Option<String>,
 ) -> Result<Value, String> {
     info!("econ_optimize: {project_dir}");
     let body = serde_json::json!({
@@ -136,8 +140,34 @@ pub async fn econ_optimize(
         "perf_min_pct": perf_min_pct,
         "perf_max_pct": perf_max_pct,
         "unit_costs": unit_costs,
+        "forecast_periods": forecast_periods,
+        "forecast_period_label": forecast_period_label,
     });
     post_json("/compute/optimize", &body, quick_client()).await
+}
+
+// ─── Phase 2 (Planning Mode) — preview endpoints ───────────────────────────
+
+#[tauri::command]
+pub async fn econ_forecast_context(project_dir: String) -> Result<Value, String> {
+    info!("econ_forecast_context: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/forecast-context", &body, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_forecast_scaling(
+    project_dir: String,
+    forecast_periods: i64,
+    forecast_budget_money: Option<f64>,
+) -> Result<Value, String> {
+    info!("econ_forecast_scaling: {project_dir} periods={forecast_periods}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "forecast_periods": forecast_periods,
+        "forecast_budget_money": forecast_budget_money,
+    });
+    post_json("/compute/forecast-scaling", &body, quick_client()).await
 }
 
 #[tauri::command]

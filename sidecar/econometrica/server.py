@@ -351,6 +351,15 @@ class OptimizeRequest(BaseModel):
     # Validation rejects 'free' с TODO error чтобы early callers не shipped
     # against unimplemented behavior.
     budget_mode: str = 'fixed'
+    # ─── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ───
+    # Opt-in planning mode. Absence of forecast_periods → analyst mode (current
+    # behavior preserved byte-exact). Integer ≥ 1 → planning mode (Option C
+    # per-period Hill summation, см. docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md).
+    # Hard cap forecast ≤ train_n × 2 enforced inline в optimizer.
+    forecast_periods: int | None = None
+    # Optional UI label echoed в result (Год/Полугодие/Квартал/Custom). Pure
+    # display — backend logic uses forecast_periods only.
+    forecast_period_label: str | None = None
 
 
 class ScenarioRequest(BaseModel):
@@ -963,9 +972,200 @@ def optimize_budget(req: OptimizeRequest):
         'perf_min_pct': req.perf_min_pct,
         'perf_max_pct': req.perf_max_pct,
         'unit_costs': req.unit_costs,  # None → decomposer fallback на pickle config
+        # Phase 2 — None preserves analyst mode byte-exact (verified 162/162 tests).
+        'forecast_periods': req.forecast_periods,
+        'forecast_period_label': req.forecast_period_label,
     }
     result = _optimize(config, req.project_dir)
     return JSONResponse(content=result)
+
+
+# ─── Phase 2 (Planning Mode) — preview endpoints ──────────────────────────
+
+
+class ForecastContextRequest(BaseModel):
+    """Preview helper для frontend ForecastHorizonPicker.
+
+    Returns granularity + seasonality + per-channel calibration zones (x_norm
+    quantiles) detected/persisted in pickle. Used to populate smart suggestions
+    before customer commits к full optimize call.
+    """
+    project_dir: str
+
+
+@app.post('/compute/forecast-context')
+def forecast_context(req: ForecastContextRequest):
+    """Phase 2 preview — granularity + seasonality + calibration zones."""
+    from pathlib import Path
+    from engines.persistence import (
+        get_seasonality, get_training_granularity, get_x_norm_quantiles,
+        load_model_with_compat,
+    )
+    project_path = Path(req.project_dir)
+    model_path = project_path / 'models' / 'latest.pkl'
+    if not model_path.exists():
+        return JSONResponse(content={
+            'status': 'error',
+            'error_code': 'MODEL_NOT_FOUND',
+            'message': 'Модель не обучена — обучите MMM перед planning mode.',
+        }, status_code=400)
+    model_data = load_model_with_compat(model_path)
+    granularity = get_training_granularity(model_data)
+    seasonality = get_seasonality(model_data)
+    media_cols = (model_data.get('config') or {}).get('media_columns') or []
+    quantiles = {col: get_x_norm_quantiles(model_data, col) for col in media_cols}
+    train_n = len(model_data.get('y_actual') or [])
+    return JSONResponse(content={
+        'status': 'ok',
+        'training_granularity': granularity,
+        'seasonality_detected': seasonality,
+        'train_n_periods': train_n,
+        'train_x_norm_quantiles': quantiles,
+        # S7 — KPI-aware horizon caps (sales 2.0× / awareness 1.5× и т.п.)
+        'forecast_horizon_max_multiplier': _kpi_aware_max_multiplier(model_data),
+        'forecast_horizon_warn_multiplier': _kpi_aware_warn_multiplier(model_data),
+    })
+
+
+def _kpi_aware_max_multiplier(model_data: dict) -> float:
+    """S7 — read kpi_registry forecast_horizon_max_multiplier для pickle's KPI."""
+    from engines.persistence import get_kpi_type
+    from utils.forecast_validation import get_forecast_horizon_max_multiplier
+    return get_forecast_horizon_max_multiplier(get_kpi_type(model_data))
+
+
+def _kpi_aware_warn_multiplier(model_data: dict) -> float:
+    """S7 — read kpi_registry forecast_horizon_warn_multiplier для pickle's KPI."""
+    from engines.persistence import get_kpi_type
+    try:
+        from utils.kpi_registry import get_kpi_config
+        cfg = get_kpi_config(get_kpi_type(model_data))
+        return float(getattr(cfg, 'forecast_horizon_warn_multiplier', 1.5))
+    except Exception:
+        return 1.5
+
+
+class ForecastScalingRequest(BaseModel):
+    """Preview ratio + warnings без full optimize.
+
+    Used by frontend для quick «what-if» feedback when customer adjusts
+    forecast_periods / forecast_budget — emits drift warnings + horizon
+    extrapolation status БЕЗ запуска SLSQP (~12ms vs ~3s full optimize).
+    """
+    project_dir: str
+    forecast_periods: int
+    forecast_budget_money: float | None = None  # None → use training current total
+
+
+@app.post('/compute/forecast-scaling')
+def forecast_scaling_preview(req: ForecastScalingRequest):
+    """Phase 2 preview — drift checks + horizon warnings без full optimize."""
+    from pathlib import Path
+    from engines.persistence import (
+        get_kpi_type, get_x_norm_quantiles, load_model_with_compat,
+    )
+    from utils.forecast_validation import (
+        get_forecast_horizon_max_multiplier,
+        horizon_extrapolation_check,
+        resolve_warning_priority,
+        saturation_drift_check,
+    )
+
+    project_path = Path(req.project_dir)
+    model_path = project_path / 'models' / 'latest.pkl'
+    if not model_path.exists():
+        return JSONResponse(content={
+            'status': 'error',
+            'error_code': 'MODEL_NOT_FOUND',
+            'message': 'Модель не обучена.',
+        }, status_code=400)
+
+    model_data = load_model_with_compat(model_path)
+    train_n = len(model_data.get('y_actual') or [])
+    if train_n < 1:
+        return JSONResponse(content={
+            'status': 'error',
+            'error_code': 'INVALID_TRAIN_DATA',
+            'message': 'Обучающие данные пусты — preview невозможен.',
+        }, status_code=400)
+
+    # Validate forecast_periods (mirror optimizer.py:329+ rules).
+    forecast_n = int(req.forecast_periods)
+    if forecast_n < 1:
+        return JSONResponse(content={
+            'status': 'error',
+            'error_code': 'INVALID_FORECAST_PERIODS',
+            'message': 'forecast_periods должно быть ≥ 1.',
+        }, status_code=400)
+
+    kpi_type = get_kpi_type(model_data)
+    max_mult = get_forecast_horizon_max_multiplier(kpi_type)
+    if forecast_n > train_n * max_mult:
+        return JSONResponse(content={
+            'status': 'error',
+            'error_code': 'FORECAST_HORIZON_TOO_LONG',
+            'message': (
+                f'Период планирования ({forecast_n}) превышает {max_mult:.1f}× обучающего '
+                f'горизонта ({int(train_n * max_mult)}). Допущение стационарности нарушено.'
+            ),
+        }, status_code=400)
+
+    warnings: list[dict] = []
+    horizon_warn = horizon_extrapolation_check(
+        forecast_n, train_n,
+        warn_factor=_kpi_aware_warn_multiplier(model_data),
+    )
+    if horizon_warn:
+        warnings.append(horizon_warn)
+
+    # Drift detection per channel — needs forecast per-period spend per channel.
+    # Use proportional split of forecast_budget_money matching training proportions.
+    media_cols = (model_data.get('config') or {}).get('media_columns') or []
+    channel_params = model_data.get('channel_params') or {}
+    norm = model_data.get('normalization') or {}
+    media_means = norm.get('media_means', {}) or {}
+
+    per_channel_drift: dict[str, dict] = {}
+    if req.forecast_budget_money is not None and req.forecast_budget_money > 0 and media_cols:
+        # Read training spend totals to derive proportions
+        try:
+            import pandas as pd
+            data_file = (model_data.get('config') or {}).get('data_file')
+            if data_file:
+                df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+                from utils.merge_rules import apply_merge_rules
+                apply_merge_rules(df, (model_data.get('config') or {}).get('merge_rules'))
+                training_totals = {col: float(df[col].fillna(0).sum()) for col in media_cols if col in df.columns}
+                training_total_sum = sum(training_totals.values())
+                if training_total_sum > 0:
+                    for col in media_cols:
+                        share = training_totals.get(col, 0) / training_total_sum
+                        forecast_total = float(req.forecast_budget_money) * share
+                        forecast_per_period = forecast_total / forecast_n
+                        train_avg = (training_totals.get(col, 0) / train_n) if train_n else 0
+                        drift = saturation_drift_check(
+                            forecast_per_period_spend=forecast_per_period,
+                            train_avg_spend=train_avg,
+                        )
+                        if drift:
+                            drift['channel'] = col
+                            per_channel_drift[col] = drift
+                            warnings.append({**drift, 'message_ru': drift['message_ru']})
+        except Exception:
+            pass  # Drift detection optional — failure не блокирует preview
+
+    composed = resolve_warning_priority(warnings)
+    return JSONResponse(content={
+        'status': 'ok',
+        'forecast_n_periods': forecast_n,
+        'train_n_periods': train_n,
+        'horizon_ratio': forecast_n / train_n,
+        'horizon_max_multiplier': max_mult,
+        'per_channel_drift': per_channel_drift,
+        'top_warning': composed['top_warning'],
+        'secondary_warnings': composed['secondary'],
+        'warnings_total': composed['total_count'],
+    })
 
 
 @app.post('/compute/scenario')
