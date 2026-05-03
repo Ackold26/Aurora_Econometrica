@@ -1087,6 +1087,21 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # Post-audit fix: response_curve domain in normalized space, displayed against
     # raw spend. Response × y_std → KPI scale (was: y_norm scale, mis-leading numbers).
     response_curves_data = {}
+    # Audit pass 13 (Антон 2026-05-03): кривые медиа должны быть дорисованы
+    # до конца шкалы. Pre-fix: each channel `upper = cur * 2` → curves cut
+    # off at channel-specific max. Customer ожидает все curves span same
+    # x-range (для visual comparison).
+    # Fix: global_upper_money = max across channels, each channel's native
+    # upper extends к global_upper_money / unit_cost. Все кривые reach
+    # global x-axis max.
+    _channel_uppers_money = []
+    for col in media_cols:
+        cur_native = current_spend[col]
+        uc_col = float(unit_costs.get(col, 1.0) or 1.0)
+        cur_money = cur_native * uc_col
+        _channel_uppers_money.append(max(cur_money * 2, money_target * 1.05))
+    global_upper_money = max(_channel_uppers_money) if _channel_uppers_money else (money_target * 2)
+
     for i, col in enumerate(media_cols):
         p = channel_params[col]
         cur = current_spend[col]
@@ -1098,7 +1113,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # G1 fix: planning mode response curves в forecast scale (planning horizon
         # spend on x-axis, planning-period total KPI on y-axis). Analyst mode
         # behavior unchanged (forecast_n_periods == n_periods).
-        upper = cur * 2 if cur > 0 else mean_ch * 2 * forecast_n_periods
+        # Pass 13 fix: extend curve к global_upper / unit_cost (native) — все
+        # кривые span uniform x-range. Curve plateau (Hill saturation) отлично
+        # читается visual cross-channel comparison.
+        uc_col = float(unit_costs.get(col, 1.0) or 1.0)
+        global_upper_native = global_upper_money / max(uc_col, 1e-10)
+        channel_upper_native = cur * 2 if cur > 0 else mean_ch * 2 * forecast_n_periods
+        upper = max(channel_upper_native, global_upper_native)
         spend_range = np.linspace(0, upper, 50)
         # Per-period equivalent for Hill input
         per_period_avg = spend_range / forecast_n_periods
