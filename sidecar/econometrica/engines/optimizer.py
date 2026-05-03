@@ -761,22 +761,36 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                             x[i] = max(default_bounds[i][0], min(default_bounds[i][1], x[i]))
                     return x
                 x0_default = _project_to_default(x0_money_real.copy())
+                # Audit pass 9 (2026-05-03): always add x0_default projected as
+                # anchor candidate — even SLSQP-default-failure case provides
+                # alternative starting geometry for main run. maxiter reduced
+                # к 100 (это start point seed, не final solution → 200 wasteful).
+                # Always have fallback anchor regardless of convergence.
+                anchor_seed = _project_to_budget(x0_default.copy())
+                starts_money.append(('default_anchor_seed', anchor_seed))
                 try:
                     r_default = minimize(
                         _objective_fn, x0_default,
                         method='SLSQP',
                         bounds=default_bounds,
                         constraints=constraints,
-                        options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
+                        options={'maxiter': 100, 'ftol': 1e-6, 'disp': False},
                     )
                     if r_default.success:
-                        # Re-project к user's wider bounds (which include default
-                        # как subset → x_default is feasible in user's space).
+                        # Re-project к user's wider bounds (default ⊆ user → feasible).
                         x_anchor_user = _project_to_budget(np.asarray(r_default.x, dtype=float))
                         starts_money.append(('default_anchor', x_anchor_user))
+                    else:
+                        # Even non-converged result может give useful corner —
+                        # SLSQP partial progress better чем raw projection seed.
+                        x_partial = _project_to_budget(np.asarray(r_default.x, dtype=float))
+                        starts_money.append(('default_anchor_partial', x_partial))
                 except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
-                    _logger = logging.getLogger('econometrica')
-                    _logger.warning(f"default_anchor SLSQP failed: {type(e).__name__}: {e}")
+                    import logging as _log
+                    _log.getLogger('econometrica').warning(
+                        f"default_anchor SLSQP raised: {type(e).__name__}: {e}. "
+                        f"Using projected seed as fallback anchor."
+                    )
         except Exception as e:
             import logging as _log
             _log.getLogger('econometrica').warning(

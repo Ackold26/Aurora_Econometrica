@@ -5,7 +5,9 @@
  *
  * @module insights-rules
  */
-import { marginalROI, buildScaledParams } from './hill.js';
+// Audit pass 9 (2026-05-03): removed marginalROI/buildScaledParams imports.
+// Insights теперь uses backend's ch.mroi_current + ch.action — three-way
+// alignment с таблицей и compute_channel_action (single source of truth).
 
 /**
  * @typedef {Object} InsightAction
@@ -1053,22 +1055,41 @@ export function optimizeInsights(data, ctx = {}) {
   // движении слайдеров — это «nominal» от первоначальной тренировки).
   /** @type {Array<{name: string, mroas: number, status: 'scale'|'stable'|'saturated'|'unused'}>} */
   const satList = [];
-  // Phase 2 audit pass 8 (Антон 2026-05-03): use backend's mroi_current
-  // (canonical _compute_mroas_money с adstock_factor + unit_cost normalization,
-  // F0.2 fix Apr 25) — same source как таблица в OptimizeStep. Pre-fix: insights
-  // использовали frontend marginalROI() которая raw marginal Hill (без adstock
-  // factor + некорректно normalized) → две разные метрики под one label, числа
-  // расходились в сотни раз (e.g. table 0.00× vs banner 193.89× для same channel).
+  // Phase 2 audit pass 9 (2026-05-03): TWO sources of truth unification.
+  // Pass 8 заменил frontend marginalROI() на ch.mroi_current — числа совпали с
+  // таблицей. Но **status** thresholds (1.5/0.8) hardcoded на frontend
+  // расходились с canonical backend compute_channel_action (Scale/Hold/Watch/
+  // Reduce/Cut/Uncertain). Table uses ch.action directly. Insights status
+  // теперь maps на ch.action: Scale → scale, Hold/Watch → stable, Reduce/Cut
+  // → saturated, Uncertain → unused. Single source of truth across UI.
+  /** @param {string|null|undefined} action */
+  const actionToStatus = (action) => {
+    switch (action) {
+      case 'Scale': return /** @type {const} */ ('scale');
+      case 'Hold': return /** @type {const} */ ('stable');
+      case 'Watch': return /** @type {const} */ ('stable');
+      case 'Reduce': return /** @type {const} */ ('saturated');
+      case 'Cut': return /** @type {const} */ ('saturated');
+      case 'Uncertain': return /** @type {const} */ ('unused');
+      default: return null;
+    }
+  };
   if (data.channels) {
     for (const ch of data.channels) {
       const v = Number(ch.mroi_current ?? 0);
+      const action = String(ch.action ?? '');
+      const mappedStatus = actionToStatus(action);
+      // Zero-spend or untrained — unused (table treats same way)
       if (!Number.isFinite(v) || v <= 0) {
-        // Untrained / zero-spend / failed CI — treat как unused
         satList.push({ name: ch.name, mroas: 0, status: 'unused' });
         continue;
       }
+      // Use backend action mapping when available; fallback к thresholds для
+      // backward compat (legacy pickles без compute_channel_action results).
       /** @type {'scale'|'stable'|'saturated'} */
-      const status = v > 1.5 ? 'scale' : v > 0.8 ? 'stable' : 'saturated';
+      const status = mappedStatus && mappedStatus !== 'unused'
+        ? /** @type {'scale'|'stable'|'saturated'} */ (mappedStatus)
+        : (v > 1.5 ? 'scale' : v > 0.8 ? 'stable' : 'saturated');
       satList.push({ name: ch.name, mroas: v, status });
     }
   }

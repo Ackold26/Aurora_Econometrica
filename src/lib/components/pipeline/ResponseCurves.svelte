@@ -118,13 +118,15 @@
   }
 
   /**
-   * Phase 2 audit pass 6 (Антон 2026-05-03): adaptive xAxis max based на
-   * largest channel budget (current OR optimal в money) × 1.5. Pre-fix:
-   * default ECharts auto-scale смотрел на curve.spend native max which
-   * для multi-year training data может быть 100× больше реального
-   * бюджета (e.g. TRPs aggregated over 2 years = 6300 native, ×250k
-   * unit = 1.575B, but curve.spend goes to cur×2 = 12600 → 3.15B — не
-   * соответствует фактическим budgets каналов).
+   * Audit pass 9 (Антон 2026-05-03 cont): x-axis max ТОЛЬКО от channelBudgets
+   * (live slider state, forecast scale). Pre-fix (pass 6) включал curve.
+   * current_x и curve.optimal_x — но `current_x = cur = float(df[col].sum())`
+   * это TRAINING total native (multi-year sum), а `optimal_x` = FORECAST scale.
+   * Mixing scales → x-axis инфлятилось к training scale (e.g. для «Малые
+   * медиа» 4.3B training total → x-axis до 6.5B при реальном forecast budget
+   * 1.787B). channelBudgets — live slider, всегда reflects current view
+   * scale (forecast в planner mode, training в analyst). Max × 1.5 headroom.
+   * Drag exceeding headroom auto-extended ECharts (graceful).
    * @returns {number | null}
    */
   function computeAdaptiveXMax() {
@@ -132,11 +134,7 @@
     for (const ch of channels) {
       const u = uc(ch);
       const cur = (channelBudgets[ch] ?? 0) * u;
-      const curve = responseCurves?.[ch];
-      const optMoney = curve?.optimal_x != null ? curve.optimal_x * u : 0;
-      const curMoney = curve?.current_x != null ? curve.current_x * u : 0;
-      const channelMax = Math.max(cur, optMoney, curMoney);
-      if (channelMax > maxMoney) maxMoney = channelMax;
+      if (cur > maxMoney) maxMoney = cur;
     }
     // 1.5× headroom — место для drag вправо без обрезки + читаемая шкала
     return maxMoney > 0 ? maxMoney * 1.5 : null;
