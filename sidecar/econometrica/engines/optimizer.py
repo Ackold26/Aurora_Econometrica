@@ -705,6 +705,84 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     all_upper = np.array([bounds_money[i][1] for i in range(n_ch)])
     starts_money.append(('all_upper', _project_to_budget(all_upper)))
 
+    # Phase 2 audit pass 7 (Антон 2026-05-03): «default-bounds anchor» —
+    # гарантия monotonic improvement при widening bounds. Customer reported
+    # wider bounds (0/500%) дали LIFT=4.6% против narrower (20/200%) с 5.2%.
+    # Cause: SLSQP non-convex Hill saturation → wider search space может
+    # засосать SLSQP в extreme corners (0% spend на канал) откуда gradient
+    # не пускает обратно. Local optimum хуже global.
+    #
+    # Fix: запустить mini-SLSQP с conservative defaults (20-200%) дополнительно;
+    # его result project к user's bounds, use as additional multi-start point.
+    # Если default-anchor result better → SLSQP from there окажется хотя бы
+    # как минимум default's result в user's wider space. Гарантирует:
+    # widening bounds никогда не делает результат хуже narrower bounds.
+    DEFAULT_MIN_PCT, DEFAULT_MAX_PCT = 0.20, 2.00
+    user_widened_bounds = (
+        min_pct_global < DEFAULT_MIN_PCT - 1e-9
+        or max_pct_global > DEFAULT_MAX_PCT + 1e-9
+    )
+    if user_widened_bounds and n_ch > 0:
+        # Compute default-bounds version, intersected с per-channel/per-group
+        # для consistency. Каналы с per-channel constraint остаются на тех бюджетах.
+        try:
+            def _default_bound_for(col: str, i: int) -> tuple[float, float]:
+                cs_money = current_spend[col] * uc_arr[i]
+                if cs_money <= 0:
+                    # Zero-spend channel — match fallback semantics.
+                    return (0.0, max(money_target * DEFAULT_MAX_PCT / n_ch, 1.0))
+                # Mirror user logic, but cap к conservative defaults.
+                lo_pct = max(min_pct_global, DEFAULT_MIN_PCT)
+                hi_pct = min(max_pct_global, DEFAULT_MAX_PCT)
+                # Per-channel + per-group precedence preserved: take INTERSECTION.
+                user_lo, user_hi = resolve_channel_bounds(
+                    col, cs_money, channel_categories, constraint_bundle
+                )
+                lo = max(cs_money * lo_pct, user_lo)
+                hi = min(cs_money * hi_pct, user_hi)
+                if lo >= hi:
+                    lo, hi = user_lo, user_hi  # fallback к user's, infeasible default
+                return (lo, hi)
+            default_bounds = [_default_bound_for(col, i) for i, col in enumerate(media_cols)]
+            # Feasibility check: default bounds support money_target?
+            sum_def_lo = sum(b[0] for b in default_bounds)
+            sum_def_hi = sum(b[1] for b in default_bounds)
+            if sum_def_lo <= money_target * 1.001 and money_target <= sum_def_hi * 1.001:
+                # Run SLSQP в default-bounds world from x0_money projected.
+                def _project_to_default(x: np.ndarray) -> np.ndarray:
+                    x = np.asarray(x, dtype=float).copy()
+                    for _ in range(3):
+                        s = float(np.sum(x))
+                        if s <= 1e-10:
+                            x = np.array([(b[0] + b[1]) / 2 for b in default_bounds])
+                            continue
+                        x = x * (money_target / s)
+                        for i in range(len(x)):
+                            x[i] = max(default_bounds[i][0], min(default_bounds[i][1], x[i]))
+                    return x
+                x0_default = _project_to_default(x0_money_real.copy())
+                try:
+                    r_default = minimize(
+                        _objective_fn, x0_default,
+                        method='SLSQP',
+                        bounds=default_bounds,
+                        constraints=constraints,
+                        options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
+                    )
+                    if r_default.success:
+                        # Re-project к user's wider bounds (which include default
+                        # как subset → x_default is feasible in user's space).
+                        x_anchor_user = _project_to_budget(np.asarray(r_default.x, dtype=float))
+                        starts_money.append(('default_anchor', x_anchor_user))
+                except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
+                    _logger = logging.getLogger('econometrica')
+                    _logger.warning(f"default_anchor SLSQP failed: {type(e).__name__}: {e}")
+        except Exception as e:
+            import logging as _log
+            _log.getLogger('econometrica').warning(
+                f"default_anchor setup failed: {e}. User bounds run без anchor."
+            )
+
     def _safe_minimize_money(x_start: np.ndarray):
         try:
             r = minimize(
