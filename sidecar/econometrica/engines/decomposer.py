@@ -254,7 +254,13 @@ def decompose(
         # Pre-fix: such channels могли silently get spurious contribution когда production
         # spend non-zero (mean fallback к 1.0 → x_norm = adstocked/1.0 = full raw → Hill saturation).
         # Post-fix: explicit zero contribution + skip CI computation.
-        if params.get('untrained'):
+        #
+        # Phase 5 follow-up audit (2026-05-03): Bayesian engine marks untrained channels
+        # only через `normalization.untrained_channels` list (not channel_params.untrained).
+        # OLS marks both. Без поддержки norm-list path, Bayesian-trained pickles с zero-
+        # variance channels gave spurious contributions (decomposer не skipped). Fix:
+        # secondary check — col в untrained_channels list.
+        if params.get('untrained') or col in untrained_channels:
             from engines.narrative_adapter import _normalize_channel_name as _norm
             ch_dict_untr = {
                 'name': col,
@@ -534,6 +540,17 @@ def decompose(
     n_channels = len(channels)
 
     for ch in channels:
+        # Phase 5 follow-up audit (2026-05-03): untrained channels preserve their
+        # honest 'Не обучен' verdict — without skip, downstream compute_roi_verdict
+        # overwrote с 'Глубоко убыточный' (roi=0 < 0.5 threshold), which is wrong
+        # diagnostic (no data ≠ deep loss).
+        if ch.get('untrained'):
+            ch.setdefault('category', 'mixed')
+            ch.setdefault('unit_smell', False)
+            ch.setdefault('share_of_spend', 0.0)
+            ch.setdefault('share_of_effect', 0.0)
+            ch.setdefault('efficiency_gap', 0.0)
+            continue
         name = ch['name'] or ''
         name_upper = name.upper()
         looks_like_non_money = any(hint in name_upper for hint in UNIT_HINTS)
@@ -579,6 +596,16 @@ def decompose(
     # к mROAS-only heuristic. После optimize backend overrides с optimizer signal.
     from engines.channel_action import compute_channel_action
     for ch in channels:
+        # Phase 5 follow-up audit: untrained channels — fixed action vocabulary
+        # вместо compute_channel_action которая инфер из mROAS=0 (low confidence).
+        if ch.get('untrained'):
+            ch.setdefault('action', 'Uncertain')
+            ch.setdefault('action_label', 'Не обучен')
+            ch.setdefault('action_tone', 'neutral')
+            ch.setdefault('action_reasoning', 'Канал имел нулевую вариативность в обучающих данных — модель не обучилась на нём.')
+            ch.setdefault('action_priority', 0)
+            ch.setdefault('action_confidence', 'high')
+            continue
         # alias mroi_current → mroas для compute_channel_action API contract
         action_input = {**ch, 'mroas': ch.get('mroi_current')}
         action = compute_channel_action(action_input)

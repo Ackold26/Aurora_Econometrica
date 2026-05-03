@@ -201,6 +201,38 @@ def is_ok(result: dict) -> bool:
     return result.get('status') == 'ok'
 
 
+def make_media_plan_from_current(
+    project_dir: Path,
+    *,
+    multiplier: float = 1.0,
+    per_period: bool = False,
+) -> dict[str, list[float]]:
+    """Build media_plan dict from current spend в pickle.
+
+    Args:
+        project_dir: project с models/latest.pkl + data file.
+        multiplier: scale factor (1.0 = current allocation).
+        per_period: True → per-period list of len n_periods (each = period_spend × multiplier).
+                    False → single-period total list (length 1) — scenario distributes evenly
+                    across forecast_periods OR training_n_periods.
+
+    Returns:
+        {channel_name: [...] }
+    """
+    md = pickle.load(open(project_dir / 'models' / 'latest.pkl', 'rb'))
+    df = pd.read_excel(md['config']['data_file'])
+    media_cols = md['config']['media_columns']
+    out: dict[str, list[float]] = {}
+    if per_period:
+        for c in media_cols:
+            out[c] = [float(v) * multiplier for v in df[c].fillna(0).tolist()]
+    else:
+        for c in media_cols:
+            total = float(df[c].fillna(0).sum())
+            out[c] = [total * multiplier]
+    return out
+
+
 def current_total_money(project_dir: Path) -> float:
     """Sum of df[col].sum() × unit_cost for all media_cols (matches optimizer)."""
     md = pickle.load(open(project_dir / 'models' / 'latest.pkl', 'rb'))
