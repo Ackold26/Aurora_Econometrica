@@ -460,6 +460,72 @@ def resolve_warning_priority(warnings: list[dict]) -> dict:
     }
 
 
+# ─── L5 — Hierarchical extrapolation warning (Phase 2.0 Part 2) ─────────────
+
+
+def hierarchical_extrapolation_warning(
+    model_data: dict,
+    *,
+    forecast_budget_money: float,
+    train_total_money: float,
+    brand_drift_threshold: float = 3.0,
+) -> dict | None:
+    """L5 (Phase 2.0 Part 2 — 2026-05-03): conditional warning about hierarchical
+    pooling underestimation при extreme budget extrapolation.
+
+    Replaces planned generic always-shown warning. Quantitative threshold based
+    on consistency с M8 drift detection convention (3× ratio = critical zone).
+
+    Mechanism: при hierarchical model + brand-channel budget ratio > 3× training,
+    β posterior shrinkage может pull brand top-performer estimates toward group
+    mean, underestimating its true contribution. Customer should cross-check с
+    flat model OR narrow forecast horizon.
+
+    Args:
+        model_data: loaded pickle dict.
+        forecast_budget_money: planning budget total (₽).
+        train_total_money: training period total spend (₽).
+        brand_drift_threshold: ratio threshold (default 3.0, matches M8).
+
+    Returns:
+        Dict {severity, message_ru, forecast_ratio, brand_channels} when warning
+        applies. None when:
+        - Model is not hierarchical (model_version < 1.3 OR use_hierarchical=False)
+        - No brand-categorized channels
+        - Forecast ratio ≤ threshold
+        - Training total invalid (≤ 0)
+    """
+    if not model_data.get('use_hierarchical'):
+        return None
+    if train_total_money <= 0:
+        return None
+    categories = model_data.get('channel_categories') or {}
+    brand_channels = sorted(
+        c for c, cat in categories.items() if cat == 'brand'
+    )
+    if not brand_channels:
+        return None
+    ratio = float(forecast_budget_money) / float(train_total_money)
+    if ratio <= brand_drift_threshold:
+        return None
+    return {
+        'severity': 'warn',
+        'message_ru': (
+            f'Прогнозный бюджет ({ratio:.1f}× от обучающего) выводит brand-каналы '
+            f'за калибровочную зону (порог {brand_drift_threshold:.1f}×). '
+            f'Иерархическая модель применяет β-pooling между brand-каналами '
+            f'({", ".join(brand_channels)}) — top performer может быть занижен '
+            f'на 5-15% в zonе экстраполяции. Cross-check с flat-моделью '
+            f'(model_version 1.2) или сократите горизонт до ≤ 2× обучающего '
+            f'для более точных абсолютных ROI.'
+        ),
+        'category_filter': 'brand',
+        'forecast_ratio': ratio,
+        'brand_channels': brand_channels,
+        'threshold': brand_drift_threshold,
+    }
+
+
 # ─── KPI registry coupling (S7 synergy) ─────────────────────────────────────
 
 
