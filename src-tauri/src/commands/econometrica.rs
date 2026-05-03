@@ -131,6 +131,11 @@ pub async fn econ_optimize(
     forecast_period_label: Option<String>,
     // Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rates.
     unit_cost_inflation_pct: Option<Value>,
+    // F1 fix 2026-05-03 (Phase 5 follow-up audit): prior optimize call's
+    // optimal_spend_money per channel — backend uses as direct candidate
+    // anchor для transitive chain monotonicity (invariant I5b).
+    // None = first-call OR pickle/budget changed → backend skips silently.
+    prev_optimal: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_optimize: {project_dir}");
     let body = serde_json::json!({
@@ -151,6 +156,7 @@ pub async fn econ_optimize(
         "forecast_periods": forecast_periods,
         "forecast_period_label": forecast_period_label,
         "unit_cost_inflation_pct": unit_cost_inflation_pct,
+        "prev_optimal": prev_optimal,
     });
     post_json("/compute/optimize", &body, quick_client()).await
 }

@@ -372,10 +372,20 @@
   // change. Pre-fix: $effect fired on initial mount → wiped user input при
   // every navigation back to OptimizeStep within same project.
   let _prevProjectIdForReset = /** @type {string | null} */ (null);
+
+  // F1 fix 2026-05-03 (Phase 5 follow-up): cumulative anchor seed для transitive
+  // chain monotonicity (invariant I5b). Stores last successful optimize call's
+  // optimal_spend_money per channel; passed back в next optimize via `prevOptimal`.
+  // Backend silently skips если infeasible в новых bounds (e.g. user changed
+  // pickle, sum mismatch). See docs/OPTIMIZER_INVARIANTS_REGISTRY.md §I5b.
+  let lastOptimalMoneyByChannel = $state(/** @type {number[] | null} */ (null));
+
   $effect(() => {
     const projectId = $activeProjectId;
     if (_prevProjectIdForReset !== null && _prevProjectIdForReset !== projectId) {
       forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+      // F1: reset cumulative anchor on project change (different pickle → different channel ordering).
+      lastOptimalMoneyByChannel = null;
     }
     _prevProjectIdForReset = projectId;
   });
@@ -1087,11 +1097,17 @@
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
         unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
+        // F1 fix 2026-05-03: cumulative anchor seed для chain monotonicity (I5b).
+        prevOptimal: lastOptimalMoneyByChannel,
       }));
 
       if (result.status === 'ok') {
         optimizeData.set(result);
         stepState = 'done';
+        // F1 fix: capture optimal allocation для следующего chain widening call.
+        lastOptimalMoneyByChannel = (result.channels ?? []).map(
+          /** @param {any} ch */ (ch) => ch.optimal_spend_money,
+        );
 
         // Build optimalBudgets for slider animation targets
         const ob = /** @type {Record<string, number>} */ ({});

@@ -243,21 +243,16 @@ def test_I5_lift_floor_at_default_anchor(tmp_path, seed):
         )
 
 
-@pytest.mark.xfail(
-    reason=(
-        'Transitive chain monotonicity not guaranteed by current optimizer — '
-        'anchor floors only vs default(20/200), not vs each prior chain step. '
-        'Phase 5 follow-up: implement cumulative anchor seeding.'
-    ),
-    strict=False,
-)
 @pytest.mark.parametrize('seed', list(range(5)))
-def test_I5_chain_monotonic_advisory(tmp_path, seed):
-    """ADVISORY: full chain monotonicity (every step ≥ previous).
+def test_I5_chain_monotonic_with_cumulative_anchor(tmp_path, seed):
+    """I5b: full chain monotonicity GUARANTEED via cumulative anchor seeding.
 
-    Surfaces transitive non-monotonicity for Phase 5 finding registry.
-    Marked xfail because plan I5 only requires paired (narrow vs wide), not chain;
-    chain regression is real bug class but deferred to anchor-mechanism rewrite.
+    F1 fix (2026-05-03): UI passes prior `result.optimal_spend_money` via
+    `prev_optimal` config field when user widens bounds incrementally.
+    Optimizer accepts it as direct candidate — floor preserved transitively.
+
+    Test emulates UI behavior: chain of widening bounds, each call seeds
+    с previous optimal allocation. Result: lift_pct non-decreasing across chain.
     """
     proj = tmp_path / f'I5b_{seed}'
     build_synthetic_pickle(proj, seed=seed)
@@ -265,11 +260,18 @@ def test_I5_chain_monotonic_advisory(tmp_path, seed):
     from engines.optimizer import optimize
     chain = [(50, 150), (30, 200), (20, 250), (10, 300), (0, 500)]
     lifts: list[tuple[str, float]] = []
+    prev_optimal: list[float] | None = None
+
     for lo, hi in chain:
-        r = optimize({'min_pct': float(lo), 'max_pct': float(hi)}, str(proj))
+        cfg = {'min_pct': float(lo), 'max_pct': float(hi)}
+        if prev_optimal is not None:
+            cfg['prev_optimal'] = prev_optimal
+        r = optimize(cfg, str(proj))
         if not _is_ok(r) or r.get('baseline_zero'):
             continue
         lifts.append((f'{lo}/{hi}', float(r['expected_lift_pct'])))
+        # UI captures optimal_spend_money for next call
+        prev_optimal = [ch['optimal_spend_money'] for ch in r['channels']]
 
     if len(lifts) < 2:
         pytest.skip(f'<2 runs successful')
@@ -278,8 +280,9 @@ def test_I5_chain_monotonic_advisory(tmp_path, seed):
         prev_label, prev_lift = lifts[i - 1]
         curr_label, curr_lift = lifts[i]
         assert curr_lift >= prev_lift - 0.5, (
-            f'I5 chain violated (seed={seed}): {curr_label}={curr_lift:.2f}% < '
-            f'{prev_label}={prev_lift:.2f}%. Full chain: {lifts}'
+            f'I5b chain violated (seed={seed}): {curr_label}={curr_lift:.2f}% < '
+            f'{prev_label}={prev_lift:.2f}%. Full chain: {lifts}. '
+            f'F1 cumulative anchor failed.'
         )
 
 

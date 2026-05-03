@@ -110,34 +110,32 @@ Anchor mechanism enforces this floor.
 
 ---
 
-#### ⚠️ I5b — Chain transitive monotonicity (DEFERRED)
+#### ✅ I5b — Chain transitive monotonicity (FIXED 2026-05-03)
 
-**Stronger property (NOT currently guaranteed):**
+**Stronger property (now guaranteed):**
 ```
-For chain B₁ ⊆ B₂ ⊆ ... ⊆ Bₙ:
+For chain B₁ ⊆ B₂ ⊆ ... ⊆ Bₙ with cumulative anchor seeding:
   lift_pct(B_{i+1}) ≥ lift_pct(B_i) - tolerance  ∀ i
 ```
 
-**Status:** 🔴 **GAP — Phase 5 follow-up required.**
-Current anchor floors only vs `(20/200)` default, not vs each prior chain step.
-Counterexamples observed in `test_I5_chain_monotonic_advisory` (4 of 5 seeds
-violated) — e.g. lift dropped from 19.4% (10/300) to 17.7% (0/500), or 10.6%
-(50/150) to 3.4% (30/200) на seed 3.
+**Status:** ✅ **F1 fix shipped 2026-05-03.** Cumulative anchor seeding implemented
+в `optimizer.py` (search comment «F1 fix (2026-05-03 — Phase 5 follow-up)»).
 
-**Affected scenarios:** customer widens bounds incrementally в UI sliders.
-Display can show non-monotonic lift_pct sequence.
+**Mechanism:**
+- `optimize()` accepts optional `prev_optimal: list[float]` config field
+  (alias `prev_optimal_money`) — last call's `optimal_spend_money` per channel.
+- When provided AND feasible в current bounds (per-channel + sum within 1%),
+  added as **direct candidate** (no SLSQP rerun, just objective eval).
+- `min(candidates).fun` selection → если prev's objective ≤ current run's best,
+  prev wins. Floor preserved transitively.
 
-**Proposed fix (Phase 5 follow-up):** **Cumulative anchor seeding** — each
-optimize call accepts optional `prev_optimal: list[float]` parameter (last
-known optimal from a related call). When provided, that allocation is added
-as a direct candidate (feasibility-clipped к current bounds). UI passes prior
-result.optimal_spend_money into next call when user widens.
+**UI contract:** frontend store retains `result.optimal_spend_money` from prior
+optimize call; passes via `config.prev_optimal` when user widens bounds. Если
+user narrows OR changes pickle/budget — skip (prev infeasible, silent skip with
+log info message).
 
-**Estimated effort:** ~1 dev-day (add 1 candidate to `candidates` list +
-optional config field + UI plumbing).
-
-**Test:** `test_I5_chain_monotonic_advisory` (xfail, strict=False) — будет
-flipped to passing после Phase 5 follow-up.
+**Test:** `test_I5_chain_monotonic_with_cumulative_anchor` × 5 seeds — all pass
+(was xfail для 4 of 5 без F1, all pass с F1).
 
 ---
 
@@ -225,7 +223,7 @@ Option C restored alignment.
 | I3 | Bounds satisfaction | `test_I3_…` × 20 | ✅ |
 | I4 | Backward compat + determinism | `test_I4_…` | ✅ |
 | I5a | Anchor floor | `test_I5_lift_floor_at_default_anchor` × 5×4 | ✅ |
-| I5b | Chain transitive monotonicity | `test_I5_chain_…` × 5 | 🔴 xfail (deferred) |
+| I5b | Chain transitive monotonicity | `test_I5_chain_monotonic_with_cumulative_anchor` × 5 | ✅ (F1 fix 2026-05-03) |
 | I6 | mROAS chain rule | `test_I6_…` × 50 | ✅ |
 | I7 | Constraint precedence | `test_I7_…` × 10 + 30 unit | ✅ |
 | I8 | Option C identity + E2E | `test_I8_…` + × 5 | ✅ |

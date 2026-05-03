@@ -724,8 +724,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     #
     # invariant: I1 (monotonicity, paired) + I5a (anchor floor) — wider-than-default
     # bounds always ≥ default(20/200) optimal. See docs/OPTIMIZER_INVARIANTS_REGISTRY.md.
-    # GAP: I5b (chain transitive monotonicity) NOT guaranteed — Phase 5 follow-up
-    # requires cumulative anchor seeding (accept prev_optimal config field).
+    # invariant: I5b (chain transitive monotonicity) — F1 fix 2026-05-03 added
+    # cumulative anchor seeding via `prev_optimal` config field (see code below
+    # после default_anchor block).
     # Cause: SLSQP non-convex Hill saturation → wider search space может
     # засосать SLSQP в extreme corners (0% spend на канал) откуда gradient
     # не пускает обратно. Local optimum хуже global.
@@ -933,6 +934,58 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                 })
         except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
             _logger.warning(f"default_anchor full multi-start SLSQP raised: {type(e).__name__}: {e}")
+
+    # F1 fix (2026-05-03 — Phase 5 follow-up): Cumulative anchor seeding для
+    # transitive chain monotonicity (invariant I5b). UI passes prior optimize
+    # call's optimal_spend_money через `prev_optimal` config field когда user
+    # widens bounds incrementally. We accept it as direct candidate (no SLSQP
+    # rerun) — feasible по конструкции when chain is widening (prev_bounds ⊆
+    # current_bounds → prev allocation feasible в current bounds).
+    #
+    # Floor preserved transitively: if prev's objective ≤ current run's best,
+    # min(candidates).fun guarantees current ≥ prev. Если prev infeasible
+    # в current bounds (user narrowed) или sum mismatch — silent skip + warning.
+    #
+    # invariant: I5b (chain transitive monotonicity) — registry §I5b. Test
+    # flipped from xfail to passing после this fix ships.
+    prev_optimal_money = config.get('prev_optimal_money') or config.get('prev_optimal')
+    if prev_optimal_money is not None:
+        try:
+            prev_arr = np.array([float(v) for v in prev_optimal_money], dtype=float)
+            if prev_arr.shape != (n_ch,):
+                raise ValueError(
+                    f"prev_optimal length {prev_arr.shape} != n_ch {n_ch}"
+                )
+            all_in_bounds = all(
+                bounds_money[i][0] - 1e-3 <= prev_arr[i] <= bounds_money[i][1] + 1e-3
+                for i in range(n_ch)
+            )
+            sum_rel_err = abs(float(np.sum(prev_arr)) - money_target) / max(money_target, 1.0)
+            if all_in_bounds and sum_rel_err < 0.01:
+                class _PrevSeedResult:
+                    def __init__(self, x, fun_val):
+                        self.x = np.asarray(x, dtype=float)
+                        self.fun = float(fun_val)
+                        self.success = True
+                        self.message = 'cumulative anchor (prev_optimal seed)'
+                        self.nit = 0
+                prev_obj = float(_objective_fn(prev_arr))
+                candidates.append(_PrevSeedResult(prev_arr, prev_obj))
+                slsqp_attempts.append({
+                    'start_name': 'prev_optimal_anchor',
+                    'success': True,
+                    'iterations': 0,
+                    'objective_at_start': prev_obj,
+                    'objective_at_optimal': prev_obj,
+                    'message': 'prev_optimal as direct seed (cumulative anchor F1)',
+                })
+            else:
+                _logger.info(
+                    f"prev_optimal seed skipped (infeasible в current bounds): "
+                    f"all_in_bounds={all_in_bounds}, sum_rel_err={sum_rel_err:.4f}"
+                )
+        except (TypeError, ValueError) as e:
+            _logger.warning(f"prev_optimal parse failed: {type(e).__name__}: {e}. Ignored.")
 
     if candidates:
         # Best = lowest -response (since we minimize -response).
