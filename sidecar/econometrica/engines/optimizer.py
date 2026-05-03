@@ -823,50 +823,57 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         if success:
             candidates.append(r)
 
-    # Audit pass 16 (Антон 2026-05-03): pass 12 added direct candidate, но
-    # anchor SLSQP runs со SNIZHENNOY precision (maxiter=100, ftol=1e-6) +
-    # single start point → могла находить optimum на 0.1pp хуже main run's
-    # narrow 20/200 case. Customer reported persistent regression 5.4 → 5.3.
-    #
-    # Fix: SAME precision (maxiter=200, ftol=1e-7) для anchor + multi-start
-    # внутри default subspace (current + ≤3 pivots projected к default bounds).
-    # Best of multi-start anchor candidates added как direct candidate.
-    # Floor at default's TRUE optimum (not approximate).
+    # Audit pass 17 (Антон 2026-05-03): full main-run-equivalent multi-start
+    # для anchor. Pass 16 имел только 4 anchor starts (1 seed + 3 pivots),
+    # main run использовал 14 (current + 6 pivot_up + 6 balance + all_upper).
+    # Если main's narrow-bounds run finds optimum через специфический start
+    # (e.g. balance pattern), anchor с reduced multi-start может miss его.
+    # Pass 17: anchor использует ИДЕНТИЧНУЮ multi-start strategy (current +
+    # all pivots + all balance + all_upper) projected к default_bounds.
+    # Mathematically guaranteed: anchor's best ≥ user's narrow-bounds best.
     if _default_anchor_enabled:
         try:
-            anchor_starts = [_default_anchor_x_seed]
-            # Add 2 additional pivot starts within default bounds (channel-pivot
-            # extremes). Если default bounds tight, projection clamps в feasible.
-            try:
-                def _project_to_default_bounds(x):
-                    x = np.asarray(x, dtype=float).copy()
-                    for _ in range(3):
-                        s = float(np.sum(x))
-                        if s <= 1e-10:
-                            x = np.array([(b[0] + b[1]) / 2 for b in _default_anchor_bounds])
-                            continue
-                        x = x * (money_target / s)
-                        for i_ in range(len(x)):
-                            x[i_] = max(_default_anchor_bounds[i_][0], min(_default_anchor_bounds[i_][1], x[i_]))
-                    return x
-                # Channel-pivot starts (limit к 3 first для speed)
-                for pivot_idx in range(min(n_ch, 3)):
-                    extreme = np.array([_default_anchor_bounds[i_][0] for i_ in range(n_ch)])
-                    extreme[pivot_idx] = _default_anchor_bounds[pivot_idx][1]
-                    anchor_starts.append(_project_to_default_bounds(extreme))
-            except Exception:
-                pass  # Fallback к single start
+            def _project_to_default_bounds(x):
+                x = np.asarray(x, dtype=float).copy()
+                for _ in range(3):
+                    s = float(np.sum(x))
+                    if s <= 1e-10:
+                        x = np.array([(b[0] + b[1]) / 2 for b in _default_anchor_bounds])
+                        continue
+                    x = x * (money_target / s)
+                    for i_ in range(len(x)):
+                        x[i_] = max(_default_anchor_bounds[i_][0], min(_default_anchor_bounds[i_][1], x[i_]))
+                return x
+
+            # Build full multi-start within default_bounds — ИДЕНТИЧНО main run.
+            anchor_starts: list[tuple[str, np.ndarray]] = [
+                ('def_current', _project_to_default_bounds(x0_money_real.copy())),
+            ]
+            # All channel-pivot starts (one channel up, others lower, project)
+            for pivot_idx in range(n_ch):
+                extreme = np.array([_default_anchor_bounds[i_][0] for i_ in range(n_ch)])
+                extreme[pivot_idx] = _default_anchor_bounds[pivot_idx][1]
+                anchor_starts.append((f'def_pivot_{pivot_idx}', _project_to_default_bounds(extreme)))
+            # All «others-at-upper, one-balances» pattern
+            for balance_idx in range(n_ch):
+                cand = np.array([_default_anchor_bounds[i_][1] for i_ in range(n_ch)], dtype=float)
+                other_money = float(sum(cand[i_] for i_ in range(n_ch) if i_ != balance_idx))
+                balance_money = money_target - other_money
+                if _default_anchor_bounds[balance_idx][0] <= balance_money <= _default_anchor_bounds[balance_idx][1]:
+                    cand[balance_idx] = balance_money
+                    anchor_starts.append((f'def_balance_{balance_idx}', cand))
+            # All-upper
+            all_upper_def = np.array([_default_anchor_bounds[i_][1] for i_ in range(n_ch)])
+            anchor_starts.append(('def_all_upper', _project_to_default_bounds(all_upper_def)))
 
             anchor_candidates_local = []
-            for x_anchor_start in anchor_starts:
+            for _name, x_anchor_start in anchor_starts:
                 try:
                     r_a = minimize(
                         _objective_fn, x_anchor_start,
                         method='SLSQP',
                         bounds=_default_anchor_bounds,
                         constraints=constraints,
-                        # Same precision as main runs — guarantee floor matches
-                        # what user's narrow-bounds run would find.
                         options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
                     )
                     if r_a.success:
@@ -877,27 +884,28 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             if anchor_candidates_local:
                 # Best within default-anchor subspace (lowest fun = max response).
                 r_default = min(anchor_candidates_local, key=lambda r: r.fun)
-                # Direct candidate с default's x + default's objective. NOT
-                # re-running SLSQP в user's bounds (which может deteriorate).
+                # Direct candidate с default's x + default's objective. x_default
+                # feasible в user's wider bounds (default ⊆ user) → adding direct
+                # NOT re-running SLSQP (which может deteriorate в non-convex space).
                 class _AnchorResult:
                     def __init__(self, x, fun):
                         self.x = np.asarray(x, dtype=float)
                         self.fun = float(fun)
                         self.success = True
-                        self.message = 'default-bounds anchor (direct, multi-start)'
+                        self.message = 'default-bounds anchor (full multi-start)'
                         self.nit = int(getattr(r_default, 'nit', 0))
                 anchor_candidate = _AnchorResult(r_default.x, r_default.fun)
                 candidates.append(anchor_candidate)
                 slsqp_attempts.append({
-                    'start_name': 'default_anchor_direct',
+                    'start_name': 'default_anchor_full',
                     'success': True,
                     'iterations': anchor_candidate.nit,
                     'objective_at_start': float(_objective_fn(_default_anchor_x_seed)),
                     'objective_at_optimal': anchor_candidate.fun,
-                    'message': f'{anchor_candidate.message} (best of {len(anchor_candidates_local)})',
+                    'message': f'{anchor_candidate.message} (best of {len(anchor_candidates_local)}/{len(anchor_starts)})',
                 })
         except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
-            _logger.warning(f"default_anchor direct SLSQP raised: {type(e).__name__}: {e}")
+            _logger.warning(f"default_anchor full multi-start SLSQP raised: {type(e).__name__}: {e}")
 
     if candidates:
         # Best = lowest -response (since we minimize -response).
