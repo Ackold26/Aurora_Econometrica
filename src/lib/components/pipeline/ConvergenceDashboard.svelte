@@ -124,7 +124,18 @@
         type: 'value',
         axisLabel: {
           color: '#94a3b8', fontSize: 10,
-          formatter: (/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU'),
+          // Audit pass 10 (Антон 2026-05-03): compact formatter — full numbers
+          // «100 000 000» (11 chars × ~7px = 77px) обрезались в grid.left=60px
+          // → customer видел «00 000 000» (clipped). Compact «100M» (4 chars)
+          // fits comfortably + читается лучше.
+          formatter: (/** @type {number} */ v) => {
+            if (!Number.isFinite(v)) return '';
+            const abs = Math.abs(v);
+            if (abs >= 1e9) return (v / 1e9).toFixed(1) + 'B';
+            if (abs >= 1e6) return (v / 1e6).toFixed(0) + 'M';
+            if (abs >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+            return String(Math.round(v));
+          },
         },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
       },
