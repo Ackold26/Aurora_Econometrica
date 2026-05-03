@@ -1815,7 +1815,13 @@
 
   <!-- ════════════════ БЛОК C — What-if: изменённый бюджет ════════════════ -->
   {#if channels.length > 0}
-    {@const curMoney = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0) * ((($unitCosts?.[ch]) ?? 1.0)), 0)}
+    <!-- Phase 2 audit pass 8 (Антон 2026-05-03): What-if reference budget =
+         effectiveBaseBudget (planning > training fallback). В planner mode
+         показывать «Бюджет планирования», в analyst mode — training currentMoney.
+         Backend invoke уже использует effectiveBaseBudget × multiplier (audit
+         pass 4); фикс синхронизирует display с invoke semantics. -->
+    {@const trainingMoney = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0) * ((effectiveUnitCosts?.[ch]) ?? 1.0), 0)}
+    {@const curMoney = effectiveBaseBudget > 0 ? effectiveBaseBudget : trainingMoney}
     {@const newMoney = curMoney * whatIfMult}
     {@const deltaMoney = newMoney - curMoney}
     <!-- KPI-прогноз = total_sales × (1 + lift%). Lift backend считает в пространстве
@@ -1880,9 +1886,11 @@
         <div class="whatif-compare">
           <div class="compare-row">
             <div class="compare-cell">
-              <div class="compare-label">Текущий бюджет</div>
+              <div class="compare-label">{isPlanning ? 'Бюджет планирования' : 'Текущий бюджет'}</div>
               <div class="compare-value">{fmtBudget(curMoney)}</div>
-              <div class="compare-sub">KPI: {fmtBudget(dData?.total_sales ?? 0)}</div>
+              <div class="compare-sub">
+                {#if isPlanning}{$forecastConfig.periodLabel ?? `${$forecastConfig.periods} периодов`}{:else}KPI: {fmtBudget(dData?.total_sales ?? 0)}{/if}
+              </div>
             </div>
             {#if showRight}
               <div class="compare-arrow">→</div>

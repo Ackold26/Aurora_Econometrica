@@ -1053,24 +1053,20 @@ export function optimizeInsights(data, ctx = {}) {
   // движении слайдеров — это «nominal» от первоначальной тренировки).
   /** @type {Array<{name: string, mroas: number, status: 'scale'|'stable'|'saturated'|'unused'}>} */
   const satList = [];
-  if (mod?.channelParams && data.channels) {
-    /** @type {Record<string, number>} */
-    const referenceSpend = {};
+  // Phase 2 audit pass 8 (Антон 2026-05-03): use backend's mroi_current
+  // (canonical _compute_mroas_money с adstock_factor + unit_cost normalization,
+  // F0.2 fix Apr 25) — same source как таблица в OptimizeStep. Pre-fix: insights
+  // использовали frontend marginalROI() которая raw marginal Hill (без adstock
+  // factor + некорректно normalized) → две разные метрики под one label, числа
+  // расходились в сотни раз (e.g. table 0.00× vs banner 193.89× для same channel).
+  if (data.channels) {
     for (const ch of data.channels) {
-      referenceSpend[ch.name] = ch.current_spend ?? 0;
-    }
-    const scaledParams = buildScaledParams(mod.channelParams, referenceSpend);
-    const yNorm = mod.normalization ?? null;
-    for (const ch of data.channels) {
-      const p = scaledParams[ch.name];
-      if (!p) continue;
-      // Live-spend из слайдеров (если пользователь двигал), иначе reference.
-      const spend = channelBudgets?.[ch.name] ?? referenceSpend[ch.name];
-      if (!spend || spend < 1) {
+      const v = Number(ch.mroi_current ?? 0);
+      if (!Number.isFinite(v) || v <= 0) {
+        // Untrained / zero-spend / failed CI — treat как unused
         satList.push({ name: ch.name, mroas: 0, status: 'unused' });
         continue;
       }
-      const v = marginalROI(spend, p.alpha, p.gammaScaled, p.beta, yNorm);
       /** @type {'scale'|'stable'|'saturated'} */
       const status = v > 1.5 ? 'scale' : v > 0.8 ? 'stable' : 'saturated';
       satList.push({ name: ch.name, mroas: v, status });
