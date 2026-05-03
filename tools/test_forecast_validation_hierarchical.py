@@ -146,8 +146,10 @@ def test_warning_message_ru_format():
     msg = w['message_ru']
     assert '5.0×' in msg or '5.0x' in msg.replace('×', 'x')
     assert 'tv_brand' in msg or 'olv_brand' in msg
-    assert 'pooling' in msg.lower() or 'pooling' in msg
-    assert 'cross-check' in msg.lower() or 'flat' in msg.lower()
+    # 2026-05-04: тон сообщения смягчён для customer'a — pooling/β-термины убраны.
+    # Проверяем что упомянуто усреднение/иерархичность вместо технического pooling.
+    assert 'усредн' in msg.lower() or 'иерархич' in msg.lower()
+    assert 'flat' in msg.lower() or 'сократите' in msg.lower()
 
 
 def test_warning_includes_actionable_guidance():

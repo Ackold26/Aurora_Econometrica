@@ -361,6 +361,16 @@ class AuroraPPTXBuilder:
             pass
         return line
 
+    # ---------- Brand mark (sigil PNG) ----------
+
+    def _brand_mark_path(self):
+        """Return Path к bundled gold-accent sigil PNG (5d 2026-05-04).
+        None если файл отсутствует (legacy build OR test fixture без resources).
+        """
+        from pathlib import Path
+        p = Path(__file__).parent / 'templates' / 'brand_mark.png'
+        return p if p.exists() else None
+
     # ---------- Wordmark (strict typographic logo) ----------
 
     def _wordmark(self, slide, x, y, *, size=12, color=None):
@@ -768,8 +778,22 @@ class AuroraPPTXBuilder:
             weight=1.0, color=self.gold,
         )
 
-        # Wordmark top-left
-        self._wordmark(slide, self.safe, self.safe, size=16, color=self.deep_100)
+        # 5d (2026-05-04): gold-accent sigil PNG over wordmark на cover.
+        # Visual brand consistency с HTML/XLSX deliverables. Square 0.7" preserves
+        # aspect ratio of source 512×512. Falls back gracefully — wordmark below.
+        brand_path = self._brand_mark_path()
+        if brand_path is not None:
+            slide.shapes.add_picture(
+                str(brand_path),
+                Inches(self.safe), Inches(self.safe - 0.1),
+                height=Inches(0.7),
+            )
+            wordmark_y = self.safe + 0.85
+        else:
+            wordmark_y = self.safe
+
+        # Wordmark top-left (под sigil если он есть, иначе на attempt position)
+        self._wordmark(slide, self.safe, wordmark_y, size=14, color=self.deep_100)
 
         # Horizontal hairline full-width (margin to right-gold-line)
         self._hairline(

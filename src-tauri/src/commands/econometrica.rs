@@ -186,6 +186,21 @@ pub async fn econ_forecast_scaling(
 }
 
 #[tauri::command]
+pub async fn econ_hierarchical_warning(
+    project_dir: String,
+    forecast_budget_money: f64,
+    train_total_money: Option<f64>,
+) -> Result<Value, String> {
+    info!("econ_hierarchical_warning: {project_dir} budget={forecast_budget_money} train_total={train_total_money:?}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "forecast_budget_money": forecast_budget_money,
+        "train_total_money": train_total_money,
+    });
+    post_json("/compute/hierarchical-warning", &body, quick_client()).await
+}
+
+#[tauri::command]
 pub async fn econ_scenario(
     project_dir: String,
     scenario_name: String,

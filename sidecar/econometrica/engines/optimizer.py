@@ -1028,21 +1028,53 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # current_response computed at REAL current allocation (x0_money_real),
     # NOT projected (x0_money). Pre-fix using projected made lift_pct artifact
     # of scale-down/scale-up baseline shift, не measure of redistribution gain.
-    # Edge case: if real media spend = 0 (all channels at 0), current_response_real
-    # ≤ 0 — division would explode. Guard explicitly.
     current_response_real = -_objective_fn(x0_money_real)
     optimal_response = -_objective_fn(result.x)
+
+    # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04) ────────────────
+    # Pre-fix: lift = (optimal_media - current_media) / current_media (media-only ratio).
+    # Это давало misleading high values (+4.7% Кагоцел) когда baseline >> media.
+    # Frontend predictKPI uses total KPI denominator → расхождение 3.7 п.п. с UI.
+    # Three engines (optimizer, scenario, frontend) had three different formulas.
+    # Now: canonical formula = (total_optimal - total_current) / total_current
+    # где total_kpi = baseline_total + media_total. Control effect = 0 over training
+    # (z-score normalized → mean=0). Aligns with frontend hill.js predictKPI.
+    # Legacy media-only formula preserved as `media_only_lift_pct` field
+    # для expert mode + AURORA_LEGACY_LIFT_FORMULA=1 emergency rollback flag.
+    import os as _os_lift  # localized import — avoid module-level pollution
+    y_mean_lift = float(norm.get('y_mean', 0.0))
+    intercept_mean_lift = float(norm.get('intercept_mean', 0.0))
+    baseline_per_period_lift = intercept_mean_lift * y_std + y_mean_lift
+    non_media_baseline_total = baseline_per_period_lift * forecast_n_periods
+
+    # Legacy media-only ratio (for backward compat + debug).
     if current_response_real > 1e-9:
-        lift_pct = (optimal_response - current_response_real) / current_response_real * 100
+        media_only_lift_pct = (optimal_response - current_response_real) / current_response_real * 100
+    else:
+        media_only_lift_pct = 0.0
+        _logger.warning(
+            "current_response_real ≤ 0 — degenerate media baseline. media_only_lift_pct undefined."
+        )
+
+    # Canonical: total business KPI ratio.
+    total_current_kpi = non_media_baseline_total + current_response_real
+    total_optimal_kpi = non_media_baseline_total + optimal_response
+    if total_current_kpi > 1e-9:
+        canonical_lift_pct = (total_optimal_kpi - total_current_kpi) / total_current_kpi * 100
         baseline_zero = False
     else:
-        # Degenerate baseline — no current media contribution to compare against.
-        # Report 0% lift_pct + flag for UI to suppress percentage display.
-        lift_pct = 0.0
+        canonical_lift_pct = 0.0
         baseline_zero = True
         _logger.warning(
-            "current_response_real ≤ 0 — degenerate baseline. lift_pct undefined; flagged for UI."
+            "total_current_kpi ≤ 0 — degenerate baseline. canonical lift_pct undefined."
         )
+
+    # Active formula dispatch — legacy flag для emergency revert without re-ship.
+    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
+        lift_pct = media_only_lift_pct
+        _logger.info("AURORA_LEGACY_LIFT_FORMULA=1 — using legacy media-only lift_pct.")
+    else:
+        lift_pct = canonical_lift_pct
 
     # math-fix v1.0.14.1 + v1.0.16 — false convergence detector.
     # SLSQP может вернуть success=True at iter=1 если стартовая точка локально
@@ -1301,6 +1333,11 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         'total_budget_money': round(total_budget_money, 0),
         'total_current_money': round(total_current_money, 0),
         'expected_lift_pct': round(lift_pct, 1),
+        # 5a (2026-05-04): legacy media-only ratio preserved для expert mode UI
+        # + AURORA_LEGACY_LIFT_FORMULA rollback. Canonical formula = total KPI ratio.
+        'media_only_lift_pct': round(media_only_lift_pct, 1),
+        'total_current_kpi': round(total_current_kpi, 0),
+        'total_optimal_kpi': round(total_optimal_kpi, 0),
         'channels': channels,
         'response_curves': response_curves_data,
         'insight': insight,

@@ -119,6 +119,7 @@
     // Phase 2 — planning mode toggle + picker
     planningMode.set('analyst');
     forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+    hierarchicalWarning = null;
 
     // Channel budgets re-init к decompose currentSpend (next $effect picks up)
     channelBudgets = {};
@@ -351,13 +352,21 @@
 
   // ── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ──
   // Auto-fetch forecast context when planning mode toggled. Cleared on project change.
+  // FIX 2026-05-04: добавлена зависимость на $modelData. Pre-fix: $effect срабатывал
+  // только на mount (mode='planner', projectId не меняется), backend возвращал 400
+  // (MODEL_NOT_FOUND), context оставался null навсегда. После train модель
+  // появляется в store → effect re-fires → fetch успешен. Race condition закрыт.
   $effect(() => {
     const mode = $planningMode;
     const projectId = $activeProjectId;
+    const modelReady = $modelData; // dep — refetch when model becomes available
     if (!projectId || mode !== 'planner') {
       forecastContext.set(null);
+      // L5: warning is planner-only — clear when leaving planner mode.
+      hierarchicalWarning = null;
       return;
     }
+    if (!modelReady) return; // pickle ещё не создан — fetch вернёт 400
     (async () => {
       try {
         const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
@@ -380,12 +389,20 @@
   // pickle, sum mismatch). See docs/OPTIMIZER_INVARIANTS_REGISTRY.md §I5b.
   let lastOptimalMoneyByChannel = $state(/** @type {number[] | null} */ (null));
 
+  // L5 (Phase 2.0 Part 2 — 2026-05-03): hierarchical β-pooling extrapolation
+  // warning. Surfaced post-optimize в planner mode когда planning_budget > 3×
+  // training. Helper в utils/forecast_validation.hierarchical_extrapolation_warning;
+  // null = no warning (flat model / non-brand / ratio ≤ threshold).
+  /** @type {{severity: string, message_ru: string, forecast_ratio: number, brand_channels: string[], threshold: number} | null} */
+  let hierarchicalWarning = $state(null);
+
   $effect(() => {
     const projectId = $activeProjectId;
     if (_prevProjectIdForReset !== null && _prevProjectIdForReset !== projectId) {
       forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
       // F1: reset cumulative anchor on project change (different pickle → different channel ordering).
       lastOptimalMoneyByChannel = null;
+      hierarchicalWarning = null;
     }
     _prevProjectIdForReset = projectId;
   });
@@ -767,43 +784,52 @@
     whatIfRunning = true;
     whatIfError = null;
     try {
-      const projectId = await ensureProjectId();
-      if (!projectId) throw new Error('Проект не выбран');
-      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
-      // Phase 0.1.B fix: для mixed-units (TRPs+рубли) native total — арифметический
-      // мусор (TRP count + рубли). Money budget — единственный осмысленный
-      // constraint. Передаём его явно — backend auto-derive не сработает (target уже задан),
-      // optimizer корректно scales к whatIfMult × currentTotalBudget.
-      // Phase 2 audit pass 4: what-if в planner mode = planning budget × multiplier
-      // (вместо training budget × multiplier). Single source of truth: effectiveBaseBudget.
-      const targetMoneyBudget = effectiveBaseBudget * whatIfMult;
-      const whatIfMax = Math.max(300, Math.ceil(whatIfMult * 200));
-      const result = /** @type {any} */ (await invoke('econ_optimize', {
-        projectDir,
-        totalBudget: null,
-        totalBudgetMoney: targetMoneyBudget,
-        minPct: 0,
-        maxPct: whatIfMax,
-        minPerChannel: null,
-        maxPerChannel: null,
-        // AUDIT-4: pass per-group constraints для consistency с main optimize.
-        // null когда user не задал → backend falls back к global (identical к pre-audit).
-        // Brand max должен быть ≤ whatIfMax (whatIfMax обычно ≥300%, brandMax обычно ≤200%).
-        brandMinPct,
-        brandMaxPct,
-        perfMinPct,
-        perfMaxPct,
-        unitCosts: get(unitCosts) ?? {},
-        // Phase 2: thread planning context — what-if результат в forecast scale
-        // когда планнер активен.
-        forecastPeriods: planningPeriods,
-        forecastPeriodLabel: planningLabel,
-      }));
-      if (result.status === 'ok') {
-        whatIfResult = result;
-      } else {
-        throw new Error(result.message || 'Ошибка what-if');
+      // FIX 2026-05-04 (Антон's mental model): What-if = «на оптимизированной
+      // стратегии, что если бюджет ± X%». MMM-flow: модель → декомпозиция →
+      // оптимум для текущего бюджета → whatif вокруг этого оптимума.
+      // Math: пропорции каналов фиксируются от optimal allocation, scale на
+      // whatIfMult, KPI считается через Hill saturation на новом spend.
+      // Никакой переоптимизации — это direct test on saturation curve вдоль
+      // optimal direction. Pure-frontend (без backend roundtrip) через
+      // predictKPI helper, который уже работает в Block A для current KPI.
+      if (!optData?.channels?.length) {
+        throw new Error('Сначала выполните оптимизацию (Блок B)');
       }
+      if (!Object.keys(scaledParams).length) {
+        throw new Error('Параметры модели не загружены');
+      }
+
+      /** @type {Record<string, number>} */
+      const scaledNative = {};
+      /** @type {Record<string, number>} */
+      const scaledMoneyMap = {};
+      for (const c of optData.channels) {
+        const name = /** @type {string} */ (c.name);
+        scaledNative[name] = Number(c.optimal_spend ?? 0) * whatIfMult;
+        scaledMoneyMap[name] = Number(c.optimal_spend_money ?? 0) * whatIfMult;
+      }
+
+      const newKPI = predictKPI(scaledNative, scaledParams, yNorm);
+      const baselineKPI = currentKPI;
+      const liftPct = baselineKPI > 0
+        ? ((newKPI - baselineKPI) / baselineKPI) * 100
+        : 0;
+
+      const totalScaledMoney = Object.values(scaledMoneyMap).reduce((s, v) => s + v, 0);
+
+      // Mimic backend optimize response shape для downstream UI compatibility.
+      whatIfResult = {
+        status: 'ok',
+        whatif_mode: 'scaled_optimal',
+        expected_lift_pct: liftPct,
+        predicted_kpi: newKPI,
+        total_optimal_money: totalScaledMoney,
+        channels: optData.channels.map(/** @type {(c: any) => any} */ (c) => ({
+          ...c,
+          optimal_spend: scaledNative[c.name],
+          optimal_spend_money: scaledMoneyMap[c.name],
+        })),
+      };
     } catch (/** @type {any} */ e) {
       whatIfError = String(e?.message || e);
     } finally {
@@ -1109,6 +1135,31 @@
           /** @param {any} ch */ (ch) => ch.optimal_spend_money,
         );
 
+        // L5 — surface hierarchical β-pooling warning при extreme extrapolation
+        // (planning_budget > 3× training). Non-blocking advisory: optimize result
+        // показывается independently. Failure silent — degrades к no-warning.
+        // FIX 2026-05-04: trainTotalMoney = currentTotalBudget (decompose total
+        // = visual «Текущий бюджет» в Block A). Backend pickle sum через
+        // media_cols давал subset (brand-only после merge_rules) → ratio 6.4×
+        // вместо реального 0.37×. Frontend authoritative, согласован с UI.
+        hierarchicalWarning = null;
+        if (isPlanning && planningBudgetMoney != null && planningBudgetMoney > 0) {
+          (async () => {
+            try {
+              const warnRes = /** @type {any} */ (await invoke('econ_hierarchical_warning', {
+                projectDir,
+                forecastBudgetMoney: planningBudgetMoney,
+                trainTotalMoney: Number.isFinite(currentTotalBudget) && currentTotalBudget > 0
+                  ? currentTotalBudget
+                  : null,
+              }));
+              if (warnRes?.status === 'ok' && warnRes.warning) {
+                hierarchicalWarning = warnRes.warning;
+              }
+            } catch { /* silent — advisory check, не блокирует optimize result */ }
+          })();
+        }
+
         // Build optimalBudgets for slider animation targets
         const ob = /** @type {Record<string, number>} */ ({});
         for (const ch of (result.channels ?? [])) ob[ch.name] = ch.optimal_spend;
@@ -1279,7 +1330,7 @@
   <!-- Phase 2 — Forecast horizon picker (только в planner mode) -->
   {#if $planningMode === 'planner' && currentTotalBudget > 0}
     <ForecastHorizonPicker
-      trainNPeriods={$forecastContext?.train_n_periods ?? 52}
+      trainNPeriods={dData?.time_series?.dates?.length ?? $forecastContext?.train_n_periods ?? 52}
       currentBudgetMoney={currentTotalBudget}
     />
   {/if}
@@ -1354,6 +1405,25 @@
             ({$forecastConfig.periodLabel ?? 'custom'}).
             Аллокация рассчитывается per-period (3-way alignment с scenario engine).
           </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- L5 (Phase 2.0 Part 2 — 2026-05-03): Hierarchical β-pooling extrapolation
+         warning. Появляется post-optimize в planner mode когда planning_budget >
+         3× training (порог из M8 drift convention). Иерархическая модель усредняет
+         β между brand-каналами → top performer может быть занижен на 5-15% в zone
+         экстраполяции. Quantitative trigger вместо generic always-shown warning.
+         Helper: utils/forecast_validation.hierarchical_extrapolation_warning. -->
+    {#if hierarchicalWarning}
+      <div class="hierarchical-warning-banner" role="alert">
+        <span class="banner-icon">⚠️</span>
+        <div class="banner-body">
+          <div class="banner-title">
+            Прогноз за калибровочной зоной brand-каналов
+            ({hierarchicalWarning.forecast_ratio.toFixed(1)}× от обучающего)
+          </div>
+          <div class="banner-text">{hierarchicalWarning.message_ru}</div>
         </div>
       </div>
     {/if}
@@ -1853,6 +1923,21 @@
         <span class="block-subtitle">— а если бюджет станет другим?</span>
       </div>
 
+      <!-- 2026-05-04 UX hint: customer mental model — модель → декомпозиция →
+           оптимум для текущего бюджета → whatif вокруг этого оптимума.
+           Реализация: scale optimal allocation × multiplier пропорционально,
+           KPI = predictKPI(Hill saturation) на scaled spend. Никакой
+           переоптимизации — это test on saturation curve вдоль optimal direction. -->
+      <div class="whatif-mode-hint" role="note">
+        <span class="hint-icon" aria-hidden="true">ℹ️</span>
+        <span class="hint-text">
+          Сохраняем <strong>оптимизированные пропорции каналов</strong> (из Блока B)
+          и масштабируем общий бюджет на выбранный множитель. KPI рассчитывается
+          с учётом насыщения каналов (Hill saturation) — поэтому увеличение бюджета
+          даёт затухающий прирост, а сокращение — нелинейный спад.
+        </span>
+      </div>
+
       <div class="whatif-controls">
         <label class="whatif-label">Новый бюджет: <b>{fmtBudget(newMoney)}</b>
           <span class="whatif-delta" class:positive={deltaMoney > 0} class:negative={deltaMoney < 0}>
@@ -2124,6 +2209,31 @@
     font-weight: 600;
   }
 
+  /* L5 (Phase 2.0 Part 2) — hierarchical extrapolation warning. Distinct
+     amber/warn palette чтобы customer не путал с info-banner planning-active. */
+  .hierarchical-warning-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: var(--warn-bg, rgba(255, 176, 32, 0.1));
+    border: 1px solid var(--warn-border, rgba(255, 176, 32, 0.45));
+    margin-bottom: 14px;
+  }
+  .hierarchical-warning-banner .banner-icon { font-size: 1.4rem; line-height: 1.1; }
+  .hierarchical-warning-banner .banner-body { display: flex; flex-direction: column; gap: 4px; }
+  .hierarchical-warning-banner .banner-title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--warn-text, #b07a00);
+  }
+  .hierarchical-warning-banner .banner-text {
+    font-size: 0.86rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+  }
+
   .optimize-step {
     /* Скрол владеет .pipeline-main — здесь никаких overflow / height: 100%,
        иначе двойной скрол + фантомное пустое пространство (см. DecomposeStep). */
@@ -2235,6 +2345,22 @@
   }
 
   /* ── Block C/D: What-if + Forecast ──────────────────────── */
+  .whatif-mode-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+    line-height: 1.5;
+  }
+  .whatif-mode-hint .hint-icon { font-size: 1rem; line-height: 1.2; flex-shrink: 0; }
+  .whatif-mode-hint .hint-text strong { color: var(--text-primary); font-weight: 600; }
+
   .whatif-controls {
     display: grid;
     grid-template-columns: minmax(220px, 1.4fr) 2fr auto;

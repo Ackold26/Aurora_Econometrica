@@ -153,9 +153,17 @@ def render_cover(ctx: dict) -> str:
     period = meta.get("report_date") or ""
     version = meta.get("version") or ""
     kicker = strings["sections"]["cover"]["kicker"]
+    brand_mark = ctx.get("brand_mark_svg") or ""
+    # 2026-05-04: gold-accent sigil over h1 — Aurora deliverable brand mark.
+    # Wrapped в <div class="cover-brand-mark"> для CSS sizing/positioning.
+    brand_mark_html = (
+        f'<div class="cover-brand-mark" role="img" aria-label="Aurora AI">{brand_mark}</div>'
+        if brand_mark else ""
+    )
 
     body = f"""
 <div class="cover">
+  {brand_mark_html}
   <h1>Декомпозиция медиабюджета</h1>
   <p class="subtitle">и рекомендации по оптимизации</p>
   <div class="sacred-lime" aria-hidden="true" style="width: 64px; height: 3px; margin-top: 24px;"></div>

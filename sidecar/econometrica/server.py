@@ -1242,6 +1242,80 @@ def forecast_scaling_preview(req: ForecastScalingRequest):
     })
 
 
+class HierarchicalWarningRequest(BaseModel):
+    """L5 (Phase 2.0 Part 2) — surface hierarchical β-pooling extrapolation warning.
+
+    Customer post-optimize check: при planning_budget > 3× training, brand-channel
+    estimates may underestimate top-performer на 5-15%. Endpoint reads pickle +
+    training totals и calls helper. Returns {status, warning|null}. Frontend shows
+    panel когда warning != null.
+
+    `train_total_money` (optional) — bypass backend pickle sum. Frontend uses
+    decompose channels.spend total для consistency с tem что customer видит в
+    Block A («Текущий бюджет»). Иначе backend считает sum по media_cols, что
+    может расходиться с visual currentBudget после apply_merge_rules / filter.
+    """
+    project_dir: str
+    forecast_budget_money: float
+    train_total_money: float | None = None
+
+
+@app.post('/compute/hierarchical-warning')
+def hierarchical_warning_endpoint(req: HierarchicalWarningRequest):
+    """L5 — non-blocking advisory check для customer planning workflow."""
+    from pathlib import Path
+    from engines.persistence import load_model_with_compat
+    from utils.forecast_validation import hierarchical_extrapolation_warning
+
+    project_path = Path(req.project_dir)
+    model_path = project_path / 'models' / 'latest.pkl'
+    if not model_path.exists():
+        return JSONResponse(content={
+            'status': 'error',
+            'error_code': 'MODEL_NOT_FOUND',
+            'message': 'Модель не обучена.',
+        }, status_code=400)
+
+    model_data = load_model_with_compat(model_path)
+
+    # FIX 2026-05-04: train_total_money теперь приходит от frontend (=decompose
+    # channels.spend total). Backend pickle sum через media_cols мог давать
+    # subset (только brand после merge_rules) → ratio несогласованный с UI
+    # currentBudget. Fallback к pickle sum если frontend не прислал.
+    if req.train_total_money is not None and req.train_total_money > 0:
+        train_total_money = float(req.train_total_money)
+    else:
+        train_total_money = 0.0
+        media_cols = (model_data.get('config') or {}).get('media_columns') or []
+        data_file = (model_data.get('config') or {}).get('data_file')
+        if data_file and media_cols:
+            try:
+                import pandas as pd
+                df = (
+                    pd.read_excel(data_file)
+                    if str(data_file).endswith(('.xlsx', '.xls'))
+                    else pd.read_csv(data_file)
+                )
+                from utils.merge_rules import apply_merge_rules
+                apply_merge_rules(df, (model_data.get('config') or {}).get('merge_rules'))
+                train_total_money = float(sum(
+                    df[col].fillna(0).sum() for col in media_cols if col in df.columns
+                ))
+            except Exception:
+                pass  # train_total_money=0 → helper returns None gracefully
+
+    warning = hierarchical_extrapolation_warning(
+        model_data,
+        forecast_budget_money=float(req.forecast_budget_money),
+        train_total_money=train_total_money,
+    )
+    return JSONResponse(content={
+        'status': 'ok',
+        'warning': warning,
+        'train_total_money': train_total_money,
+    })
+
+
 @app.post('/compute/scenario')
 def predict_scenario(req: ScenarioRequest):
     """Predict KPI for a media plan scenario."""

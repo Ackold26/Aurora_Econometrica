@@ -148,7 +148,7 @@ fn model_spec_value(model: &Value) -> Value {
             "method": "NUTS (No-U-Turn Sampler) через NumPyro/JAX",
             "default_chains": 2, "default_draws": 500, "default_tune": 500,
         },
-        "normalization": "Media и control нормализованы (X / max(X)); y нормализован к std=1.",
+        "normalization": "Media нормализованы Robyn-style (spend / mean(spend) после adstock); control z-нормализованы; y нормализован к std=1.",
     })
 }
 
@@ -360,15 +360,17 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         }
         md.push('\n');
 
-        // ROI CI from model
-        if let Some(params) = model["channelParams"].as_object() {
-            md.push_str("### ROI с доверительными интервалами (95%)\n\n");
+        // ROI CI from decompose channels (5c fix 2026-05-04 — was reading from
+        // model["channelParams"] with typo `ci_lower/upper` → defaulting к 0).
+        if let Some(chs_for_ci) = decompose["channels"].as_array() {
+            md.push_str("### ROI с доверительными интервалами (90%)\n\n");
             md.push_str("| Канал | ROI | CI нижний | CI верхний |\n");
             md.push_str("|-------|----:|----------:|-----------:|\n");
-            for (ch_name, p) in params {
-                let roi    = p["roi"].as_f64().unwrap_or(0.0);
-                let ci_lo  = p["roi_ci_lower"].as_f64().unwrap_or(0.0);
-                let ci_hi  = p["roi_ci_upper"].as_f64().unwrap_or(0.0);
+            for ch in chs_for_ci {
+                let ch_name = ch["name"].as_str().unwrap_or("-");
+                let roi     = ch["roi"].as_f64().unwrap_or(0.0);
+                let ci_lo   = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
+                let ci_hi   = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
                 md.push_str(&format!("| {ch_name} | {roi:.2}x | {ci_lo:.2}x | {ci_hi:.2}x |\n"));
             }
             md.push('\n');
@@ -540,7 +542,7 @@ fn build_xlsx(
     project_id: &str,
     path: &PathBuf,
 ) -> Result<(), String> {
-    use rust_xlsxwriter::{Chart, ChartType, Color, ConditionalFormatCell, ConditionalFormatCellRule, Formula};
+    use rust_xlsxwriter::{Chart, ChartType, Color, ConditionalFormatCell, ConditionalFormatCellRule, Formula, Image};
 
     // ── Tier-1 brand tokens (mirror Standards/tokens/tokens.json) ────────────
     // Keep in sync with const block; duplicated here (not imported) because
@@ -697,6 +699,17 @@ fn build_xlsx(
         }
         ws.set_row_height(1, 36.0).map_err(|e| format!("{e}"))?;
 
+        // 5d (2026-05-04): Aurora deliverable gold-accent sigil PNG в верхнем
+        // правом углу Обзор sheet. Compile-time embedding через include_bytes!
+        // (no runtime file IO, single-binary distribution friendly).
+        // Sized 60×60 px ≈ matches kicker row + title row total height.
+        let brand_png_bytes = include_bytes!("../../assets/brand_mark.png");
+        if let Ok(brand_img) = Image::new_from_buffer(brand_png_bytes) {
+            // Scale 512×512 source → ≈ 60×60 px display (12% of source).
+            let scaled = brand_img.set_scale_width(0.12).set_scale_height(0.12);
+            let _ = ws.insert_image_with_offset(0, 3, &scaled, 8, 4);
+        }
+
         // Row 2: Gold accent stripe — 3 cols (per reference).
         let stripe_fmt = Format::new().set_background_color(Color::RGB(GOLD));
         for col in 0..3u16 {
@@ -773,7 +786,18 @@ fn build_xlsx(
             .as_f64()
             .or_else(|| model["diagnostics"]["r_hat"].as_f64());
         let lift      = optimize["expected_lift_pct"].as_f64().unwrap_or(0.0);
-        let budget    = optimize["total_budget"].as_f64().unwrap_or(0.0);
+        // 5c (2026-05-04) FIX: total_budget — это native sum (mixed units TRPs+₽
+        // = арифметический мусор). Use total_current_money — money equivalent
+        // = sum of channel spend × unit_cost (matches UI Block A «Текущий бюджет»).
+        let budget = optimize["total_current_money"].as_f64()
+            .or_else(|| optimize["total_budget_money"].as_f64())
+            .or_else(|| {
+                // Legacy fallback: aggregate from decompose channels (.spend = money)
+                decompose["channels"].as_array().map(|chs| {
+                    chs.iter().map(|c| c["spend"].as_f64().unwrap_or(0.0)).sum()
+                })
+            })
+            .unwrap_or(0.0);
 
         write_brand_header(ws, "Executive Summary", 8)?;
 
@@ -963,18 +987,17 @@ fn build_xlsx(
             ws.write_with_format(2, c as u16, *h, &header_fmt).map_err(|e| format!("{e}"))?;
         }
 
-        let ch_params = model["channelParams"].as_object();
-
+        // 5c (2026-05-04) FIX: CI fields live in decompose.channels[i].roi_ci_low/high,
+        // NOT в model["channelParams"] (modeler output не содержит CI). Pre-fix Rust
+        // читал из wrong source с typo (ci_lower vs ci_low) → CI=0 для всех каналов.
         for (i, ch) in chs.iter().enumerate() {
             let row = (i + 3) as u32;
             let name = ch["name"].as_str().unwrap_or("-");
             let spend = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
             let verdict = ch["verdict"].as_str().unwrap_or("-");
-            let (ci_lo, ci_hi) = ch_params.as_ref()
-                .and_then(|p| p.get(name))
-                .map(|p| (p["roi_ci_lower"].as_f64().unwrap_or(0.0), p["roi_ci_upper"].as_f64().unwrap_or(0.0)))
-                .unwrap_or((0.0, 0.0));
+            let ci_lo = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
+            let ci_hi = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
 
             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
@@ -1044,13 +1067,17 @@ fn build_xlsx(
             let spend_pct = if total_spend > 0.0 { spend / total_spend } else { 0.0 };
             let effect_pct = if total_contrib > 0.0 { contrib / total_contrib } else { 0.0 };
 
+            // 5c (2026-05-04) FIX: same formula-result issue. rust_xlsxwriter
+            // does not evaluate Excel formulas → cached result=0 на open.
+            // Compute Efficiency inline → static value, matches UI display.
+            let efficiency = if spend_pct > 1e-9 { effect_pct / spend_pct } else { 0.0 };
+
             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, spend_pct, &pct_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 3, contrib, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 4, effect_pct, &pct_fmt).map_err(|e| format!("{e}"))?;
-            // Efficiency formula = effect_share / spend_share
-            ws.write_formula_with_format(row, 5, Formula::new(format!("=IF(C{r}>0,E{r}/C{r},0)", r = row + 1)), &roi_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 5, efficiency, &roi_fmt).map_err(|e| format!("{e}"))?;
         }
 
         // Clustered bar chart: spend% vs effect% (data rows 3..3+len-1)
@@ -1180,18 +1207,45 @@ fn build_xlsx(
             ws.write_with_format(2, c as u16, *h, &header_fmt).map_err(|e| format!("{e}"))?;
         }
 
+        // 5c (2026-05-04) FIX: pre-fix Rust read native fields (current_spend,
+        // optimal_spend) → mixed units (TRPs + ₽) под column header «₽» = lying.
+        // Now: read money-axis fields (current_spend_money, optimal_spend_money)
+        // что matches UI Block B display + sheet header semantics.
+        // Δ formulas were written without computed result → Excel showed 0 для всех.
+        // Now compute Δ + Δ% inline в Rust → static values, Excel doesn't recalc.
+        // Текущий ROI: optimizer не возвращает 'current_roi' field → было 0.0
+        // fallback. Now fetch from decompose.channels[name].roi (canonical source).
+        let decompose_roi_by_name: std::collections::HashMap<String, f64> =
+            decompose["channels"].as_array()
+                .map(|chs| {
+                    chs.iter()
+                        .filter_map(|c| {
+                            let n = c["name"].as_str()?.to_string();
+                            let r = c["roi"].as_f64()?;
+                            Some((n, r))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
         for (i, ch) in opt_chs.iter().enumerate() {
             let row = (i + 3) as u32;
             let name = ch["name"].as_str().unwrap_or("-");
-            let curr = ch["current_spend"].as_f64().unwrap_or(0.0);
-            let opt = ch["optimal_spend"].as_f64().unwrap_or(0.0);
-            let curr_roi = ch["current_roi"].as_f64().unwrap_or(0.0);
+            // Prefer money-axis fields (post-2025-04 schema). Fallback к native
+            // в legacy pickles без _money suffix variants.
+            let curr = ch["current_spend_money"].as_f64()
+                .unwrap_or_else(|| ch["current_spend"].as_f64().unwrap_or(0.0));
+            let opt = ch["optimal_spend_money"].as_f64()
+                .unwrap_or_else(|| ch["optimal_spend"].as_f64().unwrap_or(0.0));
+            let delta = opt - curr;
+            let delta_pct = if curr.abs() > 1e-9 { delta / curr } else { 0.0 };
+            let curr_roi = decompose_roi_by_name.get(name).copied().unwrap_or(0.0);
 
             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, curr, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, opt, &num_fmt).map_err(|e| format!("{e}"))?;
-            ws.write_formula_with_format(row, 3, Formula::new(format!("=C{r}-B{r}", r = row + 1)), &num_fmt).map_err(|e| format!("{e}"))?;
-            ws.write_formula_with_format(row, 4, Formula::new(format!("=IF(B{r}>0,D{r}/B{r},0)", r = row + 1)), &pct_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 3, delta, &num_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 4, delta_pct, &pct_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 5, curr_roi, &roi_fmt).map_err(|e| format!("{e}"))?;
         }
 
@@ -1224,11 +1278,25 @@ fn build_xlsx(
         chart.title().set_name("Текущий vs Оптимальный бюджет");
         ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
 
-        // Totals + lift
+        // 5c (2026-05-04) FIX: same formula-result issue — рrust_xlsxwriter writes
+        // formulas with default cached result=0, Excel showed 0+0 для ИТОГО.
+        // Compute sums in Rust + write as static values.
         let total_r = last_row + 1;
+        let curr_sum: f64 = opt_chs.iter()
+            .map(|c| c["current_spend_money"].as_f64()
+                .unwrap_or_else(|| c["current_spend"].as_f64().unwrap_or(0.0)))
+            .sum();
+        let opt_sum: f64 = opt_chs.iter()
+            .map(|c| c["optimal_spend_money"].as_f64()
+                .unwrap_or_else(|| c["optimal_spend"].as_f64().unwrap_or(0.0)))
+            .sum();
+        let bold_num = bold.clone()
+            .set_num_format("#,##0")
+            .set_align(FormatAlign::Center)
+            .set_align(FormatAlign::VerticalCenter);
         ws.write_with_format(total_r, 0, "ИТОГО", &bold).map_err(|e| format!("{e}"))?;
-        ws.write_formula_with_format(total_r, 1, Formula::new(format!("=SUM(B{}:B{})", first_row + 1, last_row + 1)), &bold).map_err(|e| format!("{e}"))?;
-        ws.write_formula_with_format(total_r, 2, Formula::new(format!("=SUM(C{}:C{})", first_row + 1, last_row + 1)), &bold).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(total_r, 1, curr_sum, &bold_num).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(total_r, 2, opt_sum, &bold_num).map_err(|e| format!("{e}"))?;
 
         let lift = optimize["expected_lift_pct"].as_f64().unwrap_or(0.0);
         ws.write(total_r + 1, 0, "Ожидаемый прирост").map_err(|e| format!("{e}"))?;
@@ -1299,9 +1367,15 @@ fn build_xlsx(
             })
             .map(|(i, _)| i);
         if let Some(bi) = best_idx {
+            // 5c (2026-05-04) FIX: best_fmt was missing num_format → cell showed
+            // raw decimal "2.42" while others "2.42x" (roi_fmt applied). Inherit
+            // roi_fmt's "0.00\"x\"" pattern + add bold/green emphasis.
             let best_fmt = base_fmt.clone()
+                .set_num_format("0.00\"x\"")
                 .set_font_color(Color::RGB(GO))
-                .set_bold();
+                .set_bold()
+                .set_align(FormatAlign::Center)
+                .set_align(FormatAlign::VerticalCenter);
             let v = scenarios[bi]["totals"][roas_field].as_f64().unwrap_or(0.0);
             ws.write_with_format(roas_row, (bi + 1) as u16, v, &best_fmt)
                 .map_err(|e| format!("{e}"))?;

@@ -251,7 +251,65 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     baseline_total = baseline_per_period * n_periods
     scenario_total = sum(predictions)
     incremental_total = scenario_total - baseline_total
-    lift_pct = (incremental_total / baseline_total * 100) if baseline_total else 0
+
+    # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04) ────────────────
+    # Pre-fix: lift = incremental / baseline_only — denominator excluded current
+    # media contribution → ratio inflated when media >> baseline.
+    # Frontend predictKPI uses (scenario_total - current_total) / current_total
+    # → расхождение с UI scenarios block. Optimizer also misaligned (5a fix).
+    # Now: canonical formula across optimizer + scenario + frontend = total KPI ratio.
+    # Compute current_total_kpi = baseline + media_at_current_spend (same Hill).
+    # Legacy `lift_pct_baseline_only` preserved for backward compat / expert mode.
+    import os as _os_lift
+    legacy_lift_pct = (incremental_total / baseline_total * 100) if baseline_total else 0
+
+    # Reconstruct current_total_kpi using same Hill+adstock pipeline as scenario.
+    # Current per-period spend = (sum spend column over training) / n_periods (flat avg).
+    current_total_kpi = baseline_total  # initialize в degenerate case
+    if data_file:
+        try:
+            cur_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+            from utils.merge_rules import apply_merge_rules as _apply_merge
+            _apply_merge(cur_df, config_model.get('merge_rules'))
+            current_predictions = []
+            current_per_period_spend = {
+                col: float(cur_df[col].fillna(0).sum()) / n_periods
+                for col in media_cols if col in cur_df.columns
+            }
+            # Single-period flat allocation → adstock series.
+            current_adstocked = {}
+            for col in media_cols:
+                avg_per_period = current_per_period_spend.get(col, 0.0)
+                raw_arr = np.full(n_periods, avg_per_period, dtype=float)
+                a_type = adstock_config.get(col, 'geometric')
+                decay_point = channel_params.get(col, {}).get('decay')
+                params_override = {'alpha': float(decay_point)} if decay_point is not None else None
+                current_adstocked[col] = apply_adstock(raw_arr, a_type, params_override)
+            for t in range(n_periods):
+                cur_total_effect = 0.0
+                for col in media_cols:
+                    p = channel_params[col]
+                    spend_t_adstock = float(current_adstocked[col][t])
+                    mp = p.get('adstock_mean_posterior')
+                    mean = float(mp) if mp is not None else norm['media_means'].get(col, 1)
+                    x_norm = spend_t_adstock / max(mean, 1e-10) if mean > 0 else 0
+                    sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 1e-6))
+                    cur_total_effect += p['beta'] * sat[0]
+                current_predictions.append(baseline_per_period + cur_total_effect * y_std)
+            current_total_kpi = float(sum(current_predictions))
+        except Exception as _e_lift:
+            # Defensive: if data read fails, fall back to legacy formula (denominator=baseline).
+            current_total_kpi = baseline_total
+
+    if current_total_kpi > 1e-9:
+        canonical_lift_pct = (scenario_total - current_total_kpi) / current_total_kpi * 100
+    else:
+        canonical_lift_pct = legacy_lift_pct
+
+    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
+        lift_pct = legacy_lift_pct
+    else:
+        lift_pct = canonical_lift_pct
 
     # Phase 1.9: posterior CI on totals via vectorized per-sample reconstruction.
     # baseline_per_period uses intercept_mean (point) — Phase 1.9 also propagates
@@ -361,8 +419,26 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             _, i_lo, i_hi, _m_i = compute_ci_hdi(incremental_total_samples)
             incremental_kpi_ci = (i_lo, i_hi)
 
-            if baseline_total > 0:
-                lift_samples = incremental_total_samples / baseline_total_samples * 100
+            # 5a (2026-05-04): canonical lift CI uses (scenario - current_total_kpi) / current_total_kpi.
+            # Per-sample current_total approximated as baseline_total_samples + current_media_total
+            # where current_media_total is point estimate (same as `current_total_kpi - baseline_total`).
+            # This is acceptable trade-off: posterior intervals для current_media_total tiny relative
+            # to scenario uncertainty (current spend fixed), so propagating delta vs point есть minor.
+            current_media_total = max(current_total_kpi - baseline_total, 0.0)
+            current_total_samples = baseline_total_samples + current_media_total
+            if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
+                if baseline_total > 0:
+                    lift_samples = incremental_total_samples / baseline_total_samples * 100
+                    _, l_lo, l_hi, _m_l = compute_ci_hdi(lift_samples)
+                    lift_pct_ci = (l_lo, l_hi)
+            else:
+                # Canonical: (scenario - current_total) / current_total per sample
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    lift_samples = np.where(
+                        current_total_samples > 1e-9,
+                        (predicted_total_samples - current_total_samples) / current_total_samples * 100,
+                        0.0,
+                    )
                 _, l_lo, l_hi, _m_l = compute_ci_hdi(lift_samples)
                 lift_pct_ci = (l_lo, l_hi)
         except Exception as _ci_err:
@@ -433,6 +509,9 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             'baseline_kpi': round(baseline_total, 0),
             'incremental_kpi': round(incremental_total, 0),  # P1-4: incremental as primary
             'lift_pct': round(lift_pct, 1),
+            # 5a (2026-05-04): legacy formula preserved для backward compat + expert mode.
+            'lift_pct_baseline_only': round(legacy_lift_pct, 1),
+            'current_total_kpi': round(current_total_kpi, 0),
             'total_spend': round(total_spend_native, 0),
             'total_spend_money': round(total_spend_money, 0) if total_spend_money else None,
             # P1-4: primary ROAS = incremental / spend (industry-standard MMM)

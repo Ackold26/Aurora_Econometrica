@@ -23,10 +23,19 @@
    * }} */
   let { trainNPeriods, currentBudgetMoney, onChange } = $props();
 
+  // FIX 2026-05-04: gate presets behind forecast_context load. Иначе
+  // default 'W' presets показываются для **любой** granularity → customer
+  // на monthly data (31 month training) кликает «Год 52» и получает
+  // 4618М × 52/31 = 7746М (1.7× от training!). После загрузки context'а
+  // presets рендерятся корректно (M → Год=12, Квартал=3, и т.п.).
+  const granularityKnown = $derived(
+    $forecastContext?.training_granularity != null
+  );
+
   // Periods-per-horizon-label resolved by granularity
   const presets = $derived.by(() => {
-    const ctx = $forecastContext;
-    const gran = ctx?.training_granularity || 'W';
+    const gran = $forecastContext?.training_granularity;
+    if (!gran) return []; // gate — ждём context
     /** @type {Record<string, Record<string, number>>} */
     const map = {
       D: { 'Квартал': 90, 'Полугодие': 180, 'Год': 365 },
@@ -57,6 +66,25 @@
     if (!periods || periods < 1 || trainNPeriods < 1) return null;
     return Math.round(currentBudgetMoney * (periods / trainNPeriods));
   }
+
+  // FIX 2026-05-04: forecast_context загружается асинхронно при переключении
+  // в planner mode. До загрузки `trainNPeriods` = fallback 52 — если customer
+  // успевает кликнуть пресет «Год 52» в этот момент, suggestBudget даёт
+  // currentBudgetMoney × 52/52 = full training budget (нерасштабированный).
+  // Когда context приходит, trainNPeriods обновляется до реального (например
+  // 156 для 3-летних weekly), но budgetInput уже зафиксирован. $effect ниже
+  // авто-пересчитывает suggestion когда trainNPeriods/currentBudgetMoney
+  // меняются — при условии что customer не редактировал budget вручную.
+  $effect(() => {
+    if (budgetManuallyEdited) return;
+    if (customPeriods == null || customPeriods < 1) return;
+    if (trainNPeriods < 1 || currentBudgetMoney <= 0) return;
+    const fresh = suggestBudget(customPeriods);
+    if (fresh != null && fresh !== budgetInput) {
+      budgetInput = fresh;
+      emitChange();
+    }
+  });
 
   /** @param {string} label @param {number} n */
   function selectPreset(label, n) {
@@ -131,6 +159,42 @@
     return `${Math.min(...years)}–${Math.max(...years)} (${years.length} ${years.length < 5 ? 'года' : 'лет'})`;
   });
 
+  // 5b (2026-05-04): training span human-friendly label. Customer часто mental
+  // models as «training 3 года», но raw n_periods (31 month) — abstract число.
+  // Human label: «обучение на 31 месяце ≈ 2 года 7 мес» — bridges gap.
+  // Granularity → period word + approx span calculation.
+  const trainingSpanLabel = $derived.by(() => {
+    if (!granularityKnown || trainNPeriods < 1) return null;
+    const gran = $forecastContext?.training_granularity;
+    /** @type {Record<string, {periodPlural: (n: number) => string, perYear: number}>} */
+    const meta = {
+      D: { periodPlural: (n) => n === 1 ? 'день' : (n < 5 ? 'дня' : 'дней'), perYear: 365 },
+      W: { periodPlural: (n) => n === 1 ? 'неделя' : (n < 5 ? 'недели' : 'недель'), perYear: 52 },
+      M: { periodPlural: (n) => n === 1 ? 'месяц' : (n < 5 ? 'месяца' : 'месяцев'), perYear: 12 },
+      Q: { periodPlural: (n) => n === 1 ? 'квартал' : (n < 5 ? 'квартала' : 'кварталов'), perYear: 4 },
+      Y: { periodPlural: (n) => n === 1 ? 'год' : (n < 5 ? 'года' : 'лет'), perYear: 1 },
+    };
+    const m = meta[gran || 'W'];
+    if (!m) return null;
+    const periodWord = m.periodPlural(trainNPeriods);
+    const years = trainNPeriods / m.perYear;
+    let spanText;
+    if (years >= 1) {
+      const fullYears = Math.floor(years);
+      const remainder = trainNPeriods - fullYears * m.perYear;
+      if (remainder === 0) {
+        spanText = `${fullYears} ${m.perYear === 1 ? (fullYears === 1 ? 'год' : (fullYears < 5 ? 'года' : 'лет')) : (fullYears === 1 ? 'год' : (fullYears < 5 ? 'года' : 'лет'))}`;
+      } else {
+        const remPeriodsWord = m.periodPlural(remainder);
+        const yearWord = fullYears === 1 ? 'год' : (fullYears < 5 ? 'года' : 'лет');
+        spanText = `${fullYears} ${yearWord} ${remainder} ${remPeriodsWord}`;
+      }
+    } else {
+      spanText = `${trainNPeriods} ${periodWord}`;
+    }
+    return `Обучение на ${trainNPeriods} ${periodWord} (≈ ${spanText})`;
+  });
+
   const horizonWarning = $derived.by(() => {
     if (customPeriods == null) return null;
     if (customPeriods > maxCustom) {
@@ -146,6 +210,18 @@
 <section class="forecast-horizon-picker">
   <h3>Период планирования</h3>
 
+  {#if !granularityKnown}
+    <div class="loading-presets" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span>
+      Определяем периодичность данных…
+    </div>
+  {:else}
+  {#if trainingSpanLabel}
+    <div class="training-span" aria-live="polite">
+      <span class="training-span-icon" aria-hidden="true">📊</span>
+      <span class="training-span-text">{trainingSpanLabel}</span>
+    </div>
+  {/if}
   <div class="presets" role="group" aria-label="Быстрый выбор периода">
     {#each presets as preset}
       <button
@@ -159,6 +235,7 @@
       </button>
     {/each}
   </div>
+  {/if}
 
   <div class="custom-row">
     <label>
@@ -170,7 +247,8 @@
         min={1}
         max={maxCustom}
         step={1}
-        placeholder={`до ${maxCustom}`}
+        disabled={!granularityKnown}
+        placeholder={granularityKnown ? `до ${maxCustom}` : 'ожидание контекста…'}
       />
     </label>
     <label>
@@ -439,5 +517,43 @@
     color: var(--text-muted);
     font-weight: 400;
     font-size: 0.74rem;
+  }
+
+  .loading-presets {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: var(--bg-surface-quiet, rgba(255,255,255,0.04));
+    border: 1px dashed var(--border-muted, rgba(255,255,255,0.12));
+    color: var(--text-secondary);
+    font-size: 0.88rem;
+    margin: 8px 0;
+  }
+  .training-span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    color: var(--text-secondary);
+    font-size: 0.84rem;
+    line-height: 1.4;
+    margin: 4px 0;
+  }
+  .training-span-icon { font-size: 0.95rem; line-height: 1; }
+  .training-span-text { color: var(--text-primary); font-weight: 500; }
+  .loading-presets .spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--border-muted, rgba(255,255,255,0.18));
+    border-top-color: var(--accent-primary);
+    animation: spinner-rotate 0.8s linear infinite;
+  }
+  @keyframes spinner-rotate {
+    to { transform: rotate(360deg); }
   }
 </style>

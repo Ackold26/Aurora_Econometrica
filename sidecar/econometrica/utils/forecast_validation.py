@@ -513,11 +513,10 @@ def hierarchical_extrapolation_warning(
         'message_ru': (
             f'Прогнозный бюджет ({ratio:.1f}× от обучающего) выводит brand-каналы '
             f'за калибровочную зону (порог {brand_drift_threshold:.1f}×). '
-            f'Иерархическая модель применяет β-pooling между brand-каналами '
-            f'({", ".join(brand_channels)}) — top performer может быть занижен '
-            f'на 5-15% в zonе экстраполяции. Cross-check с flat-моделью '
-            f'(model_version 1.2) или сократите горизонт до ≤ 2× обучающего '
-            f'для более точных абсолютных ROI.'
+            f'Иерархическая модель усредняет вклад между brand-каналами '
+            f'({", ".join(brand_channels)}) — лидирующий канал может быть занижен '
+            f'на 5–15% в зоне экстраполяции. Сократите горизонт до ≤ 2× обучающего '
+            f'или сравните с flat-моделью для более точных абсолютных ROI.'
         ),
         'category_filter': 'brand',
         'forecast_ratio': ratio,

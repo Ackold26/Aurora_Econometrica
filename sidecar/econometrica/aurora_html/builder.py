@@ -198,6 +198,29 @@ class AuroraHTMLBuilder:
         path = TEMPLATES_DIR / "echarts.common.5.5.1.min.js"
         return path.read_text(encoding='utf-8') if path.exists() else "/* ECharts not bundled */"
 
+    def _brand_mark_svg(self) -> str:
+        """Aurora deliverable gold-accent SVG для cover hero.
+
+        2026-05-04 — добавлен по запросу Антона. Inline SVG (не data URI) —
+        позволяет CSS темам стилизовать через currentColor если когда-то понадобится,
+        и сохраняет accessibility (можно поставить aria-label на <svg>). XML
+        declaration вырезается т.к. inline в HTML body запрещён.
+        """
+        path = TEMPLATES_DIR / "brand_mark.svg"
+        if not path.exists():
+            return ""
+        svg = path.read_text(encoding='utf-8')
+        # Strip XML declaration + Adobe generator comment для cleaner inline.
+        if svg.startswith('<?xml'):
+            end = svg.find('?>')
+            if end != -1:
+                svg = svg[end + 2:].lstrip()
+        if svg.startswith('<!--'):
+            end = svg.find('-->')
+            if end != -1:
+                svg = svg[end + 3:].lstrip()
+        return svg
+
     def _bootstrap_js(self) -> str:
         """Consolidated JS: bootstrap + chart data + interactive bindings."""
         chart_data = self._chart_data_json()
@@ -410,6 +433,7 @@ class AuroraHTMLBuilder:
             "facts":       self.facts,
             "strings":     self.strings,
             "report_id":   self.report_id,
+            "brand_mark_svg": self._brand_mark_svg(),
         }
         sections_html = "\n".join(render(ctx) for _, render in SECTION_RENDERERS)
 

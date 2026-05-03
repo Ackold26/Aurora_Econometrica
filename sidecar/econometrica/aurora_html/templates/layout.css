@@ -303,6 +303,24 @@ p { margin: 0 0 12px 0; }
   flex-direction: column;
   gap: 8px;
 }
+/* 2026-05-04 — Aurora deliverable gold-accent sigil over hero title.
+   SVG inline (4.9KB) — vector scaling без потерь, theme-agnostic.
+   navy/gold colors hardcoded в SVG (.st0/.st1) → отображается одинаково
+   во всех темах (light/dark/fun) что желательно для brand consistency. */
+.cover-brand-mark {
+  width: 88px;
+  height: 88px;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+.cover-brand-mark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+@media (max-width: 700px) {
+  .cover-brand-mark { width: 64px; height: 64px; margin-bottom: 12px; }
+}
 .cover h1 {
   font-size: 56px;
   font-weight: 400;
