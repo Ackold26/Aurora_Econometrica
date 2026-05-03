@@ -332,13 +332,21 @@
       <div class="card-title">Детализация по каналам</div>
       <div class="channel-table">
         <table>
+          <!-- Audit pass 11 (Антон 2026-05-03): colgroup имел 6 col-widths
+               для 7 столбцов (Канал/Расходы/Вклад/ROI/Gap/Decay/Вердикт) —
+               Decay column отсутствовала → table-layout:fixed cracked, Вердикт
+               получал residual 0% width, обрезался до 1-2 букв per row. Также
+               redistributed widths под typical content (Канал shorter, Вердикт
+               wider — текст «На грани окупаемости (широкий ROI-интервал)» ~40
+               chars не fit'ился). Σ = 100%. -->
           <colgroup>
-            <col style="width: 28%" />
-            <col style="width: 16%" />
-            <col style="width: 18%" />
-            <col style="width: 11%" />
-            <col style="width: 10%" />
-            <col style="width: 17%" />
+            <col style="width: 24%" />  <!-- Канал — name + category chip -->
+            <col style="width: 11%" />  <!-- Расходы — «4 338 835 636» -->
+            <col style="width: 11%" />  <!-- Вклад — «163 912 487» -->
+            <col style="width: 7%"  />  <!-- ROI — «31.47×» -->
+            <col style="width: 7%"  />  <!-- Gap — «+22.1%» -->
+            <col style="width: 11%" />  <!-- Decay — «0.65» + 50% CI -->
+            <col style="width: 29%" />  <!-- Вердикт — long text + CI flag -->
           </colgroup>
           <thead>
             <tr>
@@ -542,6 +550,8 @@
   }
 
   .channel-table {
+    /* Audit pass 11: removed overflow-x:auto — proper colgroup widths
+       обеспечивают fit на одном экране. Save as fallback на small viewports. */
     overflow-x: auto;
   }
   table {
@@ -552,15 +562,20 @@
   }
   th {
     text-align: left;
-    padding: 6px 10px;
+    padding: 6px 8px;
     color: var(--text-muted);
     font-weight: 500;
     border-bottom: 1px solid rgba(255,255,255,0.06);
+    white-space: nowrap;
   }
   td {
-    padding: 7px 10px;
+    padding: 7px 8px;
     color: var(--text-primary, #e2e8f0);
     border-bottom: 1px solid rgba(255,255,255,0.04);
+    /* Audit pass 11: word-wrap для Вердикт column (long text «На грани
+       окупаемости (широкий ROI-интервал)» нужно wrap, не truncate) */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
   }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   th .help-icon { margin-left: 4px; vertical-align: middle; }
