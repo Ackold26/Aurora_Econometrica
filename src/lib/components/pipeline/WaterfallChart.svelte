@@ -56,6 +56,10 @@
                  `<div style="color:#fff;">${val.toLocaleString('ru-RU')} <span style="opacity:0.7;">(${pct}%)</span></div>`;
         },
       },
+      // Audit pass 14 (Антон 2026-05-03): explicit hide default ECharts legend.
+      // Pre-fix: stray «support / value» labels (internal series names) появлялись
+      // в верхнем углу chart — confusing customer.
+      legend: { show: false },
       grid: { left: 16, right: 16, top: 12, bottom: 48, containLabel: true },
       xAxis: {
         type: 'category',

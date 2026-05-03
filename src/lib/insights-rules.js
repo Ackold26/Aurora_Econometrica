@@ -759,7 +759,12 @@ export function decomposeInsights(data) {
   const channels = data.channels ?? [];
   // Backend returns `baseline_pct`; legacy field `base_pct` kept as fallback.
   const basePct = data.baseline_pct ?? data.base_pct ?? 0;
-  const mediaPct = Math.max(0, 100 - basePct);
+  // Audit pass 14 (Антон 2026-05-03): round basePct first, derive mediaPct
+  // как 100 - rounded → sum guaranteed = 100. Pre-fix: 92.5 → toFixed «93»,
+  // 7.5 → toFixed «8», sum = 101% (logical inconsistency in headline).
+  const basePctRounded = Math.round(basePct);
+  const mediaPctRounded = Math.max(0, 100 - basePctRounded);
+  const mediaPct = Math.max(0, 100 - basePct);  // exact для downstream usage
   const totalSpend = channels.reduce((s, c) => s + (c.spend || 0), 0);
   const totalContrib = channels.reduce((s, c) => s + (c.contribution || 0), 0);
   const totalEffectPct = channels.reduce((s, c) => s + (c.contribution_pct || 0), 0);
@@ -770,7 +775,7 @@ export function decomposeInsights(data) {
   if (top && totalEffectPct > 0) {
     out.push({
       severity: 'success',
-      text: `Декомпозиция готова: ${basePct.toFixed(0)}% продаж — базовые (без медиа), ${mediaPct.toFixed(0)}% — вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
+      text: `Декомпозиция готова: ${basePctRounded}% продаж — базовые (без медиа), ${mediaPctRounded}% — вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
       tip: 'Базовые продажи — это то, что вы получили бы при нулевом медиа-бюджете (бренд, дистрибуция, лояльность). Медиа-вклад — что добавила реклама поверх базы.',
     });
   }
