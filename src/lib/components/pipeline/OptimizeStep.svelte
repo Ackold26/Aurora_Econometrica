@@ -344,6 +344,26 @@
       : (Number.isFinite(currentTotalBudget) && currentTotalBudget > 0 ? currentTotalBudget : 0)
   );
 
+  // Phase 2 audit pass 6 (Антон 2026-05-03): backend применяет inflation
+  // adjustment к unit_costs (rolls back current → weighted-avg). Frontend
+  // должен использовать **adjusted** unit_costs от backend (echoed per channel
+  // в ch.unit_cost), не store $unitCosts (= customer's current cost). Иначе
+  // total budget display = Σ native × current ≠ Σ native × adjusted = backend's
+  // actual money_target. Pre-fix: показывал 2.124B vs banner's 1.787B (mismatch).
+  const adjustedUnitCosts = $derived.by(() => {
+    if (!optData?.channels) return null;
+    /** @type {Record<string, number>} */
+    const map = {};
+    for (const ch of optData.channels) {
+      if (typeof ch.unit_cost === 'number' && ch.unit_cost > 0) {
+        map[ch.name] = ch.unit_cost;
+      }
+    }
+    return Object.keys(map).length > 0 ? map : null;
+  });
+  /** Effective unit_costs map: backend's adjusted (если available) > store. */
+  const effectiveUnitCosts = $derived(adjustedUnitCosts ?? $unitCosts);
+
   // ROI × = money contribution / money spend. Оба берутся из decompose (ch.spend уже money).
   const avgROI = $derived.by(() => {
     if (!dData?.channels) return null;
@@ -1652,7 +1672,7 @@
             onReset={resetBudgets}
             optimizing={stepState === 'optimizing'}
             {optimalBudgets}
-            unitCosts={$unitCosts}
+            unitCosts={effectiveUnitCosts}
             displayBaseKPI={displayKPI}
             backendLiftPct={optData?.expected_lift_pct ?? null}
           />
@@ -1665,7 +1685,7 @@
               {scaledParams}
               {channels}
               onBudgetChange={handleBudgetChange}
-              unitCosts={$unitCosts}
+              unitCosts={effectiveUnitCosts}
             />
           {:else}
             <div class="no-curves">Запустите оптимизацию для отображения кривых</div>

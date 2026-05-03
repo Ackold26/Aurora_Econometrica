@@ -118,10 +118,37 @@
   }
 
   /**
+   * Phase 2 audit pass 6 (Антон 2026-05-03): adaptive xAxis max based на
+   * largest channel budget (current OR optimal в money) × 1.5. Pre-fix:
+   * default ECharts auto-scale смотрел на curve.spend native max which
+   * для multi-year training data может быть 100× больше реального
+   * бюджета (e.g. TRPs aggregated over 2 years = 6300 native, ×250k
+   * unit = 1.575B, but curve.spend goes to cur×2 = 12600 → 3.15B — не
+   * соответствует фактическим budgets каналов).
+   * @returns {number | null}
+   */
+  function computeAdaptiveXMax() {
+    let maxMoney = 0;
+    for (const ch of channels) {
+      const u = uc(ch);
+      const cur = (channelBudgets[ch] ?? 0) * u;
+      const curve = responseCurves?.[ch];
+      const optMoney = curve?.optimal_x != null ? curve.optimal_x * u : 0;
+      const curMoney = curve?.current_x != null ? curve.current_x * u : 0;
+      const channelMax = Math.max(cur, optMoney, curMoney);
+      if (channelMax > maxMoney) maxMoney = channelMax;
+    }
+    // 1.5× headroom — место для drag вправо без обрезки + читаемая шкала
+    return maxMoney > 0 ? maxMoney * 1.5 : null;
+  }
+
+  /**
    * Rebuild and set full chart option.
    */
   function rebuildChart() {
     if (!chart) return;
+
+    const xAxisMax = computeAdaptiveXMax();
 
     const seriesList = channels.map((ch, idx) => {
       const curve = responseCurves?.[ch];
@@ -192,6 +219,10 @@
         type: 'value',
         name: 'Бюджет, ₽',
         nameTextStyle: { color: '#64748b', fontSize: 10 },
+        // Phase 2 audit pass 6 (Антон 2026-05-03): adaptive max — based на
+        // largest channel budget × 1.5 (не на curve.spend native max which для
+        // multi-year training может быть 100× больше реального бюджета).
+        ...(xAxisMax != null ? { max: xAxisMax } : {}),
         axisLabel: {
           color: '#94a3b8', fontSize: 10,
           formatter: (/** @type {number} */ v) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v),
