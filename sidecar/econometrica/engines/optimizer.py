@@ -722,6 +722,15 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         min_pct_global < DEFAULT_MIN_PCT - 1e-9
         or max_pct_global > DEFAULT_MAX_PCT + 1e-9
     )
+    # Audit pass 18 fix (Антон 2026-05-03): initialize ALL anchor variables
+    # ДО if-блока. Pre-fix: при user_widened=True но feasibility check fail,
+    # code пропускал inside block без _default_anchor_enabled assignment +
+    # без exception → UnboundLocalError на post-loop check «if _default_anchor_
+    # enabled». Triggered на What-if whatIfMult=0.5 (money_target меньше →
+    # default_bounds могут стать infeasible).
+    _default_anchor_enabled = False
+    _default_anchor_x_seed = None
+    _default_anchor_bounds = None
     if user_widened_bounds and n_ch > 0:
         # Compute default-bounds version, intersected с per-channel/per-group
         # для consistency. Каналы с per-channel constraint остаются на тех бюджетах.
