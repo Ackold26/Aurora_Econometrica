@@ -56,6 +56,18 @@ collect_ignore = [
 # ──────────────────────────────────────────────────────────────────────────
 
 DEFAULT_TESTDATA_DIR = Path('D:/Docs/Aurora_Ai/TestData/Econometrica')
+DESKTOP_TESTDATA_DIR = Path.home() / 'Desktop' / 'Эконометрика - тестовые файлы'
+
+
+def _resolve_testdata_dir() -> Path | None:
+    """Resolution chain (Phase 5 follow-up etap 3): env var → default → Desktop fallback."""
+    env_dir = os.environ.get('AURORA_TESTDATA_DIR')
+    candidates = [Path(env_dir)] if env_dir else []
+    candidates += [DEFAULT_TESTDATA_DIR, DESKTOP_TESTDATA_DIR]
+    for c in candidates:
+        if c.exists() and any(c.glob('*.xlsx')):
+            return c
+    return None
 
 
 @pytest.fixture(scope='session')
@@ -65,22 +77,17 @@ def testdata_dir() -> Path | None:
     Resolution order:
         1. Env var AURORA_TESTDATA_DIR
         2. Default D:/Docs/Aurora_Ai/TestData/Econometrica
-        3. None (если не существует)
+        3. Desktop fallback ~/Desktop/Эконометрика - тестовые файлы
+        4. None (если не существует)
 
     Tests с маркером @pytest.mark.requires_real_data will skip если return None.
     """
-    env_dir = os.environ.get('AURORA_TESTDATA_DIR')
-    candidate = Path(env_dir) if env_dir else DEFAULT_TESTDATA_DIR
-    if candidate.exists() and any(candidate.glob('*.xlsx')):
-        return candidate
-    return None
+    return _resolve_testdata_dir()
 
 
 def pytest_collection_modifyitems(config, items):
     """Auto-skip tests с requires_real_data маркером если testdata_dir недоступен."""
-    env_dir = os.environ.get('AURORA_TESTDATA_DIR')
-    candidate = Path(env_dir) if env_dir else DEFAULT_TESTDATA_DIR
-    if candidate.exists() and any(candidate.glob('*.xlsx')):
+    if _resolve_testdata_dir() is not None:
         return  # data доступен — не skip'аем
     skip_reason = pytest.mark.skip(
         reason='AURORA_TESTDATA_DIR not set / no Excel fixtures found — skipping real-data test'
