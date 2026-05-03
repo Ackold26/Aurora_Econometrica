@@ -167,7 +167,11 @@ def decompose(
     model_path = project_path / 'models' / 'latest.pkl'
 
     if not model_path.exists():
-        return {'status': 'error', 'message': 'Модель не найдена. Сначала обучите модель в кабинете "Данные и Модель"'}
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_NOT_FOUND',
+            'message': 'Модель не найдена. Сначала обучите модель в кабинете «Данные и Модель».',
+        }
 
     # Trust Level 3: централизованный pickle compat helper.
     # Auto-injects channel_categories={} для pre-v1.3 pickles.

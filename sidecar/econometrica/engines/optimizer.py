@@ -107,6 +107,9 @@ def _compute_mroas_money(
 ) -> float:
     """Marginal ROAS in money-per-money — single source of truth.
 
+    # invariant: I6 (mROAS chain rule) — closed form matches finite-difference
+    # within 5e-3 relative error. See docs/OPTIMIZER_INVARIANTS_REGISTRY.md.
+
     F0.2 (Phase 0.1 fix-session): canonical mROAS computation. Returns
     ∂KPI(money)/∂spend(money) at the current point.
 
@@ -269,7 +272,11 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     model_path = project_path / 'models' / 'latest.pkl'
 
     if not model_path.exists():
-        return {'status': 'error', 'message': 'Модель не найдена'}
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_NOT_FOUND',
+            'message': 'Модель не найдена. Сначала обучите модель в кабинете «Данные и Модель».',
+        }
 
     # Trust Level 3: централизованный pickle compat helper.
     from engines.persistence import load_model_with_compat
@@ -588,6 +595,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         return -total
 
     # Active objective dispatch — planning mode → Option C, analyst → legacy.
+    # invariant: I4 (backward compat) — analyst path preserves Hill-of-mean math
+    # for byte-exact v1.1.0 pickle reproducibility.
+    # invariant: I8 (Option C identity) — planning path matches scenario.py
+    # per-period sum-of-Hill semantics.
     _objective_fn = total_response_money_planning if planning_mode else total_response_money
 
     # ─ Money-axis bounds (replace native bounds + money constraint) ─
@@ -632,6 +643,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         }
 
     # Money sum constraint (trivial — uniform scale в money axis)
+    # invariant: I2 (conservation) — Σ optimal_money == money_target ± 0.5%.
+    # invariant: I3 (bounds satisfaction) — bounds_money[i] enforced per channel.
     constraints = [{'type': 'eq', 'fun': lambda x: float(np.sum(x) - money_target)}]
 
     import logging
@@ -708,6 +721,11 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # Phase 2 audit pass 7 (Антон 2026-05-03): «default-bounds anchor» —
     # гарантия monotonic improvement при widening bounds. Customer reported
     # wider bounds (0/500%) дали LIFT=4.6% против narrower (20/200%) с 5.2%.
+    #
+    # invariant: I1 (monotonicity, paired) + I5a (anchor floor) — wider-than-default
+    # bounds always ≥ default(20/200) optimal. See docs/OPTIMIZER_INVARIANTS_REGISTRY.md.
+    # GAP: I5b (chain transitive monotonicity) NOT guaranteed — Phase 5 follow-up
+    # requires cumulative anchor seeding (accept prev_optimal config field).
     # Cause: SLSQP non-convex Hill saturation → wider search space может
     # засосать SLSQP в extreme corners (0% spend на канал) откуда gradient
     # не пускает обратно. Local optimum хуже global.

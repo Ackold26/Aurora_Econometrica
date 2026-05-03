@@ -42,7 +42,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     model_path = project_path / 'models' / 'latest.pkl'
 
     if not model_path.exists():
-        return {'status': 'error', 'message': 'Модель не найдена'}
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_NOT_FOUND',
+            'message': 'Модель не найдена. Сначала обучите модель в кабинете «Данные и Модель».',
+        }
 
     # Trust Level 3: централизованный pickle compat helper.
     from engines.persistence import load_model_with_compat
@@ -87,8 +91,16 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                     df=_train_df,
                     date_column=config_model.get('date_column', 'date'),
                 )
-        except Exception:
-            pass  # Non-fatal — fall back к current_cost (no inflation adjustment)
+        except Exception as _infl_err:
+            # Phase 3 audit fix: previously silent — surfaces logged warning так
+            # что customer-side issue с inflation_pct config debuggable. Fallback
+            # behavior unchanged (current_cost preserved).
+            import logging as _logging
+            _logging.getLogger('econometrica').warning(
+                f"Scenario inflation adjustment failed (falling back к current "
+                f"unit_costs): {type(_infl_err).__name__}: {_infl_err}",
+                exc_info=True,
+            )
 
     # Load media plan
     media_plan = config.get('media_plan', {})
@@ -103,7 +115,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 media_plan[col] = plan_df[col].fillna(0).tolist()
 
     if not media_plan:
-        return {'status': 'error', 'message': 'Медиаплан пуст. Укажите бюджеты по каналам'}
+        return {
+            'status': 'error',
+            'error_code': 'MEDIA_PLAN_EMPTY',
+            'message': 'Медиаплан пуст. Укажите бюджеты по каналам.',
+        }
 
     # A1 fix (post-audit v1.2): reject spend on channels that had zero variance
     # during training. Without learned signal, β is from prior (uninformative)
@@ -133,7 +149,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # across training n_periods (matches optimizer flat-alloc semantics + training).
     plan_n = max(len(v) for v in media_plan.values()) if media_plan else 0
     if plan_n == 0:
-        return {'status': 'error', 'message': 'Медиаплан не содержит данных'}
+        return {
+            'status': 'error',
+            'error_code': 'MEDIA_PLAN_EMPTY',
+            'message': 'Медиаплан не содержит данных.',
+        }
 
     # Determine reference n_periods from training data (length of df).
     # Phase 2 (audit pass 4 2026-05-02): когда config['forecast_periods'] задан,
