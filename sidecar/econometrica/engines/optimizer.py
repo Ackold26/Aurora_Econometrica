@@ -761,41 +761,34 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                             x[i] = max(default_bounds[i][0], min(default_bounds[i][1], x[i]))
                     return x
                 x0_default = _project_to_default(x0_money_real.copy())
-                # Audit pass 9 (2026-05-03): always add x0_default projected as
-                # anchor candidate — even SLSQP-default-failure case provides
-                # alternative starting geometry for main run. maxiter reduced
-                # к 100 (это start point seed, не final solution → 200 wasteful).
-                # Always have fallback anchor regardless of convergence.
+                # Audit pass 12 (Антон 2026-05-03): CRITICAL FIX — pass 7/9
+                # added anchor as multi-start point + ran SLSQP from там в user's
+                # wider bounds. SLSQP non-convex может MOVE AWAY from anchor в
+                # худший local optimum → monotonic guarantee broken. Customer
+                # reported persistent regression: 4.8% (20/200) → 3.7% (0/500).
+                #
+                # Correct approach: add default's solution DIRECTLY as candidate
+                # (x_default + its objective). Anchor x_default feasible в user's
+                # space (default ⊆ user). Final selection min(candidates by .fun)
+                # → anchor wins IF user's main runs all gave worse objective.
+                # Floor at default's objective guaranteed regardless of SLSQP
+                # behavior in wider space.
+                # Also kept anchor seed как additional start point (still useful
+                # for SLSQP geometry diversity).
                 anchor_seed = _project_to_budget(x0_default.copy())
                 starts_money.append(('default_anchor_seed', anchor_seed))
-                try:
-                    r_default = minimize(
-                        _objective_fn, x0_default,
-                        method='SLSQP',
-                        bounds=default_bounds,
-                        constraints=constraints,
-                        options={'maxiter': 100, 'ftol': 1e-6, 'disp': False},
-                    )
-                    if r_default.success:
-                        # Re-project к user's wider bounds (default ⊆ user → feasible).
-                        x_anchor_user = _project_to_budget(np.asarray(r_default.x, dtype=float))
-                        starts_money.append(('default_anchor', x_anchor_user))
-                    else:
-                        # Even non-converged result может give useful corner —
-                        # SLSQP partial progress better чем raw projection seed.
-                        x_partial = _project_to_budget(np.asarray(r_default.x, dtype=float))
-                        starts_money.append(('default_anchor_partial', x_partial))
-                except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
-                    import logging as _log
-                    _log.getLogger('econometrica').warning(
-                        f"default_anchor SLSQP raised: {type(e).__name__}: {e}. "
-                        f"Using projected seed as fallback anchor."
-                    )
+                # Stash x0_default + default_bounds для post-loop direct candidate
+                _default_anchor_x_seed = x0_default.copy()
+                _default_anchor_bounds = default_bounds
+                _default_anchor_enabled = True
         except Exception as e:
             import logging as _log
             _log.getLogger('econometrica').warning(
                 f"default_anchor setup failed: {e}. User bounds run без anchor."
             )
+            _default_anchor_enabled = False
+    else:
+        _default_anchor_enabled = False
 
     def _safe_minimize_money(x_start: np.ndarray):
         try:
@@ -829,6 +822,43 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         slsqp_attempts.append(attempt)
         if success:
             candidates.append(r)
+
+    # Audit pass 12 fix: default-anchor as DIRECT candidate (not start point).
+    # Run SLSQP в default-bounds space, get x_default + objective, add as
+    # candidate с its objective. x_default feasible в user's wider bounds (default
+    # ⊂ user). Floor at default's objective guaranteed: min(candidates) выберет
+    # anchor IF user's main runs all дают worse objective.
+    if _default_anchor_enabled:
+        try:
+            r_default = minimize(
+                _objective_fn, _default_anchor_x_seed,
+                method='SLSQP',
+                bounds=_default_anchor_bounds,
+                constraints=constraints,
+                options={'maxiter': 100, 'ftol': 1e-6, 'disp': False},
+            )
+            if r_default.success:
+                # Direct candidate с default's x + default's objective. NOT
+                # re-running SLSQP в user's bounds (which может deteriorate).
+                class _AnchorResult:
+                    def __init__(self, x, fun):
+                        self.x = np.asarray(x, dtype=float)
+                        self.fun = float(fun)
+                        self.success = True
+                        self.message = 'default-bounds anchor (direct)'
+                        self.nit = int(getattr(r_default, 'nit', 0))
+                anchor_candidate = _AnchorResult(r_default.x, r_default.fun)
+                candidates.append(anchor_candidate)
+                slsqp_attempts.append({
+                    'start_name': 'default_anchor_direct',
+                    'success': True,
+                    'iterations': anchor_candidate.nit,
+                    'objective_at_start': float(_objective_fn(_default_anchor_x_seed)),
+                    'objective_at_optimal': anchor_candidate.fun,
+                    'message': anchor_candidate.message,
+                })
+        except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
+            _logger.warning(f"default_anchor direct SLSQP raised: {type(e).__name__}: {e}")
 
     if candidates:
         # Best = lowest -response (since we minimize -response).
