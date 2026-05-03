@@ -1795,12 +1795,47 @@
       <div class="insight-banner">
         <span class="insight-icon">🎯</span>
         <p class="insight-text">{optData.insight}</p>
-        {#if optData.expected_lift_pct != null}
-          <span class="lift-badge" class:negative-lift={optData.expected_lift_pct < 0}>
-            {optData.expected_lift_pct >= 0 ? '+' : ''}{optData.expected_lift_pct.toFixed(1)}%
-          </span>
-        {/if}
       </div>
+      <!-- 2026-05-04 (audit fix UX): два отдельных pillars — media efficiency lift
+           (насколько вырос media-вклад при перераспределении) и итоговый KPI lift
+           (business impact на total sales). Customer часто confused — «оптимизатор
+           дал лишь +0.5%». Объяснение: media leverage низок (органическая база
+           доминирует). Показ side-by-side даёт честную картину обоих эффектов. -->
+      {#if optData.expected_lift_pct != null}
+        <div class="lift-pillars">
+          {#if optData.media_only_lift_pct != null && Math.abs(optData.media_only_lift_pct - optData.expected_lift_pct) > 0.5}
+            <div class="lift-pillar lift-pillar-media">
+              <div class="lift-pillar-label">Эффективность медиа</div>
+              <div class="lift-pillar-value" class:negative={optData.media_only_lift_pct < 0}>
+                {optData.media_only_lift_pct >= 0 ? '+' : ''}{optData.media_only_lift_pct.toFixed(1)}%
+              </div>
+              <div class="lift-pillar-hint">прирост media-вклада от перераспределения каналов</div>
+            </div>
+          {/if}
+          <div class="lift-pillar lift-pillar-total">
+            <div class="lift-pillar-label">Прирост итогового KPI</div>
+            <div class="lift-pillar-value" class:negative={optData.expected_lift_pct < 0}>
+              {optData.expected_lift_pct >= 0 ? '+' : ''}{optData.expected_lift_pct.toFixed(1)}%
+            </div>
+            <div class="lift-pillar-hint">business impact с учётом органики и контрольных факторов</div>
+          </div>
+        </div>
+        <!-- Explanation: показываем только когда два pillar'а сильно расходятся
+             (>5 п.п.) — структурный signal что бренд baseline-dominant. -->
+        {#if optData.media_only_lift_pct != null && Math.abs(optData.media_only_lift_pct - optData.expected_lift_pct) > 5.0 && optData.media_only_lift_pct > 0}
+          {@const mediaShare = (optData.expected_lift_pct / optData.media_only_lift_pct * 100)}
+          <div class="lift-explanation">
+            <span class="lift-explanation-icon" aria-hidden="true">ℹ️</span>
+            <span class="lift-explanation-text">
+              Расхождение метрик показывает что media составляет лишь
+              <strong>~{Math.max(mediaShare, 1).toFixed(0)}%</strong> от итогового KPI —
+              остальное даёт baseline (органические продажи, сезонность, контрольные факторы).
+              <strong>Перераспределение каналов сильное</strong>, но рычаг media в этом бренде
+              структурно ограничен.
+            </span>
+          </div>
+        {/if}
+      {/if}
     {/if}
 
     <!-- Two-column: BudgetOptimizer | ResponseCurves -->
@@ -3131,6 +3166,68 @@
     font-weight: 700;
     font-family: monospace;
   }
+  .lift-pillars {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 8px 0;
+  }
+  @media (max-width: 700px) {
+    .lift-pillars { grid-template-columns: 1fr; }
+  }
+  .lift-pillar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+  }
+  .lift-pillar-media {
+    border-color: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  }
+  .lift-pillar-total {
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary) 35%, transparent);
+  }
+  .lift-pillar-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .lift-pillar-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    font-family: monospace;
+    color: var(--success, #22c55e);
+    line-height: 1.1;
+  }
+  .lift-pillar-value.negative { color: var(--danger, #ef4444); }
+  .lift-pillar-total .lift-pillar-value { color: var(--accent-text-light, var(--accent-primary)); }
+  .lift-pillar-hint {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+  }
+  .lift-explanation {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 14px;
+    margin-top: -4px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
+    border-left: 3px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+  .lift-explanation-icon { font-size: 1rem; line-height: 1.2; flex-shrink: 0; margin-top: 1px; }
+  .lift-explanation-text strong { color: var(--text-primary); font-weight: 600; }
   .lift-badge.negative-lift {
     background: color-mix(in srgb, var(--danger) 15%, transparent);
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);

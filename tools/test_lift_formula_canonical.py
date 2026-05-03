@@ -120,6 +120,91 @@ def test_legacy_rollback_flag(tmp_path, seed, monkeypatch):
     # (baseline → larger canonical denominator → smaller canonical lift in absolute value)
 
 
+@pytest.mark.parametrize('seed', [0, 1, 2])
+def test_canonical_lift_not_zero_when_media_changes(tmp_path, seed):
+    """5a regression guard (2026-05-04 audit): baseline >> media scale collapse.
+
+    Pre-fix bug: optimizer вычислял media response в normalized scale (~1-10),
+    добавлял к baseline в money scale (~10B) → media drowned, lift = 0.0%.
+    Customer reproducible на Кагоцел: media_only=17.7% но canonical=0.0%.
+
+    This test ensures: если media_only_lift_pct significantly > 0, canonical
+    тоже должен быть > 0 (proportional reduction OK, but not collapse to 0).
+    """
+    proj = tmp_path / f'noncollapse_{seed}'
+    build_synthetic_pickle(proj, seed=seed, n_channels=4, n_periods=31, n_posterior_samples=0)
+
+    r = _run_optimize(proj)
+    assert _is_ok(r)
+    canonical = float(r['expected_lift_pct'])
+    legacy = float(r['media_only_lift_pct'])
+
+    # If legacy lift (media-only) is > 1% AND optimizer found redistribution,
+    # canonical lift should also be non-zero. Не точное равенство — magnitudes
+    # differ by baseline/media ratio (~3-10× для realistic projects).
+    if abs(legacy) > 1.0:
+        assert abs(canonical) > 0.05, (
+            f"Canonical lift collapsed к 0% (={canonical}) при non-trivial media-only "
+            f"lift (={legacy}). Possible scale mismatch (normalized media + money baseline). "
+            f"Project: {proj}"
+        )
+
+
+def test_optimizer_handles_missing_normalization_fields(tmp_path):
+    """5a edge case (2026-05-04 audit): legacy v1.0/v1.1 pickles без y_mean / intercept_mean.
+
+    Backward compat: canonical formula должна defensively handle missing
+    normalization fields → fallback к 0 (degenerate baseline) but не crash.
+    """
+    proj = tmp_path / 'legacy_norm'
+    build_synthetic_pickle(proj, seed=0, n_channels=3, n_periods=24, n_posterior_samples=0)
+
+    # Mutate pickle to remove y_mean / intercept_mean (simulate legacy)
+    import pickle as pk
+    pkl_path = proj / 'models' / 'latest.pkl'
+    with open(pkl_path, 'rb') as f:
+        data = pk.load(f)
+    data['normalization'].pop('y_mean', None)
+    data['normalization'].pop('intercept_mean', None)
+    with open(pkl_path, 'wb') as f:
+        pk.dump(data, f)
+
+    r = _run_optimize(proj)
+    # Не должно crash. Может lift_pct = 0 (degenerate baseline) — acceptable.
+    assert _is_ok(r)
+    assert 'expected_lift_pct' in r
+    assert 'media_only_lift_pct' in r
+
+
+def test_optimizer_handles_zero_y_std(tmp_path):
+    """5a edge case (2026-05-04 audit): degenerate y_std=0 must не crash.
+
+    Note: optimizer.py:299 has defensive fallback `float(...) or 1.0` which converts
+    0.0 → 1.0 BEFORE my y_std_degenerate guard sees it. So practically y_std=0 case
+    auto-rescued. This test verifies no crash + numeric output (precise value
+    depends on baseline/media ratio + degeneration handling).
+    """
+    proj = tmp_path / 'zero_ystd'
+    build_synthetic_pickle(proj, seed=0, n_channels=3, n_periods=24, n_posterior_samples=0)
+
+    import pickle as pk
+    pkl_path = proj / 'models' / 'latest.pkl'
+    with open(pkl_path, 'rb') as f:
+        data = pk.load(f)
+    data['normalization']['y_std'] = 0.0
+    with open(pkl_path, 'wb') as f:
+        pk.dump(data, f)
+
+    r = _run_optimize(proj)
+    assert _is_ok(r), f"Expected OK with degenerate y_std, got: {r}"
+    # Должны быть finite numbers, не NaN / Inf / crash.
+    canonical = float(r['expected_lift_pct'])
+    legacy = float(r['media_only_lift_pct'])
+    import math as _math
+    assert _math.isfinite(canonical), f"canonical lift not finite: {canonical}"
+    assert _math.isfinite(legacy), f"legacy lift not finite: {legacy}"
+
+
 @pytest.mark.parametrize('seed', [0, 1])
 def test_lift_consistency_across_engines(tmp_path, seed):
     """Triangulate canonical lift across optimizer + scenario.

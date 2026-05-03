@@ -28,8 +28,11 @@
   // на monthly data (31 month training) кликает «Год 52» и получает
   // 4618М × 52/31 = 7746М (1.7× от training!). После загрузки context'а
   // presets рендерятся корректно (M → Год=12, Квартал=3, и т.п.).
+  // AUDIT 2026-05-04: empty-string guard. `!= null` would accept '' (empty string)
+  // от backend → presets show empty array → blank UI без spinner. Truthy check
+  // catches both null/undefined and ''. Valid granularity values: 'D','W','M','Q','Y'.
   const granularityKnown = $derived(
-    $forecastContext?.training_granularity != null
+    !!($forecastContext?.training_granularity)
   );
 
   // Periods-per-horizon-label resolved by granularity

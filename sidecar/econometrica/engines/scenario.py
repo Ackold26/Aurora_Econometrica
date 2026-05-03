@@ -261,12 +261,23 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # Compute current_total_kpi = baseline + media_at_current_spend (same Hill).
     # Legacy `lift_pct_baseline_only` preserved for backward compat / expert mode.
     import os as _os_lift
+    import logging as _scn_logging
+    _scn_logger = _scn_logging.getLogger(__name__)
     legacy_lift_pct = (incremental_total / baseline_total * 100) if baseline_total else 0
+
+    # AUDIT 2026-05-04: y_std degenerate guard (analogous к optimizer.py).
+    y_std_degenerate = (not isinstance(y_std, (int, float))) or (abs(float(y_std)) < 1e-10)
+    if y_std_degenerate:
+        _scn_logger.warning(
+            "scenario lift: y_std degenerate (%s) — canonical formula falls back к legacy ratio.",
+            y_std,
+        )
 
     # Reconstruct current_total_kpi using same Hill+adstock pipeline as scenario.
     # Current per-period spend = (sum spend column over training) / n_periods (flat avg).
-    current_total_kpi = baseline_total  # initialize в degenerate case
-    if data_file:
+    current_total_kpi = baseline_total  # initialize в degenerate case (logged below if used)
+    canonical_reconstruction_ok = False
+    if data_file and not y_std_degenerate:
         try:
             cur_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
             from utils.merge_rules import apply_merge_rules as _apply_merge
@@ -297,16 +308,28 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                     cur_total_effect += p['beta'] * sat[0]
                 current_predictions.append(baseline_per_period + cur_total_effect * y_std)
             current_total_kpi = float(sum(current_predictions))
+            canonical_reconstruction_ok = True
         except Exception as _e_lift:
-            # Defensive: if data read fails, fall back to legacy formula (denominator=baseline).
+            # AUDIT fix: explicit log при fallback (was silent — debugging customer
+            # reports stuck on degenerate canonical lift).
+            _scn_logger.warning(
+                "scenario lift canonical reconstruction failed (data_file=%s): %s. "
+                "Falling back к legacy formula. Customer-facing lift_pct may не align с optimizer.",
+                data_file, _e_lift,
+            )
             current_total_kpi = baseline_total
+    elif not data_file:
+        _scn_logger.info(
+            "scenario lift: data_file missing in config — canonical reconstruction skipped, "
+            "using legacy formula. Common in v1.0/v1.1 legacy pickles."
+        )
 
-    if current_total_kpi > 1e-9:
+    if canonical_reconstruction_ok and current_total_kpi > 1e-9:
         canonical_lift_pct = (scenario_total - current_total_kpi) / current_total_kpi * 100
     else:
         canonical_lift_pct = legacy_lift_pct
 
-    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
+    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1' or y_std_degenerate:
         lift_pct = legacy_lift_pct
     else:
         lift_pct = canonical_lift_pct
@@ -420,19 +443,37 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             incremental_kpi_ci = (i_lo, i_hi)
 
             # 5a (2026-05-04): canonical lift CI uses (scenario - current_total_kpi) / current_total_kpi.
-            # Per-sample current_total approximated as baseline_total_samples + current_media_total
-            # where current_media_total is point estimate (same as `current_total_kpi - baseline_total`).
-            # This is acceptable trade-off: posterior intervals для current_media_total tiny relative
-            # to scenario uncertainty (current spend fixed), so propagating delta vs point есть minor.
-            current_media_total = max(current_total_kpi - baseline_total, 0.0)
-            current_total_samples = baseline_total_samples + current_media_total
-            if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
+            # AUDIT fix 2026-05-04: pre-fix mixed scalar (current_media_total point estimate)
+            # с vector baseline_total_samples → degenerate CI when baseline variance large
+            # vs media. Также `max(diff, 0.0)` silently hide negative-media reconstruction
+            # bug. Now: при canonical reconstruction OK — use point estimate (warning-only,
+            # tighter assumptions); при reconstruction failed — fallback к legacy CI.
+            # Если current_total_kpi == baseline_total (data_file fail), canonical CI degenerates;
+            # use legacy.
+            current_media_total = current_total_kpi - baseline_total  # may be ≥0 OR slightly <0
+            if not canonical_reconstruction_ok or current_media_total < -1.0:
+                # Reconstruction failed OR negative media (anomaly worth surfacing) → legacy CI.
+                if current_media_total < -1.0:
+                    _scn_logger.warning(
+                        "scenario lift CI: current_media_total=%s < 0 — reconstruction yielded "
+                        "negative media contribution. Falling back к legacy CI formula.",
+                        current_media_total,
+                    )
+                if baseline_total > 0:
+                    lift_samples = incremental_total_samples / baseline_total_samples * 100
+                    _, l_lo, l_hi, _m_l = compute_ci_hdi(lift_samples)
+                    lift_pct_ci = (l_lo, l_hi)
+            elif _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
                 if baseline_total > 0:
                     lift_samples = incremental_total_samples / baseline_total_samples * 100
                     _, l_lo, l_hi, _m_l = compute_ci_hdi(lift_samples)
                     lift_pct_ci = (l_lo, l_hi)
             else:
-                # Canonical: (scenario - current_total) / current_total per sample
+                # Canonical: (scenario - current_total) / current_total per sample.
+                # current_total_samples = per-sample baseline + point-estimate media.
+                # Acceptable: current spend fixed → media estimate variance much smaller
+                # than baseline posterior variance, so per-sample baseline dominates CI width.
+                current_total_samples = baseline_total_samples + max(current_media_total, 0.0)
                 with np.errstate(divide='ignore', invalid='ignore'):
                     lift_samples = np.where(
                         current_total_samples > 1e-9,

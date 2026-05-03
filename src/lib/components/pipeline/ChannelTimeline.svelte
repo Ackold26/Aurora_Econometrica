@@ -5,6 +5,7 @@
    * DataZoom slider for period zoom (Phase 4, Plan 4A.6).
    * @component ChannelTimeline
    */
+  import { onDestroy } from 'svelte';
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
   import { CHANNEL_COLORS } from '$lib/hill.js';
@@ -29,6 +30,25 @@
   /** @type {any} */
   let chartRef = null;
 
+  /** @type {HTMLElement | null} */
+  let cleanupDom = null;
+  /** @type {((ev: MouseEvent) => void) | null} */
+  let cleanupMouseMove = null;
+  /** @type {(() => void) | null} */
+  let cleanupMouseLeave = null;
+
+  // AUDIT 2026-05-04: explicit listener cleanup — DOM listeners на chart container
+  // НЕ удаляются ECharts.dispose(). Без этого — memory leak при switch проектов.
+  onDestroy(() => {
+    if (cleanupDom) {
+      if (cleanupMouseMove) cleanupDom.removeEventListener('mousemove', cleanupMouseMove);
+      if (cleanupMouseLeave) cleanupDom.removeEventListener('mouseleave', cleanupMouseLeave);
+    }
+    cleanupDom = null;
+    cleanupMouseMove = null;
+    cleanupMouseLeave = null;
+  });
+
   /** @param {any} chart */
   function handleChartInit(chart) {
     chartRef = chart;
@@ -39,6 +59,7 @@
     // курсора по Y-координате, находим тот слой чья граница выше курсора.
     const dom = chart.getDom();
     if (!dom) return;
+    cleanupDom = dom;
 
     /** Apply highlight + tooltip + legend для new active. */
     const applyActive = (/** @type {string} */ name, /** @type {number | null} */ idx) => {
@@ -68,13 +89,16 @@
     /** @type {{px: number, py: number} | null} */
     let lastMouse = null;
 
-    dom.addEventListener('mousemove', (/** @type {MouseEvent} */ ev) => {
+    /** @param {MouseEvent} ev */
+    const onMouseMove = (ev) => {
       const rect = dom.getBoundingClientRect();
       lastMouse = { px: ev.clientX - rect.left, py: ev.clientY - rect.top };
       if (!chart.containPixel('grid', [lastMouse.px, lastMouse.py])) {
         if (activeSeries) applyActive('', null);
       }
-    });
+    };
+    dom.addEventListener('mousemove', onMouseMove);
+    cleanupMouseMove = onMouseMove;
 
     chart.on('updateAxisPointer', (/** @type {any} */ params) => {
       if (!lastMouse) return;
@@ -112,10 +136,12 @@
       }
     });
 
-    dom.addEventListener('mouseleave', () => {
+    const onMouseLeave = () => {
       lastMouse = null;
       if (activeSeries) applyActive('', null);
-    });
+    };
+    dom.addEventListener('mouseleave', onMouseLeave);
+    cleanupMouseLeave = onMouseLeave;
   }
 
   /** Legend block — formatter подсвечивает активный пункт. Извлечён из option,

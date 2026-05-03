@@ -1034,18 +1034,40 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04) ────────────────
     # Pre-fix: lift = (optimal_media - current_media) / current_media (media-only ratio).
     # Это давало misleading high values (+4.7% Кагоцел) когда baseline >> media.
-    # Frontend predictKPI uses total KPI denominator → расхождение 3.7 п.п. с UI.
     # Three engines (optimizer, scenario, frontend) had three different formulas.
     # Now: canonical formula = (total_optimal - total_current) / total_current
-    # где total_kpi = baseline_total + media_total. Control effect = 0 over training
-    # (z-score normalized → mean=0). Aligns with frontend hill.js predictKPI.
-    # Legacy media-only formula preserved as `media_only_lift_pct` field
-    # для expert mode + AURORA_LEGACY_LIFT_FORMULA=1 emergency rollback flag.
+    # где total_kpi = baseline_total + media_total (both в money axis).
+    # Legacy media-only ratio preserved as `media_only_lift_pct` для expert mode
+    # + AURORA_LEGACY_LIFT_FORMULA=1 emergency rollback flag.
+    #
+    # CRITICAL SCALE NOTE (2026-05-04 follow-up): `_objective_fn` returns sum
+    # `Σ β·hill(...)·n_periods` in NORMALIZED scale (β is normalized coefficient).
+    # Multiplied by `y_std` → money-axis value, comparable с baseline_total.
+    # Without × y_std mixed-scale bug: baseline (10.4B money) + media (6 norm)
+    # → media drowns in float arithmetic, lift_pct = 0.0% даже когда media-only
+    # changes на 17.7%. Customer reproduced на Кагоцел project (9): legacy
+    # lift_pct=17.7% but canonical=0.0% pre-fix.
     import os as _os_lift  # localized import — avoid module-level pollution
     y_mean_lift = float(norm.get('y_mean', 0.0))
     intercept_mean_lift = float(norm.get('intercept_mean', 0.0))
+
+    # AUDIT 2026-05-04: y_std degenerate guard. Если pickle имеет y_std=0 (or close)
+    # — все KPI scales collapse к 0 → canonical formula divide-by-zero / silent
+    # 0% lift. Treat как degenerate baseline → fall back к media-only formula
+    # (legacy semantics, not great but better than misleading 0%).
+    y_std_degenerate = (not isinstance(y_std, (int, float))) or (abs(float(y_std)) < 1e-10)
+    if y_std_degenerate:
+        _logger.warning(
+            "y_std degenerate (%s) — canonical lift formula falls back к media-only ratio.",
+            y_std,
+        )
+
     baseline_per_period_lift = intercept_mean_lift * y_std + y_mean_lift
     non_media_baseline_total = baseline_per_period_lift * forecast_n_periods
+
+    # Convert media responses (returned in normalized scale by _objective_fn) к money axis.
+    current_media_money = float(current_response_real) * y_std
+    optimal_media_money = float(optimal_response) * y_std
 
     # Legacy media-only ratio (for backward compat + debug).
     if current_response_real > 1e-9:
@@ -1056,9 +1078,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             "current_response_real ≤ 0 — degenerate media baseline. media_only_lift_pct undefined."
         )
 
-    # Canonical: total business KPI ratio.
-    total_current_kpi = non_media_baseline_total + current_response_real
-    total_optimal_kpi = non_media_baseline_total + optimal_response
+    # Canonical: total business KPI ratio (both terms in money axis).
+    total_current_kpi = non_media_baseline_total + current_media_money
+    total_optimal_kpi = non_media_baseline_total + optimal_media_money
     if total_current_kpi > 1e-9:
         canonical_lift_pct = (total_optimal_kpi - total_current_kpi) / total_current_kpi * 100
         baseline_zero = False
@@ -1070,9 +1092,11 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         )
 
     # Active formula dispatch — legacy flag для emergency revert without re-ship.
-    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
+    # Также fallback к legacy если y_std degenerate (canonical math undefined).
+    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1' or y_std_degenerate:
         lift_pct = media_only_lift_pct
-        _logger.info("AURORA_LEGACY_LIFT_FORMULA=1 — using legacy media-only lift_pct.")
+        if not y_std_degenerate:
+            _logger.info("AURORA_LEGACY_LIFT_FORMULA=1 — using legacy media-only lift_pct.")
     else:
         lift_pct = canonical_lift_pct
 

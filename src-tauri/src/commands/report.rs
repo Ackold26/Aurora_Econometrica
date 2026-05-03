@@ -703,11 +703,20 @@ fn build_xlsx(
         // правом углу Обзор sheet. Compile-time embedding через include_bytes!
         // (no runtime file IO, single-binary distribution friendly).
         // Sized 60×60 px ≈ matches kicker row + title row total height.
+        // AUDIT 2026-05-04: log warning при failure (was silent — customer не понимал
+        // почему отчёт без логотипа на повреждённом bundle).
         let brand_png_bytes = include_bytes!("../../assets/brand_mark.png");
-        if let Ok(brand_img) = Image::new_from_buffer(brand_png_bytes) {
-            // Scale 512×512 source → ≈ 60×60 px display (12% of source).
-            let scaled = brand_img.set_scale_width(0.12).set_scale_height(0.12);
-            let _ = ws.insert_image_with_offset(0, 3, &scaled, 8, 4);
+        match Image::new_from_buffer(brand_png_bytes) {
+            Ok(brand_img) => {
+                // Scale 512×512 source → ≈ 60×60 px display (12% of source).
+                let scaled = brand_img.set_scale_width(0.12).set_scale_height(0.12);
+                if let Err(e) = ws.insert_image_with_offset(0, 3, &scaled, 8, 4) {
+                    log::warn!("XLSX brand mark insert failed: {e}");
+                }
+            }
+            Err(e) => {
+                log::warn!("XLSX brand mark image decode failed: {e}");
+            }
         }
 
         // Row 2: Gold accent stripe — 3 cols (per reference).
@@ -1215,12 +1224,16 @@ fn build_xlsx(
         // Now compute Δ + Δ% inline в Rust → static values, Excel doesn't recalc.
         // Текущий ROI: optimizer не возвращает 'current_roi' field → было 0.0
         // fallback. Now fetch from decompose.channels[name].roi (canonical source).
+        // AUDIT 2026-05-04: normalize channel names (trim whitespace) для resilient
+        // lookup. Pre-fix: minor inconsistency (trailing space) → silent fallback к
+        // ROI=0.0 → customer видит 0.00× для valid channel.
+        let normalize_name = |s: &str| s.trim().to_string();
         let decompose_roi_by_name: std::collections::HashMap<String, f64> =
             decompose["channels"].as_array()
                 .map(|chs| {
                     chs.iter()
                         .filter_map(|c| {
-                            let n = c["name"].as_str()?.to_string();
+                            let n = normalize_name(c["name"].as_str()?);
                             let r = c["roi"].as_f64()?;
                             Some((n, r))
                         })
@@ -1239,7 +1252,7 @@ fn build_xlsx(
                 .unwrap_or_else(|| ch["optimal_spend"].as_f64().unwrap_or(0.0));
             let delta = opt - curr;
             let delta_pct = if curr.abs() > 1e-9 { delta / curr } else { 0.0 };
-            let curr_roi = decompose_roi_by_name.get(name).copied().unwrap_or(0.0);
+            let curr_roi = decompose_roi_by_name.get(&normalize_name(name)).copied().unwrap_or(0.0);
 
             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, curr, &num_fmt).map_err(|e| format!("{e}"))?;
