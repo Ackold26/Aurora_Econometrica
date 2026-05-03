@@ -65,6 +65,65 @@
     showOnboarding = true;
   }
 
+  /**
+   * Step-level reset (Антон 2026-05-03): возвращает шаг к первоначальному
+   * состоянию — ровно то, что customer видит когда впервые открывает шаг
+   * Optimization после успешного train + decompose. Сохраняет: модель, decompose
+   * результат, unit_costs (incl. historical inflation), channel categories,
+   * activeProject. Сбрасывает: optimize результат, planning mode, picker, all
+   * sliders (whatIf, forecast inflation), per-channel constraint overrides,
+   * expanded panels, expert mode toggles.
+   */
+  function resetStep() {
+    if (!confirm('Сбросить все настройки и результаты оптимизации?\n\nМодель, декомпозиция, стоимости юнита и инфляция сохраняются.')) return;
+
+    // Optimize result + slider state
+    optimizeData.set(null);
+    optimalBudgets = null;
+    stepState = 'idle';
+    errorMessage = null;
+    lastOptimizeSettings = null;
+
+    // Constraint controls к defaults
+    minPct = 20;
+    maxPct = 200;
+    brandMinPct = null;
+    brandMaxPct = null;
+    perfMinPct = null;
+    perfMaxPct = null;
+    channelMinPct = {};
+    channelMaxPct = {};
+    totalBudgetInput = null;
+    budgetLocked = true;
+
+    // Expert/Forecast accordions свернуть
+    expertExpanded = false;
+    forecastExpanded = false;
+    groupSlidersExpanded = false;
+    playgroundOpen = false;
+
+    // What-if (Block C/D shared section)
+    whatIfMult = 1.0;
+    whatIfResult = null;
+    whatIfError = null;
+    whatIfSuccess = null;
+
+    // Forecast inflation block
+    forecastResult = null;
+    forecastError = null;
+    forecastSuccess = null;
+    forecastMode = 'volume';
+    applyInflation = false;
+    channelInflation = {};
+
+    // Phase 2 — planning mode toggle + picker
+    planningMode.set('analyst');
+    forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+
+    // Channel budgets re-init к decompose currentSpend (next $effect picks up)
+    channelBudgets = {};
+  }
+
   /** @type {'idle' | 'optimizing' | 'done' | 'error'} */
   let stepState = $state('idle');
   /** @type {string | null} */
@@ -1139,8 +1198,15 @@
 
 <div class="optimize-step">
 
-  <!-- Onboarding re-trigger — небольшая ссылка сверху для повторного тура -->
+  <!-- Onboarding re-trigger + step-level reset (Антон 2026-05-03 request) -->
   <div class="onboarding-hint">
+    <button
+      class="btn-hint btn-reset-step"
+      onclick={resetStep}
+      title="Сбросить все настройки и результаты этого шага. Модель, decompose, стоимости юнита и инфляция сохраняются."
+    >
+      ↻ Сбросить расчёты
+    </button>
     <button class="btn-hint" onclick={restartOnboarding} title="Показать обзор блоков A→E">
       ? Показать тур
     </button>
@@ -2047,6 +2113,8 @@
   .onboarding-hint {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
     margin-top: -6px;
     margin-bottom: -6px;
   }
@@ -2063,6 +2131,12 @@
   .btn-hint:hover {
     color: var(--text-primary, #e2e8f0);
     border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 50%, transparent);
+  }
+  /* Step-level reset — slightly stronger destructive cue без overwhelming */
+  .btn-reset-step:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in srgb, #ef4444 60%, transparent);
+    background: color-mix(in srgb, #ef4444 10%, transparent);
   }
 
   /* ── Section blocks (A/B/C/D) ─────────────────────────────── */
