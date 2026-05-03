@@ -9,6 +9,7 @@
    * @component ConvergenceDashboard
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
 
   /** @type {{ diagnostics: any }} */
@@ -82,6 +83,16 @@
     };
   });
 
+  // R²/MAPE для overlay-HTML (theme-contrastable вместо hardcoded ECharts graphic)
+  const avpMetrics = $derived.by(() => {
+    const r2 = diagnostics?.metrics?.r_squared;
+    const mape = diagnostics?.metrics?.mape_pct;
+    return {
+      r2: r2 != null ? Number(r2).toFixed(4) : null,
+      mape: mape != null ? Number(mape).toFixed(2) : null,
+    };
+  });
+
   /** ECharts option for Actual vs Predicted (Panel B) */
   const avpOption = $derived.by(() => {
     const avp = diagnostics?.actual_vs_predicted;
@@ -91,13 +102,6 @@
       ? avp.dates
       : avp.actual.map((/** @type {any} */ _, /** @type {number} */ i) => `#${i + 1}`);
 
-    // Метрики качества — показываем в правом верхнем углу вместо сухой легенды.
-    const r2 = diagnostics?.metrics?.r_squared;
-    const mape = diagnostics?.metrics?.mape_pct;
-    const r2Str = r2 != null ? `R² = ${Number(r2).toFixed(4)}` : '';
-    const mapeStr = mape != null ? `MAPE = ${Number(mape).toFixed(2)}%` : '';
-    const metricsLine = [r2Str, mapeStr].filter(Boolean).join('   ·   ');
-
     return {
       backgroundColor: 'transparent',
       grid: { left: '60px', right: '20px', top: '38px', bottom: '40px' },
@@ -106,19 +110,6 @@
         left: 'center',
         textStyle: { color: '#94a3b8', fontSize: 11 },
       },
-      graphic: metricsLine ? [{
-        type: 'text',
-        right: 14,
-        top: 6,
-        style: {
-          text: metricsLine,
-          fill: '#e2e8f0',
-          fontFamily: 'Consolas, monospace',
-          fontSize: 11,
-          fontWeight: 600,
-        },
-        z: 10,
-      }] : [],
       xAxis: {
         type: 'category',
         data: xData,
@@ -241,21 +232,33 @@
 
   <!-- Panel A: R-hat per parameter -->
   {#if rhatCount > 0}
-    <div class="chart-panel">
-      <h4 class="chart-title">R-hat по параметрам<span class="help-icon" title={HELP.rhatChart}>?</span></h4>
-      <EChartBase option={rhatOption} height={rhatHeight} />
-      <p class="chart-hint">
-        {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
-      </p>
-    </div>
+    <ExpandableCard title="R-hat по параметрам">
+      <div class="chart-panel-body">
+        <span class="chart-title-help" title={HELP.rhatChart}>?</span>
+        <EChartBase option={rhatOption} height={rhatHeight} />
+        <p class="chart-hint">
+          {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
+        </p>
+      </div>
+    </ExpandableCard>
   {/if}
 
-  <!-- Panel B: Actual vs Predicted -->
+  <!-- Panel B: Actual vs Predicted — wrapped в ExpandableCard для fullscreen.
+       Метрики R²/MAPE — HTML overlay через CSS tokens (theme-contrastable). -->
   {#if diagnostics.actual_vs_predicted}
-    <div class="chart-panel">
-      <h4 class="chart-title">Факт vs Прогноз<span class="help-icon" title={HELP.avpChart}>?</span></h4>
-      <EChartBase option={avpOption} height="260px" />
-    </div>
+    <ExpandableCard title="Факт vs Прогноз">
+      <div class="chart-panel-body avp-panel">
+        <span class="chart-title-help" title={HELP.avpChart}>?</span>
+        {#if avpMetrics.r2 != null || avpMetrics.mape != null}
+          <div class="avp-metrics">
+            {#if avpMetrics.r2 != null}<span class="metric-item"><span class="metric-label">R²</span><span class="metric-sep">=</span><b>{avpMetrics.r2}</b></span>{/if}
+            {#if avpMetrics.r2 != null && avpMetrics.mape != null}<span class="metric-dot">·</span>{/if}
+            {#if avpMetrics.mape != null}<span class="metric-item"><span class="metric-label">MAPE</span><span class="metric-sep">=</span><b>{avpMetrics.mape}%</b></span>{/if}
+          </div>
+        {/if}
+        <EChartBase option={avpOption} height="260px" />
+      </div>
+    </ExpandableCard>
   {/if}
 {/if}
 
@@ -288,6 +291,71 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary, #e2e8f0);
+  }
+
+  /* Phase 2 audit pass 5 cont (Антон 2026-05-03): chart panel body inside
+     ExpandableCard. Position relative — overlay R²/MAPE metrics absolutely. */
+  .chart-panel-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .chart-title-help {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 5;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--text-secondary, #94a3b8) 18%, transparent);
+    color: var(--text-secondary, #94a3b8);
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: help;
+    user-select: none;
+  }
+  /* R²/MAPE overlay — theme-contrastable через CSS tokens. */
+  .avp-metrics {
+    position: absolute;
+    top: 0;
+    right: 4px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+    border: 1px solid var(--border-subtle);
+    font-family: Consolas, 'SF Mono', Menlo, monospace;
+    font-size: 11px;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .avp-metrics .metric-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+  .avp-metrics .metric-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .avp-metrics .metric-sep {
+    color: var(--text-muted);
+  }
+  .avp-metrics b {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .avp-metrics .metric-dot {
+    color: var(--text-muted);
+    font-weight: 700;
   }
 
   .chart-hint {
