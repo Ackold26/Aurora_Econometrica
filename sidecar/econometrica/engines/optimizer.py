@@ -823,21 +823,60 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         if success:
             candidates.append(r)
 
-    # Audit pass 12 fix: default-anchor as DIRECT candidate (not start point).
-    # Run SLSQP в default-bounds space, get x_default + objective, add as
-    # candidate с its objective. x_default feasible в user's wider bounds (default
-    # ⊂ user). Floor at default's objective guaranteed: min(candidates) выберет
-    # anchor IF user's main runs all дают worse objective.
+    # Audit pass 16 (Антон 2026-05-03): pass 12 added direct candidate, но
+    # anchor SLSQP runs со SNIZHENNOY precision (maxiter=100, ftol=1e-6) +
+    # single start point → могла находить optimum на 0.1pp хуже main run's
+    # narrow 20/200 case. Customer reported persistent regression 5.4 → 5.3.
+    #
+    # Fix: SAME precision (maxiter=200, ftol=1e-7) для anchor + multi-start
+    # внутри default subspace (current + ≤3 pivots projected к default bounds).
+    # Best of multi-start anchor candidates added как direct candidate.
+    # Floor at default's TRUE optimum (not approximate).
     if _default_anchor_enabled:
         try:
-            r_default = minimize(
-                _objective_fn, _default_anchor_x_seed,
-                method='SLSQP',
-                bounds=_default_anchor_bounds,
-                constraints=constraints,
-                options={'maxiter': 100, 'ftol': 1e-6, 'disp': False},
-            )
-            if r_default.success:
+            anchor_starts = [_default_anchor_x_seed]
+            # Add 2 additional pivot starts within default bounds (channel-pivot
+            # extremes). Если default bounds tight, projection clamps в feasible.
+            try:
+                def _project_to_default_bounds(x):
+                    x = np.asarray(x, dtype=float).copy()
+                    for _ in range(3):
+                        s = float(np.sum(x))
+                        if s <= 1e-10:
+                            x = np.array([(b[0] + b[1]) / 2 for b in _default_anchor_bounds])
+                            continue
+                        x = x * (money_target / s)
+                        for i_ in range(len(x)):
+                            x[i_] = max(_default_anchor_bounds[i_][0], min(_default_anchor_bounds[i_][1], x[i_]))
+                    return x
+                # Channel-pivot starts (limit к 3 first для speed)
+                for pivot_idx in range(min(n_ch, 3)):
+                    extreme = np.array([_default_anchor_bounds[i_][0] for i_ in range(n_ch)])
+                    extreme[pivot_idx] = _default_anchor_bounds[pivot_idx][1]
+                    anchor_starts.append(_project_to_default_bounds(extreme))
+            except Exception:
+                pass  # Fallback к single start
+
+            anchor_candidates_local = []
+            for x_anchor_start in anchor_starts:
+                try:
+                    r_a = minimize(
+                        _objective_fn, x_anchor_start,
+                        method='SLSQP',
+                        bounds=_default_anchor_bounds,
+                        constraints=constraints,
+                        # Same precision as main runs — guarantee floor matches
+                        # what user's narrow-bounds run would find.
+                        options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
+                    )
+                    if r_a.success:
+                        anchor_candidates_local.append(r_a)
+                except (np.linalg.LinAlgError, ValueError, RuntimeError):
+                    pass
+
+            if anchor_candidates_local:
+                # Best within default-anchor subspace (lowest fun = max response).
+                r_default = min(anchor_candidates_local, key=lambda r: r.fun)
                 # Direct candidate с default's x + default's objective. NOT
                 # re-running SLSQP в user's bounds (which может deteriorate).
                 class _AnchorResult:
@@ -845,7 +884,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                         self.x = np.asarray(x, dtype=float)
                         self.fun = float(fun)
                         self.success = True
-                        self.message = 'default-bounds anchor (direct)'
+                        self.message = 'default-bounds anchor (direct, multi-start)'
                         self.nit = int(getattr(r_default, 'nit', 0))
                 anchor_candidate = _AnchorResult(r_default.x, r_default.fun)
                 candidates.append(anchor_candidate)
@@ -855,7 +894,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     'iterations': anchor_candidate.nit,
                     'objective_at_start': float(_objective_fn(_default_anchor_x_seed)),
                     'objective_at_optimal': anchor_candidate.fun,
-                    'message': anchor_candidate.message,
+                    'message': f'{anchor_candidate.message} (best of {len(anchor_candidates_local)})',
                 })
         except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
             _logger.warning(f"default_anchor direct SLSQP raised: {type(e).__name__}: {e}")
