@@ -1087,39 +1087,36 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # Post-audit fix: response_curve domain in normalized space, displayed against
     # raw spend. Response × y_std → KPI scale (was: y_norm scale, mis-leading numbers).
     response_curves_data = {}
-    # Audit pass 13 (Антон 2026-05-03): кривые медиа должны быть дорисованы
-    # до конца шкалы. Pre-fix: each channel `upper = cur * 2` → curves cut
-    # off at channel-specific max. Customer ожидает все curves span same
-    # x-range (для visual comparison).
-    # Fix: global_upper_money = max across channels, each channel's native
-    # upper extends к global_upper_money / unit_cost. Все кривые reach
-    # global x-axis max.
-    _channel_uppers_money = []
-    for col in media_cols:
-        cur_native = current_spend[col]
-        uc_col = float(unit_costs.get(col, 1.0) or 1.0)
-        cur_money = cur_native * uc_col
-        _channel_uppers_money.append(max(cur_money * 2, money_target * 1.05))
-    global_upper_money = max(_channel_uppers_money) if _channel_uppers_money else (money_target * 2)
+    # Audit pass 15 (Антон 2026-05-03 cont): pass 13 (global_upper) made
+    # curves reach uniform x-end, но channels с small relevant range looked
+    # squashed/flat за пределами их saturation point. Hill α (крутизна) +
+    # γ (half-sat point) обученные posterior могут давать sharp S-curve
+    # → channel plateaus в 1-5% of forced global x-range, остальное — flat.
+    # Customer asked «уверены ли в shape». Math correct (Hill behavior),
+    # но visualization cubicly bad с global axis.
+    #
+    # Better: per-channel upper = max(2×cur_money, 2×optimal_money,
+    # fallback_max_money) / unit_cost. Each channel's curve fits в свой
+    # informative range; xAxis frontend adapts (audit pass 9 — channelBudgets
+    # × 1.5 max). Cross-channel comparison achieved via shared y-scale,
+    # не x-scale forcing.
 
     for i, col in enumerate(media_cols):
         p = channel_params[col]
         cur = current_spend[col]
         mean_ch = float(media_means.get(col, 1)) or 1
         a_type = _adstock_type(col)
-        # F5 fix (math-audit v1.3): X-axis в total spend (как было), но Hill input
-        # — per-period adstocked / mean. Curve теперь показывает realistic S-shape
-        # (раньше total/mean = 30+× → asymptotic plateau).
-        # G1 fix: planning mode response curves в forecast scale (planning horizon
-        # spend on x-axis, planning-period total KPI on y-axis). Analyst mode
-        # behavior unchanged (forecast_n_periods == n_periods).
-        # Pass 13 fix: extend curve к global_upper / unit_cost (native) — все
-        # кривые span uniform x-range. Curve plateau (Hill saturation) отлично
-        # читается visual cross-channel comparison.
         uc_col = float(unit_costs.get(col, 1.0) or 1.0)
-        global_upper_native = global_upper_money / max(uc_col, 1e-10)
-        channel_upper_native = cur * 2 if cur > 0 else mean_ch * 2 * forecast_n_periods
-        upper = max(channel_upper_native, global_upper_native)
+        # Per-channel reasonable upper: 2× current OR 2× optimal — больший,
+        # чтобы curve покрывала и текущий и предлагаемый optimal с headroom.
+        # Fallback к fallback_max_money / uc когда нет current spend.
+        cur_money = cur * uc_col
+        opt_money = float(optimal_spend[i]) * uc_col
+        channel_max_money = max(cur_money * 2, opt_money * 2, fallback_max_money)
+        channel_upper_native = channel_max_money / max(uc_col, 1e-10)
+        if channel_upper_native <= 0:
+            channel_upper_native = mean_ch * 2 * forecast_n_periods
+        upper = channel_upper_native
         spend_range = np.linspace(0, upper, 50)
         # Per-period equivalent for Hill input
         per_period_avg = spend_range / forecast_n_periods

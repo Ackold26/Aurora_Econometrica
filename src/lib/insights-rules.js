@@ -1048,8 +1048,14 @@ export function optimizeInsights(data, ctx = {}) {
     else { roiComment = 'Медиа в среднем не окупается'; roiSev = 'warning'; }
     out.push({
       severity: roiSev,
-      text: `Средний ROI = ${avgROI.toFixed(2)}× — ${roiComment}. Бюджет ${totalBudgetMoney.toLocaleString('ru-RU')}₽ → медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
-      tip: 'Benchmark: ROI ≥ 2× — отлично; 1-2× — приемлемо, нужно улучшать микс; < 1× — медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.',
+      // Audit pass 15 (Антон 2026-05-03): scale consistency. avgROI =
+      // totalContribDec / totalSpendDec — ОБЕ величины из decompose (training).
+      // Pre-fix text использовал totalBudgetMoney (optimize/planning) → math
+      // 842M / 1.781B = 0.47×, customer видел «0.18×» которое реально 842M /
+      // 4.338B (training). Fix: показываем training spend (denominator avgROI)
+      // → ratio совпадает: 0.18× = 842M / 4338M.
+      text: `Средний ROI = ${avgROI.toFixed(2)}× — ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода — медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
+      tip: 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться — см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× — отлично; 1-2× — приемлемо, нужно улучшать микс; < 1× — медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.',
     });
   }
 
