@@ -61,6 +61,7 @@ PYINSTALLER_ARGS = [
     '--hidden-import=numpy',
     '--hidden-import=pandas',
     '--hidden-import=openpyxl',
+    '--collect-data=openpyxl',          # _constants.json runtime resource (V29 audit 2026-05-04)
     '--hidden-import=sklearn',
     '--hidden-import=fastapi',
     '--hidden-import=uvicorn',
