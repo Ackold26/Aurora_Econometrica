@@ -692,7 +692,10 @@ fn build_xlsx(
             .set_font_color(Color::RGB(DEEP_100))
             .set_align(FormatAlign::CenterAcross)
             .set_align(FormatAlign::VerticalCenter);
-        ws.write_with_format(1, 0, "Marketing Mix Model Report", &title_fmt)
+        // 5d (audit-iter 2026-05-04): leading spaces чтобы title не overlap'ил logo
+        // в верхнем левом (col=0 row=0). Customer-edited reference XLSX showed
+        // 10-12 spaces leading. Logo width ≈ 70px ≈ 10 char widths в default font.
+        ws.write_with_format(1, 0, "          Marketing Mix Model Report", &title_fmt)
             .map_err(|e| format!("{e}"))?;
         for col in 1..3u16 {
             ws.write_with_format(1, col, "", &title_fmt).map_err(|e| format!("{e}"))?;
