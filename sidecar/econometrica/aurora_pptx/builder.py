@@ -361,14 +361,22 @@ class AuroraPPTXBuilder:
             pass
         return line
 
-    # ---------- Brand mark (sigil PNG) ----------
+    # ---------- Brand mark (sigil PNG variants) ----------
 
-    def _brand_mark_path(self):
-        """Return Path к bundled gold-accent sigil PNG (5d 2026-05-04).
-        None если файл отсутствует (legacy build OR test fixture без resources).
+    def _brand_mark_compact_path(self):
+        """Compact «cuted» variant: sigil + AURORA AI текст в одной композиции.
+        Для cover slide (top-left small box). 1024×768 4:3 aspect ratio.
         """
         from pathlib import Path
-        p = Path(__file__).parent / 'templates' / 'brand_mark.png'
+        p = Path(__file__).parent / 'templates' / 'brand_mark_compact.png'
+        return p if p.exists() else None
+
+    def _brand_mark_full_path(self):
+        """Full gold-accent variant: large sigil с centered AURORA AI wordmark.
+        Для back cover slide (centered, hero size). 1024×1024 square.
+        """
+        from pathlib import Path
+        p = Path(__file__).parent / 'templates' / 'brand_mark_full.png'
         return p if p.exists() else None
 
     # ---------- Wordmark (strict typographic logo) ----------
@@ -778,22 +786,21 @@ class AuroraPPTXBuilder:
             weight=1.0, color=self.gold,
         )
 
-        # 5d (2026-05-04): gold-accent sigil PNG over wordmark на cover.
-        # Visual brand consistency с HTML/XLSX deliverables. Square 0.7" preserves
-        # aspect ratio of source 512×512. Falls back gracefully — wordmark below.
-        brand_path = self._brand_mark_path()
+        # 5d (2026-05-04 + audit-iter 2026-05-04): cuted compact PNG в верхнем левом.
+        # PNG already содержит sigil + AURORA AI text (one composition) → НЕ нужен
+        # отдельный _wordmark() call который дублировал бы текст. Customer-approved
+        # layout per mmm_report_20260504_024312.pptx reference.
+        # Position (0.40, 0.15) — close к slide edge, height 0.78" (matches reference).
+        brand_path = self._brand_mark_compact_path()
         if brand_path is not None:
             slide.shapes.add_picture(
                 str(brand_path),
-                Inches(self.safe), Inches(self.safe - 0.1),
-                height=Inches(0.7),
+                Inches(self.safe), Inches(0.15),
+                height=Inches(0.78),
             )
-            wordmark_y = self.safe + 0.85
         else:
-            wordmark_y = self.safe
-
-        # Wordmark top-left (под sigil если он есть, иначе на attempt position)
-        self._wordmark(slide, self.safe, wordmark_y, size=14, color=self.deep_100)
+            # Fallback: typographic wordmark for legacy environments без bundled PNG.
+            self._wordmark(slide, self.safe, self.safe, size=14, color=self.deep_100)
 
         # Horizontal hairline full-width (margin to right-gold-line)
         self._hairline(
@@ -2654,7 +2661,19 @@ class AuroraPPTXBuilder:
         )
 
         # Big centered wordmark
-        self._wordmark(slide, (self.w / 2) - 0.9, 6.55, size=18, color=self.deep_100)
+        # 5d (audit-iter 2026-05-04): replace typographic wordmark с full PNG brand mark
+        # на back cover. Customer reference image showed sigil + AURORA AI как hero
+        # brand element. Centered, height 0.6" (matches old wordmark size visually).
+        brand_full = self._brand_mark_full_path()
+        if brand_full is not None:
+            # Square 0.6×0.6 inch, centered horizontally.
+            slide.shapes.add_picture(
+                str(brand_full),
+                Inches((self.w / 2) - 0.30), Inches(6.45),
+                height=Inches(0.6),
+            )
+        else:
+            self._wordmark(slide, (self.w / 2) - 0.9, 6.55, size=18, color=self.deep_100)
         # Copyright compact (no "Подготовлено для Client" - client name not repeated on closing)
         self._text(
             slide, self.safe, 6.90, self.w - 2 * self.safe, 0.18,

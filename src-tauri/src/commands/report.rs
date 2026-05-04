@@ -699,18 +699,17 @@ fn build_xlsx(
         }
         ws.set_row_height(1, 36.0).map_err(|e| format!("{e}"))?;
 
-        // 5d (2026-05-04): Aurora deliverable gold-accent sigil PNG в верхнем
-        // правом углу Обзор sheet. Compile-time embedding через include_bytes!
-        // (no runtime file IO, single-binary distribution friendly).
-        // Sized 60×60 px ≈ matches kicker row + title row total height.
-        // AUDIT 2026-05-04: log warning при failure (was silent — customer не понимал
-        // почему отчёт без логотипа на повреждённом bundle).
+        // 5d (2026-05-04 + audit-iter 2026-05-04): Aurora full gold-accent sigil PNG
+        // в верхнем левом углу Обзор sheet (column A, rows 1-2 area). Customer
+        // reference: customer-edited XLSX show image at col=0 row=0 with small offset,
+        // spans A1-A2 height. Replaces previous top-right placement.
+        // Compile-time embedding через include_bytes! — no runtime IO.
         let brand_png_bytes = include_bytes!("../../assets/brand_mark.png");
         match Image::new_from_buffer(brand_png_bytes) {
             Ok(brand_img) => {
-                // Scale 512×512 source → ≈ 60×60 px display (12% of source).
-                let scaled = brand_img.set_scale_width(0.12).set_scale_height(0.12);
-                if let Err(e) = ws.insert_image_with_offset(0, 3, &scaled, 8, 4) {
+                // 1024×1024 source → ≈ 70×70 px display (covers ~A1:A2 vertical span).
+                let scaled = brand_img.set_scale_width(0.07).set_scale_height(0.07);
+                if let Err(e) = ws.insert_image_with_offset(0, 0, &scaled, 22, 14) {
                     log::warn!("XLSX brand mark insert failed: {e}");
                 }
             }
