@@ -304,9 +304,12 @@ p { margin: 0 0 12px 0; }
   gap: 8px;
 }
 /* 2026-05-04 — Aurora deliverable gold-accent sigil over hero title.
-   SVG inline (4.9KB) — vector scaling без потерь, theme-agnostic.
-   navy/gold colors hardcoded в SVG (.st0/.st1) → отображается одинаково
-   во всех темах (light/dark/fun) что желательно для brand consistency. */
+   SVG inline (4.9KB) — vector scaling без потерь.
+   AUDIT FIX 2026-05-04: theme-aware. SVG имеет inline `<style>.st0{fill:#0A1628}`
+   (navy для main shape) и `.st1{fill:#C5A46D}` (gold accent). На dark theme
+   navy invisible — overrides ниже rebrand .st0 к light/secondary под cover bg.
+   `!important` нужен потому что SVG inline `<style>` имеет higher specificity
+   чем external CSS rules. Gold accent (.st1) keep — gold на dark выглядит хорошо. */
 .cover-brand-mark {
   width: 88px;
   height: 88px;
@@ -318,6 +321,17 @@ p { margin: 0 0 12px 0; }
   height: 100%;
   display: block;
 }
+/* Light theme (default): navy main + gold accent — design intent. No override. */
+
+/* Dark theme: navy invisible against deep bg → switch к off-white. */
+[data-theme="dark"] .cover-brand-mark svg .st0 {
+  fill: var(--text-primary, #E8EAF0) !important;
+}
+/* Fun theme: same logic — uses dark bg variant. Keep gold accent. */
+[data-theme="fun"] .cover-brand-mark svg .st0 {
+  fill: var(--text-primary, #FAFAFA) !important;
+}
+
 @media (max-width: 700px) {
   .cover-brand-mark { width: 64px; height: 64px; margin-bottom: 12px; }
 }
