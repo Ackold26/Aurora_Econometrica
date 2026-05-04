@@ -321,15 +321,12 @@ p { margin: 0 0 12px 0; }
   height: 100%;
   display: block;
 }
-/* Light theme (default): navy main + gold accent — design intent. No override. */
+/* Light + Fun themes: navy main + gold accent — design intent (light backgrounds).
+   Customer requested 2026-05-04: fun theme matches light, не dark. */
 
-/* Dark theme: navy invisible against deep bg → switch к off-white. */
+/* Dark theme only: navy invisible against deep bg → switch к off-white. */
 [data-theme="dark"] .cover-brand-mark svg .st0 {
   fill: var(--text-primary, #E8EAF0) !important;
-}
-/* Fun theme: same logic — uses dark bg variant. Keep gold accent. */
-[data-theme="fun"] .cover-brand-mark svg .st0 {
-  fill: var(--text-primary, #FAFAFA) !important;
 }
 
 @media (max-width: 700px) {
