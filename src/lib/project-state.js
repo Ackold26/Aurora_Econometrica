@@ -396,6 +396,57 @@ export function syncChannelCategoriesToMedia(mediaColumns) {
 export const analysisObjective = writable('roi');
 
 /**
+ * v1.3.0: KPI kind selector (per ADR-016).
+ * 'monetary' → target в ₽ (sales, revenue, profit). Главная метрика канала ROI.
+ * 'count'    → target в штуках (sales_packs, leads, registrations, и т.д.). CPU vs value.
+ * @type {import('svelte/store').Writable<'monetary' | 'count'>}
+ */
+export const kpiKind = writable('monetary');
+
+/**
+ * v1.3.0: KPI type (specific). Один из ['sales', 'revenue', 'profit', 'sales_packs',
+ * 'leads', 'registrations', 'loyalty_cards', 'subscriptions', 'app_installs', 'count_custom'].
+ * @type {import('svelte/store').Writable<string>}
+ */
+export const kpiType = writable('sales');
+
+/**
+ * v1.3.0: per-channel input metric selection (per ADR-015).
+ * {channel_name: 'monetary' | 'physical'} — выбор юзера на шаге Валидация.
+ * @type {import('svelte/store').Writable<Record<string, 'monetary' | 'physical'>>}
+ */
+export const perChannelInput = writable({});
+
+/**
+ * v1.3.0: derived mode — computed automatically from perChannelInput (ADR-015).
+ * Не writable юзером — обновляется когда меняется perChannelInput.
+ * @type {import('svelte/store').Writable<'roi' | 'effectiveness' | 'manual'>}
+ */
+export const derivedMode = writable('roi');
+
+/**
+ * v1.3.0: value per count unit (per ADR-016).
+ * Для KPI=count хранит ценность одной единицы (₽). UI label per kpiType.
+ * @type {import('svelte/store').Writable<number | null>}
+ */
+export const valuePerCountUnit = writable(null);
+
+/**
+ * v1.3.0: source флаг — 'auto' (auto-detected) | 'manual' (user input) | 'imported' (из bundle) | null.
+ * @type {import('svelte/store').Writable<string | null>}
+ */
+export const valuePerCountUnitSource = writable(null);
+
+/**
+ * v1.3.0: feature flag для нового derived-mode UX.
+ * true → новый KPISelector + PerChannelInputSelector flow.
+ * false → старый ObjectiveSelector (v1.2 behavior).
+ * Default true для v1.3.0 ship.
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const useDerivedModeUX = writable(true);
+
+/**
  * v1.0.16: модель-движок selector (Import шаг).
  * 'bayesian' (default, NUTS NumPyro) — полный posterior, CI, ~20-60 сек train.
  * 'ols' (Sprint 2 small-data fallback) — closed-form OLS, frequentist β CI,
