@@ -32,6 +32,7 @@
   } from '$lib/project-state.js';
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
+  import OptimizeGoalSeek from '$lib/components/pipeline/OptimizeGoalSeek.svelte';
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
@@ -124,6 +125,10 @@
     // Channel budgets re-init к decompose currentSpend (next $effect picks up)
     channelBudgets = {};
   }
+
+  /** v1.3.0: forward (от бюджета) vs goal-seek (от цели) per ADR-014.
+   * @type {'forward' | 'goal-seek'} */
+  let taskMode = $state('forward');
 
   /** @type {'idle' | 'optimizing' | 'done' | 'error'} */
   let stepState = $state('idle');
@@ -1293,6 +1298,47 @@
     <TrustBanner flags={dData.smell_flags} />
   {/if}
 
+  <!-- ══════════ v1.3.0 — Task toggle (Forward | Goal-Seek) per ADR-014 ══════════ -->
+  <section class="task-toggle" aria-label="Тип задачи оптимизации">
+    <div class="task-pills" role="radiogroup">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={taskMode === 'forward'}
+        class="task-pill"
+        class:active={taskMode === 'forward'}
+        onclick={() => { taskMode = 'forward'; }}
+      >
+        <span class="pill-icon">📊</span>
+        <div class="pill-text">
+          <strong>От бюджета</strong>
+          <span class="pill-sub">Forward — куда вложить</span>
+        </div>
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={taskMode === 'goal-seek'}
+        class="task-pill"
+        class:active={taskMode === 'goal-seek'}
+        onclick={() => { taskMode = 'goal-seek'; }}
+      >
+        <span class="pill-icon">🎯</span>
+        <div class="pill-text">
+          <strong>От цели</strong>
+          <span class="pill-sub">Goal-Seek — сколько потратить</span>
+        </div>
+      </button>
+    </div>
+  </section>
+
+  {#if taskMode === 'goal-seek'}
+    <OptimizeGoalSeek
+      currentSales={dData?.total_contribution ?? dData?.total_sales ?? 0}
+      salesCorridor={null}
+    />
+  {:else}
+
   <!-- ══════════ Phase 2 — Mode toggle (Analyst | Planner) ══════════ -->
   <section class="planning-mode-toggle" aria-label="Режим работы">
     <div class="mode-pills" role="radiogroup">
@@ -2159,6 +2205,8 @@
     </section>
   {/if}
 
+  {/if}  <!-- end {#if taskMode === 'forward'} fallthrough -->
+
   {#if showOnboarding}
     <PipelineOnboarding
       steps={TOURS.optimize}
@@ -2170,6 +2218,43 @@
 </div>
 
 <style>
+  /* ─── v1.3.0 — Task toggle (Forward | Goal-Seek) per ADR-014 ─── */
+  .task-toggle {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    margin-bottom: 12px;
+  }
+  .task-pills {
+    display: flex;
+    gap: 8px;
+  }
+  .task-pill {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+    transition: all 0.15s;
+  }
+  .task-pill:hover { border-color: var(--accent-primary); }
+  .task-pill.active {
+    border-color: var(--accent-primary);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+  }
+  .pill-icon { font-size: 28px; line-height: 1; }
+  .pill-text { display: flex; flex-direction: column; gap: 2px; }
+  .pill-text strong { font-size: 14px; color: var(--text-primary); }
+  .pill-sub { font-size: 11px; color: var(--text-muted); }
+
   /* ─── Phase 2 — Planning Mode toggle ─── */
   /* Использует те же background/border tokens что существующие .block (Текущий
      бюджет etc.) — чтобы блок интегрировался с остальными, не выделялся. */
