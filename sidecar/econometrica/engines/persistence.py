@@ -94,7 +94,68 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     model_data.setdefault('train_x_norm_quantiles', None)
     model_data.setdefault('seasonality_detected', None)
 
+    # v1.3.0 additive fields (per ADR-017 — schema bump skipped, in-memory inject only).
+    # Defaults match v1.2 behavior: monetary KPI, all channels in ₽, mode=roi, no goal-seek history.
+    _inject_v13_defaults(model_data)
+
     return model_data
+
+
+def _inject_v13_defaults(model_data: dict[str, Any]) -> None:
+    """Inject v1.3.0 additive fields with defaults derived from v1.2 state.
+
+    Per ADR-017 (Bundle schema v1.3 additive). Mutates dict in place.
+
+    - kpi_kind: derived from kpi_type via registry. 'sales' → monetary, 'awareness' → proportional,
+      count KPIs → count.
+    - per_channel_input: dict {channel: 'monetary'|'physical'}. Derived from старый
+      analysisObjective field (frontend) или by default — все каналы как monetary.
+    - derived_mode: 'roi'|'effectiveness'|'manual'. Computed from per_channel_input.
+    - value_per_count_unit, label, source: None defaults; populated в Validate UI для count KPIs.
+    - goal_seek_history: append-only log, empty list default.
+    """
+    kpi_type = model_data.get('kpi_type') or 'sales'
+
+    # kpi_kind from registry (graceful fallback to 'monetary' if KPI not registered).
+    if 'kpi_kind' not in model_data:
+        try:
+            from utils.kpi_registry import get_kpi_config
+            kpi_kind = get_kpi_config(kpi_type).kpi_kind
+        except (ValueError, ImportError):
+            kpi_kind = 'monetary'  # safe fallback
+        model_data['kpi_kind'] = kpi_kind
+
+    # per_channel_input: default — all media columns as 'monetary'.
+    if 'per_channel_input' not in model_data:
+        config = model_data.get('config') or {}
+        media_cols = config.get('media_columns', []) or []
+        # Старый frontend store analysisObjective не сохранялся в pickle, но мог быть
+        # передан через config['analysis_objective'] (legacy field).
+        legacy_objective = config.get('analysis_objective', 'roi')
+        if legacy_objective == 'effectiveness':
+            default_metric = 'physical'
+        else:
+            default_metric = 'monetary'  # 'roi' и 'manual' → default monetary (manual override приходит из bundle)
+        model_data['per_channel_input'] = {ch: default_metric for ch in media_cols}
+
+    # derived_mode: lazy compute через mode_inference if absent.
+    if 'derived_mode' not in model_data:
+        try:
+            from utils.mode_inference import derive_mode
+            model_data['derived_mode'] = derive_mode(model_data['per_channel_input'])
+        except (ValueError, ImportError):
+            model_data['derived_mode'] = 'roi'  # safe fallback
+
+    # value_per_count_unit: None default; populated by user in Validate UI.
+    model_data.setdefault('value_per_count_unit', None)
+    model_data.setdefault('value_per_count_unit_label', '')
+    model_data.setdefault('value_per_count_unit_source', None)  # 'auto'|'manual'|'imported'|None
+
+    # goal_seek_history: append-only log of past goal-seek runs.
+    model_data.setdefault('goal_seek_history', [])
+
+    # safe_corridor_cache: lazy invalidate on retrain.
+    model_data.setdefault('safe_corridor_cache', None)
 
 
 def get_kpi_type(model_data: dict[str, Any]) -> str:

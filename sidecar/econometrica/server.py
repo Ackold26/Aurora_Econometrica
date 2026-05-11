@@ -1689,6 +1689,234 @@ def export_html(req: HtmlExportRequest):
         )
 
 
+# ─────────────────────────────────────────────────────
+# v1.3.0 endpoints (per ADR-014, ADR-015, ADR-016)
+# ─────────────────────────────────────────────────────
+
+
+class SafeCorridorRequest(BaseModel):
+    """v1.3.0: compute safe corridor для project."""
+    project_dir: str
+    relative_lo_factor: float = 0.5
+    relative_hi_factor: float = 1.5
+
+
+@app.post('/optimize/corridor')
+def optimize_corridor(req: SafeCorridorRequest):
+    """Compute safe corridor для бюджета каналов + aggregate (ADR-014).
+
+    MVP формула per канал: max(P5, 0.5*mu), min(P95, 1.5*mu).
+    Used by UI: CorridorSlider визуализирует green/yellow/red zones.
+    """
+    try:
+        from engines.persistence import load_model_with_compat
+        from optimize.bounds import compute_safe_corridor
+        from pathlib import Path
+
+        model_path = Path(req.project_dir) / 'models' / 'latest.pkl'
+        if not model_path.exists():
+            return JSONResponse(content={
+                'status': 'error',
+                'error_code': 'MODEL_NOT_FOUND',
+                'message': 'Модель не найдена.',
+            }, status_code=404)
+
+        model_data = load_model_with_compat(model_path)
+        corridor = compute_safe_corridor(
+            model_data,
+            relative_lo_factor=req.relative_lo_factor,
+            relative_hi_factor=req.relative_hi_factor,
+        )
+        corridor['status'] = 'ok'
+        return JSONResponse(content=corridor)
+    except Exception as e:
+        logger.exception('Safe corridor compute FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error',
+            'message': str(e),
+            'type': type(e).__name__,
+        })
+
+
+class InverseOptimizeRequest(BaseModel):
+    """v1.3.0: Goal-Seek optimization (find min budget for target sales)."""
+    project_dir: str
+    target_sales: float
+    kpi_kind: str = 'monetary'  # 'monetary' | 'count'
+    mode: str = 'roi'           # 'roi' | 'effectiveness' | 'manual' (for logging)
+    max_budget: float | None = None
+    min_budget: float | None = None
+
+
+@app.post('/optimize/inverse')
+def optimize_inverse_endpoint(req: InverseOptimizeRequest):
+    """Goal-Seek optimization: дана цель продаж → найти минимальный бюджет (ADR-014).
+
+    MVP: бисекция по бюджету + Delta method posterior CI.
+    Phase B: full posterior re-bisection (10 multi-start × 1000 draws).
+    """
+    try:
+        from optimize.inverse import optimize_inverse as _optimize_inverse
+
+        budget_constraints = None
+        if req.max_budget is not None or req.min_budget is not None:
+            budget_constraints = {}
+            if req.max_budget is not None:
+                budget_constraints['max_budget'] = req.max_budget
+            if req.min_budget is not None:
+                budget_constraints['min_budget'] = req.min_budget
+
+        result = _optimize_inverse(
+            project_dir=req.project_dir,
+            target_sales=req.target_sales,
+            kpi_kind=req.kpi_kind,
+            mode=req.mode,
+            budget_constraints=budget_constraints,
+        )
+        if 'status' not in result:
+            result['status'] = 'ok'
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Inverse optimize FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error',
+            'message': str(e),
+            'type': type(e).__name__,
+        })
+
+
+class AutoPriceRequest(BaseModel):
+    """v1.3.0: auto-detect value_per_count_unit (e.g. цена/упаковку, ценность лида)."""
+    project_dir: str
+    monetary_column: str  # e.g. 'sales_rub', 'revenue'
+    count_column: str     # e.g. 'sales_packs', 'leads', 'registrations'
+    cv_warn_threshold: float = 0.20
+
+
+@app.post('/project/auto_price')
+def project_auto_price(req: AutoPriceRequest):
+    """Auto-detect value_per_count_unit из data (ADR-016).
+
+    Reads training Excel/CSV, computes trimmed mean ratio monetary/count,
+    flags CV>threshold as instability warning.
+    """
+    try:
+        from engines.persistence import load_model_with_compat
+        from optimize.auto_price import detect_value_per_count_unit
+        from pathlib import Path
+        import pandas as pd
+
+        # Load training data from project.
+        # First try latest.pkl config.data_file; fallback к project's data folder.
+        model_path = Path(req.project_dir) / 'models' / 'latest.pkl'
+        data_file = None
+        if model_path.exists():
+            model_data = load_model_with_compat(model_path)
+            config = model_data.get('config') or {}
+            data_file = config.get('data_file')
+
+        if not data_file:
+            # Fallback: ищем data folder.
+            data_dir = Path(req.project_dir) / 'data'
+            for candidate in data_dir.glob('*'):
+                if candidate.suffix in ('.xlsx', '.xls', '.csv'):
+                    data_file = str(candidate)
+                    break
+
+        if not data_file:
+            return JSONResponse(content={
+                'status': 'error',
+                'error_code': 'NO_DATA_FILE',
+                'message': 'Данные не найдены — загрузите проект и обучите модель сначала.',
+            }, status_code=404)
+
+        if str(data_file).endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(data_file)
+        else:
+            df = pd.read_csv(data_file)
+
+        result = detect_value_per_count_unit(
+            df,
+            monetary_col=req.monetary_column,
+            count_col=req.count_column,
+            cv_warn_threshold=req.cv_warn_threshold,
+        )
+        result['status'] = 'ok'
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Auto price detection FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error',
+            'message': str(e),
+            'type': type(e).__name__,
+        })
+
+
+class ValuePerCountUnitSaveRequest(BaseModel):
+    """v1.3.0: persist user-confirmed value_per_count_unit + per_channel_input."""
+    project_dir: str
+    value_per_count_unit: float | None = None
+    value_per_count_unit_label: str = ''
+    value_per_count_unit_source: str | None = None  # 'auto'|'manual'|'imported'
+    per_channel_input: dict[str, str] | None = None  # {channel: 'monetary'|'physical'}
+    kpi_kind: str = 'monetary'                       # 'monetary' | 'count'
+
+
+@app.post('/project/save_kpi_settings')
+def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
+    """Persist v1.3.0 KPI settings (per ADR-015, ADR-016, ADR-017).
+
+    Updates project state с derived_mode, kpi_kind, value_per_count_unit fields.
+    NB: НЕ retrains модель — это lightweight metadata update.
+    """
+    try:
+        from pathlib import Path
+        from utils.mode_inference import derive_mode
+
+        project_path = Path(req.project_dir)
+        if not project_path.exists():
+            return JSONResponse(content={
+                'status': 'error',
+                'error_code': 'PROJECT_NOT_FOUND',
+            }, status_code=404)
+
+        # Save as JSON metadata in project's settings/v13_kpi.json.
+        settings_dir = project_path / 'settings'
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        settings_file = settings_dir / 'v13_kpi.json'
+
+        # Compute derived mode if per_channel_input provided.
+        derived_mode = None
+        if req.per_channel_input:
+            derived_mode = derive_mode(req.per_channel_input)
+
+        settings = {
+            'kpi_kind': req.kpi_kind,
+            'value_per_count_unit': req.value_per_count_unit,
+            'value_per_count_unit_label': req.value_per_count_unit_label,
+            'value_per_count_unit_source': req.value_per_count_unit_source,
+            'per_channel_input': req.per_channel_input or {},
+            'derived_mode': derived_mode,
+            'updated_at': pd.Timestamp.now().isoformat(),
+        }
+
+        with open(settings_file, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, ensure_ascii=False, indent=2)
+
+        return JSONResponse(content={
+            'status': 'ok',
+            'derived_mode': derived_mode,
+            'saved_to': str(settings_file),
+        })
+    except Exception as e:
+        logger.exception('Save KPI settings FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error',
+            'message': str(e),
+            'type': type(e).__name__,
+        })
+
+
 # ── Startup ──────────────────────────────────────────
 
 if __name__ == '__main__':

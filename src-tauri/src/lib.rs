@@ -3209,6 +3209,11 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_train_cancel,
             commands::econometrica::econ_decompose,
             commands::econometrica::econ_optimize,
+            // v1.3.0 — Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
+            commands::econometrica::econ_safe_corridor,
+            commands::econometrica::econ_optimize_inverse,
+            commands::econometrica::econ_auto_detect_price,
+            commands::econometrica::econ_save_kpi_settings,
             commands::econometrica::econ_forecast_context,
             commands::econometrica::econ_forecast_scaling,
             commands::econometrica::econ_hierarchical_warning,

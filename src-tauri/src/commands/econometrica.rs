@@ -497,6 +497,83 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
     parse_resp(resp, path).await
 }
 
+// ─── v1.3.0 endpoints (per ADR-014, ADR-015, ADR-016) ─────────────────────
+
+#[tauri::command]
+pub async fn econ_safe_corridor(
+    project_dir: String,
+    relative_lo_factor: Option<f64>,
+    relative_hi_factor: Option<f64>,
+) -> Result<Value, String> {
+    info!("econ_safe_corridor: {project_dir}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "relative_lo_factor": relative_lo_factor.unwrap_or(0.5),
+        "relative_hi_factor": relative_hi_factor.unwrap_or(1.5),
+    });
+    post_json("/optimize/corridor", &body, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_optimize_inverse(
+    project_dir: String,
+    target_sales: f64,
+    kpi_kind: Option<String>,
+    mode: Option<String>,
+    max_budget: Option<f64>,
+    min_budget: Option<f64>,
+) -> Result<Value, String> {
+    info!("econ_optimize_inverse: project_dir={project_dir}, target={target_sales}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "target_sales": target_sales,
+        "kpi_kind": kpi_kind.unwrap_or_else(|| "monetary".to_string()),
+        "mode": mode.unwrap_or_else(|| "roi".to_string()),
+        "max_budget": max_budget,
+        "min_budget": min_budget,
+    });
+    // Inverse + bisection может занимать до 10s — use train_client с longer timeout.
+    post_json("/optimize/inverse", &body, train_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_auto_detect_price(
+    project_dir: String,
+    monetary_column: String,
+    count_column: String,
+    cv_warn_threshold: Option<f64>,
+) -> Result<Value, String> {
+    info!("econ_auto_detect_price: {project_dir} {monetary_column}/{count_column}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "monetary_column": monetary_column,
+        "count_column": count_column,
+        "cv_warn_threshold": cv_warn_threshold.unwrap_or(0.20),
+    });
+    post_json("/project/auto_price", &body, quick_client()).await
+}
+
+#[tauri::command]
+pub async fn econ_save_kpi_settings(
+    project_dir: String,
+    value_per_count_unit: Option<f64>,
+    value_per_count_unit_label: Option<String>,
+    value_per_count_unit_source: Option<String>,
+    per_channel_input: Option<Value>,
+    kpi_kind: Option<String>,
+) -> Result<Value, String> {
+    info!("econ_save_kpi_settings: {project_dir}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "value_per_count_unit": value_per_count_unit,
+        "value_per_count_unit_label": value_per_count_unit_label.unwrap_or_default(),
+        "value_per_count_unit_source": value_per_count_unit_source,
+        "per_channel_input": per_channel_input,
+        "kpi_kind": kpi_kind.unwrap_or_else(|| "monetary".to_string()),
+    });
+    post_json("/project/save_kpi_settings", &body, quick_client()).await
+}
+
 async fn parse_resp(resp: reqwest::Response, path: &str) -> Result<Value, String> {
     let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("Не удалось прочитать ответ: {e}"))?;
