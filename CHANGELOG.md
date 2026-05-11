@@ -2,6 +2,68 @@
 
 ---
 
+## v1.3.0 — Next-gen MMM Optimizer: KPI semantics + Goal-Seek + safe corridor + educational system (2026-05-12)
+
+Major UX upgrade — продукт следующего поколения, доступный не-эконометристам через
+прогрессивную простоту и встроенную систему обучения.
+
+### Новое
+
+**KPI семантика (ADR-016)**: support для 8 KPI types в 2 семантических классах.
+Monetary (sales/revenue/profit) → ROI columns. Count (sales_packs/leads/
+registrations/loyalty_cards/subscriptions/app_installs/custom) → CPU columns +
+сравнение с user-провереnned value_per_count_unit (маржа/ценность лида/MRR).
+
+**Mode = derived state (ADR-015)**: юзер выбирает KPI + per-channel input
+(monetary vs physical), mode (ROI/Эффективность/Вручную) выводится автоматически.
+Совпадает с industry standard (Robyn, PyMC-Marketing). Senior эконометристы —
+Expert Mode override в Settings.
+
+**Goal-Seek optimization (ADR-014)**: дуальная задача к forward. Дана цель
+продаж → найти минимальный бюджет. Бисекция по бюджету, < 1s. Delta method
+posterior CI.
+
+**Safe corridor (ADR-014)**: math-валидные границы бюджета и цели per канал.
+MVP: `[max(P5_obs, 0.5·µ), min(P95_obs, 1.5·µ)]`. Литература: Robyn, Hanssens 2003,
+Jin 2017. UI зоны 🟢🟡🔴 на всех слайдерах.
+
+**KPI-aware вердикты и метрики**: ROI / CPU / sales share — conditional rendering
+per (mode, kpi_kind). Никаких ложных «Глубоко убыточный» на режиме Эффективность.
+
+**Educational system**: Glossary 20 терминов (Ctrl+K), WhyThisStep панели на
+каждом шаге pipeline, Intro Tutorial (8 slides «Что такое MMM»), inline tooltips
+с linkом в глоссарий.
+
+**Backend новые модули**: optimize/ package (bounds + inverse + auto_price),
+engines/verdicts.py (KPI-aware dispatch), utils/{mode_inference,column_detection}.
+4 new Tauri commands.
+
+### Фиксы
+
+- Window title: "Aurora AI Econometrica" → "Aurora AI Econometrica - MMM Optimizer".
+- Onboarding step 1: split title на 2 строки (brand + product) + description rewrite.
+
+### Backward compat
+
+Bundle schema **не bumped** (ADR-017). v1.2 bundles читаются с defaults injected
+in memory: KPI=`sales` (monetary), все каналы как monetary, derived mode = ROI.
+Migration tool НЕ нужен.
+
+### Tests
+
+950 tests pass (929 v1.2 baseline + 21 new v1.3) + 5 known skips. 0 regression.
+0 svelte-check errors.
+
+### Известные ограничения
+
+- Goal-Seek MVP — Delta method CI; full posterior re-bisection в Expert Mode → Phase B.
+- Reports (HTML/PPTX/XLSX) не полностью KPI-aware — hotfix v1.3.1.
+- Awareness KPI — out_of_scope_v13 (Aurora Brand Tracker Phase B).
+- Educational system integration (WhyThisStep wire across шаги, Ctrl+K shortcut,
+  mastery toggle) — hotfix v1.3.1.
+
+---
+
 ## v1.0.10 — Stable: merge_rules e2e + UX wave + hardening (2026-04-23)
 
 Промо rc1.4 в stable + Session B tooling hardening.
