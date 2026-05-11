@@ -8,10 +8,12 @@
   import StepWrapper from '$lib/components/pipeline/StepWrapper.svelte';
   import ImportStep from '$lib/components/pipeline/ImportStep.svelte';
   import ValidateStep from '$lib/components/pipeline/ValidateStep.svelte';
+  import ValidateStepV13 from '$lib/components/pipeline/ValidateStepV13.svelte';
   import ModelTrainingStep from '$lib/components/pipeline/ModelTrainingStep.svelte';
   import DecomposeStep from '$lib/components/pipeline/DecomposeStep.svelte';
   import OptimizeStep from '$lib/components/pipeline/OptimizeStep.svelte';
   import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
+  import { useDerivedModeUX } from '$lib/project-state.js';
 </script>
 
 <!-- A3: Single route, all steps present in DOM, visibility controlled by StepWrapper -->
@@ -22,9 +24,13 @@
     <ImportStep />
   </StepWrapper>
 
-  <!-- Step 1: Validate — Phase 2 -->
+  <!-- Step 1: Validate — Phase 2 / v1.3.0 derived mode (per ADR-015) -->
   <StepWrapper step={1} helpPage="data-preparation">
-    <ValidateStep />
+    {#if $useDerivedModeUX}
+      <ValidateStepV13 channels={[]} availableMetricsByChannel={{}} />
+    {:else}
+      <ValidateStep />
+    {/if}
   </StepWrapper>
 
   <!-- Step 2: Model — Phase 3 -->

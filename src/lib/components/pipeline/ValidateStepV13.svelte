@@ -31,7 +31,7 @@
   import ModeDerivedExplanation from './ModeDerivedExplanation.svelte';
   import WhyThisStep from './WhyThisStep.svelte';
 
-  const { onComplete, channels = [], availableMetricsByChannel = {}, monetaryColumnHint = 'sales_rub' } = $props();
+  const { onComplete = undefined, channels = [], availableMetricsByChannel = {}, monetaryColumnHint = 'sales_rub' } = $props();
 
   /** @type {0 | 1 | 2 | 3} */
   let subStep = $state(0);
