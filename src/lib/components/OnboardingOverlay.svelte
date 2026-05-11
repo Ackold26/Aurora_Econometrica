@@ -5,8 +5,8 @@
 
   const steps = [
     {
-      title: 'Aurora AI Econometrica',
-      desc: 'Marketing Mix Modeling без программирования. Байесовское моделирование медиаканалов, декомпозиция продаж и оптимизация бюджета - всё в одном интерфейсе.',
+      title: 'Aurora AI Econometrica\nMMM Optimizer',
+      desc: 'Marketing Mix Modeling без программирования. Байесовское моделирование медиаканалов, декомпозиция продаж и оптимизация бюджета.\nВсе в одном интерфейсе.',
       icon: 'M3 3v18h18 M7 16l4-5 4 3 4-7',
     },
     {
@@ -21,7 +21,7 @@
     },
     {
       title: 'Клиент-ready отчёты',
-      desc: 'Интерактивный HTML-отчёт (3 темы, drill-down, бюджетный what-if слайдер, поиск Ctrl+K) и tier-1 PPTX (13 слайдов). Также XLSX с cover-листом и DOCX. MQS-светофор показывает качество модели, живые what-if сценарии - эффект перераспределения бюджета.',
+      desc: 'Интерактивный HTML, PPTX и XLSX - отчеты. MQS-светофор показывает качество модели, живые what-if сценарии - эффект перераспределения бюджета.',
       icon: 'M12 20V10 M18 20V4 M6 20v-4',
     },
   ];
@@ -150,6 +150,7 @@
     font-weight: 700;
     margin-bottom: 10px;
     letter-spacing: -0.02em;
+    white-space: pre-line;
   }
 
   .step-desc {
@@ -157,6 +158,7 @@
     line-height: 1.6;
     color: var(--text-secondary);
     margin-bottom: 24px;
+    white-space: pre-line;
   }
 
   .dots {

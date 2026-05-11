@@ -3068,7 +3068,7 @@ fn build_app() -> Result<(), String> {
             };
 
             tauri::WebviewWindowBuilder::new(app, "main", url)
-                .title("Aurora AI Econometrica")
+                .title("Aurora AI Econometrica - MMM Optimizer")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(900.0, 600.0)
                 .center()
