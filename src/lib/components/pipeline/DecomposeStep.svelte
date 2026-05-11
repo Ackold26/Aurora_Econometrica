@@ -20,6 +20,10 @@
     expertMode,
     unitCosts,
     unitCostInflation,
+    // v1.3.0 stores (per ADR-015, ADR-016)
+    kpiKind,
+    derivedMode,
+    valuePerCountUnit,
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
   import ROIComparison from '$lib/components/pipeline/ROIComparison.svelte';
@@ -65,6 +69,81 @@
   let errorMessage = $state(null);
 
   const data = $derived($decomposeData);
+
+  // v1.3.0: derived metric display per (kpi_kind, derived_mode) (per ADR-014 matrix).
+  // 'roi'   → monetary ROI column (v1.2 behavior).
+  // 'cpu'   → count CPU vs value column (₽/единицу).
+  // 'share' → sales contribution share % (Эффективность mode).
+  const displayMetric = $derived(
+    $derivedMode === 'effectiveness' ? 'share' :
+    $kpiKind === 'count' ? 'cpu' :
+    'roi'
+  );
+  /** @type {Record<'roi' | 'cpu' | 'share', string>} */
+  const metricLabel = {
+    roi: 'ROI',
+    cpu: 'CPU, ₽/ед.',
+    share: 'Доля %',
+  };
+
+  /**
+   * Compute display value per channel based on displayMetric.
+   * @param {any} ch
+   * @returns {string}
+   */
+  function formatChannelMetric(ch) {
+    if (displayMetric === 'roi') {
+      return ch.roi != null ? `${ch.roi.toFixed(2)}×` : '—';
+    }
+    if (displayMetric === 'cpu') {
+      // CPU = spend / contribution_count_units.
+      // MVP: используем roi как proxy если contribution в count units,
+      // backend pipe count contributions через ch.contribution.
+      // Если ch.contribution > 0 и ch.spend > 0 → CPU = spend / contribution (count units).
+      if (ch.spend > 0 && ch.contribution > 0) {
+        const cpu = ch.spend / ch.contribution;
+        return `${cpu.toFixed(2)} ₽`;
+      }
+      return '—';
+    }
+    if (displayMetric === 'share') {
+      // Share % = ch.share_of_effect (если есть) или ch.contribution / total.
+      const share = ch.share_of_effect ?? (ch.contribution / (data?.total_contribution || 1));
+      return share != null ? `${(share * 100).toFixed(1)}%` : '—';
+    }
+    return '—';
+  }
+
+  /**
+   * Determine cell color class based on metric value vs thresholds.
+   * @param {any} ch
+   * @returns {string}
+   */
+  function metricCellClass(ch) {
+    if (displayMetric === 'roi') {
+      if (ch.roi == null) return '';
+      if (ch.roi > 50) return 'roi-warn';
+      if (ch.roi > 2) return 'roi-good';
+      if (ch.roi >= 0.8) return 'roi-mid';
+      return 'roi-bad';
+    }
+    if (displayMetric === 'cpu' && ch.spend > 0 && ch.contribution > 0) {
+      const cpu = ch.spend / ch.contribution;
+      const value = $valuePerCountUnit;
+      if (value && value > 0) {
+        if (cpu > value * 2) return 'roi-bad';
+        if (cpu > value) return 'roi-mid';
+        return 'roi-good';
+      }
+    }
+    if (displayMetric === 'share') {
+      const share = ch.share_of_effect ?? 0;
+      if (share > 0.20) return 'roi-good';
+      if (share > 0.05) return 'roi-mid';
+      return 'roi-bad';
+    }
+    return '';
+  }
 
   // Help-tooltips для основной таблицы «Детализация по каналам».
   const CH_HELP = {
@@ -353,7 +432,9 @@
               <th>Канал</th>
               <th class="num">Расходы<span class="help-icon" title={CH_HELP.spend}>?</span></th>
               <th class="num">Вклад<span class="help-icon" title={CH_HELP.contrib}>?</span></th>
-              <th class="num">ROI<span class="help-icon" title={CH_HELP.roi}>?</span></th>
+              <th class="num">
+                {metricLabel[displayMetric]}<span class="help-icon" title={CH_HELP.roi}>?</span>
+              </th>
               <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
               <th class="num">Decay<span class="help-icon" title="Adstock decay — доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50% CI показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
               <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
@@ -391,8 +472,8 @@
                       {/if}
                     </td>
                     <td class="num">{ch.contribution.toLocaleString('ru-RU')}</td>
-                    <td class="num" class:roi-good={ch.roi > 2 && ch.roi <= 50} class:roi-mid={ch.roi >= 0.8 && ch.roi <= 2} class:roi-bad={ch.roi < 0.8} class:roi-warn={ch.roi > 50}>
-                      {ch.roi.toFixed(2)}×
+                    <td class="num {metricCellClass(ch)}">
+                      {formatChannelMetric(ch)}
                     </td>
                     <td class="num" class:gap-pos={ch.efficiency_gap >= 5} class:gap-neg={ch.efficiency_gap <= -5}>
                       {ch.efficiency_gap > 0 ? '+' : ''}{ch.efficiency_gap}%
