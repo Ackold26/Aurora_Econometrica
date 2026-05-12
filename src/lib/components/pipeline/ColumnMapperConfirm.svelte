@@ -357,6 +357,10 @@
   .role-dot.tone-muted   { background: rgba(148,163,184,0.4); }
 
   select {
+    /* v1.3.2: color-scheme: dark — подсказка Webview2 рендерить native
+       option popup в dark тон. Без этого WIN browser показывает light
+       popup → текст ролей сливается с background на тёмной теме. */
+    color-scheme: dark;
     appearance: none;
     padding: 6px 26px 6px 10px;
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
@@ -376,6 +380,17 @@
       calc(100% - 8px) 50%;
     background-size: 5px 5px, 5px 5px;
     background-repeat: no-repeat;
+  }
+  /* Style option items in supporting browsers (Chromium 100+ honors на native popup) */
+  select option {
+    background: var(--bg-card, #0f172a);
+    color: var(--text-primary, #e2e8f0);
+    padding: 6px 10px;
+  }
+  select option:checked,
+  select option:hover {
+    background: color-mix(in srgb, var(--gold, #c9a449) 20%, var(--bg-card, #0f172a));
+    color: var(--text-primary);
   }
   select:hover {
     border-color: var(--gold, #c9a449);
