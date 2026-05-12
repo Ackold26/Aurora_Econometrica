@@ -338,6 +338,31 @@
       : stages;
   });
 
+  /**
+   * v1.3.2: real-time role change на каждое dropdown click в ColumnMapperConfirm.
+   * Сразу пишет в validateData → InsightsPanel + recommendations
+   * пересчитываются reactively. Эквивалент connecting в InsightsPanel.applyAction.
+   *
+   * @param {string} colName
+   * @param {string} uiRole — UI-level role (kpi/media/control/date/excluded)
+   */
+  function handleRoleChange(colName, uiRole) {
+    const val = get(validateData);
+    if (!val?.result?.columns) return;
+    const canonical = uiRole === 'excluded' ? 'unused' : uiRole;
+    const updated = setColumnRolesBulk(val.result.columns, [colName], canonical);
+    validateData.set({
+      ...val,
+      result: { ...val.result, columns: updated },
+    });
+    // Persist project.json (best-effort).
+    const projectId = get(activeProjectId);
+    if (projectId) {
+      const updates = buildProjectUpdates(updated);
+      invoke('project_update', { projectId, updates }).catch(() => { /* silent */ });
+    }
+  }
+
   /** @param {Record<string, string>} mapping — column name → role chosen by user */
   async function handleRolesConfirm(mapping) {
     // Persist overrides обратно к validateData.result.columns + project.json.
@@ -410,7 +435,12 @@
       </button>
     </div>
   {:else if !rolesConfirmed}
-    <ColumnMapperConfirm columns={detectedColumns} onConfirm={handleRolesConfirm} />
+    <ColumnMapperConfirm
+      columns={detectedColumns}
+      validateResult={$validateData?.result ?? null}
+      onConfirm={handleRolesConfirm}
+      onRoleChange={handleRoleChange}
+    />
   {:else if subStep === 0}
     <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
   {:else if subStep === 1}

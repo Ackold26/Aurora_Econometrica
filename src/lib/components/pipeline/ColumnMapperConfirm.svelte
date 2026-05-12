@@ -18,8 +18,15 @@
    */
 
   const {
-    columns = [],     // [{name, role, kind}]
+    columns = [],     // [{name, role, kind, stats?}]
     onConfirm,        // (mapping: Record<string, string>) => void
+    /** Backend validate result — для insights-driven recommendations.
+     *  Содержит warnings + issues per column. Если не передан — fallback
+     *  на простую type/role heuristic. */
+    validateResult = null,
+    /** Real-time role change callback. Parent persists change в validateData
+     *  store immediately → InsightsPanel + recommendations стабильно sync. */
+    onRoleChange = null,
   } = $props();
 
   /** @type {Record<string, string>} */
@@ -92,9 +99,36 @@
   /** @typedef {{ status: 'keep' | 'review' | 'exclude', label: string, reason: string, tone: string }} Recommendation */
 
   /**
-   * Generate recommendation для колонки на основе type + role + stats.
-   * Простая heuristic, не залезаем в backend insights. Future: integrate
-   * с col.issues от validateData.result.
+   * Backend warnings/issues filtered per column. Reactively recomputes when
+   * validateResult changes (after InsightsPanel action или role override).
+   *
+   * @param {string} colName
+   * @returns {{ critical: any[], warning: any[] }}
+   */
+  function findingsFor(colName) {
+    if (!validateResult) return { critical: [], warning: [] };
+    /** @type {any[]} */
+    const issues = Array.isArray(validateResult.issues) ? validateResult.issues : [];
+    /** @type {any[]} */
+    const warnings = Array.isArray(validateResult.warnings) ? validateResult.warnings : [];
+    return {
+      critical: issues.filter(i => i?.column === colName),
+      warning: warnings.filter(w => w?.column === colName),
+    };
+  }
+
+  /**
+   * Generate recommendation для колонки. Приоритет:
+   * 1. Backend critical issues (severity='critical') → «Исключить».
+   * 2. Backend warnings (severity='warning') → «Проверить» с message.
+   * 3. Type/role mismatch heuristic (text в numeric role) → «Исключить».
+   * 4. Stats-based heuristic (zeros >80%, missing >30%) → «Исключить»/«Проверить».
+   * 5. excluded role → «Не используется» neutral.
+   * 6. Default → «Оставить».
+   *
+   * Insights-driven: when InsightsPanel applies action (excludes columns),
+   * validateData updates → findingsFor sees new state → recommendation
+   * recomputes automatically.
    *
    * @param {any} col
    * @returns {Recommendation}
@@ -103,75 +137,68 @@
     if (!col) {
       return { status: 'review', label: 'Проверить', reason: 'Нет данных по колонке.', tone: 'neutral' };
     }
-    const rawKind = String(col.kind ?? '').toLowerCase();
     const role = effectiveRole(col.name);
+    const findings = findingsFor(col.name);
+
+    // 1. Backend critical issues — top priority.
+    if (findings.critical.length > 0) {
+      const msg = findings.critical[0]?.message ?? 'Критическая проблема в данных.';
+      return {
+        status: 'exclude',
+        label: 'Исключить',
+        reason: `Критическая проблема: ${msg}`,
+        tone: 'danger',
+      };
+    }
+
+    // 2. Backend warnings (active only когда role != excluded — excluded skip warnings).
+    if (findings.warning.length > 0 && role !== 'excluded') {
+      const w = findings.warning[0];
+      const msg = w?.message ?? 'Предупреждение по колонке.';
+      // Decide tone by warning type/severity. Default — warn (gold).
+      const severeTypes = new Set(['insufficient_data', 'too_many_zeros', 'collinearity', 'duplicate_metric']);
+      const tone = severeTypes.has(String(w?.type ?? '')) ? 'danger' : 'warn';
+      const label = tone === 'danger' ? 'Исключить' : 'Проверить';
+      const status = tone === 'danger' ? 'exclude' : 'review';
+      return { status, label, reason: msg, tone };
+    }
+
+    // 3-4. Heuristic fallback когда backend findings отсутствуют.
+    const rawKind = String(col.kind ?? '').toLowerCase();
     const isNumeric = rawKind.includes('int') || rawKind.includes('float') || rawKind === 'number' || rawKind === 'numeric';
     const isDate = rawKind.includes('datetime') || rawKind === 'date' || rawKind.includes('timestamp');
     const isText = rawKind === 'object' || rawKind === 'string' || rawKind === 'str' || rawKind === 'text' || rawKind.includes('category');
     const zerosPct = Number(col.stats?.zeros_pct ?? 0);
     const missingPct = Number(col.stats?.missing_pct ?? 0);
 
-    // Hard exclusions: type mismatch.
     if ((role === 'kpi' || role === 'media' || role === 'control') && !isNumeric) {
       if (isText) {
-        return {
-          status: 'exclude',
-          label: 'Исключить',
-          reason: 'Текстовый тип данных не подходит для числовой роли в модели.',
-          tone: 'danger',
-        };
+        return { status: 'exclude', label: 'Исключить', reason: 'Текстовый тип данных не подходит для числовой роли в модели.', tone: 'danger' };
       }
       if (isDate) {
-        return {
-          status: 'exclude',
-          label: 'Исключить',
-          reason: 'Колонка с датой не может играть роль числового канала.',
-          tone: 'danger',
-        };
+        return { status: 'exclude', label: 'Исключить', reason: 'Колонка с датой не может играть роль числового канала.', tone: 'danger' };
       }
     }
     if (role === 'date' && !isDate) {
-      return {
-        status: 'review',
-        label: 'Проверить',
-        reason: 'Роль "Дата" назначена, но тип данных не похож на дату.',
-        tone: 'warn',
-      };
+      return { status: 'review', label: 'Проверить', reason: 'Роль "Дата" назначена, но тип данных не похож на дату.', tone: 'warn' };
     }
-
-    // Quality flags.
     if (isNumeric && zerosPct > 80 && role !== 'excluded') {
-      return {
-        status: 'exclude',
-        label: 'Исключить',
-        reason: `${Math.round(zerosPct)}% нулей — недостаточно данных для устойчивой оценки эффекта.`,
-        tone: 'danger',
-      };
+      return { status: 'exclude', label: 'Исключить', reason: `${Math.round(zerosPct)}% нулей — недостаточно данных для устойчивой оценки эффекта.`, tone: 'danger' };
+    }
+    if (isNumeric && zerosPct > 50 && role !== 'excluded') {
+      return { status: 'review', label: 'Проверить', reason: `${Math.round(zerosPct)}% нулей — канал малоактивен, проверьте полноту данных.`, tone: 'warn' };
     }
     if (isNumeric && missingPct > 30 && role !== 'excluded') {
-      return {
-        status: 'review',
-        label: 'Проверить',
-        reason: `${Math.round(missingPct)}% пропусков — может ослабить модель. Проверьте источник данных.`,
-        tone: 'warn',
-      };
+      return { status: 'review', label: 'Проверить', reason: `${Math.round(missingPct)}% пропусков — может ослабить модель.`, tone: 'warn' };
     }
 
-    // Default positive states.
+    // 5. Excluded role — neutral state.
     if (role === 'excluded') {
-      return {
-        status: 'review',
-        label: 'Не используется',
-        reason: 'Колонка исключена из модели. Если это намеренно — оставьте как есть.',
-        tone: 'neutral',
-      };
+      return { status: 'review', label: 'Не используется', reason: 'Колонка исключена из модели. Если это намеренно — оставьте как есть.', tone: 'neutral' };
     }
-    return {
-      status: 'keep',
-      label: 'Оставить',
-      reason: 'Колонка подходит для выбранной роли. Никаких действий не требуется.',
-      tone: 'ok',
-    };
+
+    // 6. Default: passes all checks.
+    return { status: 'keep', label: 'Оставить', reason: 'Колонка подходит для выбранной роли. Никаких действий не требуется.', tone: 'ok' };
   }
 
   /**
@@ -199,6 +226,9 @@
   /** @param {string} colName @param {string} newRole */
   function setOverride(colName, newRole) {
     overrides = { ...overrides, [colName]: newRole };
+    // v1.3.2: real-time sync с validateData → InsightsPanel + recommendations
+    // reactively recompute. Parent (ValidateStepV13) implements onRoleChange.
+    onRoleChange?.(colName, newRole);
   }
 
   function handleConfirm() {
