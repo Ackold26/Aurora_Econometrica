@@ -351,6 +351,15 @@
    * two systems show consistent advice. Insight с action.type='exclude' или
    * 'keep_only' identifies columns to drop; ColumnMapperConfirm.recommendationFor
    * читает этот список и показывает «Исключить» соответственно.
+   *
+   * Audit fix (Антон 2026-05-13): фильтруем только severity 'warning' и 'error'.
+   * severity='info' insights — это objective-optimization suggestions (ROI mode
+   * предлагает paired budget вместо TRPs), не data-quality issues. Они могут
+   * рекомендовать excludить ВАЖНЫЕ каналы (TRPs Бренд = >90% бюджета TV).
+   * «Исключить» badge должен срабатывать только на жёсткие data-quality
+   * проблемы (всего нулей, неактивный канал, дубликат low-quality), не на
+   * оптимизационные suggestions. Info insights остаются в InsightsPanel
+   * где юзер может explicit «Применить» через button.
    */
   const insightExcludeMap = $derived.by(() => {
     const result = $validateData?.result;
@@ -361,6 +370,8 @@
     try {
       const insights = validateInsights(result, objective);
       for (const ins of (insights || [])) {
+        // Filter: только жёсткие issues (warning + error), не optimization tips.
+        if (ins?.severity !== 'warning' && ins?.severity !== 'error') continue;
         const act = ins?.action;
         if (!act) continue;
         /** @type {string[]} */
@@ -369,19 +380,14 @@
           excludeList = act.columns;
         } else if (act.type === 'keep_only' && Array.isArray(act.exclude)) {
           excludeList = act.exclude;
-        } else if (act.type === 'merge' && Array.isArray(act.columns)) {
-          // Merge action — оставляем merged, остальные могут считаться «оставить» —
-          // здесь не помечаем как exclude.
         }
         for (const colName of excludeList) {
           if (typeof colName === 'string' && colName && !map[colName]) {
-            // Save first matching insight text per column.
             map[colName] = ins.text || act.label || 'Рекомендовано исключить (по результатам анализа).';
           }
         }
       }
     } catch (e) {
-      // Defensive — insights computation shouldn't break recommendation render.
       console.warn('insights compute failed:', e);
     }
     return map;
