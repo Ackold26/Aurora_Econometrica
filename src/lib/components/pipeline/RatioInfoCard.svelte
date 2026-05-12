@@ -76,13 +76,35 @@
     afterExcludeRatio > ratio + 0.3 &&
     ratio < RECOMMENDED_RATIO
   );
+
+  // Tooltip объясняет что такое Ratio + почему важно.
+  const RATIO_HELP = [
+    'Ratio (соотношение данных) — это N наблюдений / K переменных в модели.',
+    '',
+    'Например: 52 недели данных и 13 каналов рекламы → ratio 4:1 — на каждую',
+    'переменную приходится 4 наблюдения. Чем выше ratio, тем надёжнее модель',
+    'может оценить вклад каждого канала.',
+    '',
+    'Почему важно:',
+    '• Низкий ratio (<2:1) — модель «выучит» отдельные точки вместо',
+    '  закономерности (overfitting). Высокий R² здесь — артефакт.',
+    '• Рекомендуемый ≥4:1 — модель надёжна, но интервалы шире желаемого.',
+    '• Идеальный ≥6:1 — узкие доверительные интервалы, можно опираться',
+    '  на абсолютные значения ROI/CPU.',
+    '',
+    'Как повысить: больше истории (≥52 недель), исключить неактивные',
+    'каналы (>50% нулей), объединить близкие метрики одного канала.',
+  ].join('\n');
 </script>
 
 <aside class="ratio-card tone-{statusMeta.tone}" aria-label="Соотношение данных к переменным">
   <header class="card-header">
     <div class="header-left">
       <span class="kicker">КАЧЕСТВО ДАННЫХ</span>
-      <h3 class="card-title">Соотношение данных</h3>
+      <h3 class="card-title">
+        Соотношение данных
+        <span class="help-icon" title={RATIO_HELP} aria-label="Что такое Ratio">?</span>
+      </h3>
     </div>
     <div class="ratio-display">
       <span class="ratio-value">{ratio.toFixed(1)}<span class="ratio-suffix">:1</span></span>
@@ -194,6 +216,30 @@
     font-size: 18px;
     font-weight: 400;
     color: var(--text-primary);
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  /* v1.3.2: help-icon в h3 — premium tier-1 unobtrusive «?» tooltip */
+  .card-title .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text-muted, #64748b) 16%, transparent);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--font-sans), sans-serif;
+    cursor: help;
+    user-select: none;
+    transition: background 0.15s, color 0.15s;
+  }
+  .card-title .help-icon:hover {
+    background: color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
+    color: var(--gold, #c9a449);
   }
   .ratio-display {
     display: flex;
