@@ -33,6 +33,75 @@ import pickle
 import pytest
 
 
+# ── aurora_tokens test shim (v1.3.2 audit followup I2) ──
+# В production aurora_tokens module генерируется через `Standards/tokens/build.py
+# --target python` из Aurora Design System repo. Test environment не имеет
+# доступа к этому build — register minimal shim в sys.modules чтобы import
+# `from aurora_tokens import COLORS, TYPOGRAPHY, SIZING` работал в builder.py
+# и pptx tests без external dependency.
+#
+# Shim используется ТОЛЬКО когда aurora_tokens не найден normally. Production
+# build генерирует real module → переопределяет shim.
+import sys as _sys
+
+if 'aurora_tokens' not in _sys.modules:
+    try:
+        import aurora_tokens as _real  # noqa: F401 — production-generated
+    except ImportError:
+        import types as _types
+        _shim = _types.ModuleType('aurora_tokens')
+        _shim.COLORS = {
+            'brand': {
+                'deep': {
+                    '100': '#0F172A', '80': '#1E293B', '60': '#475569',
+                    '40': '#94A3B8',  '20': '#CBD5E1',
+                },
+                'gold': {'primary': '#F59E0B', 'muted': '#D97706'},
+                'rule':  '#334155',
+                'sig':   {'lime': '#A3E635'},
+                'bg':    {'white': '#FFFFFF', 'quiet': '#F8FAFC'},
+            },
+            'data': {
+                'ocean':     '#0EA5E9', 'jade':      '#10B981',
+                'berry':     '#A855F7', 'tangerine': '#F97316',
+            },
+            'semantic': {
+                'stop':    '#EF4444', 'caution': '#FBBF24', 'go': '#22C55E',
+            },
+        }
+        _shim.TYPOGRAPHY = {
+            'fontFamily': {'serif': 'Georgia', 'sans': 'Arial', 'mono': 'Consolas'},
+            'fontSize': {
+                'pptx': {
+                    'coverTitle': 42, 'coverSubtitle': 22,
+                    'sectionNumber': 18, 'sectionName': 14,
+                    'actionTitle': 24, 'subtitle': 16,
+                    'bodyKM': 13, 'bodyDetail': 11,
+                    'caption': 9, 'footnote': 7, 'mono': 10,
+                },
+            },
+        }
+        _shim.SIZING = {
+            'pptx': {
+                'safeArea': 0.4, 'gridGutter': 0.2,
+                'logoCover': 1.2, 'logoSmall': 0.6,
+                'signatureLimeOffset': 8,
+            },
+        }
+        _shim.BORDER = {'thin': 0.5, 'medium': 1.0, 'thick': 2.0}
+        _shim.SIGNATURE_LIME = '#A3E635'
+        _shim.AURORA_DEEP_100 = '#0F172A'
+        _shim.AURORA_DEEP_80 = '#1E293B'
+        _shim.AURORA_DEEP_60 = '#475569'
+        _shim.AURORA_GOLD = '#F59E0B'
+        _shim.AURORA_BG_WHITE = '#FFFFFF'
+        _shim.CHANNEL_COLORS = [
+            '#0EA5E9', '#10B981', '#A855F7', '#F97316', '#F59E0B',
+            '#EF4444', '#22C55E', '#FBBF24', '#0F172A', '#475569',
+        ]
+        _sys.modules['aurora_tokens'] = _shim
+
+
 # ── Standalone scripts что НЕ подходят для pytest collection ──
 # Эти tests имеют top-level `sys.exit()` runtime side effects (legacy pattern,
 # pre-Sprint 5). Они работают как standalone (`python tools/test_X.py`) и runner

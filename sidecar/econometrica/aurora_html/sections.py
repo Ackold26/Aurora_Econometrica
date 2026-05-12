@@ -361,7 +361,32 @@ def render_cover(ctx: dict) -> str:
 
 
 def render_executive_summary(ctx: dict) -> str:
-    """Section 2: Executive Summary - SCQAR preview (full blocks in s10)."""
+    """Section 2: Executive Summary - SCQAR preview (full blocks in s10).
+
+    Design decision (I5 audit followup, v1.3.2): scqar templates в strings_ru.json
+    остаются single-mode (monetary roi baseline). KPI-aware adaptations делаются
+    через Python-side overrides ниже (situation / recommendation per kpi_kind, mode).
+
+    Alternative considered & rejected: per-mode template blocks в JSON
+    (scqar.monetary.situation, scqar.count.situation, etc.). Trade-offs:
+
+    Pros JSON per-mode (rejected):
+        - Translators see all variants together.
+        - No conditional logic в Python.
+
+    Cons JSON per-mode (chosen reason):
+        - Translation tooling (typical lokalise / crowdin) optimized для flat
+          keypaths. Nested per-mode requires custom workflow.
+        - 12 KPI modes × 5 SCQAR blocks = 60 template entries (vs current 5).
+          Maintenance overhead для feature что меняется реже чем 1 раз в год.
+        - Override pattern proven через 5 audit fixes (Q1 2026 v1.3.0 + v1.3.2):
+          adding new mode = single Python branch, не JSON file edit.
+        - JSON nesting усложнил бы schema validation + test fixtures.
+
+    Maintainer responsibility: при добавлении нового kpi mode — добавить branch
+    в situation block (line ~234) + recommendation block (line ~484). Avoid
+    JSON proliferation.
+    """
     strings = ctx["strings"]
     facts = ctx.get("facts") or {}
     meta = ctx["meta"]
