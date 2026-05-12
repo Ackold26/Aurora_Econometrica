@@ -133,6 +133,149 @@ def _fmt_pct(v: Any, fallback: str = "-") -> str:
     return f"{round(f)}%"
 
 
+# ─── KPI/mode-aware helpers (v1.3.2) ────────────────────────────────────────
+#
+# ctx['kpi'] populated narrative_adapter (см. ADR-016). Когда блок отсутствует
+# (legacy callers, v1.2 contexts) — fallback к monetary ROI поведению.
+
+_DEFAULT_KPI_LABELS = {
+    "metric_label": "ROI",
+    "metric_short_label": "ROI",
+    "target_unit_label": "₽",
+    "target_axis_label": "Продажи, ₽",
+    "methodology_label": "",
+}
+
+
+def _kpi_view(ctx: dict) -> dict:
+    """Extract KPI metadata + labels с v1.2 backward-compat fallback."""
+    kpi = (ctx.get("kpi") or {}) if isinstance(ctx, dict) else {}
+    kpi_kind = kpi.get("kpi_kind") or "monetary"
+    mode = kpi.get("derived_mode") or "roi"
+    labels = {**_DEFAULT_KPI_LABELS, **(kpi.get("labels") or {})}
+    return {
+        "kpi_kind": kpi_kind,
+        "mode": mode,
+        "metric_label": labels["metric_label"],
+        "metric_short": labels["metric_short_label"],
+        "target_unit": labels["target_unit_label"],
+        "target_axis": labels["target_axis_label"],
+        "methodology_label": labels["methodology_label"],
+        "vpcu": kpi.get("value_per_count_unit"),
+        "vpcu_label": kpi.get("value_per_count_unit_label") or "",
+        "is_legacy": kpi_kind == "monetary" and mode == "roi",
+    }
+
+
+def _fmt_metric(value: Any, kpi: dict, fallback: str = "-") -> str:
+    """Format metric value per (kpi_kind, mode).
+
+    monetary roi: 1.5 → '1.50×'
+    count: 120.5 → '120 ₽/ед.'
+    effectiveness: 0.25 → '25%' (already as fraction). если value > 1 — already as pct.
+    """
+    if value is None:
+        return fallback
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        # share метрика. Если |value| <= 1 — fraction. Иначе уже %.
+        if abs(f) <= 1.0:
+            return f"{f * 100:.1f}%"
+        return f"{f:.0f}%"
+    if kind == "count":
+        return f"{f:.0f} ₽/ед."
+    return f"{f:.2f}×"
+
+
+def _fmt_metric_bare(value: Any, kpi: dict, fallback: str = "-") -> str:
+    """Inner CI-bracket version (без unit suffix)."""
+    if value is None:
+        return fallback
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        if abs(f) <= 1.0:
+            return f"{f * 100:.1f}"
+        return f"{f:.0f}"
+    if kind == "count":
+        return f"{f:.0f}"
+    return f"{f:.2f}"
+
+
+def _fmt_metric_with_ci(mean: Any, ci_low: Any, ci_high: Any, kpi: dict) -> str:
+    """KPI-aware analog of _fmt_x_with_ci."""
+    base = _fmt_metric(mean, kpi)
+    if ci_low is None or ci_high is None:
+        return base
+    tier = _ci_tier_class(mean, ci_low, ci_high)
+    return (
+        f'{base} <span class="ci-bracket {tier}">'
+        f'[{_fmt_metric_bare(ci_low, kpi)} — {_fmt_metric_bare(ci_high, kpi)}]</span>'
+    )
+
+
+def _weighted_summary_phrase(weighted_value: Any, kpi: dict) -> str:
+    """Краткая фраза «средний ROI/CPU/доля портфеля» с числом.
+
+    Narrative_adapter всегда отдаёт `weighted_roi = total_contrib / total_spend`.
+    Для count KPI — это units/₽ (обратное к CPU), потому преобразуем к CPU = 1/x.
+
+    monetary roi: 'ROI портфеля 1.50×'
+    count: 'CPU портфеля 120 ₽/ед.'
+    effectiveness: 'Средняя доля каналов в портфеле'
+    """
+    if weighted_value is None:
+        return ""
+    try:
+        wv = float(weighted_value)
+    except (TypeError, ValueError):
+        return ""
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return "Средняя доля каналов в портфеле"
+    if kind == "count":
+        if wv > 0:
+            cpu = 1.0 / wv
+            return f"CPU портфеля {cpu:.0f} ₽/ед."
+        return "CPU портфеля недоступен"
+    return f"ROI портфеля {wv:.2f}×"
+
+
+def _under_breakeven_phrase(kpi: dict) -> str:
+    """Описание условия 'канал убыточен' для текстов рекомендаций."""
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return "доля < бенчмарка"
+    if kind == "count":
+        vpcu = kpi.get("vpcu")
+        if vpcu:
+            return f"CPU > {float(vpcu):.0f} ₽/ед. (выше ценности)"
+        return "CPU > ценности единицы (убыточно)"
+    return "mROAS < 1×"
+
+
+def _table_metric_header(kpi: dict) -> tuple:
+    """Returns (header_label, unit_label) для столбца главной метрики action_table."""
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return ("Доля эффекта", "%")
+    if kind == "count":
+        return ("CPU", "₽/ед.")
+    return ("mROAS", "×")
+
+
 def _section(section_id: str, kicker: str, body: str, extra_cls: str = "") -> str:
     cls = f"section section-{section_id}" + (f" {extra_cls}" if extra_cls else "")
     k = f'<div class="section-kicker">{escape(kicker)}</div>' if kicker else ""
@@ -192,6 +335,7 @@ def render_executive_summary(ctx: dict) -> str:
     meta = ctx["meta"]
     kicker = strings["sections"]["summary"]["kicker"]
     scqar = strings["scqar"]
+    kpi = _kpi_view(ctx)
 
     client = meta.get("client") or "Клиент"
     title = f'Резюме по результатам моделирования'
@@ -220,10 +364,18 @@ def render_executive_summary(ctx: dict) -> str:
         cut_source = facts.get("cut_source_channel")
         scale_dest = facts.get("scale_destination_channel")
 
-        situation = scqar["situation"]["template"].format(
-            client=client, budget_mln=budget, n_channels=n_ch,
-            weighted_roi=wr, mqs=mqs
-        )
+        if kpi["is_legacy"]:
+            situation = scqar["situation"]["template"].format(
+                client=client, budget_mln=budget, n_channels=n_ch,
+                weighted_roi=wr, mqs=mqs
+            )
+        else:
+            # v1.3.2: KPI-aware situation — заменяем «Weighted ROI X×» на CPU/доля.
+            situation = (
+                f"{client} размещает {budget:.0f} млн ₽ в квартал через "
+                f"{n_ch} активных каналов. {_weighted_summary_phrase(wr, kpi)}, "
+                f"MQS модели {mqs:.0f}/100."
+            )
         # L14: complication uses budget_dominator (not leader). Fallback when
         # all channels balanced (no clear dominator OR balanced contribution).
         if budget_dom and bd_spend_pct and abs(bd_spend_pct - bd_contrib_pct) >= 5.0:
@@ -353,6 +505,7 @@ def render_at_a_glance(ctx: dict) -> str:
     channels = ctx.get("channels") or []
     kicker = strings["sections"]["findings"]["kicker"]
     mqs = ctx.get("diagnostics", {}).get("mqs_score")
+    kpi = _kpi_view(ctx)
 
     findings = []
     if facts and channels:
@@ -361,6 +514,7 @@ def render_at_a_glance(ctx: dict) -> str:
         honest = bool(facts.get("honest_narrative"))
         media_pct = facts.get("media_contribution_pct")
         baseline_pct = facts.get("baseline_pct")
+        wr = facts.get("weighted_roi") or 0
 
         if honest and media_pct is not None and baseline_pct is not None:
             f1 = (
@@ -379,9 +533,13 @@ def render_at_a_glance(ctx: dict) -> str:
                 contrib_pct_fmt=_fmt_pct(facts.get("leader_share_contrib_pct") or 0),
                 spend_pct_fmt=_fmt_pct(facts.get("leader_share_spend_pct") or 0),
             )
-            f1_sup = strings["findings_templates"]["f1_leader_support"].format(
-                weighted_roi=facts.get("weighted_roi") or 0
-            )
+            if kpi["is_legacy"]:
+                f1_sup = strings["findings_templates"]["f1_leader_support"].format(
+                    weighted_roi=wr
+                )
+            else:
+                # v1.3.2: KPI-aware portfolio metric (CPU / доля вместо ROI×).
+                f1_sup = f"{_weighted_summary_phrase(wr, kpi)} средневзвешенный по каналам"
         findings.append((f1, f1_sup))
 
         hero_m = 0
@@ -394,14 +552,19 @@ def render_at_a_glance(ctx: dict) -> str:
                 hero_spend_pct = (hero_spend / total_budget * 100) if total_budget else 0
                 break
 
+        hero_m_fmt = _fmt_metric(hero_m, kpi) if not kpi["is_legacy"] else f"{hero_m:.1f}×"
         if honest and hero_m < 1.0:
-            f2 = f"{hero} - лучший среди медиа, но всё ещё под breakeven (mROAS {hero_m:.1f}×)"
-            f2_sup = "ROI < 1× означает что канал тратит больше чем приносит инкрементала"
+            f2 = f"{hero} - лучший среди медиа, но всё ещё под breakeven ({kpi['metric_short']} {hero_m_fmt})"
+            f2_sup = f"{_under_breakeven_phrase(kpi)} означает что канал тратит больше чем приносит инкрементала"
         elif honest:
-            f2 = f"{hero} - единственный канал близкий к окупаемости (mROAS {hero_m:.1f}×)"
+            f2 = f"{hero} - единственный канал близкий к окупаемости ({kpi['metric_short']} {hero_m_fmt})"
             f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         else:
-            f2 = strings["findings_templates"]["f2_hero"].format(hero=hero, hero_mroas=hero_m)
+            if kpi["is_legacy"]:
+                f2 = strings["findings_templates"]["f2_hero"].format(hero=hero, hero_mroas=hero_m)
+            else:
+                # v1.3.2: replace «mROAS X.X×» в шаблоне на KPI-aware фразу.
+                f2 = f"{hero} - самый эффективный канал с {kpi['metric_short']} {hero_m_fmt}"
             f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         findings.append((f2, f2_sup))
 
@@ -416,7 +579,13 @@ def render_at_a_glance(ctx: dict) -> str:
         # the real story is "оптимизатор не получил места для манёвра".
         if honest and all_below_breakeven:
             f3 = "Все медиа-каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
-            f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+            if kpi["is_legacy"]:
+                f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+            else:
+                f3_sup = (
+                    f"Когда у всех каналов {_under_breakeven_phrase(kpi)} — "
+                    "оптимизация перераспределением не вернёт прибыльность"
+                )
         elif binding:
             f3 = "Оптимизатор упёрся в заданные границы - расширьте Мин./Макс. % и перезапустите"
             f3_sup = "Текущие границы зажимают пространство решений - реальное перераспределение скрыто"
@@ -542,6 +711,7 @@ def render_key_message(ctx: dict) -> str:
     strings = ctx["strings"]
     facts = ctx.get("facts") or {}
     kicker = strings["sections"]["key"]["kicker"]
+    kpi = _kpi_view(ctx)
 
     if facts:
         leader = facts.get("leader_channel") or "-"
@@ -552,6 +722,11 @@ def render_key_message(ctx: dict) -> str:
         honest = bool(facts.get("honest_narrative"))
         media_pct = facts.get("media_contribution_pct")
         baseline_pct = facts.get("baseline_pct")
+        # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
+        portfolio_phrase = (
+            f"ROI портфеля {wr:.2f}×" if kpi["is_legacy"]
+            else _weighted_summary_phrase(wr, kpi)
+        )
 
         if honest and media_pct is not None and baseline_pct is not None:
             title = (
@@ -560,7 +735,7 @@ def render_key_message(ctx: dict) -> str:
             )
             big = _fmt_pct(media_pct)
             big_label = "Медиа-вклад в продажи"
-            big_support = f"Baseline: {_fmt_pct(baseline_pct)} · ROI портфеля {wr:.2f}×"
+            big_support = f"Baseline: {_fmt_pct(baseline_pct)} · {portfolio_phrase}"
             quote = (
                 f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
                 f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
@@ -570,7 +745,7 @@ def render_key_message(ctx: dict) -> str:
             title = strings["action_titles"]["s05_default"].format(leader=leader)
             big = _fmt_pct(cpct)
             big_label = f"Доля {leader} в инкрементальных продажах"
-            big_support = f"При {_fmt_pct(spct)} доли бюджета · ROI портфеля {wr:.2f}×"
+            big_support = f"При {_fmt_pct(spct)} доли бюджета · {portfolio_phrase}"
 
             if hero != leader:
                 quote = (
@@ -605,9 +780,20 @@ def render_mroas(ctx: dict) -> str:
     facts = ctx.get("facts") or {}
     channels = ctx.get("channels") or []
     kicker = strings["sections"]["mroas"]["kicker"]
+    kpi = _kpi_view(ctx)
 
     hero = facts.get("hero_channel") if facts else None
     title = strings["action_titles"]["s06_hero"].format(hero=hero or "лидер портфеля")
+    # v1.3.2: chart title/subtitle adaptive per KPI.
+    if kpi["mode"] == "effectiveness":
+        chart_title_text = "Доля каналов в эффекте · %"
+        chart_subtitle_text = "Bar chart по share of effect (доли в продажах)"
+    elif kpi["kpi_kind"] == "count":
+        chart_title_text = "CPU по каналам · ₽ за единицу"
+        chart_subtitle_text = "Стоимость следующей единицы (incremental cost-per-unit)"
+    else:
+        chart_title_text = "mROAS по каналам · мультипликатор"
+        chart_subtitle_text = "Marginal ROI последнего вложенного рубля"
 
     # Commentary blocks — math-fix v1.0.14.1 B refactor (2026-04-28).
     # Pre-fix: hardcoded «явный потенциал scale-up» / «потенциал удержания» /
@@ -674,8 +860,8 @@ def render_mroas(ctx: dict) -> str:
   <div class="chart-container">
     <div class="chart-title-bar">
       <div>
-        <div class="chart-title">mROAS по каналам · мультипликатор</div>
-        <div class="chart-subtitle">Marginal ROI последнего вложенного рубля</div>
+        <div class="chart-title">{escape(chart_title_text)}</div>
+        <div class="chart-subtitle">{escape(chart_subtitle_text)}</div>
       </div>
       <div>
         <button class="btn-inline" data-copy-chart="chart-mroas">Сохранить PNG</button>
@@ -722,6 +908,9 @@ def render_action_table(ctx: dict) -> str:
     headers = strings["table_headers"]
     units = strings["table_units"]
     v_reasons = strings["verdict_reasons"]
+    kpi = _kpi_view(ctx)
+    # v1.3.2: KPI-aware main metric column (mROAS / CPU / Доля %).
+    metric_col_header, metric_col_unit = _table_metric_header(kpi)
 
     # Title branching (mirrors PPTX S7 post-audit logic)
     if channels:
@@ -772,7 +961,10 @@ def render_action_table(ctx: dict) -> str:
         # mroas_ci_* aliased from optimizer's mroi_current_ci_* in narrative_adapter._merge_channels.
         mroas_ci_low = c.get("mroas_ci_low")
         mroas_ci_high = c.get("mroas_ci_high")
-        mroas_html = _fmt_x_with_ci(mroas, mroas_ci_low, mroas_ci_high)
+        if kpi["is_legacy"]:
+            mroas_html = _fmt_x_with_ci(mroas, mroas_ci_low, mroas_ci_high)
+        else:
+            mroas_html = _fmt_metric_with_ci(mroas, mroas_ci_low, mroas_ci_high, kpi)
 
         rows_html.append(
             f'<tr data-channel="{escape(name)}">'
@@ -790,12 +982,27 @@ def render_action_table(ctx: dict) -> str:
         tb = facts.get("total_budget_mln") or 0
         tc = facts.get("total_contrib_mln") or 0
         wr = facts.get("weighted_roi")
+        # v1.3.2: aggregate cell — adapt unit per KPI/mode.
+        if not wr:
+            wr_cell = "-"
+        elif kpi["is_legacy"]:
+            wr_cell = _fmt_x(wr)
+        elif kpi["mode"] == "effectiveness":
+            wr_cell = "100%"  # сумма долей = 100% по построению
+        elif kpi["kpi_kind"] == "count":
+            try:
+                cpu = 1.0 / float(wr) if float(wr) > 0 else None
+                wr_cell = f"{cpu:.0f} ₽/ед." if cpu else "-"
+            except (TypeError, ValueError, ZeroDivisionError):
+                wr_cell = "-"
+        else:
+            wr_cell = _fmt_x(wr)
         totals_html = (
             f'<tr class="totals-row">'
             f'<td>{escape(headers["totals"])}</td>'
             f'<td class="num">{_fmt_mln(tb)}</td>'
             f'<td class="num">{_fmt_mln(tc)}</td>'
-            f'<td class="num">{_fmt_x(wr) if wr else "-"}</td>'
+            f'<td class="num">{wr_cell}</td>'
             f'<td class="num">100</td>'
             f'<td></td>'
             f'</tr>'
@@ -804,12 +1011,28 @@ def render_action_table(ctx: dict) -> str:
         totals_html = ""
 
     # Footnotes
+    # v1.3.2: KPI-aware verdict reason — заменяем «mROAS» / «рубля» на CPU / доля.
+    if kpi["is_legacy"]:
+        verdict_reasons_view = v_reasons
+    else:
+        metric_short = kpi["metric_short"]
+        verdict_reasons_view = {}
+        for verdict_name, reason_text in v_reasons.items():
+            adapted = reason_text.replace("mROAS", metric_short)
+            if kpi["mode"] == "effectiveness":
+                adapted = adapted.replace("маржинальный возврат от дополнительного рубля",
+                                          "вклад канала в доле эффекта")
+            elif kpi["kpi_kind"] == "count":
+                adapted = adapted.replace("маржинальный возврат от дополнительного рубля",
+                                          "стоимость следующей единицы")
+            verdict_reasons_view[verdict_name] = adapted
+
     if flagged:
         fn_items = []
         for i, c in enumerate(flagged):
             num = str(i + 1)
             name = c.get("name") or "-"
-            reason = v_reasons.get(c.get("verdict"), "")
+            reason = verdict_reasons_view.get(c.get("verdict"), "")
             fn_items.append(
                 f'<li><span class="fn-num">{num}</span>{escape(name)}: {escape(reason)}</li>'
             )
@@ -819,11 +1042,14 @@ def render_action_table(ctx: dict) -> str:
   <ol class="footnotes-list">{"".join(fn_items)}</ol>
 </div>"""
     elif channels:
-        fn_html = """
-<div class="footnotes">
-  <div class="footnotes-label">Примечания</div>
-  <ol class="footnotes-list"><li><span class="fn-num">-</span>Все каналы портфеля в рабочем диапазоне mROAS; критических рекомендаций нет.</li></ol>
-</div>"""
+        ok_metric = "mROAS" if kpi["is_legacy"] else kpi["metric_short"]
+        fn_html = (
+            '<div class="footnotes">'
+            '<div class="footnotes-label">Примечания</div>'
+            f'<ol class="footnotes-list"><li><span class="fn-num">-</span>'
+            f'Все каналы портфеля в рабочем диапазоне {ok_metric}; критических рекомендаций нет.'
+            '</li></ol></div>'
+        )
     else:
         fn_html = ""
 
@@ -842,7 +1068,7 @@ def render_action_table(ctx: dict) -> str:
       <th scope="col" data-col="0" aria-sort="none">{escape(headers["channel"])}</th>
       <th scope="col" data-col="1" class="num" aria-sort="none">{escape(headers["budget"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["budget"])}</span></th>
       <th scope="col" data-col="2" class="num" aria-sort="descending">{escape(headers["contrib"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["contrib"])}</span></th>
-      <th scope="col" data-col="3" class="num" aria-sort="none">{escape(headers["mroas"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["mroas"])}</span></th>
+      <th scope="col" data-col="3" class="num" aria-sort="none">{escape(metric_col_header)} <span style="font-weight:400;color:var(--text-muted);">{escape(metric_col_unit)}</span></th>
       <th scope="col" data-col="4" class="num" aria-sort="none">{escape(headers["share"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["share"])}</span></th>
       <th scope="col" data-col="5" aria-sort="none">{escape(headers["verdict"])}</th>
     </tr>
@@ -897,6 +1123,7 @@ def render_recommendation(ctx: dict) -> str:
     facts = ctx.get("facts") or {}
     channels = ctx.get("channels") or []
     kicker = strings["sections"]["recommend"]["kicker"]
+    kpi = _kpi_view(ctx)
 
     if facts and channels:
         leader = facts.get("leader_channel") or "-"
@@ -961,19 +1188,22 @@ def render_recommendation(ctx: dict) -> str:
             )
 
         # N4 — Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
+        # v1.3.2: KPI-aware breakeven phrasing.
         n_saturated = sum(
             1 for c in channels
             if (c.get("mroas") or 0) > 0 and (c.get("mroas") or 0) < 1.0
         )
+        breakeven_phrase = "mROAS < 1×" if kpi["is_legacy"] else _under_breakeven_phrase(kpi)
+        metric_short = kpi["metric_short"]
         if n_saturated > 0:
             action_02_text = (
-                f"{n_saturated} канал(ов) под breakeven (mROAS < 1×) — "
+                f"{n_saturated} канал(ов) под breakeven ({breakeven_phrase}) — "
                 "проверить data quality, adstock decay и сравнить с industry benchmarks "
                 "перед следующей итерацией."
             )
         else:
             action_02_text = (
-                "Все каналы выше breakeven — мониторить mROAS в следующих периодах "
+                f"Все каналы выше breakeven — мониторить {metric_short} в следующих периодах "
                 "на признаки saturation."
             )
 
@@ -1016,6 +1246,14 @@ def render_recommendation(ctx: dict) -> str:
         for num, lead, desc in actions
     )
 
+    # v1.3.2: KPI-aware label для impact-card.
+    if kpi["mode"] == "effectiveness":
+        impact_period_label = "Прогнозный прирост доли"
+    elif kpi["kpi_kind"] == "count":
+        impact_period_label = "Прогнозный прирост продаж (упак / ед.)"
+    else:
+        impact_period_label = "Прогнозный ROAS"
+
     # Optimize comparison chart (current vs optimal spend per channel)
     # rendered only when optimize data is available - JS checks CHART_DATA
     # shape and silently no-ops if empty.
@@ -1028,7 +1266,7 @@ def render_recommendation(ctx: dict) -> str:
   <div class="impact-label">Ожидаемый эффект</div>
   <div class="impact-hairline" aria-hidden="true"></div>
   <div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>
-  <div class="impact-period">Прогнозный ROAS</div>
+  <div class="impact-period">{escape(impact_period_label)}</div>
 </div>
 <div class="chart-container" style="margin-top:28px;">
   <div class="chart-title-bar">
