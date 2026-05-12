@@ -16,10 +16,12 @@
 
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
+  import { onMount } from 'svelte';
   import {
     kpiType, kpiKind, perChannelInput, derivedMode,
     valuePerCountUnit, valuePerCountUnitSource,
-    activeProject, activeProjectId, validateData,
+    activeProject, activeProjectId, validateData, importData,
+    completeStep, setStepError,
   } from '$lib/project-state.js';
   import {
     deriveModeWithExplanation,
@@ -75,6 +77,58 @@
   }
 
   let rolesConfirmed = $state(loadRolesConfirmed());
+
+  /** v1.3.2 audit fix: auto-trigger validate если imported file есть но
+   *  validate result отсутствует (например при открытии .aurora bundle где
+   *  validate state не persisted). Без этого ColumnMapperConfirm показывал
+   *  пустую таблицу. */
+  let validating = $state(false);
+  /** @type {string | null} */
+  let validateError = $state(null);
+
+  async function autoRunValidate() {
+    const imp = get(importData);
+    if (!imp?.file) {
+      validateError = 'Сначала загрузите файл на шаге Импорт.';
+      return;
+    }
+    validating = true;
+    validateError = null;
+    try {
+      const projectId = get(activeProjectId);
+      /** @type {any} */
+      const res = await invoke('econ_validate', {
+        filePath: imp.file,
+        projectDir: projectId || null,
+      });
+      if (res?.status === 'error' && !res.columns) {
+        validateError = res.message ?? 'Ошибка валидации';
+        setStepError(1, validateError);
+        return;
+      }
+      validateData.set({
+        result: res,
+        correlationMatrix: res.full_correlation_matrix ?? null,
+        columnHistograms: null,
+      });
+      if (res?.status !== 'error') {
+        completeStep(1);
+      }
+    } catch (e) {
+      validateError = `Ошибка валидации: ${e}`;
+      setStepError(1, String(e));
+    } finally {
+      validating = false;
+    }
+  }
+
+  onMount(() => {
+    // Auto-trigger validate если данные не загружены ещё в store.
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols) || cols.length === 0) {
+      autoRunValidate();
+    }
+  });
   /** @type {0 | 1 | 2 | 3} */
   let subStep = $state(0);
   /** @type {string} */
@@ -326,7 +380,21 @@
     <button class="back-link" onclick={goBack}>← Изменить роли колонок</button>
   {/if}
 
-  {#if !rolesConfirmed}
+  {#if validating}
+    <div class="validation-loading" role="status" aria-live="polite">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p class="loading-title">Анализируем данные</p>
+      <p class="loading-detail">Программа проверяет колонки и определяет роли — обычно занимает 2-5 секунд.</p>
+    </div>
+  {:else if validateError}
+    <div class="validation-error" role="alert">
+      <p class="error-title">Не удалось проверить данные</p>
+      <p class="error-detail">{validateError}</p>
+      <button type="button" class="btn-retry" onclick={autoRunValidate}>
+        Повторить попытку
+      </button>
+    </div>
+  {:else if !rolesConfirmed}
     <ColumnMapperConfirm columns={detectedColumns} onConfirm={handleRolesConfirm} />
   {:else if subStep === 0}
     <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
@@ -443,5 +511,62 @@
     font-size: 14px;
     color: var(--text-muted);
     backdrop-filter: blur(2px);
+  }
+
+  /* v1.3.2: auto-validate loading / error states (премиум tier-1) */
+  .validation-loading,
+  .validation-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 80px 24px;
+    max-width: 480px;
+    margin: 60px auto 0;
+    text-align: center;
+  }
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid color-mix(in srgb, var(--gold, #c9a449) 20%, transparent);
+    border-top-color: var(--gold, #c9a449);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .loading-title,
+  .error-title {
+    margin: 0;
+    font-family: var(--font-serif, Georgia), serif;
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--text-primary);
+  }
+  .loading-detail,
+  .error-detail {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+  }
+  .btn-retry {
+    margin-top: 4px;
+    padding: 9px 18px;
+    border-radius: 3px;
+    background: var(--text-primary);
+    color: var(--bg-card, #0f172a);
+    border: none;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .btn-retry:hover {
+    transform: translateY(-1px);
   }
 </style>
