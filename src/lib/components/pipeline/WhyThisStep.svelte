@@ -27,12 +27,14 @@
 
   let isOpen = $state(defaultOpen);
 
-  function toggle() {
-    isOpen = !isOpen;
-  }
+  // v1.3.2 audit fix: classic Svelte 5 controlled/uncontrolled <details> loop.
+  // Pre-fix: `open={isOpen} ontoggle={toggle}` → re-render fires toggle event →
+  // toggle() flips state → re-render → toggle event → loop десятки раз/сек.
+  // Post-fix: `bind:open` — two-way sync без explicit event handler, browser-
+  // native interaction только при user click.
 </script>
 
-<details class="why-step" open={isOpen} ontoggle={toggle}>
+<details class="why-step" bind:open={isOpen}>
   <summary>
     <span class="icon">💡</span>
     <span class="summary-text">{title}</span>
