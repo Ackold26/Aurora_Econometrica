@@ -71,7 +71,14 @@
       xAxis: {
         type: 'category',
         data: names,
-        axisLabel: { color: '#94a3b8', fontSize: 11, rotate: names.length > 3 ? 25 : 0, overflow: 'truncate', width: 80 },
+        // v1.3.2 UX polish: graduated rotation per channel count (mirror
+        // WaterfallChart). Cyrillic glyphs wider, нужно постепенное наклонение.
+        axisLabel: {
+          color: '#94a3b8', fontSize: 11,
+          rotate: names.length <= 3 ? 0 : names.length <= 6 ? 20 : names.length <= 9 ? 35 : 45,
+          overflow: 'truncate',
+          width: names.length > 9 ? 72 : names.length > 6 ? 88 : 100,
+        },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
         axisTick: { show: false },
       },

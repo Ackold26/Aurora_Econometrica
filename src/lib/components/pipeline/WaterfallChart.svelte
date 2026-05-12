@@ -64,7 +64,20 @@
       xAxis: {
         type: 'category',
         data: labels,
-        axisLabel: { color: '#94a3b8', fontSize: 11, rotate: labels.length > 5 ? 25 : 0, overflow: 'truncate', width: 80 },
+        // v1.3.2 UX polish: graduated rotation per channel count для лучшей
+        // читаемости русских названий (Cyrillic glyphs шире latin):
+        //   ≤4 → 0° (horizontal)
+        //   5-7 → 20°
+        //   8-10 → 35°
+        //   11+ → 45° (max readable per stack overflow tests)
+        // Width tracks rotation для truncation threshold.
+        axisLabel: {
+          color: '#94a3b8',
+          fontSize: 11,
+          rotate: labels.length <= 4 ? 0 : labels.length <= 7 ? 20 : labels.length <= 10 ? 35 : 45,
+          overflow: 'truncate',
+          width: labels.length > 10 ? 72 : labels.length > 7 ? 88 : 100,
+        },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
         axisTick: { show: false },
       },

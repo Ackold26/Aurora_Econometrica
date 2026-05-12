@@ -696,6 +696,11 @@
     /* Audit pass 11: removed overflow-x:auto — proper colgroup widths
        обеспечивают fit на одном экране. Save as fallback на small viewports. */
     overflow-x: auto;
+    /* v1.3.2 UX polish: max-height + overflow-y → sticky thead для длинных
+       таблиц (8+ каналов). При <8 каналах max-height не triggered, sticky
+       не активен (нет scroll). */
+    max-height: 480px;
+    overflow-y: auto;
   }
   table {
     width: 100%;
@@ -710,6 +715,13 @@
     font-weight: 500;
     border-bottom: 1px solid rgba(255,255,255,0.06);
     white-space: nowrap;
+    /* v1.3.2: sticky header — фиксируется при скролле длинных списков
+       каналов. Background match'ит card background чтобы не светить
+       сквозь scrolling content. */
+    position: sticky;
+    top: 0;
+    background: var(--bg-card, #1e293b);
+    z-index: 1;
   }
   td {
     padding: 7px 8px;
