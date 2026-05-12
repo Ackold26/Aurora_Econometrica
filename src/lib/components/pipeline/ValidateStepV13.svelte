@@ -381,6 +381,28 @@
   });
 
   /**
+   * v1.3.2: hard-block reason для «Подтвердить роли» button. Когда ratio
+   * <2:1 (минимальный порог для запуска модели), кнопка disabled с
+   * объяснением — нельзя продолжить до улучшения data quality.
+   * Reason text включает текущее значение, требуемый минимум, и actionable
+   * recommendation (исключить N weak каналов).
+   */
+  const ratioBlockedReason = $derived.by(() => {
+    const data = ratioCardData;
+    if (!data) return null;
+    if (data.ratio >= 2) return null;  // unblock at ratio >= 2:1
+    const after = data.afterExcludeRatio;
+    const canFix = data.weakChannelsCount > 0 && after != null && after >= 2;
+    let reason = `Текущий ratio ${data.ratio.toFixed(1)}:1 ниже минимального 2:1 — модель «выучит» точки вместо закономерности. `;
+    if (canFix) {
+      reason += `Исключите ${data.weakChannelsCount} малоактивн${data.weakChannelsCount === 1 ? 'ый канал' : data.weakChannelsCount < 5 ? 'ых канала' : 'ых каналов'} (кнопка «Применить рекомендацию» выше) → ratio станет ${after.toFixed(1)}:1.`;
+    } else {
+      reason += `Добавьте больше истории (≥52 недель) или сократите число каналов в модели.`;
+    }
+    return reason;
+  });
+
+  /**
    * Apply ratio recommendation: excludes weak media channels (>50% zeros).
    * Reuses setColumnRolesBulk → role='unused'.
    */
@@ -644,6 +666,7 @@
       insightExcludeMap={insightExcludeMap}
       onConfirm={handleRolesConfirm}
       onRoleChange={handleRoleChange}
+      blockedReason={ratioBlockedReason}
     />
   {:else if subStep === 0}
     <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />

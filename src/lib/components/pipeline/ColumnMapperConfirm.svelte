@@ -32,6 +32,10 @@
     /** Real-time role change callback. Parent persists change в validateData
      *  store immediately → InsightsPanel + recommendations стабильно sync. */
     onRoleChange = null,
+    /** v1.3.2: hard-block confirm button reason. Когда truthy, кнопка
+     *  «Подтвердить роли» disabled и над ней показан reason text. Used для
+     *  блокировки при ratio <2:1 (overfit risk). null/'' → button enabled. */
+    blockedReason = null,
   } = $props();
 
   /** @type {Record<string, string>} */
@@ -358,10 +362,26 @@
   </div>
 
   <footer class="card-footer">
-    <p class="footer-note">
-      Все изменения применяются после подтверждения. Дальше - выбор целевого KPI.
-    </p>
-    <button type="button" class="btn-confirm" onclick={handleConfirm}>
+    {#if blockedReason}
+      <!-- v1.3.2: hard-block при ratio <2:1 — кнопка disabled + reason text. -->
+      <div class="block-banner" role="alert">
+        <span class="block-mark" aria-hidden="true"></span>
+        <div class="block-body">
+          <strong>Нельзя продолжить.</strong> {blockedReason}
+        </div>
+      </div>
+    {:else}
+      <p class="footer-note">
+        Все изменения применяются после подтверждения. Дальше - выбор целевого KPI.
+      </p>
+    {/if}
+    <button
+      type="button"
+      class="btn-confirm"
+      onclick={handleConfirm}
+      disabled={!!blockedReason}
+      title={blockedReason || ''}
+    >
       Подтвердить роли
       <span class="btn-arrow" aria-hidden="true">→</span>
     </button>
@@ -720,7 +740,43 @@
     cursor: pointer;
     transition: transform 0.15s, box-shadow 0.15s;
   }
-  .btn-confirm:hover {
+  /* v1.3.2: hard-block banner — red attention для ratio <2:1 case. */
+  .block-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border-left: 2px solid var(--danger, #f87171);
+    background: color-mix(in srgb, var(--danger, #f87171) 7%, transparent);
+    border-radius: 0 4px 4px 0;
+    flex: 1;
+    min-width: 240px;
+  }
+  .block-mark {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--danger, #f87171);
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .block-body {
+    flex: 1;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-primary);
+  }
+  .block-body strong {
+    font-weight: 600;
+    margin-right: 4px;
+    color: var(--danger, #f87171);
+  }
+  .btn-confirm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .btn-confirm:hover:not(:disabled) {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
   }
