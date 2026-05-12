@@ -39,6 +39,9 @@
   import ForecastHorizonPicker from '$lib/components/pipeline/ForecastHorizonPicker.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
+  // v1.3.2: primary actionable recommendation card (mirror of DecomposeStep pattern).
+  import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
+  import { formatMoney } from '$lib/format-numbers.js';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding, markOnboardingDone } from '$lib/onboarding-state.js';
 
@@ -318,6 +321,127 @@
   const optData = $derived($optimizeData);
   const mData = $derived($modelData);
   const dData = $derived($decomposeData);
+
+  // v1.3.2: Primary actionable recommendation — biggest cut → biggest scale shift.
+  // Mirror of DecomposeStep pattern. После forward optimize: переложить N ₽ из X в Y →
+  // +M% продаж. Скрыто пока нет optData.channels или optimizer не сошёлся.
+  const primaryOptimizeRecommendation = $derived.by(() => {
+    if (!optData?.channels?.length) return null;
+    // Honest disclosure при failure states — recommendation не показывается.
+    if (optData.optimization_converged === false) return null;
+    if (optData.binding_constraints) return null;
+    if (optData.converged_at_current) return null;
+
+    /** @type {Array<{name: string, current: number, optimal: number, delta: number}>} */
+    const moves = [];
+    for (const ch of optData.channels) {
+      const current = Number(ch.current_spend ?? 0);
+      const optimal = Number(ch.optimal_spend ?? 0);
+      if (!Number.isFinite(current) || !Number.isFinite(optimal)) continue;
+      moves.push({
+        name: ch.name ?? '—',
+        current,
+        optimal,
+        delta: optimal - current,
+      });
+    }
+
+    const cuts = moves.filter(m => m.delta < 0).sort((a, b) => a.delta - b.delta);
+    const scales = moves.filter(m => m.delta > 0).sort((a, b) => b.delta - a.delta);
+    const totalSpend = moves.reduce((s, m) => s + m.current, 0);
+    const lift = optData.expected_lift_pct ?? null;
+
+    // Edge case: no significant shifts (all каналы balanced) → no recommendation.
+    if (cuts.length === 0 && scales.length === 0) return null;
+
+    if (cuts.length > 0 && scales.length > 0) {
+      const from = cuts[0];
+      const to = scales[0];
+      const shiftAmount = Math.min(Math.abs(from.delta), Math.abs(to.delta));
+      // Skip если shift < 1% общего бюджета (шум).
+      if (totalSpend > 0 && shiftAmount / totalSpend < 0.01) return null;
+
+      const liftText = lift != null && lift > 0
+        ? ` Прогнозный прирост: +${lift.toFixed(1)}%.`
+        : '';
+      return {
+        icon: '🎯',
+        title: 'Главная рекомендация',
+        text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен) в «${to.name}» (недонасыщен).${liftText}`,
+        detail: 'Это оптимальное перераспределение по результату модели. Двигайте ползунки в блоке «Распределение бюджета» чтобы проверить альтернативы — прогноз KPI пересчитывается в реальном времени.',
+        tone: 'success',
+      };
+    }
+    if (scales.length > 0) {
+      const to = scales[0];
+      const liftText = lift != null && lift > 0
+        ? ` Прогнозный прирост: +${lift.toFixed(1)}%.`
+        : '';
+      return {
+        icon: '📈',
+        title: 'Главная рекомендация',
+        text: `Нарастите бюджет «${to.name}» на ${formatMoney(Math.abs(to.delta))}.${liftText}`,
+        detail: 'Канал недонасыщен — каждый следующий рубль возвращает больше среднего по портфелю. Источник средств: roll-over бюджета или новое поступление.',
+        tone: 'success',
+      };
+    }
+    if (cuts.length > 0) {
+      const from = cuts[0];
+      return {
+        icon: '✂️',
+        title: 'Главная рекомендация',
+        text: `Сократите бюджет «${from.name}» на ${formatMoney(Math.abs(from.delta))} — канал перенасыщен.`,
+        detail: 'Каждый рубль приносит меньше среднего по портфелю. Освободившиеся средства можно перенаправить в активные каналы или сохранить как экономию.',
+        tone: 'warn',
+      };
+    }
+    return null;
+  });
+
+  // Goal-seek primary recommendation: показывается после inverse optimize.
+  const primaryGoalSeekRecommendation = $derived.by(() => {
+    const gs = optData?.goal_seek;
+    if (!gs || gs.success === false) return null;
+    const required = Number(gs.required_budget ?? 0);
+    const baseline = Number(gs.baseline_budget ?? 0);
+    const target = Number(gs.target_kpi ?? 0);
+    if (!Number.isFinite(required) || required <= 0) return null;
+    const delta = required - baseline;
+    const deltaPct = baseline > 0 ? ((delta / baseline) * 100) : null;
+    const probability = gs.achievability_probability != null
+      ? `${(Number(gs.achievability_probability) * 100).toFixed(0)}%`
+      : null;
+
+    let icon = '🎯';
+    let tone = 'success';
+    let title = 'Главная рекомендация';
+    let text = '';
+    let detail = '';
+    if (delta > 0) {
+      // Нужно нарастить бюджет.
+      icon = '📈';
+      const deltaSign = deltaPct != null ? ` (+${deltaPct.toFixed(1)}%)` : '';
+      text = `Для цели ${formatMoney(target)} нужен бюджет ${formatMoney(required)}${deltaSign}.`;
+      detail = probability
+        ? `Вероятность достижения цели: ${probability} (по апостериорному распределению модели). Перераспределение по каналам — в блоке «Распределение бюджета».`
+        : 'Перераспределение по каналам — в блоке «Распределение бюджета». Проверьте, что новый бюджет реалистичен с точки зрения cash flow.';
+    } else if (Math.abs(delta) > 0.01 * baseline) {
+      // Можно сократить бюджет и всё равно достичь цели.
+      icon = '💰';
+      tone = 'success';
+      const deltaSign = deltaPct != null ? ` (${deltaPct.toFixed(1)}%)` : '';
+      text = `Цель ${formatMoney(target)} достижима с бюджетом ${formatMoney(required)}${deltaSign} — экономия ${formatMoney(Math.abs(delta))}.`;
+      detail = probability
+        ? `Вероятность достижения цели: ${probability}. Распределение по каналам — в блоке «Распределение бюджета».`
+        : 'Распределение по каналам — в блоке «Распределение бюджета». Освободившиеся средства можно сохранить или направить в новые инициативы.';
+    } else {
+      icon = '✓';
+      tone = 'info';
+      text = `Цель ${formatMoney(target)} достижима при текущем бюджете ${formatMoney(required)}.`;
+      detail = 'Существенное изменение бюджета не требуется. Рассмотрите перераспределение каналов через Forward solver.';
+    }
+    return { icon, title, text, detail, tone };
+  });
 
   // ── Tooltip-помощь по всем опциям ─────────────────────────
   const HELP = {
@@ -1881,6 +2005,26 @@
             </span>
           </div>
         {/if}
+      {/if}
+
+      <!-- v1.3.2: primary recommendation card после optimize. Mirror of DecomposeStep
+           pattern. Goal-seek card имеет приоритет над forward card (если оба заданы). -->
+      {#if primaryGoalSeekRecommendation}
+        <RecommendationCard
+          icon={primaryGoalSeekRecommendation.icon}
+          title={primaryGoalSeekRecommendation.title}
+          text={primaryGoalSeekRecommendation.text}
+          detail={primaryGoalSeekRecommendation.detail}
+          tone={primaryGoalSeekRecommendation.tone}
+        />
+      {:else if primaryOptimizeRecommendation}
+        <RecommendationCard
+          icon={primaryOptimizeRecommendation.icon}
+          title={primaryOptimizeRecommendation.title}
+          text={primaryOptimizeRecommendation.text}
+          detail={primaryOptimizeRecommendation.detail}
+          tone={primaryOptimizeRecommendation.tone}
+        />
       {/if}
     {/if}
 
