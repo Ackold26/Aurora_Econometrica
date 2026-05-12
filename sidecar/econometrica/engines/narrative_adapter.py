@@ -802,11 +802,56 @@ def _map_pipeline_to_builder_data(
             },
         }
 
+    # v1.3.0: KPI metadata for downstream report builders (per ADR-016).
+    # Reads from decompose_data (which loads project settings/v13_kpi.json).
+    # Defaults preserve v1.2 behavior (monetary ROI).
+    if decompose_data:
+        kpi_kind = decompose_data.get('kpi_kind', 'monetary')
+        derived_mode = decompose_data.get('derived_mode', 'roi')
+        value_per_count_unit = decompose_data.get('value_per_count_unit')
+        value_per_count_unit_label = decompose_data.get('value_per_count_unit_label', '')
+    else:
+        kpi_kind = 'monetary'
+        derived_mode = 'roi'
+        value_per_count_unit = None
+        value_per_count_unit_label = ''
+
+    try:
+        from utils.kpi_labels import (
+            metric_label, metric_short_label,
+            target_unit_label, target_axis_label,
+            cover_metric_summary, verdict_loss_threshold_label,
+        )
+        kpi_labels = {
+            'metric_label': metric_label(kpi_kind, derived_mode),
+            'metric_short_label': metric_short_label(kpi_kind, derived_mode),
+            'target_unit_label': target_unit_label(kpi_kind),
+            'target_axis_label': target_axis_label(kpi_kind),
+            'methodology_label': verdict_loss_threshold_label(kpi_kind),
+        }
+    except ImportError:
+        kpi_labels = {
+            'metric_label': 'ROI',
+            'metric_short_label': 'ROI',
+            'target_unit_label': '₽',
+            'target_axis_label': 'Продажи, ₽',
+            'methodology_label': '',
+        }
+
+    data['kpi'] = {
+        'kpi_kind': kpi_kind,
+        'derived_mode': derived_mode,
+        'value_per_count_unit': value_per_count_unit,
+        'value_per_count_unit_label': value_per_count_unit_label,
+        'labels': kpi_labels,
+    }
+
     logger.info(
         f"narrative_adapter: client={client_label!r} "
         f"diagnostics_keys={list(diagnostics.keys())} "
         f"channels={len(channels)} "
         f"facts={'yes' if narrative_facts else 'fallback'} "
-        f"scenarios={len(scenarios or [])}"
+        f"scenarios={len(scenarios or [])} "
+        f"kpi_kind={kpi_kind!r} mode={derived_mode!r}"
     )
     return data

@@ -148,6 +148,24 @@ def compute_roi_verdict(
     return _apply_ci_suffix('Сбалансирован', 'neutral')
 
 
+def _load_v13_kpi_settings(project_path) -> dict:
+    """v1.3.0 (ADR-017): load KPI settings from project state file.
+
+    Looks для settings/v13_kpi.json в проекте. Returns empty dict если file
+    отсутствует (legacy v1.2 проект). Backward compat: defaults injected
+    в memory при дальнейшей dispatch.
+    """
+    try:
+        settings_file = project_path / 'settings' / 'v13_kpi.json'
+        if settings_file.exists():
+            import json as _json
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                return _json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
 def decompose(
     project_dir: str,
     unit_costs_override: dict | None = None,
@@ -698,11 +716,19 @@ def decompose(
             'Доверительные интервалы недоступны. Переобучите модель для CI поддержки.'
         )
 
+    # v1.3.0: load KPI settings from project state (per ADR-016, ADR-017).
+    v13_kpi = _load_v13_kpi_settings(project_path)
+
     result = {
         'status': 'ok',
         'model_version': model_version,
         'model_warning': model_warning,  # None for v1.2 (current production), banner string for legacy
         'smell_flags': smell_flags,
+        # v1.3.0 KPI metadata for downstream UI / reports (per ADR-016).
+        'kpi_kind': v13_kpi.get('kpi_kind', 'monetary'),
+        'derived_mode': v13_kpi.get('derived_mode', 'roi'),
+        'value_per_count_unit': v13_kpi.get('value_per_count_unit'),
+        'value_per_count_unit_label': v13_kpi.get('value_per_count_unit_label', ''),
         'total_sales': round(total_sales, 0),
         'baseline': round(baseline_total, 0),
         'baseline_pct': round(baseline_total / total_sales * 100, 1) if total_sales else 0,
