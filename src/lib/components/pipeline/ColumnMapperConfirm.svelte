@@ -36,13 +36,25 @@
   };
 
   /**
+   * Canonical role → UI vocabulary mapping. Backend column-roles.js uses
+   * 6 roles (kpi/media/control/date/unused/unknown); UI displays 5
+   * (kpi/media/control/date/excluded). unused/unknown/null → excluded.
+   *
    * @param {string} colName
    * @returns {string}
    */
   function effectiveRole(colName) {
     if (overrides[colName] !== undefined) return overrides[colName];
     const col = columns.find((/** @type {any} */ c) => c.name === colName);
-    return col?.role ?? 'excluded';
+    const canonical = col?.role;
+    if (canonical === 'unused' || canonical === 'unknown' || canonical == null) {
+      return 'excluded';
+    }
+    // Защита от unknown role values (defensive — production выдаёт только canonical 6).
+    if (!ROLES.includes(/** @type {any} */ (canonical))) {
+      return 'excluded';
+    }
+    return canonical;
   }
 
   /** @param {string} colName @param {string} newRole */

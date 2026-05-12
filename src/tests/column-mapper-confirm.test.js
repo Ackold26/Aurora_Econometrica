@@ -25,9 +25,11 @@ function makeColumns() {
 
 
 describe('ColumnMapperConfirm', () => {
-  it('renders header instructions', () => {
+  it('renders premium header (kicker + h2)', () => {
     render(ColumnMapperConfirm, { props: { columns: makeColumns(), onConfirm: vi.fn() } });
-    expect(screen.getByText('Подтвердите роли колонок')).toBeInTheDocument();
+    // v1.3.2 restyle: «Подтвердите роли» h2 + «ШАГ 1 ИЗ 4 · РОЛИ КОЛОНОК» kicker
+    expect(screen.getByRole('heading', { name: /Подтвердите роли/ })).toBeInTheDocument();
+    expect(screen.getByText(/РОЛИ КОЛОНОК/)).toBeInTheDocument();
   });
 
   it('renders каждый column в таблице', () => {
@@ -47,17 +49,18 @@ describe('ColumnMapperConfirm', () => {
     const { container } = render(ColumnMapperConfirm, {
       props: { columns: makeColumns(), onConfirm: vi.fn() },
     });
-    // 1 kpi, 2 media, 1 control, 1 date, 0 excluded — text patterns in chips.
+    // v1.3.2 restyle: emoji-free typographic labels.
+    // 1 kpi (Целевая метрика), 2 media (Медиа-канал), 1 control, 1 date, 0 excluded.
     const stats = container.querySelector('.summary-row');
-    expect(stats?.textContent).toContain('KPI');
-    expect(stats?.textContent).toContain('Каналы');
+    expect(stats?.textContent).toContain('Целевая метрика');
+    expect(stats?.textContent).toContain('Медиа-канал');
   });
 
-  it('shows warning когда KPI count = 0', () => {
+  it('shows attention banner когда KPI count = 0', () => {
     const columns = makeColumns().map(c => c.role === 'kpi' ? { ...c, role: 'unknown' } : c);
     render(ColumnMapperConfirm, { props: { columns, onConfirm: vi.fn() } });
-    // Warning text references KPI absence
-    expect(screen.getByText(/KPI не определён/)).toBeInTheDocument();
+    // v1.3.2 restyle: «Целевая метрика не определена» вместо emoji-prefix.
+    expect(screen.getByText(/Целевая метрика не определена/)).toBeInTheDocument();
   });
 
   it('shows warning когда media count = 0', () => {
