@@ -29,7 +29,7 @@
   } from '$lib/mode-derivation.js';
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
   import { validateInsights } from '$lib/insights-rules.js';
-  import { analysisObjective } from '$lib/project-state.js';
+  import { analysisObjective, expertMode } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
   import PerChannelInputSelector from './PerChannelInputSelector.svelte';
@@ -39,6 +39,7 @@
   // Backend column_detection делает auto-classify; этот компонент показывает
   // detected roles в read-only table с possibility override.
   import ColumnMapperConfirm from './ColumnMapperConfirm.svelte';
+  import RatioInfoCard from './RatioInfoCard.svelte';
 
   // Audit fix v1.3.0: monetaryColumnHint теперь auto-detected из validateData
   // (если не передан явно). Hardcoded 'sales_rub' ломал auto-detect для
@@ -346,6 +347,58 @@
   });
 
   /**
+   * v1.3.2: Ratio info card data — computed from validateData + columns stats.
+   * weakChannels = media каналы с >50% нулей (можно исключить для повышения ratio).
+   * afterExcludeRatio = ratio после исключения weak channels.
+   */
+  const ratioCardData = $derived.by(() => {
+    const result = $validateData?.result;
+    if (!result) return null;
+    const cols = Array.isArray(result.columns) ? result.columns : [];
+    /** Active media + control каналы (без excluded). */
+    const activeCols = cols.filter((/** @type {any} */ c) =>
+      c?.role === 'media' || c?.role === 'control'
+    );
+    const nPredictors = activeCols.length;
+    const nObs = result.file?.rows ?? result.detected?.n_rows ?? 0;
+    if (nPredictors === 0 || nObs === 0) return null;
+    const ratio = nObs / nPredictors;
+    // Weak: media каналы с >50% нулей.
+    const weakMedia = cols.filter((/** @type {any} */ c) =>
+      c?.role === 'media' && Number(c?.stats?.zeros_pct ?? 0) > 50
+    );
+    const afterExclude = nPredictors - weakMedia.length > 0
+      ? nObs / (nPredictors - weakMedia.length)
+      : null;
+    return {
+      ratio,
+      nObs,
+      nPredictors,
+      weakChannelsCount: weakMedia.length,
+      weakChannelNames: weakMedia.map((/** @type {any} */ c) => c?.name).filter(Boolean),
+      afterExcludeRatio: afterExclude,
+    };
+  });
+
+  /**
+   * Apply ratio recommendation: excludes weak media channels (>50% zeros).
+   * Reuses setColumnRolesBulk → role='unused'.
+   */
+  function applyRatioRecommendation() {
+    const data = ratioCardData;
+    if (!data || data.weakChannelNames.length === 0) return;
+    const val = get(validateData);
+    if (!val?.result?.columns) return;
+    const updated = setColumnRolesBulk(val.result.columns, data.weakChannelNames, 'unused');
+    validateData.set({ ...val, result: { ...val.result, columns: updated } });
+    const projectId = get(activeProjectId);
+    if (projectId) {
+      const updates = buildProjectUpdates(updated);
+      invoke('project_update', { projectId, updates }).catch(() => { /* silent */ });
+    }
+  }
+
+  /**
    * v1.3.2: insights-driven recommendations.
    * Compute validateInsights using same function как InsightsPanel - ensures
    * two systems show consistent advice. Insight с action.type='exclude' или
@@ -568,6 +621,23 @@
       </button>
     </div>
   {:else if !rolesConfirmed}
+    <!-- v1.3.2: Ratio info card сверху - critical signal для data quality
+         decision до выбора ролей. Manager mode: visual indicator + apply
+         button. Expert mode: breakdown с weak channel names + thresholds. -->
+    {#if ratioCardData}
+      <div class="ratio-card-wrapper">
+        <RatioInfoCard
+          ratio={ratioCardData.ratio}
+          nObs={ratioCardData.nObs}
+          nPredictors={ratioCardData.nPredictors}
+          weakChannelsCount={ratioCardData.weakChannelsCount}
+          weakChannelNames={ratioCardData.weakChannelNames}
+          afterExcludeRatio={ratioCardData.afterExcludeRatio}
+          expertMode={$expertMode}
+          onApplyExclude={applyRatioRecommendation}
+        />
+      </div>
+    {/if}
     <ColumnMapperConfirm
       columns={detectedColumns}
       validateResult={$validateData?.result ?? null}
@@ -628,6 +698,15 @@
     background: var(--bg-surface-quiet);
     border-bottom: 1px solid var(--border-subtle);
   }
+  /* v1.3.2: Ratio info card wrapper — отступ перед ColumnMapperConfirm. */
+  .ratio-card-wrapper {
+    padding: 14px 32px 0;
+    max-width: 1100px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
   /* v1.3.2: «Сбросить шаг» - premium tier-1 ghost button справа от substep nav. */
   .reset-step-btn {
     margin-left: auto;
