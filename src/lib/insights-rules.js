@@ -9,6 +9,29 @@
 // Insights теперь uses backend's ch.mroi_current + ch.action — three-way
 // alignment с таблицей и compute_channel_action (single source of truth).
 
+// v1.3.2: KPI/mode-aware label helpers — позволяют insights адаптироваться
+// для count KPI (CPU вместо ROI) и effectiveness mode (доля вместо ROI×).
+// Legacy callers (без kpi arg) получают monetary roi defaults — backward compat.
+import {
+  kpiView as _kpiView,
+  fmtMetric as _fmtMetric,
+  weightedPhrase as _weightedPhrase,
+  underBreakevenPhrase as _underBreakeven,
+  topMetricBenchmark as _topBenchmark,
+} from './kpi-aware-formatting.js';
+
+/**
+ * Resolve KPI view с default legacy fallback.
+ * @param {import('./kpi-aware-formatting.js').KpiViewInput|null|undefined} kpi
+ * @returns {import('./kpi-aware-formatting.js').KpiView}
+ */
+function resolveKpi(kpi) {
+  if (kpi && typeof kpi === 'object' && 'isLegacy' in kpi) {
+    return /** @type {import('./kpi-aware-formatting.js').KpiView} */ (kpi);
+  }
+  return _kpiView(kpi);
+}
+
 /**
  * @typedef {Object} InsightAction
  * @property {'exclude'|'keep_only'|'set_role'|'merge'} type
@@ -749,12 +772,14 @@ export function modelInsights(data) {
 
 /**
  * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string }> }} data
+ * @param {import('./kpi-aware-formatting.js').KpiViewInput|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi.
  * @returns {Insight[]}
  */
-export function decomposeInsights(data) {
+export function decomposeInsights(data, kpiInput = null) {
   /** @type {Insight[]} */
   const out = [];
   if (!data) return out;
+  const kpi = resolveKpi(kpiInput);
 
   const channels = data.channels ?? [];
   // Backend returns `baseline_pct`; legacy field `base_pct` kept as fallback.
@@ -859,31 +884,87 @@ export function decomposeInsights(data) {
     });
   }
 
-  // ── 5. ROI лидеры и аутсайдеры ──
-  const sortedByRoi = [...channels].filter(c => c.roi != null).sort((a, b) => (b.roi || 0) - (a.roi || 0));
+  // ── 5. ROI лидеры и аутсайдеры — v1.3.2: KPI/mode-aware labels ──
+  // For count KPI: «лучший CPU» = минимум (cheapest per unit); sort ascending.
+  // For monetary/effectiveness: sort descending (highest = best).
+  /** @type {(a: any, b: any) => number} */
+  const sortBest = kpi.kpiKind === 'count'
+    ? (a, b) => (a.roi || Infinity) - (b.roi || Infinity)
+    : (a, b) => (b.roi || 0) - (a.roi || 0);
+  const sortedByRoi = [...channels].filter(c => c.roi != null).sort(sortBest);
   if (sortedByRoi.length >= 2) {
     const topRoi = sortedByRoi[0];
     const bottomRoi = sortedByRoi[sortedByRoi.length - 1];
+    const metricShort = kpi.metricShort;
 
-    if (topRoi.roi >= 2) {
-      out.push({
-        severity: 'success',
-        text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — каждый вложенный рубль возвращает ${topRoi.roi.toFixed(2)} рублей продаж.`,
-        tip: 'ROI ≥ 2× — отличный показатель. Если канал не перенасыщен (см. Hill saturation), можно увеличить инвестиции.',
-      });
-    } else if (topRoi.roi >= 1.2) {
-      out.push({
-        severity: 'info',
-        text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — окупается, но не выдающийся.`,
-      });
-    }
+    if (kpi.isLegacy) {
+      if (topRoi.roi >= 2) {
+        out.push({
+          severity: 'success',
+          text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — каждый вложенный рубль возвращает ${topRoi.roi.toFixed(2)} рублей продаж.`,
+          tip: 'ROI ≥ 2× — отличный показатель. Если канал не перенасыщен (см. Hill saturation), можно увеличить инвестиции.',
+        });
+      } else if (topRoi.roi >= 1.2) {
+        out.push({
+          severity: 'info',
+          text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — окупается, но не выдающийся.`,
+        });
+      }
 
-    if (bottomRoi.roi < 1 && bottomRoi.roi > 0 && bottomRoi.spend > 0) {
-      out.push({
-        severity: 'warning',
-        text: `Убыточный канал: ${bottomRoi.name} = ROI ${bottomRoi.roi.toFixed(2)}× — расходы превышают вклад в продажи.`,
-        tip: 'Прежде чем сокращать: (1) проверить, есть ли brand-эффект (доля поиска, прямые заходы); (2) убедиться, что данные по каналу полные; (3) рассмотреть смену формата/креатива до полного отключения.',
-      });
+      if (bottomRoi.roi < 1 && bottomRoi.roi > 0 && bottomRoi.spend > 0) {
+        out.push({
+          severity: 'warning',
+          text: `Убыточный канал: ${bottomRoi.name} = ROI ${bottomRoi.roi.toFixed(2)}× — расходы превышают вклад в продажи.`,
+          tip: 'Прежде чем сокращать: (1) проверить, есть ли brand-эффект (доля поиска, прямые заходы); (2) убедиться, что данные по каналу полные; (3) рассмотреть смену формата/креатива до полного отключения.',
+        });
+      }
+    } else if (kpi.kpiKind === 'count') {
+      // CPU semantics: lower = better. vpcu = ценность единицы.
+      const vpcu = kpi.vpcu;
+      const topCpu = topRoi.roi;
+      const topGood = vpcu ? topCpu <= vpcu * 0.5 : topCpu < 100;
+      const topAcceptable = vpcu ? topCpu <= vpcu : topCpu < 200;
+      if (topGood) {
+        out.push({
+          severity: 'success',
+          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topCpu, kpi)} — стоимость единицы значительно ниже ценности${vpcu ? ` (${vpcu.toFixed(0)} ₽)` : ''}.`,
+          tip: `${_topBenchmark(kpi)} — отличный показатель. При условии что канал не перенасыщен (Hill saturation), можно увеличить инвестиции.`,
+        });
+      } else if (topAcceptable) {
+        out.push({
+          severity: 'info',
+          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topCpu, kpi)} — окупается, но не выдающийся.`,
+        });
+      }
+
+      if (vpcu && bottomRoi.roi > vpcu && bottomRoi.spend > 0) {
+        out.push({
+          severity: 'warning',
+          text: `Убыточный канал: ${bottomRoi.name} = ${metricShort} ${_fmtMetric(bottomRoi.roi, kpi)} — стоимость единицы превышает её ценность (${vpcu.toFixed(0)} ₽).`,
+          tip: 'Прежде чем сокращать: (1) проверить, есть ли brand-эффект; (2) убедиться, что данные по каналу полные; (3) рассмотреть смену формата/креатива до полного отключения.',
+        });
+      }
+    } else if (kpi.mode === 'effectiveness') {
+      // Доля semantics: higher = better (within portfolio).
+      if (topRoi.roi >= 0.30) {
+        out.push({
+          severity: 'success',
+          text: `Лучший по доле эффекта: ${topRoi.name} = ${_fmtMetric(topRoi.roi, kpi)} — основной драйвер в портфеле.`,
+          tip: 'Доля ≥ 30% — канал доминирует в портфеле. Проверить нет ли концентрационного риска.',
+        });
+      } else if (topRoi.roi >= 0.15) {
+        out.push({
+          severity: 'info',
+          text: `Лучший по доле эффекта: ${topRoi.name} = ${_fmtMetric(topRoi.roi, kpi)}.`,
+        });
+      }
+      if (bottomRoi.roi < 0.05 && bottomRoi.spend > 0) {
+        out.push({
+          severity: 'warning',
+          text: `Низкая доля: ${bottomRoi.name} = ${_fmtMetric(bottomRoi.roi, kpi)} — вклад канала минимален.`,
+          tip: 'Канал почти не двигает портфель. Проверить (1) есть ли brand-эффект; (2) корректность данных; (3) формат/таргетинг.',
+        });
+      }
     }
   }
 
@@ -927,13 +1008,15 @@ export function decomposeInsights(data) {
  * С `data` - post-state с lift, главные сдвиги, особый случай +0%, влияние custom-лимитов.
  *
  * @param {any} data - optimizeData (опционально)
- * @param {OptimizeContext} [ctx]
+ * @param {OptimizeContext & {kpi?: import('./kpi-aware-formatting.js').KpiViewInput|null}} [ctx]
  * @returns {Insight[]}
  */
 export function optimizeInsights(data, ctx = {}) {
   /** @type {Insight[]} */
   const out = [];
-  const { dec, mod, channelBudgets = null, channelMinPct = {}, channelMaxPct = {}, globalMinPct = 50, globalMaxPct = 150 } = ctx;
+  const { dec, mod, channelBudgets = null, channelMinPct = {}, channelMaxPct = {}, globalMinPct = 50, globalMaxPct = 150, kpi: kpiInput = null } = ctx;
+  // v1.3.2: KPI/mode-aware view. legacy callers → backward compat.
+  const kpi = resolveKpi(kpiInput);
 
   // ════════════════ PRE-STATE: оптимизация ещё не запущена ════════════════
   if (!data?.channels?.length) {
@@ -961,9 +1044,13 @@ export function optimizeInsights(data, ctx = {}) {
       else balanced++;
     }
 
+    // v1.3.2: KPI-aware portfolio phrase в headline.
+    const portfolioPhrase = kpi.isLegacy
+      ? `средний ROI ${avgROI.toFixed(2)}×`
+      : _weightedPhrase(avgROI, kpi).toLowerCase();
     out.push({
       severity: 'success',
-      text: `Готово к оптимизации: ${dec.channels.length} канал${dec.channels.length > 4 ? 'ов' : dec.channels.length > 1 ? 'а' : ''}, бюджет ${totalSpend.toLocaleString('ru-RU')}₽, средний ROI ${avgROI.toFixed(2)}×.`,
+      text: `Готово к оптимизации: ${dec.channels.length} канал${dec.channels.length > 4 ? 'ов' : dec.channels.length > 1 ? 'а' : ''}, бюджет ${totalSpend.toLocaleString('ru-RU')}₽, ${portfolioPhrase}.`,
       tip: 'Нажмите «🎯 Оптимизировать бюджет» — модель найдёт распределение, максимизирующее KPI при заданных Мин/Макс ограничениях.',
     });
 
@@ -1038,14 +1125,34 @@ export function optimizeInsights(data, ctx = {}) {
     });
   }
 
-  // ── 2. Рыночный контекст: средний ROI и общий бюджет ──
+  // ── 2. Рыночный контекст: средний ROI / CPU / доля и общий бюджет ──
+  // v1.3.2: KPI-aware portfolio metric phrase + benchmark comment.
   if (avgROI > 0) {
     let roiComment = '';
     let roiSev = /** @type {'success' | 'info' | 'warning'} */ ('info');
-    if (avgROI >= 3) { roiComment = 'Сильная отдача медиа'; roiSev = 'success'; }
-    else if (avgROI >= 1.5) { roiComment = 'Здоровый уровень'; }
-    else if (avgROI >= 1) { roiComment = 'Медиа окупается, но слабо'; roiSev = 'warning'; }
-    else { roiComment = 'Медиа в среднем не окупается'; roiSev = 'warning'; }
+    if (kpi.isLegacy) {
+      if (avgROI >= 3) { roiComment = 'Сильная отдача медиа'; roiSev = 'success'; }
+      else if (avgROI >= 1.5) { roiComment = 'Здоровый уровень'; }
+      else if (avgROI >= 1) { roiComment = 'Медиа окупается, но слабо'; roiSev = 'warning'; }
+      else { roiComment = 'Медиа в среднем не окупается'; roiSev = 'warning'; }
+    } else if (kpi.kpiKind === 'count') {
+      // avgROI here = units/₽; CPU = 1/avgROI ₽/ед. vpcu = ценность единицы.
+      const cpu = avgROI > 0 ? 1 / avgROI : Infinity;
+      const vpcu = kpi.vpcu;
+      if (vpcu) {
+        if (cpu <= vpcu * 0.5) { roiComment = 'Стоимость единицы вдвое ниже ценности — отличная экономика'; roiSev = 'success'; }
+        else if (cpu <= vpcu) { roiComment = 'Стоимость единицы окупается'; }
+        else if (cpu <= vpcu * 1.5) { roiComment = 'Стоимость единицы близка к ценности — на грани'; roiSev = 'warning'; }
+        else { roiComment = 'Стоимость единицы выше ценности — медиа в убыток'; roiSev = 'warning'; }
+      } else {
+        roiComment = 'Среднюю стоимость единицы — задайте ценность в шаге Validate';
+      }
+    } else if (kpi.mode === 'effectiveness') {
+      roiComment = 'Сумма долей = 100% по построению';
+    }
+    const portfolioPhrase = kpi.isLegacy
+      ? `Средний ROI = ${avgROI.toFixed(2)}×`
+      : _weightedPhrase(avgROI, kpi);
     out.push({
       severity: roiSev,
       // Audit pass 15 (Антон 2026-05-03): scale consistency. avgROI =
@@ -1054,8 +1161,10 @@ export function optimizeInsights(data, ctx = {}) {
       // 842M / 1.781B = 0.47×, customer видел «0.18×» которое реально 842M /
       // 4.338B (training). Fix: показываем training spend (denominator avgROI)
       // → ratio совпадает: 0.18× = 842M / 4338M.
-      text: `Средний ROI = ${avgROI.toFixed(2)}× — ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода — медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
-      tip: 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться — см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× — отлично; 1-2× — приемлемо, нужно улучшать микс; < 1× — медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.',
+      text: `${portfolioPhrase} — ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода — медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
+      tip: kpi.isLegacy
+        ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться — см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× — отлично; 1-2× — приемлемо, нужно улучшать микс; < 1× — медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
+        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} — отлично; на грани с ценностью — приемлемо; выше ценности — убыточно.`,
     });
   }
 
@@ -1118,9 +1227,11 @@ export function optimizeInsights(data, ctx = {}) {
   // Всегда показываем расклад по saturation (4 категории) — стабильное количество инсайтов.
   if (satList.length > 0) {
     const rows = [];
-    if (effective.length > 0) rows.push(`🟢 Недонасыщены: ${effective.length} — ${effective.map(c => `${c.name} (mROAS ${c.mroas.toFixed(2)}×)`).join(', ')}`);
-    if (stable.length > 0) rows.push(`🟡 Стабильны: ${stable.length} — ${stable.map(c => `${c.name} (mROAS ${c.mroas.toFixed(2)}×)`).join(', ')}`);
-    if (saturated.length > 0) rows.push(`🔴 Перенасыщены: ${saturated.length} — ${saturated.map(c => `${c.name} (mROAS ${c.mroas.toFixed(2)}×)`).join(', ')}`);
+    // v1.3.2: KPI-aware metric label в светофоре.
+    const metric = kpi.metricShort;
+    if (effective.length > 0) rows.push(`🟢 Недонасыщены: ${effective.length} — ${effective.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
+    if (stable.length > 0) rows.push(`🟡 Стабильны: ${stable.length} — ${stable.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
+    if (saturated.length > 0) rows.push(`🔴 Перенасыщены: ${saturated.length} — ${saturated.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
     if (unused.length > 0) rows.push(`⚪ Не используются: ${unused.length} — ${unused.map(c => c.name).join(', ')}`);
 
     const headline =
@@ -1136,10 +1247,21 @@ export function optimizeInsights(data, ctx = {}) {
         ? /** @type {'success'} */ ('success')
         : /** @type {'info'} */ ('info');
 
+    // v1.3.2: tip criteria adapt per KPI.
+    let criteriaTip = '';
+    if (kpi.isLegacy) {
+      criteriaTip = 'Критерии по mROAS (предельная отдача следующего рубля):\n• > 1.5× — недонасыщен (масштабировать)\n• 0.8–1.5× — стабильная зона (сохранить)\n• < 0.8× — перенасыщен (сократить)\n• 0 — не используется.';
+    } else if (kpi.kpiKind === 'count' && kpi.vpcu) {
+      criteriaTip = `Критерии по CPU (стоимость следующей единицы):\n• ≤ ${(kpi.vpcu * 0.5).toFixed(0)} ₽/ед. — недонасыщен (масштабировать)\n• ≤ ${kpi.vpcu.toFixed(0)} ₽/ед. — стабильная зона (сохранить)\n• > ${kpi.vpcu.toFixed(0)} ₽/ед. — перенасыщен (сократить)\n• 0 — не используется.`;
+    } else if (kpi.kpiKind === 'count') {
+      criteriaTip = 'Критерии: ниже стоимость единицы — лучше. Точные пороги задайте через ценность единицы (Validate шаг).';
+    } else if (kpi.mode === 'effectiveness') {
+      criteriaTip = 'Доля канала в эффекте — высокая доля = доминирующий канал; низкая = маргинальный.';
+    }
     out.push({
       severity: sev,
       text: headline,
-      tip: rows.join('\n') + '\n\nКритерии по mROAS (предельная отдача следующего рубля):\n• > 1.5× — недонасыщен (масштабировать)\n• 0.8–1.5× — стабильная зона (сохранить)\n• < 0.8× — перенасыщен (сократить)\n• 0 — не используется.',
+      tip: rows.join('\n') + (criteriaTip ? '\n\n' + criteriaTip : ''),
     });
   }
 
@@ -1155,10 +1277,14 @@ export function optimizeInsights(data, ctx = {}) {
       : spread > 3
         ? ` Умеренный разброс — потенциал есть, но ограниченный.`
         : ' Каналы выровнены — перекладка не даст существенного прироста.';
+    // v1.3.2: KPI-aware label.
+    const metricShort = kpi.metricShort;
     out.push({
       severity: 'info',
-      text: `Предельная отдача (mROAS): лучший ${best.name} (${best.mroas.toFixed(2)}×), худший ${worst.name} (${worst.mroas.toFixed(2)}×).${spreadNote}`,
-      tip: 'mROAS — сколько рублей KPI приносит следующий рубль в канал (не путать с ROI, который про средний за период). Классическое правило оптимизации: переливать из канала с низким mROAS в канал с высоким, пока они не сравняются.',
+      text: `Предельная отдача (${metricShort}): лучший ${best.name} (${_fmtMetric(best.mroas, kpi)}), худший ${worst.name} (${_fmtMetric(worst.mroas, kpi)}).${spreadNote}`,
+      tip: kpi.isLegacy
+        ? 'mROAS — сколько рублей KPI приносит следующий рубль в канал (не путать с ROI, который про средний за период). Классическое правило оптимизации: переливать из канала с низким mROAS в канал с высоким, пока они не сравняются.'
+        : `${metricShort} — предельная отдача следующего рубля. Правило оптимизации: переливать из худшего канала в лучший, пока они не сравняются.`,
     });
   } else if (activeSat.length === 1) {
     const only = activeSat[0];
@@ -1284,13 +1410,14 @@ export function optimizeInsights(data, ctx = {}) {
  * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь
  * увидел итоговую картину одним взглядом.
  *
- * @param {{ mod?: any, dec?: any, opt?: any, scenarioCount?: number }} ctx
+ * @param {{ mod?: any, dec?: any, opt?: any, scenarioCount?: number, kpi?: import('./kpi-aware-formatting.js').KpiViewInput|null }} ctx
  * @returns {Insight[]}
  */
 export function reportInsights(ctx = {}) {
   /** @type {Insight[]} */
   const out = [];
-  const { mod, dec, opt, scenarioCount = 0 } = ctx;
+  const { mod, dec, opt, scenarioCount = 0, kpi: kpiInput = null } = ctx;
+  const kpi = resolveKpi(kpiInput);
   const mqs = mod?.diagnostics?.mqs?.score ?? null;
   const tierLabel = mod?.diagnostics?.mqs?.tier_label ?? '';
   const rSq = mod?.diagnostics?.metrics?.r_squared ?? null;
@@ -1366,10 +1493,16 @@ export function reportInsights(ctx = {}) {
     }
 
     if (top) {
-      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '—'}% от медиа-вклада, ROI ${top.roi?.toFixed(2) ?? '—'}×).`;
+      // v1.3.2: KPI-aware metric label в драйвере.
+      const driverMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;
+      const driverValue = kpi.isLegacy
+        ? (top.roi != null ? `${top.roi.toFixed(2)}×` : '—')
+        : _fmtMetric(top.roi, kpi);
+      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '—'}% от медиа-вклада, ${driverMetric} ${driverValue}).`;
     }
     if (suspicious.length > 0) {
-      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI (${suspicious.map(/** @param {any} s */ s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные — только относительно.`;
+      const susMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;
+      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ${susMetric} (${suspicious.map(/** @param {any} s */ s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные — только относительно.`;
     }
 
     out.push({

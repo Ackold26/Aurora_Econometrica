@@ -12,7 +12,9 @@
     pipelineCurrentStep, activeProjectId,
     importData, validateData, modelData, decomposeData, optimizeData, optimizeLiveState,
     analysisObjective, completeStep, setStepError,
+    kpiKind, derivedMode, valuePerCountUnit,
   } from '$lib/project-state.js';
+  import { kpiView as buildKpiView } from '$lib/kpi-aware-formatting.js';
   import { recomputeResultAfterObjective } from '$lib/objective-engine.js';
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
 
@@ -185,6 +187,13 @@
     const opt = $optimizeData;
     const live = $optimizeLiveState;
     const objective = $analysisObjective; // ensure reactive subscription
+    // v1.3.2: KPI/mode view derived from project-state stores → passed to
+    // insights functions для CPU/Доля labels вместо ROI/mROAS.
+    const kpi = buildKpiView({
+      kpiKind: $kpiKind,
+      derivedMode: $derivedMode,
+      valuePerCountUnit: $valuePerCountUnit,
+    });
 
     switch (step) {
       case 0: {
@@ -209,7 +218,7 @@
         if (!mod?.diagnostics) return modelPreTrainingInsights(val?.result);
         return modelInsights(mod);
       }
-      case 3: return decomposeInsights(dec);
+      case 3: return decomposeInsights(dec, kpi);
       case 4: return optimizeInsights(opt, {
         dec, mod,
         channelBudgets: live.channelBudgets,
@@ -217,8 +226,9 @@
         channelMaxPct: live.channelMaxPct,
         globalMinPct: live.globalMinPct,
         globalMaxPct: live.globalMaxPct,
+        kpi,
       });
-      case 5: return reportInsights({ mod, dec, opt });
+      case 5: return reportInsights({ mod, dec, opt, kpi });
       default: return [];
     }
   });
