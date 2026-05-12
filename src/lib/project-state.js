@@ -387,6 +387,12 @@ export function syncChannelCategoriesToMedia(mediaColumns) {
 }
 
 /**
+ * @deprecated v1.3.0 (ADR-015): use `derivedMode` + `perChannelInput` + `kpiKind` instead.
+ * Сохраняется как writable для backward compat с legacy `ValidateStep.svelte`,
+ * `InsightsPanel.svelte`, `UnitCostsPanel.svelte` (4 файла grep).
+ * v1.3.0 default flow использует `ValidateStepV13` + `derivedMode` — `analysisObjective`
+ * не читается. Будет удалён в v1.4.0 / Phase B после full migration.
+ *
  * Analysis objective — determines which metric to prefer for paired channels.
  *   'roi'           → keep budgets (measure monetary return)
  *   'effectiveness' → keep natural metrics (impressions/clicks/visits)

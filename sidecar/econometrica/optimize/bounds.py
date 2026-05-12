@@ -68,11 +68,18 @@ def compute_per_channel_bounds(
     lo = max(p5, relative_lo_factor * mu)
     hi = min(p95, relative_hi_factor * mu)
 
-    # Sanity: lo не больше hi (может случиться при very low CV).
+    # Sanity: lo не больше hi.
+    # Audit fix v1.3.0 (red-team review): silent swap скрывал inverted corridor.
+    # Если lo > hi, это симптом very low CV (P5 ≈ P95) + relative_lo > relative_hi.
+    # Honest fix: set lo = hi = mu (point estimate), без свапа. Warning через
+    # narrow_corridor flag для downstream UI.
     if lo > hi:
-        lo, hi = hi, lo
+        lo = hi = mu
 
-    return {'lo': lo, 'hi': hi, 'mu': mu, 'p5': p5, 'p95': p95}
+    return {
+        'lo': lo, 'hi': hi, 'mu': mu, 'p5': p5, 'p95': p95,
+        'narrow_corridor': p95 - p5 < 0.01 * mu,  # flag для UI warning
+    }
 
 
 def compute_safe_corridor(

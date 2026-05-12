@@ -9,7 +9,7 @@ Major UX upgrade — продукт следующего поколения, д�
 
 ### Новое
 
-**KPI семантика (ADR-016)**: support для 8 KPI types в 2 семантических классах.
+**KPI семантика (ADR-016)**: support для 10 KPI types в 2 семантических классах (плюс awareness — out_of_scope_v13, Phase B Aurora Brand Tracker).
 Monetary (sales/revenue/profit) → ROI columns. Count (sales_packs/leads/
 registrations/loyalty_cards/subscriptions/app_installs/custom) → CPU columns +
 сравнение с user-провереnned value_per_count_unit (маржа/ценность лида/MRR).

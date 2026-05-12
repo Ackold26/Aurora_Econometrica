@@ -154,16 +154,25 @@ def _load_v13_kpi_settings(project_path) -> dict:
     Looks для settings/v13_kpi.json в проекте. Returns empty dict если file
     отсутствует (legacy v1.2 проект). Backward compat: defaults injected
     в memory при дальнейшей dispatch.
+
+    Audit fix v1.3.0 (red-team review): explicit logging при corrupted JSON
+    — silent swallow прятал data corruption.
     """
+    settings_file = project_path / 'settings' / 'v13_kpi.json'
+    if not settings_file.exists():
+        return {}
     try:
-        settings_file = project_path / 'settings' / 'v13_kpi.json'
-        if settings_file.exists():
-            import json as _json
-            with open(settings_file, 'r', encoding='utf-8') as f:
-                return _json.load(f)
-    except Exception:
-        pass
-    return {}
+        import json as _json
+        with open(settings_file, 'r', encoding='utf-8') as f:
+            return _json.load(f)
+    except (OSError, ValueError) as e:
+        # JSON corrupted / read error — log + fallback to defaults.
+        import logging as _logging
+        _logging.getLogger('econometrica').warning(
+            f"v1.3 KPI settings file {settings_file} corrupted "
+            f"({type(e).__name__}: {e}). Falling back to monetary defaults."
+        )
+        return {}
 
 
 def decompose(

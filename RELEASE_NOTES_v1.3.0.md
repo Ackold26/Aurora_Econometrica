@@ -13,7 +13,7 @@ Aurora MMM Optimizer становится **продуктом следующе�
 
 ### 1. KPI семантика — поддержка любых считаемых метрик
 
-В v1.2.0 единственный KPI = sales_rub (выручка в рублях). v1.3.0 поддерживает **8 KPI types в 2 семантических классах** (ADR-016):
+В v1.2.0 единственный KPI = sales_rub (выручка в рублях). v1.3.0 поддерживает **10 KPI types в 2 семантических классах** (ADR-016, плюс `awareness` помечен `out_of_scope_v13` — Phase B Aurora Brand Tracker):
 
 **Monetary KPIs** (target = ₽):
 - `sales` — выручка (default)

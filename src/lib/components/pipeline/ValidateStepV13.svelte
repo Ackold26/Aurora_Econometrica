@@ -18,7 +18,7 @@
   import {
     kpiType, kpiKind, perChannelInput, derivedMode,
     valuePerCountUnit, valuePerCountUnitSource,
-    activeProject,
+    activeProject, validateData,
   } from '$lib/project-state.js';
   import {
     deriveModeWithExplanation,
@@ -31,7 +31,10 @@
   import ModeDerivedExplanation from './ModeDerivedExplanation.svelte';
   import WhyThisStep from './WhyThisStep.svelte';
 
-  const { onComplete = undefined, channels = [], availableMetricsByChannel = {}, monetaryColumnHint = 'sales_rub' } = $props();
+  // Audit fix v1.3.0: monetaryColumnHint теперь auto-detected из validateData
+  // (если не передан явно). Hardcoded 'sales_rub' ломал auto-detect для
+  // не-стандартных schemas (revenue / выручка / sales).
+  const { onComplete = undefined, channels = [], availableMetricsByChannel = {}, monetaryColumnHint = '' } = $props();
 
   /** @type {0 | 1 | 2 | 3} */
   let subStep = $state(0);
@@ -72,25 +75,46 @@
   }
 
   /** @param {string} kpiTypeId */
+  /**
+   * Audit fix v1.3.0: auto-detect monetary column из validateData (вместо hardcoded 'sales_rub').
+   * Looks for column with role='target' OR с типичными monetary именами.
+   * Returns first match или null.
+   * @returns {string | null}
+   */
+  function detectMonetaryColumn() {
+    if (monetaryColumnHint) return monetaryColumnHint;  // explicit override
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols)) return null;
+    // Try role='kpi' or role='target' first
+    const targetCol = cols.find((/** @type {any} */ c) => c?.role === 'kpi' || c?.role === 'target');
+    if (targetCol) return targetCol.name;
+    // Fallback: name heuristic
+    const monetaryRe = /(?:^|[_\s-])(?:sales|revenue|profit|gmv|выручка|продажи)(?:[_\s-]|$|_rub|_money)/i;
+    for (const c of cols) {
+      if (monetaryRe.test(c?.name ?? '')) return c.name;
+    }
+    return null;
+  }
+
+  /** @param {string} kpiTypeId */
   async function tryAutoDetectValue(kpiTypeId) {
     if (!$activeProject?.path) {
       autoSuggestedValue = null;
       return;
     }
+    const monetaryCol = detectMonetaryColumn();
+    if (!monetaryCol) {
+      // No monetary column found — silently skip auto-suggest.
+      autoSuggestedValue = null;
+      return;
+    }
     busy = true;
     try {
-      // Map kpi_type to expected count column name (heuristic).
-      const countColumnHint = kpiTypeId === 'sales_packs' ? 'sales_packs'
-        : kpiTypeId === 'leads' ? 'leads'
-        : kpiTypeId === 'registrations' ? 'registrations'
-        : kpiTypeId === 'loyalty_cards' ? 'loyalty_cards'
-        : kpiTypeId === 'subscriptions' ? 'subscriptions'
-        : kpiTypeId === 'app_installs' ? 'app_installs'
-        : kpiTypeId;  // count_custom — пользователь сам подскажет, тут просто KPI.
+      const countColumnHint = kpiTypeId === 'count_custom' ? kpiTypeId : kpiTypeId;
 
       const result = await invoke('econ_auto_detect_price', {
         projectDir: $activeProject.path,
-        monetaryColumn: monetaryColumnHint,
+        monetaryColumn: monetaryCol,
         countColumn: countColumnHint,
       });
       if (result?.value !== null && result?.value !== undefined) {
@@ -159,6 +183,10 @@
     }
   }
 
+  /**
+   * Audit fix v1.3.0: linear back navigation (не skip skipValueStep).
+   * Prevents user confusion при switching KPI type after substep 2.
+   */
   function goBack() {
     if (subStep === 1) subStep = 0;
     else if (subStep === 2) subStep = skipValueStep ? 0 : 1;

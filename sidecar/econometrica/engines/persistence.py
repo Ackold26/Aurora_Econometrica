@@ -128,7 +128,10 @@ def _inject_v13_defaults(model_data: dict[str, Any]) -> None:
     # per_channel_input: default — all media columns as 'monetary'.
     if 'per_channel_input' not in model_data:
         config = model_data.get('config') or {}
-        media_cols = config.get('media_columns', []) or []
+        # Audit fix v1.3.0: explicit null-check (was: `config.get('media_columns', []) or []`
+        # could mask `media_columns: None` corruption).
+        media_cols_raw = config.get('media_columns')
+        media_cols = list(media_cols_raw) if media_cols_raw else []
         # Старый frontend store analysisObjective не сохранялся в pickle, но мог быть
         # передан через config['analysis_objective'] (legacy field).
         legacy_objective = config.get('analysis_objective', 'roi')

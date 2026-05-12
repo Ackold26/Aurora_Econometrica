@@ -14,7 +14,52 @@
   import OptimizeStep from '$lib/components/pipeline/OptimizeStep.svelte';
   import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
   import PipelineWhyThisStep from '$lib/components/pipeline/PipelineWhyThisStep.svelte';
-  import { useDerivedModeUX } from '$lib/project-state.js';
+  import { useDerivedModeUX, validateData } from '$lib/project-state.js';
+
+  // Audit fix v1.3.0 (red-team review BLOCKER #1):
+  // ValidateStepV13 нуждается в реальных каналах из validate result + auto-detected
+  // available metrics per канал. Hardcoded {} раньше делал компонент бесполезным
+  // в production. Теперь reads из validateData store + computes available metrics
+  // через column names heuristic (separator-aware regex mirrors backend column_detection).
+  const channels = $derived.by(() => {
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols)) return [];
+    return cols
+      .filter((/** @type {any} */ c) => c?.role === 'media')
+      .map((/** @type {any} */ c) => c.name);
+  });
+
+  const availableMetricsByChannel = $derived.by(() => {
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols) || channels.length === 0) return {};
+    /** @type {Record<string, {monetary: string[], physical: string[]}>} */
+    const result = {};
+    for (const ch of channels) {
+      result[ch] = { monetary: [], physical: [] };
+    }
+    // Classify каждую media column: name содержит ₽-marker (spend|budget|cost|бюджет|расход|rub)
+    // → monetary; impressions|clicks|grp|показ|клик|грп → physical.
+    const monetaryRe = /(?:^|[_\s-])(?:spend(?:s|ing)?|budget|cost(?:s)?|expense|бюджет|расход|затрат|rub|usd|eur)(?:[_\s-]|$)/i;
+    const physicalRe = /(?:^|[_\s-])(?:impression|impr|click|visit|reach|contact|grp|trp|показ|клик|визит|охват|просмотр|грп|трп)(?:[_\s-]|$)/i;
+    for (const c of cols) {
+      if (c?.role !== 'media') continue;
+      const name = c.name;
+      // Try to match channel prefix (e.g. 'tv_spend' → channel 'tv').
+      for (const ch of channels) {
+        const lower = name.toLowerCase();
+        const chLower = ch.toLowerCase();
+        if (lower === chLower || lower.startsWith(chLower + '_') || lower.startsWith(chLower + '-') || lower.startsWith(chLower + ' ')) {
+          if (monetaryRe.test(name)) result[ch].monetary.push(name);
+          else if (physicalRe.test(name)) result[ch].physical.push(name);
+          else result[ch].monetary.push(name);  // unknown — default monetary
+          break;
+        }
+      }
+      // If no channel prefix match — channel name === column name → default monetary.
+      if (result[name]) result[name].monetary.push(name);
+    }
+    return result;
+  });
 </script>
 
 <!-- A3: Single route, all steps present in DOM, visibility controlled by StepWrapper -->
@@ -31,7 +76,7 @@
   <!-- Step 1: Validate — Phase 2 / v1.3.0 derived mode (per ADR-015) -->
   <StepWrapper step={1} helpPage="data-preparation">
     {#if $useDerivedModeUX}
-      <ValidateStepV13 channels={[]} availableMetricsByChannel={{}} />
+      <ValidateStepV13 channels={channels} availableMetricsByChannel={availableMetricsByChannel} />
     {:else}
       <ValidateStep />
     {/if}

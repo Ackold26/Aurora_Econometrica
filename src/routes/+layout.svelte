@@ -104,6 +104,9 @@
         paletteOpen = !paletteOpen;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        // Audit fix v1.3.0: guard против modal stacking — не показывать
+        // glossary если CommandPalette открыт (избегаем z-index overlap).
+        if (paletteOpen) return;
         e.preventDefault();
         showGlossaryPanel.update((v) => !v);
       }
