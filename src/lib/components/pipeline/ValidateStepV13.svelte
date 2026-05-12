@@ -410,6 +410,57 @@
   });
 
   /**
+   * v1.3.2: Сбросить шаг — вернуть Validate к исходному состоянию (как при
+   * первой загрузке проекта). Очищает все user overrides и forces re-validate
+   * через backend (econ_validate перепишет result.columns с auto-detected
+   * roles).
+   *
+   * Steps:
+   * 1. Reset KPI state stores (kpiType, kpiKind, perChannelInput, derivedMode,
+   *    valuePerCountUnit, valuePerCountUnitSource).
+   * 2. Reset rolesConfirmed flag + localStorage key.
+   * 3. Reset subStep к 0.
+   * 4. Clear validateData → $effect auto-triggers fresh validation.
+   * 5. (Best-effort) reset excluded_columns в project.json чтобы backend
+   *    auto-detection вернул pristine result.
+   */
+  async function handleResetStep() {
+    if (validating) return;
+    // 1. Reset KPI state stores.
+    kpiType.set('sales');
+    kpiKind.set('monetary');
+    perChannelInput.set({});
+    derivedMode.set('roi');
+    valuePerCountUnit.set(null);
+    valuePerCountUnitSource.set(null);
+    // 2. Reset confirmation flag + localStorage.
+    rolesConfirmed = false;
+    persistRolesConfirmed(false);
+    // 3. Reset substep.
+    subStep = 0;
+    currentKPI = 'sales';
+    currentValuePerUnit = null;
+    currentPerChannel = {};
+    autoSuggestedValue = null;
+    // 4. Reset persisted exclusion list в project (best-effort).
+    const projectId = get(activeProjectId);
+    if (projectId) {
+      try {
+        await invoke('project_update', {
+          projectId,
+          updates: { excluded_columns: [] },
+        });
+      } catch { /* best-effort */ }
+    }
+    // 5. Clear validateData → $effect picks up empty state и запускает fresh
+    //    validation через autoRunValidate.
+    validateAttempted = false;
+    validateError = null;
+    validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
+    // $effect notices needsValidation=true → calls autoRunValidate.
+  }
+
+  /**
    * v1.3.2: real-time role change на каждое dropdown click в ColumnMapperConfirm.
    * Сразу пишет в validateData → InsightsPanel + recommendations
    * пересчитываются reactively. Эквивалент connecting в InsightsPanel.applyAction.
@@ -483,6 +534,17 @@
         <span class="dot-label">{stage.label}</span>
       </div>
     {/each}
+    <!-- v1.3.2: «Сбросить шаг» — кнопка справа от substep nav, возвращает к
+         состоянию загрузки проекта (re-runs validate, clears all overrides). -->
+    <button
+      type="button"
+      class="reset-step-btn"
+      onclick={handleResetStep}
+      disabled={validating}
+      title="Вернуть шаг к исходному состоянию: убрать все ваши изменения ролей и KPI, перезапустить автоматическое определение."
+    >
+      Сбросить шаг
+    </button>
   </nav>
 
   {#if rolesConfirmed && subStep > 0}
@@ -565,6 +627,28 @@
     padding: 12px 24px;
     background: var(--bg-surface-quiet);
     border-bottom: 1px solid var(--border-subtle);
+  }
+  /* v1.3.2: «Сбросить шаг» — premium tier-1 ghost button справа от substep nav. */
+  .reset-step-btn {
+    margin-left: auto;
+    padding: 5px 12px;
+    border-radius: 3px;
+    background: transparent;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    color: var(--text-muted, #94a3b8);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .reset-step-btn:hover:not(:disabled) {
+    border-color: var(--gold, #c9a449);
+    color: var(--gold, #c9a449);
+    background: color-mix(in srgb, var(--gold, #c9a449) 6%, transparent);
+  }
+  .reset-step-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .substep-dot {
     display: flex;
