@@ -59,6 +59,20 @@
     'Для MMM требуется числовая целевая метрика, числовые медиа-каналы и одна date-колонка.',
   ].join('\n');
 
+  const RECO_HEADER_HELP = [
+    'Автоматическая рекомендация по колонке на основе типа данных, роли',
+    'и validation insights:',
+    '',
+    '• Оставить — колонка подходит для модели как есть.',
+    '• Проверить — есть подозрительные сигналы (роль не определена,',
+    '  пустые значения, дубликат метрики). Подтвердите вручную.',
+    '• Исключить — колонка непригодна (нечисловой тип в числовой роли,',
+    '  >80% нулей, текстовое поле).',
+    '',
+    'Рекомендации — подсказки, не блокирующие. Окончательное решение',
+    'за вами.',
+  ].join('\n');
+
   /**
    * Translates pandas dtype names (float64, int64, object, datetime64, bool)
    * к человеческим русским labels. Fallback: «—» если type unknown.
@@ -73,6 +87,91 @@
     if (k.includes('int') || k.includes('float') || k === 'number' || k === 'numeric') return 'число';
     if (k === 'object' || k === 'string' || k === 'str' || k === 'text' || k.includes('category')) return 'текст';
     return rawKind;  // unknown — show as-is для debugging
+  }
+
+  /** @typedef {{ status: 'keep' | 'review' | 'exclude', label: string, reason: string, tone: string }} Recommendation */
+
+  /**
+   * Generate recommendation для колонки на основе type + role + stats.
+   * Простая heuristic, не залезаем в backend insights. Future: integrate
+   * с col.issues от validateData.result.
+   *
+   * @param {any} col
+   * @returns {Recommendation}
+   */
+  function recommendationFor(col) {
+    if (!col) {
+      return { status: 'review', label: 'Проверить', reason: 'Нет данных по колонке.', tone: 'neutral' };
+    }
+    const rawKind = String(col.kind ?? '').toLowerCase();
+    const role = effectiveRole(col.name);
+    const isNumeric = rawKind.includes('int') || rawKind.includes('float') || rawKind === 'number' || rawKind === 'numeric';
+    const isDate = rawKind.includes('datetime') || rawKind === 'date' || rawKind.includes('timestamp');
+    const isText = rawKind === 'object' || rawKind === 'string' || rawKind === 'str' || rawKind === 'text' || rawKind.includes('category');
+    const zerosPct = Number(col.stats?.zeros_pct ?? 0);
+    const missingPct = Number(col.stats?.missing_pct ?? 0);
+
+    // Hard exclusions: type mismatch.
+    if ((role === 'kpi' || role === 'media' || role === 'control') && !isNumeric) {
+      if (isText) {
+        return {
+          status: 'exclude',
+          label: 'Исключить',
+          reason: 'Текстовый тип данных не подходит для числовой роли в модели.',
+          tone: 'danger',
+        };
+      }
+      if (isDate) {
+        return {
+          status: 'exclude',
+          label: 'Исключить',
+          reason: 'Колонка с датой не может играть роль числового канала.',
+          tone: 'danger',
+        };
+      }
+    }
+    if (role === 'date' && !isDate) {
+      return {
+        status: 'review',
+        label: 'Проверить',
+        reason: 'Роль "Дата" назначена, но тип данных не похож на дату.',
+        tone: 'warn',
+      };
+    }
+
+    // Quality flags.
+    if (isNumeric && zerosPct > 80 && role !== 'excluded') {
+      return {
+        status: 'exclude',
+        label: 'Исключить',
+        reason: `${Math.round(zerosPct)}% нулей — недостаточно данных для устойчивой оценки эффекта.`,
+        tone: 'danger',
+      };
+    }
+    if (isNumeric && missingPct > 30 && role !== 'excluded') {
+      return {
+        status: 'review',
+        label: 'Проверить',
+        reason: `${Math.round(missingPct)}% пропусков — может ослабить модель. Проверьте источник данных.`,
+        tone: 'warn',
+      };
+    }
+
+    // Default positive states.
+    if (role === 'excluded') {
+      return {
+        status: 'review',
+        label: 'Не используется',
+        reason: 'Колонка исключена из модели. Если это намеренно — оставьте как есть.',
+        tone: 'neutral',
+      };
+    }
+    return {
+      status: 'keep',
+      label: 'Оставить',
+      reason: 'Колонка подходит для выбранной роли. Никаких действий не требуется.',
+      tone: 'ok',
+    };
   }
 
   /**
@@ -172,11 +271,16 @@
             Роль в модели
             <span class="help-icon" title={ROLE_HEADER_HELP} aria-label="Что значат роли">?</span>
           </th>
+          <th scope="col" class="th-reco">
+            Рекомендация
+            <span class="help-icon" title={RECO_HEADER_HELP} aria-label="Что значат рекомендации">?</span>
+          </th>
         </tr>
       </thead>
       <tbody>
         {#each columns as col (col.name)}
           {@const role = effectiveRole(col.name)}
+          {@const reco = recommendationFor(col)}
           <tr class="role-{role}">
             <td class="col-name">{col.name}</td>
             <td class="col-kind" title={col.kind ?? ''}>{humanizeKind(col.kind)}</td>
@@ -193,6 +297,12 @@
                   {/each}
                 </select>
               </div>
+            </td>
+            <td class="col-reco">
+              <span class="reco-badge tone-{reco.tone}" title={reco.reason}>
+                <span class="reco-dot" aria-hidden="true"></span>
+                {reco.label}
+              </span>
             </td>
           </tr>
         {/each}
@@ -376,9 +486,66 @@
     background: color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
     color: var(--gold, #c9a449);
   }
-  .th-name { width: 35%; }
-  .th-kind { width: 20%; }
-  .th-role { width: 45%; }
+
+  /* v1.3.2: Рекомендация column — color-coded badge с dot + reason tooltip. */
+  .col-reco {
+    font-size: 12px;
+  }
+  .reco-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    cursor: help;
+    font-size: 11.5px;
+    line-height: 1;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .reco-badge .reco-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  /* Tone variants */
+  .reco-badge.tone-ok {
+    background: color-mix(in srgb, var(--success, #4ade80) 8%, transparent);
+    border-color: color-mix(in srgb, var(--success, #4ade80) 22%, transparent);
+    color: var(--success, #4ade80);
+  }
+  .reco-badge.tone-ok .reco-dot { background: var(--success, #4ade80); }
+
+  .reco-badge.tone-warn {
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border-color: color-mix(in srgb, var(--gold, #c9a449) 28%, transparent);
+    color: var(--gold, #c9a449);
+  }
+  .reco-badge.tone-warn .reco-dot { background: var(--gold, #c9a449); }
+
+  .reco-badge.tone-danger {
+    background: color-mix(in srgb, var(--danger, #f87171) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #f87171) 28%, transparent);
+    color: var(--danger, #f87171);
+  }
+  .reco-badge.tone-danger .reco-dot { background: var(--danger, #f87171); }
+
+  .reco-badge.tone-neutral {
+    background: var(--bg-surface-quiet, rgba(255,255,255,0.04));
+    border-color: var(--border-subtle, rgba(255,255,255,0.08));
+    color: var(--text-muted, #64748b);
+  }
+  .reco-badge.tone-neutral .reco-dot { background: var(--text-muted, #64748b); }
+
+  .reco-badge:hover {
+    background-color: color-mix(in srgb, currentColor 18%, transparent);
+  }
+  .th-name { width: 30%; }
+  .th-kind { width: 15%; }
+  .th-role { width: 32%; }
+  .th-reco { width: 23%; }
 
   tbody td {
     padding: 11px 0;
