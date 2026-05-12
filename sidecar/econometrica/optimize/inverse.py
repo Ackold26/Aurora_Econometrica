@@ -77,6 +77,41 @@ def _forward_at_budget(project_dir: str, total_budget: float) -> Dict[str, Any]:
     }
 
 
+def _verify_monotonicity(project_dir: str, budget_lo: float, budget_hi: float, n_probes: int = 5) -> Dict[str, Any]:
+    """v1.3.1 hotfix: verify forward(B) монотонна в [lo, hi].
+
+    Probes forward function на n_probes equally-spaced points + checks
+    monotonic increase. Если violated — flags non-monotonic для caller
+    (bisection assumes monotonicity).
+
+    Per red-team audit finding B6.
+
+    Returns:
+        {'monotonic': bool, 'probes': [{B, S}], 'violation_at': int | None}
+    """
+    if n_probes < 3:
+        n_probes = 3
+    step = (budget_hi - budget_lo) / (n_probes - 1)
+    probes = []
+    prev_sales = -float('inf')
+    violation_at = None
+    for i in range(n_probes):
+        B = budget_lo + step * i
+        forward = _forward_at_budget(project_dir, B)
+        if forward.get('status') == 'error':
+            return {'monotonic': False, 'probes': probes, 'violation_at': i, 'error': True}
+        S = forward['expected_sales']
+        probes.append({'B': B, 'S': S})
+        if S < prev_sales - 1e-6 * abs(prev_sales):  # strict decrease (with tolerance)
+            violation_at = i
+        prev_sales = S
+    return {
+        'monotonic': violation_at is None,
+        'probes': probes,
+        'violation_at': violation_at,
+    }
+
+
 def bisect_for_target(
     project_dir: str,
     target_sales: float,
@@ -84,8 +119,11 @@ def bisect_for_target(
     budget_hi: float,
     rel_tol: float = 1e-3,
     max_iters: int = 30,
+    verify_monotonic: bool = True,
 ) -> Dict[str, Any]:
     """Bisection: find minimum total_budget B such that expected_sales(B) ≥ target_sales.
+
+    v1.3.1 hotfix: добавлен verify_monotonic guard per red-team audit B6.
 
     Args:
         project_dir: Path to project.
@@ -94,6 +132,7 @@ def bisect_for_target(
         budget_hi: верхняя граница (обычно corridor_hi).
         rel_tol: tolerance относительно (hi - lo).
         max_iters: max iterations (защита от non-convergence).
+        verify_monotonic: v1.3.1 — verify monotonicity перед bisection.
 
     Returns:
         {
@@ -102,8 +141,27 @@ def bisect_for_target(
           'achievable': bool,
           'iterations': int,
           'distribution': dict,   # final allocation
+          'monotonicity_check': dict | None,  # v1.3.1 audit trail
         }
     """
+    # v1.3.1: verify monotonicity guard (per red-team audit B6).
+    monotonicity_check = None
+    if verify_monotonic:
+        monotonicity_check = _verify_monotonicity(project_dir, budget_lo, budget_hi)
+        if not monotonicity_check['monotonic']:
+            return {
+                'achievable': False,
+                'error': 'non_monotonic_forward',
+                'monotonicity_check': monotonicity_check,
+                'message': (
+                    'Forward функция не монотонна в безопасном коридоре. '
+                    'Bisection не применима — возможна non-convex Hill saturation. '
+                    'Рекомендация: уменьшить диапазон или включить Expert Mode '
+                    '(full posterior re-bisection — Phase B).'
+                ),
+                'iterations': monotonicity_check.get('violation_at', 0) or 0,
+            }
+
     # Sanity check: forward at hi должен достичь target.
     forward_hi = _forward_at_budget(project_dir, budget_hi)
     if forward_hi['status'] == 'error':
@@ -111,6 +169,7 @@ def bisect_for_target(
             'achievable': False,
             'error': forward_hi.get('error_message', 'Forward at hi failed'),
             'iterations': 0,
+            'monotonicity_check': monotonicity_check,
         }
 
     if forward_hi['expected_sales'] < target_sales:
@@ -119,6 +178,7 @@ def bisect_for_target(
             'fallback_max_sales': forward_hi['expected_sales'],
             'fallback_budget': budget_hi,
             'iterations': 1,
+            'monotonicity_check': monotonicity_check,
             'message': (
                 f'Цель {target_sales:.0f} недостижима в безопасном коридоре. '
                 f'Максимум при upper corridor: {forward_hi["expected_sales"]:.0f}'
@@ -158,6 +218,7 @@ def bisect_for_target(
         'expected_sales': best_sales,
         'distribution': best_distribution,
         'iterations': iters,
+        'monotonicity_check': monotonicity_check,
     }
 
 

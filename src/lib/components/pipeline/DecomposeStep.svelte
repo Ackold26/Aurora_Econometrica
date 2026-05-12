@@ -27,6 +27,9 @@
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
   import ROIComparison from '$lib/components/pipeline/ROIComparison.svelte';
+  import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
+  import { pipelineCurrentStep } from '$lib/project-state.js';
+  import { formatMoney, formatCount } from '$lib/format-numbers.js';
   import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
@@ -69,6 +72,53 @@
   let errorMessage = $state(null);
 
   const data = $derived($decomposeData);
+
+  // v1.3.1 hotfix: primary recommendation — главная actionable рекомендация для главной карточки.
+  // Находит overspending канал (efficiency_gap < -10%) + underspending (gap > 10%) →
+  // pair "переложить из X в Y".
+  const primaryRecommendation = $derived.by(() => {
+    if (!data?.channels?.length) return null;
+    const channels = data.channels;
+    /** @type {any[]} */
+    const overspending = channels
+      .filter((/** @type {any} */ c) => c.efficiency_gap < -10 && c.spend > 0)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => a.efficiency_gap - b.efficiency_gap);
+    /** @type {any[]} */
+    const underspending = channels
+      .filter((/** @type {any} */ c) => c.efficiency_gap > 10 && c.spend > 0)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => b.efficiency_gap - a.efficiency_gap);
+    if (overspending.length === 0 || underspending.length === 0) {
+      // Edge case: все каналы balanced → recommend looking at top driver.
+      const top = [...channels].sort((/** @type {any} */ a, /** @type {any} */ b) =>
+        (b.contribution_pct ?? 0) - (a.contribution_pct ?? 0))[0];
+      if (top && top.contribution_pct > 30) {
+        return {
+          icon: '💡',
+          title: 'Что мы видим',
+          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(0)}% медиа-вклада в продажи.`,
+          detail: 'Все каналы сбалансированы по эффективности (gap в пределах ±10%). Проверьте оптимизацию для прироста при тех же ресурсах.',
+          tone: 'info',
+        };
+      }
+      return null;
+    }
+    const from = overspending[0];
+    const to = underspending[0];
+    // Estimate prирост: shift 10% бюджета from → to, expected lift ≈ (to.efficiency_gap - from.efficiency_gap) × shift × totalSpend / 100.
+    const totalSpend = channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.spend || 0), 0);
+    const shiftAmount = from.spend * 0.20;  // shift 20% от канала-донора
+    return {
+      icon: '🎯',
+      title: 'Главная рекомендация',
+      text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен, gap ${from.efficiency_gap.toFixed(0)}%) в «${to.name}» (недонасыщен, gap +${to.efficiency_gap.toFixed(0)}%).`,
+      detail: 'Точный расчёт прироста — на шаге «Оптимизация» через Forward solver. Goal-Seek позволит задать целевое значение продаж.',
+      tone: 'success',
+    };
+  });
+
+  function goToOptimize() {
+    pipelineCurrentStep.set(4);
+  }
 
   // v1.3.0: derived metric display per (kpi_kind, derived_mode) (per ADR-014 matrix).
   // 'roi'   → monetary ROI column (v1.2 behavior).
@@ -385,6 +435,18 @@
         <p class="insight-text">{data.insight}</p>
         <button class="btn-rerun" onclick={() => runDecompose()} title="Пересчитать">↺</button>
       </div>
+    {/if}
+
+    <!-- v1.3.1 hotfix: Primary recommendation card — actionable «главная рекомендация» в primary visual. -->
+    {#if primaryRecommendation}
+      <RecommendationCard
+        icon={primaryRecommendation.icon}
+        title={primaryRecommendation.title}
+        text={primaryRecommendation.text}
+        detail={primaryRecommendation.detail}
+        tone={primaryRecommendation.tone}
+        primaryAction={{ label: 'Перейти в Оптимизацию', onClick: goToOptimize }}
+      />
     {/if}
 
     <!-- Waterfall — full width -->

@@ -79,11 +79,30 @@
     onSkip?.();
   }
 
+  /**
+   * v1.3.1 hotfix: arrow key navigation per UX audit.
+   * @param {KeyboardEvent} e
+   */
+  function handleKeydown(e) {
+    if (e.key === 'ArrowRight' || e.key === 'Enter') {
+      e.preventDefault();
+      next();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      prev();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      skip();
+    }
+  }
+
   const currentSlide = $derived(slides[currentIndex]);
   const isLast = $derived(currentIndex === slides.length - 1);
 </script>
 
-<div class="intro-tutorial">
+<svelte:window onkeydown={handleKeydown} />
+
+<div class="intro-tutorial" role="dialog" aria-modal="true" aria-labelledby="intro-title">
   <div class="modal" class:slide-in={!isAnimating}>
     <header class="modal-header">
       <span class="step-counter">{currentIndex + 1} / {slides.length}</span>
@@ -92,7 +111,7 @@
 
     <div class="slide">
       <div class="emoji">{currentSlide.emoji}</div>
-      <h2>{currentSlide.title}</h2>
+      <h2 id="intro-title">{currentSlide.title}</h2>
       <p>{currentSlide.body}</p>
     </div>
 
