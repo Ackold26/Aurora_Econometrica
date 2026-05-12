@@ -24,16 +24,22 @@
 
   const currentStepId = $derived(stepIdMap[$pipelineCurrentStep] ?? 'validate');
   const currentHelp = $derived(/** @type {any} */ (contextualHelp)[currentStepId]);
+
+  // UX audit v1.3.0: open by default на первых 2 шагах (Import / Validate) для novice.
+  // На остальных collapsed — юзер уже знает контекст.
+  const shouldOpenByDefault = $derived($pipelineCurrentStep <= 1);
 </script>
 
 {#if !$hideEducationalHints && currentHelp}
-  <WhyThisStep
-    stepId={currentStepId}
-    title={currentHelp.title}
-    whatWeDo={currentHelp.whatWeDo}
-    whyNeed={currentHelp.whyNeed}
-    attentionTo={currentHelp.attentionTo}
-    whatsNext={currentHelp.whatsNext}
-    defaultOpen={false}
-  />
+  {#key currentStepId}
+    <WhyThisStep
+      stepId={currentStepId}
+      title={currentHelp.title}
+      whatWeDo={currentHelp.whatWeDo}
+      whyNeed={currentHelp.whyNeed}
+      attentionTo={currentHelp.attentionTo}
+      whatsNext={currentHelp.whatsNext}
+      defaultOpen={shouldOpenByDefault}
+    />
+  {/key}
 {/if}

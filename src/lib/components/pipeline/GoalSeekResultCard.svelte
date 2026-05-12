@@ -16,28 +16,25 @@
    * @component GoalSeekResultCard
    */
 
+  // UX audit v1.3.0: используем unified format helpers (вместо inline ad-hoc).
+  import { formatMoney, formatDelta, formatCount } from '$lib/format-numbers.js';
+
   const { result, kpiKind, targetSales } = $props();
 
   /** @param {number | null | undefined} n */
   function formatRub(n) {
-    if (n == null) return '—';
-    if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(1)} млрд ₽`;
-    if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)} млн ₽`;
-    if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(0)} тыс. ₽`;
-    return `${Math.round(n).toLocaleString('ru-RU')} ₽`;
+    return formatMoney(n);
   }
 
   /** @param {number | null | undefined} n */
   function formatPct(n) {
-    if (n == null) return '—';
-    const sign = n >= 0 ? '+' : '';
-    return `${sign}${(n * 100).toFixed(1)}%`;
+    return formatDelta(n);
   }
 
   /** @param {number} n */
   function formatTarget(n) {
     if (kpiKind === 'monetary') return formatRub(n);
-    return `${Math.round(n).toLocaleString('ru-RU')} ед.`;
+    return formatCount(n);
   }
 </script>
 
@@ -54,6 +51,13 @@
       {#if result.total_budget.p10 != null && result.total_budget.p90 != null}
         <div class="figure-ci">
           80% доверительный интервал: {formatRub(result.total_budget.p10)} — {formatRub(result.total_budget.p90)}
+        </div>
+      {/if}
+      {#if result.current_total_budget != null && result.current_total_budget > 0}
+        <div class="baseline-comparison">
+          Текущий бюджет: <strong>{formatRub(result.current_total_budget)}</strong>
+          → Новый: <strong>{formatRub(result.total_budget.p50)}</strong>
+          ({formatPct(result.delta_vs_current)})
         </div>
       {/if}
     </section>
@@ -170,6 +174,20 @@
     grid-template-columns: repeat(3, 1fr);
     gap: 12px;
   }
+  @media (max-width: 800px) {
+    .metrics-row { grid-template-columns: 1fr; }
+  }
+  /* UX audit v1.3.0: baseline comparison row для контекста (был main figure без baseline). */
+  .baseline-comparison {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--accent-primary) 4%, transparent);
+    border-radius: 6px;
+    display: inline-block;
+  }
+  .baseline-comparison strong { color: var(--text-primary); font-weight: 600; }
   .metric {
     text-align: center;
     padding: 10px;

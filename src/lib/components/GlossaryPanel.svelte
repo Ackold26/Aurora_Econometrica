@@ -10,9 +10,32 @@
 
   const { onClose, initialTerm = null } = $props();
 
+  import { onMount, tick } from 'svelte';
+
   let query = $state('');
   /** @type {string | null} */
   let selectedTermId = $state(initialTerm ?? null);
+
+  /** @type {HTMLInputElement | null} */
+  let searchInputEl = null;
+  /** @type {HTMLElement | null} */
+  let panelEl = null;
+  /** @type {Element | null} */
+  let previousFocus = null;
+
+  // UX audit v1.3.0: focus trap + restore focus on close (WCAG accessibility).
+  onMount(() => {
+    previousFocus = typeof document !== 'undefined' ? document.activeElement : null;
+    (async () => {
+      await tick();
+      searchInputEl?.focus();
+    })();
+    return () => {
+      if (previousFocus instanceof HTMLElement) {
+        previousFocus.focus();
+      }
+    };
+  });
 
   /** @type {Array<{id: string, term: string, short: string, long: string, example: string, related: string[]}>} */
   const filteredTerms = $derived(/** @type {any} */ (searchTerms(query)));
@@ -28,6 +51,23 @@
   function handleKeydown(e) {
     if (e.key === 'Escape') {
       onClose?.();
+      return;
+    }
+    // UX audit v1.3.0: focus trap — Tab loop внутри панели.
+    if (e.key === 'Tab' && panelEl) {
+      const focusable = panelEl.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = /** @type {HTMLElement} */ (focusable[0]);
+      const last = /** @type {HTMLElement} */ (focusable[focusable.length - 1]);
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   }
 </script>
@@ -35,15 +75,24 @@
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="glossary-overlay" onclick={onClose}>
-  <div class="glossary-panel" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+  <div
+    class="glossary-panel"
+    bind:this={panelEl}
+    onclick={(e) => e.stopPropagation()}
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="glossary-title"
+  >
     <header class="panel-header">
-      <h2>Словарь терминов</h2>
-      <button type="button" class="close-btn" onclick={onClose} aria-label="Закрыть">✕</button>
+      <h2 id="glossary-title">Словарь терминов</h2>
+      <button type="button" class="close-btn" onclick={onClose} aria-label="Закрыть глоссарий">✕</button>
     </header>
 
     <input
+      bind:this={searchInputEl}
       type="text"
       placeholder="Поиск термина..."
+      aria-label="Поиск термина в словаре"
       bind:value={query}
       class="search-input"
     />

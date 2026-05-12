@@ -196,9 +196,12 @@
     box-shadow: var(--shadow-elevation-2);
     transform: translateY(-2px);
   }
+  /* UX audit v1.3.0: stronger selected indication (был 8% opacity, almost invisible в dark theme). */
   .card.selected {
     border-color: var(--accent-primary);
-    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border-width: 2px;
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
   }
 
   .card-head {
@@ -214,15 +217,16 @@
     color: var(--text-primary);
     letter-spacing: -0.01em;
   }
+  /* UX audit v1.3.0: WCAG AA min 12px body text — было 10px (fail). */
   .subtitle {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
   .desc {
-    font-size: 12px;
-    line-height: 1.45;
+    font-size: 13px;
+    line-height: 1.5;
     color: var(--text-secondary);
     margin: 0;
   }

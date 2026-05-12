@@ -76,7 +76,7 @@
       {#each channels as ch (ch)}
         {@const av = availableMetricsByChannel[ch] || { monetary: [], physical: [] }}
         {@const locked = isLocked(ch)}
-        <tr>
+        <tr class:row-monetary={selection[ch] === 'monetary'} class:row-physical={selection[ch] === 'physical'}>
           <td class="channel-name">{ch}</td>
           <td class="available-metrics">
             {#if av.monetary.length > 0}
@@ -190,6 +190,16 @@
     vertical-align: middle;
   }
   .channels-table tr:last-child td { border-bottom: none; }
+  /* UX audit v1.3.0: visual feedback на selected row (был только radio dot, легко промахнуться). */
+  .channels-table tr.row-monetary {
+    background: color-mix(in srgb, var(--accent-primary) 4%, transparent);
+  }
+  .channels-table tr.row-physical {
+    background: color-mix(in srgb, var(--success, #4ade80) 4%, transparent);
+  }
+  .channels-table tbody tr:hover {
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  }
 
   .channel-name { font-weight: 600; }
   .available-metrics { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -219,7 +229,13 @@
     font-size: 12px;
     color: var(--text-secondary);
   }
-  .radio-cell label.locked { color: var(--text-muted); cursor: not-allowed; }
+  /* UX audit v1.3.0: clear disabled state (был просто muted color). */
+  .radio-cell label.locked {
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.5;
+    text-decoration: line-through;
+  }
   .radio-cell input[type="radio"]:disabled + * { color: var(--text-muted); }
 
   .actions {
