@@ -4,7 +4,7 @@
   /** @type {{cabinet: {id: string, name: string, description: string, icon: string, color: string}, onClick: () => void}} */
   let { cabinet, onClick } = $props();
 
-  // PSY-9: mastery counter — реактивный через milestones store
+  // PSY-9: mastery counter - реактивный через milestones store
   let usageCount = $derived.by(() => {
     $milestones; // track reactivity
     return getCabinetUsageCount(cabinet.id);
@@ -93,7 +93,7 @@
   <div class="card-body">
     <div class="card-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <!-- aurora-fix:safe V40 — iconMap/fallbackIcon содержат статические SVG-фрагменты из константы в этом же файле, без user input -->
+        <!-- aurora-fix:safe V40 - iconMap/fallbackIcon содержат статические SVG-фрагменты из константы в этом же файле, без user input -->
         {@html iconMap[cabinet.id] ?? fallbackIcon}
       </svg>
     </div>
@@ -164,7 +164,7 @@
     opacity: 1;
   }
 
-  /* ── Body — 10% more compact than original ── */
+  /* ── Body - 10% more compact than original ── */
   .card-body {
     padding: 18px 19px 10px;
     flex: 1;

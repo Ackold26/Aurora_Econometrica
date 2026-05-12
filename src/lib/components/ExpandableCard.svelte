@@ -4,8 +4,8 @@
    * Оборачивает любой контент (чарт, таблицу) и даёт кнопку развернуть/свернуть.
    *
    * Props:
-   *   title — заголовок карточки (то что раньше было .card-title)
-   *   children — содержимое (Svelte 5 snippet)
+   *   title - заголовок карточки (то что раньше было .card-title)
+   *   children - содержимое (Svelte 5 snippet)
    *
    * Поведение:
    *   - Клик по кнопке в углу → fullscreen overlay (fixed, backdrop-blur, centered)
@@ -50,7 +50,7 @@
 
 {#if expanded}
   <!-- Fullscreen overlay. При свёртке content перерисовывается в inline-режиме
-       ниже — чарты на основе canvas/svg пересоздадутся с правильными размерами. -->
+       ниже - чарты на основе canvas/svg пересоздадутся с правильными размерами. -->
   <div
     class="overlay"
     role="dialog"
@@ -250,7 +250,7 @@
     flex: 1;
     min-height: 0;
     overflow: auto;
-    /* Центровка содержимого в fullscreen — чтобы график не прилипал к верху,
+    /* Центровка содержимого в fullscreen - чтобы график не прилипал к верху,
        когда он меньше доступной высоты. */
     display: flex;
     align-items: center;
@@ -267,7 +267,7 @@
     justify-content: center;
   }
 
-  /* Увеличиваем высоту чартов в fullscreen — ~3× inline (inline 280px → fullscreen ~70vh).
+  /* Увеличиваем высоту чартов в fullscreen - ~3× inline (inline 280px → fullscreen ~70vh).
      ECharts-контейнеры имеют inline style="height:280px" → нужен !important чтобы перезаписать.
      ResizeObserver echarts подхватит новую высоту, SVG waterfall ресайзится через viewBox.
      Действует ТОЛЬКО в overlay, не на inline-виде на странице. */

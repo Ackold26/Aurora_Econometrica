@@ -1,6 +1,6 @@
 <script>
   /**
-   * Step 4: Budget Optimization — KILLER FEATURE.
+   * Step 4: Budget Optimization - KILLER FEATURE.
    * C1: builds scaledParams from modelData.channelParams + current_spend from optimize response.
    * C4: triggerCompletion() on step completion.
    * A4: media query for two-column layout < 1000px → stack.
@@ -45,7 +45,7 @@
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding, markOnboardingDone } from '$lib/onboarding-state.js';
 
-  // Onboarding — показываем первый визит на Optimize ТОЛЬКО когда блоки A-E
+  // Onboarding - показываем первый визит на Optimize ТОЛЬКО когда блоки A-E
   // действительно отрендерены (channels.length > 0, то есть после успешного train).
   // Иначе spotlight бьётся по пустому DOM и пользователь видит 6 абстрактных модалок.
   let showOnboarding = $state(false);
@@ -61,7 +61,7 @@
   });
   function restartOnboarding() {
     if (!channels || channels.length === 0) {
-      alert('Обучи модель на шаге «Моделирование» — тогда появятся блоки A-E и тур станет осмысленным.');
+      alert('Обучи модель на шаге «Моделирование» - тогда появятся блоки A-E и тур станет осмысленным.');
       return;
     }
     // Сбросить completed-флаг конкретно этого шага и запустить заново
@@ -71,7 +71,7 @@
 
   /**
    * Step-level reset (Антон 2026-05-03): возвращает шаг к первоначальному
-   * состоянию — ровно то, что customer видит когда впервые открывает шаг
+   * состоянию - ровно то, что customer видит когда впервые открывает шаг
    * Optimization после успешного train + decompose. Сохраняет: модель, decompose
    * результат, unit_costs (incl. historical inflation), channel categories,
    * activeProject. Сбрасывает: optimize результат, planning mode, picker, all
@@ -120,7 +120,7 @@
     applyInflation = false;
     channelInflation = {};
 
-    // Phase 2 — planning mode toggle + picker
+    // Phase 2 - planning mode toggle + picker
     planningMode.set('analyst');
     forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
     hierarchicalWarning = null;
@@ -141,16 +141,16 @@
   let budgetLocked = $state(true);
 
   /** v1.0.16: state для collapsible expert disclosure под Optimize controls.
-   *  Default collapsed — customer notices availability через arrow icon, может
+   *  Default collapsed - customer notices availability через arrow icon, может
    *  expand если нужны per-channel constraints. */
   let expertExpanded = $state(false);
-  /** Forecast inflation overlay внутри Block C (What-if). Default closed —
+  /** Forecast inflation overlay внутри Block C (What-if). Default closed -
    *  customer открывает disclosure если хочет применить медиаинфляцию следующего
    *  периода. Hydration inflation values gated на это, чтобы default forecast
    *  не выполнялся automatically. */
   let forecastExpanded = $state(false);
   /** v1.0.16: applyInflation = «учесть инфляцию в сохраняемом сценарии».
-   *  Когда true — saveWhatIfAsScenario использует ucNew вместо unit_costs. */
+   *  Когда true - saveWhatIfAsScenario использует ucNew вместо unit_costs. */
   let applyInflation = $state(false);
   // ucOldMap / ucNewMap declared LATER (after `channels`) to avoid TDZ.
 
@@ -158,7 +158,7 @@
    *  Forward (global → local): customer click «Эксперт» в header → expand both.
    *  Reverse (local → global): customer manually opens a disclosure → header
    *  badge активируется, signaling expert mode active.
-   *  Cascade trade-off: открытие одного locally также раскрывает другое — это
+   *  Cascade trade-off: открытие одного locally также раскрывает другое - это
    *  acceptable «expert mode is all-or-nothing» semantics. */
   $effect(() => {
     if ($expertMode) {
@@ -182,13 +182,13 @@
   // Pre-fix: при money_budget = current × 1.5, sum(upper bounds × 1.5) = current × 1.5 →
   // SLSQP не может двигаться кроме как все каналы to max → trivial scaling.
   // 20/200 даёт реальную свободу: 10× difference между bounds extremes vs prev 3×.
-  // Insights panel рекомендует 10/300 при binding — это escalation если defaults тоже binding.
+  // Insights panel рекомендует 10/300 при binding - это escalation если defaults тоже binding.
   let minPct = $state(20);
   let maxPct = $state(200);
 
   // F.1 (D.3 frontend): per-group sliders для Trust 3 brand vs performance.
   // null = use global. Сохраняем гибкость: пользователь явно opt-in включает per-group.
-  // Видны только когда модель hierarchical (≥2 brand или ≥2 perf — см. hasGroupSplit).
+  // Видны только когда модель hierarchical (≥2 brand или ≥2 perf - см. hasGroupSplit).
   /** @type {number | null} */
   let brandMinPct = $state(null);
   /** @type {number | null} */
@@ -199,7 +199,7 @@
   let perfMaxPct = $state(null);
   let groupSlidersExpanded = $state(false);
 
-  // O1.2 (Phase 0.1): dirty-state — если settings изменились после успешной
+  // O1.2 (Phase 0.1): dirty-state - если settings изменились после успешной
   // оптимизации, показываем индикатор у кнопки. Помогает Антону осознать
   // что нужно перезапустить optimize чтобы увидеть результат под новыми
   // settings. Snapshot обновляется AFTER successful response (см. runOptimize).
@@ -218,29 +218,29 @@
     return current !== lastOptimizeSettings;
   });
 
-  // AUDIT-5 — Inline validation: per-group max должен быть ≤ глобального max.
+  // AUDIT-5 - Inline validation: per-group max должен быть ≤ глобального max.
   // Backend всё равно вернёт INFEASIBLE_GROUP_HIERARCHY, но early UX feedback
   // экономит roundtrip + наглядно показывает причину рядом со слайдерами.
   let groupConstraintWarnings = $derived.by(() => {
     /** @type {string[]} */
     const warnings = [];
     if (brandMaxPct != null && brandMaxPct > maxPct) {
-      warnings.push(`Brand Макс. (${brandMaxPct}%) превышает глобальный Макс. (${maxPct}%) — backend вернёт ошибку.`);
+      warnings.push(`Brand Макс. (${brandMaxPct}%) превышает глобальный Макс. (${maxPct}%) - backend вернёт ошибку.`);
     }
     if (perfMaxPct != null && perfMaxPct > maxPct) {
-      warnings.push(`Perf Макс. (${perfMaxPct}%) превышает глобальный Макс. (${maxPct}%) — backend вернёт ошибку.`);
+      warnings.push(`Perf Макс. (${perfMaxPct}%) превышает глобальный Макс. (${maxPct}%) - backend вернёт ошибку.`);
     }
     if (brandMinPct != null && brandMaxPct != null && brandMinPct > brandMaxPct) {
-      warnings.push(`Brand Мин. (${brandMinPct}%) превышает Brand Макс. (${brandMaxPct}%) — диапазон пуст.`);
+      warnings.push(`Brand Мин. (${brandMinPct}%) превышает Brand Макс. (${brandMaxPct}%) - диапазон пуст.`);
     }
     if (perfMinPct != null && perfMaxPct != null && perfMinPct > perfMaxPct) {
-      warnings.push(`Perf Мин. (${perfMinPct}%) превышает Perf Макс. (${perfMaxPct}%) — диапазон пуст.`);
+      warnings.push(`Perf Мин. (${perfMinPct}%) превышает Perf Макс. (${perfMaxPct}%) - диапазон пуст.`);
     }
     return warnings;
   });
 
-  // F.3 — per-group sliders show только если МОДЕЛЬ hierarchical (не текущий UI state).
-  // AUDIT-3 (post-F audit): authoritative source — backend train response
+  // F.3 - per-group sliders show только если МОДЕЛЬ hierarchical (не текущий UI state).
+  // AUDIT-3 (post-F audit): authoritative source - backend train response
   // (`mData.diagnostics.hierarchical.enabled`), не volatile $channelCategories store.
   // Pre-fix: store отражал latest UI categorization, но обученная модель могла быть flat
   // (если user поменял категории после train, не переобучая). Frontend разрешал per-group
@@ -275,12 +275,12 @@
   /** @type {any} Результат what-if optimize */
   let whatIfResult = $state(null);
   let whatIfRunning = $state(false);
-  /** @type {string | null} — реальная ошибка (красный) */
+  /** @type {string | null} - реальная ошибка (красный) */
   let whatIfError = $state(null);
-  /** @type {string | null} — уведомление об успехе (зелёный) */
+  /** @type {string | null} - уведомление об успехе (зелёный) */
   let whatIfSuccess = $state(null);
 
-  // Автосброс whatIfResult при возврате слайдера к 1.0 — чтобы старый результат
+  // Автосброс whatIfResult при возврате слайдера к 1.0 - чтобы старый результат
   // не висел на экране при нулевой разнице.
   $effect(() => {
     if (Math.abs(whatIfMult - 1) < 0.01 && whatIfResult) {
@@ -289,7 +289,7 @@
   });
 
   // ── Phase 4: Forecast с медиаинфляцией ──────────────────
-  /** @type {Record<string, number>} — % инфляции per-канал (14 = +14%). */
+  /** @type {Record<string, number>} - % инфляции per-канал (14 = +14%). */
   let channelInflation = $state({});
   /** 'volume' = сохранить объём (нужно больше денег), 'budget' = сохранить бюджет. */
   let forecastMode = $state(/** @type {'volume' | 'budget'} */ ('volume'));
@@ -322,12 +322,12 @@
   const mData = $derived($modelData);
   const dData = $derived($decomposeData);
 
-  // v1.3.2: Primary actionable recommendation — biggest cut → biggest scale shift.
+  // v1.3.2: Primary actionable recommendation - biggest cut → biggest scale shift.
   // Mirror of DecomposeStep pattern. После forward optimize: переложить N ₽ из X в Y →
   // +M% продаж. Скрыто пока нет optData.channels или optimizer не сошёлся.
   const primaryOptimizeRecommendation = $derived.by(() => {
     if (!optData?.channels?.length) return null;
-    // Honest disclosure при failure states — recommendation не показывается.
+    // Honest disclosure при failure states - recommendation не показывается.
     if (optData.optimization_converged === false) return null;
     if (optData.binding_constraints) return null;
     if (optData.converged_at_current) return null;
@@ -339,7 +339,7 @@
       const optimal = Number(ch.optimal_spend ?? 0);
       if (!Number.isFinite(current) || !Number.isFinite(optimal)) continue;
       moves.push({
-        name: ch.name ?? '—',
+        name: ch.name ?? '-',
         current,
         optimal,
         delta: optimal - current,
@@ -368,7 +368,7 @@
         icon: '🎯',
         title: 'Главная рекомендация',
         text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен) в «${to.name}» (недонасыщен).${liftText}`,
-        detail: 'Это оптимальное перераспределение по результату модели. Двигайте ползунки в блоке «Распределение бюджета» чтобы проверить альтернативы — прогноз KPI пересчитывается в реальном времени.',
+        detail: 'Это оптимальное перераспределение по результату модели. Двигайте ползунки в блоке «Распределение бюджета» чтобы проверить альтернативы - прогноз KPI пересчитывается в реальном времени.',
         tone: 'success',
       };
     }
@@ -381,7 +381,7 @@
         icon: '📈',
         title: 'Главная рекомендация',
         text: `Нарастите бюджет «${to.name}» на ${formatMoney(Math.abs(to.delta))}.${liftText}`,
-        detail: 'Канал недонасыщен — каждый следующий рубль возвращает больше среднего по портфелю. Источник средств: roll-over бюджета или новое поступление.',
+        detail: 'Канал недонасыщен - каждый следующий рубль возвращает больше среднего по портфелю. Источник средств: roll-over бюджета или новое поступление.',
         tone: 'success',
       };
     }
@@ -390,7 +390,7 @@
       return {
         icon: '✂️',
         title: 'Главная рекомендация',
-        text: `Сократите бюджет «${from.name}» на ${formatMoney(Math.abs(from.delta))} — канал перенасыщен.`,
+        text: `Сократите бюджет «${from.name}» на ${formatMoney(Math.abs(from.delta))} - канал перенасыщен.`,
         detail: 'Каждый рубль приносит меньше среднего по портфелю. Освободившиеся средства можно перенаправить в активные каналы или сохранить как экономию.',
         tone: 'warn',
       };
@@ -406,26 +406,26 @@
 
   // ── Tooltip-помощь по всем опциям ─────────────────────────
   const HELP = {
-    totalBudget:    'Общий бюджет — сумма по всем каналам.\n\nПо умолчанию = текущий медиа-бюджет (рассчитан моделью). Изменение здесь = переход в режим What-if (пересчёт оптимума для другого бюджета).\n\nЕсли «Фиксировать бюджет» включён — это значение остаётся неизменным при оптимизации.',
-    minPct:         'Мин. % — нижняя граница изменения каждого канала при оптимизации.\n\n50% означает: бюджет канала может уменьшиться максимум вдвое.\n10% = почти любое сокращение разрешено.\n100% = сокращать каналы нельзя (только увеличивать).\n\nДля более радикальной оптимизации — снижайте Мин. %.',
-    maxPct:         'Макс. % — верхняя граница изменения каждого канала.\n\n150% = можно увеличить бюджет канала в 1.5 раза.\n100% = увеличивать нельзя (только перераспределять между каналами).\n300% = почти без верхнего лимита.\n\nДля более агрессивной оптимизации — повышайте Макс. %.',
-    brandMin:       'Brand Мин. % — нижняя граница для каналов категории «brand» (TV, OOH, brand-PR).\n\nПереопределяет глобальный Мин. % для brand-каналов. Не задано (—) = используется глобальный.\n\nКлассический use-case: «не сокращать TV ниже 80% — контракт на год».',
-    brandMax:       'Brand Макс. % — верхняя граница для brand-каналов.\n\nДолжен быть ≤ глобального Макс. (иначе ошибка constraint hierarchy). Например: brand_max=120% при global_max=200% означает «brand можно увеличить максимум на 20%, остальные до 200%».',
-    perfMin:        'Performance Мин. % — нижняя граница для каналов категории «performance» (Search, Social, Programmatic).\n\nПереопределяет глобальный Мин. % для performance-каналов. Не задано = глобальный.',
-    perfMax:        'Performance Макс. % — верхняя граница для performance-каналов.\n\nДолжен быть ≤ глобального Макс. Полезно когда performance уже на пике эффективности и дальнейшее наращивание не имеет смысла.',
-    lockBudget:     'Фиксировать бюджет — запрет на изменение общей суммы при оптимизации.\n\nВключено: оптимизатор только перераспределяет деньги между каналами, общий бюджет = totalBudget.\nВыключено: общий бюджет может меняться (модель найдёт оптимум любой суммы в рамках Мин/Макс per-channel).\n\nДля стандартной задачи «выжать максимум из имеющегося» — оставить включённым.',
+    totalBudget:    'Общий бюджет - сумма по всем каналам.\n\nПо умолчанию = текущий медиа-бюджет (рассчитан моделью). Изменение здесь = переход в режим What-if (пересчёт оптимума для другого бюджета).\n\nЕсли «Фиксировать бюджет» включён - это значение остаётся неизменным при оптимизации.',
+    minPct:         'Мин. % - нижняя граница изменения каждого канала при оптимизации.\n\n50% означает: бюджет канала может уменьшиться максимум вдвое.\n10% = почти любое сокращение разрешено.\n100% = сокращать каналы нельзя (только увеличивать).\n\nДля более радикальной оптимизации - снижайте Мин. %.',
+    maxPct:         'Макс. % - верхняя граница изменения каждого канала.\n\n150% = можно увеличить бюджет канала в 1.5 раза.\n100% = увеличивать нельзя (только перераспределять между каналами).\n300% = почти без верхнего лимита.\n\nДля более агрессивной оптимизации - повышайте Макс. %.',
+    brandMin:       'Brand Мин. % - нижняя граница для каналов категории «brand» (TV, OOH, brand-PR).\n\nПереопределяет глобальный Мин. % для brand-каналов. Не задано (-) = используется глобальный.\n\nКлассический use-case: «не сокращать TV ниже 80% - контракт на год».',
+    brandMax:       'Brand Макс. % - верхняя граница для brand-каналов.\n\nДолжен быть ≤ глобального Макс. (иначе ошибка constraint hierarchy). Например: brand_max=120% при global_max=200% означает «brand можно увеличить максимум на 20%, остальные до 200%».',
+    perfMin:        'Performance Мин. % - нижняя граница для каналов категории «performance» (Search, Social, Programmatic).\n\nПереопределяет глобальный Мин. % для performance-каналов. Не задано = глобальный.',
+    perfMax:        'Performance Макс. % - верхняя граница для performance-каналов.\n\nДолжен быть ≤ глобального Макс. Полезно когда performance уже на пике эффективности и дальнейшее наращивание не имеет смысла.',
+    lockBudget:     'Фиксировать бюджет - запрет на изменение общей суммы при оптимизации.\n\nВключено: оптимизатор только перераспределяет деньги между каналами, общий бюджет = totalBudget.\nВыключено: общий бюджет может меняться (модель найдёт оптимум любой суммы в рамках Мин/Макс per-channel).\n\nДля стандартной задачи «выжать максимум из имеющегося» - оставить включённым.',
     runOptimize:    'Запускает scipy SLSQP оптимизатор: ищет распределение бюджета, максимизирующее KPI при заданных ограничениях.\n\nВремя: 1-5 секунд для стандартного медиаплана.\n\nРезультат: новое распределение per-channel + ожидаемый прирост KPI (lift %).',
-    forecastKPI:    'Прогноз KPI — модельная оценка продаж при текущих значениях ползунков (или после оптимизации).\n\nРассчитывается через Hill saturation: вклад каждого канала суммируется по нормализованной шкале и переводится в реальные продажи.\n\nИспользуется как baseline для расчёта lift % при перераспределении.',
-    miROAS:         'miROAS (Marginal ROI) — отдача от СЛЕДУЮЩЕГО вложенного рубля в канал, не средняя.\n\nРассчитывается через производную response curve в текущей точке.\n\n> 1.5× — канал недонасыщен, стоит увеличить бюджет\n0.8 - 1.5× — канал в зоне стабильной отдачи\n< 0.8× — канал перенасыщен, уменьшить бюджет (каждый рубль приносит меньше расхода)',
-    responseCurves: 'Response Curves — кривые отдачи каналов от размера бюджета.\n\nX = бюджет канала, Y = вклад в KPI (продажи).\nТочка на кривой = текущая позиция (текущий бюджет канала).\nИзгиб (плато) = saturation: после этой точки каждый дополнительный рубль даёт меньше эффекта.\n\nЦель оптимизации — двигать точки вверх по кривой к более крутым участкам.',
-    avgROI:         'Средний ROI = суммарный вклад медиа в продажи ÷ суммарный бюджет.\n\nИндустриальный benchmark: > 2× — отлично, 1-2× — приемлемо, < 1× — медиа в среднем не окупается.',
-    saturation:     'Светофор насыщения каналов:\n🟢 Недонасыщен (mROAS > 1.5×) — кандидат на масштабирование\n🟡 Стабилен (0.8-1.5×) — оптимальная зона\n🔴 Перенасыщен (< 0.8×) — каждый дополнительный рубль работает в убыток',
+    forecastKPI:    'Прогноз KPI - модельная оценка продаж при текущих значениях ползунков (или после оптимизации).\n\nРассчитывается через Hill saturation: вклад каждого канала суммируется по нормализованной шкале и переводится в реальные продажи.\n\nИспользуется как baseline для расчёта lift % при перераспределении.',
+    miROAS:         'miROAS (Marginal ROI) - отдача от СЛЕДУЮЩЕГО вложенного рубля в канал, не средняя.\n\nРассчитывается через производную response curve в текущей точке.\n\n> 1.5× - канал недонасыщен, стоит увеличить бюджет\n0.8 - 1.5× - канал в зоне стабильной отдачи\n< 0.8× - канал перенасыщен, уменьшить бюджет (каждый рубль приносит меньше расхода)',
+    responseCurves: 'Response Curves - кривые отдачи каналов от размера бюджета.\n\nX = бюджет канала, Y = вклад в KPI (продажи).\nТочка на кривой = текущая позиция (текущий бюджет канала).\nИзгиб (плато) = saturation: после этой точки каждый дополнительный рубль даёт меньше эффекта.\n\nЦель оптимизации - двигать точки вверх по кривой к более крутым участкам.',
+    avgROI:         'Средний ROI = суммарный вклад медиа в продажи ÷ суммарный бюджет.\n\nИндустриальный benchmark: > 2× - отлично, 1-2× - приемлемо, < 1× - медиа в среднем не окупается.',
+    saturation:     'Светофор насыщения каналов:\n🟢 Недонасыщен (mROAS > 1.5×) - кандидат на масштабирование\n🟡 Стабилен (0.8-1.5×) - оптимальная зона\n🔴 Перенасыщен (< 0.8×) - каждый дополнительный рубль работает в убыток',
   };
 
-  // ── Phase 2 (Planning Mode) — derived context для всех downstream operations ──
+  // ── Phase 2 (Planning Mode) - derived context для всех downstream operations ──
   // Audit pass 4 (2026-05-02): planning budget должен ложиться в основу всех
   // нижележащих процессов: optimize, what-if, forecast inflation, scenarios.
-  // Centralized derived context — single source of truth для всех invoke calls.
+  // Centralized derived context - single source of truth для всех invoke calls.
   // NB: effectiveBaseBudget defined later (after currentTotalBudget) для declaration order.
   const isPlanning = $derived(
     $planningMode === 'planner'
@@ -440,7 +440,7 @@
   const planningPeriods = $derived(isPlanning ? $forecastConfig.periods : null);
   const planningLabel = $derived(isPlanning ? $forecastConfig.periodLabel : null);
 
-  // ── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ──
+  // ── Phase 2 (Planning Mode) - audit pass 2 2026-05-02 ──
   // Auto-fetch forecast context when planning mode toggled. Cleared on project change.
   // FIX 2026-05-04: добавлена зависимость на $modelData. Pre-fix: $effect срабатывал
   // только на mount (mode='planner', projectId не меняется), backend возвращал 400
@@ -449,25 +449,25 @@
   $effect(() => {
     const mode = $planningMode;
     const projectId = $activeProjectId;
-    const modelReady = $modelData; // dep — refetch when model becomes available
+    const modelReady = $modelData; // dep - refetch when model becomes available
     if (!projectId || mode !== 'planner') {
       forecastContext.set(null);
-      // L5: warning is planner-only — clear when leaving planner mode.
+      // L5: warning is planner-only - clear when leaving planner mode.
       hierarchicalWarning = null;
       return;
     }
-    if (!modelReady) return; // pickle ещё не создан — fetch вернёт 400
+    if (!modelReady) return; // pickle ещё не создан - fetch вернёт 400
     (async () => {
       try {
         const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
         const ctx = /** @type {any} */ (await invoke('econ_forecast_context', { projectDir }));
         if (ctx?.status === 'ok') forecastContext.set(ctx);
-      } catch { /* silent — planning mode degrades gracefully without context */ }
+      } catch { /* silent - planning mode degrades gracefully without context */ }
     })();
   });
 
   // Reset forecast config on project switch (P5 plan gap).
-  // Audit pass 3 fix (BUG 16): track previous projectId — only reset on actual
+  // Audit pass 3 fix (BUG 16): track previous projectId - only reset on actual
   // change. Pre-fix: $effect fired on initial mount → wiped user input при
   // every navigation back to OptimizeStep within same project.
   let _prevProjectIdForReset = /** @type {string | null} */ (null);
@@ -479,7 +479,7 @@
   // pickle, sum mismatch). See docs/OPTIMIZER_INVARIANTS_REGISTRY.md §I5b.
   let lastOptimalMoneyByChannel = $state(/** @type {number[] | null} */ (null));
 
-  // L5 (Phase 2.0 Part 2 — 2026-05-03): hierarchical β-pooling extrapolation
+  // L5 (Phase 2.0 Part 2 - 2026-05-03): hierarchical β-pooling extrapolation
   // warning. Surfaced post-optimize в planner mode когда planning_budget > 3×
   // training. Helper в utils/forecast_validation.hierarchical_extrapolation_warning;
   // null = no warning (flat model / non-brand / ratio ≤ threshold).
@@ -497,9 +497,9 @@
     _prevProjectIdForReset = projectId;
   });
 
-  // ── Блок A — статус-карточка «Текущий бюджет» ─────────────
+  // ── Блок A - статус-карточка «Текущий бюджет» ─────────────
   // Display-бюджет всегда в money (рубли), чтобы суммы между каналами были сопоставимы.
-  // Для optData используем current_spend_money (с unit_cost), fallback — current_spend.
+  // Для optData используем current_spend_money (с unit_cost), fallback - current_spend.
   // Для decompose fallback ch.spend уже в money (см. decomposer.py).
   const currentTotalBudget = $derived.by(() => {
     if (optData?.channels) {
@@ -512,7 +512,7 @@
     return 0;
   });
 
-  // Phase 2 effectiveBaseBudget — must come after currentTotalBudget declaration.
+  // Phase 2 effectiveBaseBudget - must come after currentTotalBudget declaration.
   // Single source of truth для optimize / what-if / forecast inflation baseline.
   const effectiveBaseBudget = $derived(
     planningBudgetMoney != null
@@ -549,16 +549,16 @@
   });
 
   /** @param {number} n @param {number} [dec] */
-  const fmtNum = (n, dec = 0) => Number.isFinite(n) ? n.toLocaleString('ru-RU', { maximumFractionDigits: dec }) : '—';
+  const fmtNum = (n, dec = 0) => Number.isFinite(n) ? n.toLocaleString('ru-RU', { maximumFractionDigits: dec }) : '-';
   /** @param {number} n */
   const fmtBudget = (n) => {
-    if (!Number.isFinite(n)) return '—';
+    if (!Number.isFinite(n)) return '-';
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + ' M ₽';
     if (n >= 1_000) return (n / 1_000).toFixed(0) + ' K ₽';
     return n.toFixed(0) + ' ₽';
   };
 
-  // Channels: основной источник — optimizeData; fallback — decomposeData (до первого optimize).
+  // Channels: основной источник - optimizeData; fallback - decomposeData (до первого optimize).
   // Так блок A (статус-карточка) работает сразу при заходе на шаг.
   /** @type {string[]} */
   const channels = $derived(
@@ -593,14 +593,14 @@
     return buildScaledParams(mData.channelParams, currentSpend);
   });
 
-  /** Normalization из тренировки модели (y_mean, y_std) — для денормализации в реальные единицы. */
+  /** Normalization из тренировки модели (y_mean, y_std) - для денормализации в реальные единицы. */
   const yNorm = $derived(mData?.normalization ?? null);
 
-  /** Current KPI at current_spend (baseline for lift% — per-period prediction в рублях). */
+  /** Current KPI at current_spend (baseline for lift% - per-period prediction в рублях). */
   const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm));
 
   /**
-   * miROAS per channel — marginal ROAS следующего рубля.
+   * miROAS per channel - marginal ROAS следующего рубля.
    *
    * L4 (math-fix v1.4 Section C, 2026-04-28): unified backend source. Both
    * decompose.json (idle) и optimize.json (post-optimize) теперь содержат
@@ -619,8 +619,8 @@
    *   action='Reduce' | 'Cut'         → 'low'   (🔴 сократить)
    *   action='Uncertain' | spend=0    → 'unused' (⚪ нет данных)
    * source:
-   *   'backend-optimize'   — после optimize (mroi_current от optimizer.py)
-   *   'backend-decompose'  — idle, pre-optimize (mroi_current от decomposer.py)
+   *   'backend-optimize'   - после optimize (mroi_current от optimizer.py)
+   *   'backend-decompose'  - idle, pre-optimize (mroi_current от decomposer.py)
    */
   const miROASMap = $derived.by(() => {
     /** @type {Record<string, {value: number, status: 'unused'|'good'|'ok'|'low', action: string, actionLabel: string, actionTone: string, actionReasoning: string, source: 'backend-optimize'|'backend-decompose'}>} */
@@ -637,12 +637,12 @@
       'сохранить': 'Hold',
     };
 
-    /** Audit fix (2026-04-29): Uncertain action covers 3 distinct causes —
+    /** Audit fix (2026-04-29): Uncertain action covers 3 distinct causes -
      *  (a) zero spend (channel not in portfolio, no signal possible),
      *  (b) untrained channel (zero training variance), no useful mroi,
      *  (c) wide CI (value present but uncertain). Pre-fix: all 3 mapped к
-     *  'unused' status which hides value via «—» display. Cause (c) had legit
-     *  mroi (e.g. 1.5×) hidden, confusing customer. Fix: split by value —
+     *  'unused' status which hides value via «-» display. Cause (c) had legit
+     *  mroi (e.g. 1.5×) hidden, confusing customer. Fix: split by value -
      *  zero value → 'unused' (canonical no signal), non-zero → 'ok' (display
      *  value with neutral status, customer sees number with reasoning tooltip).
      *  @param {string} action @param {number} value */
@@ -681,9 +681,9 @@
       return map;
     }
 
-    // Source #2: pre-optimize idle — use decompose action (mROAS-only heuristic,
+    // Source #2: pre-optimize idle - use decompose action (mROAS-only heuristic,
     // optimizer signal joins after run). Backend uses same _compute_mroas_money
-    // helper — guaranteed money-axis math, no mixed-unit drift.
+    // helper - guaranteed money-axis math, no mixed-unit drift.
     const dec = $decomposeData;
     if (dec?.channels && dec.channels.length > 0) {
       for (const ch of dec.channels) {
@@ -720,14 +720,14 @@
     return counts;
   });
 
-  /** Средняя инфляция по всем каналам — для UI-подсказки в блоке D. */
+  /** Средняя инфляция по всем каналам - для UI-подсказки в блоке D. */
   const avgInflation = $derived(
     channels.length > 0
       ? channels.reduce((s, ch) => s + (channelInflation[ch] ?? 0), 0) / channels.length
       : 0
   );
 
-  /** Shared channel budgets — source of truth for BudgetOptimizer & ResponseCurves */
+  /** Shared channel budgets - source of truth for BudgetOptimizer & ResponseCurves */
   let channelBudgets = $state(/** @type {Record<string, number>} */ ({}));
 
   /** Optimal budgets from last run */
@@ -748,7 +748,7 @@
    *  scale. Customer видит Прогноз KPI обновляющийся вместе со sliders, не
    *  frozen на baseline.
    *  Audit fix (2026-04-29): explicit Number.isFinite checks вместо truthiness
-   *  (`!liveKPI` was true for legitimate 0 values too — false positive guard). */
+   *  (`!liveKPI` was true for legitimate 0 values too - false positive guard). */
   const displayKPI = $derived.by(() => {
     const baseTotal = Number.isFinite(dData?.total_sales) ? dData.total_sales : currentKPI;
     if (!Number.isFinite(currentKPI) || currentKPI <= 0) return baseTotal;
@@ -757,7 +757,7 @@
   });
 
   // Init channelBudgets when optData OR decomposeData arrives.
-  // IMPORTANT: don't read stepState — recursive dep.
+  // IMPORTANT: don't read stepState - recursive dep.
   $effect(() => {
     const opt = $optimizeData;
     const dec = $decomposeData;
@@ -767,7 +767,7 @@
       channelBudgets = init;
       totalBudgetInput = opt.total_budget ?? null;
     } else if (dec?.channels && dec.channels.length > 0 && Object.keys(channelBudgets).length === 0) {
-      // Fallback init from decompose (до первого optimize) — чтобы блок B был интерактивен.
+      // Fallback init from decompose (до первого optimize) - чтобы блок B был интерактивен.
       // Берём raw_spend (native units для Hill), не .spend (money).
       const init = /** @type {Record<string, number>} */ ({});
       for (const ch of dec.channels) init[ch.name] = ch.raw_spend ?? ch.spend ?? 0;
@@ -829,7 +829,7 @@
 
   /** L8 (math-fix v1.4 Section C, 2026-04-29): количество каналов с per-channel
    *  override. Pre-fix: customer движет global Min/Max slider, но per-channel
-   *  overrides остаются tacit — глобальные limits не применяются. Confusion source.
+   *  overrides остаются tacit - глобальные limits не применяются. Confusion source.
    *  Banner с reset action surfaces проблему когда expert section collapsed. */
   const overrideCount = $derived(
     channels.filter((/** @type {string} */ ch) => hasCustomLimit(ch)).length
@@ -847,11 +847,11 @@
     });
   }
 
-  /** Получить projectId — сначала из store, потом ждём, потом fallback на backend. */
+  /** Получить projectId - сначала из store, потом ждём, потом fallback на backend. */
   async function ensureProjectId() {
     let projectId = await waitForProjectId(1500);
     if (projectId) return projectId;
-    // Fallback: store пуст после HMR/reload — спросим backend напрямую.
+    // Fallback: store пуст после HMR/reload - спросим backend напрямую.
     try {
       projectId = /** @type {string|null} */ (await invoke('project_get_active'));
       if (projectId) {
@@ -879,7 +879,7 @@
       // оптимум для текущего бюджета → whatif вокруг этого оптимума.
       // Math: пропорции каналов фиксируются от optimal allocation, scale на
       // whatIfMult, KPI считается через Hill saturation на новом spend.
-      // Никакой переоптимизации — это direct test on saturation curve вдоль
+      // Никакой переоптимизации - это direct test on saturation curve вдоль
       // optimal direction. Pure-frontend (без backend roundtrip) через
       // predictKPI helper, который уже работает в Block A для current KPI.
       if (!optData?.channels?.length) {
@@ -934,13 +934,13 @@
   }
 
   /** Сохранить What-if result как именованный сценарий.
-   *  v1.0.16: optional unitCostsOverride — когда applyInflation=true,
+   *  v1.0.16: optional unitCostsOverride - когда applyInflation=true,
    *  передаётся ucNew (uc0 × (1+infl/100)), сценарий сохраняется с post-inflation
    *  unit_costs. Backend econ_scenario принимает unit_costs для пересчёта money.
-   *  KPI прогноз не меняется — объём медиа preserved через media_plan.
+   *  KPI прогноз не меняется - объём медиа preserved через media_plan.
    *  @param {Record<string, number> | null} unitCostsOverride */
   async function saveWhatIfAsScenario(unitCostsOverride = null) {
-    // v1.0.16: zero-scenario support — если whatIf не запущен но customer
+    // v1.0.16: zero-scenario support - если whatIf не запущен но customer
     // активировал applyInflation, сохраняется current allocation с inflation
     // overlay. media_plan = current spend per channel (объём не меняется).
     const projectId = await ensureProjectId();
@@ -953,7 +953,7 @@
       if (sourceChannels) {
         for (const c of sourceChannels) mediaPlan[c.name] = [c.optimal_spend ?? 0];
       } else {
-        // Zero scenario — use current allocation
+        // Zero scenario - use current allocation
         for (const ch of channels) mediaPlan[ch] = [currentSpend[ch] ?? 0];
       }
       const inflTag = unitCostsOverride ? '-infl' : '';
@@ -985,7 +985,7 @@
 
   // v1.0.16: Hydrate channelInflation ТОЛЬКО когда forecast блок expanded.
   // Pre-fix: defaults (8% per category) populated automatically при появлении
-  // каналов — customer не активировал блок но «по-умолчанию» имел inflation
+  // каналов - customer не активировал блок но «по-умолчанию» имел inflation
   // recommendations, что можно интерпретировать как авто-расчёт без согласия.
   // Post-fix: hydration deferred до момента когда customer открывает блок D
   // (expert disclosure). До тех пор channelInflation = {} → forecast не
@@ -1021,7 +1021,7 @@
       // ── Режим «Сохранить объём»: raw_spend per channel НЕ меняется ──
       // v1.0.16 audit fix: pre-fix вызывал optimizer с native-budget constraint
       // и maxPct=300 → optimizer redistributed allocation в новой экономике,
-      // показывал KPI lift +35%. Customer ожидал противоположного — объём
+      // показывал KPI lift +35%. Customer ожидал противоположного - объём
       // медиа сохраняется, цена растёт, KPI = неизменный (Hill saturation на
       // raw_spend которые остались прежними). Fix: skip optimizer для volume
       // mode, build static result локально (per-channel raw_spend = current,
@@ -1056,7 +1056,7 @@
           insight: (
             `При сохранении медиа-объёма потребуется ${(newMoneyTotal / 1e6).toFixed(1)} млн ₽ ` +
             `(было ${(currentMoney / 1e6).toFixed(1)} млн ₽, рост ${((newMoneyTotal / Math.max(currentMoney, 1) - 1) * 100).toFixed(1)}%). ` +
-            `KPI остаётся прежним — медиа-объём (TRP/показы) не изменился, выросли лишь закупочные цены.`
+            `KPI остаётся прежним - медиа-объём (TRP/показы) не изменился, выросли лишь закупочные цены.`
           ),
         };
         return;
@@ -1071,7 +1071,7 @@
 
       // Phase 2 audit pass 4: forecast inflation в planner mode использует
       // planning budget (not training currentMoney). Inflation применяется
-      // к unit_costs независимо от scale — но baseline budget = planning.
+      // к unit_costs независимо от scale - но baseline budget = planning.
       const baseMoneyForInflation = planningBudgetMoney != null ? planningBudgetMoney : currentMoney;
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
@@ -1141,7 +1141,7 @@
 
   /** Run scipy optimization */
   async function runOptimize() {
-    // Сразу показываем loading — пользователь видит, что клик сработал.
+    // Сразу показываем loading - пользователь видит, что клик сработал.
     stepState = 'optimizing';
     errorMessage = null;
     isComputing.set(true);
@@ -1165,14 +1165,14 @@
       // moved global slider after that, per-channel остались на старом значении
       // and **overrode** new global → backend получал stale 100/190 вместо
       // 10/300. Now: skip пере-channel value if it equals global (user не
-      // меняла его явно) — backend applies new global automatically.
+      // меняла его явно) - backend applies new global automatically.
       let minPerChannel = null;
       let maxPerChannel = null;
       if ($expertMode && channels.length > 0) {
         const minMap = /** @type {Record<string, number>} */ ({});
         const maxMap = /** @type {Record<string, number>} */ ({});
         for (const ch of channels) {
-          // Передаём ТОЛЬКО если значение отличается от текущего global —
+          // Передаём ТОЛЬКО если значение отличается от текущего global -
           // тогда это явная per-channel настройка экспертного режима.
           if (channelMinPct[ch] != null && channelMinPct[ch] !== minPct) {
             minMap[ch] = channelMinPct[ch];
@@ -1186,13 +1186,13 @@
       }
       // Phase 0.1 hotfix #17 (2026-04-26): pass money budget explicitly.
       // Pre-fix: totalBudgetMoney=null → backend native sum constraint.
-      // На mixed-units (TRPs + рубли) native sum арифметически бессмыслен —
+      // На mixed-units (TRPs + рубли) native sum арифметически бессмыслен -
       // optimizer не находил redistribution, all caps на current. Money mode
       // даёт physically meaningful constraint (sum money = const), позволяет
       // SLSQP redistribute между каналами при условии same total money budget.
-      // Phase 2 — main optimize читает централизованный planning context.
+      // Phase 2 - main optimize читает централизованный planning context.
       // Audit pass 4: единый source of truth (effectiveBaseBudget + planningPeriods)
-      // для optimize / what-if / forecast inflation — не дублируем логику.
+      // для optimize / what-if / forecast inflation - не дублируем логику.
       const finalTotalBudgetMoney = effectiveBaseBudget > 0 ? effectiveBaseBudget : null;
 
       const result = /** @type {any} */ (await invoke('econ_optimize', {
@@ -1203,13 +1203,13 @@
         maxPct,
         minPerChannel,
         maxPerChannel,
-        // F.2 — per-group constraints (D.3 backend). null = optimizer falls back к global.
+        // F.2 - per-group constraints (D.3 backend). null = optimizer falls back к global.
         brandMinPct,
         brandMaxPct,
         perfMinPct,
         perfMaxPct,
         unitCosts: get(unitCosts) ?? {},
-        // Phase 2 — null преserves analyst mode byte-exact
+        // Phase 2 - null преserves analyst mode byte-exact
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
         unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
@@ -1225,9 +1225,9 @@
           /** @param {any} ch */ (ch) => ch.optimal_spend_money,
         );
 
-        // L5 — surface hierarchical β-pooling warning при extreme extrapolation
+        // L5 - surface hierarchical β-pooling warning при extreme extrapolation
         // (planning_budget > 3× training). Non-blocking advisory: optimize result
-        // показывается independently. Failure silent — degrades к no-warning.
+        // показывается independently. Failure silent - degrades к no-warning.
         // FIX 2026-05-04: trainTotalMoney = currentTotalBudget (decompose total
         // = visual «Текущий бюджет» в Block A). Backend pickle sum через
         // media_cols давал subset (brand-only после merge_rules) → ratio 6.4×
@@ -1246,7 +1246,7 @@
               if (warnRes?.status === 'ok' && warnRes.warning) {
                 hierarchicalWarning = warnRes.warning;
               }
-            } catch { /* silent — advisory check, не блокирует optimize result */ }
+            } catch { /* silent - advisory check, не блокирует optimize result */ }
           })();
         }
 
@@ -1378,12 +1378,12 @@
     </div>
   {/if}
 
-  <!-- Trust banner — наследуем smell_flags от decompose -->
+  <!-- Trust banner - наследуем smell_flags от decompose -->
   {#if dData?.smell_flags?.length}
     <TrustBanner flags={dData.smell_flags} />
   {/if}
 
-  <!-- ══════════ v1.3.0 — Task toggle (Forward | Goal-Seek) per ADR-014 ══════════ -->
+  <!-- ══════════ v1.3.0 - Task toggle (Forward | Goal-Seek) per ADR-014 ══════════ -->
   <section class="task-toggle" aria-label="Тип задачи оптимизации">
     <div class="task-pills" role="radiogroup">
       <button
@@ -1397,7 +1397,7 @@
         <span class="pill-icon">📊</span>
         <div class="pill-text">
           <strong>От бюджета</strong>
-          <span class="pill-sub">Forward — куда вложить</span>
+          <span class="pill-sub">Forward - куда вложить</span>
         </div>
       </button>
       <button
@@ -1411,7 +1411,7 @@
         <span class="pill-icon">🎯</span>
         <div class="pill-text">
           <strong>От цели</strong>
-          <span class="pill-sub">Goal-Seek — сколько потратить</span>
+          <span class="pill-sub">Goal-Seek - сколько потратить</span>
         </div>
       </button>
     </div>
@@ -1424,7 +1424,7 @@
     />
   {:else}
 
-  <!-- ══════════ Phase 2 — Mode toggle (Analyst | Planner) ══════════ -->
+  <!-- ══════════ Phase 2 - Mode toggle (Analyst | Planner) ══════════ -->
   <section class="planning-mode-toggle" aria-label="Режим работы">
     <div class="mode-pills" role="radiogroup">
       <button
@@ -1450,7 +1450,7 @@
     </div>
     <p class="mode-hint">
       {#if $planningMode === 'planner'}
-        Подберите оптимальное распределение бюджета для будущего периода — оптимизатор переключился на планирующий режим
+        Подберите оптимальное распределение бюджета для будущего периода - оптимизатор переключился на планирующий режим
         (per-period Hill summation, 3-way alignment с scenario engine).
       {:else}
         Оптимизатор работает в обучающем масштабе времени. Доли каналов валидны для сопоставимого периода.
@@ -1458,7 +1458,7 @@
     </p>
   </section>
 
-  <!-- Phase 2 — Forecast horizon picker (только в planner mode) -->
+  <!-- Phase 2 - Forecast horizon picker (только в planner mode) -->
   {#if $planningMode === 'planner' && currentTotalBudget > 0}
     <ForecastHorizonPicker
       trainNPeriods={dData?.time_series?.dates?.length ?? $forecastContext?.train_n_periods ?? 52}
@@ -1466,12 +1466,12 @@
     />
   {/if}
 
-  <!-- ════════════════ БЛОК A — Текущий бюджет (статус-карточка) ════════════════ -->
+  <!-- ════════════════ БЛОК A - Текущий бюджет (статус-карточка) ════════════════ -->
   <section class="block block-status">
     <div class="block-header">
       <span class="block-letter">A</span>
       <h3 class="block-title">Текущий бюджет</h3>
-      <span class="block-subtitle">— стартовая точка вашего медиаплана</span>
+      <span class="block-subtitle">- стартовая точка вашего медиаплана</span>
     </div>
     <div class="status-grid">
       <div class="status-cell">
@@ -1493,7 +1493,7 @@
           Средний ROI<span class="help-icon" title={HELP.avgROI}>?</span>
         </div>
         <div class="status-value" class:good={avgROI != null && avgROI >= 2} class:warn={avgROI != null && avgROI < 1}>
-          {avgROI != null ? avgROI.toFixed(2) + '×' : '—'}
+          {avgROI != null ? avgROI.toFixed(2) + '×' : '-'}
         </div>
         <div class="status-sub">вклад ÷ расход</div>
       </div>
@@ -1502,11 +1502,11 @@
           Светофор насыщения<span class="help-icon" title={HELP.saturation}>?</span>
         </div>
         <div class="status-value status-traffic">
-          <span class="traffic-good" title="Недонасыщенные — масштабировать">🟢 {saturationCount.good}</span>
+          <span class="traffic-good" title="Недонасыщенные - масштабировать">🟢 {saturationCount.good}</span>
           <span class="traffic-ok"   title="Стабильные">🟡 {saturationCount.ok}</span>
-          <span class="traffic-low"  title="Перенасыщенные — сократить">🔴 {saturationCount.low}</span>
+          <span class="traffic-low"  title="Перенасыщенные - сократить">🔴 {saturationCount.low}</span>
           {#if saturationCount.unused > 0}
-            <span class="traffic-unused" title="Каналы с нулевым бюджетом — не используются">⚪ {saturationCount.unused}</span>
+            <span class="traffic-unused" title="Каналы с нулевым бюджетом - не используются">⚪ {saturationCount.unused}</span>
           {/if}
         </div>
         <div class="status-sub">по mROAS каналов</div>
@@ -1514,15 +1514,15 @@
     </div>
   </section>
 
-  <!-- ════════════════ БЛОК B — Оптимизация в рамках текущего бюджета ════════════════ -->
+  <!-- ════════════════ БЛОК B - Оптимизация в рамках текущего бюджета ════════════════ -->
   <section class="block block-optimize">
     <div class="block-header">
       <span class="block-letter">B</span>
       <h3 class="block-title">Оптимизация распределения</h3>
-      <span class="block-subtitle">— выжать максимум из текущего бюджета</span>
+      <span class="block-subtitle">- выжать максимум из текущего бюджета</span>
     </div>
 
-    <!-- Phase 2 (Planning Mode active) — explicit context banner показывая
+    <!-- Phase 2 (Planning Mode active) - explicit context banner показывая
          связь между ForecastHorizonPicker и текущей оптимизацией. -->
     {#if $planningMode === 'planner' && $forecastConfig.periods != null && $forecastConfig.budgetMoney != null}
       <div class="planning-active-banner">
@@ -1540,7 +1540,7 @@
       </div>
     {/if}
 
-    <!-- L5 (Phase 2.0 Part 2 — 2026-05-03): Hierarchical β-pooling extrapolation
+    <!-- L5 (Phase 2.0 Part 2 - 2026-05-03): Hierarchical β-pooling extrapolation
          warning. Появляется post-optimize в planner mode когда planning_budget >
          3× training (порог из M8 drift convention). Иерархическая модель усредняет
          β между brand-каналами → top performer может быть занижен на 5-15% в zone
@@ -1559,38 +1559,38 @@
       </div>
     {/if}
 
-    <!-- Planning horizon warning (legacy Phase 1 disclosure) — скрывается в
+    <!-- Planning horizon warning (legacy Phase 1 disclosure) - скрывается в
          planner mode т.к. Phase 2 уже решает эту проблему. Видимость сохранена
          в analyst mode для backward compat. -->
     {#if $planningMode !== 'planner'}
     <div class="planning-warn">
       <div class="planning-warn-icon">📅</div>
       <div class="planning-warn-body">
-        <div class="planning-warn-title">Текущая версия — анализ исторического распределения</div>
+        <div class="planning-warn-title">Текущая версия - анализ исторического распределения</div>
         <div class="planning-warn-text">
           Optimizer показывает оптимум для бюджета <strong>периода обучения</strong>
           (за все годы данных). Для планирования будущего периода:
         </div>
         <ul class="planning-warn-list">
           <li>
-            <strong>Используйте доли каналов</strong> (например, «TV — 84%, Performance — 1.3%, Search — 0.4%»).
-            Они валидны для <strong>сопоставимого</strong> по длине периода (год/полугодие/квартал — если обучали на нескольких годах).
+            <strong>Используйте доли каналов</strong> (например, «TV - 84%, Performance - 1.3%, Search - 0.4%»).
+            Они валидны для <strong>сопоставимого</strong> по длине периода (год/полугодие/квартал - если обучали на нескольких годах).
           </li>
           <li>
-            <strong>НЕ применяйте absolute суммы напрямую</strong> к forecast budget — они для всего training periodа.
+            <strong>НЕ применяйте absolute суммы напрямую</strong> к forecast budget - они для всего training periodа.
             Делите на (training_horizon ÷ forecast_horizon): если обучали на 3 годах, для года делите на 3.
           </li>
           <li>
             <strong>Forecast period должен быть ≥ training granularity.</strong>
-            Для месячных данных нельзя планировать на день/неделю — saturation калибрована per month.
+            Для месячных данных нельзя планировать на день/неделю - saturation калибрована per month.
           </li>
           <li>
-            <strong>Прогноз KPI %</strong> также рассчитан для training horizon. Для другого периода —
+            <strong>Прогноз KPI %</strong> также рассчитан для training horizon. Для другого периода -
             реальный лифт пропорционален длительности.
           </li>
         </ul>
         <div class="planning-warn-roadmap">
-          🚧 В roadmap: «Период планирования» (год / квартал / полугодие) + «Бюджет на период» —
+          🚧 В roadmap: «Период планирования» (год / квартал / полугодие) + «Бюджет на период» -
           backend пересчитает all numbers в forecast scale напрямую, без manual ratios.
         </div>
       </div>
@@ -1613,12 +1613,12 @@
         <!-- L9 final (math-fix v1.4 Section C, 2026-04-29): UI-control скрыт до
              v1.1. Pre-fix v1.0.15: checkbox активен, переключал budget mode но
              free-budget implementation incomplete. v1.0.16 Day 4: disabled с
-             tooltip — UX дискомфорт (customer видит control без возможности
+             tooltip - UX дискомфорт (customer видит control без возможности
              использовать). Final v1.0.16: скрыт полностью, backend всегда
              получает budget_mode='fixed' (default). Возвращаем в UI когда
              true free-budget mode будет реализован в v1.1 (~16-24h работы:
              optimizer math + small-data validation + UX paths).
-             budgetLocked store сохранён к Day 4 default (true) — passes к
+             budgetLocked store сохранён к Day 4 default (true) - passes к
              BudgetOptimizer locked prop без визуального selector. -->
         <button
           class="btn-run"
@@ -1629,7 +1629,7 @@
           {stepState === 'optimizing' ? 'Оптимизирую...' : '🎯 Оптимизировать бюджет'}
         </button>
         {#if optimizeSettingsDirty}
-          <span class="dirty-hint" title="Настройки изменились — перезапустите оптимизацию для актуального результата">
+          <span class="dirty-hint" title="Настройки изменились - перезапустите оптимизацию для актуального результата">
             ⚙️ Настройки изменились
           </span>
         {/if}
@@ -1675,22 +1675,22 @@
             <div class="group-instr-title">Типичные сценарии:</div>
             <ul class="group-instr-list">
               <li>
-                <strong>«Сохранить TV-контракт»</strong> — Brand закреплён годовым контрактом (нельзя резко сократить). Поставь
-                <code>Brand Мин. = 90%</code>, <code>Brand Макс. = 110%</code>. Performance оставь свободным (Мин. 20%, Макс. 200%) — оптимизатор перераспределит внутри performance + Статьи.
+                <strong>«Сохранить TV-контракт»</strong> - Brand закреплён годовым контрактом (нельзя резко сократить). Поставь
+                <code>Brand Мин. = 90%</code>, <code>Brand Макс. = 110%</code>. Performance оставь свободным (Мин. 20%, Макс. 200%) - оптимизатор перераспределит внутри performance + Статьи.
               </li>
               <li>
-                <strong>«Растить performance, не трогать brand»</strong> — поставь
+                <strong>«Растить performance, не трогать brand»</strong> - поставь
                 <code>🔒 Lock Brand 100%</code> (Brand=100/100), Performance оставь свободным. Optimizer перебросит деньги между performance-каналами без касания TV/OOH.
               </li>
               <li>
-                <strong>«Точно знаю что хочу +30% в performance»</strong> — <code>Perf Мин. = 130%</code>, остальное free. Optimizer найдёт оптимум при условии что суммарный performance ≥ 130% от текущего.
+                <strong>«Точно знаю что хочу +30% в performance»</strong> - <code>Perf Мин. = 130%</code>, остальное free. Optimizer найдёт оптимум при условии что суммарный performance ≥ 130% от текущего.
               </li>
               <li>
-                <strong>⚠️ Lock+Lock = 0% lift.</strong> Если оба <code>🔒 Lock 100%</code> заданы и есть только 1 mixed канал — optimizer заморожен (нет степеней свободы). Сначала очисти один из Lock'ов или дай группе свободу (например, Brand 95-105%).
+                <strong>⚠️ Lock+Lock = 0% lift.</strong> Если оба <code>🔒 Lock 100%</code> заданы и есть только 1 mixed канал - optimizer заморожен (нет степеней свободы). Сначала очисти один из Lock'ов или дай группе свободу (например, Brand 95-105%).
               </li>
             </ul>
             <div class="group-instr-defaults">
-              <strong>По умолчанию</strong> per-group отключены — все каналы используют глобальные Мин/Макс (20% / 200%). Активируй только когда нужны разные правила для brand vs performance.
+              <strong>По умолчанию</strong> per-group отключены - все каналы используют глобальные Мин/Макс (20% / 200%). Активируй только когда нужны разные правила для brand vs performance.
             </div>
           </div>
 
@@ -1707,7 +1707,7 @@
                   aria-label="Brand минимальный процент"
                   aria-valuetext={brandMinPct != null ? `${brandMinPct} процентов (явно задан)` : `${minPct} процентов (глобальный)`}
                 />
-                <span class="mini-val">{brandMinPct != null ? `${brandMinPct}%` : `— (${minPct}%)`}</span>
+                <span class="mini-val">{brandMinPct != null ? `${brandMinPct}%` : `- (${minPct}%)`}</span>
                 {#if brandMinPct != null}
                   <button class="btn-clear" onclick={() => brandMinPct = null} title="Сбросить к глобальному" aria-label="Сбросить Brand Мин. к глобальному">×</button>
                 {/if}
@@ -1722,7 +1722,7 @@
                   aria-label="Brand максимальный процент"
                   aria-valuetext={brandMaxPct != null ? `${brandMaxPct} процентов (явно задан)` : `${maxPct} процентов (глобальный)`}
                 />
-                <span class="mini-val">{brandMaxPct != null ? `${brandMaxPct}%` : `— (${maxPct}%)`}</span>
+                <span class="mini-val">{brandMaxPct != null ? `${brandMaxPct}%` : `- (${maxPct}%)`}</span>
                 {#if brandMaxPct != null}
                   <button class="btn-clear" onclick={() => brandMaxPct = null} title="Сбросить к глобальному" aria-label="Сбросить Brand Макс. к глобальному">×</button>
                 {/if}
@@ -1747,7 +1747,7 @@
                   aria-label="Performance минимальный процент"
                   aria-valuetext={perfMinPct != null ? `${perfMinPct} процентов (явно задан)` : `${minPct} процентов (глобальный)`}
                 />
-                <span class="mini-val">{perfMinPct != null ? `${perfMinPct}%` : `— (${minPct}%)`}</span>
+                <span class="mini-val">{perfMinPct != null ? `${perfMinPct}%` : `- (${minPct}%)`}</span>
                 {#if perfMinPct != null}
                   <button class="btn-clear" onclick={() => perfMinPct = null} title="Сбросить к глобальному" aria-label="Сбросить Perf Мин. к глобальному">×</button>
                 {/if}
@@ -1762,7 +1762,7 @@
                   aria-label="Performance максимальный процент"
                   aria-valuetext={perfMaxPct != null ? `${perfMaxPct} процентов (явно задан)` : `${maxPct} процентов (глобальный)`}
                 />
-                <span class="mini-val">{perfMaxPct != null ? `${perfMaxPct}%` : `— (${maxPct}%)`}</span>
+                <span class="mini-val">{perfMaxPct != null ? `${perfMaxPct}%` : `- (${maxPct}%)`}</span>
                 {#if perfMaxPct != null}
                   <button class="btn-clear" onclick={() => perfMaxPct = null} title="Сбросить к глобальному" aria-label="Сбросить Perf Макс. к глобальному">×</button>
                 {/if}
@@ -1777,7 +1777,7 @@
             </div>
           </div>
           <p class="group-hint">
-            Brand/Perf max должны быть ≤ глобального Макс ({maxPct}%) — иначе backend вернёт ошибку constraint hierarchy.
+            Brand/Perf max должны быть ≤ глобального Макс ({maxPct}%) - иначе backend вернёт ошибку constraint hierarchy.
             Mixed-каналы всегда наследуют глобальные ограничения.
           </p>
           {#if groupConstraintWarnings.length > 0}
@@ -1792,7 +1792,7 @@
     </div>
 
     <!-- L8: per-channel override warning. Persistent banner когда есть каналы
-         с individual Min/Max — surfaces проблему когда expert section collapsed
+         с individual Min/Max - surfaces проблему когда expert section collapsed
          (где иначе orange dot indicators скрыты). -->
     {#if overrideCount > 0}
       <div class="override-banner">
@@ -1800,7 +1800,7 @@
         <p class="banner-text">
           У <strong>{overrideCount}</strong>
           {overrideCount === 1 ? 'канала' : (overrideCount < 5 ? 'каналов' : 'каналов')}
-          задан per-channel Мин/Макс — глобальные ограничения выше для них не применяются.
+          задан per-channel Мин/Макс - глобальные ограничения выше для них не применяются.
         </p>
         <button class="btn-override-reset" onclick={resetChannelLimits}>
           ↺ Сбросить все
@@ -1810,7 +1810,7 @@
 
     <!-- Экспертный режим: per-channel ограничения Мин/Макс -->
     <!-- v1.0.16: collapsible expert disclosure (visible to all users, not gated
-         to global $expertMode). Default collapsed — customer notices availability
+         to global $expertMode). Default collapsed - customer notices availability
          через arrow icon. Click expand → per-channel Min/Max + preset buttons.
          Same info-toggle pattern как ReportStep cover letter / interpretation. -->
     {#if channels.length > 0}
@@ -1819,14 +1819,14 @@
           <span class="expert-arrow">▸</span>
           <span class="expert-badge">ЭКСПЕРТ</span>
           <span class="expert-toggle-title">Ограничения по каналам</span>
-          <span class="expert-toggle-hint">— per-channel Мин/Макс для баинговых сделок и фиксированных контрактов</span>
+          <span class="expert-toggle-hint">- per-channel Мин/Макс для баинговых сделок и фиксированных контрактов</span>
           {#if overrideCount > 0}
             <span class="expert-toggle-count">{overrideCount} активных</span>
           {/if}
         </summary>
         <div class="expert-disclosure-body">
         <div class="expert-header">
-          <span class="expert-subtitle">Глобальные Мин/Макс выше применяются ко всем каналам по умолчанию. Здесь — индивидуальные ограничения для каждого канала.</span>
+          <span class="expert-subtitle">Глобальные Мин/Макс выше применяются ко всем каналам по умолчанию. Здесь - индивидуальные ограничения для каждого канала.</span>
           <button class="btn-reset-limits" onclick={resetChannelLimits} title="Сбросить все на глобальные Мин/Макс">↺ Сбросить</button>
         </div>
         <div class="limits-table">
@@ -1879,7 +1879,7 @@
         </div>
         <p class="expert-hint">
           <span class="help-icon" title="Зафиксирован: годовая сделка, бюджет неизменен. Только ↑: фиксированный минимум, можно увеличивать. Только ↓: бюджет ограничен сверху, можно сокращать. Гибкий: ±50%. Свободно: без ограничений.">?</span>
-          Пресеты — быстрая точка старта; ручной ввод даёт полный контроль.
+          Пресеты - быстрая точка старта; ручной ввод даёт полный контроль.
         </p>
         </div>
       </details>
@@ -1888,7 +1888,7 @@
     <!-- L7 (math-fix v1.4 Section C, 2026-04-29): edge-case banners для honest
          объяснения когда optimizer не нашёл lift или не может оптимизировать.
          Mutually exclusive (priority order: baseline_zero > binding > converged).
-         Pre-fix: customer видел только «+0.0%» без context — терял доверие к
+         Pre-fix: customer видел только «+0.0%» без context - терял доверие к
          optimizer'у думая что он сломан, даже когда он correctly reported
          constraint state. Surfaces backend flags из Section A + L10 fix. -->
     {#if optData?.baseline_zero}
@@ -1896,7 +1896,7 @@
         <span class="banner-icon">🚨</span>
         <p class="banner-text">
           <strong>Медиа-вклад равен нулю.</strong>
-          Текущая аллокация не даёт измеримого эффекта на KPI — оптимизация
+          Текущая аллокация не даёт измеримого эффекта на KPI - оптимизация
           невозможна. Проверьте качество данных на шаге «Валидация» (нулевые
           spend, отсутствие связи с KPI, untrained channels).
         </p>
@@ -1927,9 +1927,9 @@
         <span class="insight-icon">🎯</span>
         <p class="insight-text">{optData.insight}</p>
       </div>
-      <!-- 2026-05-04 (audit fix UX): два отдельных pillars — media efficiency lift
+      <!-- 2026-05-04 (audit fix UX): два отдельных pillars - media efficiency lift
            (насколько вырос media-вклад при перераспределении) и итоговый KPI lift
-           (business impact на total sales). Customer часто confused — «оптимизатор
+           (business impact на total sales). Customer часто confused - «оптимизатор
            дал лишь +0.5%». Объяснение: media leverage низок (органическая база
            доминирует). Показ side-by-side даёт честную картину обоих эффектов. -->
       {#if optData.expected_lift_pct != null}
@@ -1952,14 +1952,14 @@
           </div>
         </div>
         <!-- Explanation: показываем только когда два pillar'а сильно расходятся
-             (>5 п.п.) — структурный signal что бренд baseline-dominant. -->
+             (>5 п.п.) - структурный signal что бренд baseline-dominant. -->
         {#if optData.media_only_lift_pct != null && Math.abs(optData.media_only_lift_pct - optData.expected_lift_pct) > 5.0 && optData.media_only_lift_pct > 0}
           {@const mediaShare = (optData.expected_lift_pct / optData.media_only_lift_pct * 100)}
           <div class="lift-explanation">
             <span class="lift-explanation-icon" aria-hidden="true">ℹ️</span>
             <span class="lift-explanation-text">
               Расхождение метрик показывает что media составляет лишь
-              <strong>~{Math.max(mediaShare, 1).toFixed(0)}%</strong> от итогового KPI —
+              <strong>~{Math.max(mediaShare, 1).toFixed(0)}%</strong> от итогового KPI -
               остальное даёт baseline (органические продажи, сезонность, контрольные факторы).
               <strong>Перераспределение каналов сильное</strong>, но рычаг media в этом бренде
               структурно ограничен.
@@ -1988,7 +1988,7 @@
         <div class="card">
           <div class="card-title">
             Распределение бюджета
-            <span class="help-icon" title="Слайдеры — текущий бюджет каждого канала. Двигайте, чтобы увидеть прогноз KPI в реальном времени. Кнопка «Применить оптимум» подставит найденное модели распределение.">?</span>
+            <span class="help-icon" title="Слайдеры - текущий бюджет каждого канала. Двигайте, чтобы увидеть прогноз KPI в реальном времени. Кнопка «Применить оптимум» подставит найденное модели распределение.">?</span>
           </div>
           <BudgetOptimizer
             {channels}
@@ -2028,7 +2028,7 @@
       {#if Object.keys(miROASMap).length > 0}
         <div class="card miroas-card">
           <div class="card-title">
-            miROAS — предельная отдача следующего рубля<span class="help-icon" title={HELP.miROAS}>?</span>
+            miROAS - предельная отдача следующего рубля<span class="help-icon" title={HELP.miROAS}>?</span>
           </div>
           <div class="miroas-table">
             {#each channels as ch}
@@ -2049,7 +2049,7 @@
               <div class="miroas-row {cls}">
                 <span class="miroas-name">{ch}</span>
                 <span class="miroas-value">
-                  {r.status === 'unused' ? '—' : r.value.toFixed(2) + '×'}
+                  {r.status === 'unused' ? '-' : r.value.toFixed(2) + '×'}
                 </span>
                 <span class="miroas-hint" title={tooltip}>{emoji} {r.actionLabel || 'Под наблюдением'}</span>
               </div>
@@ -2066,7 +2066,7 @@
       </div>
     {:else if stepState === 'idle'}
       <div class="empty-state">
-        <p>Нажмите <b>«🎯 Оптимизировать бюджет»</b> выше — модель найдёт оптимальное распределение.</p>
+        <p>Нажмите <b>«🎯 Оптимизировать бюджет»</b> выше - модель найдёт оптимальное распределение.</p>
         <p class="hint">Дефолты: бюджет = текущий, диапазон 50-150% per-channel. Для радикальной оптимизации снижайте Мин. % и повышайте Макс. %.</p>
       </div>
     {:else if stepState === 'optimizing'}
@@ -2078,11 +2078,11 @@
     {/if}
   </section>
 
-  <!-- ════════════════ БЛОК C — What-if: изменённый бюджет ════════════════ -->
+  <!-- ════════════════ БЛОК C - What-if: изменённый бюджет ════════════════ -->
   {#if channels.length > 0}
     <!-- Phase 2 audit pass 8 (Антон 2026-05-03): What-if reference budget =
          effectiveBaseBudget (planning > training fallback). В planner mode
-         показывать «Бюджет планирования», в analyst mode — training currentMoney.
+         показывать «Бюджет планирования», в analyst mode - training currentMoney.
          Backend invoke уже использует effectiveBaseBudget × multiplier (audit
          pass 4); фикс синхронизирует display с invoke semantics. -->
     {@const trainingMoney = channels.reduce((s, ch) => s + (currentSpend[ch] ?? 0) * ((effectiveUnitCosts?.[ch]) ?? 1.0), 0)}
@@ -2091,7 +2091,7 @@
     {@const deltaMoney = newMoney - curMoney}
     <!-- KPI-прогноз = total_sales × (1 + lift%). Lift backend считает в пространстве
          Hill-effect (media-вклад). Для total KPI применяем его к total_sales целиком
-         — приближение, но в той же шкале с блоком A. -->
+         - приближение, но в той же шкале с блоком A. -->
     {@const whatIfKPI = whatIfResult && dData?.total_sales
       ? dData.total_sales * (1 + (whatIfResult.expected_lift_pct ?? 0) / 100)
       : null}
@@ -2099,21 +2099,21 @@
       <div class="block-header">
         <span class="block-letter">C</span>
         <h3 class="block-title">What-if: изменённый бюджет</h3>
-        <span class="block-subtitle">— а если бюджет станет другим?</span>
+        <span class="block-subtitle">- а если бюджет станет другим?</span>
       </div>
 
-      <!-- 2026-05-04 UX hint: customer mental model — модель → декомпозиция →
+      <!-- 2026-05-04 UX hint: customer mental model - модель → декомпозиция →
            оптимум для текущего бюджета → whatif вокруг этого оптимума.
            Реализация: scale optimal allocation × multiplier пропорционально,
            KPI = predictKPI(Hill saturation) на scaled spend. Никакой
-           переоптимизации — это test on saturation curve вдоль optimal direction. -->
+           переоптимизации - это test on saturation curve вдоль optimal direction. -->
       <div class="whatif-mode-hint" role="note">
         <span class="hint-icon" aria-hidden="true">ℹ️</span>
         <span class="hint-text">
           Сохраняем <strong>оптимизированные пропорции каналов</strong> (из Блока B)
           и масштабируем общий бюджет на выбранный множитель. KPI рассчитывается
-          с учётом насыщения каналов (Hill saturation) — поэтому увеличение бюджета
-          даёт затухающий прирост, а сокращение — нелинейный спад.
+          с учётом насыщения каналов (Hill saturation) - поэтому увеличение бюджета
+          даёт затухающий прирост, а сокращение - нелинейный спад.
         </span>
       </div>
 
@@ -2189,7 +2189,7 @@
                       <span class="inflation-extra">+ {fmtBudget(inflatedOptimal - newMoney)} на инфляцию (без изменения KPI)</span>
                     {/if}
                   {:else}
-                    KPI: {fmtBudget(dData?.total_sales ?? 0)} <span class="inflation-extra">— без изменений (объём медиа сохранён)</span>
+                    KPI: {fmtBudget(dData?.total_sales ?? 0)} <span class="inflation-extra">- без изменений (объём медиа сохранён)</span>
                   {/if}
                 </div>
               </div>
@@ -2202,18 +2202,18 @@
       {/if}
 
       <!-- v1.0.16: интегрированный inflation overlay (был Block D). Customer
-           опционально активирует — учёт медиа-инфляции на следующий период.
+           опционально активирует - учёт медиа-инфляции на следующий период.
            Объём медиа не меняется → KPI не меняется. Растёт лишь бюджет
            (CPP/CPM × 1+infl). Сохраняется в сценарии если флаг включён.
-           Disclosure visible всегда — customer может настроить inflation
-           заранее, до запуска what-if. Save button — только после whatIfResult. -->
+           Disclosure visible всегда - customer может настроить inflation
+           заранее, до запуска what-if. Save button - только после whatIfResult. -->
       <details class="forecast-inline expert-disclosure" open={forecastExpanded} ontoggle={(/** @type {any} */ e) => forecastExpanded = e.currentTarget.open}>
         <summary class="forecast-inline-summary expert-toggle">
           <span class="forecast-arrow expert-arrow">▸</span>
           <span class="expert-badge">ЭКСПЕРТ</span>
           <span class="forecast-inline-icon">📈</span>
           <span class="forecast-inline-title expert-toggle-title">Учесть инфляцию следующего периода</span>
-          <span class="forecast-inline-hint expert-toggle-hint">— объём не меняется, цены растут</span>
+          <span class="forecast-inline-hint expert-toggle-hint">- объём не меняется, цены растут</span>
         </summary>
         <div class="forecast-inline-body expert-disclosure-body">
           <label class="apply-inflation-toggle">
@@ -2241,21 +2241,21 @@
                   {#if oldU > 1.0}
                     {fmtBudget(newU)} <span class="fc-cpp-old">(было {fmtBudget(oldU)})</span>
                   {:else if infl > 0}
-                    <span class="fc-cpp-money" title="Канал в деньгах — инфляция прибавляет к самому бюджету">+{infl}% к бюджету</span>
-                  {:else}—{/if}
+                    <span class="fc-cpp-money" title="Канал в деньгах - инфляция прибавляет к самому бюджету">+{infl}% к бюджету</span>
+                  {:else}-{/if}
                 </div>
               </div>
             {/each}
           </div>
           <p class="forecast-inline-note">
-            <span class="help-icon" title="Объём медиа (TRP/показы/клики) остаётся прежним — Hill saturation возвращает тот же эффект → KPI не меняется. Растёт лишь сумма в рублях из-за подорожания закупок.">?</span>
+            <span class="help-icon" title="Объём медиа (TRP/показы/клики) остаётся прежним - Hill saturation возвращает тот же эффект → KPI не меняется. Растёт лишь сумма в рублях из-за подорожания закупок.">?</span>
             Средняя инфляция: <b>+{avgInflation.toFixed(0)}%</b>. KPI не меняется при сохранении объёма; меняется только сумма бюджета на следующий период.
           </p>
         </div>
       </details>
 
       <!-- v1.0.16: save scenario доступно даже при «нулевом» what-if (slider=1.0)
-           если applyInflation активирован — customer может сохранить current
+           если applyInflation активирован - customer может сохранить current
            allocation + inflation как сценарий следующего периода без необходимости
            двигать бюджет. -->
       {#if whatIfResult || (applyInflation && channels.length > 0)}
@@ -2275,7 +2275,7 @@
     </section>
   {/if}
 
-  <!-- v1.0.16: standalone Block D «Прогноз на будущий период» удалён —
+  <!-- v1.0.16: standalone Block D «Прогноз на будущий период» удалён -
        функциональность интегрирована в Block C What-if как опциональный
        inflation overlay над «Сохранить как сценарий». Customer выбирает учёт
        инфляции на уровне сценария. expectedLiftPct=0 при volume mode (Hill
@@ -2287,7 +2287,7 @@
       <div class="block-header">
         <span class="block-letter">D</span>
         <h3 class="block-title">Сценарный анализ</h3>
-        <span class="block-subtitle">— что будет, если изменить бюджет канала на N%?</span>
+        <span class="block-subtitle">- что будет, если изменить бюджет канала на N%?</span>
         <button
           class="btn-scenario-toggle"
           onclick={() => { playgroundOpen = !playgroundOpen; }}
@@ -2316,7 +2316,7 @@
 </div>
 
 <style>
-  /* ─── v1.3.0 — Task toggle (Forward | Goal-Seek) per ADR-014 ─── */
+  /* ─── v1.3.0 - Task toggle (Forward | Goal-Seek) per ADR-014 ─── */
   .task-toggle {
     padding: 12px 14px;
     border-radius: 12px;
@@ -2353,9 +2353,9 @@
   .pill-text strong { font-size: 14px; color: var(--text-primary); }
   .pill-sub { font-size: 11px; color: var(--text-muted); }
 
-  /* ─── Phase 2 — Planning Mode toggle ─── */
+  /* ─── Phase 2 - Planning Mode toggle ─── */
   /* Использует те же background/border tokens что существующие .block (Текущий
-     бюджет etc.) — чтобы блок интегрировался с остальными, не выделялся. */
+     бюджет etc.) - чтобы блок интегрировался с остальными, не выделялся. */
   .planning-mode-toggle {
     display: flex;
     flex-direction: column;
@@ -2399,7 +2399,7 @@
   .mode-pills button.active .mode-desc { color: var(--accent-text-light, var(--accent-primary)); opacity: 0.85; }
   .mode-hint { margin: 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
 
-  /* Phase 2 — planning mode active banner в block B */
+  /* Phase 2 - planning mode active banner в block B */
   .planning-active-banner {
     display: flex;
     gap: 12px;
@@ -2427,7 +2427,7 @@
     font-weight: 600;
   }
 
-  /* L5 (Phase 2.0 Part 2) — hierarchical extrapolation warning. Distinct
+  /* L5 (Phase 2.0 Part 2) - hierarchical extrapolation warning. Distinct
      amber/warn palette чтобы customer не путал с info-banner planning-active. */
   .hierarchical-warning-banner {
     display: flex;
@@ -2453,7 +2453,7 @@
   }
 
   .optimize-step {
-    /* Скрол владеет .pipeline-main — здесь никаких overflow / height: 100%,
+    /* Скрол владеет .pipeline-main - здесь никаких overflow / height: 100%,
        иначе двойной скрол + фантомное пустое пространство (см. DecomposeStep). */
     display: flex;
     flex-direction: column;
@@ -2484,7 +2484,7 @@
     color: var(--text-primary, #e2e8f0);
     border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 50%, transparent);
   }
-  /* Step-level reset — slightly stronger destructive cue без overwhelming */
+  /* Step-level reset - slightly stronger destructive cue без overwhelming */
   .btn-reset-step:hover {
     color: var(--text-primary);
     border-color: color-mix(in srgb, #ef4444 60%, transparent);
@@ -2635,7 +2635,7 @@
   .btn-run:hover:not(:disabled) { background: var(--accent-hover); }
 
   /* O1.2 (Phase 0.1): dirty-state hint after settings change. Subtle amber
-     indicator next to button — клиент видит что нужно перезапустить optimize. */
+     indicator next to button - клиент видит что нужно перезапустить optimize. */
   .dirty-hint {
     font-size: 12px;
     color: var(--warning, #f59e0b);
@@ -2661,7 +2661,7 @@
   .btn-reset-sm:hover:not(:disabled) { border-color: rgba(255,255,255,0.25); color: var(--text-primary); }
   .btn-reset-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* F.1 — per-group sliders (Trust 3 brand vs performance) */
+  /* F.1 - per-group sliders (Trust 3 brand vs performance) */
   .group-sliders {
     margin-top: 10px;
     background: color-mix(in srgb, var(--bg-surface-quiet, #1a1d22) 60%, transparent);
@@ -2798,7 +2798,7 @@
     color: var(--text-secondary, rgba(255, 255, 255, 0.65));
     font-size: 11px;
   }
-  /* AUDIT-5: inline validation warnings — surfaces constraint hierarchy violation
+  /* AUDIT-5: inline validation warnings - surfaces constraint hierarchy violation
      до backend roundtrip. role="alert" для screen readers. */
   .group-warnings {
     margin: 8px 4px 4px;
@@ -3018,7 +3018,7 @@
   .forecast-disclosure > .inline-success { padding: 0 18px; }
   .forecast-disclosure > .forecast-actions { padding-bottom: 18px; }
 
-  /* v1.0.16: collapsible expert disclosure — visible to all, default closed */
+  /* v1.0.16: collapsible expert disclosure - visible to all, default closed */
   .expert-disclosure {
     margin-top: 4px;
     border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
@@ -3074,7 +3074,7 @@
     padding-top: 14px;
   }
 
-  /* v1.0.16: apply-inflation toggle — выделено отступом сверху чтобы не сливаться
+  /* v1.0.16: apply-inflation toggle - выделено отступом сверху чтобы не сливаться
      с заголовком disclosure (было слишком близко к summary line). */
   .apply-inflation-toggle {
     display: flex;
@@ -3278,7 +3278,7 @@
   .insight-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
   .insight-text { flex: 1; font-size: 13px; color: var(--text-secondary, #94a3b8); line-height: 1.6; margin: 0; }
 
-  /* L7: edge-case banners — mutually exclusive с insight banner */
+  /* L7: edge-case banners - mutually exclusive с insight banner */
   .edge-banner {
     display: flex;
     align-items: flex-start;
@@ -3306,7 +3306,7 @@
     color: #bfdbfe;
   }
 
-  /* L8: per-channel override warning — gentler tone (informational, not error) */
+  /* L8: per-channel override warning - gentler tone (informational, not error) */
   .override-banner {
     display: flex;
     align-items: center;
@@ -3464,7 +3464,7 @@
   }
 
   .controls-card {
-    /* Внутри блока B — облегчённый фон, без card-in-card. */
+    /* Внутри блока B - облегчённый фон, без card-in-card. */
     background: color-mix(in srgb, var(--text-primary) 3%, transparent);
     border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
     border-radius: 10px;
@@ -3555,7 +3555,7 @@
   }
 
   .card {
-    /* Card внутри блока — облегчённый, без двойной рамки. */
+    /* Card внутри блока - облегчённый, без двойной рамки. */
     background: color-mix(in srgb, var(--text-primary) 2%, transparent);
     border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
     border-radius: 10px;

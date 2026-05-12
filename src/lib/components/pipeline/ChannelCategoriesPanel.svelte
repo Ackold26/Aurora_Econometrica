@@ -1,11 +1,11 @@
 <script>
   /**
-   * ChannelCategoriesPanel — Trust Level 3 (Brand vs Performance Split, v1.1.0).
+   * ChannelCategoriesPanel - Trust Level 3 (Brand vs Performance Split, v1.1.0).
    *
    * Categorize media каналы на:
-   *   🎯 Brand (синий) — TV/TRPs/OOH/Радио → long-decay (effective half-life ~12 wk)
-   *   📊 Performance (зелёный) — Digital/Search/Social → short-decay (~1.3 wk)
-   *   ⚪ Mixed (серый) — ambiguous (Спецпроект/OLV/cross-channel) → single-prior fallback
+   *   🎯 Brand (синий) - TV/TRPs/OOH/Радио → long-decay (effective half-life ~12 wk)
+   *   📊 Performance (зелёный) - Digital/Search/Social → short-decay (~1.3 wk)
+   *   ⚪ Mixed (серый) - ambiguous (Спецпроект/OLV/cross-channel) → single-prior fallback
    *
    * Auto-suggest backend endpoint /utils/auto_suggest_categories на mount.
    * Manual override через popup. Persistence через project_update.
@@ -39,8 +39,8 @@
 
   /** @type {Record<'brand' | 'performance' | 'mixed', string>} */
   const HELP = {
-    brand: 'Каналы с долгим эффектом — TV, TRPs, OOH, радио. Строят знание бренда (decay 4-26 недель). Модель применяет hierarchical prior с большей variance — отражает unknown brand-build duration.',
-    performance: 'Каналы прямого отклика — Search, Social, контекст, programmatic. Закрывают спрос (decay 1-2 недели). Стандартный geometric adstock с тесным prior на короткий decay.',
+    brand: 'Каналы с долгим эффектом - TV, TRPs, OOH, радио. Строят знание бренда (decay 4-26 недель). Модель применяет hierarchical prior с большей variance - отражает unknown brand-build duration.',
+    performance: 'Каналы прямого отклика - Search, Social, контекст, programmatic. Закрывают спрос (decay 1-2 недели). Стандартный geometric adstock с тесным prior на короткий decay.',
     mixed: 'Категория «Смешанный» используется для ambiguous каналов (Спецпроект, OLV, cross-channel). Модель применяет single prior без group splitting.',
   };
 
@@ -90,7 +90,7 @@
       }
       suggestionsLoaded = true;
     } catch {
-      // Sidecar may be unavailable (cold-start, network issue) — keep manual-only mode.
+      // Sidecar may be unavailable (cold-start, network issue) - keep manual-only mode.
       suggestionsLoaded = true;
     }
   }
@@ -117,7 +117,7 @@
   /**
    * Reactive map канал → resolved категория.
    * FIX 2026-05-01: было `function getCategory(channel) { return get(channelCategories)[channel] }`,
-   * но `get()` императивно читает store без подписки — Svelte не re-renders при изменении.
+   * но `get()` императивно читает store без подписки - Svelte не re-renders при изменении.
    * Кликаешь option в popup → setCategory() обновляет store → UI остаётся прежним.
    * `$derived.by` с `$channelCategories` reactivity-tracks store → автоматический re-render.
    * @type {Record<string, 'brand' | 'performance' | 'mixed'>}
@@ -163,7 +163,7 @@
   function setCategory(channel, category) {
     const current = get(channelCategories);
     if (current[channel] === category) {
-      // No-op — no need to persist same value or invalidate downstream.
+      // No-op - no need to persist same value or invalidate downstream.
       editingChannel = null;
       return;
     }
@@ -183,7 +183,7 @@
 
   // Reactive group counts (для insights summary).
   // Использует resolvedCategories (reactive) вместо getCategory() (imperative)
-  // — раньше counts не пересчитывались после setCategory.
+  // - раньше counts не пересчитывались после setCategory.
   const groupCounts = $derived.by(() => {
     let brand = 0, perf = 0, mixed = 0;
     for (const ch of mediaChannels) {
@@ -214,7 +214,7 @@
     <p class="panel-hint">
       Brand-каналы (TV/TRPs/OOH) и performance-каналы (Search/Social/Digital)
       работают по-разному. Модель применяет разные priors для adstock decay
-      (long для brand, short для performance) — даёт более точную атрибуцию ROI.
+      (long для brand, short для performance) - даёт более точную атрибуцию ROI.
     </p>
     <p class="panel-hint panel-hint-action">
       Учитывая характер размещения и креативных материалов, определите категорию для каждого канала.
@@ -229,7 +229,7 @@
     {/if}
     <span class="status">
       {#if willUseHierarchical}
-        Hierarchical prior активен — модель разделит brand vs performance
+        Hierarchical prior активен - модель разделит brand vs performance
       {:else}
         Hierarchical требует ≥2 каналов в одной из brand/performance групп
       {/if}
@@ -337,7 +337,7 @@
     display: grid;
     /* Swap 2026-05-01: channel-name → icon → label → hint.
        Имя канала первое = естественный read order ("Что → Какая категория").
-       Confidence % убран 2026-05-01 — категорий только 3 фиксированных, manual=100%
+       Confidence % убран 2026-05-01 - категорий только 3 фиксированных, manual=100%
        не несёт информации UI-stage. */
     grid-template-columns: 1fr auto auto auto;
     gap: 10px; align-items: center;
@@ -373,7 +373,7 @@
     position: fixed; inset: 0;
     background: rgba(0, 0, 0, 0.5);
     display: flex; align-items: center; justify-content: center;
-    z-index: 10500;  /* выше slideout (10500 set in v1.0.16) — modal-on-modal */
+    z-index: 10500;  /* выше slideout (10500 set in v1.0.16) - modal-on-modal */
   }
   .popup {
     background: var(--bg-surface-focus, #2a2a32);

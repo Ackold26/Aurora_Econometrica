@@ -30,10 +30,10 @@ def _flat_alloc_adstock_avg(
     Optimizer оперирует с total spend per channel (scalar). Hill ожидает
     per-period adstocked spend (как в training + scenario). Для flat allocation
     raw_t = const повторяется по периодам, applied adstock декомпозирует carryover.
-    Берём среднее за период — это эквивалент того что training Hill видел
+    Берём среднее за период - это эквивалент того что training Hill видел
     усреднённо.
 
-    Phase 1.1: optional decay parameter — when v1.2 pickle, posterior mean decay
+    Phase 1.1: optional decay parameter - when v1.2 pickle, posterior mean decay
     is used; for v1.0/v1.1/v1.1.5 pickles decay=None falls back to library default 0.5.
     """
     if n_periods < 1 or raw_per_period <= 0:
@@ -50,7 +50,7 @@ def _adstock_factor(
     a_type: str,
     decay: float | None = None,
 ) -> float:
-    """∂(_flat_alloc_adstock_avg)/∂(x_per_period) — sensitivity factor.
+    """∂(_flat_alloc_adstock_avg)/∂(x_per_period) - sensitivity factor.
 
     F0.2 (Phase 0.1 fix-session): adstock factor is the missing piece in
     chain rule for marginal ROAS. See docs/MATH_AUDIT_v1_3_PHASE_0_1.md §4.
@@ -79,7 +79,7 @@ def _adstock_factor(
             return 1.0
         n = n_periods
         return (n - theta * (1.0 - theta ** n) / (1.0 - theta)) / (n * (1.0 - theta))
-    # weibull / unknown — central difference (exact for linear convolution).
+    # weibull / unknown - central difference (exact for linear convolution).
     if x_per_period <= 0:
         # Use small probe to discover linear factor.
         eps = 1.0
@@ -105,9 +105,9 @@ def _compute_mroas_money(
     unit_cost: float = 1.0,
     decay: float | None = None,
 ) -> float:
-    """Marginal ROAS in money-per-money — single source of truth.
+    """Marginal ROAS in money-per-money - single source of truth.
 
-    # invariant: I6 (mROAS chain rule) — closed form matches finite-difference
+    # invariant: I6 (mROAS chain rule) - closed form matches finite-difference
     # within 5e-3 relative error. See docs/OPTIMIZER_INVARIANTS_REGISTRY.md.
 
     F0.2 (Phase 0.1 fix-session): canonical mROAS computation. Returns
@@ -133,7 +133,7 @@ def _compute_mroas_money(
         unit_cost: ₽ per native unit (e.g. CPP for TRPs); use 1.0 for money channels
 
     Returns:
-        Marginal ROAS — ∂KPI(money)/∂spend(money). Unitless ratio.
+        Marginal ROAS - ∂KPI(money)/∂spend(money). Unitless ratio.
         Returns 0.0 for degenerate inputs (zero spend, zero mean, zero beta).
     """
     if current_spend_native <= 0:
@@ -175,7 +175,7 @@ def _compute_mroas_money_samples(
 ) -> np.ndarray:
     """Vectorized mROAS over posterior samples (Phase 1.9 + 1.1).
 
-    Returns array of mROAS values across all posterior draws — caller computes
+    Returns array of mROAS values across all posterior draws - caller computes
     HDI/percentile for honest CI. Joint correlation preserved: sample i uses
     (alpha_samples[i], gamma_samples[i], beta_samples[i], decay_samples[i])
     from same MCMC draw.
@@ -190,7 +190,7 @@ def _compute_mroas_money_samples(
         current_spend_native: total spend over n_periods (≥ 0)
         n_periods, mean, adstock_type, y_std, unit_cost: same as scalar variant
         alpha_samples, gamma_samples, beta_samples: 1D arrays shape (n_samples,)
-        decay_samples: optional 1D shape (n_samples,) — Phase 1.1 sampled adstock decay.
+        decay_samples: optional 1D shape (n_samples,) - Phase 1.1 sampled adstock decay.
             None → falls back to library default 0.5 (Phase 1.9 path).
 
     Returns:
@@ -222,7 +222,7 @@ def _compute_mroas_money_samples(
             mean_arr = np.full(n, max(float(mean), 1e-10), dtype=np.float64)
         x_norm_per_sample = adstock_avg_per_sample / mean_arr  # (n_samples,)
 
-        # Per-sample Hill derivative — broadcast manually for joint correlation.
+        # Per-sample Hill derivative - broadcast manually for joint correlation.
         # hill'(x) = α · γ^α · x^(α-1) / (x^α + γ^α)²
         alpha = np.asarray(alpha_samples, dtype=np.float64)
         gamma = np.asarray(gamma_samples, dtype=np.float64)
@@ -259,9 +259,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             'min_pct': float,            # Глобальный Min % (default 50). Используется
                                          # как fallback если нет per-channel constraint.
             'max_pct': float,            # Глобальный Max % (default 150).
-            'min_per_channel': dict|None,# Опционально: {channel: min_pct} — экспертный режим.
+            'min_per_channel': dict|None,# Опционально: {channel: min_pct} - экспертный режим.
                                          # Если задан для канала, перекрывает глобальный min_pct.
-            'max_per_channel': dict|None,# Опционально: {channel: max_pct} — экспертный режим.
+            'max_per_channel': dict|None,# Опционально: {channel: max_pct} - экспертный режим.
         }
         project_dir: Path to project with models/latest.pkl
 
@@ -288,7 +288,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         return {
             'status': 'error',
             'error_code': 'MODEL_OUTDATED',
-            'message': 'Модель обучена до v1.0.13. Нормализация изменилась — переобучите модель в кабинете "Модель".',
+            'message': 'Модель обучена до v1.0.13. Нормализация изменилась - переобучите модель в кабинете "Модель".',
         }
 
     config_model = model_data['config']
@@ -303,7 +303,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     posterior_samples = load_posterior_samples(model_data)
 
     # A1 fix (post-audit v1.2): exclude untrained channels from optimization domain.
-    # Channels with zero training variance have β from prior (uninformative) — optimizer
+    # Channels with zero training variance have β from prior (uninformative) - optimizer
     # would silently allocate budget to them based on fabricated response curves.
     untrained_channels = set(norm.get('untrained_channels', []) or [])
     if untrained_channels and any(c in untrained_channels for c in media_cols):
@@ -315,7 +315,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                 'error_code': 'NO_TRAINED_CHANNELS',
                 'message': (
                     'Все каналы в модели имели нулевую вариативность в обучающих '
-                    'данных. Оптимизация невозможна — переобучите модель.'
+                    'данных. Оптимизация невозможна - переобучите модель.'
                 ),
             }
         media_cols = active_media_cols
@@ -331,7 +331,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config_model.get('merge_rules'))
 
-    # Phase 2 audit pass 4 — per-channel inflation. Apply BEFORE current_spend
+    # Phase 2 audit pass 4 - per-channel inflation. Apply BEFORE current_spend
     # money totals computed downstream (current_spend × unit_cost).
     inflation_pct_per_channel = config.get('unit_cost_inflation_pct')
     if inflation_pct_per_channel:
@@ -347,7 +347,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     total_current = sum(current_spend.values())
     n_periods = max(len(df), 1)
 
-    # ─── Phase 2 (Planning Mode) — forecast horizon decoupling ───
+    # ─── Phase 2 (Planning Mode) - forecast horizon decoupling ───
     # Math reference: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis (M9 finding,
     # L1 lock = Option C in planning mode, preserve current Hill-of-mean in
     # analyst mode для byte-exact backward compat).
@@ -376,10 +376,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                 'error_code': 'INVALID_FORECAST_PERIODS',
                 'message': 'forecast_periods должно быть ≥ 1.',
             }
-        # M6 (audit doc L2) + S7 (audit pass 2 — KPI-aware cap):
+        # M6 (audit doc L2) + S7 (audit pass 2 - KPI-aware cap):
         # Audit pass 3 fix (2026-05-02): hardcoded 2× bypassed S7 для awareness
         # pickles. /compute/forecast-scaling уже использует KPI-aware multiplier;
-        # /compute/optimize должен делать то же самое — иначе frontend caller
+        # /compute/optimize должен делать то же самое - иначе frontend caller
         # мог бы обойти 1.5× cap (awareness) через direct optimize call.
         from engines.persistence import get_kpi_type
         from utils.forecast_validation import get_forecast_horizon_max_multiplier
@@ -415,16 +415,16 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         return 'geometric'
 
     # Money constraint: если задан total_budget_money, constraint считается в money
-    # (Σ x_native × unit_cost == total_budget_money). Иначе — native constraint как раньше.
+    # (Σ x_native × unit_cost == total_budget_money). Иначе - native constraint как раньше.
     total_budget_money_target = config.get('total_budget_money')
     uc_arr = [float(unit_costs.get(col, 1.0) or 1.0) for col in media_cols]
 
     # P0-11 fix (math-fix-v1.0.13) + Phase 0.1 live-test refinement:
-    # Detect real unit_smell — native-unit channel (TRPs/clicks/impressions) with
+    # Detect real unit_smell - native-unit channel (TRPs/clicks/impressions) with
     # default uc=1.0 (CPP/CPM не задан). Это арифметически некорректный mix.
-    # Если unit_smell нет — auto-compute money budget из current spend × uc и идём
+    # Если unit_smell нет - auto-compute money budget из current spend × uc и идём
     # в money-mode без error. Это типичный кейс russian client: digital в рублях
-    # (uc=1) + TV в TRPs (uc=CPP) — раньше guard блокировал false-positively.
+    # (uc=1) + TV в TRPs (uc=CPP) - раньше guard блокировал false-positively.
     UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ',
                   'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ', 'ОХВАТ', 'РЕЙТИНГ')
     if total_budget_money_target is None:
@@ -457,7 +457,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     min_pct_global = config.get('min_pct', 50) / 100
     max_pct_global = config.get('max_pct', 150) / 100
 
-    # ─── D.3 — Per-group constraints (Trust 3) + ConstraintBundle ───────
+    # ─── D.3 - Per-group constraints (Trust 3) + ConstraintBundle ───────
     # 3-level precedence: per-channel > per-group (brand/perf) > global.
     # Mixed/uncategorized channels → fall back к global (helper handles).
     # Backward compat: brand_*/perf_* unset → behavior identical к pre-D.3.
@@ -490,7 +490,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             'message': (
                 'Per-group ограничения (brand/performance) требуют hierarchical модели '
                 '(model_version ≥ 1.3 с ≥2 brand или ≥2 performance каналами). '
-                'Текущая модель flat — переучите с brand/perf categorization в шаге '
+                'Текущая модель flat - переучите с brand/perf categorization в шаге '
                 '«Валидация» или удалите per-group constraints.'
             ),
         }
@@ -509,10 +509,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     )
 
     # Channel categories из pickle. Heuristic fallback применяется только когда модель
-    # hierarchical (выше gate) — для flat моделей heuristic нерелевантен (gate уже rejected).
+    # hierarchical (выше gate) - для flat моделей heuristic нерелевантен (gate уже rejected).
     channel_categories = get_channel_categories(model_data, fallback_heuristic=True)
 
-    # Pre-flight Check 1 — group hierarchy (group_max ≤ global_max).
+    # Pre-flight Check 1 - group hierarchy (group_max ≤ global_max).
     # Check 2 (budget feasibility) делается existing INFEASIBLE_BUDGET_HIGH/LOW guard
     # ниже, чтобы preserve zero-spend fallback semantics в _bounds_money_for.
     try:
@@ -520,13 +520,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             raise FeasibilityError(
                 f"Brand max ({constraint_bundle.brand_max_pct * 100:.0f}%) превышает global max "
                 f"({constraint_bundle.global_max_pct * 100:.0f}%). "
-                f"Brand max должен быть ≤ global max — иначе constraint hierarchy нарушается."
+                f"Brand max должен быть ≤ global max - иначе constraint hierarchy нарушается."
             )
         if constraint_bundle.perf_max_pct is not None and constraint_bundle.perf_max_pct > constraint_bundle.global_max_pct:
             raise FeasibilityError(
                 f"Performance max ({constraint_bundle.perf_max_pct * 100:.0f}%) превышает global max "
                 f"({constraint_bundle.global_max_pct * 100:.0f}%). "
-                f"Performance max должен быть ≤ global max — иначе constraint hierarchy нарушается."
+                f"Performance max должен быть ≤ global max - иначе constraint hierarchy нарушается."
             )
     except FeasibilityError as _fe:
         return {
@@ -538,18 +538,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # ─────────────────────────────────────────────────────────────────────
     # math-fix v1.0.14.1, A1 (audit-of-audit 2026-04-28):
     # Money-axis rescaling. Pre-fix optimizer worked в native units, constraint
-    # в money — bounds spread 10⁵× (TRPs ~10⁴ vs OLV ~10⁸), gradient spread
+    # в money - bounds spread 10⁵× (TRPs ~10⁴ vs OLV ~10⁸), gradient spread
     # 10⁴×, conditioning ужасный. SLSQP застревал в success=True at iter=1
     # стартуя от current. Доказательство: scipy direct repro на Kagocel pickle
     # 2026-04-28: start=current → lift=+0.00%; start=extreme (small=200%, TRPs
     # balance) → lift=+28.30%. Multi-start с random perturbation + clip давал
     # точки слишком близко к current чтобы выбраться.
-    # Post-fix: optimize в money axis — uniform scale, well-conditioned.
+    # Post-fix: optimize в money axis - uniform scale, well-conditioned.
     # See docs/MATH_AUDIT_v1_4_OPTIMIZER_FIX.md.
     # ─────────────────────────────────────────────────────────────────────
     # F1+F2 fix (math-audit v1.3): per-period averaging + adstock matches
     # training and scenario semantics. Hill input still computed in native units
-    # (matches modeler.py training math), но input в objective — money vector.
+    # (matches modeler.py training math), но input в objective - money vector.
     n_ch = max(len(media_cols), 1)
 
     def total_response_money(x_money):
@@ -575,13 +575,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             total += p['beta'] * sat[0] * n_periods
         return -total
 
-    # ─── Phase 2 — Option C planning-mode objective (M9 fix) ───
+    # ─── Phase 2 - Option C planning-mode objective (M9 fix) ───
     # Per-period Hill summation matches scenario.py:167-186 + decomposer.py:
     # 289-292 semantics. Restores 3-way alignment в planning mode.
     # Activates only when planning_mode=True (forecast_periods explicitly given).
     # Math: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis.
     def total_response_money_planning(x_money):
-        """Option C — per-period sum-of-Hill, matches scenario engine."""
+        """Option C - per-period sum-of-Hill, matches scenario engine."""
         from utils.forecasting import evaluate_flat_allocation_response
         total = evaluate_flat_allocation_response(
             media_cols=media_cols,
@@ -594,15 +594,15 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         )
         return -total
 
-    # Active objective dispatch — planning mode → Option C, analyst → legacy.
-    # invariant: I4 (backward compat) — analyst path preserves Hill-of-mean math
+    # Active objective dispatch - planning mode → Option C, analyst → legacy.
+    # invariant: I4 (backward compat) - analyst path preserves Hill-of-mean math
     # for byte-exact v1.1.0 pickle reproducibility.
-    # invariant: I8 (Option C identity) — planning path matches scenario.py
+    # invariant: I8 (Option C identity) - planning path matches scenario.py
     # per-period sum-of-Hill semantics.
     _objective_fn = total_response_money_planning if planning_mode else total_response_money
 
     # ─ Money-axis bounds (replace native bounds + money constraint) ─
-    # Constraint trivializes к sum(x_money) == money_target — uniform scale.
+    # Constraint trivializes к sum(x_money) == money_target - uniform scale.
     money_target = total_budget_money_target if total_budget_money_target is not None else (
         sum(current_spend[c] * uc_arr[i] for i, c in enumerate(media_cols))
     )
@@ -618,7 +618,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
     bounds_money = [_bounds_money_for(col, i) for i, col in enumerate(media_cols)]
 
-    # O1.3 (Phase 0.1) — pre-flight feasibility (already в money).
+    # O1.3 (Phase 0.1) - pre-flight feasibility (already в money).
     sum_upper_money = sum(b[1] for b in bounds_money)
     sum_lower_money = sum(b[0] for b in bounds_money)
     if money_target > sum_upper_money * 1.001:  # 0.1% float-tolerance
@@ -642,9 +642,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             ),
         }
 
-    # Money sum constraint (trivial — uniform scale в money axis)
-    # invariant: I2 (conservation) — Σ optimal_money == money_target ± 0.5%.
-    # invariant: I3 (bounds satisfaction) — bounds_money[i] enforced per channel.
+    # Money sum constraint (trivial - uniform scale в money axis)
+    # invariant: I2 (conservation) - Σ optimal_money == money_target ± 0.5%.
+    # invariant: I3 (bounds satisfaction) - bounds_money[i] enforced per channel.
     constraints = [{'type': 'eq', 'fun': lambda x: float(np.sum(x) - money_target)}]
 
     import logging
@@ -660,7 +660,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         for _ in range(3):
             s = float(np.sum(x))
             if s <= 1e-10:
-                # Degenerate — distribute evenly within bounds
+                # Degenerate - distribute evenly within bounds
                 x = np.array([(b[0] + b[1]) / 2 for b in bounds_money])
                 continue
             x = x * (money_target / s)
@@ -669,9 +669,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         return x
 
     # ─ Multi-start: channel-pivot extremes + current + all-upper ─
-    # Pre-fix (Phase 0.1 hotfix #19): random uniform + scale + clip — точки
+    # Pre-fix (Phase 0.1 hotfix #19): random uniform + scale + clip - точки
     # клипались к current, SLSQP застревал. Audit 2026-04-28 confirmed empirically.
-    # Post-fix (math-fix v1.0.14.1): channel-pivot starts — для каждого канала
+    # Post-fix (math-fix v1.0.14.1): channel-pivot starts - для каждого канала
     # i пробуем «канал i на upper, остальные на lower, project». Это даёт SLSQP
     # стартовые точки в разных корнерах feasible region.
     #
@@ -680,9 +680,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # для current_response baseline, что инфлятило lift_pct на What-if scenarios
     # где money_target ≠ current_total_money. Customer testing budget changes
     # получал wrong KPI predictions (e.g. -50% budget → +124% «lift», +100% budget
-    # → +10% «lift»). Mathematically невозможно — Hill saturation монотонна.
+    # → +10% «lift»). Mathematically невозможно - Hill saturation монотонна.
     # Fix: x0_money_real (real current, never projected) для baseline; projected
-    # x0_money — только для SLSQP multi-start initialization.
+    # x0_money - только для SLSQP multi-start initialization.
     x0_money_real = np.array(
         [current_spend[col] * uc_arr[i] for i, col in enumerate(media_cols)],
         dtype=float,
@@ -700,10 +700,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             _project_to_budget(extreme),
         ))
 
-    # «others-at-upper, one-balances» — ключевой паттерн для mixed-units money budget.
+    # «others-at-upper, one-balances» - ключевой паттерн для mixed-units money budget.
     # На Kagocel-shape problem (TRPs ≈ 92% бюджета, 5 small money channels) global
     # optimum обычно: small channels at 200%, TRPs balances вниз. Pivot starts (один
-    # на upper, остальные на lower) этот корнер не охватывают — projection пропорционально
+    # на upper, остальные на lower) этот корнер не охватывают - projection пропорционально
     # тянет все. Этот паттерн ставит N-1 каналов на upper и точно вычисляет balance.
     for balance_idx in range(n_ch):
         candidate = np.array([bounds_money[i][1] for i in range(n_ch)], dtype=float)
@@ -711,20 +711,20 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         balance_money = money_target - other_money
         if bounds_money[balance_idx][0] <= balance_money <= bounds_money[balance_idx][1]:
             candidate[balance_idx] = balance_money
-            # Точно feasible — projection не требуется, но защитный clip + check.
+            # Точно feasible - projection не требуется, но защитный clip + check.
             starts_money.append((f'others_up_balance_{balance_idx}', candidate))
 
-    # All-upper start — общий рост сценарий (projection scales всех вниз пропорц.)
+    # All-upper start - общий рост сценарий (projection scales всех вниз пропорц.)
     all_upper = np.array([bounds_money[i][1] for i in range(n_ch)])
     starts_money.append(('all_upper', _project_to_budget(all_upper)))
 
-    # Phase 2 audit pass 7 (Антон 2026-05-03): «default-bounds anchor» —
+    # Phase 2 audit pass 7 (Антон 2026-05-03): «default-bounds anchor» -
     # гарантия monotonic improvement при widening bounds. Customer reported
     # wider bounds (0/500%) дали LIFT=4.6% против narrower (20/200%) с 5.2%.
     #
-    # invariant: I1 (monotonicity, paired) + I5a (anchor floor) — wider-than-default
+    # invariant: I1 (monotonicity, paired) + I5a (anchor floor) - wider-than-default
     # bounds always ≥ default(20/200) optimal. See docs/OPTIMIZER_INVARIANTS_REGISTRY.md.
-    # invariant: I5b (chain transitive monotonicity) — F1 fix 2026-05-03 added
+    # invariant: I5b (chain transitive monotonicity) - F1 fix 2026-05-03 added
     # cumulative anchor seeding via `prev_optimal` config field (see code below
     # после default_anchor block).
     # Cause: SLSQP non-convex Hill saturation → wider search space может
@@ -757,7 +757,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             def _default_bound_for(col: str, i: int) -> tuple[float, float]:
                 cs_money = current_spend[col] * uc_arr[i]
                 if cs_money <= 0:
-                    # Zero-spend channel — match fallback semantics.
+                    # Zero-spend channel - match fallback semantics.
                     return (0.0, max(money_target * DEFAULT_MAX_PCT / n_ch, 1.0))
                 # Mirror user logic, but cap к conservative defaults.
                 lo_pct = max(min_pct_global, DEFAULT_MIN_PCT)
@@ -789,7 +789,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                             x[i] = max(default_bounds[i][0], min(default_bounds[i][1], x[i]))
                     return x
                 x0_default = _project_to_default(x0_money_real.copy())
-                # Audit pass 12 (Антон 2026-05-03): CRITICAL FIX — pass 7/9
+                # Audit pass 12 (Антон 2026-05-03): CRITICAL FIX - pass 7/9
                 # added anchor as multi-start point + ran SLSQP from там в user's
                 # wider bounds. SLSQP non-convex может MOVE AWAY from anchor в
                 # худший local optimum → monotonic guarantee broken. Customer
@@ -873,7 +873,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                         x[i_] = max(_default_anchor_bounds[i_][0], min(_default_anchor_bounds[i_][1], x[i_]))
                 return x
 
-            # Build full multi-start within default_bounds — ИДЕНТИЧНО main run.
+            # Build full multi-start within default_bounds - ИДЕНТИЧНО main run.
             anchor_starts: list[tuple[str, np.ndarray]] = [
                 ('def_current', _project_to_default_bounds(x0_money_real.copy())),
             ]
@@ -935,18 +935,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
             _logger.warning(f"default_anchor full multi-start SLSQP raised: {type(e).__name__}: {e}")
 
-    # F1 fix (2026-05-03 — Phase 5 follow-up): Cumulative anchor seeding для
+    # F1 fix (2026-05-03 - Phase 5 follow-up): Cumulative anchor seeding для
     # transitive chain monotonicity (invariant I5b). UI passes prior optimize
     # call's optimal_spend_money через `prev_optimal` config field когда user
     # widens bounds incrementally. We accept it as direct candidate (no SLSQP
-    # rerun) — feasible по конструкции when chain is widening (prev_bounds ⊆
+    # rerun) - feasible по конструкции when chain is widening (prev_bounds ⊆
     # current_bounds → prev allocation feasible в current bounds).
     #
     # Floor preserved transitively: if prev's objective ≤ current run's best,
     # min(candidates).fun guarantees current ≥ prev. Если prev infeasible
-    # в current bounds (user narrowed) или sum mismatch — silent skip + warning.
+    # в current bounds (user narrowed) или sum mismatch - silent skip + warning.
     #
-    # invariant: I5b (chain transitive monotonicity) — registry §I5b. Test
+    # invariant: I5b (chain transitive monotonicity) - registry §I5b. Test
     # flipped from xfail to passing после this fix ships.
     prev_optimal_money = config.get('prev_optimal_money') or config.get('prev_optimal')
     if prev_optimal_money is not None:
@@ -991,7 +991,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # Best = lowest -response (since we minimize -response).
         result = min(candidates, key=lambda r: r.fun)
     else:
-        # All failed — fallback to current allocation, mark non-converged.
+        # All failed - fallback to current allocation, mark non-converged.
         class _FailResult:
             def __init__(self, x0, msg):
                 self.x = x0.copy()
@@ -1013,18 +1013,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # Both bounds and result.x в money axis после refactor.
     bounds = bounds_money
 
-    # O1.3 — binding constraints detection. Relative tolerance scaled by
+    # O1.3 - binding constraints detection. Relative tolerance scaled by
     # problem magnitude (avoids absolute-eps issues on budgets in billions).
     def _is_binding(x_val: float, bound_val: float, scale: float) -> bool:
         return abs(x_val - bound_val) / max(abs(bound_val), scale * 1e-3, 1.0) < 1e-3
 
-    # math-fix v1.0.14.1 — binding scale в money axis (matches refactored bounds).
+    # math-fix v1.0.14.1 - binding scale в money axis (matches refactored bounds).
     _binding_scale = money_target / max(n_ch, 1)
     _n_at_max = sum(1 for i in range(n_ch) if _is_binding(result.x[i], bounds[i][1], _binding_scale))
     _n_at_min = sum(1 for i in range(n_ch) if _is_binding(result.x[i], bounds[i][0], _binding_scale))
     binding_constraints = (_n_at_max == n_ch) or (_n_at_min == n_ch)
 
-    # Compare current vs optimal — math-fix v1.0.16 L10:
+    # Compare current vs optimal - math-fix v1.0.16 L10:
     # current_response computed at REAL current allocation (x0_money_real),
     # NOT projected (x0_money). Pre-fix using projected made lift_pct artifact
     # of scale-down/scale-up baseline shift, не measure of redistribution gain.
@@ -1047,18 +1047,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # → media drowns in float arithmetic, lift_pct = 0.0% даже когда media-only
     # changes на 17.7%. Customer reproduced на Кагоцел project (9): legacy
     # lift_pct=17.7% but canonical=0.0% pre-fix.
-    import os as _os_lift  # localized import — avoid module-level pollution
+    import os as _os_lift  # localized import - avoid module-level pollution
     y_mean_lift = float(norm.get('y_mean', 0.0))
     intercept_mean_lift = float(norm.get('intercept_mean', 0.0))
 
     # AUDIT 2026-05-04: y_std degenerate guard. Если pickle имеет y_std=0 (or close)
-    # — все KPI scales collapse к 0 → canonical formula divide-by-zero / silent
+    # - все KPI scales collapse к 0 → canonical formula divide-by-zero / silent
     # 0% lift. Treat как degenerate baseline → fall back к media-only formula
     # (legacy semantics, not great but better than misleading 0%).
     y_std_degenerate = (not isinstance(y_std, (int, float))) or (abs(float(y_std)) < 1e-10)
     if y_std_degenerate:
         _logger.warning(
-            "y_std degenerate (%s) — canonical lift formula falls back к media-only ratio.",
+            "y_std degenerate (%s) - canonical lift formula falls back к media-only ratio.",
             y_std,
         )
 
@@ -1075,7 +1075,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     else:
         media_only_lift_pct = 0.0
         _logger.warning(
-            "current_response_real ≤ 0 — degenerate media baseline. media_only_lift_pct undefined."
+            "current_response_real ≤ 0 - degenerate media baseline. media_only_lift_pct undefined."
         )
 
     # Canonical: total business KPI ratio (both terms in money axis).
@@ -1088,19 +1088,19 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         canonical_lift_pct = 0.0
         baseline_zero = True
         _logger.warning(
-            "total_current_kpi ≤ 0 — degenerate baseline. canonical lift_pct undefined."
+            "total_current_kpi ≤ 0 - degenerate baseline. canonical lift_pct undefined."
         )
 
-    # Active formula dispatch — legacy flag для emergency revert without re-ship.
+    # Active formula dispatch - legacy flag для emergency revert without re-ship.
     # Также fallback к legacy если y_std degenerate (canonical math undefined).
     if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1' or y_std_degenerate:
         lift_pct = media_only_lift_pct
         if not y_std_degenerate:
-            _logger.info("AURORA_LEGACY_LIFT_FORMULA=1 — using legacy media-only lift_pct.")
+            _logger.info("AURORA_LEGACY_LIFT_FORMULA=1 - using legacy media-only lift_pct.")
     else:
         lift_pct = canonical_lift_pct
 
-    # math-fix v1.0.14.1 + v1.0.16 — false convergence detector.
+    # math-fix v1.0.14.1 + v1.0.16 - false convergence detector.
     # SLSQP может вернуть success=True at iter=1 если стартовая точка локально
     # стабильна (KKT удовлетворяется тривиально). Этот flag поднимается когда
     # optimizer вернул practically projected-current allocation (i.e. no
@@ -1137,7 +1137,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         #   #11 missing adstock_factor → mROAS off by 2-15× depending on θ
         #   #12 missing /unit_cost     → TRPs (uc=250000) showed 1780× absurd
         # Both closed by single helper _compute_mroas_money() that returns
-        # ∂KPI(money)/∂s(money) — comparable across native and money channels.
+        # ∂KPI(money)/∂s(money) - comparable across native and money channels.
         # C1 fix (audit 2026-04-26): prefer adstock_mean_posterior (v1.2+) for math consistency.
         mean_post_opt = p.get('adstock_mean_posterior')
         mean_ch = float(mean_post_opt) if mean_post_opt is not None else (float(media_means.get(col, 1)) or 1)
@@ -1145,7 +1145,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         uc = float(unit_costs.get(col, 1.0) or 1.0)
 
         decay_pt = p.get('decay')  # Phase 1.1: posterior mean decay; None for legacy pickles
-        # G1 fix: planning mode threads forecast_n_periods через mROAS — marginal
+        # G1 fix: planning mode threads forecast_n_periods через mROAS - marginal
         # ROI estimated per planning horizon, не training (analyst mode unchanged).
         mroi_current = _compute_mroas_money(
             current_spend_native=cur,
@@ -1247,7 +1247,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # fields через single-source-of-truth compute_channel_action. Replaces old
     # primitive `action: 'увеличить'/'сократить'/'сохранить'` (delta_pct heuristic)
     # с full ACTION_KEYS vocabulary (Scale/Hold/Watch/Reduce/Cut/Uncertain). Same
-    # helper used decomposer.py + narrative_adapter.py — three-way alignment.
+    # helper used decomposer.py + narrative_adapter.py - three-way alignment.
     from engines.channel_action import compute_channel_action
     for ch in channels:
         # alias mroi_current → mroas + mroi_current_ci_* → mroas_ci_* per
@@ -1274,13 +1274,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # curves reach uniform x-end, но channels с small relevant range looked
     # squashed/flat за пределами их saturation point. Hill α (крутизна) +
     # γ (half-sat point) обученные posterior могут давать sharp S-curve
-    # → channel plateaus в 1-5% of forced global x-range, остальное — flat.
+    # → channel plateaus в 1-5% of forced global x-range, остальное - flat.
     # Customer asked «уверены ли в shape». Math correct (Hill behavior),
     # но visualization cubicly bad с global axis.
     #
     # Better: per-channel upper = max(2×cur_money, 2×optimal_money,
     # fallback_max_money) / unit_cost. Each channel's curve fits в свой
-    # informative range; xAxis frontend adapts (audit pass 9 — channelBudgets
+    # informative range; xAxis frontend adapts (audit pass 9 - channelBudgets
     # × 1.5 max). Cross-channel comparison achieved via shared y-scale,
     # не x-scale forcing.
 
@@ -1290,7 +1290,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         mean_ch = float(media_means.get(col, 1)) or 1
         a_type = _adstock_type(col)
         uc_col = float(unit_costs.get(col, 1.0) or 1.0)
-        # Per-channel reasonable upper: 2× current OR 2× optimal — больший,
+        # Per-channel reasonable upper: 2× current OR 2× optimal - больший,
         # чтобы curve покрывала и текущий и предлагаемый optimal с headroom.
         # Fallback к fallback_max_money / uc когда нет current spend.
         cur_money = cur * uc_col
@@ -1324,12 +1324,12 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                               for col in media_cols)
 
     _sign = '+' if lift_pct >= 0 else ''
-    # math-fix v1.0.14.1 + v1.0.16 — narrative-aware insight.
+    # math-fix v1.0.14.1 + v1.0.16 - narrative-aware insight.
     # baseline_zero (L10 edge case): real current media contribution = 0 → lift_pct
     # undefined. Honest message вместо vacuous «прирост 0%».
     if baseline_zero:
         insight = (
-            f"Текущее распределение даёт нулевой медиа-вклад — невозможно "
+            f"Текущее распределение даёт нулевой медиа-вклад - невозможно "
             f"вычислить прирост в процентах. Оптимизатор предлагает распределение "
             f"({round(total_budget_money, 0):,.0f} ₽), но baseline для сравнения "
             f"degenerate. Проверьте данные media_columns."
@@ -1375,13 +1375,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         'min_pct_used': float(min_pct_global * 100),
         'max_pct_used': float(max_pct_global * 100),
         # math-fix v1.0.14.1, A1 (audit-of-audit 2026-04-28):
-        # — converged_at_current: SLSQP отдал current allocation без binding (false convergence).
-        # — slsqp_diagnostics: per-start outcomes для post-mortem (UI/log debugging).
+        # - converged_at_current: SLSQP отдал current allocation без binding (false convergence).
+        # - slsqp_diagnostics: per-start outcomes для post-mortem (UI/log debugging).
         'converged_at_current': bool(converged_at_current),
-        # math-fix v1.0.16, L10: baseline_zero flag — real current media contribution = 0,
+        # math-fix v1.0.16, L10: baseline_zero flag - real current media contribution = 0,
         # lift_pct undefined. UI должен suppress lift display + show diagnostic banner.
         'baseline_zero': bool(baseline_zero),
-        # Phase 2 (Planning Mode) metadata — present always (analyst mode echoes
+        # Phase 2 (Planning Mode) metadata - present always (analyst mode echoes
         # n_periods == forecast_n_periods and planning_mode=False для UI consistency).
         'planning_mode': bool(planning_mode),
         'train_n_periods': int(n_periods),

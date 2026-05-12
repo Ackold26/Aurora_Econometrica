@@ -1,10 +1,10 @@
 //! Econometrica sidecar HTTP proxy commands.
 //!
 //! Forwards computation requests to the Python sidecar. Порт больше не
-//! захардкожен — читается из `econ_sidecar::current_port()`, который устанавливается
+//! захардкожен - читается из `econ_sidecar::current_port()`, который устанавливается
 //! через `sidecar_runtime::allocate_port()` (deterministic per-user).
 //!
-//! All heavy math (MCMC, optimization, charts) runs locally in Python — 0 Claude tokens.
+//! All heavy math (MCMC, optimization, charts) runs locally in Python - 0 Claude tokens.
 //!
 //! # v1.0.9: X-Expected-Session handshake
 //! Каждый POST добавляет заголовок `X-Expected-Session: <uuid>`. Sidecar
@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use crate::econ_sidecar;
 
-/// Базовый URL sidecar — динамический порт. Использовать только через эту функцию.
+/// Базовый URL sidecar - динамический порт. Использовать только через эту функцию.
 fn econ_url(path: &str) -> String {
     format!("{}{}", econ_sidecar::base_url(), path)
 }
@@ -38,7 +38,7 @@ const QUICK_TIMEOUT_SECS: u64 = 60;
 /// Timeout for long-running endpoints (MCMC training)
 const TRAIN_TIMEOUT_SECS: u64 = 900; // 15 minutes
 
-/// Static clients — avoid TLS bootstrap + connection pool setup per request.
+/// Static clients - avoid TLS bootstrap + connection pool setup per request.
 static QUICK_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static TRAIN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static HEALTH_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -97,7 +97,7 @@ pub async fn econ_train(config: Value) -> Result<Value, String> {
 pub async fn econ_decompose(
     project_dir: String,
     unit_costs: Option<Value>,
-    // Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rates.
+    // Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rates.
     unit_cost_inflation_pct: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_decompose: {project_dir}");
@@ -125,14 +125,14 @@ pub async fn econ_optimize(
     perf_min_pct: Option<f64>,
     perf_max_pct: Option<f64>,
     unit_costs: Option<Value>,
-    // Phase 2 (Planning Mode) — opt-in. None = analyst mode (current behavior
+    // Phase 2 (Planning Mode) - opt-in. None = analyst mode (current behavior
     // preserved byte-exact). Some(int) = Option C per-period Hill summation.
     forecast_periods: Option<i64>,
     forecast_period_label: Option<String>,
-    // Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rates.
+    // Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rates.
     unit_cost_inflation_pct: Option<Value>,
     // F1 fix 2026-05-03 (Phase 5 follow-up audit): prior optimize call's
-    // optimal_spend_money per channel — backend uses as direct candidate
+    // optimal_spend_money per channel - backend uses as direct candidate
     // anchor для transitive chain monotonicity (invariant I5b).
     // None = first-call OR pickle/budget changed → backend skips silently.
     prev_optimal: Option<Value>,
@@ -161,7 +161,7 @@ pub async fn econ_optimize(
     post_json("/compute/optimize", &body, quick_client()).await
 }
 
-// ─── Phase 2 (Planning Mode) — preview endpoints ───────────────────────────
+// ─── Phase 2 (Planning Mode) - preview endpoints ───────────────────────────
 
 #[tauri::command]
 pub async fn econ_forecast_context(project_dir: String) -> Result<Value, String> {
@@ -207,12 +207,12 @@ pub async fn econ_scenario(
     media_plan: Option<Value>,
     media_plan_file: Option<String>,
     unit_costs: Option<Value>,
-    // Phase 2 (audit pass 4) — planning context. None = analyst (legacy: distribute
+    // Phase 2 (audit pass 4) - planning context. None = analyst (legacy: distribute
     // single-period totals по training_n_periods). Some(int) = planning (distribute
     // по forecast_periods, matching optimizer planner mode).
     forecast_periods: Option<i64>,
     forecast_period_label: Option<String>,
-    // Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rates.
+    // Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rates.
     unit_cost_inflation_pct: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_scenario: {scenario_name}");
@@ -401,7 +401,7 @@ pub async fn econ_export_html(
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Sprint 3 Pharma Causal — frontend invokers (per ADR §1 EXTEND-not-rewrite)
+// Sprint 3 Pharma Causal - frontend invokers (per ADR §1 EXTEND-not-rewrite)
 // All causal endpoints вызываются через единый pass-through pattern: frontend
 // builds request JSON, Rust forwards to FastAPI sidecar, returns Value verbatim.
 // ──────────────────────────────────────────────────────────────────
@@ -459,7 +459,7 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
     let resp = match send_once(client, econ_url(path)).await {
         Ok(r) => r,
         Err(e) if e.is_connect() || e.is_timeout() => {
-            warn!("Sidecar unreachable on {path} ({e}) — attempting auto-respawn");
+            warn!("Sidecar unreachable on {path} ({e}) - attempting auto-respawn");
             if !econ_sidecar::ensure_alive().await {
                 return Err(format!(
                     "Вычислительный модуль недоступен и не удалось автоматически перезапустить. \
@@ -480,7 +480,7 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
     // v1.0.9: 409 Conflict → session mismatch → re-handshake + retry once
     if resp.status() == reqwest::StatusCode::CONFLICT {
         warn!(
-            "Sidecar {path} returned 409 (session mismatch) — \
+            "Sidecar {path} returned 409 (session mismatch) - \
              re-handshake and retry"
         );
         // ensure_alive делает /health verify_handshake + respawn если чужой
@@ -532,7 +532,7 @@ pub async fn econ_optimize_inverse(
         "max_budget": max_budget,
         "min_budget": min_budget,
     });
-    // Inverse + bisection может занимать до 10s — use train_client с longer timeout.
+    // Inverse + bisection может занимать до 10s - use train_client с longer timeout.
     post_json("/optimize/inverse", &body, train_client()).await
 }
 

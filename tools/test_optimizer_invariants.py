@@ -1,17 +1,17 @@
-"""Optimizer invariants — property-based tests (Phase 1 of audit).
+"""Optimizer invariants - property-based tests (Phase 1 of audit).
 
 Plan: C:\\Users\\ackol\\.claude\\plans\\zazzy-tumbling-kettle.md
 
 Eight formal invariants verified across random seeds:
 
-    I1 — Monotonicity: wider bounds ⊃ narrow → optimal(wider) ≥ optimal(narrow)
-    I2 — Conservation: Σ optimal_money ≈ money_target (eq constraint)
-    I3 — Bounds satisfaction: optimal_money[i] ∈ [bounds[i].lo, bounds[i].hi]
-    I4 — Backward compat: planning_mode=False → analyst-mode echo + deterministic
-    I5 — Lift sign: lift_pct(wider) ≥ lift_pct(narrower) (corollary I1)
-    I6 — mROAS chain rule: _compute_mroas_money matches finite-difference
-    I7 — Constraint precedence: per-channel > per-group > global
-    I8 — Option C alignment: evaluate_flat_allocation_response identical to
+    I1 - Monotonicity: wider bounds ⊃ narrow → optimal(wider) ≥ optimal(narrow)
+    I2 - Conservation: Σ optimal_money ≈ money_target (eq constraint)
+    I3 - Bounds satisfaction: optimal_money[i] ∈ [bounds[i].lo, bounds[i].hi]
+    I4 - Backward compat: planning_mode=False → analyst-mode echo + deterministic
+    I5 - Lift sign: lift_pct(wider) ≥ lift_pct(narrower) (corollary I1)
+    I6 - mROAS chain rule: _compute_mroas_money matches finite-difference
+    I7 - Constraint precedence: per-channel > per-group > global
+    I8 - Option C alignment: evaluate_flat_allocation_response identical to
          per-period sum-of-Hill (scenario.py:167-186 semantics)
 
 Math refs:
@@ -44,7 +44,7 @@ from _optimizer_fixtures import build_synthetic_pickle, is_ok as _is_ok  # noqa:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I1 — Monotonicity: wider bounds dominate narrower
+# I1 - Monotonicity: wider bounds dominate narrower
 # ──────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('seed', list(range(20)))
@@ -70,7 +70,7 @@ def test_I1_monotonicity_wider_bounds_dominate(tmp_path, seed):
             f'/ wide={r_wide.get("status")}'
         )
     if r_narrow.get('baseline_zero') or r_wide.get('baseline_zero'):
-        pytest.skip('baseline_zero — lift_pct undefined')
+        pytest.skip('baseline_zero - lift_pct undefined')
 
     lift_narrow = float(r_narrow['expected_lift_pct'])
     lift_wide = float(r_wide['expected_lift_pct'])
@@ -82,7 +82,7 @@ def test_I1_monotonicity_wider_bounds_dominate(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I2 — Conservation: Σ optimal_money == money_target (eq constraint)
+# I2 - Conservation: Σ optimal_money == money_target (eq constraint)
 # ──────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('seed', list(range(20)))
@@ -137,7 +137,7 @@ def test_I2_conservation_with_override(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I3 — Bounds satisfaction: per-channel
+# I3 - Bounds satisfaction: per-channel
 # ──────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('seed', list(range(20)))
@@ -169,7 +169,7 @@ def test_I3_bounds_satisfaction(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I4 — Backward compat: analyst mode echo + deterministic
+# I4 - Backward compat: analyst mode echo + deterministic
 # ──────────────────────────────────────────────────────────────────────
 
 def test_I4_analyst_mode_echo_and_determinism(tmp_path):
@@ -200,20 +200,20 @@ def test_I4_analyst_mode_echo_and_determinism(tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I5 — Lift sign: anchor-floor guarantee (corollary I1)
+# I5 - Lift sign: anchor-floor guarantee (corollary I1)
 # ──────────────────────────────────────────────────────────────────────
 #
 # Plan I5 = corollary of I1 ("wider → lift_wide ≥ lift_narrow"). Optimizer
 # implements this via default_anchor mechanism (passes 7-17 в optimizer.py:
 # DEFAULT_MIN_PCT=0.20, DEFAULT_MAX_PCT=2.00). Anchor active iff user widens
-# **past** defaults — not for narrower-than-default OR for chains entirely
+# **past** defaults - not for narrower-than-default OR for chains entirely
 # inside default bracket. So actual guarantee is:
 #
 #   (anchor floor) For any user bounds wider than (0.20, 2.00):
 #                  lift(user) ≥ lift(default 20/200) - tolerance
 #
 # Full transitive monotonicity (chain over arbitrary widenings) is NOT
-# guaranteed by current implementation — it would need cumulative anchor
+# guaranteed by current implementation - it would need cumulative anchor
 # (each call seeds previous-narrower's optimum). Captured as advisory xfail
 # below (Phase 5 follow-up).
 # ──────────────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ def test_I4_analyst_mode_echo_and_determinism(tmp_path):
 
 @pytest.mark.parametrize('seed', list(range(5)))
 def test_I5_lift_floor_at_default_anchor(tmp_path, seed):
-    """Wider-than-default bounds always ≥ default(20/200) lift — anchor floor."""
+    """Wider-than-default bounds always ≥ default(20/200) lift - anchor floor."""
     proj = tmp_path / f'I5a_{seed}'
     build_synthetic_pickle(proj, seed=seed)
 
@@ -249,7 +249,7 @@ def test_I5_chain_monotonic_with_cumulative_anchor(tmp_path, seed):
 
     F1 fix (2026-05-03): UI passes prior `result.optimal_spend_money` via
     `prev_optimal` config field when user widens bounds incrementally.
-    Optimizer accepts it as direct candidate — floor preserved transitively.
+    Optimizer accepts it as direct candidate - floor preserved transitively.
 
     Test emulates UI behavior: chain of widening bounds, each call seeds
     с previous optimal allocation. Result: lift_pct non-decreasing across chain.
@@ -287,7 +287,7 @@ def test_I5_chain_monotonic_with_cumulative_anchor(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I6 — mROAS chain rule consistency vs finite-difference
+# I6 - mROAS chain rule consistency vs finite-difference
 # ──────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('seed', list(range(50)))
@@ -356,7 +356,7 @@ def test_I6_mroas_finite_difference(seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I7 — Per-channel constraint precedence (E2E через optimize)
+# I7 - Per-channel constraint precedence (E2E через optimize)
 # ──────────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('seed', list(range(10)))
@@ -385,7 +385,7 @@ def test_I7_per_channel_overrides_global(tmp_path, seed):
     opt_money = target['optimal_spend_money']
 
     if cur_money <= 0:
-        pytest.skip(f'{target_ch} has zero current_money — bounds degenerate')
+        pytest.skip(f'{target_ch} has zero current_money - bounds degenerate')
 
     lo = cur_money * 0.80
     hi = cur_money * 1.20
@@ -398,7 +398,7 @@ def test_I7_per_channel_overrides_global(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# I8 — Option C alignment: optimizer planning ≡ scenario forward sum
+# I8 - Option C alignment: optimizer planning ≡ scenario forward sum
 # ──────────────────────────────────────────────────────────────────────
 
 def test_I8_option_c_per_period_identity():

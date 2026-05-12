@@ -90,7 +90,7 @@
     {#if campaigns.length === 0}
       <div class="empty-state">
         <p class="empty-text">Нет кампаний</p>
-        <p class="empty-hint">Кампания — пошаговый workflow через кабинеты: аналитика → стратегия → концепция → тексты → визуалы → тестирование</p>
+        <p class="empty-hint">Кампания - пошаговый workflow через кабинеты: аналитика → стратегия → концепция → тексты → визуалы → тестирование</p>
       </div>
     {:else}
       <div class="campaigns-list">

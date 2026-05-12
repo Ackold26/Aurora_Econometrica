@@ -37,7 +37,7 @@ describe('ColumnMapperConfirm', () => {
       props: { columns: makeColumns(), onConfirm: vi.fn() },
     });
     // Column names в <td class="col-name"> cells. Может быть multiple matches
-    // если name fragment appears в descriptions — use targeted .col-name selector.
+    // если name fragment appears в descriptions - use targeted .col-name selector.
     const cellTexts = Array.from(container.querySelectorAll('.col-name'))
       .map(td => td.textContent?.trim());
     for (const col of makeColumns()) {

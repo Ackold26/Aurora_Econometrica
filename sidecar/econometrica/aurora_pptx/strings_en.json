@@ -3,7 +3,7 @@
     "lang": "en",
     "version": "0.1.0-placeholder",
     "last_updated": "2026-04-24",
-    "status": "PLACEHOLDER — populated in v1.0.12. Fallbacks ru→en chain means missing keys fall back to ru (unusual)."
+    "status": "PLACEHOLDER - populated in v1.0.12. Fallbacks ru→en chain means missing keys fall back to ru (unusual)."
   },
   "product": {
     "name": "Aurora AI Econometrica"

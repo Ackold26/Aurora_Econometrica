@@ -22,9 +22,9 @@ MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'vie
                   'радио', 'пресса', 'digital', 'programmatic',
                   # Out-of-Home: English (OOH, outdoor) + Russian (ООН, наружная)
                   'ooh', 'outdoor', 'оон', 'наружн',
-                  # OTS (Opportunity To See) — impression-like metric for OOH/TV
+                  # OTS (Opportunity To See) - impression-like metric for OOH/TV
                   'ots',
-                  # TV (television) — English + Russian
+                  # TV (television) - English + Russian
                   'tv', 'television', 'тв ', 'тв_', 'тв-',
                   'price', 'promo', 'цен', 'промо']
 DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
@@ -223,7 +223,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
         if role == 'date':
             date_col = col
-            # Phase 2 audit pass 5: per-column year span detection — позволяет
+            # Phase 2 audit pass 5: per-column year span detection - позволяет
             # frontend (UnitCostsPanel) показать %/год input БЕЗ зависимости от
             # обученного pickle (econ_forecast_context требует model.latest.pkl).
             try:
@@ -238,7 +238,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                         'n_years': len(_unique_years),
                     }
             except Exception:
-                pass  # Non-fatal — date detection still works без stats
+                pass  # Non-fatal - date detection still works без stats
         elif role == 'kpi':
             kpi_cols.append(col)
         elif role == 'media':
@@ -267,7 +267,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 warnings.append({
                     'column': col,
                     'type': 'high_zeros',
-                    'message': f'{col} — {zeros_pct}% нулей. Рекомендуем объединить с другим каналом',
+                    'message': f'{col} - {zeros_pct}% нулей. Рекомендуем объединить с другим каналом',
                     'severity': 'warning',
                     'action': 'merge',
                 })
@@ -275,7 +275,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 warnings.append({
                     'column': col,
                     'type': 'low_variance',
-                    'message': f'{col} — вариативность <5%. Канал не информативен для модели',
+                    'message': f'{col} - вариативность <5%. Канал не информативен для модели',
                     'severity': 'warning',
                     'action': 'exclude',
                 })
@@ -310,13 +310,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     if ratio < 3:
         issues.append({
             'type': 'insufficient_data',
-            'message': f'Ratio данных {ratio:.1f}:1 — критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных',
+            'message': f'Ratio данных {ratio:.1f}:1 - критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных',
             'severity': 'critical',
         })
     elif ratio < 4:
         warnings.append({
             'type': 'borderline_data',
-            'message': f'Ratio {ratio:.1f}:1 — пограничное (рекомендуем ≥10:1). Модель построится с расширенными доверительными интервалами',
+            'message': f'Ratio {ratio:.1f}:1 - пограничное (рекомендуем ≥10:1). Модель построится с расширенными доверительными интервалами',
             'severity': 'warning',
         })
 
@@ -337,7 +337,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     if period_weeks < 52:
         warnings.append({
             'type': 'short_period',
-            'message': f'{period_weeks} наблюдений — менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
+            'message': f'{period_weeks} наблюдений - менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
             'severity': 'warning',
         })
 
@@ -364,7 +364,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                         high_correlations.append({
                             'col1': c1, 'col2': c2,
                             'correlation': round(float(corr_df.loc[c1, c2]), 3),
-                            'risk': 'Мультиколлинеарность — один из столбцов может быть избыточен',
+                            'risk': 'Мультиколлинеарность - один из столбцов может быть избыточен',
                         })
 
     # ── Traffic Light verdict ──
@@ -401,7 +401,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     # Save to project dir if provided.
     # Под RemoteApp/roaming profile запись может упасть с PermissionError /
-    # OSError / invalid path — GUI всё равно получает result через return.
+    # OSError / invalid path - GUI всё равно получает result через return.
     # default=str страхует numpy-типы, которые json не умеет сериализовать.
     if project_dir:
         try:

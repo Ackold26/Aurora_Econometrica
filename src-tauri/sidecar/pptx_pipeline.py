@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aurora AI — PPTX Pipeline
+Aurora AI - PPTX Pipeline
 Preprocessing, notes injection, and DOCX generation for media-analyst cabinet.
 
 Modes:
@@ -54,7 +54,7 @@ def extract_text_from_shape(shape):
 
     Note: Connector shapes (e.g. Aurora Hybrid signature-lime added by
     `_add_signature_lime`) have neither text_frame nor table, so they're
-    silently skipped — intentional. If future work adds connector labels
+    silently skipped - intentional. If future work adds connector labels
     or line text, update this function to avoid emitting empty strings.
     """
     parts = []
@@ -305,7 +305,7 @@ def inject_notes(input_path, notes_path, output_path):
     if not notes_data:
         print(json.dumps({
             "status": "warning",
-            "warning": "notes_data is empty — no slides will be updated",
+            "warning": "notes_data is empty - no slides will be updated",
             "slides_updated": 0,
             "output": str(output_path),
         }, ensure_ascii=False))
@@ -374,7 +374,7 @@ def inject_notes(input_path, notes_path, output_path):
 
         tf = ns.notes_text_frame
         if tf is None:
-            # Still None after recreation — skip this slide
+            # Still None after recreation - skip this slide
             continue
 
         # Clear existing notes: clear all runs from existing paragraphs,
@@ -806,11 +806,11 @@ def parse_synthesis_sections(text):
 # ── Aurora Hybrid · bridge signature ─────────────────────────────────
 # This file generates PPTX for the MEDIA-ANALYST cabinet (inject_summary_slides).
 # The ECONOMETRICA cabinet has its own generator at
-# sidecar/econometrica/engines/pptx_export.py — both locations must carry the
+# sidecar/econometrica/engines/pptx_export.py - both locations must carry the
 # signature-lime for consistent branding across Aurora products.
 #
 # TODO(P0.2): source from Standards/tokens.json after SSOT pipeline is in place.
-# brand.signature.lime — 2pt line under every action-title.
+# brand.signature.lime - 2pt line under every action-title.
 # See Standards/BRAND_DECISION.md § DECISION for context.
 SIGNATURE_LIME_HEX = (0xCC, 0xFF, 0x00)
 
@@ -818,7 +818,7 @@ SIGNATURE_LIME_HEX = (0xCC, 0xFF, 0x00)
 def _add_signature_lime(slide, title_box):
     """Aurora Hybrid signature: 2pt lime line under action-title.
 
-    Uses actual rendered title_box.height for adaptive positioning —
+    Uses actual rendered title_box.height for adaptive positioning -
     works for both Key Message slides (24pt title, ~0.8" box) and
     Detail slides (16pt title, ~0.5" box). Safe to call on any title_box
     produced by slide.shapes.add_textbox().
@@ -945,7 +945,7 @@ def inject_summary_slides(input_pptx, synthesis_md_path, styles_json_path, slide
         p.font.name = font_name
         p.font.color.rgb = RGBColor(0x1E, 0x3A, 0x5F)
 
-        # Aurora Hybrid signature — 2pt lime line under action-title (P0.5).
+        # Aurora Hybrid signature - 2pt lime line under action-title (P0.5).
         # See Standards/BRAND_DECISION.md § DECISION.
         _add_signature_lime(slide, title_box)
 

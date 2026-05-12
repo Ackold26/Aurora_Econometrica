@@ -138,7 +138,7 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
 /// Verify SHA256 checksum of a downloaded file.
 pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()> {
     if expected.is_empty() {
-        anyhow::bail!("Update checksum is missing — refusing to install unverified update");
+        anyhow::bail!("Update checksum is missing - refusing to install unverified update");
     }
 
     // Strip "sha256:" prefix if present

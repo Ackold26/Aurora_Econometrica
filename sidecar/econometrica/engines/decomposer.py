@@ -24,7 +24,7 @@ from utils.posterior_propagation import (
 )
 
 
-# Hybrid ROI thresholds (Phase 0.2 — plan immutable-bouncing-noodle §0.2, L4).
+# Hybrid ROI thresholds (Phase 0.2 - plan immutable-bouncing-noodle §0.2, L4).
 # Calibration sources documented в docs/ROI_THRESHOLDS.md.
 ROI_DEEP_LOSS = 0.5         # < 0.5× = глубоко убыточный
 ROI_LOSS = 0.8              # < 0.8× = убыточный
@@ -32,11 +32,11 @@ ROI_BREAKEVEN = 1.0         # < 1.0× = на грани окупаемости
 ROI_HIGH_ABS = 5.0          # > 5× = высокоэффективен (small-N absolute fallback)
 ROI_UNIT_SMELL_FLOOR = 50.0 # > 50× при unit_smell = "не рубли?" (preserved)
 ROI_ARTIFACT = 100.0        # > 100× = artifact warning (regardless of unit_smell)
-GAP_OVERSAT = -10.0         # пп — перенасыщен
-GAP_UNDER = -5.0            # пп — слабее своей доли
-GAP_HIGH = 10.0             # пп — высокоэффективен по share
-GAP_GOOD = 5.0              # пп — эффективен по share
-QUANTILE_MIN_N = 20         # ниже — relative quantile mode disabled
+GAP_OVERSAT = -10.0         # пп - перенасыщен
+GAP_UNDER = -5.0            # пп - слабее своей доли
+GAP_HIGH = 10.0             # пп - высокоэффективен по share
+GAP_GOOD = 5.0              # пп - эффективен по share
+QUANTILE_MIN_N = 20         # ниже - relative quantile mode disabled
 
 
 def compute_roi_verdict(
@@ -55,25 +55,25 @@ def compute_roi_verdict(
     Per plan immutable-bouncing-noodle §0.2 (L4 fix), and L2 (math-fix v1.4
     Section C, 2026-04-29) re-ordering:
 
-      Pre-fix (L4): Step 1 — wide CI → 'Высокая неопределённость' (suppressed
-        ALL informative labels на small-N data — customer never saw «Перенасыщен»
+      Pre-fix (L4): Step 1 - wide CI → 'Высокая неопределённость' (suppressed
+        ALL informative labels на small-N data - customer never saw «Перенасыщен»
         / «Высокоэффективен» when CI was wide regardless of point estimate).
       Post-fix (L2): wide CI → suffix « (низкая уверенность)» appended к
         existing label. Keeps informative descriptive verdict (mROAS-derived)
         while honestly disclosing CI uncertainty. Customer sees full picture.
 
     Order:
-      Step 1 — posterior uncertainty flag (computed, applied at end as suffix)
-      Step 2 — absolute hard caps (artifact/glubokaya-ubitochnost regardless of category)
-      Step 3 — relative quantile (only if N ≥ 20 portfolio data + category mapping)
-      Step 4 — efficiency gap fallback (small-N safe per-channel)
+      Step 1 - posterior uncertainty flag (computed, applied at end as suffix)
+      Step 2 - absolute hard caps (artifact/glubokaya-ubitochnost regardless of category)
+      Step 3 - relative quantile (only if N ≥ 20 portfolio data + category mapping)
+      Step 4 - efficiency gap fallback (small-N safe per-channel)
 
     Args:
       roi: канальный ROI (contribution_money / spend_money), unitless.
       efficiency_gap: share_of_effect - share_of_spend (пп).
       category: 'brand_reach' / 'performance' / 'mixed' (для quantile lookup).
       unit_smell: True если канал в TRP/clicks/impressions (не деньги) и unit_cost=1.
-      roi_ci_low, roi_ci_high: posterior 90% CI bounds (Phase 1.9 — пока None).
+      roi_ci_low, roi_ci_high: posterior 90% CI bounds (Phase 1.9 - пока None).
       n_channels: total channels в выборке (для quantile-mode gating).
       category_quantiles: {category: {p10, p25, p75, p90}} portfolio benchmarks.
 
@@ -92,16 +92,16 @@ def compute_roi_verdict(
     )
 
     def _apply_ci_suffix(label, tone):
-        # Подпись смягчена 2026-05-02: было "(низкая уверенность)" — эмоционально
+        # Подпись смягчена 2026-05-02: было "(низкая уверенность)" - эмоционально
         # воспринималось как недоверие модели целиком (особенно когда R²/MAPE отличные).
-        # Стало "(широкий ROI-интервал)" — нейтральное техническое описание:
+        # Стало "(широкий ROI-интервал)" - нейтральное техническое описание:
         # ROI следует трактовать как диапазон, не как точное число. Качество модели
         # оценивается отдельно через R² / MAPE / R-hat (см. Эксперт-панель Train).
         if wide_ci:
             return (f"{label} (широкий ROI-интервал)", 'warn' if tone == 'good' else tone)
         return (label, tone)
 
-    # Step 2 — absolute hard caps (regardless of category)
+    # Step 2 - absolute hard caps (regardless of category)
     if roi > ROI_UNIT_SMELL_FLOOR and unit_smell:
         return _apply_ci_suffix('ROI завышен (не рубли?)', 'warn')
     if roi > ROI_ARTIFACT:
@@ -113,7 +113,7 @@ def compute_roi_verdict(
     if roi < ROI_BREAKEVEN:
         return _apply_ci_suffix('На грани окупаемости', 'warn')
 
-    # Step 3 — category-relative quantile (gated by min N)
+    # Step 3 - category-relative quantile (gated by min N)
     if (
         n_channels >= QUANTILE_MIN_N
         and category_quantiles
@@ -134,7 +134,7 @@ def compute_roi_verdict(
             return _apply_ci_suffix('Bottom-25% по категории', 'warn')
         return _apply_ci_suffix('Средний по категории', 'neutral')
 
-    # Step 4 — efficiency gap fallback (per-channel small-N safe)
+    # Step 4 - efficiency gap fallback (per-channel small-N safe)
     if roi > ROI_HIGH_ABS and not unit_smell:
         return _apply_ci_suffix('Высокоэффективен', 'good')
     if efficiency_gap <= GAP_OVERSAT:
@@ -156,7 +156,7 @@ def _load_v13_kpi_settings(project_path) -> dict:
     в memory при дальнейшей dispatch.
 
     Audit fix v1.3.0 (red-team review): explicit logging при corrupted JSON
-    — silent swallow прятал data corruption.
+    - silent swallow прятал data corruption.
     """
     settings_file = project_path / 'settings' / 'v13_kpi.json'
     if not settings_file.exists():
@@ -166,7 +166,7 @@ def _load_v13_kpi_settings(project_path) -> dict:
         with open(settings_file, 'r', encoding='utf-8') as f:
             return _json.load(f)
     except (OSError, ValueError) as e:
-        # JSON corrupted / read error — log + fallback to defaults.
+        # JSON corrupted / read error - log + fallback to defaults.
         import logging as _logging
         _logging.getLogger('econometrica').warning(
             f"v1.3 KPI settings file {settings_file} corrupted "
@@ -184,7 +184,7 @@ def decompose(
 
     Args:
         project_dir: Path to project with models/latest.pkl
-        unit_costs_override: Если задан — используется вместо config.unit_costs из pickle.
+        unit_costs_override: Если задан - используется вместо config.unit_costs из pickle.
             Нужно, когда user изменил CPP/CPM после тренировки модели.
 
     Returns:
@@ -207,13 +207,13 @@ def decompose(
 
     # P0-1/2/9 fix: pickle compat detection.
     # Sprint 2: '1.0-ols' accepted as small-data fallback path (treats как v1.1
-    # downstream — point estimates only, no posterior CI, frequentist β CI на channel level).
+    # downstream - point estimates only, no posterior CI, frequentist β CI на channel level).
     model_version = model_data.get('model_version', '1.0')
     if model_version == '1.0':
         return {
             'status': 'error',
             'error_code': 'MODEL_OUTDATED',
-            'message': 'Модель обучена до v1.0.13. Нормализация изменилась — переобучите модель в кабинете "Модель".',
+            'message': 'Модель обучена до v1.0.13. Нормализация изменилась - переобучите модель в кабинете "Модель".',
         }
 
     config = model_data['config']
@@ -229,9 +229,9 @@ def decompose(
     control_cols = config.get('control_columns', []) or []
     # A1 fix (post-audit v1.2): for decomposition we still report untrained channels
     # but their contribution will be ~0 (training data was constant → β·sat·y_std≈0).
-    # No need to filter — they self-zero in the per-period contribution math.
+    # No need to filter - they self-zero in the per-period contribution math.
     untrained_channels = set(model_data.get('normalization', {}).get('untrained_channels', []) or [])
-    # Override > config. Передан ли override (даже {}) — клиент управляет явно.
+    # Override > config. Передан ли override (даже {}) - клиент управляет явно.
     unit_costs = unit_costs_override if unit_costs_override is not None else (config.get('unit_costs', {}) or {})
 
     # Read original data for spend totals + adstock + control effects
@@ -241,7 +241,7 @@ def decompose(
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config.get('merge_rules'))
 
-    # Phase 2 audit pass 4 — per-channel inflation: customer entered current
+    # Phase 2 audit pass 4 - per-channel inflation: customer entered current
     # cost (latest training year) + annual_inflation_pct → adjust к training-
     # period weighted average. ROI/mROAS теперь reflect actual training prices.
     if unit_cost_inflation_pct:
@@ -286,7 +286,7 @@ def decompose(
         # only через `normalization.untrained_channels` list (not channel_params.untrained).
         # OLS marks both. Без поддержки norm-list path, Bayesian-trained pickles с zero-
         # variance channels gave spurious contributions (decomposer не skipped). Fix:
-        # secondary check — col в untrained_channels list.
+        # secondary check - col в untrained_channels list.
         if params.get('untrained') or col in untrained_channels:
             from engines.narrative_adapter import _normalize_channel_name as _norm
             ch_dict_untr = {
@@ -315,7 +315,7 @@ def decompose(
         raw_spend_total = float(raw_spend_series.sum())
 
         # 1. Adstock (matches training).
-        # adstock_config schema: dict[channel, str] — type only ('geometric' or 'weibull').
+        # adstock_config schema: dict[channel, str] - type only ('geometric' or 'weibull').
         # Defensive read: tolerate dict-with-'type' format from older pickles or
         # rare configs, but standardize on str. Hyperparameters use library defaults
         # (matching modeler.py training-time apply_adstock signature).
@@ -405,15 +405,15 @@ def decompose(
         # consistency with in-model `adstock_full[s,:].mean()` normalization.
         # Pre-fix used scalar `adstock_mean_posterior` for all samples → CI
         # distribution shape distorted when decay varies across draws (which is
-        # the whole point of hierarchical learnable adstock — Phase 1.1).
+        # the whole point of hierarchical learnable adstock - Phase 1.1).
         # Same class-of-bug as C1 (audit 2026-04-26), but missed by C1 fix
         # which closed only the POINT estimate path.
         # Phase 1.9 + 1.1: posterior CI on contribution and ROI via vectorized chain.
         # C3 fix (audit 2026-04-26): explicit CI semantics для spend=0 channels.
-        # Pre-fix: spend=0 channels skipped from CI (asymmetric — point estimate populated
+        # Pre-fix: spend=0 channels skipped from CI (asymmetric - point estimate populated
         # как roi=0 но без ci_low/ci_high → UI shows "ROI 0× (no CI)" without explanation).
         # Post-fix: explicit ci_low=ci_high=0 with marker 'ci_skip_reason' = 'zero_spend'
-        # so UI can render "Канал без бюджета — ROI = 0 (CI неприменим)".
+        # so UI can render "Канал без бюджета - ROI = 0 (CI неприменим)".
         if posterior_samples is not None and spend_money <= 0:
             ch_dict['contribution_ci_low'] = 0.0
             ch_dict['contribution_ci_high'] = 0.0
@@ -424,7 +424,7 @@ def decompose(
 
         # Sprint 2 extension (small-data path): for '1.0-ols' pickles, populate
         # roi_ci_low/high from stored bootstrap CI (no posterior_samples available).
-        # This gives OLS path same UI semantics as Bayesian — UI renders brackets
+        # This gives OLS path same UI semantics as Bayesian - UI renders brackets
         # uniformly without engine-specific code paths.
         if posterior_samples is None and spend_money > 0:
             roi_ci_low_boot = params.get('roi_ci_low_bootstrap')
@@ -434,7 +434,7 @@ def decompose(
                 ch_dict['roi_ci_high'] = round(float(roi_ci_high_boot), 4)
                 ch_dict['ci_method'] = 'frequentist_bootstrap'
         # Phase 1.1 path: when ch_samples has 'decay', x_norm varies per sample
-        # via geometric_adstock_batch — use hill_function_batch_2d.
+        # via geometric_adstock_batch - use hill_function_batch_2d.
         # Phase 1.9 path (v1.1.5 pickles): decay constant, use hill_function_batch (1D x_norm).
         if posterior_samples is not None and spend_money > 0:
             ch_samples = per_channel_samples(posterior_samples, col)
@@ -445,7 +445,7 @@ def decompose(
                     x_adstock_2d = geometric_adstock_batch(raw_spend_series, decay_samples)
                     # F1 fix: in decomposer, raw_spend_series IS training data (df reloaded
                     # from config.data_file at line 180), so x_adstock_2d.mean(axis=1) is
-                    # the per-sample training adstock mean — exactly what model used during
+                    # the per-sample training adstock mean - exactly what model used during
                     # training. Use as per-sample divisor to restore math consistency.
                     mean_per_sample = np.maximum(
                         x_adstock_2d.mean(axis=1, keepdims=True), 1e-10
@@ -455,7 +455,7 @@ def decompose(
                         x_norm_2d, ch_samples['alpha'], ch_samples['gamma']
                     )
                 else:
-                    # Phase 1.9 fallback (v1.1.5 pickles or weibull channels) — decay
+                    # Phase 1.9 fallback (v1.1.5 pickles or weibull channels) - decay
                     # constant across samples, so scalar `mean` is consistent with training.
                     sat_samples = hill_function_batch(
                         x_norm, ch_samples['alpha'], ch_samples['gamma']
@@ -476,7 +476,7 @@ def decompose(
                 ch_dict['roi_ci_low'] = round(float(roi_ci_low), 4)
                 ch_dict['roi_ci_high'] = round(float(roi_ci_high), 4)
                 # F5 fix: ci_method reflects ACTUAL HDI computation (not silent fallback).
-                # A2 audit-of-audit (2026-04-27): conservative OR semantic — flag '_pct'
+                # A2 audit-of-audit (2026-04-27): conservative OR semantic - flag '_pct'
                 # if EITHER contrib OR roi fell back к percentile (in case arviz fails on
                 # one but not the other due to numerical edge cases).
                 _is_pct = (_method_c == 'percentile_fallback') or (_method_r == 'percentile_fallback')
@@ -511,7 +511,7 @@ def decompose(
 
     control_effect_per_period = np.zeros(n_periods, dtype=float)
     if control_cols and control_betas_mean and len(control_betas_mean) == len(control_cols):
-        # Reconstruct control normalization (z-score retained for controls — non-Hill linear)
+        # Reconstruct control normalization (z-score retained for controls - non-Hill linear)
         c_means = np.array([float(control_means.get(c, 0)) for c in control_cols])
         c_stds = np.array([float(control_stds.get(c, 1)) or 1 for c in control_cols])
         X_control_raw = df[control_cols].fillna(0).astype(float).values
@@ -559,16 +559,16 @@ def decompose(
     explicit_categories = get_channel_categories(model_data, fallback_heuristic=False)
 
     UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ', 'ОХВАТ', 'РЕЙТИНГ')
-    # Heuristic fallback hints — single source of truth = utils/channel_categorization.py.
+    # Heuristic fallback hints - single source of truth = utils/channel_categorization.py.
     from utils.channel_categorization import auto_suggest_category
 
-    # Optional portfolio quantiles (Phase 1+ groundwork — None until aggregator ships).
+    # Optional portfolio quantiles (Phase 1+ groundwork - None until aggregator ships).
     category_quantiles = config.get('category_quantiles') if isinstance(config, dict) else None
     n_channels = len(channels)
 
     for ch in channels:
         # Phase 5 follow-up audit (2026-05-03): untrained channels preserve their
-        # honest 'Не обучен' verdict — without skip, downstream compute_roi_verdict
+        # honest 'Не обучен' verdict - without skip, downstream compute_roi_verdict
         # overwrote с 'Глубоко убыточный' (roi=0 < 0.5 threshold), which is wrong
         # diagnostic (no data ≠ deep loss).
         if ch.get('untrained'):
@@ -601,7 +601,7 @@ def decompose(
                 ch['category'] = 'mixed'
         ch['unit_smell'] = bool(looks_like_non_money and abs(ch['unit_cost'] - 1.0) < 1e-9)
 
-        # Hybrid verdict (absolute + relative + posterior CI) — see compute_roi_verdict docstring
+        # Hybrid verdict (absolute + relative + posterior CI) - see compute_roi_verdict docstring
         verdict_label, verdict_tone = compute_roi_verdict(
             roi=ch['roi'],
             efficiency_gap=ch['efficiency_gap'],
@@ -623,13 +623,13 @@ def decompose(
     # к mROAS-only heuristic. После optimize backend overrides с optimizer signal.
     from engines.channel_action import compute_channel_action
     for ch in channels:
-        # Phase 5 follow-up audit: untrained channels — fixed action vocabulary
+        # Phase 5 follow-up audit: untrained channels - fixed action vocabulary
         # вместо compute_channel_action которая инфер из mROAS=0 (low confidence).
         if ch.get('untrained'):
             ch.setdefault('action', 'Uncertain')
             ch.setdefault('action_label', 'Не обучен')
             ch.setdefault('action_tone', 'neutral')
-            ch.setdefault('action_reasoning', 'Канал имел нулевую вариативность в обучающих данных — модель не обучилась на нём.')
+            ch.setdefault('action_reasoning', 'Канал имел нулевую вариативность в обучающих данных - модель не обучилась на нём.')
             ch.setdefault('action_priority', 0)
             ch.setdefault('action_confidence', 'high')
             continue
@@ -645,7 +645,7 @@ def decompose(
 
     # Insight generation (template, 0 tokens).
     # B3 fix (post-audit v1.2): removed magic-0.5 lift estimate. Pre-fix code computed
-    # `lift = |efficiency_gap| × 0.5` then claimed "ожидаемый прирост +X% продаж" —
+    # `lift = |efficiency_gap| × 0.5` then claimed "ожидаемый прирост +X% продаж" -
     # without basis in model. Replaced with descriptive text only; for actual lift
     # estimate user should run scenario or optimize step (which DO compute against model).
     top = channels[0] if channels else None
@@ -653,13 +653,13 @@ def decompose(
     insight = ''
     if top and worst:
         insight = (
-            f"{top['name']} — самый эффективный канал (ROI {top['roi']:.1f}×). "
-            f"{worst['name']} — наименее эффективный (ROI {worst['roi']:.1f}×)."
+            f"{top['name']} - самый эффективный канал (ROI {top['roi']:.1f}×). "
+            f"{worst['name']} - наименее эффективный (ROI {worst['roi']:.1f}×)."
         )
         if top['efficiency_gap'] > 5 and worst['efficiency_gap'] < -5:
             insight += (
                 f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
-                f"(gap {worst['efficiency_gap']:+.0f} пп) — рассмотрите перераспределение "
+                f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
                 f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
             )
 
@@ -699,8 +699,8 @@ def decompose(
             'severity': 'medium',
         })
 
-    # Phase 1.1: model_version warning — flag legacy pickles for re-training.
-    # v1.1.5 pickles use hardcoded adstock decay (0.5) — CI not honest about
+    # Phase 1.1: model_version warning - flag legacy pickles for re-training.
+    # v1.1.5 pickles use hardcoded adstock decay (0.5) - CI not honest about
     # carryover uncertainty. UI can render banner suggesting re-train for v1.2.
     # Sprint 2: '1.0-ols' = small-data fallback, frequentist semantics (no posterior CI).
     model_warning = None
@@ -708,8 +708,8 @@ def decompose(
         n_obs_ols = len(y_actual) if isinstance(y_actual, (list, np.ndarray)) else 0
         model_warning = (
             f'OLS-режим (small data fallback): n={n_obs_ols} наблюдений. '
-            f'Hill α=1.5, γ=0.5, decay=0.5 — фиксированы (не обучаются). '
-            f'Доверительные интервалы — frequentist на β-коэффициенты + predictive '
+            f'Hill α=1.5, γ=0.5, decay=0.5 - фиксированы (не обучаются). '
+            f'Доверительные интервалы - frequentist на β-коэффициенты + predictive '
             f'intervals на y. Posterior CI на ROI/mROAS недоступны (нужен n≥30 для '
             f'Bayesian). Соберите больше данных для премиум-модели.'
         )
@@ -721,7 +721,7 @@ def decompose(
         )
     elif model_version == '1.1':
         model_warning = (
-            'Эта модель обучена до Phase 1.9 — посterior samples отсутствуют. '
+            'Эта модель обучена до Phase 1.9 - посterior samples отсутствуют. '
             'Доверительные интервалы недоступны. Переобучите модель для CI поддержки.'
         )
 

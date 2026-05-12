@@ -2,7 +2,7 @@
  * Vitest unit tests для $lib/kpi-aware-formatting.js (v1.3.2).
  *
  * Frontend mirror tests parallel backend tools/test_aurora_html_kpi_aware.py
- * + tools/test_aurora_pptx_kpi_aware.py — те же contract checks для JS helpers.
+ * + tools/test_aurora_pptx_kpi_aware.py - те же contract checks для JS helpers.
  *
  * Coverage:
  *   - kpiView: defaults, count, effectiveness, labels override
@@ -116,8 +116,8 @@ describe('fmtMetric', () => {
     // 0.01 → 100
     expect(fmtMetric(0.01, kpi)).toBe('100 ₽/ед.');
     // Zero / negative → fallback (no signal)
-    expect(fmtMetric(0, kpi)).toBe('—');
-    expect(fmtMetric(-0.5, kpi)).toBe('—');
+    expect(fmtMetric(0, kpi)).toBe('-');
+    expect(fmtMetric(-0.5, kpi)).toBe('-');
   });
 
   it('formats effectiveness fraction as percent', () => {
@@ -134,10 +134,10 @@ describe('fmtMetric', () => {
 
   it('returns fallback for null / undefined / NaN / strings', () => {
     const kpi = kpiView({});
-    expect(fmtMetric(null, kpi)).toBe('—');
-    expect(fmtMetric(undefined, kpi)).toBe('—');
-    expect(fmtMetric('bad', kpi)).toBe('—');
-    expect(fmtMetric(NaN, kpi)).toBe('—');
+    expect(fmtMetric(null, kpi)).toBe('-');
+    expect(fmtMetric(undefined, kpi)).toBe('-');
+    expect(fmtMetric('bad', kpi)).toBe('-');
+    expect(fmtMetric(NaN, kpi)).toBe('-');
   });
 
   it('respects custom fallback', () => {
@@ -155,7 +155,7 @@ describe('fmtMetricBare (no suffix)', () => {
   it('count: inverts to CPU integer (1/x)', () => {
     expect(fmtMetricBare(0.0125, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('80');
     expect(fmtMetricBare(0.01, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('100');
-    expect(fmtMetricBare(0, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('—');
+    expect(fmtMetricBare(0, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('-');
   });
 
   it('effectiveness fraction', () => {
@@ -163,7 +163,7 @@ describe('fmtMetricBare (no suffix)', () => {
   });
 
   it('null safe', () => {
-    expect(fmtMetricBare(null, kpiView({}))).toBe('—');
+    expect(fmtMetricBare(null, kpiView({}))).toBe('-');
   });
 });
 

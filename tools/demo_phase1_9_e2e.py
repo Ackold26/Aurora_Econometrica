@@ -1,5 +1,5 @@
 """
-Phase 1.9 end-to-end demo — synthetic pickle → decompose/scenario → JSON with CI.
+Phase 1.9 end-to-end demo - synthetic pickle → decompose/scenario → JSON with CI.
 
 Purpose:
 1. Smoke test for full Phase 1.9 pipeline before Антон's live-test (T16).
@@ -123,7 +123,7 @@ def make_pickle(model_path: Path, data_file: Path, with_samples: bool, with_adst
     }
 
     if with_samples:
-        # Synthetic posterior — joint structure (n_channels, n_samples)
+        # Synthetic posterior - joint structure (n_channels, n_samples)
         # Centered at point estimates, with realistic dispersion.
         media_betas_samples = np.zeros((N_CHANNELS, N_SAMPLES), dtype=np.float32)
         alphas_samples = np.zeros((N_CHANNELS, N_SAMPLES), dtype=np.float32)
@@ -202,10 +202,10 @@ def run_demo():
                 print(f"    roi_ci_high:  {ch0.get('roi_ci_high')}")
                 print(f"    contrib_ci:   [{ch0.get('contribution_ci_low')}, {ch0.get('contribution_ci_high')}]")
             else:
-                print(f"    roi_ci_*:     NOT POPULATED (legacy v1.1 — expected)")
+                print(f"    roi_ci_*:     NOT POPULATED (legacy v1.1 - expected)")
             print(f"    verdict:      {ch0.get('verdict')} ({ch0.get('verdict_tone')})")
 
-            # Run scenario — pass current spend pattern as plan
+            # Run scenario - pass current spend pattern as plan
             df = pd.read_excel(data_file)
             media_plan = {
                 c: df[c].tolist() for c in
@@ -227,7 +227,7 @@ def run_demo():
                 print(f"    roas: {totals.get('roas')}, roas_ci: [{totals.get('roas_ci_low')}, {totals.get('roas_ci_high')}]")
                 print(f"    lift_pct: {totals.get('lift_pct')}, lift_ci: [{totals.get('lift_pct_ci_low')}, {totals.get('lift_pct_ci_high')}]")
             else:
-                print(f"    *_ci_*: NOT POPULATED (legacy v1.1 — expected)")
+                print(f"    *_ci_*: NOT POPULATED (legacy v1.1 - expected)")
 
     print("\n" + "=" * 60)
     print("DEMO COMPLETE")

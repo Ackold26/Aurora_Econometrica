@@ -1,6 +1,6 @@
 <script>
   /**
-   * RecommendationCard — v1.3.1 primary actionable recommendation visual card.
+   * RecommendationCard - v1.3.1 primary actionable recommendation visual card.
    *
    * Per UX audit findings: actionable «главная рекомендация» спрятана в tip-текстах
    * InsightsPanel. RecommendationCard вытаскивает её как **primary visual element**.

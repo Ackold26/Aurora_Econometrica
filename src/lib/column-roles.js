@@ -3,14 +3,14 @@
  *
  * L1 (math-fix v1.4 Section C, 2026-04-29): unified handler для drag-drop
  * (ColumnMapper), Insights button (InsightsPanel), matrix click (ConfigPanel).
- * Pre-fix: each mutator wrote inline mutation logic — vocabulary drift
+ * Pre-fix: each mutator wrote inline mutation logic - vocabulary drift
  * (`'unused'` from Insights vs `'unknown'` from drag-drop unassigned) and
  * inconsistent persistence behavior.
  *
  * Three principles:
- *   1. Immutable updates — return new column array, не mutate input
- *   2. Canonical role vocabulary — ROLES tuple defines all valid values
- *   3. Excluded set is derived — `isExcluded(role)` unifies 'unused' + 'unknown'
+ *   1. Immutable updates - return new column array, не mutate input
+ *   2. Canonical role vocabulary - ROLES tuple defines all valid values
+ *   3. Excluded set is derived - `isExcluded(role)` unifies 'unused' + 'unknown'
  *      semantics для downstream consumers (ratio, Model checkboxes, ConfigPanel
  *      media list).
  *
@@ -26,7 +26,7 @@ export const ROLES = /** @type {const} */ (['kpi', 'media', 'control', 'date', '
 /** Check if role represents «not used in model» (excluded set).
  *  'unused' = explicit user exclusion via Insights/manual
  *  'unknown' = unassigned (initial state OR drag-drop to «без роли»)
- *  Both treated equivalently downstream — backend receives only kpi/media/control/date.
+ *  Both treated equivalently downstream - backend receives only kpi/media/control/date.
  *  @param {string | undefined | null} role
  *  @returns {boolean} */
 export function isExcluded(role) {
@@ -36,8 +36,8 @@ export function isExcluded(role) {
 /** Single mutator API. Returns NEW columns array (immutable).
  *  Use this everywhere instead of inline `.map(c => c.name === name ? ...)` patterns.
  *  @param {any[]} columns
- *  @param {string} name — column name to update
- *  @param {string} role — one of ROLES
+ *  @param {string} name - column name to update
+ *  @param {string} role - one of ROLES
  *  @returns {any[]} new columns array */
 export function setColumnRole(columns, name, role) {
   if (!ROLES.includes(role)) {
@@ -82,7 +82,7 @@ export function deriveMapping(columns) {
 }
 
 /** Apply mapping object back к columns roles. Used after ColumnMapper
- *  emits onmappingchange — converts mapping to setColumnRole calls.
+ *  emits onmappingchange - converts mapping to setColumnRole calls.
  *  @param {any[]} columns
  *  @param {{kpi?: string[], media?: string[], control?: string[], date?: string|null, unknown?: string[]}} mapping
  *  @returns {any[]} new columns array */
@@ -104,7 +104,7 @@ export function applyMapping(columns, mapping) {
 }
 
 /** Extract list of excluded column names for project.json persistence.
- *  Includes both 'unused' and 'unknown' — all "not in model" columns.
+ *  Includes both 'unused' and 'unknown' - all "not in model" columns.
  *  @param {any[]} columns
  *  @returns {string[]} */
 export function deriveExcludedColumns(columns) {
@@ -125,7 +125,7 @@ export function restoreExcludedColumns(columns, excludedNames) {
 }
 
 /** Build project_update payload с full role-derived state.
- *  Used everywhere persistence happens — single source of truth для what's
+ *  Used everywhere persistence happens - single source of truth для what's
  *  saved к project.json. Includes excluded_columns explicit list (L1 fix).
  *  @param {any[]} columns
  *  @returns {{kpi_column: string|null, media_columns: string[], control_columns: string[], excluded_columns: string[]}} */

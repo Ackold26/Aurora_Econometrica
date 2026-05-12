@@ -59,21 +59,21 @@ pub fn get_cabinet_definitions() -> Vec<CabinetInfo> {
         },
         CabinetInfo {
             id: "lawyer-contracts".to_string(),
-            name: "Юрист — Контракты".to_string(),
+            name: "Юрист - Контракты".to_string(),
             description: "Проверка договоров, шаблоны, анализ\u{00a0}контрагентов".to_string(),
             icon: "📋".to_string(),
             color: "#10B981".to_string(), // green
         },
         CabinetInfo {
             id: "lawyer-claims".to_string(),
-            name: "Юрист — NDA и претензии".to_string(),
+            name: "Юрист - NDA и претензии".to_string(),
             description: "NDA, претензионная работа, досудебные и судебные споры".to_string(),
             icon: "⚖️".to_string(),
             color: "#F59E0B".to_string(), // amber
         },
         CabinetInfo {
             id: "lawyer-advertising".to_string(),
-            name: "Юрист — Реклама".to_string(),
+            name: "Юрист - Реклама".to_string(),
             description: "Проверка рекламы на соответствие закону, комплаенс".to_string(),
             icon: "🛡️".to_string(),
             color: "#EF4444".to_string(), // red
@@ -254,13 +254,13 @@ pub fn get_commands_for_cabinet(cabinet_id: &str) -> Vec<CabinetCommand> {
             ("/doc-batch", "Комплекты документов", "Основные"),
             ("/plan-check", "Проверить медиаплан", "Инструменты"),
         ],
-        // Econometrist — консультант ПОВЕРХ pipeline.
+        // Econometrist - консультант ПОВЕРХ pipeline.
         // Pipeline делает MMM (валидация, MCMC, оптимизация, PPTX). Кабинет осмысляет и
-        // расширяет результат — не дублирует расчёты, а отвечает на вопросы «что значит»,
+        // расширяет результат - не дублирует расчёты, а отвечает на вопросы «что значит»,
         // «что делать дальше», «что собрать». Старые 7 MMM-команд (/mmm-prepare, /mmm-model,
         // /mmm-decomposition, /mmm-optimize, /mmm-scenarios, /mmm-report, /mmm-full,
         // /mmm-to-doc, /mmm-to-slides) СКРЫТЫ из UI, но промпты в .claude/commands/
-        // остаются — ручной ввод в поле всё ещё работает (backward compat).
+        // остаются - ручной ввод в поле всё ещё работает (backward compat).
         "econometrist" => vec![
             ("/interpret-model", "Объяснить результаты", "Смысл"),
             ("/why-channel", "Почему у канала такой ROI", "Смысл"),
@@ -310,7 +310,7 @@ pub fn cabinet_folder_name(cabinet_id: &str) -> &str {
 
 // ── Dynamic loaders (content pack with hardcoded fallback) ────────────────────
 
-/// Cabinet info extended with commands — used for cabinets.json deserialization.
+/// Cabinet info extended with commands - used for cabinets.json deserialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CabinetInfoExtended {
     #[serde(flatten)]
@@ -537,7 +537,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let packs_dir = dir.path().join("content-packs");
         std::fs::create_dir_all(&packs_dir).unwrap();
-        // Pack with a single cabinet — should replace all 13 hardcoded ones
+        // Pack with a single cabinet - should replace all 13 hardcoded ones
         let json = r##"{"cabinets":[{"id":"only-one","name":"Only","description":"","icon":"O","color":"#123456","commands":[]}]}"##;
         std::fs::write(packs_dir.join("cabinets.json"), json).unwrap();
 

@@ -4,7 +4,7 @@ Synthetic fixture matches real Kagocel data structure (Sprint 5 Track C):
 - TV-dominant (TRPs native units, mROAS asymmetry)
 - 6 channels (1 brand-TRP + 5 money channels)
 - Hierarchical priors active (brand vs performance split, Trust 3)
-- L4-style pathology encoded — lock-in regression detection
+- L4-style pathology encoded - lock-in regression detection
 
 These tests НЕ требуют Kagocel.xlsx (real customer data).
 Pattern matches existing tools/test_optimizer_kagocel_redistribution.py docstring philosophy.

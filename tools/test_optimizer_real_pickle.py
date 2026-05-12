@@ -1,7 +1,7 @@
-"""Optimizer real-pickle integration smoke (Phase 4 follow-up — etap 3 of audit follow-up).
+"""Optimizer real-pickle integration smoke (Phase 4 follow-up - etap 3 of audit follow-up).
 
 Plan: C:\\Users\\ackol\\Desktop\\optimizer-audit-followup-plan.md, этап 3.
-Closes plan §6 deferred — «Customer pickle subset (C5/C12) verifies real-data correctness».
+Closes plan §6 deferred - «Customer pickle subset (C5/C12) verifies real-data correctness».
 
 Skipped automatically когда нет real data (CI default). Локально активируется через
 `AURORA_TESTDATA_DIR` env var pointing к директории с Кагоцел/Венарус xlsx.
@@ -10,7 +10,7 @@ Workflow:
     1. testdata_dir fixture finds директорию (env var → default → Desktop fallback)
     2. Locate first Кагоцел*.xlsx
     3. Auto-discover columns: Date / KPI / media (Бюджет до НДС до АК) / TV (TRPs)
-    4. Train OLS pickle (fast, ~10sec — no MCMC)
+    4. Train OLS pickle (fast, ~10sec - no MCMC)
     5. Run smoke optimize configs analogous к C1/C5/C12 в smoke matrix
     6. Assert no NaN/Inf, status='ok', sensible lift_pct
 
@@ -102,7 +102,7 @@ def _discover_columns(df: pd.DataFrame) -> dict:
 
     unit_costs = {col: 1.0 for col in media_money_cols}
     if tv_trps_col is not None:
-        # TV TRPs — native unit; use realistic Russian CPP
+        # TV TRPs - native unit; use realistic Russian CPP
         unit_costs[tv_trps_col] = 150_000.0
 
     return {
@@ -179,7 +179,7 @@ def real_kagocel_project(tmp_path_factory):
     test_dir = _resolve_testdata_dir()
     if test_dir is None:
         pytest.skip(
-            'Real test data unavailable — set AURORA_TESTDATA_DIR or place xlsx '
+            'Real test data unavailable - set AURORA_TESTDATA_DIR or place xlsx '
             'в default folder. See conftest.py.'
         )
     xlsx = _find_kagocel_xlsx(test_dir)
@@ -231,7 +231,7 @@ def _validate_real_ok(r: dict, label: str) -> None:
 
 @pytest.mark.requires_real_data
 def test_real_C1_analyst_baseline(real_kagocel_project):
-    """C1-equivalent на real OLS pickle — analyst mode, no extras."""
+    """C1-equivalent на real OLS pickle - analyst mode, no extras."""
     from engines.optimizer import optimize
     r = optimize({'min_pct': 20.0, 'max_pct': 200.0}, real_kagocel_project)
     _validate_real_ok(r, 'real-C1')
@@ -240,7 +240,7 @@ def test_real_C1_analyst_baseline(real_kagocel_project):
 
 @pytest.mark.requires_real_data
 def test_real_C5_planner_inflation_perchannel(real_kagocel_project):
-    """C5-equivalent на real OLS pickle — planning + inflation + per-channel."""
+    """C5-equivalent на real OLS pickle - planning + inflation + per-channel."""
     import pickle
     md = pickle.load(open(Path(real_kagocel_project) / 'models' / 'latest.pkl', 'rb'))
     cols = md['config']['media_columns']
@@ -260,7 +260,7 @@ def test_real_C5_planner_inflation_perchannel(real_kagocel_project):
 
 @pytest.mark.requires_real_data
 def test_real_C12_whatif_pass18_regression(real_kagocel_project):
-    """C12-equivalent на real OLS pickle — pass-18 What-if 0.5× с wide bounds."""
+    """C12-equivalent на real OLS pickle - pass-18 What-if 0.5× с wide bounds."""
     import pickle
     md = pickle.load(open(Path(real_kagocel_project) / 'models' / 'latest.pkl', 'rb'))
     df = pd.read_excel(md['config']['data_file'])
@@ -275,7 +275,7 @@ def test_real_C12_whatif_pass18_regression(real_kagocel_project):
         'min_pct': 0.0, 'max_pct': 500.0,  # wide → anchor active
         'min_per_channel': {media_cols[0]: 30.0},
         'max_per_channel': {media_cols[1]: 250.0} if len(media_cols) > 1 else None,
-        'total_budget_money': cur_money * 0.5,  # whatIfMult=0.5 — pass-18 trigger
+        'total_budget_money': cur_money * 0.5,  # whatIfMult=0.5 - pass-18 trigger
         'forecast_periods': 12,
     }
     try:
@@ -298,7 +298,7 @@ def test_real_C12_whatif_pass18_regression(real_kagocel_project):
 
 @pytest.mark.requires_real_data
 def test_real_F1_chain_monotonic(real_kagocel_project):
-    """F1 fix verification на real data — cumulative anchor seeding works on real pickle."""
+    """F1 fix verification на real data - cumulative anchor seeding works on real pickle."""
     from engines.optimizer import optimize
 
     chain = [(50, 150), (30, 200), (20, 250), (10, 300), (0, 500)]

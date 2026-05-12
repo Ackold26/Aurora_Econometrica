@@ -1,6 +1,6 @@
 <script>
   /**
-   * UnitCostsPanel — Trust Level 2 (CPP-нормализация).
+   * UnitCostsPanel - Trust Level 2 (CPP-нормализация).
    *
    * Для медиа-каналов с не-денежными единицами (TRP/GRP/OTS/показ/охват)
    * запрашиваем стоимость 1 юнита в валюте KPI. Это позволяет считать ROI
@@ -41,19 +41,19 @@
     { re: /(CPM|ПОКАЗ|IMPRESSION)/i, value: 200, label: 'Digital CPM (200₽ за 1000 показов)' },
     { re: /OTS|ОХВАТ/i, value: 5, label: 'OTS (5₽ за охват, прикидка)' },
   ];
-  // Автодетект — только «чистые» медиа-единицы (TRP/GRP/OTS и их русские аналоги).
+  // Автодетект - только «чистые» медиа-единицы (TRP/GRP/OTS и их русские аналоги).
   // Остальные не-денежные каналы (статьи/спецпроекты/показы/клики) пользователь
-  // добавляет вручную через «+ Добавить канал» — там слишком много вариантов
+  // добавляет вручную через «+ Добавить канал» - там слишком много вариантов
   // именования чтобы надёжно ловить regex'ом, лучше явный выбор.
   const UNIT_HINT = /TRP|GRP|OTS|РЕЙТИНГ|ОХВАТ/i;
-  // Money-каналы (бюджеты уже в рублях) — скрываются из dropdown «+ Добавить».
+  // Money-каналы (бюджеты уже в рублях) - скрываются из dropdown «+ Добавить».
   // Маркеры: НДС / VAT / руб / ₽ / RUB. Unit cost = 1 для них бесcмыслен.
   const MONEY_HINT = /НДС|VAT|(?:^|[\s\(])руб|₽|RUB/i;
 
   /** @type {Record<string, string>} */
   const CATEGORY_HELP = {
-    brand_reach: 'Brand-Reach — охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
-    performance: 'Performance — каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI — чистая отдача на рубль. Сравнивай с другими Performance каналами.',
+    brand_reach: 'Brand-Reach - охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
+    performance: 'Performance - каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI - чистая отдача на рубль. Сравнивай с другими Performance каналами.',
   };
 
   /** @param {string} name */
@@ -68,16 +68,16 @@
   // Формат с разделителями тысяч + EN-space (узкий пробел).
   /** @param {number | null | undefined} n */
   function fmt(n) {
-    if (n == null || !Number.isFinite(n)) return '—';
+    if (n == null || !Number.isFinite(n)) return '-';
     return Math.round(n).toLocaleString('ru-RU').replace(/,/g, ' ');
   }
 
-  // Все media-каналы проекта — кандидаты для перевода в рубли.
+  // Все media-каналы проекта - кандидаты для перевода в рубли.
   const allMediaChannels = $derived(
     (columns ?? []).filter(/** @param {any} c */ (c) => c.role === 'media')
   );
 
-  // Подсказки автодетекта (TRP/GRP/OTS) — только для ссылки «Добавить все».
+  // Подсказки автодетекта (TRP/GRP/OTS) - только для ссылки «Добавить все».
   const autoDetected = $derived(
     allMediaChannels.filter(/** @param {any} c */ (c) => UNIT_HINT.test(String(c.name || '')))
   );
@@ -103,18 +103,18 @@
     selectedNames = names;
   });
 
-  // Строки панели — media-каналы, которые пользователь добавил.
+  // Строки панели - media-каналы, которые пользователь добавил.
   const nonMoneyChannels = $derived(
     allMediaChannels.filter(/** @param {any} c */ (c) => selectedNames.includes(c.name))
   );
 
-  // Не добавленные auto-detected — для ссылки «Добавить все TRP/GRP/OTS».
+  // Не добавленные auto-detected - для ссылки «Добавить все TRP/GRP/OTS».
   const autoUnselected = $derived(
     autoDetected.filter(/** @param {any} c */ (c) => !selectedNames.includes(c.name))
   );
 
-  // Для dropdown «+ Добавить канал» — media которых нет в selected И не в рублях.
-  // Каналы с НДС/VAT/руб/₽/RUB в имени уже измеряются в деньгах — unit cost = 1
+  // Для dropdown «+ Добавить канал» - media которых нет в selected И не в рублях.
+  // Каналы с НДС/VAT/руб/₽/RUB в имени уже измеряются в деньгах - unit cost = 1
   // не требуется, не предлагаем их.
   const availableToAdd = $derived(
     allMediaChannels.filter(/** @param {any} c */ (c) =>
@@ -123,11 +123,11 @@
   );
 
   /** @type {string} выбор в dropdown перед нажатием «Добавить».
-      Автоподстановка первого auto-detected канала с UNIT_HINT — кнопка
+      Автоподстановка первого auto-detected канала с UNIT_HINT - кнопка
       «Добавить» сразу активна, не ждёт ручного выбора option в dropdown. */
   let pendingAdd = $state('');
   $effect(() => {
-    // Если pendingAdd пуст и есть звёздочный (auto-detected) канал в available —
+    // Если pendingAdd пуст и есть звёздочный (auto-detected) канал в available -
     // preselect его. Не перетираем если пользователь уже выбрал что-то другое.
     if (pendingAdd) return;
     const starred = availableToAdd.find(
@@ -159,7 +159,7 @@
     for (const c of autoUnselected) addChannel(c.name);
   }
 
-  // Сумма raw-spend канала из валидационного sample — для preview money.
+  // Сумма raw-spend канала из валидационного sample - для preview money.
   // validator.py пишет сумму в col.stats.sum.
   /** @param {string} name */
   function rawSumForChannel(name) {
@@ -168,12 +168,12 @@
     return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
   }
 
-  /** @type {Record<string, string>} рабочая копия инпутов (строки — для удобного ввода) */
+  /** @type {Record<string, string>} рабочая копия инпутов (строки - для удобного ввода) */
   let draft = $state({});
-  /** @type {Record<string, number>} последнее сохранённое состояние — для dirty-detect */
+  /** @type {Record<string, number>} последнее сохранённое состояние - для dirty-detect */
   let savedSnapshot = $state(/** @type {Record<string, number>} */ ({}));
-  // Phase 2 audit pass 4 — per-channel annual inflation. UI input — string,
-  // saved snapshot — number, dirty-detect mirror unit_costs pattern.
+  // Phase 2 audit pass 4 - per-channel annual inflation. UI input - string,
+  // saved snapshot - number, dirty-detect mirror unit_costs pattern.
   /** @type {Record<string, string>} */
   let inflationDraft = $state({});
   /** @type {Record<string, number>} */
@@ -184,11 +184,11 @@
 
   // Hydrate draft один раз при появлении/смене набора каналов. Не затираем ввод,
   // если пользователь уже что-то вводит (сверяем по Set имён).
-  /** @type {string} сигнатура текущих каналов — для определения «нужна ли регидратация» */
+  /** @type {string} сигнатура текущих каналов - для определения «нужна ли регидратация» */
   let lastChannelsSig = $state('');
   $effect(() => {
     const sig = nonMoneyChannels.map(/** @param {any} c */ (c) => c.name).sort().join('|');
-    if (sig === lastChannelsSig) return; // тот же набор — не трогаем draft
+    if (sig === lastChannelsSig) return; // тот же набор - не трогаем draft
     lastChannelsSig = sig;
 
     const stored = get(unitCosts) || {};
@@ -208,7 +208,7 @@
         snap[name] = stored[name];
       } else {
         const d = suggestDefault(name);
-        // Дефолт — только в поле ввода (placeholder-like). Не кладём в snapshot,
+        // Дефолт - только в поле ввода (placeholder-like). Не кладём в snapshot,
         // чтобы видеть dirty, если пользователь примет дефолт нажатием «Сохранить».
         next[name] = d ? String(d.value) : '';
       }
@@ -245,7 +245,7 @@
     return out;
   });
 
-  // Phase 2 audit pass 4 — parsed inflation per channel (numeric).
+  // Phase 2 audit pass 4 - parsed inflation per channel (numeric).
   /** @type {Record<string, number>} */
   const parsedInflation = $derived.by(() => {
     /** @type {Record<string, number>} */
@@ -259,7 +259,7 @@
 
   // Audit pass 5 fix (BUG B2 v2): detect multi-year ПРЯМО из date column stats
   // в columns prop (validator теперь добавляет date_stats с unique_years). НЕ
-  // зависит от обученного pickle — работает на ValidateStep сразу после
+  // зависит от обученного pickle - работает на ValidateStep сразу после
   // data preview.
   const dateColumnStats = $derived.by(() => {
     const dateCol = (columns ?? []).find(/** @param {any} c */ (c) => c.role === 'date');
@@ -282,7 +282,7 @@
     for (const k of keysA) {
       if (Math.abs((parsed[k] ?? 0) - (savedSnapshot[k] ?? 0)) > 1e-9) return true;
     }
-    // Phase 2 — also dirty when inflation rates changed
+    // Phase 2 - also dirty when inflation rates changed
     const inflKeysA = Object.keys(parsedInflation);
     const inflKeysB = Object.keys(inflationSavedSnapshot);
     if (inflKeysA.length !== inflKeysB.length) return true;
@@ -293,8 +293,8 @@
   });
 
   /** Compute per-year cost breakdown via inflation rollback.
-   * @param {number} currentCost — стоимость в latest year training
-   * @param {number} ratePct — годовой темп инфляции (%)
+   * @param {number} currentCost - стоимость в latest year training
+   * @param {number} ratePct - годовой темп инфляции (%)
    * @returns {Array<{year: number, cost: number}>}
    */
   function perYearCostBreakdown(currentCost, ratePct) {
@@ -323,8 +323,8 @@
     const val = parsed[name];
     if (val == null) return null;
     const ratio = val / def.value;
-    if (ratio >= 10) return `В ${ratio.toFixed(1)}× выше рыночного — проверь единицы`;
-    if (ratio <= 0.1) return `В ${(1 / ratio).toFixed(1)}× ниже рыночного — проверь единицы`;
+    if (ratio >= 10) return `В ${ratio.toFixed(1)}× выше рыночного - проверь единицы`;
+    if (ratio <= 0.1) return `В ${(1 / ratio).toFixed(1)}× ниже рыночного - проверь единицы`;
     return null;
   }
 
@@ -336,7 +336,7 @@
     try {
       // Money-каналы (те что НЕ в панели = native уже в деньгах) → unit_cost=1.
       // Без этого backend scenario.compare видит их как "не покрытые"
-      // и падает в native-mode с warning, хотя для них 1₽/unit — корректно.
+      // и падает в native-mode с warning, хотя для них 1₽/unit - корректно.
       /** @type {Record<string, number>} */
       const fullCosts = { ...parsed };
       for (const ch of allMediaChannels) {
@@ -345,7 +345,7 @@
         }
       }
 
-      // Phase 2 audit pass 4 — persist per-channel inflation pct alongside.
+      // Phase 2 audit pass 4 - persist per-channel inflation pct alongside.
       // null entries removed (zero inflation = same as not set).
       /** @type {Record<string, number>} */
       const fullInflation = {};
@@ -365,7 +365,7 @@
       unitCostInflation.set(fullInflation);
       savedSnapshot = { ...parsed };
       inflationSavedSnapshot = { ...fullInflation };
-      // Инвалидируем downstream результаты — старые числа больше не актуальны.
+      // Инвалидируем downstream результаты - старые числа больше не актуальны.
       decomposeData.set(null);
       optimizeData.set(null);
       savedMsg = '✓ Сохранено · Декомпозиция будет пересчитана автоматически';
@@ -396,7 +396,7 @@
         Добавь каналы, измеряемые не в рублях (TRP, показы, статьи, спецпроекты),
         и укажи цену единицы <strong>в последнем году обучающих данных</strong>. Модель пересчитает их в рубли и даст корректный ROI.
         {#if isMultiYearTraining}
-          <br>📅 <strong>Обучение охватывает несколько лет</strong> — задайте <em>исторический</em> темп инфляции CPP/CPM
+          <br>📅 <strong>Обучение охватывает несколько лет</strong> - задайте <em>исторический</em> темп инфляции CPP/CPM
           (по РФ типично 25–30% год к году). Backend пересчитает цену по обучающим периодам:
           текущая ÷ (1+rate)<sup>лет</sup> и применит weighted-average. 0 = цена не менялась.
           <br><span class="hint-secondary">⚠ Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в шаге «Оптимизация» (Блок D).</span>
@@ -446,9 +446,9 @@
                   bind:value={inflationDraft[ch.name]}
                   placeholder="0"
                   aria-label="Историческая годовая инфляция CPP для {ch.name}"
-                  title={'Исторический годовой темп роста стоимости юнита за период обучения (например 25 — для 25%/год). Backend пересчитает цену по training периодам: 2024 = current ÷ 1.25, 2023 = current ÷ 1.25², и т.д. 0 = цена не менялась.\n\nЭто НЕ прогнозная инфляция. Прогнозную (для forecast) задавайте в Блоке D на шаге «Оптимизация».'}
+                  title={'Исторический годовой темп роста стоимости юнита за период обучения (например 25 - для 25%/год). Backend пересчитает цену по training периодам: 2024 = current ÷ 1.25, 2023 = current ÷ 1.25², и т.д. 0 = цена не менялась.\n\nЭто НЕ прогнозная инфляция. Прогнозную (для forecast) задавайте в Блоке D на шаге «Оптимизация».'}
                 />
-                <span class="unit" title="Историческая инфляция. Прогнозная — в Блоке D на шаге «Оптимизация».">%/год (история)</span>
+                <span class="unit" title="Историческая инфляция. Прогнозная - в Блоке D на шаге «Оптимизация».">%/год (история)</span>
               {/if}
             </div>
             <div class="row-meta">
@@ -462,7 +462,7 @@
               {:else if def}
                 <div class="row-default" title="Дефолт по медиа-данным РФ 2026">≈ {def.label}</div>
               {:else}
-                <div class="row-default muted">Нет данных по объёму — укажи цену вручную</div>
+                <div class="row-default muted">Нет данных по объёму - укажи цену вручную</div>
               {/if}
               {#if preview != null}
                 {@const inflRate = parsedInflation[ch.name] ?? 0}
@@ -500,7 +500,7 @@
                 </div>
               {:else if val != null && rawSum == null}
                 <div class="row-preview muted">
-                  Цена <b>{fmt(val)} ₽</b> сохранена — общая сумма появится после валидации данных.
+                  Цена <b>{fmt(val)} ₽</b> сохранена - общая сумма появится после валидации данных.
                 </div>
               {/if}
               {#if warn}
@@ -542,7 +542,7 @@
     <!-- Hint: автодетект TRP/GRP/OTS -->
     {#if autoUnselected.length > 0 && nonMoneyChannels.length === 0}
       <button class="autodetect-hint" type="button" onclick={addAllAutoDetected}>
-        Обнаружено {autoUnselected.length} {autoUnselected.length === 1 ? 'канал' : autoUnselected.length < 5 ? 'канала' : 'каналов'} с TRP/GRP/OTS — добавить все одним кликом
+        Обнаружено {autoUnselected.length} {autoUnselected.length === 1 ? 'канал' : autoUnselected.length < 5 ? 'канала' : 'каналов'} с TRP/GRP/OTS - добавить все одним кликом
       </button>
     {/if}
 
@@ -716,7 +716,7 @@
     border-color: var(--accent-primary, #3b82f6);
   }
   .unit { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
-  /* Phase 2 audit pass 4 — annual inflation input (multi-year training only) */
+  /* Phase 2 audit pass 4 - annual inflation input (multi-year training only) */
   .inflation-input {
     width: 56px;
     padding: 6px 8px;
@@ -751,7 +751,7 @@
   }
   .row-preview.muted { color: var(--text-muted); font-style: italic; }
   .row-preview b { color: var(--text-primary, #e2e8f0); font-weight: 600; font-variant-numeric: tabular-nums; }
-  /* Phase 2 audit pass 5 cont — inflation breakdown в preview */
+  /* Phase 2 audit pass 5 cont - inflation breakdown в preview */
   .preview-line { display: block; padding: 2px 0; }
   .preview-line.preview-adjusted {
     margin-top: 4px;

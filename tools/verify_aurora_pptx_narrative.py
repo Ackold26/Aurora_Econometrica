@@ -92,10 +92,10 @@ def _chs(names_specs):
 def main() -> int:
     results = []
 
-    # ─── Case 1: default (data=None) — pilot narrative preserved ───────────
+    # ─── Case 1: default (data=None) - pilot narrative preserved ───────────
     res, xml = _build({}, {}, {})
     results.append(_check("Case 1 (default): 16 slides", res.get("slides") == 16))
-    # Without explicit project_id, adapter uses client_label="Client" —
+    # Without explicit project_id, adapter uses client_label="Client" -
     # "Kagocel" body text only surfaces in pilot slides not client meta.
     results.append(_check("Case 1 (default): 'Digital video' pilot bars present",
                           "Digital video" in xml))
@@ -150,12 +150,12 @@ def main() -> int:
     opt = {"channels": opt_chs, "expected_lift_pct": 8.0}
     res, xml = _build({}, {"channels": decomp_chs}, opt, project_id="MegaCorp")
     results.append(_check("Case 4 (10-ch max): 16 slides", res.get("slides") == 16))
-    # Ch9 has highest mROAS (1.0 + 9*0.15 = 2.35) — hero
+    # Ch9 has highest mROAS (1.0 + 9*0.15 = 2.35) - hero
     results.append(_check("Case 4: Ch9 hero propagates", "Ch9" in xml))
-    # Ch0 has lowest — should be underperformer
+    # Ch0 has lowest - should be underperformer
     results.append(_check("Case 4: Ch0 present (lowest mROAS)", "Ch0" in xml))
 
-    # ─── Case 5: empty channels + meta only — adapter falls back ─────────────
+    # ─── Case 5: empty channels + meta only - adapter falls back ─────────────
     res, xml = _build({"diagnostics": {"mqs": {"score": 50}}}, {}, {}, project_id="FallbackCo")
     results.append(_check("Case 5 (empty-ch fallback): 16 slides", res.get("slides") == 16))
     results.append(_check("Case 5: FallbackCo propagates (meta client)",

@@ -2,7 +2,7 @@
   /**
    * Async training progress display.
    * A2: sequential setTimeout polling (no setInterval overlap).
-   * C4: component stays mounted when user navigates away — polling continues.
+   * C4: component stays mounted when user navigates away - polling continues.
    *
    * @component TrainingProgress
    */
@@ -23,7 +23,7 @@
     try {
       await invoke('econ_train_cancel', { taskId });
     } catch {
-      /* ignore — user just wants UI back */
+      /* ignore - user just wants UI back */
     }
     onStop?.();
   }
@@ -52,7 +52,7 @@
 
   const phaseLabel = $derived(PHASE_LABELS[phase] || phase);
 
-  /** A2: sequential polling — next poll only after current completes */
+  /** A2: sequential polling - next poll only after current completes */
   async function poll() {
     if (!active) return;
     try {
@@ -120,7 +120,7 @@
         phase = newPhase;
       }
     } catch {
-      // Sidecar temporarily unavailable — retry
+      // Sidecar temporarily unavailable - retry
     }
 
     // A2: schedule next poll AFTER this one finishes

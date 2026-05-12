@@ -130,7 +130,7 @@ def main() -> int:
     # Parse CSP directives for per-directive 'unsafe-inline' checks.
     # style-src-attr 'unsafe-inline' is LEGITIMATE (permits inline style=""
     # attributes for dynamic data-driven styling in sections.py). But
-    # style-src / script-src MUST remain hash-only — these cover <style>
+    # style-src / script-src MUST remain hash-only - these cover <style>
     # and <script> blocks where XSS via injection would execute.
     _csp_match = re.search(r'Content-Security-Policy[^>]+content="([^"]+)"', html)
     _csp = _csp_match.group(1) if _csp_match else ""
@@ -220,7 +220,7 @@ def main() -> int:
     # Exclude bundled ECharts Chinese i18n strings (third-party)
     # Heuristic: find em dashes NOT surrounded by CJK characters
     non_cjk_em_dashes = 0
-    for m in re.finditer(r'.{2}—.{2}', html):
+    for m in re.finditer(r'.{2}-.{2}', html):
         ctx = m.group()
         # Count only if surrounding is not CJK (U+4E00-U+9FFF)
         if not any(0x4E00 <= ord(c) <= 0x9FFF for c in ctx):

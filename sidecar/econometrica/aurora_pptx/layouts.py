@@ -1,5 +1,5 @@
 """
-10 layout render functions — one per slide type from CLIENT_READY_ANATOMY.md §2.
+10 layout render functions - one per slide type from CLIENT_READY_ANATOMY.md §2.
 
 Each function:
   1. Takes (prs, ctx: SlideContext, data: dict, lang: str)
@@ -7,7 +7,7 @@ Each function:
   3. Renders layout-specific content (title, chart, body, table, ...)
   4. Calls master.apply_master_elements(slide, ctx) at end
 
-All 10 stubs in this file — M3 Session 3 will implement bodies. Stubs raise
+All 10 stubs in this file - M3 Session 3 will implement bodies. Stubs raise
 NotImplementedError with clear message so M4 pptx_export.py refactor surfaces
 missing work early.
 """
@@ -118,43 +118,43 @@ def render_section_divider(prs: Presentation, ctx: SlideContext, data: dict, lan
 
 def render_action_title_chart(prs: Presentation, ctx: SlideContext, data: dict, lang: str = "ru"):
     """M3 Session 3 implementation pending. Takes data.action_title + data.chart_type + data.commentary."""
-    raise NotImplementedError("render_action_title_chart — M3 Session 3")
+    raise NotImplementedError("render_action_title_chart - M3 Session 3")
 
 
 # ---------- Layout 05: Action title + table ----------
 
 def render_action_title_table(prs: Presentation, ctx: SlideContext, data: dict, lang: str = "ru"):
-    raise NotImplementedError("render_action_title_table — M3 Session 3")
+    raise NotImplementedError("render_action_title_table - M3 Session 3")
 
 
 # ---------- Layout 06: Action title + full-width visual ----------
 
 def render_action_title_full(prs: Presentation, ctx: SlideContext, data: dict, lang: str = "ru"):
-    raise NotImplementedError("render_action_title_full — M3 Session 3")
+    raise NotImplementedError("render_action_title_full - M3 Session 3")
 
 
 # ---------- Layout 07: Executive summary (SCR) ----------
 
 def render_executive_summary(prs: Presentation, ctx: SlideContext, data: dict, lang: str = "ru"):
-    raise NotImplementedError("render_executive_summary — M3 Session 3")
+    raise NotImplementedError("render_executive_summary - M3 Session 3")
 
 
 # ---------- Layout 08: Methodology ----------
 
 def render_methodology(prs: Presentation, ctx: SlideContext, data: dict, lang: str = "ru"):
-    raise NotImplementedError("render_methodology — M3 Session 3")
+    raise NotImplementedError("render_methodology - M3 Session 3")
 
 
 # ---------- Layout 09: Sources + MQS ----------
 
 def render_sources(prs: Presentation, ctx: SlideContext, data: dict, lang: str = "ru"):
-    raise NotImplementedError("render_sources — M3 Session 3")
+    raise NotImplementedError("render_sources - M3 Session 3")
 
 
 # ---------- Layout 10: Colophon ----------
 
 def render_colophon(prs: Presentation, ctx: SlideContext, data: dict, lang: str = "ru"):
-    raise NotImplementedError("render_colophon — M3 Session 3")
+    raise NotImplementedError("render_colophon - M3 Session 3")
 
 
 # Export registry (for build_pptx dispatch table)

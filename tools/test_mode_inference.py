@@ -1,4 +1,4 @@
-"""Tests для utils/mode_inference.py — v1.3.0 derived mode (ADR-015)."""
+"""Tests для utils/mode_inference.py - v1.3.0 derived mode (ADR-015)."""
 from __future__ import annotations
 
 import pytest
@@ -48,7 +48,7 @@ def test_single_physical_channel():
 
 
 def test_two_channels_one_each():
-    """2 канала — один monetary, один physical → manual."""
+    """2 канала - один monetary, один physical → manual."""
     inputs = {'tv': 'monetary', 'olv': 'physical'}
     assert derive_mode(inputs) == 'manual'
 
@@ -69,7 +69,7 @@ def test_invalid_metric_raises():
 
 
 def test_invalid_metric_in_one_channel_raises():
-    """Один bad value — error даже если остальные OK."""
+    """Один bad value - error даже если остальные OK."""
     with pytest.raises(ValueError):
         derive_mode({'tv': 'monetary', 'olv': 'something_else'})
 

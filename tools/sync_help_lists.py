@@ -1,17 +1,17 @@
-"""Sprint 5 Sync Helper — auto-inject lists из code в help HTML pages.
+"""Sprint 5 Sync Helper - auto-inject lists из code в help HTML pages.
 
 Pattern: HTML файлы имеют `<!-- AUTO_X -->` placeholder comments. Этот скрипт reads
 canonical lists из `sidecar/econometrica/utils/channel_categorization.py` и
-inline'ит их в HTML — drift-proof.
+inline'ит их в HTML - drift-proof.
 
 Usage:
     python tools/sync_help_lists.py            # write updated HTMLs
     python tools/sync_help_lists.py --check    # verify no drift (CI)
 
 Markers поддерживаются:
-    <!-- AUTO_BRAND_HINTS -->        — comma-separated list брэнд-hints
-    <!-- AUTO_PERF_HINTS -->         — comma-separated list perf-hints
-    <!-- AUTO_STRONG_PERF_HINTS -->  — comma-separated list strong-perf hints
+    <!-- AUTO_BRAND_HINTS -->        - comma-separated list брэнд-hints
+    <!-- AUTO_PERF_HINTS -->         - comma-separated list perf-hints
+    <!-- AUTO_STRONG_PERF_HINTS -->  - comma-separated list strong-perf hints
 
 Used by:
 - Pre-commit lefthook hook (auto-rebuild)
@@ -40,7 +40,7 @@ HELP_DIR = ROOT / 'src-tauri' / 'help-econometrica'
 
 # Marker → replacement function
 def _format_hints(hints: tuple[str, ...]) -> str:
-    """Render hints as inline HTML — comma-separated <code> tags."""
+    """Render hints as inline HTML - comma-separated <code> tags."""
     return ', '.join(f'<code>{h}</code>' for h in hints)
 
 
@@ -55,7 +55,7 @@ REPLACEMENTS = {
 # 1. Inline: `<!-- AUTO_X -->` replaced со generated content
 #    NB: idempotent через re-mark с генерированным content между sentinels
 # 2. Block: `<!-- AUTO_X_START --> ... <!-- AUTO_X_END -->`
-#    содержимое между маркерами целиком — managed by ЭТОТ скрипт.
+#    содержимое между маркерами целиком - managed by ЭТОТ скрипт.
 #
 # Inline implementation: replace `<!-- AUTO_X -->` с `<!-- AUTO_X --><span>{content}</span><!-- /AUTO_X -->`.
 # At next run: regex pattern `<!-- AUTO_X -->.*?<!-- /AUTO_X -->` удаляется и заменяется заново.
@@ -71,7 +71,7 @@ def _replace_inline(html: str) -> str:
     def _repl(match: re.Match) -> str:
         key = match.group(1)
         if key not in REPLACEMENTS:
-            return match.group(0)  # unknown marker — preserve
+            return match.group(0)  # unknown marker - preserve
         content = REPLACEMENTS[key]
         return f'<!-- {key} -->{content}<!-- /{key} -->'
     return INLINE_PATTERN.sub(_repl, html)

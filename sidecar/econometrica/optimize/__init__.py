@@ -1,4 +1,4 @@
-"""Aurora Econometrica — optimize package (v1.3.0).
+"""Aurora Econometrica - optimize package (v1.3.0).
 
 Modular optimization tools layered on top of `engines/optimizer.py`:
 - bounds: safe corridor computation (per-channel + aggregate budget bounds).

@@ -59,7 +59,7 @@ def response_curve(spend_range: np.ndarray, alpha: float, gamma: float,
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Phase 1.9 — vectorized batch variants for posterior CI propagation
+# Phase 1.9 - vectorized batch variants for posterior CI propagation
 # ─────────────────────────────────────────────────────────────────────
 
 
@@ -71,7 +71,7 @@ def hill_function_batch(
     """Vectorized Hill saturation across posterior samples.
 
     Computes hill(x_norm) for all (alpha_i, gamma_i) sample pairs simultaneously
-    via numpy broadcasting. Joint correlation preserved — sample i uses
+    via numpy broadcasting. Joint correlation preserved - sample i uses
     alpha_samples[i] and gamma_samples[i] (corresponding draw).
 
     Args:
@@ -133,17 +133,17 @@ def hill_function_batch_2d(
     alpha_samples: np.ndarray,
     gamma_samples: np.ndarray,
 ) -> np.ndarray:
-    """Phase 1.1 — Hill on per-sample x_norm (when adstock varies per sample).
+    """Phase 1.1 - Hill on per-sample x_norm (when adstock varies per sample).
 
     Used when adstock decay is itself sampled (Phase 1.1+) and x_norm becomes
     sample-dependent: x_norm[i, t] = adstock(raw[t]; decay_i) / mean.
 
     Args:
-        x_norm_2d: 2D array shape (n_samples, n_periods) — per-sample normalized spend
+        x_norm_2d: 2D array shape (n_samples, n_periods) - per-sample normalized spend
         alpha_samples: 1D shape (n_samples,)
         gamma_samples: 1D shape (n_samples,)
     Returns:
-        Saturated values shape (n_samples, n_periods) — sat[i, t] uses (alpha_i, gamma_i, x_norm[i,t]).
+        Saturated values shape (n_samples, n_periods) - sat[i, t] uses (alpha_i, gamma_i, x_norm[i,t]).
     """
     alpha = np.asarray(alpha_samples, dtype=np.float64).reshape(-1, 1)
     gamma = np.asarray(gamma_samples, dtype=np.float64).reshape(-1, 1)

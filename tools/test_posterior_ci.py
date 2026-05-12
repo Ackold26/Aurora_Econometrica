@@ -9,7 +9,7 @@ Run:
 or from repo root:
     python tools/test_posterior_ci.py
 
-Exit code 0 on success, 1 on any failure. Plain stdlib + numpy — no pytest.
+Exit code 0 on success, 1 on any failure. Plain stdlib + numpy - no pytest.
 """
 from __future__ import annotations
 
@@ -66,18 +66,18 @@ def check(label: str, cond: bool, detail: str = ""):
         PASSED += 1
     else:
         FAILED += 1
-    extra = f" — {detail}" if detail else ""
+    extra = f" - {detail}" if detail else ""
     print(f"{mark} {label}{extra}")
 
 
 # ────────────────────────────────────────────────────────────────────
-# 1. compute_ci_hdi — HDI computation correctness
+# 1. compute_ci_hdi - HDI computation correctness
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── compute_ci_hdi ──")
 np.random.seed(42)
 
-# Normal posterior — HDI ≈ 1.645 sigmas each side at 90%
+# Normal posterior - HDI ≈ 1.645 sigmas each side at 90%
 samples_normal = np.random.normal(2.0, 0.5, size=8000)
 mean_n, low_n, high_n, method_n = compute_ci_hdi(samples_normal)
 expected_width_normal = 2 * 1.645 * 0.5  # ~1.645
@@ -92,7 +92,7 @@ check(
     f"got width={high_n - low_n:.3f}",
 )
 
-# Lognormal (skewed — typical mROAS shape)
+# Lognormal (skewed - typical mROAS shape)
 samples_skew = np.random.lognormal(mean=0.5, sigma=0.5, size=8000)
 mean_s, low_s, high_s, method_s = compute_ci_hdi(samples_skew)
 check(
@@ -134,7 +134,7 @@ check("DEFAULT_HDI_PROB == 0.9", DEFAULT_HDI_PROB == 0.9)
 
 
 # ────────────────────────────────────────────────────────────────────
-# 2. verdict_tier — 3-tier + conditional gates
+# 2. verdict_tier - 3-tier + conditional gates
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── verdict_tier ──")
@@ -175,7 +175,7 @@ check("Degenerate None → bad", label == "Высокая неопределён
 
 
 # ────────────────────────────────────────────────────────────────────
-# 3. tail_ess_threshold — Vehtari rule
+# 3. tail_ess_threshold - Vehtari rule
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── tail_ess_threshold ──")
@@ -185,7 +185,7 @@ check("Tail-ESS threshold 0 → 100 (minimum 1 chain)", tail_ess_threshold(0) ==
 
 
 # ────────────────────────────────────────────────────────────────────
-# 4. load_posterior_samples — backward compat
+# 4. load_posterior_samples - backward compat
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── load_posterior_samples ──")
@@ -213,7 +213,7 @@ check("Valid v1.1.5 pickle → loaded dict", loaded is not None)
 
 
 # ────────────────────────────────────────────────────────────────────
-# 5. per_channel_samples — joint correlation preservation (fix Hidden Problem H1)
+# 5. per_channel_samples - joint correlation preservation (fix Hidden Problem H1)
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── per_channel_samples ──")
@@ -231,7 +231,7 @@ check("per_channel unknown channel → None", ch_unknown is None)
 
 
 # ────────────────────────────────────────────────────────────────────
-# 6. hill_function_batch — vectorization correctness
+# 6. hill_function_batch - vectorization correctness
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── hill_function_batch ──")
@@ -251,14 +251,14 @@ sat_full = hill_function_batch(x_36, alpha_8k, gamma_8k)
 check("hill batch shape (8000, 36)", sat_full.shape == (8000, 36))
 check("hill batch values [0, 1]", np.all((sat_full >= 0) & (sat_full <= 1)))
 
-# Derivative batch — non-negative
+# Derivative batch - non-negative
 deriv = hill_derivative_batch(x_36, alpha_8k, gamma_8k)
 check("hill_derivative_batch shape (8000, 36)", deriv.shape == (8000, 36))
 check("hill_derivative_batch ≥ 0", np.all(deriv >= 0))
 
 
 # ────────────────────────────────────────────────────────────────────
-# 7. _compute_mroas_money_samples — scalar/batch parity
+# 7. _compute_mroas_money_samples - scalar/batch parity
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── _compute_mroas_money_samples ──")
@@ -330,7 +330,7 @@ check("Merged backward compat: no mroas CI", "mroas_ci_low" not in merged2[0])
 
 
 # ────────────────────────────────────────────────────────────────────
-# 9. Phase 1.1 — geometric_adstock_batch + adstock_factor_batch
+# 9. Phase 1.1 - geometric_adstock_batch + adstock_factor_batch
 # ────────────────────────────────────────────────────────────────────
 
 print("\n── Phase 1.1: geometric_adstock_batch ──")
@@ -342,7 +342,7 @@ scalar = geometric_adstock(raw, alpha=0.5)
 check("geometric_adstock_batch shape (1, n)", batch_single.shape == (1, 5))
 check("geometric_adstock_batch[0] == scalar(0.5)", np.allclose(batch_single[0], scalar))
 
-# Multiple decays — first sample 0.0 (no carryover) = raw, second 0.9 (long decay) = ramping
+# Multiple decays - first sample 0.0 (no carryover) = raw, second 0.9 (long decay) = ramping
 batch_multi = geometric_adstock_batch(raw, np.array([0.0, 0.9]))
 check("Adstock decay=0 returns raw", np.allclose(batch_multi[0], raw))
 check("Adstock decay=0.9 increases monotonically (long carryover)", batch_multi[1, -1] > batch_multi[1, 0])
@@ -412,7 +412,7 @@ check("per_channel_samples returns 'decay' for v1.2", 'decay' in ch_tv)
 check("decay shape (8000,)", ch_tv['decay'].shape == (8000,))
 check("decay value matches synthesis", abs(float(ch_tv['decay'][0]) - 0.4) < 1e-6)
 
-# v1.1.5 pickle without adstock_decay — M1 fix: 'decay' key present but None
+# v1.1.5 pickle without adstock_decay - M1 fix: 'decay' key present but None
 samples_v1_1_5 = {k: v for k, v in samples_with_decay.items() if k != 'adstock_decay'}
 ch_tv_legacy = per_channel_samples(samples_v1_1_5, "TV")
 check("per_channel_samples v1.1.5 has 'decay' key set to None", ch_tv_legacy.get('decay') is None)
@@ -467,11 +467,11 @@ check("Higher decay → higher adstock_factor (chain rule input)", af_high > af_
 # ────────────────────────────────────────────────────────────────────
 print("\n── F1: compute_train_adstock_mean_samples ──")
 
-# Realistic training raw spend pattern (n=24 weeks с some variance — typical TV channel)
+# Realistic training raw spend pattern (n=24 weeks с some variance - typical TV channel)
 np.random.seed(42)
 raw_train = np.abs(np.random.normal(100, 30, size=24))
 
-# Variable decay samples — exactly the case where F1 bug bit pre-fix
+# Variable decay samples - exactly the case where F1 bug bit pre-fix
 decay_low = np.full(1000, 0.1)   # constant low decay
 decay_high = np.full(1000, 0.8)  # constant high decay
 decay_mixed = np.random.uniform(0.05, 0.85, size=1000)  # variable

@@ -51,7 +51,7 @@
   /** @type {{ num: number, name: string }[]} */
   let cleanTitles = $derived(sections.map(s => cleanSlideTitle(s.title)));
 
-  // C5: Visual Chunking — группировка по блокам из synthesis (Miller's Law: 7±2)
+  // C5: Visual Chunking - группировка по блокам из synthesis (Miller's Law: 7±2)
   let slideGroups = $derived(groupSlidesByBlocks(sections, synthesis));
   let hasGroups = $derived(slideGroups.length > 1 || (slideGroups[0]?.name !== ''));
 
@@ -265,7 +265,7 @@
     outline: none;
   }
 
-  /* C5: Visual Chunking — group labels */
+  /* C5: Visual Chunking - group labels */
   .sp-group-label {
     padding: 6px 14px 3px;
     font-size: 10px;

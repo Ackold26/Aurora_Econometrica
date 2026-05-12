@@ -9,8 +9,8 @@ Run from Aurora_Econometrica project root:
     python tools/verify_signature_lime.py
 
 Output:
-    tools/test_signature_lime.pptx — open in PowerPoint to inspect visually
-    stdout — programmatic check that lime connector exists with correct color
+    tools/test_signature_lime.pptx - open in PowerPoint to inspect visually
+    stdout - programmatic check that lime connector exists with correct color
 
 This file is a temporary diagnostic, not part of the build. It is listed in
 the next section of Standards/DOGFOOD_2026-04-24.md as verification artefact.
@@ -120,10 +120,10 @@ def main():
 
     found = verify(prs)
     if not found:
-        print("❌ FAIL — no lime-colored connector found on any slide")
+        print("❌ FAIL - no lime-colored connector found on any slide")
         sys.exit(1)
 
-    print(f"✅ PASS — found {len(found)} lime connector(s):")
+    print(f"✅ PASS - found {len(found)} lime connector(s):")
     for f in found:
         # EMU units: 914400 EMU = 1 inch
         def emu_in(v):

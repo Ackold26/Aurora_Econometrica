@@ -100,7 +100,7 @@
       {:else if filtered.length === 0}
         <div class="pm-state">
           {#if projects.filter((p) => p.id !== excludeId).length === 0}
-            Других проектов нет — создайте второй проект, чтобы сравнивать.
+            Других проектов нет - создайте второй проект, чтобы сравнивать.
           {:else}
             Ничего не найдено. Попробуйте другой запрос.
           {/if}
@@ -111,7 +111,7 @@
             <button class="pm-item" onclick={() => pick(p)}>
               <div class="pm-item-main">
                 <span class="pm-name">{p.name || p.id}</span>
-                <span class="pm-kpi">{p.kpi_column || '—'}</span>
+                <span class="pm-kpi">{p.kpi_column || '-'}</span>
               </div>
               <div class="pm-item-meta">
                 <span class="pm-date">{(p.updated_at || '').slice(0, 10)}</span>

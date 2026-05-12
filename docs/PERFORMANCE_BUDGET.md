@@ -69,36 +69,36 @@
 В Stage 5 добавляется `tests/integration/test_performance_budget.py`:
 - Запускает каждую операцию из таблицы на синтетике 7×156.
 - Сравнивает с Target / Hard fail.
-- `assert duration <= TARGET` — soft fail (warning в CI summary).
-- `assert duration <= HARD_FAIL` — fail build.
+- `assert duration <= TARGET` - soft fail (warning в CI summary).
+- `assert duration <= HARD_FAIL` - fail build.
 
 Также `tests/integration/test_memory_budget.py`:
 - Запускает full pipeline + measures peak RSS.
 
 ## Regression baseline
 
-После каждого commit на `feat/v1.3.0-next-gen` — performance suite запускается. Baseline зашит в `tests/integration/performance_baseline.json` (commit-controlled). Если duration новее baseline на > 20% — warning. На > 50% — fail.
+После каждого commit на `feat/v1.3.0-next-gen` - performance suite запускается. Baseline зашит в `tests/integration/performance_baseline.json` (commit-controlled). Если duration новее baseline на > 20% - warning. На > 50% - fail.
 
 ## Принципы оптимизации
 
-1. **Lazy imports.** Тяжёлые модули (PyMC, scipy.optimize, posterior CI compute) — lazy import при первом use, не на startup.
-2. **Caching.** Safe corridor, decompose results, posterior samples — cached per `(project_id, model_version_hash)`. Invalidate on retrain.
-3. **Profiling first.** Перед optimization — `cProfile` + flamegraph. Не угадывать bottlenecks.
+1. **Lazy imports.** Тяжёлые модули (PyMC, scipy.optimize, posterior CI compute) - lazy import при первом use, не на startup.
+2. **Caching.** Safe corridor, decompose results, posterior samples - cached per `(project_id, model_version_hash)`. Invalidate on retrain.
+3. **Profiling first.** Перед optimization - `cProfile` + flamegraph. Не угадывать bottlenecks.
 4. **Batching.** UI updates через debounce / requestAnimationFrame, не один-к-одному с backend events.
-5. **Web workers** для heavy frontend ops (chart re-renders) — Phase B.
+5. **Web workers** для heavy frontend ops (chart re-renders) - Phase B.
 
 ## Performance regression policy
 
 Если operation breaks soft target (Target):
 1. Notice в CI summary.
-2. Owner reviews — accepts ((tradeoff for feature) или fixes.
+2. Owner reviews - accepts ((tradeoff for feature) или fixes.
 
 Если operation breaks hard fail:
 1. Build red. Owner fixes before merge.
-2. Если cannot fix — escalate to architect.
+2. Если cannot fix - escalate to architect.
 
 ## Related
 
-- ADR-014 Safe corridor (Phase B Expert mode = full posterior — отложен из-за perf budget).
+- ADR-014 Safe corridor (Phase B Expert mode = full posterior - отложен из-за perf budget).
 - ENGINEERING_INVARIANTS.md INV-02 (runtime smoke tests).
 - Aurora общая performance policy (cross-product Aurora Platform).

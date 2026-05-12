@@ -1,11 +1,11 @@
 """
-Sprint 3 Pharma Causal — M0 stack scaffolding tests.
+Sprint 3 Pharma Causal - M0 stack scaffolding tests.
 
 Run: python tools/test_causal_m0.py
 
 Per ADR §6 + §11/Q1 refinement: per-M MIN-LIVE checkpoint as internal sanity
 gate (~30min per M). M0 verifies imports + dataclass invariants + panel data
-loader/validator basics — dataset-agnostic.
+loader/validator basics - dataset-agnostic.
 """
 from __future__ import annotations
 
@@ -38,12 +38,12 @@ def check(label: str, ok: bool, hint: str = '') -> None:
         FAILED += 1
         msg = f'[FAIL] {label}'
         if hint:
-            msg += f' — {hint}'
+            msg += f' - {hint}'
         print(msg)
 
 
 # ──────────────────────────────────────────────────────────────────
-# M0.1 — Sprint 3 dependencies installed and importable
+# M0.1 - Sprint 3 dependencies installed and importable
 # ──────────────────────────────────────────────────────────────────
 print('── M0.1: Dep imports ──')
 try:
@@ -65,7 +65,7 @@ except ImportError as e:
     check('statsmodels imports', False, str(e))
 
 # ──────────────────────────────────────────────────────────────────
-# M0.2 — Causal namespace structure
+# M0.2 - Causal namespace structure
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.2: Causal namespace ──')
 from engines.causal import __version__ as cversion
@@ -81,7 +81,7 @@ from engines.causal._panel_data import (
 check('engines.causal._panel_data: load_panel, validators, synthesize_geo_split, PanelMetadata imported', True)
 
 # ──────────────────────────────────────────────────────────────────
-# M0.3 — ATT dataclass invariants
+# M0.3 - ATT dataclass invariants
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.3: ATT dataclass ──')
 att = ATT(point=100.0, ci_low=80.0, ci_high=120.0, ci_method='frequentist_se')
@@ -95,7 +95,7 @@ att_neg = ATT(point=-50.0, ci_low=-80.0, ci_high=-20.0, ci_method='honest_split'
 check('ATT negative-only CI: significant=True', att_neg.is_significant)
 
 # ──────────────────────────────────────────────────────────────────
-# M0.4 — HonestDisclosure dataclass + blocking semantics
+# M0.4 - HonestDisclosure dataclass + blocking semantics
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.4: HonestDisclosure ──')
 hd_clean = HonestDisclosure(method='did_callaway_santanna', assumptions=['parallel-trends'])
@@ -110,7 +110,7 @@ check('HonestDisclosure to_dict has all 6 fields',
       set(hd_blocked.to_dict().keys()) == {'method', 'assumptions', 'caveats', 'diagnostics_passed', 'diagnostics_failed', 'references'})
 
 # ──────────────────────────────────────────────────────────────────
-# M0.5 — Error response uniform shape
+# M0.5 - Error response uniform shape
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.5: Error responses ──')
 err = error_response('PANEL_FORMAT_INVALID', 'detail тут')
@@ -123,7 +123,7 @@ err_unknown = error_response('NEW_CODE_XYZ', '')
 check('error_response unknown code: graceful (uses code as msg)', err_unknown['error_code'] == 'NEW_CODE_XYZ')
 
 # ──────────────────────────────────────────────────────────────────
-# M0.6 — confidence_to_alpha helper
+# M0.6 - confidence_to_alpha helper
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.6: confidence_to_alpha ──')
 check('confidence_to_alpha(0.9) == 0.1', abs(confidence_to_alpha(0.9) - 0.1) < 1e-10)
@@ -140,7 +140,7 @@ except ValueError:
     check('confidence_to_alpha rejects 0', True)
 
 # ──────────────────────────────────────────────────────────────────
-# M0.7 — Panel data loader on synthetic data
+# M0.7 - Panel data loader on synthetic data
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.7: Panel data loader (synthetic) ──')
 
@@ -187,7 +187,7 @@ df2, meta2, err2 = load_panel(
 check('load_panel missing column: returns COLUMNS_MISSING error', err2 and err2['error_code'] == 'COLUMNS_MISSING')
 
 # ──────────────────────────────────────────────────────────────────
-# M0.8 — Panel validators
+# M0.8 - Panel validators
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.8: Panel validators ──')
 
@@ -217,7 +217,7 @@ err_scm3 = validate_for_scm(meta, treated_unit='region_0', treatment_period=2025
 check('validate_for_scm: rejects <6 pre-periods', err_scm3 and err_scm3['error_code'] == 'INSUFFICIENT_PRE_PERIODS')
 
 # ──────────────────────────────────────────────────────────────────
-# M0.9 — synthesize_geo_split fallback (для M1+ pre-launch блокер mitigation)
+# M0.9 - synthesize_geo_split fallback (для M1+ pre-launch блокер mitigation)
 # ──────────────────────────────────────────────────────────────────
 print('\n── M0.9: synthesize_geo_split (aggregated → panel fallback) ──')
 

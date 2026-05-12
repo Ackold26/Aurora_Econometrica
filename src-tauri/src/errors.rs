@@ -65,7 +65,7 @@ pub enum ErrorCode {
     AU001, // Server unreachable
     AU002, // License not found on server
     AU003, // License expired (server)
-    AU004, // Blocked — clone detected
+    AU004, // Blocked - clone detected
     AU005, // Auth cache expired, no fallback
 }
 

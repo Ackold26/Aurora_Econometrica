@@ -1,11 +1,11 @@
-# Math Audit v1.3 — Phase 0.1 Post-Audit Math Chain Rule Reference
+# Math Audit v1.3 - Phase 0.1 Post-Audit Math Chain Rule Reference
 
 **Created:** 2026-04-25
 **Branch:** math-fix-v1.0.13
 **Predecessor:** docs/MATH_AUDIT_v1_2_POST_FIX.md
-**Trigger:** Live-test Kagocel выявил mROAS inconsistency между источниками. Глубокий audit показал что chain rule в `optimizer.py:255-258` неполный — отсутствует adstock factor и unit_cost normalization.
+**Trigger:** Live-test Kagocel выявил mROAS inconsistency между источниками. Глубокий audit показал что chain rule в `optimizer.py:255-258` неполный - отсутствует adstock factor и unit_cost normalization.
 
-Этот документ — **single source of truth** для marginal ROAS computation. Любая ревизия mROAS в любом из движков (optimizer / decomposer / scenario / narrative) должна сверяться с этими формулами.
+Этот документ - **single source of truth** для marginal ROAS computation. Любая ревизия mROAS в любом из движков (optimizer / decomposer / scenario / narrative) должна сверяться с этими формулами.
 
 ---
 
@@ -16,14 +16,14 @@
 | `s` | total spend over n_periods (per channel) | native (TRP, ₽, clicks, ...) |
 | `s_money` | total spend in money units | ₽ |
 | `s_pp` | per-period average spend = s/n | native/period |
-| `n` | number of training periods (e.g. 31 weeks) | — |
+| `n` | number of training periods (e.g. 31 weeks) | - |
 | `mean` | training-time mean of channel media volume | native/period |
-| `θ` | geometric adstock decay (default 0.5) | — |
-| `α, γ, β` | Hill saturation params (alpha, gamma, beta) | — |
+| `θ` | geometric adstock decay (default 0.5) | - |
+| `α, γ, β` | Hill saturation params (alpha, gamma, beta) | - |
 | `y_std` | standard deviation of trained y (KPI) | KPI units |
 | `unit_cost` | money cost per native unit (e.g. CPP for TRPs) | ₽/native |
 | `adstock_avg(x, n, type)` | flat-allocation steady-state mean adstock | native/period |
-| `hill(x_norm)` | `x_norm^α / (x_norm^α + γ^α)` | — (0..1) |
+| `hill(x_norm)` | `x_norm^α / (x_norm^α + γ^α)` | - (0..1) |
 | `KPI` | predicted target variable (sales) | money units |
 
 ## 2. Forward chain (training-aware)
@@ -50,11 +50,11 @@ contribution_KPI        = contribution_normalized · y_std
 
 This matches training **on average** for flat allocation. For non-flat allocation it's a steady-state approximation (clients don't expect per-period optimization).
 
-## 3. Marginal ROAS — derivation
+## 3. Marginal ROAS - derivation
 
 Marginal ROAS = `∂KPI(money) / ∂s(money)` evaluated at the current point.
 
-### 3.1 Chain rule — money-axis
+### 3.1 Chain rule - money-axis
 
 ```
 KPI(s) = β · hill(adstock_avg(s/n)/mean) · n · y_std
@@ -92,7 +92,7 @@ hill(x) = x^α / (x^α + γ^α)
 hill'(x) = α · γ^α · x^(α-1) / (x^α + γ^α)²
 ```
 
-`saturation.py:marginal_roi()` already implements `β · hill'(x)` — use it (do not re-implement).
+`saturation.py:marginal_roi()` already implements `β · hill'(x)` - use it (do not re-implement).
 
 ## 4. Adstock factor
 
@@ -110,14 +110,14 @@ result_t = X · (1 + θ + θ² + ... + θ^t) = X · (1 - θ^(t+1))/(1-θ)
 adstock_avg(X, n) = (1/n) · Σ_{t=0}^{n-1} X · (1 - θ^(t+1))/(1-θ)
                   = X · [n - θ·(1 - θ^n)/(1-θ)] / [n·(1-θ)]
 
-∂adstock_avg/∂X = [n - θ·(1 - θ^n)/(1-θ)] / [n·(1-θ)]   (constant in X — linear adstock)
+∂adstock_avg/∂X = [n - θ·(1 - θ^n)/(1-θ)] / [n·(1-θ)]   (constant in X - linear adstock)
 ```
 
 For typical θ=0.5, n=31: factor ≈ 1.935. For θ=0.5, n=10: factor ≈ 1.800. For θ=0, n=anything: factor = 1.0.
 
 ### 4.2 Weibull (numerical)
 
-Weibull adstock is a convolution with PDF weights — also linear in X. Can be analytical but messy; use central difference:
+Weibull adstock is a convolution with PDF weights - also linear in X. Can be analytical but messy; use central difference:
 ```
 eps = max(x_pp · 1e-4, 1e-9)
 factor ≈ (adstock_avg(x_pp + eps) - adstock_avg(x_pp - eps)) / (2·eps)
@@ -127,18 +127,18 @@ Error bound: O(eps²) for smooth function. For our linear adstock, exact (modulo
 
 ### 4.3 'noop' / 'none'
 
-For testing — no carryover. `adstock_avg(X, n) = X`, factor = 1.0.
+For testing - no carryover. `adstock_avg(X, n) = X`, factor = 1.0.
 
-## 5. Adstock params — invariant
+## 5. Adstock params - invariant
 
 **As of v1.0.13 (until Phase 1.1 makes them learnable):**
 
 - Adstock parameters (`geometric.alpha=0.5`, `weibull.shape=2.0, scale=3.0`) are **library defaults**, not sampled in NUTS.
-- Training (`modeler.py:240-244`) calls `apply_adstock(series, a_type)` with **type only** — no params override.
+- Training (`modeler.py:240-244`) calls `apply_adstock(series, a_type)` with **type only** - no params override.
 - Optimizer (`optimizer.py:111-120`) does the same.
 - Scenario (`scenario.py`) does the same.
 
-**Symmetry holds** between training and inference. No params loss bug — just a known limitation that adstock decay is hardcoded.
+**Symmetry holds** between training and inference. No params loss bug - just a known limitation that adstock decay is hardcoded.
 
 **Phase 1.1 (joint adstock+Hill MCMC) will:**
 - Sample θ via `pm.Beta` prior

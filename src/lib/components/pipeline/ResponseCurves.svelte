@@ -1,6 +1,6 @@
 <script>
   /**
-   * Response curves with draggable budget points — KILLER FEATURE.
+   * Response curves with draggable budget points - KILLER FEATURE.
    * A2: ResizeObserver recomputes graphic positions after chart.resize().
    * A3: clamp convertFromPixel to [0, maxSpend].
    * Bidirectional sync: sliders ↔ draggable points.
@@ -22,7 +22,7 @@
    */
   let { responseCurves, channelBudgets, scaledParams, channels, onBudgetChange, unitCosts = {} } = $props();
 
-  /** Стоимость 1 юнита канала в ₽. 1.0 — канал уже в деньгах. */
+  /** Стоимость 1 юнита канала в ₽. 1.0 - канал уже в деньгах. */
   /** @param {string} ch */
   function uc(ch) {
     const v = unitCosts?.[ch];
@@ -35,7 +35,7 @@
   let chart;
   /** @type {ResizeObserver | null} */
   let ro = null;
-  /** True while user is dragging a point — suppresses $effect graphic rebuilds */
+  /** True while user is dragging a point - suppresses $effect graphic rebuilds */
   let dragging = false;
 
   /**
@@ -55,7 +55,7 @@
    * Used для markPoint static positions (current_x / optimal_x). Backend
    * curve denormalized to KPI scale + adstock_factor → matches series Y axis.
    * @param {{spend: number[], response: number[]} | null | undefined} curve
-   * @param {number} x — native spend
+   * @param {number} x - native spend
    * @returns {number}
    */
   function curveResponseAt(curve, x) {
@@ -83,9 +83,9 @@
       const xNative = channelBudgets[ch] ?? 0;
       const xMoney = xNative * u;              // ось графика в money
       // FIX 2026-05-02: точки строго на линии. Раньше использовали responseAt()
-      // (локальная Hill через scaledParams) — могла давать значения, чуть
+      // (локальная Hill через scaledParams) - могла давать значения, чуть
       // расходящиеся с backend response curve (разные normalization paths).
-      // Теперь Y берём из backend curve interpolation — same source как линия.
+      // Теперь Y берём из backend curve interpolation - same source как линия.
       // Fallback к responseAt если curve missing (early render до response).
       const curveSrc = responseCurves?.[ch];
       const y = curveSrc && curveSrc.spend?.length
@@ -99,7 +99,7 @@
       return {
         type: 'circle',
         id: `drag-${ch}`,
-        // Reset position offset — prevents drag offset accumulation on rebuild
+        // Reset position offset - prevents drag offset accumulation on rebuild
         position: [0, 0],
         shape: { cx: px[0], cy: px[1], r: 8 },
         style: { fill: color, stroke: '#fff', lineWidth: 2, opacity: 0.9 },
@@ -120,11 +120,11 @@
   /**
    * Audit pass 9 (Антон 2026-05-03 cont): x-axis max ТОЛЬКО от channelBudgets
    * (live slider state, forecast scale). Pre-fix (pass 6) включал curve.
-   * current_x и curve.optimal_x — но `current_x = cur = float(df[col].sum())`
+   * current_x и curve.optimal_x - но `current_x = cur = float(df[col].sum())`
    * это TRAINING total native (multi-year sum), а `optimal_x` = FORECAST scale.
    * Mixing scales → x-axis инфлятилось к training scale (e.g. для «Малые
    * медиа» 4.3B training total → x-axis до 6.5B при реальном forecast budget
-   * 1.787B). channelBudgets — live slider, всегда reflects current view
+   * 1.787B). channelBudgets - live slider, всегда reflects current view
    * scale (forecast в planner mode, training в analyst). Max × 1.5 headroom.
    * Drag exceeding headroom auto-extended ECharts (graceful).
    * @returns {number | null}
@@ -136,7 +136,7 @@
       const cur = (channelBudgets[ch] ?? 0) * u;
       if (cur > maxMoney) maxMoney = cur;
     }
-    // 1.5× headroom — место для drag вправо без обрезки + читаемая шкала
+    // 1.5× headroom - место для drag вправо без обрезки + читаемая шкала
     return maxMoney > 0 ? maxMoney * 1.5 : null;
   }
 
@@ -152,15 +152,15 @@
       const curve = responseCurves?.[ch];
       const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length];
       const u = uc(ch);
-      // Кривая рисуется в money по X (native × unit_cost) — все каналы на одной оси.
+      // Кривая рисуется в money по X (native × unit_cost) - все каналы на одной оси.
       const data = curve
         ? curve.spend.map((s, i) => [s * u, curve.response[i]])
         : [];
 
       // L5 extension (math-fix v1.4 Section C, 2026-04-28): static markers для
       // current_x (○ серый) + optimal_x (★ золотой). Pre-fix: только draggable
-      // point показывал текущую позицию — customer не видел WHERE оптимум на
-      // кривой. Post-fix: visual cue «отсюда → сюда» — после applyOptimal
+      // point показывал текущую позицию - customer не видел WHERE оптимум на
+      // кривой. Post-fix: visual cue «отсюда → сюда» - после applyOptimal
       // draggable point переходит к ★, indicating «you're at optimum».
       /** @type {any[]} */
       const markData = [];
@@ -171,7 +171,7 @@
           symbolSize: 9,
           itemStyle: { color: 'rgba(148,163,184,0.85)', borderColor: '#fff', borderWidth: 1.5 },
           label: { show: false },
-          tooltip: { formatter: () => `${ch} — текущий бюджет` },
+          tooltip: { formatter: () => `${ch} - текущий бюджет` },
         });
       }
       if (curve && Number.isFinite(curve.optimal_x)) {
@@ -179,12 +179,12 @@
           coord: [curve.optimal_x * u, curveResponseAt(curve, curve.optimal_x)],
           symbol: 'pin',
           symbolSize: 26,
-          // Audit fix (2026-04-29): removed symbolOffset [0, '-50%'] — pin's
+          // Audit fix (2026-04-29): removed symbolOffset [0, '-50%'] - pin's
           // anchor is bottom-tip by default, offset shifted tip away from data
           // coord (visual mismatch). Default behavior places tip ON the curve.
           itemStyle: { color, borderColor: '#fff', borderWidth: 2, opacity: 0.95 },
           label: { show: true, formatter: '★', color: '#fff', fontSize: 11, fontWeight: 'bold', position: 'inside' },
-          tooltip: { formatter: () => `${ch} — оптимальный бюджет` },
+          tooltip: { formatter: () => `${ch} - оптимальный бюджет` },
         });
       }
 
@@ -217,7 +217,7 @@
         type: 'value',
         name: 'Бюджет, ₽',
         nameTextStyle: { color: '#64748b', fontSize: 10 },
-        // Phase 2 audit pass 6 (Антон 2026-05-03): adaptive max — based на
+        // Phase 2 audit pass 6 (Антон 2026-05-03): adaptive max - based на
         // largest channel budget × 1.5 (не на curve.spend native max which для
         // multi-year training может быть 100× больше реального бюджета).
         ...(xAxisMax != null ? { max: xAxisMax } : {}),
@@ -275,7 +275,7 @@
   });
 
   // Reactive: when budgets change from sliders → update graphic positions
-  // Skip during drag — the user is moving the point, don't snap it back
+  // Skip during drag - the user is moving the point, don't snap it back
   $effect(() => {
     // Access channelBudgets to create dependency
     const _ = JSON.stringify(channelBudgets);

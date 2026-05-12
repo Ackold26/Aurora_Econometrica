@@ -1,6 +1,6 @@
 """Regression pin test для downstream consumers (decomposer/optimizer/etc.).
 
-Phase B0.4 — guards against accidental drift в decomposer/optimizer/narrative
+Phase B0.4 - guards against accidental drift в decomposer/optimizer/narrative
 после modifications в Track A (awareness) или Track B (Weibull learnable).
 
 Strategy:
@@ -9,7 +9,7 @@ Strategy:
 - Hash extracted values (4 sig digits) → compare к stored baseline.
 - If hash mismatch → either intentional change (run with --update-baseline) or regression bug.
 
-Fast (~1 sec) — no MCMC, just downstream pipeline.
+Fast (~1 sec) - no MCMC, just downstream pipeline.
 
 Update baseline:
     python tools/test_regression_pin_kagocel.py --update-baseline
@@ -68,7 +68,7 @@ def _extract_summary(model_data: dict) -> dict:
     - model_version
 
     Excludes (volatile):
-    - posterior_samples (raw arrays — drift иногда из-за numpy/RNG)
+    - posterior_samples (raw arrays - drift иногда из-за numpy/RNG)
     - y_actual / y_predicted (could change с decomposition reconstruction)
     """
     summary = {
@@ -128,7 +128,7 @@ def test_synthetic_pickle_summary_matches_baseline(synthetic_trained_project):
 
     baseline = _load_baseline()
     if baseline is None:
-        # First run — establish baseline
+        # First run - establish baseline
         _save_baseline(summary, current_hash)
         pytest.skip(f'Baseline established at {BASELINE_PATH}. Re-run для verify.')
 
@@ -143,7 +143,7 @@ def test_synthetic_pickle_summary_matches_baseline(synthetic_trained_project):
         f'  pytest tools/test_regression_pin_kagocel.py  # auto-establish new baseline\n'
         f'  git commit tools/regression_baseline.json\n'
         f'\n'
-        f'Если unintentional — debug: дифф summary против baseline в JSON.'
+        f'Если unintentional - debug: дифф summary против baseline в JSON.'
     )
 
 
@@ -212,7 +212,7 @@ if __name__ == '__main__':
     if args.update_baseline:
         BASELINE_PATH.unlink(missing_ok=True)
         print(f'Removed {BASELINE_PATH}')
-        print('Re-run pytest tools/test_regression_pin_kagocel.py — baseline auto-established.')
+        print('Re-run pytest tools/test_regression_pin_kagocel.py - baseline auto-established.')
     else:
         print('Run via pytest: pytest tools/test_regression_pin_kagocel.py')
         print('Update baseline: python tools/test_regression_pin_kagocel.py --update-baseline')

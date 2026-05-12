@@ -106,7 +106,7 @@ def test_compute_report_id():
     e = compute_report_id(None, None, None, None)
     assert_true("compute_report_id accepts None args", e.startswith("aurora-mmm-"))
 
-    # Float drift tolerance — 0.872 vs 0.8724 should round to same bucket (3dp).
+    # Float drift tolerance - 0.872 vs 0.8724 should round to same bucket (3dp).
     f1 = compute_report_id("X", "P", [], {"mqs": 0.872})
     f2 = compute_report_id("X", "P", [], {"mqs": 0.8724})
     assert_eq("compute_report_id 3dp rounding matches", f1, f2)
@@ -226,7 +226,7 @@ def test_derive_action_headline_underperf_threshold():
     h2 = derive_action_headline(chs4, facts2, "scqar") or ""
     assert_in("4-ch 2-underperf scqar IS risk", "Сократить", h2)
 
-    # 2-channel, 1 underperf (50%) — should NOT trigger because floor=2.
+    # 2-channel, 1 underperf (50%) - should NOT trigger because floor=2.
     chs2 = [{"name": c, "mroas": 1.5} for c in ("A", "B")]
     facts3 = {"leader_channel": "A", "hero_channel": "A", "expected_lift_pct": 0,
               "reallocation_mln": 0, "underperformer_names": ["B"]}
@@ -301,7 +301,7 @@ def test_merge_channels_collision_warning(caplog_list: list | None = None):
         # Acceptable behaviour: either keep both rows OR drop-with-warning.
         assert_true("merge: collision warns (first wins)",
                     warned, detail=f"warnings={collision_msgs!r}")
-        # When duplicates collapse, only first survives — confirm no silent
+        # When duplicates collapse, only first survives - confirm no silent
         # data loss by checking first channel's name survived
         assert_true("merge: collision first wins",
                     len(merged) == 1 and merged[0]["contribution"] == 150)

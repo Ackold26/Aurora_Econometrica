@@ -1,4 +1,4 @@
-"""Tests для utils/optimizer_constraints.py — Phase A3.1.
+"""Tests для utils/optimizer_constraints.py - Phase A3.1.
 
 Pure logic tests (no MCMC) covering 3-level constraint precedence + feasibility +
 lock-group action.
@@ -50,7 +50,7 @@ def test_precedence_per_group_overrides_global():
 
 
 def test_mixed_channel_falls_back_to_global(_=None):
-    """Mixed category → global (H3 fix — no separate slider для mixed)."""
+    """Mixed category → global (H3 fix - no separate slider для mixed)."""
     bundle = ConstraintBundle(
         global_min_pct=0.2, global_max_pct=2.0,
         brand_min_pct=0.5, brand_max_pct=1.5,
@@ -196,7 +196,7 @@ def test_realistic_brand_lock_perf_flexible_scenario():
     cats = {'TV': 'brand', 'OOH': 'brand', 'Search': 'performance', 'Social': 'performance'}
 
     # Brand sum = 7000 (locked at current). Perf sum range = 750..2250.
-    # Budget = 7000 + 1500 = 8500 — feasible
+    # Budget = 7000 + 1500 = 8500 - feasible
     validate_feasibility(money, cats, locked, budget=8500)
 
     # Brand bounds = current money exactly
@@ -215,7 +215,7 @@ def test_constraint_bundle_is_frozen():
         bundle.global_min_pct = 0.9
 
 
-# ─── Audit fixes (2026-04-28) — input validation ────────────────────────────
+# ─── Audit fixes (2026-04-28) - input validation ────────────────────────────
 
 def test_constraint_bundle_rejects_nan_pct():
     """Audit fix: NaN values raise ValueError, не silently propagate."""
@@ -263,7 +263,7 @@ def test_constraint_bundle_per_channel_dict_immutable_after_init():
 
 
 def test_resolve_channel_bounds_rejects_negative_money():
-    """Audit fix: negative current_money corrupted data — fail loudly."""
+    """Audit fix: negative current_money corrupted data - fail loudly."""
     bundle = ConstraintBundle(global_min_pct=0.5, global_max_pct=1.5)
     with pytest.raises(ValueError, match='non-negative'):
         resolve_channel_bounds('TV', current_money=-1000, channel_categories={'TV': 'brand'}, bundle=bundle)
@@ -277,14 +277,14 @@ def test_resolve_channel_bounds_rejects_nan_money():
 
 
 def test_feasibility_budget_at_total_min_boundary():
-    """Audit fix: budget == sum(min) — boundary OK (within tolerance)."""
+    """Audit fix: budget == sum(min) - boundary OK (within tolerance)."""
     bundle = ConstraintBundle(global_min_pct=1.0, global_max_pct=2.0)
     money = {'TV': 500, 'OOH': 500}  # sum_min = 1000
     validate_feasibility(money, {}, bundle, budget=1000.0)  # no error
 
 
 def test_feasibility_budget_at_total_max_boundary():
-    """Audit fix: budget == sum(max) — boundary OK."""
+    """Audit fix: budget == sum(max) - boundary OK."""
     bundle = ConstraintBundle(global_min_pct=0.5, global_max_pct=2.0)
     money = {'TV': 500, 'OOH': 500}  # sum_max = 2000
     validate_feasibility(money, {}, bundle, budget=2000.0)  # no error

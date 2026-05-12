@@ -1,5 +1,5 @@
 """
-Aurora Econometrica — backend availability check (v2.0+).
+Aurora Econometrica - backend availability check (v2.0+).
 
 JAX/NumPyro mandatory для learnable Weibull adstock (Phase 1.5):
 - Toeplitz convolution в pt.scan на CPU = unbearable MCMC time.
@@ -36,7 +36,7 @@ def is_pymc_available() -> bool:
 
 
 def get_backend_summary() -> Dict[str, bool]:
-    """Snapshot всех backends — для diagnostic UI."""
+    """Snapshot всех backends - для diagnostic UI."""
     return {
         'pymc': is_pymc_available(),
         'jax': is_jax_available(),
@@ -57,7 +57,7 @@ def enforce_jax_for_weibull(channel_adstock_types: Dict[str, str]) -> None:
         col for col, t in channel_adstock_types.items() if t == 'weibull'
     ]
     if not weibull_channels:
-        return  # all geometric — no requirement
+        return  # all geometric - no requirement
 
     if not is_jax_available():
         raise BackendUnavailableError(

@@ -1,10 +1,10 @@
 """
-Aurora Econometrica — Optimizer constraint resolution (v1.2.0+).
+Aurora Econometrica - Optimizer constraint resolution (v1.2.0+).
 
-Phase A3.1 — pure logic helpers для per-group + per-channel + global precedence.
+Phase A3.1 - pure logic helpers для per-group + per-channel + global precedence.
 3-level precedence: per-channel > per-group > global.
 
-Mixed channels (Trust 3 categorization) → fall back к global (H3 fix — no separate
+Mixed channels (Trust 3 categorization) → fall back к global (H3 fix - no separate
 slider для mixed; cleaner UX).
 
 Pre-flight feasibility validation (H4 fix):
@@ -48,13 +48,13 @@ class ConstraintBundle:
     global_min_pct: float
     global_max_pct: float
 
-    # Per-group (optional — Trust 3 brand/perf only)
+    # Per-group (optional - Trust 3 brand/perf only)
     brand_min_pct: Optional[float] = None
     brand_max_pct: Optional[float] = None
     perf_min_pct: Optional[float] = None
     perf_max_pct: Optional[float] = None
 
-    # Per-channel (optional — expert mode override).
+    # Per-channel (optional - expert mode override).
     # Note: ConstraintBundle freezes contents через __post_init__ → callers
     # cannot mutate dicts post-hoc.
     channel_min_pct: Optional[Mapping[str, float]] = None
@@ -84,7 +84,7 @@ class ConstraintBundle:
         if self.global_min_pct > self.global_max_pct:
             raise ValueError(
                 f"global_min_pct ({self.global_min_pct}) > global_max_pct "
-                f"({self.global_max_pct}) — incoherent"
+                f"({self.global_max_pct}) - incoherent"
             )
 
         # Per-channel dict elements: validate finite/non-negative + freeze view
@@ -179,8 +179,8 @@ def validate_feasibility(
     """Pre-flight constraint feasibility validation. Raises FeasibilityError если infeasible.
 
     Checks:
-    1. group_max ≤ global_max enforced (H4 fix — prevent slider conflict)
-    2. Σ(min bounds) ≤ budget ≤ Σ(max bounds) — SLSQP solvable
+    1. group_max ≤ global_max enforced (H4 fix - prevent slider conflict)
+    2. Σ(min bounds) ≤ budget ≤ Σ(max bounds) - SLSQP solvable
 
     Args:
         channel_money: {channel: current_money_spend}
@@ -197,13 +197,13 @@ def validate_feasibility(
         raise FeasibilityError(
             f"Brand max ({bundle.brand_max_pct * 100:.0f}%) превышает global max "
             f"({bundle.global_max_pct * 100:.0f}%). "
-            f"Brand max должен быть ≤ global max — иначе constraint hierarchy нарушается."
+            f"Brand max должен быть ≤ global max - иначе constraint hierarchy нарушается."
         )
     if bundle.perf_max_pct is not None and bundle.perf_max_pct > bundle.global_max_pct:
         raise FeasibilityError(
             f"Performance max ({bundle.perf_max_pct * 100:.0f}%) превышает global max "
             f"({bundle.global_max_pct * 100:.0f}%). "
-            f"Performance max должен быть ≤ global max — иначе constraint hierarchy нарушается."
+            f"Performance max должен быть ≤ global max - иначе constraint hierarchy нарушается."
         )
 
     # Check 2: budget feasibility
@@ -230,7 +230,7 @@ def lock_group_to_current(
     bundle: ConstraintBundle,
     group: str,
 ) -> ConstraintBundle:
-    """Quick action — lock group bounds к 100% (H5 fix — common contractual brand budget).
+    """Quick action - lock group bounds к 100% (H5 fix - common contractual brand budget).
 
     Args:
         bundle: existing ConstraintBundle

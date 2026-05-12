@@ -1,5 +1,5 @@
 """
-Aurora Econometrica — KPI/mode-aware UI/report labels (v1.3.0).
+Aurora Econometrica - KPI/mode-aware UI/report labels (v1.3.0).
 
 Helper для report builders (HTML/PPTX/XLSX/DOCX): возвращает правильные labels
 column header / cover metric / chart axis в зависимости от (kpi_kind, mode).
@@ -64,7 +64,7 @@ def format_metric(
 ) -> str:
     """Format metric value per (kpi_kind, mode).
 
-    B4 audit fix (v1.3.2): backend convention — per-channel mroas/roi всегда
+    B4 audit fix (v1.3.2): backend convention - per-channel mroas/roi всегда
     mathematical ratio = KPI_units / ₽_spend. Для count это units/₽ (e.g.
     0.0125). CPU = 1/x = ₽/ед. Invert при display.
 
@@ -74,14 +74,14 @@ def format_metric(
     - mode=effectiveness fraction: 0.25 → '25.0%'
     """
     if value is None:
-        return '—'
+        return '-'
     if mode == 'effectiveness':
         return f'{value * 100:.1f}%'
     if kpi_kind == 'count':
         # B4: invert units/₽ → CPU. Zero/negative → fallback.
         if value > 0:
             return f'{1.0 / value:.0f} ₽/ед.'
-        return '—'
+        return '-'
     return f'{value:.2f}×'
 
 
@@ -98,7 +98,7 @@ def cover_metric_summary(
     используют свои _weighted_summary_phrase variants для in-body text).
 
     L1 audit note: alternative «ROI портфеля 1.50×» phrasing implemented в
-    sections.py:_weighted_summary_phrase. Различия осознанные — cover line
+    sections.py:_weighted_summary_phrase. Различия осознанные - cover line
     более descriptive («Средний CPU: X ₽/ед. (vs ценность Y ₽)»), body line
     более compact.
 
@@ -110,7 +110,7 @@ def cover_metric_summary(
     effectiveness: 'Главная метрика: доля канала в продажах'
     """
     if mode == 'effectiveness':
-        # avg_metric — share % top-канала.
+        # avg_metric - share % top-канала.
         return f'Главная метрика: доля канала в продажах'
     if kpi_kind == 'count':
         formatted = format_metric(avg_metric, kpi_kind, mode)

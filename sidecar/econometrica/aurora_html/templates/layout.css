@@ -303,13 +303,13 @@ p { margin: 0 0 12px 0; }
   flex-direction: column;
   gap: 8px;
 }
-/* 2026-05-04 — Aurora deliverable gold-accent sigil over hero title.
-   SVG inline (4.9KB) — vector scaling без потерь.
+/* 2026-05-04 - Aurora deliverable gold-accent sigil over hero title.
+   SVG inline (4.9KB) - vector scaling без потерь.
    AUDIT FIX 2026-05-04: theme-aware. SVG имеет inline `<style>.st0{fill:#0A1628}`
    (navy для main shape) и `.st1{fill:#C5A46D}` (gold accent). На dark theme
-   navy invisible — overrides ниже rebrand .st0 к light/secondary под cover bg.
+   navy invisible - overrides ниже rebrand .st0 к light/secondary под cover bg.
    `!important` нужен потому что SVG inline `<style>` имеет higher specificity
-   чем external CSS rules. Gold accent (.st1) keep — gold на dark выглядит хорошо. */
+   чем external CSS rules. Gold accent (.st1) keep - gold на dark выглядит хорошо. */
 .cover-brand-mark {
   width: 88px;
   height: 88px;
@@ -321,7 +321,7 @@ p { margin: 0 0 12px 0; }
   height: 100%;
   display: block;
 }
-/* Light + Fun themes: navy main + gold accent — design intent (light backgrounds).
+/* Light + Fun themes: navy main + gold accent - design intent (light backgrounds).
    Customer requested 2026-05-04: fun theme matches light, не dark. */
 
 /* Dark theme only: navy invisible against deep bg → switch к off-white. */

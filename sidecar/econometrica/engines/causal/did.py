@@ -1,8 +1,8 @@
 """
-Difference-in-Differences (DiD) engine — Sprint 3 M1.
+Difference-in-Differences (DiD) engine - Sprint 3 M1.
 
 Implements TWFE (two-way fixed effects) DiD via linearmodels.PanelOLS.
-For non-staggered (single treatment date) experiments — classic 2x2 design
+For non-staggered (single treatment date) experiments - classic 2x2 design
 common в pharma marketing geo-holdout tests.
 
 ⚠️ TWFE caveat: для STAGGERED adoption (regions onboard at different dates),
@@ -88,7 +88,7 @@ def _parallel_trends_test(
     # B4 audit fix (audit-of-Sprint3 2026-04-27): cluster-robust SE by unit.
     # Pre-fix used standard OLS SE которая underestimated стандартную ошибку
     # interaction term because errors correlate within unit (panel structure).
-    # Result: false rejections of parallel trends — too many tests "fail".
+    # Result: false rejections of parallel trends - too many tests "fail".
     # Now: clustered SE by unit_col → honest SE → calibrated p-values.
     try:
         from statsmodels.regression.linear_model import OLS
@@ -167,14 +167,14 @@ def estimate_did(
     if err is not None:
         return err
 
-    # Step 3: Honest disclosure diagnostics (run early — surface caveats upfront)
+    # Step 3: Honest disclosure diagnostics (run early - surface caveats upfront)
     disclosure = HonestDisclosure(
         method='did_twfe',
         assumptions=[
-            'Parallel trends — pre-treatment KPI trajectories треш и control units parallel',
-            'No anticipation — units не реагируют на treatment до его old start',
-            'SUTVA — treatment в одном unit не влияет на others (no spillover)',
-            'Common shocks — time fixed effects capture period-level shocks',
+            'Parallel trends - pre-treatment KPI trajectories треш и control units parallel',
+            'No anticipation - units не реагируют на treatment до его old start',
+            'SUTVA - treatment в одном unit не влияет на others (no spillover)',
+            'Common shocks - time fixed effects capture period-level shocks',
         ],
         references=[
             'Wooldridge 2010 "Econometric Analysis of Cross Section and Panel Data"',
@@ -186,12 +186,12 @@ def estimate_did(
     # DiD coverage under-estimated для small n_clusters (<10). Cluster-robust
     # SE asymptotics requires n_clusters → ∞ для validity. Empirical: n=6 →
     # coverage 0.72 vs nominal 0.90. Per Cameron, Gelbach, Miller 2008
-    # "Bootstrap-Based Improvements for Inference with Clustered Errors" —
+    # "Bootstrap-Based Improvements for Inference with Clustered Errors" -
     # wild-cluster bootstrap recommended для small G. Future v1.0.15 enhancement.
     n_clusters_total = metadata.n_units
     if n_clusters_total < 10:
         disclosure.caveats.append(
-            f'Small n_clusters={n_clusters_total} (<10) — cluster-robust SE может '
+            f'Small n_clusters={n_clusters_total} (<10) - cluster-robust SE может '
             f'under-estimate uncertainty. SBC empirically coverage ~0.72 vs nominal 0.90 '
             f'для similar panels. Используй wider confidence (0.95+) или triangulate с SCM/Forest.'
         )
@@ -200,10 +200,10 @@ def estimate_did(
     is_staggered = _detect_staggered(df, unit_column, time_column, treatment_column)
     if is_staggered:
         disclosure.caveats.append(
-            'STAGGERED adoption detected — units get treatment at DIFFERENT periods. '
+            'STAGGERED adoption detected - units get treatment at DIFFERENT periods. '
             'TWFE produces biased ATT под staggered (Goodman-Bacon 2021). Использовать '
             'Callaway-Santanna estimator (deferred к Sprint 4+) для proper staggered. '
-            'Текущий ATT — TWFE approximation, treat с caution.'
+            'Текущий ATT - TWFE approximation, treat с caution.'
         )
         disclosure.diagnostics_failed.append('staggered_adoption_twfe_biased')
     else:
@@ -310,6 +310,6 @@ def estimate_did(
             json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.warning(f'Artifact save failed: {e}')
-        # Continue without persistence — payload still returns to caller
+        # Continue without persistence - payload still returns to caller
 
     return payload

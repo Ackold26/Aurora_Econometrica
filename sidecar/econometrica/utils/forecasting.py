@@ -3,13 +3,13 @@
 Single source of truth для per-period Hill summation matching scenario engine.
 Used by optimizer.py total_response_money_planning (planning mode objective).
 
-Math reference: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis (M9 finding —
+Math reference: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis (M9 finding -
 Hill-of-mean vs sum-of-Hills, Option C lock).
 
 3-way alignment в planning mode:
-- scenario.py:167-186 — per-period sum-of-Hill (existing)
-- decomposer.py:289-292 — per-period sum-of-Hill (existing)
-- optimizer.py planning mode → calls evaluate_flat_allocation_response() — joins alignment
+- scenario.py:167-186 - per-period sum-of-Hill (existing)
+- decomposer.py:289-292 - per-period sum-of-Hill (existing)
+- optimizer.py planning mode → calls evaluate_flat_allocation_response() - joins alignment
 - optimizer.py analyst mode → preserves Hill-of-mean approximation для backward compat
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ def flat_alloc_adstock_series(
         x_avg: per-period spend (constant over n_periods)
         n_periods: forecast horizon length
         a_type: 'geometric', 'weibull', 'noop'
-        decay: posterior mean decay — None falls back to library default
+        decay: posterior mean decay - None falls back to library default
 
     Returns:
         np.ndarray shape (n_periods,) of adstocked values.
@@ -55,7 +55,7 @@ def flat_alloc_adstock_series(
         if 0 < d < 1:
             t = np.arange(n_periods)
             return float(x_avg) * (1.0 - d ** (t + 1)) / (1.0 - d)
-        # decay ≥ 1 — clamp via apply_adstock fallback (it handles edge cases)
+        # decay ≥ 1 - clamp via apply_adstock fallback (it handles edge cases)
 
     # Fallback: numerical via apply_adstock
     flat = np.full(n_periods, float(x_avg))
@@ -83,7 +83,7 @@ def evaluate_flat_allocation_response(
     adstock_config: dict | None = None,
     n_periods: int,
 ) -> float:
-    """Total media response под flat allocation (Option C — sum-of-Hills).
+    """Total media response под flat allocation (Option C - sum-of-Hills).
 
     Per-period summation matching `scenario.py:167-186` semantics. Restores
     3-way alignment optimizer ↔ scenario ↔ decomposer в planning mode.
@@ -100,10 +100,10 @@ def evaluate_flat_allocation_response(
         media_cols: ordered channel names aligned к allocation_money + unit_costs
         channel_params: per-channel dict {'alpha', 'gamma', 'beta', 'decay',
                        optionally 'adstock_mean_posterior'}
-        allocation_money: per-channel total spend (₽) — money axis
+        allocation_money: per-channel total spend (₽) - money axis
         unit_costs: per-channel unit cost (₽/native unit) aligned to media_cols
         media_means: per-channel training adstock mean (fallback когда нет
-                    posterior — pre-v1.2 pickles)
+                    posterior - pre-v1.2 pickles)
         adstock_config: per-channel adstock type config ({col: 'geometric'|...})
         n_periods: forecast horizon length
 
@@ -130,7 +130,7 @@ def evaluate_flat_allocation_response(
         else:
             mean = float(media_means.get(col, 1) or 1)
         if mean <= 0:
-            continue  # zero-mean channel — cannot normalize
+            continue  # zero-mean channel - cannot normalize
 
         uc = float(uc_arr[i]) if i < len(uc_arr) else 1.0
         if uc <= 0:

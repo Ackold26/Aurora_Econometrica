@@ -55,7 +55,7 @@ def _fmt_x(v: Any, fallback: str = "-") -> str:
 
 
 def _fmt_x_bare(v: Any, fallback: str = "-") -> str:
-    """Same as _fmt_x but без × — для CI bracket inner numbers."""
+    """Same as _fmt_x but без × - для CI bracket inner numbers."""
     try:
         return f"{float(v):.2f}"
     except (TypeError, ValueError):
@@ -63,7 +63,7 @@ def _fmt_x_bare(v: Any, fallback: str = "-") -> str:
 
 
 def _ci_tier_class(mean: Any, ci_low: Any, ci_high: Any) -> str:
-    """Phase 1.9: returns CSS class for CI width tier — green/amber/red badge.
+    """Phase 1.9: returns CSS class for CI width tier - green/amber/red badge.
 
     Per ADR Amendment A5:
         relative_width < 0.5  → ci-tier-good   (Уверенная)
@@ -90,7 +90,7 @@ def _ci_tier_class(mean: Any, ci_low: Any, ci_high: Any) -> str:
 
 
 def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
-    """Format value with optional 90% CI bracket: '2.4× [1.8 — 3.1]'.
+    """Format value with optional 90% CI bracket: '2.4× [1.8 - 3.1]'.
 
     Returns plain '_fmt_x' when CI unavailable (Phase 1.9 backward compat).
     Bracket span has CSS class ci-bracket plus tier class for color tinting.
@@ -101,12 +101,12 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
     tier = _ci_tier_class(mean, ci_low, ci_high)
     return (
         f'{base} <span class="ci-bracket {tier}">'
-        f'[{_fmt_x_bare(ci_low)} — {_fmt_x_bare(ci_high)}]</span>'
+        f'[{_fmt_x_bare(ci_low)} - {_fmt_x_bare(ci_high)}]</span>'
     )
 
 
 def _fmt_pct(v: Any, fallback: str = "-") -> str:
-    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision — never lies via rounding to 0%.
+    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision - never lies via rounding to 0%.
 
     Pre-fix: `{:.0f}%` rounded 0.4% to 0%, producing absurd narrative claims like
     "канал даёт 26% продаж при 0% бюджета" (Performance had 0.4% spend share).
@@ -136,7 +136,7 @@ def _fmt_pct(v: Any, fallback: str = "-") -> str:
 # ─── KPI/mode-aware helpers (v1.3.2) ────────────────────────────────────────
 #
 # ctx['kpi'] populated narrative_adapter (см. ADR-016). Когда блок отсутствует
-# (legacy callers, v1.2 contexts) — fallback к monetary ROI поведению.
+# (legacy callers, v1.2 contexts) - fallback к monetary ROI поведению.
 
 _DEFAULT_KPI_LABELS = {
     "metric_label": "ROI",
@@ -195,7 +195,7 @@ def _fmt_metric(value: Any, kpi: dict, fallback: str = "-") -> str:
     mode = kpi.get("mode", "roi")
     kind = kpi.get("kpi_kind", "monetary")
     if mode == "effectiveness":
-        # share метрика. Если |value| <= 1 — fraction. Иначе уже %.
+        # share метрика. Если |value| <= 1 - fraction. Иначе уже %.
         if abs(f) <= 1.0:
             return f"{f * 100:.1f}%"
         return f"{f:.0f}%"
@@ -235,7 +235,7 @@ def _fmt_metric_with_ci(mean: Any, ci_low: Any, ci_high: Any, kpi: dict) -> str:
 
     B4 audit fix: для count mode CI inverts (units/₽ → CPU ₽/ед.), что
     flips ordering: lo_mroas → hi_cpu, hi_mroas → lo_cpu. Swap order для
-    отображения [lo_cpu — hi_cpu].
+    отображения [lo_cpu - hi_cpu].
     """
     base = _fmt_metric(mean, kpi)
     if ci_low is None or ci_high is None:
@@ -251,7 +251,7 @@ def _fmt_metric_with_ci(mean: Any, ci_low: Any, ci_high: Any, kpi: dict) -> str:
         hi_str = _fmt_metric_bare(ci_high, kpi)
     return (
         f'{base} <span class="ci-bracket {tier}">'
-        f'[{lo_str} — {hi_str}]</span>'
+        f'[{lo_str} - {hi_str}]</span>'
     )
 
 
@@ -259,7 +259,7 @@ def _weighted_summary_phrase(weighted_value: Any, kpi: dict) -> str:
     """Краткая фраза «средний ROI/CPU/доля портфеля» с числом.
 
     Narrative_adapter всегда отдаёт `weighted_roi = total_contrib / total_spend`.
-    Для count KPI — это units/₽ (обратное к CPU), потому преобразуем к CPU = 1/x.
+    Для count KPI - это units/₽ (обратное к CPU), потому преобразуем к CPU = 1/x.
 
     monetary roi: 'ROI портфеля 1.50×'
     count: 'CPU портфеля 120 ₽/ед.'
@@ -329,7 +329,7 @@ def render_cover(ctx: dict) -> str:
     version = meta.get("version") or ""
     kicker = strings["sections"]["cover"]["kicker"]
     brand_mark = ctx.get("brand_mark_svg") or ""
-    # 2026-05-04: gold-accent sigil over h1 — Aurora deliverable brand mark.
+    # 2026-05-04: gold-accent sigil over h1 - Aurora deliverable brand mark.
     # Wrapped в <div class="cover-brand-mark"> для CSS sizing/positioning.
     brand_mark_html = (
         f'<div class="cover-brand-mark" role="img" aria-label="Aurora AI">{brand_mark}</div>'
@@ -383,7 +383,7 @@ def render_executive_summary(ctx: dict) -> str:
           adding new mode = single Python branch, не JSON file edit.
         - JSON nesting усложнил бы schema validation + test fixtures.
 
-    Maintainer responsibility: при добавлении нового kpi mode — добавить branch
+    Maintainer responsibility: при добавлении нового kpi mode - добавить branch
     в situation block (line ~234) + recommendation block (line ~484). Avoid
     JSON proliferation.
     """
@@ -427,7 +427,7 @@ def render_executive_summary(ctx: dict) -> str:
                 weighted_roi=wr, mqs=mqs
             )
         else:
-            # v1.3.2: KPI-aware situation — заменяем «Weighted ROI X×» на CPU/доля.
+            # v1.3.2: KPI-aware situation - заменяем «Weighted ROI X×» на CPU/доля.
             situation = (
                 f"{client} размещает {budget:.0f} млн ₽ в квартал через "
                 f"{n_ch} активных каналов. {_weighted_summary_phrase(wr, kpi)}, "
@@ -448,7 +448,7 @@ def render_executive_summary(ctx: dict) -> str:
             )
         question = scqar["question"]["template"]
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
-        # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state — SLSQP
+        # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state - SLSQP
         # вернул current allocation без binding (false convergence). Honest
         # banner вместо vacuous «Сохранить аллокацию».
         binding = bool(facts.get("binding_constraints"))
@@ -468,7 +468,7 @@ def render_executive_summary(ctx: dict) -> str:
             recommendation = "Прирост ROAS будет рассчитан после расширения границ."
         elif converged_at_current:
             answer = (
-                "Оптимизатор сошёлся на текущем распределении — лучшее решение "
+                "Оптимизатор сошёлся на текущем распределении - лучшее решение "
                 "при заданных границах не найдено. Это может означать что границы "
                 "Min/Max задают слишком узкий коридор либо текущая аллокация уже "
                 "близка к локальному оптимуму."
@@ -482,7 +482,7 @@ def render_executive_summary(ctx: dict) -> str:
             # from action_summary instead of leader/hero. Fallback templates
             # для edge cases (only-Cut, only-Scale, all-Hold, all-Uncertain).
             # L23 fix (Венарус 2026-04-29): underperf list уже dedup'нут от
-            # cut_source в narrative_adapter. Если empty («-») — пропускаем
+            # cut_source в narrative_adapter. Если empty («-») - пропускаем
             # «сократить или остановить» clause целиком чтобы избежать
             # «Перебалансировать ... в Social; сократить или остановить -.»
             has_extra_underperf = bool(facts.get("underperformer_names"))
@@ -493,7 +493,7 @@ def render_executive_summary(ctx: dict) -> str:
                         scale_destination=scale_dest, underperf=underperf,
                     )
                 else:
-                    # Без underperf clause — основная часть только
+                    # Без underperf clause - основная часть только
                     answer = (
                         f"Перебалансировать {realloc:.0f} млн ₽ из {cut_source} "
                         f"в {scale_dest}."
@@ -594,7 +594,7 @@ def render_at_a_glance(ctx: dict) -> str:
             )
         else:
             # N1 (Phase 0.1): pre-format pct values to avoid {x:.0f} rounding
-            # 0.4% to "0%" — see _fmt_pct conditional precision logic.
+            # 0.4% to "0%" - see _fmt_pct conditional precision logic.
             f1 = strings["findings_templates"]["f1_leader"].format(
                 leader=leader,
                 contrib_pct_fmt=_fmt_pct(facts.get("leader_share_contrib_pct") or 0),
@@ -647,7 +647,7 @@ def render_at_a_glance(ctx: dict) -> str:
             and all((float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in channels)
         )
         # N3 (Phase 0.1): if optimizer hit binding constraints, surface that
-        # explicitly — otherwise narrative says "сохранить аллокацию" while
+        # explicitly - otherwise narrative says "сохранить аллокацию" while
         # the real story is "оптимизатор не получил места для манёвра".
         if honest and all_below_breakeven:
             f3 = "Все медиа-каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
@@ -655,7 +655,7 @@ def render_at_a_glance(ctx: dict) -> str:
                 f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
             else:
                 f3_sup = (
-                    f"Когда у всех каналов {_under_breakeven_phrase(kpi)} — "
+                    f"Когда у всех каналов {_under_breakeven_phrase(kpi)} - "
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
         elif binding:
@@ -681,7 +681,7 @@ def render_at_a_glance(ctx: dict) -> str:
         except (TypeError, ValueError):
             mqs_val = 0
         # L16 (math-fix v1.4 Section C, 2026-04-29): align frontend tier labels
-        # с backend (utils/diagnostics.py:62-72) — single 5-tier source of truth.
+        # с backend (utils/diagnostics.py:62-72) - single 5-tier source of truth.
         # Pre-fix: frontend had 3 tiers (good/fair/poor at 80/60/<60), backend
         # had 5 tiers (excellent/good/acceptable/weak/poor at 85/70/55/40/<40)
         # → MQS=70 showed «Хорошее» (sources block) vs «приемлемо» (findings).
@@ -867,9 +867,9 @@ def render_mroas(ctx: dict) -> str:
         chart_title_text = "mROAS по каналам · мультипликатор"
         chart_subtitle_text = "Marginal ROI последнего вложенного рубля"
 
-    # Commentary blocks — math-fix v1.0.14.1 B refactor (2026-04-28).
+    # Commentary blocks - math-fix v1.0.14.1 B refactor (2026-04-28).
     # Pre-fix: hardcoded «явный потенциал scale-up» / «потенциал удержания» /
-    # «топ-2 канала» based на mROAS rank — independent от derive_verdict в
+    # «топ-2 канала» based на mROAS rank - independent от derive_verdict в
     # action table → contradictions (Kagocel live-test 2026-04-27).
     # Post-fix: action-driven commentary. Each block reads ch['action_label']
     # + ch['action_reasoning'] populated by narrative_adapter via single source
@@ -887,9 +887,9 @@ def render_mroas(ctx: dict) -> str:
             ),
         )
 
-        # Show top-3 наиболее actionable channels — covers Scale/Reduce/Cut signals
+        # Show top-3 наиболее actionable channels - covers Scale/Reduce/Cut signals
         # + leaves room для Hold + Watch когда no decisive action в портфеле.
-        # Skip duplicate action keys (e.g. 4 Scale channels — show only first).
+        # Skip duplicate action keys (e.g. 4 Scale channels - show only first).
         seen_actions: set[str] = set()
         commentary_blocks = []
         for ch in by_priority:
@@ -903,7 +903,7 @@ def render_mroas(ctx: dict) -> str:
             label = ch.get("action_label") or ch_action
             reasoning = ch.get("action_reasoning") or ""
             commentary_blocks.append((
-                f"{ch_name} — {label}.",
+                f"{ch_name} - {label}.",
                 reasoning or f"mROAS {float(ch.get('mroas') or 0):.2f}×, рекомендация по портфелю.",
             ))
             if len(commentary_blocks) >= 3:
@@ -912,7 +912,7 @@ def render_mroas(ctx: dict) -> str:
         if not commentary_blocks:
             top_m = by_priority[0] if by_priority else {}
             commentary_blocks = [(
-                f"{top_m.get('name', '-')} — лидер по mROAS.",
+                f"{top_m.get('name', '-')} - лидер по mROAS.",
                 f"mROAS {float(top_m.get('mroas') or 0):.2f}× по результатам декомпозиции.",
             )]
     else:
@@ -1054,7 +1054,7 @@ def render_action_table(ctx: dict) -> str:
         tb = facts.get("total_budget_mln") or 0
         tc = facts.get("total_contrib_mln") or 0
         wr = facts.get("weighted_roi")
-        # v1.3.2: aggregate cell — adapt unit per KPI/mode.
+        # v1.3.2: aggregate cell - adapt unit per KPI/mode.
         if not wr:
             wr_cell = "-"
         elif kpi["is_legacy"]:
@@ -1083,9 +1083,9 @@ def render_action_table(ctx: dict) -> str:
         totals_html = ""
 
     # Footnotes
-    # v1.3.2 audit fix (M1): KPI-aware verdict reason — для effectiveness mode
+    # v1.3.2 audit fix (M1): KPI-aware verdict reason - для effectiveness mode
     # «breakeven» metaphor неестественна для shares. Используем «доля ниже
-    # бенчмарка». Для count — переформулируем mROAS-specific terms через
+    # бенчмарка». Для count - переформулируем mROAS-specific terms через
     # vocabulary CPU/единиц.
     if kpi["is_legacy"]:
         verdict_reasons_view = v_reasons
@@ -1217,11 +1217,11 @@ def render_recommendation(ctx: dict) -> str:
         converged = facts.get("optimization_converged", True)
         converged_at_current = bool(facts.get("converged_at_current"))
 
-        # N3 — Action 01: derived from optimizer state, not heuristics.
+        # N3 - Action 01: derived from optimizer state, not heuristics.
         # math-fix v1.0.14.1: + converged_at_current branch (false convergence).
         if not converged:
             action_01_text = (
-                "Оптимизация не сошлась — попробуйте ослабить ограничения по каналам "
+                "Оптимизация не сошлась - попробуйте ослабить ограничения по каналам "
                 "или сократить число каналов в модели и перезапустите Оптимизацию."
             )
         elif binding:
@@ -1234,12 +1234,12 @@ def render_recommendation(ctx: dict) -> str:
             )
             action_01_text = (
                 f"Все каналы упёрлись в заданные границы {bounds_txt}. "
-                "Расширьте до 10-20% / 200-300% и перезапустите Оптимизацию — "
+                "Расширьте до 10-20% / 200-300% и перезапустите Оптимизацию - "
                 "она найдёт реальное перераспределение."
             )
         elif converged_at_current:
             action_01_text = (
-                "Оптимизатор не нашёл лучшего распределения — оставил текущую "
+                "Оптимизатор не нашёл лучшего распределения - оставил текущую "
                 "аллокацию. Расширьте границы Min/Max или используйте экспертный "
                 "режим для разблокировки реального перераспределения."
             )
@@ -1247,7 +1247,7 @@ def render_recommendation(ctx: dict) -> str:
             # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
             # вместо leader/hero. cut_source = optimizer's biggest cut, scale_dest
             # = biggest grow recommendation. Avoids «из Performance в Social»
-            # когда Performance — small-budget сhannel.
+            # когда Performance - small-budget сhannel.
             action_01_text = (
                 f"{realloc:.0f} млн ₽ из {facts['cut_source_channel']} в {facts['scale_destination_channel']}. "
                 "Adstock компенсирует краткосрочный спад awareness."
@@ -1264,8 +1264,8 @@ def render_recommendation(ctx: dict) -> str:
                 f"Сохранить аллокацию по {leader} с контролем индикаторов saturation."
             )
 
-        # N4 — Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
-        # v1.3.2 audit fix (M1): mode-natural phrasing — «breakeven» metaphor
+        # N4 - Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
+        # v1.3.2 audit fix (M1): mode-natural phrasing - «breakeven» metaphor
         # подходит для monetary/count, для effectiveness используем «низкая доля».
         n_saturated = sum(
             1 for c in channels
@@ -1282,18 +1282,18 @@ def render_recommendation(ctx: dict) -> str:
             else:
                 problem_clause = f"{n_saturated} канал(ов) под breakeven"
             action_02_text = (
-                f"{problem_clause} — проверить data quality, adstock decay и сравнить "
+                f"{problem_clause} - проверить data quality, adstock decay и сравнить "
                 "с industry benchmarks перед следующей итерацией."
             )
         else:
             if kpi["mode"] == "effectiveness":
                 action_02_text = (
-                    "Все каналы дают сравнимый вклад в долю эффекта — "
+                    "Все каналы дают сравнимый вклад в долю эффекта - "
                     f"мониторить {metric_short.lower()} канала в следующих периодах на признаки saturation."
                 )
             else:
                 action_02_text = (
-                    f"Все каналы выше breakeven — мониторить {metric_short} в следующих периодах "
+                    f"Все каналы выше breakeven - мониторить {metric_short} в следующих периодах "
                     "на признаки saturation."
                 )
 
@@ -1308,7 +1308,7 @@ def render_recommendation(ctx: dict) -> str:
             )
         else:
             action_03_text = (
-                "Замерить эффект через 90 дней (KPI vs baseline) — "
+                "Замерить эффект через 90 дней (KPI vs baseline) - "
                 "перезапустить MMM с обновлёнными данными для калибровки модели."
             )
 
@@ -1374,9 +1374,9 @@ def render_recommendation(ctx: dict) -> str:
 
 
 def _render_brand_perf_split_block(ctx: dict) -> str:
-    """Trust Level 3 (v1.1.0) — auto-generated methodology section про brand vs performance.
+    """Trust Level 3 (v1.1.0) - auto-generated methodology section про brand vs performance.
 
-    Reads actual prior values из pickle config (issue K — methodology auto-syncs с code).
+    Reads actual prior values из pickle config (issue K - methodology auto-syncs с code).
     Returns empty string если модель не использовала hierarchical priors.
     """
     diag = ctx.get("diagnostics") or {}
@@ -1394,10 +1394,10 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
     import math
     def _half_life(mu_logit: float | None) -> str:
         if mu_logit is None:
-            return "—"
+            return "-"
         decay = 1 / (1 + math.exp(-mu_logit))
         if decay <= 0 or decay >= 1:
-            return "—"
+            return "-"
         hl = math.log(0.5) / math.log(decay)
         return f"{hl:.1f} периодов"
 
@@ -1421,14 +1421,14 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
   <div class="method-col-label" style="margin-bottom:8px;">Brand vs Performance моделирование (v1.1.0)</div>
   <p style="font-size:12px;line-height:1.5;color:var(--text-secondary,#94a3b8);">
     Модель разделяет каналы на brand (long-horizon decay) и performance (short-horizon decay).
-    Brand-каналы получают hierarchical prior с большей variance — отражает unknown brand-build duration.
+    Brand-каналы получают hierarchical prior с большей variance - отражает unknown brand-build duration.
     Performance-каналы используют тесный prior на короткий decay.
   </p>
   <ul style="font-size:12px;line-height:1.7;margin-top:8px;padding-left:16px;">
 {chr(10).join(rows)}
   </ul>
   <p style="font-size:11px;font-style:italic;color:var(--text-muted,#64748b);margin-top:8px;">
-    Атрибуция между brand и performance имеет fundamental uncertainty — мы используем priors based on industry norms.
+    Атрибуция между brand и performance имеет fundamental uncertainty - мы используем priors based on industry norms.
     Если категория канала вызывает сомнения, проверьте классификацию на шаге Validate.
   </p>
   {warning_html}

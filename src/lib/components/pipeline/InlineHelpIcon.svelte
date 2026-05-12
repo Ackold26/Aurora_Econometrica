@@ -1,6 +1,6 @@
 <script>
   /**
-   * InlineHelpIcon — v1.3.0 skeleton (per ADR-015 P0.9 + Stage 4 educational).
+   * InlineHelpIcon - v1.3.0 skeleton (per ADR-015 P0.9 + Stage 4 educational).
    *
    * Маленькая (i)-иконка рядом с полем, по hover/click показывает tooltip:
    * - короткий текст (1-2 предложения).

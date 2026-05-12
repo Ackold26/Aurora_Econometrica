@@ -1,6 +1,6 @@
 <script>
   /**
-   * ValidateStep — Step 1 of the pipeline.
+   * ValidateStep - Step 1 of the pipeline.
    * Runs econ_validate on the imported file, then shows:
    *   - TrafficLight for validation status / issues
    *   - ColumnMapper for role assignment (drag-drop)
@@ -32,7 +32,7 @@
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { get } from 'svelte/store';
 
-  // Обучающий тур — запускается при первом визите на шаг, если
+  // Обучающий тур - запускается при первом визите на шаг, если
   // результат валидации отрендерен и тур не пройден ранее.
   let showOnboarding = $state(false);
   let onboardingChecked = false;
@@ -47,7 +47,7 @@
   let showRecs = $state(true);
   let showMapper = $state(true);
 
-  // Reactively read from store — updates when InsightsPanel modifies column roles
+  // Reactively read from store - updates when InsightsPanel modifies column roles
   const result = $derived($validateData?.result ?? null);
 
   // ── Reactive store reads (Svelte 5 auto-subscribe) ─
@@ -57,7 +57,7 @@
   const activeMediaCount = $derived(result?.columns?.filter(/** @param {any} c */ c => c.role === 'media').length ?? 0);
   const excludedCount = $derived(result?.columns?.filter(/** @param {any} c */ c => c.role === 'unused').length ?? 0);
 
-  // Columns currently excluded (role=unused) — for filtering warnings
+  // Columns currently excluded (role=unused) - for filtering warnings
   const excludedColumns = $derived(
     new Set((result?.columns ?? []).filter(/** @param {any} c */ c => c.role === 'unused').map(/** @param {any} c */ c => c.name))
   );
@@ -77,13 +77,13 @@
     return `Готово с предупреждениями (${activeWarnings.length})`;
   });
 
-  // Key validation metrics — теперь в StepWrapper sticky header
+  // Key validation metrics - теперь в StepWrapper sticky header
   // (через derived store validationHeaderMetrics в project-state.js).
   // Здесь больше не дублируем расчёт.
 
-  // Онбординг — запускается на mount даже без result: первый шаг тура
+  // Онбординг - запускается на mount даже без result: первый шаг тура
   // (selector=null) объясняет что ждёт на шаге; последующие шаги
-  // querySelector'ят DOM — если target не найден, карточка центрируется.
+  // querySelector'ят DOM - если target не найден, карточка центрируется.
   onMount(() => {
     if (typeof window === 'undefined') return;
     if (onboardingChecked) return;
@@ -136,7 +136,7 @@
       }
 
       // L1 (math-fix v1.4 Section C, 2026-04-29): restore explicit excluded set
-      // from project.json — preserves user's «не использовать» decision across
+      // from project.json - preserves user's «не использовать» decision across
       // re-validation. Auto-detected roles (validator) могут вернуть «media»
       // для канала который user explicitly excluded; explicit set is authoritative.
       if (projectId) {
@@ -147,7 +147,7 @@
             res.columns = restoreExcludedColumns(res.columns ?? [], project.excluded_columns);
             recomputeResultAfterObjective(res);
           }
-        } catch { /* best-effort — fresh project may not exist yet */ }
+        } catch { /* best-effort - fresh project may not exist yet */ }
       }
 
       validateData.set({
@@ -178,11 +178,11 @@
   }
 
   /**
-   * Segmented control click — switch objective AFTER validation has run.
+   * Segmented control click - switch objective AFTER validation has run.
    * Re-runs validation from scratch so that columns excluded by the previous
    * objective are restored before the new objective is applied.
    * (Re-applying in-place didn't work because applyObjectiveToColumns only
-   * sees columns with role='media' — after ROI, only budgets remain as media,
+   * sees columns with role='media' - after ROI, only budgets remain as media,
    * so a switch to 'effectiveness' would find no pairs to rearrange.)
    * @param {'roi' | 'effectiveness' | 'manual'} obj
    */
@@ -193,7 +193,7 @@
   }
 
   /** L1 (math-fix v1.4 Section C, 2026-04-29): unified persistence helper.
-   *  Same call site как InsightsPanel.persistColumnRoles — single source of
+   *  Same call site как InsightsPanel.persistColumnRoles - single source of
    *  truth для what's saved к project.json (включая explicit excluded_columns).
    *  @param {any[]} columns */
   function persistColumnRoles(columns) {
@@ -230,7 +230,7 @@
     if (!mapping) return;
     const data = get(validateData);
     if (!data?.result?.columns || !Array.isArray(data.result.columns)) {
-      // Persist mapping anyway (legacy path — no validation snapshot loaded yet)
+      // Persist mapping anyway (legacy path - no validation snapshot loaded yet)
       persistColumnRoles([
         ...(mapping.kpi ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'kpi' })),
         ...(mapping.media ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'media' })),
@@ -241,7 +241,7 @@
     }
     // BUGFIX 2026-04-27 (preserved): ОБНОВЛЯЕМ validateData.columns[i].role
     // согласно user mapping. Безопасно благодаря парному fix в ColumnMapper:
-    // $effect init использует "columns SET key" — re-init только при смене
+    // $effect init использует "columns SET key" - re-init только при смене
     // column set (новый file), не при mutation roles.
     const updatedCols = applyMapping(data.result.columns, mapping);
     validateData.update(/** @param {any} d */ (d) => {
@@ -254,7 +254,7 @@
 
 <div class="validate-step">
 
-  <!-- Objective selector overlay — shown before first validation -->
+  <!-- Objective selector overlay - shown before first validation -->
   {#if hasFile && !result && !loading}
     <ObjectiveSelector onSelect={onObjectiveChosen} />
   {:else if !hasFile}
@@ -299,7 +299,7 @@
           role="radio"
           aria-checked={$analysisObjective === 'roi'}
           onclick={() => switchObjective('roi')}
-          title="Измеряем возврат инвестиций — оставляем бюджеты"
+          title="Измеряем возврат инвестиций - оставляем бюджеты"
         >
           💰 ROI
           <span class="objective-sub">бюджеты</span>
@@ -310,7 +310,7 @@
           role="radio"
           aria-checked={$analysisObjective === 'effectiveness'}
           onclick={() => switchObjective('effectiveness')}
-          title="Измеряем эффективность медиа — оставляем показы/клики/визиты"
+          title="Измеряем эффективность медиа - оставляем показы/клики/визиты"
         >
           📊 Эффективность
           <span class="objective-sub">показы/клики</span>

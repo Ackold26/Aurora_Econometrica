@@ -1,6 +1,6 @@
 <script>
   /**
-   * Scenario Playground — сохранение двух пресетов (текущий слайдерный / оптимальный)
+   * Scenario Playground - сохранение двух пресетов (текущий слайдерный / оптимальный)
    * + сравнение всех сохранённых сценариев.
    *
    * unit_costs пробрасываются в backend → backend считает ROAS в ₽ (money_mode) когда
@@ -35,7 +35,7 @@
   let moneyMode = $state(false);
   let scenarioName = $state('');
 
-  /** dd.MM HH:mm — человеко-читаемый timestamp для авто-имён. */
+  /** dd.MM HH:mm - человеко-читаемый timestamp для авто-имён. */
   function autoTimestamp() {
     const d = new Date();
     const pad = (/** @type {number} */ n) => String(n).padStart(2, '0');
@@ -43,8 +43,8 @@
   }
 
   /**
-   * @param {Record<string, number>} budgets — per-channel native budget (one period)
-   * @param {string} namePrefix — дефолтный префикс когда пользователь не задал имя
+   * @param {Record<string, number>} budgets - per-channel native budget (one period)
+   * @param {string} namePrefix - дефолтный префикс когда пользователь не задал имя
    * @param {'saving-current' | 'saving-optimal'} newStatus
    */
   async function saveFrom(budgets, namePrefix, newStatus) {
@@ -65,7 +65,7 @@
         scenarioName: baseName,
         mediaPlan,
         unitCosts: Object.keys(uc).length > 0 ? uc : null,
-        // Phase 2: planning context — backend distributes mediaPlan total
+        // Phase 2: planning context - backend distributes mediaPlan total
         // across forecast_periods (not training_n_periods) когда set.
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
@@ -137,7 +137,7 @@
     }
   }
 
-  /** Имена сценариев из comparison (headers[0] — "Метрика", дальше имена). */
+  /** Имена сценариев из comparison (headers[0] - "Метрика", дальше имена). */
   let scenarioNames = $derived(
     comparison?.headers ? comparison.headers.slice(1) : []
   );

@@ -1,4 +1,4 @@
-# Math Fix Plan — Path to v1.0.13-math-audited
+# Math Fix Plan - Path to v1.0.13-math-audited
 
 **Date:** 2026-04-25
 **Source:** `docs/MATH_AUDIT_v1_1.md` (11 P0 + 6 P1 + 5 P2)
@@ -13,8 +13,8 @@
 
 | # | Phase | Hours | Resolves | Depends on |
 |---|-------|-------|----------|-----------|
-| 0 | Setup + branch + baseline capture | 0.5 | — | — |
-| 1 | Reconstruction fix (P0-7) | 2-3 | P0-7 | none — independent |
+| 0 | Setup + branch + baseline capture | 0.5 | - | - |
+| 1 | Reconstruction fix (P0-7) | 2-3 | P0-7 | none - independent |
 | 2 | Hill normalization (P0-1, P0-2, P0-9) | 6-9 | P0-1/2/9 + scenario.py + JS verify | Phase 0 |
 | 3 | Decomposer rewrite (P0-3, P0-4, P0-10) | 5-7 | P0-3/4/10 | Phase 2 (pickle schema) |
 | 4 | Optimizer rescale + P0-11 (P0-5, P0-6, P0-11) | 4-5 | P0-5/6/11 | Phase 2 |
@@ -22,7 +22,7 @@
 | 6 | P1 bundle (optional) | 3-5 | scenario adstock + incremental ROAS | Phase 5 |
 | 7 | Ship + memory finalize | 1-2 | tag + docs | All |
 
-Phases 1 + 2 могут идти параллельно (independent). Phases 3, 4 — после Phase 2. Phase 5 — после всех P0.
+Phases 1 + 2 могут идти параллельно (independent). Phases 3, 4 - после Phase 2. Phase 5 - после всех P0.
 
 ---
 
@@ -33,7 +33,7 @@ Phases 1 + 2 могут идти параллельно (independent). Phases 3,
 git tag v1.0.12-pre-fix-bundle
 git checkout -b math-fix-v1.0.13
 
-# Baseline test snapshot — confirm current state before any change
+# Baseline test snapshot - confirm current state before any change
 python tools/test_math_correctness.py > /tmp/baseline_tests.log 2>&1
 # Expected: 64/64 PASS (P0-2/5/6/7 tests document bug signatures)
 
@@ -41,23 +41,23 @@ python tools/test_math_correctness.py > /tmp/baseline_tests.log 2>&1
 git status
 ```
 
-**Branch strategy:** single long-lived branch, individual commits per phase. Squash at PR time? — recommend KEEP individual commits для forensic.
+**Branch strategy:** single long-lived branch, individual commits per phase. Squash at PR time? - recommend KEEP individual commits для forensic.
 
 **Rollback strategy:** any phase can be reverted via `git reset --hard v1.0.12-pre-fix-bundle` или per-commit revert.
 
 ---
 
-## Phase 1: Reconstruction fix — P0-7 (2-3h)
+## Phase 1: Reconstruction fix - P0-7 (2-3h)
 
 **Independent of Hill fix.** Can be done first или parallel.
 
 ### Scope
 
-`sidecar/econometrica/engines/modeler.py:537` — manual posterior reconstruction uses `gamma_scaled = gamma × max(x)` while training (line 312) uses raw `gammas[i]`. Diagnostics R²/MAPE computed from wrong formula.
+`sidecar/econometrica/engines/modeler.py:537` - manual posterior reconstruction uses `gamma_scaled = gamma × max(x)` while training (line 312) uses raw `gammas[i]`. Diagnostics R²/MAPE computed from wrong formula.
 
 ### Implementation
 
-**modeler.py:520-546** — remove the `gamma_scaled` line:
+**modeler.py:520-546** - remove the `gamma_scaled` line:
 
 ```python
 # BEFORE:
@@ -108,18 +108,18 @@ Live Kagocel: R² changed from {OLD} to {NEW} - reflects actual model fit.
 
 ---
 
-## Phase 2: Hill normalization — P0-1, P0-2, P0-9 (6-9h)
+## Phase 2: Hill normalization - P0-1, P0-2, P0-9 (6-9h)
 
 **Most invasive change.** Touches 4-5 files. Existing task `project_econometrica_hill_normalization_root_fix` documents details.
 
 ### Scope
 
-1. `modeler.py:249-251` — `(X - mean) / std` → `X / mean` (Robyn-style spend/mean)
-2. `modeler.py:310` — `x_safe = pm.math.maximum(x_ch, 0)` clip retained as defense (post-fix never fires for non-negative spend)
-3. `engines/scenario.py:86` — `x_norm = (spend_t - mean) / std` → `x_norm = spend_t / max(mean, 1e-10)`
-4. `engines/optimizer.py:92` — input scale change, gamma stays raw (also touched in Phase 4)
-5. `engines/decomposer.py` — Hill input scale (will be fully rewritten в Phase 3, here just add normalization fix as transitional)
-6. `aurora_html/interactive.py:689` — JS already uses spend/mean (Robyn-style), no JS change needed (verify only)
+1. `modeler.py:249-251` - `(X - mean) / std` → `X / mean` (Robyn-style spend/mean)
+2. `modeler.py:310` - `x_safe = pm.math.maximum(x_ch, 0)` clip retained as defense (post-fix never fires for non-negative spend)
+3. `engines/scenario.py:86` - `x_norm = (spend_t - mean) / std` → `x_norm = spend_t / max(mean, 1e-10)`
+4. `engines/optimizer.py:92` - input scale change, gamma stays raw (also touched in Phase 4)
+5. `engines/decomposer.py` - Hill input scale (will be fully rewritten в Phase 3, here just add normalization fix as transitional)
+6. `aurora_html/interactive.py:689` - JS already uses spend/mean (Robyn-style), no JS change needed (verify only)
 7. **Pickle schema**: add `model_version: '1.1'` field to detect old z-score pickles
 
 ### Subphases
@@ -136,14 +136,14 @@ X_media_norm = (X_media - media_means) / media_stds
 # AFTER:
 media_means = X_media.mean().replace(0, 1)  # avoid div/0 for empty channels
 X_media_norm = X_media / media_means
-# media_stds removed — not used post-fix
+# media_stds removed - not used post-fix
 ```
 
 Pickle save (line ~610):
 ```python
 'normalization': {
     'media_means': media_means.to_dict(),
-    # 'media_stds': REMOVED — not used in spend/mean
+    # 'media_stds': REMOVED - not used in spend/mean
     'control_means': control_means.to_dict() if len(control_cols) > 0 else {},
     'control_stds': control_stds.to_dict() if len(control_cols) > 0 else {},
     'y_mean': float(y_mean),
@@ -179,7 +179,7 @@ if model_version == '1.0':
     return {
         'status': 'error',
         'error_code': 'MODEL_OUTDATED',
-        'message': 'Модель обучена до v1.0.13. Нормализация изменилась — переобучите модель в кабинете "Модель".',
+        'message': 'Модель обучена до v1.0.13. Нормализация изменилась - переобучите модель в кабинете "Модель".',
     }
 ```
 
@@ -187,7 +187,7 @@ if model_version == '1.0':
 
 `test_math_correctness.py`:
 - `test_p0_2_half_data_silent_drop` → INVERT to `test_p0_2_no_data_dropped_post_fix`
-- New `test_robyn_style_normalization_used` — load test pickle, verify normalization formula
+- New `test_robyn_style_normalization_used` - load test pickle, verify normalization formula
 
 **2e (1h): JS verify**
 
@@ -208,7 +208,7 @@ fix(math-audit): Hill normalization spend/mean Robyn-style (P0-1/2/9)
 
 Refactor media spend normalization from z-score to Robyn-style spend/mean
 across modeler/scenario/optimizer/decomposer. JS what-if (interactive.py)
-already used spend/mean — verified parity, no JS change needed.
+already used spend/mean - verified parity, no JS change needed.
 
 Pickle schema:
 - removed media_stds (not used post-fix)
@@ -229,13 +229,13 @@ Closes P0-1, P0-2, P0-9.
 
 ---
 
-## Phase 3: Decomposer rewrite — P0-3, P0-4, P0-10 (5-7h)
+## Phase 3: Decomposer rewrite - P0-3, P0-4, P0-10 (5-7h)
 
 **Depends on Phase 2** (pickle schema with intercept_mean + control_betas_mean).
 
 ### Scope
 
-`sidecar/econometrica/engines/decomposer.py` — replace `|β|/Σ|β|` proportion with proper `β × sat(adstock(x)) × y_std` per period.
+`sidecar/econometrica/engines/decomposer.py` - replace `|β|/Σ|β|` proportion with proper `β × sat(adstock(x)) × y_std` per period.
 
 ### Implementation
 
@@ -366,7 +366,7 @@ Closes P0-3, P0-4, P0-10.
 
 ### Scope
 
-`sidecar/econometrica/engines/optimizer.py:92` — Hill input + gamma alignment with training. P0-11 mixed-units guard.
+`sidecar/econometrica/engines/optimizer.py:92` - Hill input + gamma alignment with training. P0-11 mixed-units guard.
 
 ### Implementation
 
@@ -433,7 +433,7 @@ spend/mean + raw gamma matching training formula. marginal_roi chain
 rule applies ×1/mean.
 
 P0-11: native-mode budget constraint now rejects mixed-units channels
-(error code MIXED_UNITS) — was silently summing TRPs+rubles.
+(error code MIXED_UNITS) - was silently summing TRPs+rubles.
 
 Live Kagocel optimize:
 - Allocation non-uniform: max delta {X%}, min delta {Y%}
@@ -474,8 +474,8 @@ def test_decomposer_energy_conservation():
 
 ### Live-test (manual)
 
-1. `python sidecar/build_sidecar.py` — rebuild Python sidecar (per `feedback_sidecar_rebuild_required`)
-2. `npm run tauri dev` — launch app
+1. `python sidecar/build_sidecar.py` - rebuild Python sidecar (per `feedback_sidecar_rebuild_required`)
+2. `npm run tauri dev` - launch app
 3. Import `D:/Docs/Aurora_Ai/TestData/Econometrica/Kagocel_RF_MMM_dataset.xlsx`
 4. Full pipeline: Validate → Train → Decompose → Optimize → Scenario
 5. Verify each step:
@@ -514,7 +514,7 @@ Live Kagocel run results:
 
 ---
 
-## Phase 6: P1 bundle — scenario adstock + incremental ROAS (3-5h, optional)
+## Phase 6: P1 bundle - scenario adstock + incremental ROAS (3-5h, optional)
 
 **Optional for v1.0.13.** Ship without if deadline tight, follow-up в v1.0.13.1.
 
@@ -547,7 +547,7 @@ roas_incremental = (scenario_total - baseline_total) / total_spend_money
 
 ### Test additions
 
-- `test_scenario_applies_adstock` — pulse spend, verify period 2+ has carry-over contribution
+- `test_scenario_applies_adstock` - pulse spend, verify period 2+ has carry-over contribution
 - `test_scenario_incremental_roas_excludes_baseline`
 
 ---
@@ -556,7 +556,7 @@ roas_incremental = (scenario_total - baseline_total) / total_spend_money
 
 ### Tasks
 
-1. Update `docs/MATH_AUDIT_v1_1.md` Section 4 (severity table) — mark all P0 as resolved
+1. Update `docs/MATH_AUDIT_v1_1.md` Section 4 (severity table) - mark all P0 as resolved
 2. Add audit done update to memory:
    - `project_econometrica_math_audit.md` → COMPLETE + ALL P0 RESOLVED
    - `project_econometrica_decomposer_rewrite.md` → COMPLETE
@@ -564,9 +564,9 @@ roas_incremental = (scenario_total - baseline_total) / total_spend_money
    - `project_econometrica_optimizer_rescale.md` → COMPLETE
    - `project_econometrica_hill_normalization_root_fix.md` → COMPLETE
 3. Update `MEMORY.md` priority entries
-4. Update `PASHE_IT.MD` — breaking change notice for IT (old .pkl rejected)
+4. Update `PASHE_IT.MD` - breaking change notice for IT (old .pkl rejected)
 5. Tag `v1.0.13-math-audited` on master after PR merge
-6. (Eventually) GH Release + Supabase publish — separate ship session
+6. (Eventually) GH Release + Supabase publish - separate ship session
 
 ### Ship gate (REQUIRED before tag)
 
@@ -593,19 +593,19 @@ roas_incremental = (scenario_total - baseline_total) / total_spend_money
 
 ## Reusable infrastructure
 
-- `tools/test_math_correctness.py` — 64 assertions, stdlib runner. Each phase updates relevant tests + adds new
-- `feedback_shared_helpers_prevent_drift.md` lesson — Hill fix in 4 modules requires parity test (already written в test 10)
-- `compute_report_id` pattern — если decomposer/optimizer/scenario имеют common spend-norm logic, consider extract в `utils/` shared helper
+- `tools/test_math_correctness.py` - 64 assertions, stdlib runner. Each phase updates relevant tests + adds new
+- `feedback_shared_helpers_prevent_drift.md` lesson - Hill fix in 4 modules requires parity test (already written в test 10)
+- `compute_report_id` pattern - если decomposer/optimizer/scenario имеют common spend-norm logic, consider extract в `utils/` shared helper
 
 ---
 
 ## Session split recommendation
 
-**Session A (8-10h):** Phase 0 + 1 + 2 — setup, reconstruction, Hill normalization
+**Session A (8-10h):** Phase 0 + 1 + 2 - setup, reconstruction, Hill normalization
 - High-leverage: closes P0-1/2/7/9 = 4 of 11 P0
 - Live-test gate at end of Phase 2
 
-**Session B (8-10h):** Phase 3 + 4 — decomposer + optimizer
+**Session B (8-10h):** Phase 3 + 4 - decomposer + optimizer
 - Closes P0-3/4/5/6/10/11 = 6 more P0
 - Live-test gate
 
@@ -628,7 +628,7 @@ git checkout -b math-fix-v1.0.13
 git tag v1.0.12-pre-fix-bundle  # safety
 python tools/test_math_correctness.py  # baseline 64/64
 
-# Phase 1 (independent — start here)
+# Phase 1 (independent - start here)
 # Edit modeler.py:537, run tests, commit
 
 # Phase 2 (most invasive)

@@ -22,12 +22,12 @@ pub struct ProjectInfo {
     pub control_columns: Vec<String>,
     pub data_file: Option<String>,
     /// Trust Level 2: стоимость 1 юнита канала в валюте KPI (CPP/CPM).
-    /// Для каналов в рублях — 1.0 или отсутствие записи.
+    /// Для каналов в рублях - 1.0 или отсутствие записи.
     #[serde(default)]
     pub unit_costs: HashMap<String, f64>,
     /// L1 (math-fix v1.4 Section C, 2026-04-29): explicit excluded columns
     /// для cross-session restore. Pre-fix: excluded set was derived from
-    /// "not in kpi/media/control/date" — fragile когда new columns появляются
+    /// "not in kpi/media/control/date" - fragile когда new columns появляются
     /// в re-validation (validator might detect them as media). Explicit list
     /// preserves user's «не использовать» decision across project reload.
     /// Backward compat: default empty for projects saved до v1.0.16.
@@ -56,7 +56,7 @@ pub fn projects_dir() -> Result<PathBuf, String> {
         .map_err(|_| "APPDATA not set".to_string())?;
     let identifier = env!("CARGO_PKG_NAME");
 
-    // Env override — для тестов и advanced users.
+    // Env override - для тестов и advanced users.
     if let Ok(env_root) = std::env::var("AURORA_PROJECTS_ROOT") {
         if !env_root.trim().is_empty() {
             let dir = PathBuf::from(env_root.trim());
@@ -66,8 +66,8 @@ pub fn projects_dir() -> Result<PathBuf, String> {
         }
     }
 
-    // User-configured override — читаем user_config.json напрямую с диска
-    // (без AppHandle — чтобы не менять сигнатуру во всех вызовах вверх по стеку).
+    // User-configured override - читаем user_config.json напрямую с диска
+    // (без AppHandle - чтобы не менять сигнатуру во всех вызовах вверх по стеку).
     let config_dir = PathBuf::from(&appdata).join(identifier);
     let config_path = config_dir.join("user_config.json");
     if config_path.exists() {
@@ -242,7 +242,7 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
         info.excluded_columns = excluded.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
     }
     // Trust Level 3 (v1.1.0): channel_categories persistence.
-    // Validate values на server side — only accept brand/performance/mixed.
+    // Validate values на server side - only accept brand/performance/mixed.
     if let Some(cats) = updates.get("channel_categories").and_then(|v| v.as_object()) {
         let allowed: std::collections::HashSet<&str> = ["brand", "performance", "mixed"].iter().copied().collect();
         info.channel_categories = cats.iter()
@@ -420,14 +420,14 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
 // new project_id, который фронтенд сразу активирует.
 
 /// Экспорт проекта в zip-архив .aurora. Возвращает путь к созданному файлу.
-/// output_path — обычно путь из dialog.save на фронте.
+/// output_path - обычно путь из dialog.save на фронте.
 ///
 /// Особые case'ы обрабатываются:
 /// - Большие файлы копируются через `std::io::copy` (streaming), не `read` в память.
 ///   Иначе pickle файлы >1GB (редкий, но возможный) съедали бы RAM.
-/// - `data_file` из project.json — абсолютный путь на этой машине. Если файл ЛЕЖИТ
-///   внутри project_dir — он попадёт в архив через walkdir и можно будет открыть
-///   на другой машине. Если СНАРУЖИ (пользователь импортировал xlsx из Downloads) —
+/// - `data_file` из project.json - абсолютный путь на этой машине. Если файл ЛЕЖИТ
+///   внутри project_dir - он попадёт в архив через walkdir и можно будет открыть
+///   на другой машине. Если СНАРУЖИ (пользователь импортировал xlsx из Downloads) -
 ///   мы его тоже добавляем в архив как `data/<original_filename>` и правим
 ///   project.json перед записью в zip.
 #[tauri::command]
@@ -461,7 +461,7 @@ pub async fn project_export_archive(
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
 
-    // Проверяем data_file в project.json — если вне project_dir, включаем в архив
+    // Проверяем data_file в project.json - если вне project_dir, включаем в архив
     // с переписыванием пути на относительный.
     let info = read_project(&src).ok();
     let external_data: Option<(PathBuf, String)> = info.as_ref().and_then(|i| {
@@ -470,7 +470,7 @@ pub async fn project_export_archive(
             if !p.is_absolute() || !p.exists() {
                 return None;
             }
-            // Уже внутри project_dir — не нужно отдельно
+            // Уже внутри project_dir - не нужно отдельно
             if p.starts_with(&src) {
                 return None;
             }
@@ -510,7 +510,7 @@ pub async fn project_export_archive(
         }
     }
 
-    // Если data_file внешний — упаковываем его в archive/data/<basename>
+    // Если data_file внешний - упаковываем его в archive/data/<basename>
     // и переписываем project.json чтобы data_file указывал туда же относительно project_dir.
     if let (Some((ext_path, basename)), Some(mut info_val)) = (external_data, info) {
         zip.add_directory("data/", options).ok();
@@ -547,10 +547,10 @@ pub async fn project_export_archive(
 ///
 /// Особые случаи:
 /// - Pre-validation: перед распаковкой проверяем что в архиве есть project.json.
-///   Если нет — early return, не засоряем файловую систему.
+///   Если нет - early return, не засоряем файловую систему.
 /// - data_file может быть `<project_dir>/data/foo.xlsx` (новый формат с внешним data)
 ///   или абсолютный путь (старые архивы). Нормализуем: заменяем маркер на dest/,
-///   если absolute — проверяем что файл есть, иначе set to None.
+///   если absolute - проверяем что файл есть, иначе set to None.
 #[tauri::command]
 pub async fn project_import_archive(archive_path: String) -> Result<Value, String> {
     let archive = PathBuf::from(&archive_path);
@@ -561,7 +561,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
 
     // ── Pre-validation ──────────────────────────────────────────────────────
     // Открываем zip и проверяем структуру ДО распаковки. Если это не проект
-    // Aurora — выбрасываем без создания destination папки.
+    // Aurora - выбрасываем без создания destination папки.
     {
         let file = std::fs::File::open(&archive).map_err(|e| format!("open archive: {e}"))?;
         let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
@@ -576,7 +576,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
             }
         }
         if !has_project_json {
-            return Err("Архив не содержит project.json — это не проект Aurora Econometrica".to_string());
+            return Err("Архив не содержит project.json - это не проект Aurora Econometrica".to_string());
         }
     }
 
@@ -653,7 +653,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
                     obj.insert("data_file".to_string(), Value::Null);
                 }
             } else if !PathBuf::from(&df_owned).exists() {
-                // Абсолютный путь с другой машины — проваливается
+                // Абсолютный путь с другой машины - проваливается
                 obj.insert("data_file".to_string(), Value::Null);
                 // Добавляем подсказку в description
                 let desc = obj.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -684,7 +684,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
 // ── Model comparison ────────────────────────────────────────────────────────
 //
 // Атомарное чтение снимков двух проектов для side-by-side сравнения моделей.
-// Не меняет active_project — это read-only операция. Один Rust-вызов читает
+// Не меняет active_project - это read-only операция. Один Rust-вызов читает
 // оба проекта, что исключает race если один из них переименуется/удалится
 // между двумя последовательными invoke на frontend.
 
@@ -697,7 +697,7 @@ fn load_snapshot(project_id: &str) -> Result<Value, String> {
 }
 
 /// Pure-функция чтения snapshot'а из директории проекта.
-/// Не зависит от project_id / projects_dir() — для тестируемости.
+/// Не зависит от project_id / projects_dir() - для тестируемости.
 fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
     if !dir.exists() {
         return Err(format!("Директория не найдена: {}", dir.display()));
@@ -716,7 +716,7 @@ fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
             .unwrap_or(Value::Null)
     };
 
-    // Лимит сценариев для comparison — снимок 50 последних (по mtime) чтобы
+    // Лимит сценариев для comparison - снимок 50 последних (по mtime) чтобы
     // не блокировать FastAPI handler при 100+ сценариев. Фронт показывает
     // warning если scenarios_total > scenarios.len.
     const SCENARIO_LIMIT: usize = 50;
@@ -765,7 +765,7 @@ fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
 /// Возвращаемый объект: `{ primary: Snapshot, secondary: Snapshot }`, где каждый
 /// snapshot = `{ info, modelDiagnostics, decomposition, optimization, validation,
 /// scenarios }`. Отсутствующие файлы → соответствующее поле = null (для scenarios
-/// — пустой массив).
+/// - пустой массив).
 #[tauri::command]
 pub async fn project_load_comparison(
     primary_id: String,
@@ -793,7 +793,7 @@ mod comparison_tests {
 
     /// Создаёт минимальную валидную структуру проекта в tmp dir.
     /// `scenario_count` > 0 → в results/scenarios кладутся N JSON-файлов
-    /// с убывающим mtime (последний файл — самый свежий).
+    /// с убывающим mtime (последний файл - самый свежий).
     fn make_project(dir: &Path, scenario_count: usize) {
         let info = serde_json::json!({
             "id": "test-project",
@@ -813,7 +813,7 @@ mod comparison_tests {
             let scenarios = dir.join("results").join("scenarios");
             fs::create_dir_all(&scenarios).unwrap();
             for i in 0..scenario_count {
-                // Имя кодирует индекс — поможет позже проверить порядок.
+                // Имя кодирует индекс - поможет позже проверить порядок.
                 let path = scenarios.join(format!("scenario_{i:04}.json"));
                 fs::write(&path, format!(r#"{{"idx":{i}}}"#)).unwrap();
                 // Выставляем mtime: более высокий индекс = более свежий.
@@ -850,7 +850,7 @@ mod comparison_tests {
         assert_eq!(scenarios.len(), 50, "должно быть ровно 50 сценариев");
         assert_eq!(snapshot["scenarios_total"].as_u64().unwrap(), 100);
         // Проверяем что выбраны именно 50 свежих (индексы 50-99).
-        // Порядок внутри массива — от newest (idx=99) к старейшим (idx=50).
+        // Порядок внутри массива - от newest (idx=99) к старейшим (idx=50).
         let first_idx = scenarios[0]["idx"].as_u64().unwrap();
         let last_idx = scenarios[49]["idx"].as_u64().unwrap();
         assert_eq!(first_idx, 99, "первый = самый свежий");

@@ -61,9 +61,9 @@
 
   /** @type {Record<string, string>} */
   const CATEGORY_HELP = {
-    brand_reach: 'Brand-Reach — охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
-    performance: 'Performance — каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI — чистая отдача на рубль. Сравнивай с другими Performance каналами.',
-    mixed: 'Mixed — канал не однозначно классифицирован (нет явных маркеров brand/performance в имени).\n\nКак читать: смотри на тип контента и цель размещения — он может работать и на охват, и на отклик.',
+    brand_reach: 'Brand-Reach - охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
+    performance: 'Performance - каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI - чистая отдача на рубль. Сравнивай с другими Performance каналами.',
+    mixed: 'Mixed - канал не однозначно классифицирован (нет явных маркеров brand/performance в имени).\n\nКак читать: смотри на тип контента и цель размещения - он может работать и на охват, и на отклик.',
   };
 
   /** @type {'idle' | 'loading' | 'done' | 'error'} */
@@ -73,7 +73,7 @@
 
   const data = $derived($decomposeData);
 
-  // v1.3.1 hotfix: primary recommendation — главная actionable рекомендация для главной карточки.
+  // v1.3.1 hotfix: primary recommendation - главная actionable рекомендация для главной карточки.
   // Находит overspending канал (efficiency_gap < -10%) + underspending (gap > 10%) →
   // pair "переложить из X в Y".
   const primaryRecommendation = $derived.by(() => {
@@ -111,7 +111,7 @@
       icon: '🎯',
       title: 'Главная рекомендация',
       text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен, gap ${from.efficiency_gap.toFixed(0)}%) в «${to.name}» (недонасыщен, gap +${to.efficiency_gap.toFixed(0)}%).`,
-      detail: 'Точный расчёт прироста — на шаге «Оптимизация» через Forward solver. Goal-Seek позволит задать целевое значение продаж.',
+      detail: 'Точный расчёт прироста - на шаге «Оптимизация» через Forward solver. Goal-Seek позволит задать целевое значение продаж.',
       tone: 'success',
     };
   });
@@ -143,7 +143,7 @@
    */
   function formatChannelMetric(ch) {
     if (displayMetric === 'roi') {
-      return ch.roi != null ? `${ch.roi.toFixed(2)}×` : '—';
+      return ch.roi != null ? `${ch.roi.toFixed(2)}×` : '-';
     }
     if (displayMetric === 'cpu') {
       // CPU = spend / contribution_count_units.
@@ -154,14 +154,14 @@
         const cpu = ch.spend / ch.contribution;
         return `${cpu.toFixed(2)} ₽`;
       }
-      return '—';
+      return '-';
     }
     if (displayMetric === 'share') {
       // Share % = ch.share_of_effect (если есть) или ch.contribution / total.
       const share = ch.share_of_effect ?? (ch.contribution / (data?.total_contribution || 1));
-      return share != null ? `${(share * 100).toFixed(1)}%` : '—';
+      return share != null ? `${(share * 100).toFixed(1)}%` : '-';
     }
-    return '—';
+    return '-';
   }
 
   /**
@@ -197,11 +197,11 @@
 
   // Help-tooltips для основной таблицы «Детализация по каналам».
   const CH_HELP = {
-    spend:   'Расходы — суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) — ROI будет искажён.',
-    contrib: 'Вклад — оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
-    roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× — отлично. 1-2× — окупается. < 1× — убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) — нужна нормализация.',
-    gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета — кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен — каждый дополнительный рубль даёт меньше отдачи.',
-    verdict: 'Вердикт — комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» — приносит больше своей доли бюджета.\n«Сбалансирован» — окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» — приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» — ROI ≤ 1×.\n«ROI завышен (не рубли?)» — данные канала не в денежных единицах.\n\n«(широкий ROI-интервал)» — для канала Bayesian-CI шире точечного ROI: читать как диапазон, не точное число. Качество модели в целом оценивается отдельно через R² / MAPE / R-hat. Типичные причины: мало наблюдений, низкая частота канала, корреляции с другими каналами.',
+    spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
+    contrib: 'Вклад - оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
+    roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× - отлично. 1-2× - окупается. < 1× - убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) - нужна нормализация.',
+    gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета - кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен - каждый дополнительный рубль даёт меньше отдачи.',
+    verdict: 'Вердикт - комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» - приносит больше своей доли бюджета.\n«Сбалансирован» - окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» - приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» - ROI ≤ 1×.\n«ROI завышен (не рубли?)» - данные канала не в денежных единицах.\n\n«(широкий ROI-интервал)» - для канала Bayesian-CI шире точечного ROI: читать как диапазон, не точное число. Качество модели в целом оценивается отдельно через R² / MAPE / R-hat. Типичные причины: мало наблюдений, низкая частота канала, корреляции с другими каналами.',
   };
 
   /** Дожидаемся, пока projectId станет валидным (макс. 2с), потом отдаём. */
@@ -246,7 +246,7 @@
     try {
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
       // Trust Level 2: override unit_costs из store (если user менял CPP после train,
-      // pickle содержит старые значения — override даёт актуальные).
+      // pickle содержит старые значения - override даёт актуальные).
       // Phase 2 audit pass 4: thread per-channel inflation если customer задал.
       const inflStore = get(unitCostInflation) ?? {};
       const result = /** @type {any} */ (await invoke('econ_decompose', {
@@ -261,7 +261,7 @@
         completeStep(3);
       } else {
         const msg = result.message || 'Ошибка декомпозиции';
-        // Авто-retry на race «Модель не найдена» — pickle ещё пишется async.
+        // Авто-retry на race «Модель не найдена» - pickle ещё пишется async.
         const isModelMissing = /модель не найдена|model not found|не найден|not found|pickle|latest\.pkl/i.test(msg);
         if (attemptsLeft > 1 && isModelMissing) {
           const delay = [1500, 2000, 3000][4 - attemptsLeft] || 3000;
@@ -291,14 +291,14 @@
   }
 
   // Bug 2: activeProjectId гидрируется асинхронно из localStorage/IPC после mount.
-  // Если запустить runDecompose синхронно в onMount — projectId === null,
+  // Если запустить runDecompose синхронно в onMount - projectId === null,
   // показывается «Проект не выбран». Подписываемся и ждём первого валидного значения.
-  // (Bug 1 со scroll-позицией решается в +layout.svelte — сбрасывается .pipeline-main.scrollTop при смене шага.)
+  // (Bug 1 со scroll-позицией решается в +layout.svelte - сбрасывается .pipeline-main.scrollTop при смене шага.)
   //
-  // Также: если data уже есть в memory (вернулись на шаг через stepper) —
+  // Также: если data уже есть в memory (вернулись на шаг через stepper) -
   // просто показываем done и не запускаем ничего, fallback тоже не нужен.
   onMount(() => {
-    // Сбрасываем устаревший errorMessage в локальном state и в pipelineMeta —
+    // Сбрасываем устаревший errorMessage в локальном state и в pipelineMeta -
     // иначе старая ошибка от прошлой попытки видна до того как retry отработает.
     errorMessage = null;
     if (get(decomposeData)) {
@@ -308,7 +308,7 @@
 
     // ВАЖНО: все 6 step компонентов mount'ятся одновременно (см. +page.svelte
     // rule "visibility switching"). DecomposeStep mount'ится даже когда user
-    // на Validate/Model. Guard — не запускать runDecompose пока нет обученной
+    // на Validate/Model. Guard - не запускать runDecompose пока нет обученной
     // модели. $effect(modelData) автоматически запустит когда train завершится.
     if (!get(modelData)?.channelParams) {
       stepState = 'idle';
@@ -321,7 +321,7 @@
       if (!pid) return; // ждём пока projectId станет валидным
       started = true;
       (async () => {
-        // повторная проверка — за время ожидания pid могли подгрузиться данные
+        // повторная проверка - за время ожидания pid могли подгрузиться данные
         if (!get(decomposeData)) {
           await runDecompose();
         } else {
@@ -330,8 +330,8 @@
       })();
     });
 
-    // Fallback: если projectId так и не появился за 3с И данных нет И модель ЕСТЬ —
-    // показываем ошибку. Если модели нет — просто idle, ждём train.
+    // Fallback: если projectId так и не появился за 3с И данных нет И модель ЕСТЬ -
+    // показываем ошибку. Если модели нет - просто idle, ждём train.
     const fallback = setTimeout(() => {
       if (started) return;
       if (get(decomposeData)) {
@@ -356,7 +356,7 @@
   });
 
   // Авто-ретрай когда прилетела новая тренировка (pickle всегда latest.pkl,
-  // поэтому сравниваем по object-reference modelData — каждый set() даёт
+  // поэтому сравниваем по object-reference modelData - каждый set() даёт
   // новый object). Срабатывает:
   //   • при error «Модель не найдена» (исправляется автоматом)
   //   • при idle без данных (первое открытие после train)
@@ -377,10 +377,10 @@
     // Race, исправленный в rc1.5: раньше firstFire всегда skipping привело к пустой decompose
     // если DecomposeStep mount'ился до завершения train (типичный pipeline-first flow).
     if (firstFire && stepState !== 'idle' && stepState !== 'error') return;
-    // Защита от race: если уже идёт runDecompose — не запускаем второй параллельно.
+    // Защита от race: если уже идёт runDecompose - не запускаем второй параллельно.
     if (stepState === 'loading') return;
     errorMessage = null;
-    // Сбросим decomposeData — старая модель → старые результаты.
+    // Сбросим decomposeData - старая модель → старые результаты.
     if (stepState === 'done') decomposeData.set(null);
     runDecompose();
   });
@@ -437,7 +437,7 @@
       </div>
     {/if}
 
-    <!-- v1.3.1 hotfix: Primary recommendation card — actionable «главная рекомендация» в primary visual. -->
+    <!-- v1.3.1 hotfix: Primary recommendation card - actionable «главная рекомендация» в primary visual. -->
     {#if primaryRecommendation}
       <RecommendationCard
         icon={primaryRecommendation.icon}
@@ -449,7 +449,7 @@
       />
     {/if}
 
-    <!-- Waterfall — full width -->
+    <!-- Waterfall - full width -->
     <ExpandableCard title="Декомпозиция продаж" tourKey="decompose-waterfall">
       <WaterfallChart waterfall={data.waterfall} />
     </ExpandableCard>
@@ -474,20 +474,20 @@
       <div class="channel-table">
         <table>
           <!-- Audit pass 11 (Антон 2026-05-03): colgroup имел 6 col-widths
-               для 7 столбцов (Канал/Расходы/Вклад/ROI/Gap/Decay/Вердикт) —
+               для 7 столбцов (Канал/Расходы/Вклад/ROI/Gap/Decay/Вердикт) -
                Decay column отсутствовала → table-layout:fixed cracked, Вердикт
                получал residual 0% width, обрезался до 1-2 букв per row. Также
                redistributed widths под typical content (Канал shorter, Вердикт
-               wider — текст «На грани окупаемости (широкий ROI-интервал)» ~40
+               wider - текст «На грани окупаемости (широкий ROI-интервал)» ~40
                chars не fit'ился). Σ = 100%. -->
           <colgroup>
-            <col style="width: 24%" />  <!-- Канал — name + category chip -->
-            <col style="width: 11%" />  <!-- Расходы — «4 338 835 636» -->
-            <col style="width: 11%" />  <!-- Вклад — «163 912 487» -->
-            <col style="width: 7%"  />  <!-- ROI — «31.47×» -->
-            <col style="width: 7%"  />  <!-- Gap — «+22.1%» -->
-            <col style="width: 11%" />  <!-- Decay — «0.65» + 50% CI -->
-            <col style="width: 29%" />  <!-- Вердикт — long text + CI flag -->
+            <col style="width: 24%" />  <!-- Канал - name + category chip -->
+            <col style="width: 11%" />  <!-- Расходы - «4 338 835 636» -->
+            <col style="width: 11%" />  <!-- Вклад - «163 912 487» -->
+            <col style="width: 7%"  />  <!-- ROI - «31.47×» -->
+            <col style="width: 7%"  />  <!-- Gap - «+22.1%» -->
+            <col style="width: 11%" />  <!-- Decay - «0.65» + 50% CI -->
+            <col style="width: 29%" />  <!-- Вердикт - long text + CI flag -->
           </colgroup>
           <thead>
             <tr>
@@ -498,7 +498,7 @@
                 {metricLabel[displayMetric]}<span class="help-icon" title={CH_HELP.roi}>?</span>
               </th>
               <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
-              <th class="num">Decay<span class="help-icon" title="Adstock decay — доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50% CI показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
+              <th class="num">Decay<span class="help-icon" title="Adstock decay - доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50% CI показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
               <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
             </tr>
           </thead>
@@ -509,7 +509,7 @@
                 <!-- Trust Level 3 (v1.1.0): visual grouping per category -->
                 <tr class="group-header" class:gh-brand={groupKey === 'brand_reach'} class:gh-perf={groupKey === 'performance'} class:gh-mixed={groupKey === 'mixed'}>
                   <td colspan="7">
-                    {#if groupKey === 'brand_reach'}🎯 Brand-каналы — long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}📊 Performance-каналы — short-decay (Search/Social){:else}⚪ Смешанные (single-prior){/if}
+                    {#if groupKey === 'brand_reach'}🎯 Brand-каналы - long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}📊 Performance-каналы - short-decay (Search/Social){:else}⚪ Смешанные (single-prior){/if}
                     <span class="group-count">{groupChannels.length}</span>
                   </td>
                 </tr>
@@ -547,7 +547,7 @@
                           <span class="decay-ci">{ch.adstock_decay_ci_low.toFixed(2)}–{ch.adstock_decay_ci_high.toFixed(2)}</span>
                         {/if}
                       {:else}
-                        —
+                        -
                       {/if}
                     </td>
                     <td class:verdict-good={ch.verdict_tone === 'good'} class:verdict-warn={ch.verdict_tone === 'warn'} class:verdict-bad={ch.verdict_tone === 'bad'}>
@@ -580,7 +580,7 @@
 
 <style>
   .decompose-step {
-    /* Скрол владеет .pipeline-main (см. +page.svelte). Здесь — никаких
+    /* Скрол владеет .pipeline-main (см. +page.svelte). Здесь - никаких
        overflow-y / height: 100%, иначе двойной скрол + фантомное пустое
        пространство снизу (баг найден 2026-04-19). */
     display: flex;
@@ -693,13 +693,13 @@
   }
 
   .channel-table {
-    /* Audit pass 11: removed overflow-x:auto — proper colgroup widths
+    /* Audit pass 11: removed overflow-x:auto - proper colgroup widths
        обеспечивают fit на одном экране. Save as fallback на small viewports. */
     overflow-x: auto;
     /* v1.3.2 (audit M5): sticky thead для длинных таблиц. max-height ограничивает
        вертикаль; overflow-y: auto не показывает scrollbar пока content fits
-       (browser default behavior). Для table < 480px high — нет scrollbar.
-       Для 10+ channels — scroll с фиксированным thead. */
+       (browser default behavior). Для table < 480px high - нет scrollbar.
+       Для 10+ channels - scroll с фиксированным thead. */
     max-height: 480px;
     overflow-y: auto;
   }
@@ -716,7 +716,7 @@
     font-weight: 500;
     border-bottom: 1px solid rgba(255,255,255,0.06);
     white-space: nowrap;
-    /* v1.3.2: sticky header — фиксируется при скролле длинных списков
+    /* v1.3.2: sticky header - фиксируется при скролле длинных списков
        каналов. Background match'ит card background чтобы не светить
        сквозь scrolling content. */
     position: sticky;

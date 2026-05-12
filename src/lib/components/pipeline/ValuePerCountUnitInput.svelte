@@ -1,6 +1,6 @@
 <script>
   /**
-   * ValuePerCountUnitInput — v1.3.0 second sub-step of Validate (если KPI = count).
+   * ValuePerCountUnitInput - v1.3.0 second sub-step of Validate (если KPI = count).
    *
    * Per ADR-016: для count KPIs (sales_packs, leads, registrations, и т.д.) требуется
    * ввести «ценность одной единицы»: маржа на упаковку, ценность лида, MRR подписки.
@@ -22,7 +22,7 @@
     autoValue,                  // {value, cv, warning} | null (из backend auto_detect)
     currentValue,               // существующий value (для re-open)
     onConfirm,                  // callback (value, source)
-    onSkip,                     // callback () — без value, fallback на share-based
+    onSkip,                     // callback () - без value, fallback на share-based
   } = $props();
 
   let manualValue = $state(currentValue ?? autoValue?.value ?? '');
@@ -66,7 +66,7 @@
     {#if whyExpanded}
       <div class="why-panel" role="region" aria-label="Подробное объяснение ценности единицы">
         <p>
-          <strong>Ценность одной единицы</strong> — сколько денег приносит бизнесу одна продажа, лид, регистрация или подписка. Это маржа на единицу — то, что вы реально зарабатываете «сверху», за вычетом себестоимости.
+          <strong>Ценность одной единицы</strong> - сколько денег приносит бизнесу одна продажа, лид, регистрация или подписка. Это маржа на единицу - то, что вы реально зарабатываете «сверху», за вычетом себестоимости.
         </p>
         <p>Модель использует это значение чтобы оценить, окупается ли канал:</p>
         <ul>
@@ -81,7 +81,7 @@
           </li>
         </ul>
         <p class="why-tip">
-          <strong>Пример:</strong> фарма-препарат стоит 80 ₽/упаковка, маржа после налогов и логистики = 80 ₽ × 30% = 24 ₽. Канал с CPU = 20 ₽/упак — окупается; с CPU = 100 ₽/упак — глубоко убыточен.
+          <strong>Пример:</strong> фарма-препарат стоит 80 ₽/упаковка, маржа после налогов и логистики = 80 ₽ × 30% = 24 ₽. Канал с CPU = 20 ₽/упак - окупается; с CPU = 100 ₽/упак - глубоко убыточен.
         </p>
       </div>
     {/if}
@@ -119,13 +119,13 @@
       class:disabled={useAuto}
     />
     <p class="hint">
-      Эта величина — порог для сравнения CPU (стоимость одной единицы) каналов. Если CPU канала превышает её — канал убыточен.
+      Эта величина - порог для сравнения CPU (стоимость одной единицы) каналов. Если CPU канала превышает её - канал убыточен.
     </p>
   </section>
 
   <footer class="actions">
     <button type="button" class="btn-secondary" onclick={handleSkip}>
-      Пропустить — оценить только долю в продажах
+      Пропустить - оценить только долю в продажах
     </button>
     <button
       type="button"
@@ -173,7 +173,7 @@
   }
   .chevron.open { transform: rotate(180deg); }
 
-  /* v1.3.2: «Зачем это?» раскрывающаяся панель — premium tier-1. */
+  /* v1.3.2: «Зачем это?» раскрывающаяся панель - premium tier-1. */
   .why-panel {
     margin-top: 12px;
     padding: 14px 18px;

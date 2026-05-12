@@ -1,18 +1,18 @@
 <script>
   /**
-   * PipelineOnboarding — универсальный тур для шагов пайплайна.
+   * PipelineOnboarding - универсальный тур для шагов пайплайна.
    *
    * Подсвечивает блок через box-shadow-mask, показывает info-карточку рядом с
    * элементом. Позиция адаптивная (снизу если сверху места мало, иначе сверху).
-   * На null-selector — карточка по центру (intro/outro).
+   * На null-selector - карточка по центру (intro/outro).
    *
    * Вынесен из OptimizeOnboarding в универсальную форму: принимает `steps` и
    * `stepKey` (ключ для localStorage). Используется для всех 5 шагов пайплайна.
    *
    * Props:
-   *   steps — массив { selector, title, body }[]
-   *   stepKey — используется как ключ completed-флага (через onboarding-state.js)
-   *   onDone — callback при закрытии (маркирует шаг done + скрывает tour у родителя)
+   *   steps - массив { selector, title, body }[]
+   *   stepKey - используется как ключ completed-флага (через onboarding-state.js)
+   *   onDone - callback при закрытии (маркирует шаг done + скрывает tour у родителя)
    *
    * @component PipelineOnboarding
    */
@@ -37,7 +37,7 @@
   /** @type {number | null} */
   let scrollSettleRAF = null;
 
-  /** Закрыть тур локально (на этом визите шага). При следующем заходе —
+  /** Закрыть тур локально (на этом визите шага). При следующем заходе -
    * появится снова, если onboardingEnabled в Settings не выключен. */
   function markDone() {
     onDone();
@@ -77,7 +77,7 @@
       return;
     }
 
-    // Если элемент уже виден (частично) — замеряем сразу, избегая scroll race.
+    // Если элемент уже виден (частично) - замеряем сразу, избегая scroll race.
     const vh = window.innerHeight;
     const preRect = el.getBoundingClientRect();
     const alreadyVisible = preRect.top < vh * 0.8 && preRect.bottom > vh * 0.2;

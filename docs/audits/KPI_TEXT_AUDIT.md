@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-12
 **Owner:** Маша маленькая
-**Scope:** все user-facing money-bound тексты в backend (sidecar/) и frontend (src/lib/) — outside reports (отчёты см. `REPORT_KPI_AUDIT.md`).
+**Scope:** все user-facing money-bound тексты в backend (sidecar/) и frontend (src/lib/) - outside reports (отчёты см. `REPORT_KPI_AUDIT.md`).
 
 ## Цель
 
@@ -22,12 +22,12 @@
 | `engines/decomposer.py` | 113 | Breakeven | `На грани окупаемости` | Same | `На грани окупаемости (CPU близок к ценности)` |
 | `engines/decomposer.py` | 629-630 | Sample text | `самый эффективный канал (ROI X×)` | Same | `даёт больше всего (CPU X ₽/упак)` |
 | `engines/decomposer.py` | 686 | CI note | `Posterior CI на ROI/mROAS недоступны` | Same | `Posterior CI на CPU недоступны` |
-| `engines/narrative_adapter.py` | 436 | Recommendation | `Сократить неэффективные каналы и сфокусировать бюджет` | Same | Same (term «бюджет» — universal про затраты) |
+| `engines/narrative_adapter.py` | 436 | Recommendation | `Сократить неэффективные каналы и сфокусировать бюджет` | Same | Same (term «бюджет» - universal про затраты) |
 | `engines/narrative_adapter.py` | 462 | Recommendation | `даёт {pct}% продаж` | Same | Same |
 | `engines/narrative_adapter.py` | 476 | Recommendation | `Сократить X и сфокусировать бюджет на Y` | Same | Same |
 | `engines/narrative_adapter.py` | 595-596 | Comment | `доминирует бюджет` | Same | Same |
 
-### Frontend (src/lib/) — top hotspots (30 files total)
+### Frontend (src/lib/) - top hotspots (30 files total)
 
 | Файл | Категория | Что менять |
 |---|---|---|
@@ -77,18 +77,18 @@
 - `narrative_adapter.py` recommendations.
 
 ### Stage 4 (Educational + Polish)
-- `OptimizeOnboarding.svelte`, `pipeline-tours.js` — KPI-aware tour content.
+- `OptimizeOnboarding.svelte`, `pipeline-tours.js` - KPI-aware tour content.
 - Custom glossary entries для CPU, value_per_count_unit, derived mode.
 
 ## Открытые вопросы для последующих этапов
 
-1. **`narrative_adapter.py` — sentence templates с {var} interpolation.** Можно ли держать одну шаблонную строку с {metric_name} param (=ROI или CPU)? Решение: Stage 3 — `compose_recommendation(kpi_kind, ...)` helper.
+1. **`narrative_adapter.py` - sentence templates с {var} interpolation.** Можно ли держать одну шаблонную строку с {metric_name} param (=ROI или CPU)? Решение: Stage 3 - `compose_recommendation(kpi_kind, ...)` helper.
 
-2. **`hill.js` визуализация Hill curve.** Y-axis всегда target (выручка ₽ или count). X-axis — input (₽ или native units). Labels conditional.
+2. **`hill.js` визуализация Hill curve.** Y-axis всегда target (выручка ₽ или count). X-axis - input (₽ или native units). Labels conditional.
 
-3. **`MQSBadge.svelte`** — model quality score, не зависит от KPI. Оставить как есть.
+3. **`MQSBadge.svelte`** - model quality score, не зависит от KPI. Оставить как есть.
 
-4. **`TrustBanner.svelte`** — добавить KPI-aware context («модель работает в режиме CPU vs ценность лида»).
+4. **`TrustBanner.svelte`** - добавить KPI-aware context («модель работает в режиме CPU vs ценность лида»).
 
 ## Грубая оценка работы
 

@@ -1,15 +1,15 @@
-"""Decomposer engine edge case matrix — Phase B2 of engine audit extension.
+"""Decomposer engine edge case matrix - Phase B2 of engine audit extension.
 
 Plan: C:\\Users\\ackol\\Desktop\\optimizer-audit-followup-plan.md, этап 4.
 
 Six batches:
 
-    A — Pickle compatibility (v1.0 reject / v1.1 / v1.1.5 / v1.2 / v1.3 hierarchical)
-    B — Untrained channel mix (none / some / all)
-    C — Unit costs (None / override / inflation_pct)
-    D — Hybrid verdict transitions (deep loss / loss / breakeven / high)
-    E — Hierarchical metadata exposure
-    F — Smell flags (unit_smell / roi_max / roi_spread)
+    A - Pickle compatibility (v1.0 reject / v1.1 / v1.1.5 / v1.2 / v1.3 hierarchical)
+    B - Untrained channel mix (none / some / all)
+    C - Unit costs (None / override / inflation_pct)
+    D - Hybrid verdict transitions (deep loss / loss / breakeven / high)
+    E - Hierarchical metadata exposure
+    F - Smell flags (unit_smell / roi_max / roi_spread)
 
 Total ~32 tests.
 
@@ -39,7 +39,7 @@ from _optimizer_fixtures import (  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch A — Pickle compatibility
+# Batch A - Pickle compatibility
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -124,7 +124,7 @@ def test_A6_no_pickle_returns_error(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch B — Untrained channel mix
+# Batch B - Untrained channel mix
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -176,7 +176,7 @@ def test_B3_two_untrained_independent(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch C — Unit costs handling
+# Batch C - Unit costs handling
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -239,7 +239,7 @@ def test_C4_inflation_unknown_channel_ignored(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch D — Hybrid verdict transitions
+# Batch D - Hybrid verdict transitions
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -318,7 +318,7 @@ def test_D9_quantile_mode_top_10():
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch E — Hierarchical metadata exposure
+# Batch E - Hierarchical metadata exposure
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -361,7 +361,7 @@ def test_E3_hierarchical_priors_exposed(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch F — Smell flags
+# Batch F - Smell flags
 # ══════════════════════════════════════════════════════════════════════
 
 

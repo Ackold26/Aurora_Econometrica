@@ -100,10 +100,10 @@
       }
       if (!granted) return;
       if (error) {
-        sendNotification({ title: 'Aurora AI — Pipeline failed', body: `"${name}" — ошибка: ${error}` });
+        sendNotification({ title: 'Aurora AI - Pipeline failed', body: `"${name}" - ошибка: ${error}` });
       } else {
         const timeStr = timeSec < 60 ? `${timeSec}с` : `${Math.floor(timeSec / 60)}м ${timeSec % 60}с`;
-        sendNotification({ title: 'Aurora AI — Pipeline завершён', body: `"${name}" — ${stepCount} ${pluralRu(stepCount, 'шаг', 'шага', 'шагов')}, ${timeStr}` });
+        sendNotification({ title: 'Aurora AI - Pipeline завершён', body: `"${name}" - ${stepCount} ${pluralRu(stepCount, 'шаг', 'шага', 'шагов')}, ${timeStr}` });
       }
     } catch { /* notification not available */ }
   }
@@ -200,7 +200,7 @@
     }
     collect(workflow.workflow_steps);
     if (usedCabinets.has('copywriter') && !usedCabinets.has('lawyer-advertising')) {
-      return 'Добавьте юридическую проверку рекламы (Юрист — Реклама)';
+      return 'Добавьте юридическую проверку рекламы (Юрист - Реклама)';
     }
     if (usedCabinets.has('creative-director') && !usedCabinets.has('focus-groups')) {
       return 'Добавьте тестирование концепции (Фокус-группы)';
@@ -607,7 +607,7 @@
   {:else}
     <div class="empty">
       <p>Workflow пуст</p>
-      <p class="empty-hint">Добавьте первый шаг — выберите кабинет, который начнёт работу</p>
+      <p class="empty-hint">Добавьте первый шаг - выберите кабинет, который начнёт работу</p>
       <button class="add-first-btn" onclick={() => handleAddStep(null)}>+ Добавить первый шаг</button>
     </div>
   {/if}

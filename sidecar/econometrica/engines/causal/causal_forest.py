@@ -1,13 +1,13 @@
 """
-Causal Forest — Sprint 3 M3.
+Causal Forest - Sprint 3 M3.
 
 Heterogeneous Treatment Effects (HTE) via Wager-Athey 2018 honest random
-forests. Wraps econml.dml.CausalForestDML — DML (Double Machine Learning)
+forests. Wraps econml.dml.CausalForestDML - DML (Double Machine Learning)
 variant with cross-fitting + honest splits для distribution-free CI на
 treatment effects.
 
 Use case: после DiD/SCM established AVERAGE treatment effect, Causal Forest
-answers "В каких сегментах эффект сильнее?" — surfaces heterogeneity along
+answers "В каких сегментах эффект сильнее?" - surfaces heterogeneity along
 features (regional demographics, market segments, prior brand awareness).
 
 ⚠️ Identifiability assumptions (per Wager-Athey 2018):
@@ -43,7 +43,7 @@ def _check_overlap(T: np.ndarray, X: np.ndarray, threshold: float = 0.05) -> dic
     """Estimate propensity scores P(T=1|X) via logistic regression. Flag overlap violations.
 
     Threshold: any propensity ∉ [threshold, 1-threshold] indicates positivity violation
-    в that region of feature space — HTE there unidentifiable.
+    в that region of feature space - HTE there unidentifiable.
 
     B6 audit fix: cross-validated propensity (5-fold) + StandardScaler. Pre-fix
     fit LogisticRegression on entire X without scaling → overfit propensity scores
@@ -56,7 +56,7 @@ def _check_overlap(T: np.ndarray, X: np.ndarray, threshold: float = 0.05) -> dic
         from sklearn.pipeline import Pipeline
         from sklearn.model_selection import cross_val_predict
         if len(np.unique(T)) < 2:
-            return {'passed': False, 'detail': 'Treatment имеет только одно значение — overlap не identifiable.'}
+            return {'passed': False, 'detail': 'Treatment имеет только одно значение - overlap не identifiable.'}
         pipe = Pipeline([
             ('scaler', StandardScaler()),
             ('clf', LogisticRegression(max_iter=500, solver='lbfgs')),
@@ -125,7 +125,7 @@ def estimate_causal_forest(
         unit_column / time_column: optional, для panel context (not used by
             DML internally but stored в metadata)
     """
-    # Load — load_panel allows None unit/time for cross-section мode
+    # Load - load_panel allows None unit/time for cross-section мode
     if unit_column is None or time_column is None:
         # Load file directly without panel validation
         try:
@@ -188,10 +188,10 @@ def estimate_causal_forest(
     disclosure = HonestDisclosure(
         method='forest_wager_athey',
         assumptions=[
-            'Conditional Independence (CIA) — treatment independent от potential outcomes given X',
-            'Positivity / Overlap — P(T=1|X) ∈ (0,1) for all X в support',
-            'SUTVA — нет spillover между units',
-            'Honest splits — sample-splitting между estimation и inference (Wager-Athey 2018)',
+            'Conditional Independence (CIA) - treatment independent от potential outcomes given X',
+            'Positivity / Overlap - P(T=1|X) ∈ (0,1) for all X в support',
+            'SUTVA - нет spillover между units',
+            'Honest splits - sample-splitting между estimation и inference (Wager-Athey 2018)',
         ],
         references=[
             'Wager, Athey 2018 "Estimation and Inference of Heterogeneous Treatment Effects" (JASA)',
@@ -242,7 +242,7 @@ def estimate_causal_forest(
             # cate_mean_se. Pre-fix code resampled FROM cate_pred (per-obs CATE
             # point estimates) which gives SE of mean of FIXED estimates, NOT
             # bootstrap of estimator. True bootstrap requires refitting Causal
-            # Forest on resampled (Y,T,X) — expensive (~minutes per iteration).
+            # Forest on resampled (Y,T,X) - expensive (~minutes per iteration).
             # Honest naming + use simple SE-of-mean which is what's actually
             # computed.
             # Coverage caveat: this CI underestimates uncertainty (ignores
@@ -258,7 +258,7 @@ def estimate_causal_forest(
             ate_ci_high = ate + z_crit * ate_se
             ci_method = 'cate_mean_se_fallback'
             disclosure.caveats.append(
-                'CI computed via SE-of-mean of CATE estimates (cate_mean_se_fallback) — '
+                'CI computed via SE-of-mean of CATE estimates (cate_mean_se_fallback) - '
                 'underestimates true uncertainty because ignores estimator variance. '
                 'Используй ATT point estimate как directional, не quantitative.'
             )
@@ -300,7 +300,7 @@ def estimate_causal_forest(
     else:
         disclosure.caveats.append(
             f'Treatment effect относительно homogeneous (q90-q10 / |ate| = {heterogeneity_strength:.2f}). '
-            f'Forest может быть избыточен — ATE достаточно?'
+            f'Forest может быть избыточен - ATE достаточно?'
         )
 
     # Feature importances (если sklearn-style attribute available)

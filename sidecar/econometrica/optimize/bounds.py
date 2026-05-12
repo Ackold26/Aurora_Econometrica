@@ -1,5 +1,5 @@
 """
-Aurora Econometrica — safe corridor bounds (v1.3.0).
+Aurora Econometrica - safe corridor bounds (v1.3.0).
 
 Per ADR-014: вычисляет MVP формулу для безопасного диапазона бюджета per канал
 + агрегатный коридор по total budget + по target sales.
@@ -58,7 +58,7 @@ def compute_per_channel_bounds(
     spend_positive = spend[spend > 0]
 
     if len(spend_positive) == 0:
-        # Канал без активности — corridor [0, 0].
+        # Канал без активности - corridor [0, 0].
         return {'lo': 0.0, 'hi': 0.0, 'mu': 0.0, 'p5': 0.0, 'p95': 0.0}
 
     mu = float(np.mean(spend_positive))
@@ -103,7 +103,7 @@ def compute_safe_corridor(
           'aggregate_sales': {lo, hi, current}  # optional, требует forward pass
         }
 
-    Note: aggregate_sales — placeholder. Полный compute требует forward pass
+    Note: aggregate_sales - placeholder. Полный compute требует forward pass
     через model (вынесен в goal_seek.py).
     """
     config = model_data.get('config', {})
@@ -140,7 +140,7 @@ def compute_safe_corridor(
 
     for channel in media_cols:
         if channel not in df.columns:
-            # Канал в media_cols, но нет колонки в data — skip с пустым corridor.
+            # Канал в media_cols, но нет колонки в data - skip с пустым corridor.
             per_channel[channel] = {
                 'lo': 0.0, 'hi': 0.0, 'mu': 0.0, 'p5': 0.0, 'p95': 0.0,
                 'current': 0.0,
@@ -154,7 +154,7 @@ def compute_safe_corridor(
             relative_hi_factor=relative_hi_factor,
         )
 
-        # Current spend — сумма по всему периоду obs.
+        # Current spend - сумма по всему периоду obs.
         current_total = float(spend_array.sum())
         bounds['current'] = current_total
 
@@ -185,9 +185,9 @@ def is_in_safe_corridor(
     """Classify value as 'green', 'yellow', or 'red' based on bounds.
 
     Per ADR-014 UX:
-    - 🟢 Внутри [lo, hi] — safe.
-    - 🟡 ±10% за пределами — extrapolation warning.
-    - 🔴 > 10% за пределами — заблокировано.
+    - 🟢 Внутри [lo, hi] - safe.
+    - 🟡 ±10% за пределами - extrapolation warning.
+    - 🔴 > 10% за пределами - заблокировано.
 
     Args:
         value: тестируемое значение (бюджет, цель).

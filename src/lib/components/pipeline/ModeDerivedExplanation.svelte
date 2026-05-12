@@ -1,9 +1,9 @@
 <script>
   /**
-   * ModeDerivedExplanation — v1.3.0 final sub-step of Validate (per ADR-015).
+   * ModeDerivedExplanation - v1.3.0 final sub-step of Validate (per ADR-015).
    *
    * Показывает юзеру derived mode (ROI / Эффективность / Вручную) + plain-text
-   * объяснение почему. Это «эпилог» Валидации — ничего не выбирает, только
+   * объяснение почему. Это «эпилог» Валидации - ничего не выбирает, только
    * подтверждает результат и переводит на следующий шаг.
    *
    * @component ModeDerivedExplanation
@@ -14,9 +14,9 @@
   const {
     derivedMode,    // DerivedMode
     explanation,    // plain-text объяснение (с backend mode_inference.derive_mode_with_explanation)
-    perChannelInput, // {channel: 'monetary'|'physical'} — для summary
+    perChannelInput, // {channel: 'monetary'|'physical'} - для summary
     kpiKind,        // 'monetary' | 'count'
-    onContinue,     // callback () — переход к Импорт/Модель
+    onContinue,     // callback () - переход к Импорт/Модель
   } = $props();
 
   /** @type {Record<string, string>} */
@@ -79,7 +79,7 @@
       <div>
         <strong>Подсказка:</strong> в режиме {derivedMode === 'effectiveness' ? 'Эффективность' : 'Вручную'}
         сравнение каналов идёт через долю в продажах (sales share %).
-        Если нужна оценка cost-effectiveness каналов между собой — на шаге Декомпозиция
+        Если нужна оценка cost-effectiveness каналов между собой - на шаге Декомпозиция
         вы сможете добавить ценники контактов (CPM/CPC/CPP) для перехода к виртуальному ROI.
       </div>
     </aside>

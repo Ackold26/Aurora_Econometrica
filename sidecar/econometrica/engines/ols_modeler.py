@@ -1,5 +1,5 @@
 """
-OLS modeler — small-data fallback engine (Sprint 2 / A1).
+OLS modeler - small-data fallback engine (Sprint 2 / A1).
 
 For datasets with n < 30 observations, Bayesian MCMC is unreliable:
 posterior intervals don't converge, R-hat stays > 1.05, Hill alpha/gamma
@@ -9,12 +9,12 @@ require n ≥ 50.
 This engine provides honest fallback for small-N case:
 - adstock + Hill applied with **fixed library defaults** (no per-channel learning)
 - Closed-form OLS regression on hill-saturated features → β coefficients
-- Predictive intervals (residual-based + jackknife) on y forecasts — NOT posterior CI on parameters
+- Predictive intervals (residual-based + jackknife) on y forecasts - NOT posterior CI on parameters
 - Honest disclosure: "model trained on small data, β has wide bounds, treat as directional"
 
 Schema:
 - model_version='1.0-ols' (distinguishes from Bayesian v1.1+)
-- channel_params: beta (from OLS), alpha=1.5, gamma=0.5, decay=0.5 (defaults — NOT learned)
+- channel_params: beta (from OLS), alpha=1.5, gamma=0.5, decay=0.5 (defaults - NOT learned)
 - normalization: same as Bayesian (media_means + y_mean/std + control stats)
 - ols_diagnostics: r_squared, adj_r_squared, mape, residual_std, n_obs, n_params, dof
 - predictive_intervals: per-period stat for honest y CI
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 # Library defaults for non-learnable params on small N (consistent with v1.1.5 fallback).
-DEFAULT_ALPHA = 1.5      # Hill steepness — moderate S-curve
+DEFAULT_ALPHA = 1.5      # Hill steepness - moderate S-curve
 DEFAULT_GAMMA = 0.5      # Hill half-saturation point
 DEFAULT_DECAY = 0.5      # Geometric adstock retention rate
 
@@ -159,7 +159,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             'error_code': 'NO_TRAINED_CHANNELS',
             'message': (
                 'Все media-каналы имели нулевую вариативность в данных обучения. '
-                'OLS не может построить модель — соберите данные с реальной spend variation.'
+                'OLS не может построить модель - соберите данные с реальной spend variation.'
             ),
             'untrained_channels': untrained_channels,
         }
@@ -239,10 +239,10 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         t_crit = 1.645  # fallback к large-sample normal
 
     # ── Sprint 2 extension (small-data path): bootstrap ROI CI + OLS diagnostics ──
-    # Closes gap "у OLS только β CI, не ROI CI" — bootstrap дает honest ROI distribution.
+    # Closes gap "у OLS только β CI, не ROI CI" - bootstrap дает honest ROI distribution.
     # Computed once at training time, stored в pickle для downstream consumption.
     # C-OLS-1: pass raw_spend_series + adstock_config для real per-period contribution
-    # computation (matches decomposer math exactly — eliminates Jensen approximation bias).
+    # computation (matches decomposer math exactly - eliminates Jensen approximation bias).
     raw_spend_totals_dict = {}
     raw_spend_series_dict = {}
     for col in trained_media_cols:
@@ -255,7 +255,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     conformal_pi = None
     try:
         # S-OLS-1 audit synergy (2026-04-27): conformal prediction для distribution-free
-        # guaranteed-coverage PI на y forecasts. Aurora marketing differentiator —
+        # guaranteed-coverage PI на y forecasts. Aurora marketing differentiator -
         # никто из MMM-tools не имеет conformal prediction. Auto-selects jackknife+
         # (n<30) или split-conformal (n≥30) для optimal small-data behavior.
         from utils.conformal import conformal_intervals_auto
@@ -289,7 +289,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         )
 
     # Build channel_params (compatible с decomposer/optimizer expectations).
-    # All media_cols enumerated так что downstream sees все каналы — untrained
+    # All media_cols enumerated так что downstream sees все каналы - untrained
     # marked explicit с beta=0 + flag.
     channel_params = {}
     trained_set = set(trained_media_cols)
@@ -317,7 +317,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             'gamma': DEFAULT_GAMMA,
             'adstock': {'type': adstock_config.get(col, 'geometric')},
             'decay': DEFAULT_DECAY,
-            'tail_ess_ok': True,  # OLS doesn't have ESS — always True
+            'tail_ess_ok': True,  # OLS doesn't have ESS - always True
             # Phase 1.9-style CI fields (frequentist analog)
             'beta_se': round(float(media_betas_se[j]), 4) if not np.isnan(media_betas_se[j]) else None,
             'beta_ci_low_freq': round(float(media_betas[j] - beta_ci_half), 4),
@@ -325,7 +325,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         }
         # Sprint 2 extension: bootstrap ROI CI when computed успешно. These map
         # to roi_ci_low/high downstream (decomposer reads channel_params['roi_ci_low_bootstrap']
-        # if posterior samples отсутствуют — '1.0-ols' pickles).
+        # if posterior samples отсутствуют - '1.0-ols' pickles).
         boot = bootstrap_roi_results.get(col)
         if boot is not None and boot.get('ci_low') is not None:
             ch_dict['roi_ci_low_bootstrap'] = round(boot['ci_low'], 4)
@@ -344,11 +344,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             'mape': round(mape, 2),
             'residual_std_norm': round(residual_std_norm, 4),
             'residual_std': round(residual_std, 4),
-            # No MCMC diagnostics — OLS has no chains/divergences/r_hat
+            # No MCMC diagnostics - OLS has no chains/divergences/r_hat
             'mcmc': None,
         },
         # Sprint 2 extension: standard OLS quality diagnostics (leverage, Cook's, VIF).
-        # Empty dict if computation failed (defensive — no crash на degenerate data).
+        # Empty dict if computation failed (defensive - no crash на degenerate data).
         'ols_quality': ols_diag_results,
         # S-OLS-1: conformal prediction PI (distribution-free coverage guarantee).
         # Available for downstream display alongside frequentist β CI + bootstrap ROI.
@@ -361,9 +361,9 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         # Honest small-N disclosure
         'honest_disclosure': (
             f'OLS-режим (small data fallback): n={n_obs} наблюдений, p={p} параметров, '
-            f'dof={dof}. Hill α={DEFAULT_ALPHA}, γ={DEFAULT_GAMMA}, decay={DEFAULT_DECAY} — '
+            f'dof={dof}. Hill α={DEFAULT_ALPHA}, γ={DEFAULT_GAMMA}, decay={DEFAULT_DECAY} - '
             f'фиксированы, не обучаются (нужен n≥30 для Bayesian estimate). '
-            f'Доверительные интервалы — frequentist на β-коэффициенты + predictive intervals на y. '
+            f'Доверительные интервалы - frequentist на β-коэффициенты + predictive intervals на y. '
             f'НЕ posterior CI как в Bayesian-режиме.'
         ),
     }
@@ -393,7 +393,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             'beta_standard_errors': beta_se_norm.tolist(),
             'XtX_inverse_diag': np.diag(XtX_inv).tolist() if 'XtX_inv' in dir() else None,
         },
-        # Schema: model_version='1.0-ols' — distinct from Bayesian v1.1+.
+        # Schema: model_version='1.0-ols' - distinct from Bayesian v1.1+.
         # Downstream engines treat as v1.1 path (no posterior_samples → point estimate only).
         # Migration banner in decomposer offers Bayesian retrain when n≥30.
         'model_version': '1.0-ols',
@@ -455,7 +455,7 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
 
     Args:
         n_obs: number of training observations
-        override: 'bayesian' | 'ols' — explicit user choice; takes precedence
+        override: 'bayesian' | 'ols' - explicit user choice; takes precedence
 
     Returns:
         {

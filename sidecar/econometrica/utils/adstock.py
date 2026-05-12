@@ -2,7 +2,7 @@
 Adstock transformations for Marketing Mix Modeling.
 Geometric (digital channels) and Weibull (TV/offline with delayed peak).
 
-v1.2.0 additions (Phase 1.5 — Weibull learnable):
+v1.2.0 additions (Phase 1.5 - Weibull learnable):
 - weibull_kernel_survival: discrete kernel via S(t)-S(t+1) (H8 fix)
 - weibull_convolution_toeplitz: numpy reference impl для testing math
 - compute_weibull_peak / compute_weibull_half_life: metric helpers для reporting
@@ -60,7 +60,7 @@ def apply_adstock(series: np.ndarray, adstock_type: str, params: dict | None = N
     """
     params = params or {}
     if adstock_type in ('noop', 'none'):
-        # F0.5 (Phase 0.1): no carryover — used for analytical math tests where
+        # F0.5 (Phase 0.1): no carryover - used for analytical math tests where
         # adstock_factor must equal 1.0. Not used in production training.
         return np.asarray(series, dtype=float).copy()
     if adstock_type == 'weibull':
@@ -78,7 +78,7 @@ def apply_adstock(series: np.ndarray, adstock_type: str, params: dict | None = N
 
 
 # ─────────────────────────────────────────────────────────────────────
-# Phase 1.1 — vectorized batch variants for posterior CI propagation
+# Phase 1.1 - vectorized batch variants for posterior CI propagation
 # ─────────────────────────────────────────────────────────────────────
 
 
@@ -86,7 +86,7 @@ def geometric_adstock_batch(raw_x: np.ndarray, decay_samples: np.ndarray) -> np.
     """Vectorized geometric adstock across posterior samples.
 
     For each posterior sample i, compute geometric_adstock(raw_x, decay_samples[i]).
-    Inner loop is vectorized over samples — 36 sequential time-step ops × broadcast
+    Inner loop is vectorized over samples - 36 sequential time-step ops × broadcast
     over 8000 samples ≈ <1ms typical.
 
     Args:
@@ -114,7 +114,7 @@ def geometric_adstock_batch(raw_x: np.ndarray, decay_samples: np.ndarray) -> np.
 def adstock_factor_batch(
     decay_samples: np.ndarray, n_periods: int, adstock_type: str = 'geometric'
 ) -> np.ndarray:
-    """Vectorized adstock sensitivity factor — ∂(_flat_alloc_adstock_avg)/∂x.
+    """Vectorized adstock sensitivity factor - ∂(_flat_alloc_adstock_avg)/∂x.
 
     For geometric adstock with flat input, factor is constant in x but varies
     with decay sample. Used by mROAS chain rule when adstock decay is sampled.
@@ -133,7 +133,7 @@ def adstock_factor_batch(
     if adstock_type in ('noop', 'none'):
         return np.ones_like(decays)
     if adstock_type == 'geometric':
-        # Avoid θ=1 singularity (geometric series diverges) — clip decay slightly < 1
+        # Avoid θ=1 singularity (geometric series diverges) - clip decay slightly < 1
         theta = np.clip(decays, 0.0, 1.0 - 1e-9)
         n = max(int(n_periods), 1)
         # Factor = [n - θ·(1 - θ^n)/(1-θ)] / [n·(1-θ)]
@@ -146,7 +146,7 @@ def adstock_factor_batch(
     # weibull batch: numerical fallback per-sample. Slow but correct.
     out = np.empty_like(decays)
     for i, d in enumerate(decays):
-        # weibull doesn't actually use decay scalar — kept for API symmetry; return 1.0 fallback
+        # weibull doesn't actually use decay scalar - kept for API symmetry; return 1.0 fallback
         out[i] = 1.0
     return out
 
@@ -212,7 +212,7 @@ def weibull_kernel_survival(
     kernel = S[:-1] - S[1:]
     kernel_sum = np.sum(kernel)
     if kernel_sum < 1e-12:
-        # Degenerate case — return uniform fallback
+        # Degenerate case - return uniform fallback
         return np.full(max_decay, 1.0 / max_decay, dtype=np.float64)
     return kernel / kernel_sum
 
@@ -243,7 +243,7 @@ def weibull_convolution_toeplitz(
     T = len(x)
     kernel = weibull_kernel_survival(max_decay, peak_week, tail_decay)
 
-    # Convolution (causal — only past contributions)
+    # Convolution (causal - only past contributions)
     adstocked = np.zeros(T)
     for t in range(T):
         for tau in range(min(t + 1, max_decay)):

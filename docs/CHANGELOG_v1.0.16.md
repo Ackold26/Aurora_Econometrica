@@ -6,7 +6,7 @@
 
 ## Краткое резюме
 
-Закрыто **20+ findings** из live-test 2026-04-28 (Kagocel). Закрыты L1-L21 (минус некоторые отложенные) — three-way alignment между декомпозицией, оптимизацией и финальным отчётом + UX consistency на странице оптимизации.
+Закрыто **20+ findings** из live-test 2026-04-28 (Kagocel). Закрыты L1-L21 (минус некоторые отложенные) - three-way alignment между декомпозицией, оптимизацией и финальным отчётом + UX consistency на странице оптимизации.
 
 Регрессия: **552+/552+ backend tests PASS** + **31/31 vitest** + **0 new svelte-check errors** на каждом commit.
 
@@ -15,32 +15,32 @@
 ### 🎯 Three-way alignment (критическое)
 
 Декомпозиция, Оптимизация и финальный отчёт теперь используют **единый источник правды** для:
-- `mroi_current` (marginal ROAS at current allocation) — единый helper `_compute_mroas_money` в backend
-- `action` labels (Scale / Hold / Watch / Reduce / Cut / Uncertain) — единый `compute_channel_action()` helper
+- `mroi_current` (marginal ROAS at current allocation) - единый helper `_compute_mroas_money` в backend
+- `action` labels (Scale / Hold / Watch / Reduce / Cut / Uncertain) - единый `compute_channel_action()` helper
 
-**Effect:** customer не видит противоречий — TRPs во всех trех экранах показывает same value (0.03×) вместо 110× в одном и 0.03× в другом.
+**Effect:** customer не видит противоречий - TRPs во всех trех экранах показывает same value (0.03×) вместо 110× в одном и 0.03× в другом.
 
 Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mroi` max Δ = **0.0000**.
 
 ### 🚀 Optimize page UX (cluster L4-L8)
 
 - **Auto-apply optimal**: после расчёта оптимизации слайдеры автоматически переходят на оптимальные позиции (animation 800ms). KPI прогноз обновляется live через JS Hill prediction.
-- **Response Curves markers**: на каждой кривой — текущая (○ серый круг) и оптимальная (★ цвет канала pin) точки.
+- **Response Curves markers**: на каждой кривой - текущая (○ серый круг) и оптимальная (★ цвет канала pin) точки.
 - **Edge-case banners**: 3 mutually exclusive баннера honestly disclose почему optimizer не нашёл lift:
-  - 🚨 baseline_zero — медиа-вклад равен нулю
-  - ⚠️ binding_constraints — все каналы упёрлись в Min/Max
-  - ℹ️ converged_at_current — текущая аллокация близка к оптимуму
-- **Per-channel override warning** — банер при changes к global Min/Max если есть индивидуальные overrides.
-- **Money-axis mROAS** — все каналы (TRPs/clicks + рубли) сравниваются в единой денежной шкале. Mixed-units bug закрыт.
+  - 🚨 baseline_zero - медиа-вклад равен нулю
+  - ⚠️ binding_constraints - все каналы упёрлись в Min/Max
+  - ℹ️ converged_at_current - текущая аллокация близка к оптимуму
+- **Per-channel override warning** - банер при changes к global Min/Max если есть индивидуальные overrides.
+- **Money-axis mROAS** - все каналы (TRPs/clicks + рубли) сравниваются в единой денежной шкале. Mixed-units bug закрыт.
 
 ### 📝 Honest narrative (cluster L11-L15, L2)
 
 **SCQAR Answer/Action 01:**
-- `cut_source_channel` (real overspender from action='Cut') и `scale_destination_channel` (action='Scale') — вместо устаревших leader (top contribution) / hero (top mROAS).
+- `cut_source_channel` (real overspender from action='Cut') и `scale_destination_channel` (action='Scale') - вместо устаревших leader (top contribution) / hero (top mROAS).
 - На Kagocel: «Перебалансировать N млн ₽ из TRPs в Performance» (правильно), pre-fix: «из Performance в Social» (оба micro-channels).
 
 **SCQAR Complication:**
-- `budget_dominator` — отдельное поле от contribution leader. Template: «{TRPs} занимает 92.3% бюджета, но даёт 10.5% эффекта». Honest contradiction framing.
+- `budget_dominator` - отдельное поле от contribution leader. Template: «{TRPs} занимает 92.3% бюджета, но даёт 10.5% эффекта». Honest contradiction framing.
 - Fallback templates для balanced portfolios (when no clear dominator).
 
 **Channel name normalization (L11):**
@@ -62,7 +62,7 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 
 - Единый источник правды = `validateData.result.columns[i].role`.
 - Все 3 mutator paths (drag-drop, Insights button, matrix click) используют общий helper `setColumnRole()` из `src/lib/column-roles.js`.
-- Persistence: project.json gains `excluded_columns` field — explicit list user's «не использовать» решений.
+- Persistence: project.json gains `excluded_columns` field - explicit list user's «не использовать» решений.
 - Cross-session restore: ValidateStep после re-validation вызывает `restoreExcludedColumns()` чтобы preserve user choice над validator's auto-detected roles.
 - 17 vitest lock-in tests verifying 3-mutator-path consistency.
 
@@ -78,7 +78,7 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 
 - Frontend `f5_mqs` template теперь принимает `{tier_label}` параметр от backend.
 - Aligned 5-tier system: ≥85 Отличное / ≥70 Хорошее / ≥55 Приемлемое / ≥40 Слабое / <40 Ненадёжное.
-- Pre-fix: MQS=70 показывал «Хорошее» в sources block vs «приемлемо» в findings block — теперь consistent.
+- Pre-fix: MQS=70 показывал «Хорошее» в sources block vs «приемлемо» в findings block - теперь consistent.
 
 ### 🛡️ Forward-compat (L9)
 
@@ -97,24 +97,24 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 
 ## Что осталось (отложено в v1.1)
 
-- **L17** Data-readiness tier indicator (auto-only, no manual override) — 6-10h
-- **L9 full** — Free-budget mode полная реализация — 16-24h
-- **Svelte e2e test infrastructure** — 4-6h initial setup, lock-in tests для UI flows
-- **L21** `lift_pct: None` в optimization.json — investigate when touching result_data shape (low priority — есть `expected_lift_pct` fallback)
-- **L24** Finding #2 семантически инвертирован — «единственный близкий к окупаемости» → «единственный ниже окупаемости»
-- **L25** MQS thinness penalty при baseline-dominated моделях (R²/MAPE тривиально достижимы) — нужен warning в Tier
+- **L17** Data-readiness tier indicator (auto-only, no manual override) - 6-10h
+- **L9 full** - Free-budget mode полная реализация - 16-24h
+- **Svelte e2e test infrastructure** - 4-6h initial setup, lock-in tests для UI flows
+- **L21** `lift_pct: None` в optimization.json - investigate when touching result_data shape (low priority - есть `expected_lift_pct` fallback)
+- **L24** Finding #2 семантически инвертирован - «единственный близкий к окупаемости» → «единственный ниже окупаемости»
+- **L25** MQS thinness penalty при baseline-dominated моделях (R²/MAPE тривиально достижимы) - нужен warning в Tier
 - **L26** ROI 3-5× с low gap → «Сбалансирован» edge case (Статьи Венарус)
 
-## Live-test session — UX дополнения (2026-04-29)
+## Live-test session - UX дополнения (2026-04-29)
 
 Реализованы во время live-testing с customer'ом в dev mode:
 
-**Import шаг — model engine selector:**
+**Import шаг - model engine selector:**
 - Auto-выбор движка на основе n_rows: <30 → OLS (small-data fallback), ≥30 → Bayesian
 - Customer-facing описания: Bayesian как «золотой стандарт MMM-эконометрики», OLS с honest disclosure
 - Backend Pydantic TrainRequest.mode принимает оба значения
 
-**Optimize шаг — UX refactor:**
+**Optimize шаг - UX refactor:**
 - Min/Max sliders bounds расширены: Min 0..100% (was 10..100), Max 100..500% (was 100..300)
 - Скрыт «Фиксировать бюджет» checkbox (free-budget mode → v1.1)
 - Block D «Прогноз на будущий период» интегрирован в Block C как inline expert disclosure (был standalone)
@@ -125,15 +125,15 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 - Per-channel constraints в collapsible expert disclosure (red border, ЭКСПЕРТ badge)
 - Bidirectional sync с глобальным «Эксперт» toggle
 
-**Report шаг — единая кнопка:**
+**Report шаг - единая кнопка:**
 - 3 separate buttons (PPTX/XLSX/HTML) → 1 unified «✨ Создать отчёт» с radio-селектором
-- Один файл per click — explicit choice, экономия CPU/времени
+- Один файл per click - explicit choice, экономия CPU/времени
 - Зелёная ✓ checkmark «уже создано в текущей сессии» → меняет CTA на «⟲ Пересоздать»
 - HTML добавлен в insight «Форматы экспорта»
 
 **Narrative consistency (Венарус live-test):**
-- **L22:** scale_destination = top mROAS (был top contribution) — narrative consistent с COMPLICATION «По mROAS Social опережает»
-- **L23:** dedup cut_source из underperformer_names — устранён дубликат «из TRPs ... остановить TRPs»
+- **L22:** scale_destination = top mROAS (был top contribution) - narrative consistent с COMPLICATION «По mROAS Social опережает»
+- **L23:** dedup cut_source из underperformer_names - устранён дубликат «из TRPs ... остановить TRPs»
 
 **Audit-fix (Day 2-5 hardening):**
 - PPTX s10 leftover (L15 missed location)
@@ -149,7 +149,7 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 - **Real Kagocel verification:** mroi_current alignment max Δ=0.0000, action labels match expected (TRPs=Cut, Performance=Scale)
 - **cargo check:** clean compile
 
-## Ship details (FINAL — 2026-04-27)
+## Ship details (FINAL - 2026-04-27)
 
 - **NSIS installer SHA256:** `2cf603f95a34294f2ca5df272d2be933b7c741e1152260609b00fd267060cf94`
 - **Installer size:** 189.3 MB (198,521,281 bytes)

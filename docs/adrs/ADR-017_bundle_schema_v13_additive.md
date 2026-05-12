@@ -23,7 +23,7 @@
 
 **Schema bump → ОТКАЗ.** Версия bundle остаётся `v1.3` (уже занят Trust Level 3 marker из v1.1.0).
 
-Все новые поля v1.3.0 — **strictly additive**:
+Все новые поля v1.3.0 - **strictly additive**:
 - Старые v1.2 bundles читаются с `defaults injected in memory`.
 - Сохраняются в новом формате при следующем save (no migration tool).
 - Не используется `tools/migrate_v12_to_v20.py` (отменён).
@@ -106,14 +106,14 @@ def load_model_with_compat(path):
 
 **Почему не v2.0 bump:**
 
-1. **Не destructive.** Все изменения — добавление полей. v1.2 → v1.3.0 формально совместимо (старые читаются с defaults).
+1. **Не destructive.** Все изменения - добавление полей. v1.2 → v1.3.0 формально совместимо (старые читаются с defaults).
 2. **Меньше работы.** Не нужен migration tool, не нужны fixtures, не нужны regression проверки v2.0 ↔ v1.2.
 3. **Less anxious UX для пилотов.** Кагоцел/Венарус видят «v1.2 → v1.3» автоматически при save, не нужно объяснять «мажорное обновление».
-4. **Backward write compatibility.** v1.3.0 bundle, открытый в v1.2.0 (hypothetical downgrade scenario), теряет только новые поля — модель работает (per-channel selection деградирует в текущий `analysisObjective`).
+4. **Backward write compatibility.** v1.3.0 bundle, открытый в v1.2.0 (hypothetical downgrade scenario), теряет только новые поля - модель работает (per-channel selection деградирует в текущий `analysisObjective`).
 
 **Почему не v1.4 bump:**
 
-`v1.3` уже занят Trust Level 3 marker (v1.1.0 changelog). Семантически v1.3.0 расширяет v1.3 schema без структурных изменений — bump не нужен. Bumping к v1.4 создаст ложное впечатление structural change.
+`v1.3` уже занят Trust Level 3 marker (v1.1.0 changelog). Семантически v1.3.0 расширяет v1.3 schema без структурных изменений - bump не нужен. Bumping к v1.4 создаст ложное впечатление structural change.
 
 **Почему не сохранять только в новом формате (no defaults injection):**
 
@@ -124,9 +124,9 @@ def load_model_with_compat(path):
 | Альтернатива | Отвергнуто потому что |
 |---|---|
 | **v2.0 bump + migration tool** | Излишне destructive; user-facing version jump неоправдан; +3 дня работы |
-| **v1.4 bump (additive marker)** | Семантически incorrect — нет structural изменений |
+| **v1.4 bump (additive marker)** | Семантически incorrect - нет structural изменений |
 | **Только новые поля без default injection** | v1.2 bundles ломаются на новых code paths |
-| **Strict `version` field в bundle** | Не было раньше, добавлять сейчас — структурное изменение, отложено |
+| **Strict `version` field в bundle** | Не было раньше, добавлять сейчас - структурное изменение, отложено |
 
 ## Consequences
 
@@ -137,22 +137,22 @@ def load_model_with_compat(path):
 - Пилот UX: «open старый файл → работает».
 
 **Negative:**
-- Bundle не имеет explicit `version` field — versioning через pickle internal `model_version`. Не явное.
+- Bundle не имеет explicit `version` field - versioning через pickle internal `model_version`. Не явное.
 - Defaults в memory скрывают что юзер не задал значение явно (mitigated через `value_per_count_unit_source='auto'` flag).
 
 **Neutral:**
-- Если в Phase B понадобится structural change — введём explicit `bundle_version: "2.0"` тогда.
+- Если в Phase B понадобится structural change - введём explicit `bundle_version: "2.0"` тогда.
 
 ## Implementation
 
-- `sidecar/econometrica/engines/persistence.py::load_model_with_compat()` — добавить v1.3.0 additive fields injection.
-- `src-tauri/src/commands/project.rs::ProjectInfo` — расширить struct с 7 новыми Optional fields.
-- `tools/migrate_v12_to_v20.py` — **NOT CREATED**.
-- Существующие 552 теста — passable без изменений (defaults compatible).
+- `sidecar/econometrica/engines/persistence.py::load_model_with_compat()` - добавить v1.3.0 additive fields injection.
+- `src-tauri/src/commands/project.rs::ProjectInfo` - расширить struct с 7 новыми Optional fields.
+- `tools/migrate_v12_to_v20.py` - **NOT CREATED**.
+- Существующие 552 теста - passable без изменений (defaults compatible).
 
 ## References
 
-- ADR-015 (Mode as derived state) — derived_mode field.
-- ADR-016 (KPI kinds) — kpi_kind + value_per_count_unit fields.
-- ADR-018 (Migration safety protocol) — для future structural bumps.
+- ADR-015 (Mode as derived state) - derived_mode field.
+- ADR-016 (KPI kinds) - kpi_kind + value_per_count_unit fields.
+- ADR-018 (Migration safety protocol) - для future structural bumps.
 - Existing schema ladder: `engines/persistence.py::load_model_with_compat()`.

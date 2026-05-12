@@ -1,6 +1,6 @@
 <script>
   /**
-   * WhyThisStep — v1.3.0 skeleton (per ADR-015 P0.9 + Stage 4 educational).
+   * WhyThisStep - v1.3.0 skeleton (per ADR-015 P0.9 + Stage 4 educational).
    *
    * Раскрывающаяся секция с 4 блоками:
    * 1. Что мы делаем.
@@ -8,7 +8,7 @@
    * 3. На что обратить внимание.
    * 4. Что будет дальше.
    *
-   * Stage 2: skeleton — рендерит content из props. Stage 4: финальный content
+   * Stage 2: skeleton - рендерит content из props. Stage 4: финальный content
    * через contextual-help.json + mastery-aware visibility (по default collapse
    * для intermediate/expert; expanded для novice).
    *
@@ -30,7 +30,7 @@
   // v1.3.2 audit fix: classic Svelte 5 controlled/uncontrolled <details> loop.
   // Pre-fix: `open={isOpen} ontoggle={toggle}` → re-render fires toggle event →
   // toggle() flips state → re-render → toggle event → loop десятки раз/сек.
-  // Post-fix: `bind:open` — two-way sync без explicit event handler, browser-
+  // Post-fix: `bind:open` - two-way sync без explicit event handler, browser-
   // native interaction только при user click.
 </script>
 

@@ -1,4 +1,4 @@
-"""Unit tests for utils/forecasting.py — Phase 2.1 Step 1 (Option C math layer).
+"""Unit tests for utils/forecasting.py - Phase 2.1 Step 1 (Option C math layer).
 
 Tests:
 - flat_alloc_adstock_series: closed-form == apply_adstock numerical (geometric)
@@ -125,7 +125,7 @@ class TestEvaluateFlatAllocationResponse:
     def test_option_c_differs_from_hill_of_mean_by_jensen(self):
         """For non-trivial S-curve, sum-of-Hills != Hill-of-mean × n.
 
-        Core M9 finding — confirms Option C mathematically distinct от current
+        Core M9 finding - confirms Option C mathematically distinct от current
         Aurora optimizer's Hill-of-mean approximation. Test uses short horizon
         (cold-start adstock variability) + mid-S Hill operating zone (peak
         Jensen sensitivity).
@@ -133,7 +133,7 @@ class TestEvaluateFlatAllocationResponse:
         cols, params, means, cfg, uc = self._basic_setup(decay=0.5, alpha=3.0, gamma=0.5, beta=0.1)
         # n=5, alloc=10 → x_avg=2 / mean=5 → x_norm ranges 0.4..0.78 (mid-S zone)
         alloc = np.array([10.0])
-        n = 5  # short horizon — cold-start adstock variability matters
+        n = 5  # short horizon - cold-start adstock variability matters
 
         # Option C (per-period sum)
         option_c = evaluate_flat_allocation_response(
@@ -152,14 +152,14 @@ class TestEvaluateFlatAllocationResponse:
         hill_of_mean = 0.1 * sat_of_mean[0] * n
 
         rel_diff = abs(option_c - hill_of_mean) / max(abs(hill_of_mean), 1e-9)
-        # Should differ ≥ 1% — concrete divergence proves Jensen's inequality realized.
+        # Should differ ≥ 1% - concrete divergence proves Jensen's inequality realized.
         assert rel_diff > 0.01, (
             f"Option C ({option_c:.6f}) and Hill-of-mean ({hill_of_mean:.6f}) "
-            f"should differ ≥1% in mid-S zone — Jensen's inequality. rel_diff={rel_diff:.6f}"
+            f"should differ ≥1% in mid-S zone - Jensen's inequality. rel_diff={rel_diff:.6f}"
         )
 
     def test_multi_channel_sums_correctly(self):
-        """Two channels — total response = sum of per-channel contributions."""
+        """Two channels - total response = sum of per-channel contributions."""
         cols = ['A', 'B']
         params = {
             'A': {'alpha': 2.0, 'gamma': 0.5, 'beta': 0.05, 'decay': 0.5,
@@ -203,7 +203,7 @@ class TestEvaluateFlatAllocationResponse:
             allocation_money=np.array([10000.0]), unit_costs=[1.0],
             media_means=means, adstock_config=cfg, n_periods=26,
         )
-        assert result > 0  # sanity — produces non-zero response
+        assert result > 0  # sanity - produces non-zero response
 
     def test_zero_mean_channel_skipped(self):
         """Channel с mean=0 is skipped (cannot normalize)."""
@@ -238,10 +238,10 @@ class TestEvaluateFlatAllocationResponse:
 
 
 class TestPlanningModeOptimizerIntegration:
-    """Smoke test — Phase 2.1 Step 1 dispatcher correctly switches objective."""
+    """Smoke test - Phase 2.1 Step 1 dispatcher correctly switches objective."""
 
     def test_planning_mode_metadata_in_result(self):
-        """Trivial smoke check via direct config — actual optimize runs need pickle."""
+        """Trivial smoke check via direct config - actual optimize runs need pickle."""
         # This test would ideally run optimizer with mock pickle.
         # For now verify dispatcher signature exists без full optimize round-trip.
         from engines import optimizer as opt_mod

@@ -1,4 +1,4 @@
-"""Phase 2.7 (5a) — Canonical lift% formula consistency tests.
+"""Phase 2.7 (5a) - Canonical lift% formula consistency tests.
 
 Verify three engines agree:
 - optimizer.expected_lift_pct
@@ -140,7 +140,7 @@ def test_canonical_lift_not_zero_when_media_changes(tmp_path, seed):
     legacy = float(r['media_only_lift_pct'])
 
     # If legacy lift (media-only) is > 1% AND optimizer found redistribution,
-    # canonical lift should also be non-zero. Не точное равенство — magnitudes
+    # canonical lift should also be non-zero. Не точное равенство - magnitudes
     # differ by baseline/media ratio (~3-10× для realistic projects).
     if abs(legacy) > 1.0:
         assert abs(canonical) > 0.05, (
@@ -170,7 +170,7 @@ def test_optimizer_handles_missing_normalization_fields(tmp_path):
         pk.dump(data, f)
 
     r = _run_optimize(proj)
-    # Не должно crash. Может lift_pct = 0 (degenerate baseline) — acceptable.
+    # Не должно crash. Может lift_pct = 0 (degenerate baseline) - acceptable.
     assert _is_ok(r)
     assert 'expected_lift_pct' in r
     assert 'media_only_lift_pct' in r
@@ -235,5 +235,5 @@ def test_lift_consistency_across_engines(tmp_path, seed):
     # valid math approaches, but they не bit-exact на synthetic Hill-saturated data.
     assert abs(opt_lift - scn_lift) < 2.5, (
         f"Optimizer canonical lift ({opt_lift}) and scenario canonical lift ({scn_lift}) "
-        f"should agree within 2.5 п.п. — diff {opt_lift - scn_lift}"
+        f"should agree within 2.5 п.п. - diff {opt_lift - scn_lift}"
     )

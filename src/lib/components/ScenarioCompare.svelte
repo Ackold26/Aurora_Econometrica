@@ -130,7 +130,7 @@
   <!-- Sliders section -->
   <div class="section">
     <h4 class="section-title">Бюджетные сценарии</h4>
-    <p class="section-hint">Перетащите ползунок — прогноз обновится мгновенно</p>
+    <p class="section-hint">Перетащите ползунок - прогноз обновится мгновенно</p>
 
     <div class="sliders">
       {#each channels as ch}

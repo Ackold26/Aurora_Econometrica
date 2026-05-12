@@ -7,8 +7,8 @@ scale-up» для max-mROAS канала независимо от того чт
 verdict column показывало «Hold» (ratio=1.0 because optimizer не двинул).
 
 Source root cause (Phase 1 meta-audit B1+B3 findings):
-  • narrative_adapter.derive_verdict (mROAS+ratio based) — used by table.
-  • aurora_html/sections.py:render_mroas (mROAS-rank hardcoded strings) — own logic.
+  • narrative_adapter.derive_verdict (mROAS+ratio based) - used by table.
+  • aurora_html/sections.py:render_mroas (mROAS-rank hardcoded strings) - own logic.
 Templates были independent → contradictions inevitable.
 
 Post-fix: single source of truth `engines.channel_action.compute_channel_action`.
@@ -58,11 +58,11 @@ def check(label: str, ok: bool, hint: str = '') -> None:
         print(f'[OK]   {label}')
     else:
         FAILED += 1
-        print(f'[FAIL] {label}' + (f' — {hint}' if hint else ''))
+        print(f'[FAIL] {label}' + (f' - {hint}' if hint else ''))
 
 
 # ──────────────────────────────────────────────────────────────────────
-# UNIT — compute_channel_action mapping
+# UNIT - compute_channel_action mapping
 # ──────────────────────────────────────────────────────────────────────
 
 def test_action_mapping():
@@ -108,44 +108,44 @@ def test_action_mapping():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# INTEGRATION — HTML render coherence
+# INTEGRATION - HTML render coherence
 # ──────────────────────────────────────────────────────────────────────
 
 def _build_synthetic_ctx() -> dict:
     """Build minimal ctx for render_* functions WITHOUT running full pipeline.
 
     Captures the post-Section-A optimizer state: 6 channels с обширным spread
-    actions — Scale, Hold, Reduce, Cut + Uncertain — to exercise всех ветвей.
+    actions - Scale, Hold, Reduce, Cut + Uncertain - to exercise всех ветвей.
     """
     from engines.channel_action import compute_channel_action
 
     channels = [
-        # Performance — clear scale (optimizer recommends growth)
+        # Performance - clear scale (optimizer recommends growth)
         {'name': 'performance', 'mroas': 9.8, 'current_spend': 23.85e6,
          'optimal_spend': 47.7e6, 'spend': 23.85e6, 'contribution': 60e6,
          'efficiency_gap': 8.0},
-        # Social — clear scale (highest mROAS, optimizer recommends growth)
+        # Social - clear scale (highest mROAS, optimizer recommends growth)
         {'name': 'social', 'mroas': 10.5, 'current_spend': 15.5e6,
          'optimal_spend': 30.9e6, 'spend': 15.5e6, 'contribution': 50e6,
          'efficiency_gap': 12.0},
-        # OLV — Scale (mROAS lower but optimizer says +100%)
+        # OLV - Scale (mROAS lower but optimizer says +100%)
         {'name': 'olv', 'mroas': 1.04, 'current_spend': 107e6,
          'optimal_spend': 214e6, 'spend': 107e6, 'contribution': 80e6,
          'efficiency_gap': -1.0},
-        # Banners — Scale (similar to OLV)
+        # Banners - Scale (similar to OLV)
         {'name': 'banners', 'mroas': 1.08, 'current_spend': 113.7e6,
          'optimal_spend': 227.4e6, 'spend': 113.7e6, 'contribution': 85e6,
          'efficiency_gap': 0.5},
-        # TRPs — Reduce (saturated, optimizer cuts)
+        # TRPs - Reduce (saturated, optimizer cuts)
         {'name': 'trps', 'mroas': 0.029, 'current_spend': 3.31e9,
          'optimal_spend': 3.04e9, 'spend': 3.31e9, 'contribution': 95e6,
          'efficiency_gap': -20.0},
-        # Untrained synthetic — Uncertain
+        # Untrained synthetic - Uncertain
         {'name': 'untrained_ch', 'mroas': 0, 'current_spend': 0,
          'optimal_spend': 0, 'spend': 0, 'contribution': 0,
          'untrained': True, 'efficiency_gap': 0.0},
     ]
-    # Decorate каждый канал с action — это что narrative_adapter делает
+    # Decorate каждый канал с action - это что narrative_adapter делает
     for ch in channels:
         a = compute_channel_action(ch)
         ch['verdict'] = a.key  # legacy compatibility
@@ -210,10 +210,10 @@ def test_html_table_commentary_coherence():
     html_recommend = render_recommendation(ctx)
     html_glance = render_at_a_glance(ctx)
 
-    # I1 — table verdict cell action label MATCHES commentary mention
+    # I1 - table verdict cell action label MATCHES commentary mention
     # Table cells: <span class="verdict-Scale">Scale</span>...
     # Commentary: should mention each channel + its action label_ru
-    # Table cells use class="verdict-badge verdict-{key}" — match second segment
+    # Table cells use class="verdict-badge verdict-{key}" - match second segment
     table_verdicts = {}
     for ch in channels:
         m = re.search(
@@ -237,7 +237,7 @@ def test_html_table_commentary_coherence():
             hint=f'table cell shows {actual}',
         )
 
-    # I1c — render_mroas commentary должен использовать action labels из единого
+    # I1c - render_mroas commentary должен использовать action labels из единого
     # источника. Post-refactor: top-3 unique actions показываются (de-duplicated
     # по action key, чтобы не повторять «Масштабировать» для 4 Scale-каналов).
     # Test: для каждого UNIQUE action key который есть в портфеле (Scale, Cut,
@@ -265,7 +265,7 @@ def test_html_table_commentary_coherence():
         hint=f'missing actions in HTML: {missing}',
     )
 
-    # I1d — НЕТ hardcoded «явный потенциал scale-up» для не-Scale каналов
+    # I1d - НЕТ hardcoded «явный потенциал scale-up» для не-Scale каналов
     # (если эта строка появляется, она должна относиться только к Scale-каналам)
     if 'явный потенциал scale-up' in html_mroas:
         # Should appear only когда какой-то канал имеет action=Scale
@@ -323,7 +323,7 @@ def test_converged_at_current_banner():
     html_rec = render_recommendation(ctx)
     html_summary = render_executive_summary(ctx)
 
-    # I2 — banner mentions «не нашёл» / «текущем распределении» / «расширьте границы»
+    # I2 - banner mentions «не нашёл» / «текущем распределении» / «расширьте границы»
     keywords = ['распределени', 'границ', 'текущ']
     found_rec = any(kw in html_rec for kw in keywords)
     found_sum = any(kw in html_summary for kw in keywords)

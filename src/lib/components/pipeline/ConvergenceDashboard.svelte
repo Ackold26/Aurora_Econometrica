@@ -124,7 +124,7 @@
         type: 'value',
         axisLabel: {
           color: '#94a3b8', fontSize: 10,
-          // Audit pass 10 (Антон 2026-05-03): compact formatter — full numbers
+          // Audit pass 10 (Антон 2026-05-03): compact formatter - full numbers
           // «100 000 000» (11 chars × ~7px = 77px) обрезались в grid.left=60px
           // → customer видел «00 000 000» (clipped). Compact «100M» (4 chars)
           // fits comfortably + читается лучше.
@@ -171,7 +171,7 @@
   const rhatFailed = $derived(
     Object.values(diagnostics?.per_param_rhat || {}).filter(v => v >= 1.05).length
   );
-  /** MCMC config used in this run — drives context-aware divergence advice. */
+  /** MCMC config used in this run - drives context-aware divergence advice. */
   const mcmcTune = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.tune ?? 2000));
   const mcmcDraws = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.draws ?? 2000));
   const mcmcChains = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.chains ?? 4));
@@ -180,13 +180,13 @@
   const totalDraws = $derived(mcmcChains * mcmcDraws);
   const divergencesPct = $derived(totalDraws > 0 ? (divergences / totalDraws * 100) : 0);
 
-  /** Chart height — scale with number of params */
+  /** Chart height - scale with number of params */
   const rhatHeight = $derived(`${Math.max(180, rhatCount * 28 + 60)}px`);
 
   // Подсказки для ?-иконок
   const HELP = {
-    rhatChart: 'R-hat по параметрам — проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона — R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
-    avpChart:  'Факт vs Прогноз — визуальная проверка качества модели.\n\nЧто это: синяя линия — реальные продажи, зелёная пунктирная — предсказание модели. В правом верхнем углу — R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
+    rhatChart: 'R-hat по параметрам - проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона - R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
+    avpChart:  'Факт vs Прогноз - визуальная проверка качества модели.\n\nЧто это: синяя линия - реальные продажи, зелёная пунктирная - предсказание модели. В правом верхнем углу - R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
   };
 </script>
 
@@ -194,8 +194,8 @@
   <!-- Warning banners.
        UI bug fix (Phase 0.1 live-test): show "не сошлась" ONLY when R-hat > 1.05
        для хотя бы одного параметра. Backend's `checks.convergence` смешивает
-       R-hat и divergences в один флаг — это сбивало пользователя ("не сошлась:
-       0 параметров"). Дивергенции — отдельный signal об эффективности NUTS,
+       R-hat и divergences в один флаг - это сбивало пользователя ("не сошлась:
+       0 параметров"). Дивергенции - отдельный signal об эффективности NUTS,
        не о сходимости. -->
   {#if rhatFailed > 0}
     <div class="warn-banner warn">
@@ -208,32 +208,32 @@
       ⚠ {divergences} дивергенций обнаружено <span class="muted">({divergencesPct.toFixed(2)}% от {totalDraws} draws)</span>
       <span class="muted">(Tune={mcmcTune}, Draws={mcmcDraws}, target_accept={mcmcTargetAccept}).</span>
       {#if rhatFailed === 0}
-        Параметры сошлись (R-hat &lt; 1.05) — модель готова к использованию.
+        Параметры сошлись (R-hat &lt; 1.05) - модель готова к использованию.
         {#if divergences <= 10}
           {#if mcmcTune < 4000}
-            <strong>Можно продолжать.</strong> Для академической чистоты — увеличьте Tune до 4000-6000 в Эксперт-режиме.
+            <strong>Можно продолжать.</strong> Для академической чистоты - увеличьте Tune до 4000-6000 в Эксперт-режиме.
           {:else if mcmcTargetAccept < 0.99}
-            <strong>Можно продолжать.</strong> Tune уже {mcmcTune} — дальнейшее увеличение не поможет. 1-3 дивергенции практически безвредны для 95% CI; альтернативно — повысьте target_accept до 0.99 (медленнее, но устранит остатки).
+            <strong>Можно продолжать.</strong> Tune уже {mcmcTune} - дальнейшее увеличение не поможет. 1-3 дивергенции практически безвредны для 95% CI; альтернативно - повысьте target_accept до 0.99 (медленнее, но устранит остатки).
           {:else}
-            <strong>Можно продолжать.</strong> Tune={mcmcTune}, target_accept={mcmcTargetAccept} — настройки максимальные. Остаточные дивергенции говорят о геометрии posterior'а, а не о NUTS adaptation. Безопасно для 95% CI.
+            <strong>Можно продолжать.</strong> Tune={mcmcTune}, target_accept={mcmcTargetAccept} - настройки максимальные. Остаточные дивергенции говорят о геометрии posterior'а, а не о NUTS adaptation. Безопасно для 95% CI.
           {/if}
         {:else if divergences <= 50}
           {#if mcmcTune < 6000}
-            <strong>Продолжать можно с осторожностью.</strong> Увеличьте Tune до 6000 и Draws до 4000 — обычно уменьшает дивергенции в 5-10 раз.
+            <strong>Продолжать можно с осторожностью.</strong> Увеличьте Tune до 6000 и Draws до 4000 - обычно уменьшает дивергенции в 5-10 раз.
           {:else}
-            <strong>Продолжать можно с осторожностью.</strong> Tune={mcmcTune} не помогает уменьшить дивергенции. Альтернативы: target_accept=0.99, упростить модель (исключить коллинеарные каналы — см. VIF в Эксперт-режиме Валидации), или ужесточить приоры.
+            <strong>Продолжать можно с осторожностью.</strong> Tune={mcmcTune} не помогает уменьшить дивергенции. Альтернативы: target_accept=0.99, упростить модель (исключить коллинеарные каналы - см. VIF в Эксперт-режиме Валидации), или ужесточить приоры.
           {/if}
         {:else}
           {#if mcmcTune < 6000}
             <strong>Результаты использовать с осторожностью.</strong> Увеличьте Tune до 6000+, Draws до 6000, и/или исключите сильно коллинеарные каналы (см. VIF в Эксперт-режиме Валидации).
           {:else}
-            <strong>Результаты использовать с осторожностью.</strong> Tune={mcmcTune} максимален — дальнейшее увеличение не поможет. Проблема в геометрии posterior'а: упростите модель (уберите коллинеарные каналы по VIF), сократите количество параметров, или сузьте приоры.
+            <strong>Результаты использовать с осторожностью.</strong> Tune={mcmcTune} максимален - дальнейшее увеличение не поможет. Проблема в геометрии posterior'а: упростите модель (уберите коллинеарные каналы по VIF), сократите количество параметров, или сузьте приоры.
           {/if}
         {/if}
       {:else}
         Параметры не сошлись (R-hat &gt; 1.05).
         {#if mcmcTune < 6000}
-          Увеличьте Tune до 6000 и Draws до 4000; если не помогло — упростите модель (исключите коллинеарные каналы).
+          Увеличьте Tune до 6000 и Draws до 4000; если не помогло - упростите модель (исключите коллинеарные каналы).
         {:else}
           Tune={mcmcTune} не помогает достичь сходимости. Упростите модель (уберите коллинеарные каналы по VIF) или пересмотрите приоры в Эксперт-режиме.
         {/if}
@@ -254,8 +254,8 @@
     </ExpandableCard>
   {/if}
 
-  <!-- Panel B: Actual vs Predicted — wrapped в ExpandableCard для fullscreen.
-       Метрики R²/MAPE — HTML overlay через CSS tokens (theme-contrastable). -->
+  <!-- Panel B: Actual vs Predicted - wrapped в ExpandableCard для fullscreen.
+       Метрики R²/MAPE - HTML overlay через CSS tokens (theme-contrastable). -->
   {#if diagnostics.actual_vs_predicted}
     <ExpandableCard title="Факт vs Прогноз">
       <div class="chart-panel-body avp-panel">
@@ -305,7 +305,7 @@
   }
 
   /* Phase 2 audit pass 5 cont (Антон 2026-05-03): chart panel body inside
-     ExpandableCard. Position relative — overlay R²/MAPE metrics absolutely. */
+     ExpandableCard. Position relative - overlay R²/MAPE metrics absolutely. */
   .chart-panel-body {
     position: relative;
     display: flex;
@@ -330,7 +330,7 @@
     cursor: help;
     user-select: none;
   }
-  /* R²/MAPE overlay — theme-contrastable через CSS tokens. */
+  /* R²/MAPE overlay - theme-contrastable через CSS tokens. */
   .avp-metrics {
     position: absolute;
     top: 0;

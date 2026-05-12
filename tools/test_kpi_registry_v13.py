@@ -1,4 +1,4 @@
-"""Tests для kpi_registry v1.3.0 — new kpi_kind + count KPIs + helper functions.
+"""Tests для kpi_registry v1.3.0 - new kpi_kind + count KPIs + helper functions.
 
 Per ADR-016 (KPI kinds binary verdict semantics).
 """
@@ -27,7 +27,7 @@ from utils.kpi_registry import (
 # ─── kpi_kind field ─────────────────────────────────────────────────────────
 
 def test_sales_has_monetary_kind():
-    """sales — это денежный KPI (выручка в ₽)."""
+    """sales - это денежный KPI (выручка в ₽)."""
     assert get_kpi_config('sales').kpi_kind == 'monetary'
 
 
@@ -40,7 +40,7 @@ def test_profit_has_monetary_kind():
 
 
 def test_sales_packs_has_count_kind():
-    """sales_packs — это count KPI (штуки продаж)."""
+    """sales_packs - это count KPI (штуки продаж)."""
     assert get_kpi_config('sales_packs').kpi_kind == 'count'
 
 
@@ -69,7 +69,7 @@ def test_count_custom_has_count_kind():
 
 
 def test_awareness_has_proportional_kind():
-    """awareness — proportional, out_of_scope_v13."""
+    """awareness - proportional, out_of_scope_v13."""
     assert get_kpi_config('awareness').kpi_kind == 'proportional'
     assert get_kpi_config('awareness').out_of_scope_v13 is True
 
@@ -116,7 +116,7 @@ def test_is_count_kpi_false_for_monetary():
 
 
 def test_is_count_kpi_false_for_awareness():
-    """awareness — proportional, не count."""
+    """awareness - proportional, не count."""
     assert not is_count_kpi('awareness')
 
 
@@ -193,14 +193,14 @@ def test_monetary_kpi_with_label_raises_at_import():
             raise ValueError(
                 f"KPI_REGISTRY['{bad_config.name}']: monetary KPI cannot have "
                 f"value_per_count_unit_label (got '{bad_config.value_per_count_unit_label}'). "
-                f"Monetary KPIs measure target в ₽ directly — value-per-unit поле не применимо."
+                f"Monetary KPIs measure target в ₽ directly - value-per-unit поле не применимо."
             )
 
 
-# ─── Backward compat — все 20 prior tests из test_kpi_registry.py должны pass ─
+# ─── Backward compat - все 20 prior tests из test_kpi_registry.py должны pass ─
 
 def test_v12_sales_priors_unchanged():
-    """Trust 3 priors для sales — frozen (regression guard E3)."""
+    """Trust 3 priors для sales - frozen (regression guard E3)."""
     config = get_kpi_config('sales')
     assert config.brand_mu_logit_prior == (0.7, 0.3)
     assert config.perf_mu_logit_prior == (-1.4, 0.7)

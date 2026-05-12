@@ -5,7 +5,7 @@ Reproduces the 0% lift bug reported on real Kagocel data via a SYNTHETIC
 fixture с такими же mathematical pathologies:
   - 6 channels, 1 in native units (TRPs, uc=150_000 ₽/TRP), 5 in money (uc=1)
   - mROAS asymmetry ~350× between channels (TRPs saturated, small channels efficient)
-  - Hill α ≈ 1.5, γ ≈ 0.48, decay ≈ 0.245 (uniform — Phase 1.1 hierarchical pulled tight)
+  - Hill α ≈ 1.5, γ ≈ 0.48, decay ≈ 0.245 (uniform - Phase 1.1 hierarchical pulled tight)
   - n_periods = 31 weeks
   - Bounds spread 10⁵× (TRPs native ~10⁴ vs money channels ~10⁸)
   - Money budget constraint (sum x · uc = target)
@@ -26,7 +26,7 @@ Run:
     cd D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica
     python tools/test_optimizer_kagocel_redistribution.py
 
-Exit 0 on success, 1 on failure. Plain stdlib + numpy + pandas — no pytest.
+Exit 0 on success, 1 on failure. Plain stdlib + numpy + pandas - no pytest.
 """
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def check(label: str, ok: bool, hint: str = '') -> None:
         print(f'[OK]   {label}')
     else:
         FAILED += 1
-        print(f'[FAIL] {label}' + (f' — {hint}' if hint else ''))
+        print(f'[FAIL] {label}' + (f' - {hint}' if hint else ''))
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -97,18 +97,18 @@ def build_synthetic_kagocel_fixture(project_dir: Path) -> dict:
     # Realistic spend patterns (bursty TRPs, smoother digital)
     raw_data = {
         'date': pd.date_range('2025-01-06', periods=n_periods, freq='W-MON'),
-        # Money channels — varied weekly spend, scale similar to real Kagocel
+        # Money channels - varied weekly spend, scale similar to real Kagocel
         'olv': rng.uniform(2_000_000, 5_000_000, n_periods),
         'banners': rng.uniform(2_500_000, 5_500_000, n_periods),
         'social': rng.uniform(300_000, 800_000, n_periods),
         'retail_media': rng.uniform(300_000, 800_000, n_periods),
         'performance': rng.uniform(500_000, 1_300_000, n_periods),
-        # TRPs — bursty (some weeks 1500, others 200)
+        # TRPs - bursty (some weeks 1500, others 200)
         'tv_trps_brand': np.concatenate([
             rng.uniform(800, 1500, 18),  # active campaign
             rng.uniform(100, 400, 13),   # quiet period
         ])[:n_periods],
-        # Synthetic KPI — sum of media contributions + baseline + noise
+        # Synthetic KPI - sum of media contributions + baseline + noise
         # We compute exact KPI below (depends on channel_params)
         'kpi': np.zeros(n_periods),
     }
@@ -166,7 +166,7 @@ def build_synthetic_kagocel_fixture(project_dir: Path) -> dict:
     df['kpi'] = kpi_signal * y_std + y_mean
     df.to_excel(data_path, index=False)
 
-    # Posterior samples (small — 200 draws, just enough for CI computation)
+    # Posterior samples (small - 200 draws, just enough for CI computation)
     n_samples = 200
     n_ch = len(media_cols)
     posterior_samples = {
@@ -234,7 +234,7 @@ def build_synthetic_kagocel_fixture(project_dir: Path) -> dict:
         'posterior_samples': posterior_samples,
         'model_version': '1.2',
         'y_actual': df['kpi'].tolist(),
-        'y_predicted': df['kpi'].tolist(),  # synthetic — match perfectly
+        'y_predicted': df['kpi'].tolist(),  # synthetic - match perfectly
         'causal_artifact_path': None,
     }
 
@@ -260,23 +260,23 @@ def main() -> int:
         from engines.optimizer import optimize
         result = optimize({'min_pct': 20.0, 'max_pct': 200.0}, str(proj))
 
-        # G5 — status ok
+        # G5 - status ok
         check('G5: status == "ok"', result.get('status') == 'ok',
               hint=f'got {result.get("status")} / {result.get("error_code")} / {result.get("message")}')
         if result.get('status') != 'ok':
             return 1  # cannot continue without ok
 
-        # G4 — converged
+        # G4 - converged
         check('G4: optimization_converged == True',
               result.get('optimization_converged') is True,
               hint=str(result.get('optimization_converged')))
 
-        # G1 — lift ≥ 5%
+        # G1 - lift ≥ 5%
         lift = float(result.get('expected_lift_pct') or 0)
         check(f'G1: lift_pct ≥ 5.0 (got {lift:.2f})', lift >= 5.0,
               hint='Multi-start failed to escape current allocation local trap')
 
-        # G2 — Performance/Social/RetailMedia grow
+        # G2 - Performance/Social/RetailMedia grow
         deltas = {ch['name']: float(ch.get('delta_pct') or 0) for ch in result.get('channels', [])}
         check(f'G2a: performance delta ≥ +5% (got {deltas.get("performance", 0):+.2f}%)',
               deltas.get('performance', 0) >= 5.0)
@@ -285,18 +285,18 @@ def main() -> int:
         check(f'G2c: retail_media delta ≥ +5% (got {deltas.get("retail_media", 0):+.2f}%)',
               deltas.get('retail_media', 0) >= 5.0)
 
-        # G3 — TRPs shrinks
+        # G3 - TRPs shrinks
         check(f'G3: tv_trps_brand delta ≤ -3% (got {deltas.get("tv_trps_brand", 0):+.2f}%)',
               deltas.get('tv_trps_brand', 0) <= -3.0)
 
-        # G6 — narrative non-vacuous
+        # G6 - narrative non-vacuous
         insight = result.get('insight') or ''
         check('G6: insight mentions reallocation',
               ('Увеличить' in insight) or ('Сократить' in insight),
               hint=f'insight="{insight[:120]}"')
 
         # ──────────────────────────────────────────────────────────────
-        # L10 — math-fix v1.0.16 lock-in: lift_pct correct когда
+        # L10 - math-fix v1.0.16 lock-in: lift_pct correct когда
         # money_target ≠ current_total_money (What-if scenarios).
         # Pre-fix regression: x0_money projected to money_target inflated
         # baseline → lift_pct artifacts (-50% budget → +124% «lift»).
@@ -316,8 +316,8 @@ def main() -> int:
             for c in media_cols_m
         )
 
-        # L10a — half budget should give SMALL or NEGATIVE lift_pct
-        # (Hill saturation monotonic — less spend = less media response,
+        # L10a - half budget should give SMALL or NEGATIVE lift_pct
+        # (Hill saturation monotonic - less spend = less media response,
         # max possible: optimizer redistributes within smaller budget).
         result_half = _optimize({
             'min_pct': 10.0,
@@ -331,10 +331,10 @@ def main() -> int:
         check(
             f'L10a: half budget lift_pct < +50 (got {lift_half:+.2f}%)',
             lift_half < 50.0,
-            hint='lift_pct inflated when money_target < current_total — L10 regression',
+            hint='lift_pct inflated when money_target < current_total - L10 regression',
         )
 
-        # L10b — double budget should give POSITIVE lift bigger than default
+        # L10b - double budget should give POSITIVE lift bigger than default
         # (more money → more media potential, but diminishing returns)
         result_default = _optimize({
             'min_pct': 10.0,
@@ -354,12 +354,12 @@ def main() -> int:
         check(
             f'L10b: 2× budget lift > default (got {lift_double:.2f}% vs default {lift_default:.2f}%)',
             lift_double > lift_default,
-            hint='2× budget should give more lift, not less — L10 inverted relationship',
+            hint='2× budget should give more lift, not less - L10 inverted relationship',
         )
 
-        # L10c — property-based monotonicity test (SA18)
+        # L10c - property-based monotonicity test (SA18)
         # Lift_pct должно strictly не-decreasing с money_target ratio.
-        # Hill saturation монотонна — больше spend → больше effect.
+        # Hill saturation монотонна - больше spend → больше effect.
         targets = [0.5, 0.75, 1.0, 1.5, 2.0]
         lifts = []
         for ratio in targets:
@@ -373,17 +373,17 @@ def main() -> int:
             for i in range(len(lifts) - 1)
         )
         check(
-            f'L10c: lift_pct monotonic in budget — {dict(zip(targets, [round(l, 1) for l in lifts]))}',
+            f'L10c: lift_pct monotonic in budget - {dict(zip(targets, [round(l, 1) for l in lifts]))}',
             monotonic,
-            hint='Hill saturation монотонна — больше budget должен давать больше lift',
+            hint='Hill saturation монотонна - больше budget должен давать больше lift',
         )
 
         # ──────────────────────────────────────────────────────────────
-        # L4 — math-fix v1.4 Section C lock-in:
+        # L4 - math-fix v1.4 Section C lock-in:
         #   1. Decomposer output contains mroi_current per channel (money axis)
         #   2. Decomposer + optimizer decorate action / action_label / action_tone
         #   3. Three-way alignment: decompose mroi_current ≈ optimize mroi_current
-        #   4. TRPs in money axis (< 1×) — pre-fix JS fallback showed ~110× (native)
+        #   4. TRPs in money axis (< 1×) - pre-fix JS fallback showed ~110× (native)
         # ──────────────────────────────────────────────────────────────
         print('── L4: action decoration + mROAS unification lock-in ──')
         from engines.decomposer import decompose
@@ -411,7 +411,7 @@ def main() -> int:
         )
         check('L4-3: optimizer decorates action_label / action_tone per channel', all_opt_have_label)
 
-        # L4-4: three-way alignment — decompose mroi_current ≈ optimize mroi_current
+        # L4-4: three-way alignment - decompose mroi_current ≈ optimize mroi_current
         # Same _compute_mroas_money helper at same current spend → math identity (within rounding).
         opt_mroi = {ch['name']: float(ch.get('mroi_current') or 0) for ch in opt_channels}
         dec_mroi = {ch['name']: float(ch.get('mroi_current') or 0) for ch in dec_channels}
@@ -422,10 +422,10 @@ def main() -> int:
         check(
             f'L4-4: decompose vs optimize mroi_current alignment (max Δ={max_drift:.4f})',
             max_drift < 0.01,
-            hint='Both engines must use same _compute_mroas_money — drift signals divergent math paths',
+            hint='Both engines must use same _compute_mroas_money - drift signals divergent math paths',
         )
 
-        # L4-5: TRPs (low mROAS, native unit) — money-axis verification
+        # L4-5: TRPs (low mROAS, native unit) - money-axis verification
         trps_opt = next((ch for ch in opt_channels if 'trps' in ch['name'].lower()), None)
         trps_mroi = float(trps_opt.get('mroi_current') or 0) if trps_opt else 0
         check(
@@ -434,14 +434,14 @@ def main() -> int:
             hint='Pre-fix JS fallback showed TRPs ~110× (native axis); post-fix backend ≈ 0.03× (money axis)',
         )
 
-        # L4-6: TRPs action ∈ {Cut, Reduce, Watch} — low mROAS → не должен быть Scale/Hold
+        # L4-6: TRPs action ∈ {Cut, Reduce, Watch} - low mROAS → не должен быть Scale/Hold
         trps_action = trps_opt.get('action') if trps_opt else None
         check(
-            f'L4-6: TRPs optimizer action ∈ {{Cut, Reduce, Watch, Uncertain}} — got {trps_action!r}',
+            f'L4-6: TRPs optimizer action ∈ {{Cut, Reduce, Watch, Uncertain}} - got {trps_action!r}',
             trps_action in ('Cut', 'Reduce', 'Watch', 'Uncertain'),
         )
 
-        # L4-7: high-mROAS channel (Performance) — должен быть Scale
+        # L4-7: high-mROAS channel (Performance) - должен быть Scale
         perf_opt = next((ch for ch in opt_channels if 'performance' in ch['name'].lower()), None)
         perf_action = perf_opt.get('action') if perf_opt else None
         check(

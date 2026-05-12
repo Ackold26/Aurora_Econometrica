@@ -10,7 +10,7 @@ const cache = new Map();
 const MAX_CACHE = 50;
 
 /**
- * Fast string hash (djb2) — used as cache key instead of full markdown text.
+ * Fast string hash (djb2) - used as cache key instead of full markdown text.
  * @param {string} str
  * @returns {string}
  */
@@ -183,7 +183,7 @@ export function extractCompletionStats(sections) {
 
 /**
  * C5: Group slides into named blocks based on synthesis section headings.
- * Synthesis sections matching "БЛОК: Name — слайды X-Y" define groups.
+ * Synthesis sections matching "БЛОК: Name - слайды X-Y" define groups.
  * Slides not matching any block are placed in "Прочее" (if other groups exist).
  * Fallback: single group with empty name containing all slides (flat list).
  * @param {ResponseSection[]} slides
@@ -191,7 +191,7 @@ export function extractCompletionStats(sections) {
  * @returns {Array<{ name: string, slides: ResponseSection[] }>}
  */
 export function groupSlidesByBlocks(slides, synthesis) {
-  const blockRe = /БЛОК:\s*(.+?)(?:\s*[—–\-]\s*слайды?\s*(\d+)\s*[-–—]\s*(\d+))?/i;
+  const blockRe = /БЛОК:\s*(.+?)(?:\s*[-–\-]\s*слайды?\s*(\d+)\s*[-–-]\s*(\d+))?/i;
   /** @type {Array<{ name: string, slides: ResponseSection[] }>} */
   const groups = [];
   for (const sec of synthesis) {
@@ -219,7 +219,7 @@ export function groupSlidesByBlocks(slides, synthesis) {
  * @returns {{ num: number, name: string }}
  */
 export function cleanSlideTitle(title) {
-  const m = title.match(/^(?:Слайд|Slide)\s*№?\s*(\d+)\s*[:.—–\-]?\s*(.*)/i)
+  const m = title.match(/^(?:Слайд|Slide)\s*№?\s*(\d+)\s*[:.-–\-]?\s*(.*)/i)
          || title.match(/^(\d+)\.\s+(.*)/);
   return m ? { num: +m[1], name: m[2].trim() || `Слайд ${m[1]}` } : { num: 0, name: title };
 }

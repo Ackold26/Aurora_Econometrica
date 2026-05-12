@@ -4,11 +4,11 @@
     sidecar/econometrica/engines/decomposer.py
 
 Detects:
-    [C1] Conditionally-bound names referenced unconditionally — UnboundLocalError
+    [C1] Conditionally-bound names referenced unconditionally - UnboundLocalError
          class (pass-18 trigger). For each function: collect names assigned
          only inside If/Try/With branches; flag references that exist after
          all branches but no fallback assignment.
-    [C2] Bare `except Exception: pass` blocks — silent failure paths.
+    [C2] Bare `except Exception: pass` blocks - silent failure paths.
     [C3] Early `return` inside `try:` without finally setup of consumer state.
     [C4] Division operators applied к outputs of `.get()` (potential NaN/zero
          propagation if missing).
@@ -34,7 +34,7 @@ class ConditionalAssignmentFinder(ast.NodeVisitor):
         - top_level   (always bound, regardless of branch taken)
         - conditional (only bound в если-ветке, либо в одной из If-альтернатив)
 
-    Conditional names referenced AFTER the conditional block — UnboundLocalError
+    Conditional names referenced AFTER the conditional block - UnboundLocalError
     risk. We collect the full set, печатаем references with line numbers.
     """
 
@@ -98,7 +98,7 @@ class ConditionalAssignmentFinder(ast.NodeVisitor):
                     for sub in stmt.orelse:
                         mark_assignments(sub, branch_kind='try-else')
                     for sub in stmt.finalbody:
-                        # Finally executes always — promote к unconditional
+                        # Finally executes always - promote к unconditional
                         mark_assignments(sub, branch_kind=None)
                 elif isinstance(stmt, ast.If):
                     # Both branches must assign к make unconditional
@@ -216,7 +216,7 @@ class DivisionGuardScanner(ast.NodeVisitor):
 def _is_unguarded_denom(node: ast.AST) -> bool:
     """True iff division denominator is .get() result OR Subscript без `max(...)` guard."""
     if isinstance(node, ast.Call):
-        # Calls where func is Attribute с attr='get' — dict.get(...) sans max()
+        # Calls where func is Attribute с attr='get' - dict.get(...) sans max()
         if isinstance(node.func, ast.Attribute) and node.func.attr == 'get':
             return True
     return False
@@ -235,7 +235,7 @@ def _safe_unparse(node: ast.AST) -> str:
 
 
 def main() -> None:
-    print(f'# Phase 3 Error-Path Scan — Raw AST findings\n')
+    print(f'# Phase 3 Error-Path Scan - Raw AST findings\n')
     for path in TARGETS:
         if not path.exists():
             print(f'## {path.name}\n  ❌ Not found: {path}\n')
@@ -281,7 +281,7 @@ def main() -> None:
         dg = DivisionGuardScanner(path.name)
         dg.visit(tree)
         if dg.findings:
-            print('\n### [C4] Divisions without max()/guard (heuristic — manual review)')
+            print('\n### [C4] Divisions without max()/guard (heuristic - manual review)')
             for f in dg.findings[:30]:
                 print(f'    - line {f["line"]}: `{f["snippet"][:80]}`')
             if len(dg.findings) > 30:

@@ -96,7 +96,7 @@
       }
     }
 
-    // Command Palette: Ctrl+K / Cmd+K. v1.3.0 + Ctrl+G — glossary panel.
+    // Command Palette: Ctrl+K / Cmd+K. v1.3.0 + Ctrl+G - glossary panel.
     /** @param {KeyboardEvent} e */
     function handleGlobalKey(e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -104,7 +104,7 @@
         paletteOpen = !paletteOpen;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
-        // Audit fix v1.3.0: guard против modal stacking — не показывать
+        // Audit fix v1.3.0: guard против modal stacking - не показывать
         // glossary если CommandPalette открыт (избегаем z-index overlap).
         if (paletteOpen) return;
         e.preventDefault();
@@ -139,7 +139,7 @@
       } catch { /* update check failed, non-critical */ }
     }
 
-    // Heartbeat timer — periodic server ping
+    // Heartbeat timer - periodic server ping
     async function heartbeat() {
       try {
         const resp = /** @type {{status: string, content_version: string|null, app_min_version: string}} */ (await invoke('send_heartbeat'));
@@ -179,13 +179,13 @@
         console.warn('Content packs not available, using defaults:', e);
       }
 
-      // 2. NOW load cabinets — product type and _products are ready for filtering
+      // 2. NOW load cabinets - product type and _products are ready for filtering
       try {
         const cabs = /** @type {any[]} */ (await invoke('get_cabinets'));
         layoutCabinets.set(cabs);
 
         // 2.1. Clean start: clear inbox + exports for all cabinets ONCE on app launch
-        // (not on every cabinet open — user may navigate between cabinets and settings)
+        // (not on every cabinet open - user may navigate between cabinets and settings)
         for (const cab of cabs) {
           invoke('clear_workspace_files', { cabinetId: cab.id }).catch(() => {});
         }
@@ -193,7 +193,7 @@
         licenseError.set(String(e));
       }
 
-      // 3. Heartbeat AFTER auth — activation record must exist first
+      // 3. Heartbeat AFTER auth - activation record must exist first
       heartbeat();
     })();
 
@@ -216,7 +216,7 @@
   <GlossaryPanel onClose={() => showGlossaryPanel.set(false)} />
 {/if}
 
-<!-- v1.3.2 audit: floating glossary FAB removed — выбивался из премиум-стилистики.
+<!-- v1.3.2 audit: floating glossary FAB removed - выбивался из премиум-стилистики.
      Glossary остаётся доступен через (1) Ctrl+G keyboard shortcut, (2) Settings →
      «Открыть глоссарий» кнопка, (3) tooltip ?-icon рядом с каждым specialized
      термином в pipeline (in-context, не глобальный pictograph). -->

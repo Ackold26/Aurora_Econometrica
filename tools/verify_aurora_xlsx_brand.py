@@ -181,7 +181,7 @@ def main():
         with z.open("xl/sharedStrings.xml") as f:
             ss = f.read().decode('utf-8')
         has_econometrica = 'Econometrica' in ss or 'econometrica' in ss.lower()
-        # NOTE: v1.0.11 check is informational in Stage A — Stage B removes
+        # NOTE: v1.0.11 check is informational in Stage A - Stage B removes
         # version from visible cells entirely; for now just flag presence.
         has_version = bool(re.search(r'v1\.0\.\d+', ss))
         results.append(_check(

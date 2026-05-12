@@ -54,7 +54,7 @@ def test_below_threshold_returns_none():
 def test_at_threshold_returns_none():
     """ratio == threshold → strictly below check fires AT 3.0+ε; exactly 3.0 → None."""
     md = _md(True, {'tv': 'brand'})
-    # ratio = 3.0 — boundary, test strict > check
+    # ratio = 3.0 - boundary, test strict > check
     assert hierarchical_extrapolation_warning(
         md, forecast_budget_money=3_000_000, train_total_money=1_000_000
     ) is None
@@ -107,7 +107,7 @@ def test_zero_train_budget_returns_none():
 
 
 def test_negative_train_budget_returns_none():
-    """Negative train budget — degenerate, returns None."""
+    """Negative train budget - degenerate, returns None."""
     md = _md(True, {'tv': 'brand'})
     assert hierarchical_extrapolation_warning(
         md, forecast_budget_money=10_000_000, train_total_money=-1_000_000
@@ -115,7 +115,7 @@ def test_negative_train_budget_returns_none():
 
 
 def test_custom_threshold():
-    """Threshold parametrizable — pass 5.0 → 4× ratio passes (no warning)."""
+    """Threshold parametrizable - pass 5.0 → 4× ratio passes (no warning)."""
     md = _md(True, {'tv': 'brand'})
     w = hierarchical_extrapolation_warning(
         md, forecast_budget_money=4_000_000, train_total_money=1_000_000,
@@ -146,7 +146,7 @@ def test_warning_message_ru_format():
     msg = w['message_ru']
     assert '5.0×' in msg or '5.0x' in msg.replace('×', 'x')
     assert 'tv_brand' in msg or 'olv_brand' in msg
-    # 2026-05-04: тон сообщения смягчён для customer'a — pooling/β-термины убраны.
+    # 2026-05-04: тон сообщения смягчён для customer'a - pooling/β-термины убраны.
     # Проверяем что упомянуто усреднение/иерархичность вместо технического pooling.
     assert 'усредн' in msg.lower() or 'иерархич' in msg.lower()
     assert 'flat' in msg.lower() or 'сократите' in msg.lower()
@@ -169,7 +169,7 @@ def test_warning_includes_actionable_guidance():
     (1.0, False),
     (2.0, False),
     (2.99, False),
-    (3.0, False),     # boundary — not strictly above
+    (3.0, False),     # boundary - not strictly above
     (3.01, True),
     (5.0, True),
     (10.0, True),

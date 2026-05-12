@@ -1,21 +1,21 @@
-"""Optimizer edge case matrix — Phase 2 of audit.
+"""Optimizer edge case matrix - Phase 2 of audit.
 
 Plan: C:\\Users\\ackol\\.claude\\plans\\zazzy-tumbling-kettle.md, Phase 2.
 
-Systematic enumeration corner cases — each explicit unit test с pass/fail expectation.
+Systematic enumeration corner cases - each explicit unit test с pass/fail expectation.
 
 Eleven batches:
-    A — Forecast periods validation (9 cases)
-    B — Channel count variations (5 cases)
-    C — Unit costs / mixed money smell (5 cases)
-    D — Money target / What-if extremes (6 cases)
-    E — Pass-18 regression lock-in (3 cases)
-    F — Anchor monotonicity matrix in planning + inflation (5 cases)
-    G — Zero-spend channels (3 cases)
-    H — Untrained channels mix (3 cases)
-    I — Awareness pickle horizon caps (3 cases)
-    J — Conditional-state UnboundLocalError prevention (5 cases)
-    K — Inflation edge cases (7 cases)
+    A - Forecast periods validation (9 cases)
+    B - Channel count variations (5 cases)
+    C - Unit costs / mixed money smell (5 cases)
+    D - Money target / What-if extremes (6 cases)
+    E - Pass-18 regression lock-in (3 cases)
+    F - Anchor monotonicity matrix in planning + inflation (5 cases)
+    G - Zero-spend channels (3 cases)
+    H - Untrained channels mix (3 cases)
+    I - Awareness pickle horizon caps (3 cases)
+    J - Conditional-state UnboundLocalError prevention (5 cases)
+    K - Inflation edge cases (7 cases)
 
 Total: 54 tests.
 
@@ -65,7 +65,7 @@ def _build_multi_year(project_dir: Path, *, seed: int, n_channels: int = 6) -> d
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch A — Forecast periods validation
+# Batch A - Forecast periods validation
 # ══════════════════════════════════════════════════════════════════════
 
 def test_A1_forecast_periods_none_analyst_mode(tmp_path):
@@ -172,7 +172,7 @@ def test_A9_forecast_periods_garbage_rejected(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch B — Channel count variations
+# Batch B - Channel count variations
 # ══════════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize('n_channels', [1, 2, 6, 10, 20])
@@ -191,7 +191,7 @@ def test_B_channel_count_works(tmp_path, n_channels):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch C — Unit costs / mixed money smell
+# Batch C - Unit costs / mixed money smell
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C1_all_money_units(tmp_path):
@@ -272,7 +272,7 @@ def test_C5_native_unit_costs_explicit_no_smell(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch D — Money target / What-if extremes
+# Batch D - Money target / What-if extremes
 # ══════════════════════════════════════════════════════════════════════
 
 def test_D1_money_target_equals_current(tmp_path):
@@ -346,7 +346,7 @@ def test_D5_money_target_above_max_capacity_rejected(tmp_path):
     from engines.optimizer import optimize
     r = optimize({
         'min_pct': 50.0, 'max_pct': 150.0,  # sum_max = 1.5× current
-        'total_budget_money': cur * 5.0,    # 5× — way above
+        'total_budget_money': cur * 5.0,    # 5× - way above
     }, str(proj))
     assert r.get('status') == 'error'
     assert r.get('error_code') == 'INFEASIBLE_BUDGET_HIGH'
@@ -367,7 +367,7 @@ def test_D6_money_target_below_min_floor_rejected(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch E — Pass-18 regression lock-in
+# Batch E - Pass-18 regression lock-in
 # ══════════════════════════════════════════════════════════════════════
 
 def test_E1_whatif_half_wide_bounds_per_channel_no_unbound(tmp_path):
@@ -398,7 +398,7 @@ def test_E1_whatif_half_wide_bounds_per_channel_no_unbound(tmp_path):
     # Must return well-formed dict с 'status' field (ok or explicit error)
     assert 'status' in r, f'malformed result: {r}'
     if r.get('status') == 'error':
-        # Accept explicit infeasibility — but no Python exception
+        # Accept explicit infeasibility - but no Python exception
         assert r.get('error_code'), f'error без error_code: {r}'
 
 
@@ -411,7 +411,7 @@ def test_E2_whatif_extreme_high_with_tight_bounds_explicit_infeasible(tmp_path):
     from engines.optimizer import optimize
     r = optimize({
         'min_pct': 80.0, 'max_pct': 120.0,  # tight ±20%
-        'total_budget_money': cur * 2.0,    # 2× — infeasible
+        'total_budget_money': cur * 2.0,    # 2× - infeasible
     }, str(proj))
     assert r.get('status') == 'error'
     assert r.get('error_code') == 'INFEASIBLE_BUDGET_HIGH'
@@ -435,7 +435,7 @@ def test_E3_whatif_zero_budget_explicit_reject(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch F — Anchor monotonicity matrix (planning + inflation context)
+# Batch F - Anchor monotonicity matrix (planning + inflation context)
 # ══════════════════════════════════════════════════════════════════════
 
 @pytest.mark.parametrize('seed', list(range(5)))
@@ -473,7 +473,7 @@ def test_F_anchor_monotonic_planning_with_inflation(tmp_path, seed):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch G — Zero-spend channels
+# Batch G - Zero-spend channels
 # ══════════════════════════════════════════════════════════════════════
 
 def test_G1_one_zero_spend_channel_doesnt_poison(tmp_path):
@@ -528,7 +528,7 @@ def test_G3_all_zero_spend_rejected(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch H — Untrained channels mix
+# Batch H - Untrained channels mix
 # ══════════════════════════════════════════════════════════════════════
 
 def test_H1_partial_untrained_excluded_cleanly(tmp_path):
@@ -580,7 +580,7 @@ def test_H3_one_untrained_mid_list(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch I — Awareness pickle horizon caps
+# Batch I - Awareness pickle horizon caps
 # ══════════════════════════════════════════════════════════════════════
 
 def test_I1_awareness_below_cap_ok(tmp_path):
@@ -625,7 +625,7 @@ def test_I3_awareness_above_cap_rejected(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch J — Conditional-state UnboundLocalError prevention
+# Batch J - Conditional-state UnboundLocalError prevention
 # ══════════════════════════════════════════════════════════════════════
 
 def test_J1_anchor_infeasible_no_unbound(tmp_path):
@@ -707,7 +707,7 @@ def test_J4_brand_max_above_global_max_explicit_error(tmp_path):
 
 
 def test_J5_combined_planning_perchannel_inflation_whatif(tmp_path):
-    """Combined: planning + per-channel + inflation + What-if — all 4 features at once."""
+    """Combined: planning + per-channel + inflation + What-if - all 4 features at once."""
     proj = tmp_path / 'J5'
     md = _build_multi_year(proj, seed=29, n_channels=4)
     media_cols = md['config']['media_columns']
@@ -731,7 +731,7 @@ def test_J5_combined_planning_perchannel_inflation_whatif(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch K — Inflation edge cases
+# Batch K - Inflation edge cases
 # ══════════════════════════════════════════════════════════════════════
 
 def test_K1_inflation_none_no_change(tmp_path):
@@ -776,7 +776,7 @@ def test_K3_inflation_partial_only_target_adjusted(tmp_path):
     trps = next((ch for ch in r['channels'] if ch['name'] == 'tv_trps_brand'), None)
     # Multi-year fixture (2024-2025) + 25% inflation → weighted avg < 150_000
     assert trps['unit_cost'] < 150_000.0
-    # Other channels (uc=1) skipped — inflation irrelevant for money channels
+    # Other channels (uc=1) skipped - inflation irrelevant for money channels
     other = next((ch for ch in r['channels'] if ch['name'] == 'ch_1'), None)
     assert abs(other['unit_cost'] - 1.0) < 1e-9
 
@@ -810,7 +810,7 @@ def test_K5_inflation_uniform_30pct_all_native_adjusted(tmp_path):
     assert is_ok(r)
     trps = next((ch for ch in r['channels'] if ch['name'] == 'tv_trps_brand'), None)
     assert trps['unit_cost'] < 150_000.0
-    # uc=1 channels — skipped по logic в apply_inflation_to_unit_costs
+    # uc=1 channels - skipped по logic в apply_inflation_to_unit_costs
     others = [ch for ch in r['channels'] if ch['name'] != 'tv_trps_brand']
     for ch in others:
         assert abs(ch['unit_cost'] - 1.0) < 1e-9

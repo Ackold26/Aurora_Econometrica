@@ -23,7 +23,7 @@ sys.path.insert(0, str(SIDECAR))
 sys.path.insert(0, str(SIDECAR / "econometrica"))  # aurora_tokens top-level
 
 # Aurora rules
-FORBIDDEN_EM_DASH = "\u2014"          # "—"
+FORBIDDEN_EM_DASH = "\u2014"          # "-"
 SACRED_LIME_UPPER = "CCFF00"           # hex without leading # in XML attrs
 EXPECTED_FONTS = ("Georgia", "Arial")  # Standards/01 typography contract
 
@@ -161,7 +161,7 @@ def main() -> int:
     # Enum keys (Scale/Hold/Cut/Reduce/Watch) are RU-localized in the table
     # column; they must NEVER surface as literal English in slide bodies.
     # Methodology terms (saturation, baseline, breakeven) were Russified in
-    # Stage C.3 — regression-catch any new additions.
+    # Stage C.3 - regression-catch any new additions.
     # Extract *visible text* only (content between <a:t>...</a:t>), so
     # attribute values like 'Segoe UI' don't trigger false positives.
     import re as _re2
@@ -190,7 +190,7 @@ def main() -> int:
             bad_default is None and bad_custom is None,
             "leaked" if (bad_default or bad_custom) else "clean",
         ))
-    # Verdict keys — match whole word (Scale/Hold not as substring of other word)
+    # Verdict keys - match whole word (Scale/Hold not as substring of other word)
     for verdict_key in ("Scale", "Hold", "Watch", "Reduce", "Cut"):
         pattern = _re2.compile(rf'\b{verdict_key}\b')
         bad_default = pattern.search(visible_default)

@@ -2,7 +2,7 @@
  * RecommendationCard component tests (v1.3.2 audit followup I3).
  *
  * Tests render variants per props (tone, primaryAction, secondaryAction)
- * + click handlers. Component is presentational (no internal state) — basic
+ * + click handlers. Component is presentational (no internal state) - basic
  * render coverage gives high-confidence regression prevention.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -15,11 +15,11 @@ describe('RecommendationCard', () => {
     render(RecommendationCard, {
       props: {
         title: 'Тестовая рекомендация',
-        text: 'Сделайте X — получите Y.',
+        text: 'Сделайте X - получите Y.',
       },
     });
     expect(screen.getByText('Тестовая рекомендация')).toBeInTheDocument();
-    expect(screen.getByText('Сделайте X — получите Y.')).toBeInTheDocument();
+    expect(screen.getByText('Сделайте X - получите Y.')).toBeInTheDocument();
   });
 
   it('renders с default icon когда не передан', () => {

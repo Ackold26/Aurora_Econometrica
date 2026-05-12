@@ -1,5 +1,5 @@
 """
-Aurora Econometrica — mode inference (v1.3.0).
+Aurora Econometrica - mode inference (v1.3.0).
 
 Per ADR-015 (Mode as derived state): mode (ROI / Эффективность / Вручную) выводится
 автоматически из per-channel input metrics, не выбирается юзером.
@@ -18,21 +18,21 @@ Usage:
 
 References:
 - ADR-015 (Mode as derived state).
-- REFACTOR_PLAN_v1.3.0.md — матрица 4 базовых режимов.
+- REFACTOR_PLAN_v1.3.0.md - матрица 4 базовых режимов.
 """
 from __future__ import annotations
 
 from typing import Dict, Literal, Mapping
 
 # Input metric type per канал. Соответствует ADR-015.
-# 'monetary'  — канал измеряется в ₽ (бюджет, spend).
-# 'physical'  — канал измеряется в физ. контактах (показы, клики, GRP).
+# 'monetary'  - канал измеряется в ₽ (бюджет, spend).
+# 'physical'  - канал измеряется в физ. контактах (показы, клики, GRP).
 ChannelInputMetric = Literal['monetary', 'physical']
 
 # Derived mode (output type).
-# 'roi'            — все каналы в monetary; модель оценивает ROI ₽/₽.
-# 'effectiveness'  — все каналы в physical; модель оценивает share-based metrics.
-# 'manual'         — mixed: часть каналов в monetary, часть в physical.
+# 'roi'            - все каналы в monetary; модель оценивает ROI ₽/₽.
+# 'effectiveness'  - все каналы в physical; модель оценивает share-based metrics.
+# 'manual'         - mixed: часть каналов в monetary, часть в physical.
 DerivedMode = Literal['roi', 'effectiveness', 'manual']
 
 
@@ -132,12 +132,12 @@ def derive_mode_with_explanation(
     if mode == 'roi':
         explanation = (
             f"Все {total} каналов измеряются в ₽-бюджетах. "
-            f"Модель работает в режиме ROI — оценивает возврат на инвестицию (₽ выручки / ₽ затрат)."
+            f"Модель работает в режиме ROI - оценивает возврат на инвестицию (₽ выручки / ₽ затрат)."
         )
     elif mode == 'effectiveness':
         explanation = (
             f"Все {total} каналов измеряются в физических контактах (показы / клики / GRP). "
-            f"Модель работает в режиме Эффективность — главная метрика сравнения каналов = доля в продажах. "
+            f"Модель работает в режиме Эффективность - главная метрика сравнения каналов = доля в продажах. "
             f"Для cost-effectiveness анализа можно добавить ценники контактов (CPM/CPC/CPP)."
         )
     else:  # manual

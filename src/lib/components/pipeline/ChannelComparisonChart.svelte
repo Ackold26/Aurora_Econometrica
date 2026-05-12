@@ -1,6 +1,6 @@
 <script>
   /**
-   * Channel comparison chart: grouped bar — Share of Spend vs Share of Effect.
+   * Channel comparison chart: grouped bar - Share of Spend vs Share of Effect.
    *
    * Compares каждый канал по двум долям (всегда в %), независимо от KPI mode:
    * - monetary ROI: «доля бюджета vs доля выручки»
@@ -8,7 +8,7 @@
    * - effectiveness: «доля бюджета vs доля эффекта в портфеле»
    *
    * Зелёный = эффект > расходов (недонасыщен), красный = расходы > эффекта
-   * (перенасыщен). Y-axis всегда percentage — KPI-agnostic.
+   * (перенасыщен). Y-axis всегда percentage - KPI-agnostic.
    *
    * v1.3.2: renamed из ROIComparison.svelte. Chart показывает shares of total
    * в процентах; не путать с ROI×/CPU/Доля метриками (которые показываются
@@ -26,10 +26,10 @@
    */
   let { channels } = $props();
 
-  // Палитра — hex/rgba (ECharts не понимает color-mix()).
-  const COLOR_SPEND = '#64748b';   // нейтральный slate — «фоновая» метрика для сравнения
-  const COLOR_EFFICIENT = '#22c55e'; // зелёный — эффект > расходов
-  const COLOR_INEFFICIENT = '#ef4444'; // красный — расходы > эффекта
+  // Палитра - hex/rgba (ECharts не понимает color-mix()).
+  const COLOR_SPEND = '#64748b';   // нейтральный slate - «фоновая» метрика для сравнения
+  const COLOR_EFFICIENT = '#22c55e'; // зелёный - эффект > расходов
+  const COLOR_INEFFICIENT = '#ef4444'; // красный - расходы > эффекта
   const COLOR_NEUTRAL = '#3b82f6'; // синий для дефолта/нулевого gap
 
   const option = $derived.by(() => {
@@ -55,7 +55,7 @@
                  `<div style="color:${gapColor};font-weight:600;">Разрыв: ${sign}${gap}%</div>`;
         },
       },
-      // Custom legend rows — явно задаём цвет и иконку, чтобы соответствие
+      // Custom legend rows - явно задаём цвет и иконку, чтобы соответствие
       // легенды и реальной раскраски было 1:1 (а не дефолтная палитра ECharts).
       legend: {
         data: [
@@ -99,7 +99,7 @@
           label: { show: true, position: 'top', color: '#94a3b8', fontSize: 10, formatter: '{c}%' },
         },
         // Две серии для зелёных/красных, чтобы легенда корректно подсвечивала их.
-        // ECharts не позволяет per-bar легенду в одной серии — поэтому split.
+        // ECharts не позволяет per-bar легенду в одной серии - поэтому split.
         {
           name: 'Эффект (эффективен)',
           type: 'bar',

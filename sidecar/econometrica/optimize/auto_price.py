@@ -1,9 +1,9 @@
 """
-Aurora Econometrica — auto-detection price/value-per-count-unit (v1.3.0).
+Aurora Econometrica - auto-detection price/value-per-count-unit (v1.3.0).
 
 Per ADR-016 + REFACTOR_PLAN_v1.3.0.md P0.3:
 - Если в данных есть и `sales_rub` (или KPI=monetary колонка) И count колонка
-  (sales_packs / leads / etc.) — auto-suggest value_per_count_unit = monetary / count.
+  (sales_packs / leads / etc.) - auto-suggest value_per_count_unit = monetary / count.
 - Trimmed mean ± CV>20% warning (instability).
 
 Usage:
@@ -16,7 +16,7 @@ Usage:
     )
     # {
     #   'value': 120.5,        # ₽ за упаковку
-    #   'cv': 0.08,            # coefficient of variation (8% — stable)
+    #   'cv': 0.08,            # coefficient of variation (8% - stable)
     #   'method': 'trimmed_mean',
     #   'n_periods': 156,
     #   'warning': None,
@@ -41,7 +41,7 @@ def detect_value_per_count_unit(
 
     Логика:
     1. Ratio per period: value_t = monetary_t / count_t (skip rows where count=0).
-    2. Trimmed mean (cut top/bottom 10%) — robust против outliers (промо-периоды).
+    2. Trimmed mean (cut top/bottom 10%) - robust против outliers (промо-периоды).
     3. CV = std/mean > 20% → warning «нестабильна».
 
     Args:
@@ -98,14 +98,14 @@ def detect_value_per_count_unit(
         }
 
     if len(ratios) >= 10:
-        # Trimmed mean — robust против outliers.
+        # Trimmed mean - robust против outliers.
         sorted_ratios = np.sort(ratios)
         trim_n = max(1, int(trim_pct * len(sorted_ratios)))
         trimmed = sorted_ratios[trim_n:-trim_n] if trim_n * 2 < len(sorted_ratios) else sorted_ratios
         value = float(np.mean(trimmed))
         method = 'trimmed_mean'
     else:
-        # Малая выборка — simple mean без trim.
+        # Малая выборка - simple mean без trim.
         value = float(np.mean(ratios))
         method = 'simple_mean'
 

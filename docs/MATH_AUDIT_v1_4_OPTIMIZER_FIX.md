@@ -1,11 +1,11 @@
-# Math Audit v1.4 — Optimizer false-convergence fix
+# Math Audit v1.4 - Optimizer false-convergence fix
 
 **Created:** 2026-04-28
 **Branch:** math-fix-v1.0.13 (HEAD will become v1.0.15)
 **Predecessor:** docs/MATH_AUDIT_v1_3_PHASE_0_1.md
-**Trigger:** Live-test Kagocel (n=31, 6 channels, 7 controls) на v1.0.14 NSIS installer показал что Optimizer возвращает `lift=0.0%` при ВСЕХ настройках (включая Min/Max 20/200 — Phase 0.1 рекомендованные defaults). Customer ship blocked.
+**Trigger:** Live-test Kagocel (n=31, 6 channels, 7 controls) на v1.0.14 NSIS installer показал что Optimizer возвращает `lift=0.0%` при ВСЕХ настройках (включая Min/Max 20/200 - Phase 0.1 рекомендованные defaults). Customer ship blocked.
 
-Этот документ — audit-trail для исправления **false convergence bug** в SLSQP-based optimizer и формальное обоснование всех изменений в `engines/optimizer.py`.
+Этот документ - audit-trail для исправления **false convergence bug** в SLSQP-based optimizer и формальное обоснование всех изменений в `engines/optimizer.py`.
 
 ---
 
@@ -43,7 +43,7 @@ TEST 2: x_start = extreme (small channels at upper bound, TRPs balances)
 
 ## Root cause analysis
 
-### Bug 1 — bad numerical conditioning (PRIMARY)
+### Bug 1 - bad numerical conditioning (PRIMARY)
 
 Pre-fix optimizer работал в **native units**, equality constraint `Σ x_i × uc_i = M_target` в **money axis**.
 
@@ -54,7 +54,7 @@ For Kagocel scenario:
 
 SLSQP's BFGS-like inner Hessian approximation can't find correct step direction в high-conditioning regime. Result: at `x_start=current`, KKT condition `∇obj = λ × uc` сатуируется тривиально с λ→0 (numerical), `success=True`, no movement.
 
-### Bug 2 — ineffective multi-start projection (SECONDARY)
+### Bug 2 - ineffective multi-start projection (SECONDARY)
 
 Phase 0.1 hotfix #19 (commit `a3662a0`, 2026-04-26) добавил multi-start: 3 starts (current + 2 random perturbed). Implementation:
 
@@ -73,7 +73,7 @@ Three "random" starts collapse к neighborhood of current → SLSQP старту
 
 ---
 
-## Fix strategy — 3 layers
+## Fix strategy - 3 layers
 
 ### L1: money-axis rescaling (Fix Candidate 5 from AUDIT_PLAN_REVISIONS)
 
@@ -96,16 +96,16 @@ bounds_money = [(cs * uc * min_pct, cs * uc * max_pct) ...]
 constraints = [{'type': 'eq', 'fun': lambda x: sum(x) - money_target}]
 ```
 
-**Conditioning improvement:** money bounds spread for Kagocel = 30M ÷ 6.6B ≈ 220× (vs 48 461× native). Gradient в money = ∂obj/∂x_money = (∂obj/∂x_native) / uc — uniform scale across channels.
+**Conditioning improvement:** money bounds spread for Kagocel = 30M ÷ 6.6B ≈ 220× (vs 48 461× native). Gradient в money = ∂obj/∂x_money = (∂obj/∂x_native) / uc - uniform scale across channels.
 
 ### L2: channel-pivot + balancer multi-start (Fix Candidate 1)
 
 **12-15 starts** покрывающих feasible region:
 
-1. `current` — baseline (preserves Phase 0.1 hotfix #19 intent)
-2. `pivot_up_{i}` для каждого канала i — channel i на upper, остальные на lower, project к budget. Captures «push one channel» corner.
-3. `others_up_balance_{i}` для каждого i — все остальные каналы на upper, channel i exactly balances budget. **Это ключевой паттерн для money-constrained problems** — ловит «small channels saturated, balancer fills remainder» который для Kagocel-shape (TRPs ≈ 92% budget) и есть real optimum.
-4. `all_upper` — pure scaling start, projection равномерно тянет всех вниз.
+1. `current` - baseline (preserves Phase 0.1 hotfix #19 intent)
+2. `pivot_up_{i}` для каждого канала i - channel i на upper, остальные на lower, project к budget. Captures «push one channel» corner.
+3. `others_up_balance_{i}` для каждого i - все остальные каналы на upper, channel i exactly balances budget. **Это ключевой паттерн для money-constrained problems** - ловит «small channels saturated, balancer fills remainder» который для Kagocel-shape (TRPs ≈ 92% budget) и есть real optimum.
+4. `all_upper` - pure scaling start, projection равномерно тянет всех вниз.
 
 Cost: 13 starts × 200 iter × ~12 obj evals = ~31k function evaluations, sub-second на Kagocel.
 
@@ -121,9 +121,9 @@ converged_at_current = (
 )
 ```
 
-Когда все 13 starts converge к practically current allocation БЕЗ binding — это symptom настоящего corner case (либо local trap либо truly optimal current). Narrative_adapter может surface honest banner.
+Когда все 13 starts converge к practically current allocation БЕЗ binding - это symptom настоящего corner case (либо local trap либо truly optimal current). Narrative_adapter может surface honest banner.
 
-**`slsqp_diagnostics`** — per-start outcomes (success, iterations, objective_at_start/optimal, message) для post-mortem debugging:
+**`slsqp_diagnostics`** - per-start outcomes (success, iterations, objective_at_start/optimal, message) для post-mortem debugging:
 ```json
 {
   "n_starts": 13,
@@ -133,7 +133,7 @@ converged_at_current = (
 }
 ```
 
-UI can show «Optimizer пробовал 13 стартовых точек, лучший lift +28.3%» — transparency для doubting customers.
+UI can show «Optimizer пробовал 13 стартовых точек, лучший lift +28.3%» - transparency для doubting customers.
 
 ---
 
@@ -141,7 +141,7 @@ UI can show «Optimizer пробовал 13 стартовых точек, лу�
 
 ### Test fixture (synthetic Kagocel-like)
 
-Создан `tools/test_optimizer_kagocel_redistribution.py` — synthetic 6-channel pickle с такой же mathematical pathology (TRPs uc=150000, money channels uc=1, bounds spread 10⁵×, mROAS asymmetry ~350×). Self-contained — building DataFrame + pickle in tempdir.
+Создан `tools/test_optimizer_kagocel_redistribution.py` - synthetic 6-channel pickle с такой же mathematical pathology (TRPs uc=150000, money channels uc=1, bounds spread 10⁵×, mROAS asymmetry ~350×). Self-contained - building DataFrame + pickle in tempdir.
 
 **6 acceptance gates:**
 - G1 lift_pct ≥ 5%
@@ -155,10 +155,10 @@ UI can show «Optimizer пробовал 13 стартовых точек, лу�
 
 ```
 3 passed, 6 failed.
-G1: lift_pct ≥ 5.0 (got 0.00) — FAILED
-G2a/b/c: all +0.00% — FAILED
-G3: tv_trps delta = +0.00% — FAILED
-G6: insight «прирост +0.0%» — FAILED
+G1: lift_pct ≥ 5.0 (got 0.00) - FAILED
+G2a/b/c: all +0.00% - FAILED
+G3: tv_trps delta = +0.00% - FAILED
+G6: insight «прирост +0.0%» - FAILED
 ```
 
 ### Post-fix test outcome (GREEN)
@@ -194,7 +194,7 @@ TRPs at interior (not binding) → mROAS = λ = 0.032
 Small channels at upper bound → mROAS_money падает (Hill saturation deeper) but they're at constraint, λ-condition не applies.
 ```
 
-### Regression check — все предыдущие тесты
+### Regression check - все предыдущие тесты
 
 ```
 test_audit_of_sprint3      : 20/20 PASS
@@ -216,13 +216,13 @@ Total: 517/517 (was 508 + 9 new, no regressions)
 
 ## Known limitations / out-of-scope
 
-1. **Hierarchical decay shrinkage on small N.** Phase 1.1 logit-normal prior pulled все decays Kagocel к ~0.245 ± 0.003 — не bug, но UX implication: при small N (≤30) prior dominates posterior → каналы выглядят interchangeable → CI overlap → «Высокая неопределённость» verdict для всех. Documented but not fixed (требует prior recalibration или Sprint 4+ stronger shrinkage controls).
+1. **Hierarchical decay shrinkage on small N.** Phase 1.1 logit-normal prior pulled все decays Kagocel к ~0.245 ± 0.003 - не bug, но UX implication: при small N (≤30) prior dominates posterior → каналы выглядят interchangeable → CI overlap → «Высокая неопределённость» verdict для всех. Documented but not fixed (требует prior recalibration или Sprint 4+ stronger shrinkage controls).
 
 2. **Multi-start cost scaling.** Текущие 13 starts достаточны для n_ch ≤ 10. При больших portfolios (15+ каналов) может потребоваться cap (e.g. only top-K pivots from greedy mROAS rank) для удержания sub-second wall-clock.
 
-3. **Non-money mode (all uc=1).** Refactor работает unchanged — money == native когда все uc=1. Tests cover both cases.
+3. **Non-money mode (all uc=1).** Refactor работает unchanged - money == native когда все uc=1. Tests cover both cases.
 
-4. **Native-only constraint mode (legacy).** Pre-fix имел path `constraints = {sum x = total_budget}` (native sum). После refactor — money path unconditionally. Native-only mode обрабатывается тривиально (когда all uc=1). Совсем mixed-units без money_target — uncovered (see line 357-374 unit_smell guard — продолжает блокировать invalid configs).
+4. **Native-only constraint mode (legacy).** Pre-fix имел path `constraints = {sum x = total_budget}` (native sum). После refactor - money path unconditionally. Native-only mode обрабатывается тривиально (когда all uc=1). Совсем mixed-units без money_target - uncovered (see line 357-374 unit_smell guard - продолжает блокировать invalid configs).
 
 ---
 

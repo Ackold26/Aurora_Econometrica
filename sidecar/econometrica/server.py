@@ -1,15 +1,15 @@
 """
-Aurora AI Econometrica — Python Sidecar Server.
+Aurora AI Econometrica - Python Sidecar Server.
 FastAPI server for local MMM computations (0 Claude tokens).
 
 Port: принимается через sys.argv[1] (fallback 7430 для back-compat).
 Version: из env AURORA_PRODUCT_VERSION (fallback '1.0.9').
 Product ID: из env AURORA_PRODUCT_ID (fallback 'com.aurora.econometrica').
 
-Per-user RDP изоляция обеспечивается на Rust-стороне — этот сервер
+Per-user RDP изоляция обеспечивается на Rust-стороне - этот сервер
 просто слушает переданный ему порт.
 """
-# ── JAX multi-core setup — MUST be before any `import jax` ──────────────
+# ── JAX multi-core setup - MUST be before any `import jax` ──────────────
 # На CPU JAX по умолчанию видит 1 host device → NumPyro NUTS свёртывает все
 # цепи в 1 ядро (vectorized). Выставляем N виртуальных devices → NumPyro
 # раскладывает цепи через pmap по реальным ядрам.
@@ -54,9 +54,9 @@ VERSION = os.environ.get('AURORA_PRODUCT_VERSION', '1.0.9')
 SESSION_ID = uuid.uuid4().hex
 STARTED_AT = datetime.now(timezone.utc).isoformat()
 
-# Configure logging — dual output: stderr + rotating file в %LOCALAPPDATA%.
+# Configure logging - dual output: stderr + rotating file в %LOCALAPPDATA%.
 # %LOCALAPPDATA% (AppData\Local) гарантированно НЕ роумит в AD-доменах,
-# в отличие от %APPDATA% (AppData\Roaming) — критично для RDP-серверов.
+# в отличие от %APPDATA% (AppData\Roaming) - критично для RDP-серверов.
 _local_appdata = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or '.'
 _log_dir = Path(_local_appdata) / 'aurora-econometrica-gui' / 'logs'
 try:
@@ -85,7 +85,7 @@ logger = logging.getLogger('econometrica')
 # ── Silence known-benign Windows asyncio spam ───────────────────────────
 # uvicorn on Windows + HTTP client disconnect = hundreds of
 # `_ProactorBasePipeTransport._call_connection_lost` tracebacks per session.
-# Surgical filter — preserves legitimate asyncio errors, убирает только этот тип.
+# Surgical filter - preserves legitimate asyncio errors, убирает только этот тип.
 class _SkipProactorNoise(logging.Filter):
     def filter(self, record):
         return '_ProactorBasePipeTransport._call_connection_lost' not in record.getMessage()
@@ -106,7 +106,7 @@ try:
     logger.info(f'sys.frozen = {getattr(sys, "frozen", False)}')
     logger.info(f'_MEIPASS = {getattr(sys, "_MEIPASS", "(not frozen)")}')
 
-    # Known-risk bundle paths — if any missing, the sidecar WILL crash later.
+    # Known-risk bundle paths - if any missing, the sidecar WILL crash later.
     # These are the files that disappear when PyInstaller gets --hidden-import
     # but not --collect-data for the corresponding package.
     _bundle_root = Path(getattr(sys, '_MEIPASS', _sidecar_root))
@@ -120,7 +120,7 @@ try:
     ]
     for rel in _required_files:
         p = _bundle_root / rel
-        logger.info(f'bundle check: {rel} — {"OK" if p.exists() else "MISSING"} ({p})')
+        logger.info(f'bundle check: {rel} - {"OK" if p.exists() else "MISSING"} ({p})')
 
     # PyTensor compiler probe
     from engines.modeler import check_compiler as _check_compiler
@@ -137,8 +137,8 @@ try:
     import arviz  # noqa: F401
     logger.info('arviz import: OK')
 
-    # Probe JAX devices — подтверждение что XLA_FLAGS применился до init.
-    # Если XLA_FLAGS не сработал (старый jax, ручной override) — devices=1,
+    # Probe JAX devices - подтверждение что XLA_FLAGS применился до init.
+    # Если XLA_FLAGS не сработал (старый jax, ручной override) - devices=1,
     # NumPyro chain_method auto-fallback на 'vectorized' в modeler.py.
     try:
         import jax as _jax  # noqa: F401
@@ -163,10 +163,10 @@ app = FastAPI(
 # Без него любая необработанная ошибка возвращается uvicorn'ом как plain text
 # `Internal Server Error`. Rust-сторона валится на парсинге с «expected value
 # at line 1 column 1». Под RemoteApp (другой профиль/env/тайминги) вероятность
-# неожиданных ошибок выше — пример: PermissionError на записи результата.
+# неожиданных ошибок выше - пример: PermissionError на записи результата.
 #
 # HTTPException и RequestValidationError обрабатываются встроенными handler'ами
-# FastAPI — явно пропускаем их (re-raise) чтобы не перехватить 400/404/422.
+# FastAPI - явно пропускаем их (re-raise) чтобы не перехватить 400/404/422.
 from starlette.exceptions import HTTPException as _StarletteHTTPException
 
 @app.exception_handler(Exception)
@@ -178,7 +178,7 @@ async def _global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={
             'status': 'error',
-            'message': str(exc)[:500],  # truncate — избегаем длинных путей в body
+            'message': str(exc)[:500],  # truncate - избегаем длинных путей в body
             'type': type(exc).__name__,
             'path': str(request.url.path),
         },
@@ -187,12 +187,12 @@ async def _global_exception_handler(request: Request, exc: Exception):
 
 # ── Session middleware (handshake protection) ────────────────────────────────
 # Каждый API-запрос от GUI может включать заголовок `X-Expected-Session: <uuid>`.
-# Если он не совпадает с текущим SESSION_ID — это значит GUI разговаривает с
+# Если он не совпадает с текущим SESSION_ID - это значит GUI разговаривает с
 # процессом, которого он не создавал (переиспользованный чужой sidecar).
-# Отвечаем 409 Conflict — GUI перехватывает и делает re-handshake + retry once.
+# Отвечаем 409 Conflict - GUI перехватывает и делает re-handshake + retry once.
 @app.middleware('http')
 async def session_guard(request: Request, call_next):
-    # Health и shutdown пропускаем — они сами служат для разрешения рассинхрона
+    # Health и shutdown пропускаем - они сами служат для разрешения рассинхрона
     if request.url.path in ('/health', '/shutdown'):
         return await call_next(request)
 
@@ -216,7 +216,7 @@ async def session_guard(request: Request, call_next):
 
 
 # ── Graceful shutdown ────────────────────────────────────────────────────────
-# Signal от родителя (Rust закрывает GUI) или HTTP /shutdown — cleanup + exit.
+# Signal от родителя (Rust закрывает GUI) или HTTP /shutdown - cleanup + exit.
 # Без этого сигналa child.kill() оставляет corrupted PyInstaller temp + pickle.
 _shutdown_event = threading.Event()
 
@@ -281,7 +281,7 @@ class TrainRequest(BaseModel):
     # уменьшая overfit на small N. Не влияет на mode='ols'.
     use_horseshoe: bool = False
     # Стоимость 1 юнита канала в валюте KPI для не-денежных каналов (CPP/CPM).
-    # {channel: cost_per_unit}. Если задано — decomposer/optimizer используют
+    # {channel: cost_per_unit}. Если задано - decomposer/optimizer используют
     # spend × unit_cost для отображения и расчёта ROI. На обучение модели не
     # влияет (Hill работает на нативных единицах канала).
     unit_costs: dict[str, float] = {}
@@ -318,9 +318,9 @@ class TrainStartRequest(BaseModel):
 class DecomposeRequest(BaseModel):
     project_dir: str
     # Trust Level 2: override unit_costs поверх pickle-config.
-    # Нужно когда user изменил CPP после тренировки — pickle содержит старые значения.
+    # Нужно когда user изменил CPP после тренировки - pickle содержит старые значения.
     unit_costs: dict[str, float] | None = None
-    # Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rate (e.g.
+    # Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rate (e.g.
     # {'TV': 25.0, 'OLV': 18.0}). Customer-entered current cost (latest training
     # year) gets adjusted к training-period weighted-average via inflation
     # rollback. None → no adjustment (legacy behavior).
@@ -331,16 +331,16 @@ class OptimizeRequest(BaseModel):
     project_dir: str
     total_budget: float | None = None
     # Альтернатива total_budget: constraint в money (Σ x × unit_cost == total_budget_money).
-    # Используется в Forecast режиме «Сохранить бюджет» — чтобы сумма в рублях
+    # Используется в Forecast режиме «Сохранить бюджет» - чтобы сумма в рублях
     # после оптимизации оставалась точно равной currentMoney.
     total_budget_money: float | None = None
     min_pct: float = 50
     max_pct: float = 150
     # Per-channel constraints (экспертный режим). Перекрывают глобальные min_pct/max_pct
-    # для указанных каналов. Если канал отсутствует в dict — используется глобальный лимит.
+    # для указанных каналов. Если канал отсутствует в dict - используется глобальный лимит.
     min_per_channel: dict[str, float] | None = None
     max_per_channel: dict[str, float] | None = None
-    # D.3 — Per-group constraints (Trust 3 brand vs performance).
+    # D.3 - Per-group constraints (Trust 3 brand vs performance).
     # Optional. Unset = behavior identical к pre-D.3 (single global slider).
     # Mixed/uncategorized channels всегда fall back к global регардлесс этих полей.
     # Constraint hierarchy: brand_max ≤ global_max + perf_max ≤ global_max enforced.
@@ -352,20 +352,20 @@ class OptimizeRequest(BaseModel):
     unit_costs: dict[str, float] | None = None
     # L9 (math-fix v1.4 Section C, 2026-04-29): forward-compat budget_mode.
     # Currently only 'fixed' supported (optimizer always preserves budget).
-    # 'free' planned для v1.1 — optimizer chooses any total в каналах bounds.
+    # 'free' planned для v1.1 - optimizer chooses any total в каналах bounds.
     # Validation rejects 'free' с TODO error чтобы early callers не shipped
     # against unimplemented behavior.
     budget_mode: str = 'fixed'
-    # ─── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ───
+    # ─── Phase 2 (Planning Mode) - audit pass 2 2026-05-02 ───
     # Opt-in planning mode. Absence of forecast_periods → analyst mode (current
     # behavior preserved byte-exact). Integer ≥ 1 → planning mode (Option C
     # per-period Hill summation, см. docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md).
     # Hard cap forecast ≤ train_n × 2 enforced inline в optimizer.
     forecast_periods: int | None = None
     # Optional UI label echoed в result (Год/Полугодие/Квартал/Custom). Pure
-    # display — backend logic uses forecast_periods only.
+    # display - backend logic uses forecast_periods only.
     forecast_period_label: str | None = None
-    # Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rate.
+    # Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rate.
     unit_cost_inflation_pct: dict[str, float] | None = None
 
 
@@ -373,20 +373,20 @@ class ScenarioRequest(BaseModel):
     project_dir: str
     scenario_name: str = 'custom'
     media_plan: dict[str, list[float]] = {}
-    # Phase 2 — planning context (audit pass 4 2026-05-02). Когда forecast_periods
+    # Phase 2 - planning context (audit pass 4 2026-05-02). Когда forecast_periods
     # задан, scenario engine распределяет single-period mediaPlan totals по
-    # forecast_periods (вместо training_n_periods) — matches optimizer planning
+    # forecast_periods (вместо training_n_periods) - matches optimizer planning
     # mode + reports «бюджет 2026 года» (не training horizon).
     forecast_periods: int | None = None
     forecast_period_label: str | None = None
     media_plan_file: str | None = None
     unit_costs: dict[str, float] | None = None
-    # Phase 2 audit pass 4 — per-channel annual CPP/CPM inflation rate.
+    # Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rate.
     unit_cost_inflation_pct: dict[str, float] | None = None
 
 
 # ──────────────────────────────────────────────────────────────────
-# Sprint 3 Pharma Causal — request models (per ADR §4.2)
+# Sprint 3 Pharma Causal - request models (per ADR §4.2)
 # Per ADR §1: EXTEND-not-rewrite. New endpoints в /compute/causal/* namespace,
 # не touching existing /compute/{train,decompose,optimize,scenario,...}.
 # ──────────────────────────────────────────────────────────────────
@@ -499,7 +499,7 @@ class PptxExportRequest(BaseModel):
     model_data: dict
     decompose_data: dict
     optimize_data: dict
-    # Абсолютный путь к project_dir — передаётся Rust-стороной чтобы
+    # Абсолютный путь к project_dir - передаётся Rust-стороной чтобы
     # учесть Settings override (econometrica_projects_root). Fallback на
     # вычисление из %APPDATA% если None для обратной совместимости со старым Rust.
     project_dir: str | None = None
@@ -528,7 +528,7 @@ _training_lock = threading.Lock()
 
 @app.get('/health')
 async def health():
-    """Extended /health (v1.0.9+) — handshake protocol.
+    """Extended /health (v1.0.9+) - handshake protocol.
 
     Возвращает product/session_id/pid/started_at для version-handshake
     в Rust-стороне. Старые GUI-клиенты (pre-v1.0.9) игнорируют новые поля.
@@ -590,7 +590,7 @@ def _validate_mode(mode: str | None) -> tuple[str | None, dict | None]:
     """Audit H5 (2026-04-26): whitelist mode values + return user-friendly error.
 
     Returns (resolved_mode, error_response).
-    error_response is None on success — caller proceeds with resolved_mode.
+    error_response is None on success - caller proceeds with resolved_mode.
     """
     if mode is None:
         return 'bayesian', None
@@ -602,7 +602,7 @@ def _validate_mode(mode: str | None) -> tuple[str | None, dict | None]:
             'message': (
                 f'Неизвестный режим обучения "{mode}". '
                 f'Допустимые: {", ".join(_VALID_MODES)}. '
-                f'Опечатки в API call могут silently отправить вас на wrong engine — '
+                f'Опечатки в API call могут silently отправить вас на wrong engine - '
                 f'этот guard защищает от такого.'
             ),
         }
@@ -618,10 +618,10 @@ def train_model(req: TrainRequest):
       - config.mode == 'bayesian' or absent → engines/modeler.train_model (NUTS, 3-15 min)
       - When mode absent, server can call /compute/recommend для auto-recommend hint.
 
-    Audit H5 (2026-04-26): mode value validated against whitelist —
+    Audit H5 (2026-04-26): mode value validated against whitelist -
     typo 'olss' returns 422-style error instead of silently routing к Bayesian.
 
-    sync def — FastAPI runs in thread pool, event loop stays free for /health polling."""
+    sync def - FastAPI runs in thread pool, event loop stays free for /health polling."""
     config = req.model_dump()
     project_dir = config.pop('project_dir')
     mode, err = _validate_mode(config.get('mode'))
@@ -639,7 +639,7 @@ class CategorizeRequest(BaseModel):
     """Trust Level 3: batch auto-suggest channel categorization (issue H).
 
     Frontend Validate шаг calls этот endpoint при mount → instantly заполняет
-    badges 🎯/📊/⚪ + confidence score. Single source of truth — Python heuristic
+    badges 🎯/📊/⚪ + confidence score. Single source of truth - Python heuristic
     в utils/channel_categorization.py.
     """
     channels: list[str]
@@ -661,7 +661,7 @@ class RecommendRequest(BaseModel):
 
 @app.post('/compute/recommend')
 def recommend_engine_endpoint(req: RecommendRequest):
-    """Sprint 2 — return engine recommendation for given dataset size.
+    """Sprint 2 - return engine recommendation for given dataset size.
 
     UI calls this after user selects data file (n_obs from validate result)
     to render banner: "Рекомендуем Bayesian" / "Рекомендуем OLS (small data)".
@@ -683,7 +683,7 @@ class PreflightRequest(BaseModel):
     kpi_column: str
     date_column: str = 'date'
     adstock_config: dict[str, str] = {}
-    mode_override: str | None = None  # 'bayesian' | 'ols' | None — для recommend
+    mode_override: str | None = None  # 'bayesian' | 'ols' | None - для recommend
     skip_prior_predictive: bool = False  # для fast iteration UI
 
 
@@ -693,7 +693,7 @@ def preflight(req: PreflightRequest):
 
     Orchestrates в правильном порядке:
       1. Engine recommendation (n_obs based)
-      2. A4 quick proxy — multicollinearity + variance + correlation (~1 sec)
+      2. A4 quick proxy - multicollinearity + variance + correlation (~1 sec)
       3. (Bayesian only, if not skipped) Prior predictive check (~5-15 sec)
 
     Returns aggregated tier ('reliable' | 'directional' | 'insufficient') +
@@ -787,7 +787,7 @@ def preflight(req: PreflightRequest):
     if prior_predictive and prior_predictive.get('warning'):
         all_warnings.append(prior_predictive['warning'])
 
-    # Override flag — when overall not reliable but user can still train
+    # Override flag - when overall not reliable but user can still train
     overrideable = quick_proxy.get('overrideable', True)
 
     return JSONResponse(content={
@@ -856,7 +856,7 @@ def train_start(req: TrainStartRequest):
             'error': None,
         }
 
-    # Audit H5: validate mode BEFORE async run starts — fail-fast user feedback.
+    # Audit H5: validate mode BEFORE async run starts - fail-fast user feedback.
     _resolved_mode, _mode_err = _validate_mode(config.get('mode'))
     if _mode_err is not None:
         with _training_lock:
@@ -965,7 +965,7 @@ def decompose_sales(req: DecomposeRequest):
 def optimize_budget(req: OptimizeRequest):
     """Optimize budget allocation across channels."""
     # L9 (math-fix v1.4 Section C, 2026-04-29): explicit reject 'free' mode
-    # until v1.1 implementation. UI checkbox disabled with tooltip — but if
+    # until v1.1 implementation. UI checkbox disabled with tooltip - but if
     # caller bypasses UI (direct API), error message points к v1.1 plan.
     if req.budget_mode != 'fixed':
         return JSONResponse(content={
@@ -991,7 +991,7 @@ def optimize_budget(req: OptimizeRequest):
         'perf_min_pct': req.perf_min_pct,
         'perf_max_pct': req.perf_max_pct,
         'unit_costs': req.unit_costs,  # None → decomposer fallback на pickle config
-        # Phase 2 — None preserves analyst mode byte-exact (verified 162/162 tests).
+        # Phase 2 - None preserves analyst mode byte-exact (verified 162/162 tests).
         'forecast_periods': req.forecast_periods,
         'forecast_period_label': req.forecast_period_label,
         'unit_cost_inflation_pct': req.unit_cost_inflation_pct,
@@ -1000,7 +1000,7 @@ def optimize_budget(req: OptimizeRequest):
     return JSONResponse(content=result)
 
 
-# ─── Phase 2 (Planning Mode) — preview endpoints ──────────────────────────
+# ─── Phase 2 (Planning Mode) - preview endpoints ──────────────────────────
 
 
 class ForecastContextRequest(BaseModel):
@@ -1015,7 +1015,7 @@ class ForecastContextRequest(BaseModel):
 
 @app.post('/compute/forecast-context')
 def forecast_context(req: ForecastContextRequest):
-    """Phase 2 preview — granularity + seasonality + calibration zones."""
+    """Phase 2 preview - granularity + seasonality + calibration zones."""
     from pathlib import Path
     from engines.persistence import (
         get_seasonality, get_training_granularity,
@@ -1027,7 +1027,7 @@ def forecast_context(req: ForecastContextRequest):
         return JSONResponse(content={
             'status': 'error',
             'error_code': 'MODEL_NOT_FOUND',
-            'message': 'Модель не обучена — обучите MMM перед planning mode.',
+            'message': 'Модель не обучена - обучите MMM перед planning mode.',
         }, status_code=400)
     model_data = load_model_with_compat(model_path)
     granularity = get_training_granularity(model_data)
@@ -1040,13 +1040,13 @@ def forecast_context(req: ForecastContextRequest):
     if persisted_quantiles and all(col in persisted_quantiles for col in media_cols):
         quantiles = {col: persisted_quantiles[col] for col in media_cols}
     else:
-        # Legacy pickle (or partial) — single inference pass for all channels
+        # Legacy pickle (or partial) - single inference pass for all channels
         inferred = infer_x_norm_quantiles_at_load(model_data) or {}
         quantiles = {col: persisted_quantiles.get(col) or inferred.get(col) for col in media_cols}
     train_n = len(model_data.get('y_actual') or [])
-    # Phase 2 (audit pass 4 — Антон 2026-05-02): multi-year detection. При денежной
+    # Phase 2 (audit pass 4 - Антон 2026-05-02): multi-year detection. При денежной
     # оценке любого медиа важно учесть, что данные могут быть приведены за
-    # несколько лет — стоимость единицы может значительно отличаться год от года
+    # несколько лет - стоимость единицы может значительно отличаться год от года
     # (медиаинфляция 25-30%). Бэкенд возвращает год-range info для UI prep;
     # full per-year unit_costs editing → Phase 2.5.
     training_year_ranges = _detect_training_year_ranges(model_data)
@@ -1056,10 +1056,10 @@ def forecast_context(req: ForecastContextRequest):
         'seasonality_detected': seasonality,
         'train_n_periods': train_n,
         'train_x_norm_quantiles': quantiles,
-        # S7 — KPI-aware horizon caps (sales 2.0× / awareness 1.5× и т.п.)
+        # S7 - KPI-aware horizon caps (sales 2.0× / awareness 1.5× и т.п.)
         'forecast_horizon_max_multiplier': _kpi_aware_max_multiplier(model_data),
         'forecast_horizon_warn_multiplier': _kpi_aware_warn_multiplier(model_data),
-        # Multi-year structural data — UI uses для inflation disclosure
+        # Multi-year structural data - UI uses для inflation disclosure
         'training_year_ranges': training_year_ranges,
     })
 
@@ -1067,7 +1067,7 @@ def forecast_context(req: ForecastContextRequest):
 def _detect_training_year_ranges(model_data: dict) -> list[dict] | None:
     """Return per-year breakdown of training data, или None if unable.
 
-    Phase 2 audit pass 4 — Антон's требование: при денежной оценке учесть, что
+    Phase 2 audit pass 4 - Антон's требование: при денежной оценке учесть, что
     данные могут быть за несколько лет. UI prep: surface это customer'у.
 
     Returns:
@@ -1102,14 +1102,14 @@ def _detect_training_year_ranges(model_data: dict) -> list[dict] | None:
 
 
 def _kpi_aware_max_multiplier(model_data: dict) -> float:
-    """S7 — read kpi_registry forecast_horizon_max_multiplier для pickle's KPI."""
+    """S7 - read kpi_registry forecast_horizon_max_multiplier для pickle's KPI."""
     from engines.persistence import get_kpi_type
     from utils.forecast_validation import get_forecast_horizon_max_multiplier
     return get_forecast_horizon_max_multiplier(get_kpi_type(model_data))
 
 
 def _kpi_aware_warn_multiplier(model_data: dict) -> float:
-    """S7 — read kpi_registry forecast_horizon_warn_multiplier для pickle's KPI."""
+    """S7 - read kpi_registry forecast_horizon_warn_multiplier для pickle's KPI."""
     from engines.persistence import get_kpi_type
     try:
         from utils.kpi_registry import get_kpi_config
@@ -1123,7 +1123,7 @@ class ForecastScalingRequest(BaseModel):
     """Preview ratio + warnings без full optimize.
 
     Used by frontend для quick «what-if» feedback when customer adjusts
-    forecast_periods / forecast_budget — emits drift warnings + horizon
+    forecast_periods / forecast_budget - emits drift warnings + horizon
     extrapolation status БЕЗ запуска SLSQP (~12ms vs ~3s full optimize).
     """
     project_dir: str
@@ -1133,7 +1133,7 @@ class ForecastScalingRequest(BaseModel):
 
 @app.post('/compute/forecast-scaling')
 def forecast_scaling_preview(req: ForecastScalingRequest):
-    """Phase 2 preview — drift checks + horizon warnings без full optimize."""
+    """Phase 2 preview - drift checks + horizon warnings без full optimize."""
     from pathlib import Path
     from engines.persistence import (
         get_kpi_type, get_x_norm_quantiles, load_model_with_compat,
@@ -1160,7 +1160,7 @@ def forecast_scaling_preview(req: ForecastScalingRequest):
         return JSONResponse(content={
             'status': 'error',
             'error_code': 'INVALID_TRAIN_DATA',
-            'message': 'Обучающие данные пусты — preview невозможен.',
+            'message': 'Обучающие данные пусты - preview невозможен.',
         }, status_code=400)
 
     # Validate forecast_periods (mirror optimizer.py:329+ rules).
@@ -1192,7 +1192,7 @@ def forecast_scaling_preview(req: ForecastScalingRequest):
     if horizon_warn:
         warnings.append(horizon_warn)
 
-    # Drift detection per channel — needs forecast per-period spend per channel.
+    # Drift detection per channel - needs forecast per-period spend per channel.
     # Use proportional split of forecast_budget_money matching training proportions.
     media_cols = (model_data.get('config') or {}).get('media_columns') or []
     channel_params = model_data.get('channel_params') or {}
@@ -1226,7 +1226,7 @@ def forecast_scaling_preview(req: ForecastScalingRequest):
                             per_channel_drift[col] = drift
                             warnings.append({**drift, 'message_ru': drift['message_ru']})
         except Exception:
-            pass  # Drift detection optional — failure не блокирует preview
+            pass  # Drift detection optional - failure не блокирует preview
 
     composed = resolve_warning_priority(warnings)
     return JSONResponse(content={
@@ -1243,14 +1243,14 @@ def forecast_scaling_preview(req: ForecastScalingRequest):
 
 
 class HierarchicalWarningRequest(BaseModel):
-    """L5 (Phase 2.0 Part 2) — surface hierarchical β-pooling extrapolation warning.
+    """L5 (Phase 2.0 Part 2) - surface hierarchical β-pooling extrapolation warning.
 
     Customer post-optimize check: при planning_budget > 3× training, brand-channel
     estimates may underestimate top-performer на 5-15%. Endpoint reads pickle +
     training totals и calls helper. Returns {status, warning|null}. Frontend shows
     panel когда warning != null.
 
-    `train_total_money` (optional) — bypass backend pickle sum. Frontend uses
+    `train_total_money` (optional) - bypass backend pickle sum. Frontend uses
     decompose channels.spend total для consistency с tem что customer видит в
     Block A («Текущий бюджет»). Иначе backend считает sum по media_cols, что
     может расходиться с visual currentBudget после apply_merge_rules / filter.
@@ -1262,7 +1262,7 @@ class HierarchicalWarningRequest(BaseModel):
 
 @app.post('/compute/hierarchical-warning')
 def hierarchical_warning_endpoint(req: HierarchicalWarningRequest):
-    """L5 — non-blocking advisory check для customer planning workflow."""
+    """L5 - non-blocking advisory check для customer planning workflow."""
     from pathlib import Path
     from engines.persistence import load_model_with_compat
     from utils.forecast_validation import hierarchical_extrapolation_warning
@@ -1353,7 +1353,7 @@ def delete_scenario(req: ScenarioDeleteRequest):
 
 
 # ──────────────────────────────────────────────────────────────────
-# Sprint 3 Pharma Causal — endpoints (M1 ship)
+# Sprint 3 Pharma Causal - endpoints (M1 ship)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -1421,7 +1421,7 @@ def causal_scm(req: CausalSCMRequest):
     pre-treatment RMSE quality, donor weight concentration HHI).
 
     Per ADR §3.1 + Q2(B): manual scipy SLSQP via _solve_scm_weights() interface
-    — clean swap path к cvxpy (Augmented SCM, Sprint 4+).
+    - clean swap path к cvxpy (Augmented SCM, Sprint 4+).
 
     See docs/SPRINT3_PHARMA_CAUSAL_ADR.md §4 для request/response schema.
     """
@@ -1441,7 +1441,7 @@ def causal_did(req: CausalDiDRequest):
     trends test, staggered detection per Goodman-Bacon 2021, SUTVA assumption).
 
     For staggered adoption treatment timing, returns ATT с warning flag in
-    diagnostics_failed — consider Sprint 4+ Callaway-Santanna для proper estimator.
+    diagnostics_failed - consider Sprint 4+ Callaway-Santanna для proper estimator.
 
     See docs/SPRINT3_PHARMA_CAUSAL_ADR.md §4 для request/response schema.
     """
@@ -1609,7 +1609,7 @@ def export_pptx(req: PptxExportRequest):
         has_decomp = bool(req.decompose_data)
         has_optim = bool(req.optimize_data)
 
-        # Сценарии — читаем с диска (Frontend их не передаёт, они — артефакт шага Optimize).
+        # Сценарии - читаем с диска (Frontend их не передаёт, они - артефакт шага Optimize).
         scenarios_dir = project_path / 'results' / 'scenarios'
         scenarios: list[dict] = []
         if scenarios_dir.exists():
@@ -1827,7 +1827,7 @@ def project_auto_price(req: AutoPriceRequest):
             return JSONResponse(content={
                 'status': 'error',
                 'error_code': 'NO_DATA_FILE',
-                'message': 'Данные не найдены — загрузите проект и обучите модель сначала.',
+                'message': 'Данные не найдены - загрузите проект и обучите модель сначала.',
             }, status_code=404)
 
         if str(data_file).endswith(('.xlsx', '.xls')):
@@ -1867,7 +1867,7 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
     """Persist v1.3.0 KPI settings (per ADR-015, ADR-016, ADR-017).
 
     Updates project state с derived_mode, kpi_kind, value_per_count_unit fields.
-    NB: НЕ retrains модель — это lightweight metadata update.
+    NB: НЕ retrains модель - это lightweight metadata update.
     """
     try:
         from pathlib import Path

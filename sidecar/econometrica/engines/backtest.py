@@ -1,12 +1,12 @@
 """
-B7 Backtest framework — out-of-sample validation against business reality.
+B7 Backtest framework - out-of-sample validation against business reality.
 
-Sprint 1.5 (B7 from audit) — validates Aurora's ROI converges with real business
+Sprint 1.5 (B7 from audit) - validates Aurora's ROI converges with real business
 outcomes (post-campaign sales lift). Hold out last K periods, fit on rest,
 predict, compare with actual. Catches "math correct, predictions wrong" failures
 that unit tests + SBC + Coverage Probability cannot detect.
 
-Why critical: SBC, Coverage Probability — synthetic-data validation. Real
+Why critical: SBC, Coverage Probability - synthetic-data validation. Real
 business test: did Aurora's predicted ROI actually materialize? If model says
 "+15% lift" and actual sales lift is +3%, Aurora's math may be technically
 correct but practically useless.
@@ -30,7 +30,7 @@ when user clicks "Validate model" в Report step. Result attached to model
 diagnostics for reporting transparency.
 
 Math reference: standard k-fold cross-validation adapted for time series
-(forward-chaining holdout — never train on future).
+(forward-chaining holdout - never train on future).
 """
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def run_backtest(
         return {
             'status': 'error',
             'error_code': 'NO_MODEL',
-            'message': 'Модель не найдена — обучите модель перед backtest',
+            'message': 'Модель не найдена - обучите модель перед backtest',
         }
 
     # Trust Level 3: централизованный pickle compat helper.
@@ -110,7 +110,7 @@ def run_backtest(
             'error_code': 'HOLDOUT_TOO_LARGE',
             'message': (
                 f'holdout_periods={holdout_periods} оставляет {n_obs - holdout_periods} '
-                f'обучающих периодов — слишком мало. Уменьшите holdout или соберите больше данных.'
+                f'обучающих периодов - слишком мало. Уменьшите holdout или соберите больше данных.'
             ),
         }
 
@@ -191,7 +191,7 @@ def run_backtest(
     pi_high_arr = np.full(len(actual), np.nan)
     pi_coverage = None
     # Scenario doesn't return per-period PI (only totals). For per-period coverage,
-    # we'd need to re-fit + propagate full posterior — defer to A4 polish.
+    # we'd need to re-fit + propagate full posterior - defer to A4 polish.
     # For now: report None, UI shows 'PI coverage недоступна (требует full posterior propagation per period)'.
 
     # In-sample metrics from re-trained model
@@ -206,14 +206,14 @@ def run_backtest(
         verdict = 'reliable'
         rec = (
             f'Out-of-sample R² {r2_oos:.3f} близко к in-sample {r2_in:.3f} '
-            f'(gap {r2_gap_pp:+.1f}пп). Модель обобщает на новые данные — результаты '
+            f'(gap {r2_gap_pp:+.1f}пп). Модель обобщает на новые данные - результаты '
             f'можно использовать для бизнес-решений.'
         )
     elif r2_gap_pp < 25:
         verdict = 'directional'
         rec = (
             f'Out-of-sample R² {r2_oos:.3f} ниже in-sample {r2_in:.3f} на '
-            f'{r2_gap_pp:.1f}пп. Модель частично переобучена — используйте результаты '
+            f'{r2_gap_pp:.1f}пп. Модель частично переобучена - используйте результаты '
             f'как направление, не точную оценку. Соберите больше данных или попробуйте '
             f'horseshoe-приоры (Sprint 2 / A3).'
         )
@@ -221,7 +221,7 @@ def run_backtest(
         verdict = 'overfit'
         rec = (
             f'Out-of-sample R² {r2_oos:.3f} сильно ниже in-sample {r2_in:.3f} '
-            f'(gap {r2_gap_pp:.1f}пп) — модель переобучена и не обобщает. '
+            f'(gap {r2_gap_pp:.1f}пп) - модель переобучена и не обобщает. '
             f'Не используйте текущие оценки ROI для бизнес-решений. Рекомендации: '
             f'соберите больше данных, упростите медиа-микс, или используйте OLS-режим '
             f'с frequentist CI (стабильнее на small N).'

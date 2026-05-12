@@ -60,13 +60,13 @@ impl License {
     ///
     /// Primary: `<app_config_dir>/license.json` (Tauri v2 per-app idiomatic).
     ///
-    /// Legacy fallbacks (`%APPDATA%\AIAgency\`, `%PROGRAMDATA%\AIAgency\`) —
+    /// Legacy fallbacks (`%APPDATA%\AIAgency\`, `%PROGRAMDATA%\AIAgency\`) -
     /// только с feature `legacy_aiagency_fallback`. По умолчанию включена
     /// ТОЛЬКО в AI_APP_AGENCY; в 9 форках (Econometrica, Legal, Creative и т.д.)
     /// feature отсутствует → legacy-ветки компилируются в zero-LOC.
     ///
     /// Почему: contamination из `%APPDATA%\AIAgency\license.json` (оставленной
-    /// старой установкой Aurora Agency) подтягивалась в форкнутые продукты —
+    /// старой установкой Aurora Agency) подтягивалась в форкнутые продукты -
     /// юзер видел `Issued To: "Юрист"` в Econometrica с лицензии, которой в
     /// Supabase нет. См. memory/project_per_user_port_isolation.md.
     fn resolve_license_path(_app_config_dir: &Path) -> Option<PathBuf> {
@@ -98,7 +98,7 @@ impl License {
         None
     }
 
-    /// Per-app license path — <app_config_dir>/license.json
+    /// Per-app license path - <app_config_dir>/license.json
     pub fn license_path(app_config_dir: &Path) -> PathBuf {
         app_config_dir.join("license.json")
     }
@@ -236,7 +236,7 @@ pub fn quarantine_legacy_files() {
         }
         let bak = candidate.with_file_name("license.legacy.bak");
         if bak.exists() {
-            // Уже quarantined — ничего не делаем
+            // Уже quarantined - ничего не делаем
             continue;
         }
         match std::fs::rename(&candidate, &bak) {
@@ -246,7 +246,7 @@ pub fn quarantine_legacy_files() {
                 bak.display()
             ),
             Err(e) => log::debug!(
-                "Quarantine skipped ({}): {e} — probably permission/ACL issue, not fatal",
+                "Quarantine skipped ({}): {e} - probably permission/ACL issue, not fatal",
                 candidate.display()
             ),
         }
@@ -260,12 +260,12 @@ mod tests {
 
     #[test]
     fn license_verify_signature_invalid() {
-        // Подпись неправильной длины — ed25519::verify_signature вернёт ошибку
+        // Подпись неправильной длины - ed25519::verify_signature вернёт ошибку
         let garbage_short: &[u8] = b"not-a-real-signature";
         let result = crate::crypto::ed25519::verify_signature(b"test data", garbage_short);
         assert!(result.is_err(), "Garbage signature of wrong length should return Err");
 
-        // Подпись правильной длины (64 байта), но невалидная — вернёт Ok(false)
+        // Подпись правильной длины (64 байта), но невалидная - вернёт Ok(false)
         let garbage_64 = [0xABu8; 64];
         let result = crate::crypto::ed25519::verify_signature(b"test data", &garbage_64);
         assert!(result.is_ok(), "64-byte garbage should not cause Err");
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn quarantine_legacy_noop_if_missing() {
         // Файла нет → функция ничего не делает и не падает
-        quarantine_legacy_files(); // smoke test — не должно паниковать
+        quarantine_legacy_files(); // smoke test - не должно паниковать
     }
 }
 

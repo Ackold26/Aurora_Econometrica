@@ -56,7 +56,7 @@ def _find_msvc_via_vswhere() -> str | None:
     cl_exe = sorted(matches)[-1]
     bin_dir = os.path.dirname(cl_exe)
 
-    # Full env setup — run vcvars64.bat and capture INCLUDE/LIB/PATH/etc.
+    # Full env setup - run vcvars64.bat and capture INCLUDE/LIB/PATH/etc.
     # Without this, cl.exe runs but can't find windows.h / kernel32.lib → PyTensor compile fails.
     vcvars = os.path.join(vs_path, 'VC', 'Auxiliary', 'Build', 'vcvars64.bat')
     if os.path.isfile(vcvars):
@@ -93,7 +93,7 @@ def check_compiler() -> bool:
     1. Try cl.exe via PATH (activated via vcvars, or manually added)
     2. Try g++ (MinGW)
     3. Fall back to vswhere.exe to locate MSVC Build Tools installation
-       (MSVC is not in PATH by default — must be activated via vcvars64.bat)
+       (MSVC is not in PATH by default - must be activated via vcvars64.bat)
     """
     import subprocess
     import platform
@@ -117,7 +117,7 @@ def check_compiler() -> bool:
 def get_mcmc_params(has_compiler: bool) -> dict:
     """MCMC parameters based on environment (Windows optimization).
 
-    Defaults bumped 2026-04-19 to 4/2000/2000 — на JAX/NUTS секунды,
+    Defaults bumped 2026-04-19 to 4/2000/2000 - на JAX/NUTS секунды,
     но даёт надёжный R-hat (4 цепи) и точные ROI CI (2000 draws + 2000 tune).
     """
     if has_compiler:
@@ -146,7 +146,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         JSON-serializable result with diagnostics
     """
     def report(phase: str, pct: int = 0, **_kw):
-        """A1: phase-level progress — no per-draw callback instability."""
+        """A1: phase-level progress - no per-draw callback instability."""
         if progress_callback:
             try:
                 progress_callback({'phase': phase, 'pct': pct})
@@ -177,7 +177,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     # ─── KPI registry activation (v2.0 foundation, D.1) ─────────────────
     # Single source of truth для priors (sales / awareness / future KPIs).
-    # Sales mode uses Trust 3 FROZEN values — no behavior change vs v1.0.16.
+    # Sales mode uses Trust 3 FROZEN values - no behavior change vs v1.0.16.
     from utils.kpi_registry import get_kpi_config
     kpi_type = config.get('kpi_type', 'sales')
     kpi_config = get_kpi_config(kpi_type)  # raises ValueError on unknown KPI
@@ -204,7 +204,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # ─── JAX backend enforcement (v2.0 foundation, D.2) ─────────────────
     # Weibull learnable adstock requires JAX/NumPyro (Toeplitz pt.scan на CPU = unbearable).
     # Sales mode без Weibull = no-op (all 'geometric' default).
-    # AUDIT (post-D.2 hardening): also reject AURORA_NUTS_BACKEND=pymc + weibull —
+    # AUDIT (post-D.2 hardening): also reject AURORA_NUTS_BACKEND=pymc + weibull -
     # JAX guard выше пропустит если jax установлен, но user мог форсировать pymc backend
     # через env var. PyTensor pt.scan + Toeplitz на CPU = unbearable MCMC time.
     from utils.backend_check import enforce_jax_for_weibull
@@ -221,7 +221,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             ),
         }
 
-    # Trust Level 3 (v1.1.0): channel_categories — brand / performance / mixed.
+    # Trust Level 3 (v1.1.0): channel_categories - brand / performance / mixed.
     # Если ≥2 канала в одной из brand/performance групп → hierarchical priors path.
     # Иначе fallback к single-prior path (backward compatible с v1.2 behavior).
     #
@@ -239,7 +239,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         raw_categories, media_cols
     )
     use_hierarchical = is_hierarchical_eligible(channel_categories)
-    # Per-channel vector только используется in-model — не persists.
+    # Per-channel vector только используется in-model - не persists.
     per_channel_cats = resolve_per_channel_categories(channel_categories, media_cols)
     if categorization_warnings:
         for w in categorization_warnings:
@@ -324,7 +324,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     X_control = df[control_cols].fillna(0).astype(float) if control_cols else pd.DataFrame()
 
-    # Normalize media — Robyn-style spend/mean (P0-1/2/9 fix, math-fix-v1.0.13).
+    # Normalize media - Robyn-style spend/mean (P0-1/2/9 fix, math-fix-v1.0.13).
     # Pre-fix: z-score (X - mean) / std produced negative values that were clipped
     # at line 310 by pm.math.maximum(x, 0), silently dropping ~50% of data and
     # destroying response curve curvature. Result: scenario/optimizer/what-if
@@ -332,7 +332,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # Post-fix: spend/mean keeps non-negative scale, gamma stays in [0,1] range.
     #
     # A1 fix (post-audit v1.2): track channels with zero training variance.
-    # Pre-fix `replace(0, 1)` silently corrupted these — pickle stored mean=1,
+    # Pre-fix `replace(0, 1)` silently corrupted these - pickle stored mean=1,
     # scenario divided spend by 1 (raw scale!), Hill saturated at huge x_norm,
     # contribution = β × 1 × y_std fabricated from prior (uninformative).
     # Post-fix: replace zero with 1 for division safety BUT mark channel as
@@ -346,9 +346,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             f"Untrained channels (zero variance in training data): {untrained_channels}. "
             f"Scenario / optimizer will reject spend on these to avoid prior-only fabrication."
         )
-    # media_stds removed — not used in spend/mean normalization
+    # media_stds removed - not used in spend/mean normalization
 
-    # Normalize controls — критично: без этого большие контроли (price, budget) дают
+    # Normalize controls - критично: без этого большие контроли (price, budget) дают
     # огромный control_effect, y_pred улетает в ∞, R² получается астрономически отрицательным.
     if len(control_cols) > 0:
         control_means = X_control.mean()
@@ -379,12 +379,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         import pymc as pm
 
         with pm.Model() as mmm:
-            # Priors — tightened 2026-04-19 to fix NUTS funnel / divergences on small data.
+            # Priors - tightened 2026-04-19 to fix NUTS funnel / divergences on small data.
             # Previous priors (Gamma(3,1) for alpha, Beta(2,2) for gamma, HalfNormal(0.5) for beta)
             # created poorly identified Hill saturation geometry → 1600+ divergences.
             intercept = pm.Normal('intercept', mu=0, sigma=0.5)  # было sigma=1
 
-            # Media coefficients — более консервативный HalfNormal, меньший разброс.
+            # Media coefficients - более консервативный HalfNormal, меньший разброс.
             # Sprint 2 / A3: opt-in horseshoe priors для sparse channel selection.
             # Каналы с истинным β≈0 получают сильную shrinkage к нулю, что снижает
             # overfit на small N + предотвращает spurious channel effects.
@@ -403,12 +403,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 )
             elif use_hierarchical:
                 # Trust Level 3: hierarchical brand vs performance priors.
-                # Group-conditional sigma — brand wider (HalfNormal 0.7) accommodate
+                # Group-conditional sigma - brand wider (HalfNormal 0.7) accommodate
                 # long-horizon brand effects, performance tighter (HalfNormal 0.3).
                 # Non-centered z reparameterization (Critical Audit issue C) avoids funnel.
                 # Math: HalfNormal(σ) = σ · HalfNormal(1) by scale invariance.
                 # Sampling z ~ HalfNormal(1) и computing β = σ_group × z decouples
-                # σ↔β posterior geometry — flat surface, NUTS converges robustly на small N.
+                # σ↔β posterior geometry - flat surface, NUTS converges robustly на small N.
                 import pytensor.tensor as pt
                 brand_sigma = pm.HalfNormal('brand_sigma', sigma=kpi_config.brand_beta_sigma)
                 perf_sigma = pm.HalfNormal('perf_sigma', sigma=kpi_config.perf_beta_sigma)
@@ -428,14 +428,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             else:
                 control_effect = 0
 
-            # Hill saturation — жёстче priors для стабильной geometry
+            # Hill saturation - жёстче priors для стабильной geometry
             # alpha ≈ 1-2 (типичный saturation shape), Gamma(5, 3) имеет mean=1.67, var=0.56
             alphas = pm.Gamma('alphas', alpha=5, beta=3, shape=len(media_cols))  # было Gamma(3, 1) mean=3
-            # gamma — half-point of saturation, концентрируемся около 0.5
-            gammas = pm.Beta('gammas', alpha=kpi_config.gammas_alpha, beta=kpi_config.gammas_beta, shape=len(media_cols))  # KPI registry — sales=Beta(3,3) FROZEN
+            # gamma - half-point of saturation, концентрируемся около 0.5
+            gammas = pm.Beta('gammas', alpha=kpi_config.gammas_alpha, beta=kpi_config.gammas_beta, shape=len(media_cols))  # KPI registry - sales=Beta(3,3) FROZEN
 
             # ─────────────────────────────────────────────────────────────────
-            # Phase 1.1 — hierarchical adstock decay (logit-normal parameterization)
+            # Phase 1.1 - hierarchical adstock decay (logit-normal parameterization)
             # ─────────────────────────────────────────────────────────────────
             # Pilot validated logit-normal vs Beta-Beta (docs/PHASE_1_1_PILOT_RESULTS.md):
             # logit-normal 35% faster, R-hat 1.000 vs 1.020, ESS 5× better.
@@ -450,7 +450,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # Trust Level 3: group-conditional decay mu.
                 # Brand: mu_logit ~ Normal(0.7, 0.3) → sigmoid ≈ 0.67 → ~12 wk effective half-life.
                 # Performance: mu_logit ~ Normal(-1.4, 0.7) → sigmoid ≈ 0.20 → ~1.3 wk half-life.
-                # Mixed: same prior shape как single-prior path — semantic compat.
+                # Mixed: same prior shape как single-prior path - semantic compat.
                 _b_mu, _b_sg = kpi_config.brand_mu_logit_prior
                 _p_mu, _p_sg = kpi_config.perf_mu_logit_prior
                 _m_mu, _m_sg = kpi_config.mixed_mu_logit_prior
@@ -464,7 +464,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     pm.math.sigmoid(mu_vec + adstock_sigma_logit * adstock_z),
                 )
             else:
-                # Single-prior path — fallback к performance-style decay (соответствует kpi_config.perf_mu_logit_prior).
+                # Single-prior path - fallback к performance-style decay (соответствует kpi_config.perf_mu_logit_prior).
                 _sp_mu, _sp_sg = kpi_config.perf_mu_logit_prior
                 adstock_mu_logit = pm.Normal('adstock_mu_logit', mu=_sp_mu, sigma=_sp_sg)
                 adstock_decay = pm.Deterministic(
@@ -472,11 +472,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     pm.math.sigmoid(adstock_mu_logit + adstock_sigma_logit * adstock_z),
                 )
 
-            # Saturated media effect — Phase 1.1 per-channel scan-based adstock with sampled decay.
+            # Saturated media effect - Phase 1.1 per-channel scan-based adstock with sampled decay.
             # Geometric channels: scan-based recursive adstock with per-sample decay.
             # Weibull channels: pre-computed (decay sampling deferred to Phase 1.5).
             #
-            # C1 fix (2026-04-26 audit): normalize on adstock_full.mean() per draw —
+            # C1 fix (2026-04-26 audit): normalize on adstock_full.mean() per draw -
             # NOT on pre-computed default-decay mean. Pre-fix had mathematical drift:
             # model trained on adstock(raw; sampled_decay) / mean(adstock(raw; 0.5)),
             # downstream inference used adstock(raw; posterior_mean_decay) / pre-computed
@@ -517,28 +517,28 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
             # Likelihood
             mu = intercept + media_effect + control_effect
-            sigma = pm.HalfNormal('sigma', sigma=kpi_config.obs_sigma_prior)  # KPI registry — sales=0.3 FROZEN
+            sigma = pm.HalfNormal('sigma', sigma=kpi_config.obs_sigma_prior)  # KPI registry - sales=0.3 FROZEN
             pm.Normal('obs', mu=mu, sigma=sigma, observed=y_norm)
 
-            # A1: report sampling start — pct stays at 25 during 3-15 min MCMC
+            # A1: report sampling start - pct stays at 25 during 3-15 min MCMC
             # elapsed timer in UI shows progress is alive
             report('sampling', pct=25)
 
             # ───────────────────────────────────────────────────────────────
             # Tier-based MCMC sampling с fallback (v1.0.9)
             # ───────────────────────────────────────────────────────────────
-            # Tier-1: NumPyro NUTS (JAX JIT + vectorized chains) — 5-15× быстрее.
-            # Tier-2: PyTensor NUTS (cores=1) — стабильный, но 3-5× медленнее.
+            # Tier-1: NumPyro NUTS (JAX JIT + vectorized chains) - 5-15× быстрее.
+            # Tier-2: PyTensor NUTS (cores=1) - стабильный, но 3-5× медленнее.
             # Full fail: honest RuntimeError с кодом MMM_SAMPLER_EXHAUSTED.
             #
-            # Metropolis НЕ используется как Tier-3 fallback — на MMM с
+            # Metropolis НЕ используется как Tier-3 fallback - на MMM с
             # Adstock/Hill он даёт r_hat > 2.0 (ложный зелёный результат
             # опаснее честного fail).
             #
             # Fallback Tier-1 → Tier-2 ТОЛЬКО на `functools.partial` ошибке
             # (известный PyMC 5 + JAX JIT bug для custom Deterministic).
             # Другие ошибки (плохие данные, numerical issues) не маскируем
-            # медленным backend'ом — Tier-2 даст ту же ошибку за 10 минут.
+            # медленным backend'ом - Tier-2 даст ту же ошибку за 10 минут.
             #
             # Override: env `AURORA_NUTS_BACKEND=numpyro|pymc|auto` позволяет
             # оператору форсировать конкретный backend без rebuild'а.
@@ -553,7 +553,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     _jax_ref = jax
                     _use_numpyro = True
                     logger.info(
-                        f'MCMC backend: NumPyro NUTS (JAX) — '
+                        f'MCMC backend: NumPyro NUTS (JAX) - '
                         f'numpyro={numpyro.__version__}, jax={jax.__version__}'
                     )
                 except ImportError:
@@ -561,7 +561,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                         raise RuntimeError(
                             'AURORA_NUTS_BACKEND=numpyro but NumPyro/JAX not installed'
                         )
-                    logger.warning('NumPyro/JAX not available — using PyTensor NUTS')
+                    logger.warning('NumPyro/JAX not available - using PyTensor NUTS')
 
             trace = None
             _sampling_errors: list[tuple[str, str]] = []
@@ -610,15 +610,15 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     if _is_partial_bug(e):
                         logger.warning(
                             f'Tier-1 NumPyro NUTS: functools.partial bug '
-                            f'({str(e)[:150]}) — falling back to Tier-2 PyTensor NUTS'
+                            f'({str(e)[:150]}) - falling back to Tier-2 PyTensor NUTS'
                         )
                         _sampling_errors.append(('numpyro', f'partial bug: {str(e)[:200]}'))
                         trace = None
                     else:
-                        # Другая AttributeError — не маскируем медленным fallback'ом
+                        # Другая AttributeError - не маскируем медленным fallback'ом
                         raise
                 except Exception as e:
-                    # Non-partial errors (bad data, numerical issues) — instant fail,
+                    # Non-partial errors (bad data, numerical issues) - instant fail,
                     # Tier-2 на тех же данных вернёт то же
                     _sampling_errors.append(
                         ('numpyro', f'{type(e).__name__}: {str(e)[:200]}')
@@ -679,7 +679,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     )
                     raise
 
-            # ── Full fail: honest error (NO Metropolis — даёт r_hat > 2) ──
+            # ── Full fail: honest error (NO Metropolis - даёт r_hat > 2) ──
             if trace is None:
                 _err_summary = '\n'.join(
                     f'  - {tier}: {msg}' for tier, msg in _sampling_errors
@@ -720,7 +720,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             for param in summary.index:
                 if param in key_params:
                     per_param_rhat[param] = round(float(summary.loc[param, 'r_hat']), 4)
-            # Hierarchical hyperparameter gate — silently broken model prevention.
+            # Hierarchical hyperparameter gate - silently broken model prevention.
             if use_hierarchical:
                 hyper_names = ['brand_sigma', 'perf_sigma', 'brand_mu_logit', 'perf_mu_logit']
                 hyper_rhats = [per_param_rhat[n] for n in hyper_names if n in per_param_rhat]
@@ -738,14 +738,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         r_hat_max = max(r_hat_values) if r_hat_values else 1.0
         divergences = int(trace.sample_stats['diverging'].sum()) if hasattr(trace, 'sample_stats') else 0
 
-        # Posterior predictions — reconstructed from posterior means directly.
+        # Posterior predictions - reconstructed from posterior means directly.
         # Причина: pm.sample_posterior_predictive на модели с Hill saturation
         # рекомпилирует PyTensor graph для каждого posterior draw (4×2000 = 8000),
         # что даёт 13+ минут на Windows без native C compiler (PyTensor Python mode).
         # Manual reconstruction из posterior means математически эквивалентна
         # `E[posterior_predictive].mean(chain,draw)` при нулевом observation noise,
         # а расхождение из-за sigma-noise усредняется к нулю на 8000 draws.
-        # Downstream (decomposer/optimizer) НЕ читает trace.posterior_predictive —
+        # Downstream (decomposer/optimizer) НЕ читает trace.posterior_predictive -
         # только y_pred_norm нужен для диагностики y_pred vs actual.
         y_pred_norm = None
         try:
@@ -756,7 +756,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             gammas_mean = trace.posterior['gammas'].mean(dim=['chain', 'draw']).values
 
             # Reconstruct Hill-saturated predictions using posterior means
-            # (using X_media_norm — same transformation as inside pm.Model)
+            # (using X_media_norm - same transformation as inside pm.Model)
             media_effect_pred = _np.zeros(n_obs)
             for i, col in enumerate(media_cols):
                 x_ch = X_media_norm[col].values
@@ -769,7 +769,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 saturated = x_safe ** alpha_i / (x_safe ** alpha_i + gamma_i ** alpha_i + 1e-10)
                 media_effect_pred += beta_i * saturated
 
-            # Control effect (используем нормализованные контроли — так же как внутри pm.Model)
+            # Control effect (используем нормализованные контроли - так же как внутри pm.Model)
             control_effect_pred = _np.zeros(n_obs)
             if len(control_cols) > 0:
                 control_betas_mean = trace.posterior['control_betas'].mean(dim=['chain', 'draw']).values
@@ -817,7 +817,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             }
         else:
             diagnostics['hierarchical'] = {'enabled': False}
-        # MCMC config — needed by UI to give context-aware divergence advice
+        # MCMC config - needed by UI to give context-aware divergence advice
         # (e.g., "Tune already at 6000 → recommend target_accept=0.99 instead").
         diagnostics['metrics']['mcmc'] = {
             'chains': int(chains),
@@ -837,7 +837,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         gamma_means = trace.posterior['gammas'].mean(dim=['chain', 'draw']).values.tolist()
 
         # Phase 1.9: extract FULL posterior samples (joint per channel) for CI propagation.
-        # Shape convention: (n_channels, n_samples) — samples[i, :] = all draws for channel i.
+        # Shape convention: (n_channels, n_samples) - samples[i, :] = all draws for channel i.
         # Joint correlation preserved across alphas/gammas/betas via consistent stack order.
         # float32 halves storage vs float64 with negligible loss for percentile/HDI estimation.
         media_betas_samples = np.asarray(
@@ -851,11 +851,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         )
 
         # Phase 1.1: hierarchical adstock decay samples.
-        # Shape (n_channels, n_samples) — same as alphas/gammas. Used by downstream
+        # Shape (n_channels, n_samples) - same as alphas/gammas. Used by downstream
         # decomposer/scenario/optimizer for honest mROAS CI through adstock chain.
         # Trust Level 3: hierarchical model uses brand_mu_logit/perf_mu_logit/mixed_mu_logit
         # вместо single adstock_mu_logit. Extract per-group для diagnostics + methodology.
-        # NOTE: hierarchical_priors_summary initialized earlier (line ~701) — re-populated here.
+        # NOTE: hierarchical_priors_summary initialized earlier (line ~701) - re-populated here.
         try:
             adstock_decay_samples = np.asarray(
                 trace.posterior['adstock_decay'].stack(sample=('chain', 'draw')).values, dtype=np.float32
@@ -863,7 +863,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             adstock_decay_means = trace.posterior['adstock_decay'].mean(dim=['chain', 'draw']).values.tolist()
             adstock_sigma_logit_mean = float(trace.posterior['adstock_sigma_logit'].mean().values)
             if use_hierarchical:
-                # Trust Level 3: brand/perf/mixed mu_logit — group-conditional posteriors.
+                # Trust Level 3: brand/perf/mixed mu_logit - group-conditional posteriors.
                 for group in ('brand', 'performance', 'mixed'):
                     var_name = f'{group if group != "performance" else "perf"}_mu_logit'
                     if var_name in trace.posterior:
@@ -875,7 +875,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                         hierarchical_priors_summary[f'{group}_sigma_mean'] = float(
                             trace.posterior[sigma_name].mean().values
                         )
-                # Backward-compat: keep adstock_mu_logit_mean field — average over channels' implied mu.
+                # Backward-compat: keep adstock_mu_logit_mean field - average over channels' implied mu.
                 adstock_mu_logit_mean = float(np.mean([
                     hierarchical_priors_summary.get(f'{g}_mu_logit_mean', -1.4)
                     for g in ('brand', 'performance', 'mixed')
@@ -886,7 +886,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         except KeyError:
             # Defensive: if model didn't include adstock_decay (shouldn't happen post Phase 1.1),
             # fall back to default 0.5 per channel for backward compat with v1.1.5 readers.
-            logger.warning("adstock_decay not in trace — falling back to defaults (v1.1.5 compat)")
+            logger.warning("adstock_decay not in trace - falling back to defaults (v1.1.5 compat)")
             adstock_decay_samples = np.full((len(media_cols), media_betas_samples.shape[1]), 0.5, dtype=np.float32)
             adstock_decay_means = [0.5] * len(media_cols)
             adstock_mu_logit_mean = -1.4
@@ -907,7 +907,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
         # Tail-ESS check per channel (Vehtari rule: tail_ess ≥ 100·n_chains for stable percentile estimation).
         # F4 fix (audit 2026-04-27): extended from media_betas only к β + α + γ + adstock_decay.
-        # ROI/mROAS CI propagation chain involves all four params via Hill saturation —
+        # ROI/mROAS CI propagation chain involves all four params via Hill saturation -
         # if α/γ/decay tail-ESS bad, CI bounds unreliable даже когда β tail-ESS ok.
         # Per-channel tail_ess_ok = AND of all four params для that channel.
         try:
@@ -925,7 +925,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     ess_per_param[vname] = az.ess(trace, var_names=[vname], method='tail')[vname].values
                 except Exception as _vess_err:
                     logger.warning(f"Tail-ESS failed для {vname}: {_vess_err}. Skipping.")
-            # Per-channel AND aggregation — pass только если все доступные params выше threshold.
+            # Per-channel AND aggregation - pass только если все доступные params выше threshold.
             tail_ess_ok_per_channel = []
             for i in range(len(media_cols)):
                 ok = True
@@ -935,7 +935,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                             ok = False
                             break
                     except (IndexError, ValueError, TypeError):
-                        # Defensive — ambiguous result treated as ok (don't block training)
+                        # Defensive - ambiguous result treated as ok (don't block training)
                         pass
                 tail_ess_ok_per_channel.append(bool(ok))
         except Exception as _ess_err:
@@ -969,7 +969,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # closures that don't have __name__ → pickle.dump crashes with
         # `'functools.partial' object has no attribute '__name__'`.
         # Downstream engines (decomposer/optimizer/scenario) only need channel_params +
-        # posterior means + normalization — not the raw trace or model graph.
+        # posterior means + normalization - not the raw trace or model graph.
         # Extract intercept + control betas posterior means for decomposer baseline (Phase 3).
         intercept_mean_posterior = float(trace.posterior['intercept'].mean(dim=['chain', 'draw']).values)
         control_betas_mean_posterior = []
@@ -1007,7 +1007,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             },
             # Phase 1.9: persist full posterior draws for honest uncertainty quantification.
             # Joint structure preserves per-draw correlation between alpha/gamma/beta of same channel.
-            # Storage: ~864 KB for n=36 × 7 channels × 8000 draws × float32 — negligible vs PyMC pickle overhead.
+            # Storage: ~864 KB for n=36 × 7 channels × 8000 draws × float32 - negligible vs PyMC pickle overhead.
             'posterior_samples': {
                 'media_betas': media_betas_samples,        # shape (n_channels, n_samples)
                 'alphas': alphas_samples,                  # shape (n_channels, n_samples)
@@ -1024,15 +1024,15 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 'n_draws': int(draws),
             },
             # Schema versions:
-            # 1.2 — Phase 1.1 hierarchical adstock decay (single hyperprior)
-            # 1.3 — Trust Level 3: brand vs performance split (channel_categories field)
+            # 1.2 - Phase 1.1 hierarchical adstock decay (single hyperprior)
+            # 1.3 - Trust Level 3: brand vs performance split (channel_categories field)
             #       + group-conditional decay mu (brand_mu_logit, perf_mu_logit, mixed_mu_logit)
             #       + group-conditional sigma (brand_sigma, perf_sigma, mixed_sigma)
             'model_version': '1.3' if use_hierarchical else '1.2',
             # Trust Level 3: persist actual categorization (after identifiability validation,
             # may differ from raw user input если N=1 group → demoted к mixed).
             # Backward-compat: empty {} означает «user не assigned» → decomposer применяет heuristic.
-            # Filled values represent EXPLICIT user choices (NOT auto-fills) — single source of truth.
+            # Filled values represent EXPLICIT user choices (NOT auto-fills) - single source of truth.
             'channel_categories': dict(channel_categories),
             'categorization_warnings': list(categorization_warnings),
             'use_hierarchical': bool(use_hierarchical),
@@ -1066,12 +1066,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 detect_granularity,
                 detect_seasonality,
             )
-            # Granularity (peek date column directly here — already loaded df).
+            # Granularity (peek date column directly here - already loaded df).
             if date_col in df.columns:
                 gran_result = detect_granularity(df[date_col])
                 if gran_result['confidence'] >= 0.4:
                     model_data['training_granularity'] = gran_result['granularity']
-            # x_norm quantiles per channel — recompute from raw spend × decay
+            # x_norm quantiles per channel - recompute from raw spend × decay
             # posterior mean (matches optimizer.py:496 fallback chain semantics).
             from utils.adstock import apply_adstock as _apply_adstock_fit
             quantiles_per_channel: dict[str, dict[str, float]] = {}
@@ -1100,7 +1100,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             season_result = detect_seasonality(y, granularity=granularity_for_season)
             model_data['seasonality_detected'] = season_result  # dict | None
         except Exception as _phase2_persist_err:
-            # Non-fatal — pre-Phase-2 fields will lazy-inferred at load time.
+            # Non-fatal - pre-Phase-2 fields will lazy-inferred at load time.
             logger.warning(
                 f"Phase 2 at-fit-time persistence failed: {_phase2_persist_err}. "
                 f"Legacy inference helpers will fill on demand."
@@ -1174,7 +1174,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'error_code': 'IMPORT_ERROR',
         }
     except RuntimeError as e:
-        # MMM_SAMPLER_EXHAUSTED — honest error из triple fallback, с деталями
+        # MMM_SAMPLER_EXHAUSTED - honest error из triple fallback, с деталями
         msg = str(e)
         if 'MMM_SAMPLER_EXHAUSTED' in msg:
             logger.error(f"MMM sampler exhausted: {msg}")
@@ -1191,7 +1191,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         }
     except AttributeError as e:
         # Оставшийся functools.partial где-то ВНЕ sampling-блока (маловероятно,
-        # но возможно — например, в save/pickle). Диагностика для поддержки.
+        # но возможно - например, в save/pickle). Диагностика для поддержки.
         msg = str(e)
         if 'functools.partial' in msg or "'__name__'" in msg:
             logger.exception("functools.partial bug вне sampling block")

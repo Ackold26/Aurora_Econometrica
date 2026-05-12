@@ -24,30 +24,30 @@
 
   // ── Tooltip-помощь по каждому показателю и параметру: «что это» + «почему важно» ──
   const HELP = {
-    rHat:  'R-hat (Gelman-Rubin) — мера сходимости параллельных цепей Markov Chain Monte Carlo.\n\nЧто это: насколько разные цепи пришли к одному распределению (1.0 = идеально, > 1.05 = не сошлись).\n\nПочему важно: если цепи не сошлись — оценки ROI и CI ненадёжны, результаты случайны.',
-    divs:  'Дивергенции (divergences) — количество шагов сэмплера NUTS, которые «соскочили» с траектории.\n\nЧто это: индикатор сложной геометрии posterior. Судить нужно по ДОЛЕ от общего числа draws (chains × draws), а не по абсолютному значению.\n\nКоличественные градации (industry standard, Stan/PyMC docs):\n• 0% — Чисто. Идеальная сходимость.\n• <0.5% — Низкая. Безопасно, R-hat и оценки надёжны.\n• 0.5–2% — Несколько. Внимание, но обычно ОК если R-hat ≤ 1.01.\n• 2–5% — Заметно. Стоит пересмотреть priors или увеличить tune.\n• ≥5% — Много. Модель не сошлась, оценки могут быть смещены.\n\nПример: 9 дивергенций при 4 chains × 2000 draws = 9/8000 ≈ 0.11% → Низкая, безопасно.',
-    rSq:   'R² (коэффициент детерминации) — доля вариации KPI, объяснённая моделью.\n\nЧто это: 0 = модель не лучше среднего, 1 = идеальный fit. ≥ 0.7 — хорошо, ≥ 0.9 — отлично.\n\nПочему важно: показывает, насколько модель захватывает динамику продаж. Низкий R² = вы что-то упустили (промо, сезонность, конкуренты).',
-    mape:  'MAPE (Mean Absolute Percentage Error) — средняя абсолютная ошибка прогноза в процентах.\n\nЧто это: на сколько процентов в среднем прогноз отличается от факта. < 10% — отлично, 10-20% — приемлемо, > 20% — плохо.\n\nПочему важно: дополняет R². Можно иметь высокий R² и большие отклонения в отдельных периодах — MAPE это ловит.',
-    mqs:   'MQS (Model Quality Score) — агрегированная оценка качества модели от 0 до 100.\n\nЧто это: взвешенная комбинация R² (40%), MAPE (30%) и сходимости MCMC (30%). ≥ 80 = отлично, 60-80 = хорошо.\n\nПочему важно: одно число для быстрой оценки — стоит ли доверять выводам модели.',
-    alpha: 'α (Hill steepness) — крутизна кривой насыщения для канала.\n\nЧто это: контролирует, как быстро отдача от рекламы выходит на плато. α ≈ 1-2 — типичная saturation (плавный изгиб).\n\nПочему важно: высокая α = резкий cutoff (после порога каждый рубль почти не работает); низкая α = плавная saturation (отдача снижается медленно). Влияет на оптимальный бюджет канала.',
-    gamma: 'γ (Hill half-saturation) — точка половинного насыщения, нормализованная на максимум канала.\n\nЧто это: при каком уровне расхода канал даёт половину своего максимального эффекта. γ ≈ 0.5 = половина при середине бюджета.\n\nПочему важно: маленькая γ = канал быстро насыщается (нет смысла лить много денег); большая γ = ещё далеко до saturation, можно докупать.',
-    beta:  'β (channel coefficient) — сила эффекта канала на нормализованной шкале.\n\nЧто это: posterior mean коэффициента в Bayesian-регрессии. Чем больше β — тем сильнее канал влияет на KPI per единицу бюджета (после Adstock и Hill).\n\nПочему важно: внутренний параметр модели; для маркетёра важнее производный ROI (см. справа). β полезен для сравнения «силы сигнала» каналов между собой.',
-    roi:   'ROI (Return on Investment) — отдача на каждый рубль, вложенный в канал.\n\nЧто это: вклад канала в KPI / расход на канал. ROI = 2.5x означает «канал генерирует 2.5 рубля продаж на каждый вложенный рубль».\n\nПочему важно: главная метрика для перераспределения бюджета. Каналы с ROI < 1.0 — убыточные, > 2.0 — отличные.',
-    roiCi: 'CI 95% (доверительный интервал ROI) — диапазон, где истинный ROI лежит с вероятностью 95%.\n\nЧто это: [нижняя, верхняя] граница из posterior distribution Bayesian-модели. Узкий интервал = высокая определённость, широкий = высокая неопределённость.\n\nПочему важно: показывает не точку, а РАЗБРОС оценки. Если CI = [0.8, 4.2] — мы плохо знаем ROI. Если CI = [2.1, 2.5] — оценка надёжна.',
+    rHat:  'R-hat (Gelman-Rubin) - мера сходимости параллельных цепей Markov Chain Monte Carlo.\n\nЧто это: насколько разные цепи пришли к одному распределению (1.0 = идеально, > 1.05 = не сошлись).\n\nПочему важно: если цепи не сошлись - оценки ROI и CI ненадёжны, результаты случайны.',
+    divs:  'Дивергенции (divergences) - количество шагов сэмплера NUTS, которые «соскочили» с траектории.\n\nЧто это: индикатор сложной геометрии posterior. Судить нужно по ДОЛЕ от общего числа draws (chains × draws), а не по абсолютному значению.\n\nКоличественные градации (industry standard, Stan/PyMC docs):\n• 0% - Чисто. Идеальная сходимость.\n• <0.5% - Низкая. Безопасно, R-hat и оценки надёжны.\n• 0.5–2% - Несколько. Внимание, но обычно ОК если R-hat ≤ 1.01.\n• 2–5% - Заметно. Стоит пересмотреть priors или увеличить tune.\n• ≥5% - Много. Модель не сошлась, оценки могут быть смещены.\n\nПример: 9 дивергенций при 4 chains × 2000 draws = 9/8000 ≈ 0.11% → Низкая, безопасно.',
+    rSq:   'R² (коэффициент детерминации) - доля вариации KPI, объяснённая моделью.\n\nЧто это: 0 = модель не лучше среднего, 1 = идеальный fit. ≥ 0.7 - хорошо, ≥ 0.9 - отлично.\n\nПочему важно: показывает, насколько модель захватывает динамику продаж. Низкий R² = вы что-то упустили (промо, сезонность, конкуренты).',
+    mape:  'MAPE (Mean Absolute Percentage Error) - средняя абсолютная ошибка прогноза в процентах.\n\nЧто это: на сколько процентов в среднем прогноз отличается от факта. < 10% - отлично, 10-20% - приемлемо, > 20% - плохо.\n\nПочему важно: дополняет R². Можно иметь высокий R² и большие отклонения в отдельных периодах - MAPE это ловит.',
+    mqs:   'MQS (Model Quality Score) - агрегированная оценка качества модели от 0 до 100.\n\nЧто это: взвешенная комбинация R² (40%), MAPE (30%) и сходимости MCMC (30%). ≥ 80 = отлично, 60-80 = хорошо.\n\nПочему важно: одно число для быстрой оценки - стоит ли доверять выводам модели.',
+    alpha: 'α (Hill steepness) - крутизна кривой насыщения для канала.\n\nЧто это: контролирует, как быстро отдача от рекламы выходит на плато. α ≈ 1-2 - типичная saturation (плавный изгиб).\n\nПочему важно: высокая α = резкий cutoff (после порога каждый рубль почти не работает); низкая α = плавная saturation (отдача снижается медленно). Влияет на оптимальный бюджет канала.',
+    gamma: 'γ (Hill half-saturation) - точка половинного насыщения, нормализованная на максимум канала.\n\nЧто это: при каком уровне расхода канал даёт половину своего максимального эффекта. γ ≈ 0.5 = половина при середине бюджета.\n\nПочему важно: маленькая γ = канал быстро насыщается (нет смысла лить много денег); большая γ = ещё далеко до saturation, можно докупать.',
+    beta:  'β (channel coefficient) - сила эффекта канала на нормализованной шкале.\n\nЧто это: posterior mean коэффициента в Bayesian-регрессии. Чем больше β - тем сильнее канал влияет на KPI per единицу бюджета (после Adstock и Hill).\n\nПочему важно: внутренний параметр модели; для маркетёра важнее производный ROI (см. справа). β полезен для сравнения «силы сигнала» каналов между собой.',
+    roi:   'ROI (Return on Investment) - отдача на каждый рубль, вложенный в канал.\n\nЧто это: вклад канала в KPI / расход на канал. ROI = 2.5x означает «канал генерирует 2.5 рубля продаж на каждый вложенный рубль».\n\nПочему важно: главная метрика для перераспределения бюджета. Каналы с ROI < 1.0 - убыточные, > 2.0 - отличные.',
+    roiCi: 'CI 95% (доверительный интервал ROI) - диапазон, где истинный ROI лежит с вероятностью 95%.\n\nЧто это: [нижняя, верхняя] граница из posterior distribution Bayesian-модели. Узкий интервал = высокая определённость, широкий = высокая неопределённость.\n\nПочему важно: показывает не точку, а РАЗБРОС оценки. Если CI = [0.8, 4.2] - мы плохо знаем ROI. Если CI = [2.1, 2.5] - оценка надёжна.',
   };
 
-  /** Характеристика-метка для каждого показателя — как у MQS «96 (Отличное)». */
+  /** Характеристика-метка для каждого показателя - как у MQS «96 (Отличное)». */
   /**
    * @param {number} v
    */
   function rHatLabel(v) {
-    if (v == null || !Number.isFinite(v)) return { text: '—', tone: 'neutral' };
+    if (v == null || !Number.isFinite(v)) return { text: '-', tone: 'neutral' };
     if (v <= 1.01) return { text: 'Идеально', tone: 'good' };
     if (v <= 1.05) return { text: 'Приемлемо', tone: 'warn' };
     return { text: 'Не сошлось', tone: 'bad' };
   }
   /**
-   * Дивергенции NUTS — судить нужно по ДОЛЕ от total draws, не absolute count.
+   * Дивергенции NUTS - судить нужно по ДОЛЕ от total draws, не absolute count.
    * Industry standard (Stan/PyMC docs): <0.5% безопасно, <2% acceptable, ≥5% bad.
    * Pre-fix (2026-05-01): абсолютный порог 10 для 8000 draws = 0.125% помечал
    * как warn → создавал ложное впечатление проблемы при идеальной сходимости.
@@ -56,20 +56,20 @@
    * @param {number} totalDraws total posterior samples (chains × draws)
    */
   function divsLabel(v, totalDraws) {
-    if (v == null) return { text: '—', tone: 'neutral' };
+    if (v == null) return { text: '-', tone: 'neutral' };
     if (v === 0) return { text: 'Чисто', tone: 'good' };
     const denom = totalDraws > 0 ? totalDraws : 8000;  // fallback если mcmc meta отсутствует
     const pct = v / denom;
-    if (pct < 0.005) return { text: 'Низкая', tone: 'good' };       // <0.5% — безопасно
-    if (pct < 0.02) return { text: 'Несколько', tone: 'warn' };     // 0.5–2% — внимание
-    if (pct < 0.05) return { text: 'Заметно', tone: 'warn' };       // 2–5% — пересмотр priors
-    return { text: 'Много', tone: 'bad' };                           // ≥5% — модель не сошлась
+    if (pct < 0.005) return { text: 'Низкая', tone: 'good' };       // <0.5% - безопасно
+    if (pct < 0.02) return { text: 'Несколько', tone: 'warn' };     // 0.5–2% - внимание
+    if (pct < 0.05) return { text: 'Заметно', tone: 'warn' };       // 2–5% - пересмотр priors
+    return { text: 'Много', tone: 'bad' };                           // ≥5% - модель не сошлась
   }
   /**
    * @param {number} v
    */
   function rSqLabel(v) {
-    if (v == null || !Number.isFinite(v)) return { text: '—', tone: 'neutral' };
+    if (v == null || !Number.isFinite(v)) return { text: '-', tone: 'neutral' };
     if (v >= 0.9) return { text: 'Очень сильный fit', tone: 'good' };
     if (v >= 0.7) return { text: 'Сильный fit', tone: 'good' };
     if (v >= 0.5) return { text: 'Средний fit', tone: 'warn' };
@@ -79,7 +79,7 @@
    * @param {number} v
    */
   function mapeLabel(v) {
-    if (v == null || !Number.isFinite(v)) return { text: '—', tone: 'neutral' };
+    if (v == null || !Number.isFinite(v)) return { text: '-', tone: 'neutral' };
     if (v < 5) return { text: 'Превосходно', tone: 'good' };
     if (v < 10) return { text: 'Отлично', tone: 'good' };
     if (v < 20) return { text: 'Приемлемо', tone: 'warn' };
@@ -89,7 +89,7 @@
    * @param {number} v
    */
   function roiLabel(v) {
-    if (v == null || !Number.isFinite(v)) return { text: '—', tone: 'neutral' };
+    if (v == null || !Number.isFinite(v)) return { text: '-', tone: 'neutral' };
     if (v >= 2) return { text: 'Высокий', tone: 'good' };
     if (v >= 1) return { text: 'Окупается', tone: 'warn' };
     return { text: 'Убыточный', tone: 'bad' };
@@ -115,7 +115,7 @@
       <div class="diag-item">
         <span class="diag-label">R-hat (max)<span class="help-icon" title={HELP.rHat}>?</span></span>
         <span class="diag-value" class:good={rh.tone === 'good'} class:warn={rh.tone === 'warn'} class:bad={rh.tone === 'bad'}>
-          {rHat?.toFixed(4) ?? '—'}
+          {rHat?.toFixed(4) ?? '-'}
         </span>
         <span class="diag-tier" class:good={rh.tone === 'good'} class:warn={rh.tone === 'warn'} class:bad={rh.tone === 'bad'}>
           {rh.text}
@@ -135,7 +135,7 @@
       <div class="diag-item">
         <span class="diag-label">R²<span class="help-icon" title={HELP.rSq}>?</span></span>
         <span class="diag-value" class:good={rsq.tone === 'good'} class:warn={rsq.tone === 'warn'} class:bad={rsq.tone === 'bad'}>
-          {rSq?.toFixed(4) ?? '—'}
+          {rSq?.toFixed(4) ?? '-'}
         </span>
         <span class="diag-tier" class:good={rsq.tone === 'good'} class:warn={rsq.tone === 'warn'} class:bad={rsq.tone === 'bad'}>
           {rsq.text}
@@ -144,7 +144,7 @@
       <div class="diag-item">
         <span class="diag-label">MAPE<span class="help-icon" title={HELP.mape}>?</span></span>
         <span class="diag-value" class:good={mp.tone === 'good'} class:warn={mp.tone === 'warn'} class:bad={mp.tone === 'bad'}>
-          {mape?.toFixed(2) ?? '—'}%
+          {mape?.toFixed(2) ?? '-'}%
         </span>
         <span class="diag-tier" class:good={mp.tone === 'good'} class:warn={mp.tone === 'warn'} class:bad={mp.tone === 'bad'}>
           {mp.text}
@@ -153,7 +153,7 @@
       <div class="diag-item">
         <span class="diag-label">MQS<span class="help-icon" title={HELP.mqs}>?</span></span>
         <span class="diag-value" class:good={mqsScore >= 80} class:warn={mqsScore >= 60 && mqsScore < 80} class:bad={mqsScore < 60}>
-          {mqsScore?.toFixed(0) ?? '—'}
+          {mqsScore?.toFixed(0) ?? '-'}
         </span>
         <span class="diag-tier" class:good={mqsScore >= 80} class:warn={mqsScore >= 60 && mqsScore < 80} class:bad={mqsScore < 60}>
           {mqsTier}
@@ -180,14 +180,14 @@
           {#each paramRows as row}
             <tr>
               <td>{row.name}</td>
-              <td class="mono">{row.alpha?.toFixed(3) ?? '—'}</td>
-              <td class="mono">{row.gamma?.toFixed(4) ?? '—'}</td>
-              <td class="mono">{row.beta?.toFixed(4) ?? '—'}</td>
+              <td class="mono">{row.alpha?.toFixed(3) ?? '-'}</td>
+              <td class="mono">{row.gamma?.toFixed(4) ?? '-'}</td>
+              <td class="mono">{row.beta?.toFixed(4) ?? '-'}</td>
               <td class="mono" class:good={row.roi > 2} class:warn={row.roi < 1}>
                 {#if row.roi != null && Number.isFinite(row.roi)}
                   {row.roi.toFixed(2)}x
                 {:else}
-                  <span class="placeholder-hint" title="ROI вычисляется на следующем шаге — Декомпозиции. Здесь показаны только posterior-параметры sampler'а.">→ После декомпозиции</span>
+                  <span class="placeholder-hint" title="ROI вычисляется на следующем шаге - Декомпозиции. Здесь показаны только posterior-параметры sampler'а.">→ После декомпозиции</span>
                 {/if}
               </td>
               <td class="mono ci">
@@ -206,7 +206,7 @@
 </div>
 
 <style>
-  /* Inline placeholder для ROI/CI на этапе Train — values вычисляются в Decompose. */
+  /* Inline placeholder для ROI/CI на этапе Train - values вычисляются в Decompose. */
   .placeholder-hint {
     color: var(--text-secondary, rgba(255, 255, 255, 0.5));
     font-size: 11px;

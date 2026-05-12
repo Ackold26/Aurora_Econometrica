@@ -112,7 +112,7 @@ fn main() {
 
             // Resolve full machine hash if only prefix given
             let full_hash = if machine_hash.len() < 64 {
-                // Assume it's a prefix — store as-is (the app will compare prefixes)
+                // Assume it's a prefix - store as-is (the app will compare prefixes)
                 eprintln!(
                     "Warning: received partial hash ({} chars). For production, use full SHA-256 hash.",
                     machine_hash.len()

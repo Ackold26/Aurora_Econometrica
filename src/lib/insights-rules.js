@@ -6,12 +6,12 @@
  * @module insights-rules
  */
 // Audit pass 9 (2026-05-03): removed marginalROI/buildScaledParams imports.
-// Insights теперь uses backend's ch.mroi_current + ch.action — three-way
+// Insights теперь uses backend's ch.mroi_current + ch.action - three-way
 // alignment с таблицей и compute_channel_action (single source of truth).
 
-// v1.3.2: KPI/mode-aware label helpers — позволяют insights адаптироваться
+// v1.3.2: KPI/mode-aware label helpers - позволяют insights адаптироваться
 // для count KPI (CPU вместо ROI) и effectiveness mode (доля вместо ROI×).
-// Legacy callers (без kpi arg) получают monetary roi defaults — backward compat.
+// Legacy callers (без kpi arg) получают monetary roi defaults - backward compat.
 import {
   kpiView as _kpiView,
   fmtMetric as _fmtMetric,
@@ -78,7 +78,7 @@ export function importInsights(data) {
   if (rows < 24) {
     out.push({ severity: 'warning', text: `Мало данных: ${rows} наблюдений (${period}). MMM требует минимум 2 года истории.`, tip: 'Байесовская модель работает с малыми выборками, но доверительные интервалы будут широкими.' });
   } else if (rows >= 104) {
-    out.push({ severity: 'success', text: `${rows} ${granularity} наблюдений (${period}) — отличный объём для MMM.` });
+    out.push({ severity: 'success', text: `${rows} ${granularity} наблюдений (${period}) - отличный объём для MMM.` });
   } else {
     out.push({ severity: 'info', text: `${rows} ${granularity} наблюдений (${period}), ${cols} столбцов.` });
   }
@@ -94,11 +94,11 @@ export function importInsights(data) {
   const hasKpi = colNames.some(n => KPI_KEYWORDS.some(k => n.includes(k)));
 
   if (hasDate && hasKpi) {
-    out.push({ severity: 'success', text: 'Обнаружены дата и целевой KPI — структура данных подходит для MMM.' });
+    out.push({ severity: 'success', text: 'Обнаружены дата и целевой KPI - структура данных подходит для MMM.' });
   } else if (!hasDate) {
     out.push({ severity: 'warning', text: 'Колонка с датой не найдена. Убедитесь, что временной период присутствует в данных.', tip: 'MMM требует временного ряда. Колонка с датой должна быть первой или явно названа DATE/ДАТА/PERIOD.' });
   } else if (!hasKpi) {
-    out.push({ severity: 'warning', text: 'Целевой KPI не распознан автоматически. На шаге Валидация назначьте его вручную.', tip: 'KPI — это что вы хотите объяснить: продажи, выручка, конверсии, заказы.' });
+    out.push({ severity: 'warning', text: 'Целевой KPI не распознан автоматически. На шаге Валидация назначьте его вручную.', tip: 'KPI - это что вы хотите объяснить: продажи, выручка, конверсии, заказы.' });
   }
 
   if (detectedMedia > 0) {
@@ -112,7 +112,7 @@ export function importInsights(data) {
   if (zeros) {
     for (const [col, pct] of Object.entries(zeros)) {
       if (pct > 80) {
-        out.push({ severity: 'warning', text: `«${col}»: ${Math.round(pct)}% нулей — канал малоактивен.` });
+        out.push({ severity: 'warning', text: `«${col}»: ${Math.round(pct)}% нулей - канал малоактивен.` });
       }
     }
   }
@@ -149,19 +149,19 @@ export function validateInsights(result, objective = 'roi') {
   const dateCols = cols.filter(/** @param {any} c */ c => c.role === 'date');
 
   if (kpiCols.length > 0 && mediaCols.length > 0) {
-    out.push({ severity: 'success', text: `Распознано: KPI — ${kpiCols.map(/** @param {any} c */ c => c.name).join(', ')}, ${mediaCols.length} медиаканал${mediaCols.length > 4 ? 'ов' : mediaCols.length > 1 ? 'а' : ''}, ${controlCols.length} контрольн${controlCols.length === 1 ? 'ая' : 'ых'} переменн${controlCols.length === 1 ? 'ая' : 'ых'}.` });
+    out.push({ severity: 'success', text: `Распознано: KPI - ${kpiCols.map(/** @param {any} c */ c => c.name).join(', ')}, ${mediaCols.length} медиаканал${mediaCols.length > 4 ? 'ов' : mediaCols.length > 1 ? 'а' : ''}, ${controlCols.length} контрольн${controlCols.length === 1 ? 'ая' : 'ых'} переменн${controlCols.length === 1 ? 'ая' : 'ых'}.` });
   } else if (kpiCols.length === 0) {
-    out.push({ severity: 'error', text: 'KPI не определён. Назначьте целевую метрику в таблице ролей.', tip: 'KPI — зависимая переменная, которую объясняет модель: продажи, выручка, конверсии.' });
+    out.push({ severity: 'error', text: 'KPI не определён. Назначьте целевую метрику в таблице ролей.', tip: 'KPI - зависимая переменная, которую объясняет модель: продажи, выручка, конверсии.' });
   }
 
   // ── Объём данных vs параметры ──
-  // Унифицированная формула rows / (media + control) — соответствует Python validator и индустриальной практике (rows-to-cols ratio).
+  // Унифицированная формула rows / (media + control) - соответствует Python validator и индустриальной практике (rows-to-cols ratio).
   const totalRows = result.file?.rows ?? result.detected?.rows ?? 0;
   const paramCount = mediaCols.length + controlCols.length;
   if (totalRows > 0 && mediaCols.length > 0) {
     const ratio = totalRows / Math.max(paramCount, 1);
 
-    // Найти каналы-кандидаты на исключение (>50% нулей) — для кнопки "Оптимизировать"
+    // Найти каналы-кандидаты на исключение (>50% нулей) - для кнопки "Оптимизировать"
     const weakChannels = mediaCols
       .filter(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 50)
       .sort(/** @param {any} a @param {any} b */ (a, b) => (b.stats?.zeros_pct ?? 0) - (a.stats?.zeros_pct ?? 0));
@@ -183,9 +183,9 @@ export function validateInsights(result, objective = 'roi') {
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} неактивных` } : undefined,
       });
     } else if (ratio < 6) {
-      out.push({ severity: 'info', text: `Ratio ${ratio.toFixed(1)}:1 — приемлемо. Модель сойдётся, но для узких доверительных интервалов нужно ≥6:1.` });
+      out.push({ severity: 'info', text: `Ratio ${ratio.toFixed(1)}:1 - приемлемо. Модель сойдётся, но для узких доверительных интервалов нужно ≥6:1.` });
     } else {
-      out.push({ severity: 'success', text: `Ratio ${ratio.toFixed(1)}:1 — отличное соотношение данных к параметрам.` });
+      out.push({ severity: 'success', text: `Ratio ${ratio.toFixed(1)}:1 - отличное соотношение данных к параметрам.` });
     }
   }
 
@@ -237,7 +237,7 @@ export function validateInsights(result, objective = 'roi') {
   /** @type {Map<string, {volume: any[], cost: any[]}>} */
   const channelGroups = new Map();
 
-  // Canonical prefix: letters only + truncated to 6 chars (stemming — handles Russian plural vs singular, e.g. "СПЕЦПРОЕКТЫ"/"СПЕЦПРОЕКТ")
+  // Canonical prefix: letters only + truncated to 6 chars (stemming - handles Russian plural vs singular, e.g. "СПЕЦПРОЕКТЫ"/"СПЕЦПРОЕКТ")
   /** @param {string} leading */
   const canonicalPrefix = (leading) => {
     const m = leading.match(/^[А-ЯЁA-Z]+/);
@@ -245,7 +245,7 @@ export function validateInsights(result, objective = 'roi') {
   };
 
   for (const c of cols) {
-    // Skip excluded columns — user-applied actions should not resurface them in insights
+    // Skip excluded columns - user-applied actions should not resurface them in insights
     if (c.role === 'unused') continue;
     const upper = (c.name ?? '').toUpperCase();
     // Extract channel prefix: everything before the metric keyword, canonicalized
@@ -284,7 +284,7 @@ export function validateInsights(result, objective = 'roi') {
     if (allZero) {
       channelRecs.push({
         severity: 'warning',
-        text: `${prefix}: все метрики >90% нулей (${allCols.map(/** @param {any} c */ c => c.name).join(', ')}). Канал неактивен — исключите из модели.`,
+        text: `${prefix}: все метрики >90% нулей (${allCols.map(/** @param {any} c */ c => c.name).join(', ')}). Канал неактивен - исключите из модели.`,
         action: { type: 'exclude', columns: allCols.map(/** @param {any} c */ c => c.name), label: 'Исключить канал' },
       });
     } else if (hasCost && hasVolume) {
@@ -298,7 +298,7 @@ export function validateInsights(result, objective = 'roi') {
         channelRecs.push({
           severity: 'info',
           text: `${prefix}: парные метрики. Цель ROI → оставить бюджет (${costNames[0]}), исключить ${volNames.join(', ')}.`,
-          tip: 'MMM моделирует зависимость KPI от затрат. Показы/клики — промежуточные метрики, коррелирующие с бюджетом. Для ROI-анализа нужен только денежный показатель.',
+          tip: 'MMM моделирует зависимость KPI от затрат. Показы/клики - промежуточные метрики, коррелирующие с бюджетом. Для ROI-анализа нужен только денежный показатель.',
           action: { type: 'keep_only', columns: costNames.slice(0, 1), exclude: [...costNames.slice(1), ...volNames], label: 'Оставить бюджет' },
         });
       } else if (objective === 'effectiveness') {
@@ -310,8 +310,8 @@ export function validateInsights(result, objective = 'roi') {
           action: { type: 'keep_only', columns: volNames.slice(0, 1), exclude: [...costNames, ...volNames.slice(1)], label: `Оставить ${volNames[0]}` },
         });
       } else {
-        // Manual mode OR budget-too-sparse override — fallback to data-quality heuristic
-        const reason = costTooSparse ? ` (бюджет ${costZeros.toFixed(0)}% нулей — слишком разрежен)` : '';
+        // Manual mode OR budget-too-sparse override - fallback to data-quality heuristic
+        const reason = costTooSparse ? ` (бюджет ${costZeros.toFixed(0)}% нулей - слишком разрежен)` : '';
         channelRecs.push({
           severity: 'info',
           text: `${prefix}: парные метрики${reason}. Выберите базовую метрику.`,
@@ -330,7 +330,7 @@ export function validateInsights(result, objective = 'roi') {
     } else if (highZero && allCols.length === 1) {
       channelRecs.push({
         severity: 'warning',
-        text: `${prefix} (${allCols[0].name}): ${(allCols[0].stats?.zeros_pct ?? 0).toFixed(0)}% нулей — исключите или объедините.`,
+        text: `${prefix} (${allCols[0].name}): ${(allCols[0].stats?.zeros_pct ?? 0).toFixed(0)}% нулей - исключите или объедините.`,
         action: { type: 'exclude', columns: [allCols[0].name], label: 'Исключить' },
       });
     }
@@ -345,9 +345,9 @@ export function validateInsights(result, objective = 'roi') {
   for (const c of ungroupedZero) {
     const pct = c.stats?.zeros_pct ?? 0;
     if (pct > 90) {
-      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей — исключите.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
+      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - исключите.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
     } else {
-      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей — объединить или оставить с оговоркой.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
+      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - объединить или оставить с оговоркой.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
     }
   }
 
@@ -406,7 +406,7 @@ export function validateInsights(result, objective = 'roi') {
     const weakNames = allWeakMedia.map(/** @param {any} c */ c => c.name);
     const avgZeros = allWeakMedia.reduce(/** @param {number} sum @param {any} c */ (sum, c) => sum + (c.stats?.zeros_pct ?? 0), 0) / allWeakMedia.length;
     // Наследование money-маркера: если ВСЕ источники содержат один и тот же
-    // денежный индикатор (НДС/VAT/руб/₽/RUB) — добавляем его в имя merged
+    // денежный индикатор (НДС/VAT/руб/₽/RUB) - добавляем его в имя merged
     // канала, чтобы UnitCostsPanel корректно пропускал его (суммированные
     // рубли остаются рублями, unit_cost=1 не нужен).
     /** @type {Array<{re: RegExp, suffix: string}>} */
@@ -430,8 +430,8 @@ export function validateInsights(result, objective = 'roi') {
     const mergedName = `Малые медиа${nameSuffix}`;
     out.push({
       severity: 'info',
-      text: `${allWeakMedia.length} каналов с 50-90% нулей (${weakNames.join(', ')}). Объедините их в один «${mergedName}» — суммарный сигнал будет сильнее.`,
-      tip: `Каждый канал по отдельности слишком разреженный (в среднем ${avgZeros.toFixed(0)}% нулей). Объединение суммирует их активность — модель получит более стабильную оценку ROI для группы.`,
+      text: `${allWeakMedia.length} каналов с 50-90% нулей (${weakNames.join(', ')}). Объедините их в один «${mergedName}» - суммарный сигнал будет сильнее.`,
+      tip: `Каждый канал по отдельности слишком разреженный (в среднем ${avgZeros.toFixed(0)}% нулей). Объединение суммирует их активность - модель получит более стабильную оценку ROI для группы.`,
       action: { type: 'merge', columns: weakNames, mergedName, label: `Объединить ${allWeakMedia.length} канала` },
     });
   }
@@ -453,7 +453,7 @@ export function validateInsights(result, objective = 'roi') {
       const bestName = kpiCandidates[0].name;
       out.push({
         severity: 'error',
-        text: `KPI не назначен. Похоже, «${bestName}» — целевой показатель. Назначьте его как KPI.`,
+        text: `KPI не назначен. Похоже, «${bestName}» - целевой показатель. Назначьте его как KPI.`,
         action: { type: 'set_role', columns: [bestName], label: `Назначить ${bestName} как KPI` },
       });
     } else {
@@ -473,7 +473,7 @@ export function validateInsights(result, objective = 'roi') {
     if (currentRatio < 2) {
       out.push({
         severity: 'error',
-        text: `Ratio ${currentRatio.toFixed(1)}:1 — критически мало. Нужно ≤${maxChannels} каналов (сейчас ${mediaCols.length}). Исключите ${toExclude.length} слабейших → ratio станет ${afterRatio.toFixed(1)}:1.`,
+        text: `Ratio ${currentRatio.toFixed(1)}:1 - критически мало. Нужно ≤${maxChannels} каналов (сейчас ${mediaCols.length}). Исключите ${toExclude.length} слабейших → ratio станет ${afterRatio.toFixed(1)}:1.`,
         tip: `Будут исключены: ${toExclude.join(', ')}. Это каналы с наибольшей долей нулей, вклад которых модель не сможет оценить надёжно.`,
         action: { type: 'exclude', columns: toExclude, label: `Оптимизировать: оставить ${maxChannels} каналов` },
       });
@@ -492,12 +492,12 @@ export function validateInsights(result, objective = 'roi') {
     if (warnCount === 0) {
       out.push({ severity: 'success', text: `Данные готовы к моделированию. ${mediaCols.length} каналов, ratio ${currentRatio.toFixed(1)}:1. Нажмите «Далее».` });
     } else {
-      out.push({ severity: 'info', text: `Ratio ${currentRatio.toFixed(1)}:1 — допустимо. ${warnCount} предупреждений не блокируют моделирование, но могут снизить точность.` });
+      out.push({ severity: 'info', text: `Ratio ${currentRatio.toFixed(1)}:1 - допустимо. ${warnCount} предупреждений не блокируют моделирование, но могут снизить точность.` });
     }
   } else if (currentRatio >= 2 && currentRatio < 4 && excessChannels <= 0 && kpiCols.length > 0) {
     out.push({
       severity: 'warning',
-      text: `Ratio ${currentRatio.toFixed(1)}:1 — на грани. Модель посчитает, но доверительные интервалы будут широкими. Для надёжных результатов нужно ≥52 наблюдения.`,
+      text: `Ratio ${currentRatio.toFixed(1)}:1 - на грани. Модель посчитает, но доверительные интервалы будут широкими. Для надёжных результатов нужно ≥52 наблюдения.`,
       tip: 'Байесовский подход (PyMC) работает лучше частотного при малых выборках, но не творит чудеса. Интерпретируйте результаты осторожно.',
     });
   }
@@ -543,14 +543,14 @@ export function modelPreTrainingInsights(validateResult) {
   out.push({
     severity: 'info',
     text: 'Что происходит: модель оценит вклад каждого канала в KPI через Байесовскую регрессию с учётом отложенного эффекта (Adstock) и насыщения (Hill).',
-    tip: 'Результат — ROI и маргинальная отдача каждого канала. На шаге «Оптимизация» сможете перераспределить бюджет, на «Декомпозиции» — увидеть вклад по времени.',
+    tip: 'Результат - ROI и маргинальная отдача каждого канала. На шаге «Оптимизация» сможете перераспределить бюджет, на «Декомпозиции» - увидеть вклад по времени.',
   });
 
   // ── 3. Adstock guidance ──
   out.push({
     severity: 'info',
-    text: 'Adstock: «Geometric» — быстрый спад эффекта (1-2 недели, digital). «Weibull» — плавная кривая с build-up (TV, OOH, Радио).',
-    tip: 'Geometric: стандарт для OLV, Banners, Social, Performance, Search — эффект рекламы затухает экспоненциально после контакта. Weibull: лучше для охватных (TV, OOH, Радио, Пресса) — эффект нарастает и уходит медленнее. «Авто» — программа выбирает по имени канала.',
+    text: 'Adstock: «Geometric» - быстрый спад эффекта (1-2 недели, digital). «Weibull» - плавная кривая с build-up (TV, OOH, Радио).',
+    tip: 'Geometric: стандарт для OLV, Banners, Social, Performance, Search - эффект рекламы затухает экспоненциально после контакта. Weibull: лучше для охватных (TV, OOH, Радио, Пресса) - эффект нарастает и уходит медленнее. «Авто» - программа выбирает по имени канала.',
   });
 
   // ── 4. Ratio-based warning ──
@@ -558,13 +558,13 @@ export function modelPreTrainingInsights(validateResult) {
     const severity = /** @type {'error' | 'warning'} */ (ratio < 2 ? 'error' : 'warning');
     out.push({
       severity,
-      text: `Ratio ${ratio.toFixed(1)}:1 — ниже идеала 4:1. Модель запустится, но доверительные интервалы будут широкими.`,
+      text: `Ratio ${ratio.toFixed(1)}:1 - ниже идеала 4:1. Модель запустится, но доверительные интервалы будут широкими.`,
       tip: `Байесовская MMM работает с малыми выборками через priors, но при ${rows} наблюдениях на ${mediaCount + controlCount} переменных отдельные каналы могут быть слабо значимы. Интерпретируйте ROI по top-3 каналам с наибольшим вкладом.`,
     });
   } else if (ratio >= 4) {
     out.push({
       severity: 'success',
-      text: `Ratio ${ratio.toFixed(1)}:1 — отличный объём данных для ${mediaCount + controlCount} переменных.`,
+      text: `Ratio ${ratio.toFixed(1)}:1 - отличный объём данных для ${mediaCount + controlCount} переменных.`,
     });
   }
 
@@ -574,8 +574,8 @@ export function modelPreTrainingInsights(validateResult) {
     const mergedCol = cols.find(/** @param {any} c */ c => c.role === 'media' && Array.isArray(c.merged_from));
     out.push({
       severity: 'info',
-      text: `Канал «${mergedCol.name}» — объединённый из ${mergedCol.merged_from.length} столбцов. Модель оценит ROI группы как целого.`,
-      tip: `Объединено: ${mergedCol.merged_from.join(', ')}. Если после обучения ROI группы высок — можно разделить её обратно и обучить отдельно на большем объёме данных.`,
+      text: `Канал «${mergedCol.name}» - объединённый из ${mergedCol.merged_from.length} столбцов. Модель оценит ROI группы как целого.`,
+      tip: `Объединено: ${mergedCol.merged_from.join(', ')}. Если после обучения ROI группы высок - можно разделить её обратно и обучить отдельно на большем объёме данных.`,
     });
   }
 
@@ -583,7 +583,7 @@ export function modelPreTrainingInsights(validateResult) {
   out.push({
     severity: 'info',
     text: 'После обучения смотрим: MQS (качество модели, ≥60) · R² (объяснительная сила, ≥0.7) · R-hat (сходимость Markov Chain Monte Carlo, <1.05).',
-    tip: 'MQS — агрегированная оценка качества от 0 до 100. R² — доля объяснённой вариации KPI. R-hat — сходимость Байесовских цепей; если >1.05 — увеличьте draws (в Расширенных настройках, режим Эксперт).',
+    tip: 'MQS - агрегированная оценка качества от 0 до 100. R² - доля объяснённой вариации KPI. R-hat - сходимость Байесовских цепей; если >1.05 - увеличьте draws (в Расширенных настройках, режим Эксперт).',
   });
 
   // ── 7. Time estimate (educational) ──
@@ -594,7 +594,7 @@ export function modelPreTrainingInsights(validateResult) {
     out.push({
       severity: 'info',
       text: `Оценка времени: ~${estimatedMinutes} мин для ${mediaCount} каналов на движке JAX/NumPyro. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
-      tip: 'Байесовский Markov Chain Monte Carlo (NUTS) проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). Первый запуск включает ~20 сек JIT-компиляции XLA — далее каждый sample занимает миллисекунды.',
+      tip: 'Байесовский Markov Chain Monte Carlo (NUTS) проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). Первый запуск включает ~20 сек JIT-компиляции XLA - далее каждый sample занимает миллисекунды.',
     });
   }
 
@@ -623,33 +623,33 @@ export function modelInsights(data) {
   const channels = data.channelParams ? Object.keys(data.channelParams) : [];
   const nChannels = channels.length;
 
-  // ── 0. Data thinness warning — trumps everything else ──
+  // ── 0. Data thinness warning - trumps everything else ──
   if (isVeryThin) {
     out.push({
       severity: 'error',
-      text: `⚠ Данных критически мало: Ratio ${ratio.toFixed(1)}:1 (< 2:1). Модель может «выучить» точки, а не закономерность. Высокий R² здесь — артефакт переобучения, а не сигнал надёжности.`,
+      text: `⚠ Данных критически мало: Ratio ${ratio.toFixed(1)}:1 (< 2:1). Модель может «выучить» точки, а не закономерность. Высокий R² здесь - артефакт переобучения, а не сигнал надёжности.`,
       tip: 'Рекомендуем: увеличить историю до ≥52 недель, либо упростить модель (меньше каналов, перевести недели в месяцы). ROI и декомпозиция ненадёжны при таком Ratio.',
     });
   } else if (isThin) {
     out.push({
       severity: 'warning',
       text: `⚠ Данных мало: Ratio ${ratio.toFixed(1)}:1 (< 4:1). Высокий R² может быть артефактом переобучения. ROI-оценки имеют широкие доверительные интервалы.`,
-      tip: 'Bayesian MMM с priors смягчает проблему, но не устраняет. Относитесь к декомпозиции как к ориентиру, а не истине. Для надёжности — ≥52 недель данных.',
+      tip: 'Bayesian MMM с priors смягчает проблему, но не устраняет. Относитесь к декомпозиции как к ориентиру, а не истине. Для надёжности - ≥52 недель данных.',
     });
   }
 
   // ── 1. Headline verdict (MQS-based) ──
-  const thinSuffix = isThin ? ' Учитывайте, что данных мало — CI широкие.' : '';
+  const thinSuffix = isThin ? ' Учитывайте, что данных мало - CI широкие.' : '';
   if (mqs >= 80) {
     out.push({
       severity: 'success',
-      text: `MQS = ${mqs.toFixed(0)} (${label}) — высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`,
-      tip: 'Перейдите к Декомпозиции, чтобы увидеть вклад каждого канала, и к Оптимизации — для перераспределения бюджета.',
+      text: `MQS = ${mqs.toFixed(0)} (${label}) - высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`,
+      tip: 'Перейдите к Декомпозиции, чтобы увидеть вклад каждого канала, и к Оптимизации - для перераспределения бюджета.',
     });
   } else if (mqs >= 60) {
     out.push({
       severity: 'info',
-      text: `MQS = ${mqs.toFixed(0)} (${label}) — приемлемое качество.${thinSuffix}`,
+      text: `MQS = ${mqs.toFixed(0)} (${label}) - приемлемое качество.${thinSuffix}`,
       tip: thinnessCap
         ? `MQS снижен из-за недостатка данных (Ratio ${ratio.toFixed(1)}:1). На толстых данных та же модель получила бы выше. Для решения: больше истории или меньше каналов.`
         : 'Можно работать, но добавление контрольных переменных (сезонность, праздники, промо) поднимет MQS и сузит CI.',
@@ -657,19 +657,19 @@ export function modelInsights(data) {
   } else {
     out.push({
       severity: 'warning',
-      text: `MQS = ${mqs.toFixed(0)} (${label}) — модель требует доработки.${thinSuffix}`,
+      text: `MQS = ${mqs.toFixed(0)} (${label}) - модель требует доработки.${thinSuffix}`,
       tip: 'Попробуйте: добавить промо-переменные, увеличить draws, проверить качество данных.',
     });
   }
 
-  // ── 2. Convergence — positive signals ──
+  // ── 2. Convergence - positive signals ──
   if (rHat > 0 && rHat <= 1.01 && divergences === 0) {
     const convergenceText = isThin
       ? `Markov Chain Monte Carlo сошёлся технически (R-hat = ${rHat.toFixed(3)}, дивергенций = 0), но это не гарантирует содержательной надёжности на коротких данных.`
       : `Markov Chain Monte Carlo сошёлся идеально: R-hat = ${rHat.toFixed(3)}, дивергенций = 0.`;
     const convergenceTip = isThin
       ? 'Сэмплер корректно исследовал пространство параметров, но при Ratio < 4:1 «пространство» само по себе слабо ограничено данными. Модель могла сойтись к переобученному решению.'
-      : 'R-hat ≤ 1.01 означает, что независимые цепи сошлись к одному распределению. 0 дивергенций — сэмплер исследовал всё пространство параметров без скачков. Posterior надёжен для оценки ROI и CI.';
+      : 'R-hat ≤ 1.01 означает, что независимые цепи сошлись к одному распределению. 0 дивергенций - сэмплер исследовал всё пространство параметров без скачков. Posterior надёжен для оценки ROI и CI.';
     out.push({
       severity: isThin ? 'info' : 'success',
       text: convergenceText,
@@ -678,13 +678,13 @@ export function modelInsights(data) {
   } else if (rHat > 1.05) {
     out.push({
       severity: 'error',
-      text: `R-hat = ${rHat.toFixed(3)} — цепи Markov Chain Monte Carlo не сошлись. Результаты ненадёжны.`,
-      tip: 'Увеличьте draws (2000+) и tune (2000+). Если не помогает — упростите модель (меньше каналов).',
+      text: `R-hat = ${rHat.toFixed(3)} - цепи Markov Chain Monte Carlo не сошлись. Результаты ненадёжны.`,
+      tip: 'Увеличьте draws (2000+) и tune (2000+). Если не помогает - упростите модель (меньше каналов).',
     });
   } else if (rHat > 1.01) {
     out.push({
       severity: 'warning',
-      text: `R-hat = ${rHat.toFixed(3)} — цепи почти сошлись. Рассмотрите увеличение draws.`,
+      text: `R-hat = ${rHat.toFixed(3)} - цепи почти сошлись. Рассмотрите увеличение draws.`,
     });
   }
 
@@ -696,71 +696,71 @@ export function modelInsights(data) {
     });
   }
 
-  // ── 3. Fit metrics — positive signals ──
+  // ── 3. Fit metrics - positive signals ──
   if (rSq >= 0.9) {
     out.push({
       severity: isThin ? 'info' : 'success',
       text: isThin
-        ? `R² = ${rSq.toFixed(3)} — очень высокий fit, но на коротких данных (Ratio ${ratio.toFixed(1)}:1) это признак переобучения, а не силы модели.`
-        : `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации KPI. Очень сильный fit.`,
+        ? `R² = ${rSq.toFixed(3)} - очень высокий fit, но на коротких данных (Ratio ${ratio.toFixed(1)}:1) это признак переобучения, а не силы модели.`
+        : `R² = ${rSq.toFixed(3)} - модель объясняет ${(rSq * 100).toFixed(0)}% вариации KPI. Очень сильный fit.`,
       tip: isThin
         ? 'На тонких данных R² стремится к 1 автоматически: модель подгоняется под каждую точку. Это НЕ означает, что декомпозиция каналов верна. Out-of-sample валидация невозможна (нет hold-out набора).'
-        : 'R² ≥ 90% — модель захватывает почти всю динамику продаж. Прогнозы устойчивы, декомпозиция вкладов правдоподобна.',
+        : 'R² ≥ 90% - модель захватывает почти всю динамику продаж. Прогнозы устойчивы, декомпозиция вкладов правдоподобна.',
     });
   } else if (rSq >= 0.7) {
     out.push({
       severity: 'success',
-      text: `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации продаж.`,
+      text: `R² = ${rSq.toFixed(3)} - модель объясняет ${(rSq * 100).toFixed(0)}% вариации продаж.`,
     });
   } else if (rSq >= 0.5) {
     out.push({
       severity: 'info',
-      text: `R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% вариации. Добавление контрольных факторов улучшит fit.`,
+      text: `R² = ${rSq.toFixed(3)} - модель объясняет ${(rSq * 100).toFixed(0)}% вариации. Добавление контрольных факторов улучшит fit.`,
     });
   } else if (rSq > 0) {
     out.push({
       severity: 'warning',
-      text: `R² = ${rSq.toFixed(3)} — модель объясняет менее 50% вариации. Добавьте контрольные переменные.`,
+      text: `R² = ${rSq.toFixed(3)} - модель объясняет менее 50% вариации. Добавьте контрольные переменные.`,
     });
   }
 
   if (mape > 0 && mape < 5) {
     out.push({
       severity: 'success',
-      text: `MAPE = ${mape.toFixed(1)}% — крайне низкая ошибка прогноза. Модель точно следует фактической динамике.`,
+      text: `MAPE = ${mape.toFixed(1)}% - крайне низкая ошибка прогноза. Модель точно следует фактической динамике.`,
       tip: 'Индустриальный benchmark: MAPE < 10% = отлично, 10-20% = приемлемо, > 20% = нужны доработки.',
     });
   } else if (mape > 15) {
     out.push({
       severity: 'warning',
-      text: `MAPE = ${mape.toFixed(1)}% — модель объясняет тренд, но не улавливает краткосрочные скачки.`,
+      text: `MAPE = ${mape.toFixed(1)}% - модель объясняет тренд, но не улавливает краткосрочные скачки.`,
       tip: 'Добавьте промо-переменные (акции, праздники) как контрольные факторы.',
     });
   }
 
-  // ── 4. Model architecture — what was built ──
+  // ── 4. Model architecture - what was built ──
   if (nChannels > 0) {
     out.push({
       severity: 'info',
       text: `Структура модели: Bayesian MMM с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа. Каждый канал прошёл через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`,
-      tip: 'Adstock моделирует, что реклама прошлой недели продолжает работать сегодня. Hill — что после определённого порога каждый дополнительный рубль даёт меньше продаж. Это две стандартные нелинейности в эконометрике медиа.',
+      tip: 'Adstock моделирует, что реклама прошлой недели продолжает работать сегодня. Hill - что после определённого порога каждый дополнительный рубль даёт меньше продаж. Это две стандартные нелинейности в эконометрике медиа.',
     });
   }
 
-  // ── 5. Trust foundation — что повышает доверие ──
-  // Показываем только когда модель действительно хорошая — иначе совет «доверяй» звучит фальшиво.
-  // На тонких данных (Ratio < 4:1) блок доверия НЕ показываем — он вводит в заблуждение.
+  // ── 5. Trust foundation - что повышает доверие ──
+  // Показываем только когда модель действительно хорошая - иначе совет «доверяй» звучит фальшиво.
+  // На тонких данных (Ratio < 4:1) блок доверия НЕ показываем - он вводит в заблуждение.
   const isGoodModel = mqs >= 70 && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7 && !isThin;
   if (isGoodModel) {
     out.push({
       severity: 'info',
       text: 'Что повышает доверие к этой модели:',
       tip: [
-        '• Tight priors (HalfNormal, Beta, Gamma) основаны на индустриальных бенчмарках MMM — не data-mining.',
-        '• Каждый ROI имеет 95% CI — видна неопределённость, не точечная оценка.',
+        '• Tight priors (HalfNormal, Beta, Gamma) основаны на индустриальных бенчмарках MMM - не data-mining.',
+        '• Каждый ROI имеет 95% CI - видна неопределённость, не точечная оценка.',
         '• Полная спецификация модели и priors экспортируется в MD/XLSX/PPTX.',
-        '• Декомпозиция показывает базовые продажи vs медиа-вклад — можно проверить sanity.',
-        '• Sampler — NUTS (золотой стандарт Bayesian inference), не Metropolis.',
+        '• Декомпозиция показывает базовые продажи vs медиа-вклад - можно проверить sanity.',
+        '• Sampler - NUTS (золотой стандарт Bayesian inference), не Metropolis.',
       ].join('\n'),
     });
   }
@@ -800,8 +800,8 @@ export function decomposeInsights(data, kpiInput = null) {
   if (top && totalEffectPct > 0) {
     out.push({
       severity: 'success',
-      text: `Декомпозиция готова: ${basePctRounded}% продаж — базовые (без медиа), ${mediaPctRounded}% — вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
-      tip: 'Базовые продажи — это то, что вы получили бы при нулевом медиа-бюджете (бренд, дистрибуция, лояльность). Медиа-вклад — что добавила реклама поверх базы.',
+      text: `Декомпозиция готова: ${basePctRounded}% продаж - базовые (без медиа), ${mediaPctRounded}% - вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
+      tip: 'Базовые продажи - это то, что вы получили бы при нулевом медиа-бюджете (бренд, дистрибуция, лояльность). Медиа-вклад - что добавила реклама поверх базы.',
     });
   }
 
@@ -809,19 +809,19 @@ export function decomposeInsights(data, kpiInput = null) {
   if (basePct > 80) {
     out.push({
       severity: 'info',
-      text: `Base sales = ${basePct.toFixed(0)}% — большинство продаж органические. Медиа-эффект относительно слабый.`,
-      tip: 'Возможные причины: (1) сильный бренд с лояльной аудиторией — медиа поддерживает, не двигает; (2) недостаточная мощность медиа-кампаний; (3) модель не уловила эффект (проверь Adstock и контрольные переменные).',
+      text: `Base sales = ${basePct.toFixed(0)}% - большинство продаж органические. Медиа-эффект относительно слабый.`,
+      tip: 'Возможные причины: (1) сильный бренд с лояльной аудиторией - медиа поддерживает, не двигает; (2) недостаточная мощность медиа-кампаний; (3) модель не уловила эффект (проверь Adstock и контрольные переменные).',
     });
   } else if (basePct < 30) {
     out.push({
       severity: 'warning',
-      text: `Base sales = ${basePct.toFixed(0)}% — бренд критически зависит от рекламы. Остановка медиа = риск значительного падения продаж.`,
+      text: `Base sales = ${basePct.toFixed(0)}% - бренд критически зависит от рекламы. Остановка медиа = риск значительного падения продаж.`,
       tip: 'Это типично для категорий с низкой лояльностью или новых брендов. Стратегия: постепенно инвестировать в brand-equity медиа (TV, OOH), чтобы поднять базу.',
     });
   } else if (basePct < 50) {
     out.push({
       severity: 'info',
-      text: `Base sales = ${basePct.toFixed(0)}% — медиа драйвит около половины продаж. Здоровый mix performance + brand.`,
+      text: `Base sales = ${basePct.toFixed(0)}% - медиа драйвит около половины продаж. Здоровый mix performance + brand.`,
     });
   }
 
@@ -833,9 +833,9 @@ export function decomposeInsights(data, kpiInput = null) {
     const top3Sum = top3.reduce((s, c) => s + (c.contribution_pct || 0), 0);
     const lines = top3.map((c, i) => {
       const rank = ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
-      const roi = c.roi != null ? c.roi.toFixed(2) + '×' : '—';
-      const spend = c.spend?.toLocaleString('ru-RU') ?? '—';
-      const contrib = c.contribution?.toLocaleString('ru-RU') ?? '—';
+      const roi = c.roi != null ? c.roi.toFixed(2) + '×' : '-';
+      const spend = c.spend?.toLocaleString('ru-RU') ?? '-';
+      const contrib = c.contribution?.toLocaleString('ru-RU') ?? '-';
       return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib}`;
     }).join('\n');
     out.push({
@@ -869,22 +869,22 @@ export function decomposeInsights(data, kpiInput = null) {
     out.push({
       severity: 'success',
       text: `${efficient.length} канал${efficient.length > 1 ? 'а' : ''} работает эффективнее своей доли бюджета:`,
-      tip: lines + '\n\nТакие каналы — кандидаты на докрутку бюджета на шаге Оптимизация.',
+      tip: lines + '\n\nТакие каналы - кандидаты на докрутку бюджета на шаге Оптимизация.',
     });
   }
 
   if (inefficient.length > 0) {
     const lines = inefficient.slice(0, 3).map(({ ch, spendShare, effectShare, ratio }) =>
-      `✗ ${ch.name}: ${(spendShare * 100).toFixed(0)}% бюджета — лишь ${(effectShare * 100).toFixed(0)}% эффекта (${ratio.toFixed(1)}× ниже ожидания)`
+      `✗ ${ch.name}: ${(spendShare * 100).toFixed(0)}% бюджета - лишь ${(effectShare * 100).toFixed(0)}% эффекта (${ratio.toFixed(1)}× ниже ожидания)`
     ).join('\n');
     out.push({
       severity: 'warning',
       text: `${inefficient.length} канал${inefficient.length > 1 ? 'а' : ''} перенасыщен${inefficient.length > 1 ? 'ы' : ''} или работает${inefficient.length > 1 ? 'ют' : ''} ниже среднего:`,
-      tip: lines + '\n\nВарианты: (1) сократить бюджет — проверить через Оптимизатор; (2) пересмотреть креатив/таргетинг; (3) проверить нет ли проблем с трекингом.',
+      tip: lines + '\n\nВарианты: (1) сократить бюджет - проверить через Оптимизатор; (2) пересмотреть креатив/таргетинг; (3) проверить нет ли проблем с трекингом.',
     });
   }
 
-  // ── 5. ROI лидеры и аутсайдеры — v1.3.2: KPI/mode-aware labels ──
+  // ── 5. ROI лидеры и аутсайдеры - v1.3.2: KPI/mode-aware labels ──
   // B4 audit fix: c.roi от backend = mathematical KPI_units/₽_spend для всех KPI.
   // - monetary: бóльший = лучший ROI (intuitive).
   // - count: бóльший units/₽ = меньший ₽/ед. = лучший CPU.
@@ -902,20 +902,20 @@ export function decomposeInsights(data, kpiInput = null) {
       if (topRoi.roi >= 2) {
         out.push({
           severity: 'success',
-          text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — каждый вложенный рубль возвращает ${topRoi.roi.toFixed(2)} рублей продаж.`,
-          tip: 'ROI ≥ 2× — отличный показатель. Если канал не перенасыщен (см. Hill saturation), можно увеличить инвестиции.',
+          text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× - каждый вложенный рубль возвращает ${topRoi.roi.toFixed(2)} рублей продаж.`,
+          tip: 'ROI ≥ 2× - отличный показатель. Если канал не перенасыщен (см. Hill saturation), можно увеличить инвестиции.',
         });
       } else if (topRoi.roi >= 1.2) {
         out.push({
           severity: 'info',
-          text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× — окупается, но не выдающийся.`,
+          text: `Лучший ROI: ${topRoi.name} = ${topRoi.roi.toFixed(2)}× - окупается, но не выдающийся.`,
         });
       }
 
       if (bottomRoi.roi < 1 && bottomRoi.roi > 0 && bottomRoi.spend > 0) {
         out.push({
           severity: 'warning',
-          text: `Убыточный канал: ${bottomRoi.name} = ROI ${bottomRoi.roi.toFixed(2)}× — расходы превышают вклад в продажи.`,
+          text: `Убыточный канал: ${bottomRoi.name} = ROI ${bottomRoi.roi.toFixed(2)}× - расходы превышают вклад в продажи.`,
           tip: 'Прежде чем сокращать: (1) проверить, есть ли brand-эффект (доля поиска, прямые заходы); (2) убедиться, что данные по каналу полные; (3) рассмотреть смену формата/креатива до полного отключения.',
         });
       }
@@ -932,20 +932,20 @@ export function decomposeInsights(data, kpiInput = null) {
       if (topGood) {
         out.push({
           severity: 'success',
-          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topRawMroas, kpi)} — стоимость единицы значительно ниже ценности${vpcu ? ` (${vpcu.toFixed(0)} ₽)` : ''}.`,
-          tip: `${_topBenchmark(kpi)} — отличный показатель. При условии что канал не перенасыщен (Hill saturation), можно увеличить инвестиции.`,
+          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topRawMroas, kpi)} - стоимость единицы значительно ниже ценности${vpcu ? ` (${vpcu.toFixed(0)} ₽)` : ''}.`,
+          tip: `${_topBenchmark(kpi)} - отличный показатель. При условии что канал не перенасыщен (Hill saturation), можно увеличить инвестиции.`,
         });
       } else if (topAcceptable) {
         out.push({
           severity: 'info',
-          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topRawMroas, kpi)} — окупается, но не выдающийся.`,
+          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topRawMroas, kpi)} - окупается, но не выдающийся.`,
         });
       }
 
       if (vpcu && bottomCpu > vpcu && bottomRoi.spend > 0) {
         out.push({
           severity: 'warning',
-          text: `Убыточный канал: ${bottomRoi.name} = ${metricShort} ${_fmtMetric(bottomRawMroas, kpi)} — стоимость единицы превышает её ценность (${vpcu.toFixed(0)} ₽).`,
+          text: `Убыточный канал: ${bottomRoi.name} = ${metricShort} ${_fmtMetric(bottomRawMroas, kpi)} - стоимость единицы превышает её ценность (${vpcu.toFixed(0)} ₽).`,
           tip: 'Прежде чем сокращать: (1) проверить, есть ли brand-эффект; (2) убедиться, что данные по каналу полные; (3) рассмотреть смену формата/креатива до полного отключения.',
         });
       }
@@ -954,8 +954,8 @@ export function decomposeInsights(data, kpiInput = null) {
       if (topRoi.roi >= 0.30) {
         out.push({
           severity: 'success',
-          text: `Лучший по доле эффекта: ${topRoi.name} = ${_fmtMetric(topRoi.roi, kpi)} — основной драйвер в портфеле.`,
-          tip: 'Доля ≥ 30% — канал доминирует в портфеле. Проверить нет ли концентрационного риска.',
+          text: `Лучший по доле эффекта: ${topRoi.name} = ${_fmtMetric(topRoi.roi, kpi)} - основной драйвер в портфеле.`,
+          tip: 'Доля ≥ 30% - канал доминирует в портфеле. Проверить нет ли концентрационного риска.',
         });
       } else if (topRoi.roi >= 0.15) {
         out.push({
@@ -966,7 +966,7 @@ export function decomposeInsights(data, kpiInput = null) {
       if (bottomRoi.roi < 0.05 && bottomRoi.spend > 0) {
         out.push({
           severity: 'warning',
-          text: `Низкая доля: ${bottomRoi.name} = ${_fmtMetric(bottomRoi.roi, kpi)} — вклад канала минимален.`,
+          text: `Низкая доля: ${bottomRoi.name} = ${_fmtMetric(bottomRoi.roi, kpi)} - вклад канала минимален.`,
           tip: 'Канал почти не двигает портфель. Проверить (1) есть ли brand-эффект; (2) корректность данных; (3) формат/таргетинг.',
         });
       }
@@ -978,16 +978,16 @@ export function decomposeInsights(data, kpiInput = null) {
     out.push({
       severity: 'warning',
       text: `Высокая концентрация: ${top.name} даёт ${top.contribution_pct.toFixed(0)}% всего медиа-вклада.`,
-      tip: 'Зависимость от одного канала — риск. Если он перестанет работать (смена алгоритма, рост CPM, насыщение) — упадёт значительная часть продаж. Диверсифицируйте mix.',
+      tip: 'Зависимость от одного канала - риск. Если он перестанет работать (смена алгоритма, рост CPM, насыщение) - упадёт значительная часть продаж. Диверсифицируйте mix.',
     });
   }
 
-  // ── 7. Куда дальше — guidance ──
+  // ── 7. Куда дальше - guidance ──
   if (channels.length > 0 && totalEffectPct > 0) {
     out.push({
       severity: 'info',
       text: 'Что делать дальше:',
-      tip: '• Перейдите в «Оптимизация» — модель посчитает оптимальное перераспределение бюджета.\n• В «Отчёт» — выгрузите MD/XLSX/PPTX с полной декомпозицией и спецификацией модели.\n• На графике «Динамика по периодам» можно увидеть, как вклад каналов меняется во времени.',
+      tip: '• Перейдите в «Оптимизация» - модель посчитает оптимальное перераспределение бюджета.\n• В «Отчёт» - выгрузите MD/XLSX/PPTX с полной декомпозицией и спецификацией модели.\n• На графике «Динамика по периодам» можно увидеть, как вклад каналов меняется во времени.',
     });
   }
 
@@ -1026,11 +1026,11 @@ export function optimizeInsights(data, ctx = {}) {
   // ════════════════ PRE-STATE: оптимизация ещё не запущена ════════════════
   if (!data?.channels?.length) {
     if (!dec?.channels?.length) {
-      // Нет даже decompose — нечего предсказать
+      // Нет даже decompose - нечего предсказать
       out.push({
         severity: 'info',
         text: 'Здесь будет интерактивный оптимизатор бюджета.',
-        tip: 'Сначала пройдите шаги Декомпозиция, потом возвращайтесь — увидите потенциал перераспределения.',
+        tip: 'Сначала пройдите шаги Декомпозиция, потом возвращайтесь - увидите потенциал перераспределения.',
       });
       return out;
     }
@@ -1056,15 +1056,15 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: 'success',
       text: `Готово к оптимизации: ${dec.channels.length} канал${dec.channels.length > 4 ? 'ов' : dec.channels.length > 1 ? 'а' : ''}, бюджет ${totalSpend.toLocaleString('ru-RU')}₽, ${portfolioPhrase}.`,
-      tip: 'Нажмите «🎯 Оптимизировать бюджет» — модель найдёт распределение, максимизирующее KPI при заданных Мин/Макс ограничениях.',
+      tip: 'Нажмите «🎯 Оптимизировать бюджет» - модель найдёт распределение, максимизирующее KPI при заданных Мин/Макс ограничениях.',
     });
 
     // Прогноз потенциала по структуре каналов
     if (saturated > efficient) {
       out.push({
         severity: 'warning',
-        text: `Каналов в плато: ${saturated} (перенасыщены). Эффективных: ${efficient}. Прирост в рамках текущего бюджета может быть близок к 0% — оптимизатору некуда «переливать» деньги.`,
-        tip: 'Что попробовать:\n• Снизить Мин. % (разрешить более радикальные сокращения)\n• Повысить Макс. % (разрешить больший рост недонасыщенных)\n• Использовать What-if (блок C) — увеличить общий бюджет и пересчитать\n• Проверить TRPs/non-money каналы — они искажают модель.',
+        text: `Каналов в плато: ${saturated} (перенасыщены). Эффективных: ${efficient}. Прирост в рамках текущего бюджета может быть близок к 0% - оптимизатору некуда «переливать» деньги.`,
+        tip: 'Что попробовать:\n• Снизить Мин. % (разрешить более радикальные сокращения)\n• Повысить Макс. % (разрешить больший рост недонасыщенных)\n• Использовать What-if (блок C) - увеличить общий бюджет и пересчитать\n• Проверить TRPs/non-money каналы - они искажают модель.',
       });
     } else if (efficient >= 2 && saturated <= 1) {
       const expected = Math.min(20, efficient * 4 + balanced * 1);
@@ -1083,7 +1083,7 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: 'info',
       text: 'Параметры оптимизации:',
-      tip: '• Мин. % / Макс. % — глобальные границы изменения каждого канала.\n• Фиксировать бюджет — оптимизатор только перераспределяет, не меняет сумму.\n• Эксперт-режим — per-channel ограничения (зафиксировать TV-сделку, разрешить только рост OOH и т.д.).',
+      tip: '• Мин. % / Макс. % - глобальные границы изменения каждого канала.\n• Фиксировать бюджет - оптимизатор только перераспределяет, не меняет сумму.\n• Эксперт-режим - per-channel ограничения (зафиксировать TV-сделку, разрешить только рост OOH и т.д.).',
     });
 
     return out;
@@ -1114,19 +1114,19 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: 'success',
       text: `Найден оптимум: прирост +${lift.toFixed(1)}% при текущем бюджете. Умеренный, но значимый потенциал.`,
-      tip: 'Текущее распределение приемлемое. Перераспределение даст устойчивый прирост, но не радикальный — план уже близок к рациональному.',
+      tip: 'Текущее распределение приемлемое. Перераспределение даст устойчивый прирост, но не радикальный - план уже близок к рациональному.',
     });
   } else if (lift > 0.5) {
     out.push({
       severity: 'info',
-      text: `Прирост +${lift.toFixed(1)}% — текущее распределение почти оптимально.`,
-      tip: 'Незначительный потенциал в рамках того же бюджета. Чтобы существенно улучшить — нужен либо рост бюджета (см. блок C What-if), либо пересмотр медиа-микса.',
+      text: `Прирост +${lift.toFixed(1)}% - текущее распределение почти оптимально.`,
+      tip: 'Незначительный потенциал в рамках того же бюджета. Чтобы существенно улучшить - нужен либо рост бюджета (см. блок C What-if), либо пересмотр медиа-микса.',
     });
   } else {
     out.push({
       severity: 'warning',
       text: `Прирост ≈${lift.toFixed(1)}%. Оптимизатор не нашёл выигрыша в рамках текущих ограничений.`,
-      tip: 'Это не баг — модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau — каждый доп.рубль даёт меньше 1 рубля продаж, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.',
+      tip: 'Это не баг - модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau - каждый доп.рубль даёт меньше 1 рубля продаж, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.',
     });
   }
 
@@ -1145,12 +1145,12 @@ export function optimizeInsights(data, ctx = {}) {
       const cpu = avgROI > 0 ? 1 / avgROI : Infinity;
       const vpcu = kpi.vpcu;
       if (vpcu) {
-        if (cpu <= vpcu * 0.5) { roiComment = 'Стоимость единицы вдвое ниже ценности — отличная экономика'; roiSev = 'success'; }
+        if (cpu <= vpcu * 0.5) { roiComment = 'Стоимость единицы вдвое ниже ценности - отличная экономика'; roiSev = 'success'; }
         else if (cpu <= vpcu) { roiComment = 'Стоимость единицы окупается'; }
-        else if (cpu <= vpcu * 1.5) { roiComment = 'Стоимость единицы близка к ценности — на грани'; roiSev = 'warning'; }
-        else { roiComment = 'Стоимость единицы выше ценности — медиа в убыток'; roiSev = 'warning'; }
+        else if (cpu <= vpcu * 1.5) { roiComment = 'Стоимость единицы близка к ценности - на грани'; roiSev = 'warning'; }
+        else { roiComment = 'Стоимость единицы выше ценности - медиа в убыток'; roiSev = 'warning'; }
       } else {
-        roiComment = 'Среднюю стоимость единицы — задайте ценность в шаге Validate';
+        roiComment = 'Среднюю стоимость единицы - задайте ценность в шаге Validate';
       }
     } else if (kpi.mode === 'effectiveness') {
       roiComment = 'Сумма долей = 100% по построению';
@@ -1161,27 +1161,27 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: roiSev,
       // Audit pass 15 (Антон 2026-05-03): scale consistency. avgROI =
-      // totalContribDec / totalSpendDec — ОБЕ величины из decompose (training).
+      // totalContribDec / totalSpendDec - ОБЕ величины из decompose (training).
       // Pre-fix text использовал totalBudgetMoney (optimize/planning) → math
       // 842M / 1.781B = 0.47×, customer видел «0.18×» которое реально 842M /
       // 4.338B (training). Fix: показываем training spend (denominator avgROI)
       // → ratio совпадает: 0.18× = 842M / 4338M.
-      text: `${portfolioPhrase} — ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода — медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
+      text: `${portfolioPhrase} - ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода - медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
       tip: kpi.isLegacy
-        ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться — см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× — отлично; 1-2× — приемлемо, нужно улучшать микс; < 1× — медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
-        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} — отлично; на грани с ценностью — приемлемо; выше ценности — убыточно.`,
+        ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться - см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× - отлично; 1-2× - приемлемо, нужно улучшать микс; < 1× - медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
+        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} - отлично; на грани с ценностью - приемлемо; выше ценности - убыточно.`,
     });
   }
 
   // ── 3. Saturation breakdown по mROAS (идентично светофору в блоке A) ──
-  // Если доступен live channelBudgets (слайдеры в блоке B) — используем его, иначе
+  // Если доступен live channelBudgets (слайдеры в блоке B) - используем его, иначе
   // fallback на current_spend из последнего optimize run. buildScaledParams делает
   // нормализацию по reference-spend, которую брать из optimize (это не меняется при
-  // движении слайдеров — это «nominal» от первоначальной тренировки).
+  // движении слайдеров - это «nominal» от первоначальной тренировки).
   /** @type {Array<{name: string, mroas: number, status: 'scale'|'stable'|'saturated'|'unused'}>} */
   const satList = [];
   // Phase 2 audit pass 9 (2026-05-03): TWO sources of truth unification.
-  // Pass 8 заменил frontend marginalROI() на ch.mroi_current — числа совпали с
+  // Pass 8 заменил frontend marginalROI() на ch.mroi_current - числа совпали с
   // таблицей. Но **status** thresholds (1.5/0.8) hardcoded на frontend
   // расходились с canonical backend compute_channel_action (Scale/Hold/Watch/
   // Reduce/Cut/Uncertain). Table uses ch.action directly. Insights status
@@ -1204,7 +1204,7 @@ export function optimizeInsights(data, ctx = {}) {
       const v = Number(ch.mroi_current ?? 0);
       const action = String(ch.action ?? '');
       const mappedStatus = actionToStatus(action);
-      // Zero-spend or untrained — unused (table treats same way)
+      // Zero-spend or untrained - unused (table treats same way)
       if (!Number.isFinite(v) || v <= 0) {
         satList.push({ name: ch.name, mroas: 0, status: 'unused' });
         continue;
@@ -1223,27 +1223,27 @@ export function optimizeInsights(data, ctx = {}) {
   const stable = satList.filter(s => s.status === 'stable');
   const unused = satList.filter(s => s.status === 'unused');
 
-  // Unit-smell из decompose (отдельный сигнал — не связан с mROAS)
+  // Unit-smell из decompose (отдельный сигнал - не связан с mROAS)
   /** @type {Array<{name: string, roi: number}>} */
   const suspicious = decChannels
     .filter((/** @type {any} */ c) => /подозрительно/i.test(c.verdict || ''))
     .map((/** @type {any} */ c) => ({ name: c.name, roi: c.roi ?? 0 }));
 
-  // Всегда показываем расклад по saturation (4 категории) — стабильное количество инсайтов.
+  // Всегда показываем расклад по saturation (4 категории) - стабильное количество инсайтов.
   if (satList.length > 0) {
     const rows = [];
     // v1.3.2: KPI-aware metric label в светофоре.
     const metric = kpi.metricShort;
-    if (effective.length > 0) rows.push(`🟢 Недонасыщены: ${effective.length} — ${effective.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
-    if (stable.length > 0) rows.push(`🟡 Стабильны: ${stable.length} — ${stable.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
-    if (saturated.length > 0) rows.push(`🔴 Перенасыщены: ${saturated.length} — ${saturated.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
-    if (unused.length > 0) rows.push(`⚪ Не используются: ${unused.length} — ${unused.map(c => c.name).join(', ')}`);
+    if (effective.length > 0) rows.push(`🟢 Недонасыщены: ${effective.length} - ${effective.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
+    if (stable.length > 0) rows.push(`🟡 Стабильны: ${stable.length} - ${stable.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
+    if (saturated.length > 0) rows.push(`🔴 Перенасыщены: ${saturated.length} - ${saturated.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
+    if (unused.length > 0) rows.push(`⚪ Не используются: ${unused.length} - ${unused.map(c => c.name).join(', ')}`);
 
     const headline =
       saturated.length >= Math.ceil(satList.length / 2)
-        ? `${saturated.length} из ${satList.length} каналов перенасыщены — оптимизатор упирается в плато.`
+        ? `${saturated.length} из ${satList.length} каналов перенасыщены - оптимизатор упирается в плато.`
         : effective.length >= 1 && saturated.length === 0
-          ? `${effective.length} канал${effective.length > 1 ? 'а' : ''} в зоне роста — есть куда вкладывать.`
+          ? `${effective.length} канал${effective.length > 1 ? 'а' : ''} в зоне роста - есть куда вкладывать.`
           : `Расклад: 🟢${effective.length} 🟡${stable.length} 🔴${saturated.length}${unused.length > 0 ? ` ⚪${unused.length}` : ''} из ${satList.length}.`;
 
     const sev = saturated.length >= Math.ceil(satList.length / 2)
@@ -1255,13 +1255,13 @@ export function optimizeInsights(data, ctx = {}) {
     // v1.3.2: tip criteria adapt per KPI.
     let criteriaTip = '';
     if (kpi.isLegacy) {
-      criteriaTip = 'Критерии по mROAS (предельная отдача следующего рубля):\n• > 1.5× — недонасыщен (масштабировать)\n• 0.8–1.5× — стабильная зона (сохранить)\n• < 0.8× — перенасыщен (сократить)\n• 0 — не используется.';
+      criteriaTip = 'Критерии по mROAS (предельная отдача следующего рубля):\n• > 1.5× - недонасыщен (масштабировать)\n• 0.8–1.5× - стабильная зона (сохранить)\n• < 0.8× - перенасыщен (сократить)\n• 0 - не используется.';
     } else if (kpi.kpiKind === 'count' && kpi.vpcu) {
-      criteriaTip = `Критерии по CPU (стоимость следующей единицы):\n• ≤ ${(kpi.vpcu * 0.5).toFixed(0)} ₽/ед. — недонасыщен (масштабировать)\n• ≤ ${kpi.vpcu.toFixed(0)} ₽/ед. — стабильная зона (сохранить)\n• > ${kpi.vpcu.toFixed(0)} ₽/ед. — перенасыщен (сократить)\n• 0 — не используется.`;
+      criteriaTip = `Критерии по CPU (стоимость следующей единицы):\n• ≤ ${(kpi.vpcu * 0.5).toFixed(0)} ₽/ед. - недонасыщен (масштабировать)\n• ≤ ${kpi.vpcu.toFixed(0)} ₽/ед. - стабильная зона (сохранить)\n• > ${kpi.vpcu.toFixed(0)} ₽/ед. - перенасыщен (сократить)\n• 0 - не используется.`;
     } else if (kpi.kpiKind === 'count') {
-      criteriaTip = 'Критерии: ниже стоимость единицы — лучше. Точные пороги задайте через ценность единицы (Validate шаг).';
+      criteriaTip = 'Критерии: ниже стоимость единицы - лучше. Точные пороги задайте через ценность единицы (Validate шаг).';
     } else if (kpi.mode === 'effectiveness') {
-      criteriaTip = 'Доля канала в эффекте — высокая доля = доминирующий канал; низкая = маргинальный.';
+      criteriaTip = 'Доля канала в эффекте - высокая доля = доминирующий канал; низкая = маргинальный.';
     }
     out.push({
       severity: sev,
@@ -1270,7 +1270,7 @@ export function optimizeInsights(data, ctx = {}) {
     });
   }
 
-  // ── 4. miROAS leaders (стабильный инсайт — всегда виден) ──
+  // ── 4. miROAS leaders (стабильный инсайт - всегда виден) ──
   const activeSat = satList.filter(s => s.status !== 'unused' && s.mroas > 0);
   if (activeSat.length >= 2) {
     const sorted = [...activeSat].sort((a, b) => b.mroas - a.mroas);
@@ -1278,30 +1278,30 @@ export function optimizeInsights(data, ctx = {}) {
     const worst = sorted[sorted.length - 1];
     const spread = worst.mroas > 0 ? best.mroas / worst.mroas : 0;
     const spreadNote = spread > 10
-      ? ` Разброс ${spread.toFixed(0)}× — есть реальный потенциал перекладки.`
+      ? ` Разброс ${spread.toFixed(0)}× - есть реальный потенциал перекладки.`
       : spread > 3
-        ? ` Умеренный разброс — потенциал есть, но ограниченный.`
-        : ' Каналы выровнены — перекладка не даст существенного прироста.';
+        ? ` Умеренный разброс - потенциал есть, но ограниченный.`
+        : ' Каналы выровнены - перекладка не даст существенного прироста.';
     // v1.3.2: KPI-aware label.
     const metricShort = kpi.metricShort;
     out.push({
       severity: 'info',
       text: `Предельная отдача (${metricShort}): лучший ${best.name} (${_fmtMetric(best.mroas, kpi)}), худший ${worst.name} (${_fmtMetric(worst.mroas, kpi)}).${spreadNote}`,
       tip: kpi.isLegacy
-        ? 'mROAS — сколько рублей KPI приносит следующий рубль в канал (не путать с ROI, который про средний за период). Классическое правило оптимизации: переливать из канала с низким mROAS в канал с высоким, пока они не сравняются.'
-        : `${metricShort} — предельная отдача следующего рубля. Правило оптимизации: переливать из худшего канала в лучший, пока они не сравняются.`,
+        ? 'mROAS - сколько рублей KPI приносит следующий рубль в канал (не путать с ROI, который про средний за период). Классическое правило оптимизации: переливать из канала с низким mROAS в канал с высоким, пока они не сравняются.'
+        : `${metricShort} - предельная отдача следующего рубля. Правило оптимизации: переливать из худшего канала в лучший, пока они не сравняются.`,
     });
   } else if (activeSat.length === 1) {
     const only = activeSat[0];
     out.push({
       severity: 'warning',
-      text: `Активен только 1 канал (${only.name}, mROAS ${only.mroas.toFixed(2)}×). Модель не может оценить перекладку — нужно включить хотя бы 2 канала.`,
+      text: `Активен только 1 канал (${only.name}, mROAS ${only.mroas.toFixed(2)}×). Модель не может оценить перекладку - нужно включить хотя бы 2 канала.`,
       tip: 'Поставьте бюджет на остальных каналах > 0, чтобы увидеть сравнение mROAS. Каналы с 0₽ модель считает «не используются» и их отдача недоступна.',
     });
   } else if (satList.length > 0) {
     out.push({
       severity: 'warning',
-      text: `Все ${satList.length} каналов с нулевым бюджетом — сравнить mROAS невозможно.`,
+      text: `Все ${satList.length} каналов с нулевым бюджетом - сравнить mROAS невозможно.`,
       tip: 'Верните бюджет хотя бы 2 каналам, чтобы увидеть их относительную эффективность.',
     });
   }
@@ -1310,9 +1310,9 @@ export function optimizeInsights(data, ctx = {}) {
   if (suspicious.length > 0) {
     out.push({
       severity: 'warning',
-      text: `⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI — не используйте их оценки для бюджетных решений.`,
-      tip: suspicious.map(c => `⚠ ${c.name} — ROI ${c.roi.toFixed(1)}×`).join('\n') +
-        '\n\nПричины завышенного ROI обычно две: (1) переобучение модели на коротких данных (Ratio < 4:1), (2) смешанные единицы измерения (TRP + рубли в одной модели). Оптимизатор учитывает эти цифры как есть — вручную скорректируйте рекомендации.',
+      text: `⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI - не используйте их оценки для бюджетных решений.`,
+      tip: suspicious.map(c => `⚠ ${c.name} - ROI ${c.roi.toFixed(1)}×`).join('\n') +
+        '\n\nПричины завышенного ROI обычно две: (1) переобучение модели на коротких данных (Ratio < 4:1), (2) смешанные единицы измерения (TRP + рубли в одной модели). Оптимизатор учитывает эти цифры как есть - вручную скорректируйте рекомендации.',
     });
   }
 
@@ -1337,7 +1337,7 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: 'info',
       text: `Главные сдвиги бюджета (${significantChanges.length} канал${significantChanges.length > 4 ? 'ов' : significantChanges.length > 1 ? 'а' : ''}):`,
-      tip: lines + '\n\nПерекладка идёт из перенасыщенных каналов в недонасыщенные — где каждый рубль ещё работает на полную.',
+      tip: lines + '\n\nПерекладка идёт из перенасыщенных каналов в недонасыщенные - где каждый рубль ещё работает на полную.',
     });
   } else if (Math.abs(lift) < 0.5) {
     out.push({
@@ -1363,7 +1363,7 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: 'info',
       text: `Применены custom-ограничения: ${customCount} канал${customCount > 4 ? 'ов' : customCount > 1 ? 'а' : ''}${lockedCount > 0 ? ` (из них зафиксировано: ${lockedCount})` : ''}.`,
-      tip: 'Custom-лимиты учтены оптимизатором как hard-constraints (бизнес-ограничения: контракты, обязательства). Без них достижимый lift мог бы быть выше — но рекомендации были бы нереалистичны.',
+      tip: 'Custom-лимиты учтены оптимизатором как hard-constraints (бизнес-ограничения: контракты, обязательства). Без них достижимый lift мог бы быть выше - но рекомендации были бы нереалистичны.',
     });
   }
 
@@ -1374,7 +1374,7 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: 'info',
       text: `Оптимальный общий бюджет: ${totalOptimal.toLocaleString('ru-RU')}₽ (${sign}${diff.toLocaleString('ru-RU')}₽ к текущему ${totalCurrent.toLocaleString('ru-RU')}₽).`,
-      tip: 'Это значит «Фиксировать бюджет» был выключен — оптимизатор сам нашёл лучшую сумму в рамках per-channel лимитов.',
+      tip: 'Это значит «Фиксировать бюджет» был выключен - оптимизатор сам нашёл лучшую сумму в рамках per-channel лимитов.',
     });
   }
 
@@ -1384,21 +1384,21 @@ export function optimizeInsights(data, ctx = {}) {
   /** @type {string[]} */
   const actions = [];
   if (noLift) {
-    actions.push('• Блок C (What-if) — подвигайте общий бюджет ×1.2–×1.5: увидите куда модель хочет направить доп.деньги.');
-    actions.push('• Блок D (Forecast) — спрогнозируйте KPI на следующий период с учётом медиаинфляции.');
+    actions.push('• Блок C (What-if) - подвигайте общий бюджет ×1.2–×1.5: увидите куда модель хочет направить доп.деньги.');
+    actions.push('• Блок D (Forecast) - спрогнозируйте KPI на следующий период с учётом медиаинфляции.');
     if (manyChannelsSaturated) {
-      actions.push('• Расширьте границы — Мин. % → 20–30%, Макс. % → 200–300%: оптимизатор получит пространство для перекладки.');
-      actions.push('• Стратегически — обновите креатив или добавьте новый канал: Hill saturation «не знает» о новой кампании, но на практике свежий креатив возвращает канал к точке до плато.');
+      actions.push('• Расширьте границы - Мин. % → 20–30%, Макс. % → 200–300%: оптимизатор получит пространство для перекладки.');
+      actions.push('• Стратегически - обновите креатив или добавьте новый канал: Hill saturation «не знает» о новой кампании, но на практике свежий креатив возвращает канал к точке до плато.');
     }
   } else if (lift > 15) {
-    actions.push('• Пилот 4-6 недель на 20-30% бюджета с новыми пропорциями — валидация модельных оценок.');
-    actions.push('• Блок E (Сценарии) — сохраните этот оптимум, сравните с другими конфигурациями.');
-    actions.push('• Эксперт-режим в блоке B — если есть бизнес-ограничения (подписанные контракты, sponsor obligations), зафиксируйте каналы.');
+    actions.push('• Пилот 4-6 недель на 20-30% бюджета с новыми пропорциями - валидация модельных оценок.');
+    actions.push('• Блок E (Сценарии) - сохраните этот оптимум, сравните с другими конфигурациями.');
+    actions.push('• Эксперт-режим в блоке B - если есть бизнес-ограничения (подписанные контракты, sponsor obligations), зафиксируйте каналы.');
   } else {
-    actions.push('• Блок C (What-if) — поэкспериментируйте с бюджетом ±30%.');
-    actions.push('• Блок D (Forecast) — планирование следующего периода.');
-    actions.push('• Блок E (Сценарии) — сохраните и сравните несколько вариантов.');
-    actions.push('• Подтвердить и перейти к отчёту — когда план устраивает.');
+    actions.push('• Блок C (What-if) - поэкспериментируйте с бюджетом ±30%.');
+    actions.push('• Блок D (Forecast) - планирование следующего периода.');
+    actions.push('• Блок E (Сценарии) - сохраните и сравните несколько вариантов.');
+    actions.push('• Подтвердить и перейти к отчёту - когда план устраивает.');
   }
 
   out.push({
@@ -1452,12 +1452,12 @@ export function reportInsights(ctx = {}) {
     out.push({
       severity: 'success',
       text: `🎯 Модель: ${mqsParts.join(' · ')}. Результаты надёжны.`,
-      tip: `Рекомендация: используйте выводы отчёта для бюджетных решений. Спецификация модели, priors и доверительные интервалы экспортируются в PPTX/MD/XLSX для воспроизводимости.\n\nВалидационный критерий: посмотрите график «Факт vs Прогноз» в отчёте — линии должны накладываться без систематического смещения.`,
+      tip: `Рекомендация: используйте выводы отчёта для бюджетных решений. Спецификация модели, priors и доверительные интервалы экспортируются в PPTX/MD/XLSX для воспроизводимости.\n\nВалидационный критерий: посмотрите график «Факт vs Прогноз» в отчёте - линии должны накладываться без систематического смещения.`,
     });
   } else if (isThin) {
     out.push({
       severity: 'warning',
-      text: `⚠ Модель: ${mqsParts.join(' · ')}. Данных мало — возможно переобучение.`,
+      text: `⚠ Модель: ${mqsParts.join(' · ')}. Данных мало - возможно переобучение.`,
       tip: `Рекомендация: относитесь к ROI и декомпозиции как к ориентиру, а не истине. При Ratio < 4:1 модель может «выучить» точки, а не закономерность.\n\nЧто сделать: (1) запустите пилот 4-6 недель на части бюджета для валидации, (2) перед решениями смотрите на направление (увеличить/сократить), а не на абсолютные числа, (3) планируйте собрать ≥52 недель данных для следующей итерации.`,
     });
   } else {
@@ -1485,15 +1485,15 @@ export function reportInsights(ctx = {}) {
       if (basePct > 70) {
         sev = 'info';
         headline = `📊 Декомпозиция: base ${basePct.toFixed(0)}% / медиа ${(100 - basePct).toFixed(0)}%. Бренд в основном органический.`;
-        reco = 'Рекомендация: оптимизируйте эффективность внутри существующего медиа-бюджета, не увеличивайте объём — рост ограничен саморазогревом бренда.';
+        reco = 'Рекомендация: оптимизируйте эффективность внутри существующего медиа-бюджета, не увеличивайте объём - рост ограничен саморазогревом бренда.';
       } else if (basePct < 30) {
         sev = 'warning';
-        headline = `⚠ Декомпозиция: base ${basePct.toFixed(0)}% — бренд зависит от рекламы.`;
-        reco = 'Рекомендация: долгосрочно — инвестиции в brand-equity (TV, OOH) для поднятия базы. Остановка медиа = риск значительного падения продаж.';
+        headline = `⚠ Декомпозиция: base ${basePct.toFixed(0)}% - бренд зависит от рекламы.`;
+        reco = 'Рекомендация: долгосрочно - инвестиции в brand-equity (TV, OOH) для поднятия базы. Остановка медиа = риск значительного падения продаж.';
       } else {
         sev = 'success';
-        headline = `✅ Декомпозиция: здоровый mix — base ${basePct.toFixed(0)}% / медиа ${(100 - basePct).toFixed(0)}%.`;
-        reco = 'Рекомендация: сбалансированная модель. Реклама драйвит существенную долю продаж, бренд имеет органическую базу. Фокус — на эффективности перекладки.';
+        headline = `✅ Декомпозиция: здоровый mix - base ${basePct.toFixed(0)}% / медиа ${(100 - basePct).toFixed(0)}%.`;
+        reco = 'Рекомендация: сбалансированная модель. Реклама драйвит существенную долю продаж, бренд имеет органическую базу. Фокус - на эффективности перекладки.';
       }
     }
 
@@ -1501,13 +1501,13 @@ export function reportInsights(ctx = {}) {
       // v1.3.2: KPI-aware metric label в драйвере.
       const driverMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;
       const driverValue = kpi.isLegacy
-        ? (top.roi != null ? `${top.roi.toFixed(2)}×` : '—')
+        ? (top.roi != null ? `${top.roi.toFixed(2)}×` : '-')
         : _fmtMetric(top.roi, kpi);
-      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '—'}% от медиа-вклада, ${driverMetric} ${driverValue}).`;
+      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ${driverMetric} ${driverValue}).`;
     }
     if (suspicious.length > 0) {
       const susMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;
-      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ${susMetric} (${suspicious.map(/** @param {any} s */ s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные — только относительно.`;
+      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ${susMetric} (${suspicious.map(/** @param {any} s */ s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные - только относительно.`;
     }
 
     out.push({
@@ -1523,25 +1523,25 @@ export function reportInsights(ctx = {}) {
       out.push({
         severity: 'success',
         text: `🚀 Оптимизация: +${lift.toFixed(1)}% KPI при том же бюджете${budget ? ` (${budget.toLocaleString('ru-RU')}₽)` : ''}.`,
-        tip: 'Рекомендация: высокий потенциал перекладки. Конкретные суммы по каналам — в отчёте. Перед полным переходом — пилот 4-6 недель на части бюджета (20-30%), чтобы валидировать модельные оценки на практике.',
+        tip: 'Рекомендация: высокий потенциал перекладки. Конкретные суммы по каналам - в отчёте. Перед полным переходом - пилот 4-6 недель на части бюджета (20-30%), чтобы валидировать модельные оценки на практике.',
       });
     } else if (lift > 5) {
       out.push({
         severity: 'success',
-        text: `📈 Оптимизация: +${lift.toFixed(1)}% — умеренный, но значимый потенциал.`,
-        tip: 'Рекомендация: перекладка даст устойчивый прирост. Текущий план близок к рациональному — радикальной перестройки не требуется. Пилот на 20% бюджета для подтверждения.',
+        text: `📈 Оптимизация: +${lift.toFixed(1)}% - умеренный, но значимый потенциал.`,
+        tip: 'Рекомендация: перекладка даст устойчивый прирост. Текущий план близок к рациональному - радикальной перестройки не требуется. Пилот на 20% бюджета для подтверждения.',
       });
     } else if (lift > 0.5) {
       out.push({
         severity: 'info',
-        text: `📊 Оптимизация: +${lift.toFixed(1)}% — план почти оптимален.`,
+        text: `📊 Оптимизация: +${lift.toFixed(1)}% - план почти оптимален.`,
         tip: 'Рекомендация: существенного потенциала в рамках текущего бюджета нет. Для роста нужен либо увеличенный бюджет (What-if), либо пересмотр медиа-микса (новый канал, обновление креатива).',
       });
     } else {
       out.push({
         severity: 'info',
-        text: '🟰 Оптимизация: +0% — план уже оптимален в заданных рамках.',
-        tip: 'Рекомендация: каналы на saturation plateau или Мин/Макс % слишком узкие. Для прорыва: (1) What-if с ростом бюджета +30-50%, (2) обновление креатива в насыщенных каналах, (3) добавление нового канала — Hill saturation «не знает» о новой кампании.',
+        text: '🟰 Оптимизация: +0% - план уже оптимален в заданных рамках.',
+        tip: 'Рекомендация: каналы на saturation plateau или Мин/Макс % слишком узкие. Для прорыва: (1) What-if с ростом бюджета +30-50%, (2) обновление креатива в насыщенных каналах, (3) добавление нового канала - Hill saturation «не знает» о новой кампании.',
       });
     }
   }
@@ -1551,13 +1551,13 @@ export function reportInsights(ctx = {}) {
     out.push({
       severity: 'info',
       text: `💼 Сценарии: сохранено ${scenarioCount}.`,
-      tip: `Рекомендация: сравните сценарии в блоке E (Оптимизация) — таблица с ROAS, бюджетом и lift% покажет лучшую конфигурацию. Сохранённые планы экспортируются вместе с отчётом и доступны для следующих итераций.\n\nЧто обычно сохраняют: (1) Baseline — текущий план, (2) Optimal — результат оптимизации, (3) ±30% бюджета — what-if анализ, (4) Forecast — план на следующий период с учётом инфляции.`,
+      tip: `Рекомендация: сравните сценарии в блоке E (Оптимизация) - таблица с ROAS, бюджетом и lift% покажет лучшую конфигурацию. Сохранённые планы экспортируются вместе с отчётом и доступны для следующих итераций.\n\nЧто обычно сохраняют: (1) Baseline - текущий план, (2) Optimal - результат оптимизации, (3) ±30% бюджета - what-if анализ, (4) Forecast - план на следующий период с учётом инфляции.`,
     });
   } else {
     out.push({
       severity: 'info',
       text: '💼 Сценарии: не сохранены.',
-      tip: 'Рекомендация: вернитесь в блок E (Оптимизация → Сценарный анализ) и сохраните хотя бы 2 плана для сравнения — Baseline и Optimal. Это позволит отчёту показать альтернативы и обосновать решения.',
+      tip: 'Рекомендация: вернитесь в блок E (Оптимизация → Сценарный анализ) и сохраните хотя бы 2 плана для сравнения - Baseline и Optimal. Это позволит отчёту показать альтернативы и обосновать решения.',
     });
   }
 
@@ -1565,7 +1565,7 @@ export function reportInsights(ctx = {}) {
   out.push({
     severity: 'info',
     text: '📤 Форматы экспорта:',
-    tip: '• PPTX — для презентации заказчику/команде: executive summary, спецификация модели, декомпозиция, ROI, оптимизация.\n• XLSX — для аналитиков: метрики, спецификация, декомпозиция, ROI, Spend vs Effect, оптимизация, сырые time-series данные для собственных графиков, глоссарий.\n• HTML — интерактивный отчёт для удалённых клиентов: standalone-файл с живыми графиками (ECharts), waterfall, ROI, Spend vs Effect, динамика по периодам, оптимизация, сценарии. Открывается в любом браузере без установки приложения — отправляется как ссылка или вложение.\n\nВсе три формата содержат одну аналитику — выбирайте по аудитории и каналу доставки. К каждому файлу — автоматически генерируемый сопроводительный текст с описанием модели, результатов и ограничений.',
+    tip: '• PPTX - для презентации заказчику/команде: executive summary, спецификация модели, декомпозиция, ROI, оптимизация.\n• XLSX - для аналитиков: метрики, спецификация, декомпозиция, ROI, Spend vs Effect, оптимизация, сырые time-series данные для собственных графиков, глоссарий.\n• HTML - интерактивный отчёт для удалённых клиентов: standalone-файл с живыми графиками (ECharts), waterfall, ROI, Spend vs Effect, динамика по периодам, оптимизация, сценарии. Открывается в любом браузере без установки приложения - отправляется как ссылка или вложение.\n\nВсе три формата содержат одну аналитику - выбирайте по аудитории и каналу доставки. К каждому файлу - автоматически генерируемый сопроводительный текст с описанием модели, результатов и ограничений.',
   });
 
   return out;

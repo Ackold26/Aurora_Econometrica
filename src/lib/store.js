@@ -47,7 +47,7 @@ export function createPersistentStore(key, defaultValue) {
     try {
         const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
         if (stored) initial = JSON.parse(stored);
-    } catch { /* corrupted localStorage — use default */ }
+    } catch { /* corrupted localStorage - use default */ }
     const store = writable(initial);
     store.subscribe(value => {
         try { if (typeof localStorage !== 'undefined') localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota exceeded or private mode */ }
@@ -74,7 +74,7 @@ export const updateRequired = writable(/** @type {UpdateRequiredState} */ ({ req
 /** @type {import('svelte/store').Writable<string[]>} */
 export const favoriteCommands = createPersistentStore('ai-agency-favorites', /** @type {string[]} */ ([]));
 
-/** PSY-10: Sticky context — контекст для передачи между кабинетами.
+/** PSY-10: Sticky context - контекст для передачи между кабинетами.
  * @type {import('svelte/store').Writable<string|null>} */
 export const stickyContext = writable(null);
 
@@ -92,11 +92,11 @@ export const navCollapsed = createPersistentStore('ai-agency-nav-collapsed-v2', 
  * @type {import('svelte/store').Writable<string|null>} */
 export const lastCabinetId = createPersistentStore('ai-agency-last-cabinet', null);
 
-/** Inbox files — updated by FileList, read by CommandGrid for smart highlighting.
+/** Inbox files - updated by FileList, read by CommandGrid for smart highlighting.
  * @type {import('svelte/store').Writable<string[]>} */
 export const inboxFiles = writable(/** @type {string[]} */ ([]));
 
-/** Cached cabinet commands — loaded by CommandGrid, consumed by ChatPanel for quickStart/classifier.
+/** Cached cabinet commands - loaded by CommandGrid, consumed by ChatPanel for quickStart/classifier.
  * @type {import('svelte/store').Writable<Array<{command: string, label: string, group: string}>>} */
 export const cabinetCommands = writable(/** @type {any[]} */ ([]));
 
@@ -150,6 +150,6 @@ export const THEME_ICONS = { dark: '\u{1F319}', light: '\u{2600}', fun: '\u{1F30
  * @type {import('svelte/store').Writable<Record<string, {step: number, completed: boolean}>>} */
 export const cabinetOnboarding = createPersistentStore('ai-agency-cabinet-onboarding', {});
 
-/** License/auth error from layout — shared so +page.svelte can display it.
+/** License/auth error from layout - shared so +page.svelte can display it.
  * @type {import('svelte/store').Writable<string|null>} */
 export const licenseError = writable(null);

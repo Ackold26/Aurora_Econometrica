@@ -76,7 +76,7 @@ pub fn user_message(err: &ClaudeError) -> String {
 }
 
 /// Spawn Claude Code CLI and stream output via Tauri events.
-/// Returns (session_id, response_text) — session ID for --resume and full response text.
+/// Returns (session_id, response_text) - session ID for --resume and full response text.
 pub async fn run_claude(
     work_dir: &Path,
     prompt: &str,
@@ -100,7 +100,7 @@ pub async fn run_claude_pipeline(
     resume_session_id: Option<String>,
     active_pids: Arc<Mutex<HashMap<String, u32>>>,
 ) -> Result<(Option<String>, String)> {
-    // Pipeline phases always suppress export — final output is built by post-processor
+    // Pipeline phases always suppress export - final output is built by post-processor
     let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
     Ok((sid, response_text))
 }
@@ -157,7 +157,7 @@ async fn run_claude_inner(
     args.push("-p");
     args.push("-"); // read prompt from stdin
 
-    // On Windows, npm CLIs are .cmd scripts — must run via cmd.exe /C
+    // On Windows, npm CLIs are .cmd scripts - must run via cmd.exe /C
     #[cfg(windows)]
     let mut cmd = {
         let mut c = Command::new("cmd");
@@ -209,7 +209,7 @@ async fn run_claude_inner(
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
 
-    // Stream stderr in background — classify errors, log warnings, forward to frontend
+    // Stream stderr in background - classify errors, log warnings, forward to frontend
     let stderr_handle = app_handle.clone();
     let stderr_cabinet_id = cabinet_id.clone();
     let classified_errors: Arc<Mutex<Vec<ClaudeError>>> = Arc::new(Mutex::new(Vec::new()));
@@ -423,7 +423,7 @@ fn convert_to_docx(md_path: &std::path::Path) {
             );
         }
         Err(_) => {
-            debug!("pandoc not available — skipping docx conversion");
+            debug!("pandoc not available - skipping docx conversion");
         }
     }
 }
@@ -611,7 +611,7 @@ fn convert_to_pdf(md_path: &std::path::Path) {
             );
         }
         Err(_) => {
-            debug!("pandoc/wkhtmltopdf not available — skipping pdf conversion");
+            debug!("pandoc/wkhtmltopdf not available - skipping pdf conversion");
         }
     }
 }
@@ -721,7 +721,7 @@ fn find_claude_binary() -> Result<String> {
                             debug!("Claude binary found: {resolved}");
                             return Ok(resolved);
                         }
-                        warn!("Claude binary at untrusted location: {resolved} — skipping");
+                        warn!("Claude binary at untrusted location: {resolved} - skipping");
                     }
                 }
             }

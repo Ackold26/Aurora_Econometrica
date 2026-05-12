@@ -1,5 +1,5 @@
 """
-Sprint 3 Pharma Causal — M2 SCM endpoint MIN-LIVE checkpoint.
+Sprint 3 Pharma Causal - M2 SCM endpoint MIN-LIVE checkpoint.
 
 Per ADR §6 + §11/Q1 refinement: per-M sanity gate (~30min).
 
@@ -48,7 +48,7 @@ def check(label: str, ok: bool, hint: str = '') -> None:
         FAILED += 1
         msg = f'[FAIL] {label}'
         if hint:
-            msg += f' — {hint}'
+            msg += f' - {hint}'
         print(msg)
 
 
@@ -89,7 +89,7 @@ print(f'Synthetic panel: {len(scm_df)} obs, {n_regions} regions × {n_periods} m
 print(f'TRUE ATT = {TRUE_ATT}, treated = {treated_unit}, t_start = {treatment_period}')
 
 # ──────────────────────────────────────────────────────────────────
-# M2.1 — _solve_scm_weights returns valid simplex weights
+# M2.1 - _solve_scm_weights returns valid simplex weights
 # ──────────────────────────────────────────────────────────────────
 print('\n── M2.1: _solve_scm_weights interface ──')
 from engines.causal.scm import _solve_scm_weights
@@ -113,7 +113,7 @@ check('_solve_scm_weights no donors → returns None', w_empty is None)
 check('_solve_scm_weights no donors → status = no_donors', s_empty == 'no_donors')
 
 # ──────────────────────────────────────────────────────────────────
-# M2.2 — estimate_scm engine recovers ATT
+# M2.2 - estimate_scm engine recovers ATT
 # ──────────────────────────────────────────────────────────────────
 print('\n── M2.2: estimate_scm engine ──')
 from engines.causal.scm import estimate_scm
@@ -148,7 +148,7 @@ if result.get('status') == 'ok':
           att['ci_method'] == 'placebo_permutation')
 
 # ──────────────────────────────────────────────────────────────────
-# M2.3 — Diagnostics shape + content
+# M2.3 - Diagnostics shape + content
 # ──────────────────────────────────────────────────────────────────
 print('\n── M2.3: diagnostics ──')
 diag = result.get('diagnostics', {})
@@ -181,7 +181,7 @@ check(f'att_per_period length = n_post_periods ({n_periods - treatment_period + 
       len(diag.get('att_per_period', [])) == n_periods - treatment_period + 1)
 
 # ──────────────────────────────────────────────────────────────────
-# M2.4 — HonestDisclosure
+# M2.4 - HonestDisclosure
 # ──────────────────────────────────────────────────────────────────
 print('\n── M2.4: HonestDisclosure ──')
 hd = result.get('honest_disclosure', {})
@@ -199,7 +199,7 @@ check('honest_disclosure includes weight_concentration_hhi diagnostic',
       any('weight_concentration_hhi' in d for d in all_diag))
 
 # ──────────────────────────────────────────────────────────────────
-# M2.5 — Artifact persisted
+# M2.5 - Artifact persisted
 # ──────────────────────────────────────────────────────────────────
 print('\n── M2.5: Artifact persistence ──')
 artifact_path = result.get('artifact_path')
@@ -216,7 +216,7 @@ if artifact_path and Path(artifact_path).exists():
           Path(artifact_path).name.startswith('scm_'))
 
 # ──────────────────────────────────────────────────────────────────
-# M2.6 — Error paths
+# M2.6 - Error paths
 # ──────────────────────────────────────────────────────────────────
 print('\n── M2.6: Error path validation ──')
 
@@ -247,7 +247,7 @@ check('<6 pre-periods → INSUFFICIENT_PRE_PERIODS',
       err_result2.get('error_code') == 'INSUFFICIENT_PRE_PERIODS')
 
 # ──────────────────────────────────────────────────────────────────
-# M2.7 — run_placebo=False uses pre_rmse_proxy CI
+# M2.7 - run_placebo=False uses pre_rmse_proxy CI
 # ──────────────────────────────────────────────────────────────────
 print('\n── M2.7: run_placebo=False fallback CI method ──')
 result_no_placebo = estimate_scm(

@@ -1,12 +1,12 @@
 """
-Sprint 3 Pharma Causal — M3 Causal Forest endpoint MIN-LIVE checkpoint.
+Sprint 3 Pharma Causal - M3 Causal Forest endpoint MIN-LIVE checkpoint.
 
 Per ADR §6 + §11/Q1: per-M sanity gate.
 
 Synthetic HTE scenario:
 - 500 observations
 - Treatment T ∈ {0, 1}, randomized 50/50
-- 3 features X1, X2, X3 — only X1 modulates treatment effect
+- 3 features X1, X2, X3 - only X1 modulates treatment effect
 - True CATE(X1=low) ~ 5, True CATE(X1=high) ~ 25 → meaningful heterogeneity
 
 Verifies:
@@ -50,7 +50,7 @@ def check(label: str, ok: bool, hint: str = '') -> None:
         FAILED += 1
         msg = f'[FAIL] {label}'
         if hint:
-            msg += f' — {hint}'
+            msg += f' - {hint}'
         print(msg)
 
 
@@ -82,7 +82,7 @@ df.to_excel(forest_path, index=False)
 print(f'Synthetic data: n={n}, true ATE ~ {EXPECTED_ATE:.2f}, X1 modulates (CATE 5→25)')
 
 # ──────────────────────────────────────────────────────────────────
-# M3.1 — estimate_causal_forest recovers ATE
+# M3.1 - estimate_causal_forest recovers ATE
 # ──────────────────────────────────────────────────────────────────
 print('\n── M3.1: estimate_causal_forest engine ──')
 from engines.causal.causal_forest import estimate_causal_forest
@@ -117,7 +117,7 @@ if result.get('status') == 'ok':
           att['ci_method'] in ('honest_split', 'bootstrap'))
 
 # ──────────────────────────────────────────────────────────────────
-# M3.2 — Heterogeneity diagnostics
+# M3.2 - Heterogeneity diagnostics
 # ──────────────────────────────────────────────────────────────────
 print('\n── M3.2: Heterogeneity diagnostics ──')
 diag = result.get('diagnostics', {})
@@ -128,7 +128,7 @@ check(f'cate_summary has all 9 expected percentile keys',
       expected_cate_keys.issubset(got_cate_keys),
       f'missing: {expected_cate_keys - got_cate_keys}')
 
-# Heterogeneity range — true CATE varies from 5 (X1=0) to 25 (X1=10).
+# Heterogeneity range - true CATE varies from 5 (X1=0) to 25 (X1=10).
 # Forest should detect q90 > q10 substantially (~2x or more).
 if cate_summary:
     cate_range = cate_summary['q90'] - cate_summary['q10']
@@ -141,7 +141,7 @@ check(f'heterogeneity_strength populated > 0 (got {heterogeneity_strength})',
       heterogeneity_strength > 0)
 
 # ──────────────────────────────────────────────────────────────────
-# M3.3 — Overlap check
+# M3.3 - Overlap check
 # ──────────────────────────────────────────────────────────────────
 print('\n── M3.3: Overlap check (randomized T should pass) ──')
 overlap = diag.get('overlap_check', {})
@@ -154,7 +154,7 @@ check(f'propensity range reasonable (~0.4-0.6 для randomized)',
       0.2 < overlap.get('propensity_min', 0) and overlap.get('propensity_max', 0) < 0.8)
 
 # ──────────────────────────────────────────────────────────────────
-# M3.4 — HonestDisclosure
+# M3.4 - HonestDisclosure
 # ──────────────────────────────────────────────────────────────────
 print('\n── M3.4: HonestDisclosure ──')
 hd = result.get('honest_disclosure', {})
@@ -169,7 +169,7 @@ check('honest_disclosure includes overlap_check diagnostic',
       any('overlap' in d for d in all_diag))
 
 # ──────────────────────────────────────────────────────────────────
-# M3.5 — Artifact persistence
+# M3.5 - Artifact persistence
 # ──────────────────────────────────────────────────────────────────
 print('\n── M3.5: Artifact persistence ──')
 artifact_path = result.get('artifact_path')
@@ -186,7 +186,7 @@ if artifact_path and Path(artifact_path).exists():
           Path(artifact_path).name.startswith('forest_'))
 
 # ──────────────────────────────────────────────────────────────────
-# M3.6 — Error paths
+# M3.6 - Error paths
 # ──────────────────────────────────────────────────────────────────
 print('\n── M3.6: Error path validation ──')
 

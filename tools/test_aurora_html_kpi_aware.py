@@ -6,7 +6,7 @@ Validates что labels внутри HTML отчёта корректно под
 
 Backward compat: legacy ctx (без 'kpi' block) → render как v1.2, без CPU/Доля
 mentions. Pre-fix: hardcoded "ROI"/"mROAS" в sections.py никогда не учитывали
-kpi_kind/derived_mode — для count KPI отчёт показывал бессмысленные ROI×.
+kpi_kind/derived_mode - для count KPI отчёт показывал бессмысленные ROI×.
 
 Pattern: build minimal synthetic ctx, render каждую секцию, assert наличие/
 отсутствие labels.
@@ -177,7 +177,7 @@ def test_count_kpi_key_message_shows_cpu_portfolio():
 def test_count_kpi_recommendation_uses_cpu_breakeven_phrase():
     s = _import_sections()
     ctx = _ctx('count', 'roi')
-    # Force at least 1 saturated channel — Digital mROAS=0.8 < 1.0
+    # Force at least 1 saturated channel - Digital mROAS=0.8 < 1.0
     html = s['recommend'](ctx)
     # «mROAS < 1×» replaced by «CPU > value» phrase
     assert 'mROAS < 1' not in html
@@ -294,7 +294,7 @@ def test_fmt_metric_monetary_roi():
 def test_fmt_metric_count_inverts_to_cpu():
     """B4 audit fix: c.mroas от backend = units/₽; _fmt_metric inverts → CPU.
 
-    Pre-fix: format showed «X ₽/ед.» literal X — semantically wrong для
+    Pre-fix: format showed «X ₽/ед.» literal X - semantically wrong для
     mathematical units/₽ input. Post-fix: invert before display.
     """
     from aurora_html.sections import _fmt_metric, _kpi_view

@@ -1,7 +1,7 @@
-# Phase 1.1 Pilot Results — logit-normal vs Beta-Beta hierarchy
+# Phase 1.1 Pilot Results - logit-normal vs Beta-Beta hierarchy
 
 **Generated:** 2026-04-26 by tools/pilot_phase11_hierarchy.py
-**Purpose:** ADR §3.A1 — validate prior choice before 12-15h Phase 1.1 implementation.
+**Purpose:** ADR §3.A1 - validate prior choice before 12-15h Phase 1.1 implementation.
 
 ## Synthetic data
 - n_obs: 36

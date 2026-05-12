@@ -1,4 +1,4 @@
-"""Phase 2 audit pass 4 — per-channel unit cost inflation tests.
+"""Phase 2 audit pass 4 - per-channel unit cost inflation tests.
 
 Customer enters current_cost (latest training year) + annual_inflation_pct.
 Backend computes weighted-average over training period via inflation rollback.

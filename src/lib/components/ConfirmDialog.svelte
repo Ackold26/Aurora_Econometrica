@@ -1,6 +1,6 @@
 <script>
   /**
-   * Confirm dialog через native HTML5 <dialog> — встроенный focus trap,
+   * Confirm dialog через native HTML5 <dialog> - встроенный focus trap,
    * Escape-handling, ::backdrop pseudo, a11y правильный.
    *
    * @component ConfirmDialog
@@ -31,7 +31,7 @@
     onCancel?.();
   }
 
-  /** Backdrop click → cancel. Dialog сам по клику вне не закрывается — ловим вручную. */
+  /** Backdrop click → cancel. Dialog сам по клику вне не закрывается - ловим вручную. */
   /** @param {MouseEvent} e */
   function onDialogClick(e) {
     if (e.target === dialogEl) {

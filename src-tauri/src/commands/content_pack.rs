@@ -24,7 +24,7 @@ pub fn verify_content_packs(app_local_data_dir: &Path) -> Result<bool> {
     let dir = content_packs_dir(app_local_data_dir);
 
     if !dir.join("manifest.json").exists() {
-        info!("Content packs not found in {:?} — using fallback data", dir);
+        info!("Content packs not found in {:?} - using fallback data", dir);
         return Ok(false);
     }
 

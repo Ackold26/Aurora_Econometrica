@@ -1,4 +1,4 @@
-"""Audit v2.0 Part 2 — Hierarchical extrapolation experiment (Этап 5 / L5).
+"""Audit v2.0 Part 2 - Hierarchical extrapolation experiment (Этап 5 / L5).
 
 Plan: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §6 + §7 L5.
 
@@ -8,7 +8,7 @@ model на same data.
 
 Synthetic experiment:
     1. Build flat pickle (model_version=1.2) с heterogeneous brand βs (top-performer asymmetry).
-    2. Build hierarchical pickle (model_version=1.3) — same data, но брand βs
+    2. Build hierarchical pickle (model_version=1.3) - same data, но брand βs
        pulled toward group mean (simulates posterior shrinkage в Trust 3 path).
     3. Optimize at budgets {1×, 2×, 3×, 5×} for each model.
     4. Compare allocations: cosine similarity + L1 divergence.
@@ -48,7 +48,7 @@ from _optimizer_fixtures import build_synthetic_pickle, promote_to_hierarchical 
 
 
 def build_flat_pickle(project_dir: Path, *, seed: int) -> dict:
-    """Heterogeneous brand betas — top performer (TV brand) ~3× others."""
+    """Heterogeneous brand betas - top performer (TV brand) ~3× others."""
     project_dir.mkdir(parents=True, exist_ok=True)
     models_dir = project_dir / 'models'
     models_dir.mkdir(exist_ok=True)
@@ -69,7 +69,7 @@ def build_flat_pickle(project_dir: Path, *, seed: int) -> dict:
         raw_data[col] = rng.uniform(1_000_000, 5_000_000, n_periods)
     df = pd.DataFrame(raw_data)
 
-    # Heterogeneous betas — top-performer asymmetry в brand pool
+    # Heterogeneous betas - top-performer asymmetry в brand pool
     betas_flat = {
         'tv_brand': 0.140,        # ⭐ top performer
         'ooh_brand': 0.060,
@@ -100,7 +100,7 @@ def build_flat_pickle(project_dir: Path, *, seed: int) -> dict:
     df['kpi'] = kpi_signal * y_std + y_mean
     df.to_excel(data_path, index=False)
 
-    # Posterior samples — narrow around point (synthetic flat → no pool variance)
+    # Posterior samples - narrow around point (synthetic flat → no pool variance)
     n_samples = 200
     posterior_samples = {
         'media_betas': np.array([
@@ -248,7 +248,7 @@ def cosine_sim(a: list[float], b: list[float]) -> float:
 
 
 def l1_divergence(a: list[float], b: list[float]) -> float:
-    """Σ |a_i - b_i| / Σ a_i — L1 relative divergence."""
+    """Σ |a_i - b_i| / Σ a_i - L1 relative divergence."""
     a_arr = np.array(a, dtype=float)
     b_arr = np.array(b, dtype=float)
     return float(np.sum(np.abs(a_arr - b_arr)) / max(np.sum(a_arr), 1.0))
@@ -326,7 +326,7 @@ def run_experiment() -> dict:
 
 
 def main() -> None:
-    print('=== Aurora MATH AUDIT v2.0 Part 2 — Hierarchical extrapolation experiment ===\n')
+    print('=== Aurora MATH AUDIT v2.0 Part 2 - Hierarchical extrapolation experiment ===\n')
     out = run_experiment()
     print(f'Training total budget: {out["train_total_money"]:,.0f} ₽')
     print(f'Synthetic shrinkage factor (β pooling 50%): {out["shrinkage_factor"]}\n')

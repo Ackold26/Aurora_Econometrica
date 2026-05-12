@@ -2,7 +2,7 @@
 i18n loader + t(key, lang) for aurora_pptx.
 
 Strings live in strings_ru.json / strings_en.json.
-Missing keys fall back to English; missing from both — return key itself (debug mode).
+Missing keys fall back to English; missing from both - return key itself (debug mode).
 
 Usage:
     from .i18n import t

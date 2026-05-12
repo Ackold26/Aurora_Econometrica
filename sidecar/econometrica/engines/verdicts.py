@@ -1,11 +1,11 @@
 """
-Aurora Econometrica — KPI-aware verdicts engine (v1.3.0).
+Aurora Econometrica - KPI-aware verdicts engine (v1.3.0).
 
 Per ADR-016: бинарное разделение monetary vs count для verdict semantics:
 - monetary: ROI vs пороги (0.5/0.8/1.0).
 - count: CPU vs value_per_count_unit (2x / 1x / 1.1x ratios).
 
-Этот модуль — wrapper над существующим compute_roi_verdict (engines/decomposer.py),
+Этот модуль - wrapper над существующим compute_roi_verdict (engines/decomposer.py),
 который diapatches по kpi_kind. Backward compat: kpi_kind='monetary' → identical to v1.2.
 
 Usage:
@@ -43,7 +43,7 @@ def compute_verdict_count_kpi(
     cpu_ci_high: Optional[float] = None,
     unit_smell: bool = False,
 ) -> Tuple[str, str]:
-    """Count KPI verdict — comparison CPU vs value_per_count_unit.
+    """Count KPI verdict - comparison CPU vs value_per_count_unit.
 
     Args:
         cpu: cost per unit (₽ затрат / count_unit), e.g. ₽/упаковка, ₽/лид.
@@ -84,7 +84,7 @@ def compute_verdict_count_kpi(
 
     # Main comparison: CPU vs value.
     if unit_smell and cpu < value_per_count_unit * 0.1:
-        # CPU подозрительно низкий + канал на physical metrics — возможно artifact.
+        # CPU подозрительно низкий + канал на physical metrics - возможно artifact.
         return _apply_ci_suffix('CPU подозрительно низкий (проверьте единицы)', 'warn')
 
     if cpu > value_per_count_unit * CPU_DEEP_LOSS_MULTIPLIER:
@@ -118,10 +118,10 @@ def compute_verdict_effectiveness_mode(
     sales_share_ci_low: Optional[float] = None,
     sales_share_ci_high: Optional[float] = None,
 ) -> Tuple[str, str]:
-    """Effectiveness mode verdict — share-based (когда нет cost-effectiveness данных).
+    """Effectiveness mode verdict - share-based (когда нет cost-effectiveness данных).
 
     Per ADR-014 P0.8. В режиме Эффективность ROI/CPU не валидны (нет цены контакта).
-    Главная сравнительная метрика — sales contribution share.
+    Главная сравнительная метрика - sales contribution share.
 
     Args:
         sales_share: доля канала в общих продажах (0..1).
@@ -224,7 +224,7 @@ def compute_verdict_kpi_aware(
             unit_smell=unit_smell,
         )
 
-    # Default: monetary ROI — delegate к v1.2 compute_roi_verdict (backward compat).
+    # Default: monetary ROI - delegate к v1.2 compute_roi_verdict (backward compat).
     if roi is None:
         return ('Недостаточно данных (нет ROI)', 'neutral')
 

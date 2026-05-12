@@ -2,7 +2,7 @@
 Smoke test for Aurora Hybrid signature-lime in REAL Econometrica PPTX engine
 (sidecar/econometrica/engines/pptx_export.py::_add_title_text).
 
-This is the actual generator used by Econometrica Report flow — different from
+This is the actual generator used by Econometrica Report flow - different from
 pptx_pipeline.py (which is for media-analyst cabinet).
 
 Run:
@@ -45,12 +45,12 @@ def main():
     # Slide 1: default signature=True (should get lime)
     s1 = prs.slides.add_slide(blank)
     _set_slide_bg(s1, AURORA_DARK)
-    _add_title_text(s1, "TV drives 42% of incremental sales — digital 2.1× ROAS")
+    _add_title_text(s1, "TV drives 42% of incremental sales - digital 2.1× ROAS")
 
-    # Slide 2: signature=False (should NOT get lime — e.g. cover)
+    # Slide 2: signature=False (should NOT get lime - e.g. cover)
     s2 = prs.slides.add_slide(blank)
     _set_slide_bg(s2, AURORA_DARK)
-    _add_title_text(s2, "Cover slide — no signature here", signature=False)
+    _add_title_text(s2, "Cover slide - no signature here", signature=False)
 
     # Slide 3: default again
     s3 = prs.slides.add_slide(blank)

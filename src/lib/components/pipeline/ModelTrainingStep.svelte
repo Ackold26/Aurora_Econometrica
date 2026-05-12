@@ -1,7 +1,7 @@
 <script>
   /**
    * Step 2: Model Training.
-   * B1: vertical stack — ConfigPanel → TrainingProgress → MQSBadge + ConvergenceDashboard.
+   * B1: vertical stack - ConfigPanel → TrainingProgress → MQSBadge + ConvergenceDashboard.
    * B2: no channel params table (Phase 4).
    * C5: error recovery with "Повторить" + "Изменить настройки".
    *
@@ -23,8 +23,8 @@
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
 
-  // Обучающий тур — запускается после обучения модели (stepState='trained'),
-  // когда на экране и config, и результаты — все spotlight'ы находят свою цель.
+  // Обучающий тур - запускается после обучения модели (stepState='trained'),
+  // когда на экране и config, и результаты - все spotlight'ы находят свою цель.
   let showOnboarding = $state(false);
   let onboardingChecked = false;
 
@@ -38,14 +38,14 @@
   /** @type {any | null} */
   let lastConfig = $state(null);
 
-  // Current validation result (from Step 1) — реактивно через $validateData
+  // Current validation result (from Step 1) - реактивно через $validateData
   const validation = $derived($validateData?.result || null);
 
   // Current model diagnostics (if trained)
   const diagnostics = $derived($modelData?.diagnostics || null);
   const mqs = $derived(diagnostics?.mqs || null);
 
-  // Онбординг — запуск когда модель обучена (есть и config, и результаты на экране).
+  // Онбординг - запуск когда модель обучена (есть и config, и результаты на экране).
   $effect(() => {
     if (typeof window === 'undefined') return;
     if (onboardingChecked) return;
@@ -56,7 +56,7 @@
     }
   });
 
-  /** Estimate training duration in seconds from config — used for smooth progress interpolation */
+  /** Estimate training duration in seconds from config - used for smooth progress interpolation */
   const estimatedSec = $derived.by(() => {
     if (!lastConfig) return 600;
     const mc = lastConfig.mcmc_override || { chains: 2, draws: 1000, tune: 500 };
@@ -87,7 +87,7 @@
             handleComplete(result);
           } else {
             localStorage.removeItem(TASK_KEY);
-            // Stale task in storage but not running — reset compute flag
+            // Stale task in storage but not running - reset compute flag
             isComputing.set(false);
             computeStatus.set('');
           }
@@ -98,7 +98,7 @@
         }
       })();
     } else if (stepState === 'idle') {
-      // No saved task — ensure compute flag is clean when entering the step
+      // No saved task - ensure compute flag is clean when entering the step
       isComputing.set(false);
       computeStatus.set('');
     }
@@ -168,7 +168,7 @@
     setStepError(2, msg);
   }
 
-  /** User clicked Stop during training — reset to idle, allow reconfigure */
+  /** User clicked Stop during training - reset to idle, allow reconfigure */
   function handleStop() {
     isComputing.set(false);
     computeStatus.set('');
@@ -177,7 +177,7 @@
     stepState = 'idle';
   }
 
-  /** Retry with same config — auto-starts training without manual Run click */
+  /** Retry with same config - auto-starts training without manual Run click */
   async function retryTraining() {
     if (!lastConfig) {
       stepState = 'idle';
@@ -202,7 +202,7 @@
 
 <div class="model-training-step">
 
-  <!-- Success banner (после тренировки) — заметная подсказка что результаты ниже. -->
+  <!-- Success banner (после тренировки) - заметная подсказка что результаты ниже. -->
   {#if stepState === 'trained' && diagnostics}
     {@const m = diagnostics.metrics ?? diagnostics}
     {@const rSq = m.r_squared ?? diagnostics.r_squared}
@@ -221,7 +221,7 @@
     </div>
   {/if}
 
-  <!-- ConfigPanel — always rendered (visibility) — A3: async flow via useAsyncTraining prop -->
+  <!-- ConfigPanel - always rendered (visibility) - A3: async flow via useAsyncTraining prop -->
   <div
     class="config-area"
     data-tour="model-config"
@@ -260,7 +260,7 @@
     </div>
   {/if}
 
-  <!-- Results (after training) — anchor для auto-scroll. -->
+  <!-- Results (after training) - anchor для auto-scroll. -->
   {#if stepState === 'trained' && diagnostics}
     <div id="model-results-anchor"></div>
     <!-- MQS Badge -->
@@ -297,7 +297,7 @@
     gap: 16px;
     padding: 20px;
     box-sizing: border-box;
-    /* Scroll handled by parent .pipeline-main — no nested overflow to avoid empty scroll area */
+    /* Scroll handled by parent .pipeline-main - no nested overflow to avoid empty scroll area */
   }
 
   .config-area {

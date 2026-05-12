@@ -1,7 +1,7 @@
 """
 OLS bootstrap для honest ROI CI на small data (Sprint 2 extension).
 
-Frequentist β CI (β ± t·SE) — это uncertainty на coefficients, НЕ на ROI.
+Frequentist β CI (β ± t·SE) - это uncertainty на coefficients, НЕ на ROI.
 ROI = contribution / spend = β · hill(x_norm) · y_std × n_periods / (raw_spend · unit_cost).
 Hill non-linearity + ratio amplifies/dampens β uncertainty в ROI bounds.
 
@@ -55,12 +55,12 @@ def bootstrap_roi_ci(
 
     C-OLS-1 fix (audit 2026-04-27): real per-period adstock+Hill computation
     matching decomposer.py exactly. Pre-fix used hill_at_one=hill(1.0) as
-    constant approximation — Jensen's inequality bias (E[hill(X)] ≠ hill(E[X]))
+    constant approximation - Jensen's inequality bias (E[hill(X)] ≠ hill(E[X]))
     caused systematic 10-30% drift between bootstrap CI and decomposer point
-    estimate когда spend variance высокая. UI showed "ROI 2.4 [bootstrap 1.5—2.0]"
-    where 2.4 outside CI — confusing user.
+    estimate когда spend variance высокая. UI showed "ROI 2.4 [bootstrap 1.5-2.0]"
+    where 2.4 outside CI - confusing user.
 
-    C-OLS-2 fix: tracking presence mask per channel — pre-fix indexing
+    C-OLS-2 fix: tracking presence mask per channel - pre-fix indexing
     `samples[:successful]` could include zeros from skipped iterations
     (LinAlgError during specific iters left default zeros in array).
     Post-fix: bool mask tracks successful writes, percentile only on those.
@@ -69,15 +69,15 @@ def bootstrap_roi_ci(
     instead of raw percentile (matches Bayesian path semantics).
 
     Args:
-        X: design matrix (n_obs, p) — already adstock+Hill applied features (для refit)
-        y: KPI vector normalized (n_obs,) — y_norm = (y - y_mean) / y_std
+        X: design matrix (n_obs, p) - already adstock+Hill applied features (для refit)
+        y: KPI vector normalized (n_obs,) - y_norm = (y - y_mean) / y_std
         media_means: per-channel adstock mean (consistent с ols_modeler normalization)
         media_cols: ordered media channel names (matches X columns 1: after intercept)
         y_std: y normalization std для denormalization
         n_periods: training periods (for total contribution)
         raw_spend_totals: per-channel total raw spend (for ROI denominator)
         raw_spend_series: per-channel raw spend per period (NEW C-OLS-1) для exact contribution
-        adstock_config: per-channel adstock type (NEW C-OLS-1) — geometric/weibull
+        adstock_config: per-channel adstock type (NEW C-OLS-1) - geometric/weibull
         unit_costs: per-channel ₽/native (для money-mode ROI; default 1.0)
         n_boot: bootstrap iterations (default 200)
         seed: RNG seed
@@ -109,7 +109,7 @@ def bootstrap_roi_ci(
 
     # C-OLS-1: precompute exact per-period Hill saturation per channel using ORIGINAL
     # spend pattern + ols_modeler defaults. β_boot варьируется across bootstrap, но
-    # adstock + Hill — consistent с ols_modeler training (matches decomposer downstream).
+    # adstock + Hill - consistent с ols_modeler training (matches decomposer downstream).
     sat_per_channel = {}  # {col: shape (n_periods,) of Hill values}
     for col in media_cols:
         raw = raw_spend_series.get(col)
@@ -136,7 +136,7 @@ def bootstrap_roi_ci(
         try:
             beta_boot, _, _, _ = np.linalg.lstsq(X_boot, y_boot, rcond=None)
         except np.linalg.LinAlgError:
-            # Singular bootstrap sample — skip iteration (presence stays False)
+            # Singular bootstrap sample - skip iteration (presence stays False)
             continue
 
         # Extract media betas (skip intercept at index 0)
@@ -162,11 +162,11 @@ def bootstrap_roi_ci(
 
     if successful < n_boot * 0.5:
         logger.warning(
-            f"bootstrap_roi_ci: only {successful}/{n_boot} successful resamples — "
+            f"bootstrap_roi_ci: only {successful}/{n_boot} successful resamples - "
             f"results may be unreliable (likely multicollinearity or bad data)"
         )
 
-    # Compute HDI per channel (M-OLS-1: HDI not percentile — matches Bayesian semantics)
+    # Compute HDI per channel (M-OLS-1: HDI not percentile - matches Bayesian semantics)
     result = {}
     for col in media_cols:
         valid = roi_samples[col][presence_mask[col]]
@@ -210,7 +210,7 @@ def predictive_interval_y(
         confidence: PI mass (default 0.9 = 90%)
 
     Returns:
-        (interval_half_width, leverage) — caller computes ŷ ± half_width.
+        (interval_half_width, leverage) - caller computes ŷ ± half_width.
     """
     try:
         from scipy import stats as scipy_stats
@@ -235,7 +235,7 @@ def ols_diagnostics(
         X: design matrix (n_obs, p)
         y: target (n_obs,)
         beta_hat: fitted coefficients (p,)
-        XtX_inv: (X'X)^(-1) — None if singular
+        XtX_inv: (X'X)^(-1) - None if singular
 
     Returns:
         dict with leverage_per_obs, cooks_distance_per_obs, vif_per_param,
@@ -280,7 +280,7 @@ def ols_diagnostics(
         for j in range(p):
             xj_centered_var = float(np.sum((X[:, j] - X[:, j].mean()) ** 2))
             if xj_centered_var < 1e-10:
-                vif.append(None)  # constant column (intercept) — VIF undefined
+                vif.append(None)  # constant column (intercept) - VIF undefined
             else:
                 vif.append(round(float(XtX_inv[j, j] * xj_centered_var), 3))
         out['vif'] = vif

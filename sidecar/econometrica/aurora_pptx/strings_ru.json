@@ -9,7 +9,7 @@
     "subtitle": "MMM отчёт по кампании"
   },
   "cover": {
-    "confidentiality": "CONFIDENTIAL — For {client} only",
+    "confidentiality": "CONFIDENTIAL - For {client} only",
     "version_prefix": "v",
     "date_format": "%d %B %Y г."
   },
@@ -39,7 +39,7 @@
   },
   "methodology": {
     "title": "Методология",
-    "mmm_line": "Bayesian MMM с адstock и saturation — MCMC NUTS",
+    "mmm_line": "Bayesian MMM с адstock и saturation - MCMC NUTS",
     "spec_header": "Спецификация модели:",
     "diagnostics_header": "Диагностика:"
   },

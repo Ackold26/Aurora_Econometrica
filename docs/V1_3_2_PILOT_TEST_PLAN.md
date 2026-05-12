@@ -1,4 +1,4 @@
-# Aurora MMM Optimizer v1.3.2 — Pilot test plan
+# Aurora MMM Optimizer v1.3.2 - Pilot test plan
 
 **Дата:** 2026-05-12
 **Branch:** `feat/v1.3.2-reports-kpi-aware`
@@ -14,7 +14,7 @@
 - 13 PPTX integration tests pass (через shim)
 - 0 svelte-check errors
 
-Но **runtime через UI** не verified — нужны pilot runs для подтверждения что end-to-end flow работает корректно. Особенно critical: count KPI и effectiveness mode никогда не запускались в реальном workflow.
+Но **runtime через UI** не verified - нужны pilot runs для подтверждения что end-to-end flow работает корректно. Особенно critical: count KPI и effectiveness mode никогда не запускались в реальном workflow.
 
 ---
 
@@ -31,7 +31,7 @@ npm run tauri dev
 
 ---
 
-## Сценарий 1 — Кагоцел (monetary roi, baseline regression)
+## Сценарий 1 - Кагоцел (monetary roi, baseline regression)
 
 **Цель:** убедиться что v1.3.2 НЕ ломает v1.2 backward compat. ROI labels и SCQAR templates должны быть как в v1.2.
 
@@ -42,7 +42,7 @@ npm run tauri dev
 3. **NEW v1.3.2:** видна substep nav "Роли колонок → Целевая метрика → Метрики каналов → Подтверждение" (4 dots, monetary skip Ценность).
 4. ColumnMapperConfirm показывает detected roles. Confirm без правок.
 5. KPISelector default = `sales` (monetary). Select → next.
-6. PerChannelInputSelector — proceed с default monetary attribution для каждого канала.
+6. PerChannelInputSelector - proceed с default monetary attribution для каждого канала.
 7. ModeDerivedExplanation → continue.
 8. Train model → Decompose → Optimize → Report.
 
@@ -56,7 +56,7 @@ npm run tauri dev
 - [ ] **Report HTML:** `ROI портфеля 1.5×`, action_table column header `mROAS`, не CPU.
 - [ ] **Report PPTX:** аналогично, s06 chart title `MROAS ПО КАНАЛАМ / МУЛЬТИПЛИКАТОР`.
 - [ ] **Goal-seek:** target ввод в ₽, result formatted `1 050 000 000 ₽`.
-- [ ] **ColumnMapperConfirm persisted:** возврат к Validate шагу через goBack — ColumnMapperConfirm НЕ показывается повторно (localStorage hit).
+- [ ] **ColumnMapperConfirm persisted:** возврат к Validate шагу через goBack - ColumnMapperConfirm НЕ показывается повторно (localStorage hit).
 
 ### Acceptance
 
@@ -64,7 +64,7 @@ npm run tauri dev
 
 ---
 
-## Сценарий 2 — Synthetic count KPI (`sales_packs`)
+## Сценарий 2 - Synthetic count KPI (`sales_packs`)
 
 **Цель:** проверить B4 fix (units/₽ → CPU inversion) end-to-end, CPU labels всюду.
 
@@ -85,11 +85,11 @@ npm run tauri dev
 
 1. Open new project → ImportStep loads file.
 2. Validate шаг → **NEW v1.3.2:**
-   - Substep 1: ColumnMapperConfirm — verify auto-detected roles. `sales_packs` = kpi, остальные = media, `date` = date.
-   - Substep 2: KPISelector — choose `sales_packs` (count group).
-   - Substep 3: ValuePerCountUnitInput — verify auto-detected price ~80₽ (from sales/sales_packs ratio) OR enter manually `80`.
-   - Substep 4: PerChannelInputSelector — для каждого канала: `tv_grp` = physical (units), `digital_spend_rub` / `social_spend_rub` = monetary.
-   - Substep 5: ModeDerivedExplanation — verifies mode = `roi` (count KPI + monetary spend = CPU-mode).
+   - Substep 1: ColumnMapperConfirm - verify auto-detected roles. `sales_packs` = kpi, остальные = media, `date` = date.
+   - Substep 2: KPISelector - choose `sales_packs` (count group).
+   - Substep 3: ValuePerCountUnitInput - verify auto-detected price ~80₽ (from sales/sales_packs ratio) OR enter manually `80`.
+   - Substep 4: PerChannelInputSelector - для каждого канала: `tv_grp` = physical (units), `digital_spend_rub` / `social_spend_rub` = monetary.
+   - Substep 5: ModeDerivedExplanation - verifies mode = `roi` (count KPI + monetary spend = CPU-mode).
 3. Train → Decompose → Optimize → Report.
 
 ### Проверки
@@ -112,14 +112,14 @@ npm run tauri dev
 
 ---
 
-## Сценарий 3 — Synthetic effectiveness mode
+## Сценарий 3 - Synthetic effectiveness mode
 
 **Цель:** проверить mode=`effectiveness` flow (share-based, 100% по построению).
 
 ### Подготовка
 
 Same synthetic project как Сценарий 2 OR создать new с:
-- KPI = `sales` (monetary, или count — не важно для mode test)
+- KPI = `sales` (monetary, или count - не важно для mode test)
 - Все каналы в `physical` (не monetary) → derived mode = `effectiveness`
 
 ### Шаги
@@ -141,7 +141,7 @@ Same synthetic project как Сценарий 2 OR создать new с:
 - [ ] **NO «ROI» / «mROAS» / «CPU» mentions в UI/report для effectiveness mode.**
 - [ ] **Action_02_text:** «N канал(ов) с низкой долей в портфеле» (не «под breakeven»).
 - [ ] **PPTX chart subtitle:** «Доли каналов в продажах, Q1 2026».
-- [ ] **PPTX number_format:** values show as percentages (e.g. «25.0%»), не «0.25%» — B1 fix verification.
+- [ ] **PPTX number_format:** values show as percentages (e.g. «25.0%»), не «0.25%» - B1 fix verification.
 
 ### Acceptance
 
@@ -151,7 +151,7 @@ Effectiveness mode рендерит share-based labels везде. M1 «breakeve
 
 ## Quick smoke checks (parallel runs)
 
-После трёх сценариев — быстрая verify:
+После трёх сценариев - быстрая verify:
 
 | Check | Expected | Status |
 |---|---|---|
@@ -167,7 +167,7 @@ Effectiveness mode рендерит share-based labels везде. M1 «breakeve
 
 ## Bug reporting template
 
-Если pilot обнаруживает regression — фиксировать в issue:
+Если pilot обнаруживает regression - фиксировать в issue:
 
 ```
 **Сценарий:** [1/2/3]

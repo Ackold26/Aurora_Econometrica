@@ -36,7 +36,7 @@
       const t = types[i];
       if (t === 'baseline') return '#3b82f6';
       if (t === 'total') return 'rgba(148,163,184,0.5)';
-      // channel — pick from palette by channel index
+      // channel - pick from palette by channel index
       const chIdx = types.slice(0, i).filter(x => x === 'channel').length;
       return CHANNEL_COLORS[(chIdx + 1) % CHANNEL_COLORS.length];
     });
@@ -58,7 +58,7 @@
       },
       // Audit pass 14 (Антон 2026-05-03): explicit hide default ECharts legend.
       // Pre-fix: stray «support / value» labels (internal series names) появлялись
-      // в верхнем углу chart — confusing customer.
+      // в верхнем углу chart - confusing customer.
       legend: { show: false },
       grid: { left: 16, right: 16, top: 12, bottom: 48, containLabel: true },
       xAxis: {

@@ -1,5 +1,5 @@
 """
-Typography helpers — apply_paragraph_style + action-title helper.
+Typography helpers - apply_paragraph_style + action-title helper.
 
 Styles map to TYPOGRAPHY["fontSize"]["pptx"].* keys from tokens.json:
   cover_title / cover_subtitle / section_number / section_name /

@@ -1,4 +1,4 @@
-# CHANGELOG v1.1.0 — Trust Level 3 (Brand vs Performance Split)
+# CHANGELOG v1.1.0 - Trust Level 3 (Brand vs Performance Split)
 
 **Status:** READY FOR ALPHA GATE (Antón's live test on Kagocel + Венарус)
 **Branch:** math-fix-v1.0.13
@@ -20,7 +20,7 @@
 - **Auto-suggestion** через heuristic (TRPs/OOH→brand, Search/Social→performance, Спецпроект→mixed)
 - **Click→override popup** с описанием каждой категории
 - **Confidence score** (auto-suggest: % match strength, manual: 100%)
-- **Insights summary**: «4 brand, 2 performance, 1 mixed — hierarchical активен»
+- **Insights summary**: «4 brand, 2 performance, 1 mixed - hierarchical активен»
 
 ### 2. Hierarchical Bayesian model
 
@@ -78,7 +78,7 @@ path (identical к pre-v1.1.0 behavior).
 +   ...
 + }
 ```
-`#[serde(default)]` — default empty map для projects до v1.1.0.
+`#[serde(default)]` - default empty map для projects до v1.1.0.
 
 ### `models/latest.pkl` (model_version='1.3')
 ```diff
@@ -117,20 +117,20 @@ Returns: {"status": "ok", "suggestions": {"TRPs бренд": {"category": "brand
 **Net diff:** ~1700 LOC additions (4 commits на math-fix-v1.0.13).
 
 **Commits:**
-1. `c8efaa5` — feat(trust3): channel categorization util + pickle compat helper (Sprint 4 foundation)
-2. `f45f97b` — feat(trust3): hierarchical Bayesian priors brand vs performance + R-hat gate
-3. `eb3f4f9` — feat(trust3): Validate UI badges + ChannelCategoriesPanel + Tauri schema
-4. `e864716` — feat(trust3): Decompose grouping + decay column + HTML methodology auto-gen
+1. `c8efaa5` - feat(trust3): channel categorization util + pickle compat helper (Sprint 4 foundation)
+2. `f45f97b` - feat(trust3): hierarchical Bayesian priors brand vs performance + R-hat gate
+3. `eb3f4f9` - feat(trust3): Validate UI badges + ChannelCategoriesPanel + Tauri schema
+4. `e864716` - feat(trust3): Decompose grouping + decay column + HTML methodology auto-gen
 
 ---
 
 ## Tests
 
-- ✅ test_channel_categorization (21/21) — heuristic + identifiability + accuracy ≥85%
-- ✅ test_pickle_compat (10/10) — backward compat для v1.0/v1.1/v1.2/v1.3 pickles
-- ✅ test_brand_perf_split (10/10) — split eligibility + decay sanity + methodology gen
-- ✅ test_optimizer_kagocel_redistribution (20/20) — no regression
-- ✅ test_narrative_coherence (24/24) — no regression
+- ✅ test_channel_categorization (21/21) - heuristic + identifiability + accuracy ≥85%
+- ✅ test_pickle_compat (10/10) - backward compat для v1.0/v1.1/v1.2/v1.3 pickles
+- ✅ test_brand_perf_split (10/10) - split eligibility + decay sanity + methodology gen
+- ✅ test_optimizer_kagocel_redistribution (20/20) - no regression
+- ✅ test_narrative_coherence (24/24) - no regression
 - ✅ svelte-check 31 errors (pre-existing, no new)
 - ✅ cargo check clean
 
@@ -143,11 +143,11 @@ Returns: {"status": "ok", "suggestions": {"TRPs бренд": {"category": "brand
 1. **Brand decay = stronger geometric, NOT learnable Weibull.** Acceptable simplification
    для v1.1.0 (matches Robyn industry practice). Phase 1.5 weibull-learnable планируется
    позже как additional refinement.
-2. **Conformal exchangeability на hierarchical posterior** — formal proof requires Phase 1.6+.
+2. **Conformal exchangeability на hierarchical posterior** - formal proof requires Phase 1.6+.
    Empirical validation через alpha gate (Антон's Kagocel + Венарус session).
-3. **Per-group Optimize Min/Max sliders** — defer для full scope (post-v1.1.0).
-4. **PPTX methodology auto-gen** — defer (HTML disclosure достаточно для customer awareness).
-5. **ROI shift comparison block** — defer для v1.1.1 (требует «previous run» persistence).
+3. **Per-group Optimize Min/Max sliders** - defer для full scope (post-v1.1.0).
+4. **PPTX methodology auto-gen** - defer (HTML disclosure достаточно для customer awareness).
+5. **ROI shift comparison block** - defer для v1.1.1 (требует «previous run» persistence).
 
 ---
 
@@ -158,7 +158,7 @@ Returns: {"status": "ok", "suggestions": {"TRPs бренд": {"category": "brand
 **ZERO-action required.** Старые проекты + pickles работают идентично pre-v1.1.0:
 - `project.json` без channel_categories → serde default empty map
 - decomposer применяет heuristic fallback при чтении pickle (TRPs→brand by name)
-- модель НЕ переобучается автоматически — текущие results sохраняются
+- модель НЕ переобучается автоматически - текущие results sохраняются
 
 **Чтобы получить hierarchical разделение:** на Validate шаге assign brand/performance
 для ≥2 каналов в каждой группе → переобучить модель. Trained pickle становится v1.3.
@@ -172,8 +172,8 @@ ambiguous каналы (Спецпроект, OLV). Train применяет hie
 
 ## Acknowledgements
 
-- **Антон Сипович** — стратегическое видение (awareness KPI как commercial driver), live tests
-- **Маша (Claude Opus 4.7)** — implementation, audit, math-grounding
+- **Антон Сипович** - стратегическое видение (awareness KPI как commercial driver), live tests
+- **Маша (Claude Opus 4.7)** - implementation, audit, math-grounding
 
 ---
 

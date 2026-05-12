@@ -1,6 +1,6 @@
 <script>
   /**
-   * CausalArtifactList — history view + cross-method consistency button.
+   * CausalArtifactList - history view + cross-method consistency button.
    * @component
    */
   import { invoke } from '@tauri-apps/api/core';
@@ -60,7 +60,7 @@
 
   /** @param {any} x  @param {number} [dec] */
   function formatNumber(x, dec = 2) {
-    if (x === null || x === undefined) return '—';
+    if (x === null || x === undefined) return '-';
     if (typeof x !== 'number') return String(x);
     if (Math.abs(x) > 1000) return x.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
     return x.toFixed(dec);

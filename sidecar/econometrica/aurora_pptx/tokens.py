@@ -1,5 +1,5 @@
 """
-PPTX-native wrapper over aurora_tokens — provides RGBColor / Pt / Inches types.
+PPTX-native wrapper over aurora_tokens - provides RGBColor / Pt / Inches types.
 
 Import pattern in aurora_pptx modules:
 
@@ -70,7 +70,7 @@ COLOR = SimpleNamespace(
     ),
 )
 
-# Typography — wrapped in pptx Pt
+# Typography - wrapped in pptx Pt
 _pptx_sizes = TYPOGRAPHY["fontSize"]["pptx"]
 FONT = SimpleNamespace(
     family=SimpleNamespace(
@@ -93,7 +93,7 @@ FONT = SimpleNamespace(
     ),
 )
 
-# Sizing — pptx native units
+# Sizing - pptx native units
 _pptx_sizing = SIZING["pptx"]
 SIZE = SimpleNamespace(
     slide_w=Inches(13.333),

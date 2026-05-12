@@ -1,5 +1,5 @@
 /**
- * Econometrica project state — shared across cabinets and pipeline.
+ * Econometrica project state - shared across cabinets and pipeline.
  * Phase 1: Extended to 6-step pipeline state machine.
  *
  * A4: localStorage persists only metadata (step statuses, currentStep).
@@ -111,7 +111,7 @@ function loadPipelineMeta(projectId) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed.steps) && parsed.steps.length === 6) return parsed;
     }
-  } catch { /* corrupted — use default */ }
+  } catch { /* corrupted - use default */ }
   return { currentStep: 0, steps: defaultStepMeta() };
 }
 
@@ -134,7 +134,7 @@ function savePipelineMeta(projectId, meta) {
 export const pipelineCurrentStep = writable(0);
 
 /**
- * Expert mode toggle — persisted in localStorage.
+ * Expert mode toggle - persisted in localStorage.
  * false = Marketer mode (simplified, auto-defaults)
  * true = Expert mode (full controls, diagnostics, priors)
  */
@@ -153,13 +153,13 @@ function createExpertStore() {
 /** @type {import('svelte/store').Writable<boolean>} */
 export const expertMode = createExpertStore();
 
-// ─── Phase 2 (Planning Mode) — audit pass 2 2026-05-02 ───
+// ─── Phase 2 (Planning Mode) - audit pass 2 2026-05-02 ───
 // Opt-in planning mode toggle. analyst (default) = current behavior preserved
 // byte-exact. planner = Option C per-period Hill summation + forecast horizon
-// decoupling. Persisted per session (NOT per project — global preference).
+// decoupling. Persisted per session (NOT per project - global preference).
 
 /**
- * Planning mode toggle for OptimizeStep. Phase 2 — Aurora Econometrica next-gen
+ * Planning mode toggle for OptimizeStep. Phase 2 - Aurora Econometrica next-gen
  * mode. analyst = look at past performance (current behavior); planner = future
  * allocation для planning horizon.
  * @returns {import('svelte/store').Writable<'analyst'|'planner'>}
@@ -218,7 +218,7 @@ export const forecastContext = writable(null);
 /** @type {import('svelte/store').Writable<StepMeta[]>} Step metadata (statuses only, no data) */
 export const pipelineStepMeta = writable(defaultStepMeta());
 
-// --- A4: In-memory data stores — never persisted to localStorage ---
+// --- A4: In-memory data stores - never persisted to localStorage ---
 
 /**
  * Imported file state. Optional fields populated после econ_data_preview:
@@ -264,13 +264,13 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
   const mediaCols = cols.filter(c => c.role === 'media');
   const activeMedia = mediaCols.length;
 
-  // VIF max — collinearity worst-case среди media каналов
+  // VIF max - collinearity worst-case среди media каналов
   const vifs = mediaCols
     .map(c => Number(c.stats?.vif))
     .filter(v => Number.isFinite(v));
   const maxVif = vifs.length ? Math.max(...vifs) : null;
 
-  // MQS prognosis heuristic — sanity check готовности данных до обучения
+  // MQS prognosis heuristic - sanity check готовности данных до обучения
   let score = 100;
   if (ratio < 2) score -= 40;
   else if (ratio < 4) score -= 25;
@@ -309,12 +309,12 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
 
 /**
  * Trust Level 2: стоимость 1 юнита канала в валюте KPI (CPP/CPM).
- * Для каналов в рублях — 1.0 или отсутствие ключа.
+ * Для каналов в рублях - 1.0 или отсутствие ключа.
  * Загружается из project.unit_costs при активации проекта, сохраняется через project_update.
  * @type {import('svelte/store').Writable<Record<string, number>>}
  */
 export const unitCosts = writable({});
-// Phase 2 audit pass 4 — per-channel annual inflation pct (CPP/CPM rate).
+// Phase 2 audit pass 4 - per-channel annual inflation pct (CPP/CPM rate).
 // Customer enters current cost (latest training year) + annual rate; backend
 // computes training-period weighted-average для math-correct ROI/mROAS.
 /** @type {import('svelte/store').Writable<Record<string, number>>} */
@@ -390,10 +390,10 @@ export function syncChannelCategoriesToMedia(mediaColumns) {
  * @deprecated v1.3.0 (ADR-015): use `derivedMode` + `perChannelInput` + `kpiKind` instead.
  * Сохраняется как writable для backward compat с legacy `ValidateStep.svelte`,
  * `InsightsPanel.svelte`, `UnitCostsPanel.svelte` (4 файла grep).
- * v1.3.0 default flow использует `ValidateStepV13` + `derivedMode` — `analysisObjective`
+ * v1.3.0 default flow использует `ValidateStepV13` + `derivedMode` - `analysisObjective`
  * не читается. Будет удалён в v1.4.0 / Phase B после full migration.
  *
- * Analysis objective — determines which metric to prefer for paired channels.
+ * Analysis objective - determines which metric to prefer for paired channels.
  *   'roi'           → keep budgets (measure monetary return)
  *   'effectiveness' → keep natural metrics (impressions/clicks/visits)
  *   'manual'        → user chooses per-channel (current behavior)
@@ -418,14 +418,14 @@ export const kpiType = writable('sales');
 
 /**
  * v1.3.0: per-channel input metric selection (per ADR-015).
- * {channel_name: 'monetary' | 'physical'} — выбор юзера на шаге Валидация.
+ * {channel_name: 'monetary' | 'physical'} - выбор юзера на шаге Валидация.
  * @type {import('svelte/store').Writable<Record<string, 'monetary' | 'physical'>>}
  */
 export const perChannelInput = writable({});
 
 /**
- * v1.3.0: derived mode — computed automatically from perChannelInput (ADR-015).
- * Не writable юзером — обновляется когда меняется perChannelInput.
+ * v1.3.0: derived mode - computed automatically from perChannelInput (ADR-015).
+ * Не writable юзером - обновляется когда меняется perChannelInput.
  * @type {import('svelte/store').Writable<'roi' | 'effectiveness' | 'manual'>}
  */
 export const derivedMode = writable('roi');
@@ -438,7 +438,7 @@ export const derivedMode = writable('roi');
 export const valuePerCountUnit = writable(null);
 
 /**
- * v1.3.0: source флаг — 'auto' (auto-detected) | 'manual' (user input) | 'imported' (из bundle) | null.
+ * v1.3.0: source флаг - 'auto' (auto-detected) | 'manual' (user input) | 'imported' (из bundle) | null.
  * @type {import('svelte/store').Writable<string | null>}
  */
 export const valuePerCountUnitSource = writable(null);
@@ -476,8 +476,8 @@ export const showGlossaryPanel = writable(false);
 
 /**
  * v1.0.16: модель-движок selector (Import шаг).
- * 'bayesian' (default, NUTS NumPyro) — полный posterior, CI, ~20-60 сек train.
- * 'ols' (Sprint 2 small-data fallback) — closed-form OLS, frequentist β CI,
+ * 'bayesian' (default, NUTS NumPyro) - полный posterior, CI, ~20-60 сек train.
+ * 'ols' (Sprint 2 small-data fallback) - closed-form OLS, frequentist β CI,
  *   ~2-5 сек, для n<30 наблюдений где Bayesian funnel/divergences likely.
  * Auto-recommend: n<30 → OLS, n≥30 → Bayesian. Customer может override.
  * @type {import('svelte/store').Writable<'bayesian' | 'ols'>}
@@ -497,16 +497,16 @@ export const optimizeData = writable(null);
  * Восстановить данные pipeline из `results/*.json` при активации проекта.
  *
  * Предыстория: до S9 stepMeta кешируется в localStorage, но сами данные шагов
- * (modelData/decomposeData/optimizeData) — только в памяти. После перезапуска
+ * (modelData/decomposeData/optimizeData) - только в памяти. После перезапуска
  * app stepper показывает ✓ (complete из localStorage), а ReportStep видит
  * пустые сторы и кричит «данных нет». Эта функция читает results/*.json
- * через Rust-команду и заполняет сторы — приводит UI в консистентное состояние.
+ * через Rust-команду и заполняет сторы - приводит UI в консистентное состояние.
  *
  * Ограничения: channelParams / normalization лежат в pickle (не JSON), поэтому
  * re-train модели требуется для повторной оптимизации. Для Report + Insights
  * хватает diagnostics (из model-diagnostics.json) + decompose + optimize.
  *
- * @param {string | null} pid — project id; при null — ничего не делает.
+ * @param {string | null} pid - project id; при null - ничего не делает.
  */
 async function restoreProjectResults(pid) {
   if (!pid) return;
@@ -540,7 +540,7 @@ async function restoreProjectResults(pid) {
     // пока работаешь на «Валидация»).
     reconcileStepMetaFromDisk({ hasValidation, hasModel, hasDecompose, hasOptimize });
   } catch (e) {
-    // Silent: отсутствие results/* — норма для нового проекта.
+    // Silent: отсутствие results/* - норма для нового проекта.
     console.warn('restoreProjectResults skipped:', e);
   }
 }
@@ -556,17 +556,17 @@ function reconcileStepMetaFromDisk(flags) {
   const { hasValidation, hasModel, hasDecompose, hasOptimize } = flags;
   // Monotonic invariant: если есть данные на любом downstream шаге, все upstream
   // шаги успешно прошли (по построению pipeline). Step 0 (Import) → complete если
-  // ЛЮБОЙ из validate/model/decompose/optimize отработал — без этого нельзя было.
+  // ЛЮБОЙ из validate/model/decompose/optimize отработал - без этого нельзя было.
   // Это исправляет race condition где reconcile перезаписывал live-set complete
   // на ready при временном отсутствии validation.json.
   const importDone = hasValidation || hasModel || hasDecompose || hasOptimize;
   const stepStatuses = /** @type {StepStatus[]} */ ([
-    importDone   ? 'complete' : 'ready',          // 0 — Import
-    hasValidation ? 'complete' : (importDone ? 'ready' : 'locked'),    // 1 — Validate
-    hasModel     ? 'complete' : (hasValidation ? 'ready' : 'locked'),  // 2 — Model
-    hasDecompose ? 'complete' : (hasModel ? 'ready' : 'locked'),       // 3 — Decompose
-    hasOptimize  ? 'complete' : (hasDecompose ? 'ready' : 'locked'),   // 4 — Optimize
-    (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 5 — Report
+    importDone   ? 'complete' : 'ready',          // 0 - Import
+    hasValidation ? 'complete' : (importDone ? 'ready' : 'locked'),    // 1 - Validate
+    hasModel     ? 'complete' : (hasValidation ? 'ready' : 'locked'),  // 2 - Model
+    hasDecompose ? 'complete' : (hasModel ? 'ready' : 'locked'),       // 3 - Decompose
+    hasOptimize  ? 'complete' : (hasDecompose ? 'ready' : 'locked'),   // 4 - Optimize
+    (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 5 - Report
   ]);
   pipelineStepMeta.set(stepStatuses.map(status => ({ status, errorMessage: null })));
 
@@ -600,7 +600,7 @@ activeProjectId.subscribe((pid) => {
 });
 
 /**
- * Live-state оптимизатора — положение слайдеров в блоке B до нажатия «Оптимизировать».
+ * Live-state оптимизатора - положение слайдеров в блоке B до нажатия «Оптимизировать».
  * Нужно InsightsPanel'у для реактивного пересчёта mROAS/saturation на каждое движение.
  * @type {import('svelte/store').Writable<{
  *   channelBudgets: Record<string, number>,
@@ -644,7 +644,7 @@ export function resetDownstream(fromStep) {
 
 /**
  * Mark a step complete and unlock the next step.
- * Does NOT auto-advance — user clicks "Далее" manually to review results.
+ * Does NOT auto-advance - user clicks "Далее" manually to review results.
  * @param {number} step - step index (0-5)
  */
 export function completeStep(step) {
@@ -688,7 +688,7 @@ export function setStepError(step, message) {
 
 /**
  * Load pipeline metadata for a project from localStorage.
- * Data stores start empty (A4 — data is never persisted).
+ * Data stores start empty (A4 - data is never persisted).
  * Call when switching projects.
  * @param {string|null} projectId
  */
@@ -706,7 +706,7 @@ export function loadPipelineForProject(projectId) {
 }
 
 /**
- * Full reset for a fresh analysis — clears active project, wipes all pipeline
+ * Full reset for a fresh analysis - clears active project, wipes all pipeline
  * data, returns user to step 0 with a clean stepper. Used by "Новый анализ"
  * button on the main screen.
  */
@@ -778,7 +778,7 @@ export function resetPipeline(projectId) {
   computeStatus.set('');
   loadPipelineForProject(projectId ?? null);
 
-  // Если передан projectId — перечитать результаты с диска (validation,
+  // Если передан projectId - перечитать результаты с диска (validation,
   // modelDiagnostics, decompose, optimize). Без этого: пользователь
   // переключил проект → stores сброшены → ReportStep показывает
   // «данные предыдущих шагов недоступны», хотя они есть в JSON-файлах.

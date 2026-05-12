@@ -1,8 +1,8 @@
 <script>
   /**
-   * InsightsPanel — Rule-based insights sidebar for the pipeline.
+   * InsightsPanel - Rule-based insights sidebar for the pipeline.
    * Tier 1: offline insights from insights-rules.js (always works).
-   * Tier 2: Claude AI (online, optional) — Phase 10.
+   * Tier 2: Claude AI (online, optional) - Phase 10.
    * C4: width clamp(240px, 22%, 360px), auto-collapse below 1100px.
    */
   import { invoke } from '@tauri-apps/api/core';
@@ -19,7 +19,7 @@
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
 
   /** Persist column-role state к project.json (best-effort, non-blocking).
-   *  L1 (math-fix v1.4 Section C, 2026-04-29): unified persistence — same call
+   *  L1 (math-fix v1.4 Section C, 2026-04-29): unified persistence - same call
    *  used by InsightsPanel.applyAction, ValidateStep.excludeColumnByName,
    *  ValidateStep.onMappingChange. Adds explicit excluded_columns list для
    *  cross-session restore.
@@ -38,7 +38,7 @@
   let { collapsed = false, onToggle } = $props();
 
   /**
-   * Snapshot of what was done — enables undo.
+   * Snapshot of what was done - enables undo.
    * Keyed by insight index; stores roles prior to apply + merge metadata.
    * @type {Map<number, { previousRoles: Record<string, string>, mergedName?: string }>}
    */
@@ -118,7 +118,7 @@
   }
 
   /**
-   * Undo an applied action — restore roles, remove merged column.
+   * Undo an applied action - restore roles, remove merged column.
    * @param {number} idx
    */
   function revertAction(idx) {

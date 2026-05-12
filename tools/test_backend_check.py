@@ -1,4 +1,4 @@
-"""Tests для utils/backend_check.py — Phase B0.3 foundation."""
+"""Tests для utils/backend_check.py - Phase B0.3 foundation."""
 from __future__ import annotations
 
 import pytest

@@ -1,14 +1,14 @@
 """
-Aurora Econometrica — KPI registry (v1.3.0).
+Aurora Econometrica - KPI registry (v1.3.0).
 
 Centralizes per-KPI configuration: likelihood, hyperpriors, ceiling, baseline drift,
 **kpi_kind semantics** (monetary vs count vs proportional), and value-per-count-unit UI labels.
 
-v1.3.0 (2026-05-12) — additive расширение per ADR-016:
+v1.3.0 (2026-05-12) - additive расширение per ADR-016:
 - New field `kpi_kind`: 'monetary' | 'count' | 'proportional'.
 - New field `value_per_count_unit_label`: UI-label template для count KPIs.
 - New field `out_of_scope_v13`: маркирует KPIs, которые не получают v1.3 KPI-aware enhancements
-  (awareness — для Phase B Aurora Brand Tracker).
+  (awareness - для Phase B Aurora Brand Tracker).
 - 7 new count KPIs: sales_packs, leads, registrations, loyalty_cards, subscriptions,
   app_installs, custom.
 
@@ -34,8 +34,8 @@ from typing import Dict, Literal, Optional, Tuple
 KPILikelihood = Literal['normal', 'logit_normal', 'beta']
 
 # v1.3.0: KPI kind semantics.
-# monetary  → target в рублях (sales_rub, revenue, profit). Главная метрика канала — ROI.
-# count     → target в штуках (sales_packs, leads, registrations, etc.). Главная метрика канала — CPU vs value_per_count_unit.
+# monetary  → target в рублях (sales_rub, revenue, profit). Главная метрика канала - ROI.
+# count     → target в штуках (sales_packs, leads, registrations, etc.). Главная метрика канала - CPU vs value_per_count_unit.
 # proportional → target доля/percentage (awareness). Out of scope в v1.3.0 (Phase B).
 KPIKind = Literal['monetary', 'count', 'proportional']
 
@@ -49,16 +49,16 @@ class KPIConfig:
     name: str
     likelihood: KPILikelihood
 
-    # v1.3.0 — bridge между data-side classification и UX/verdict semantics.
+    # v1.3.0 - bridge между data-side classification и UX/verdict semantics.
     # See ADR-016 for binary monetary/count rationale.
     kpi_kind: KPIKind = 'monetary'
 
-    # v1.3.0 — UI-label template для value_per_count_unit field.
+    # v1.3.0 - UI-label template для value_per_count_unit field.
     # Empty string для monetary KPIs (поле не показывается).
     # Per-KPI customization: 'Маржа на упаковку, ₽' / 'Ценность лида, ₽' / etc.
     value_per_count_unit_label: str = ''
 
-    # v1.3.0 — KPIs marked out_of_scope_v13 не получают KPI-aware enhancements
+    # v1.3.0 - KPIs marked out_of_scope_v13 не получают KPI-aware enhancements
     # этого релиза (verdicts, insights, отчёты остаются прежними). Per ADR-016.
     out_of_scope_v13: bool = False
 
@@ -78,8 +78,8 @@ class KPIConfig:
     mixed_beta_sigma: float = 0.4
 
     # Hill saturation:
-    #   gammas Beta(alpha, beta) — half-saturation point
-    #   alphas — steepness
+    #   gammas Beta(alpha, beta) - half-saturation point
+    #   alphas - steepness
     gammas_alpha: float = 3.0
     gammas_beta: float = 3.0
 
@@ -89,7 +89,7 @@ class KPIConfig:
     # Observation noise prior σ (HalfNormal sigma).
     obs_sigma_prior: float = 0.3
 
-    # Phase 2 S7 (audit pass 2 2026-05-02) — KPI-aware forecast horizon settings.
+    # Phase 2 S7 (audit pass 2 2026-05-02) - KPI-aware forecast horizon settings.
     # Hard cap multiplier для forecast_periods / train_n. Sales=2.0 (Robyn/Meridian
     # convention); awareness ставит tighter (1.5) т.к. brand build-up длиннее →
     # β stationarity слабее.
@@ -125,8 +125,8 @@ KPI_REGISTRY: Dict[str, KPIConfig] = {
         name='revenue',
         likelihood='normal',
         kpi_kind='monetary',
-        # Same as 'sales' — alias (поле name внутри identifier).
-        # Priors одинаковы — semantically revenue=sales для MMM.
+        # Same as 'sales' - alias (поле name внутри identifier).
+        # Priors одинаковы - semantically revenue=sales для MMM.
     ),
 
     'profit': KPIConfig(
@@ -134,7 +134,7 @@ KPI_REGISTRY: Dict[str, KPIConfig] = {
         likelihood='normal',
         kpi_kind='monetary',
         # Same Trust 3 priors. Profit отличается от revenue только в данных
-        # (вычитают COGS) — модель внутренне идентична.
+        # (вычитают COGS) - модель внутренне идентична.
     ),
 
     # ─── COUNT ──────────────────────────────────────────────────────────────
@@ -146,7 +146,7 @@ KPI_REGISTRY: Dict[str, KPIConfig] = {
         likelihood='normal',
         kpi_kind='count',
         value_per_count_unit_label='Маржа на упаковку, ₽',
-        # Same priors as sales (count vs ₽ — это про шкалу, не про temporal dynamics).
+        # Same priors as sales (count vs ₽ - это про шкалу, не про temporal dynamics).
     ),
 
     'leads': KPIConfig(
@@ -188,7 +188,7 @@ KPI_REGISTRY: Dict[str, KPIConfig] = {
         name='count_custom',
         likelihood='normal',
         kpi_kind='count',
-        # Юзер задаёт свой label через project state — здесь default.
+        # Юзер задаёт свой label через project state - здесь default.
         value_per_count_unit_label='Ценность единицы, ₽',
     ),
 
@@ -331,7 +331,7 @@ def _validate_registry() -> None:
             raise ValueError(
                 f"KPI_REGISTRY['{name}']: monetary KPI cannot have "
                 f"value_per_count_unit_label (got '{config.value_per_count_unit_label}'). "
-                f"Monetary KPIs measure target в ₽ directly — value-per-unit поле не применимо."
+                f"Monetary KPIs measure target в ₽ directly - value-per-unit поле не применимо."
             )
 
 

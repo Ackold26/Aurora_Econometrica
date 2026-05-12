@@ -108,7 +108,7 @@
     {/if}
   {/each}
 
-  <!-- Add at end — always visible -->
+  <!-- Add at end - always visible -->
   {#if onAddStep}
     <div class="wf-connector-group">
       {#if steps.length > 0}

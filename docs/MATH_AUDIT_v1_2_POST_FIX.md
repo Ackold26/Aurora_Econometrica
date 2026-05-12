@@ -1,4 +1,4 @@
-# Math Audit v1.2 — Post-Fix Critical Review
+# Math Audit v1.2 - Post-Fix Critical Review
 
 **Date:** 2026-04-25
 **Scope:** все commits в branch `math-fix-v1.0.13` (Phases 1-7 + post-audit hardening 58e6cf1)
@@ -16,7 +16,7 @@
 
 ---
 
-## 🔴 P0 — Real bugs
+## 🔴 P0 - Real bugs
 
 ### A1. Empty-channel scenario corruption (modeler.py:254)
 
@@ -36,9 +36,9 @@ sat = hill_function([x_norm], alpha=p['alpha'], gamma=p['gamma'])  # saturated a
 contribution = p['beta'] * sat[0]  # β ≈ prior mean, sat≈1 → fake "prediction"
 ```
 
-**Impact:** User submits a media plan with budget on a channel that had ZERO variance in training. β for that channel = prior (HalfNormal(0.3) mean ≈ 0.24). x_norm = raw spend (huge). Hill saturates ≈ 1. Output ≈ 0.24 × y_std contribution per period — looks plausible but is **fabricated** from prior, not learned.
+**Impact:** User submits a media plan with budget on a channel that had ZERO variance in training. β for that channel = prior (HalfNormal(0.3) mean ≈ 0.24). x_norm = raw spend (huge). Hill saturates ≈ 1. Output ≈ 0.24 × y_std contribution per period - looks plausible but is **fabricated** from prior, not learned.
 
-**Severity:** P0 — silently produces fake predictions. UI doesn't surface that the channel was effectively a constant during training.
+**Severity:** P0 - silently produces fake predictions. UI doesn't surface that the channel was effectively a constant during training.
 
 **Fix:** track which channels had zero variance, mark them in pickle, skip in scenario/optimizer.
 
@@ -63,11 +63,11 @@ elif gap <= -10:
 
 **Bug:** these thresholds were calibrated for **pre-Phase-3** decomposer that used `|β|/Σ|β|` proportional. After Phase 3 fix, channel contribution = `β × hill(adstock(x)/mean) × y_std`. The numerical magnitude shifted. ROI = contribution / spend may now be in different range.
 
-For channels that pre-fix had ROI ≈ 1.5 (correctly) and post-fix have ROI ≈ 0.8 (still correct, just lower attribution due to saturation), would now be flagged "Убыточный" — UI shows red banner for healthy channel.
+For channels that pre-fix had ROI ≈ 1.5 (correctly) and post-fix have ROI ≈ 0.8 (still correct, just lower attribution due to saturation), would now be flagged "Убыточный" - UI shows red banner for healthy channel.
 
 **Impact:** false-positive verdicts → client confusion → lost trust в model.
 
-**Severity:** P0 — visible to client, mis-categorizes channels.
+**Severity:** P0 - visible to client, mis-categorizes channels.
 
 **Fix:** recalibrate thresholds against post-fix Kagocel data OR move to relative thresholds (e.g., bottom-quartile ROI = "underperforming").
 
@@ -75,7 +75,7 @@ For channels that pre-fix had ROI ≈ 1.5 (correctly) and post-fix have ROI ≈ 
 
 ---
 
-## 🟡 P1 — Inconsistencies / methodological
+## 🟡 P1 - Inconsistencies / methodological
 
 ### B1. Gamma floor inconsistency
 
@@ -85,7 +85,7 @@ For channels that pre-fix had ROI ≈ 1.5 (correctly) and post-fix have ROI ≈ 
 | `optimizer.py` | 126 | `max(p['gamma'], 1e-6)` |
 | `decomposer.py` | 93 | `max(float(...), 1e-6)` |
 
-**Impact:** for very small posterior γ (rare but possible), scenario returns different sat than optimizer/decomposer. Numerical precision concern only — γ = 0.001 vs 1e-6 differs 1000× in `γ^α` but Hill output near 1 either way.
+**Impact:** for very small posterior γ (rare but possible), scenario returns different sat than optimizer/decomposer. Numerical precision concern only - γ = 0.001 vs 1e-6 differs 1000× in `γ^α` but Hill output near 1 either way.
 
 **Fix:** standardize to `1e-6` everywhere.
 
@@ -124,10 +124,10 @@ vs decomposer (decomposer.py:154-165) includes `control_effect_per_period`.
 
 ---
 
-## 🟢 P2 — Efficiency / docs
+## 🟢 P2 - Efficiency / docs
 
 ### C1. Modeler posterior means extracted twice
-Lines 527 + 613 (intercept), 528 + 590 (media_betas), 529 + 591 (alphas), 530 + 592 (gammas). Wasted compute (small — already-cached InferenceData).
+Lines 527 + 613 (intercept), 528 + 590 (media_betas), 529 + 591 (alphas), 530 + 592 (gammas). Wasted compute (small - already-cached InferenceData).
 
 **Fix:** extract once after MCMC, reuse.
 
@@ -141,17 +141,17 @@ User submits N periods, scenario silently pads with zeros if shorter or truncate
 ## Recommended fix scope
 
 **Must-fix in this session:**
-- **A1** Empty-channel detection — track in modeler, reject in scenario
-- **B1** Gamma floor unification — 1-line fix per file
+- **A1** Empty-channel detection - track in modeler, reject in scenario
+- **B1** Gamma floor unification - 1-line fix per file
 
 **Should-fix:**
-- **B3** Decomposer insight — remove magic 0.5 (or compute properly)
-- **B2** Adstock schema centralization — small refactor
+- **B3** Decomposer insight - remove magic 0.5 (or compute properly)
+- **B2** Adstock schema centralization - small refactor
 
 **Document only:**
-- **A2** ROI thresholds — needs Kagocel data recalibration (post-live-test)
-- **B4** Scenario baseline — acceptable for forward use case
-- **C1**, **C2** — efficiency / UX polish
+- **A2** ROI thresholds - needs Kagocel data recalibration (post-live-test)
+- **B4** Scenario baseline - acceptable for forward use case
+- **C1**, **C2** - efficiency / UX polish
 
 ---
 

@@ -36,7 +36,7 @@ ROOT = Path(__file__).parent
 DIST = ROOT / 'dist'
 OUTPUT_NAME = 'econometrica-sidecar'
 
-# PyInstaller spec — onedir for fast startup
+# PyInstaller spec - onedir for fast startup
 PYINSTALLER_ARGS = [
     sys.executable, '-m', 'PyInstaller',
     'server.py',
@@ -48,7 +48,7 @@ PYINSTALLER_ARGS = [
     '--workpath', str(ROOT / 'build_tmp'),
     '--specpath', str(ROOT / 'build_tmp'),
 
-    # Hidden imports — PyMC / PyTensor lazy-import chains
+    # Hidden imports - PyMC / PyTensor lazy-import chains
     '--hidden-import=pymc',
     '--hidden-import=pytensor',
     '--hidden-import=pytensor.tensor',
@@ -81,11 +81,11 @@ PYINSTALLER_ARGS = [
     '--add-data', f'{ROOT / "charts"}:charts',
     '--add-data', f'{ROOT / "utils"}:utils',
     # aurora_pptx/ module + templates subfolder + strings_*.json (client-ready deliverables).
-    # aurora_tokens.py is generated from Standards/tokens/tokens.json via build.py — see
+    # aurora_tokens.py is generated from Standards/tokens/tokens.json via build.py - see
     # regen step below in main(). Must be bundled as data so import works at runtime.
     '--add-data', f'{ROOT / "aurora_pptx"}:aurora_pptx',
     '--add-data', f'{ROOT / "aurora_tokens.py"}:.',
-    # aurora_html/ — tier-1 interactive HTML deliverable (v1.0.12 program).
+    # aurora_html/ - tier-1 interactive HTML deliverable (v1.0.12 program).
     # Ships bundled ECharts (common build), WOFF2 font subsets (Lora + Inter
     # cyrillic + latin), and generated aurora_html.css + aurora_html_tokens.js
     # from Standards/tokens/build.py html-css + html-js targets. Full tree
@@ -97,7 +97,7 @@ PYINSTALLER_ARGS = [
     # fonts/headers) need --collect-data or --collect-all.
     #
     # Scanned 2026-04-20: packages with runtime data in site-packages. Core MMM stack
-    # gets --collect-all (binaries + submodules + data) — safest against the class of
+    # gets --collect-all (binaries + submodules + data) - safest against the class of
     # "FileNotFoundError at import" bugs (arviz icons, pytensor scan_perform.c, etc).
     '--collect-all=arviz',
     # arviz 0.23.4+ разделён на split packages (arviz_base, arviz_stats, arviz_plots).
@@ -110,7 +110,7 @@ PYINSTALLER_ARGS = [
     '--collect-all=pymc_marketing',
     '--collect-all=pytensor',          # scan_perform.c, configdefaults, compile templates
     '--collect-all=xarray',
-    # v1.0.9: NumPyro + JAX — нужны для Tier-1 NUTS sampler (5-15× скорость).
+    # v1.0.9: NumPyro + JAX - нужны для Tier-1 NUTS sampler (5-15× скорость).
     # JAX CUDA wheels намеренно исключены (2GB+), CPU-only бандл ≈180MB.
     '--collect-all=numpyro',
     '--collect-all=jax',
@@ -123,20 +123,20 @@ PYINSTALLER_ARGS = [
     '--collect-data=numba',            # header files for JIT
     '--collect-data=pandas',           # io/formats/templates/*.tpl
 
-    # Sprint 3 Pharma Causal — added 2026-04-27 для v1.0.14 ship (per ADR §3.1).
+    # Sprint 3 Pharma Causal - added 2026-04-27 для v1.0.14 ship (per ADR §3.1).
     # Per Q2(B): NO pysyncon, NO cvxpy. Manual scipy SLSQP for SCM weights.
     '--collect-all=linearmodels',      # DiD Callaway-Santanna 2021 (panel data)
     '--collect-all=econml',            # Causal Forest Wager-Athey (HTE)
     '--collect-data=statsmodels',      # panel utilities (transitive bumped explicit)
 
-    # Exclude torch — would add 2GB, not needed (FTS5/keyword ML only)
+    # Exclude torch - would add 2GB, not needed (FTS5/keyword ML only)
     '--exclude-module=torch',
     '--exclude-module=torchvision',
     '--exclude-module=torchaudio',
     '--exclude-module=dostoevsky',
     '--exclude-module=tensorflow',
     '--exclude-module=keras',
-    # JAX CUDA — CPU-only bundle; GPU backends бесполезны без NVIDIA driver + добавляют 2GB
+    # JAX CUDA - CPU-only bundle; GPU backends бесполезны без NVIDIA driver + добавляют 2GB
     '--exclude-module=jaxlib.cuda',
     '--exclude-module=jax.experimental.gpu',
     '--exclude-module=jax.experimental.cuda',
@@ -238,7 +238,7 @@ def main():
     print(f'  ✓ {copied} items synced into {ROOT}')
 
     # ── Freshness check (защита от stale exe в Tauri bundle) ───────────
-    # npm run tauri build НЕ пересобирает sidecar — берёт готовый exe.
+    # npm run tauri build НЕ пересобирает sidecar - берёт готовый exe.
     # Если .py новее exe → installer попадёт старый sidecar, runtime
     # словит handshake mismatch / отсутствие эндпоинтов. Инцидент 2026-04-21.
     exe = ROOT / f'{OUTPUT_NAME}.exe'
@@ -258,7 +258,7 @@ def main():
                 print(f'  {p.relative_to(ROOT)}', file=sys.stderr)
             if len(stale) > 5:
                 print(f'  ... +{len(stale) - 5} more', file=sys.stderr)
-            print('Sync failed — exe was not refreshed. Re-run build.', file=sys.stderr)
+            print('Sync failed - exe was not refreshed. Re-run build.', file=sys.stderr)
             sys.exit(1)
         print(f'  [OK] Freshness verified (exe newer than all .py sources)')
 

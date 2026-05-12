@@ -1,6 +1,6 @@
 <script>
   /**
-   * Causal — Sprint 3 Pharma Causal cabinet route.
+   * Causal - Sprint 3 Pharma Causal cabinet route.
    *
    * Layout:
    *   - Sticky header: title + project context + v1.0.14 disclosure banner
@@ -9,7 +9,7 @@
    *   - Bottom: CausalArtifactList (history + cross-method consistency)
    *
    * Все эти 3 компонента уже сами по себе пишут к sidecar через invoke;
-   * route — простой контейнер + project context.
+   * route - простой контейнер + project context.
    */
   import { invoke } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
@@ -45,7 +45,7 @@
 
   /** @param {any} artifact */
   function onSelectArtifact(artifact) {
-    // Load full artifact JSON via fetch — for now just show summary
+    // Load full artifact JSON via fetch - for now just show summary
     // (UI can be extended to load full payload via project API)
     latestResult = {
       status: 'ok',
@@ -81,7 +81,7 @@
       <strong>⚠ v1.0.14 honest caveat:</strong> backend validated на synthetic data + DGP-controlled
       ground truth recovery. Real-customer geo-disaggregated validation запланирован в v1.0.15
       после получения Materia Medica regional data + treatment markers. Используй с осторожностью
-      на real client data — assumptions (parallel-trends, convex-hull, overlap) проверяй вручную
+      на real client data - assumptions (parallel-trends, convex-hull, overlap) проверяй вручную
       через honest_disclosure блок ниже.
     </div>
 

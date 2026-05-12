@@ -1,6 +1,6 @@
 """Run legacy standalone test scripts (pre-Sprint 5 pattern).
 
-Эти tests имеют top-level sys.exit() — не подходят для pytest collection,
+Эти tests имеют top-level sys.exit() - не подходят для pytest collection,
 но работают standalone. Этот runner запускает все по очереди.
 
 Usage:
@@ -31,9 +31,9 @@ LEGACY_TESTS = [
     'test_roi_verdict.py',
 ]
 
-# Slow tests (MCMC training — skip с --quick).
+# Slow tests (MCMC training - skip с --quick).
 SLOW_TESTS: set[str] = {
-    # currently none — все pure synthetic / pickle-based.
+    # currently none - все pure synthetic / pickle-based.
     # Add e.g. 'test_full_mcmc.py' если появятся.
 }
 

@@ -9,7 +9,7 @@ units/₽ как 0 ₽/ед.) автоматически.
 Requires aurora_tokens module (shim или production). Test environment shim в
 sidecar/econometrica/aurora_tokens.py provides minimal hex values.
 
-NOT byte-exact comparison — too brittle (python-pptx version drift / random
+NOT byte-exact comparison - too brittle (python-pptx version drift / random
 report_id / timestamps). Concentrate на user-visible TEXT and LABELS что
 constitute KPI correctness contract.
 """
@@ -26,7 +26,7 @@ sys.path.insert(0, str(SIDECAR / 'econometrica'))
 
 
 def _make_data(kpi_kind: str = 'monetary', mode: str = 'roi') -> dict:
-    """Synthetic 3-channel data для PPTX build. mroas values intentional —
+    """Synthetic 3-channel data для PPTX build. mroas values intentional -
     raw mathematical KPI/spend. Для count это units/₽ (small fraction); render
     layer inverts к CPU per B4 audit fix.
     """
@@ -188,7 +188,7 @@ def test_count_kpi_inverts_to_cpu_values():
     assert '0.012' not in text
     assert '0.008' not in text
     assert '0.011' not in text
-    # CPU values от 1/raw_mroas — TV: 1/0.012≈83, Digital: 1/0.008=125, Social: 1/0.011≈91.
+    # CPU values от 1/raw_mroas - TV: 1/0.012≈83, Digital: 1/0.008=125, Social: 1/0.011≈91.
     # Хотя бы один из CPU values должен appear в action_table cell или commentary.
     assert ('83' in text or '91' in text or '125' in text), \
         'Expected at least one of CPU values (83/91/125) от inverted mroas'
@@ -243,11 +243,11 @@ def test_effectiveness_mode_no_breakeven_metaphor():
     """
     data = _make_data('monetary', 'effectiveness')
     text = _build_text_dump(data)
-    # Common breakeven phrasing для legacy/count — отсутствует
+    # Common breakeven phrasing для legacy/count - отсутствует
     assert 'mROAS < 1' not in text
     # Effectiveness-specific phrasings present (verdict reasons / action_02)
     # Note: action_02 fires only when n_saturated > 0. Synthetic data has
-    # 1 'Cut' channel — qualifies. Check «доля» appears (verdict reason).
+    # 1 'Cut' channel - qualifies. Check «доля» appears (verdict reason).
     assert 'доля' in text.lower() or 'эффект' in text.lower()
 
 

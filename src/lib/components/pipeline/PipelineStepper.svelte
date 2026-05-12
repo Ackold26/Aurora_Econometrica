@@ -11,7 +11,7 @@
     {@const isCurrent = i === $pipelineCurrentStep}
     {@const clickable = rawMeta.status !== 'locked'}
     <!-- Monotonic visual invariant:
-         • i < curStep + не error → 'complete' (✓ галочка) — защищает от race
+         • i < curStep + не error → 'complete' (✓ галочка) - защищает от race
            где completeStep(0) не срабатывает при load-from-disk
          • i > curStep + был ранее 'complete' (данные на диске остались с прошлой
            итерации) → понижаем до 'ready', чтобы future шаги не "горели"
@@ -45,7 +45,7 @@
       <span class="node-circle">
         {#if effectiveStatus === 'complete'}✓
         {:else if effectiveStatus === 'error'}✕
-        {:else if effectiveStatus === 'locked'}—
+        {:else if effectiveStatus === 'locked'}-
         {:else}{step.icon}{/if}
       </span>
       <span class="node-label">{step.labelRu}</span>
@@ -118,7 +118,7 @@
   .step-node.locked .node-circle,
   .step-node.locked .node-label { opacity: 0.3; }
 
-  /* ready — будущий шаг, доступный для клика, но не активный сейчас.
+  /* ready - будущий шаг, доступный для клика, но не активный сейчас.
      Приглушаем чтобы пользователь видел: текущий = яркий, будущие = тусклые. */
   .step-node.ready .node-circle {
     border-color: var(--border-subtle, rgba(255,255,255,0.18));
@@ -147,7 +147,7 @@
   }
   .step-node.error .node-label { color: var(--danger, #ef4444); }
 
-  /* active (current) — последним, чтобы перетирал complete/error visual.
+  /* active (current) - последним, чтобы перетирал complete/error visual.
      Когда current = ранее пройденный шаг (active+complete), всё равно
      показываем синий active-glow + ✓ галочку (галочка через {#if status==='complete'}). */
   .step-node.active .node-circle {
@@ -161,7 +161,7 @@
     font-weight: var(--font-weight-heading, 600);
     opacity: 1;
   }
-  /* Когда current ещё не закончен (active+ready/locked-after-active) — circle всё равно
+  /* Когда current ещё не закончен (active+ready/locked-after-active) - circle всё равно
      яркий, не приглушённый. Override .ready opacity. */
   .step-node.active .node-circle,
   .step-node.active .node-label { opacity: 1; }

@@ -1,5 +1,5 @@
 /**
- * Aurora AI Econometrica — Help Navigation
+ * Aurora AI Econometrica - Help Navigation
  * Инжектирует навбар + поиск в HTML-справки Econometrica
  */
 (function () {
@@ -35,7 +35,7 @@
     nav.id = 'aurora-nav';
     nav.innerHTML = `
       <div class="anav-inner">
-        <a href="index.html" class="anav-logo" title="Aurora AI Econometrica — справочный центр">
+        <a href="index.html" class="anav-logo" title="Aurora AI Econometrica - справочный центр">
           <img src="logo-wordmark.png" alt="Aurora AI" class="anav-logo-img" />
           <span class="anav-logo-text">Econometrica</span>
         </a>
@@ -87,7 +87,7 @@
         color: #e6edf3; text-transform: uppercase;
       }
       .anav-groups { display: flex; gap: 2px; }
-      /* padding-bottom расширяет hover-зону группы на область между кнопкой и dropdown —
+      /* padding-bottom расширяет hover-зону группы на область между кнопкой и dropdown -
          без этого mouseleave срабатывает в 4-пиксельной "мёртвой зоне" и меню исчезает
          до того как курсор доберётся до пункта. */
       .anav-group { position: relative; padding-bottom: 6px; margin-bottom: -6px; }
@@ -104,7 +104,7 @@
         background: #161b22; border: 1px solid rgba(255,255,255,0.1);
         border-radius: 8px; padding: 6px; min-width: 200px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-        /* margin-top убран — hover-зона группы теперь бесшовная (см. padding-bottom выше) */
+        /* margin-top убран - hover-зона группы теперь бесшовная (см. padding-bottom выше) */
       }
       .anav-group:hover .anav-dropdown { display: block; }
       .anav-dropdown a {

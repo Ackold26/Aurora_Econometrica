@@ -344,7 +344,7 @@
       <h2 class="section-title">Обучающий режим</h2>
       <p class="section-desc">
         Краткие подсказки по каждому шагу пайплайна (Импорт → Валидация → Модель → Декомпозиция → Оптимизация → Отчёт).
-        Показываются каждый раз пока включены — отключаются здесь или прямо из тура кнопкой «Отключить обучение».
+        Показываются каждый раз пока включены - отключаются здесь или прямо из тура кнопкой «Отключить обучение».
       </p>
       <div class="theme-toggle-row">
         <span class="theme-label">Показывать туры</span>
@@ -427,8 +427,8 @@
       <h2 class="section-title">Папка для проектов Econometrica</h2>
       <p class="section-desc">
         Где хранятся данные, модели, результаты и экспорты всех MMM-проектов.
-        По умолчанию — в скрытой системной папке. Можно задать свою (например,
-        на облачном диске или внешнем накопителе) — но существующие проекты автоматически не переносятся.
+        По умолчанию - в скрытой системной папке. Можно задать свою (например,
+        на облачном диске или внешнем накопителе) - но существующие проекты автоматически не переносятся.
       </p>
       {#if econRoot}
         <div class="theme-toggle-row" style="align-items: flex-start;">
@@ -571,7 +571,7 @@
          Removed: file-based «Лицензия» block (legacy [LI-001] error pattern),
          «Версия контента: c1» (unclear notation). Renamed: «Подключение к
          серверу» → «Лицензия» (online auth = primary licensing path).
-         Backend code preserved (SA15) — Ed25519 + license.rs остаются для
+         Backend code preserved (SA15) - Ed25519 + license.rs остаются для
          legacy fallback в online_auth.rs flow. -->
     <section class="section">
       <h2 class="section-title">Лицензия</h2>
@@ -624,7 +624,7 @@
 
     <section class="section">
       <h2 class="section-title">Логи и диагностика</h2>
-      <p class="section-desc">Журнал работы приложения. При проблемах — экспортируйте отчёт и отправьте в поддержку.</p>
+      <p class="section-desc">Журнал работы приложения. При проблемах - экспортируйте отчёт и отправьте в поддержку.</p>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <button class="btn-logs" onclick={async () => { try { await invoke('open_logs_folder'); } catch(e) { console.error(e); } }}>
           Открыть папку логов

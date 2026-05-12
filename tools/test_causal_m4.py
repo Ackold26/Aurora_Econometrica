@@ -1,5 +1,5 @@
 """
-Sprint 3 Pharma Causal — M4 integration MIN-LIVE checkpoint.
+Sprint 3 Pharma Causal - M4 integration MIN-LIVE checkpoint.
 
 Verifies:
 - causal_preflight: applicable methods detection on synthetic panel
@@ -38,7 +38,7 @@ def check(label: str, ok: bool, hint: str = '') -> None:
         FAILED += 1
         msg = f'[FAIL] {label}'
         if hint:
-            msg += f' — {hint}'
+            msg += f' - {hint}'
         print(msg)
 
 
@@ -75,7 +75,7 @@ project_dir = REPO / 'test_payloads' / 'projects' / 'm4_test'
 project_dir.mkdir(parents=True, exist_ok=True)
 
 # ──────────────────────────────────────────────────────────────────
-# M4.1 — causal_preflight on full-feature panel
+# M4.1 - causal_preflight on full-feature panel
 # ──────────────────────────────────────────────────────────────────
 print('\n── M4.1: causal_preflight ──')
 from engines.causal.preflight import causal_preflight, list_causal_artifacts, cross_method_consistency
@@ -97,7 +97,7 @@ check('preflight: overall_tier=reliable (≥2 methods applicable)',
 methods_app = result.get('methods_applicable', {})
 check('preflight: did applicable=True', methods_app.get('did') == True)
 check('preflight: scm applicable=True', methods_app.get('scm') == True)
-# Forest needs n>=100, panel has 144 — applicable
+# Forest needs n>=100, panel has 144 - applicable
 check('preflight: forest applicable=True (n=144>=100)',
       methods_app.get('forest') == True)
 
@@ -106,7 +106,7 @@ check('preflight: common_caveats has SUTVA reference',
       any('SUTVA' in c for c in result.get('common_caveats', [])))
 
 # ──────────────────────────────────────────────────────────────────
-# M4.2 — preflight degraded scenarios
+# M4.2 - preflight degraded scenarios
 # ──────────────────────────────────────────────────────────────────
 print('\n── M4.2: preflight degraded inputs ──')
 
@@ -128,7 +128,7 @@ check('preflight no treat: scm applicable (treated_unit + period)',
 check('preflight no treat: tier=directional (1 method)',
       result_no_treat.get('overall_tier') == 'directional')
 
-# Insufficient — no treatment, no SCM params
+# Insufficient - no treatment, no SCM params
 result_none = causal_preflight(
     str(panel_path),
     unit_column='unit',
@@ -140,11 +140,11 @@ check('preflight no causal info: tier=insufficient',
       result_none.get('overall_tier') == 'insufficient')
 
 # ──────────────────────────────────────────────────────────────────
-# M4.3 — list_causal_artifacts
+# M4.3 - list_causal_artifacts
 # ──────────────────────────────────────────────────────────────────
 print('\n── M4.3: list_causal_artifacts ──')
 
-# First — empty project
+# First - empty project
 empty_listing = list_causal_artifacts(str(project_dir))
 check('list empty project: count=0', empty_listing['count'] == 0)
 check('list empty project: artifacts is empty list', empty_listing['artifacts'] == [])
@@ -189,7 +189,7 @@ check('list artifacts have att_point populated',
       all(a.get('att_point') is not None for a in listing['artifacts']))
 
 # ──────────────────────────────────────────────────────────────────
-# M4.4 — cross_method_consistency
+# M4.4 - cross_method_consistency
 # ──────────────────────────────────────────────────────────────────
 print('\n── M4.4: cross_method_consistency ──')
 
@@ -209,7 +209,7 @@ check('consistency: recommendation is non-empty string',
       isinstance(consistency.get('recommendation'), str) and len(consistency['recommendation']) > 0)
 
 # ──────────────────────────────────────────────────────────────────
-# M4.5 — empty project consistency
+# M4.5 - empty project consistency
 # ──────────────────────────────────────────────────────────────────
 print('\n── M4.5: consistency on empty project ──')
 

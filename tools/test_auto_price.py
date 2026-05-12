@@ -1,4 +1,4 @@
-"""Tests для optimize/auto_price.py — value_per_count_unit detection (ADR-016 P0.3)."""
+"""Tests для optimize/auto_price.py - value_per_count_unit detection (ADR-016 P0.3)."""
 from __future__ import annotations
 
 import numpy as np
@@ -75,7 +75,7 @@ def test_all_zero_count_returns_unavailable():
 
 
 def test_small_sample_uses_simple_mean():
-    """Меньше 10 valid periods — без trim."""
+    """Меньше 10 valid periods - без trim."""
     df = pd.DataFrame({
         'sales_rub': [100, 200, 300, 400, 500],
         'sales_packs': [10, 20, 30, 40, 50],

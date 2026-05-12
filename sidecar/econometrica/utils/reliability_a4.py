@@ -1,22 +1,22 @@
 """
-A4 Pre-MCMC reliability — prior predictive + Nott KL divergence.
+A4 Pre-MCMC reliability - prior predictive + Nott KL divergence.
 
 Sprint 1.5 Phase A4 backend (per ADR §6).
 
 Two layers ON TOP of A4 quick proxy (utils/reliability_quick_proxy.py):
-- A4.1 Prior predictive check — samples из priors WITHOUT observation, compares
+- A4.1 Prior predictive check - samples из priors WITHOUT observation, compares
   с y_observed range. Catches "priors too tight/wide" mismatches.
-- A4.2 Nott KL divergence — measures prior-data conflict per channel β post-training.
+- A4.2 Nott KL divergence - measures prior-data conflict per channel β post-training.
   Detects "industry priors disagree with your data" cases.
 
 Quick proxy (1 sec) is the first gate. A4.1 prior predictive (~5-15 sec) is run
 before MCMC. A4.2 Nott KL (~1 sec) runs post-training on stored posterior_samples.
 
 Reference: Nott et al. 2016 "Checking for prior-data conflict using prior-to-posterior
-divergence" arXiv:1611.00113. NOT "Yang's test" — that was misnamed in early ADR
+divergence" arXiv:1611.00113. NOT "Yang's test" - that was misnamed in early ADR
 (see audit notes in docs/SPRINT1_FOUNDATION_ADR.md §3.A6).
 
-Per ADR §3.A8: all messaging constructive — never "refuse" / "cannot". Always offers
+Per ADR §3.A8: all messaging constructive - never "refuse" / "cannot". Always offers
 override path with banner.
 """
 from __future__ import annotations
@@ -28,9 +28,9 @@ import numpy as np
 
 # Calibration thresholds (per ADR §6 + Egidi 2022 + Nott 2016 literature)
 PRIOR_PRED_COVERAGE_OK = 0.80     # ≥80% of y_observed within prior predictive 90% interval
-PRIOR_PRED_COVERAGE_FAIL = 0.50   # <50% = priors way off — strong conflict
+PRIOR_PRED_COVERAGE_FAIL = 0.50   # <50% = priors way off - strong conflict
 KL_GAMMA_OK = 0.05                # <0.05 = no significant prior-data conflict
-KL_GAMMA_FAIL = 0.01              # <0.01 (tight на small N) — soft fail
+KL_GAMMA_FAIL = 0.01              # <0.01 (tight на small N) - soft fail
 
 
 def prior_predictive_check(
@@ -47,7 +47,7 @@ def prior_predictive_check(
     decay_default: float = 0.5,
     seed: int | None = 42,
 ) -> dict[str, Any]:
-    """A4.1 — Prior predictive check.
+    """A4.1 - Prior predictive check.
 
     Samples N times from priors (matching modeler.py exactly), computes simulated
     y for each sample, then checks: does the empirical 5-95% range of simulated y
@@ -72,7 +72,7 @@ def prior_predictive_check(
 
     Returns:
         dict with:
-          - coverage: float — fraction of y_observed within simulated 5-95% range
+          - coverage: float - fraction of y_observed within simulated 5-95% range
           - status: 'pass' | 'warn' | 'fail'
           - y_observed_range: (min, max) for context
           - y_simulated_quantiles: dict with p5, p50, p95 across samples × time
@@ -88,7 +88,7 @@ def prior_predictive_check(
     if n_obs == 0 or n_channels == 0:
         return {
             'coverage': 0.0, 'status': 'fail',
-            'warning': 'Пустая матрица — невозможно проверить prior predictive',
+            'warning': 'Пустая матрица - невозможно проверить prior predictive',
             'recommendation': 'Убедитесь что данные загружены и каналы выбраны',
         }
 
@@ -100,7 +100,7 @@ def prior_predictive_check(
     means_safe = np.where(means > 1e-9, means, 1.0)
 
     # Apply adstock once with default decay (matches modeler pre-fit semantics).
-    # We use simple geometric expansion — close enough to apply_adstock() для prior check.
+    # We use simple geometric expansion - close enough to apply_adstock() для prior check.
     adstocked = np.zeros_like(X)
     adstocked[0] = X[0]
     for t in range(1, n_obs):
@@ -153,7 +153,7 @@ def prior_predictive_check(
             f'либо проблема с unit_costs / нормализацией данных.'
         )
         recommendation = (
-            'Проверьте unit_costs (для TRP/clicks). Если данные корректны — '
+            'Проверьте unit_costs (для TRP/clicks). Если данные корректны - '
             'возможно вы в категории где приоры Aurora не подходят (например, '
             'специфическая ниша B2B). Можно попробовать обучить с шире приорами, '
             'но точность оценок будет ниже.'
@@ -163,12 +163,12 @@ def prior_predictive_check(
         warning = (
             f'Prior predictive coverage {coverage*100:.0f}% между '
             f'{PRIOR_PRED_COVERAGE_FAIL*100:.0f}% и {PRIOR_PRED_COVERAGE_OK*100:.0f}%. '
-            f'Приоры частично расходятся с данными — обучение продолжится, '
+            f'Приоры частично расходятся с данными - обучение продолжится, '
             f'но posterior CI могут быть оптимистично узкими.'
         )
         recommendation = (
             'Обучение возможно, но используйте результаты как направление. '
-            'Для повышения точности — соберите данные за более длинный период '
+            'Для повышения точности - соберите данные за более длинный период '
             'либо проведите incrementality-тест на 1-2 ключевых каналах.'
         )
     else:
@@ -198,7 +198,7 @@ def nott_kl_divergence_per_channel(
     n_prior_samples: int = 5000,
     seed: int | None = 42,
 ) -> dict[str, Any]:
-    """A4.2 — Nott et al. 2016 prior-to-posterior KL divergence per channel β.
+    """A4.2 - Nott et al. 2016 prior-to-posterior KL divergence per channel β.
 
     For each channel j, compute KL(posterior(β_j) || prior(β_j)) using sample-based
     histogram approximation. Calibrate by sampling N prior draws и computing the
@@ -230,7 +230,7 @@ def nott_kl_divergence_per_channel(
         return {
             'per_channel': [], 'overall_status': 'fail',
             'warnings': ['Empty media_betas posterior samples'],
-            'recommendation': 'Posterior samples corrupted — re-train model',
+            'recommendation': 'Posterior samples corrupted - re-train model',
         }
     n_channels, n_samples = media_betas.shape
 
@@ -269,7 +269,7 @@ def nott_kl_divergence_per_channel(
     warn_count = 0
     threshold_p = KL_GAMMA_OK  # default; tighten if small N
 
-    # Tighten threshold on small posterior (proxy for small N — fewer effective samples)
+    # Tighten threshold on small posterior (proxy for small N - fewer effective samples)
     if n_samples < 2000:
         threshold_p = KL_GAMMA_FAIL
 
@@ -304,9 +304,9 @@ def nott_kl_divergence_per_channel(
         overall = 'fail'
         rec = (
             'Aurora обнаружила значительное расхождение приоров с данными по каналам. '
-            'Приоры основаны на индустриальных бенчмарках — если ваш кейс нестандартный '
+            'Приоры основаны на индустриальных бенчмарках - если ваш кейс нестандартный '
             '(нишевая категория, новый бренд, специфические каналы), приоры могут не подходить. '
-            'Рекомендация: используйте horseshoe-приоры (Sprint 2 / A3, mode opt-in в Expert) — '
+            'Рекомендация: используйте horseshoe-приоры (Sprint 2 / A3, mode opt-in в Expert) - '
             'они автоматически адаптируются к данным с меньшей зависимостью от Aurora prior.'
         )
     elif warn_count > 0:
@@ -314,11 +314,11 @@ def nott_kl_divergence_per_channel(
         rec = (
             'Часть каналов имеет умеренное расхождение приоров с данными. '
             'Posterior на эти каналы может быть biased к prior. Используйте результаты '
-            'как ориентир, для премиум-точности — переобучите с горизонтом 50+ периодов.'
+            'как ориентир, для премиум-точности - переобучите с горизонтом 50+ периодов.'
         )
     else:
         overall = 'pass'
-        rec = 'Приоры согласуются с posterior — нет значимых prior-data conflicts.'
+        rec = 'Приоры согласуются с posterior - нет значимых prior-data conflicts.'
 
     return {
         'per_channel': per_channel,

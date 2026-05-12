@@ -1,12 +1,12 @@
-"""Tests для utils/channel_categorization.py — Trust Level 3 auto-suggest heuristic.
+"""Tests для utils/channel_categorization.py - Trust Level 3 auto-suggest heuristic.
 
 Coverage:
-- normalize_channel_name() — handle parens, dots, Cyrillic, mixed case
-- auto_suggest_category() — single channel suggestion + confidence
-- auto_suggest_categories() — batch
-- validate_categorization_for_hierarchical() — identifiability fallback (N<2 group → mixed)
-- is_hierarchical_eligible() — guard для модели
-- infer_categories_heuristic() — fallback для старых pickles (confidence threshold 0.7)
+- normalize_channel_name() - handle parens, dots, Cyrillic, mixed case
+- auto_suggest_category() - single channel suggestion + confidence
+- auto_suggest_categories() - batch
+- validate_categorization_for_hierarchical() - identifiability fallback (N<2 group → mixed)
+- is_hierarchical_eligible() - guard для модели
+- infer_categories_heuristic() - fallback для старых pickles (confidence threshold 0.7)
 """
 
 from __future__ import annotations
@@ -164,7 +164,7 @@ def test_is_hierarchical_eligible_yes():
 
 
 def test_is_hierarchical_eligible_no_groups_too_small():
-    # Only 1 brand, 1 perf — both demote-eligible
+    # Only 1 brand, 1 perf - both demote-eligible
     cats = {'a': 'brand', 'b': 'performance', 'c': 'mixed'}
     assert is_hierarchical_eligible(cats) is False
 
@@ -191,7 +191,7 @@ def test_infer_categories_heuristic_low_confidence_to_mixed():
 
 
 def test_hints_lists_no_overlap():
-    """Sanity check — no hint в обоих списках одновременно"""
+    """Sanity check - no hint в обоих списках одновременно"""
     overlap = set(BRAND_HINTS) & set(PERF_HINTS)
     assert overlap == set(), f"Hints overlap: {overlap}"
 
@@ -200,7 +200,7 @@ def test_validation_set_accuracy():
     """Auto-suggest accuracy на manually-labeled fixture (Critical Audit issue P)"""
     fixture_path = ROOT / 'tools' / 'validation_set_categorization.json'
     if not fixture_path.exists():
-        # Will be created later — skip assertion gracefully
+        # Will be created later - skip assertion gracefully
         return
     import json
     fixture = json.loads(fixture_path.read_text(encoding='utf-8'))

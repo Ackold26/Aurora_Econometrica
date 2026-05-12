@@ -31,8 +31,8 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
     """Compute Model Quality Score (MQS) with tier classification.
 
     Applies a data-thinness cap based on observations-to-parameters ratio:
-      ratio < 2  → MQS capped at 50 (weak) — severe overfitting risk
-      ratio < 4  → MQS capped at 70 (good, not excellent) — wide CIs likely
+      ratio < 2  → MQS capped at 50 (weak) - severe overfitting risk
+      ratio < 4  → MQS capped at 70 (good, not excellent) - wide CIs likely
 
     Without the cap, a well-converged overfit model on thin data gets a
     misleadingly high score (R² ~0.99 when model just memorised noise).
@@ -97,22 +97,22 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
     mqs = model_quality_score(r_squared, mape, r_hat_max, divergences, ratio=ratio)
 
     # Human-readable verdict.
-    # ВАЖНО: MQS-бейдж (слева от текста) — агрегированный score 0-100 из R²+MAPE+convergence.
-    # R² — отдельная метрика (fit), явно маркируем её в тексте чтобы не путать с MQS.
+    # ВАЖНО: MQS-бейдж (слева от текста) - агрегированный score 0-100 из R²+MAPE+convergence.
+    # R² - отдельная метрика (fit), явно маркируем её в тексте чтобы не путать с MQS.
     r2_pct = round(r_squared * 100)
     thin_note = ""
     if mqs.get('thinness_cap') is not None:
         if ratio < 2:
-            thin_note = f" ⚠ Данных критически мало (Ratio {ratio:.1f}:1) — высокий риск переобучения, результаты ненадёжны."
+            thin_note = f" ⚠ Данных критически мало (Ratio {ratio:.1f}:1) - высокий риск переобучения, результаты ненадёжны."
         else:
-            thin_note = f" ⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) — высокий R² может быть артефактом переобучения. Доверительные интервалы будут широкими."
+            thin_note = f" ⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) - высокий R² может быть артефактом переобучения. Доверительные интервалы будут широкими."
 
     if mqs['tier'] in ('excellent', 'good'):
         verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Надёжный результат для принятия бюджетных решений.{thin_note}"
     elif mqs['tier'] == 'acceptable':
         verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Приемлемо для ориентировочных решений, рекомендуем дополнительную валидацию.{thin_note}"
     else:
-        verdict = f"Модель объясняет только {r2_pct}% вариации продаж (R²). Результаты ненадёжны — нужно больше данных или другая спецификация.{thin_note}"
+        verdict = f"Модель объясняет только {r2_pct}% вариации продаж (R²). Результаты ненадёжны - нужно больше данных или другая спецификация.{thin_note}"
 
     return {
         'mqs': mqs,

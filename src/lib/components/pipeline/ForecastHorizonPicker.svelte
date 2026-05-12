@@ -1,9 +1,9 @@
 <!--
-  ForecastHorizonPicker — Phase 2 Planning Mode horizon selector.
+  ForecastHorizonPicker - Phase 2 Planning Mode horizon selector.
 
-  Audit pass 2 (2026-05-02): minimal viable per S6 unification — preset buttons +
+  Audit pass 2 (2026-05-02): minimal viable per S6 unification - preset buttons +
   custom periods input + budget input. Calendar timeline + start_date picker
-  deferred к Phase 2.5 (per L3 — REQUIRE start_date input only when seasonality
+  deferred к Phase 2.5 (per L3 - REQUIRE start_date input only when seasonality
   detected; for v1.2.0 ship: surface seasonality warning via alert if needed).
 
   Smart suggestions derived from forecast-context endpoint:
@@ -38,7 +38,7 @@
   // Periods-per-horizon-label resolved by granularity
   const presets = $derived.by(() => {
     const gran = $forecastContext?.training_granularity;
-    if (!gran) return []; // gate — ждём context
+    if (!gran) return []; // gate - ждём context
     /** @type {Record<string, Record<string, number>>} */
     const map = {
       D: { 'Квартал': 90, 'Полугодие': 180, 'Год': 365 },
@@ -58,7 +58,7 @@
   let selectedPreset = $state(/** @type {string|null} */ (null));
   let customPeriods = $state(/** @type {number|null} */ (null));
   let budgetInput = $state(/** @type {number|null} */ (null));
-  // Audit pass 4: track customer manual override. Когда true — preset clicks
+  // Audit pass 4: track customer manual override. Когда true - preset clicks
   // НЕ переписывают custom бюджет. Customer может ввести независимый бюджет
   // (без привязки к training horizon).
   let budgetManuallyEdited = $state(false);
@@ -71,13 +71,13 @@
   }
 
   // FIX 2026-05-04: forecast_context загружается асинхронно при переключении
-  // в planner mode. До загрузки `trainNPeriods` = fallback 52 — если customer
+  // в planner mode. До загрузки `trainNPeriods` = fallback 52 - если customer
   // успевает кликнуть пресет «Год 52» в этот момент, suggestBudget даёт
   // currentBudgetMoney × 52/52 = full training budget (нерасштабированный).
   // Когда context приходит, trainNPeriods обновляется до реального (например
   // 156 для 3-летних weekly), но budgetInput уже зафиксирован. $effect ниже
   // авто-пересчитывает suggestion когда trainNPeriods/currentBudgetMoney
-  // меняются — при условии что customer не редактировал budget вручную.
+  // меняются - при условии что customer не редактировал budget вручную.
   $effect(() => {
     if (budgetManuallyEdited) return;
     if (customPeriods == null || customPeriods < 1) return;
@@ -94,7 +94,7 @@
     selectedPreset = label;
     customPeriods = n;
     // Audit pass 4 (Антон 2026-05-02): customer может ввести бюджет
-    // независимо от training horizon. Если budgetManuallyEdited — preset
+    // независимо от training horizon. Если budgetManuallyEdited - preset
     // НЕ overwrites. Sticky manual budget. Reset через explicit button.
     if (!budgetManuallyEdited) {
       budgetInput = suggestBudget(n);
@@ -143,13 +143,13 @@
     const s = $forecastContext?.seasonality_detected;
     if (!s) return null;
     if (customPeriods == null) {
-      return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Выберите период планирования — он повлияет на результат в зависимости от месяца старта.`;
+      return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Выберите период планирования - он повлияет на результат в зависимости от месяца старта.`;
     }
-    return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Прогноз с ${customPeriods} периодов даст разные результаты в зависимости от месяца старта — see methodology.`;
+    return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Прогноз с ${customPeriods} периодов даст разные результаты в зависимости от месяца старта - see methodology.`;
   });
 
   // Audit pass 4 (Антон 2026-05-02): при denежной оценке медиа за multi-year
-  // training, годовая инфляция 25-30% значительно меняет CPP/CPM. UI prep —
+  // training, годовая инфляция 25-30% значительно меняет CPP/CPM. UI prep -
   // surface customer'у факт что обучение шло на нескольких годах.
   const trainingYearRanges = $derived(/** @type {Array<any>|null} */ ($forecastContext?.training_year_ranges ?? null));
   const isMultiYearTraining = $derived(
@@ -163,8 +163,8 @@
   });
 
   // 5b (2026-05-04): training span human-friendly label. Customer часто mental
-  // models as «training 3 года», но raw n_periods (31 month) — abstract число.
-  // Human label: «обучение на 31 месяце ≈ 2 года 7 мес» — bridges gap.
+  // models as «training 3 года», но raw n_periods (31 month) - abstract число.
+  // Human label: «обучение на 31 месяце ≈ 2 года 7 мес» - bridges gap.
   // Granularity → period word + approx span calculation.
   const trainingSpanLabel = $derived.by(() => {
     if (!granularityKnown || trainNPeriods < 1) return null;
@@ -293,7 +293,7 @@
         <div class="multi-year-title">Обучение на нескольких годах: {trainingYearsLabel}</div>
         <div class="multi-year-text">
           Годовая медиаинфляция (CPP/CPM) могла значительно меняться год от года (типично 25–30% по РФ).
-          Денежные оценки — средняя по training, не per-year split.
+          Денежные оценки - средняя по training, не per-year split.
           <strong>Для года планирования используйте свой бюджет</strong> или применяйте инфляцию
           (Блок D).
           {#each trainingYearRanges as r}
@@ -331,7 +331,7 @@
     gap: 14px;
     padding: 16px 18px;
     border-radius: 14px;
-    /* Same tokens как .block в OptimizeStep — интегрируется с остальными
+    /* Same tokens как .block в OptimizeStep - интегрируется с остальными
        блоками (Текущий бюджет / Оптимизация распределения), не выделяется. */
     background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));

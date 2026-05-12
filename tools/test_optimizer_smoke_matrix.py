@@ -1,4 +1,4 @@
-"""Optimizer end-to-end smoke matrix — Phase 4 of audit.
+"""Optimizer end-to-end smoke matrix - Phase 4 of audit.
 
 Plan: C:\\Users\\ackol\\.claude\\plans\\zazzy-tumbling-kettle.md, Phase 4.
 
@@ -103,7 +103,7 @@ def _validate_smoke_error(r: dict, label: str, expected_codes: set[str]) -> None
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C1 — analyst / sales / money / no extras
+# C1 - analyst / sales / money / no extras
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C1_analyst_sales_money_baseline(tmp_path):
@@ -117,7 +117,7 @@ def test_C1_analyst_sales_money_baseline(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C2 — analyst / sales / mixed units / partial per-channel
+# C2 - analyst / sales / mixed units / partial per-channel
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C2_analyst_sales_mixed_partial_perch(tmp_path):
@@ -135,7 +135,7 @@ def test_C2_analyst_sales_mixed_partial_perch(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C3 — analyst / sales / mixed / 25% inflation
+# C3 - analyst / sales / mixed / 25% inflation
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C3_analyst_sales_with_inflation(tmp_path):
@@ -156,7 +156,7 @@ def test_C3_analyst_sales_with_inflation(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C4 — planner / sales / mixed / forecast=12
+# C4 - planner / sales / mixed / forecast=12
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C4_planner_sales_forecast_12(tmp_path):
@@ -175,7 +175,7 @@ def test_C4_planner_sales_forecast_12(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C5 — planner / Kagocel-shape / 25% inflation / partial 4ch / forecast=12
+# C5 - planner / Kagocel-shape / 25% inflation / partial 4ch / forecast=12
 # Includes mROAS↔decompose alignment cross-check + scenario round-trip
 # ══════════════════════════════════════════════════════════════════════
 
@@ -210,13 +210,13 @@ def test_C5_planner_kagocel_inflation_perch_forecast(tmp_path):
     # show pos в decompose + neg в optimize).
     for name in common:
         assert (opt_mroi[name] >= 0) == (dec_mroi[name] >= 0), (
-            f'C5: {name} mROAS sign mismatch — opt={opt_mroi[name]:.4f} '
+            f'C5: {name} mROAS sign mismatch - opt={opt_mroi[name]:.4f} '
             f'dec={dec_mroi[name]:.4f}'
         )
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C6 — planner / hierarchical / per-group brand+perf / forecast=12
+# C6 - planner / hierarchical / per-group brand+perf / forecast=12
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C6_planner_hierarchical_per_group(tmp_path):
@@ -236,7 +236,7 @@ def test_C6_planner_hierarchical_per_group(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C7 — planner / hierarchical 2-yr / inflation / per-group / forecast=26
+# C7 - planner / hierarchical 2-yr / inflation / per-group / forecast=26
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C7_planner_hierarchical_inflation_pergroup_26(tmp_path):
@@ -259,7 +259,7 @@ def test_C7_planner_hierarchical_inflation_pergroup_26(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C8 — analyst / awareness / money
+# C8 - analyst / awareness / money
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C8_analyst_awareness_money(tmp_path):
@@ -276,7 +276,7 @@ def test_C8_analyst_awareness_money(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C9 — planner / awareness / forecast=8
+# C9 - planner / awareness / forecast=8
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C9_planner_awareness_forecast_8(tmp_path):
@@ -297,8 +297,8 @@ def test_C9_planner_awareness_forecast_8(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C10 — planner / hierarchical 2-yr / inflation / per-channel + per-group / forecast=12
-# Hardest production combo — every feature exercised
+# C10 - planner / hierarchical 2-yr / inflation / per-channel + per-group / forecast=12
+# Hardest production combo - every feature exercised
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C10_planner_all_features_combined(tmp_path):
@@ -322,7 +322,7 @@ def test_C10_planner_all_features_combined(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C11 — infeasible-narrow per-channel (sum_lo > target) → INFEASIBLE
+# C11 - infeasible-narrow per-channel (sum_lo > target) → INFEASIBLE
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C11_infeasible_narrow_per_channel(tmp_path):
@@ -348,7 +348,7 @@ def test_C11_infeasible_narrow_per_channel(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C12 — What-if 0.5× / Kagocel / inflation / partial / forecast=12 (pass-18)
+# C12 - What-if 0.5× / Kagocel / inflation / partial / forecast=12 (pass-18)
 # Direct regression lock-in для pass-18 UnboundLocalError trigger
 # ══════════════════════════════════════════════════════════════════════
 
@@ -364,7 +364,7 @@ def test_C12_whatif_kagocel_pass18_regression(tmp_path):
         'min_per_channel': {cols[0]: 30.0, cols[2]: 40.0},
         'max_per_channel': {cols[1]: 250.0, cols[4]: 200.0},
         'unit_cost_inflation_pct': {'tv_trps_brand': 25.0},
-        'total_budget_money': cur * 0.5,  # whatIfMult = 0.5 — pass-18 trigger
+        'total_budget_money': cur * 0.5,  # whatIfMult = 0.5 - pass-18 trigger
         'forecast_periods': 12,
     }
     try:
@@ -388,7 +388,7 @@ def test_C12_whatif_kagocel_pass18_regression(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C5 + C12 scenario round-trip — sanity workflow check (plan §6)
+# C5 + C12 scenario round-trip - sanity workflow check (plan §6)
 # ══════════════════════════════════════════════════════════════════════
 
 def test_C5_scenario_save_round_trip(tmp_path):

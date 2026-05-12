@@ -13,7 +13,7 @@ const VOLUME_KEYS = ['ПОКАЗ','ПРОСМОТР','КЛИК','ВИЗИТ','П
 const COST_KEYS = ['БЮДЖЕТ','РАСХОД','ЗАТРАТ','СТОИМОСТЬ','SPEND','COST','BUDGET','РУБ'];
 
 /**
- * Extract a canonical channel prefix — letters only, truncated to a common stem
+ * Extract a canonical channel prefix - letters only, truncated to a common stem
  * so "Спецпроекты" and "Спецпроект" group together, and "Статьи (прочтения)"
  * parses to the same stem as "Статьи Бюджет".
  * @param {string} leading
@@ -68,7 +68,7 @@ function groupByChannel(cols) {
 
 /**
  * Apply analysis objective to validator result columns.
- * Returns a new columns array with updated roles — does NOT mutate input.
+ * Returns a new columns array with updated roles - does NOT mutate input.
  *
  * @param {Column[]} columns
  * @param {'roi' | 'effectiveness' | 'manual'} objective
@@ -137,7 +137,7 @@ export function applyObjectiveToColumns(columns, objective) {
  * Recompute result.detected/issues/status after objective-driven role changes.
  * Mutates `result` in place (shallow-copy it beforehand if you want immutability).
  *
- * @param {any} result — validator output
+ * @param {any} result - validator output
  * @returns {any} same result, with updated detected/issues/status/verdict
  */
 export function recomputeResultAfterObjective(result) {
@@ -171,13 +171,13 @@ export function recomputeResultAfterObjective(result) {
   if (ratio < 2 && nPredictors > 0) {
     issues.push({
       type: 'insufficient_data',
-      message: `Ratio данных ${ratio.toFixed(1)}:1 — критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных`,
+      message: `Ratio данных ${ratio.toFixed(1)}:1 - критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных`,
       severity: 'critical',
     });
   } else if (ratio < 4 && nPredictors > 0) {
     warnings.push({
       type: 'insufficient_data',
-      message: `Ratio данных ${ratio.toFixed(1)}:1 — ниже рекомендуемых 4:1. Модель запустится, но с широкими доверительными интервалами`,
+      message: `Ratio данных ${ratio.toFixed(1)}:1 - ниже рекомендуемых 4:1. Модель запустится, но с широкими доверительными интервалами`,
       severity: 'warning',
     });
   }
@@ -212,7 +212,7 @@ export function recomputeResultAfterObjective(result) {
 }
 
 /**
- * Describe what the objective will do — used for UI labels.
+ * Describe what the objective will do - used for UI labels.
  * @param {'roi' | 'effectiveness' | 'manual'} objective
  */
 export function describeObjective(objective) {
@@ -222,7 +222,7 @@ export function describeObjective(objective) {
     case 'effectiveness':
       return 'Оставлены физические метрики (показы/клики), исключены бюджеты.';
     case 'manual':
-      return 'Все метрики оставлены — выбирайте сами в таблице ролей ниже.';
+      return 'Все метрики оставлены - выбирайте сами в таблице ролей ниже.';
     default:
       return '';
   }

@@ -2,7 +2,7 @@
 Pseudo-dogfood for Aurora Hybrid signature-lime under action-title.
 
 Real Kagocel XLSX dataset не найден на диске; full live-dogfood через UI отложен
-до user-attended сессии. Здесь — максимально приближенный MMM-нарратив
+до user-attended сессии. Здесь - максимально приближенный MMM-нарратив
 (Kagocel Q1 2026 context) как synthesis.md, прогнанный через реальный
 inject_summary_slides() на templates/default.pptx. Получаем production-like PPTX
 с множественными key-message slides и проверяем, что на каждом присутствует
@@ -12,8 +12,8 @@ Run:
     python tools/pseudo_dogfood_kagocel.py
 
 Output:
-    tools/pseudo_dogfood_output.pptx — артефакт для визуального audit по 07_CHECKLIST.md
-    stdout — summary: сколько слайдов добавлено, сколько имеют lime connector
+    tools/pseudo_dogfood_output.pptx - артефакт для визуального audit по 07_CHECKLIST.md
+    stdout - summary: сколько слайдов добавлено, сколько имеют lime connector
 """
 from pathlib import Path
 import json
@@ -52,17 +52,17 @@ SYNTHESIS_MD = """\
 - Recommended reallocation: radio −33% (₽2M saved), OOH −33% (₽4M saved)
 - Saved budget of ₽6M goes to YouTube tier A (+5pp share)
 
-## Meta* platforms retain +21% allocation — creative A/B testing to protect ROAS
+## Meta* platforms retain +21% allocation - creative A/B testing to protect ROAS
 
 - Meta mROAS 1.85, above threshold 1.50
 - Optimal share 14% (₽34M) per HDI 95% interval
 - Risk: creative fatigue detected at week 8; rotate assets every 6 weeks
-- * Meta Platforms — организация признана экстремистской и запрещена в Российской Федерации
+- * Meta Platforms - организация признана экстремистской и запрещена в Российской Федерации
 
 ## Recommendation holds R² 0.92 · MAPE 7.4% · HDI ±4pp
 
 - Bayesian MMM fit: R² = 0.92, MAPE = 7.4% across 8 markets
-- 95% HDI on ROAS delta: [+19%, +27%] — narrower than ±4pp
+- 95% HDI on ROAS delta: [+19%, +27%] - narrower than ±4pp
 - Recommendation robust to posterior sampling (NUTS, 4 chains × 2000 draws)
 - Next step: lock Q2 media plan by May 15 with owner = Media Director
 """
@@ -129,13 +129,13 @@ def main():
     print(f"Lime connector count per slide:")
     for idx, count in per_slide.items():
         tag = "ok" if count == 1 else ("extra" if count > 1 else "none")
-        print(f"  slide {idx:2d}: {count} lime line(s) — {tag}")
+        print(f"  slide {idx:2d}: {count} lime line(s) - {tag}")
     print()
 
     if slides_with_lime == added_slides:
-        print(f"✅ PASS — all {added_slides} summary slides have signature-lime line")
+        print(f"✅ PASS - all {added_slides} summary slides have signature-lime line")
     else:
-        print(f"❌ FAIL — {added_slides} summary slides added, but only "
+        print(f"❌ FAIL - {added_slides} summary slides added, but only "
               f"{slides_with_lime} have lime line")
         sys.exit(1)
 

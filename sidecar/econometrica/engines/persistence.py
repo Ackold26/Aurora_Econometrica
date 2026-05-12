@@ -1,18 +1,18 @@
 """Pickle persistence helpers for Aurora Econometrica models.
 
 Trust Level 3 (v1.1.0) added `model_version='1.3'` с polem `channel_categories`.
-Этот модуль централизует pickle compat — все downstream consumers (decomposer,
+Этот модуль централизует pickle compat - все downstream consumers (decomposer,
 optimizer, scenario, narrative_adapter, backtest, html_export) должны use
 `load_model_with_compat()` вместо direct pickle.load().
 
 Migration ladder:
-- v1.0       — initial OLS path (rejected by decomposer guard, MODEL_OUTDATED)
-- v1.0-ols   — Sprint 2 small-data fallback (point estimates, no posterior CI)
-- v1.1       — v1.0.13+ Bayesian baseline (z-score → spend/mean Hill normalization)
-- v1.1.1     — Phase 1.1 hierarchical adstock decay (logit-normal, sampled per channel)
-- v1.2       — v1.0.16 baseline (post-audit fixes, three-way alignment)
-- v1.3       — Trust Level 3 (Brand vs Performance Split, channel_categories field)
-- v2.0       — v1.2.0 (Awareness KPI + Weibull learnable). Additive optional fields:
+- v1.0       - initial OLS path (rejected by decomposer guard, MODEL_OUTDATED)
+- v1.0-ols   - Sprint 2 small-data fallback (point estimates, no posterior CI)
+- v1.1       - v1.0.13+ Bayesian baseline (z-score → spend/mean Hill normalization)
+- v1.1.1     - Phase 1.1 hierarchical adstock decay (logit-normal, sampled per channel)
+- v1.2       - v1.0.16 baseline (post-audit fixes, three-way alignment)
+- v1.3       - Trust Level 3 (Brand vs Performance Split, channel_categories field)
+- v2.0       - v1.2.0 (Awareness KPI + Weibull learnable). Additive optional fields:
                * kpi_type, kpi_likelihood, ceiling
                * awareness_aggregation_mode
                * channel_adstock_types, weibull_params_per_channel
@@ -24,7 +24,7 @@ Migration ladder:
                  - seasonality_detected: dict | None ({period, autocorr})
                  Pickles trained pre-Phase-2 lack these fields; G2 inference
                  helpers (infer_*_at_load) compute lazily on first need.
-                 S8 lock — no reserved future fields, additive evolution only.
+                 S8 lock - no reserved future fields, additive evolution only.
 """
 
 from __future__ import annotations
@@ -41,10 +41,10 @@ _VERSION_RE = re.compile(r'(\d+)\.(\d+)(?:\.(\d+))?')
 def _parse_version(v: str) -> tuple[int, int, int]:
     """Parse 'X.Y' or 'X.Y.Z' (with optional suffix like '1.0-ols') → (X, Y, Z) tuple.
 
-    Returns (0, 0, 0) для unparseable strings (defensive default — treated as
+    Returns (0, 0, 0) для unparseable strings (defensive default - treated as
     legacy pre-v1.0).
 
-    Why: string `<` comparison broken — '1.10' < '1.3' lexicographically (audit fix).
+    Why: string `<` comparison broken - '1.10' < '1.3' lexicographically (audit fix).
     """
     if not isinstance(v, str):
         return (0, 0, 0)
@@ -60,10 +60,10 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
 
     Trust Level 3 contract:
     - `channel_categories` always present (empty dict если pre-v1.3 pickle).
-    - `model_version` always present (default '1.0' если field missing — legacy).
+    - `model_version` always present (default '1.0' если field missing - legacy).
     - Old fields preserved verbatim.
 
-    NB: Не infers categories автоматически — оставляет `{}` для downstream choice.
+    NB: Не infers categories автоматически - оставляет `{}` для downstream choice.
     Decomposer/optimizer/etc. могут сами вызвать `infer_categories_heuristic()`
     если им нужны категории, но НЕ persists in pickle (читаем-only access pattern).
 
@@ -88,13 +88,13 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     model_data.setdefault('comparison_baseline_posterior', None)  # для ROI shift toggle
     model_data.setdefault('feature_flags_used', [])          # telemetry
 
-    # Phase 2 (Planning Mode) — pre-Phase-2 pickles get None defaults; G2 inference
+    # Phase 2 (Planning Mode) - pre-Phase-2 pickles get None defaults; G2 inference
     # helpers compute lazily when planning mode actually queries them.
     model_data.setdefault('training_granularity', None)
     model_data.setdefault('train_x_norm_quantiles', None)
     model_data.setdefault('seasonality_detected', None)
 
-    # v1.3.0 additive fields (per ADR-017 — schema bump skipped, in-memory inject only).
+    # v1.3.0 additive fields (per ADR-017 - schema bump skipped, in-memory inject only).
     # Defaults match v1.2 behavior: monetary KPI, all channels in ₽, mode=roi, no goal-seek history.
     _inject_v13_defaults(model_data)
 
@@ -109,7 +109,7 @@ def _inject_v13_defaults(model_data: dict[str, Any]) -> None:
     - kpi_kind: derived from kpi_type via registry. 'sales' → monetary, 'awareness' → proportional,
       count KPIs → count.
     - per_channel_input: dict {channel: 'monetary'|'physical'}. Derived from старый
-      analysisObjective field (frontend) или by default — все каналы как monetary.
+      analysisObjective field (frontend) или by default - все каналы как monetary.
     - derived_mode: 'roi'|'effectiveness'|'manual'. Computed from per_channel_input.
     - value_per_count_unit, label, source: None defaults; populated в Validate UI для count KPIs.
     - goal_seek_history: append-only log, empty list default.
@@ -125,7 +125,7 @@ def _inject_v13_defaults(model_data: dict[str, Any]) -> None:
             kpi_kind = 'monetary'  # safe fallback
         model_data['kpi_kind'] = kpi_kind
 
-    # per_channel_input: default — all media columns as 'monetary'.
+    # per_channel_input: default - all media columns as 'monetary'.
     if 'per_channel_input' not in model_data:
         config = model_data.get('config') or {}
         # Audit fix v1.3.0: explicit null-check (was: `config.get('media_columns', []) or []`
@@ -186,8 +186,8 @@ def get_weibull_params(
 ) -> dict[str, float] | None:
     """Return learned Weibull params для канала, None если geometric.
 
-    Defensive: если adstock_type='weibull' но params missing — log warning
-    + return None (downstream silently falls back к geometric — better than crash,
+    Defensive: если adstock_type='weibull' но params missing - log warning
+    + return None (downstream silently falls back к geometric - better than crash,
     but warning surfaces malformed pickle).
 
     Returns:
@@ -234,7 +234,7 @@ def get_channel_categories(
 
     Args:
         model_data: loaded pickle dict
-        fallback_heuristic: если True и categories пусты — derive из имён каналов
+        fallback_heuristic: если True и categories пусты - derive из имён каналов
                           через auto-suggestion confidence ≥ 0.7
 
     Returns:
@@ -253,7 +253,7 @@ def get_channel_categories(
     return infer_categories_heuristic(list(media_cols))
 
 
-# ─── Phase 2 (Planning Mode) — at-load-time inference helpers (G2 plan gap) ───
+# ─── Phase 2 (Planning Mode) - at-load-time inference helpers (G2 plan gap) ───
 #
 # For pre-Phase-2 customer pickles (v1.3 = current ship), the new Phase 2
 # fields are absent. Rather than force re-train, infer lazily when planning
@@ -263,7 +263,7 @@ def get_channel_categories(
 
 
 def get_training_granularity(model_data: dict[str, Any]) -> str | None:
-    """Phase 2 — return persisted training_granularity или infer from data_file.
+    """Phase 2 - return persisted training_granularity или infer from data_file.
 
     Persisted-first; falls back к infer_granularity_at_load() для legacy pickles.
     Returns None если cannot infer (no data file accessible, e.g., moved/deleted).
@@ -275,9 +275,9 @@ def get_training_granularity(model_data: dict[str, Any]) -> str | None:
 
 
 def infer_granularity_at_load(model_data: dict[str, Any]) -> str | None:
-    """G2 — infer granularity from model_data.config.data_file at load time.
+    """G2 - infer granularity from model_data.config.data_file at load time.
 
-    Heavy I/O — каллер should cache. Returns None when data_file inaccessible.
+    Heavy I/O - каллер should cache. Returns None when data_file inaccessible.
     """
     config = model_data.get('config') or {}
     data_file = config.get('data_file')
@@ -297,7 +297,7 @@ def infer_granularity_at_load(model_data: dict[str, Any]) -> str | None:
 
 
 def get_seasonality(model_data: dict[str, Any]) -> dict | None:
-    """Phase 2 — return persisted seasonality_detected или infer at load.
+    """Phase 2 - return persisted seasonality_detected или infer at load.
 
     Persisted-first; falls back к infer_seasonality_at_load() для legacy pickles.
     """
@@ -308,7 +308,7 @@ def get_seasonality(model_data: dict[str, Any]) -> dict | None:
 
 
 def infer_seasonality_at_load(model_data: dict[str, Any]) -> dict | None:
-    """G2 — infer seasonality from training y_actual at load time.
+    """G2 - infer seasonality from training y_actual at load time.
 
     Uses y_actual stored в diagnostics.actual_vs_predicted (always present
     в v1.1+ pickles). Returns None when unavailable.
@@ -329,7 +329,7 @@ def infer_seasonality_at_load(model_data: dict[str, Any]) -> dict | None:
 def get_x_norm_quantiles(
     model_data: dict[str, Any], channel: str,
 ) -> dict[str, float] | None:
-    """Phase 2 — return persisted x_norm quantiles per channel или infer.
+    """Phase 2 - return persisted x_norm quantiles per channel или infer.
 
     Persisted-first; falls back к infer_x_norm_quantiles_at_load() для legacy.
     Returns None when channel missing OR inference impossible (no posterior + raw spend).
@@ -344,7 +344,7 @@ def get_x_norm_quantiles(
 def infer_x_norm_quantiles_at_load(
     model_data: dict[str, Any],
 ) -> dict[str, dict[str, float]] | None:
-    """G2 — recompute x_norm quantiles from training adstock + posterior decay.
+    """G2 - recompute x_norm quantiles from training adstock + posterior decay.
 
     For each channel:
       adstock_series = geometric_adstock(raw_train_spend, decay_posterior_mean)
@@ -386,7 +386,7 @@ def infer_x_norm_quantiles_at_load(
             adstock_series = apply_adstock(raw_spend, a_type, params)
         except Exception:
             continue
-        # Mean — prefer adstock_mean_posterior, fallback к media_means
+        # Mean - prefer adstock_mean_posterior, fallback к media_means
         norm = (model_data.get('normalization') or {})
         mean_post = p.get('adstock_mean_posterior')
         if mean_post is not None:
@@ -402,7 +402,7 @@ def infer_x_norm_quantiles_at_load(
 def is_hierarchical_model(model_data: dict[str, Any]) -> bool:
     """True если pickle обучен hierarchical (v1.3+ с непустыми categories).
 
-    Audit fix (2026-04-28): semantic version compare — string `<` ломалось на '1.10'
+    Audit fix (2026-04-28): semantic version compare - string `<` ломалось на '1.10'
     vs '1.3' (lex order: '1.10' < '1.3' = True, semantically False).
     """
     version = _parse_version(str(model_data.get('model_version') or ''))

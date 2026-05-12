@@ -24,10 +24,10 @@ Post-fix: `lo = hi = mu` (point estimate) + added `narrow_corridor: bool` flag
 
 **BLOCKER #B2: `persistence.py::_inject_v13_defaults` null-check media_columns.**
 Pre-fix: `config.get('media_columns', []) or []` мог замаскировать `media_columns: None`
-corruption на input. После — explicit `if media_cols_raw else []`.
+corruption на input. После - explicit `if media_cols_raw else []`.
 
 **HIGH #B3: `decomposer.py::_load_v13_kpi_settings` swallowed exceptions.**
-Pre-fix: `except Exception: pass` — corrupted JSON silently → monetary defaults
+Pre-fix: `except Exception: pass` - corrupted JSON silently → monetary defaults
 (possibly wrong для count KPI project).
 Post-fix: specific `except (OSError, ValueError)` + explicit `logging.warning`
 with file path + exception details.
@@ -49,19 +49,19 @@ Post-fix: `detectMonetaryColumn()` helper в ValidateStepV13 reads `validateData
 
 **HIGH #F3: Ctrl+G modal stacking conflict с CommandPalette.**
 Pre-fix: Ctrl+G fired даже когда CommandPalette open → 2 overlapping modals.
-Post-fix: `+layout.svelte` Ctrl+G handler — `if (paletteOpen) return;` guard.
+Post-fix: `+layout.svelte` Ctrl+G handler - `if (paletteOpen) return;` guard.
 
 **MEDIUM #F4: `analysisObjective` deprecated store без warning.**
-Pre-fix: store существовал параллельно с `derivedMode` — silent divergence риск.
+Pre-fix: store существовал параллельно с `derivedMode` - silent divergence риск.
 Post-fix: JSDoc `@deprecated v1.3.0` + comment о usage в legacy files
-(ValidateStep, InsightsPanel, UnitCostsPanel — будут removed в v1.4.0 / Phase B).
+(ValidateStep, InsightsPanel, UnitCostsPanel - будут removed в v1.4.0 / Phase B).
 Store остался writable (legacy code calls `.set()`).
 
 ### Documentation
 
 **HIGH #D1: «8 KPI types» vs реальных 10.**
-Pre-fix: RELEASE_NOTES + CHANGELOG говорили «8 KPI types» — confusing.
-Post-fix: оба файла обновлены — «10 KPI types» (3 monetary + 7 count) + пояснение
+Pre-fix: RELEASE_NOTES + CHANGELOG говорили «8 KPI types» - confusing.
+Post-fix: оба файла обновлены - «10 KPI types» (3 monetary + 7 count) + пояснение
 что `awareness` помечен `out_of_scope_v13`.
 
 ## Deferred к hotfix v1.3.1 (с обоснованием)
@@ -71,12 +71,12 @@ Post-fix: оба файла обновлены — «10 KPI types» (3 monetary 
   Метаdata pipeline через `narrative_adapter.kpi` готова, но builders не consume.
 - **Why deferred:** rewrite 14 секций × 13 слайдов × conditional rendering требует ~5 дней
   работы. Vs ship v1.3.0 для pilot validate (monetary baseline OK для Кагоцел / Венарус).
-- **Mitigation:** Release notes честно говорят «Reports не полностью KPI-aware — hotfix v1.3.1».
+- **Mitigation:** Release notes честно говорят «Reports не полностью KPI-aware - hotfix v1.3.1».
 - **Risk:** Если pilot захочет count KPI report → manual workaround / wait.
 
 ### BLOCKER #C1: Frontend tests = 0 .test.js файлов.
 - **What:** 13 new UI components без unit tests.
-- **Why deferred:** test infrastructure для Svelte 5 components не setup. Adding —
+- **Why deferred:** test infrastructure для Svelte 5 components не setup. Adding -
   ~2 дня работы (vitest + testing-library configure + writing tests).
 - **Mitigation:** 0 svelte-check errors gives static type safety. Manual test
   через pilot validate.
@@ -87,7 +87,7 @@ Post-fix: оба файла обновлены — «10 KPI types» (3 monetary 
   trained model.
 - **Why deferred:** Real model требует training (~2 min) для каждого test → CI cost.
 - **Mitigation:** Pilot validate test scenario (Кагоцел target 105M ₽ → expected budget).
-- **Risk:** Bisection convergence edge case при non-monotonic Hill — possible но rare.
+- **Risk:** Bisection convergence edge case при non-monotonic Hill - possible но rare.
 
 ### HIGH #B5: `estimate_budget_ci` gradient ≈ 0 fallback не captures uncertainty.
 - **What:** Delta method бьёт degenerate когда forward locally flat → fallback
@@ -119,17 +119,17 @@ Post-fix: оба файла обновлены — «10 KPI types» (3 monetary 
    `mode-derivation.js` и `kpi_registry.py`. v1.4.0: один source of truth (например,
    shared JSON config через build step).
 
-2. **`narrative_adapter.kpi` data block** — backend готов pipe metadata в reports.
+2. **`narrative_adapter.kpi` data block** - backend готов pipe metadata в reports.
    v1.3.1 builders могут consume без backend changes.
 
-3. **Mode = derived state (Variant C)** работает elegantly — но senior эконометристы
+3. **Mode = derived state (Variant C)** работает elegantly - но senior эконометристы
    могут не сразу понять «куда делся выбор режима». Expert Mode toggle в Settings
-   (запланирован для v1.3.1) — must-have.
+   (запланирован для v1.3.1) - must-have.
 
-4. **InlineHelpIcon.svelte unused** — keeping для Stage 4 Phase B (sub-step tooltips).
-   Если решим что не нужен — удалить в v1.3.1.
+4. **InlineHelpIcon.svelte unused** - keeping для Stage 4 Phase B (sub-step tooltips).
+   Если решим что не нужен - удалить в v1.3.1.
 
-5. **`migrate_v12_to_v20.py` deferred per ADR-017** (no schema bump) — но `tools/` все
+5. **`migrate_v12_to_v20.py` deferred per ADR-017** (no schema bump) - но `tools/` все
    ещё имеет initial skeleton placeholder. Удалить или сохранить для будущих bumps.
 
 ## Quality after fixes

@@ -1,4 +1,4 @@
-"""Tests для utils/column_detection.py — v1.3.0 auto-classify columns (ADR-015)."""
+"""Tests для utils/column_detection.py - v1.3.0 auto-classify columns (ADR-015)."""
 from __future__ import annotations
 
 import sys
@@ -15,7 +15,7 @@ from utils.column_detection import (
 )
 
 
-# ─── classify_column — RU patterns ──────────────────────────────────────────
+# ─── classify_column - RU patterns ──────────────────────────────────────────
 
 def test_classify_russian_budget():
     assert classify_column('тв_бюджет') == 'monetary'
@@ -39,7 +39,7 @@ def test_classify_russian_clicks():
     assert classify_column('performance_кликов') == 'physical'
 
 
-# ─── classify_column — EN patterns ──────────────────────────────────────────
+# ─── classify_column - EN patterns ──────────────────────────────────────────
 
 def test_classify_english_budget():
     assert classify_column('tv_spend') == 'monetary'
@@ -168,14 +168,14 @@ def test_suggest_defaults_mixed():
 
 
 def test_suggest_defaults_monetary_preferred_when_both_available():
-    """Если у канала есть и monetary и physical — приоритет monetary."""
+    """Если у канала есть и monetary и physical - приоритет monetary."""
     cols = ['date', 'tv_spend', 'tv_grp']
     defaults = suggest_default_input_metric(cols, ['tv'])
     assert defaults == {'tv': 'monetary'}
 
 
 def test_suggest_defaults_fallback_when_nothing():
-    """Если ни одной метрики не найдено — fallback monetary."""
+    """Если ни одной метрики не найдено - fallback monetary."""
     cols = ['date']
     defaults = suggest_default_input_metric(cols, ['unknown_channel'])
     assert defaults == {'unknown_channel': 'monetary'}

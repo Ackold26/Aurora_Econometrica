@@ -1,6 +1,6 @@
 <script>
   /**
-   * ColumnMapper — HTML5 drag-drop column role assignment.
+   * ColumnMapper - HTML5 drag-drop column role assignment.
    * Shows all columns on the left, 4 drop zones on the right (KPI/Media/Control/Date).
    * Auto-populated from validator's detected roles.
    * Emits {onmappingchange} when user reassigns a column.
@@ -58,7 +58,7 @@
   let lastColumnsKey = $state('');
   $effect(() => {
     if (!columns.length) return;
-    // Hash now includes (name, role) pair — roles changes (incl. external
+    // Hash now includes (name, role) pair - roles changes (incl. external
     // mutations from InsightsPanel) trigger re-init.
     const key = columns
       .map(/** @param {any} c */ (c) => `${c.name}:${c.role ?? ''}`)
@@ -90,7 +90,7 @@
       else if (role === 'control') ctrl.push(c.name);
       else if (role === 'date') date = c.name;
       else if (role === 'unused') {
-        // Excluded — не попадает ни в одну zone (УЖЕ исключён, не показываем как unknown).
+        // Excluded - не попадает ни в одну zone (УЖЕ исключён, не показываем как unknown).
         continue;
       } else if (role === 'unknown') {
         unknown.push(c.name);
@@ -204,7 +204,7 @@
     else if (targetZone === 'media')   m.media.push(colName);
     else if (targetZone === 'control') m.control.push(colName);
     else if (targetZone === 'date') {
-      // date is single — push old date to unknown if exists
+      // date is single - push old date to unknown if exists
       if (m.date && m.date !== colName) m.unknown.push(m.date);
       m.date = colName;
     } else {
@@ -250,7 +250,7 @@
     const z = col?.stats?.zeros_pct;
     if (z == null) return null;
     // Backend (validator.py) уже возвращает значение в процентах (e.g. 25.8).
-    // Округляем до целого; 0 показываем тоже — для табличного выравнивания.
+    // Округляем до целого; 0 показываем тоже - для табличного выравнивания.
     return Math.round(z);
   }
 
@@ -282,7 +282,7 @@
     <h3 class="mapper-title">Назначение ролей столбцов</h3>
     <p class="mapper-subtitle">
       Распределите столбцы по четырём ролям: <strong>KPI</strong> · <strong>Медиа</strong> · <strong>Внешние</strong> · <strong>Дата</strong>.
-      Нажмите на столбец — выберите одну из ролей. Двойной клик по назначенному чипу возвращает его в неназначенные.
+      Нажмите на столбец - выберите одну из ролей. Двойной клик по назначенному чипу возвращает его в неназначенные.
     </p>
   </header>
 
@@ -290,7 +290,7 @@
   <div class="unassigned-section">
     <div class="section-header">
       <span class="section-title">Столбцы</span>
-      <span class="section-hint">{selectedColumn ? `Выбрано: ${selectedColumn} — нажмите на зону ниже` : 'Нажмите на столбец, затем на нужную зону'}</span>
+      <span class="section-hint">{selectedColumn ? `Выбрано: ${selectedColumn} - нажмите на зону ниже` : 'Нажмите на столбец, затем на нужную зону'}</span>
     </div>
     <div class="columns-list">
       {#each columns as col (col.name)}
@@ -321,7 +321,7 @@
             </div>
           {/if}
         {:else}
-          <!-- Assigned — shown in zone, greyed out here -->
+          <!-- Assigned - shown in zone, greyed out here -->
           <div class="col-chip assigned" title="Назначен: {zone}">
             <span class="chip-name">{col.name}</span>
             <span class="chip-zone-badge zone-{zone}">{ZONES.find(z => z.id === zone)?.icon}</span>
@@ -365,7 +365,7 @@
               class="zone-chip"
               role="button"
               tabindex="0"
-              title="Двойной клик — вернуть в неназначенные"
+              title="Двойной клик - вернуть в неназначенные"
               ondblclick={() => returnToUnassigned(name)}
               onkeydown={(e) => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); returnToUnassigned(name); } }}
             >
@@ -374,11 +374,11 @@
                 <span
                   class="conf-badge {meta.confidence ? confidenceClass(meta) : 'conf-empty'}"
                   title={meta.confidence ? `Уверенность автодетекции: ${confidenceLabel(meta)}. Программа распознаёт роль по имени столбца (например, «бюджет», «показы», «продажи»). Чем выше %, тем точнее определение.` : 'Автодетекция не определила роль'}
-                >{meta.confidence ? confidenceLabel(meta) : '—'}</span>
+                >{meta.confidence ? confidenceLabel(meta) : '-'}</span>
                 <span
                   class="zeros-badge {zp != null ? zerosClass(zp) : 'zeros-empty'}"
-                  title={zp != null ? `Доля строк с нулевым значением — ${zp}% от общего количества. <30% — канал работает регулярно. 30-70% — пульсирующая активность (всплески). >70% — разреженный канал, рекламные импульсы редки; модель плохо разделит его эффект, но отказываться не обязательно.` : 'Статистика нулей недоступна'}
-                >{zp != null ? `${zp}%` : '—'}</span>
+                  title={zp != null ? `Доля строк с нулевым значением - ${zp}% от общего количества. <30% - канал работает регулярно. 30-70% - пульсирующая активность (всплески). >70% - разреженный канал, рекламные импульсы редки; модель плохо разделит его эффект, но отказываться не обязательно.` : 'Статистика нулей недоступна'}
+                >{zp != null ? `${zp}%` : '-'}</span>
               </div>
               <button
                 class="remove-btn"
@@ -718,8 +718,8 @@
   }
 
   /* Stats grid: два фиксированных столбца (confidence + zeros) для табличного
-     выравнивания. Каждый столбец — same width, оба badges всегда присутствуют
-     (placeholder "—" если данных нет). */
+     выравнивания. Каждый столбец - same width, оба badges всегда присутствуют
+     (placeholder "-" если данных нет). */
   .chip-stats {
     display: grid;
     grid-template-columns: 44px 44px;
@@ -734,7 +734,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Zeros% badge — стиль аналогичен conf-badge. */
+  /* Zeros% badge - стиль аналогичен conf-badge. */
   .zeros-badge {
     font-size: 9px;
     padding: 1px 5px;
@@ -757,7 +757,7 @@
     color: #fca5a5;
     border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
   }
-  /* Placeholder для отсутствующих данных — убирает визуальный «провал» */
+  /* Placeholder для отсутствующих данных - убирает визуальный «провал» */
   .conf-empty,
   .zeros-empty {
     background: transparent;

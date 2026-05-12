@@ -1,6 +1,6 @@
 <script>
   /**
-   * PipelineWhyThisStep — global header in pipeline page.
+   * PipelineWhyThisStep - global header in pipeline page.
    * Renders WhyThisStep with content из contextual-help.json для текущего шага.
    * Hidden если $hideEducationalHints (Settings toggle).
    *
@@ -26,7 +26,7 @@
   const currentHelp = $derived(/** @type {any} */ (contextualHelp)[currentStepId]);
 
   // v1.3.2 audit: «Зачем шаг» panel collapsed по умолчанию на всех шагах.
-  // Pre-fix: Import/Validate имели defaultOpen=true (UX v1.3.0 — novice-friendly).
+  // Pre-fix: Import/Validate имели defaultOpen=true (UX v1.3.0 - novice-friendly).
   // Но в премиум-стилистике панель занимает много места и отвлекает от main
   // content. Юзер открывает её explicit кликом, когда нужен контекст.
   const shouldOpenByDefault = false;

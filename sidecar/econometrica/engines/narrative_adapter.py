@@ -1,5 +1,5 @@
 """
-engines.narrative_adapter — shared narrative adapter for Aurora AI deliverables.
+engines.narrative_adapter - shared narrative adapter for Aurora AI deliverables.
 
 Promoted from engines/pptx_export.py (M1 of HTML tier-1 overhaul) so both
 PPTX and HTML exports consume the same business-logic (leader/hero/verdict,
@@ -147,7 +147,7 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
 
     F0.1 fix (Phase 0.1 fix-session 2026-04-25): previously this merged
     `miroas` (typo, with one i) which was never present in optimize JSON
-    — the field is `mroi_current` (see optimizer.py). The typo silently
+    - the field is `mroi_current` (see optimizer.py). The typo silently
     fell through to `dc.roi` which is AVERAGE ROI from decomposer, not
     marginal. HTML/PPTX reports were showing average ROI in fields
     labeled "mROAS". This is fixed below + `avg_roi` is exposed as a
@@ -198,7 +198,7 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
         oc = opt_by_key.get(k, {}) or {}
         # F0.1: read marginal ROAS from optimizer.json correctly.
         # `mroi_current` is the marginal value (∂KPI/∂spend at current point).
-        # `roi` from decomposer is AVERAGE ROI (contribution/spend) — different
+        # `roi` from decomposer is AVERAGE ROI (contribution/spend) - different
         # metric with different semantic. Both are valid; expose them under
         # distinct field names so downstream renderers can show each correctly.
         avg_roi = dc.get("roi") or oc.get("current_roi") or 0.0
@@ -295,12 +295,12 @@ def derive_verdict(channel: dict) -> str:
     """Prescriptive action key для канала.
 
     math-fix v1.0.14.1, B refactor (2026-04-28):
-        Migrated к engines.channel_action.compute_channel_action — single source
+        Migrated к engines.channel_action.compute_channel_action - single source
         of truth. Returns one of 6 keys: Scale / Hold / Watch / Reduce / Cut /
         Uncertain. CSS classes verdict-{Key} в HTML/PPTX templates.
 
     Pre-refactor: ad-hoc mROAS+ratio логика что давала разные ответы относительно
-    decomposer.compute_roi_verdict — root cause «Hold table» vs «scale-up
+    decomposer.compute_roi_verdict - root cause «Hold table» vs «scale-up
     commentary» противоречий (Kagocel live-test 2026-04-27).
 
     Post-refactor: тонкий wrapper вокруг compute_channel_action для backward
@@ -329,7 +329,7 @@ def compute_report_id(
 
     Invariants:
       1. Report ID is ONLY derived from the data itself (client + project
-         + channels + diagnostics). Product version not included — the
+         + channels + diagnostics). Product version not included - the
          ID identifies the *report*, not the software release.
       2. Diagnostics tuple is built dynamically from the dict's items;
          absent keys are genuinely absent (no fallback substitution).
@@ -388,7 +388,7 @@ def derive_action_headline(
 
     # Honest narrative: baseline-dominated model (media < 10% of total sales).
     # Override slide-specific action headlines with diagnostic/disclosure
-    # framing — recommending "grow channel X" makes no sense when total media
+    # framing - recommending "grow channel X" makes no sense when total media
     # contribution is microscopic relative to baseline.
     honest = bool(facts.get("honest_narrative"))
     media_pct = facts.get("media_contribution_pct")
@@ -407,7 +407,7 @@ def derive_action_headline(
     hero_m = float(hero_ch.get("mroas") or 0)
 
     # Post-audit: positive-lift guard (not abs). Negative lift means the
-    # optimizer couldn't find an improvement — emitting "+-1 пп" was broken
+    # optimizer couldn't find an improvement - emitting "+-1 пп" was broken
     # formatting AND misleading narrative (a promised improvement that isn't).
     try:
         lift_val = float(lift) if lift is not None else None
@@ -417,7 +417,7 @@ def derive_action_headline(
     lift_txt = f"+{lift_val:.0f} пп к ROAS" if has_lift else None
 
     # Post-audit: strict-majority threshold. Old `>= n//2` triggered "risk"
-    # scenario on 1-of-3 underperformers — too aggressive, fabricates a
+    # scenario on 1-of-3 underperformers - too aggressive, fabricates a
     # "сократить X" recommendation when portfolio is actually healthy.
     # Now requires at least half the channels to be flagged, with a floor
     # of 2 (a single underperformer out of 2+ is not a "portfolio-wide risk").
@@ -469,16 +469,16 @@ def derive_action_headline(
         return "Пульсирующее размещение вместо непрерывного - экономия без потери охвата"
 
     if slide_hint == "scqar":
-        # s09 — 3 scenarios: Rebalance / Hold+control / Risk
+        # s09 - 3 scenarios: Rebalance / Hold+control / Risk
         if all_underperf and hero:
-            # Risk scenario — net portfolio underperformance
+            # Risk scenario - net portfolio underperformance
             names = ", ".join(underperf[:2])
             return f"Сократить {names} и сфокусировать бюджет на {hero}"
         if has_lift and hero and leader and hero != leader and realloc >= 1:
-            # Rebalance scenario — quantified reallocation
+            # Rebalance scenario - quantified reallocation
             return f"Перераспределить {realloc:.0f} млн руб в {hero} - {lift_txt}"
         if hero and leader and hero != leader and realloc >= 1:
-            # Rebalance без верного lift — action без числа
+            # Rebalance без верного lift - action без числа
             return f"Перераспределить {realloc:.0f} млн руб из {leader} в {hero}"
         # Hold + control scenario
         return "Портфель сбалансирован - рекомендуется A/B тест перед ре-аллокацией"
@@ -546,7 +546,7 @@ def _derive_narrative_facts(
     # Honest narrative mode: when media contribution is small relative to
     # total sales (baseline-dominated model), narrative templates must
     # disclose this rather than claiming "X% sales generated by channel Y"
-    # — that phrasing implies media drives sales, but reality is baseline-driven.
+    # - that phrasing implies media drives sales, but reality is baseline-driven.
     total_sales = 0.0
     baseline_val = 0.0
     media_contrib_total = total_contrib
@@ -572,7 +572,7 @@ def _derive_narrative_facts(
 
     # N3 (Phase 0.1 fix-session): propagate optimizer state to narrative.
     # binding_constraints + optimization_converged drive consistent SCQAR /
-    # f3 finding / Action 01 logic — without these, narrative claims
+    # f3 finding / Action 01 logic - without these, narrative claims
     # "Перебалансировать 0 млн ₽" while real story is "оптимизатор не получил
     # места для манёвра".
     binding = bool(optimize_data.get("binding_constraints", False))
@@ -580,19 +580,19 @@ def _derive_narrative_facts(
     optimize_min_pct = optimize_data.get("min_pct_used")
     optimize_max_pct = optimize_data.get("max_pct_used")
     # math-fix v1.0.14.1, A4 (audit-of-audit 2026-04-28): false convergence
-    # detection. SLSQP success=True at iter=1 (returns current allocation) —
+    # detection. SLSQP success=True at iter=1 (returns current allocation) -
     # narrative banner объясняет «оптимизатор не нашёл лучшего», не vacuous
     # «Сохранить аллокацию».
     converged_at_current = bool(optimize_data.get("converged_at_current", False))
 
-    # math-fix v1.0.14.1, B (audit-of-audit 2026-04-28): action summary —
+    # math-fix v1.0.14.1, B (audit-of-audit 2026-04-28): action summary -
     # counts portfolio actions для consistent f4 counts + commentary planning.
     from engines.channel_action import build_action_summary
     action_summary = build_action_summary(channels)
 
     # L14 (math-fix v1.4 Section C, 2026-04-29): budget_dominator separate from
     # contribution leader. Pre-fix: complication template said «{leader}
-    # доминирует бюджет» but `leader = top_contribution_channel` — могло быть
+    # доминирует бюджет» but `leader = top_contribution_channel` - могло быть
     # Performance с 0.7% бюджета, не overspender. Honest framing requires
     # separate field for budget-share leader.
     by_spend = sorted(channels, key=lambda c: float(c.get("spend") or 0), reverse=True)
@@ -606,24 +606,24 @@ def _derive_narrative_facts(
     # L15 (math-fix v1.4 Section C, 2026-04-29): cut_source / scale_destination
     # for accurate reallocation narrative.
     # L22 fix (Венарус live-test 2026-04-29): sort by mROAS вместо contribution
-    # order — narrative consistency. Pre-fix: customer reads «По mROAS Social
+    # order - narrative consistency. Pre-fix: customer reads «По mROAS Social
     # опережает (11.1×)» → ANSWER «в OLV» (top contribution Scale, mROAS 3.76×).
     # Disconnect между tweets COMPLICATION (mROAS-based hero) и ANSWER
     # (contribution-based scale_destination). Post-fix: scale_destination = top
     # mROAS Scale (best marginal effectiveness for reallocation), cut_source =
     # worst mROAS Cut/Reduce (deepest cut needed). Action template now reads
-    # «Перебалансировать из TRPs (mROAS 0.03×) в Social (mROAS 11.1×)» —
+    # «Перебалансировать из TRPs (mROAS 0.03×) в Social (mROAS 11.1×)» -
     # consistent с COMPLICATION «Social опережает».
     cut_candidate_chs = [c for c in channels if c.get("action") in ("Cut", "Reduce")]
-    cut_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0))  # asc — worst first
+    cut_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0))  # asc - worst first
     scale_candidate_chs = [c for c in channels if c.get("action") == "Scale"]
-    scale_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0), reverse=True)  # desc — best first
+    scale_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0), reverse=True)  # desc - best first
     cut_source = cut_candidate_chs[0].get("name") if cut_candidate_chs else None
     scale_destination = scale_candidate_chs[0].get("name") if scale_candidate_chs else None
 
     # L23 fix (Венарус live-test 2026-04-29): dedup cut_source from
     # underperformer_names. Pre-fix: ANSWER «из TRPs в OLV; сократить или
-    # остановить TRPs» — TRPs дважды (cut_source AND underperformer overlap).
+    # остановить TRPs» - TRPs дважды (cut_source AND underperformer overlap).
     # Post-fix: underperf list excludes cut_source (it's already named explicitly
     # в reallocation segment). Если remaining list empty → underperf section
     # пропускается template'ом.
@@ -644,7 +644,7 @@ def _derive_narrative_facts(
         "underperformer_names": underperformer_names_dedup,
         "reallocation_mln": reallocation / 1_000_000.0 if reallocation else 0.0,
         "expected_lift_pct": expected_lift,
-        # Honest narrative inputs (Phase 0.7 — narrative_adapter v2)
+        # Honest narrative inputs (Phase 0.7 - narrative_adapter v2)
         "total_sales": total_sales if total_sales > 0 else None,
         "baseline_pct": baseline_pct,
         "media_contribution_pct": media_contrib_pct,
@@ -655,7 +655,7 @@ def _derive_narrative_facts(
         "optimize_min_pct": optimize_min_pct,
         "optimize_max_pct": optimize_max_pct,
         "converged_at_current": converged_at_current,
-        # Action summary (B refactor) — counts + channels_by_action + top_action
+        # Action summary (B refactor) - counts + channels_by_action + top_action
         "action_counts": action_summary["counts"],
         "channels_by_action": action_summary["channels_by_action"],
         "top_action": action_summary["top_action"],

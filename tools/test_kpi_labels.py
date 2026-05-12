@@ -1,4 +1,4 @@
-"""Tests для utils/kpi_labels.py — v1.3.0 KPI/mode-aware labels (ADR-016)."""
+"""Tests для utils/kpi_labels.py - v1.3.0 KPI/mode-aware labels (ADR-016)."""
 from __future__ import annotations
 
 import sys
@@ -81,9 +81,9 @@ def test_format_metric_count_inverts_to_cpu():
     assert format_metric(0.0125, 'count', 'roi') == '80 ₽/ед.'
     # 0.01 → 100
     assert format_metric(0.01, 'count', 'roi') == '100 ₽/ед.'
-    # 0 / negative — no signal fallback
-    assert format_metric(0, 'count', 'roi') == '—'
-    assert format_metric(-0.5, 'count', 'roi') == '—'
+    # 0 / negative - no signal fallback
+    assert format_metric(0, 'count', 'roi') == '-'
+    assert format_metric(-0.5, 'count', 'roi') == '-'
 
 
 def test_format_metric_effectiveness():
@@ -91,7 +91,7 @@ def test_format_metric_effectiveness():
 
 
 def test_format_metric_none_returns_dash():
-    assert format_metric(None, 'monetary', 'roi') == '—'
+    assert format_metric(None, 'monetary', 'roi') == '-'
 
 
 # ─── cover_metric_summary ───────────────────────────────────────────────────
@@ -113,7 +113,7 @@ def test_cover_summary_count_with_value():
 
 
 def test_cover_summary_count_without_value():
-    """B4 audit: 0.0125 units/₽ → CPU 80; без vpcu — нет «(vs ценность)»."""
+    """B4 audit: 0.0125 units/₽ → CPU 80; без vpcu - нет «(vs ценность)»."""
     summary = cover_metric_summary(0.0125, 'count', 'roi', value_per_count_unit=None)
     assert 'CPU' in summary
     assert 'value' not in summary.lower()

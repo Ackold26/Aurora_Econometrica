@@ -1,19 +1,19 @@
 """
-Conformal prediction — distribution-free PI for OLS path.
+Conformal prediction - distribution-free PI for OLS path.
 
 Sprint 2 (S-OLS-1) initially shipped 2026-04-27.
 F2 + F3 honest revision (audit 2026-04-27 fix-session):
 
-⚠️ COVERAGE CAVEATS — read before relying on guarantees:
+⚠️ COVERAGE CAVEATS - read before relying on guarantees:
 
 1. **Exchangeability (F3):** Conformal coverage `P(y_new ∈ [ŷ ± hw]) ≥ 1-α` is
    guaranteed ONLY когда (training + test) data exchangeable. Marketing MMM
-   data — это TIME-SERIES с trend/seasonality/regime changes → exchangeability
+   data - это TIME-SERIES с trend/seasonality/regime changes → exchangeability
    нарушена. Vanilla split-conformal coverage **NOT mathematically guaranteed**
    for non-stationary marketing data. Empirically работает на stationary
    residuals (после adstock+Hill снимают autocorrelation), но без formal
    guarantee. Reference: Barber, Candes, Ramdas, Tibshirani 2022 "Conformal
-   prediction beyond exchangeability" — для restored guarantee на time-series
+   prediction beyond exchangeability" - для restored guarantee на time-series
    нужен weighted conformal или block conformal (Sprint 4+ enhancement).
 
 2. **Jackknife (NOT jackknife+) (F2):** `jackknife_intervals` ниже implements
@@ -21,7 +21,7 @@ F2 + F3 honest revision (audit 2026-04-27 fix-session):
    True jackknife+ требует test-point-dependent intervals; current API returns
    one symmetric `half_width`. Plain jackknife has **no finite-sample coverage
    guarantee** в general (Barber 2021 §1.1). Empirically reasonable on
-   stationary residuals — useful as honest small-N alternative к split — но
+   stationary residuals - useful as honest small-N alternative к split - но
    без 1-2α math guarantee.
 
 References:
@@ -48,7 +48,7 @@ Trade-offs vs alternatives:
   + No model misspecification penalty (any fit)
   + Computationally cheap (one fit + one quantile)
   - Lose ~30% data к calibration set (wasteful on small N)
-  - Marginal coverage only (not conditional на specific x — see Mondrian conformal для conditional)
+  - Marginal coverage only (not conditional на specific x - see Mondrian conformal для conditional)
   - Wider intervals than parametric when assumptions hold
   - Time-series violates exchangeability assumption (see F3 caveat above)
 """
@@ -73,18 +73,18 @@ def split_conformal_intervals(
     """Split-conformal prediction intervals для y forecasts.
 
     Args:
-        X: design matrix (n_obs, p) — already preprocessed (Hill+adstock applied)
-        y: target vector (n_obs,) — same scale as predictions will be made
+        X: design matrix (n_obs, p) - already preprocessed (Hill+adstock applied)
+        y: target vector (n_obs,) - same scale as predictions will be made
         train_frac: fraction для training (rest = calibration). Default 0.7.
         confidence: target coverage (default 0.9 = 90% PI)
         seed: RNG для reproducible split
 
     Returns:
         dict with:
-          - half_width: float — symmetric PI bound (ŷ ± half_width)
+          - half_width: float - symmetric PI bound (ŷ ± half_width)
           - coverage_target: float
           - n_train, n_cal: integers
-          - empirical_coverage: float — actual coverage on calibration set
+          - empirical_coverage: float - actual coverage on calibration set
           - method: 'split_conformal'
           - residuals_summary: {min, p25, median, p75, max} of |residuals|
 
@@ -94,7 +94,7 @@ def split_conformal_intervals(
     n = len(y)
     if n < 12:
         # Need at least n=12 to support 70/30 split с meaningful calibration
-        logger.warning(f"split_conformal: n={n} < 12 — insufficient для valid split")
+        logger.warning(f"split_conformal: n={n} < 12 - insufficient для valid split")
         return {
             'half_width': None,
             'coverage_target': confidence,
@@ -107,7 +107,7 @@ def split_conformal_intervals(
     n_train = int(n * train_frac)
     n_cal = n - n_train
     if n_cal < 4:
-        logger.warning(f"split_conformal: n_cal={n_cal} < 4 — quantile estimate unreliable")
+        logger.warning(f"split_conformal: n_cal={n_cal} < 4 - quantile estimate unreliable")
         return {
             'half_width': None, 'coverage_target': confidence,
             'n_train': n_train, 'n_cal': n_cal,
@@ -146,7 +146,7 @@ def split_conformal_intervals(
     sorted_resid = np.sort(abs_residuals)
     half_width = float(sorted_resid[q_index - 1])
 
-    # Empirical coverage on calibration set (sanity check — should be ≈ 1-α)
+    # Empirical coverage on calibration set (sanity check - should be ≈ 1-α)
     empirical_coverage = float(np.mean(abs_residuals <= half_width))
 
     return {
@@ -176,22 +176,22 @@ def jackknife_intervals(
     """Plain leave-one-out residual quantile (NOT jackknife+).
 
     F2 fix (audit 2026-04-27): function previously misnamed `jackknife_plus_intervals`
-    с docstring claim "Coverage guarantee ≥ 1 - 2α (Barber 2021 Theorem 1)" —
+    с docstring claim "Coverage guarantee ≥ 1 - 2α (Barber 2021 Theorem 1)" -
     но implementation actually computes plain LOO residual quantile applied
     symmetrically as `± half_width`. True jackknife+ requires test-point-dependent
     intervals: lower = q_α^- of {ŷ^(-i)(x_test) - r_i}, upper = q_{1-α}^+ of
-    {ŷ^(-i)(x_test) + r_i}. Current API returns one half_width — incompatible с
+    {ŷ^(-i)(x_test) + r_i}. Current API returns one half_width - incompatible с
     real jackknife+ math.
 
     Plain jackknife coverage: **no finite-sample guarantee** в general (Barber et al.
-    2021 §1.1). Empirically reasonable on stationary residuals — useful as honest
-    small-N alternative к split-conformal — but without 1-2α math guarantee.
+    2021 §1.1). Empirically reasonable on stationary residuals - useful as honest
+    small-N alternative к split-conformal - but without 1-2α math guarantee.
 
     Real jackknife+ deferred к Sprint 4+ когда weighted conformal addresses F3
-    (exchangeability violation на time-series) — оба нужны вместе для real
+    (exchangeability violation на time-series) - оба нужны вместе для real
     distribution-free guarantee на marketing data.
 
-    Workflow (UNCHANGED — implementation correct, just was mislabeled):
+    Workflow (UNCHANGED - implementation correct, just was mislabeled):
       For i in 1..n: fit OLS leaving out obs i, compute residual r_i = |y_i - ŷ_i^(-i)|
       Half-width = ⌈(n+1)(1-α)⌉/n-th quantile of {r_i}.
 
@@ -245,7 +245,7 @@ def jackknife_intervals(
         'coverage_caveat': (
             'Plain jackknife: no finite-sample coverage guarantee in general. '
             'Empirically reasonable on stationary residuals. True jackknife+ (Barber 2021) '
-            'requires test-point-dependent intervals — deferred to Sprint 4+.'
+            'requires test-point-dependent intervals - deferred to Sprint 4+.'
         ),
         'residuals_summary': {
             'min': round(float(valid.min()), 4),
@@ -256,7 +256,7 @@ def jackknife_intervals(
     }
 
 
-# F2 backward-compat alias — old `jackknife_plus_intervals` name kept as deprecated
+# F2 backward-compat alias - old `jackknife_plus_intervals` name kept as deprecated
 # alias for any external callers (none found in current codebase, but defensive).
 # New code should use `jackknife_intervals`.
 jackknife_plus_intervals = jackknife_intervals
@@ -288,7 +288,7 @@ def conformal_intervals_auto(
         result = split_conformal_intervals(X, y, confidence=confidence, seed=seed)
         auto_choice = 'split_conformal'
     result['auto_choice'] = auto_choice
-    # F3: exchangeability caveat applied к both variants — surfaces к UI/report layer
+    # F3: exchangeability caveat applied к both variants - surfaces к UI/report layer
     result['exchangeability_caveat'] = (
         'Conformal coverage guaranteed under exchangeability. Marketing time-series '
         'has trend/seasonality → exchangeability violated. Empirically работает на '

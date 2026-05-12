@@ -11,7 +11,7 @@ Math reference: docs/SPRINT1_FOUNDATION_ADR.md §3 (Amendments A3, A4, A5)
                 docs/MATH_AUDIT_v1_3_PHASE_0_1.md §3 (mROAS chain rule)
 
 Uses arviz.hdi for asymmetric posterior support (mROAS is non-linear function of
-α/γ/β — point posterior may be skewed, percentile gives misleading "CI", HDI is
+α/γ/β - point posterior may be skewed, percentile gives misleading "CI", HDI is
 narrowest interval containing prob mass and is correct for asymmetric distributions).
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ except ImportError:
     _HAS_ARVIZ = False
 
 
-# Default CI probability mass (per ADR Amendment A3 — industry standard 90%
+# Default CI probability mass (per ADR Amendment A3 - industry standard 90%
 # matches Meridian, Recast, LightweightMMM; PyMC-Marketing's 94% is a protest, not standard).
 DEFAULT_HDI_PROB = 0.9
 
@@ -38,7 +38,7 @@ def compute_ci_hdi(
 ) -> tuple[float, float, float, str]:
     """Compute mean + HDI bounds from posterior samples.
 
-    Uses arviz.hdi (Highest Density Interval) — narrowest interval containing
+    Uses arviz.hdi (Highest Density Interval) - narrowest interval containing
     `hdi_prob` probability mass. Correct for asymmetric posteriors (mROAS,
     optimizer lift). Falls back to equal-tail percentile if arviz unavailable
     or computation fails.
@@ -120,7 +120,7 @@ def compute_train_adstock_mean_samples(
     from utils.adstock import geometric_adstock_batch
     train_adstock_2d = geometric_adstock_batch(arr, np.asarray(decay_samples, dtype=np.float64))
     means = train_adstock_2d.mean(axis=1)  # (n_samples,)
-    # Floor для div safety — но НЕ применяем pre-emptively, оставляем callerу для clarity
+    # Floor для div safety - но НЕ применяем pre-emptively, оставляем callerу для clarity
     return means
 
 
@@ -176,8 +176,8 @@ def verdict_tier(
         - r_hat > 1.05 → force "Высокая неопределённость" (model not converged,
           CI itself is unreliable)
         - tail_ess_ok=False → caller should annotate "оценка нестабильна" (does
-          NOT change tier — annotation only, since CI is still computable just less precise)
-        - extrapolation_severity (Phase 2 S3 synergy — replaces ad-hoc γ inflation):
+          NOT change tier - annotation only, since CI is still computable just less precise)
+        - extrapolation_severity (Phase 2 S3 synergy - replaces ad-hoc γ inflation):
           0 = in-zone (≤ p95) → no effect
           1 = p95 boundary    → no auto-downgrade (caller may annotate)
           2 = p99 extrapolation → force ≥ "Направленная" tier
@@ -190,7 +190,7 @@ def verdict_tier(
 
     Phase 2 S3 (audit pass 2 2026-05-02): extrapolation_severity gate replaces
     plan's separate inflate_extrapolation_uncertainty(γ=0.3) helper. Reuses
-    Aurora's established 3-tier vocabulary вместо ad-hoc CI multiplier — single
+    Aurora's established 3-tier vocabulary вместо ad-hoc CI multiplier - single
     mental model для customer (model fit verdicts AND forecast verdicts in same
     taxonomy). См. docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §10 S3.
 
@@ -248,7 +248,7 @@ def channel_index(samples: dict, channel_name: str) -> int | None:
 def per_channel_samples(samples: dict, channel_name: str) -> dict[str, np.ndarray] | None:
     """Extract joint posterior arrays for a single channel.
 
-    Joint structure preserved — alpha/gamma/beta/decay arrays indexed by same
+    Joint structure preserved - alpha/gamma/beta/decay arrays indexed by same
     draws, so correlation between params on the same draw is intact.
 
     Phase 1.1 addition: if 'adstock_decay' present in samples (v1.2 pickles),
@@ -266,7 +266,7 @@ def per_channel_samples(samples: dict, channel_name: str) -> dict[str, np.ndarra
         'gamma': np.asarray(samples['gammas'][idx], dtype=np.float32),
         'beta': np.asarray(samples['media_betas'][idx], dtype=np.float32),
         # M1 fix (audit 2026-04-26): always set 'decay' key (None when missing) для
-        # API ergonomics. Pre-fix conditionally added — caller had to check `if 'decay' in ch`
+        # API ergonomics. Pre-fix conditionally added - caller had to check `if 'decay' in ch`
         # which differs from "decay is None" semantically. Now uniformly: ch_samples['decay']
         # always present; None means not learnable (v1.0/v1.1.5/v1.0-ols pickles).
         'decay': None,

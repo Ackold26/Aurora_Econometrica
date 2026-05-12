@@ -1,17 +1,17 @@
-"""Scenario engine edge case matrix — Phase A2 of engine audit extension.
+"""Scenario engine edge case matrix - Phase A2 of engine audit extension.
 
 Plan: C:\\Users\\ackol\\Desktop\\optimizer-audit-followup-plan.md, этап 4.
 
 Eight batches systematically covering corner cases:
 
-    A — Media plan validation (empty / non-existent channels / all-zero)
-    B — Untrained / outdated model rejection
-    C — Forecast periods coupling (None / 1 / equal training / multi-period)
-    D — Mixed unit_costs coverage (full / partial / none)
-    E — ROAS denominator floors (near-zero spend / zero CI)
-    F — Inflation_pct edge cases (None / empty / partial / unknown channel)
-    G — Multi-period vs single-period plan handling
-    H — Determinism + state isolation (re-run does not corrupt)
+    A - Media plan validation (empty / non-existent channels / all-zero)
+    B - Untrained / outdated model rejection
+    C - Forecast periods coupling (None / 1 / equal training / multi-period)
+    D - Mixed unit_costs coverage (full / partial / none)
+    E - ROAS denominator floors (near-zero spend / zero CI)
+    F - Inflation_pct edge cases (None / empty / partial / unknown channel)
+    G - Multi-period vs single-period plan handling
+    H - Determinism + state isolation (re-run does not corrupt)
 
 Total ~38 tests. Run:
     pytest tools/test_scenario_edge_cases.py -v
@@ -40,7 +40,7 @@ from _optimizer_fixtures import (  # noqa: E402
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch A — Media plan validation
+# Batch A - Media plan validation
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -95,12 +95,12 @@ def test_A4_negative_spend_does_not_crash(tmp_path):
         r = predict_scenario({'scenario_name': 'A4', 'media_plan': plan}, str(proj))
     except (NameError, ValueError, AttributeError) as e:
         pytest.fail(f'A4 negative spend crashed: {type(e).__name__}: {e}')
-    # Status может быть ok (clipped to 0) или error — оба OK pending no crash
+    # Status может быть ok (clipped to 0) или error - оба OK pending no crash
     assert 'status' in r
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch B — Untrained / outdated model rejection
+# Batch B - Untrained / outdated model rejection
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -152,7 +152,7 @@ def test_B3_legacy_v1_0_pickle_rejected(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch C — Forecast periods coupling
+# Batch C - Forecast periods coupling
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -223,7 +223,7 @@ def test_C4_forecast_periods_zero_falls_back(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch D — Mixed unit_costs coverage
+# Batch D - Mixed unit_costs coverage
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -283,7 +283,7 @@ def test_D3_invalid_unit_cost_filtered(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch E — ROAS denominator floor (C2 fix audit 2026-04-26)
+# Batch E - ROAS denominator floor (C2 fix audit 2026-04-26)
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -301,7 +301,7 @@ def test_E1_near_zero_spend_no_roas_ci_explosion(tmp_path):
         'media_plan': plan,
     }, str(proj))
     assert is_ok(r)
-    # ROAS CI should not be inf — total > 100 in this case, but verify no crash.
+    # ROAS CI should not be inf - total > 100 in this case, but verify no crash.
     totals = r['totals']
     if totals.get('roas_ci_low') is not None:
         import math
@@ -314,7 +314,7 @@ def test_E2_minimal_spend_threshold_skips_money_ci(tmp_path):
     proj = tmp_path / 'E2'
     md = build_synthetic_pickle(proj, seed=1, n_channels=3, mixed_units=False)
     cols = md['config']['media_columns']
-    # All channels 1₽ each — sum ≈ 24 < 100 floor
+    # All channels 1₽ each - sum ≈ 24 < 100 floor
     plan = {c: [1.0] * 24 for c in cols}
 
     from engines.scenario import predict_scenario
@@ -329,7 +329,7 @@ def test_E2_minimal_spend_threshold_skips_money_ci(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch F — Inflation_pct edge cases
+# Batch F - Inflation_pct edge cases
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -407,12 +407,12 @@ def test_F4_inflation_logger_warning_on_failure(tmp_path, caplog):
             'unit_cost_inflation_pct': {'tv_trps_brand': 25.0},
         }, str(proj))
     # Inflation may silently succeed (no failure path triggered by missing date)
-    # OR log warning. Either OK — assert ok status, no crash.
+    # OR log warning. Either OK - assert ok status, no crash.
     assert is_ok(r)
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch G — Multi-period vs single-period plan handling
+# Batch G - Multi-period vs single-period plan handling
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -462,7 +462,7 @@ def test_G3_long_plan_extends_horizon(tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Batch H — Determinism + state isolation
+# Batch H - Determinism + state isolation
 # ══════════════════════════════════════════════════════════════════════
 
 
@@ -501,7 +501,7 @@ def test_H2_input_dict_isolation_warning(tmp_path):
     # Plan was mutated: now has 12 elements (each = 1_000_000 / 12)
     assert len(plan[cols[0]]) == 12, (
         f'Expected mutation к 12 elements (single-period distribution), '
-        f'got {len(plan[cols[0]])}. If this assertion fails, the engine no longer mutates input — '
+        f'got {len(plan[cols[0]])}. If this assertion fails, the engine no longer mutates input - '
         f'update SCENARIO_INVARIANTS_REGISTRY.md to remove the warning.'
     )
     # Sum preserved (total / n × n = total)

@@ -1,24 +1,24 @@
-"""Scenario engine invariants — property-based tests (Phase A1 of engine audit extension).
+"""Scenario engine invariants - property-based tests (Phase A1 of engine audit extension).
 
 Plan: C:\\Users\\ackol\\Desktop\\optimizer-audit-followup-plan.md, этап 4.
 
 Fourteen formal invariants verified across random seeds:
 
-    S1  — Per-period decomposition: predicted_t == baseline_per_period + Σ contribution_t
-    S2  — Total energy: sum(predictions) == baseline_total + Σ_ch sum(contribution_per_period)
-    S3  — Sign / scale: predictions > 0; incremental ≥ 0 при positive media plan
-    S4  — Money conservation: total_spend_money == Σ_ch native[c] × unit_cost[c]
-    S5  — Single-period distribution: plan length=1 + forecast_n distributes evenly
-    S6  — Adstock semantics: positive raw → positive adstock; sum_adstock ≥ sum_raw для geometric
-    S7  — Hill saturation bounds: 0 ≤ hill(x_norm) < 1 для x_norm ≥ 0
-    S8  — Posterior CI ordering: predicted_kpi_ci_low ≤ predicted_kpi ≤ predicted_kpi_ci_high
-    S9  — ROAS CI consistency: roas_ci = incremental_kpi_ci / total_spend (constant denom)
-    S10 — Determinism: same input → identical output across reruns
-    S11 — 3-way alignment с optimizer Option C (covered в I8 of optimizer audit; here
+    S1  - Per-period decomposition: predicted_t == baseline_per_period + Σ contribution_t
+    S2  - Total energy: sum(predictions) == baseline_total + Σ_ch sum(contribution_per_period)
+    S3  - Sign / scale: predictions > 0; incremental ≥ 0 при positive media plan
+    S4  - Money conservation: total_spend_money == Σ_ch native[c] × unit_cost[c]
+    S5  - Single-period distribution: plan length=1 + forecast_n distributes evenly
+    S6  - Adstock semantics: positive raw → positive adstock; sum_adstock ≥ sum_raw для geometric
+    S7  - Hill saturation bounds: 0 ≤ hill(x_norm) < 1 для x_norm ≥ 0
+    S8  - Posterior CI ordering: predicted_kpi_ci_low ≤ predicted_kpi ≤ predicted_kpi_ci_high
+    S9  - ROAS CI consistency: roas_ci = incremental_kpi_ci / total_spend (constant denom)
+    S10 - Determinism: same input → identical output across reruns
+    S11 - 3-way alignment с optimizer Option C (covered в I8 of optimizer audit; here
           we verify scenario engine alone gives same result as manual sum-of-Hill)
-    S12 — Forecast horizon decoupling: plan_n=1 + forecast_periods=N → predictions length=N
-    S13 — Money-mode coverage flag: total_spend_money == None iff not all active channels covered
-    S14 — Graceful errors: untrained channel → UNTRAINED_CHANNEL; empty plan → MEDIA_PLAN_EMPTY
+    S12 - Forecast horizon decoupling: plan_n=1 + forecast_periods=N → predictions length=N
+    S13 - Money-mode coverage flag: total_spend_money == None iff not all active channels covered
+    S14 - Graceful errors: untrained channel → UNTRAINED_CHANNEL; empty plan → MEDIA_PLAN_EMPTY
 
 Math reference: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis (Option C identity),
 docs/MATH_AUDIT_v1_3_PHASE_0_1.md (chain rule for mROAS context).
@@ -54,7 +54,7 @@ from _optimizer_fixtures import (  # noqa: E402
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S1 — Per-period decomposition: predicted_t = baseline + Σ contribution_t
+# S1 - Per-period decomposition: predicted_t = baseline + Σ contribution_t
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -101,7 +101,7 @@ def test_S1_per_period_decomposition(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S2 — Total energy conservation
+# S2 - Total energy conservation
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -130,7 +130,7 @@ def test_S2_total_energy_conservation(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S3 — Sign / scale invariants
+# S3 - Sign / scale invariants
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -148,14 +148,14 @@ def test_S3_predictions_positive_and_incremental_nonneg(tmp_path, seed):
     totals = r['totals']
     assert float(totals['predicted_kpi']) > 0, f'S3: predicted_kpi non-positive (seed={seed})'
     assert float(totals['baseline_kpi']) > 0, f'S3: baseline_kpi non-positive'
-    # Media adds value — incremental ≥ 0 для positive media plan
+    # Media adds value - incremental ≥ 0 для positive media plan
     assert float(totals['incremental_kpi']) >= -1.0, (
         f'S3: incremental_kpi {totals["incremental_kpi"]} highly negative (seed={seed})'
     )
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S4 — Money conservation
+# S4 - Money conservation
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -175,7 +175,7 @@ def test_S4_money_conservation(tmp_path, seed):
     }, str(proj))
     assert is_ok(r)
     if not r['totals'].get('units_fully_covered'):
-        pytest.skip(f'S4 (seed={seed}): mixed coverage — total_spend_money is None')
+        pytest.skip(f'S4 (seed={seed}): mixed coverage - total_spend_money is None')
 
     per_ch_native = r['per_channel_spend']['native']
     expected_money = sum(
@@ -191,7 +191,7 @@ def test_S4_money_conservation(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S5 — Single-period plan distributes evenly across forecast_periods
+# S5 - Single-period plan distributes evenly across forecast_periods
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -199,7 +199,7 @@ def test_S4_money_conservation(tmp_path, seed):
 def test_S5_single_period_distribution(tmp_path, seed):
     """Plan length=1 + forecast_periods=N → media_plan output has length N с total preserved.
 
-    NB: scenario engine mutates input media_plan dict (distribution rewrite — known
+    NB: scenario engine mutates input media_plan dict (distribution rewrite - known
     side effect, see SCENARIO_INVARIANTS_REGISTRY.md). Capture totals BEFORE call.
     """
     proj = tmp_path / f'S5_{seed}'
@@ -235,7 +235,7 @@ def test_S5_single_period_distribution(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S6 — Adstock semantics: positive raw → positive adstock + carryover increase
+# S6 - Adstock semantics: positive raw → positive adstock + carryover increase
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -243,7 +243,7 @@ def test_S5_single_period_distribution(tmp_path, seed):
 def test_S6_adstock_positive_and_carryover(seed):
     """For positive flat input + decay ∈ (0, 1): adstock sum ≥ raw sum (carryover boost).
 
-    Pure math invariant — independent от scenario engine. Confirms adstock
+    Pure math invariant - independent от scenario engine. Confirms adstock
     foundation matches Aurora's convention used в scenario.py:194-195.
     """
     rng = np.random.default_rng(seed)
@@ -260,7 +260,7 @@ def test_S6_adstock_positive_and_carryover(seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S7 — Hill saturation bounds: 0 ≤ hill < 1
+# S7 - Hill saturation bounds: 0 ≤ hill < 1
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -279,7 +279,7 @@ def test_S7_hill_bounds(seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S8 — Posterior CI ordering: low ≤ point ≤ high
+# S8 - Posterior CI ordering: low ≤ point ≤ high
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -322,7 +322,7 @@ def test_S8_posterior_ci_ordering(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S9 — ROAS CI = incremental_kpi_ci / total_spend (constant denominator)
+# S9 - ROAS CI = incremental_kpi_ci / total_spend (constant denominator)
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -354,7 +354,7 @@ def test_S9_roas_ci_consistency(tmp_path, seed):
     actual_lo = float(totals['roas_money_ci_low'])
     actual_hi = float(totals['roas_money_ci_high'])
 
-    # Round-2 на ROAS field — tolerance 0.05 absolute
+    # Round-2 на ROAS field - tolerance 0.05 absolute
     assert abs(actual_lo - expected_lo) < 0.05, (
         f'S9 lo (seed={seed}): roas_lo={actual_lo}, expected={expected_lo}'
     )
@@ -364,7 +364,7 @@ def test_S9_roas_ci_consistency(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S10 — Determinism: same input → identical output
+# S10 - Determinism: same input → identical output
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -389,7 +389,7 @@ def test_S10_determinism(tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S11 — Engine identity vs manual sum-of-Hill (extension of optimizer I8)
+# S11 - Engine identity vs manual sum-of-Hill (extension of optimizer I8)
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -427,7 +427,7 @@ def test_S11_scenario_identity_with_manual_sum_of_hills(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S12 — Forecast horizon decoupling: plan_n=1 + forecast_periods=N → predictions length=N
+# S12 - Forecast horizon decoupling: plan_n=1 + forecast_periods=N → predictions length=N
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -452,7 +452,7 @@ def test_S12_forecast_horizon_length(tmp_path, forecast_n):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S13 — Money-mode coverage flag
+# S13 - Money-mode coverage flag
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -502,7 +502,7 @@ def test_S13b_money_mode_flag_when_full_coverage(tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# S14 — Graceful errors
+# S14 - Graceful errors
 # ──────────────────────────────────────────────────────────────────────
 
 

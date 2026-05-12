@@ -5,7 +5,7 @@
  * produce identical column state when applied to same input. Single source of
  * truth = `validateData.result.columns[i].role` via shared column-roles helper.
  *
- * Pre-fix: each mutator wrote inline mutation logic — vocabulary drift
+ * Pre-fix: each mutator wrote inline mutation logic - vocabulary drift
  * (`'unused'` from Insights vs `'unknown'` from drag-drop unassigned) and
  * inconsistent persistence behavior. Lock-in test prevents regression.
  */
@@ -49,7 +49,7 @@ describe('ROLES vocabulary', () => {
   });
 });
 
-describe('setColumnRole — single mutator', () => {
+describe('setColumnRole - single mutator', () => {
   it('returns immutable copy with target column updated', () => {
     const result = setColumnRole(COLUMNS, 'social', 'unused');
     expect(result).not.toBe(COLUMNS); // new array
@@ -67,7 +67,7 @@ describe('setColumnRole — single mutator', () => {
   });
 });
 
-describe('setColumnRolesBulk — bulk mutator (Insights "exclude")', () => {
+describe('setColumnRolesBulk - bulk mutator (Insights "exclude")', () => {
   it('updates all named columns to target role', () => {
     const result = setColumnRolesBulk(COLUMNS, ['social', 'digital'], 'unused');
     expect(result.find((c) => c.name === 'social').role).toBe('unused');
@@ -106,7 +106,7 @@ describe('Three-mutator-path consistency (L1 lock-in)', () => {
     // Path 1: InsightsPanel.applyAction({ type: 'exclude', columns: ['social'] })
     const insightsPath = setColumnRolesBulk(COLUMNS, ['social'], 'unused');
 
-    // Path 2: ColumnMapper drag-drop — sets role='unknown' for unassigned
+    // Path 2: ColumnMapper drag-drop - sets role='unknown' for unassigned
     const mapperMapping = deriveMapping(COLUMNS);
     mapperMapping.media = mapperMapping.media.filter((n) => n !== 'social');
     mapperMapping.unknown = [...mapperMapping.unknown, 'social'];
@@ -135,7 +135,7 @@ describe('Three-mutator-path consistency (L1 lock-in)', () => {
   });
 });
 
-describe('Persistence round-trip — restore excluded across re-validation', () => {
+describe('Persistence round-trip - restore excluded across re-validation', () => {
   it('restoreExcludedColumns preserves user choice over fresh validator detection', () => {
     // Simulate: user excluded 'social', closed project, reopened, validator
     // detected 'social' as media again. Restore from project.json.

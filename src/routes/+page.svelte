@@ -79,7 +79,7 @@
 
   /** @type {string|null} */
   let openError = $state(null);
-  // Plain let (NOT $state) — invisible to Svelte reactivity, prevents $effect re-trigger
+  // Plain let (NOT $state) - invisible to Svelte reactivity, prevents $effect re-trigger
   let autoRedirectInProgress = false;
   /** @type {Array<[string, string, string]>} */
   let recentExports = $state([]);
@@ -351,7 +351,7 @@
               <button
                 class="pipeline-promo-btn pipeline-promo-secondary"
                 onclick={() => goto('/causal')}
-                title="Sprint 3 Pharma Causal — DiD / SCM / Causal Forest"
+                title="Sprint 3 Pharma Causal - DiD / SCM / Causal Forest"
               >
                 Причинность →
               </button>
@@ -408,7 +408,7 @@
     flex-direction: column;
     gap: 0px;
     line-height: 1;
-    /* Выравнивание с AURORA baseline — у картинки logo-wordmark.png
+    /* Выравнивание с AURORA baseline - у картинки logo-wordmark.png
        "AI"-superscript смещает визуальный центр выше baseline текста AURORA. */
     margin-top: 8px;
   }
@@ -998,7 +998,7 @@
     font-weight: 500;
   }
   .pipeline-promo-actions { display: flex; gap: 12px; margin-top: 8px; }
-  /* Action buttons — same size, shape, font-weight; differ only by color */
+  /* Action buttons - same size, shape, font-weight; differ only by color */
   .pipeline-promo-btn {
     padding: 7px 16px;
     font-size: 12px;
@@ -1012,7 +1012,7 @@
     white-space: nowrap;
   }
 
-  /* Primary — solid accent */
+  /* Primary - solid accent */
   .pipeline-promo-btn {
     background: var(--accent, #3b82f6);
     color: white;
@@ -1021,7 +1021,7 @@
     background: #2563eb;
   }
 
-  /* Secondary — outline accent (for "Новый проект" when active project exists) */
+  /* Secondary - outline accent (for "Новый проект" when active project exists) */
   .pipeline-promo-btn.pipeline-promo-secondary {
     background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
     color: var(--accent-primary);

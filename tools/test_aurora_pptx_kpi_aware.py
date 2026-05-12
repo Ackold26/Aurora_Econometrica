@@ -1,7 +1,7 @@
 """
 KPI/mode-aware PPTX builder helpers tests (v1.3.2).
 
-Импортирует aurora_pptx.kpi_helpers — extracted helpers module без зависимости
+Импортирует aurora_pptx.kpi_helpers - extracted helpers module без зависимости
 от aurora_tokens (которая нужна builder.py top-level). Builder.py reuse-ит эти
 helpers через alias _kpi_view / _fmt_metric_pptx / etc.
 
@@ -121,27 +121,27 @@ def test_fmt_metric_with_ci_legacy():
     from aurora_pptx.kpi_helpers import fmt_metric_with_ci_text, kpi_view
     kpi = kpi_view({})
     out = fmt_metric_with_ci_text(1.5, 1.2, 1.8, kpi)
-    assert out == '1.50× [1.20—1.80]'
+    assert out == '1.50× [1.20-1.80]'
 
 
 def test_fmt_metric_with_ci_count_inverts_and_swaps():
-    """B4 audit fix: count CI inverts (1/x) и swaps order [lo_cpu — hi_cpu]."""
+    """B4 audit fix: count CI inverts (1/x) и swaps order [lo_cpu - hi_cpu]."""
     from aurora_pptx.kpi_helpers import fmt_metric_with_ci_text, kpi_view
     kpi = kpi_view({'kpi': {'kpi_kind': 'count', 'derived_mode': 'roi', 'labels': {}}})
     # mean=0.0125 → CPU 80
     # ci_low=0.01 → CPU 100 (after invert → high CPU)
     # ci_high=0.0167 → CPU 60 (after invert → low CPU)
-    # Display: «80 ₽/ед. [60—100]» (canonical [lo_cpu — hi_cpu]).
+    # Display: «80 ₽/ед. [60-100]» (canonical [lo_cpu - hi_cpu]).
     out = fmt_metric_with_ci_text(0.0125, 0.01, 0.01667, kpi)
     assert '80 ₽/ед.' in out
-    assert '[60—100]' in out
+    assert '[60-100]' in out
 
 
 def test_fmt_metric_with_ci_effectiveness_fraction():
     from aurora_pptx.kpi_helpers import fmt_metric_with_ci_text, kpi_view
     kpi = kpi_view({'kpi': {'kpi_kind': 'monetary', 'derived_mode': 'effectiveness', 'labels': {}}})
     out = fmt_metric_with_ci_text(0.25, 0.20, 0.30, kpi)
-    # mean 25.0%, ci [20.0—30.0]
+    # mean 25.0%, ci [20.0-30.0]
     assert '25.0' in out
     assert '20.0' in out
     assert '30.0' in out

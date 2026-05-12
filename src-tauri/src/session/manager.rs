@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use crate::crypto;
 
-/// Active session — decrypted vault in a temp directory.
+/// Active session - decrypted vault in a temp directory.
 pub struct Session {
     pub cabinet_id: String,
     pub work_dir: PathBuf,
@@ -155,7 +155,7 @@ impl SessionManager {
         std::fs::create_dir_all(&inbox)?;
         std::fs::create_dir_all(&exports)?;
 
-        // Create real inbox/exports directories in workspace (no junctions — broken with Cyrillic paths)
+        // Create real inbox/exports directories in workspace (no junctions - broken with Cyrillic paths)
         std::fs::create_dir_all(work_dir.join("inbox"))?;
         std::fs::create_dir_all(work_dir.join("exports"))?;
 

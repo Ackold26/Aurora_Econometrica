@@ -1,4 +1,4 @@
-"""Tests для utils/kpi_registry.py — Phase B0.1 foundation.
+"""Tests для utils/kpi_registry.py - Phase B0.1 foundation.
 
 Goal: ensure registry pattern stable, sales config frozen at Trust 3 values
 (regression guard E3), awareness config sane.
@@ -55,7 +55,7 @@ def test_kpi_config_is_frozen_immutable():
 
 
 def test_list_kpi_types_returns_immutable_tuple():
-    """Audit fix: returns tuple (was list — caller could mutate registry)."""
+    """Audit fix: returns tuple (was list - caller could mutate registry)."""
     types = list_kpi_types()
     assert isinstance(types, tuple)
     # Tuples don't have append method
@@ -70,7 +70,7 @@ def test_list_kpi_types_sorted_for_stable_ui():
     assert list(types1) == sorted(types1)
 
 
-# ─── Sales config — REGRESSION GUARD (Trust 3 frozen values) ────────────────
+# ─── Sales config - REGRESSION GUARD (Trust 3 frozen values) ────────────────
 
 def test_sales_config_likelihood_is_normal():
     config = get_kpi_config('sales')
@@ -88,7 +88,7 @@ def test_sales_config_no_baseline_drift():
 
 
 def test_sales_config_priors_match_trust3_frozen():
-    """Trust 3 hardcoded values (modeler.py:408-410) — must NOT drift."""
+    """Trust 3 hardcoded values (modeler.py:408-410) - must NOT drift."""
     config = get_kpi_config('sales')
     # Brand: μ_logit=0.7, σ=0.3 → ~12wk decay
     assert config.brand_mu_logit_prior == (0.7, 0.3)
@@ -99,7 +99,7 @@ def test_sales_config_priors_match_trust3_frozen():
 
 
 def test_sales_config_beta_sigmas_match_trust3():
-    """Trust 3 group beta sigmas (modeler.py:367-369) — must NOT drift."""
+    """Trust 3 group beta sigmas (modeler.py:367-369) - must NOT drift."""
     config = get_kpi_config('sales')
     assert config.brand_beta_sigma == 0.7
     assert config.perf_beta_sigma == 0.3
@@ -114,12 +114,12 @@ def test_sales_config_hill_gammas_match_trust3():
 
 
 def test_sales_config_obs_sigma_matches_trust3():
-    """modeler.py:469 — HalfNormal(0.3)."""
+    """modeler.py:469 - HalfNormal(0.3)."""
     config = get_kpi_config('sales')
     assert config.obs_sigma_prior == 0.3
 
 
-# ─── Awareness config — design assertions ────────────────────────────────────
+# ─── Awareness config - design assertions ────────────────────────────────────
 
 def test_awareness_config_likelihood_is_logit_normal():
     """M1 fix: awareness bounded → logit-Normal."""

@@ -1,6 +1,6 @@
 <script>
   /**
-   * CorrelationHeatmap — Canvas-based correlation matrix visualization.
+   * CorrelationHeatmap - Canvas-based correlation matrix visualization.
    * Hover shows r-value for any cell.
    * Cells with |r| > 0.8 are highlighted in red (multicollinearity warning).
    *
@@ -247,7 +247,7 @@
       </div>
       <div class="legend-item">
         <span class="legend-swatch" style="background: color-mix(in srgb, var(--danger) 70%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 80%, transparent)"></span>
-        <span>|r| > 0.8 — риск мультиколлинеарности</span>
+        <span>|r| > 0.8 - риск мультиколлинеарности</span>
       </div>
     </div>
 

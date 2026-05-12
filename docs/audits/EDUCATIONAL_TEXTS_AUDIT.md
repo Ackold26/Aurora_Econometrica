@@ -17,13 +17,13 @@
 
 Step 1: **Aurora AI Econometrica** intro (✅ updated 2026-05-12: split title + 2 предложения).
 
-Step 2: **Модели и методы** — «NumPyro + JAX для байесовского вывода, Hill function, adstock...».
+Step 2: **Модели и методы** - «NumPyro + JAX для байесовского вывода, Hill function, adstock...».
 - **v1.3.0 changes:** добавить mention goal-seek и safe corridor.
 
-Step 3: **Как начать** — «Создайте проект, загрузите Excel, пройдите 6 шагов: Import → Validate → Model → Decompose → Optimize → Report».
+Step 3: **Как начать** - «Создайте проект, загрузите Excel, пройдите 6 шагов: Import → Validate → Model → Decompose → Optimize → Report».
 - **v1.3.0 changes:** обновить Validate подсказку с «выберите режим» на «выберите KPI и метрики каналов».
 
-Step 4: **Клиент-ready отчёты** — описание форматов отчётов.
+Step 4: **Клиент-ready отчёты** - описание форматов отчётов.
 - **v1.3.0 changes:** добавить mention KPI-aware reports + goal-seek reports.
 
 ### 2. `pipeline-tours.js` (`TOURS` объект)
@@ -32,11 +32,11 @@ Step 4: **Клиент-ready отчёты** — описание формато�
 
 **v1.3.0 changes per step:**
 
-- **validate**: REWRITE tour entirely. Old tour описывал ObjectiveSelector карточки; новый — KPI selector + per-channel input.
-- **model**: minor update — добавить mention KPI-aware priors из registry.
+- **validate**: REWRITE tour entirely. Old tour описывал ObjectiveSelector карточки; новый - KPI selector + per-channel input.
+- **model**: minor update - добавить mention KPI-aware priors из registry.
 - **decompose**: REWRITE для KPI/mode-aware verdicts и CPU column.
 - **optimize**: ADD second portion про Goal-Seek toggle + safe corridor.
-- **report**: minor update — KPI-aware sections + goal-seek reports.
+- **report**: minor update - KPI-aware sections + goal-seek reports.
 
 ### 3. `help-econometrica/` (11 HTML pages)
 
@@ -46,7 +46,7 @@ Step 4: **Клиент-ready отчёты** — описание формато�
 | `data-preparation.html` | Import + Validate guide | REWRITE Validate section per ADR-015 |
 | `methodology.html` | Bayesian + Hill + adstock | ADD: KPI kinds explained, value_per_count_unit, goal-seek bisection |
 | `pipeline.html` | 6-step overview | REWRITE Optimize section (forward + goal-seek), update Decompose (CPU column) |
-| `econometrica.html` | High-level product description | Update — emphasize «work with any KPI», not «for revenue» |
+| `econometrica.html` | High-level product description | Update - emphasize «work with any KPI», not «for revenue» |
 | `user-guide.html` | Step-by-step workflow | Full update per new Validate/Optimize UX |
 | `system-requirements.html` | System reqs | No change |
 | `about.html` | About page | Add v1.3.0 changelog highlight |
@@ -55,14 +55,14 @@ Step 4: **Клиент-ready отчёты** — описание формато�
 | `econ-nav.js` | Navigation menu | Add 2 new pages: `glossary.html`, `goal_seek_guide.html` |
 
 **2 NEW pages** в Stage 4:
-- `glossary.html` — mirror SPA glossary.
-- `goal_seek_guide.html` — dedicated guide для goal-seek workflow.
+- `glossary.html` - mirror SPA glossary.
+- `goal_seek_guide.html` - dedicated guide для goal-seek workflow.
 
 ### 4. `command-meta.js` (inline tooltips)
 
 Уже содержит short descriptions per команда / поле. v1.3.0:
 - ADD: descriptions для новых полей (kpi_kind, value_per_count_unit, derived_mode, safe corridor, goal-seek target).
-- UPDATE: descriptions, которые упоминают «ROI» — параметризовать по KPI.
+- UPDATE: descriptions, которые упоминают «ROI» - параметризовать по KPI.
 
 ### 5. `insights-rules.js` (insights templates)
 
@@ -150,6 +150,6 @@ Stage 4 = 6 дней, разбито:
 
 3. **Help pages updates: full rewrite или delta?** Решено: delta (sections updates per page), не full rewrite.
 
-4. **Intro tutorial — skippable?** Да, на каждом slide кнопка «Пропустить остальное».
+4. **Intro tutorial - skippable?** Да, на каждом slide кнопка «Пропустить остальное».
 
-5. **Mastery progression dialog после N проектов — нужен?** Нет (per binary toggle simplification).
+5. **Mastery progression dialog после N проектов - нужен?** Нет (per binary toggle simplification).

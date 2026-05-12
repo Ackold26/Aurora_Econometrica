@@ -1,10 +1,10 @@
 """
-Aurora Econometrica — column auto-detection (v1.3.0).
+Aurora Econometrica - column auto-detection (v1.3.0).
 
 Auto-classification колонок Excel/CSV по именам: monetary (бюджет в ₽) vs physical
 (показы, клики, GRP). Used by ValidateStep / PerChannelInputSelector для smart defaults.
 
-Per ADR-015 (Mode as derived state) — если auto-detect однозначно определяет тип,
+Per ADR-015 (Mode as derived state) - если auto-detect однозначно определяет тип,
 PerChannelInputSelector скрыт (UI showns только при ambiguity).
 
 Usage:
@@ -62,7 +62,7 @@ MONETARY_PATTERNS = [
     _sep_pattern(r'rub'),
     _sep_pattern(r'usd'),
     _sep_pattern(r'eur'),
-    r'₽',  # currency symbol — matches anywhere.
+    r'₽',  # currency symbol - matches anywhere.
 ]
 
 # Physical metrics: impressions, clicks, visits, GRP, reach, views.
@@ -95,8 +95,8 @@ PHYSICAL_PATTERNS = [
     _sep_pattern(r'выдач(?:и|а|ам)?'),
 ]
 
-# Target metrics — monetary (продажи в ₽, выручка, прибыль).
-# Эти паттерны проверяются ДО MONETARY_PATTERNS — sales_rub имеет priority над `rub`.
+# Target metrics - monetary (продажи в ₽, выручка, прибыль).
+# Эти паттерны проверяются ДО MONETARY_PATTERNS - sales_rub имеет priority над `rub`.
 TARGET_MONETARY_PATTERNS = [
     _sep_pattern(r'sales_rub'),
     _sep_pattern(r'sales_revenue'),
@@ -116,7 +116,7 @@ TARGET_MONETARY_PATTERNS = [
     _sep_pattern(r'оборот'),
 ]
 
-# Target metrics — count (продажи в штуках, лиды, регистрации).
+# Target metrics - count (продажи в штуках, лиды, регистрации).
 # Проверяются ДО PHYSICAL_PATTERNS (sales_packs не должен попасть в physical).
 TARGET_COUNT_PATTERNS = [
     _sep_pattern(r'sales_pack(?:s)?'),
@@ -233,7 +233,7 @@ def detect_available_metrics(
 ) -> Dict[str, List[str]]:
     """Найти доступные monetary / physical метрики для конкретного канала.
 
-    Соглашение naming: имя канала — префикс колонки (e.g. 'tv_spend', 'tv_grp').
+    Соглашение naming: имя канала - префикс колонки (e.g. 'tv_spend', 'tv_grp').
 
     Args:
         column_names: все колонки в датасете.
@@ -254,7 +254,7 @@ def detect_available_metrics(
 
     for col in column_names:
         col_lower = col.lower()
-        # Heuristic: канал — префикс или встречается в начале/средине.
+        # Heuristic: канал - префикс или встречается в начале/средине.
         # Допускаем разделители _, -, пробел.
         # Pattern: channel_name + (_|-| ) + остаток.
         if not (col_lower.startswith(channel_lower) or f'_{channel_lower}' in col_lower):
@@ -275,8 +275,8 @@ def has_ambiguous_channels(
 ) -> bool:
     """True если хотя бы один канал имеет несколько типов метрик доступных.
 
-    Используется UI: если все каналы have single available metric — PerChannelInputSelector
-    скрыт; если хотя бы один ambiguous — показывается selector.
+    Используется UI: если все каналы have single available metric - PerChannelInputSelector
+    скрыт; если хотя бы один ambiguous - показывается selector.
 
     Args:
         column_names: все колонки.
@@ -301,8 +301,8 @@ def suggest_default_input_metric(
     Логика:
     - Если у канала есть только monetary → 'monetary'.
     - Если только physical → 'physical'.
-    - Если оба — приоритет monetary (более точная по бюджету, обычно).
-    - Если ни одного — 'monetary' default (fallback).
+    - Если оба - приоритет monetary (более точная по бюджету, обычно).
+    - Если ни одного - 'monetary' default (fallback).
 
     Args:
         column_names: все колонки.

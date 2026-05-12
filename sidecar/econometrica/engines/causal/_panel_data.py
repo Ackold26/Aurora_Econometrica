@@ -9,7 +9,7 @@ prevents M-specific code from re-implementing same checks.
 
 ⚠️ Pre-launch блокер per ADR §11/Q3: fully aggregated brand-level data
 (Kagocel, Афала) lacks geo split. Real panel-data resolution is a parallel
-workstream — this module loads ANY long-format CSV/XLSX, не зависит от
+workstream - this module loads ANY long-format CSV/XLSX, не зависит от
 specific dataset structure.
 """
 from __future__ import annotations
@@ -65,7 +65,7 @@ def load_panel(
     """Load panel data + run basic format validation.
 
     Returns:
-        (df, metadata, error_dict) — exactly one of {df, error_dict} populated.
+        (df, metadata, error_dict) - exactly one of {df, error_dict} populated.
         - On success: df, metadata, None
         - On failure: None, None, error_response(...)
     """
@@ -130,7 +130,7 @@ def validate_for_did(metadata: PanelMetadata) -> dict | None:
     if not metadata.treated_units:
         return error_response('TREATED_UNIT_MISSING', 'Нет treated units (max(treatment) == 0 для всех).')
     if len(metadata.treated_units) >= metadata.n_units:
-        return error_response('PANEL_FORMAT_INVALID', 'Все units treated — нет контрольной группы.')
+        return error_response('PANEL_FORMAT_INVALID', 'Все units treated - нет контрольной группы.')
     if metadata.n_periods < 4:
         return error_response('INSUFFICIENT_PRE_PERIODS', f'DiD требует ≥4 periods. Got {metadata.n_periods}.')
     return None
@@ -143,7 +143,7 @@ def validate_for_scm(
 ) -> dict | None:
     """SCM-specific validation.
 
-    B9 audit fix: defensive type coercion для treatment_period comparison —
+    B9 audit fix: defensive type coercion для treatment_period comparison -
     if metadata periods are timestamps and user passes string, attempt coerce.
     Pre-fix, type mismatch silently filtered all periods to one side.
     """
@@ -184,15 +184,15 @@ def validate_for_scm(
 
     # B7 audit fix: warn (not block) when n_pre < n_donors + 1.
     # Per Abadie literature, SCM may overfit (perfect pre-match) когда n_donors > n_pre.
-    # We don't BLOCK because SCM still computable — just store warning meta для UI.
+    # We don't BLOCK because SCM still computable - just store warning meta для UI.
     # (caller in scm.py can read this from metadata if needed; non-blocking.)
     if len(pre_periods) < n_donors + 1:
-        # Stamp on metadata for caller to surface (don't reject — allow SCM to run)
+        # Stamp on metadata for caller to surface (don't reject - allow SCM to run)
         metadata.units_list  # no-op accessor, just to assert metadata still usable
-        # Note: metadata is dataclass — we attach a soft attribute via setattr
+        # Note: metadata is dataclass - we attach a soft attribute via setattr
         try:
             object.__setattr__(metadata, '_overfit_warning',
-                f'n_pre ({len(pre_periods)}) < n_donors+1 ({n_donors+1}) — SCM may overfit '
+                f'n_pre ({len(pre_periods)}) < n_donors+1 ({n_donors+1}) - SCM may overfit '
                 f'pre-treatment match. Pre-RMSE will look excellent но post-period extrapolation '
                 f'unreliable. Per Abadie 2021, prefer n_pre ≥ n_donors+1.')
         except Exception:
@@ -202,7 +202,7 @@ def validate_for_scm(
 
 
 def validate_for_forest(metadata: PanelMetadata, feature_columns: list[str], df: pd.DataFrame) -> dict | None:
-    """Causal Forest validation — overlap + features."""
+    """Causal Forest validation - overlap + features."""
     if not metadata.has_treatment:
         return error_response('PANEL_FORMAT_INVALID', 'Causal Forest требует treatment_column.')
     if metadata.n_obs < 100:
@@ -210,7 +210,7 @@ def validate_for_forest(metadata: PanelMetadata, feature_columns: list[str], df:
     missing_feat = [f for f in feature_columns if f not in df.columns]
     if missing_feat:
         return error_response('COLUMNS_MISSING', f'Feature columns missing: {missing_feat}')
-    # Trivial overlap check — both treated и control в данных
+    # Trivial overlap check - both treated и control в данных
     treat_count = df.groupby(metadata.unit_column).first()  # placeholder
     return None
 
@@ -226,7 +226,7 @@ def synthesize_geo_split(
 
     Brand-level data (Kagocel/Афала) lacks regional granularity. For Sprint 3
     validation, can synthesize geo split via stratified random assignment of
-    rows to regions. Use ONLY для validation / DGP-controlled SBC — not для
+    rows to regions. Use ONLY для validation / DGP-controlled SBC - not для
     real customer reports.
 
     DGP: each row randomly assigned к 1 of n_geo regions. KPI scaled by
@@ -235,11 +235,11 @@ def synthesize_geo_split(
     causal signal с known ground truth.
 
     Returns:
-        df_panel — long-format с new geo column added. Each original row
+        df_panel - long-format с new geo column added. Each original row
         becomes n_geo rows (one per region) with proportionally split KPI.
     """
     # B10 audit fix: hoist numeric_cols computation outside double loop (was: re-evaluated
-    # N×n_geo times = O(N×n_geo) wasted column lookups). Comment "additive noise" was wrong —
+    # N×n_geo times = O(N×n_geo) wasted column lookups). Comment "additive noise" was wrong -
     # scaling is multiplicative (kept as-is, just labeled correctly now).
     rng = np.random.default_rng(seed)
     region_multipliers = rng.uniform(0.5, 1.5, n_geo)

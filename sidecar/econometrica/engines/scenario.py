@@ -28,13 +28,13 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             'media_plan': dict[str, list[float]],  # {channel: [month1, month2, ...]} в native units
             'media_plan_file': str|None,            # Or path to xlsx with plan
             'unit_costs': dict[str, float]|None,    # {channel: ₽/unit}. Ключ для mixed units
-                                                    #  (TRP→₽/TRP, рубли→1). Если None — native=money.
+                                                    #  (TRP→₽/TRP, рубли→1). Если None - native=money.
         }
         project_dir: Path to project with models/latest.pkl
 
     Returns:
         JSON with predicted KPI per period and totals. Включает как native-бюджет
-        (`total_spend`, `roas`), так и денежный (`total_spend_money`, `roas_money`) —
+        (`total_spend`, `roas`), так и денежный (`total_spend_money`, `roas_money`) -
         последний рассчитывается когда unit_costs покрывает все каналы. При смешанных
         единицах только `roas_money` имеет смысл для сравнения сценариев.
     """
@@ -59,7 +59,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         return {
             'status': 'error',
             'error_code': 'MODEL_OUTDATED',
-            'message': 'Модель обучена до v1.0.13. Нормализация изменилась — переобучите модель в кабинете "Модель".',
+            'message': 'Модель обучена до v1.0.13. Нормализация изменилась - переобучите модель в кабинете "Модель".',
         }
 
     config_model = model_data['config']
@@ -73,7 +73,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # валидной цены считается не покрытым деньгами, money-mode не включится).
     unit_costs = _sanitize_unit_costs(config.get('unit_costs'))
 
-    # Phase 2 audit pass 4 — per-channel inflation. Если customer задал годовой
+    # Phase 2 audit pass 4 - per-channel inflation. Если customer задал годовой
     # темп инфляции CPP/CPM, scenario money conversion использует weighted-
     # average training cost (не current). ROI остаётся согласованным с decomposer.
     inflation_pct_per_channel = config.get('unit_cost_inflation_pct')
@@ -92,7 +92,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                     date_column=config_model.get('date_column', 'date'),
                 )
         except Exception as _infl_err:
-            # Phase 3 audit fix: previously silent — surfaces logged warning так
+            # Phase 3 audit fix: previously silent - surfaces logged warning так
             # что customer-side issue с inflation_pct config debuggable. Fallback
             # behavior unchanged (current_cost preserved).
             import logging as _logging
@@ -158,7 +158,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # Determine reference n_periods from training data (length of df).
     # Phase 2 (audit pass 4 2026-05-02): когда config['forecast_periods'] задан,
     # single-period mediaPlan totals распределяются по forecast_periods (не
-    # training_n_periods). Matches optimizer planning mode semantics — scenario
+    # training_n_periods). Matches optimizer planning mode semantics - scenario
     # отражает «бюджет 2026 года», не «бюджет training horizon».
     data_file = config_model.get('data_file')
     forecast_periods_cfg = config.get('forecast_periods')
@@ -253,7 +253,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     incremental_total = scenario_total - baseline_total
 
     # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04) ────────────────
-    # Pre-fix: lift = incremental / baseline_only — denominator excluded current
+    # Pre-fix: lift = incremental / baseline_only - denominator excluded current
     # media contribution → ratio inflated when media >> baseline.
     # Frontend predictKPI uses (scenario_total - current_total) / current_total
     # → расхождение с UI scenarios block. Optimizer also misaligned (5a fix).
@@ -269,7 +269,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     y_std_degenerate = (not isinstance(y_std, (int, float))) or (abs(float(y_std)) < 1e-10)
     if y_std_degenerate:
         _scn_logger.warning(
-            "scenario lift: y_std degenerate (%s) — canonical formula falls back к legacy ratio.",
+            "scenario lift: y_std degenerate (%s) - canonical formula falls back к legacy ratio.",
             y_std,
         )
 
@@ -310,7 +310,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             current_total_kpi = float(sum(current_predictions))
             canonical_reconstruction_ok = True
         except Exception as _e_lift:
-            # AUDIT fix: explicit log при fallback (was silent — debugging customer
+            # AUDIT fix: explicit log при fallback (was silent - debugging customer
             # reports stuck on degenerate canonical lift).
             _scn_logger.warning(
                 "scenario lift canonical reconstruction failed (data_file=%s): %s. "
@@ -320,7 +320,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             current_total_kpi = baseline_total
     elif not data_file:
         _scn_logger.info(
-            "scenario lift: data_file missing in config — canonical reconstruction skipped, "
+            "scenario lift: data_file missing in config - canonical reconstruction skipped, "
             "using legacy formula. Common in v1.0/v1.1 legacy pickles."
         )
 
@@ -335,10 +335,10 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         lift_pct = canonical_lift_pct
 
     # Phase 1.9: posterior CI on totals via vectorized per-sample reconstruction.
-    # baseline_per_period uses intercept_mean (point) — Phase 1.9 also propagates
+    # baseline_per_period uses intercept_mean (point) - Phase 1.9 also propagates
     # intercept_samples to make baseline a distribution. Memory: 8000×n_periods×n_channels
     # floats = ~2MB peak per scenario for Kagocel; acceptable, no thinning needed (Vehtari rule).
-    # We DON'T persist raw samples per scenario — only summary stats — to avoid RAM blow-up
+    # We DON'T persist raw samples per scenario - only summary stats - to avoid RAM blow-up
     # when user creates 5+ scenarios in single session.
     predicted_kpi_ci = None  # tuple (low, high) when computable
     incremental_kpi_ci = None
@@ -349,7 +349,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # adstock_mean computation. Required to match in-model `adstock_full[s,:].mean()`
     # normalization when adstock decay varies across posterior draws (Phase 1.1).
     # Conditional load: only when posterior_samples available + at least one geometric
-    # channel has decay samples. Defensive — fallback to scalar mean when load fails.
+    # channel has decay samples. Defensive - fallback to scalar mean when load fails.
     train_raw_per_channel: dict[str, np.ndarray] = {}
     if posterior_samples is not None and data_file:
         try:
@@ -428,7 +428,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             # baseline distribution: intercept_samples × y_std + y_mean per period
             intercept_samples = np.asarray(posterior_samples['intercept'], dtype=np.float64)
             baseline_per_sample_period = intercept_samples * y_std + y_mean  # (n_samples,)
-            # predicted_kpi_samples — per period sum, then sum over periods
+            # predicted_kpi_samples - per period sum, then sum over periods
             predicted_per_period_samples = (
                 baseline_per_sample_period.reshape(-1, 1)
                 + total_contrib_samples * y_std
@@ -446,8 +446,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             # AUDIT fix 2026-05-04: pre-fix mixed scalar (current_media_total point estimate)
             # с vector baseline_total_samples → degenerate CI when baseline variance large
             # vs media. Также `max(diff, 0.0)` silently hide negative-media reconstruction
-            # bug. Now: при canonical reconstruction OK — use point estimate (warning-only,
-            # tighter assumptions); при reconstruction failed — fallback к legacy CI.
+            # bug. Now: при canonical reconstruction OK - use point estimate (warning-only,
+            # tighter assumptions); при reconstruction failed - fallback к legacy CI.
             # Если current_total_kpi == baseline_total (data_file fail), canonical CI degenerates;
             # use legacy.
             current_media_total = current_total_kpi - baseline_total  # may be ≥0 OR slightly <0
@@ -455,7 +455,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 # Reconstruction failed OR negative media (anomaly worth surfacing) → legacy CI.
                 if current_media_total < -1.0:
                     _scn_logger.warning(
-                        "scenario lift CI: current_media_total=%s < 0 — reconstruction yielded "
+                        "scenario lift CI: current_media_total=%s < 0 - reconstruction yielded "
                         "negative media contribution. Falling back к legacy CI formula.",
                         current_media_total,
                     )
@@ -497,7 +497,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             incremental_kpi_ci = None
             lift_pct_ci = None
 
-    # Native spend sum (mixed units — informative only, bogus for ROAS across channels)
+    # Native spend sum (mixed units - informative only, bogus for ROAS across channels)
     per_channel_native = {col: sum(media_plan.get(col, [])) for col in media_cols}
     total_spend_native = sum(per_channel_native.values())
 
@@ -507,7 +507,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     roas_native = incremental_total / total_spend_native if total_spend_native > 0 else 0
     roas_native_total = scenario_total / total_spend_native if total_spend_native > 0 else 0
 
-    # Money-denominated spend — only valid if unit_costs cover all active channels
+    # Money-denominated spend - only valid if unit_costs cover all active channels
     active_channels = [c for c in media_cols if per_channel_native.get(c, 0) > 0]
     covered = [c for c in active_channels if unit_costs.get(c, 0) > 0]
     per_channel_money = {
@@ -530,7 +530,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # Phase 1.9: ROAS CI propagation from incremental KPI samples (denominator = scalar spend).
     # C2 fix (audit 2026-04-26): guard против division by near-zero. Pre-fix CI explodes
     # к ±inf когда total_spend_money micro (e.g. user creates "near-zero plan" scenario).
-    # Threshold 100₽ — reasonable absolute floor; below this scenario сам по себе degenerate.
+    # Threshold 100₽ - reasonable absolute floor; below this scenario сам по себе degenerate.
     _MIN_SPEND_FOR_ROAS_CI = 100.0
     if incremental_kpi_ci is not None and total_spend_native > _MIN_SPEND_FOR_ROAS_CI:
         roas_native_ci = (incremental_kpi_ci[0] / total_spend_native, incremental_kpi_ci[1] / total_spend_native)
@@ -558,7 +558,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             # P1-4: primary ROAS = incremental / spend (industry-standard MMM)
             'roas': round(roas_native, 2),
             'roas_money': round(roas_money, 2) if roas_money else None,
-            # Legacy total ROAS (scenario_total / spend) — back-compat
+            # Legacy total ROAS (scenario_total / spend) - back-compat
             'roas_total': round(roas_native_total, 2),
             'roas_money_total': round(roas_money_total, 2) if roas_money_total else None,
             'units_fully_covered': units_fully_covered,
@@ -624,7 +624,7 @@ def _migrate_money_fields(data: dict, unit_costs: dict) -> dict:
 
     Старые сценарии (session 8-) сохранены без unit_costs → у них только native-ROAS.
     При compare_scenarios передаём текущие project-level unit_costs и мигрируем на лету.
-    Файлы на диске НЕ переписываются — миграция только для отображения.
+    Файлы на диске НЕ переписываются - миграция только для отображения.
 
     P1-4 fix (2026-04-25): новые scenarios save 'roas_money' как INCREMENTAL.
     Старые scenarios saved 'roas_money' как TOTAL. Для consistency в comparison
@@ -659,7 +659,7 @@ def _migrate_money_fields(data: dict, unit_costs: dict) -> dict:
             totals.setdefault('roas_method', 'total')  # legacy default
 
     # If post-P1-4 saved scenario, roas_method='incremental' уже установлен.
-    # Если legacy без roas_method — помечаем как 'total' для UI badge.
+    # Если legacy без roas_method - помечаем как 'total' для UI badge.
     totals.setdefault('roas_method', 'total')
     data['totals'] = totals
     return data
@@ -723,7 +723,7 @@ def compare_scenarios(project_dir: str, unit_costs: dict | None = None) -> dict[
 
     warn = ''
     if not has_money:
-        warn = ' ⚠️ Бюджеты в native-единицах (смешанные) — ROAS не сопоставим между сценариями. Укажи стоимость юнита в блоке «Проверка».'
+        warn = ' ⚠️ Бюджеты в native-единицах (смешанные) - ROAS не сопоставим между сценариями. Укажи стоимость юнита в блоке «Проверка».'
 
     insight = (
         f"Лучший сценарий по {roas_label}: «{best['scenario_name']}» "

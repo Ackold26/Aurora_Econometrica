@@ -1,4 +1,4 @@
-# Sprint 3 Pharma Causal — Architectural Decision Record
+# Sprint 3 Pharma Causal - Architectural Decision Record
 
 **Created:** 2026-04-27
 **Status:** APPROVED 2026-04-27 with 4 refinements (Q1-Q4 confirmed, see §11)
@@ -12,10 +12,10 @@
 
 **Sprint 3 EXTENDS the existing Aurora Econometrica architecture. It does NOT rewrite or restructure existing engines/endpoints/pickle schemas.**
 
-This is the **load-bearing decision** of this ADR — pin the existing FastAPI shape so MIN-LIVE coverage from Sprint 1+2 remains valid:
+This is the **load-bearing decision** of this ADR - pin the existing FastAPI shape so MIN-LIVE coverage from Sprint 1+2 remains valid:
 
 - ✅ All existing endpoints remain functional with **identical** request/response schemas: `/compute/train`, `/compute/decompose`, `/compute/optimize`, `/compute/scenario`, `/compute/preflight`, `/compute/recommend`, etc.
-- ✅ Existing pickle versions (v1.0-ols, v1.1.5, v1.2) remain readable. Causal Sprint 3 introduces NEW artifacts in separate `causal/` subdir of project — **does not modify** `models/latest.pkl`.
+- ✅ Existing pickle versions (v1.0-ols, v1.1.5, v1.2) remain readable. Causal Sprint 3 introduces NEW artifacts in separate `causal/` subdir of project - **does not modify** `models/latest.pkl`.
 - ✅ Existing engines (`modeler`, `decomposer`, `optimizer`, `scenario`, `ols_modeler`) get NO API breaks. Sprint 3 adds NEW engines in `engines/causal/` subdir.
 - ✅ MIN-LIVE acceptance gates 1-5 (от 2026-04-27) remain valid as regression suite. Sprint 3 adds gates 6-9 для new endpoints без touching 1-5.
 
@@ -34,17 +34,17 @@ This is the **load-bearing decision** of this ADR — pin the existing FastAPI s
 ### 2.1 Pre-launch блокеры (from memory `project_econometrica_premium_avatars.md`)
 
 All blockers closed as of 2026-04-26:
-- ✅ **Geo-data в фарме у всех** — pharmaceutical clients track sales by geographic regions (cities/областей/regions) as industry standard. Required for SCM (need control regions) and DiD (need treatment vs control geo split).
-- ✅ **Materia Medica/Кагоцел готов validate** — existing client с 31 weeks of geo-disaggregated data, можно использовать как первый causal validation case.
+- ✅ **Geo-data в фарме у всех** - pharmaceutical clients track sales by geographic regions (cities/областей/regions) as industry standard. Required for SCM (need control regions) and DiD (need treatment vs control geo split).
+- ✅ **Materia Medica/Кагоцел готов validate** - existing client с 31 weeks of geo-disaggregated data, можно использовать как первый causal validation case.
 
 ### 2.2 Why CAUSAL дополняет MMM
 
 Existing MMM (Bayesian + OLS) answers: *"какой ROI у канала на агрегированных данных?"*
 
 Causal Sprint 3 answers complementary questions:
-- **DiD (Difference-in-Differences):** *"какой incremental эффект новой кампании в пилотных регионах vs контрольных?"* — для регионального A/B testing.
-- **SCM (Synthetic Control Method):** *"что было бы в одном регионе если бы ТВ-флайт там не запустили?"* — для post-hoc оценки holdout markets.
-- **Causal Forest (Wager-Athey HTE):** *"в каких сегментах эффект кампании был сильнее, и почему?"* — для heterogeneous treatment effects.
+- **DiD (Difference-in-Differences):** *"какой incremental эффект новой кампании в пилотных регионах vs контрольных?"* - для регионального A/B testing.
+- **SCM (Synthetic Control Method):** *"что было бы в одном регионе если бы ТВ-флайт там не запустили?"* - для post-hoc оценки holdout markets.
+- **Causal Forest (Wager-Athey HTE):** *"в каких сегментах эффект кампании был сильнее, и почему?"* - для heterogeneous treatment effects.
 
 Эти три метода покрывают standard pharma marketing experimental designs (geo holdout, in-flight test markets, segmentation analysis) и дают causal claims, которые ФЗ-38 / ОРД / ФАС-compliant compliance narrative требует ("эффект подтверждён contrastive evidence", не только observational MMM correlation).
 
@@ -56,22 +56,22 @@ Causal Sprint 3 answers complementary questions:
 
 | Method | Library | Rationale |
 |--------|---------|-----------|
-| DiD (staggered adoption) | `linearmodels` | Implements Callaway-Sant'Anna 2021 (AER paper) — modern DiD with proper SE для staggered roll-outs typical в pharma marketing (regions onboard at different dates). Well-tested, NumPy/pandas native. |
+| DiD (staggered adoption) | `linearmodels` | Implements Callaway-Sant'Anna 2021 (AER paper) - modern DiD with proper SE для staggered roll-outs typical в pharma marketing (regions onboard at different dates). Well-tested, NumPy/pandas native. |
 | Causal Forest (HTE) | `econml` | Microsoft Research's library, Wager-Athey 2018 estimator (JASA), confidence intervals via honest splits. Pandas/scikit-learn integration. |
 | SCM (Synthetic Control) | `pysyncon` | Abadie & Augmented SCM 2021, MIT-licensed Python port of Abadie's R `Synth`. Lightweight, no R dependency. |
 | Panel data utilities | `statsmodels` | Already в transitive deps. Use для basic panel regression baseline. |
 
 **Alternatives considered и rejected:**
-- `DoubleML` (Chernozhukov et al.) for HTE — more sophisticated but heavier API surface, deferred Sprint 4.
-- `causalimpact` (Google) for SCM — Bayesian variant, но R-port wraps GP regression that's redundant with our existing MCMC. `pysyncon` simpler.
-- Custom DiD via PyMC — would proliferate parallel inference. Use `linearmodels` for first ship, могут добавить Bayesian DiD позже.
+- `DoubleML` (Chernozhukov et al.) for HTE - more sophisticated but heavier API surface, deferred Sprint 4.
+- `causalimpact` (Google) for SCM - Bayesian variant, но R-port wraps GP regression that's redundant with our existing MCMC. `pysyncon` simpler.
+- Custom DiD via PyMC - would proliferate parallel inference. Use `linearmodels` for first ship, могут добавить Bayesian DiD позже.
 
 ### 3.2 Dependency budget
 
 Adding 3 deps. Current `requirements.txt` already has pandas/numpy/scipy/statsmodels/PyMC/arviz/JAX/numpyro. New:
 - `linearmodels >= 6.0` (~2MB, depends on patsy already в transitive)
 - `econml >= 0.15` (~5MB, sklearn already в transitive)
-- `pysyncon >= 1.5` (~500KB, depends on cvxpy which adds ~10MB — biggest add)
+- `pysyncon >= 1.5` (~500KB, depends on cvxpy which adds ~10MB - biggest add)
 
 **Total install size impact:** ~17MB. Build sidecar exe size impact (PyInstaller --collect-all): ~30-50MB. Acceptable per memory `feedback_econometrica_patterns.md` Phase 1.1 added similar magnitude.
 
@@ -82,11 +82,11 @@ Adding 3 deps. Current `requirements.txt` already has pandas/numpy/scipy/statsmo
 ### 4.1 Endpoints (all extending existing FastAPI server.py)
 
 ```
-POST /compute/causal/did        — Difference-in-Differences (Callaway-Sant'Anna)
-POST /compute/causal/scm        — Synthetic Control Method (Abadie + Augmented)
-POST /compute/causal/forest     — Causal Forest (Wager-Athey HTE)
-POST /compute/causal/preflight  — Unified pre-causal data validation
-GET  /compute/causal/list       — List existing causal results in project
+POST /compute/causal/did        - Difference-in-Differences (Callaway-Sant'Anna)
+POST /compute/causal/scm        - Synthetic Control Method (Abadie + Augmented)
+POST /compute/causal/forest     - Causal Forest (Wager-Athey HTE)
+POST /compute/causal/preflight  - Unified pre-causal data validation
+GET  /compute/causal/list       - List existing causal results in project
 ```
 
 ### 4.2 Request schemas (Pydantic)
@@ -94,7 +94,7 @@ GET  /compute/causal/list       — List existing causal results in project
 ```python
 class CausalDiDRequest(BaseModel):
     project_dir: str
-    data_file: str  # panel data — long format (region, period, kpi, treated)
+    data_file: str  # panel data - long format (region, period, kpi, treated)
     treatment_column: str  # bool/int 0-1: treated в этом периоде
     geo_column: str  # region/city identifier
     time_column: str
@@ -137,7 +137,7 @@ Common output structure (all 3 endpoints):
     "ci_method": "frequentist_se" | "bootstrap" | "conformal_residual"
   },
   "diagnostics": { /* method-specific */ },
-  "honest_disclosure": {  // F2/F3 synergy — централизуем caveats
+  "honest_disclosure": {  // F2/F3 synergy - централизуем caveats
     "method_assumption": "...",
     "exchangeability_caveat": "...",
     "overlap_warning": "..."
@@ -148,7 +148,7 @@ Common output structure (all 3 endpoints):
 
 ### 4.4 Pickle / artifact schema
 
-Causal results stored как JSON в `project_dir/causal/` — **NOT** pickle, **NOT** in `models/latest.pkl`. Reasons:
+Causal results stored как JSON в `project_dir/causal/` - **NOT** pickle, **NOT** in `models/latest.pkl`. Reasons:
 1. Causal artifacts are dataset-specific, не reusable across projects.
 2. JSON readable by humans + non-Python tools (R analysts may консьюм).
 3. Avoids pickle schema conflicts с MMM `model_version` versioning.
@@ -161,49 +161,49 @@ Naming: `did_<timestamp>.json`, `scm_<timestamp>.json`, `forest_<timestamp>.json
 
 Before shipping Sprint 3 к customers, gate sequence:
 
-1. **SBC (Simulation-Based Calibration) overnight** — ~16h MCMC × 100 sims на synthetic data with known ground truth ATT. Verify CI coverage matches nominal (90% CI captures true ATT in ≥85% sims). Reference: Talts, Betancourt, Simpson, Vehtari 2018 "Validating Bayesian inference algorithms with simulation-based calibration" arXiv:1804.06788.
+1. **SBC (Simulation-Based Calibration) overnight** - ~16h MCMC × 100 sims на synthetic data with known ground truth ATT. Verify CI coverage matches nominal (90% CI captures true ATT in ≥85% sims). Reference: Talts, Betancourt, Simpson, Vehtari 2018 "Validating Bayesian inference algorithms with simulation-based calibration" arXiv:1804.06788.
 
-2. **UI live-test on Materia Medica/Кагоцел real geo data** — end-to-end DiD + SCM + Causal Forest на 31-week pharmaceutical dataset с known regional flights. Manual sanity check ATT magnitude.
+2. **UI live-test on Materia Medica/Кагоцел real geo data** - end-to-end DiD + SCM + Causal Forest на 31-week pharmaceutical dataset с known regional flights. Manual sanity check ATT magnitude.
 
-3. **Independent fresh-context audit pass** (D-style review) — same blind-spot doctrine as F1/A1: spawn fresh-context Claude session, read causal/* engines code only, surface ≥3 hidden bugs. Sprint 1+2 audit cycle showed this catches real issues.
+3. **Independent fresh-context audit pass** (D-style review) - same blind-spot doctrine as F1/A1: spawn fresh-context Claude session, read causal/* engines code only, surface ≥3 hidden bugs. Sprint 1+2 audit cycle showed this catches real issues.
 
-4. **MIN-LIVE gates 6-9** — analogous к Sprint 1+2 acceptance gates но для causal endpoints.
+4. **MIN-LIVE gates 6-9** - analogous к Sprint 1+2 acceptance gates но для causal endpoints.
 
-Block ship if any gate fails. Per memory `feedback_econometrica_patterns.md` — backend velocity без validation gates = same C1/F1/A1 class regressions.
+Block ship if any gate fails. Per memory `feedback_econometrica_patterns.md` - backend velocity без validation gates = same C1/F1/A1 class regressions.
 
 ---
 
 ## 6. Phased delivery (M0-M4, ~25-40h backend)
 
-### M0 — Stack + scaffolding (~3h)
+### M0 - Stack + scaffolding (~3h)
 - Add 3 deps к requirements.txt + freeze test
 - Create `engines/causal/{__init__,common}.py` namespace
-- Create `engines/causal/_panel_data.py` — utility for loading panel-format data + validation
+- Create `engines/causal/_panel_data.py` - utility for loading panel-format data + validation
 - Smoke test imports work in current PyInstaller bundle config
 
-### M1 — DiD endpoint (~6-8h)
-- `engines/causal/did.py` — Callaway-Sant'Anna estimator wrapping linearmodels
+### M1 - DiD endpoint (~6-8h)
+- `engines/causal/did.py` - Callaway-Sant'Anna estimator wrapping linearmodels
 - `/compute/causal/did` endpoint + Pydantic request model
 - Honest disclosure: parallel-trends assumption, common-shock assumption
 - Unit tests на synthetic data with known DGP
 - Gate 6: MIN-LIVE на Materia Medica synthetic DiD scenario
 
-### M2 — SCM endpoint (~7-10h)
-- `engines/causal/scm.py` — wrap pysyncon Augmented SCM
+### M2 - SCM endpoint (~7-10h)
+- `engines/causal/scm.py` - wrap pysyncon Augmented SCM
 - `/compute/causal/scm` endpoint
 - Pre-treatment fit diagnostics (RMSE pre-treatment должен быть «good»)
 - Honest disclosure: convex-hull assumption, donor-pool quality
 - Gate 7: MIN-LIVE Pittsburg-style holdout test
 
-### M3 — Causal Forest endpoint (~8-12h)
-- `engines/causal/causal_forest.py` — wrap econml CausalForestDML
+### M3 - Causal Forest endpoint (~8-12h)
+- `engines/causal/causal_forest.py` - wrap econml CausalForestDML
 - `/compute/causal/forest` endpoint
-- HTE visualization payload — feature importance, treatment effect distribution
+- HTE visualization payload - feature importance, treatment effect distribution
 - Honest disclosure: positivity / overlap assumption
 - Gate 8: MIN-LIVE на segmented Кагоцел data
 
-### M4 — Integration + cross-method consistency (~3-5h)
-- `/compute/causal/preflight` — unified validation across methods
+### M4 - Integration + cross-method consistency (~3-5h)
+- `/compute/causal/preflight` - unified validation across methods
 - Cross-method comparison: ATT from DiD vs SCM should agree within CI overlap
 - Honest disclosure aggregator: list assumptions checked vs unverified
 - Gate 9: end-to-end pharma scenario через все 3 method'а
@@ -214,7 +214,7 @@ UI parallel track (~10-15h, otherwise независим): new "Причинно
 
 ## 7. Honest Disclosure Synergy (F2/F3 follow-on)
 
-Sprint 3 reinforces the F2/F3 idealization theme — every causal method returns explicit `honest_disclosure` field. UI surfaces these каveats:
+Sprint 3 reinforces the F2/F3 idealization theme - every causal method returns explicit `honest_disclosure` field. UI surfaces these каveats:
 
 - **DiD parallel-trends:** "Effect estimate valid only if pre-treatment trends parallel between treated и control regions. Visual inspection и placebo test recommended."
 - **SCM convex-hull:** "Synthetic control valid только если treated unit's pre-treatment characteristics are в convex hull of donor pool. RMSE pre/post comparison surfaces violations."
@@ -232,15 +232,15 @@ This makes Aurora Causal honest about its assumptions, не "magic causal MMM" c
 **Option A:** Ship M1 (DiD only) as v1.0.14 alpha → customer feedback → M2-M4 later.
 **Option B:** Ship M0-M4 together as v1.0.14, longer backend window но cohesive launch.
 
-Recommendation: **Option B** — DiD alone без SCM/Forest looks like incomplete causal toolkit. Customer would ask "почему только DiD?" and we'd need to explain. Better single launch.
+Recommendation: **Option B** - DiD alone без SCM/Forest looks like incomplete causal toolkit. Customer would ask "почему только DiD?" and we'd need to explain. Better single launch.
 
 ### Q2 [DEPENDENCY BUDGET] cvxpy bundling
 
 `pysyncon` requires `cvxpy` (~10MB extra). Alternatives:
 **Option A:** Accept cvxpy bundle size hit для proper SCM optimization.
-**Option B:** Implement Augmented SCM optimization manually using `scipy.optimize.minimize` — ~50 LOC, avoids cvxpy. Slightly less robust но manageable.
+**Option B:** Implement Augmented SCM optimization manually using `scipy.optimize.minimize` - ~50 LOC, avoids cvxpy. Slightly less robust но manageable.
 
-Recommendation: **Option B** — keep bundle lean, scipy уже в deps, manual implementation gives us full control over numerical edge cases (which cvxpy may obscure).
+Recommendation: **Option B** - keep bundle lean, scipy уже в deps, manual implementation gives us full control over numerical edge cases (which cvxpy may obscure).
 
 ### Q3 [VALIDATION DATA] kagocel-only or multi-client?
 
@@ -285,41 +285,41 @@ Per-M checkpoint structure: load relevant pickle/data → call new endpoint → 
 
 ### Q2 confirmed: B (manual scipy SCM) + interface isolation refinement
 
-**Refinement:** define explicit `_solve_scm_weights(Y_treated_pre, Y_donors_pre)` interface that returns weights array. Implementation today = scipy.optimize.minimize with SLSQP + simplex constraints. Future drop-in replacement to cvxpy (Augmented SCM/BSCM) is one-line swap внутри function — caller doesn't know the difference. Clean refactor path.
+**Refinement:** define explicit `_solve_scm_weights(Y_treated_pre, Y_donors_pre)` interface that returns weights array. Implementation today = scipy.optimize.minimize with SLSQP + simplex constraints. Future drop-in replacement to cvxpy (Augmented SCM/BSCM) is one-line swap внутри function - caller doesn't know the difference. Clean refactor path.
 
-### Q3 confirmed: A modified — Kagocel + Афала double validation
+### Q3 confirmed: A modified - Kagocel + Афала double validation
 
-**Refinement:** add Афала dataset (MMX_2021-2025_source.xlsx, sheet 'Афала', n=43 monthly, 5 channels Mr different from Kagocel's 7) to validation set. Same client (Materia Medica) — no calendar slip / new contract. Closes "single dataset = blind spot" risk: real validation diversity без waiting external client.
+**Refinement:** add Афала dataset (MMX_2021-2025_source.xlsx, sheet 'Афала', n=43 monthly, 5 channels Mr different from Kagocel's 7) to validation set. Same client (Materia Medica) - no calendar slip / new contract. Closes "single dataset = blind spot" risk: real validation diversity без waiting external client.
 
-⚠️ **PANEL DATA CAVEAT:** both Kagocel и Афала are AGGREGATED brand-level data (no geo split). Causal methods (DiD/SCM/Forest) require PANEL data with multiple units (regions/cities). Pre-launch блокер per memory: "geo-data в фарме у всех" — but where в TestData this lives is not yet identified. **M1 cannot run without panel data.** This is a separate workstream:
+⚠️ **PANEL DATA CAVEAT:** both Kagocel и Афала are AGGREGATED brand-level data (no geo split). Causal methods (DiD/SCM/Forest) require PANEL data with multiple units (regions/cities). Pre-launch блокер per memory: "geo-data в фарме у всех" - but where в TestData this lives is not yet identified. **M1 cannot run without panel data.** This is a separate workstream:
 - Synthetic geo split via stratified sampling от monthly data (DGP-controlled validation)
 - Or request real geo-disaggregated data from Materia Medica для validation
-- M0 scaffolding is dataset-agnostic — proceeds independently, panel-data resolution happens in parallel with stack install.
+- M0 scaffolding is dataset-agnostic - proceeds independently, panel-data resolution happens in parallel with stack install.
 
 ### Q4 confirmed: A (separation) + optional `causal_artifact_path` hint refinement
 
 **Refinement:** добавить `optional causal_artifact_path: str | None = None` field в MMM pickle schema (next training write). Hint, не requirement. MMM training сохраняет path к latest causal artifact in same project. UI knows where to look для combined view. Backward-compat preserved (legacy pickles миss field → fall back к MMM-only view). Independent lifecycles preserved (refresh geo experiment не invalidates MMM training).
 
-Schema impact: minor — one optional string field в pickle dict. v1.2 pickles (current production) get field on next train (not retroactive — readers use `.get('causal_artifact_path', None)` defensive).
+Schema impact: minor - one optional string field в pickle dict. v1.2 pickles (current production) get field on next train (not retroactive - readers use `.get('causal_artifact_path', None)` defensive).
 
 ---
 
 ## 12. M0 execution plan (ready to start autonomously)
 
-Per Антон mandate "стартуй M0 автономно с моими 4 поправками. Если M0 разрезается на нюансы — пинай."
+Per Антон mandate "стартуй M0 автономно с моими 4 поправками. Если M0 разрезается на нюансы - пинай."
 
 **M0 scope (~3h):**
 
 1. **Update `requirements.txt`** (additive):
-   - Add `linearmodels >= 6.0` — DiD via Callaway-Santanna
-   - Add `econml >= 0.15` — Causal Forest (Wager-Athey)
+   - Add `linearmodels >= 6.0` - DiD via Callaway-Santanna
+   - Add `econml >= 0.15` - Causal Forest (Wager-Athey)
    - **NOT pysyncon** (per Q2(B)): manual scipy SCM solver
    - **NOT cvxpy** (per Q2(B)): isolated `_solve_scm_weights()` interface
 
 2. **Create namespace** `engines/causal/`:
-   - `__init__.py` — exports + version marker
-   - `common.py` — shared utilities (HonestDisclosure schema, error codes, panel-data validators)
-   - `_panel_data.py` — load + validate panel format (long: unit×time×kpi×treatment)
+   - `__init__.py` - exports + version marker
+   - `common.py` - shared utilities (HonestDisclosure schema, error codes, panel-data validators)
+   - `_panel_data.py` - load + validate panel format (long: unit×time×kpi×treatment)
 
 3. **Smoke test** (M0 MIN-LIVE checkpoint):
    - Imports clean from все 3 deps
@@ -328,7 +328,7 @@ Per Антон mandate "стартуй M0 автономно с моими 4 п�
 
 4. **Commit M0** with concrete next-step note.
 
-5. **Surface to Антон if any nuance** — e.g., panel data blocker для M1, dependency conflict, bundle size shock.
+5. **Surface to Антон if any nuance** - e.g., panel data blocker для M1, dependency conflict, bundle size shock.
 
 After M0 → continue M1 (DiD endpoint) автономно с per-M MIN-LIVE checkpoint pattern.
 
@@ -337,7 +337,7 @@ After M0 → continue M1 (DiD endpoint) автономно с per-M MIN-LIVE che
 ## 10. Approval criteria
 
 This ADR is APPROVED when Антон confirms:
-- [ ] §1 EXTEND-not-rewrite declaration accepted (load-bearing — no further architecture changes до Sprint 4)
+- [ ] §1 EXTEND-not-rewrite declaration accepted (load-bearing - no further architecture changes до Sprint 4)
 - [ ] §3.1 library choices confirmed
 - [ ] §6 phased delivery sequence and time budget acceptable
 - [ ] Q1-Q4 decisions made (default recommendations: B/B/A/A)

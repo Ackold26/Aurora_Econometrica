@@ -15,17 +15,17 @@ Hotfix v1.3.1 закрывает critical + high deferred items из 2-х audits
 ### CRITICAL Math (red-team audit B6)
 
 **Goal-Seek monotonicity guard.**
-- `sidecar/econometrica/optimize/inverse.py::_verify_monotonicity()` — NEW helper.
+- `sidecar/econometrica/optimize/inverse.py::_verify_monotonicity()` - NEW helper.
 - Probes forward(B) на 5 equally-spaced points перед bisection.
 - Если non-monotonic (Hill saturation с non-convex кейс) → fail-fast с actionable
-  error: «Forward не монотонна — non-convex Hill suspected, рассмотрите Expert Mode».
+  error: «Forward не монотонна - non-convex Hill suspected, рассмотрите Expert Mode».
 - `bisect_for_target()` теперь имеет `verify_monotonic=True` default + `monotonicity_check`
   audit trail в response.
 
 ### CRITICAL UX (audit C3)
 
-**ColumnMapperConfirm — visible roles review.**
-- `src/lib/components/pipeline/ColumnMapperConfirm.svelte` — NEW.
+**ColumnMapperConfirm - visible roles review.**
+- `src/lib/components/pipeline/ColumnMapperConfirm.svelte` - NEW.
 - Table показывает detected roles per колонке + dropdown override (kpi / media /
   control / date / excluded).
 - Stats row: «🎯 KPI: 1 · 📊 Каналы: 7 · 🔧 Контроль: 0 · 📅 Дата: 1».
@@ -35,7 +35,7 @@ Hotfix v1.3.1 закрывает critical + high deferred items из 2-х audits
 ### HIGH UX (audit H9)
 
 **Recommendation Card pattern.**
-- `src/lib/components/pipeline/RecommendationCard.svelte` — NEW. Primary actionable
+- `src/lib/components/pipeline/RecommendationCard.svelte` - NEW. Primary actionable
   visual card. Props: icon / title / text / detail / primaryAction / secondaryAction /
   tone (info|success|warn).
 - Linear-gradient background + primary border + glow box-shadow для visual weight.
@@ -65,18 +65,18 @@ Hotfix v1.3.1 закрывает critical + high deferred items из 2-х audits
 
 ### Reports HTML/PPTX KPI-aware rewrite
 - **What:** 9+ hardcoded ROI mentions в `aurora_html/sections.py` + similar в `aurora_pptx/builder.py`.
-- **Why deferred:** Полный rewrite 14 секций × 13 слайдов с conditional rendering per (mode, kpi_kind) — ~2 дня dedicated работы. Не quick hotfix.
+- **Why deferred:** Полный rewrite 14 секций × 13 слайдов с conditional rendering per (mode, kpi_kind) - ~2 дня dedicated работы. Не quick hotfix.
 - **Mitigation:** `data.kpi.labels` метаdata уже передается через narrative_adapter (commit `52c9801`). v1.3.2 dedicated reports KPI-aware sprint.
 - **Impact:** Reports show ROI labels even when KPI=count → confusing для count KPI users, но workflow не ломается (numbers correct, labels mismatch).
 
 ### insights-rules.js KPI-aware rewrite (UX audit H7)
 - **What:** 8 rule templates × все имеют ROI logic. Для count KPI должны быть CPU/value comparison + share-based для effectiveness mode.
-- **Why deferred:** Полный pass — добавить ctx param + branch logic в 8 функциях insights = 0.5-1 день. Полу-fix risky (mixed metrics в одном insight). Better atomic.
+- **Why deferred:** Полный pass - добавить ctx param + branch logic в 8 функциях insights = 0.5-1 день. Полу-fix risky (mixed metrics в одном insight). Better atomic.
 - **Mitigation:** RecommendationCard в DecomposeStep сделана KPI-agnostic (basis = efficiency_gap не ROI).
 
 ### ROIComparison не KPI-aware (UX audit H8)
 - **What:** Component name + axis labels hardcoded на ROI / выручка.
-- **Why deferred:** Component используется в DecomposeStep — rewrite требует тест на эффект на charts.
+- **Why deferred:** Component используется в DecomposeStep - rewrite требует тест на эффект на charts.
 - **Mitigation:** В режиме Эффективность component still renders, числа корректны, только labels misleading.
 
 ### Frontend tests setup (red-team audit C1)
@@ -87,13 +87,13 @@ Hotfix v1.3.1 закрывает critical + high deferred items из 2-х audits
 ### ColumnMapperConfirm integration в Pipeline
 - **What:** Component готов, но не embedded в pipeline page.
 - **Why deferred:** Need to integrate перед KPISelector (step 1 sub-step -1) OR в Import shell.
-  Это touches Pipeline routing + state management — нужна aligned discussion с user.
+  Это touches Pipeline routing + state management - нужна aligned discussion с user.
 - **Mitigation:** Standalone component готов, can integrate в любой time без UI rewrite.
 
 ### Recommendation Card в OptimizeStep
 - **What:** RecommendationCard есть в DecomposeStep, но не в OptimizeStep после forward optimize.
 - **Why deferred:** OptimizeStep сложный (2900 LOC), есть много existing result UI components.
-  Risk of breaking existing layout. v1.3.2 — careful integration.
+  Risk of breaking existing layout. v1.3.2 - careful integration.
 
 ## Финальный pipeline status
 

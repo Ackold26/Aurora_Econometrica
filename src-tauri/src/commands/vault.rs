@@ -15,7 +15,7 @@ pub fn vaults_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("vaults")
 }
 
-/// Legacy vaults directory — %PROGRAMDATA%\AIAgency\vaults\
+/// Legacy vaults directory - %PROGRAMDATA%\AIAgency\vaults\
 fn legacy_vaults_dir() -> PathBuf {
     let program_data = std::env::var("PROGRAMDATA")
         .unwrap_or_else(|_| "C:\\ProgramData".to_string());

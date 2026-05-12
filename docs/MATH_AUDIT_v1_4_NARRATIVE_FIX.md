@@ -1,11 +1,11 @@
-# Math Audit v1.4 — Narrative consistency fix (Section B)
+# Math Audit v1.4 - Narrative consistency fix (Section B)
 
 **Created:** 2026-04-28
 **Branch:** math-fix-v1.0.13
-**Predecessor:** docs/MATH_AUDIT_v1_4_OPTIMIZER_FIX.md (Section A — optimizer)
-**Trigger:** Live-test Kagocel выявил 4 contradictions в HTML отчёте: «Performance — основная точка оптимизации» (декомп) vs «потенциал удержания» (mROAS); «Social — явный потенциал scale-up» (commentary) vs HOLD verdict (table); «Топ-2 канала» referent unclear; ROI/mROAS определения ambiguous.
+**Predecessor:** docs/MATH_AUDIT_v1_4_OPTIMIZER_FIX.md (Section A - optimizer)
+**Trigger:** Live-test Kagocel выявил 4 contradictions в HTML отчёте: «Performance - основная точка оптимизации» (декомп) vs «потенциал удержания» (mROAS); «Social - явный потенциал scale-up» (commentary) vs HOLD verdict (table); «Топ-2 канала» referent unclear; ROI/mROAS определения ambiguous.
 
-Этот документ — audit-trail для Section B fixes (post-Section-A optimizer fix). Закрывает structural narrative contradictions через single-source-of-truth refactor.
+Этот документ - audit-trail для Section B fixes (post-Section-A optimizer fix). Закрывает structural narrative contradictions через single-source-of-truth refactor.
 
 ---
 
@@ -35,13 +35,13 @@ Same channel, different metric → different verdict в two pages report'а.
 
 ---
 
-## Fix strategy — single source of truth
+## Fix strategy - single source of truth
 
 ### `engines/channel_action.py` (NEW, 230 LOC)
 
-`compute_channel_action(channel: dict) → ChannelAction` — единая функция возвращающая `(key, label_ru, tone, reasoning, priority, confidence)`.
+`compute_channel_action(channel: dict) → ChannelAction` - единая функция возвращающая `(key, label_ru, tone, reasoning, priority, confidence)`.
 
-**Decision tree (top to bottom — first match wins):**
+**Decision tree (top to bottom - first match wins):**
 
 ```
 0. Bad input (no mroas + spend unparseable)        → Watch (low confidence)
@@ -53,14 +53,14 @@ Same channel, different metric → different verdict в two pages report'а.
 6. Near breakeven (mROAS < 1.0)                     → Reduce
 7. Optimizer scale (ratio ≥ 1.05 + mROAS ≥ 1.0)     → Scale
 8. mROAS+gap heuristic (mROAS ≥ 1.5 + gap ≥ +5pp)   → Scale
-9. CI uncertainty (width > mROAS) — EVALUATED LAST  → Uncertain
+9. CI uncertainty (width > mROAS) - EVALUATED LAST  → Uncertain
 10. Hold (mROAS ≥ 1.1 + |gap| < 5pp)                → Hold
 11. Watch (fallback)                                → Watch
 ```
 
-**Critical design choice — CI step ordering:**
+**Critical design choice - CI step ordering:**
 
-Pre-design: CI uncertainty step early (#3) — каналы с wide CI получают Uncertain regardless of optimizer signal. Test result: real Kagocel n=31 wide posterior CI → ALL 6 channels Uncertain → Antón's product mandate «что изменить» suppressed despite optimizer finding +28% lift.
+Pre-design: CI uncertainty step early (#3) - каналы с wide CI получают Uncertain regardless of optimizer signal. Test result: real Kagocel n=31 wide posterior CI → ALL 6 channels Uncertain → Antón's product mandate «что изменить» suppressed despite optimizer finding +28% lift.
 
 Post-design: CI uncertainty step LATE (#9). Optimizer's redistribution implicitly integrates joint posterior (mROAS samples per channel), so meaningful `ratio` (≥ 1.05 OR ≤ 0.95) reflects already-confidence-aware ranking even с individual-channel wide CI. Только когда optimizer не двигает + CI wide → Uncertain (правда не actionable).
 
@@ -81,7 +81,7 @@ ACTION_LABEL_RU = {
 }
 ```
 
-`Uncertain` — новый key. CSS class `verdict-Uncertain` добавлен в HTML rendering. PPTX layouts inherit through verdict text.
+`Uncertain` - новый key. CSS class `verdict-Uncertain` добавлен в HTML rendering. PPTX layouts inherit through verdict text.
 
 ### `derive_verdict` migration (narrative_adapter.py)
 
@@ -91,7 +91,7 @@ def derive_verdict(channel: dict) -> str:
     return compute_channel_action(channel).key
 ```
 
-Тонкий wrapper для backward compat — все существующие callers получают same answer.
+Тонкий wrapper для backward compat - все существующие callers получают same answer.
 
 ### `_map_pipeline_to_builder_data` decoration
 
@@ -111,7 +111,7 @@ Templates читают эти поля → consistency by construction.
 ### `_derive_narrative_facts` extensions
 
 ```python
-"converged_at_current": bool   # NEW — false convergence detector from Section A
+"converged_at_current": bool   # NEW - false convergence detector from Section A
 "action_counts":        dict   # {'Scale': N, 'Hold': N, ...} portfolio summary
 "channels_by_action":   dict   # {'Scale': [name1, ...], ...}
 "top_action":           str    # most-frequent decisive action
@@ -129,7 +129,7 @@ seen_actions = set()
 for ch in by_priority:
     if ch.action in ('Uncertain', *seen_actions): continue
     seen_actions.add(ch.action)
-    commentary.append((f"{ch.name} — {ch.action_label}.", ch.action_reasoning))
+    commentary.append((f"{ch.name} - {ch.action_label}.", ch.action_reasoning))
     if len(commentary) >= 3: break
 ```
 
@@ -137,15 +137,15 @@ for ch in by_priority:
 
 ### PPTX builder refactor
 
-`aurora_pptx/builder.py` lines 1395-1430 (s06 commentary): same action-driven pattern as HTML. Уважает channel decoration from narrative_adapter — single source of truth.
+`aurora_pptx/builder.py` lines 1395-1430 (s06 commentary): same action-driven pattern as HTML. Уважает channel decoration from narrative_adapter - single source of truth.
 
-`aurora_pptx/builder.py:1053` — wireframe-mode placeholder для preview (когда `self.facts` is None). НЕ demo-leak в production output.
+`aurora_pptx/builder.py:1053` - wireframe-mode placeholder для preview (когда `self.facts` is None). НЕ demo-leak в production output.
 
 ---
 
 ## Validation
 
-### Unit tests — channel_action mapping (10 cases)
+### Unit tests - channel_action mapping (10 cases)
 
 ```
 U1: untrained → Uncertain                            ✓
@@ -160,7 +160,7 @@ U9: stable → Hold                                    ✓
 U10: mROAS=1, gap negative, no optimizer → Watch     ✓
 ```
 
-### Integration — HTML coherence (14 cases)
+### Integration - HTML coherence (14 cases)
 
 ```
 I1a: table contains verdict cells для каждого channel       ✓
@@ -188,7 +188,7 @@ Post-Section-B:
   TRPs         | mROAS=0.03  | ratio=0.92 | Cut
 ```
 
-Optimizer signal trumps wide CI (n=31 small sample) — product value restored. Antón's mandate «что изменить» surface'ит cleanly: 5 каналов Scale, TRPs Cut, total lift +28.3%.
+Optimizer signal trumps wide CI (n=31 small sample) - product value restored. Antón's mandate «что изменить» surface'ит cleanly: 5 каналов Scale, TRPs Cut, total lift +28.3%.
 
 ### Regression check
 
@@ -209,11 +209,11 @@ Total: 541/541 (was 517 + 24 new, no regressions)
 
 ## Known limitations / out-of-scope
 
-1. **PPTX optimizer state awareness.** `aurora_pptx/builder.py` НЕ читает `binding_constraints` / `optimization_converged` / `converged_at_current` для banner SCQAR/Action 01. HTML refactored, PPTX deferred. PPTX users получат action-driven commentary но вместо honest «оптимизатор не нашёл» banner — generic recommendation. Sprint 4+ task.
+1. **PPTX optimizer state awareness.** `aurora_pptx/builder.py` НЕ читает `binding_constraints` / `optimization_converged` / `converged_at_current` для banner SCQAR/Action 01. HTML refactored, PPTX deferred. PPTX users получат action-driven commentary но вместо honest «оптимизатор не нашёл» banner - generic recommendation. Sprint 4+ task.
 
-2. **`compute_descriptive_state` not implemented.** Plan's option (b) предусматривал отдельный «descriptive state» function (past performance: «Перенасыщен», «Эффективен») рядом с prescriptive action. Existing `decomposer.compute_roi_verdict` уже выполняет descriptive — mapping к structured class deferred. Decomposition UI page продолжает использовать ROI-based labels, unaffected by Section B.
+2. **`compute_descriptive_state` not implemented.** Plan's option (b) предусматривал отдельный «descriptive state» function (past performance: «Перенасыщен», «Эффективен») рядом с prescriptive action. Existing `decomposer.compute_roi_verdict` уже выполняет descriptive - mapping к structured class deferred. Decomposition UI page продолжает использовать ROI-based labels, unaffected by Section B.
 
-3. **Wireframe placeholder в PPTX line 1053.** Hardcoded «TV генерирует 42% продаж при 28% бюджета — основная точка оптимизации» появляется ТОЛЬКО когда `self.facts is None` (preview mode без data). Production rendering uses dynamic template. НЕ demo-leak в client output.
+3. **Wireframe placeholder в PPTX line 1053.** Hardcoded «TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации» появляется ТОЛЬКО когда `self.facts is None` (preview mode без data). Production rendering uses dynamic template. НЕ demo-leak в client output.
 
 ---
 

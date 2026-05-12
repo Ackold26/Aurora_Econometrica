@@ -1,7 +1,7 @@
-"""Phase 2.0 — Forecast Horizon Math Audit (synthetic harness, Part 1).
+"""Phase 2.0 - Forecast Horizon Math Audit (synthetic harness, Part 1).
 
 Standalone numerical comparison of Option A vs Option B vs analytical ground truth
-for the forecast_periods × forecast_budget matrix. Does NOT train Aurora MMM —
+for the forecast_periods × forecast_budget matrix. Does NOT train Aurora MMM -
 uses known synthetic params directly. Closes L1 (adstock kernel decision),
 L2 (stationarity cap), L3 (seasonality) decisions in MATH_AUDIT_v2_0_FORECAST_HORIZON.md.
 
@@ -43,7 +43,7 @@ TRUE_PARAMS = {
     'Programmatic': {'decay': 0.40, 'alpha': 2.2, 'gamma': 0.55, 'beta': 0.04, 'unit_cost': 1.0},
 }
 
-# Training characterization (frozen — these would normally come from MMM fit)
+# Training characterization (frozen - these would normally come from MMM fit)
 TRAIN_N = 156  # 3-year weekly training horizon
 Y_STD = 100.0  # KPI scale
 
@@ -81,7 +81,7 @@ def compute_train_means() -> dict[str, float]:
 
 
 def kpi_option_a(allocation_money: dict[str, float], forecast_n: int, mean_train: dict) -> float:
-    """Option A — kernel length frozen at TRAIN_N.
+    """Option A - kernel length frozen at TRAIN_N.
 
     `_flat_alloc_adstock_avg(x_avg, TRAIN_N, decay)` → matches training calibration.
     Aggregation × forecast_n.
@@ -98,7 +98,7 @@ def kpi_option_a(allocation_money: dict[str, float], forecast_n: int, mean_train
 
 
 def kpi_option_b(allocation_money: dict[str, float], forecast_n: int, mean_train: dict) -> float:
-    """Option B — kernel length recomputed for forecast_n.
+    """Option B - kernel length recomputed for forecast_n.
 
     `_flat_alloc_adstock_avg(x_avg, forecast_n, decay)` → matches planning horizon.
     Aggregation × forecast_n.
@@ -117,7 +117,7 @@ def kpi_option_b(allocation_money: dict[str, float], forecast_n: int, mean_train
 def kpi_ground_truth(allocation_money: dict[str, float], forecast_n: int, mean_train: dict) -> float:
     """Analytical ground truth: simulate full per-period flat allocation, sum response.
 
-    No flat-mean approximation — actually applies geometric adstock to flat series of
+    No flat-mean approximation - actually applies geometric adstock to flat series of
     forecast_n periods, computes Hill(adstock_t / mean_train) per period, sums × β.
     This is what optimizer SHOULD predict if simulation is perfect.
     """
@@ -307,7 +307,7 @@ def print_l3_table(results: list[dict]) -> None:
 
 def main():
     print("=" * 72)
-    print("Phase 2.0 — Forecast Horizon Math Audit (Part 1: L1 + L2 + L3)")
+    print("Phase 2.0 - Forecast Horizon Math Audit (Part 1: L1 + L2 + L3)")
     print("Standalone analytical comparison; L4 (gamma) + L5 (hierarchical) deferred")
     print("=" * 72)
 

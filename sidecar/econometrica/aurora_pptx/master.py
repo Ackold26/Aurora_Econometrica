@@ -1,14 +1,14 @@
 """
-Sacred DNA — master elements applied to every slide.
+Sacred DNA - master elements applied to every slide.
 
 Contract (from Standards/CLIENT_READY_ANATOMY.md §3):
   - Logo (top-left cover OR bottom-left content)
   - Breadcrumb footer (bottom-left, 8pt, Aurora Deep 60)
   - Page number (bottom-right, 9pt, Aurora Deep 60)
-  - Sacred lime 2pt line (under action-title) — optional per layout
-  - Confidentiality marker (bottom-left, italic 7pt) — if ctx.confidential
+  - Sacred lime 2pt line (under action-title) - optional per layout
+  - Confidentiality marker (bottom-left, italic 7pt) - if ctx.confidential
 
-Entry: apply_master_elements(slide, ctx) — called by every layout render_*().
+Entry: apply_master_elements(slide, ctx) - called by every layout render_*().
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def _breadcrumb_text(ctx: SlideContext) -> str:
 
 
 def _add_logo_placeholder(slide, left: float, top: float, size: float):
-    """Placeholder logo — gold square with "A". Replace with real SVG→PNG later."""
+    """Placeholder logo - gold square with "A". Replace with real SVG→PNG later."""
     box = slide.shapes.add_shape(
         MSO_SHAPE.RECTANGLE, Inches(left), Inches(top), Inches(size), Inches(size)
     )
@@ -129,7 +129,7 @@ def apply_master_elements(slide, ctx: SlideContext) -> None:
             slide,
             left=slide_w_in - safe - 4.0, top=safe,
             width=4.0, height=0.2,
-            text=f"CONFIDENTIAL — For {ctx.client_name} only",
+            text=f"CONFIDENTIAL - For {ctx.client_name} only",
             font_name=FONT.family.sans, size=Pt(7),
             color=COLOR.brand.deep_60, italic=True,
             align=PP_ALIGN.RIGHT,
@@ -137,7 +137,7 @@ def apply_master_elements(slide, ctx: SlideContext) -> None:
 
 
 def add_signature_lime(slide, left_in: float, top_in: float, width_in: float) -> None:
-    """Sacred lime 2pt line — called by layouts that show it under action titles."""
+    """Sacred lime 2pt line - called by layouts that show it under action titles."""
     line = slide.shapes.add_connector(
         MSO_CONNECTOR.STRAIGHT,
         Inches(left_in), Inches(top_in),

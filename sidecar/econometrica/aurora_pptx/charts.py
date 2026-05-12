@@ -1,11 +1,11 @@
 """
-Chart helpers — native PPTX chart generation with tokens-driven styling.
+Chart helpers - native PPTX chart generation with tokens-driven styling.
 
 Four MMM chart types per CLIENT_READY_ANATOMY.md §6:
-  1. Waterfall (decomposition) — BAR_STACKED with baseline + per-channel contribs
-  2. ROI bar — BAR_CLUSTERED horizontal, muted-except-one-gold
-  3. Share of Spend vs Effect — 100% stacked COLUMN_CLUSTERED
-  4. Timeline stacked area — AREA_STACKED over dates
+  1. Waterfall (decomposition) - BAR_STACKED with baseline + per-channel contribs
+  2. ROI bar - BAR_CLUSTERED horizontal, muted-except-one-gold
+  3. Share of Spend vs Effect - 100% stacked COLUMN_CLUSTERED
+  4. Timeline stacked area - AREA_STACKED over dates
 
 All use theme colors auto-assigned by PowerPoint from our themed .pptx container.
 Overrides applied via format.fill.solid() for specific highlights.
@@ -25,7 +25,7 @@ from .tokens import COLOR, FONT
 
 def _style_chart_text(chart) -> None:
     """Apply tokens-driven axes/legend styling to a chart."""
-    # Axes — 8pt for ticks (compact, leaves room for many categories)
+    # Axes - 8pt for ticks (compact, leaves room for many categories)
     for axis in (chart.category_axis, chart.value_axis):
         try:
             axis.tick_labels.font.size = Pt(8)
@@ -33,7 +33,7 @@ def _style_chart_text(chart) -> None:
             axis.tick_labels.font.color.rgb = COLOR.brand.deep_80
         except Exception:
             pass
-    # Legend — 9pt (slightly smaller than body text, but readable)
+    # Legend - 9pt (slightly smaller than body text, but readable)
     if chart.has_legend:
         chart.legend.font.size = Pt(9)
         chart.legend.font.name = FONT.family.sans

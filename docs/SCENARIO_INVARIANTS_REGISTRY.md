@@ -1,12 +1,12 @@
-# Scenario Engine Invariants Registry — formal spec
+# Scenario Engine Invariants Registry - formal spec
 
 **Branch:** `math-fix-v1.0.13`
 **Established:** 2026-05-03 (Phase A1 of engine audit extension)
 **Property-based tests:** `tools/test_scenario_invariants.py` (131 tests)
 **Edge cases:** `tools/test_scenario_edge_cases.py` (30 tests)
 **Math refs:**
-- `docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md` §2bis — 3-way alignment
-- `docs/MATH_AUDIT_v1_3_PHASE_0_1.md` — chain rule context
+- `docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md` §2bis - 3-way alignment
+- `docs/MATH_AUDIT_v1_3_PHASE_0_1.md` - chain rule context
 
 ---
 
@@ -20,7 +20,7 @@ property-based test.
 
 ## Invariants
 
-### S1 — Per-period decomposition
+### S1 - Per-period decomposition
 
 ```
 predicted[t] == baseline_per_period + Σ_ch channel_contribution[ch][t]
@@ -31,7 +31,7 @@ Per-period sum identity within rounding tolerance (1.5%).
 
 ---
 
-### S2 — Total energy conservation
+### S2 - Total energy conservation
 
 ```
 sum(predictions) == baseline_kpi + Σ_ch sum(channel_contribution[ch])
@@ -40,7 +40,7 @@ sum(predictions) == baseline_kpi + Σ_ch sum(channel_contribution[ch])
 
 ---
 
-### S3 — Sign / scale invariants
+### S3 - Sign / scale invariants
 
 For positive media plan:
 - `predicted_kpi > 0`
@@ -51,7 +51,7 @@ For positive media plan:
 
 ---
 
-### S4 — Money conservation
+### S4 - Money conservation
 
 ```
 total_spend_money == Σ_ch per_channel_native[c] × unit_cost[c]
@@ -62,7 +62,7 @@ within 0.5% (round-2 tolerance).
 
 ---
 
-### S5 — Single-period plan distribution
+### S5 - Single-period plan distribution
 
 ```
 plan_n == 1  ∧  forecast_periods == N  →  output predictions length == N
@@ -77,17 +77,17 @@ to avoid surprises. See SCENARIO_DECOMPOSER_AUDIT_OUTCOME.md finding S-low1.
 
 ---
 
-### S6 — Adstock semantics
+### S6 - Adstock semantics
 
 For positive flat input + decay ∈ (0, 1):
 - All adstock values ≥ 0
-- `sum(adstock) ≥ sum(raw)` — carryover boost (Aurora geometric adstock convention)
+- `sum(adstock) ≥ sum(raw)` - carryover boost (Aurora geometric adstock convention)
 
 **Test:** `test_S6_adstock_positive_and_carryover` × 20 seeds (pure math, no scenario).
 
 ---
 
-### S7 — Hill saturation bounds
+### S7 - Hill saturation bounds
 
 For finite `x_norm ≥ 0`: `0 ≤ hill(x_norm; α, γ) < 1` strictly.
 
@@ -95,7 +95,7 @@ For finite `x_norm ≥ 0`: `0 ≤ hill(x_norm; α, γ) < 1` strictly.
 
 ---
 
-### S8 — Posterior CI ordering
+### S8 - Posterior CI ordering
 
 When `posterior_samples` available (v1.2+ pickles):
 ```
@@ -109,7 +109,7 @@ within 5% margin (HDI ≠ percentile в edge cases).
 
 ---
 
-### S9 — ROAS CI consistency
+### S9 - ROAS CI consistency
 
 ```
 roas_money_ci = incremental_kpi_ci / total_spend_money   (constant denominator)
@@ -121,7 +121,7 @@ to prevent CI explosion at near-zero spend.
 
 ---
 
-### S10 — Determinism
+### S10 - Determinism
 
 Two consecutive calls с identical config produce byte-identical predictions +
 channel_contributions + totals.
@@ -130,7 +130,7 @@ channel_contributions + totals.
 
 ---
 
-### S11 — Engine identity vs manual sum-of-Hill
+### S11 - Engine identity vs manual sum-of-Hill
 
 Scenario's media KPI matches manual `Σ_ch β · sum(hill(adstock(x_t)/mean)) · y_std`
 within 0.5% (extension of optimizer's I8 invariant).
@@ -139,7 +139,7 @@ within 0.5% (extension of optimizer's I8 invariant).
 
 ---
 
-### S12 — Forecast horizon decoupling
+### S12 - Forecast horizon decoupling
 
 ```
 plan_n == 1  ∧  forecast_periods == N  →  n_periods == N  AND  len(predictions) == N
@@ -149,7 +149,7 @@ plan_n == 1  ∧  forecast_periods == N  →  n_periods == N  AND  len(predictio
 
 ---
 
-### S13 — Money-mode coverage flag
+### S13 - Money-mode coverage flag
 
 ```
 units_fully_covered == True   →  total_spend_money is not None  AND  roas_money is not None
@@ -160,7 +160,7 @@ units_fully_covered == False  →  total_spend_money is None       AND  roas_mon
 
 ---
 
-### S14 — Graceful errors with explicit error_codes
+### S14 - Graceful errors with explicit error_codes
 
 | Trigger | error_code |
 |---|---|

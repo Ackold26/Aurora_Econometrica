@@ -1,11 +1,11 @@
 """
-SBC (Simulation-Based Calibration) для Sprint 3 causal endpoints — Pre-Ship gate item #1.
+SBC (Simulation-Based Calibration) для Sprint 3 causal endpoints - Pre-Ship gate item #1.
 
 Reference: Talts, Betancourt, Simpson, Vehtari 2018 "Validating Bayesian inference
 algorithms with simulation-based calibration" arXiv:1804.06788.
 
 Adapted к frequentist causal methods: instead of rank histogram (Bayesian SBC),
-check CI COVERAGE — P(true ATT ∈ CI) over synthetic simulations.
+check CI COVERAGE - P(true ATT ∈ CI) over synthetic simulations.
 
 Workflow:
   For sim_i in 1..n_sims:
@@ -58,17 +58,17 @@ def synthesize_did_panel(
 ) -> tuple[pd.DataFrame, dict]:
     """Generate panel data for DiD/SCM с known ground-truth ATT.
 
-    parallel_trends=True (default): all regions share the same trend slope —
+    parallel_trends=True (default): all regions share the same trend slope -
     parallel-trends assumption holds. Methods should achieve ~nominal coverage.
 
-    parallel_trends=False: heterogeneous slopes per region — assumption violated.
+    parallel_trends=False: heterogeneous slopes per region - assumption violated.
     Methods coverage degrades expected (intentional pessimistic test scenario).
     """
     if true_att is None:
         true_att = float(rng.uniform(20, 100))  # random magnitude
 
     units = [f'region_{i}' for i in range(n_units)]
-    # SBC fix: randomly choose treated units (not always lowest baselines!) — was bug
+    # SBC fix: randomly choose treated units (not always lowest baselines!) - was bug
     # that violated SCM convex-hull assumption when treated_unit baseline ниже всех donors.
     treated_indices = list(rng.choice(n_units, size=n_treated, replace=False))
     treated_set = {f'region_{i}' for i in treated_indices}
@@ -227,7 +227,7 @@ def main():
     rng = np.random.default_rng(args.seed)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 
-    print(f'SBC harness — n_sims={args.n_sims}, methods={methods}, seed={args.seed}')
+    print(f'SBC harness - n_sims={args.n_sims}, methods={methods}, seed={args.seed}')
     print(f'Output: {out_dir}')
     print(f'Started: {datetime.now().isoformat()}')
 
@@ -308,7 +308,7 @@ def main():
         if sim_idx % 5 == 0 or sim_idx == args.n_sims - 1:
             elapsed = time.time() - sim_start
             eta = (elapsed / max(sim_idx + 1, 1)) * (args.n_sims - sim_idx - 1)
-            print(f'  sim {sim_idx + 1}/{args.n_sims} ({sim_time:.1f}s) — '
+            print(f'  sim {sim_idx + 1}/{args.n_sims} ({sim_time:.1f}s) - '
                   f'elapsed {elapsed:.0f}s, ETA {eta:.0f}s')
 
         # Cleanup per-sim dir to keep disk usage bounded (keep results in records)
@@ -363,7 +363,7 @@ def main():
 
     # Plain-text report
     lines = [
-        f'SBC report — {timestamp}',
+        f'SBC report - {timestamp}',
         '=' * 60,
         f'Started:  {datetime.fromtimestamp(sim_start).isoformat()}',
         f'Finished: {datetime.now().isoformat()}',
@@ -376,7 +376,7 @@ def main():
     for m in methods:
         s = coverage_summary[m]
         v = verdicts[m]
-        lines.append(f'{m.upper()} — verdict: {v}')
+        lines.append(f'{m.upper()} - verdict: {v}')
         lines.append(f'  n_sims={s.get("n_sims")}, n_with_ci={s.get("n_with_ci")}')
         lines.append(f'  coverage_rate={s.get("coverage_rate")} (target {target_coverage}±{args.coverage_tolerance})')
         lines.append(f'  mean_abs_error={s.get("mean_abs_error")}')

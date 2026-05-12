@@ -1,4 +1,4 @@
-"""Tests для optimize/bounds.py — safe corridor MVP formula (ADR-014)."""
+"""Tests для optimize/bounds.py - safe corridor MVP formula (ADR-014)."""
 from __future__ import annotations
 
 import numpy as np
@@ -12,10 +12,10 @@ sys.path.insert(0, str(SIDECAR_ROOT))
 from optimize.bounds import compute_per_channel_bounds, is_in_safe_corridor
 
 
-# ─── compute_per_channel_bounds — basic ─────────────────────────────────────
+# ─── compute_per_channel_bounds - basic ─────────────────────────────────────
 
 def test_uniform_history_gives_tight_corridor():
-    """Если все значения равны — P5=P95=mu, lo=hi=mu (или near-mu)."""
+    """Если все значения равны - P5=P95=mu, lo=hi=mu (или near-mu)."""
     spend = np.full(20, 100.0)
     bounds = compute_per_channel_bounds(spend)
     assert bounds['mu'] == 100.0
@@ -40,13 +40,13 @@ def test_normal_distribution_bounds():
 
 
 def test_skewed_distribution_relative_caps():
-    """Highly skewed history — relative factors clip extreme percentiles."""
+    """Highly skewed history - relative factors clip extreme percentiles."""
     np.random.seed(42)
     # Lognormal: long right tail.
     spend = np.random.lognormal(mean=4.5, sigma=1.5, size=1000)
     bounds = compute_per_channel_bounds(spend)
 
-    # P95 на lognormal может быть очень большим — relative factor 1.5x clipping protects.
+    # P95 на lognormal может быть очень большим - relative factor 1.5x clipping protects.
     assert bounds['hi'] <= bounds['mu'] * 1.5 + 1e-6  # numerical tolerance
 
 
@@ -59,14 +59,14 @@ def test_zero_history_returns_zero_corridor():
 
 
 def test_mostly_zeros_uses_only_positive():
-    """Channel with mostly zeros (sparse spend) — corridor based on positive entries only."""
+    """Channel with mostly zeros (sparse spend) - corridor based on positive entries only."""
     spend = np.array([0, 0, 0, 100, 0, 200, 0, 0, 150, 0])
     bounds = compute_per_channel_bounds(spend)
     # mu = (100 + 200 + 150) / 3 = 150
     assert bounds['mu'] == 150.0
 
 
-# ─── compute_per_channel_bounds — custom factors ────────────────────────────
+# ─── compute_per_channel_bounds - custom factors ────────────────────────────
 
 def test_custom_factors():
     """Phase B Expert mode parameters override defaults."""
@@ -88,7 +88,7 @@ def test_value_inside_corridor_is_green():
 
 
 def test_value_just_outside_is_yellow():
-    """В пределах ±10% от bounds — yellow."""
+    """В пределах ±10% от bounds - yellow."""
     bounds = {'lo': 100.0, 'hi': 200.0}
     # 5% выше hi → 210 → yellow.
     assert is_in_safe_corridor(210, bounds) == 'yellow'

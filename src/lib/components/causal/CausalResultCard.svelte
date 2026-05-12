@@ -1,7 +1,7 @@
 <script>
   /**
-   * CausalResultCard — отображает ATT + CI + diagnostics + honest_disclosure.
-   * Universal — works для DiD/SCM/Forest output (uniform schema per ADR §4.3).
+   * CausalResultCard - отображает ATT + CI + diagnostics + honest_disclosure.
+   * Universal - works для DiD/SCM/Forest output (uniform schema per ADR §4.3).
    * @component
    */
   /**
@@ -23,7 +23,7 @@
 
   /** @param {any} x  @param {number} [dec] */
   function formatNumber(x, dec = 2) {
-    if (x === null || x === undefined) return '—';
+    if (x === null || x === undefined) return '-';
     if (typeof x !== 'number') return String(x);
     if (Math.abs(x) > 1000) return x.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
     return x.toFixed(dec);
@@ -67,7 +67,7 @@
       {:else if att && att.ci_low < 0 && att.ci_high < 0}
         <div class="att-verdict negative">⚠ Эффект отрицательный (CI меньше 0)</div>
       {:else}
-        <div class="att-verdict inconclusive">— Эффект неоднозначен (CI пересекает 0)</div>
+        <div class="att-verdict inconclusive">- Эффект неоднозначен (CI пересекает 0)</div>
       {/if}
     </div>
 

@@ -1,11 +1,11 @@
 <script>
   /**
-   * CorridorSlider — v1.3.0 reusable slider with safe-corridor visualization.
+   * CorridorSlider - v1.3.0 reusable slider with safe-corridor visualization.
    *
    * Per ADR-014: показывает зелёные/жёлтые/красные зоны на bar slider.
-   * 🟢 [lo, hi] — safe (модель валидна).
-   * 🟡 ±10% от границ — extrapolation warning.
-   * 🔴 > 10% за пределами — заблокировано (кнопка disable).
+   * 🟢 [lo, hi] - safe (модель валидна).
+   * 🟡 ±10% от границ - extrapolation warning.
+   * 🔴 > 10% за пределами - заблокировано (кнопка disable).
    *
    * @component CorridorSlider
    */
@@ -90,7 +90,7 @@
   <div class="zone-legend">
     <span class="legend-item">
       <span class="dot zone-green"></span>
-      Безопасный коридор: {formatFn ? formatFn(corridorLo) : corridorLo.toLocaleString('ru-RU')} — {formatFn ? formatFn(corridorHi) : corridorHi.toLocaleString('ru-RU')}{unit ? ' ' + unit : ''}
+      Безопасный коридор: {formatFn ? formatFn(corridorLo) : corridorLo.toLocaleString('ru-RU')} - {formatFn ? formatFn(corridorHi) : corridorHi.toLocaleString('ru-RU')}{unit ? ' ' + unit : ''}
     </span>
     <span class="legend-item">
       <span class="dot zone-yellow"></span>
@@ -98,7 +98,7 @@
     </span>
     <span class="legend-item">
       <span class="dot zone-red"></span>
-      Экстраполяция — рекомендации не валидны
+      Экстраполяция - рекомендации не валидны
     </span>
   </div>
 </div>

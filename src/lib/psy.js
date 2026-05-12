@@ -1,5 +1,5 @@
 /**
- * PSY — поведенческая психология UX.
+ * PSY - поведенческая психология UX.
  * Центральный модуль для всех PSY-фич:
  *   PSY-1: Next Steps (suggestion chips)
  *   PSY-2: Random Insights (факты при загрузке)
@@ -38,7 +38,7 @@ export function initPsyData(data) {
 }
 
 // ═════════════════════════════════════════════════════
-// PSY-1: NEXT STEPS — routing table + suggestion chips
+// PSY-1: NEXT STEPS - routing table + suggestion chips
 // ═════════════════════════════════════════════════════
 
 /**
@@ -51,13 +51,13 @@ export function getNextSteps(cabinetId) {
 }
 
 // ══════════════════════════════════════════════════════
-// PSY-2: RANDOM INSIGHTS — факты из методологий
+// PSY-2: RANDOM INSIGHTS - факты из методологий
 // ══════════════════════════════════════════════════════
 
 /**
  * Получить случайный инсайт для кабинета.
  * PSY-11: с вероятностью ~40% вернёт null (variable reward).
- * После 10+ запросов — шанс продвинутого инсайта.
+ * После 10+ запросов - шанс продвинутого инсайта.
  * @param {string} cabinetId
  * @param {boolean} [forceShow=false] гарантировать показ (для empty state)
  * @returns {string|null}
@@ -69,7 +69,7 @@ export function getRandomInsight(cabinetId, forceShow = false) {
   const data = get(milestones);
   const cabinetUses = data.cabinetRequests[cabinetId] || 0;
 
-  // После 10+ запросов — 40% шанс продвинутого инсайта
+  // После 10+ запросов - 40% шанс продвинутого инсайта
   if (cabinetUses >= 10 && Math.random() < 0.4) {
     const advanced = _advancedInsights[cabinetId];
     if (advanced && advanced.length > 0) {
@@ -103,7 +103,7 @@ export function getTimeGreeting() {
  * @returns {{text: string, isPersonal: boolean}|null}
  */
 export function getUsageHint(cabinetId) {
-  // Suppress during active onboarding — component provides its own guidance
+  // Suppress during active onboarding - component provides its own guidance
   const onbState = get(cabinetOnboarding);
   const cab = onbState[cabinetId];
   if (cab && !cab.completed) return null;
@@ -114,20 +114,20 @@ export function getUsageHint(cabinetId) {
 
   // Первый визит в кабинет
   if (cabinetUses === 0 && totalUses > 0) {
-    return { text: 'Первый раз в этом кабинете — загрузите файлы и отправьте задание', isPersonal: true };
+    return { text: 'Первый раз в этом кабинете - загрузите файлы и отправьте задание', isPersonal: true };
   }
 
   // Редкий пользователь (мало запросов к этому кабинету)
   if (cabinetUses > 0 && cabinetUses < 3 && totalUses > 20) {
-    return { text: 'Вы здесь нечасто — попробуйте разные команды справа', isPersonal: true };
+    return { text: 'Вы здесь нечасто - попробуйте разные команды справа', isPersonal: true };
   }
 
-  // Частый пользователь этого кабинета — подсказать next steps
+  // Частый пользователь этого кабинета - подсказать next steps
   if (cabinetUses >= 10) {
     const next = _nextSteps[cabinetId];
     if (next && next.length > 0) {
       const suggestion = next[Math.floor(Math.random() * next.length)];
-      return { text: `Совет: после работы здесь попробуйте «${suggestion.label}» — ${suggestion.reason.toLowerCase()}`, isPersonal: true };
+      return { text: `Совет: после работы здесь попробуйте «${suggestion.label}» - ${suggestion.reason.toLowerCase()}`, isPersonal: true };
     }
   }
 
@@ -135,7 +135,7 @@ export function getUsageHint(cabinetId) {
 }
 
 // ══════════════════════════════════════════════════════
-// PSY-3: PROGRESS INDICATOR — фазы генерации
+// PSY-3: PROGRESS INDICATOR - фазы генерации
 // ══════════════════════════════════════════════════════
 
 /**
@@ -170,8 +170,8 @@ export function getCurrentPhase(elapsedSec, cabinetId) {
 /** @type {Record<string, number>} Safety timeout per cabinet (ms). Default 90s. */
 const SAFETY_TIMEOUTS = {
   'default': 90_000,
-  'media-analyst': 600_000,  // 10 min — multi-phase pipeline manages its own phases
-  'econometrist': 900_000,   // 15 min — MCMC sampling + PyTensor compilation on Windows
+  'media-analyst': 600_000,  // 10 min - multi-phase pipeline manages its own phases
+  'econometrist': 900_000,   // 15 min - MCMC sampling + PyTensor compilation on Windows
 };
 
 /**
@@ -226,7 +226,7 @@ export function getPipelinePhase(phaseName, elapsedSec, chunkIndex, totalChunks)
 }
 
 // ══════════════════════════════════════════════════════
-// PSY-5: MILESTONES — достижения + session summary
+// PSY-5: MILESTONES - достижения + session summary
 // ══════════════════════════════════════════════════════
 
 /**
@@ -265,7 +265,7 @@ const ACHIEVEMENTS = [
  */
 export function trackRequest(cabinetId) {
   const prev = get(milestones);
-  // Deep copy — не мутируем объект store напрямую
+  // Deep copy - не мутируем объект store напрямую
   const totalRequests = prev.totalRequests + 1;
   const cabinetRequests = { ...prev.cabinetRequests, [cabinetId]: (prev.cabinetRequests[cabinetId] || 0) + 1 };
   const firstRequestTs = prev.firstRequestTs || Date.now();
@@ -293,7 +293,7 @@ const EMPATHETIC_ERRORS = {
   'CL-004': {
     emoji: '\u23F3',
     message: 'Сервер перегружен запросами',
-    tip: 'Подождите минуту — обычно это проходит быстро. Ваш запрос не потерялся.',
+    tip: 'Подождите минуту - обычно это проходит быстро. Ваш запрос не потерялся.',
   },
   'CL-005': {
     emoji: '\u26A1',
@@ -303,23 +303,23 @@ const EMPATHETIC_ERRORS = {
   'CL-006': {
     emoji: '\uD83D\uDD11',
     message: 'Проблема с авторизацией',
-    tip: 'Проверьте лицензию в настройках. Если проблема повторяется — обратитесь в поддержку.',
+    tip: 'Проверьте лицензию в настройках. Если проблема повторяется - обратитесь в поддержку.',
   },
   'CL-007': {
     emoji: '\uD83C\uDF10',
     message: 'Нет подключения к серверу',
-    tip: 'Проверьте интернет-соединение. Как только связь восстановится — всё заработает.',
+    tip: 'Проверьте интернет-соединение. Как только связь восстановится - всё заработает.',
   },
   'CL-008': {
     emoji: '\uD83D\uDEE0\uFE0F',
     message: 'Что-то пошло не так',
-    tip: 'Попробуйте повторить запрос. Если ошибка повторяется — очистите чат и начните заново.',
+    tip: 'Попробуйте повторить запрос. Если ошибка повторяется - очистите чат и начните заново.',
   },
 };
 
 /**
  * Преобразовать сухую ошибку Claude в эмпатичное сообщение.
- * @param {string} errorText — исходный текст ошибки
+ * @param {string} errorText - исходный текст ошибки
  * @returns {{emoji: string, message: string, tip: string, code: string|null}}
  */
 export function getEmpathyError(errorText) {
@@ -359,7 +359,7 @@ export function pluralRu(n, one, few, many) {
 
 /**
  * Сообщение при загрузке файла (Endowed Progress Effect).
- * Даёт ощущение уже начатого прогресса — повышает мотивацию завершить задачу.
+ * Даёт ощущение уже начатого прогресса - повышает мотивацию завершить задачу.
  * @param {number} fileCount
  * @param {string} [fileName]
  * @returns {string}
@@ -369,26 +369,26 @@ export function getEndowedProgressMessage(fileCount, fileName, cabinetId = undef
     const onbState = get(cabinetOnboarding);
     const cab = onbState[cabinetId];
     if (cab && !cab.completed && (cab.step ?? 0) === 0) {
-      return 'Файл загружен — переходим к анализу';
+      return 'Файл загружен - переходим к анализу';
     }
   }
   if (fileCount === 1 && fileName) {
     const ext = fileName.split('.').pop()?.toLowerCase();
-    if (ext === 'pptx') return `Презентация загружена. Этап 1 из 5 выполнен — выберите команду для анализа.`;
+    if (ext === 'pptx') return `Презентация загружена. Этап 1 из 5 выполнен - выберите команду для анализа.`;
     if (ext === 'xlsx' || ext === 'csv') return `Данные загружены. Готово к анализу.`;
   }
   return `${fileCount} ${pluralRu(fileCount, 'файл загружен', 'файла загружено', 'файлов загружено')}. Выберите команду для работы.`;
 }
 
 // ════════════════════════════════════════════════════════
-// PSY-4: WORKFLOW CELEBRATION — утилиты
+// PSY-4: WORKFLOW CELEBRATION - утилиты
 // ═══════════════════════════════════════════════════��══
 
 /**
  * Оценить сэкономленное время по количеству шагов workflow.
  * Базовая оценка: каждый кабинет экономит ~45 минут ручной работы.
  * @param {number} stepCount
- * @param {number} executionTimeSec — реальное время выполнения
+ * @param {number} executionTimeSec - реальное время выполнения
  * @returns {{savedMinutes: number, savedHours: string, efficiency: string}}
  */
 export function estimateSavedTime(stepCount, executionTimeSec) {
@@ -407,7 +407,7 @@ export function estimateSavedTime(stepCount, executionTimeSec) {
 }
 
 // ══════════════════════════════════════════════════════
-// PSY-13: RESPONSE ACTIONS — cabinet-aware quick actions
+// PSY-13: RESPONSE ACTIONS - cabinet-aware quick actions
 // ══════════════════════════════════════════════════════
 
 /** @type {Record<string, Array<{label: string, prefix: string}>>} */
@@ -494,7 +494,7 @@ export function getResponseActions(cabinetId) {
 }
 
 // ══════════════════════════════════════════════════════
-// PSY-9: CABINET MASTERY — счётчик на карточках
+// PSY-9: CABINET MASTERY - счётчик на карточках
 // ══════════════════════════════════════════════════════
 
 /**
@@ -549,7 +549,7 @@ export function getCabinetMastery(cabinetId) {
 }
 
 // ══════════════════════════════════════════════════════
-// PSY-8: SESSION ARC — трекинг сессии кабинета
+// PSY-8: SESSION ARC - трекинг сессии кабинета
 // ══════════════════════════════════════════════════════
 
 /** @type {import('svelte/store').Writable<{cabinetId: string|null, startTs: number, messageCount: number}>} */
@@ -581,7 +581,7 @@ export function endSession() {
   const s = get(currentSession);
   currentSession.set({ cabinetId: null, startTs: 0, messageCount: 0 });
   if (!s.cabinetId || s.messageCount === 0) return null;
-  // Валидация: если startTs старше 24 часов — сессия stale, игнорируем
+  // Валидация: если startTs старше 24 часов - сессия stale, игнорируем
   const ageMs = Date.now() - s.startTs;
   if (ageMs > 24 * 60 * 60 * 1000 || ageMs < 0) return null;
   const durationMin = Math.max(1, Math.round(ageMs / 60000));
@@ -691,9 +691,9 @@ function parseMetricValue(s) {
  * Извлечь ключевую метрику из ответа media-analyst и вернуть конкретный инсайт.
  * Приоритет: ESOV → SOV+SOM → SOV → GRP/TRP → охват/reach → бюджет.
  *
- * @param {string} content — текст ответа ассистента
- * @param {string} cabinetId — ID кабинета
- * @returns {string|null} — инсайт ≤70 символов или null
+ * @param {string} content - текст ответа ассистента
+ * @param {string} cabinetId - ID кабинета
+ * @returns {string|null} - инсайт ≤70 символов или null
  */
 export function getContextInsight(content, cabinetId) {
   if (cabinetId !== 'media-analyst') return null;
@@ -704,9 +704,9 @@ export function getContextInsight(content, cabinetId) {
   if (esovMatch) {
     const v = parseMetricValue(esovMatch[1]);
     if (!isNaN(v)) {
-      if (v > 0) return `ESOV +${v}% — бренд опережает рынок по голосу`;
-      if (v < 0) return `ESOV ${v}% — голос ниже SOM, давление конкурентов`;
-      return `ESOV ≈ 0% — нейтральная медиапозиция`;
+      if (v > 0) return `ESOV +${v}% - бренд опережает рынок по голосу`;
+      if (v < 0) return `ESOV ${v}% - голос ниже SOM, давление конкурентов`;
+      return `ESOV ≈ 0% - нейтральная медиапозиция`;
     }
   }
 
@@ -720,7 +720,7 @@ export function getContextInsight(content, cabinetId) {
       const esov = Math.round((sov - som) * 10) / 10;
       if (esov > 0) return `SOV ${sov}% vs SOM ${som}% → ESOV +${esov}%`;
       if (esov < 0) return `SOV ${sov}% vs SOM ${som}% → ESOV ${esov}%`;
-      return `SOV = SOM ${sov}% — нейтральная позиция`;
+      return `SOV = SOM ${sov}% - нейтральная позиция`;
     }
   }
 
@@ -728,9 +728,9 @@ export function getContextInsight(content, cabinetId) {
   if (sovMatch) {
     const v = parseMetricValue(sovMatch[1]);
     if (!isNaN(v)) {
-      if (v >= 30) return `SOV ${v}% — сильное медиаприсутствие в категории`;
-      if (v >= 10) return `SOV ${v}% — умеренное медиаприсутствие`;
-      return `SOV ${v}% — низкий голос в категории`;
+      if (v >= 30) return `SOV ${v}% - сильное медиаприсутствие в категории`;
+      if (v >= 10) return `SOV ${v}% - умеренное медиаприсутствие`;
+      return `SOV ${v}% - низкий голос в категории`;
     }
   }
 
@@ -741,9 +741,9 @@ export function getContextInsight(content, cabinetId) {
     const v = parseInt(rawNum, 10);
     const label = (grpMatch[2] || 'GRP').toUpperCase();
     if (!isNaN(v) && v > 0 && v < 100000) {
-      if (v >= 500) return `${v} ${label} — высокое медиадавление`;
-      if (v >= 200) return `${v} ${label} — умеренное медиадавление`;
-      return `${v} ${label} — низкое медиадавление`;
+      if (v >= 500) return `${v} ${label} - высокое медиадавление`;
+      if (v >= 200) return `${v} ${label} - умеренное медиадавление`;
+      return `${v} ${label} - низкое медиадавление`;
     }
   }
 
@@ -752,9 +752,9 @@ export function getContextInsight(content, cabinetId) {
   if (reachMatch) {
     const v = parseMetricValue(reachMatch[1]);
     if (!isNaN(v) && v > 0 && v <= 100) {
-      if (v >= 70) return `Охват ${v}% — широкое покрытие аудитории`;
+      if (v >= 70) return `Охват ${v}% - широкое покрытие аудитории`;
       if (v >= 40) return `Охват ${v}% целевой аудитории`;
-      return `Охват ${v}% — ниже рекомендуемых 60%`;
+      return `Охват ${v}% - ниже рекомендуемых 60%`;
     }
   }
 

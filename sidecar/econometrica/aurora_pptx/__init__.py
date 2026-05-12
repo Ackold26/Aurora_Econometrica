@@ -1,5 +1,5 @@
 """
-aurora_pptx — client-ready PPTX deliverable generator for Aurora AI Econometrica.
+aurora_pptx - client-ready PPTX deliverable generator for Aurora AI Econometrica.
 
 Template-equivalent via code (python-pptx limitation: cannot create slide
 masters programmatically). Each slide rendered from scratch with centralized

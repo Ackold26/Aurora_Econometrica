@@ -6,13 +6,13 @@
 
 ## Цель
 
-Для каждой секции отчёта в 4 форматах — определить:
+Для каждой секции отчёта в 4 форматах - определить:
 1. Какой текст сейчас (v1.2).
 2. Какая monetary версия (KPI=рубли).
 3. Какая count версия (KPI=штуки + любой counted unit).
 4. Какая Goal-Seek версия (когда task=inverse).
 
-## HTML report — `sidecar/econometrica/aurora_html/`
+## HTML report - `sidecar/econometrica/aurora_html/`
 
 ### 14 секций (`sections.py` 1278 LOC)
 
@@ -21,10 +21,10 @@
 | **cover** | «Отчёт MMM Optimizer» | Same | Same | «План достижения цели: X count_unit» |
 | **summary** | «Marginal ROI последнего рубля Y×» | Same | «CPU предельного контакта Y ₽/count_unit» | «Требуемый бюджет: X ₽ для достижения цели Y» |
 | **findings** | «Лидирует TV (ROI 2.3×)» | Same | «Лидирует TV (CPU 65 ₽/упак, vs маржа 80 ₽/упак)» | «При +X% бюджета цель достижима с P=Y%» |
-| **divider** | — | — | — | — |
+| **divider** | - | - | - | - |
 | **key** | «Ключевая метрика: ROI 1.5×» | Same | «Ключевая метрика: CPU 70 ₽/count_unit (vs ценность 120 ₽)» | «Δ требуемого бюджета: +X%» |
 | **mroas** | «Marginal ROI: ...» | Same | «Marginal CPU: ...» | Не применимо (или показывается current state) |
-| **share** | «Доля бюджета vs Доля эффекта» | Same | Same (% share — universal) | Same + plus «доля бюджета в plan» |
+| **share** | «Доля бюджета vs Доля эффекта» | Same | Same (% share - universal) | Same + plus «доля бюджета в plan» |
 | **table** | Channel table с ROI columns | KPI-aware columns | CPU + count contribution columns | Plan-comparison table (current vs plan) |
 | **timeline** | «Динамика по периодам (₽ выручки)» | Same | «Динамика по периодам (count_unit продаж)» | Forecast timeline до цели |
 | **recommend** | «Перелить N ₽ из A в B → +M ₽ выручки» | Same | «Перелить N ₽ из A в B → +K count, CPU ↓» | «Реалистичность цели: P=Y%. Альтернативы: ...» |
@@ -54,11 +54,11 @@
 | `methodology.hill_short` | «Hill saturation: ...» | Same (math) |
 | `methodology.roi_calc` | «ROI = выручка / затраты» | + `methodology.cpu_calc`: «CPU = затраты / count_unit» |
 
-### `strings_en.json` — parity gate
+### `strings_en.json` - parity gate
 
 Все новые ключи в `strings_ru.json` обязательно одновременно появляются в `strings_en.json`. CI test `test_locale_parity.py` проверяет.
 
-## PPTX report — `sidecar/econometrica/aurora_pptx/`
+## PPTX report - `sidecar/econometrica/aurora_pptx/`
 
 ### 13 слайдов (`builder.py` 2716 LOC)
 
@@ -80,7 +80,7 @@
 
 ### Goal-Seek dedicated template (NEW)
 
-`templates/goal_seek_template.pptx` — 10 слайдов:
+`templates/goal_seek_template.pptx` - 10 слайдов:
 1. Cover «План достижения цели X».
 2. Executive: цель X, требуемый бюджет Y ₽, P(hit)=Z%.
 3. Распределение по каналам (plan).
@@ -92,7 +92,7 @@
 9. Footnotes / disclaimers.
 10. Glossary excerpt.
 
-## XLSX report — `src-tauri/src/commands/report.rs` (Rust rust_xlsxwriter)
+## XLSX report - `src-tauri/src/commands/report.rs` (Rust rust_xlsxwriter)
 
 | Sheet | v1.2 | Monetary | Count | Goal-Seek |
 |---|---|---|---|---|
@@ -102,7 +102,7 @@
 | Sensitivity | Slider data | Same | + CPU sensitivity | Plan sensitivity |
 | Methodology | Notes | Same | + CPU explanation | + goal-seek explanation |
 
-## DOCX report — sketched in `report.rs` (python-docx future)
+## DOCX report - sketched in `report.rs` (python-docx future)
 
 | Section | v1.2 | Расширение |
 |---|---|---|
@@ -125,11 +125,11 @@
 
 ## Открытые вопросы
 
-1. **Goal-Seek в PPTX — отдельный template или конструируется из Forward + extra slides?**
+1. **Goal-Seek в PPTX - отдельный template или конструируется из Forward + extra slides?**
    - Decision: dedicated template (cleaner UX, проще maintain).
 
-2. **DOCX — реализовать в Stage 3 или Phase B?**
+2. **DOCX - реализовать в Stage 3 или Phase B?**
    - Decision: minimal viable DOCX (executive summary only) в Stage 3.
 
-3. **Generalized chart axis labels** — нужна общая util `format_axis_label(kpi_kind, unit_kind)` → return localized string.
+3. **Generalized chart axis labels** - нужна общая util `format_axis_label(kpi_kind, unit_kind)` → return localized string.
    - Decision: add `sidecar/econometrica/utils/i18n_labels.py` helper в Stage 3.

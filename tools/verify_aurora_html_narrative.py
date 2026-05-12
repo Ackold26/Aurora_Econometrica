@@ -10,7 +10,7 @@ across 7 channel-count / data scenarios and assert invariants:
   4. 10-channel maximal
   5. empty fallback (channels list absent)
   6. partial diagnostics (no MQS)
-  7. no-TV digital-only (Yandex Direct / YouTube / Instagram / TikTok) —
+  7. no-TV digital-only (Yandex Direct / YouTube / Instagram / TikTok) -
      strictest multi-client safety: zero wireframe residue
 
 Each scenario checks:

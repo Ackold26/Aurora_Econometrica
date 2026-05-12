@@ -1,5 +1,5 @@
 """
-Synthetic Control Method (SCM) — Sprint 3 M2.
+Synthetic Control Method (SCM) - Sprint 3 M2.
 
 Implements Abadie classic SCM via manual scipy SLSQP optimization.
 Per ADR §3.1 + Q2(B): NO pysyncon, NO cvxpy. Isolated `_solve_scm_weights()`
@@ -21,7 +21,7 @@ References:
   Comparative Case Studies" JASA
 - Abadie 2021 "Using Synthetic Controls" Journal of Economic Literature
 - Abadie, L'Hour 2021 "A Penalized Synthetic Control Estimator" JASA
-  (Penalized SCM — Sprint 4+ enhancement через _solve_scm_weights swap)
+  (Penalized SCM - Sprint 4+ enhancement через _solve_scm_weights swap)
 """
 from __future__ import annotations
 
@@ -46,13 +46,13 @@ def _solve_scm_weights(
 ) -> tuple[np.ndarray | None, str]:
     """Solve for SCM weights via manual scipy SLSQP.
 
-    Per ADR §11/Q2 refinement: isolated interface — clean swap path к cvxpy
+    Per ADR §11/Q2 refinement: isolated interface - clean swap path к cvxpy
     или penalized variants without changing call sites. Today: scipy SLSQP с
     simplex constraints. Future: cvxpy для Augmented SCM, BSCM, или penalized SCM.
 
     Args:
-        y_treated_pre: shape (n_pre,) — treated unit's pre-treatment outcomes
-        Y_donors_pre: shape (n_pre, n_donors) — donor units' pre-treatment outcomes
+        y_treated_pre: shape (n_pre,) - treated unit's pre-treatment outcomes
+        Y_donors_pre: shape (n_pre, n_donors) - donor units' pre-treatment outcomes
             (rows = periods, columns = donors)
 
     Returns:
@@ -104,7 +104,7 @@ def _solve_scm_weights(
         return None, f'failed:{type(e).__name__}'
 
     if not result.success:
-        # Check feasibility — sometimes SLSQP returns "Inequality constraints incompatible"
+        # Check feasibility - sometimes SLSQP returns "Inequality constraints incompatible"
         # but the result.x is still close. Return as suboptimal.
         w = np.clip(result.x, 0.0, 1.0)
         s = float(w.sum())
@@ -167,7 +167,7 @@ def _build_panel_arrays(
 
 
 def _compute_pre_rmse(y_treat_pre: np.ndarray, Y_donors_pre: np.ndarray, weights: np.ndarray) -> float:
-    """Pre-treatment RMSE — quality of synthetic match. Lower = better match."""
+    """Pre-treatment RMSE - quality of synthetic match. Lower = better match."""
     synthetic_pre = Y_donors_pre @ weights
     return float(np.sqrt(np.mean((y_treat_pre - synthetic_pre) ** 2)))
 
@@ -239,12 +239,12 @@ def _placebo_inference(
     if not placebo_atts:
         return {
             'p_value': None, 'n_placebos': 0, 'failures': placebo_failures,
-            'detail': 'Все placebo runs failed — inference unavailable.',
+            'detail': 'Все placebo runs failed - inference unavailable.',
         }
 
     abs_true = abs(true_att)
     n_extreme = sum(1 for a in placebo_atts if abs(a) >= abs_true)
-    # Standard permutation p-value — добавляем +1 в numerator (treated unit included
+    # Standard permutation p-value - добавляем +1 в numerator (treated unit included
     # в "наблюдаемое" значение) per Abadie convention.
     p_value = (n_extreme + 1) / (len(placebo_atts) + 1)
     placebo_arr = np.asarray(placebo_atts, dtype=np.float64)
@@ -315,7 +315,7 @@ def estimate_scm(
     if arrays is None:
         return error_response(
             'PANEL_FORMAT_INVALID',
-            'Не удалось построить pre/post arrays — проверьте данные.'
+            'Не удалось построить pre/post arrays - проверьте данные.'
         )
     (y_treat_pre, y_treat_post, Y_donors_pre, Y_donors_post,
      pre_periods, post_periods, donor_units) = arrays
@@ -339,10 +339,10 @@ def estimate_scm(
     disclosure = HonestDisclosure(
         method='scm_abadie_classic',
         assumptions=[
-            'Convex hull — treated unit\'s pre-treatment trajectory ∈ convex hull of donor pool',
-            'No anticipation — units не реагируют на treatment до его start',
-            'No interference (SUTVA) — treatment в одном unit не влияет на donors',
-            'Stable composition — donor pool не treated в pre/post period',
+            'Convex hull - treated unit\'s pre-treatment trajectory ∈ convex hull of donor pool',
+            'No anticipation - units не реагируют на treatment до его start',
+            'No interference (SUTVA) - treatment в одном unit не влияет на donors',
+            'Stable composition - donor pool не treated в pre/post period',
         ],
         references=[
             'Abadie, Diamond, Hainmueller 2010 (JASA)',
@@ -358,7 +358,7 @@ def estimate_scm(
     else:
         disclosure.diagnostics_failed.append(f'pre_treatment_rmse_high (ratio={rmse_ratio:.3f})')
         disclosure.caveats.append(
-            f'Pre-treatment RMSE / treated_std = {rmse_ratio:.2f} > 0.7 — synthetic control '
+            f'Pre-treatment RMSE / treated_std = {rmse_ratio:.2f} > 0.7 - synthetic control '
             f'плохо матчит treated unit\'s pre-trajectory. ATT estimate unreliable.'
         )
 
@@ -367,8 +367,8 @@ def estimate_scm(
     n_eff_donors = 1.0 / max(weight_hhi, 1e-10)
     if n_eff_donors < 2:
         disclosure.caveats.append(
-            f'Effective donors = {n_eff_donors:.1f} (HHI {weight_hhi:.3f}) — synthetic '
-            f'control dominated одним donor. Convex-hull assumption tense — может '
+            f'Effective donors = {n_eff_donors:.1f} (HHI {weight_hhi:.3f}) - synthetic '
+            f'control dominated одним donor. Convex-hull assumption tense - может '
             f'указывать что treated unit отличается от donor pool.'
         )
     disclosure.diagnostics_passed.append(f'weight_concentration_hhi={weight_hhi:.3f}_n_eff={n_eff_donors:.1f}')
@@ -395,11 +395,11 @@ def estimate_scm(
             p_summary = placebo_result['placebo_atts_summary']
             scale = float(p_summary.get('std') or 0.0)
             if scale <= 0:
-                # All placebo ATTs identical — degenerate. Fall back to range proxy.
+                # All placebo ATTs identical - degenerate. Fall back to range proxy.
                 scale = max(p_summary['max'] - p_summary['min'], 0.0) / 4
             ci_method = 'placebo_permutation'
         else:
-            # Insufficient placebos succeeded — honest fallback marker (B2 fix).
+            # Insufficient placebos succeeded - honest fallback marker (B2 fix).
             scale = pre_rmse
             ci_method = 'placebo_pre_rmse_fallback'
         att_ci_low = att_mean - z_crit * scale

@@ -18,12 +18,12 @@ from typing import Literal, TypedDict
 
 ChannelCategory = Literal['brand', 'performance', 'mixed']
 
-# Heuristic hints — extracted из decomposer.py:484-485 (single source of truth теперь здесь)
+# Heuristic hints - extracted из decomposer.py:484-485 (single source of truth теперь здесь)
 BRAND_HINTS: tuple[str, ...] = (
     'TRP', 'GRP', 'OTS', 'ОХВАТ', 'РЕЙТИНГ',
     'TV', 'ТВ', 'OOH', 'НАРУЖК', 'РАДИО', 'RADIO',
     'БРЕНД', 'BRAND',
-    # OLV (Online Video) — видеореклама работает на awareness (long-decay) подобно ТВ.
+    # OLV (Online Video) - видеореклама работает на awareness (long-decay) подобно ТВ.
     # Антон 2026-04-27: классифицируем как brand по-умолчанию.
     'OLV',
 )
@@ -36,7 +36,7 @@ PERF_HINTS: tuple[str, ...] = (
     'PROGRAMMATIC', 'ПРОГРАММАТИК', 'DSP',
 )
 
-# Strong performance signals — auto-bidding / response-direct маркеры,
+# Strong performance signals - auto-bidding / response-direct маркеры,
 # которые overrid'ят brand classification если оба совпадают (Антон 2026-04-27).
 # Пример: "OLV programmatic" → brand-hint OLV + strong-perf programmatic → performance.
 # Без этого override был бы mixed (ambiguous).
@@ -65,7 +65,7 @@ def normalize_channel_name(name: str) -> str:
         return ''
     # Strip parens contents but keep substring-search-friendly form
     s = name.upper()
-    # Remove punctuation that breaks hint matching — keep space/dash/digits/letters
+    # Remove punctuation that breaks hint matching - keep space/dash/digits/letters
     cleaned = []
     for ch in s:
         if ch.isalnum() or ch in (' ', '-', '_'):
@@ -81,7 +81,7 @@ def auto_suggest_category(channel_name: str) -> CategorySuggestion:
     Returns:
         {category, confidence, reasoning}
         - confidence 1.0: strong unambiguous match (only one category hits)
-        - confidence 0.5: ambiguous — both brand AND performance hints match → mixed
+        - confidence 0.5: ambiguous - both brand AND performance hints match → mixed
         - confidence 0.0: no hint match → mixed (default)
     """
     if not channel_name:
@@ -112,13 +112,13 @@ def auto_suggest_category(channel_name: str) -> CategorySuggestion:
         }
     if is_brand and is_perf:
         # Strong-perf override: programmatic / CPC / CPA / DSP / Performance
-        # — auto-bidding markers, явный response-direct сигнал, overrid'ят brand.
+        # - auto-bidding markers, явный response-direct сигнал, overrid'ят brand.
         # Пример: "OLV programmatic" → brand(OLV) + perf(programmatic) → strong-perf → performance.
         strong_matches = [h for h in STRONG_PERF_HINTS if h in normalized]
         if strong_matches:
             return {
                 'category': 'performance',
-                'confidence': 0.8,  # high — strong signal overrides brand
+                'confidence': 0.8,  # high - strong signal overrides brand
                 'reasoning': f"strong-perf override: {', '.join(strong_matches)} (brand hints {brand_matches} ignored)",
             }
         return {
@@ -129,7 +129,7 @@ def auto_suggest_category(channel_name: str) -> CategorySuggestion:
     return {
         'category': 'mixed',
         'confidence': 0.0,
-        'reasoning': 'no hint match — default to mixed',
+        'reasoning': 'no hint match - default to mixed',
     }
 
 
@@ -150,7 +150,7 @@ def validate_categorization_for_hierarchical(
         - Single-channel groups → degenerate posterior, r_hat > 1.1, fail.
 
     POST-AUDIT FIX (2026-04-27):
-        Эта функция работает ТОЛЬКО с explicit user entries — НЕ заполняет missing
+        Эта функция работает ТОЛЬКО с explicit user entries - НЕ заполняет missing
         каналы с 'mixed' автоматически. Пре-Trust3 проекты сохраняют empty
         channel_categories в pickle, decomposer применяет heuristic fallback.
         Иначе была регрессия: empty raw → fill all с mixed → pickle saves all-mixed
@@ -169,7 +169,7 @@ def validate_categorization_for_hierarchical(
     warnings: list[str] = []
 
     # Filter to only entries explicitly provided для existing media_cols.
-    # Orphans (channel deleted) silently dropped — UI store sync handle отдельно.
+    # Orphans (channel deleted) silently dropped - UI store sync handle отдельно.
     media_set = set(media_cols)
     validated: dict[str, ChannelCategory] = {
         ch: cat for ch, cat in categories.items() if ch in media_set
@@ -211,7 +211,7 @@ def resolve_per_channel_categories(
     """Resolve per-channel category vector для модели (in-order list).
 
     Caller всегда нужен per-channel vector для PyMC priors construction.
-    Этот helper conscious о default value — не persists в pickle, только
+    Этот helper conscious о default value - не persists в pickle, только
     used in-model.
 
     Returns:

@@ -3,15 +3,15 @@
 Sprint 5 Infrastructure Hardening (2026-04-27):
 - sys.path injection HOISTED здесь чтобы pytest discovery видел sidecar modules
   ДО первого test file import (Critical Audit issue C).
-- Session-scoped pre-trained synthetic model fixture (issue D, N) — saves 5-10min
+- Session-scoped pre-trained synthetic model fixture (issue D, N) - saves 5-10min
   CI time vs training MCMC per integration test.
 - testdata_dir fixture для optional real data testing (Kagocel/Венарус локально).
 
 Existing standalone scripts (tools/test_*.py) retain `if __name__ == '__main__': main()`
-pattern — pytest discovers top-level `def test_X()` functions independently.
+pattern - pytest discovers top-level `def test_X()` functions independently.
 Both invocation paths работают:
     pytest tools/test_X.py       # pytest discovery
-    python tools/test_X.py       # standalone main() — backward compat
+    python tools/test_X.py       # standalone main() - backward compat
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ import pytest
 # ── aurora_tokens test shim (v1.3.2 audit followup I2) ──
 # В production aurora_tokens module генерируется через `Standards/tokens/build.py
 # --target python` из Aurora Design System repo. Test environment не имеет
-# доступа к этому build — register minimal shim в sys.modules чтобы import
+# доступа к этому build - register minimal shim в sys.modules чтобы import
 # `from aurora_tokens import COLORS, TYPOGRAPHY, SIZING` работал в builder.py
 # и pptx tests без external dependency.
 #
@@ -46,7 +46,7 @@ import sys as _sys
 
 if 'aurora_tokens' not in _sys.modules:
     try:
-        import aurora_tokens as _real  # noqa: F401 — production-generated
+        import aurora_tokens as _real  # noqa: F401 - production-generated
     except ImportError:
         import types as _types
         _shim = _types.ModuleType('aurora_tokens')
@@ -157,9 +157,9 @@ def testdata_dir() -> Path | None:
 def pytest_collection_modifyitems(config, items):
     """Auto-skip tests с requires_real_data маркером если testdata_dir недоступен."""
     if _resolve_testdata_dir() is not None:
-        return  # data доступен — не skip'аем
+        return  # data доступен - не skip'аем
     skip_reason = pytest.mark.skip(
-        reason='AURORA_TESTDATA_DIR not set / no Excel fixtures found — skipping real-data test'
+        reason='AURORA_TESTDATA_DIR not set / no Excel fixtures found - skipping real-data test'
     )
     for item in items:
         if 'requires_real_data' in item.keywords:
@@ -178,7 +178,7 @@ def synthetic_trained_project(tmp_path_factory):
     Reused integration tests чтобы избежать MCMC training cost (~30sec) на каждый.
     Использует tools/demo_phase1_9_e2e.py pattern.
 
-    NB: Если PyMC/NumPyro не доступны (lightweight CI без heavy deps) — fixture
+    NB: Если PyMC/NumPyro не доступны (lightweight CI без heavy deps) - fixture
     fall-back: возвращает project_dir с синтетическим pickle (point estimates only,
     sufficient для большинства downstream tests).
     """
@@ -188,7 +188,7 @@ def synthetic_trained_project(tmp_path_factory):
     results_dir = project_dir / 'results'
     results_dir.mkdir(parents=True, exist_ok=True)
 
-    # Lightweight synthetic pickle — encodes Phase 1.9 + Trust 3 schema.
+    # Lightweight synthetic pickle - encodes Phase 1.9 + Trust 3 schema.
     # 5 channels, 36 monthly obs, predictable structure for downstream tests.
     import numpy as np
     rng = np.random.default_rng(42)
@@ -304,7 +304,7 @@ def kagocel_pathology_project(tmp_path_factory):
     alphas_samples = np.full((n_channels, n_samples), 1.5, dtype=np.float32)
     gammas_samples = np.full((n_channels, n_samples), 0.48, dtype=np.float32)
     intercept_samples = rng.normal(0.0, 0.3, size=n_samples).astype(np.float32)
-    # Brand long decay, performance short — Trust 3 hierarchical pattern
+    # Brand long decay, performance short - Trust 3 hierarchical pattern
     decay_means = np.array([0.65, 0.55, 0.18, 0.20, 0.15, 0.30])
     decay_samples = np.clip(
         rng.normal(decay_means[:, None], 0.08, size=(n_channels, n_samples)), 0.0, 0.95
@@ -330,7 +330,7 @@ def kagocel_pathology_project(tmp_path_factory):
     }
     unit_costs = {
         'TRPs бренд': 150_000.0,  # 150k RUB per TRP
-        # Others — money channels (uc=1)
+        # Others - money channels (uc=1)
     }
 
     model_data = {

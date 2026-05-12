@@ -1,5 +1,5 @@
 /**
- * chat-classifier.js — Frontend regex-classifier для перехвата small talk.
+ * chat-classifier.js - Frontend regex-classifier для перехвата small talk.
  *
  * Перехватывает нерабочие сообщения ДО отправки в Claude CLI.
  * Все ответы вежливо подводят пользователя к рабочей задаче.
@@ -43,7 +43,7 @@ function getCompiledPatterns() {
 }
 
 // ════════════════════════════════════════════════════════
-// PATTERNS — 9 категорий, 70+ regex'ов (loaded from content pack)
+// PATTERNS - 9 категорий, 70+ regex'ов (loaded from content pack)
 // ════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════
@@ -75,17 +75,17 @@ function buildResponse(type, cabinet, topCommands) {
 
   switch (type) {
     case 'greeting':
-      return `${getTimeGreeting()}! ${name} на связи — готов к работе.${cmds}`;
+      return `${getTimeGreeting()}! ${name} на связи - готов к работе.${cmds}`;
     case 'farewell':
       return 'До встречи! Результаты сохранены в папке «Экспорт» на рабочем столе.';
     case 'thanks':
-      return 'Рад помочь! Если нужно доработать результат — уточните, что изменить. Или переходите к следующей задаче.';
+      return 'Рад помочь! Если нужно доработать результат - уточните, что изменить. Или переходите к следующей задаче.';
     case 'status':
-      return `Всё в порядке — работаю и жду задание.${cmds}`;
+      return `Всё в порядке - работаю и жду задание.${cmds}`;
     case 'identity':
-      return `Я — ${name}, специализированный ИИ-ассистент в составе Aurora AI. Работаю с профессиональными задачами в рамках своей экспертизы.${cmds}`;
+      return `Я - ${name}, специализированный ИИ-ассистент в составе Aurora AI. Работаю с профессиональными задачами в рамках своей экспертизы.${cmds}`;
     case 'capabilities':
-      return `${name} — вот что я умею:${cmds}\n\nВы также можете описать задачу своими словами.`;
+      return `${name} - вот что я умею:${cmds}\n\nВы также можете описать задачу своими словами.`;
     case 'empty':
       return `Готов к работе. Опишите задачу или выберите команду из панели справа.`;
     case 'compliment':
@@ -103,11 +103,11 @@ function buildResponse(type, cabinet, topCommands) {
 
 /**
  * Классифицировать сообщение пользователя.
- * @param {string} text — текст сообщения
- * @param {{id?: string, name?: string}|null} cabinet — активный кабинет
- * @param {string[]} topCommands — labels топ-3 команд кабинета
- * @param {Array<{role: string, content: string}>} chatMessages — текущая история чата
- * @returns {{type: string, response: string}|null} — null = отправлять в Claude
+ * @param {string} text - текст сообщения
+ * @param {{id?: string, name?: string}|null} cabinet - активный кабинет
+ * @param {string[]} topCommands - labels топ-3 команд кабинета
+ * @param {Array<{role: string, content: string}>} chatMessages - текущая история чата
+ * @returns {{type: string, response: string}|null} - null = отправлять в Claude
  */
 export function classifyMessage(text, cabinet, topCommands, chatMessages) {
   const trimmed = text.trim();
@@ -117,7 +117,7 @@ export function classifyMessage(text, cabinet, topCommands, chatMessages) {
   // Slash-команды всегда идут в Claude
   if (trimmed.startsWith('/')) return null;
 
-  // Длинные сообщения (>80 символов) — скорее всего задача
+  // Длинные сообщения (>80 символов) - скорее всего задача
   if (trimmed.length > 80) return null;
 
   // Сообщения с URL или файлами

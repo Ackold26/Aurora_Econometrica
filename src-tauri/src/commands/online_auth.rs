@@ -94,7 +94,7 @@ pub struct AuthResponse {
     pub update_required: bool,
     #[serde(default)]
     pub update_url: Option<String>,
-    // v3 fields (Phase 5) — optional, ignored by older clients
+    // v3 fields (Phase 5) - optional, ignored by older clients
     #[serde(default)]
     pub vault_versions: Option<std::collections::HashMap<String, u32>>,
     #[serde(default)]
@@ -377,7 +377,7 @@ pub async fn authorize(
                     frontend_checksum: cached.frontend_checksum,
                 }
             } else {
-                // No cache — caller should try offline Ed25519
+                // No cache - caller should try offline Ed25519
                 OnlineAuthStatus {
                     available: false,
                     status: "offline".to_string(),

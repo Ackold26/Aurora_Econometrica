@@ -10,7 +10,7 @@
 В v1.2.0 шаг Оптимизация позволяет двигать слайдер бюджета на ±500%. Hill saturation параметры обучаются на исторических наблюдениях каждого канала в диапазоне `[X_i^obs_min, X_i^obs_max]`. За пределами этого диапазона функция `f(X) = X/(K+X)` (Hill normalized) формально определена, но это **экстраполяция**, и:
 
 - Posterior CI на `mROAS`/`mEffect` расширяется кратно (≥2× при `X > P95 + 50%`).
-- Optimization рекомендации теряют валидность — solver maximizes ожидание там, где модель не наблюдала.
+- Optimization рекомендации теряют валидность - solver maximizes ожидание там, где модель не наблюдала.
 - `value_per_count_unit` сравнения теряют смысл при extrapolation.
 
 Это методологически известная проблема в MMM literature; стандартные tools применяют ограничения на оптимизационный домен.
@@ -27,7 +27,7 @@ X_i^lo = max(P5(X_i_observed), 0.5 · µ_i)
 X_i^hi = min(P95(X_i_observed), 1.5 · µ_i)
 ```
 
-**Total budget corridor** = `[Σ X_i^lo, Σ X_i^hi]` с предупреждением «aggregate corridor — приближение; реальный safe range зависит от paired observations».
+**Total budget corridor** = `[Σ X_i^lo, Σ X_i^hi]` с предупреждением «aggregate corridor - приближение; реальный safe range зависит от paired observations».
 
 **Target sales corridor (S_safe):**
 - Lower: `base + Σ β_i · f(X_i^lo)` (при минимальной загрузке).
@@ -35,9 +35,9 @@ X_i^hi = min(P95(X_i_observed), 1.5 · µ_i)
 - В UI: ±% от текущих продаж `S_current`.
 
 **Three zones для UX слайдеров:**
-- 🟢 Зелёная (внутри corridor) — модель валидна.
-- 🟡 Жёлтая (±10% за пределами) — warning: extrapolation, расширенный CI.
-- 🔴 Красная (>10% за пределами) — кнопка `Найти решение` неактивна.
+- 🟢 Зелёная (внутри corridor) - модель валидна.
+- 🟡 Жёлтая (±10% за пределами) - warning: extrapolation, расширенный CI.
+- 🔴 Красная (>10% за пределами) - кнопка `Найти решение` неактивна.
 
 **Expert Mode (Phase B опция):**
 - Posterior-based bounds через bootstrap-сэмплирование исторических распределений + propagation через posterior MCMC.
@@ -48,11 +48,11 @@ X_i^hi = min(P95(X_i_observed), 1.5 · µ_i)
 
 1. **Robyn (Meta) open source MMM.** Default bounds: `lower_bound = 0.5 · spend_avg`, `upper_bound = 1.5 · spend_avg` (документация Robyn user guide). Эмпирическое правило: extrapolation за этими границами увеличивает posterior CV >50%.
 
-2. **PyMC-Marketing** (Bayesian MMM framework). Рекомендует posterior predictive checks для определения safe extrapolation range; точные пороги — данных-зависимые.
+2. **PyMC-Marketing** (Bayesian MMM framework). Рекомендует posterior predictive checks для определения safe extrapolation range; точные пороги - данных-зависимые.
 
 3. **Hanssens, Parsons, Schultz (2003), "Market Response Models", §11.4 "Extrapolation beyond observed range"**: RMSE прогноза за пределами наблюдённого range увеличивается типично в 2–3 раза для нелинейных saturation моделей.
 
-4. **Jin, Wang, Sun, Chan, Koehler (2017), Google research paper "Bayesian Methods for Media Mix Modeling with Carryover and Shape Effects"**: Hill curve identifiability в §3.2 — гибкость Hill требует sufficient data coverage внутри observed range; extrapolation требует additional regularization через priors.
+4. **Jin, Wang, Sun, Chan, Koehler (2017), Google research paper "Bayesian Methods for Media Mix Modeling with Carryover and Shape Effects"**: Hill curve identifiability в §3.2 - гибкость Hill требует sufficient data coverage внутри observed range; extrapolation требует additional regularization через priors.
 
 5. **Lightweight MMM (Google).** Использует input scaling по historical mean, рекомендует optimization domain `[0.3 · spend_avg, 2.0 · spend_avg]`.
 
@@ -81,7 +81,7 @@ X_i^hi = min(P95(X_i_observed), 1.5 · µ_i)
 - Aggregate corridor не точно отражает paired-data limitations (over-estimates achievable range).
 
 **Neutral:**
-- Backward compat: для v1.2 bundles при load — corridor вычисляется на лету, не сохраняется в bundle.
+- Backward compat: для v1.2 bundles при load - corridor вычисляется на лету, не сохраняется в bundle.
 
 ## Implementation
 
@@ -96,7 +96,7 @@ X_i^hi = min(P95(X_i_observed), 1.5 · µ_i)
 
 **UI:**
 - `CorridorSlider.svelte` reusable component с 3 zones.
-- Override button: «Я знаю, что делаю — снять ограничения» (Expert Mode flag).
+- Override button: «Я знаю, что делаю - снять ограничения» (Expert Mode flag).
 
 ## References
 

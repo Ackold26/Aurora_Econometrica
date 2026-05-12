@@ -1,19 +1,19 @@
 """Synthetic + smoke tests для Trust Level 3 (Brand vs Performance Split).
 
 Coverage:
-- Test 1: Backward compat — empty channel_categories → single-prior path (model_version=1.2 preserved)
+- Test 1: Backward compat - empty channel_categories → single-prior path (model_version=1.2 preserved)
 - Test 2: All-mixed portfolio → identical к pre-Trust3 baseline (no hierarchical)
 - Test 3: ≥2 brand + ≥2 perf → use_hierarchical=True (model_version=1.3)
 - Test 4: Single-N brand group → identifiability fallback к mixed (no hierarchical)
 - Test 5: validate_categorization_for_hierarchical produces correct demote
-- Test 6: persistence — channel_categories сохраняются в pickle config
+- Test 6: persistence - channel_categories сохраняются в pickle config
 - Test 7: Decay extraction для hierarchical с per-group mu_logit available
 - Test 8: Pickle compat helper централизован
 - Test 9: Heuristic fallback применяется к pre-v1.3 pickles при decompose
 - Test 10: Auto-suggest endpoint structure validation
 
 Live MCMC training tests (NumPyro JAX sampling) helps Phase E validation
-но они slow и требуют полный sidecar-stack — реальная live-валидация делается через
+но они slow и требуют полный sidecar-stack - реальная live-валидация делается через
 manual alpha gate на Kagocel/Венарус (Phase G).
 """
 
@@ -171,7 +171,7 @@ def test_auto_suggest_endpoint_structure():
 def test_brand_decay_higher_than_perf_priors():
     """Sanity: brand prior мать decay (sigmoid(0.7)≈0.67) > perf (sigmoid(-1.4)≈0.20).
 
-    Эта релация — фундаментальная для Trust 3. Если flip — модель больше не разделяет.
+    Эта релация - фундаментальная для Trust 3. Если flip - модель больше не разделяет.
     """
     import math
     brand_decay = 1 / (1 + math.exp(-0.7))

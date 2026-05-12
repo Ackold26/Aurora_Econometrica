@@ -46,7 +46,7 @@ def kpi_view(data):
 def fmt_metric(value, kpi, fallback="-"):
     """Format metric value per (kpi_kind, mode). No HTML wrappers.
 
-    B4 audit fix: backend convention — per-channel mroas/roi всегда mathematical
+    B4 audit fix: backend convention - per-channel mroas/roi всегда mathematical
     ratio (units_kpi / ₽_spend). Для count это units/₽; CPU = 1/x. Invert
     before display чтобы «120 ₽/ед.» означало true CPU, не raw units/₽.
     """
@@ -71,10 +71,10 @@ def fmt_metric(value, kpi, fallback="-"):
 
 
 def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
-    """KPI-aware text-only CI bracket: '80 ₽/ед. [60—100]' / '1.5× [1.2—1.8]'.
+    """KPI-aware text-only CI bracket: '80 ₽/ед. [60-100]' / '1.5× [1.2-1.8]'.
 
     B4 audit fix: для count mode CI flips (units/₽ → CPU); swap order для
-    canonical [lo_cpu — hi_cpu] display.
+    canonical [lo_cpu - hi_cpu] display.
     """
     base = fmt_metric(mean, kpi)
     if ci_low is None or ci_high is None:
@@ -87,7 +87,7 @@ def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
             hi = float(ci_high) * (100 if abs(float(ci_high)) <= 1.0 else 1)
         except (TypeError, ValueError):
             return base
-        return f"{base} [{lo:.1f}—{hi:.1f}]"
+        return f"{base} [{lo:.1f}-{hi:.1f}]"
     if kpi.get("kpi_kind") == "count":
         try:
             lo_raw = float(ci_low)
@@ -97,11 +97,11 @@ def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
             hi_cpu = 1.0 / lo_raw if lo_raw > 0 else float('inf')
             if not (lo_cpu < float('inf') and hi_cpu < float('inf')):
                 return base
-            return f"{base} [{lo_cpu:.0f}—{hi_cpu:.0f}]"
+            return f"{base} [{lo_cpu:.0f}-{hi_cpu:.0f}]"
         except (TypeError, ValueError, ZeroDivisionError):
             return base
     try:
-        return f"{base} [{float(ci_low):.2f}—{float(ci_high):.2f}]"
+        return f"{base} [{float(ci_low):.2f}-{float(ci_high):.2f}]"
     except (TypeError, ValueError):
         return base
 

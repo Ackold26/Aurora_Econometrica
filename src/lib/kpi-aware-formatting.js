@@ -51,7 +51,7 @@ const DEFAULT_LABELS = {
 /**
  * B3 audit fix (v1.3.2): derive labels из kpiKind+mode локально. Mirrors
  * Python utils/kpi_labels.py:metric_label/metric_short_label/etc. Используется
- * когда caller не передаёт labels (например InsightsPanel — только kpiKind/
+ * когда caller не передаёт labels (например InsightsPanel - только kpiKind/
  * mode/vpcu приходят из stores, labels не stored). Fallback к default ROI
  * labels для legacy ctx.
  *
@@ -82,10 +82,10 @@ function deriveLabels(kpiKind, mode) {
  * Build KPI view from raw stores / data dict. Defaults preserve v1.2 behavior.
  *
  * B3 audit fix: labels приоритизируются:
- *   1. Explicit input.labels (если caller передал — backend payload).
- *   2. Derived from kpiKind+mode (когда labels не переданы — InsightsPanel
+ *   1. Explicit input.labels (если caller передал - backend payload).
+ *   2. Derived from kpiKind+mode (когда labels не переданы - InsightsPanel
  *      путь). Mirrors Python kpi_labels.py logic.
- *   3. DEFAULT_LABELS (legacy fallback — kpiKind=monetary mode=roi).
+ *   3. DEFAULT_LABELS (legacy fallback - kpiKind=monetary mode=roi).
  *
  * @param {KpiViewInput|null|undefined} input
  * @returns {KpiView}
@@ -113,7 +113,7 @@ export function kpiView(input) {
 /**
  * Format single metric value per KPI/mode.
  *
- * B4 audit fix (v1.3.2): backend convention — per-channel mroas/roi всегда
+ * B4 audit fix (v1.3.2): backend convention - per-channel mroas/roi всегда
  * mathematical ratio (KPI_units / ₽_spend). Для count это units/₽ (e.g.
  * 0.0125). CPU = 1/x. fmtMetric inverts при display.
  *
@@ -127,7 +127,7 @@ export function kpiView(input) {
  * @param {string} [fallback]
  * @returns {string}
  */
-export function fmtMetric(value, kpi, fallback = '—') {
+export function fmtMetric(value, kpi, fallback = '-') {
   if (value == null) return fallback;
   const f = Number(value);
   if (!Number.isFinite(f)) return fallback;
@@ -150,15 +150,15 @@ export function fmtMetric(value, kpi, fallback = '—') {
  * @returns {string}
  */
 export function fmtMetricBare(value, kpi) {
-  if (value == null) return '—';
+  if (value == null) return '-';
   const f = Number(value);
-  if (!Number.isFinite(f)) return '—';
+  if (!Number.isFinite(f)) return '-';
   if (kpi.mode === 'effectiveness') {
     return Math.abs(f) <= 1.0 ? `${(f * 100).toFixed(1)}` : `${f.toFixed(0)}`;
   }
   if (kpi.kpiKind === 'count') {
     if (f > 0) return `${(1 / f).toFixed(0)}`;
-    return '—';
+    return '-';
   }
   return `${f.toFixed(2)}`;
 }

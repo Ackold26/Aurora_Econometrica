@@ -58,7 +58,7 @@
           items.push({
             id: `cmd-${cab.id}-${cmd.command}`,
             label: `${cmd.command}`,
-            description: `${cmd.label} — ${cab.name}`,
+            description: `${cmd.label} - ${cab.name}`,
             type: 'command',
             cabinetId: cab.id,
             action: async () => {

@@ -1,12 +1,12 @@
 <script>
   /**
-   * KPISelector — v1.3.0 first sub-step of Validate (per ADR-015).
+   * KPISelector - v1.3.0 first sub-step of Validate (per ADR-015).
    *
    * User выбирает тип target KPI. Этот выбор определяет:
-   * - kpi_kind (monetary | count) — влияет на verdicts, отчёты, метрики.
+   * - kpi_kind (monetary | count) - влияет на verdicts, отчёты, метрики.
    * - Нужно ли поле value_per_count_unit на следующем sub-step.
    *
-   * Emits onSelect(kpi_type) — parent сохраняет в store kpiKind.
+   * Emits onSelect(kpi_type) - parent сохраняет в store kpiKind.
    *
    * @component KPISelector
    */
@@ -20,19 +20,19 @@
   // Список KPI вариантов с UI metadata.
   // monetary group:
   const monetaryOptions = [
-    { id: 'sales', icon: '💰', title: 'Выручка', subtitle: 'продажи в ₽', desc: 'Стандартный сценарий для CMO / CFO. Главная метрика — ROI каждого канала.' },
+    { id: 'sales', icon: '💰', title: 'Выручка', subtitle: 'продажи в ₽', desc: 'Стандартный сценарий для CMO / CFO. Главная метрика - ROI каждого канала.' },
     { id: 'revenue', icon: '💵', title: 'Доход', subtitle: 'gross revenue', desc: 'Аналог выручки. Применимо для бизнесов с явным revenue tracking.' },
     { id: 'profit', icon: '📈', title: 'Прибыль', subtitle: 'profit / маржа', desc: 'Если хотите модель в gross/net profit вместо выручки.' },
   ];
 
   // count group:
   const countOptions = [
-    { id: 'sales_packs', icon: '📦', title: 'Продажи в штуках', subtitle: 'упаковки / SKU', desc: 'FMCG, фарма, ритейл — модель оценивает CPU (₽/упак) и сравнивает с маржой.' },
-    { id: 'leads', icon: '🎯', title: 'Лиды', subtitle: 'заявки / обращения', desc: 'B2B, страхование, услуги — главная метрика CPU = ₽ за лид. Сравнение с LTV × CR.' },
-    { id: 'registrations', icon: '📝', title: 'Регистрации', subtitle: 'sign-ups', desc: 'SaaS, e-commerce — модель оценивает стоимость одной регистрации.' },
-    { id: 'loyalty_cards', icon: '💳', title: 'Выданные карты', subtitle: 'loyalty cards', desc: 'Программы лояльности — CPU vs ценность (avg_basket × retention).' },
-    { id: 'subscriptions', icon: '🔁', title: 'Подписки', subtitle: 'subscriptions', desc: 'SaaS, медиа — CPU vs MRR на подписку.' },
-    { id: 'app_installs', icon: '📱', title: 'Установки', subtitle: 'app installs', desc: 'Mobile-first продукты — CPU vs LTV.' },
+    { id: 'sales_packs', icon: '📦', title: 'Продажи в штуках', subtitle: 'упаковки / SKU', desc: 'FMCG, фарма, ритейл - модель оценивает CPU (₽/упак) и сравнивает с маржой.' },
+    { id: 'leads', icon: '🎯', title: 'Лиды', subtitle: 'заявки / обращения', desc: 'B2B, страхование, услуги - главная метрика CPU = ₽ за лид. Сравнение с LTV × CR.' },
+    { id: 'registrations', icon: '📝', title: 'Регистрации', subtitle: 'sign-ups', desc: 'SaaS, e-commerce - модель оценивает стоимость одной регистрации.' },
+    { id: 'loyalty_cards', icon: '💳', title: 'Выданные карты', subtitle: 'loyalty cards', desc: 'Программы лояльности - CPU vs ценность (avg_basket × retention).' },
+    { id: 'subscriptions', icon: '🔁', title: 'Подписки', subtitle: 'subscriptions', desc: 'SaaS, медиа - CPU vs MRR на подписку.' },
+    { id: 'app_installs', icon: '📱', title: 'Установки', subtitle: 'app installs', desc: 'Mobile-first продукты - CPU vs LTV.' },
     { id: 'count_custom', icon: '✍️', title: 'Свой KPI', subtitle: 'custom counted metric', desc: 'Любая считаемая метрика. Вы зададите label и ценность сами.' },
   ];
 
@@ -49,7 +49,7 @@
   <header class="intro">
     <h2>Что измеряем как итог?</h2>
     <p class="lead">
-      Выберите целевой показатель — то, на что повлияли каналы рекламы.
+      Выберите целевой показатель - то, на что повлияли каналы рекламы.
       Этот выбор определяет, в каких единицах модель будет оценивать каждый канал.
       <button
         class="why-link"
@@ -60,20 +60,20 @@
     </p>
     {#if whyExpanded}
       <div class="why-panel" role="region" aria-label="Подробное объяснение выбора KPI">
-        <p><strong>Целевая метрика — это итог, на который влияют каналы рекламы.</strong> Выбор определяет, что модель будет считать «успехом», и в каких единицах оценит каждый канал:</p>
+        <p><strong>Целевая метрика - это итог, на который влияют каналы рекламы.</strong> Выбор определяет, что модель будет считать «успехом», и в каких единицах оценит каждый канал:</p>
         <ul>
           <li>
-            <strong>Деньги (₽):</strong> продажи, выручка, прибыль. Модель посчитает <strong>ROI</strong>: сколько рублей вернул каждый рубль вложений в канал. Подходит для CFO/CMO — финансовая отдача.
+            <strong>Деньги (₽):</strong> продажи, выручка, прибыль. Модель посчитает <strong>ROI</strong>: сколько рублей вернул каждый рубль вложений в канал. Подходит для CFO/CMO - финансовая отдача.
           </li>
           <li>
-            <strong>Штуки:</strong> упаковки, лиды, регистрации, подписки, установки. Модель посчитает <strong>CPU</strong> (cost per unit): сколько рублей стоит привести одну единицу. Подходит для FMCG, фармы, B2B — где маржа на единицу известна.
+            <strong>Штуки:</strong> упаковки, лиды, регистрации, подписки, установки. Модель посчитает <strong>CPU</strong> (cost per unit): сколько рублей стоит привести одну единицу. Подходит для FMCG, фармы, B2B - где маржа на единицу известна.
           </li>
           <li>
             <strong>Custom counted metric:</strong> своя целевая метрика в штуках (звонки, заявки, customer-метрика). Подходит когда стандартные категории не описывают вашу задачу.
           </li>
         </ul>
         <p class="why-tip">
-          <strong>Подсказка:</strong> выбирайте KPI, который вы реально измеряете и оптимизируете. Если бизнес считает в штуках (упаковки/лиды) — выбирайте «штуки», даже если у канала бюджет в рублях. Модель умеет связать «потратили N руб → продали K упаковок» (это и есть CPU).
+          <strong>Подсказка:</strong> выбирайте KPI, который вы реально измеряете и оптимизируете. Если бизнес считает в штуках (упаковки/лиды) - выбирайте «штуки», даже если у канала бюджет в рублях. Модель умеет связать «потратили N руб → продали K упаковок» (это и есть CPU).
         </p>
       </div>
     {/if}
@@ -133,7 +133,7 @@
 
   <footer class="note">
     <span class="info-icon">ℹ️</span>
-    <span>Изменить выбор можно в любой момент — модель пересчитается с новыми метриками.</span>
+    <span>Изменить выбор можно в любой момент - модель пересчитается с новыми метриками.</span>
   </footer>
 </div>
 
@@ -179,7 +179,7 @@
   }
   .chevron.open { transform: rotate(180deg); }
 
-  /* v1.3.2: «Зачем этот шаг?» раскрывающаяся панель — premium tier-1. */
+  /* v1.3.2: «Зачем этот шаг?» раскрывающаяся панель - premium tier-1. */
   .why-panel {
     margin-top: 12px;
     padding: 14px 18px;
@@ -273,7 +273,7 @@
     color: var(--text-primary);
     letter-spacing: -0.01em;
   }
-  /* UX audit v1.3.0: WCAG AA min 12px body text — было 10px (fail). */
+  /* UX audit v1.3.0: WCAG AA min 12px body text - было 10px (fail). */
   .subtitle {
     font-size: 11px;
     color: var(--text-muted);

@@ -1,4 +1,4 @@
-# MATH AUDIT v1.6 — Brand vs Performance Split (Trust Level 3)
+# MATH AUDIT v1.6 - Brand vs Performance Split (Trust Level 3)
 
 **Status:** SHIPPED 2026-04-27 (v1.1.0 architectural change)
 **Branch:** math-fix-v1.0.13
@@ -39,8 +39,8 @@ media_betas ~ HalfNormal(sigma=0.3, shape=N)
 
 **v1.1.0 hierarchical path (when ≥2 каналов в одной из brand/perf групп):**
 ```python
-brand_sigma  ~ HalfNormal(0.7)   # wider — accommodate brand variance
-perf_sigma   ~ HalfNormal(0.3)   # tighter — performance well-identified
+brand_sigma  ~ HalfNormal(0.7)   # wider - accommodate brand variance
+perf_sigma   ~ HalfNormal(0.3)   # tighter - performance well-identified
 mixed_sigma  ~ HalfNormal(0.4)   # intermediate
 
 sigma_per_channel[i] = brand_sigma  if cat[i] == 'brand'
@@ -54,7 +54,7 @@ media_betas[i] = sigma_per_channel[i] * media_betas_z[i]
 
 **Why non-centered:** Centered (`betas ~ HalfNormal(group_sigma)`) creates funnel
 geometry на small N (e.g. n=31 monthly). NumPyro NUTS divergences explode.
-Non-centered reparam decouples sigma↔beta sampling — identical posterior, robust geometry.
+Non-centered reparam decouples sigma↔beta sampling - identical posterior, robust geometry.
 
 ### 2.2 Adstock decay priors
 
@@ -87,12 +87,12 @@ Original plan предложил Weibull adstock для brand (delayed-peak shap
 code-trace (Critical Audit issue A):
 
 - Текущий weibull в-model = pre-computed (Phase 1.5 task to make learnable)
-- Weibull = convolution (CDF weights × shifted matrix) — не natural для pt.scan
+- Weibull = convolution (CDF weights × shifted matrix) - не natural для pt.scan
 - Wiring weibull в pt.scan = ~10-15h additional work + JAX JIT recompilation issues
 
 **Решение:** **Stronger geometric prior для brand** (mu_logit=0.7 vs -1.4).
 - Effective half-life ≈ 12 weeks матчится с brand reality для monthly data
-- Robyn (Meta MMM) использует geometric для всех каналов с tuned decay — accepted industry practice
+- Robyn (Meta MMM) использует geometric для всех каналов с tuned decay - accepted industry practice
 - Reuses existing pt.scan infrastructure без modifications
 - adstock_factor_batch уже correct для geometric (analytical formula в utils/adstock.py:130-139)
 
@@ -141,18 +141,18 @@ Warning attached к `diagnostics.hierarchical.rhat_warning`. UI shows banner
 
 | Version  | Description                                                     |
 |----------|-----------------------------------------------------------------|
-| 1.0      | Initial OLS path (rejected by decomposer — MODEL_OUTDATED)      |
+| 1.0      | Initial OLS path (rejected by decomposer - MODEL_OUTDATED)      |
 | 1.0-ols  | Sprint 2 small-data fallback (point estimates)                  |
 | 1.1      | v1.0.13+ Bayesian baseline (z-score → spend/mean Hill normalization) |
 | 1.1.1    | Phase 1.1 hierarchical adstock decay (single hyperprior)        |
 | 1.2      | v1.0.16 baseline (post-audit fixes, three-way alignment)        |
-| **1.3**  | **Trust Level 3 — brand vs performance split**                  |
+| **1.3**  | **Trust Level 3 - brand vs performance split**                  |
 
 **v1.3 schema additions:**
 - `channel_categories: dict[str, 'brand'|'performance'|'mixed']`
 - `categorization_warnings: list[str]`
 - `use_hierarchical: bool`
-- `hierarchical_priors: dict` — `{brand_mu_logit_mean, perf_mu_logit_mean, ...}` для methodology auto-gen
+- `hierarchical_priors: dict` - `{brand_mu_logit_mean, perf_mu_logit_mean, ...}` для methodology auto-gen
 
 **Backward compat:** `engines/persistence.py:load_model_with_compat()` injects
 defaults для pre-v1.3 pickles. `model_data['channel_categories']` always present
@@ -164,22 +164,22 @@ backward compat handling.
 
 ---
 
-## 6. Conformal Prediction interaction (issue F — partial)
+## 6. Conformal Prediction interaction (issue F - partial)
 
 S-OLS-1 conformal PI assumes exchangeability of residuals. Hierarchical model
 с group structure → residuals могут показывать group-conditional patterns
 (brand residuals correlated, performance residuals correlated).
 
 **Status:** test_brand_perf_split.py включает acceptance assertion (≥85% empirical
-coverage) но требует live MCMC sampling — defer к Phase E live alpha gate
+coverage) но требует live MCMC sampling - defer к Phase E live alpha gate
 (Антон's Kagocel + Венарус validation session).
 
 **Risk acknowledged в methodology section:** «Атрибуция между brand и performance
-имеет fundamental uncertainty — мы используем priors based on industry norms».
+имеет fundamental uncertainty - мы используем priors based on industry norms».
 
 ---
 
-## 7. UX disclosure (issue R — deferred)
+## 7. UX disclosure (issue R - deferred)
 
 Original plan включал ROI shift comparison block («ROI was 0.85 → now 0.62 (−0.23)»).
 **Defer для v1.1.1:** требует «previous run» persistence + comparison logic в backend.
@@ -207,7 +207,7 @@ applies hierarchical attribution → user понимает контекст ROI 
 - **MODIFIED** `sidecar/econometrica/engines/optimizer.py / scenario.py / backtest.py / html_export.py`:
   - Use load_model_with_compat
 - **MODIFIED** `sidecar/econometrica/aurora_html/sections.py`:
-  - NEW `_render_brand_perf_split_block(ctx)` — methodology auto-gen
+  - NEW `_render_brand_perf_split_block(ctx)` - methodology auto-gen
 - **MODIFIED** `sidecar/econometrica/server.py`:
   - TrainRequest/TrainStartRequest принимают channel_categories
   - NEW endpoint `POST /utils/auto_suggest_categories`
@@ -239,16 +239,16 @@ applies hierarchical attribution → user понимает контекст ROI 
 
 ### Tests (NEW)
 
-- `tools/test_channel_categorization.py` — 21/21 PASS
-- `tools/test_pickle_compat.py` — 10/10 PASS
-- `tools/test_brand_perf_split.py` — 10/10 PASS
-- `tools/validation_set_categorization.json` — 50 manually-labeled channels (≥85% accuracy)
+- `tools/test_channel_categorization.py` - 21/21 PASS
+- `tools/test_pickle_compat.py` - 10/10 PASS
+- `tools/test_brand_perf_split.py` - 10/10 PASS
+- `tools/validation_set_categorization.json` - 50 manually-labeled channels (≥85% accuracy)
 
 ### Documentation
 
-- **THIS FILE** — `docs/MATH_AUDIT_v1_6_BRAND_PERFORMANCE_SPLIT.md`
-- `docs/CHANGELOG_v1.1.0.md` — release notes
-- Sprint4_Trust_Level.md — current status / commits log
+- **THIS FILE** - `docs/MATH_AUDIT_v1_6_BRAND_PERFORMANCE_SPLIT.md`
+- `docs/CHANGELOG_v1.1.0.md` - release notes
+- Sprint4_Trust_Level.md - current status / commits log
 
 ---
 
@@ -256,7 +256,7 @@ applies hierarchical attribution → user понимает контекст ROI 
 
 **v1.1.0 limitations (ack'd):**
 1. Brand decay = geometric с stronger prior, не «true» Weibull (Phase 1.5+)
-2. Conformal exchangeability на split posterior — empirically validated в alpha gate
+2. Conformal exchangeability на split posterior - empirically validated в alpha gate
    (formal proof requires Phase 1.6+ work)
 3. ROI shift comparison block deferred к v1.1.1
 4. Per-group Min/Max sliders в Optimize deferred (full scope, post-v1.1.0)
@@ -287,7 +287,7 @@ applies hierarchical attribution → user понимает контекст ROI 
 | Identifiability fallback (N=1)       | ✅ Tested     |
 | Heuristic fallback for legacy pickles| ✅ Tested     |
 | HTML methodology auto-gen            | ✅ Tested     |
-| **Live alpha gate (Kagocel + Венарус)** | **⏸ PENDING — Phase G** |
+| **Live alpha gate (Kagocel + Венарус)** | **⏸ PENDING - Phase G** |
 
 **Total automated tests:** 75 unit + 41 channel_categorization/pickle/split + 24 narrative + 20 optimizer = **160 PASS**.
 

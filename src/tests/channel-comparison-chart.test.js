@@ -6,7 +6,7 @@
  * - presence of EChartBase placeholder
  * - graduated x-axis rotation per channel count (audit Focus C)
  *
- * Note: ECharts itself не rendered в jsdom — мы тестируем что компонент
+ * Note: ECharts itself не rendered в jsdom - мы тестируем что компонент
  * passes proper option config. Verifying chart.option config через DOM
  * не возможно (ECharts inits async + canvas); instead, verify presence
  * of expected wrapper elements.

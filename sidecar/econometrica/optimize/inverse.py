@@ -1,5 +1,5 @@
 """
-Aurora Econometrica — inverse optimization (Goal-Seek) v1.3.0.
+Aurora Econometrica - inverse optimization (Goal-Seek) v1.3.0.
 
 Per ADR-014, REFACTOR_PLAN_v1.3.0.md Stage 1 P0.2 (simplified to bisection):
 дана цель продаж S* → найти минимальный бюджет B такой что S(B) ≥ S*.
@@ -7,7 +7,7 @@ Per ADR-014, REFACTOR_PLAN_v1.3.0.md Stage 1 P0.2 (simplified to bisection):
 Algorithm: бисекция по total budget. Forward задача монотонна по B
 (в безопасном коридоре), bisection ищет минимальный B где expected_sales >= target.
 
-Posterior CI на B* — Delta method (linearization): B_ci_half = std(S_target) / |∂S/∂B|.
+Posterior CI на B* - Delta method (linearization): B_ci_half = std(S_target) / |∂S/∂B|.
 
 Performance budget: < 1s на 7 каналов × 156 наблюдений (per docs/PERFORMANCE_BUDGET.md).
 
@@ -34,14 +34,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-# Lazy imports — heavy modules (PyMC, scipy) не нужны на startup.
+# Lazy imports - heavy modules (PyMC, scipy) не нужны на startup.
 # Engineering invariant per docs/PERFORMANCE_BUDGET.md.
 
 
 def _forward_at_budget(project_dir: str, total_budget: float) -> Dict[str, Any]:
     """Run forward optimizer at fixed total_budget.
 
-    Wrapper around engines.optimizer.optimize() — задает scalar budget
+    Wrapper around engines.optimizer.optimize() - задает scalar budget
     и возвращает expected_sales + distribution.
 
     Returns:
@@ -50,7 +50,7 @@ def _forward_at_budget(project_dir: str, total_budget: float) -> Dict[str, Any]:
     from engines.optimizer import optimize
     config = {
         'total_budget': total_budget,
-        'min_pct': 0.0,    # Не ограничиваем per канал — global free reallocation.
+        'min_pct': 0.0,    # Не ограничиваем per канал - global free reallocation.
         'max_pct': 1000.0,  # Effectively unlimited (canal can absorb full budget).
     }
     raw_result = optimize(config, project_dir)
@@ -81,7 +81,7 @@ def _verify_monotonicity(project_dir: str, budget_lo: float, budget_hi: float, n
     """v1.3.1 hotfix: verify forward(B) монотонна в [lo, hi].
 
     Probes forward function на n_probes equally-spaced points + checks
-    monotonic increase. Если violated — flags non-monotonic для caller
+    monotonic increase. Если violated - flags non-monotonic для caller
     (bisection assumes monotonicity).
 
     Per red-team audit finding B6.
@@ -132,12 +132,12 @@ def bisect_for_target(
         budget_hi: верхняя граница (обычно corridor_hi).
         rel_tol: tolerance относительно (hi - lo).
         max_iters: max iterations (защита от non-convergence).
-        verify_monotonic: v1.3.1 — verify monotonicity перед bisection.
+        verify_monotonic: v1.3.1 - verify monotonicity перед bisection.
 
     Returns:
         {
-          'budget': float,        # B* — минимальный budget для достижения target
-          'expected_sales': float, # S(B*) — ожидаемые продажи
+          'budget': float,        # B* - минимальный budget для достижения target
+          'expected_sales': float, # S(B*) - ожидаемые продажи
           'achievable': bool,
           'iterations': int,
           'distribution': dict,   # final allocation
@@ -155,9 +155,9 @@ def bisect_for_target(
                 'monotonicity_check': monotonicity_check,
                 'message': (
                     'Forward функция не монотонна в безопасном коридоре. '
-                    'Bisection не применима — возможна non-convex Hill saturation. '
+                    'Bisection не применима - возможна non-convex Hill saturation. '
                     'Рекомендация: уменьшить диапазон или включить Expert Mode '
-                    '(full posterior re-bisection — Phase B).'
+                    '(full posterior re-bisection - Phase B).'
                 ),
                 'iterations': monotonicity_check.get('violation_at', 0) or 0,
             }
@@ -232,10 +232,10 @@ def estimate_budget_ci(
 
     Идея:
     - Локальный gradient: ∂S/∂B ≈ (S(B + δ) - S(B - δ)) / (2δ).
-    - Posterior std на S(B*) — приближаем через 1-2 forward passes на B ± δ.
+    - Posterior std на S(B*) - приближаем через 1-2 forward passes на B ± δ.
     - B_ci_half_width ≈ S_std / |∂S/∂B|.
 
-    MVP — простая Delta method. Phase B: full posterior re-bisection.
+    MVP - простая Delta method. Phase B: full posterior re-bisection.
 
     Returns:
         {'p10': float, 'p50': budget_optimum, 'p90': float, 'method': 'delta'}
@@ -263,7 +263,7 @@ def estimate_budget_ci(
             'method': 'flat_response_fallback',
         }
 
-    # Variance proxy: difference between f_plus and f_minus / 2 — std-like estimate.
+    # Variance proxy: difference between f_plus and f_minus / 2 - std-like estimate.
     response_spread = abs(f_plus['expected_sales'] - f_minus['expected_sales']) / 2
     # Conservative half-width for ~80% CI: 1.28 * spread / |grad|.
     half_width = 1.28 * response_spread / abs(grad_approx)
@@ -286,8 +286,8 @@ def estimate_p_hit_target(
 ) -> float:
     """Estimate P(S(B*) >= target).
 
-    MVP: если expected >= target → 0.5+ (зависит от запаса). Если ниже — < 0.5.
-    Точный расчёт требует MCMC posterior on S(B*) — Phase B.
+    MVP: если expected >= target → 0.5+ (зависит от запаса). Если ниже - < 0.5.
+    Точный расчёт требует MCMC posterior on S(B*) - Phase B.
 
     Returns:
         Probability в [0, 1].
@@ -392,7 +392,7 @@ def optimize_inverse(
     budget_optimum = bisect_result['budget']
     ci = estimate_budget_ci(project_dir, budget_optimum, target_sales)
 
-    # P(hit target): MVP — на основе expected_sales spread.
+    # P(hit target): MVP - на основе expected_sales spread.
     p_hit = estimate_p_hit_target(
         bisect_result['expected_sales'],
         target_sales,

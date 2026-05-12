@@ -1,4 +1,4 @@
-"""Unit tests for utils/forecast_validation.py — Phase 2.1 Step 2.
+"""Unit tests for utils/forecast_validation.py - Phase 2.1 Step 2.
 
 Covers granularity detection, seasonality detection, x_norm quantiles,
 extrapolation severity, drift checks, horizon warnings, conformal-in-planning,
@@ -135,7 +135,7 @@ class TestExtrapolationSeverity:
 
 
 class TestVerdictTierExtrapolationGate:
-    """S3 synergy verification — extrapolation_severity gate в verdict_tier."""
+    """S3 synergy verification - extrapolation_severity gate в verdict_tier."""
 
     def test_severity_zero_no_effect(self):
         tier, _, _ = verdict_tier(1.0, 0.8, 1.2, extrapolation_severity=0)
@@ -250,7 +250,7 @@ class TestConformalPlanningIntervals:
         y = X[:, 0] * 2.5 + X[:, 1] * 1.5 + np.random.normal(0, 0.5, 100)
         model_data = {'X_train': X, 'y_train': y}
         result = conformal_planning_intervals(model_data, confidence=0.8)
-        if result is not None:  # may fail on some envs — defensive
+        if result is not None:  # may fail on some envs - defensive
             assert 'half_width' in result
             assert result['half_width'] > 0
             assert 'method' in result

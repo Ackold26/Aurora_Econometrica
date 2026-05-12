@@ -33,7 +33,7 @@ Migration tool работает в `--shadow-mode` (default):
 При apply mode (`--apply`):
 1. Сначала save backup: `bundle.aurora.bak.v{OLD}-{timestamp}`.
 2. Запустить shadow-mode сначала + проверка match.
-3. Если match — replace original. Если no match — abort + сохранить shadow для inspection.
+3. Если match - replace original. Если no match - abort + сохранить shadow для inspection.
 4. Backup сохраняется минимум 30 дней.
 
 ### 3. Rollback
@@ -61,7 +61,7 @@ tools/migrate_v??_to_v??.py rollback --bundle path/to/bundle.aurora
 - Validate model_version присутствует.
 - Validate required fields (kpi_column, media_columns) присутствуют.
 - Sanity check значений (positive arrays where expected, no NaN в коэффициентах).
-- Если broken — return `LoadResult(success=False, recovery_options=['restore_from_backup', 'reimport_data'])`.
+- Если broken - return `LoadResult(success=False, recovery_options=['restore_from_backup', 'reimport_data'])`.
 
 ### 7. History folder
 
@@ -82,11 +82,11 @@ tools/migrate_v??_to_v??.py rollback --bundle path/to/bundle.aurora
 
 **Shadow-mode default:**
 
-Worst case scenario — migration breaks bundle (silent corruption). Без shadow юзер видит broken data только через несколько часов work и теряет всё. С shadow — оригинал нетронут, юзер видит broken shadow и может report bug.
+Worst case scenario - migration breaks bundle (silent corruption). Без shadow юзер видит broken data только через несколько часов work и теряет всё. С shadow - оригинал нетронут, юзер видит broken shadow и может report bug.
 
 **Auto-backup:**
 
-Защита от «migration tool сработал correctly но recompute дал чуть-чуть разные числа» — клиент видит difference, может откатиться.
+Защита от «migration tool сработал correctly но recompute дал чуть-чуть разные числа» - клиент видит difference, может откатиться.
 
 **Rollback CLI:**
 
@@ -105,7 +105,7 @@ Catches corruption (disk errors, partial writes) до того, как broken bu
 | Альтернатива | Отвергнуто потому что |
 |---|---|
 | Direct destructive migration (текущий стандарт) | Нет recovery; high risk |
-| Shadow-only (без auto-backup) | Если оригинал случайно перезаписался — нет recovery |
+| Shadow-only (без auto-backup) | Если оригинал случайно перезаписался - нет recovery |
 | Auto-backup без shadow | Юзер не знает что migration produced different results до compare backup |
 | Git versioning bundle | Bundle binary, git не оптимален |
 
@@ -125,19 +125,19 @@ Catches corruption (disk errors, partial writes) до того, как broken bu
 
 ## Implementation
 
-**Применяется в v1.3.0 → НЕТ** (per ADR-017 — schema bump не нужен).
+**Применяется в v1.3.0 → НЕТ** (per ADR-017 - schema bump не нужен).
 
 **Apply в первом будущем major release** (Phase B / v2.0):
 - Создать `tools/migrate_v13_to_v20.py` (когда понадобится) по этому protocol.
-- `sidecar/econometrica/engines/persistence.py::save_bundle()` — добавить auto-backup history folder rotation.
-- `sidecar/econometrica/engines/persistence.py::load_model_with_compat()` — добавить integrity check.
-- `src/lib/components/Settings/BackupRecovery.svelte` (NEW в Phase B) — UI.
+- `sidecar/econometrica/engines/persistence.py::save_bundle()` - добавить auto-backup history folder rotation.
+- `sidecar/econometrica/engines/persistence.py::load_model_with_compat()` - добавить integrity check.
+- `src/lib/components/Settings/BackupRecovery.svelte` (NEW в Phase B) - UI.
 
-**В v1.3.0** — реализуется только:
+**В v1.3.0** - реализуется только:
 - Auto-backup history folder rotation в `save_bundle()` (защита от accidental overwrite).
 - Bundle integrity check в `load_model_with_compat()`.
 
-Остальное — Phase B deliverable.
+Остальное - Phase B deliverable.
 
 ## References
 

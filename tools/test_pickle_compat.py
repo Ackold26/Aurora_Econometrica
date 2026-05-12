@@ -1,10 +1,10 @@
-"""Tests для engines/persistence.py — pickle backward-compat (Trust Level 3).
+"""Tests для engines/persistence.py - pickle backward-compat (Trust Level 3).
 
 Coverage:
-- load_model_with_compat() — fields default injected
-- get_channel_categories() — explicit + heuristic fallback
-- is_hierarchical_model() — v1.3+ detection
-- Backward compat — v1.1, v1.2 pickles load без categories field
+- load_model_with_compat() - fields default injected
+- get_channel_categories() - explicit + heuristic fallback
+- is_hierarchical_model() - v1.3+ detection
+- Backward compat - v1.1, v1.2 pickles load без categories field
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def _write_pickle(data: dict) -> Path:
 
 
 def test_load_v12_pickle_no_categories_field():
-    """v1.2 pickle (pre-Trust3) — channel_categories field отсутствует, ожидается {}"""
+    """v1.2 pickle (pre-Trust3) - channel_categories field отсутствует, ожидается {}"""
     fixture = {
         'model_version': '1.2',
         'config': {'media_columns': ['TRPs', 'Search']},
@@ -289,7 +289,7 @@ def test_is_hierarchical_model_handles_v1_10_correctly():
         'model_version': '1.10',
         'channel_categories': {'TV': 'brand', 'OOH': 'brand', 'Search': 'performance', 'Social': 'performance'},
     }
-    # Pre-fix: '1.10' < '1.3' lex → False (hierarchical NOT detected) — BUG
+    # Pre-fix: '1.10' < '1.3' lex → False (hierarchical NOT detected) - BUG
     # Post-fix: (1, 10, 0) >= (1, 3, 0) → True (hierarchical detected correctly)
     assert is_hierarchical_model(model_data) is True
 

@@ -1,6 +1,6 @@
 <script>
   /**
-   * GlossaryPanel — v1.3.0 раскрывающаяся боковая панель со словарём.
+   * GlossaryPanel - v1.3.0 раскрывающаяся боковая панель со словарём.
    * Open through Ctrl+K shortcut или icon в header.
    *
    * @component GlossaryPanel
@@ -53,7 +53,7 @@
       onClose?.();
       return;
     }
-    // UX audit v1.3.0: focus trap — Tab loop внутри панели.
+    // UX audit v1.3.0: focus trap - Tab loop внутри панели.
     if (e.key === 'Tab' && panelEl) {
       const focusable = panelEl.querySelectorAll(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'

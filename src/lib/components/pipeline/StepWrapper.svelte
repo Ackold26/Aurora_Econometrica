@@ -1,13 +1,13 @@
 <script>
   /**
-   * StepWrapper — visibility-switched container for a single pipeline step.
+   * StepWrapper - visibility-switched container for a single pipeline step.
    * A3: Uses opacity/visibility, NOT display:none, to preserve CSS transitions.
    * CLAUDE.md Rule 14: visibility, not display:none.
    */
   import { PIPELINE_STEPS, pipelineCurrentStep, pipelineStepMeta, validationHeaderMetrics } from '$lib/project-state.js';
 
   /** helpPage сохранён как prop для обратной совместимости с /pipeline/+page.svelte,
-      но сама кнопка «?» больше здесь не рендерится — она переехала в header pipeline. */
+      но сама кнопка «?» больше здесь не рендерится - она переехала в header pipeline. */
   /** @type {{ step: number, helpPage?: string, children: import('svelte').Snippet }} */
   let { step, helpPage: _helpPage, children } = $props();
 
@@ -15,8 +15,8 @@
   const meta = $derived($pipelineStepMeta[step]);
   const isActive = $derived(step === $pipelineCurrentStep);
 
-  // На шаге Валидация (step=1) — sticky header с ключевыми параметрами
-  // (Ratio / VIF / Период / MQS прогноз). Reactive через derived store —
+  // На шаге Валидация (step=1) - sticky header с ключевыми параметрами
+  // (Ratio / VIF / Период / MQS прогноз). Reactive через derived store -
   // обновляется автоматически при смене ролей columns или объективы.
   const validationMetrics = $derived(step === 1 ? $validationHeaderMetrics : null);
 </script>
@@ -34,11 +34,11 @@
     <h2 class="step-title">{stepDef.labelRu}</h2>
     {#if validationMetrics}
       <div class="key-metrics" aria-label="Ключевые параметры валидации">
-        <span class="metric-chip light-{validationMetrics.ratioStatus}" title="Ratio (наблюдений на параметр) — устойчивость оценок. ≥10 отлично, 4–10 приемлемо (широкие CI), <4 рискованно (overfitting).">
+        <span class="metric-chip light-{validationMetrics.ratioStatus}" title="Ratio (наблюдений на параметр) - устойчивость оценок. ≥10 отлично, 4–10 приемлемо (широкие CI), <4 рискованно (overfitting).">
           <span class="metric-label">Ratio</span>
           <span class="metric-value">{validationMetrics.ratio.toFixed(1)}:1</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.vifStatus}" title="VIF max — коллинеарность медиа-каналов. ≤5 каналы независимы, 5–10 умеренная collinearity (CI шире), >10 модель не разделит вклады каналов.">
+        <span class="metric-chip light-{validationMetrics.vifStatus}" title="VIF max - коллинеарность медиа-каналов. ≤5 каналы независимы, 5–10 умеренная collinearity (CI шире), >10 модель не разделит вклады каналов.">
           <span class="metric-label">VIF max</span>
           <span class="metric-value">{validationMetrics.maxVif == null ? 'н/д' : validationMetrics.maxVif.toFixed(1)}</span>
         </span>
@@ -46,7 +46,7 @@
           <span class="metric-label">Период</span>
           <span class="metric-value">{validationMetrics.nObs}</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="MQS прогноз — комбинированная оценка готовности данных до обучения (на основе Ratio, VIF, периода). ≥80 модель будет точной, 60–80 приемлемая, <60 нужна доработка данных. Реальный MQS уточнится после обучения.">
+        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="MQS прогноз - комбинированная оценка готовности данных до обучения (на основе Ratio, VIF, периода). ≥80 модель будет точной, 60–80 приемлемая, <60 нужна доработка данных. Реальный MQS уточнится после обучения.">
           <span class="metric-label">MQS прогноз</span>
           <span class="metric-value">{validationMetrics.mqs}</span>
         </span>
@@ -67,7 +67,7 @@
 </div>
 
 <style>
-  /* A3: visibility switching — NOT display:none */
+  /* A3: visibility switching - NOT display:none */
   .step-wrapper {
     display: flex;
     flex-direction: column;

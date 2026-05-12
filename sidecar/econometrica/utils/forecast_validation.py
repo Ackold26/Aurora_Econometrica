@@ -1,26 +1,26 @@
-"""Forecast validation helpers — Phase 2.1 Step 2.
+"""Forecast validation helpers - Phase 2.1 Step 2.
 
 Detects data characteristics + emits warnings для planning mode forecasts.
 
 Math reference: docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md
-- §3-4 — granularity + seasonality detection methodology
-- §7 — locked decisions (M6 cap, M7 calibration boundaries)
-- §10 — synergies S2 (Conformal-in-planning), S3 (verdict_tier extension),
+- §3-4 - granularity + seasonality detection methodology
+- §7 - locked decisions (M6 cap, M7 calibration boundaries)
+- §10 - synergies S2 (Conformal-in-planning), S3 (verdict_tier extension),
        S7 (KPI registry coupling), G3 (warning composition priority)
 
 Helpers exposed:
-- detect_granularity(df, date_col) — D/W/M/Q/Y autoderive с confidence.
-- detect_seasonality(y_actual, granularity) — autocorr-based detection.
-- compute_x_norm_quantiles(adstock_series, mean) — for at-fit-time persistence
+- detect_granularity(df, date_col) - D/W/M/Q/Y autoderive с confidence.
+- detect_seasonality(y_actual, granularity) - autocorr-based detection.
+- compute_x_norm_quantiles(adstock_series, mean) - for at-fit-time persistence
   AND at-load-time legacy pickle migration (G2).
-- extrapolation_severity(x_norm_forecast, quantiles) — 0/1/2/3 tier (S3 input
+- extrapolation_severity(x_norm_forecast, quantiles) - 0/1/2/3 tier (S3 input
   to verdict_tier extension).
-- saturation_drift_check(...) — per-channel drift status (M8 raw + adstock ratio).
-- horizon_extrapolation_check(forecast_n, train_n) — M6 cap warnings (warn at
+- saturation_drift_check(...) - per-channel drift status (M8 raw + adstock ratio).
+- horizon_extrapolation_check(forecast_n, train_n) - M6 cap warnings (warn at
   1.5×, hard reject 2× already enforced inline в optimizer).
-- conformal_planning_intervals(...) — S2 wrapper around conformal.py для OLS
+- conformal_planning_intervals(...) - S2 wrapper around conformal.py для OLS
   pickles (distribution-free P10/P90 в planning mode).
-- resolve_warning_priority(warnings) — G3 single critical messaging banner.
+- resolve_warning_priority(warnings) - G3 single critical messaging banner.
 
 KPI-aware (S7): every threshold-bearing helper accepts optional kpi_type to
 read kpi_config.forecast_* fields из KPI_REGISTRY.
@@ -54,7 +54,7 @@ def detect_granularity(date_series, fallback: Granularity = 'W') -> dict:
 
     Args:
         date_series: pandas Series или array of datetime-like values (sorted).
-            Accepts non-datetime objects — falls back к 'W' с confidence=0.
+            Accepts non-datetime objects - falls back к 'W' с confidence=0.
 
     Returns:
         {
@@ -141,7 +141,7 @@ def detect_seasonality(
 
     Args:
         y_actual: 1D array-like of KPI values (assume detrended-friendly,
-            but no explicit detrend here — Aurora's training data already
+            but no explicit detrend here - Aurora's training data already
             stationary post-adstock+Hill per Conformal F3 caveat).
         granularity: data granularity (informs default period candidates).
         period_candidates: explicit period lengths to test. Defaults:
@@ -168,7 +168,7 @@ def detect_seasonality(
         period_candidates = defaults.get(granularity, [4, 13, 26, 52])
 
     # Per-lag Pearson correlation на overlap segment (correct normalization
-    # независимая от lag — vs full-series var which biases toward short lags).
+    # независимая от lag - vs full-series var which biases toward short lags).
     candidates_results = []
     for lag in period_candidates:
         if lag <= 0 or lag >= y.size:
@@ -240,18 +240,18 @@ def extrapolation_severity(
     x_norm_forecast: float,
     quantiles: dict[str, float] | None,
 ) -> int:
-    """Severity tier per audit doc M7 — used by verdict_tier extension (S3).
+    """Severity tier per audit doc M7 - used by verdict_tier extension (S3).
 
     Tiers:
-        0: in-zone (≤ p95) — calibration valid
-        1: p95 boundary (p95 < x ≤ p99) — warn-tier (verdict «Направленная»)
-        2: p99 extrapolation (p99 < x ≤ 3× p99) — critical-tier
-        3: ≥ 3× p99 — extreme extrapolation (verdict «Высокая неопределённость»)
+        0: in-zone (≤ p95) - calibration valid
+        1: p95 boundary (p95 < x ≤ p99) - warn-tier (verdict «Направленная»)
+        2: p99 extrapolation (p99 < x ≤ 3× p99) - critical-tier
+        3: ≥ 3× p99 - extreme extrapolation (verdict «Высокая неопределённость»)
 
     Args:
         x_norm_forecast: forecast-period x_norm value (per-channel).
         quantiles: dict с 'p95', 'p99' keys (others ignored). None or missing
-            keys → severity 0 (cannot judge — assume in-zone).
+            keys → severity 0 (cannot judge - assume in-zone).
 
     Returns:
         int 0..3.
@@ -293,8 +293,8 @@ def saturation_drift_check(
     Args:
         forecast_per_period_spend: per-period spend в forecast (raw, native units).
         train_avg_spend: training period average spend (native units).
-        forecast_avg_adstock: optional — forecast-period adstock mean.
-        train_avg_adstock: optional — training adstock_mean_posterior.
+        forecast_avg_adstock: optional - forecast-period adstock mean.
+        train_avg_adstock: optional - training adstock_mean_posterior.
         drift_warn_ratio: threshold for «high drift» warning (default 3.0).
         drift_low_ratio: threshold for «low spend zone» warning (default 0.3).
 
@@ -325,17 +325,17 @@ def saturation_drift_check(
         if ratio_spend >= drift_warn_ratio:
             msg = (
                 f'Прогнозный per-period spend в {ratio_spend:.1f}× выше обучающего среднего. '
-                f'Hill saturation вне калибровочной зоны — оценка ROI может быть занижена.'
+                f'Hill saturation вне калибровочной зоны - оценка ROI может быть занижена.'
             )
         else:
             msg = (
-                f'Adstock накопление {ratio_adstock:.1f}× выше обучающего — '
+                f'Adstock накопление {ratio_adstock:.1f}× выше обучающего - '
                 f'β posterior экстраполируется за пределами наблюдённых данных.'
             )
     else:  # warn
         msg = (
             f'Прогнозный per-period spend всего {ratio_spend:.2f}× от обучающего среднего. '
-            f'β плохо калиброван для нижней зоны — увеличьте до ≥30% от обучающего среднего.'
+            f'β плохо калиброван для нижней зоны - увеличьте до ≥30% от обучающего среднего.'
         )
 
     return {
@@ -346,7 +346,7 @@ def saturation_drift_check(
     }
 
 
-# ─── Horizon extrapolation (M6) — soft warning beyond hard reject ───────────
+# ─── Horizon extrapolation (M6) - soft warning beyond hard reject ───────────
 
 
 def horizon_extrapolation_check(
@@ -374,7 +374,7 @@ def horizon_extrapolation_check(
     }
 
 
-# ─── Conformal-in-planning (S2 synergy — OLS users get P10/P90) ─────────────
+# ─── Conformal-in-planning (S2 synergy - OLS users get P10/P90) ─────────────
 
 
 def conformal_planning_intervals(
@@ -390,8 +390,8 @@ def conformal_planning_intervals(
 
     Args:
         model_data: loaded pickle dict (must contain 'X_train', 'y_train' or
-            equivalent — caller responsibility for backward compat).
-        confidence: PI level (default 0.8 = 80% — matches Phase 1.9 90% Bayesian
+            equivalent - caller responsibility for backward compat).
+        confidence: PI level (default 0.8 = 80% - matches Phase 1.9 90% Bayesian
             HDI choice scaled к customer-friendly 80%).
 
     Returns:
@@ -427,7 +427,7 @@ _PRIORITY_ORDER = {
 
 
 def resolve_warning_priority(warnings: list[dict]) -> dict:
-    """G3 — compose multiple warnings into single banner с priority order.
+    """G3 - compose multiple warnings into single banner с priority order.
 
     Aurora's UX shouldn't show 5 warning banners simultaneously. Resolve to
     one «top warning» (highest priority) + secondary expandable list.
@@ -460,7 +460,7 @@ def resolve_warning_priority(warnings: list[dict]) -> dict:
     }
 
 
-# ─── L5 — Hierarchical extrapolation warning (Phase 2.0 Part 2) ─────────────
+# ─── L5 - Hierarchical extrapolation warning (Phase 2.0 Part 2) ─────────────
 
 
 def hierarchical_extrapolation_warning(
@@ -470,7 +470,7 @@ def hierarchical_extrapolation_warning(
     train_total_money: float,
     brand_drift_threshold: float = 3.0,
 ) -> dict | None:
-    """L5 (Phase 2.0 Part 2 — 2026-05-03): conditional warning about hierarchical
+    """L5 (Phase 2.0 Part 2 - 2026-05-03): conditional warning about hierarchical
     pooling underestimation при extreme budget extrapolation.
 
     Replaces planned generic always-shown warning. Quantitative threshold based
@@ -514,7 +514,7 @@ def hierarchical_extrapolation_warning(
             f'Прогнозный бюджет ({ratio:.1f}× от обучающего) выводит brand-каналы '
             f'за калибровочную зону (порог {brand_drift_threshold:.1f}×). '
             f'Иерархическая модель усредняет вклад между brand-каналами '
-            f'({", ".join(brand_channels)}) — лидирующий канал может быть занижен '
+            f'({", ".join(brand_channels)}) - лидирующий канал может быть занижен '
             f'на 5–15% в зоне экстраполяции. Сократите горизонт до ≤ 2× обучающего '
             f'или сравните с flat-моделью для более точных абсолютных ROI.'
         ),

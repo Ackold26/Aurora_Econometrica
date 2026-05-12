@@ -1,6 +1,6 @@
 <script>
   /**
-   * ColumnMapperConfirm — v1.3.1 / restyled v1.3.2.
+   * ColumnMapperConfirm - v1.3.1 / restyled v1.3.2.
    *
    * UX audit findings: ValidateStepV13 (new derived mode flow) НЕ показывает
    * ColumnMapper drag-drop (v1.2 feature). Backend auto-detects role через
@@ -10,7 +10,7 @@
    * override через dropdown. После confirm → переход к KPISelector.
    *
    * v1.3.2 restyle: removed emoji pictograms (🎯📊🔧📅❌⚠), replaced с premium
-   * tier-1 typographic system — color-coded role badges (no emoji), serif/sans
+   * tier-1 typographic system - color-coded role badges (no emoji), serif/sans
    * split, sacred-lime header accent, mono font для column identifiers.
    * Matches Aurora deliverable brand styling.
    *
@@ -20,11 +20,11 @@
   const {
     columns = [],     // [{name, role, kind, stats?}]
     onConfirm,        // (mapping: Record<string, string>) => void
-    /** Backend validate result — для warnings/issues per column. Если не
-     *  передан — fallback на heuristic only. */
+    /** Backend validate result - для warnings/issues per column. Если не
+     *  передан - fallback на heuristic only. */
     validateResult = null,
     /** v1.3.2: insights-driven exclude map (column_name → insight.text).
-     *  Computed by parent via validateInsights() — тот же source как
+     *  Computed by parent via validateInsights() - тот же source как
      *  InsightsPanel. Если колонка в map → recommendation = «Исключить»
      *  с insight text как reason. Гарантирует consistency между
      *  InsightsPanel и ColumnMapperConfirm. */
@@ -40,22 +40,22 @@
   const ROLES = /** @type {const} */ (['kpi', 'media', 'control', 'date', 'excluded']);
   /** @type {Record<string, {label: string, hint: string, tone: string}>} */
   const ROLE_META = {
-    kpi:      { label: 'Целевая метрика', hint: 'KPI — что объясняем',  tone: 'gold'    },
+    kpi:      { label: 'Целевая метрика', hint: 'KPI - что объясняем',  tone: 'gold'    },
     media:    { label: 'Медиа-канал',     hint: 'затраты или активность', tone: 'accent' },
     control:  { label: 'Контрольная',     hint: 'не-медиа фактор',        tone: 'neutral'},
     date:     { label: 'Дата',            hint: 'временной ряд',           tone: 'mono'   },
     excluded: { label: 'Не использовать', hint: 'игнорируем в модели',     tone: 'muted'  },
   };
 
-  // Tooltips для column headers — explain все варианты per role + data kinds.
+  // Tooltips для column headers - explain все варианты per role + data kinds.
   const ROLE_HEADER_HELP = [
     'Каждая колонка играет одну роль в модели:',
     '',
-    '• Целевая метрика (KPI) — то, что модель объясняет: продажи, выручка, лиды.',
-    '• Медиа-канал — расходы или активность (TV GRP, OOH ₽, Digital impressions).',
-    '• Контрольная — не-медиа фактор: сезонность, цена, погода, конкурент.',
-    '• Дата — временной столбец (неделя / месяц).',
-    '• Не использовать — колонка исключается из модели.',
+    '• Целевая метрика (KPI) - то, что модель объясняет: продажи, выручка, лиды.',
+    '• Медиа-канал - расходы или активность (TV GRP, OOH ₽, Digital impressions).',
+    '• Контрольная - не-медиа фактор: сезонность, цена, погода, конкурент.',
+    '• Дата - временной столбец (неделя / месяц).',
+    '• Не использовать - колонка исключается из модели.',
     '',
     'Программа автоматически определяет роль по имени и типу данных. Измените, если что-то определено неверно.',
   ].join('\n');
@@ -63,10 +63,10 @@
   const KIND_HEADER_HELP = [
     'Тип данных колонки (определён автоматически):',
     '',
-    '• Число — целое или дробное (бюджеты, продажи, GRP, проценты).',
-    '• Дата — временной маркер (неделя / месяц).',
-    '• Текст — название категории, бренд, тег.',
-    '• Флаг — true/false / 0-1 (вкл/выкл, акция/не акция).',
+    '• Число - целое или дробное (бюджеты, продажи, GRP, проценты).',
+    '• Дата - временной маркер (неделя / месяц).',
+    '• Текст - название категории, бренд, тег.',
+    '• Флаг - true/false / 0-1 (вкл/выкл, акция/не акция).',
     '',
     'Для MMM требуется числовая целевая метрика, числовые медиа-каналы и одна date-колонка.',
   ].join('\n');
@@ -75,30 +75,30 @@
     'Автоматическая рекомендация по колонке на основе типа данных, роли',
     'и validation insights:',
     '',
-    '• Оставить — колонка подходит для модели как есть.',
-    '• Проверить — есть подозрительные сигналы (роль не определена,',
+    '• Оставить - колонка подходит для модели как есть.',
+    '• Проверить - есть подозрительные сигналы (роль не определена,',
     '  пустые значения, дубликат метрики). Подтвердите вручную.',
-    '• Исключить — колонка непригодна (нечисловой тип в числовой роли,',
+    '• Исключить - колонка непригодна (нечисловой тип в числовой роли,',
     '  >80% нулей, текстовое поле).',
     '',
-    'Рекомендации — подсказки, не блокирующие. Окончательное решение',
+    'Рекомендации - подсказки, не блокирующие. Окончательное решение',
     'за вами.',
   ].join('\n');
 
   /**
    * Translates pandas dtype names (float64, int64, object, datetime64, bool)
-   * к человеческим русским labels. Fallback: «—» если type unknown.
+   * к человеческим русским labels. Fallback: «-» если type unknown.
    * @param {string | null | undefined} rawKind
    * @returns {string}
    */
   function humanizeKind(rawKind) {
-    if (!rawKind) return '—';
+    if (!rawKind) return '-';
     const k = String(rawKind).toLowerCase();
     if (k.includes('datetime') || k === 'date' || k.includes('timestamp')) return 'дата';
     if (k === 'bool' || k === 'boolean') return 'флаг';
     if (k.includes('int') || k.includes('float') || k === 'number' || k === 'numeric') return 'число';
     if (k === 'object' || k === 'string' || k === 'str' || k === 'text' || k.includes('category')) return 'текст';
-    return rawKind;  // unknown — show as-is для debugging
+    return rawKind;  // unknown - show as-is для debugging
   }
 
   /** @typedef {{ status: 'keep' | 'review' | 'exclude', label: string, reason: string, tone: string }} Recommendation */
@@ -145,9 +145,9 @@
     const role = effectiveRole(col.name);
     const findings = findingsFor(col.name);
 
-    // 0. v1.3.2: insights-driven exclude — top priority. Если same column
-    //    flagged by validateInsights в InsightsPanel — show same reason.
-    //    Skip когда юзер уже исключил (role='excluded') — нечего advise.
+    // 0. v1.3.2: insights-driven exclude - top priority. Если same column
+    //    flagged by validateInsights в InsightsPanel - show same reason.
+    //    Skip когда юзер уже исключил (role='excluded') - нечего advise.
     if (insightExcludeMap?.[col.name] && role !== 'excluded') {
       return {
         status: 'exclude',
@@ -157,7 +157,7 @@
       };
     }
 
-    // 1. Backend critical issues — next priority.
+    // 1. Backend critical issues - next priority.
     if (findings.critical.length > 0) {
       const msg = findings.critical[0]?.message ?? 'Критическая проблема в данных.';
       return {
@@ -168,11 +168,11 @@
       };
     }
 
-    // 2. Backend warnings (active only когда role != excluded — excluded skip warnings).
+    // 2. Backend warnings (active only когда role != excluded - excluded skip warnings).
     if (findings.warning.length > 0 && role !== 'excluded') {
       const w = findings.warning[0];
       const msg = w?.message ?? 'Предупреждение по колонке.';
-      // Decide tone by warning type/severity. Default — warn (gold).
+      // Decide tone by warning type/severity. Default - warn (gold).
       const severeTypes = new Set(['insufficient_data', 'too_many_zeros', 'collinearity', 'duplicate_metric']);
       const tone = severeTypes.has(String(w?.type ?? '')) ? 'danger' : 'warn';
       const label = tone === 'danger' ? 'Исключить' : 'Проверить';
@@ -200,18 +200,18 @@
       return { status: 'review', label: 'Проверить', reason: 'Роль "Дата" назначена, но тип данных не похож на дату.', tone: 'warn' };
     }
     if (isNumeric && zerosPct > 80 && role !== 'excluded') {
-      return { status: 'exclude', label: 'Исключить', reason: `${Math.round(zerosPct)}% нулей — недостаточно данных для устойчивой оценки эффекта.`, tone: 'danger' };
+      return { status: 'exclude', label: 'Исключить', reason: `${Math.round(zerosPct)}% нулей - недостаточно данных для устойчивой оценки эффекта.`, tone: 'danger' };
     }
     if (isNumeric && zerosPct > 50 && role !== 'excluded') {
-      return { status: 'review', label: 'Проверить', reason: `${Math.round(zerosPct)}% нулей — канал малоактивен, проверьте полноту данных.`, tone: 'warn' };
+      return { status: 'review', label: 'Проверить', reason: `${Math.round(zerosPct)}% нулей - канал малоактивен, проверьте полноту данных.`, tone: 'warn' };
     }
     if (isNumeric && missingPct > 30 && role !== 'excluded') {
-      return { status: 'review', label: 'Проверить', reason: `${Math.round(missingPct)}% пропусков — может ослабить модель.`, tone: 'warn' };
+      return { status: 'review', label: 'Проверить', reason: `${Math.round(missingPct)}% пропусков - может ослабить модель.`, tone: 'warn' };
     }
 
-    // 5. Excluded role — neutral state.
+    // 5. Excluded role - neutral state.
     if (role === 'excluded') {
-      return { status: 'review', label: 'Не используется', reason: 'Колонка исключена из модели. Если это намеренно — оставьте как есть.', tone: 'neutral' };
+      return { status: 'review', label: 'Не используется', reason: 'Колонка исключена из модели. Если это намеренно - оставьте как есть.', tone: 'neutral' };
     }
 
     // 6. Default: passes all checks.
@@ -233,7 +233,7 @@
     if (canonical === 'unused' || canonical === 'unknown' || canonical == null) {
       return 'excluded';
     }
-    // Защита от unknown role values (defensive — production выдаёт только canonical 6).
+    // Защита от unknown role values (defensive - production выдаёт только canonical 6).
     if (!ROLES.includes(/** @type {any} */ (canonical))) {
       return 'excluded';
     }
@@ -273,7 +273,7 @@
     <h2>Подтвердите роли</h2>
     <div class="sacred-lime" aria-hidden="true"></div>
     <p class="lead">Программа автоматически распознала роли колонок в данных.</p>
-    <p class="lead">Проверьте таблицу — измените, если что-то определено неверно.</p>
+    <p class="lead">Проверьте таблицу - измените, если что-то определено неверно.</p>
   </header>
 
   <div class="summary-row">
@@ -291,7 +291,7 @@
       <span class="attention-mark" aria-hidden="true"></span>
       <div class="attention-body">
         <strong>Целевая метрика не определена.</strong>
-        Выберите её в таблице ниже — модель не сможет работать без целевого KPI.
+        Выберите её в таблице ниже - модель не сможет работать без целевого KPI.
       </div>
     </div>
   {/if}
@@ -359,7 +359,7 @@
 
   <footer class="card-footer">
     <p class="footer-note">
-      Все изменения применяются после подтверждения. Дальше — выбор целевого KPI.
+      Все изменения применяются после подтверждения. Дальше - выбор целевого KPI.
     </p>
     <button type="button" class="btn-confirm" onclick={handleConfirm}>
       Подтвердить роли
@@ -509,7 +509,7 @@
     color: var(--text-muted, #64748b);
     border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
   }
-  /* v1.3.2: help-icon в th headers — premium tier-1 unobtrusive «?» tooltip */
+  /* v1.3.2: help-icon в th headers - premium tier-1 unobtrusive «?» tooltip */
   thead th .help-icon {
     display: inline-flex;
     align-items: center;
@@ -534,7 +534,7 @@
     color: var(--gold, #c9a449);
   }
 
-  /* v1.3.2: Рекомендация column — color-coded badge с dot + reason tooltip. */
+  /* v1.3.2: Рекомендация column - color-coded badge с dot + reason tooltip. */
   .col-reco {
     font-size: 12px;
   }
@@ -617,12 +617,12 @@
     letter-spacing: 0.02em;
   }
 
-  /* Row tint tied к role (subtle, premium — не chrome-bright) */
+  /* Row tint tied к role (subtle, premium - не chrome-bright) */
   tr.role-kpi      { background: color-mix(in srgb, var(--gold, #c9a449) 4%, transparent); }
   tr.role-media    { background: color-mix(in srgb, var(--accent-primary, #6366f1) 3%, transparent); }
   tr.role-excluded { opacity: 0.5; }
 
-  /* Role cell — dot + native select */
+  /* Role cell - dot + native select */
   .role-cell {
     display: inline-flex;
     align-items: center;
@@ -641,7 +641,7 @@
   .role-dot.tone-muted   { background: rgba(148,163,184,0.4); }
 
   select {
-    /* v1.3.2: color-scheme: dark — подсказка Webview2 рендерить native
+    /* v1.3.2: color-scheme: dark - подсказка Webview2 рендерить native
        option popup в dark тон. Без этого WIN browser показывает light
        popup → текст ролей сливается с background на тёмной теме. */
     color-scheme: dark;

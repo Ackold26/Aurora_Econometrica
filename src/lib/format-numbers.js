@@ -1,7 +1,7 @@
 /**
- * Aurora Econometrica — unified number formatting (v1.3.0).
+ * Aurora Econometrica - unified number formatting (v1.3.0).
  *
- * Создан per UX audit v1.3.0 — единая convention vs хаос:
+ * Создан per UX audit v1.3.0 - единая convention vs хаос:
  *   GoalSeekResultCard форматировала "5 804 223 012 ₽" (полная запись),
  *   WaterfallChart использовала "5M / 804K" (compact).
  *   ROI отображался "1.50×" в одних местах, "1.5×" в других.
@@ -9,9 +9,9 @@
  * Правила:
  *   - Деньги > 1 млн → compact (5.8 млн ₽).
  *   - ROI всегда 2 decimals (1.50×).
- *   - CPU — 0 decimals (120 ₽/ед.).
+ *   - CPU - 0 decimals (120 ₽/ед.).
  *   - Percentages 1 decimal (25.0%).
- *   - Null/undefined → '—' (em dash, not '-').
+ *   - Null/undefined → '-' (em dash, not '-').
  */
 
 /**
@@ -21,7 +21,7 @@
  * @param {{compact?: boolean, decimals?: number}} [opts]
  */
 export function formatMoney(n, opts = {}) {
-  if (n == null || !isFinite(n)) return '—';
+  if (n == null || !isFinite(n)) return '-';
   const { compact = true, decimals = null } = opts;
   const abs = Math.abs(n);
 
@@ -38,16 +38,16 @@ export function formatMoney(n, opts = {}) {
  * @param {number | null | undefined} n
  */
 export function formatROI(n) {
-  if (n == null || !isFinite(n)) return '—';
+  if (n == null || !isFinite(n)) return '-';
   return `${n.toFixed(2)}×`;
 }
 
 /**
- * Format CPU value (₽/ед.) — 0 decimals.
+ * Format CPU value (₽/ед.) - 0 decimals.
  * @param {number | null | undefined} n
  */
 export function formatCPU(n) {
-  if (n == null || !isFinite(n)) return '—';
+  if (n == null || !isFinite(n)) return '-';
   return `${Math.round(n).toLocaleString('ru-RU')} ₽/ед.`;
 }
 
@@ -57,9 +57,9 @@ export function formatCPU(n) {
  * @param {{decimals?: number, sign?: boolean}} [opts]
  */
 export function formatPct(n, opts = {}) {
-  if (n == null || !isFinite(n)) return '—';
+  if (n == null || !isFinite(n)) return '-';
   const { decimals = 1, sign = false } = opts;
-  // If |n| <= 1 — assume fraction (0.25). Else — percentage already (25).
+  // If |n| <= 1 - assume fraction (0.25). Else - percentage already (25).
   const pct = Math.abs(n) <= 1 ? n * 100 : n;
   // UX audit fix: no +0% spurious sign.
   const prefix = sign && pct > 0 ? '+' : '';
@@ -72,18 +72,18 @@ export function formatPct(n, opts = {}) {
  * @param {string} [unitLabel]  e.g. 'упак' / 'лидов' / 'ед.'
  */
 export function formatCount(n, unitLabel = 'ед.') {
-  if (n == null || !isFinite(n)) return '—';
+  if (n == null || !isFinite(n)) return '-';
   return `${Math.round(n).toLocaleString('ru-RU')} ${unitLabel}`;
 }
 
 /**
- * KPI-aware metric formatting — dispatches based on kpi_kind / mode.
+ * KPI-aware metric formatting - dispatches based on kpi_kind / mode.
  * @param {number | null | undefined} value
  * @param {{kpi_kind?: string, mode?: string}} ctx
  */
 export function formatMetric(value, ctx = {}) {
   const { kpi_kind = 'monetary', mode = 'roi' } = ctx;
-  if (value == null || !isFinite(value)) return '—';
+  if (value == null || !isFinite(value)) return '-';
   if (mode === 'effectiveness') return formatPct(value, { decimals: 1 });
   if (kpi_kind === 'count') return formatCPU(value);
   return formatROI(value);
@@ -94,7 +94,7 @@ export function formatMetric(value, ctx = {}) {
  * @param {number | null | undefined} n  fractional delta (0.12 → +12.0%)
  */
 export function formatDelta(n) {
-  if (n == null || !isFinite(n)) return '—';
+  if (n == null || !isFinite(n)) return '-';
   return formatPct(n, { sign: true });
 }
 
@@ -104,7 +104,7 @@ export function formatDelta(n) {
  * @param {string} [unitLabel]
  */
 export function formatCountCompact(n, unitLabel = '') {
-  if (n == null || !isFinite(n)) return '—';
+  if (n == null || !isFinite(n)) return '-';
   const abs = Math.abs(n);
   const suffix = unitLabel ? ` ${unitLabel}` : '';
   if (abs >= 1e9) return `${(n / 1e9).toFixed(1)} млрд${suffix}`;

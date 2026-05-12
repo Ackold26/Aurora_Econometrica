@@ -1,8 +1,8 @@
 //! Econometrica report generation commands.
 //!
-//! econ_generate_report — Markdown report from MMM pipeline data.
-//! econ_export_xlsx     — Multi-sheet XLSX export.
-//! econ_open_exports    — Open project exports folder in OS file manager.
+//! econ_generate_report - Markdown report from MMM pipeline data.
+//! econ_export_xlsx     - Multi-sheet XLSX export.
+//! econ_open_exports    - Open project exports folder in OS file manager.
 
 use chrono::Local;
 use log::info;
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
 /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
 /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
-/// empty string if no printable chars remain — caller falls back to legacy
+/// empty string if no printable chars remain - caller falls back to legacy
 /// mmm_report_{ts}.xlsx.
 fn sanitize_slug(s: &str) -> String {
     let table: &[(char, &str)] = &[
@@ -228,7 +228,7 @@ fn render_spec_md(spec: &Value) -> String {
 }
 
 fn exports_dir(project_id: &str) -> Result<PathBuf, String> {
-    // Использует customizable projects_dir() из project.rs — учитывает user-config
+    // Использует customizable projects_dir() из project.rs - учитывает user-config
     // и env AURORA_PROJECTS_ROOT. Единый источник правды для путей.
     let dir = crate::commands::project::project_dir(project_id)?.join("exports");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create exports dir: {e}"))?;
@@ -236,7 +236,7 @@ fn exports_dir(project_id: &str) -> Result<PathBuf, String> {
 }
 
 /// Прочитать все scenario JSON из project_dir/results/scenarios/.
-/// Используется build_xlsx для листа «Сценарии». Порядок — по имени файла (стабильный).
+/// Используется build_xlsx для листа «Сценарии». Порядок - по имени файла (стабильный).
 fn read_scenarios(project_id: &str) -> Vec<Value> {
     let project_dir = match crate::commands::project::project_dir(project_id) {
         Ok(d) => d,
@@ -293,12 +293,12 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     let mut md = String::with_capacity(4096);
 
     // ── Title ────────────────────────────────────────────────
-    md.push_str("# Marketing Mix Model — Аналитический отчёт\n\n");
+    md.push_str("# Marketing Mix Model - Аналитический отчёт\n\n");
     md.push_str(&format!("*Сгенерировано: {now}*\n\n---\n\n"));
 
     // ── Executive Summary ────────────────────────────────────
     md.push_str("## EXECUTIVE SUMMARY\n\n");
-    md.push_str(&format!("- **Качество модели (MQS):** {mqs:.1} — {mqs_label}\n"));
+    md.push_str(&format!("- **Качество модели (MQS):** {mqs:.1} - {mqs_label}\n"));
     md.push_str(&format!("- **R²:** {r_squared:.4} (объяснённая дисперсия: {:.1}%)\n", r_squared * 100.0));
     md.push_str(&format!("- **MAPE:** {mape:.2}%\n"));
     md.push_str(&format!("- **Ожидаемый прирост от оптимизации:** {:+.1}%\n", lift));
@@ -360,7 +360,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         }
         md.push('\n');
 
-        // ROI CI from decompose channels (5c fix 2026-05-04 — was reading from
+        // ROI CI from decompose channels (5c fix 2026-05-04 - was reading from
         // model["channelParams"] with typo `ci_lower/upper` → defaulting к 0).
         if let Some(chs_for_ci) = decompose["channels"].as_array() {
             md.push_str("### ROI с доверительными интервалами (90%)\n\n");
@@ -405,20 +405,20 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // ── Recommendations ──────────────────────────────────────
     md.push_str("## РЕКОМЕНДАЦИИ\n\n");
     if lift > 5.0 {
-        md.push_str(&format!("- [ВЫСОКАЯ] Перераспределить бюджет согласно оптимальному плану — ожидаемый прирост **{lift:+.1}%**\n"));
+        md.push_str(&format!("- [ВЫСОКАЯ] Перераспределить бюджет согласно оптимальному плану - ожидаемый прирост **{lift:+.1}%**\n"));
     } else if lift > 0.0 {
-        md.push_str(&format!("- [СРЕДНЯЯ] Рассмотреть корректировку бюджетного распределения — ожидаемый прирост {lift:+.1}%\n"));
+        md.push_str(&format!("- [СРЕДНЯЯ] Рассмотреть корректировку бюджетного распределения - ожидаемый прирост {lift:+.1}%\n"));
     }
     if r_squared < 0.7 {
-        md.push_str("- [СРЕДНЯЯ] R² ниже рекомендуемого порога 0.7 — рассмотреть добавление контрольных переменных\n");
+        md.push_str("- [СРЕДНЯЯ] R² ниже рекомендуемого порога 0.7 - рассмотреть добавление контрольных переменных\n");
     }
     if mqs < 60.0 {
-        md.push_str("- [СРЕДНЯЯ] MQS Score ниже 60 — модель требует доработки или дополнительных данных\n");
+        md.push_str("- [СРЕДНЯЯ] MQS Score ниже 60 - модель требует доработки или дополнительных данных\n");
     }
     if mqs >= 80.0 {
-        md.push_str("- [ВЫСОКАЯ] Высокий MQS Score — результаты модели надёжны для принятия решений\n");
+        md.push_str("- [ВЫСОКАЯ] Высокий MQS Score - результаты модели надёжны для принятия решений\n");
     }
-    md.push_str(&format!("- [ВЫСОКАЯ] Приоритизировать канал **{top_ch}** — наивысший ROI в миксе\n"));
+    md.push_str(&format!("- [ВЫСОКАЯ] Приоритизировать канал **{top_ch}** - наивысший ROI в миксе\n"));
     md.push('\n');
 
     md
@@ -493,7 +493,7 @@ pub async fn econ_export_xlsx(
     };
     let path = exports.join(&filename);
 
-    // Сценарии — опциональные. Если папки нет / JSON невалиден — пустой vec,
+    // Сценарии - опциональные. Если папки нет / JSON невалиден - пустой vec,
     // лист «Сценарии» просто не добавится.
     let scenarios = read_scenarios(&project_id);
 
@@ -578,15 +578,15 @@ fn build_xlsx(
     wb.set_properties(&props);
 
     // ── Format library ────────────────────────────────────────────────────────
-    // base_fmt seeds every derived Format via .clone() — column-level formats
+    // base_fmt seeds every derived Format via .clone() - column-level formats
     // in rust_xlsxwriter do NOT cascade to cells with explicit format, so all
     // font-family/size inheritance must happen at Format construction time.
     // Inter font matches HTML/PPTX hybrid design system (fallback to Aptos
-    // for older Office installs without Inter — Excel auto-substitutes).
+    // for older Office installs without Inter - Excel auto-substitutes).
     let base_fmt = Format::new().set_font_name("Inter").set_font_size(10);
     let bold = base_fmt.clone().set_bold();
 
-    // Brand header форматы — applied на Row 0+1 каждого листа.
+    // Brand header форматы - applied на Row 0+1 каждого листа.
     // Row 0: AURORA AI wordmark (gold) | sheet title (Lora) | Конфиденциально (right)
     // Row 1: solid gold stripe (3px)
     let brand_aurora_fmt = Format::new()
@@ -663,14 +663,14 @@ fn build_xlsx(
     // Standards/04 §structural-elements: MERGE FORBIDDEN. Use
     // FormatAlign::CenterAcross so Excel visually centers across empty
     // cells A1:D1 without an actual merge.
-    // Internal hyperlinks to sheets deferred to v1.0.12 — tab bar already
+    // Internal hyperlinks to sheets deferred to v1.0.12 - tab bar already
     // provides navigation; TOC here gives content overview.
     {
         let ws = wb.add_worksheet();
         ws.set_name("Обзор").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(GOLD));
 
-        // Row 0: Aurora AI kicker (matches XLSX_reference — 3-col centerAcross + vertical center).
+        // Row 0: Aurora AI kicker (matches XLSX_reference - 3-col centerAcross + vertical center).
         let kicker_fmt = Format::new()
             .set_font_name("Inter")
             .set_font_size(11)
@@ -685,7 +685,7 @@ fn build_xlsx(
         }
         ws.set_row_height(0, 25.5).map_err(|e| format!("{e}"))?;
 
-        // Row 1: main hero title — Lora 28pt centerAcross 3 cols + vertical center.
+        // Row 1: main hero title - Lora 28pt centerAcross 3 cols + vertical center.
         let title_fmt = Format::new()
             .set_font_name("Lora")
             .set_font_size(28)
@@ -706,7 +706,7 @@ fn build_xlsx(
         // в верхнем левом углу Обзор sheet (column A, rows 1-2 area). Customer
         // reference: customer-edited XLSX show image at col=0 row=0 with small offset,
         // spans A1-A2 height. Replaces previous top-right placement.
-        // Compile-time embedding через include_bytes! — no runtime IO.
+        // Compile-time embedding через include_bytes! - no runtime IO.
         let brand_png_bytes = include_bytes!("../../assets/brand_mark.png");
         match Image::new_from_buffer(brand_png_bytes) {
             Ok(brand_img) => {
@@ -721,7 +721,7 @@ fn build_xlsx(
             }
         }
 
-        // Row 2: Gold accent stripe — 3 cols (per reference).
+        // Row 2: Gold accent stripe - 3 cols (per reference).
         let stripe_fmt = Format::new().set_background_color(Color::RGB(GOLD));
         for col in 0..3u16 {
             ws.write_with_format(2, col, "", &stripe_fmt).map_err(|e| format!("{e}"))?;
@@ -745,7 +745,7 @@ fn build_xlsx(
             ws.write_with_format(row, 1, v.as_str(), &value_fmt).map_err(|e| format!("{e}"))?;
         }
 
-        // Section heading "Содержание" at row 11 (was 9 — shifted +2 for kicker)
+        // Section heading "Содержание" at row 11 (was 9 - shifted +2 for kicker)
         let toc_heading_fmt = base_fmt.clone()
             .set_bold()
             .set_font_size(12)
@@ -774,7 +774,7 @@ fn build_xlsx(
             ws.write_with_format(row, 1, *desc,  &desc_fmt).map_err(|e| format!("{e}"))?;
         }
 
-        // Widths from XLSX_reference.xlsx — A=22.14, B=41.29, C=21.86
+        // Widths from XLSX_reference.xlsx - A=22.14, B=41.29, C=21.86
         ws.set_column_width(0, 22.14).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 41.29).map_err(|e| format!("{e}"))?;
         ws.set_column_width(2, 21.86).map_err(|e| format!("{e}"))?;
@@ -797,8 +797,8 @@ fn build_xlsx(
             .as_f64()
             .or_else(|| model["diagnostics"]["r_hat"].as_f64());
         let lift      = optimize["expected_lift_pct"].as_f64().unwrap_or(0.0);
-        // 5c (2026-05-04) FIX: total_budget — это native sum (mixed units TRPs+₽
-        // = арифметический мусор). Use total_current_money — money equivalent
+        // 5c (2026-05-04) FIX: total_budget - это native sum (mixed units TRPs+₽
+        // = арифметический мусор). Use total_current_money - money equivalent
         // = sum of channel spend × unit_cost (matches UI Block A «Текущий бюджет»).
         let budget = optimize["total_current_money"].as_f64()
             .or_else(|| optimize["total_budget_money"].as_f64())
@@ -834,7 +834,7 @@ fn build_xlsx(
             ws.write(10, 0, &format!("R-hat (сходимость): {rh:.4}")).map_err(|e| format!("{e}"))?;
         }
 
-        // Widths from XLSX_reference.xlsx — A:C = 26.43
+        // Widths from XLSX_reference.xlsx - A:C = 26.43
         ws.set_column_width(0, 26.43).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 26.43).map_err(|e| format!("{e}"))?;
         ws.set_column_width(2, 26.43).map_err(|e| format!("{e}"))?;
@@ -931,7 +931,7 @@ fn build_xlsx(
             ws.write(row, 0, normalization).map_err(|e| format!("{e}"))?;
         }
 
-        // Widths — Спецификация (B = 4.81 cm = 26.0; C = 6.80 cm ≈ 36.72 char, per Антон)
+        // Widths - Спецификация (B = 4.81 cm = 26.0; C = 6.80 cm ≈ 36.72 char, per Антон)
         ws.set_column_width(0, 24.57).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 26.00).map_err(|e| format!("{e}"))?;
         ws.set_column_width(2, 36.72).map_err(|e| format!("{e}"))?;
@@ -967,7 +967,7 @@ fn build_xlsx(
         ws.write_with_format(total_row, 0, "ИТОГО", &bold).map_err(|e| format!("{e}"))?;
         ws.write_formula_with_format(total_row, 1, Formula::new(format!("=SUM(B4:B{})", total_row)), &bold).map_err(|e| format!("{e}"))?;
 
-        // Bar chart — categories at rows 3..wf.len()+2 (zero-based), values col B
+        // Bar chart - categories at rows 3..wf.len()+2 (zero-based), values col B
         let mut chart = Chart::new(ChartType::Bar);
         chart.add_series()
             .set_categories(("Декомпозиция", 3, 0, wf.len() as u32 + 2, 0))
@@ -1043,7 +1043,7 @@ fn build_xlsx(
         chart.title().set_name("ROI по каналам");
         ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
 
-        // Widths — ROI каналов (A = 4.4 cm ≈ 23.76; C = 3.91 cm; D = 2.2 cm, per Антон)
+        // Widths - ROI каналов (A = 4.4 cm ≈ 23.76; C = 3.91 cm; D = 2.2 cm, per Антон)
         ws.set_column_width(0, 23.76).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 36.43).map_err(|e| format!("{e}"))?;
         ws.set_column_width(2, 21.14).map_err(|e| format!("{e}"))?;
@@ -1108,7 +1108,7 @@ fn build_xlsx(
         chart.title().set_name("Доля бюджета vs Доля эффекта");
         ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
 
-        // Widths — Spend vs Effect (A:C = 3.50 cm ≈ 18.90 char, per Антон)
+        // Widths - Spend vs Effect (A:C = 3.50 cm ≈ 18.90 char, per Антон)
         ws.set_column_width(0, 18.90).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 18.90).map_err(|e| format!("{e}"))?;
         ws.set_column_width(2, 18.90).map_err(|e| format!("{e}"))?;
@@ -1189,7 +1189,7 @@ fn build_xlsx(
                 let chart_anchor_row = last_data_row + 2;
                 ws.insert_chart(chart_anchor_row, 0, &chart).map_err(|e| format!("{e}"))?;
 
-                // Widths — Динамика (A = 2.5; B = 2.68; C = 2.44 cm, per Антон)
+                // Widths - Динамика (A = 2.5; B = 2.68; C = 2.44 cm, per Антон)
                 ws.set_column_width(0, 13.5).map_err(|e| format!("{e}"))?;
                 if last_col >= 1 {
                     ws.set_column_width(1, 14.47).map_err(|e| format!("{e}"))?;
@@ -1293,7 +1293,7 @@ fn build_xlsx(
         chart.title().set_name("Текущий vs Оптимальный бюджет");
         ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
 
-        // 5c (2026-05-04) FIX: same formula-result issue — рrust_xlsxwriter writes
+        // 5c (2026-05-04) FIX: same formula-result issue - рrust_xlsxwriter writes
         // formulas with default cached result=0, Excel showed 0+0 для ИТОГО.
         // Compute sums in Rust + write as static values.
         let total_r = last_row + 1;
@@ -1317,7 +1317,7 @@ fn build_xlsx(
         ws.write(total_r + 1, 0, "Ожидаемый прирост").map_err(|e| format!("{e}"))?;
         ws.write(total_r + 1, 1, &format!("{lift:+.1}%")).map_err(|e| format!("{e}"))?;
 
-        // Widths — Оптимизация (A = 5.33; C = 3.57 cm ≈ 19.28, per Антон)
+        // Widths - Оптимизация (A = 5.33; C = 3.57 cm ≈ 19.28, per Антон)
         ws.set_column_width(0, 28.78).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 39.29).map_err(|e| format!("{e}"))?;
         ws.set_column_width(2, 19.28).map_err(|e| format!("{e}"))?;
@@ -1327,7 +1327,7 @@ fn build_xlsx(
     }
 
     // ── Sheet 5.5: Сценарии (if any) ─────────────────────────
-    // Метрики × сценарии. Если у всех scenarios есть roas_money — показываем
+    // Метрики × сценарии. Если у всех scenarios есть roas_money - показываем
     // деньги (homogeneous), иначе native (смешанные единицы) с пометкой.
     if !scenarios.is_empty() {
         let ws = wb.add_worksheet();
@@ -1401,7 +1401,7 @@ fn build_xlsx(
             let note_fmt = Format::new()
                 .set_font_color(Color::RGB(0xF59E0B))
                 .set_italic();
-            let note = "⚠ ROAS в native-единицах (TRP/GRP + ₽) — несопоставим между \
+            let note = "⚠ ROAS в native-единицах (TRP/GRP + ₽) - несопоставим между \
                         каналами разных единиц. Укажи CPP в блоке «Проверка» для перевода в ₽.";
             ws.merge_range(
                 note_row, 0,
@@ -1465,14 +1465,14 @@ fn build_xlsx(
         let explainer_row = (n_periods + 5) as u32;
         ws.write_with_format(explainer_row, 0, "Как использовать лист:", &bold).map_err(|e| format!("{e}"))?;
         ws.write(explainer_row + 1, 0, "• Выделите колонки «Период» + нужные → Вставка → Диаграмма → получите график вклада канала по времени.").map_err(|e| format!("{e}"))?;
-        ws.write(explainer_row + 2, 0, "• Baseline — часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 2, 0, "• Baseline - часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
         ws.write(explainer_row + 3, 0, "• Медиа-вклад = сумма по каналам. KPI = Baseline + Медиа-вклад (то что модель объясняет).").map_err(|e| format!("{e}"))?;
 
-        // Widths — Данные (A = 1 cm ≈ 5.4 char; D = 2.2 cm ≈ 11.88 char, per Антон)
-        ws.set_column_width(0, 5.4).map_err(|e| format!("{e}"))?;   // Период — 1 см
-        ws.set_column_width(1, 13.61).map_err(|e| format!("{e}"))?; // Baseline — 2.52 см
+        // Widths - Данные (A = 1 cm ≈ 5.4 char; D = 2.2 cm ≈ 11.88 char, per Антон)
+        ws.set_column_width(0, 5.4).map_err(|e| format!("{e}"))?;   // Период - 1 см
+        ws.set_column_width(1, 13.61).map_err(|e| format!("{e}"))?; // Baseline - 2.52 см
         ws.set_column_width(2, 32.71).map_err(|e| format!("{e}"))?; // первый канал
-        ws.set_column_width(3, 11.88).map_err(|e| format!("{e}"))?; // второй канал — 2.2 см
+        ws.set_column_width(3, 11.88).map_err(|e| format!("{e}"))?; // второй канал - 2.2 см
         for c in 4..total_col { ws.set_column_width(c, 32.71).map_err(|e| format!("{e}"))?; }
         ws.set_column_width(total_col, 26.71).map_err(|e| format!("{e}"))?;
         ws.set_column_width(kpi_col, 32.57).map_err(|e| format!("{e}"))?;
@@ -1486,22 +1486,22 @@ fn build_xlsx(
         apply_base_cols(ws, &base_fmt)?;
         apply_print_setup(ws, "Глоссарий")?;
         write_brand_header(ws, "Глоссарий терминов", 2)?;
-        // Override A1 для Глоссария — Антон хочет "Aurora AI" в proper case
+        // Override A1 для Глоссария - Антон хочет "Aurora AI" в proper case
         ws.write_with_format(0, 0, "Aurora AI", &brand_aurora_fmt).map_err(|e| format!("{e}"))?;
 
         ws.write_with_format(2, 0, "Термин", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 1, "Определение", &header_fmt).map_err(|e| format!("{e}"))?;
 
         let terms: &[(&str, &str)] = &[
-            ("MQS", "Model Quality Score — комплексная оценка качества модели (0-100). >80 = отлично, 60-80 = хорошо, <60 = требует доработки."),
-            ("R²", "Коэффициент детерминации — доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
-            ("MAPE", "Mean Absolute Percentage Error — средняя абсолютная ошибка в %. <10% = отлично."),
+            ("MQS", "Model Quality Score - комплексная оценка качества модели (0-100). >80 = отлично, 60-80 = хорошо, <60 = требует доработки."),
+            ("R²", "Коэффициент детерминации - доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
+            ("MAPE", "Mean Absolute Percentage Error - средняя абсолютная ошибка в %. <10% = отлично."),
             ("R-hat", "Статистика сходимости MCMC. Значение ~1.0 означает, что цепи сошлись. >1.05 = проблема."),
-            ("ROI", "Return on Investment — отношение инкрементального вклада канала к его расходу. ROI 2.0x = каждый рубль приносит 2 рубля."),
-            ("miROAS", "Marginal incremental ROAS — отдача от каждого СЛЕДУЮЩЕГО рубля. Показывает, стоит ли увеличивать расходы на канал."),
+            ("ROI", "Return on Investment - отношение инкрементального вклада канала к его расходу. ROI 2.0x = каждый рубль приносит 2 рубля."),
+            ("miROAS", "Marginal incremental ROAS - отдача от каждого СЛЕДУЮЩЕГО рубля. Показывает, стоит ли увеличивать расходы на канал."),
             ("Adstock", "Эффект запаздывания рекламы. TV-реклама влияет на продажи ещё 2-8 недель после показа."),
             ("Hill function", "Функция насыщения. Моделирует убывающую отдачу: первые рубли эффективнее последних."),
-            ("CI (95%)", "Доверительный интервал — диапазон, в который истинное значение попадает с 95% вероятностью."),
+            ("CI (95%)", "Доверительный интервал - диапазон, в который истинное значение попадает с 95% вероятностью."),
             ("Base sales", "Продажи без рекламного воздействия (органический спрос, бренд-эффект, сезонность)."),
             ("Efficiency Index", "Отношение доли эффекта к доле бюджета. >1.0 = канал эффективнее среднего."),
         ];
@@ -1510,14 +1510,14 @@ fn build_xlsx(
             ws.write_with_format(row, 0, *term, &bold).map_err(|e| format!("{e}"))?;
             ws.write(row, 1, *def).map_err(|e| format!("{e}"))?;
         }
-        // Widths — Глоссарий (A = 3 cm; B = 19.2 cm; C hidden, per Антон)
+        // Widths - Глоссарий (A = 3 cm; B = 19.2 cm; C hidden, per Антон)
         ws.set_column_width(0, 16.2).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 103.68).map_err(|e| format!("{e}"))?;
         ws.set_column_hidden(2).map_err(|e| format!("{e}"))?;
     }
 
     // ── Named ranges (tier-1 anchor; analyst drill-back) ─────────────────────
-    // Only single-cell names — multi-row ranges brittle on variable channel
+    // Only single-cell names - multi-row ranges brittle on variable channel
     // counts (audit M1). `define_name` is ignored if referenced sheet/row
     // never materialized (Executive Summary always present).
     wb.define_name("MQS_Score",    "='Executive Summary'!$B$5")

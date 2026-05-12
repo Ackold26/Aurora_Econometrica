@@ -1,12 +1,12 @@
 <script>
   /**
-   * ValidateStepV13 — v1.3.0 new Validate flow (per ADR-015 P0.9).
+   * ValidateStepV13 - v1.3.0 new Validate flow (per ADR-015 P0.9).
    *
    * Orchestrates 4 sub-steps:
-   *   1. KPISelector — choose target KPI type.
-   *   2. ValuePerCountUnitInput — for count KPIs only.
-   *   3. PerChannelInputSelector — for each channel choose monetary vs physical.
-   *   4. ModeDerivedExplanation — show derived mode + continue.
+   *   1. KPISelector - choose target KPI type.
+   *   2. ValuePerCountUnitInput - for count KPIs only.
+   *   3. PerChannelInputSelector - for each channel choose monetary vs physical.
+   *   4. ModeDerivedExplanation - show derived mode + continue.
    *
    * Backward compat: if `useDerivedModeUX` store is false, parent uses
    * ObjectiveSelector (v1.2 flow) вместо этого component.
@@ -35,7 +35,7 @@
   import PerChannelInputSelector from './PerChannelInputSelector.svelte';
   import ModeDerivedExplanation from './ModeDerivedExplanation.svelte';
   import WhyThisStep from './WhyThisStep.svelte';
-  // v1.3.2: ColumnMapperConfirm — preflight role confirmation перед KPISelector.
+  // v1.3.2: ColumnMapperConfirm - preflight role confirmation перед KPISelector.
   // Backend column_detection делает auto-classify; этот компонент показывает
   // detected roles в read-only table с possibility override.
   import ColumnMapperConfirm from './ColumnMapperConfirm.svelte';
@@ -49,7 +49,7 @@
    *  show ColumnMapperConfirm перед KPISelector flow. После confirm flips к
    *  true и далее идёт обычный 4-substep KPI flow.
    *
-   *  Persisted to localStorage per projectId — юзер confirm-ит роли один раз
+   *  Persisted to localStorage per projectId - юзер confirm-ит роли один раз
    *  на проект; повторное mount читает state. Reset через goBack button.
    *  Key format: `aurora-econ:roles-confirmed:{projectId}`. */
   const ROLES_CONFIRMED_KEY_PREFIX = 'aurora-econ:roles-confirmed:';
@@ -126,14 +126,14 @@
     }
   }
 
-  /** Manual retry button — resets attempt flag и пытается заново. */
+  /** Manual retry button - resets attempt flag и пытается заново. */
   function retryValidate() {
     validateError = null;
     validateAttempted = false;
     autoRunValidate();
   }
 
-  /** Reactive auto-trigger — ждёт пока $importData.file populated (race
+  /** Reactive auto-trigger - ждёт пока $importData.file populated (race
    *  condition при открытии .aurora archive: ValidateStepV13 mounts ДО
    *  того как importData filled из bundle). Запускается ОДИН раз когда
    *  все conditions выполнены. */
@@ -170,7 +170,7 @@
     currentKPI = id;
     kpiType.set(id);
     const kind = kpiKindForType(id);
-    // proportional KPIs (awareness) out_of_scope_v13 — treat as monetary fallback.
+    // proportional KPIs (awareness) out_of_scope_v13 - treat as monetary fallback.
     const safeKind = /** @type {'monetary' | 'count'} */ (kind === 'count' ? 'count' : 'monetary');
     kpiKind.set(safeKind);
 
@@ -214,7 +214,7 @@
     }
     const monetaryCol = detectMonetaryColumn();
     if (!monetaryCol) {
-      // No monetary column found — silently skip auto-suggest.
+      // No monetary column found - silently skip auto-suggest.
       autoSuggestedValue = null;
       return;
     }
@@ -312,7 +312,7 @@
   // v1.3.2: ColumnMapperConfirm columns derived из validateData.result.columns.
   // Преобразуем canonical role vocabulary → ColumnMapperConfirm dropdown set
   // (kpi/media/control/date/excluded). 'unused' и 'unknown' маппим в 'excluded'.
-  // v1.3.2: sort by role priority — Дата сверху, потом KPI, потом media,
+  // v1.3.2: sort by role priority - Дата сверху, потом KPI, потом media,
   // control, excluded в конце. Стабильная sort внутри роли (preserve original
   // order). Includes col.stats для recommendation heuristic.
   /** @type {Record<string, number>} */
@@ -328,7 +328,7 @@
     if (!Array.isArray(cols)) return [];
     const mapped = cols.map((/** @type {any} */ c, /** @type {number} */ idx) => ({
       _origIdx: idx,
-      name: c?.name ?? '—',
+      name: c?.name ?? '-',
       kind: c?.kind ?? c?.dtype ?? null,
       stats: c?.stats ?? null,
       role: (c?.role === 'unused' || c?.role === 'unknown' || c?.role == null)
@@ -347,13 +347,13 @@
 
   /**
    * v1.3.2: insights-driven recommendations.
-   * Compute validateInsights using same function как InsightsPanel — ensures
+   * Compute validateInsights using same function как InsightsPanel - ensures
    * two systems show consistent advice. Insight с action.type='exclude' или
    * 'keep_only' identifies columns to drop; ColumnMapperConfirm.recommendationFor
    * читает этот список и показывает «Исключить» соответственно.
    *
    * Audit fix (Антон 2026-05-13): фильтруем только severity 'warning' и 'error'.
-   * severity='info' insights — это objective-optimization suggestions (ROI mode
+   * severity='info' insights - это objective-optimization suggestions (ROI mode
    * предлагает paired budget вместо TRPs), не data-quality issues. Они могут
    * рекомендовать excludить ВАЖНЫЕ каналы (TRPs Бренд = >90% бюджета TV).
    * «Исключить» badge должен срабатывать только на жёсткие data-quality
@@ -410,7 +410,7 @@
   });
 
   /**
-   * v1.3.2: Сбросить шаг — вернуть Validate к исходному состоянию (как при
+   * v1.3.2: Сбросить шаг - вернуть Validate к исходному состоянию (как при
    * первой загрузке проекта). Очищает все user overrides и forces re-validate
    * через backend (econ_validate перепишет result.columns с auto-detected
    * roles).
@@ -466,7 +466,7 @@
    * пересчитываются reactively. Эквивалент connecting в InsightsPanel.applyAction.
    *
    * @param {string} colName
-   * @param {string} uiRole — UI-level role (kpi/media/control/date/excluded)
+   * @param {string} uiRole - UI-level role (kpi/media/control/date/excluded)
    */
   function handleRoleChange(colName, uiRole) {
     const val = get(validateData);
@@ -485,7 +485,7 @@
     }
   }
 
-  /** @param {Record<string, string>} mapping — column name → role chosen by user */
+  /** @param {Record<string, string>} mapping - column name → role chosen by user */
   async function handleRolesConfirm(mapping) {
     // Persist overrides обратно к validateData.result.columns + project.json.
     const val = get(validateData);
@@ -507,7 +507,7 @@
         ...val,
         result: { ...val.result, columns: updated },
       });
-      // Persist project.json (best-effort, non-blocking — matches InsightsPanel pattern).
+      // Persist project.json (best-effort, non-blocking - matches InsightsPanel pattern).
       const projectId = get(activeProjectId);
       if (projectId) {
         const updates = buildProjectUpdates(updated);
@@ -534,7 +534,7 @@
         <span class="dot-label">{stage.label}</span>
       </div>
     {/each}
-    <!-- v1.3.2: «Сбросить шаг» — кнопка справа от substep nav, возвращает к
+    <!-- v1.3.2: «Сбросить шаг» - кнопка справа от substep nav, возвращает к
          состоянию загрузки проекта (re-runs validate, clears all overrides). -->
     <button
       type="button"
@@ -557,7 +557,7 @@
     <div class="validation-loading" role="status" aria-live="polite">
       <div class="loading-spinner" aria-hidden="true"></div>
       <p class="loading-title">Анализируем данные</p>
-      <p class="loading-detail">Программа проверяет колонки и определяет роли — обычно занимает 2-5 секунд.</p>
+      <p class="loading-detail">Программа проверяет колонки и определяет роли - обычно занимает 2-5 секунд.</p>
     </div>
   {:else if validateError}
     <div class="validation-error" role="alert">
@@ -628,7 +628,7 @@
     background: var(--bg-surface-quiet);
     border-bottom: 1px solid var(--border-subtle);
   }
-  /* v1.3.2: «Сбросить шаг» — premium tier-1 ghost button справа от substep nav. */
+  /* v1.3.2: «Сбросить шаг» - premium tier-1 ghost button справа от substep nav. */
   .reset-step-btn {
     margin-left: auto;
     padding: 5px 12px;

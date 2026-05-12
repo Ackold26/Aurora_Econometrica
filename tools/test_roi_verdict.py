@@ -1,14 +1,14 @@
 """
 Unit tests for compute_roi_verdict (decomposer.py hybrid threshold logic).
 
-Phase 0.2 — plan immutable-bouncing-noodle §0.2 / L4 fix.
+Phase 0.2 - plan immutable-bouncing-noodle §0.2 / L4 fix.
 Covers:
   1. Posterior CI uncertainty (Step 1)
   2. Absolute hard caps (Step 2): deep loss, loss, breakeven, unit_smell, artifact
   3. Quantile relative mode (Step 3): gated on N >= 20 + portfolio benchmarks
   4. Efficiency gap fallback (Step 4): oversat, underperf, high, good, balanced
   5. Tone enum invariant
-  6. Backward compatibility — pre-fix labels still producible
+  6. Backward compatibility - pre-fix labels still producible
 
 Run from repo root:
     python tools/test_roi_verdict.py
@@ -67,10 +67,10 @@ def assert_tone(label: str, got: tuple[str, str], expected_tone: str) -> None:
 
 # ── Step 1 (L2 refactor 2026-04-29): posterior CI uncertainty as suffix ─────
 def test_ci_uncertainty_triggers_when_ci_wider_than_roi():
-    # ROI=2.0, CI=[0.5, 3.0] — width=2.5 > 2.0 → suffix appended.
+    # ROI=2.0, CI=[0.5, 3.0] - width=2.5 > 2.0 → suffix appended.
     # Pre-fix: returned 'Высокая неопределённость' (suppressed informative
     # descriptive verdict). Post-fix (L2): keeps base verdict ('Сбалансирован'
-    # for ROI=2.0 / gap=0) and appends ' (низкая уверенность)' suffix —
+    # for ROI=2.0 / gap=0) and appends ' (низкая уверенность)' suffix -
     # honest disclosure без потери informativeness.
     got = compute_roi_verdict(roi=2.0, efficiency_gap=0.0,
                               roi_ci_low=0.5, roi_ci_high=3.0)
@@ -87,7 +87,7 @@ def test_ci_uncertainty_demotes_good_to_warn():
 
 
 def test_ci_uncertainty_not_triggered_when_ci_narrow():
-    # ROI=2.0, CI=[1.8, 2.3] — width=0.5 < 2.0 → fall through to other rules
+    # ROI=2.0, CI=[1.8, 2.3] - width=0.5 < 2.0 → fall through to other rules
     got = compute_roi_verdict(roi=2.0, efficiency_gap=0.0,
                               roi_ci_low=1.8, roi_ci_high=2.3)
     assert_verdict("Narrow CI → fall through", got, 'Сбалансирован', 'neutral')
@@ -137,9 +137,9 @@ def test_unit_smell_high_roi():
 
 
 def test_unit_smell_skipped_when_below_threshold():
-    # ROI=20 + unit_smell — below ROI_UNIT_SMELL_FLOOR (50) — fall through
+    # ROI=20 + unit_smell - below ROI_UNIT_SMELL_FLOOR (50) - fall through
     got = compute_roi_verdict(roi=20.0, efficiency_gap=0.0, unit_smell=True)
-    # Fall through to high-roi-money branch — but unit_smell guard блокирует
+    # Fall through to high-roi-money branch - but unit_smell guard блокирует
     # абсолютный 'Высокоэффективен' branch (roi > 5 + not unit_smell). Goes
     # to gap fallback: gap=0 → Сбалансирован.
     assert_verdict("ROI 20 + unit_smell + gap 0 → balanced", got,
@@ -185,7 +185,7 @@ def test_quantile_mode_top_25():
 
 
 def test_quantile_mode_bottom_10():
-    # roi=1.05 — выше absolute breakeven (1.0) но ниже p10 (1.0) — wait, p10=1.0 → roi must be < 1.0
+    # roi=1.05 - выше absolute breakeven (1.0) но ниже p10 (1.0) - wait, p10=1.0 → roi must be < 1.0
     # ROI=1.05 → выше p10 → значит проходит к p25 check (1.5) → Bottom-25%
     got = compute_roi_verdict(roi=1.05, efficiency_gap=0.0,
                               category='brand_reach',
@@ -302,29 +302,29 @@ def test_tone_always_in_enum():
 # ── Backward compatibility: pre-fix labels still producible ──────────────────
 def test_backward_compat_labels():
     """Все pre-fix verdict labels всё ещё producible с тем же смыслом."""
-    # 'Убыточный' — preserved (roi < 0.8)
+    # 'Убыточный' - preserved (roi < 0.8)
     assert_verdict("compat: Убыточный", compute_roi_verdict(roi=0.7, efficiency_gap=0.0),
                    'Убыточный', 'bad')
-    # 'На грани окупаемости' — preserved (0.8 <= roi < 1.0)
+    # 'На грани окупаемости' - preserved (0.8 <= roi < 1.0)
     assert_verdict("compat: На грани", compute_roi_verdict(roi=0.95, efficiency_gap=0.0),
                    'На грани окупаемости', 'warn')
-    # 'Перенасыщен' — preserved (gap <= -10)
+    # 'Перенасыщен' - preserved (gap <= -10)
     assert_verdict("compat: Перенасыщен", compute_roi_verdict(roi=1.5, efficiency_gap=-15.0),
                    'Перенасыщен', 'warn')
-    # 'Слабее своей доли' — preserved
+    # 'Слабее своей доли' - preserved
     assert_verdict("compat: Слабее", compute_roi_verdict(roi=1.5, efficiency_gap=-7.0),
                    'Слабее своей доли', 'warn')
-    # 'Высокоэффективен' — preserved (gap >= 10)
+    # 'Высокоэффективен' - preserved (gap >= 10)
     assert_verdict("compat: Высокоэффективен по gap",
                    compute_roi_verdict(roi=1.5, efficiency_gap=12.0),
                    'Высокоэффективен', 'good')
-    # 'Эффективен' — preserved (gap >= 5)
+    # 'Эффективен' - preserved (gap >= 5)
     assert_verdict("compat: Эффективен", compute_roi_verdict(roi=1.5, efficiency_gap=7.0),
                    'Эффективен', 'good')
-    # 'Сбалансирован' — preserved (default neutral)
+    # 'Сбалансирован' - preserved (default neutral)
     assert_verdict("compat: Сбалансирован", compute_roi_verdict(roi=1.5, efficiency_gap=0.0),
                    'Сбалансирован', 'neutral')
-    # 'ROI завышен (не рубли?)' — preserved (roi > 50 + unit_smell)
+    # 'ROI завышен (не рубли?)' - preserved (roi > 50 + unit_smell)
     assert_verdict("compat: не рубли", compute_roi_verdict(roi=80.0, efficiency_gap=0.0,
                                                             unit_smell=True),
                    'ROI завышен (не рубли?)', 'warn')

@@ -1,6 +1,6 @@
 <script>
   /**
-   * ImportStep — Step 0 of the pipeline.
+   * ImportStep - Step 0 of the pipeline.
    * Drag-drop zone + Tauri dialog for xlsx/csv import.
    * Shows DataTable preview of first 20 rows after import.
    * Calls completeStep(0) on success, resetDownstream(0) on re-import.
@@ -18,7 +18,7 @@
   import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject, resetPipeline, modelEngine } from '$lib/project-state.js';
   import { get } from 'svelte/store';
 
-  // Обучающий тур — запускается на mount, независимо от состояния импорта.
+  // Обучающий тур - запускается на mount, независимо от состояния импорта.
   let showOnboarding = $state(false);
   let onboardingChecked = false;
 
@@ -80,14 +80,14 @@
 
   /** v1.1.0+: derived helpers для engine selector.
    *  FIX: nRows ТОЛЬКО из shape.rows (real backend response). Раньше fallback
-   *  на previewRows.length (20 — preview limit) приводил к ложной OLS-рекомендации
+   *  на previewRows.length (20 - preview limit) приводил к ложной OLS-рекомендации
    *  для проектов с ≥30 строк когда shape ещё/уже не загружен.
    *  Если shape null → nRows=0 → recommendOls=false → engine не меняется. */
   const nRows = $derived(/** @type {{rows: number} | null} */ (shape)?.rows ?? 0);
   const recommendOls = $derived(nRows > 0 && nRows < 30);
 
   /** v1.0.16: автоматический выбор движка на основе объёма данных.
-   *  n<30 → OLS (small-data), n≥30 → Bayesian. Customer не управляет вручную —
+   *  n<30 → OLS (small-data), n≥30 → Bayesian. Customer не управляет вручную -
    *  система делает выбор сама, чтобы избежать неправильного соотношения engine
    *  к данным. */
   $effect(() => {
@@ -104,7 +104,7 @@
       previewRows = stored.rows;
     }
     // FIX: restore shape from store. Без этого после navigate-out/in shape=null →
-    // nRows fallback к previewRows.length (20 — preview limit) → recommendOls=true →
+    // nRows fallback к previewRows.length (20 - preview limit) → recommendOls=true →
     // OLS выбирается на проектах с ≥30 строк (баг увиденный в скрине).
     if (stored.shape && typeof stored.shape.rows === 'number') {
       shape = { rows: stored.shape.rows, cols: stored.shape.cols ?? 0 };
@@ -116,15 +116,15 @@
 
   /**
    * Build auto project name from a file name.
-   * Format: "{brand} ММХ {DDMM-YY}" — e.g. "Кагоцел РФ ММХ 1804-26".
-   * Brand = first meaningful fragment before separators (_, +, —, «данные», etc).
+   * Format: "{brand} ММХ {DDMM-YY}" - e.g. "Кагоцел РФ ММХ 1804-26".
+   * Brand = first meaningful fragment before separators (_, +, -, «данные», etc).
    * @param {string} fileName
    * @returns {string}
    */
   function buildProjectName(fileName) {
     const stem = fileName.replace(/\.(xlsx|xls|csv)$/i, '').trim();
     // Cut off at first separator-ish marker so we keep only the brand part
-    const brandMatch = stem.split(/[_+—–]|\s(?:данны|data|model|эконометрик|анализ|отчёт|план)/i)[0];
+    const brandMatch = stem.split(/[_+-–]|\s(?:данны|data|model|эконометрик|анализ|отчёт|план)/i)[0];
     const brand = (brandMatch || stem || 'Проект').trim().replace(/\s+/g, ' ').slice(0, 40);
     const d = new Date();
     const dd = String(d.getDate()).padStart(2, '0');
@@ -140,7 +140,7 @@
   onMount(() => {
     const win = getCurrentWindow();
 
-    // Онбординг — запускаем с отложенной постановкой флага, чтобы DOM
+    // Онбординг - запускаем с отложенной постановкой флага, чтобы DOM
     // успел отрисоваться (intro-options, drop-zone должны быть в DOM для
     // querySelector).
     if (!onboardingChecked && shouldShowOnboarding('import')) {
@@ -207,7 +207,7 @@
   async function loadFile(path) {
     const isReimport = !!filePath && filePath !== path;
     if (isReimport) {
-      // Warn if model was trained (step 2 complete) — user loses training results
+      // Warn if model was trained (step 2 complete) - user loses training results
       const meta = get(pipelineStepMeta);
       if (meta[2]?.status === 'complete') {
         const ok = confirm('Результаты обучения модели будут сброшены. Продолжить?');
@@ -258,8 +258,8 @@
       };
       importData.set(updated);
 
-      // Auto-create project if none exists — eliminates the "проект не выбран" block later.
-      // Format: "{brand} ММХ {DDMM-YY}" — e.g. "Кагоцел РФ ММХ 1804-26".
+      // Auto-create project if none exists - eliminates the "проект не выбран" block later.
+      // Format: "{brand} ММХ {DDMM-YY}" - e.g. "Кагоцел РФ ММХ 1804-26".
       // If a project with that name already exists (Rust throws "уже существует"),
       // append (2), (3)… until a fresh name is found, OR activate the existing one.
       if (!get(activeProjectId)) {
@@ -278,7 +278,7 @@
             const msg = String(projErr);
             if (!msg.includes('уже существует')) {
               console.error('Auto-create project failed:', projErr);
-              break; // unknown error — stop retrying
+              break; // unknown error - stop retrying
             }
             // else loop: try next suffix
           }
@@ -296,28 +296,28 @@
 
 <div class="import-step">
 
-  <!-- Import mode chooser — показывается только когда файла ещё нет -->
+  <!-- Import mode chooser - показывается только когда файла ещё нет -->
   {#if !filePath && !loading}
     <div class="import-intro">
       <h2 class="intro-title">Начать работу с проектом</h2>
       <p class="intro-body">
-        Выберите один из двух вариантов — загрузите файл данных для <b>нового анализа</b>
+        Выберите один из двух вариантов - загрузите файл данных для <b>нового анализа</b>
         или откройте <b>ранее сохранённый проект</b>, чтобы продолжить работу с него.
       </p>
 
-      <!-- 1. Карточка «Новый проект» — описание, без кнопки (кнопка = dropzone ниже) -->
+      <!-- 1. Карточка «Новый проект» - описание, без кнопки (кнопка = dropzone ниже) -->
       <div class="intro-card">
         <div class="intro-card-header">
           <div class="intro-card-icon">📁</div>
           <div class="intro-card-title">Новый проект</div>
         </div>
         <div class="intro-card-body">
-          Загрузите xlsx/csv с историческими данными — пройдёте полный цикл
+          Загрузите xlsx/csv с историческими данными - пройдёте полный цикл
           MMM-анализа: валидация → модель → декомпозиция → оптимизация → отчёт.
         </div>
       </div>
 
-      <!-- 2. Dropzone — единый путь загрузки данных для нового проекта -->
+      <!-- 2. Dropzone - единый путь загрузки данных для нового проекта -->
       <div
         class="drop-zone drop-zone--inline"
         class:drag-over={isDragOver}
@@ -345,7 +345,7 @@
           <div class="intro-card-title">Загрузить сохранённый проект</div>
         </div>
         <div class="intro-card-body">
-          Откройте <code>.aurora</code> архив с ранее завершённым анализом —
+          Откройте <code>.aurora</code> архив с ранее завершённым анализом -
           данные, модель, декомпозиция, оптимизация и сценарии восстановятся
           на тот же шаг, где вы закончили.
         </div>
@@ -361,7 +361,7 @@
     </div>
   {/if}
 
-  <!-- Drop zone (states: loading / file-ready) — показывается ПОСЛЕ выбора файла -->
+  <!-- Drop zone (states: loading / file-ready) - показывается ПОСЛЕ выбора файла -->
   {#if filePath || loading}
     <div
       class="drop-zone"
@@ -419,7 +419,7 @@
            n<30 → OLS (small-data fallback, closed-form, ~2-5 сек),
            n≥30 → Bayesian (full NUTS posterior, ~20-60 сек).
            UI: ОБА варианта показаны рядом, выбранный подсвечен accent-цветом,
-           не выбранный — muted. Без manual override — система выбирает сама. -->
+           не выбранный - muted. Без manual override - система выбирает сама. -->
       <div class="engine-section">
         <div class="engine-section-header">
           <span class="engine-section-title">Тип моделирования</span>
@@ -455,7 +455,7 @@
               {/if}
             </div>
             <p class="engine-card-desc">
-              Small-data fallback. OLS-регрессия с аналитическим решением и bootstrap-доверительными интервалами (частотный подход): численно стабильное решение ценой статистической мощности. Для пилотных проектов и предварительного анализа — рекомендации трактовать как направление, а не точное число.
+              Small-data fallback. OLS-регрессия с аналитическим решением и bootstrap-доверительными интервалами (частотный подход): численно стабильное решение ценой статистической мощности. Для пилотных проектов и предварительного анализа - рекомендации трактовать как направление, а не точное число.
             </p>
           </div>
         </div>
@@ -526,7 +526,7 @@
     min-height: 120px;
   }
 
-  /* Inline dropzone — компактная, живёт внутри intro-chooser между карточками */
+  /* Inline dropzone - компактная, живёт внутри intro-chooser между карточками */
   .drop-zone--inline {
     min-height: 140px;
     box-shadow: none;
@@ -694,7 +694,7 @@
   }
   .quick-btn:hover { opacity: 0.85; }
 
-  /* v1.1.0+: Engine auto-selection — две карточки рядом (Bayesian | OLS),
+  /* v1.1.0+: Engine auto-selection - две карточки рядом (Bayesian | OLS),
      выбранная подсвечена accent-цветом, не выбранная в muted state. */
   .engine-section {
     margin-top: 16px;
@@ -782,7 +782,7 @@
   }
 
   /* legacy selector classes (unused after v1.0.16 auto-selection refactor)
-     kept for CSS compatibility — to remove in next cleanup pass */
+     kept for CSS compatibility - to remove in next cleanup pass */
   .engine-selector {
     margin-top: 16px;
     padding: 16px 18px;

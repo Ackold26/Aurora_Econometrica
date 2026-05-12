@@ -1,20 +1,20 @@
 """
-A4 Quick Proxy — pre-MCMC reliability checks (~1 sec).
+A4 Quick Proxy - pre-MCMC reliability checks (~1 sec).
 
 Per ADR §6 + audit Amendment B3: lightweight identifiability checks that catch
 80% of problematic data BEFORE running MCMC (which takes 5-30 minutes per
 dataset). Full SBC reserved for borderline cases (Phase 1.6+ or A4 ship).
 
 Three checks (all numpy/scipy-fast, no MCMC):
-1. **Condition number** of media matrix — detects multicollinearity (>30 = problem)
-2. **Pairwise Pearson correlation** — detects confounding pairs (>0.9 = problem)
-3. **Channel variance ratio** — detects no-signal channels (<0.05 = problem)
+1. **Condition number** of media matrix - detects multicollinearity (>30 = problem)
+2. **Pairwise Pearson correlation** - detects confounding pairs (>0.9 = problem)
+3. **Channel variance ratio** - detects no-signal channels (<0.05 = problem)
 
 Output: structured dict with tier classification + warnings + recommendation.
 Used by validator.py before user clicks Train (gate UI flow).
 
 UX framing per ADR Amendment A8:
-- NEVER use "refuse" / "cannot" — always offer override path
+- NEVER use "refuse" / "cannot" - always offer override path
 - "Aurora paused training because..." constructive language
 - Tells user WHAT TO FIX, not blames them
 
@@ -29,7 +29,7 @@ import numpy as np
 
 # Threshold defaults (calibrated from MMM literature + Aurora Kagocel/Venarus testing)
 COND_NUMBER_OK = 30.0           # >30 = multicollinearity concern
-COND_NUMBER_FAIL = 100.0        # >100 = severe — recommend reject
+COND_NUMBER_FAIL = 100.0        # >100 = severe - recommend reject
 CORR_OK = 0.7                   # <0.7 = independent enough
 CORR_WARN = 0.9                 # 0.7-0.9 = directional caution
 CORR_FAIL = 0.95                # >0.95 = inseparable
@@ -44,7 +44,7 @@ def quick_proxy_check(
     """Run all 3 A4 quick proxy checks on media matrix.
 
     Args:
-        media_matrix: shape (n_obs, n_channels) — raw spend per period × channel
+        media_matrix: shape (n_obs, n_channels) - raw spend per period × channel
         channel_names: ordered list of channel names matching column index
 
     Returns:
@@ -53,7 +53,7 @@ def quick_proxy_check(
           - checks: detailed per-check results
           - warnings: list of human-readable warning strings
           - recommendation: actionable next step for user
-          - overrideable: bool — can user proceed anyway with banner?
+          - overrideable: bool - can user proceed anyway with banner?
     """
     arr = np.asarray(media_matrix, dtype=np.float64)
     n_obs, n_channels = arr.shape if arr.ndim == 2 else (0, 0)
@@ -62,7 +62,7 @@ def quick_proxy_check(
         return {
             'tier': 'insufficient',
             'checks': {},
-            'warnings': ['Пустая матрица media — невозможно проверить identifiability'],
+            'warnings': ['Пустая матрица media - невозможно проверить identifiability'],
             'recommendation': 'Проверьте что в данных есть строки и media-каналы',
             'overrideable': False,
         }
@@ -93,7 +93,7 @@ def quick_proxy_check(
         checks['condition_number'] = {
             'value': None, 'status': 'error', 'message': f'Computation failed: {e}'
         }
-        warnings.append('Не удалось вычислить condition number — возможна проблема с данными')
+        warnings.append('Не удалось вычислить condition number - возможна проблема с данными')
         fail_count += 1
     else:
         if cond > COND_NUMBER_FAIL:
@@ -101,14 +101,14 @@ def quick_proxy_check(
             fail_count += 1
             warnings.append(
                 f'Condition number {cond:.1f} > {COND_NUMBER_FAIL:.0f}: '
-                f'каналы сильно линейно зависимы — модель не сможет их разделить'
+                f'каналы сильно линейно зависимы - модель не сможет их разделить'
             )
         elif cond > COND_NUMBER_OK:
             status = 'warn'
             warn_count += 1
             warnings.append(
                 f'Condition number {cond:.1f} > {COND_NUMBER_OK:.0f}: '
-                f'есть multicollinearity — оценки channel beta могут быть нестабильны'
+                f'есть multicollinearity - оценки channel beta могут быть нестабильны'
             )
         else:
             status = 'ok'
@@ -143,7 +143,7 @@ def quick_proxy_check(
                         fail_count += 1
                         warnings.append(
                             f'Каналы {channel_names[i]} ↔ {channel_names[j]}: '
-                            f'корреляция {val:+.2f} > {CORR_FAIL:.2f} — '
+                            f'корреляция {val:+.2f} > {CORR_FAIL:.2f} - '
                             f'функционально неотличимы для модели'
                         )
                     elif abs_val > CORR_WARN:
@@ -151,7 +151,7 @@ def quick_proxy_check(
                         warn_count += 1
                         warnings.append(
                             f'Каналы {channel_names[i]} ↔ {channel_names[j]}: '
-                            f'корреляция {val:+.2f} > {CORR_WARN:.2f} — '
+                            f'корреляция {val:+.2f} > {CORR_WARN:.2f} - '
                             f'высокий confounding риск'
                         )
                     elif abs_val > CORR_OK:
@@ -186,7 +186,7 @@ def quick_proxy_check(
             st = 'fail'
             fail_count += 1
             warnings.append(
-                f'Канал {name}: средний spend ≈ 0 — нет сигнала для обучения'
+                f'Канал {name}: средний spend ≈ 0 - нет сигнала для обучения'
             )
         else:
             cv = col_std / abs(col_mean)
@@ -194,14 +194,14 @@ def quick_proxy_check(
                 st = 'fail'
                 fail_count += 1
                 warnings.append(
-                    f'Канал {name}: коэффициент вариации {cv:.3f} < {VARIANCE_RATIO_FAIL:.2f} — '
+                    f'Канал {name}: коэффициент вариации {cv:.3f} < {VARIANCE_RATIO_FAIL:.2f} - '
                     f'spend почти константный, модель не научится отделять эффект'
                 )
             elif cv < VARIANCE_RATIO_OK:
                 st = 'warn'
                 warn_count += 1
                 warnings.append(
-                    f'Канал {name}: коэффициент вариации {cv:.3f} < {VARIANCE_RATIO_OK:.2f} — '
+                    f'Канал {name}: коэффициент вариации {cv:.3f} < {VARIANCE_RATIO_OK:.2f} - '
                     f'мало вариативности, оценка эффекта будет с большой неопределённостью'
                 )
             else:
@@ -229,7 +229,7 @@ def quick_proxy_check(
             'experimental lift-study для калибровки. Можно продолжить обучение с '
             'предупреждением, но результаты будут "directional only".'
         )
-        overrideable = True  # ADR §3.A8 — always offer override path
+        overrideable = True  # ADR §3.A8 - always offer override path
     elif warn_count > 0:
         tier = 'directional'
         recommendation = (
@@ -243,7 +243,7 @@ def quick_proxy_check(
         tier = 'reliable'
         recommendation = (
             'Данные прошли все базовые проверки identifiability. '
-            'Можно начинать обучение модели — результаты должны быть надёжными.'
+            'Можно начинать обучение модели - результаты должны быть надёжными.'
         )
         overrideable = True  # Always overrideable; reliable means no override needed
 

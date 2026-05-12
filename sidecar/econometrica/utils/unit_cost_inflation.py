@@ -67,7 +67,7 @@ def compute_inflation_weighted_avg_cost(
         if len(dates) == 0 or len(spend) == 0:
             return float(current_cost)
         if len(dates) != len(spend):
-            # Defensive — date/spend misalignment → fallback
+            # Defensive - date/spend misalignment → fallback
             return float(current_cost)
         # pd.Series → .dt accessor; pd.DatetimeIndex → no .dt needed.
         years = dates.dt.year if hasattr(dates, 'dt') else pd.Series(dates).dt.year
@@ -126,7 +126,7 @@ def apply_inflation_to_unit_costs(
     dates = df[date_column]
     for channel, cost in unit_costs.items():
         if cost is None or cost <= 0 or cost == 1.0:
-            # Money channels (uc=1.0) — inflation irrelevant. Skip adjustment.
+            # Money channels (uc=1.0) - inflation irrelevant. Skip adjustment.
             out[channel] = cost
             continue
         rate = inflation_pct_per_channel.get(channel)

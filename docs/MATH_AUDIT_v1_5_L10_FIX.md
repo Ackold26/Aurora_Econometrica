@@ -1,8 +1,8 @@
-# Math Audit v1.5 — L10 lift_pct regression fix
+# Math Audit v1.5 - L10 lift_pct regression fix
 
 **Created:** 2026-04-28
 **Branch:** `math-fix-v1.0.13` → tag `v1.0.16` (когда ship'нем)
-**Predecessor:** `docs/MATH_AUDIT_v1_4_OPTIMIZER_FIX.md` (Section A — money-axis rescaling, commit `fe42e7f`)
+**Predecessor:** `docs/MATH_AUDIT_v1_4_OPTIMIZER_FIX.md` (Section A - money-axis rescaling, commit `fe42e7f`)
 **Trigger:** Live-test Антон 2026-04-28 на v1.0.15 NSIS installer выявил inverted lift_pct relationship в What-if сценариях:
 - Budget -50% → reported lift +124.9% (mathematically impossible на monotonic Hill)
 - Budget +100% → reported lift +10.8% (less than default +30.4%)
@@ -42,7 +42,7 @@ What-if +100% (money_target = 7.18B):
 x0 = np.array([current_spend[col] for col in media_cols])  # native units, real current
 current_response = -total_response(x0)  # at REAL current
 
-# Section A (commit fe42e7f) — BUG introduced:
+# Section A (commit fe42e7f) - BUG introduced:
 x0_money = np.array([current_spend[col] * uc_arr[i] for ...])
 x0_money = _project_to_budget(x0_money)  # ← scales to money_target!
 current_response = -total_response_money(x0_money)  # at SCALED current
@@ -78,16 +78,16 @@ When `money_target = 2 × current_total` (What-if +100% budget):
 Separate **real current** from **projected current**. Real used для baseline; projected used только для SLSQP starts.
 
 ```python
-# Real current — never projected (baseline для lift_pct comparison)
+# Real current - never projected (baseline для lift_pct comparison)
 x0_money_real = np.array(
     [current_spend[col] * uc_arr[i] for i, col in enumerate(media_cols)],
     dtype=float,
 )
 
-# Projected — для SLSQP feasible-start initialization
+# Projected - для SLSQP feasible-start initialization
 x0_money = _project_to_budget(x0_money_real.copy())
 
-# Multi-start uses projected (current/pivot/balance/all_upper) — unchanged
+# Multi-start uses projected (current/pivot/balance/all_upper) - unchanged
 starts_money = [('current', x0_money), ...]
 
 # After SLSQP solve:
@@ -145,14 +145,14 @@ Monotonicity (10/300 bounds, ratio × current):
 Strictly monotonic. ✓
 ```
 
-**Note:** even с -50% budget lift positive потому что текущая Kagocel allocation очень suboptimal (TRPs занимает 92% бюджета с тривиальным mROAS). Optimizer cuts TRPs sharply + reallocates к high-mROAS digital channels — media efficiency boost compensates lost spending. Mathematically correct + valuable business insight.
+**Note:** even с -50% budget lift positive потому что текущая Kagocel allocation очень suboptimal (TRPs занимает 92% бюджета с тривиальным mROAS). Optimizer cuts TRPs sharply + reallocates к high-mROAS digital channels - media efficiency boost compensates lost spending. Mathematically correct + valuable business insight.
 
 ### Lock-in tests (test_optimizer_kagocel_redistribution.py extended)
 
 Added 3 new acceptance gates:
 - **L10a** half budget lift_pct < +50% (would have failed pre-fix at +124.9%)
 - **L10b** 2× budget lift > default (would have failed pre-fix +10.8% < default +30%)
-- **L10c** property-based monotonicity test — lifts strictly не-decreasing с money_target
+- **L10c** property-based monotonicity test - lifts strictly не-decreasing с money_target
 
 All 3 new + 9 existing → 12/12 PASS post-fix.
 
@@ -187,9 +187,9 @@ sidecar/econometrica/engines/optimizer.py            (~+25/-8 LOC)
   - Line 854: result_data['baseline_zero'] field added (UI flag)
 
 tools/test_optimizer_kagocel_redistribution.py       (+90 LOC)
-  - L10a: test_what_if_half_budget — assert lift bounded reasonably
-  - L10b: test_what_if_double_budget — assert lift > default
-  - L10c: test_lift_monotonic_in_budget — property-based, 5 budget points
+  - L10a: test_what_if_half_budget - assert lift bounded reasonably
+  - L10b: test_what_if_double_budget - assert lift > default
+  - L10c: test_lift_monotonic_in_budget - property-based, 5 budget points
 
 docs/MATH_AUDIT_v1_5_L10_FIX.md                       (NEW, this file)
 

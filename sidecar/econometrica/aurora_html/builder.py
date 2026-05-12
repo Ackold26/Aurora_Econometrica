@@ -201,7 +201,7 @@ class AuroraHTMLBuilder:
     def _brand_mark_svg(self) -> str:
         """Aurora deliverable gold-accent SVG для cover hero.
 
-        2026-05-04 — добавлен по запросу Антона. Inline SVG (не data URI) —
+        2026-05-04 - добавлен по запросу Антона. Inline SVG (не data URI) -
         позволяет CSS темам стилизовать через currentColor если когда-то понадобится,
         и сохраняет accessibility (можно поставить aria-label на <svg>). XML
         declaration вырезается т.к. inline в HTML body запрещён.

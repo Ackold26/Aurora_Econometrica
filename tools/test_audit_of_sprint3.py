@@ -33,7 +33,7 @@ def check(label, ok, hint=''):
         print(f'[OK]   {label}')
     else:
         FAILED += 1
-        print(f'[FAIL] {label}' + (f' — {hint}' if hint else ''))
+        print(f'[FAIL] {label}' + (f' - {hint}' if hint else ''))
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ treatment_period = 7
 rows = []
 for u in units:
     for t in range(1, n_periods + 1):
-        # Big spike for treated post-period — should NOT contaminate placebo donor pool
+        # Big spike for treated post-period - should NOT contaminate placebo donor pool
         is_real_treat = (u == 'region_0') and (t >= treatment_period)
         rows.append({
             'unit': u, 'period': t,
@@ -79,7 +79,7 @@ result_no_fix = _placebo_inference(
     treatment_period=treatment_period,
     unit_col='unit', time_col='period', kpi_col='kpi',
     donor_units=donor_units,
-    # treated_unit NOT passed — backward-compat path
+    # treated_unit NOT passed - backward-compat path
 )
 check('B1: backward-compat path returns p_value (legacy callers ok)',
       result_no_fix.get('p_value') is not None)
@@ -115,7 +115,7 @@ from engines.causal.scm import estimate_scm
 # Tiny panel: 4 units × 12 periods → only 3 donors (excluding treated).
 # Per Abadie convention с n_donors=3, after excluding true treated в placebo
 # loop we have 2 donors per placebo run, which has minimum constraint check.
-# Actually just run normally — checking that ci_method label adapts honestly.
+# Actually just run normally - checking that ci_method label adapts honestly.
 project_dir = REPO / 'test_payloads' / 'projects' / 'audit_b2'
 project_dir.mkdir(parents=True, exist_ok=True)
 
@@ -254,7 +254,7 @@ check(f'B9: verdict=unknown когда no comparable pairs (got {consistency.get
       consistency.get('consistency_verdict') == 'unknown')
 
 # ──────────────────────────────────────────────────────────────────
-# B10 lock-in: synthesize_geo_split numeric_cols hoisted (smoke — no perf check)
+# B10 lock-in: synthesize_geo_split numeric_cols hoisted (smoke - no perf check)
 # ──────────────────────────────────────────────────────────────────
 print('\n── B10: synthesize_geo_split numeric_cols computed once ──')
 from engines.causal._panel_data import synthesize_geo_split

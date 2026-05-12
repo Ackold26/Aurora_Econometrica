@@ -1,22 +1,22 @@
-"""Decomposer engine invariants — property-based tests (Phase B1 of engine audit extension).
+"""Decomposer engine invariants - property-based tests (Phase B1 of engine audit extension).
 
 Plan: C:\\Users\\ackol\\Desktop\\optimizer-audit-followup-plan.md, этап 4.
 
 Thirteen formal invariants verified across random seeds:
 
-    D1  — Energy conservation: total_sales == baseline + media_contribution (post-residual)
-    D2  — Contribution sign matches β sign (positive β → non-negative contribution)
-    D3  — ROI compute identity: roi = contribution / spend_money; 0 spend → roi=0
-    D4  — mROAS alignment с optimizer (3-way alignment, both engines call same helper)
-    D5  — Share-of-spend / share-of-effect sum к 100%
-    D6  — efficiency_gap = share_of_effect - share_of_spend (rounding consistency)
-    D7  — Verdict thresholds: ROI bands map к correct labels
-    D8  — Action vocabulary alignment с optimizer (compute_channel_action shared helper)
-    D9  — Time-series consistency: sum(time_series_channels[col]) ≈ channel.contribution
-    D10 — Untrained channel: zero-contribution + verdict='Не обучен' + ci_skip_reason
-    D11 — Waterfall sums: baseline + Σ channels = total
-    D12 — Posterior ROI CI ordering: roi_ci_low ≤ roi ≤ roi_ci_high
-    D13 — Determinism: same input → identical output
+    D1  - Energy conservation: total_sales == baseline + media_contribution (post-residual)
+    D2  - Contribution sign matches β sign (positive β → non-negative contribution)
+    D3  - ROI compute identity: roi = contribution / spend_money; 0 spend → roi=0
+    D4  - mROAS alignment с optimizer (3-way alignment, both engines call same helper)
+    D5  - Share-of-spend / share-of-effect sum к 100%
+    D6  - efficiency_gap = share_of_effect - share_of_spend (rounding consistency)
+    D7  - Verdict thresholds: ROI bands map к correct labels
+    D8  - Action vocabulary alignment с optimizer (compute_channel_action shared helper)
+    D9  - Time-series consistency: sum(time_series_channels[col]) ≈ channel.contribution
+    D10 - Untrained channel: zero-contribution + verdict='Не обучен' + ci_skip_reason
+    D11 - Waterfall sums: baseline + Σ channels = total
+    D12 - Posterior ROI CI ordering: roi_ci_low ≤ roi ≤ roi_ci_high
+    D13 - Determinism: same input → identical output
 
 Math reference: docs/MATH_AUDIT_v1_3_PHASE_0_1.md (mROAS chain rule),
 post-audit fix в decomposer.py:487-505 (energy conservation residual absorption).
@@ -48,7 +48,7 @@ from _optimizer_fixtures import (  # noqa: E402
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D1 — Energy conservation: total_sales == baseline + media (within rounding)
+# D1 - Energy conservation: total_sales == baseline + media (within rounding)
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -75,7 +75,7 @@ def test_D1_energy_conservation(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D2 — Per-channel contribution sign matches β sign
+# D2 - Per-channel contribution sign matches β sign
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -104,7 +104,7 @@ def test_D2_contribution_sign_matches_beta(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D3 — ROI compute identity
+# D3 - ROI compute identity
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -133,7 +133,7 @@ def test_D3_roi_compute_identity(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D4 — mROAS alignment с optimizer (3-way alignment cross-check)
+# D4 - mROAS alignment с optimizer (3-way alignment cross-check)
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -159,7 +159,7 @@ def test_D4_mroas_alignment_with_optimizer(tmp_path, seed):
     # Optimizer in analyst mode uses train_n; decomposer also uses train_n → identical.
     for name in common:
         delta = abs(dec_mroi[name] - opt_mroi[name])
-        # Round-4 на mroi (1e-4) — tolerance 1e-3 absolute
+        # Round-4 на mroi (1e-4) - tolerance 1e-3 absolute
         assert delta < 1e-3, (
             f'D4 (seed={seed}) ch={name}: dec_mroi={dec_mroi[name]:.6f}, '
             f'opt_mroi={opt_mroi[name]:.6f}, Δ={delta:.6f}'
@@ -167,7 +167,7 @@ def test_D4_mroas_alignment_with_optimizer(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D5 — Share-of-spend + share-of-effect sums к 100%
+# D5 - Share-of-spend + share-of-effect sums к 100%
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -194,7 +194,7 @@ def test_D5_shares_sum_to_100(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D6 — efficiency_gap = share_of_effect - share_of_spend
+# D6 - efficiency_gap = share_of_effect - share_of_spend
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -218,7 +218,7 @@ def test_D6_efficiency_gap_identity(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D7 — Verdict thresholds correctness
+# D7 - Verdict thresholds correctness
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -274,7 +274,7 @@ def test_D7_wide_ci_suffix():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D8 — Action vocabulary alignment with optimizer
+# D8 - Action vocabulary alignment with optimizer
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -299,7 +299,7 @@ def test_D8_action_decoration_present(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D9 — Time-series sum equals channel.contribution
+# D9 - Time-series sum equals channel.contribution
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -329,7 +329,7 @@ def test_D9_time_series_sum_consistency(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D10 — Untrained channel zero-contribution + 'Не обучен' verdict
+# D10 - Untrained channel zero-contribution + 'Не обучен' verdict
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -354,7 +354,7 @@ def test_D10_untrained_channel_zero_contribution(tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D11 — Waterfall sums correctly
+# D11 - Waterfall sums correctly
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -387,7 +387,7 @@ def test_D11_waterfall_sums(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D12 — Posterior ROI CI ordering: low ≤ point ≤ high
+# D12 - Posterior ROI CI ordering: low ≤ point ≤ high
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -423,7 +423,7 @@ def test_D12_posterior_roi_ci_ordering(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# D13 — Determinism
+# D13 - Determinism
 # ──────────────────────────────────────────────────────────────────────
 
 

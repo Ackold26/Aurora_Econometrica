@@ -48,7 +48,7 @@ def bayesian_mmm_spec() -> dict[str, Any]:
             },
         ],
 
-        # Priors mirror engines/modeler.py — keep in sync.
+        # Priors mirror engines/modeler.py - keep in sync.
         'priors': [
             {
                 'symbol': 'β₀',
@@ -66,13 +66,13 @@ def bayesian_mmm_spec() -> dict[str, Any]:
                 'symbol': 'αᵢ',
                 'name': 'Hill steepness',
                 'distribution': 'Gamma(5, 3)',
-                'note': 'mean ≈ 1.67, var ≈ 0.56 — типичная форма saturation',
+                'note': 'mean ≈ 1.67, var ≈ 0.56 - типичная форма saturation',
             },
             {
                 'symbol': 'γᵢ',
                 'name': 'Hill half-saturation',
                 'distribution': 'Beta(3, 3)',
-                'note': 'концентрируется около 0.5 — половина насыщения посередине шкалы',
+                'note': 'концентрируется около 0.5 - половина насыщения посередине шкалы',
             },
             {
                 'symbol': 'γⱼ',
@@ -101,7 +101,7 @@ def bayesian_mmm_spec() -> dict[str, Any]:
 
         'normalization': (
             'Media и control нормализованы (X / max(X)) перед инференсом, '
-            'y нормализован к std=1 — для стабильной NUTS-геометрии.'
+            'y нормализован к std=1 - для стабильной NUTS-геометрии.'
         ),
     }
 

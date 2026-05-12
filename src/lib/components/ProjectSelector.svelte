@@ -17,7 +17,7 @@
 
   // ── Comparison flow ──────────────────────────────────────────────────
   /** @type {string | null} */
-  let comparePrimaryId = $state(null);   // при клике «⚖» на проекте — сохраняем его id
+  let comparePrimaryId = $state(null);   // при клике «⚖» на проекте - сохраняем его id
   let pickerOpen = $state(false);
   /** @type {{ primaryId: string, secondaryId: string } | null} */
   let comparisonOpen = $state(null);
@@ -122,7 +122,7 @@
       const info = await invoke('project_create', { name });
       activeProjectId.set(info.id);
       activeProject.set(info);
-      // NOTE: do NOT resetPipeline() here — creating a project while importing
+      // NOTE: do NOT resetPipeline() here - creating a project while importing
       // would nuke the user's current work. Reset only on explicit project switch.
       projects = [...projects, info];
       showCreate = false;
@@ -166,7 +166,7 @@
     }
   }
 
-  /** Импорт проекта из .aurora архива — создаёт новый project_id и активирует. */
+  /** Импорт проекта из .aurora архива - создаёт новый project_id и активирует. */
   async function importProjectFromArchive() {
     if (archiving) return;
     archiving = true;

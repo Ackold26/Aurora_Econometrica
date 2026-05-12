@@ -1,12 +1,12 @@
-# Decomposer Engine Invariants Registry — formal spec
+# Decomposer Engine Invariants Registry - formal spec
 
 **Branch:** `math-fix-v1.0.13`
 **Established:** 2026-05-03 (Phase B1 of engine audit extension)
 **Property-based tests:** `tools/test_decomposer_invariants.py` (114 tests)
 **Edge cases:** `tools/test_decomposer_edge_cases.py` (27 tests)
 **Math refs:**
-- `docs/MATH_AUDIT_v1_3_PHASE_0_1.md` — mROAS chain rule (3-way alignment)
-- `engines/decomposer.py:487-505` — energy conservation residual absorption
+- `docs/MATH_AUDIT_v1_3_PHASE_0_1.md` - mROAS chain rule (3-way alignment)
+- `engines/decomposer.py:487-505` - energy conservation residual absorption
 
 ---
 
@@ -18,7 +18,7 @@ Formal contract for `engines/decomposer.py:decompose`. Сверяться при
 
 ## Invariants
 
-### D1 — Energy conservation
+### D1 - Energy conservation
 
 ```
 total_sales == baseline + media_contribution   (within 1.5% rounding tolerance)
@@ -33,18 +33,18 @@ baseline_per_period = raw_baseline + residual_per_period
 
 ---
 
-### D2 — Per-channel contribution sign
+### D2 - Per-channel contribution sign
 
 For positive `β` and positive raw spend:
 ```
-contribution_ch >= 0   (Hill saturation ∈ [0, 1) — non-negative)
+contribution_ch >= 0   (Hill saturation ∈ [0, 1) - non-negative)
 ```
 
 **Test:** `test_D2_contribution_sign_matches_beta` × 10 seeds.
 
 ---
 
-### D3 — ROI compute identity
+### D3 - ROI compute identity
 
 ```
 roi_ch == round(contribution_ch / spend_money_ch, 2)
@@ -55,7 +55,7 @@ spend_money_ch == 0  →  roi_ch == 0  (explicit guard)
 
 ---
 
-### D4 — mROAS alignment с optimizer (3-way alignment)
+### D4 - mROAS alignment с optimizer (3-way alignment)
 
 Both engines call `engines.optimizer._compute_mroas_money` с same inputs (current
 spend, n_periods=train_n in analyst/decompose mode) → identical mROAS within 1e-3.
@@ -65,7 +65,7 @@ spend, n_periods=train_n in analyst/decompose mode) → identical mROAS within 1
 
 ---
 
-### D5 — Share-of-spend / share-of-effect totals
+### D5 - Share-of-spend / share-of-effect totals
 
 ```
 Σ share_of_spend ≈ 100%
@@ -77,7 +77,7 @@ within 1.0pp tolerance (round-1 на shares).
 
 ---
 
-### D6 — efficiency_gap identity
+### D6 - efficiency_gap identity
 
 ```
 efficiency_gap_ch == round(share_of_effect_ch - share_of_spend_ch, 1)
@@ -87,7 +87,7 @@ efficiency_gap_ch == round(share_of_effect_ch - share_of_spend_ch, 1)
 
 ---
 
-### D7 — Verdict thresholds
+### D7 - Verdict thresholds
 
 | ROI | Verdict | Tone |
 |---|---|---|
@@ -106,7 +106,7 @@ Plus wide-CI suffix «(широкий ROI-интервал)» when `roi_ci_high 
 
 ---
 
-### D8 — Action vocabulary alignment
+### D8 - Action vocabulary alignment
 
 `compute_channel_action` shared helper между decomposer + optimizer + narrative
 adapter. Action key ∈ `{Scale, Hold, Watch, Reduce, Cut, Uncertain}`. Each channel
@@ -117,7 +117,7 @@ has `action`, `action_label`, `action_tone`, `action_reasoning`, `action_priorit
 
 ---
 
-### D9 — Time-series sum consistency
+### D9 - Time-series sum consistency
 
 ```
 Σ_t time_series.channels[col][t] ≈ channels[col].contribution   (round-1 + round-0 → ≤1%)
@@ -127,7 +127,7 @@ has `action`, `action_label`, `action_tone`, `action_reasoning`, `action_priorit
 
 ---
 
-### D10 — Untrained channel zero-contribution + 'Не обучен' verdict
+### D10 - Untrained channel zero-contribution + 'Не обучен' verdict
 
 For channels marked untrained (via `params.untrained` OR `normalization.untrained_channels`):
 - `contribution == 0.0`
@@ -137,7 +137,7 @@ For channels marked untrained (via `params.untrained` OR `normalization.untraine
 - `ci_skip_reason == 'untrained_channel'`
 
 **Inline fix 2026-05-03:** added `params.untrained OR col in untrained_channels`
-guard (Bayesian engine marks via norm-list, OLS via params flag — pre-fix mismatch
+guard (Bayesian engine marks via norm-list, OLS via params flag - pre-fix mismatch
 gave Bayesian-trained untrained channels spurious contributions).
 
 **Inline fix 2026-05-03:** preserve verdict 'Не обучен' через downstream
@@ -148,7 +148,7 @@ for roi=0).
 
 ---
 
-### D11 — Waterfall sums correctly
+### D11 - Waterfall sums correctly
 
 ```
 waterfall.values: [baseline, ch_1, ch_2, ..., total]
@@ -159,7 +159,7 @@ baseline + Σ ch_values ≈ total   (round-0 → ≤1.5% tolerance)
 
 ---
 
-### D12 — Posterior ROI CI ordering
+### D12 - Posterior ROI CI ordering
 
 When `posterior_samples` available:
 ```
@@ -170,7 +170,7 @@ roi_ci_low ≤ roi ≤ roi_ci_high   (within 10% margin для HDI)
 
 ---
 
-### D13 — Determinism
+### D13 - Determinism
 
 Two consecutive `decompose()` calls produce byte-identical output across all
 fields (channels, baseline, total_sales, share_of_*, verdict, action).

@@ -41,27 +41,27 @@
     optimalBudgets = null,
     unitCosts = {},
     // total_sales из decompose (KPI за весь период анализа, в money).
-    // Если задан — Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
+    // Если задан - Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
     // чтобы число было согласовано с блоком A (8300.6 M ₽, а не 342M per-period).
     displayBaseKPI = 0,
-    // Backend optimizer's expected_lift_pct — single source of truth когда
-    // budgets ≈ optimal_budgets. Frontend predictKPI — fallback approximation
+    // Backend optimizer's expected_lift_pct - single source of truth когда
+    // budgets ≈ optimal_budgets. Frontend predictKPI - fallback approximation
     // для slider real-time preview (упрощённая Hill без adstock factor).
     backendLiftPct = null,
   } = $props();
 
-  /** Стоимость 1 юнита в ₽ для канала (1.0 — канал уже в рублях). */
+  /** Стоимость 1 юнита в ₽ для канала (1.0 - канал уже в рублях). */
   /** @param {string} ch */
   function uc(ch) {
     const v = unitCosts?.[ch];
     return (typeof v === 'number' && v > 0) ? v : 1.0;
   }
 
-  // Predicted KPI from current sliders — frontend approximation (упрощённая Hill).
+  // Predicted KPI from current sliders - frontend approximation (упрощённая Hill).
   const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization));
   const frontendLiftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
 
-  // FIX 2026-05-02: detect когда current budgets ≈ optimal_budgets — тогда показываем
+  // FIX 2026-05-02: detect когда current budgets ≈ optimal_budgets - тогда показываем
   // backend authoritative lift вместо frontend approximation.
   // Tolerance 1% per канал (учитывает float jitter после applyOptimal animation).
   const atOptimum = $derived.by(() => {
@@ -84,19 +84,19 @@
   // Scaled KPI для display: применяем lift% к total KPI за весь период анализа.
   // liftPct scale-invariant (отношение), поэтому умножение на baseKPI корректно.
   const displayKPI = $derived(displayBaseKPI > 0 ? displayBaseKPI * (1 + liftPct / 100) : predictedKPI);
-  // totalBudget (money): sum(native × unit_cost) — согласован с блоком A.
+  // totalBudget (money): sum(native × unit_cost) - согласован с блоком A.
   const totalBudget = $derived(Object.entries(channelBudgets).reduce((s, [ch, v]) => s + v * uc(ch), 0));
 
-  // Базовый текущий бюджет в money — для расчёта delta общего бюджета.
+  // Базовый текущий бюджет в money - для расчёта delta общего бюджета.
   const initialTotal = $derived(Object.entries(initialSpend).reduce((s, [ch, v]) => s + /** @type {number} */ (v) * uc(ch), 0));
   const budgetDeltaPct = $derived(initialTotal > 0 ? ((totalBudget - initialTotal) / initialTotal * 100) : 0);
   const budgetDeltaAbs = $derived(totalBudget - initialTotal);
 
   /**
    * Handle slider input. Слайдер оперирует в MONEY (рублях), а onBudgetChange
-   * и Hill — в NATIVE (raw юниты канала). Конвертация через uc(ch).
+   * и Hill - в NATIVE (raw юниты канала). Конвертация через uc(ch).
    * @param {string} ch
-   * @param {number} newMoney — новое значение слайдера в рублях
+   * @param {number} newMoney - новое значение слайдера в рублях
    */
   function handleSlider(ch, newMoney) {
     const newNative = newMoney / uc(ch);
@@ -144,7 +144,7 @@
         <span class="budget-delta-abs">({budgetDeltaAbs > 0 ? '+' : ''}{fmt(Math.abs(budgetDeltaAbs))} ₽)</span>
       </span>
     {/if}
-    <span class="lock-badge" class:locked title={locked ? 'Бюджет заблокирован — перераспределение' : 'Свободное изменение'}>
+    <span class="lock-badge" class:locked title={locked ? 'Бюджет заблокирован - перераспределение' : 'Свободное изменение'}>
       {locked ? '🔒' : '🔓'}
     </span>
   </div>
@@ -162,7 +162,7 @@
            Persistent backend-aligned delta_pct preserves «optimizer recommended
            +X% relative to original current» signal even after auto-apply. -->
       {@const deltaRaw = opt != null && initRef >= 1 ? ((opt - initRef) / initRef * 100) : null}
-      {@const deltaLabel = opt == null ? null : (initRef < 1 || deltaRaw == null) ? (opt < 1 ? '—' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
+      {@const deltaLabel = opt == null ? null : (initRef < 1 || deltaRaw == null) ? (opt < 1 ? '-' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
       {@const initMoney = initRef * uc(ch)}
       {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
@@ -214,7 +214,7 @@
 
   <!-- Action buttons.
        Основная CTA «Оптимизировать бюджет» живёт в блоке B наверху (OptimizeStep);
-       здесь — только «Сбросить» для возврата слайдеров к текущему бюджету. -->
+       здесь - только «Сбросить» для возврата слайдеров к текущему бюджету. -->
   <div class="actions">
     <button class="btn-reset" onclick={onReset}>Сбросить</button>
   </div>

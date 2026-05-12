@@ -30,17 +30,17 @@
   "scqar": {
     "situation":      { "label": "SITUATION",      "template": "{client} размещает {budget_mln:.0f} млн ₽ в квартал через {n_channels} активных каналов. Weighted ROI {weighted_roi:.1f}×, MQS модели {mqs:.0f}/100." },
     "complication":   { "label": "COMPLICATION",   "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Underperformers тянут портфель вниз." },
-    "complication_fallback": { "label": "COMPLICATION", "template": "Портфель сбалансирован — резких диспропорций между бюджетом и эффектом не выявлено." },
+    "complication_fallback": { "label": "COMPLICATION", "template": "Портфель сбалансирован - резких диспропорций между бюджетом и эффектом не выявлено." },
     "question":       { "label": "QUESTION",       "template": "Как перераспределить бюджет, чтобы поднять ROAS не снижая awareness?" },
     "answer":         { "label": "ANSWER",         "template": "Перебалансировать {realloc:.0f} млн ₽ из {cut_source} в {scale_destination}; сократить или остановить {underperf}." },
     "answer_no_cut":  { "label": "ANSWER",         "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт roll-over бюджета или дополнительных средств." },
-    "answer_no_scale": { "label": "ANSWER",        "template": "Сократить {cut_source} ({realloc:.0f} млн ₽) — текущая аллокация неэффективна. Нет явного канала для роста — рассмотрите расширение медиа-микса." },
-    "answer_all_hold": { "label": "ANSWER",        "template": "Сохранить текущее распределение — оптимизатор не нашёл значимого перераспределения. Возможные пути роста: расширение бюджета или новые каналы." },
+    "answer_no_scale": { "label": "ANSWER",        "template": "Сократить {cut_source} ({realloc:.0f} млн ₽) - текущая аллокация неэффективна. Нет явного канала для роста - рассмотрите расширение медиа-микса." },
+    "answer_all_hold": { "label": "ANSWER",        "template": "Сохранить текущее распределение - оптимизатор не нашёл значимого перераспределения. Возможные пути роста: расширение бюджета или новые каналы." },
     "answer_uncertain": { "label": "ANSWER",       "template": "Недостаточно данных для уверенной рекомендации перераспределения. Расширьте период данных (≥52 недель) либо упростите модель." },
     "recommendation": { "label": "RECOMMENDATION", "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп." }
   },
   "findings_templates": {
-    "f1_leader":        "{leader} — {contrib_pct_fmt} продаж при {spend_pct_fmt} бюджета",
+    "f1_leader":        "{leader} - {contrib_pct_fmt} продаж при {spend_pct_fmt} бюджета",
     "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
     "f2_hero":           "{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×",
     "f2_hero_support":   "Текущий бюджет на нём {hero_spend_pct_fmt}",
@@ -50,12 +50,12 @@
     "f3_keep_support":   "Портфель близок к оптимуму по текущим данным",
     "f4_verdicts":       "Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению",
     "f4_verdicts_support": "Из {n_channels} активных каналов - чёткий verdict по каждому",
-    "f5_mqs":             "Качество модели: MQS {mqs:.0f}/100 — {tier_label}",
-    "f5_mqs_support_excellent": "Готовность к production — можно опираться на рекомендации в планировании",
-    "f5_mqs_support_good":      "Хорошее качество — можно опираться на рекомендации с учётом диагностики",
-    "f5_mqs_support_acceptable": "Приемлемо — рекомендации валидны с учётом диагностических метрик",
-    "f5_mqs_support_weak":       "Требует доработки — расширьте период данных или упростите модель",
-    "f5_mqs_support_poor":       "Ненадёжно — увеличьте период данных перед финальными решениями"
+    "f5_mqs":             "Качество модели: MQS {mqs:.0f}/100 - {tier_label}",
+    "f5_mqs_support_excellent": "Готовность к production - можно опираться на рекомендации в планировании",
+    "f5_mqs_support_good":      "Хорошее качество - можно опираться на рекомендации с учётом диагностики",
+    "f5_mqs_support_acceptable": "Приемлемо - рекомендации валидны с учётом диагностических метрик",
+    "f5_mqs_support_weak":       "Требует доработки - расширьте период данных или упростите модель",
+    "f5_mqs_support_poor":       "Ненадёжно - увеличьте период данных перед финальными решениями"
   },
   "action_titles": {
     "s02_five":          "Пять ключевых находок по результатам моделирования",

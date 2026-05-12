@@ -1,5 +1,5 @@
 """
-engines.pptx_export — thin adapter over aurora_pptx (M4 refactor, Session 4).
+engines.pptx_export - thin adapter over aurora_pptx (M4 refactor, Session 4).
 
 Previously 703 LOC of manual slide construction. Refactored 2026-04-24 to
 delegate rendering to `econometrica.aurora_pptx.build_pptx(data)`, which
@@ -18,7 +18,7 @@ Responsibilities:
   3. Save to output_path, return status dict in the shape server.py expects.
 
 Narrative content (at-a-glance findings, SCQAR body, channel leader story)
-remains generic in v1.0.11 — wireframe v3 is structurally Kagocel-specific;
+remains generic in v1.0.11 - wireframe v3 is structurally Kagocel-specific;
 deeper narrative parametrization is scheduled post-pilot. Multi-client
 safety is achieved via meta (client/project_id/period) and diagnostic
 callouts (MQS/R²/MAPE/R-hat/ESS).

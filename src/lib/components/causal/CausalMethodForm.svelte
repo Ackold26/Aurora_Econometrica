@@ -1,6 +1,6 @@
 <script>
   /**
-   * CausalMethodForm — dynamic form для DiD/SCM/Causal Forest.
+   * CausalMethodForm - dynamic form для DiD/SCM/Causal Forest.
    * Renders fields based on selected method. Calls Rust invoke handler on submit.
    * @component
    */

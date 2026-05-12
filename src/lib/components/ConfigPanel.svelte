@@ -32,13 +32,13 @@
 
   let showAdvanced = $state(false);
 
-  // Auto-expand advanced when Expert mode is turned on (но не если модель уже обучена —
+  // Auto-expand advanced when Expert mode is turned on (но не если модель уже обучена -
   // после тренировки сворачиваем чтобы пользователь видел результаты ниже).
   $effect(() => {
     if ($expertMode && !modelTrained) showAdvanced = true;
   });
 
-  // После завершения обучения свернуть Расширенные настройки — освобождаем место
+  // После завершения обучения свернуть Расширенные настройки - освобождаем место
   // для блока с результатами (auto-scroll прокручивает вниз к диагностике).
   let prevTrained = false;
   $effect(() => {
@@ -134,7 +134,7 @@
           adstockAutoSelected = true;
           adstockAutoLabel = labels.join(', ');
         }
-      } catch { /* sidecar not ready yet — use defaults */ }
+      } catch { /* sidecar not ready yet - use defaults */ }
     })();
   });
 
@@ -164,7 +164,7 @@
   // Backend: JAX 0.7.2 + NumPyro 0.20.1 NUTS, скомпилированный XLA на CPU.
   // Реальные замеры (S8 Кагоцел, 31 точка, 6 каналов, 4×2000+2000 = 16 000 samples):
   //   ~5-10 мс / sample + ~15-30 сек JIT compile при первом запуске.
-  // Старая формула (0.3 с × max(channels/4,1)) давала 160 мин для того же прогона — оверкилл.
+  // Старая формула (0.3 с × max(channels/4,1)) давала 160 мин для того же прогона - оверкилл.
   const enabledCount = $derived(Object.values(channelEnabled).filter(Boolean).length);
   const estimateMinutes = $derived.by(() => {
     const chains = showAdvanced ? mcmcChains : 4;
@@ -179,7 +179,7 @@
   });
 
   // Auto-warning when defaults may be slow for the current project shape.
-  // Triggers for big models (>10 channels) — fewer draws/chains могут сильно ускорить.
+  // Triggers for big models (>10 channels) - fewer draws/chains могут сильно ускорить.
   const heavyModelWarn = $derived(enabledCount > 10);
 
   // ── Actions ──
@@ -293,11 +293,11 @@
         lastConfig = config;
         const start = await invoke('econ_train_start', { config });
         onTrainingStarted?.(start.task_id);
-        // isComputing stays true — TrainingProgress component takes over
+        // isComputing stays true - TrainingProgress component takes over
         return;
       }
 
-      // ── Original sync flow (chat-first cabinet) — UNTOUCHED ──
+      // ── Original sync flow (chat-first cabinet) - UNTOUCHED ──
       computeStatus.set('Обучаю модель (Markov Chain Monte Carlo сэмплирование)...');
 
       const result = await invoke('econ_train', { config });
@@ -342,7 +342,7 @@
       bind:this={kpiAnchor}
       onclick={(e) => openDropdown('kpi', e.currentTarget)}
     >
-      <span>{selectedKpi || '— выберите KPI —'}</span>
+      <span>{selectedKpi || '- выберите KPI -'}</span>
       <span class="dropdown-arrow" class:open={kpiOpen}>▾</span>
     </button>
     {#if kpiOpen}
@@ -412,7 +412,7 @@
     </div>
   </div>
 
-  <!-- Advanced (collapsible) — only in Expert mode -->
+  <!-- Advanced (collapsible) - only in Expert mode -->
   {#if $expertMode}
     <button class="advanced-toggle" onclick={() => showAdvanced = !showAdvanced}>
       {showAdvanced ? '▾' : '▸'} Расширенные настройки
@@ -441,21 +441,21 @@
             <label>
               <span class="mcmc-label-row">
                 Chains
-                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Дефолт 4 — надёжная диагностика сходимости (R-hat). На JAX/NUTS параллелятся в один вызов, почти не замедляют обучение. Минимум 2 — для R-hat нужны хотя бы 2 независимые цепи.">?</span>
+                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Дефолт 4 - надёжная диагностика сходимости (R-hat). На JAX/NUTS параллелятся в один вызов, почти не замедляют обучение. Минимум 2 - для R-hat нужны хотя бы 2 независимые цепи.">?</span>
               </span>
               <input type="number" bind:value={mcmcChains} min="1" max="8" />
             </label>
             <label>
               <span class="mcmc-label-row">
                 Draws
-                <span class="help-icon" title="Число основных выборок на каждую цепь (после разогрева). 2000 — стандарт. 500 — быстрый прогон для проверки. 5000+ — для публикации. Чем больше — тем точнее ROI-оценки и уже доверительные интервалы.">?</span>
+                <span class="help-icon" title="Число основных выборок на каждую цепь (после разогрева). 2000 - стандарт. 500 - быстрый прогон для проверки. 5000+ - для публикации. Чем больше - тем точнее ROI-оценки и уже доверительные интервалы.">?</span>
               </span>
               <input type="number" bind:value={mcmcDraws} min="500" max="10000" step="500" />
             </label>
             <label>
               <span class="mcmc-label-row">
                 Tune
-                <span class="help-icon" title="Warmup: число выборок для настройки step-size сэмплера. 1000 — стандарт. При низком ratio (меньше 4:1) увеличьте до 2000. Эти выборки отбрасываются и не влияют на финальный результат.">?</span>
+                <span class="help-icon" title="Warmup: число выборок для настройки step-size сэмплера. 1000 - стандарт. При низком ratio (меньше 4:1) увеличьте до 2000. Эти выборки отбрасываются и не влияют на финальный результат.">?</span>
               </span>
               <input type="number" bind:value={mcmcTune} min="200" max="5000" step="100" />
             </label>
@@ -465,7 +465,7 @@
     {/if}
   {/if}
 
-  <!-- PSY: Commitment summary — user sees what THEY configured (IKEA Effect + Commitment) -->
+  <!-- PSY: Commitment summary - user sees what THEY configured (IKEA Effect + Commitment) -->
   {#if selectedKpi && Object.values(channelEnabled).filter(Boolean).length > 0}
     <div class="config-summary">
       <span class="summary-label">Конфигурация:</span>
@@ -494,7 +494,7 @@
   {#if heavyModelWarn && !showAdvanced}
     <p class="heavy-warn">
       Большая модель (&gt;10 каналов). Дефолт 4 цепи × 2000 draws точный, но может занять минуту.
-      Можно снизить в «Расширенных» до 2 цепей × 1000 draws — будет в разы быстрее.
+      Можно снизить в «Расширенных» до 2 цепей × 1000 draws - будет в разы быстрее.
     </p>
   {/if}
   {#if adstockAutoSelected && !$expertMode}
@@ -763,7 +763,7 @@
     gap: 8px;
     transition: background 0.2s, color 0.2s, border 0.2s;
   }
-  /* После тренировки: меняем стиль чтобы пользователь сразу понял — действие изменилось. */
+  /* После тренировки: меняем стиль чтобы пользователь сразу понял - действие изменилось. */
   .run-btn.trained {
     background: transparent;
     border: 1px solid var(--success);

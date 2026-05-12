@@ -7,7 +7,7 @@ Used by:
 
 Filename starts with `_` so pytest doesn't collect it as a test module.
 
-Pattern mirrors test_optimizer_kagocel_redistribution.py — geometric adstock +
+Pattern mirrors test_optimizer_kagocel_redistribution.py - geometric adstock +
 Hill saturation + posterior samples produce a v1.2 pickle compatible with
 optimizer.optimize().
 """
@@ -213,7 +213,7 @@ def make_media_plan_from_current(
         project_dir: project с models/latest.pkl + data file.
         multiplier: scale factor (1.0 = current allocation).
         per_period: True → per-period list of len n_periods (each = period_spend × multiplier).
-                    False → single-period total list (length 1) — scenario distributes evenly
+                    False → single-period total list (length 1) - scenario distributes evenly
                     across forecast_periods OR training_n_periods.
 
     Returns:

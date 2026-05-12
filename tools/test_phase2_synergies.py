@@ -1,4 +1,4 @@
-"""Phase 2.7 — integration tests for synergy paths (G5 plan gap).
+"""Phase 2.7 - integration tests for synergy paths (G5 plan gap).
 
 Audit pass 2 G5: «Plan tests Phase 2 in isolation. Missing integration tests
 for: Phase 2 × Trust 3 hierarchical, Phase 2 × Conformal (OLS planning),
@@ -7,14 +7,14 @@ scenario engine alignment.»
 
 Each test composes ≥2 Aurora subsystems, verifying Phase 2 INTEGRATES rather
 than bolts on. Coverage:
-- T1: Phase 2 × verdict_tier — extrapolation_severity gate composes correctly
+- T1: Phase 2 × verdict_tier - extrapolation_severity gate composes correctly
   with R-hat / small-N / standard tier classification.
-- T2: Phase 2 × KPI registry — sales/awareness configs read consistently
+- T2: Phase 2 × KPI registry - sales/awareness configs read consistently
   through forecast_validation helper.
-- T3: Phase 2 × Conformal — OLS planning case returns interval (S2 wired).
-- T4: Phase 2 × scenario engine alignment — Option C math == scenario.py
+- T3: Phase 2 × Conformal - OLS planning case returns interval (S2 wired).
+- T4: Phase 2 × scenario engine alignment - Option C math == scenario.py
   per-period semantics для same allocation + horizon.
-- T5: Phase 2 × warning composition (G3) — composes drift + horizon + seasonal
+- T5: Phase 2 × warning composition (G3) - composes drift + horizon + seasonal
   warnings with stable critical-first ordering.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / 'sidecar' / 'econometrica'))
 
 
 class TestT1_VerdictTierComposition:
-    """G5 T1 — Phase 2 extrapolation_severity composes with existing gates."""
+    """G5 T1 - Phase 2 extrapolation_severity composes with existing gates."""
 
     def test_severity_3_overrides_rhat_pass(self):
         from utils.posterior_propagation import verdict_tier
@@ -55,7 +55,7 @@ class TestT1_VerdictTierComposition:
     def test_severity_2_with_small_n_compose(self):
         from utils.posterior_propagation import verdict_tier
         # n_obs<30 + narrow CI → small-N gate would force «Направленная»
-        # Severity=2 ALSO forces «Направленная» — both gates compatible
+        # Severity=2 ALSO forces «Направленная» - both gates compatible
         tier, tone, _ = verdict_tier(
             mean=1.0, ci_low=0.85, ci_high=1.15,  # narrow
             n_obs=20, extrapolation_severity=2,
@@ -65,25 +65,25 @@ class TestT1_VerdictTierComposition:
 
 
 class TestT2_KPIRegistryThroughForecastValidation:
-    """G5 T2 — sales vs awareness threshold differences flow correctly."""
+    """G5 T2 - sales vs awareness threshold differences flow correctly."""
 
     def test_sales_default_2x_cap(self):
         from utils.forecast_validation import get_forecast_horizon_max_multiplier
         assert get_forecast_horizon_max_multiplier('sales') == 2.0
 
     def test_awareness_uses_15x_cap(self):
-        """S7 — awareness has longer brand build-up → tighter horizon cap."""
+        """S7 - awareness has longer brand build-up → tighter horizon cap."""
         from utils.forecast_validation import get_forecast_horizon_max_multiplier
         assert get_forecast_horizon_max_multiplier('awareness') == 1.5
 
     def test_unknown_kpi_fallback_to_default(self):
         from utils.forecast_validation import get_forecast_horizon_max_multiplier
-        # Defensive — registry corruption shouldn't break planning
+        # Defensive - registry corruption shouldn't break planning
         assert get_forecast_horizon_max_multiplier('nonexistent') == 2.0
 
 
 class TestT3_ConformalInPlanningMode:
-    """G5 T3 — S2 synergy: OLS pickles get distribution-free P10/P90."""
+    """G5 T3 - S2 synergy: OLS pickles get distribution-free P10/P90."""
 
     def test_returns_interval_for_ols_pickle(self):
         from utils.forecast_validation import conformal_planning_intervals
@@ -106,11 +106,11 @@ class TestT3_ConformalInPlanningMode:
 
 
 class TestT4_OptimizerScenarioAlignment:
-    """G5 T4 — Option C math matches scenario engine per-period semantics.
+    """G5 T4 - Option C math matches scenario engine per-period semantics.
 
     Audit pass 2 §2bis claim: optimizer planning mode + scenario.py both use
     per-period sum-of-Hill. Test verifies they produce identical KPI for same
-    allocation + horizon (modulo intercept handling — only media response).
+    allocation + horizon (modulo intercept handling - only media response).
     """
 
     def test_per_period_summation_matches_manual(self):
@@ -156,7 +156,7 @@ class TestT4_OptimizerScenarioAlignment:
 
 
 class TestT5_WarningCompositionWithMultipleSources:
-    """G5 T5 — G3 warning priority composes correctly across detection sources."""
+    """G5 T5 - G3 warning priority composes correctly across detection sources."""
 
     def test_drift_critical_overrides_horizon_warn(self):
         from utils.forecast_validation import resolve_warning_priority
@@ -185,10 +185,10 @@ class TestT5_WarningCompositionWithMultipleSources:
 
 
 class TestAuditPass3RegressionFixes:
-    """Audit pass 3 (2026-05-02) — regression tests for material bugs found."""
+    """Audit pass 3 (2026-05-02) - regression tests for material bugs found."""
 
     def test_bug1_optimizer_uses_kpi_aware_cap(self, tmp_path):
-        """BUG 1 — optimizer.py /compute/optimize must use S7 KPI-aware cap.
+        """BUG 1 - optimizer.py /compute/optimize must use S7 KPI-aware cap.
 
         Pre-fix: hardcoded `forecast_n > n_periods * 2` bypassed S7 для awareness
         pickle (allows up to 2× when registry says 1.5×). Post-fix: optimizer
@@ -231,7 +231,7 @@ class TestAuditPass3RegressionFixes:
             pickle.dump(pickle_data, f)
 
         client = TestClient(app)
-        # forecast_periods=85 → 85/52 ≈ 1.63× — exceeds 1.5× awareness cap
+        # forecast_periods=85 → 85/52 ≈ 1.63× - exceeds 1.5× awareness cap
         response = client.post('/compute/optimize', json={
             'project_dir': str(project),
             'total_budget_money': 1_000_000,
@@ -282,18 +282,18 @@ class TestAuditPass3RegressionFixes:
             pickle.dump(pickle_data, f)
 
         client = TestClient(app)
-        # 85/52 ≈ 1.63× — within sales 2.0× cap, should NOT reject for horizon
+        # 85/52 ≈ 1.63× - within sales 2.0× cap, should NOT reject for horizon
         response = client.post('/compute/optimize', json={
             'project_dir': str(project),
             'total_budget_money': 1_000_000,
             'forecast_periods': 85,
         })
         body = response.json()
-        # Не должны получить FORECAST_HORIZON_TOO_LONG — sales cap = 2.0× = 104
+        # Не должны получить FORECAST_HORIZON_TOO_LONG - sales cap = 2.0× = 104
         assert body.get('error_code') != 'FORECAST_HORIZON_TOO_LONG'
 
     def test_bug11_forecast_context_no_n_squared_inference(self, tmp_path):
-        """BUG 11 — /compute/forecast-context must not recompute adstock N² times.
+        """BUG 11 - /compute/forecast-context must not recompute adstock N² times.
 
         Verify legacy pickle с 5 channels triggers single inference pass, не 5.
         Direct verification: count infer_x_norm_quantiles_at_load calls via mock.
@@ -351,14 +351,14 @@ class TestAuditPass3RegressionFixes:
             # Pre-fix: 5 channels × 1 call per channel = 5 calls
             # Post-fix: 1 call total (pre-computed once outside loop)
             assert mock_infer.call_count <= 1, (
-                f"BUG 11 regression — expected ≤1 infer call для 5 channels, "
+                f"BUG 11 regression - expected ≤1 infer call для 5 channels, "
                 f"got {mock_infer.call_count}"
             )
         assert response.status_code == 200
 
 
 class TestT6_PlanningModePlanFlow:
-    """G5 T6 — end-to-end mock-pickle integration (forecast-scaling endpoint)."""
+    """G5 T6 - end-to-end mock-pickle integration (forecast-scaling endpoint)."""
 
     def test_full_forecast_scaling_flow(self, tmp_path):
         """Server endpoint integrates persistence + validation + KPI registry."""

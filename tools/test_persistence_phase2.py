@@ -1,4 +1,4 @@
-"""Phase 2.1 Step 3 — persistence migration helpers (G2 plan gap).
+"""Phase 2.1 Step 3 - persistence migration helpers (G2 plan gap).
 
 Tests pickle backward compat + at-load-time inference helpers для legacy
 pre-Phase-2 pickles (v1.3 = current ship lacks training_granularity,

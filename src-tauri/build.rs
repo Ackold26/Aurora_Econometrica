@@ -1,6 +1,6 @@
 fn main() {
     tauri_build::build();
-    // Embed build timestamp (Unix seconds) — used for system clock sanity check
+    // Embed build timestamp (Unix seconds) - used for system clock sanity check
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

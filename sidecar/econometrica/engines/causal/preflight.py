@@ -1,5 +1,5 @@
 """
-Causal preflight + list + cross-method consistency — Sprint 3 M4.
+Causal preflight + list + cross-method consistency - Sprint 3 M4.
 
 Unified pre-flight validation across DiD/SCM/Forest. Analogous к existing
 /compute/preflight для MMM training. Returns:
@@ -8,9 +8,9 @@ Unified pre-flight validation across DiD/SCM/Forest. Analogous к existing
 - recommended method based on data structure
 - aggregated honest_disclosure (caveats common across methods)
 
-list_causal_artifacts() — directory listing of causal/*.json для UI history view.
+list_causal_artifacts() - directory listing of causal/*.json для UI history view.
 
-cross_method_consistency() — when DiD + SCM both run on same project, compare
+cross_method_consistency() - when DiD + SCM both run on same project, compare
 ATT values + CI overlap. Flags concerning divergence (different methods give
 different answer → identification problem).
 """
@@ -156,10 +156,10 @@ def causal_preflight(
 
     # Common caveats across methods
     common_caveats = [
-        'SUTVA — treatment в одном unit не влияет на others. Marketing campaigns '
-        'могут иметь spillover (regional advertising, word-of-mouth) — может нарушать.',
+        'SUTVA - treatment в одном unit не влияет на others. Marketing campaigns '
+        'могут иметь spillover (regional advertising, word-of-mouth) - может нарушать.',
         'Exchangeability в time-series ослаблена (trend, seasonality). Vanilla causal '
-        'inference assumes stationary residuals — for non-stationary, weighted variants '
+        'inference assumes stationary residuals - for non-stationary, weighted variants '
         'preferred (Sprint 4+ enhancement).',
     ]
 
@@ -173,7 +173,7 @@ def causal_preflight(
     elif overall_tier == 'directional':
         rec_text = (
             f'Применим только {recommended_methods[0]}. Cross-method validation недоступна '
-            f'— ATT estimate directional only. Рекомендуется собрать данные для второго '
+            f'- ATT estimate directional only. Рекомендуется собрать данные для второго '
             f'метода (geo-disaggregation для DiD/SCM, more features для Forest).'
         )
     else:
@@ -345,7 +345,7 @@ def cross_method_consistency(project_dir: str) -> dict[str, Any]:
 
     max_div = max(relative_divergences) if relative_divergences else 0.0
 
-    # Verdict — B9 audit fix: use n_pairs_with_ci (excluding skipped) as denominator
+    # Verdict - B9 audit fix: use n_pairs_with_ci (excluding skipped) as denominator
     if n_pairs_with_ci == 0:
         verdict = 'unknown'  # all pairs skipped (insufficient CI data)
     elif n_overlap == n_pairs_with_ci and max_div < 0.30:
@@ -360,7 +360,7 @@ def cross_method_consistency(project_dir: str) -> dict[str, Any]:
     elif verdict == 'partial':
         rec = (
             'Partial agreement: not all CIs overlap, или divergence 30-70%. '
-            'Один из методов может нарушать assumptions — review honest_disclosure.'
+            'Один из методов может нарушать assumptions - review honest_disclosure.'
         )
     else:
         rec = (

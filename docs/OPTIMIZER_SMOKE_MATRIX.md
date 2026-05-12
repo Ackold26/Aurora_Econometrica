@@ -1,4 +1,4 @@
-# Optimizer Smoke Matrix — Phase 4 of audit
+# Optimizer Smoke Matrix - Phase 4 of audit
 
 **Branch:** `math-fix-v1.0.13`
 **Established:** 2026-05-03
@@ -10,7 +10,7 @@
 ## Purpose
 
 E2E sanity matrix covering production combinations of optimizer features.
-Each config exercises several feature axes simultaneously — finding integration
+Each config exercises several feature axes simultaneously - finding integration
 bugs that unit tests miss.
 
 **Acceptance per config:**
@@ -72,10 +72,10 @@ bugs that unit tests miss.
 1. Identify a production scenario not covered above (consult feature coverage map).
 2. Add a `def test_C{N}_...` function к `test_optimizer_smoke_matrix.py`.
 3. Build pickle via `_optimizer_fixtures.py` helpers:
-   - `build_synthetic_pickle(...)` — vanilla
-   - `build_multi_year_pickle(...)` — for inflation tests
-   - `build_kagocel_shape(...)` — Russian FMCG-realistic
-   - `promote_to_hierarchical(...)` — Trust 3 brand/perf
+   - `build_synthetic_pickle(...)` - vanilla
+   - `build_multi_year_pickle(...)` - for inflation tests
+   - `build_kagocel_shape(...)` - Russian FMCG-realistic
+   - `promote_to_hierarchical(...)` - Trust 3 brand/perf
 4. Call `optimize(config, str(proj))` с your scenario config.
 5. Validate via `_validate_smoke_ok(r, label)` или `_validate_smoke_error(r, label, codes)`.
 6. Update this doc + feature coverage map.
@@ -94,7 +94,7 @@ Plan §6 specifies: «1+ customer pickle (Кагоцел МMX) verifies real-dat
 - Test loads pickle, runs C12-equivalent What-if config, asserts no regression.
 - CI skips this test (no env var set); developer machines with the env var run it.
 
-The `build_kagocel_shape` synthetic fixture in C5/C12 covers the **shape** —
+The `build_kagocel_shape` synthetic fixture in C5/C12 covers the **shape** -
 6-channel mixed (1 native + 5 money), β asymmetry ~350×, decay 0.245, 2-year
 horizon. Real pickle adds:
 - Posterior structure variability (real chains, not synthetic noise)

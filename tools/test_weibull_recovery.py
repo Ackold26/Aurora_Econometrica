@@ -1,4 +1,4 @@
-"""Weibull adstock learnable — synthetic recovery tests.
+"""Weibull adstock learnable - synthetic recovery tests.
 
 Phase B1.1 (foundation для B2 implementation).
 
@@ -53,7 +53,7 @@ def generate_synthetic_weibull_data(
 
     y_t = β × convolution(media, weibull(peak_week, tail_decay))[t] + noise
 
-    Uses utils.adstock.weibull_convolution_toeplitz (production helper) — ensures
+    Uses utils.adstock.weibull_convolution_toeplitz (production helper) - ensures
     test и in-model implementation share semantics.
     """
     rng = np.random.default_rng(seed)
@@ -213,11 +213,11 @@ def test_weibull_convolution_toeplitz_preserves_total_mass():
     x = rng.lognormal(2, 0.5, size=100)
     out = weibull_convolution_toeplitz(x, peak_week=3, tail_decay=0.5, max_decay=20)
     # Sum is approximately preserved (some tail mass cut off из-за boundary effects)
-    # Check within reasonable tolerance — основная mass в первых ~15 weeks для these params
+    # Check within reasonable tolerance - основная mass в первых ~15 weeks для these params
     assert 0.7 * np.sum(x) < np.sum(out) < 1.05 * np.sum(x)
 
 
-# ─── Audit fixes (2026-04-28) — edge cases + input validation ────────────────
+# ─── Audit fixes (2026-04-28) - edge cases + input validation ────────────────
 
 def test_weibull_kernel_rejects_zero_max_decay():
     """Audit fix: max_decay < 1 invalid."""
@@ -248,7 +248,7 @@ def test_weibull_kernel_rejects_zero_tail_decay():
 
 
 def test_weibull_kernel_max_decay_one_returns_single_element():
-    """Edge case: max_decay=1 — kernel is single element [1.0]."""
+    """Edge case: max_decay=1 - kernel is single element [1.0]."""
     kernel = weibull_kernel_survival(max_decay=1, peak_week=3, tail_decay=0.5)
     assert len(kernel) == 1
     assert np.isclose(kernel[0], 1.0)
@@ -279,7 +279,7 @@ def test_tail_decay_to_k_extreme_low_value():
 
 # ─── Recovery tests (require B2 implementation) ─────────────────────────────
 
-@pytest.mark.skip(reason='Requires B2 — learnable Weibull в modeler.py. Un-skip after B2 ship.')
+@pytest.mark.skip(reason='Requires B2 - learnable Weibull в modeler.py. Un-skip after B2 ship.')
 def test_baseline_pre_computed_does_not_recover():
     """Current pre-computed Weibull (decay=0.5 hardcoded) cannot recover known params.
 
@@ -288,7 +288,7 @@ def test_baseline_pre_computed_does_not_recover():
     pass
 
 
-@pytest.mark.skip(reason='Requires B2 — learnable Weibull в modeler.py.')
+@pytest.mark.skip(reason='Requires B2 - learnable Weibull в modeler.py.')
 def test_learnable_weibull_recovers_within_tolerance():
     """After B2: train on synthetic data, recovered posterior should match true.
 

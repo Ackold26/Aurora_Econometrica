@@ -1,4 +1,4 @@
-# Math Audit v2.0 Part 2 — Outcome (γ recalibration + hierarchical thresholds)
+# Math Audit v2.0 Part 2 - Outcome (γ recalibration + hierarchical thresholds)
 
 **Branch:** `math-fix-v1.0.13`
 **Established:** 2026-05-03 (Этап 5 of optimizer-audit follow-up plan)
@@ -13,12 +13,12 @@ Phase 2.0 Part 2 закрывает 2 deferred lock decisions:
 
 | Item | Original status | New status |
 |---|---|---|
-| **L4 — γ recalibration** | DEFAULT γ=0.3, recalibrate after real MMM training | ❌ **OBSOLETE** — architecture pivoted к tier-based в Phase 2 S3 synergy |
-| **L5 — Hierarchical extrapolation threshold** | Generic warning shipped, quantitative threshold deferred | ✅ **LOCKED at 3× (M8 convention)** + helper shipped |
+| **L4 - γ recalibration** | DEFAULT γ=0.3, recalibrate after real MMM training | ❌ **OBSOLETE** - architecture pivoted к tier-based в Phase 2 S3 synergy |
+| **L5 - Hierarchical extrapolation threshold** | Generic warning shipped, quantitative threshold deferred | ✅ **LOCKED at 3× (M8 convention)** + helper shipped |
 
 ---
 
-## L4 — γ recalibration → OBSOLETE
+## L4 - γ recalibration → OBSOLETE
 
 ### Why obsolete
 
@@ -29,15 +29,15 @@ Original plan (MATH_AUDIT_v2_0 §5):
 
 **Phase 2 audit pass 2 (2026-05-02) S3 synergy** уже заменила γ-based CI inflation на
 tier-based `extrapolation_severity` (0/1/2/3) integrated в `verdict_tier`. См.
-`utils/posterior_propagation.py:191` — leading comment:
+`utils/posterior_propagation.py:191` - leading comment:
 
 > «Phase 2 S3 (audit pass 2 2026-05-02): extrapolation_severity gate replaces
 > plan's separate inflate_extrapolation_uncertainty(γ=0.3) helper. Reuses
-> Aurora's established 3-tier vocabulary вместо ad-hoc CI multiplier — single
+> Aurora's established 3-tier vocabulary вместо ad-hoc CI multiplier - single
 > mental model для customer (model fit verdicts AND forecast verdicts in same
 > taxonomy).»
 
-The `inflate_extrapolation_uncertainty(γ)` helper was **never shipped** в код —
+The `inflate_extrapolation_uncertainty(γ)` helper was **never shipped** в код -
 S3 synergy redirected это к existing 3-tier infrastructure до Phase 2.1 ship.
 
 ### Verification
@@ -62,7 +62,7 @@ Customer мental model preserved: same vocabulary для model fit AND forecast 
 
 ---
 
-## L5 — Hierarchical extrapolation threshold
+## L5 - Hierarchical extrapolation threshold
 
 ### Plan goal
 
@@ -110,7 +110,7 @@ about β **absolute values** (KPI numbers).
 Customer может interpret «TV не работает» когда actually hierarchical pulled top
 performer toward mean.
 
-### Threshold lock — 3× (M8 convention)
+### Threshold lock - 3× (M8 convention)
 
 Threshold **3.0** для brand budget ratio matches Aurora's M8 saturation drift
 detection convention (см. `forecast_validation.saturation_drift_check`):
@@ -121,7 +121,7 @@ Consistency: same threshold for spend-zone-warning AND hierarchical-pooling-warn
 
 ### Helper shipped
 
-`utils/forecast_validation.hierarchical_extrapolation_warning()` — conditional
+`utils/forecast_validation.hierarchical_extrapolation_warning()` - conditional
 warning helper:
 
 ```python
@@ -152,7 +152,7 @@ Returns `None` for:
 
 ### Tests
 
-`tools/test_forecast_validation_hierarchical.py` — **21 tests:**
+`tools/test_forecast_validation_hierarchical.py` - **21 tests:**
 - 8 categorical edge cases (None paths)
 - 1 above-threshold trigger
 - 1 boundary check (3× exactly → None)
@@ -164,7 +164,7 @@ Returns `None` for:
 
 ### UI integration
 
-Helper is **standalone** — UI panel должен call it после optimize() в planning
+Helper is **standalone** - UI panel должен call it после optimize() в planning
 mode. Not auto-injected в optimize() output to keep separation of concerns.
 
 Recommended call site (Svelte): `OptimizeStep.svelte` → after successful optimize,
@@ -212,12 +212,12 @@ docs/MATH_AUDIT_v2_PART2_OUTCOME.md                   (этот файл)
 
 ## Future work (not blocking ship)
 
-1. **UI panel integration** — Tauri `econ_hierarchical_warning` command + Svelte
+1. **UI panel integration** - Tauri `econ_hierarchical_warning` command + Svelte
    panel в `OptimizeStep.svelte`. Cosmetic UX polish (~1-2 hours).
-2. **Real Bayesian MCMC validation** — when customer data available + numpyro/PyMC
+2. **Real Bayesian MCMC validation** - when customer data available + numpyro/PyMC
    environment ready, refit 30 bootstrapped models and validate 50% shrinkage
    assumption empirically. Currently synthetic estimate is theory-driven.
-3. **Decompose-side warning duplication** — currently helper called from optimizer
+3. **Decompose-side warning duplication** - currently helper called from optimizer
    path; могло бы be also called в decompose() для legacy report scenarios.
 
 ---

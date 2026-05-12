@@ -1,7 +1,7 @@
 <script>
   /**
    * Pipeline shell layout.
-   * C1: Guard — only accessible for econometrica product type.
+   * C1: Guard - only accessible for econometrica product type.
    * C4: InsightsPanel width clamp(240px, 22%, 360px), auto-collapse < 1100px.
    * C5: Sidecar status indicator in footer.
    */
@@ -31,7 +31,7 @@
 
   let { children } = $props();
 
-  // C1: Pipeline guard — econometrica only
+  // C1: Pipeline guard - econometrica only
   const isEconometrica = $derived($productType === 'econometrica');
 
   let userCollapsed = $state(false); // явное намерение пользователя
@@ -39,7 +39,7 @@
   /** @type {HTMLElement | undefined} Главный скрол-контейнер шагов */
   let mainEl = $state();
 
-  // C4: Auto-collapse on small screens; on large — уважаем userCollapsed
+  // C4: Auto-collapse on small screens; on large - уважаем userCollapsed
   const insightsCollapsed = $derived(windowWidth < 1100 ? true : userCollapsed);
 
   function toggleInsights() {
@@ -93,12 +93,12 @@
     if (prev >= 0) {
       pipelineCurrentStep.set(prev);
     } else {
-      // Шаг 0 — возвращаем пользователя в главное меню
+      // Шаг 0 - возвращаем пользователя в главное меню
       goto('/');
     }
   }
 
-  // Справка — одна кнопка в header, контент зависит от текущего шага pipeline.
+  // Справка - одна кнопка в header, контент зависит от текущего шага pipeline.
   // Index в массиве соответствует PIPELINE_STEPS. См. src-tauri/help-econometrica/*.html.
   const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline'];
   async function openStepHelp() {
@@ -117,10 +117,10 @@
     }
   }
 
-  // При смене шага сбрасываем scroll наверх — иначе scroll-позиция от прошлого шага
+  // При смене шага сбрасываем scroll наверх - иначе scroll-позиция от прошлого шага
   // оставляет пользователя в середине/внизу нового, и кажется, что страница пустая.
   $effect(() => {
-    // Подписка на pipelineCurrentStep — при изменении прокручиваем main в начало.
+    // Подписка на pipelineCurrentStep - при изменении прокручиваем main в начало.
     const _step = $pipelineCurrentStep;
     if (mainEl) mainEl.scrollTop = 0;
   });
@@ -143,7 +143,7 @@
       try {
         const progress = /** @type {any} */ (await invoke('econ_train_progress'));
         if (progress.status !== 'running') {
-          // Sidecar lost state — clean up stale task
+          // Sidecar lost state - clean up stale task
           localStorage.removeItem('econ-training-task');
         }
       } catch {
@@ -163,7 +163,7 @@
     function onResize() { windowWidth = window.innerWidth; }
     window.addEventListener('resize', onResize, { passive: true });
 
-    // Check for ?new=1 — user clicked "Новый проект в Pipeline" on home
+    // Check for ?new=1 - user clicked "Новый проект в Pipeline" on home
     const forceNew = typeof window !== 'undefined'
       && new URLSearchParams(window.location.search).get('new') === '1';
 
@@ -225,7 +225,7 @@
         <!-- Keep header layout stable but show a read-only chip after import -->
         <div class="project-area">
           {#if $activeProject}
-            <span class="project-chip" title="Активный проект — переключение доступно на шаге «Импорт»">
+            <span class="project-chip" title="Активный проект - переключение доступно на шаге «Импорт»">
               📊 {$activeProject.name}
             </span>
             <button

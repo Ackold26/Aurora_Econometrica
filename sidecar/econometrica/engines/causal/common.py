@@ -2,10 +2,10 @@
 Shared utilities for Sprint 3 Pharma Causal engines.
 
 Contains:
-- HonestDisclosure — schema for surfacing method assumptions to UI (per F2/F3
+- HonestDisclosure - schema for surfacing method assumptions to UI (per F2/F3
   synergy). Every causal endpoint returns this field.
-- ATT — Average Treatment Effect on Treated estimate с CI.
-- error codes — uniform across DiD/SCM/Forest endpoints.
+- ATT - Average Treatment Effect on Treated estimate с CI.
+- error codes - uniform across DiD/SCM/Forest endpoints.
 - panel-data validation helpers shared by all 3 methods.
 """
 from __future__ import annotations
@@ -22,8 +22,8 @@ ERROR_CODES = {
     'TREATMENT_PERIOD_INVALID': 'Treatment period не разделяет данные на pre/post.',
     'INSUFFICIENT_PRE_PERIODS': 'Слишком мало pre-treatment периодов (нужно ≥6).',
     'INSUFFICIENT_DONORS': 'Donor pool слишком мал (нужно ≥3 контрольных юнитов).',
-    'OVERLAP_VIOLATION': 'Positivity / overlap нарушена — propensity scores на границе.',
-    'COLINEARITY': 'Высокая коллинеарность среди features — ATT не идентифицирован.',
+    'OVERLAP_VIOLATION': 'Positivity / overlap нарушена - propensity scores на границе.',
+    'COLINEARITY': 'Высокая коллинеарность среди features - ATT не идентифицирован.',
     'COMPUTATION_FAILED': 'Численная ошибка в estimator (см. message).',
     'DATA_LOAD_FAILED': 'Не удалось загрузить файл данных.',
     'COLUMNS_MISSING': 'Указанные колонки отсутствуют в файле.',
@@ -35,10 +35,10 @@ class ATT:
     """Average Treatment Effect on Treated с confidence interval.
 
     Returned by all causal endpoints. ci_method values:
-    - 'frequentist_se' — DiD asymptotic SE × t-quantile
-    - 'bootstrap' — empirical bootstrap CI (SCM, Causal Forest fallback)
-    - 'honest_split' — Wager-Athey honest CI (Causal Forest primary)
-    - 'placebo' — SCM permutation inference
+    - 'frequentist_se' - DiD asymptotic SE × t-quantile
+    - 'bootstrap' - empirical bootstrap CI (SCM, Causal Forest fallback)
+    - 'honest_split' - Wager-Athey honest CI (Causal Forest primary)
+    - 'placebo' - SCM permutation inference
     """
     point: float
     ci_low: float
@@ -61,7 +61,7 @@ class HonestDisclosure:
 
     Each causal endpoint returns this field. UI surfaces caveats как tooltip
     next к ATT bracket. Aurora Causal honest about assumptions, не "magic
-    causal MMM" claim — per ADR §7.
+    causal MMM" claim - per ADR §7.
 
     Examples:
     - DiD: parallel-trends assumption, common-shock, no-anticipation.
@@ -81,7 +81,7 @@ class HonestDisclosure:
 
     @property
     def is_blocked(self) -> bool:
-        """Если хоть один diagnostic FAILED — ATT может быть unreliable."""
+        """Если хоть один diagnostic FAILED - ATT может быть unreliable."""
         return len(self.diagnostics_failed) > 0
 
 

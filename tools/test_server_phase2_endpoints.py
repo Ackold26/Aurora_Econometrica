@@ -1,9 +1,9 @@
-"""Phase 2.1 Step 4 — server endpoint smoke tests.
+"""Phase 2.1 Step 4 - server endpoint smoke tests.
 
 Verifies new Phase 2 endpoints (/compute/forecast-context + /compute/
 forecast-scaling) are wired correctly + handle missing pickle gracefully.
 
-Full integration tests (real pickle round-trip) require trained MMM —
+Full integration tests (real pickle round-trip) require trained MMM -
 covered by manual QA in Phase 2.8 ship gate.
 """
 from __future__ import annotations
@@ -152,7 +152,7 @@ class TestOptimizeRequestPhase2Schema:
 
     def test_legacy_request_still_works(self):
         from server import OptimizeRequest
-        # Legacy fields only — must instantiate без errors
+        # Legacy fields only - must instantiate без errors
         req = OptimizeRequest(project_dir='/tmp/test', total_budget=1000000)
         assert req.forecast_periods is None  # default analyst mode
         assert req.forecast_period_label is None

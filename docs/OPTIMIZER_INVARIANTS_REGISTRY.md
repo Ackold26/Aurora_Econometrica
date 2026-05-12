@@ -1,12 +1,12 @@
-# Optimizer Invariants Registry — formal spec
+# Optimizer Invariants Registry - formal spec
 
 **Branch:** `math-fix-v1.0.13`
 **Established:** 2026-05-03 (Phase 1+5 of optimizer audit)
 **Plan ref:** `C:\Users\ackol\.claude\plans\zazzy-tumbling-kettle.md`
 **Property-based tests:** `tools/test_optimizer_invariants.py`
 **Math refs:**
-- `docs/MATH_AUDIT_v1_3_PHASE_0_1.md` — mROAS chain rule
-- `docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md` — Option C lock + L1
+- `docs/MATH_AUDIT_v1_3_PHASE_0_1.md` - mROAS chain rule
+- `docs/MATH_AUDIT_v2_0_FORECAST_HORIZON.md` - Option C lock + L1
 
 ---
 
@@ -27,7 +27,7 @@ covered by a property test.
 
 ## Invariants
 
-### I1 — Monotonicity (paired widening)
+### I1 - Monotonicity (paired widening)
 
 **Statement:** For bound configurations `B_wide ⊇ B_narrow` over the same pickle:
 ```
@@ -46,7 +46,7 @@ flooring the result.
 
 ---
 
-### I2 — Conservation (sum equals target)
+### I2 - Conservation (sum equals target)
 
 **Statement:**
 ```
@@ -63,7 +63,7 @@ Tolerance accounts for `round(opt × uc, 0)` truncation on rubli scale.
 
 ---
 
-### I3 — Bounds satisfaction (per channel)
+### I3 - Bounds satisfaction (per channel)
 
 **Statement:** For each channel `i` with non-zero current spend:
 ```
@@ -79,7 +79,7 @@ Per-channel overrides take precedence (см. I7).
 
 ---
 
-### I4 — Backward compat: analyst-mode echo + determinism
+### I4 - Backward compat: analyst-mode echo + determinism
 
 **Statement:** When `forecast_periods` is None or absent:
 1. `result.planning_mode == False`
@@ -89,13 +89,13 @@ Per-channel overrides take precedence (см. I7).
 
 **Rationale:** Phase 2 introduced Option C (per-period sum-of-Hills) только в planning
 mode. Analyst mode preserves pre-Phase-2 Hill-of-mean approximation для byte-exact
-backward compat — see `MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis`.
+backward compat - see `MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis`.
 
 **Test:** `test_I4_analyst_mode_echo_and_determinism`.
 
 ---
 
-### I5 — Lift sign anchor floor (corollary of I1)
+### I5 - Lift sign anchor floor (corollary of I1)
 
 **Statement (anchor floor):** For any user bounds `(min_pct, max_pct)` widened past
 defaults `(20%, 200%)`:
@@ -110,7 +110,7 @@ Anchor mechanism enforces this floor.
 
 ---
 
-#### ✅ I5b — Chain transitive monotonicity (FIXED 2026-05-03)
+#### ✅ I5b - Chain transitive monotonicity (FIXED 2026-05-03)
 
 **Stronger property (now guaranteed):**
 ```
@@ -119,11 +119,11 @@ For chain B₁ ⊆ B₂ ⊆ ... ⊆ Bₙ with cumulative anchor seeding:
 ```
 
 **Status:** ✅ **F1 fix shipped 2026-05-03.** Cumulative anchor seeding implemented
-в `optimizer.py` (search comment «F1 fix (2026-05-03 — Phase 5 follow-up)»).
+в `optimizer.py` (search comment «F1 fix (2026-05-03 - Phase 5 follow-up)»).
 
 **Mechanism:**
 - `optimize()` accepts optional `prev_optimal: list[float]` config field
-  (alias `prev_optimal_money`) — last call's `optimal_spend_money` per channel.
+  (alias `prev_optimal_money`) - last call's `optimal_spend_money` per channel.
 - When provided AND feasible в current bounds (per-channel + sum within 1%),
   added as **direct candidate** (no SLSQP rerun, just objective eval).
 - `min(candidates).fun` selection → если prev's objective ≤ current run's best,
@@ -131,15 +131,15 @@ For chain B₁ ⊆ B₂ ⊆ ... ⊆ Bₙ with cumulative anchor seeding:
 
 **UI contract:** frontend store retains `result.optimal_spend_money` from prior
 optimize call; passes via `config.prev_optimal` when user widens bounds. Если
-user narrows OR changes pickle/budget — skip (prev infeasible, silent skip with
+user narrows OR changes pickle/budget - skip (prev infeasible, silent skip with
 log info message).
 
-**Test:** `test_I5_chain_monotonic_with_cumulative_anchor` × 5 seeds — all pass
+**Test:** `test_I5_chain_monotonic_with_cumulative_anchor` × 5 seeds - all pass
 (was xfail для 4 of 5 без F1, all pass с F1).
 
 ---
 
-### I6 — mROAS chain rule consistency
+### I6 - mROAS chain rule consistency
 
 **Statement:** For all parameter combinations in domain:
 ```
@@ -164,7 +164,7 @@ unit_cost ∈ {1.0, [50, 500_000]}.
 
 ---
 
-### I7 — Per-channel constraint precedence
+### I7 - Per-channel constraint precedence
 
 **Statement:** 3-level precedence:
 ```
@@ -180,15 +180,15 @@ else:                                                 bounds.lo = m × global_mi
 ```
 Same for `max`. Mixed/unknown categories → fall back к global.
 
-**Rationale:** Customer mental model — per-channel locks override broader rules.
+**Rationale:** Customer mental model - per-channel locks override broader rules.
 Implemented в `utils/optimizer_constraints.py:resolve_channel_bounds`.
 
 **Test (E2E):** `test_I7_per_channel_overrides_global` × 10 seeds.
-**Test (unit):** `test_optimizer_per_group_constraints.py` — 30 cases.
+**Test (unit):** `test_optimizer_per_group_constraints.py` - 30 cases.
 
 ---
 
-### I8 — Option C identity + scenario alignment
+### I8 - Option C identity + scenario alignment
 
 **Statement (identity):** `evaluate_flat_allocation_response(...)` (in `utils/forecasting.py`)
 returns numerically identical result к the manual per-period `Σ β·hill(x_norm_t)`
@@ -204,7 +204,7 @@ runs the optimizer's optimal allocation as flat media plan.
 | optimizer_media_kpi - scenario_incremental_kpi |  /  optimizer_media_kpi  ≤  1%
 ```
 
-**Rationale:** Aurora's «3-way alignment» — optimizer ↔ scenario ↔ decomposer
+**Rationale:** Aurora's «3-way alignment» - optimizer ↔ scenario ↔ decomposer
 all use sum-of-Hill per-period semantics в planning mode (M9 finding,
 `MATH_AUDIT_v2_0_FORECAST_HORIZON.md §2bis`). Optimizer was the outlier до Phase 2;
 Option C restored alignment.

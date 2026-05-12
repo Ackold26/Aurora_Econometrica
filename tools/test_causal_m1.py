@@ -1,5 +1,5 @@
 """
-Sprint 3 Pharma Causal — M1 DiD endpoint MIN-LIVE checkpoint.
+Sprint 3 Pharma Causal - M1 DiD endpoint MIN-LIVE checkpoint.
 
 Per ADR §6 + §11/Q1 refinement: per-M sanity gate (~30min).
 
@@ -48,7 +48,7 @@ def check(label: str, ok: bool, hint: str = '') -> None:
         FAILED += 1
         msg = f'[FAIL] {label}'
         if hint:
-            msg += f' — {hint}'
+            msg += f' - {hint}'
         print(msg)
 
 
@@ -87,7 +87,7 @@ print(f'Synthetic panel: {len(synth_df)} obs, {len(units)} regions × {len(perio
 print(f'TRUE ATT = {TRUE_ATT}, treated = {sorted(treated_units_set)}, t_start = {treatment_start}')
 
 # ──────────────────────────────────────────────────────────────────
-# M1.1 — estimate_did recovers ATT close к ground truth
+# M1.1 - estimate_did recovers ATT close к ground truth
 # ──────────────────────────────────────────────────────────────────
 print('\n── M1.1: estimate_did engine recovers ATT ──')
 from engines.causal.did import estimate_did
@@ -120,7 +120,7 @@ if result.get('status') == 'ok':
     check('ATT confidence = 0.9', att['confidence'] == 0.9)
 
 # ──────────────────────────────────────────────────────────────────
-# M1.2 — Diagnostics shape
+# M1.2 - Diagnostics shape
 # ──────────────────────────────────────────────────────────────────
 print('\n── M1.2: diagnostics dict shape ──')
 diag = result.get('diagnostics', {})
@@ -144,7 +144,7 @@ check(f'n_entities correct ({len(units)})',
       diag.get('n_entities') == len(units))
 
 # ──────────────────────────────────────────────────────────────────
-# M1.3 — HonestDisclosure populated
+# M1.3 - HonestDisclosure populated
 # ──────────────────────────────────────────────────────────────────
 print('\n── M1.3: HonestDisclosure shape ──')
 hd = result.get('honest_disclosure', {})
@@ -158,7 +158,7 @@ check('honest_disclosure non-staggered passes',
       'non_staggered_2x2_design' in hd.get('diagnostics_passed', []))
 
 # ──────────────────────────────────────────────────────────────────
-# M1.4 — Artifact file saved
+# M1.4 - Artifact file saved
 # ──────────────────────────────────────────────────────────────────
 print('\n── M1.4: Artifact persistence ──')
 artifact_path = result.get('artifact_path')
@@ -172,7 +172,7 @@ if artifact_path and Path(artifact_path).exists():
     check('artifact has same ATT point', abs(artifact['att']['point'] - result['att']['point']) < 1e-6)
 
 # ──────────────────────────────────────────────────────────────────
-# M1.5 — Error paths
+# M1.5 - Error paths
 # ──────────────────────────────────────────────────────────────────
 print('\n── M1.5: Error path validation ──')
 
@@ -189,7 +189,7 @@ check('missing column → status=error', err_result.get('status') == 'error')
 check('missing column → error_code=COLUMNS_MISSING',
       err_result.get('error_code') == 'COLUMNS_MISSING')
 
-# All-untreated panel — wrong treatment encoding
+# All-untreated panel - wrong treatment encoding
 all_zero_df = synth_df.copy()
 all_zero_df['treated'] = 0
 all_zero_path = REPO / 'test_payloads' / 'synth_did_no_treat.xlsx'
@@ -208,7 +208,7 @@ check('all-zero treatment → TREATED_UNIT_MISSING',
       err_result2.get('error_code') == 'TREATED_UNIT_MISSING')
 
 # ──────────────────────────────────────────────────────────────────
-# M1.6 — Staggered detection
+# M1.6 - Staggered detection
 # ──────────────────────────────────────────────────────────────────
 print('\n── M1.6: Staggered adoption detection ──')
 

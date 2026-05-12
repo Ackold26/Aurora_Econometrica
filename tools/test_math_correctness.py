@@ -2,7 +2,7 @@
 Math correctness tests for Aurora AI Econometrica engines.
 
 Post-audit (2026-04-25). Covers PURE formula invariants that do not require
-MCMC fit — these tests are stable pre- and post-Hill-fix. MCMC-based tests
+MCMC fit - these tests are stable pre- and post-Hill-fix. MCMC-based tests
 (parameter recovery, prior predictive, posterior predictive) deferred until
 post-Hill-fix when baseline semantics are meaningful.
 
@@ -14,14 +14,14 @@ Test categories:
   5. Marginal ROI: analytical derivative vs Hill numerical derivative
   6. P0-7 regression: training-vs-reconstruction Hill gamma drift detector
      (audit finding: `modeler.py:537` uses `gamma × x.max()` while training
-      line 312 uses raw gamma — test would catch re-introduction)
+      line 312 uses raw gamma - test would catch re-introduction)
 
 Run:
     cd sidecar && python ../tools/test_math_correctness.py
 or from repo root:
     python tools/test_math_correctness.py
 
-Exit code 0 on success, 1 on any failure. Plain stdlib + numpy — no pytest.
+Exit code 0 on success, 1 on any failure. Plain stdlib + numpy - no pytest.
 """
 from __future__ import annotations
 
@@ -304,7 +304,7 @@ def test_p0_7_training_reconstruction_hill_parity():
 
     Post-fix: same formula → exact numerical parity. This test asserts
     parity within float64 precision (1e-9). If the test ever fails (delta > 1e-9),
-    someone reintroduced gamma_scaled — STOP and verify modeler.py:537.
+    someone reintroduced gamma_scaled - STOP and verify modeler.py:537.
     """
     # Synthetic positive-only z-scored spend
     x = np.array([0.1, 0.3, 0.7, 1.2, 1.8, 2.1])
@@ -451,7 +451,7 @@ def test_mqs_bounds():
 def test_js_style_hill_semantics():
     """Emulate the JS formula in interactive.py:689-693 exactly in Python,
     verify it matches utils/saturation Hill when inputs are Robyn-style
-    (spend/mean) — pre-condition for Hill fix completion.
+    (spend/mean) - pre-condition for Hill fix completion.
 
     JS formula:
         z = spend / mean
@@ -492,7 +492,7 @@ def test_js_style_hill_semantics():
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 11. Prior predictive simulation (R3 — numpy-only, no MCMC compile)
+# 11. Prior predictive simulation (R3 - numpy-only, no MCMC compile)
 # ─────────────────────────────────────────────────────────────────────────
 
 def _sample_priors(n_draws: int, n_channels: int, rng: np.random.Generator) -> dict:
@@ -724,7 +724,7 @@ def test_decomposer_uses_saturation():
 def test_scenario_budget_sensitivity_post_fix():
     """Phase 5 ship gate: scenario at +50% vs -50% budget produces > 5% delta KPI.
 
-    This is the headline acceptance criteria — pre-fix showed 0.05% spread
+    This is the headline acceptance criteria - pre-fix showed 0.05% spread
     on Kagocel (live-test 2026-04-24) due to z-score + clip dropping data.
     Post-fix should show meaningful curvature.
 
@@ -736,7 +736,7 @@ def test_scenario_budget_sensitivity_post_fix():
     current_spend = 100.0
     mean_spend = current_spend  # mean = current actual mean
     # Realistic posteriors: media share ~30% of total KPI (typical for FMCG MMM).
-    # alpha=1.5, gamma=1.0 puts current spend at half-saturation — informative regime.
+    # alpha=1.5, gamma=1.0 puts current spend at half-saturation - informative regime.
     alpha, gamma, beta = 1.5, 1.0, 0.7
     y_mean, y_std = 500.0, 300.0
     intercept = 0.3
@@ -840,7 +840,7 @@ def test_optimizer_per_period_hill_input():
     Sanity check: synthetic flat alloc, total = n_periods × per_period_avg,
     Hill input должен быть per_period_avg / mean (~1×), NOT total / mean (n×).
     """
-    # Synthetic: TRPs-like scenario — 31 periods × 712 spend per period = 22100 total
+    # Synthetic: TRPs-like scenario - 31 periods × 712 spend per period = 22100 total
     # (matches Kagocel TRPs distribution, where pre-fix x_norm = 31× was observed).
     n_periods = 31
     per_period = 712.0
@@ -919,9 +919,9 @@ def test_optimizer_mixed_units_guard():
     Old logic rejected ANY mixed unit_costs as 'MIXED_UNITS' error. Live-test
     revealed false-positives на типичном русском кейсе (digital в рублях uc=1 +
     TV в TRPs uc=CPP). Refined logic:
-      1. Detect real unit_smell — native channel (TRPs/clicks) с default uc=1.0
+      1. Detect real unit_smell - native channel (TRPs/clicks) с default uc=1.0
          (CPP/CPM не задан) → UNIT_SMELL error.
-      2. Если smell нет, но uc различаются — auto-derive money budget из
+      2. Если smell нет, но uc различаются - auto-derive money budget из
          current_spend × uc и continue в money-mode (no error).
     """
     UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ',
@@ -941,7 +941,7 @@ def test_optimizer_mixed_units_guard():
         is_all_native = all(uc != 1.0 for uc in uc_arr)
         if is_all_money or is_all_native:
             return 'OK_HOMOGENEOUS'
-        return 'OK_AUTO_MONEY'  # mixed but all uc explicit — auto-derive
+        return 'OK_AUTO_MONEY'  # mixed but all uc explicit - auto-derive
 
     # 1. UNIT_SMELL: TRPs канал с uc=1.0 (CPP не задан)
     r = mixed_check(['TRPs бренд', 'Digital Бюджет'], [1.0, 1.0], None)
@@ -956,13 +956,13 @@ def test_optimizer_mixed_units_guard():
         mixed_check(['Digital Бюджет', 'Banners', 'OLV'], [1.0, 1.0, 1.0], None) == 'OK_HOMOGENEOUS',
     )
 
-    # 3. All-native (TRPs с CPP, GRP с CPP) — explicit unit_costs
+    # 3. All-native (TRPs с CPP, GRP с CPP) - explicit unit_costs
     assert_true(
         "P0-11: all-native channels accepted",
         mixed_check(['TRPs', 'GRP'], [250000.0, 200000.0], None) == 'OK_HOMOGENEOUS',
     )
 
-    # 4. NEW: mixed real-case (digital uc=1 + TRPs CPP=250000) — auto-derive money
+    # 4. NEW: mixed real-case (digital uc=1 + TRPs CPP=250000) - auto-derive money
     assert_true(
         "P0-11 refined: mixed real-case auto-derives money budget (no error)",
         mixed_check(['Digital Бюджет', 'TRPs бренд'], [1.0, 250000.0], None) == 'OK_AUTO_MONEY',
@@ -977,7 +977,7 @@ def test_optimizer_mixed_units_guard():
     # 6. Mixed без UNIT_HINTS канал с uc=1, остальные с uc != 1 → auto-derive
     #    (раньше старый guard это reject'ил как MIXED_UNITS)
     assert_true(
-        "P0-11 refined: mixed без UNIT_HINTS — auto-derive (loosened from old reject)",
+        "P0-11 refined: mixed без UNIT_HINTS - auto-derive (loosened from old reject)",
         mixed_check(['Acme', 'Beta'], [1.0, 300.0], None) == 'OK_AUTO_MONEY',
     )
 
@@ -1406,7 +1406,7 @@ def test_a1_scenario_rejects_untrained_channel():
         with open(models_dir / "latest.pkl", "wb") as f:
             pickle.dump(model_data, f)
 
-        # User tries to spend on the untrained channel — should be rejected
+        # User tries to spend on the untrained channel - should be rejected
         result = predict_scenario(
             {"scenario_name": "test", "media_plan": {"TV": [50, 50], "Digital": [10, 10]}},
             str(project_dir),
@@ -1433,14 +1433,14 @@ def test_b1_gamma_floor_unified():
     """B1 (post-audit v1.2): all 4 modules (modeler/scenario/optimizer/decomposer)
     use 1e-6 floor for gamma. Edge γ=1e-7 should give same Hill across all.
 
-    This test verifies the formula consistency rather than full integration —
+    This test verifies the formula consistency rather than full integration -
     matching numerical signature is enough.
     """
     from utils.saturation import hill_function
     x = np.array([0.5, 1.0, 2.0])
     alpha = 1.5
     floor = 1e-6
-    # All modules now use max(p['gamma'], 1e-6) — verify Hill formula is well-defined
+    # All modules now use max(p['gamma'], 1e-6) - verify Hill formula is well-defined
     sat = hill_function(x, alpha=alpha, gamma=floor)
     assert_true(
         "B1: Hill stable at gamma floor 1e-6",
@@ -1488,7 +1488,7 @@ def test_phase6_scenario_rejects_old_pickle():
 # ─────────────────────────────────────────────────────────────────────────
 
 def test_compute_mroas_analytical_synthetic():
-    """F0.2 (Phase 0.1) ANALYTICAL test — answer известен на бумаге.
+    """F0.2 (Phase 0.1) ANALYTICAL test - answer известен на бумаге.
 
     Setup carefully chosen for clean closed form:
       α=1, γ=1 → hill(x) = x/(x+1), hill'(x) = 1/(x+1)²
@@ -1759,7 +1759,7 @@ def main() -> int:
     test_optimizer_finds_nontrivial_allocation()
     test_optimizer_mixed_units_guard()
 
-    print("\n── 12c. Math audit v1.3 — F1+F6 cross-engine consistency ──")
+    print("\n── 12c. Math audit v1.3 - F1+F6 cross-engine consistency ──")
     test_optimizer_per_period_hill_input()
     test_scenario_single_period_distributes_evenly()
 

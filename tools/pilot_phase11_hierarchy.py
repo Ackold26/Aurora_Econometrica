@@ -1,5 +1,5 @@
 """
-Phase 1.1 Pilot — logit-normal vs Beta-Beta hierarchical adstock prior.
+Phase 1.1 Pilot - logit-normal vs Beta-Beta hierarchical adstock prior.
 
 Synthetic experiment per ADR §3.A1: compare two parameterizations of
 hierarchical adstock decay across 4-7 channels on small-N (n=20-36).
@@ -155,14 +155,14 @@ def fit_pymc_hierarchy(
         else:
             raise ValueError(f"Unknown parameterization: {parameterization}")
 
-        # Hill saturation params (NOT hierarchical for this pilot — focus on decay)
+        # Hill saturation params (NOT hierarchical for this pilot - focus on decay)
         alphas = pm.Gamma("alphas", alpha=5.0, beta=3.0, shape=n_channels)
         gammas = pm.Beta("gammas", alpha=3.0, beta=3.0, shape=n_channels)
         betas = pm.HalfNormal("betas", sigma=0.5, shape=n_channels)
         intercept = pm.Normal("intercept", mu=0.0, sigma=2.0)
         sigma_obs = pm.HalfNormal("sigma_obs", sigma=0.5)
 
-        # Apply adstock (vectorized via scan would be ideal — use per-channel loop here)
+        # Apply adstock (vectorized via scan would be ideal - use per-channel loop here)
         contributions = []
         for j in range(n_channels):
             x_j = raw_spend[:, j]
@@ -259,10 +259,10 @@ def format_result(r: dict) -> str:
 def write_results_doc(results: dict, output_path: Path):
     """Write markdown summary for Антон + future implementation reference."""
     lines = [
-        "# Phase 1.1 Pilot Results — logit-normal vs Beta-Beta hierarchy",
+        "# Phase 1.1 Pilot Results - logit-normal vs Beta-Beta hierarchy",
         "",
         f"**Generated:** 2026-04-26 by tools/pilot_phase11_hierarchy.py",
-        "**Purpose:** ADR §3.A1 — validate prior choice before 12-15h Phase 1.1 implementation.",
+        "**Purpose:** ADR §3.A1 - validate prior choice before 12-15h Phase 1.1 implementation.",
         "",
         "## Synthetic data",
         f"- n_obs: {results['data']['n_obs']}",
@@ -287,7 +287,7 @@ def write_results_doc(results: dict, output_path: Path):
     bb = results['beta_beta']
     ln = results['logit_normal']
     if 'error' in bb and 'error' in ln:
-        lines.append("Both parameterizations FAILED — investigate model specification.")
+        lines.append("Both parameterizations FAILED - investigate model specification.")
     elif 'error' in bb:
         lines.append("Beta-Beta failed; **logit-normal is the only viable option**.")
     elif 'error' in ln:
@@ -307,7 +307,7 @@ def write_results_doc(results: dict, output_path: Path):
         elif bb['divergences'] <= ln['divergences'] and 1.0 / time_ratio <= 1.2:
             lines.append("**RECOMMENDATION: Adopt Beta-Beta** (fewer divergences, comparable speed).")
         else:
-            lines.append("**RECOMMENDATION: Mixed signals** — proceed with logit-normal default per ADR (better theoretical properties), monitor empirically on real data.")
+            lines.append("**RECOMMENDATION: Mixed signals** - proceed with logit-normal default per ADR (better theoretical properties), monitor empirically on real data.")
     lines.append("")
     lines.append("Refs: docs/SPRINT1_FOUNDATION_ADR.md §3.A1, §5 Phase 1.1 plan")
 
@@ -325,7 +325,7 @@ def main():
     else:
         chains, draws, tune = 4, 2000, 2000
 
-    print(f"Phase 1.1 Pilot — chains={chains}, draws={draws}, tune={tune}")
+    print(f"Phase 1.1 Pilot - chains={chains}, draws={draws}, tune={tune}")
     print("Generating synthetic data (n=36, 5 channels, mixed TV/Digital decay)...")
     data = make_synthetic(n_obs=36, n_channels=5)
     print(f"  True decays: {data['true_decays']}")

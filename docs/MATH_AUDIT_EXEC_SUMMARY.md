@@ -1,4 +1,4 @@
-# Aurora AI Econometrica Math Audit — Executive Summary
+# Aurora AI Econometrica Math Audit - Executive Summary
 
 **Date:** 2026-04-25 | **Version:** v1.1 | **Target release:** v1.0.13
 
@@ -39,15 +39,15 @@ See `MATH_AUDIT_v1_1.md` for per-formula detail.
 
 ### Required (14-24h, 2-3 sessions)
 
-1. **Hill fix** (7-12h) — `project_econometrica_hill_normalization_root_fix` (existing task).
+1. **Hill fix** (7-12h) - `project_econometrica_hill_normalization_root_fix` (existing task).
    Resolves P0-1, P0-2, P0-9 automatically.
 
-2. **Bundle: Decomposer + Reconstruction + Optimizer rewrite** (6-10h) — 3 new tasks:
+2. **Bundle: Decomposer + Reconstruction + Optimizer rewrite** (6-10h) - 3 new tasks:
    - `project_econometrica_decomposer_rewrite` (P0-3, P0-4, P0-10)
    - `project_econometrica_reconstruction_fix` (P0-7)
    - `project_econometrica_optimizer_rescale` (P0-5, P0-6, P0-11)
 
-3. **Validator UX fix** (1-2h) — mixed-units warning for P0-11.
+3. **Validator UX fix** (1-2h) - mixed-units warning for P0-11.
 
 ### Recommended for same release (3-5h)
 

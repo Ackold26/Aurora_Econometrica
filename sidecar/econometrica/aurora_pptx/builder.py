@@ -1,5 +1,5 @@
 """
-aurora_pptx.builder — production PPTX builder (13-slide tier-1 MMM report).
+aurora_pptx.builder - production PPTX builder (13-slide tier-1 MMM report).
 
 Ported from build_wireframe.py (finalized 2026-04-24 after iterative review with Антон).
 Uses aurora_tokens (generated from Standards/tokens/tokens.json) for brand consistency.
@@ -69,7 +69,7 @@ def hex_to_rgb(h):
 
 
 def _fmt_pct(v, fallback="-"):
-    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision — never lies via rounding to 0%.
+    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision - never lies via rounding to 0%.
     Mirrors aurora_html/sections.py:_fmt_pct. See that file for behavior table.
     """
     if v is None:
@@ -90,7 +90,7 @@ def _fmt_pct(v, fallback="-"):
 
 # ─── KPI/mode-aware helpers (v1.3.2) ────────────────────────────────────────
 #
-# Helpers extracted to aurora_pptx.kpi_helpers — импортируются без aurora_tokens
+# Helpers extracted to aurora_pptx.kpi_helpers - импортируются без aurora_tokens
 # зависимости (тесты могут юзать без production token generation). Aliases в
 # private form для legacy callers внутри builder.py.
 
@@ -197,7 +197,7 @@ class AuroraPPTXBuilder:
             "header_project_label",
             f"{self.client.upper()} . MMM REPORT . {self.period_label}",
         )
-        # Copyright footer on cover — dynamic year for future-proofing
+        # Copyright footer on cover - dynamic year for future-proofing
         _year = datetime.now().year
         self.copyright_line = meta.get(
             "copyright_line",
@@ -206,7 +206,7 @@ class AuroraPPTXBuilder:
         # Source-note label template (client name substituted)
         self.sources_client_label = meta.get("sources_client_label", self.client)
 
-        # --- Diagnostics (Phase 2 numbers — parametrized metric callouts) ---
+        # --- Diagnostics (Phase 2 numbers - parametrized metric callouts) ---
         diag = self.data.get("diagnostics") or {}
         self.mqs_score = diag.get("mqs_score", 87)
         self.mqs_tier_label = diag.get("mqs_tier_label", "GOOD - готовность к production")
@@ -215,10 +215,10 @@ class AuroraPPTXBuilder:
         self.r_hat_max = diag.get("r_hat_max", 1.008)
         self.ess_min = diag.get("ess_min", 1247)
 
-        # --- Channels + narrative facts (Session C — Path C parametrization) ---
+        # --- Channels + narrative facts (Session C - Path C parametrization) ---
         # If adapter supplied channels + facts: real client data drives slide
         # templates. Otherwise builder keeps its Kagocel pilot narrative
-        # (wireframe / preview mode) — single source-of-truth guard lives
+        # (wireframe / preview mode) - single source-of-truth guard lives
         # with `self.facts is None` checks in each slide method.
         self.channels = self.data.get("channels") or []
         self.facts = self.data.get("narrative_facts")
@@ -462,7 +462,7 @@ class AuroraPPTXBuilder:
                 include_confidential=True, include_project=False):
         """Slim running header: closer to top edge (y=0.25) to reclaim content space.
 
-        Stage B.2: center "project identifier" textbox removed — it was
+        Stage B.2: center "project identifier" textbox removed - it was
         leaking internal project slug + MMM REPORT + period into every
         slide (35 chars of visual noise). Tier-1 minimalism: left section
         label + right CONFIDENTIAL only. `include_project` kept as a
@@ -490,7 +490,7 @@ class AuroraPPTXBuilder:
             f"{section_idx:02d} / {self.total_sections:02d} . {section_label.upper()}",
             font=self.sans, size=8, bold=True, color=self.deep_100, align=PP_ALIGN.LEFT,
         )
-        # Center: project identifier — DISABLED by default (Stage B.2)
+        # Center: project identifier - DISABLED by default (Stage B.2)
         if include_project:
             self._text(
                 slide, 4.5, y, 4.333, 0.2,
@@ -517,7 +517,7 @@ class AuroraPPTXBuilder:
         Midpoint = 7.275 → element_y = 7.20.
 
         `show_wordmark=False` suppresses the left-rail wordmark (used on the
-        colophon which renders a hero wordmark in its body — avoids the
+        colophon which renders a hero wordmark in its body - avoids the
         tiny-wordmark-plus-hero-wordmark visual repetition).
         """
         self._hairline(slide, self.safe, 7.05, self.w - 2 * self.safe, weight=0.25)
@@ -629,13 +629,13 @@ class AuroraPPTXBuilder:
         )
 
     # ----------------------------------------------------------------
-    # Narrative helpers (Session C — Path C parametrization)
+    # Narrative helpers (Session C - Path C parametrization)
     # ----------------------------------------------------------------
 
     def _build_at_a_glance_findings(self):
         """Five findings for s02, slot-filled from self.channels + self.facts.
         Returns list of (num, finding, support) tuples. Safe when some fields
-        are None — missing data is elided rather than showing '-'.
+        are None - missing data is elided rather than showing '-'.
         """
         f = self.facts or {}
         leader = f.get("leader_channel") or "Лидер"
@@ -659,7 +659,7 @@ class AuroraPPTXBuilder:
             if total_mln > 0:
                 hero_spend_pct = hero_spend_mln / total_mln * 100
 
-        # Finding 1 — leader contribution vs budget share
+        # Finding 1 - leader contribution vs budget share
         # Honest mode: baseline-dominated → disclose actual media share, not
         # leader's share-of-media (misleading "X% sales" phrasing).
         if honest and media_pct is not None and baseline_pct is not None:
@@ -679,7 +679,7 @@ class AuroraPPTXBuilder:
             else:
                 s1 = "Основной драйвер портфеля"
 
-        # Finding 2 — hero channel by mROAS
+        # Finding 2 - hero channel by mROAS
         # v1.3.2: KPI-aware metric short label + breakeven phrase.
         hero_metric_short = self.kpi["metric_short"]
         hero_metric_fmt = (
@@ -696,13 +696,13 @@ class AuroraPPTXBuilder:
             f2 = f"{hero} - наиболее эффективный канал по {hero_metric_short}"
             s2 = "Потенциал для перераспределения бюджета"
 
-        # Finding 3 — reallocation / honest disclosure
+        # Finding 3 - reallocation / honest disclosure
         def _fmt_mln(v):
             if v is None:
                 return "0"
             return f"{v:.1f}" if v < 10 else f"{v:.0f}"
 
-        # v1.3.2 audit fix (M1): для effectiveness mode skip — shares always
+        # v1.3.2 audit fix (M1): для effectiveness mode skip - shares always
         # sum to 100%, «under breakeven» semantically meaningless.
         all_below_breakeven = (
             bool(self.channels)
@@ -715,7 +715,7 @@ class AuroraPPTXBuilder:
                 s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
             else:
                 s3 = (
-                    f"Когда у всех каналов {_under_breakeven_phrase_pptx(self.kpi)} — "
+                    f"Когда у всех каналов {_under_breakeven_phrase_pptx(self.kpi)} - "
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
         elif reallocation_mln and reallocation_mln >= 0.5 and (
@@ -734,7 +734,7 @@ class AuroraPPTXBuilder:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
             s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Портфель близок к оптимуму"
 
-        # Finding 4 — verdict distribution (how portfolio looks)
+        # Finding 4 - verdict distribution (how portfolio looks)
         # Stage C.3: idiomatic Russian plural forms (no lazy "канал(ов)" hack).
         verdicts = [c.get("verdict") for c in self.channels]
         scale_n = sum(1 for v in verdicts if v == "Scale")
@@ -750,7 +750,7 @@ class AuroraPPTXBuilder:
         f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
         s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
 
-        # Finding 5 — MQS quality signal (guards None / non-numeric mqs_score)
+        # Finding 5 - MQS quality signal (guards None / non-numeric mqs_score)
         try:
             mqs = float(self.mqs_score) if self.mqs_score is not None else 0.0
         except (TypeError, ValueError):
@@ -799,7 +799,7 @@ class AuroraPPTXBuilder:
 
             budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
             contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
-            # v1.3.2 audit fix (B4): KPI-aware metric cell — backend convention
+            # v1.3.2 audit fix (B4): KPI-aware metric cell - backend convention
             # c.mroas = mathematical units/₽; для count display invert к CPU.
             # legacy = '1.5'× / count = '80' (CPU; unit в header «₽/ед.») /
             # effectiveness = '25' (percentage; unit «%»).
@@ -823,7 +823,7 @@ class AuroraPPTXBuilder:
             share_str = f"{share_pct}" if share_pct > 0 else "0"
             footnote = fn_by_name.get(name, "")
 
-            # Phase 1.9: posterior 90% HDI bracket on mROAS — None when v1.0/v1.1 pickle.
+            # Phase 1.9: posterior 90% HDI bracket on mROAS - None when v1.0/v1.1 pickle.
             # v1.3.2 audit fix (B4): для count mode CI inverts (units/₽ → CPU)
             # и swaps ordering: lo_mroas → hi_cpu, hi_mroas → lo_cpu.
             ci_low = c.get("mroas_ci_low")
@@ -870,7 +870,7 @@ class AuroraPPTXBuilder:
         # PNG already содержит sigil + AURORA AI text (one composition) → НЕ нужен
         # отдельный _wordmark() call который дублировал бы текст. Customer-approved
         # layout per mmm_report_20260504_024312.pptx reference.
-        # Position (0.40, 0.15) — close к slide edge, height 0.78" (matches reference).
+        # Position (0.40, 0.15) - close к slide edge, height 0.78" (matches reference).
         brand_path = self._brand_mark_compact_path()
         if brand_path is not None:
             slide.shapes.add_picture(
@@ -966,7 +966,7 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, self.safe, 1.50, 1.2, weight=0.75, color=self.gold)
 
-        # Five findings — slot-fill from facts when channels present,
+        # Five findings - slot-fill from facts when channels present,
         # else Kagocel pilot text (preview / wireframe mode).
         findings = self._build_at_a_glance_findings() if (self.facts and self.channels) else [
             ("01", "TV обеспечивает 42% инкрементальных продаж при 28% доли бюджета",
@@ -1244,7 +1244,7 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "КЛЮЧЕВОЙ ВЫВОД")
 
-        # Title + big number + pull quote — slot-fill from facts when present,
+        # Title + big number + pull quote - slot-fill from facts when present,
         # else Kagocel pilot (preview / wireframe mode).
         if self.facts and self.channels:
             leader = self.facts.get("leader_channel") or "Лидер"
@@ -1278,16 +1278,16 @@ class AuroraPPTXBuilder:
                     "Низкая инкрементальность - проверить adstock, saturation, качество данных."
                 )
             else:
-                # Action title — leader's position statement
+                # Action title - leader's position statement
                 title = f"{leader} остаётся основным драйвером, но эффективность требует проверки насыщения"
-                # Big number — leader contribution share
+                # Big number - leader contribution share
                 big_number = _fmt_pct(cpct) if cpct is not None else "-"
                 big_label = f"Доля {leader} в инкрементальных продажах"
                 if spct is not None and portfolio_phrase:
                     big_support = f"При {_fmt_pct(spct)} доли бюджета. {portfolio_phrase}."
                 else:
                     big_support = "Лидер по вкладу в продажи"
-                # Pull quote — hero outperforms leader, reallocate signal
+                # Pull quote - hero outperforms leader, reallocate signal
                 if hero != leader:
                     quote_txt = (
                         f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
@@ -1395,7 +1395,7 @@ class AuroraPPTXBuilder:
         chart_w = (self.w - 2 * self.safe) * 0.58
         chart_h = 3.7
 
-        # Chart title & subtitle — v1.3.2 KPI-aware.
+        # Chart title & subtitle - v1.3.2 KPI-aware.
         if self.kpi["mode"] == "effectiveness":
             chart_title_text = "ДОЛЯ КАНАЛОВ В ЭФФЕКТЕ / %"
         elif self.kpi["kpi_kind"] == "count":
@@ -1430,7 +1430,7 @@ class AuroraPPTXBuilder:
         # - count: invert units/₽ → CPU ₽/ед. (sort ascending by CPU = lowest
         #   cost first = hero is best).
         # - effectiveness: keep as fraction (0..1); native '0.0%' format
-        #   auto-multiplies by 100. Sort desc — лидер по доле.
+        #   auto-multiplies by 100. Sort desc - лидер по доле.
         if self.channels:
             kpi_mode = self.kpi["mode"]
             kpi_kind = self.kpi["kpi_kind"]
@@ -1457,7 +1457,7 @@ class AuroraPPTXBuilder:
         else:
             bar_labels = ["Digital video", "Search", "TV", "OOH", "Social", "Print"]
             bar_values = [1.9, 1.7, 1.5, 1.2, 1.0, 0.7]
-        hero_idx = 0  # always best after KPI-aware sort — hero at index 0
+        hero_idx = 0  # always best after KPI-aware sort - hero at index 0
 
         chart_data = CategoryChartData()
         # Reversed: PPTX bar chart renders first category at bottom
@@ -1482,14 +1482,14 @@ class AuroraPPTXBuilder:
 
         # Color discipline: ONE gold hero bar (Digital video = last after reverse), others muted
         series = chart.plots[0].series[0]
-        # reversed order — hero is at index len-1
+        # reversed order - hero is at index len-1
         reversed_hero = len(bar_values) - 1 - hero_idx
         for i, point in enumerate(series.points):
             point.format.fill.solid()
             point.format.fill.fore_color.rgb = self.gold if i == reversed_hero else self.deep_40
             point.format.line.fill.background()
 
-        # Data labels on bar ends — v1.3.2 audit fix (B1): format per KPI.
+        # Data labels on bar ends - v1.3.2 audit fix (B1): format per KPI.
         # - effectiveness: native '0.0%' format auto-multiplies fraction by 100
         #   (PPTX/Excel built-in % handling). Pre-fix '0.0"%"' literal "%" suffix
         #   showed 0.25 → "0.25%" instead of 25.0%.
@@ -1500,7 +1500,7 @@ class AuroraPPTXBuilder:
         plot.has_data_labels = True
         data_labels = plot.data_labels
         if self.kpi["mode"] == "effectiveness":
-            data_labels.number_format = '0.0%'  # native percent — auto-multiplies
+            data_labels.number_format = '0.0%'  # native percent - auto-multiplies
         elif self.kpi["kpi_kind"] == "count":
             data_labels.number_format = '0" ₽/ед."'
         else:
@@ -1553,7 +1553,7 @@ class AuroraPPTXBuilder:
         except Exception:
             pass
 
-        # Breakeven reference note — v1.3.2: text adapts per KPI/mode.
+        # Breakeven reference note - v1.3.2: text adapts per KPI/mode.
         if self.kpi["mode"] == "effectiveness":
             breakeven_note = "Доля > среднего по портфелю = недо-инвестирован"
         elif self.kpi["kpi_kind"] == "count":
@@ -1588,9 +1588,9 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, right_x, chart_y + 0.3, 1.0, weight=0.75, color=self.gold)
 
-        # Commentary — math-fix v1.0.14.1 B refactor (2026-04-28).
+        # Commentary - math-fix v1.0.14.1 B refactor (2026-04-28).
         # Pre-fix: hardcoded «явный потенциал для наращивания» / «потенциал
-        # удержания» / «топ-2 канала» blocks based на mROAS rank — independent
+        # удержания» / «топ-2 канала» blocks based на mROAS rank - independent
         # от derive_verdict в action table → contradictions.
         # Post-fix: action-driven. Reads ch['action_label']/['action_reasoning']
         # populated narrative_adapter via single-source-of-truth
@@ -1651,11 +1651,11 @@ class AuroraPPTXBuilder:
             # Wireframe placeholder when no channels (preview mode)
             commentary = [
                 ("Digital video - Масштабировать.",
-                 " mROAS 1.9× — Optimizer рекомендует +50%, недо-инвестирован."),
+                 " mROAS 1.9× - Optimizer рекомендует +50%, недо-инвестирован."),
                 ("Search - Удерживать.",
-                 " mROAS 1.7× стабилен, gap +1пп — баланс."),
+                 " mROAS 1.7× стабилен, gap +1пп - баланс."),
                 ("Print и Radio - Сократить.",
-                 " mROAS 0.7-0.75× ниже breakeven — бюджет приносит убыток."),
+                 " mROAS 0.7-0.75× ниже breakeven - бюджет приносит убыток."),
             ]
         cy = chart_y + 0.55
         for lead, body in commentary:
@@ -1707,7 +1707,7 @@ class AuroraPPTXBuilder:
         total_w = sum(col_weights)
         col_widths = [w * (table_w / total_w) for w in col_weights]
 
-        # Header — v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
+        # Header - v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
         metric_col_hdr, metric_col_unit = _table_metric_header_pptx(self.kpi)
         headers = ["Канал", "Бюджет", "Вклад", metric_col_hdr, "Доля эффекта", "Вердикт"]
         units =   ["",      "₽ млн",  "₽ млн",  metric_col_unit, "%",             ""]
@@ -1730,7 +1730,7 @@ class AuroraPPTXBuilder:
         # Header hairline (thick)
         self._hairline(slide, table_x, table_y + 0.55, table_w, weight=0.75, color=self.deep_100)
 
-        # Data rows — sourced from adapter-supplied self.channels when present;
+        # Data rows - sourced from adapter-supplied self.channels when present;
         # fallback to Kagocel pilot rows for preview / wireframe mode.
         if self.channels:
             rows = self._build_action_table_rows(self.channels)
@@ -1820,7 +1820,7 @@ class AuroraPPTXBuilder:
                 align=PP_ALIGN.RIGHT,
             )
             x += col_widths[4]
-            # Verdict — fallback to Hold styling if unknown key
+            # Verdict - fallback to Hold styling if unknown key
             vcolor, vbold = verdict_colors.get(verdict, (self.deep_60, False))
             verdict_label = verdict_ru.get(verdict, verdict)
             self._text(
@@ -1831,7 +1831,7 @@ class AuroraPPTXBuilder:
             self._hairline(slide, table_x, row_y + 0.32, table_w, weight=0.25, color=self.deep_20)
             row_y += 0.35
 
-        # Total row (compact) — data-driven when facts present, else Kagocel pilot
+        # Total row (compact) - data-driven when facts present, else Kagocel pilot
         self._text(
             slide, table_x + 0.05, row_y + 0.02, col_widths[0] - 0.1, 0.25,
             "ИТОГО",
@@ -1892,7 +1892,7 @@ class AuroraPPTXBuilder:
             else:
                 metric_short = self.kpi["metric_short"]
                 if self.kpi["mode"] == "effectiveness":
-                    # M1 audit fix: «низкая доля канала» — natural phrasing
+                    # M1 audit fix: «низкая доля канала» - natural phrasing
                     # для effectiveness mode (no «breakeven» metaphor).
                     reason_by_verdict = {
                         "Cut": "низкая доля в портфеле; рекомендовано остановить или перевести в другие каналы.",
@@ -2015,7 +2015,7 @@ class AuroraPPTXBuilder:
             channel_series = ts.get("channels") or {}
             # Trim to top-5 channels by total contribution to keep legend
             # readable; small contributors aggregate into baseline visually
-            # (approximation — true total would re-add their per-period sums).
+            # (approximation - true total would re-add their per-period sums).
             ranked = sorted(
                 channel_series.items(),
                 key=lambda kv: sum(float(v) for v in kv[1] or []),
@@ -2206,9 +2206,9 @@ class AuroraPPTXBuilder:
             # Hero mROAS
             hero_ch = next((c for c in self.channels if c.get("name") == hero), {})
             hero_m = float(hero_ch.get("mroas") or 0)
-            # Underperformer names. L23 fix (2026-04-29): dedup от cut_source —
+            # Underperformer names. L23 fix (2026-04-29): dedup от cut_source -
             # narrative_adapter уже исключил cut_source из underperformer_names
-            # в facts dict, но self.channels — raw merged list. Apply here
+            # в facts dict, но self.channels - raw merged list. Apply here
             # locally for PPTX consistency (avoid «из TRPs ... остановить TRPs»).
             cut_source_local = (self.facts or {}).get("cut_source_channel")
             underperf = [
@@ -2340,7 +2340,7 @@ class AuroraPPTXBuilder:
             else:
                 # Recommendation - 3 templated actions when facts present.
                 # L15 audit fix (2026-04-29): Action 01 uses cut_source/scale_dest
-                # from action_summary (NOT leader/hero) — same fix как s09 SCQAR.
+                # from action_summary (NOT leader/hero) - same fix как s09 SCQAR.
                 if self.facts and self.channels:
                     f = self.facts
                     leader = f.get("leader_channel") or "Лидер"
@@ -2359,12 +2359,12 @@ class AuroraPPTXBuilder:
                         )
                     elif scale_dest and realloc >= 1:
                         action_01_body = (
-                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ — "
+                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ - "
                             "за счёт roll-over бюджета или дополнительных средств."
                         )
                     elif cut_source and realloc >= 1:
                         action_01_body = (
-                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) — "
+                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) - "
                             "текущая аллокация неэффективна."
                         )
                     elif hero != leader and realloc >= 1:
@@ -2566,7 +2566,7 @@ class AuroraPPTXBuilder:
             ly += 0.80
 
         # Trust Level 3 (v1.1.0): brand vs performance disclosure если активен.
-        # Speaker note + bottom note — minimal disclosure без layout disruption.
+        # Speaker note + bottom note - minimal disclosure без layout disruption.
         # HTML report имеет full block в methodology; здесь kompakt single-line note.
         hier = (self.data.get('diagnostics') or {}).get('hierarchical') or {}
         if hier.get('enabled'):
@@ -2574,7 +2574,7 @@ class AuroraPPTXBuilder:
             n_brand = sum(1 for v in cats.values() if v == 'brand')
             n_perf = sum(1 for v in cats.values() if v == 'performance')
             t3_text = (
-                f"v1.1.0: Brand vs Performance split — {n_brand} brand, {n_perf} performance каналов. "
+                f"v1.1.0: Brand vs Performance split - {n_brand} brand, {n_perf} performance каналов. "
                 f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
             )
             self._source(slide, 6.65, text=t3_text)
@@ -2956,4 +2956,4 @@ class AuroraPPTXBuilder:
         return self.prs
 
 
-# Module-level — no main() entry. Use AuroraPPTXBuilder().build() or aurora_pptx.build_pptx().
+# Module-level - no main() entry. Use AuroraPPTXBuilder().build() or aurora_pptx.build_pptx().

@@ -2,9 +2,9 @@
   /**
    * Expert-only panel for ValidateStep.
    * Adds numeric econometric metrics on top of the main view:
-   *   - VIF (Variance Inflation Factor) table — quantitative multicollinearity
+   *   - VIF (Variance Inflation Factor) table - quantitative multicollinearity
    *   - Detailed per-column statistics (missing%, zeros%, mean, std)
-   * Correlation heatmap is shown in the main view — no duplication here.
+   * Correlation heatmap is shown in the main view - no duplication here.
    * @component ExpertValidatePanel
    */
   import { validateData } from '$lib/project-state.js';
@@ -26,7 +26,7 @@
     return result.columns.map(/** @param {any} c */ (c) => ({
       name: c.name,
       role: c.role,
-      dtype: c.dtype ?? '—',
+      dtype: c.dtype ?? '-',
       missing: fmtPct(c.stats?.missing_pct ?? 0),
       zeros: fmtPct(c.stats?.zeros_pct ?? 0),
       mean: fmtNum(c.stats?.mean),
@@ -36,7 +36,7 @@
 
   const unknownCount = $derived(dataStats.filter(/** @param {any} r */ r => !r.role || r.role === 'unknown').length);
 
-  // Если ни VIF, ни stats не посчитаны (objective ещё выбирается / validate не запускался) —
+  // Если ни VIF, ни stats не посчитаны (objective ещё выбирается / validate не запускался) -
   // panel пустая обёртка с заголовком "Экспертный режим" сбивает с толку. Скрываем.
   const hasContent = $derived(vifTable.length > 0 || dataStats.length > 0);
 
@@ -80,7 +80,7 @@
 {#if hasContent}
 <div class="expert-panel">
   <!--
-    Корреляционная матрица уже показывается в основном режиме (ValidateStep) —
+    Корреляционная матрица уже показывается в основном режиме (ValidateStep) -
     в экспертном дублировать её нет смысла. Эксперт-секция добавляет то,
     чего нет в main: численный VIF + детальную статистику столбцов.
   -->
@@ -96,11 +96,11 @@
           </th>
           <th>
             VIF
-            <span class="help-icon" title="Variance Inflation Factor — показывает во сколько раз дисперсия оценки коэффициента раздувается из-за корреляции этого канала с остальными. VIF = 1 / (1 − R²), где R² — объяснимость канала остальными. VIF ≤ 5 — норма, 5-10 — умеренная мультиколлинеарность, &gt;10 — критическая (канал почти полностью предсказуем из остальных, его ROI в модели будет нестабильным).">?</span>
+            <span class="help-icon" title="Variance Inflation Factor - показывает во сколько раз дисперсия оценки коэффициента раздувается из-за корреляции этого канала с остальными. VIF = 1 / (1 − R²), где R² - объяснимость канала остальными. VIF ≤ 5 - норма, 5-10 - умеренная мультиколлинеарность, &gt;10 - критическая (канал почти полностью предсказуем из остальных, его ROI в модели будет нестабильным).">?</span>
           </th>
           <th>
             Статус
-            <span class="help-icon" title="Интерпретация VIF: «Норма» (≤5) — канал вносит уникальный сигнал. «Умеренная» (5-10) — результат усреднится с другими каналами. «Мультиколлинеарность» (&gt;10) — модель не сможет разделить вклад этого канала от остальных, рекомендуется исключить или объединить.">?</span>
+            <span class="help-icon" title="Интерпретация VIF: «Норма» (≤5) - канал вносит уникальный сигнал. «Умеренная» (5-10) - результат усреднится с другими каналами. «Мультиколлинеарность» (&gt;10) - модель не сможет разделить вклад этого канала от остальных, рекомендуется исключить или объединить.">?</span>
           </th>
         </tr>
       </thead>
@@ -131,23 +131,23 @@
             <th>Роль</th>
             <th>
               Тип
-              <span class="help-icon" title="Тип данных столбца: float64 (числа с дробной частью — деньги, проценты), int64 (целые числа — количество), object (текст или дата).">?</span>
+              <span class="help-icon" title="Тип данных столбца: float64 (числа с дробной частью - деньги, проценты), int64 (целые числа - количество), object (текст или дата).">?</span>
             </th>
             <th>
               Пропуски %
-              <span class="help-icon" title="Доля строк с пропущенным значением (NaN). При &gt;20% столбец лучше исключить — интерполяция не спасёт.">?</span>
+              <span class="help-icon" title="Доля строк с пропущенным значением (NaN). При &gt;20% столбец лучше исключить - интерполяция не спасёт.">?</span>
             </th>
             <th>
               Нули %
-              <span class="help-icon" title="Доля строк с нулём. Отличается от пропусков: ноль — это факт отсутствия активности (канал не работал), пропуск — отсутствие данных. Высокий % нулей сигнализирует о разреженном канале.">?</span>
+              <span class="help-icon" title="Доля строк с нулём. Отличается от пропусков: ноль - это факт отсутствия активности (канал не работал), пропуск - отсутствие данных. Высокий % нулей сигнализирует о разреженном канале.">?</span>
             </th>
             <th>
               Среднее
-              <span class="help-icon" title="Среднее арифметическое по столбцу. Для бюджетов — средние расходы за период; для показов — средняя аудитория.">?</span>
+              <span class="help-icon" title="Среднее арифметическое по столбцу. Для бюджетов - средние расходы за период; для показов - средняя аудитория.">?</span>
             </th>
             <th>
               Std
-              <span class="help-icon" title="Стандартное отклонение — мера разброса значений вокруг среднего. Чем больше Std относительно Mean, тем сильнее колебания. Std/Mean = коэффициент вариации (CV).">?</span>
+              <span class="help-icon" title="Стандартное отклонение - мера разброса значений вокруг среднего. Чем больше Std относительно Mean, тем сильнее колебания. Std/Mean = коэффициент вариации (CV).">?</span>
             </th>
           </tr>
         </thead>

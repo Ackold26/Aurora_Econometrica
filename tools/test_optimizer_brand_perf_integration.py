@@ -1,6 +1,6 @@
 """Integration test для optimizer + ConstraintBundle (D.3 + AUDIT-2).
 
-Замыкает gap между unit tests (test_optimizer_per_group_constraints.py — 17 helper
+Замыкает gap между unit tests (test_optimizer_per_group_constraints.py - 17 helper
 tests) и реальным optimize() workflow. Проверяет что:
 
 1. Hierarchical модель + brand_max_pct=80% → результирующий brand sum ≤ 80% × current_brand
@@ -35,7 +35,7 @@ sys.path.insert(0, str(SIDECAR / 'econometrica'))
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Fixture builder — hierarchical model с brand/perf split
+# Fixture builder - hierarchical model с brand/perf split
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -93,8 +93,8 @@ def _build_synthetic_hierarchical_pickle(
 
     # Decays calibrated per category
     decays = {
-        'tv_brand': 0.65, 'ooh_brand': 0.55,        # brand — slow decay
-        'search': 0.18, 'social': 0.20, 'programmatic': 0.22,  # perf — fast
+        'tv_brand': 0.65, 'ooh_brand': 0.55,        # brand - slow decay
+        'search': 0.18, 'social': 0.20, 'programmatic': 0.22,  # perf - fast
         'native_ad': 0.35,                           # mixed
     }
 
@@ -391,7 +391,7 @@ def test_perf_hierarchy_violation_rejected(hierarchical_project: Path):
 
 @pytest.mark.integration
 def test_no_per_group_backward_compat(hierarchical_project: Path):
-    """Hierarchical модель БЕЗ per-group fields — behavior identical к pre-D.3.
+    """Hierarchical модель БЕЗ per-group fields - behavior identical к pre-D.3.
 
     Backward compat: если пользователь не задал brand_*/perf_*, optimize должна работать
     как до D.3 (только global + per-channel constraints).
@@ -410,9 +410,9 @@ def test_no_per_group_backward_compat(hierarchical_project: Path):
 
 @pytest.mark.integration
 def test_no_per_group_on_flat_model_works(flat_project: Path):
-    """Pre-Trust3 модель БЕЗ per-group — backward compat работает.
+    """Pre-Trust3 модель БЕЗ per-group - backward compat работает.
 
-    AUDIT-2 gate срабатывает ТОЛЬКО когда per-group passed. Без них — flat модель
+    AUDIT-2 gate срабатывает ТОЛЬКО когда per-group passed. Без них - flat модель
     оптимизируется как раньше.
     """
     from engines.optimizer import optimize

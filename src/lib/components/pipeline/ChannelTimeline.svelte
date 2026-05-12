@@ -22,7 +22,7 @@
   let { timeSeries } = $props();
 
   // FIX 2026-05-02: track currently hovered series для подсветки в tooltip.
-  // Plain mutable (не $state) — closure formatter reads current value без
+  // Plain mutable (не $state) - closure formatter reads current value без
   // recompute derived option (иначе chart.setOption flicker'ит на каждом mouseover).
   let activeSeries = '';
   /** @type {number | null} */
@@ -37,8 +37,8 @@
   /** @type {(() => void) | null} */
   let cleanupMouseLeave = null;
 
-  // AUDIT 2026-05-04: explicit listener cleanup — DOM listeners на chart container
-  // НЕ удаляются ECharts.dispose(). Без этого — memory leak при switch проектов.
+  // AUDIT 2026-05-04: explicit listener cleanup - DOM listeners на chart container
+  // НЕ удаляются ECharts.dispose(). Без этого - memory leak при switch проектов.
   onDestroy(() => {
     if (cleanupDom) {
       if (cleanupMouseMove) cleanupDom.removeEventListener('mousemove', cleanupMouseMove);
@@ -54,7 +54,7 @@
     chartRef = chart;
     // 2026-05-04: track активный слой через DOM mousemove + Y-coordinate matching.
     // Ранние попытки (mouseover/series, updateAxisPointer) не срабатывали для
-    // stacked area: ECharts не отдаёт seriesIndex слоя под курсором — только
+    // stacked area: ECharts не отдаёт seriesIndex слоя под курсором - только
     // dataIndex по оси X. Решение: при mousemove считаем сумму stack'ов до
     // курсора по Y-координате, находим тот слой чья граница выше курсора.
     const dom = chart.getDom();
@@ -83,7 +83,7 @@
 
     // 2026-05-04 sync fix: dataIndex беру из ECharts updateAxisPointer event
     // (тот же snapped index что использует axisPointer/cross/tooltip). Раньше
-    // я считал dataIndex напрямую из convertFromPixel — отличался от ECharts
+    // я считал dataIndex напрямую из convertFromPixel - отличался от ECharts
     // snap → перекрестье на одном периоде, моя подсветка на соседнем. Теперь
     // оба источника синхронизированы.
     /** @type {{px: number, py: number} | null} */
@@ -104,7 +104,7 @@
       if (!lastMouse) return;
       const axesInfo = params?.axesInfo;
       if (!Array.isArray(axesInfo) || axesInfo.length === 0) return;
-      // ECharts отдаёт snapped value по xAxis — это и есть dataIndex для category axis.
+      // ECharts отдаёт snapped value по xAxis - это и есть dataIndex для category axis.
       const xInfo = axesInfo.find(/** @type {(a: any) => boolean} */ (a) => a?.axisDim === 'x');
       const dataIndex = xInfo?.value;
       if (!Number.isFinite(dataIndex) || dataIndex < 0) return;
@@ -113,7 +113,7 @@
       const allSeries = opt.series || [];
       if (!allSeries.length) return;
 
-      // Y-coord курсора в data space (через convertFromPixel — snap не нужен).
+      // Y-coord курсора в data space (через convertFromPixel - snap не нужен).
       const yData = chart.convertFromPixel({ seriesIndex: 0 }, [lastMouse.px, lastMouse.py])[1];
       let cum = 0;
       let foundIdx = -1;
@@ -144,7 +144,7 @@
     cleanupMouseLeave = onMouseLeave;
   }
 
-  /** Legend block — formatter подсвечивает активный пункт. Извлечён из option,
+  /** Legend block - formatter подсвечивает активный пункт. Извлечён из option,
    *  чтобы handleChartInit мог обновлять только legend через setOption merge. */
   function buildLegendOption(/** @type {string} */ active) {
     return {
@@ -157,7 +157,7 @@
     };
   }
 
-  /** Tooltip block — formatter читает activeSeries из closure модуля.
+  /** Tooltip block - formatter читает activeSeries из closure модуля.
    *  Переустанавливается через setOption merge на каждый смены активного слоя,
    *  чтобы ECharts инвалидировал кэш и перевызвал formatter с актуальным name. */
   function buildTooltipOption() {

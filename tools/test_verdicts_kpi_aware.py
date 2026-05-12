@@ -1,4 +1,4 @@
-"""Tests для engines/verdicts.py — v1.3.0 KPI/mode-aware verdicts (ADR-016)."""
+"""Tests для engines/verdicts.py - v1.3.0 KPI/mode-aware verdicts (ADR-016)."""
 from __future__ import annotations
 
 import pytest
@@ -54,7 +54,7 @@ def test_count_high_efficiency_gap_promotes_to_high_perf():
 
 
 def test_count_missing_value_falls_back_to_share_based():
-    """Без value — нейтральные тэги (efficiency gap)."""
+    """Без value - нейтральные тэги (efficiency gap)."""
     label, tone = compute_verdict_count_kpi(
         cpu=100, value_per_count_unit=None, efficiency_gap=0.0
     )

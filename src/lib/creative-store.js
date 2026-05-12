@@ -53,7 +53,7 @@ export const workflowView = createPersistentStore('ai-agency-workflow-view', 'si
 // ── Initialization ───────────────────────────────────────
 
 /**
- * Initialize product awareness — call once on app mount.
+ * Initialize product awareness - call once on app mount.
  * Detects product type, loads brands, checks RAG/Parser health.
  */
 export async function initCreativeStore() {
@@ -64,7 +64,7 @@ export async function initCreativeStore() {
     productType.set('agency');
   }
 
-  // Load brands (filesystem-first — always works)
+  // Load brands (filesystem-first - always works)
   await refreshBrands();
 
   // Load active brand from backend

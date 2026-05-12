@@ -1,6 +1,6 @@
 <script>
   /**
-   * GoalSeekResultCard — v1.3.0 inverse optimization result display (per ADR-014).
+   * GoalSeekResultCard - v1.3.0 inverse optimization result display (per ADR-014).
    *
    * Props:
    * - result: backend response from econ_optimize_inverse:
@@ -50,7 +50,7 @@
       <div class="figure-value">{formatRub(result.total_budget.p50)}</div>
       {#if result.total_budget.p10 != null && result.total_budget.p90 != null}
         <div class="figure-ci">
-          80% доверительный интервал: {formatRub(result.total_budget.p10)} — {formatRub(result.total_budget.p90)}
+          80% доверительный интервал: {formatRub(result.total_budget.p10)} - {formatRub(result.total_budget.p90)}
         </div>
       {/if}
       {#if result.current_total_budget != null && result.current_total_budget > 0}
