@@ -12,6 +12,9 @@
   import Toast from '$lib/components/Toast.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import NavRail from '$lib/components/NavRail.svelte';
+  import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
+  import IntroTutorial from '$lib/components/IntroTutorial.svelte';
+  import { showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
   import { filterCabinetsByProduct, initCommandMeta } from '$lib/command-meta.js';
   import { initPsyData } from '$lib/psy.js';
   import { initClassifierData } from '$lib/chat-classifier.js';
@@ -85,12 +88,24 @@
   }
 
   onMount(() => {
-    // Command Palette: Ctrl+K / Cmd+K
+    // v1.3.0: Show Intro Tutorial on first run.
+    if (typeof localStorage !== 'undefined') {
+      const introCompleted = localStorage.getItem('aurora-intro-completed');
+      if (!introCompleted) {
+        showIntroTutorial.set(true);
+      }
+    }
+
+    // Command Palette: Ctrl+K / Cmd+K. v1.3.0 + Ctrl+G — glossary panel.
     /** @param {KeyboardEvent} e */
     function handleGlobalKey(e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         paletteOpen = !paletteOpen;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        showGlossaryPanel.update((v) => !v);
       }
     }
     window.addEventListener('keydown', handleGlobalKey);
@@ -193,6 +208,27 @@
 
 <UpdateBlockingOverlay />
 <CommandPalette open={paletteOpen} onClose={() => paletteOpen = false} />
+
+{#if $showGlossaryPanel}
+  <GlossaryPanel onClose={() => showGlossaryPanel.set(false)} />
+{/if}
+
+{#if $showIntroTutorial}
+  <IntroTutorial
+    onComplete={() => {
+      showIntroTutorial.set(false);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('aurora-intro-completed', '1');
+      }
+    }}
+    onSkip={() => {
+      showIntroTutorial.set(false);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('aurora-intro-completed', '1');
+      }
+    }}
+  />
+{/if}
 
 <div class="app-shell" style="flex-direction: {shellDirection}">
   <!-- NavRail: показывать только внутри кабинета (не на Home, Settings и т.п.) -->

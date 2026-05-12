@@ -13,11 +13,15 @@
   import DecomposeStep from '$lib/components/pipeline/DecomposeStep.svelte';
   import OptimizeStep from '$lib/components/pipeline/OptimizeStep.svelte';
   import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
+  import PipelineWhyThisStep from '$lib/components/pipeline/PipelineWhyThisStep.svelte';
   import { useDerivedModeUX } from '$lib/project-state.js';
 </script>
 
 <!-- A3: Single route, all steps present in DOM, visibility controlled by StepWrapper -->
 <div class="pipeline-page">
+
+  <!-- v1.3.0: «Зачем этот шаг?» panel — global header per pipelineCurrentStep -->
+  <PipelineWhyThisStep />
 
   <!-- Step 0: Import — Phase 2 -->
   <StepWrapper step={0} helpPage="data-preparation">

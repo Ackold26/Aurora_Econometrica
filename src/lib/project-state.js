@@ -447,6 +447,28 @@ export const valuePerCountUnitSource = writable(null);
 export const useDerivedModeUX = writable(true);
 
 /**
+ * v1.3.0: hide WhyThisStep / inline tooltips / adaptive insights toggle (educational).
+ * false (default) → подсказки видны (novice mode).
+ * true → скрытие для experts (mastery toggle in Settings).
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const hideEducationalHints = writable(false);
+
+/**
+ * v1.3.0: показ Intro Tutorial при первом запуске свежей установки.
+ * true → tutorial показывается. После завершения / skip → false.
+ * Persisted в localStorage as 'aurora-intro-completed'.
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const showIntroTutorial = writable(false);
+
+/**
+ * v1.3.0: глобальный glossary panel toggle (Ctrl+K).
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const showGlossaryPanel = writable(false);
+
+/**
  * v1.0.16: модель-движок selector (Import шаг).
  * 'bayesian' (default, NUTS NumPyro) — полный posterior, CI, ~20-60 сек train.
  * 'ols' (Sprint 2 small-data fallback) — closed-form OLS, frequentist β CI,

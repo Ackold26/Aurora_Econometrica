@@ -8,7 +8,7 @@
 
   import { GLOSSARY, getAllTerms, searchTerms, getTerm } from '$lib/glossary.js';
 
-  const { onClose, initialTerm } = $props();
+  const { onClose, initialTerm = null } = $props();
 
   let query = $state('');
   /** @type {string | null} */
