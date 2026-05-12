@@ -35,6 +35,46 @@
     excluded: { label: 'Не использовать', hint: 'игнорируем в модели',     tone: 'muted'  },
   };
 
+  // Tooltips для column headers — explain все варианты per role + data kinds.
+  const ROLE_HEADER_HELP = [
+    'Каждая колонка играет одну роль в модели:',
+    '',
+    '• Целевая метрика (KPI) — то, что модель объясняет: продажи, выручка, лиды.',
+    '• Медиа-канал — расходы или активность (TV GRP, OOH ₽, Digital impressions).',
+    '• Контрольная — не-медиа фактор: сезонность, цена, погода, конкурент.',
+    '• Дата — временной столбец (неделя / месяц).',
+    '• Не использовать — колонка исключается из модели.',
+    '',
+    'Программа автоматически определяет роль по имени и типу данных. Измените, если что-то определено неверно.',
+  ].join('\n');
+
+  const KIND_HEADER_HELP = [
+    'Тип данных колонки (определён автоматически):',
+    '',
+    '• Число — целое или дробное (бюджеты, продажи, GRP, проценты).',
+    '• Дата — временной маркер (неделя / месяц).',
+    '• Текст — название категории, бренд, тег.',
+    '• Флаг — true/false / 0-1 (вкл/выкл, акция/не акция).',
+    '',
+    'Для MMM требуется числовая целевая метрика, числовые медиа-каналы и одна date-колонка.',
+  ].join('\n');
+
+  /**
+   * Translates pandas dtype names (float64, int64, object, datetime64, bool)
+   * к человеческим русским labels. Fallback: «—» если type unknown.
+   * @param {string | null | undefined} rawKind
+   * @returns {string}
+   */
+  function humanizeKind(rawKind) {
+    if (!rawKind) return '—';
+    const k = String(rawKind).toLowerCase();
+    if (k.includes('datetime') || k === 'date' || k.includes('timestamp')) return 'дата';
+    if (k === 'bool' || k === 'boolean') return 'флаг';
+    if (k.includes('int') || k.includes('float') || k === 'number' || k === 'numeric') return 'число';
+    if (k === 'object' || k === 'string' || k === 'str' || k === 'text' || k.includes('category')) return 'текст';
+    return rawKind;  // unknown — show as-is для debugging
+  }
+
   /**
    * Canonical role → UI vocabulary mapping. Backend column-roles.js uses
    * 6 roles (kpi/media/control/date/unused/unknown); UI displays 5
@@ -124,8 +164,14 @@
       <thead>
         <tr>
           <th scope="col" class="th-name">Колонка</th>
-          <th scope="col" class="th-kind">Тип данных</th>
-          <th scope="col" class="th-role">Роль в модели</th>
+          <th scope="col" class="th-kind">
+            Тип данных
+            <span class="help-icon" title={KIND_HEADER_HELP} aria-label="Что значат типы данных">?</span>
+          </th>
+          <th scope="col" class="th-role">
+            Роль в модели
+            <span class="help-icon" title={ROLE_HEADER_HELP} aria-label="Что значат роли">?</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -133,7 +179,7 @@
           {@const role = effectiveRole(col.name)}
           <tr class="role-{role}">
             <td class="col-name">{col.name}</td>
-            <td class="col-kind">{col.kind ?? '—'}</td>
+            <td class="col-kind" title={col.kind ?? ''}>{humanizeKind(col.kind)}</td>
             <td class="col-role">
               <div class="role-cell">
                 <span class="role-dot tone-{ROLE_META[role].tone}" aria-hidden="true"></span>
@@ -305,6 +351,30 @@
     text-transform: uppercase;
     color: var(--text-muted, #64748b);
     border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+  }
+  /* v1.3.2: help-icon в th headers — premium tier-1 unobtrusive «?» tooltip */
+  thead th .help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-left: 6px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--text-muted, #64748b) 16%, transparent);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 9px;
+    font-weight: 700;
+    cursor: help;
+    user-select: none;
+    text-transform: none;
+    letter-spacing: 0;
+    vertical-align: middle;
+    transition: background 0.15s, color 0.15s;
+  }
+  thead th .help-icon:hover {
+    background: color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
+    color: var(--gold, #c9a449);
   }
   .th-name { width: 35%; }
   .th-kind { width: 20%; }
