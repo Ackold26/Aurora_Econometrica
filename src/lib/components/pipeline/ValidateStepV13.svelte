@@ -42,11 +42,39 @@
   // не-стандартных schemas (revenue / выручка / sales).
   const { onComplete = undefined, channels = [], availableMetricsByChannel = {}, monetaryColumnHint = '' } = $props();
 
-  /** v1.3.2: preflight role confirmation step. Когда false → show
-   *  ColumnMapperConfirm перед KPISelector flow. После confirm flips к true и
-   *  далее идёт обычный 4-substep KPI flow. localStorage-persisted чтобы
-   *  один раз потвердить per project. */
-  let rolesConfirmed = $state(false);
+  /** v1.3.2 audit fix (M3): preflight role confirmation step. Когда false →
+   *  show ColumnMapperConfirm перед KPISelector flow. После confirm flips к
+   *  true и далее идёт обычный 4-substep KPI flow.
+   *
+   *  Persisted to localStorage per projectId — юзер confirm-ит роли один раз
+   *  на проект; повторное mount читает state. Reset через goBack button.
+   *  Key format: `aurora-econ:roles-confirmed:{projectId}`. */
+  const ROLES_CONFIRMED_KEY_PREFIX = 'aurora-econ:roles-confirmed:';
+
+  function loadRolesConfirmed() {
+    try {
+      const pid = get(activeProjectId);
+      if (!pid) return false;
+      return localStorage.getItem(ROLES_CONFIRMED_KEY_PREFIX + pid) === '1';
+    } catch {
+      return false;  // localStorage может быть unavailable
+    }
+  }
+
+  /** @param {boolean} value */
+  function persistRolesConfirmed(value) {
+    try {
+      const pid = get(activeProjectId);
+      if (!pid) return;
+      if (value) {
+        localStorage.setItem(ROLES_CONFIRMED_KEY_PREFIX + pid, '1');
+      } else {
+        localStorage.removeItem(ROLES_CONFIRMED_KEY_PREFIX + pid);
+      }
+    } catch { /* best-effort */ }
+  }
+
+  let rolesConfirmed = $state(loadRolesConfirmed());
   /** @type {0 | 1 | 2 | 3} */
   let subStep = $state(0);
   /** @type {string} */
@@ -200,7 +228,11 @@
    * v1.3.2: subStep 0 + rolesConfirmed → goBack returns к ColumnMapperConfirm.
    */
   function goBack() {
-    if (subStep === 0 && rolesConfirmed) { rolesConfirmed = false; return; }
+    if (subStep === 0 && rolesConfirmed) {
+      rolesConfirmed = false;
+      persistRolesConfirmed(false);
+      return;
+    }
     if (subStep === 1) subStep = 0;
     else if (subStep === 2) subStep = skipValueStep ? 0 : 1;
     else if (subStep === 3) subStep = 2;
@@ -219,6 +251,22 @@
         ? 'excluded'
         : c.role,
     }));
+  });
+
+  // v1.3.2 audit fix (B2): substep-nav stage descriptors. Explicit mapping
+  // displayIdx ↔ subStep prevents off-by-one на skipValueStep collapse.
+  const navStages = $derived.by(() => {
+    /** @type {Array<{label: string, subStep: number}>} */
+    const stages = [
+      { label: 'Роли колонок', subStep: -1 },
+      { label: 'Целевая метрика', subStep: 0 },
+      { label: 'Ценность единицы', subStep: 1 },
+      { label: 'Метрики каналов', subStep: 2 },
+      { label: 'Подтверждение', subStep: 3 },
+    ];
+    return skipValueStep
+      ? stages.filter(s => s.subStep !== 1)
+      : stages;
   });
 
   /** @param {Record<string, string>} mapping — column name → role chosen by user */
@@ -251,25 +299,23 @@
       }
     }
     rolesConfirmed = true;
+    persistRolesConfirmed(true);
     subStep = 0;
   }
 </script>
 
 <div class="validate-v13">
   <!-- Sub-step progress indicator -->
+  <!-- v1.3.2 audit fix (B2): explicit subStep mapping via navStages $derived
+       чтобы skipValueStep collapse не ломал нумерацию dots. -->
   <nav class="substep-nav">
-    <!-- v1.3.2: 5-step layout — Роли (NEW) → Целевая → Ценность → Каналы → Подтверждение.
-         Ценность скрыта когда KPI monetary (skipValueStep). Active state per stage:
-         - Роли: !rolesConfirmed
-         - Целевая..Подтверждение: rolesConfirmed && subStep === i
-         Done state — rolesConfirmed для Роли + linear для прочих. -->
-    {#each ['Роли колонок', 'Целевая метрика', skipValueStep ? null : 'Ценность единицы', 'Метрики каналов', 'Подтверждение'].filter(Boolean) as label, i}
-      {@const stageIndex = i === 0 ? -1 : i - 1}
-      {@const isActive = i === 0 ? !rolesConfirmed : (rolesConfirmed && (stageIndex === subStep || (skipValueStep && stageIndex >= subStep - 1 && stageIndex === 0)))}
-      {@const isDone = i === 0 ? rolesConfirmed : (rolesConfirmed && stageIndex < subStep)}
+    {#each navStages as stage, displayIdx}
+      {@const isPreflight = stage.subStep === -1}
+      {@const isActive = isPreflight ? !rolesConfirmed : (rolesConfirmed && stage.subStep === subStep)}
+      {@const isDone = isPreflight ? rolesConfirmed : (rolesConfirmed && stage.subStep < subStep)}
       <div class="substep-dot" class:active={isActive} class:done={isDone}>
-        <span class="dot-number">{i + 1}</span>
-        <span class="dot-label">{label}</span>
+        <span class="dot-number">{displayIdx + 1}</span>
+        <span class="dot-label">{stage.label}</span>
       </div>
     {/each}
   </nav>

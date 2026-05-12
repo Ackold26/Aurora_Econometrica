@@ -64,17 +64,24 @@ def format_metric(
 ) -> str:
     """Format metric value per (kpi_kind, mode).
 
+    B4 audit fix (v1.3.2): backend convention — per-channel mroas/roi всегда
+    mathematical ratio = KPI_units / ₽_spend. Для count это units/₽ (e.g.
+    0.0125). CPU = 1/x = ₽/ед. Invert при display.
+
     Examples:
-    - kpi=monetary, mode=roi: 1.5 → '1.50×'
-    - kpi=count, mode=roi: 120.5 → '120 ₽/ед.'
-    - mode=effectiveness: 0.25 → '25.0%'
+    - kpi=monetary, mode=roi: 1.5 → '1.50×' (no transform)
+    - kpi=count, mode=roi: 0.0125 → '80 ₽/ед.' (inverted)
+    - mode=effectiveness fraction: 0.25 → '25.0%'
     """
     if value is None:
         return '—'
     if mode == 'effectiveness':
         return f'{value * 100:.1f}%'
     if kpi_kind == 'count':
-        return f'{value:.0f} ₽/ед.'
+        # B4: invert units/₽ → CPU. Zero/negative → fallback.
+        if value > 0:
+            return f'{1.0 / value:.0f} ₽/ед.'
+        return '—'
     return f'{value:.2f}×'
 
 
@@ -86,9 +93,21 @@ def cover_metric_summary(
 ) -> str:
     """One-line cover summary per kpi_kind/mode.
 
-    monetary roi: 'Средний ROI: 1.5×'
-    count roi: 'Средний CPU: 120 ₽/ед. (vs ценность 80 ₽)'
-    effectiveness: 'Топ-канал: X (доля 25%)'
+    Reserved для PPTX/HTML cover slide когда будет нужен подробный one-liner
+    с vpcu reference. Currently не used в production (sections.py и builder.py
+    используют свои _weighted_summary_phrase variants для in-body text).
+
+    L1 audit note: alternative «ROI портфеля 1.50×» phrasing implemented в
+    sections.py:_weighted_summary_phrase. Различия осознанные — cover line
+    более descriptive («Средний CPU: X ₽/ед. (vs ценность Y ₽)»), body line
+    более compact.
+
+    Input avg_metric от backend = mathematical KPI/spend ratio. format_metric
+    делает inversion для count display.
+
+    monetary roi: 'Средний ROI: 1.50×'
+    count roi (avg_metric=0.0125): 'Средний CPU: 80 ₽/ед. (vs ценность 80 ₽)'
+    effectiveness: 'Главная метрика: доля канала в продажах'
     """
     if mode == 'effectiveness':
         # avg_metric — share % top-канала.

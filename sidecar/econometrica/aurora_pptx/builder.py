@@ -702,8 +702,12 @@ class AuroraPPTXBuilder:
                 return "0"
             return f"{v:.1f}" if v < 10 else f"{v:.0f}"
 
-        all_below_breakeven = bool(self.channels) and all(
-            (float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in self.channels
+        # v1.3.2 audit fix (M1): для effectiveness mode skip — shares always
+        # sum to 100%, «under breakeven» semantically meaningless.
+        all_below_breakeven = (
+            bool(self.channels)
+            and self.kpi["mode"] != "effectiveness"
+            and all((float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in self.channels)
         )
         if honest and all_below_breakeven:
             f3 = "Рекомендация: все каналы под breakeven - сократить медиа или диагностика данных"
@@ -795,8 +799,10 @@ class AuroraPPTXBuilder:
 
             budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
             contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
-            # v1.3.2: KPI-aware metric column. legacy = 1.5 / count = '120' (raw
-            # без unit, unit в header) / effectiveness = '25' (percentage).
+            # v1.3.2 audit fix (B4): KPI-aware metric cell — backend convention
+            # c.mroas = mathematical units/₽; для count display invert к CPU.
+            # legacy = '1.5'× / count = '80' (CPU; unit в header «₽/ед.») /
+            # effectiveness = '25' (percentage; unit «%»).
             if self.kpi["is_legacy"]:
                 roi_str = f"{float(mroas):.1f}" if mroas else "-"
             elif self.kpi["mode"] == "effectiveness":
@@ -806,7 +812,11 @@ class AuroraPPTXBuilder:
                 else:
                     roi_str = "-"
             elif self.kpi["kpi_kind"] == "count":
-                roi_str = f"{float(mroas):.0f}" if mroas else "-"
+                # Invert units/₽ → CPU ₽/ед. (B4 audit fix).
+                if mroas and float(mroas) > 0:
+                    roi_str = f"{1.0 / float(mroas):.0f}"
+                else:
+                    roi_str = "-"
             else:
                 roi_str = f"{float(mroas):.1f}" if mroas else "-"
             share_pct = int(round(contrib / total_contrib * 100))
@@ -814,6 +824,8 @@ class AuroraPPTXBuilder:
             footnote = fn_by_name.get(name, "")
 
             # Phase 1.9: posterior 90% HDI bracket on mROAS — None when v1.0/v1.1 pickle.
+            # v1.3.2 audit fix (B4): для count mode CI inverts (units/₽ → CPU)
+            # и swaps ordering: lo_mroas → hi_cpu, hi_mroas → lo_cpu.
             ci_low = c.get("mroas_ci_low")
             ci_high = c.get("mroas_ci_high")
             ci_str = ""
@@ -825,7 +837,15 @@ class AuroraPPTXBuilder:
                     hi = float(ci_high) * (100 if abs(float(ci_high)) <= 1.0 else 1)
                     ci_str = f"[{lo:.1f} - {hi:.1f}]"
                 elif self.kpi["kpi_kind"] == "count":
-                    ci_str = f"[{float(ci_low):.0f} - {float(ci_high):.0f}]"
+                    try:
+                        lo_raw = float(ci_low)
+                        hi_raw = float(ci_high)
+                        if lo_raw > 0 and hi_raw > 0:
+                            lo_cpu = 1.0 / hi_raw  # invert + swap
+                            hi_cpu = 1.0 / lo_raw
+                            ci_str = f"[{lo_cpu:.0f} - {hi_cpu:.0f}]"
+                    except (TypeError, ValueError, ZeroDivisionError):
+                        pass
                 else:
                     ci_str = f"[{float(ci_low):.1f} - {float(ci_high):.1f}]"
 
@@ -1404,18 +1424,40 @@ class AuroraPPTXBuilder:
         # NATIVE PPTX CHART (production-ready) - editable в PowerPoint
         # Data source: adapter-supplied channels sorted by mROAS desc (up to 10),
         # else Kagocel pilot bars for preview / wireframe mode.
+        #
+        # v1.3.2 audit fix (B1+B4): bar values transformed per KPI mode:
+        # - monetary roi: raw mROAS× (no transform; sort desc, hero = highest).
+        # - count: invert units/₽ → CPU ₽/ед. (sort ascending by CPU = lowest
+        #   cost first = hero is best).
+        # - effectiveness: keep as fraction (0..1); native '0.0%' format
+        #   auto-multiplies by 100. Sort desc — лидер по доле.
         if self.channels:
-            by_mroas = sorted(
-                self.channels,
-                key=lambda c: float(c.get("mroas") or 0),
-                reverse=True,
-            )[:10]
-            bar_labels = [c.get("name") or "-" for c in by_mroas]
-            bar_values = [float(c.get("mroas") or 0) for c in by_mroas]
+            kpi_mode = self.kpi["mode"]
+            kpi_kind = self.kpi["kpi_kind"]
+            valid = [c for c in self.channels if float(c.get("mroas") or 0) > 0]
+            if kpi_kind == "count" and kpi_mode != "effectiveness":
+                # CPU semantics: lowest CPU = best. Compute CPU = 1/raw_mroas,
+                # sort ascending (best first → hero at index 0).
+                annotated = [
+                    (c.get("name") or "-", 1.0 / float(c.get("mroas") or 1.0))
+                    for c in valid
+                ]
+                annotated.sort(key=lambda t: t[1])  # ascending CPU
+                annotated = annotated[:10]
+                bar_labels = [name for name, _ in annotated]
+                bar_values = [cpu for _, cpu in annotated]
+            else:
+                by_mroas = sorted(
+                    valid,
+                    key=lambda c: float(c.get("mroas") or 0),
+                    reverse=True,
+                )[:10]
+                bar_labels = [c.get("name") or "-" for c in by_mroas]
+                bar_values = [float(c.get("mroas") or 0) for c in by_mroas]
         else:
             bar_labels = ["Digital video", "Search", "TV", "OOH", "Social", "Print"]
             bar_values = [1.9, 1.7, 1.5, 1.2, 1.0, 0.7]
-        hero_idx = 0  # by_mroas[0] after sort — highest mROAS (the hero)
+        hero_idx = 0  # always best after KPI-aware sort — hero at index 0
 
         chart_data = CategoryChartData()
         # Reversed: PPTX bar chart renders first category at bottom
@@ -1447,12 +1489,18 @@ class AuroraPPTXBuilder:
             point.format.fill.fore_color.rgb = self.gold if i == reversed_hero else self.deep_40
             point.format.line.fill.background()
 
-        # Data labels on bar ends — v1.3.2: format suffix per KPI.
+        # Data labels on bar ends — v1.3.2 audit fix (B1): format per KPI.
+        # - effectiveness: native '0.0%' format auto-multiplies fraction by 100
+        #   (PPTX/Excel built-in % handling). Pre-fix '0.0"%"' literal "%" suffix
+        #   showed 0.25 → "0.25%" instead of 25.0%.
+        # - count: bars already inverted to CPU (₽/ед.) above. Plain integer
+        #   format с unit suffix in literal text.
+        # - monetary: × multiplier, 1-decimal.
         plot = chart.plots[0]
         plot.has_data_labels = True
         data_labels = plot.data_labels
         if self.kpi["mode"] == "effectiveness":
-            data_labels.number_format = '0.0"%"'
+            data_labels.number_format = '0.0%'  # native percent — auto-multiplies
         elif self.kpi["kpi_kind"] == "count":
             data_labels.number_format = '0" ₽/ед."'
         else:
@@ -1475,11 +1523,22 @@ class AuroraPPTXBuilder:
 
         val_axis = chart.value_axis
         val_axis.visible = False  # hide numeric value axis (labels are direct)
-        val_axis.major_unit = 0.5
         val_axis.minimum_scale = 0
-        # Adaptive axis max: accommodate real client mROAS values up to 5×+
+        # v1.3.2 audit fix: adaptive axis scale + tick interval per KPI.
+        # - monetary: mROAS× values 0..5+; tick 0.5, min span 2.2.
+        # - count: CPU ₽/ед. values 10..200+; tick auto-derived.
+        # - effectiveness: fractions 0..1 native; tick 0.2, max ~1.15.
         _max_v = max(bar_values) if bar_values else 2.0
-        val_axis.maximum_scale = max(2.2, _max_v * 1.15)
+        if self.kpi["mode"] == "effectiveness":
+            val_axis.major_unit = 0.2
+            val_axis.maximum_scale = max(1.0, _max_v * 1.15)
+        elif self.kpi["kpi_kind"] == "count":
+            # CPU domain: tick ≈ 1/10 of max; max accommodate clipping headroom.
+            val_axis.major_unit = max(10, _max_v / 10)
+            val_axis.maximum_scale = max(20, _max_v * 1.15)
+        else:
+            val_axis.major_unit = 0.5
+            val_axis.maximum_scale = max(2.2, _max_v * 1.15)
 
         # Gap between bars
         from pptx.oxml.ns import qn
@@ -1833,9 +1892,11 @@ class AuroraPPTXBuilder:
             else:
                 metric_short = self.kpi["metric_short"]
                 if self.kpi["mode"] == "effectiveness":
+                    # M1 audit fix: «низкая доля канала» — natural phrasing
+                    # для effectiveness mode (no «breakeven» metaphor).
                     reason_by_verdict = {
-                        "Cut": f"низкая {metric_short.lower()} канала; рекомендовано остановить или перевести в другие каналы.",
-                        "Reduce": f"вклад канала в долю эффекта ниже среднего по портфелю.",
+                        "Cut": "низкая доля в портфеле; рекомендовано остановить или перевести в другие каналы.",
+                        "Reduce": "вклад канала в долю эффекта ниже среднего по портфелю.",
                     }
                 elif self.kpi["kpi_kind"] == "count":
                     reason_by_verdict = {

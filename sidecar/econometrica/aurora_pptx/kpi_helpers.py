@@ -44,7 +44,12 @@ def kpi_view(data):
 
 
 def fmt_metric(value, kpi, fallback="-"):
-    """Format metric value per (kpi_kind, mode). No HTML wrappers."""
+    """Format metric value per (kpi_kind, mode). No HTML wrappers.
+
+    B4 audit fix: backend convention — per-channel mroas/roi всегда mathematical
+    ratio (units_kpi / ₽_spend). Для count это units/₽; CPU = 1/x. Invert
+    before display чтобы «120 ₽/ед.» означало true CPU, не raw units/₽.
+    """
     if value is None:
         return fallback
     try:
@@ -58,12 +63,19 @@ def fmt_metric(value, kpi, fallback="-"):
             return f"{f * 100:.1f}%"
         return f"{f:.0f}%"
     if kind == "count":
-        return f"{f:.0f} ₽/ед."
+        # Invert units/₽ → CPU ₽/ед. Edge: zero/negative → fallback.
+        if f > 0:
+            return f"{1.0 / f:.0f} ₽/ед."
+        return fallback
     return f"{f:.2f}×"
 
 
 def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
-    """KPI-aware text-only CI bracket: '120 ₽/ед. [110—130]' / '1.5× [1.2—1.8]'."""
+    """KPI-aware text-only CI bracket: '80 ₽/ед. [60—100]' / '1.5× [1.2—1.8]'.
+
+    B4 audit fix: для count mode CI flips (units/₽ → CPU); swap order для
+    canonical [lo_cpu — hi_cpu] display.
+    """
     base = fmt_metric(mean, kpi)
     if ci_low is None or ci_high is None:
         return base
@@ -78,8 +90,15 @@ def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
         return f"{base} [{lo:.1f}—{hi:.1f}]"
     if kpi.get("kpi_kind") == "count":
         try:
-            return f"{base} [{float(ci_low):.0f}—{float(ci_high):.0f}]"
-        except (TypeError, ValueError):
+            lo_raw = float(ci_low)
+            hi_raw = float(ci_high)
+            # Invert and swap: lo_mroas → hi_cpu, hi_mroas → lo_cpu.
+            lo_cpu = 1.0 / hi_raw if hi_raw > 0 else float('inf')
+            hi_cpu = 1.0 / lo_raw if lo_raw > 0 else float('inf')
+            if not (lo_cpu < float('inf') and hi_cpu < float('inf')):
+                return base
+            return f"{base} [{lo_cpu:.0f}—{hi_cpu:.0f}]"
+        except (TypeError, ValueError, ZeroDivisionError):
             return base
     try:
         return f"{base} [{float(ci_low):.2f}—{float(ci_high):.2f}]"

@@ -696,9 +696,10 @@
     /* Audit pass 11: removed overflow-x:auto — proper colgroup widths
        обеспечивают fit на одном экране. Save as fallback на small viewports. */
     overflow-x: auto;
-    /* v1.3.2 UX polish: max-height + overflow-y → sticky thead для длинных
-       таблиц (8+ каналов). При <8 каналах max-height не triggered, sticky
-       не активен (нет scroll). */
+    /* v1.3.2 (audit M5): sticky thead для длинных таблиц. max-height ограничивает
+       вертикаль; overflow-y: auto не показывает scrollbar пока content fits
+       (browser default behavior). Для table < 480px high — нет scrollbar.
+       Для 10+ channels — scroll с фиксированным thead. */
     max-height: 480px;
     overflow-y: auto;
   }

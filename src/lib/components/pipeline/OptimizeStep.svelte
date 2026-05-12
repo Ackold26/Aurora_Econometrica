@@ -398,50 +398,11 @@
     return null;
   });
 
-  // Goal-seek primary recommendation: показывается после inverse optimize.
-  const primaryGoalSeekRecommendation = $derived.by(() => {
-    const gs = optData?.goal_seek;
-    if (!gs || gs.success === false) return null;
-    const required = Number(gs.required_budget ?? 0);
-    const baseline = Number(gs.baseline_budget ?? 0);
-    const target = Number(gs.target_kpi ?? 0);
-    if (!Number.isFinite(required) || required <= 0) return null;
-    const delta = required - baseline;
-    const deltaPct = baseline > 0 ? ((delta / baseline) * 100) : null;
-    const probability = gs.achievability_probability != null
-      ? `${(Number(gs.achievability_probability) * 100).toFixed(0)}%`
-      : null;
-
-    let icon = '🎯';
-    let tone = 'success';
-    let title = 'Главная рекомендация';
-    let text = '';
-    let detail = '';
-    if (delta > 0) {
-      // Нужно нарастить бюджет.
-      icon = '📈';
-      const deltaSign = deltaPct != null ? ` (+${deltaPct.toFixed(1)}%)` : '';
-      text = `Для цели ${formatMoney(target)} нужен бюджет ${formatMoney(required)}${deltaSign}.`;
-      detail = probability
-        ? `Вероятность достижения цели: ${probability} (по апостериорному распределению модели). Перераспределение по каналам — в блоке «Распределение бюджета».`
-        : 'Перераспределение по каналам — в блоке «Распределение бюджета». Проверьте, что новый бюджет реалистичен с точки зрения cash flow.';
-    } else if (Math.abs(delta) > 0.01 * baseline) {
-      // Можно сократить бюджет и всё равно достичь цели.
-      icon = '💰';
-      tone = 'success';
-      const deltaSign = deltaPct != null ? ` (${deltaPct.toFixed(1)}%)` : '';
-      text = `Цель ${formatMoney(target)} достижима с бюджетом ${formatMoney(required)}${deltaSign} — экономия ${formatMoney(Math.abs(delta))}.`;
-      detail = probability
-        ? `Вероятность достижения цели: ${probability}. Распределение по каналам — в блоке «Распределение бюджета».`
-        : 'Распределение по каналам — в блоке «Распределение бюджета». Освободившиеся средства можно сохранить или направить в новые инициативы.';
-    } else {
-      icon = '✓';
-      tone = 'info';
-      text = `Цель ${formatMoney(target)} достижима при текущем бюджете ${formatMoney(required)}.`;
-      detail = 'Существенное изменение бюджета не требуется. Рассмотрите перераспределение каналов через Forward solver.';
-    }
-    return { icon, title, text, detail, tone };
-  });
+  // v1.3.2 audit fix (M4): removed primaryGoalSeekRecommendation. Backend
+  // optimize_inverse возвращает result в локальный state OptimizeGoalSeek.svelte,
+  // не в optimizeData store. GoalSeekResultCard уже показывает result-specific
+  // recommendations (achievable / required_budget / экономия / P). Дополнительный
+  // card здесь был bесtotbnym dead code (optData.goal_seek field не существует).
 
   // ── Tooltip-помощь по всем опциям ─────────────────────────
   const HELP = {
@@ -2007,17 +1968,10 @@
         {/if}
       {/if}
 
-      <!-- v1.3.2: primary recommendation card после optimize. Mirror of DecomposeStep
-           pattern. Goal-seek card имеет приоритет над forward card (если оба заданы). -->
-      {#if primaryGoalSeekRecommendation}
-        <RecommendationCard
-          icon={primaryGoalSeekRecommendation.icon}
-          title={primaryGoalSeekRecommendation.title}
-          text={primaryGoalSeekRecommendation.text}
-          detail={primaryGoalSeekRecommendation.detail}
-          tone={primaryGoalSeekRecommendation.tone}
-        />
-      {:else if primaryOptimizeRecommendation}
+      <!-- v1.3.2: primary recommendation card после forward optimize. Mirror
+           of DecomposeStep pattern. Goal-Seek result показывается через
+           GoalSeekResultCard внутри OptimizeGoalSeek panel (separate component). -->
+      {#if primaryOptimizeRecommendation}
         <RecommendationCard
           icon={primaryOptimizeRecommendation.icon}
           title={primaryOptimizeRecommendation.title}

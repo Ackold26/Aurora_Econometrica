@@ -108,15 +108,16 @@ describe('fmtMetric', () => {
     expect(fmtMetric(10, kpi)).toBe('10.00×');
   });
 
-  it('formats count KPI as ₽/ед.', () => {
+  it('formats count KPI by inverting units/₽ → CPU ₽/ед.', () => {
+    // B4 audit fix: backend convention = mathematical units/₽; helper inverts.
     const kpi = kpiView({ kpiKind: 'count', derivedMode: 'roi' });
-    // toFixed(0) — стандартное JS rounding (round half up). Избегаем .5
-    // edge case в тестах, т.к. Python `:.0f` использует banker's rounding
-    // → divergence только при exactly N.5 значениях, маловероятно с реальными
-    // CPU values (рассчитанными как 1/wr).
-    expect(fmtMetric(120.4, kpi)).toBe('120 ₽/ед.');
-    expect(fmtMetric(80, kpi)).toBe('80 ₽/ед.');
-    expect(fmtMetric(0, kpi)).toBe('0 ₽/ед.');
+    // 0.0125 units/₽ → CPU 1/0.0125 = 80
+    expect(fmtMetric(0.0125, kpi)).toBe('80 ₽/ед.');
+    // 0.01 → 100
+    expect(fmtMetric(0.01, kpi)).toBe('100 ₽/ед.');
+    // Zero / negative → fallback (no signal)
+    expect(fmtMetric(0, kpi)).toBe('—');
+    expect(fmtMetric(-0.5, kpi)).toBe('—');
   });
 
   it('formats effectiveness fraction as percent', () => {
@@ -151,9 +152,10 @@ describe('fmtMetricBare (no suffix)', () => {
     expect(fmtMetricBare(1.5, kpiView({}))).toBe('1.50');
   });
 
-  it('count: integer', () => {
-    expect(fmtMetricBare(120.4, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('120');
-    expect(fmtMetricBare(80, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('80');
+  it('count: inverts to CPU integer (1/x)', () => {
+    expect(fmtMetricBare(0.0125, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('80');
+    expect(fmtMetricBare(0.01, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('100');
+    expect(fmtMetricBare(0, kpiView({ kpiKind: 'count', derivedMode: 'roi' }))).toBe('—');
   });
 
   it('effectiveness fraction', () => {
@@ -253,11 +255,13 @@ describe('channelMetricPhrase', () => {
     expect(channelMetricPhrase(null, kpiView({}))).toBeNull();
   });
 
-  it('uses count format когда KPI count', () => {
+  it('uses count format with inversion когда KPI count', () => {
     const kpi = kpiView({ kpiKind: 'count', derivedMode: 'roi' });
-    const phrase = channelMetricPhrase({ name: 'TV', mroas: 95 }, kpi);
-    expect(phrase?.value).toBe('95 ₽/ед.');
-    expect(phrase?.short).toBe('ROI'); // metricShort default when labels not given
+    // mroas 0.01 units/₽ → CPU 100
+    const phrase = channelMetricPhrase({ name: 'TV', mroas: 0.01 }, kpi);
+    expect(phrase?.value).toBe('100 ₽/ед.');
+    // metricShort default when labels not given. After B3 fix derived = 'CPU' для count.
+    expect(phrase?.short).toBe('CPU');
   });
 });
 

@@ -49,7 +49,43 @@ const DEFAULT_LABELS = {
 };
 
 /**
+ * B3 audit fix (v1.3.2): derive labels из kpiKind+mode локально. Mirrors
+ * Python utils/kpi_labels.py:metric_label/metric_short_label/etc. Используется
+ * когда caller не передаёт labels (например InsightsPanel — только kpiKind/
+ * mode/vpcu приходят из stores, labels не stored). Fallback к default ROI
+ * labels для legacy ctx.
+ *
+ * @param {string} kpiKind
+ * @param {string} mode
+ */
+function deriveLabels(kpiKind, mode) {
+  if (mode === 'effectiveness') {
+    return {
+      metricLabel: 'Доля %',
+      metricShortLabel: 'Доля',
+      targetUnitLabel: '₽',
+      targetAxisLabel: 'Продажи, ₽',
+    };
+  }
+  if (kpiKind === 'count') {
+    return {
+      metricLabel: 'CPU, ₽/ед.',
+      metricShortLabel: 'CPU',
+      targetUnitLabel: 'упак / ед.',
+      targetAxisLabel: 'Продажи, упак',
+    };
+  }
+  return { ...DEFAULT_LABELS };
+}
+
+/**
  * Build KPI view from raw stores / data dict. Defaults preserve v1.2 behavior.
+ *
+ * B3 audit fix: labels приоритизируются:
+ *   1. Explicit input.labels (если caller передал — backend payload).
+ *   2. Derived from kpiKind+mode (когда labels не переданы — InsightsPanel
+ *      путь). Mirrors Python kpi_labels.py logic.
+ *   3. DEFAULT_LABELS (legacy fallback — kpiKind=monetary mode=roi).
  *
  * @param {KpiViewInput|null|undefined} input
  * @returns {KpiView}
@@ -58,7 +94,9 @@ export function kpiView(input) {
   const src = input || {};
   const kpiKind = src.kpiKind || 'monetary';
   const mode = src.derivedMode || 'roi';
-  const labels = { ...DEFAULT_LABELS, ...(src.labels || {}) };
+  // Merge order: defaults < derived (from kind+mode) < explicit labels.
+  const derived = deriveLabels(kpiKind, mode);
+  const labels = { ...DEFAULT_LABELS, ...derived, ...(src.labels || {}) };
   return {
     kpiKind,
     mode,
@@ -75,8 +113,12 @@ export function kpiView(input) {
 /**
  * Format single metric value per KPI/mode.
  *
- * monetary roi: 1.5 → '1.50×'
- * count: 120.5 → '120 ₽/ед.'
+ * B4 audit fix (v1.3.2): backend convention — per-channel mroas/roi всегда
+ * mathematical ratio (KPI_units / ₽_spend). Для count это units/₽ (e.g.
+ * 0.0125). CPU = 1/x. fmtMetric inverts при display.
+ *
+ * monetary roi: 1.5 → '1.50×' (no transform)
+ * count: 0.0125 → '80 ₽/ед.' (inverted)
  * effectiveness fraction (0..1): 0.25 → '25.0%'
  * effectiveness >1: 25 → '25%'
  *
@@ -93,13 +135,15 @@ export function fmtMetric(value, kpi, fallback = '—') {
     return Math.abs(f) <= 1.0 ? `${(f * 100).toFixed(1)}%` : `${f.toFixed(0)}%`;
   }
   if (kpi.kpiKind === 'count') {
-    return `${f.toFixed(0)} ₽/ед.`;
+    // B4: invert units/₽ → CPU ₽/ед. Zero/negative → fallback (no signal).
+    if (f > 0) return `${(1 / f).toFixed(0)} ₽/ед.`;
+    return fallback;
   }
   return `${f.toFixed(2)}×`;
 }
 
 /**
- * Bare (number only) format для CI bracket inner values.
+ * Bare (number only) format для CI bracket inner values. См. fmtMetric inversion.
  *
  * @param {number|null|undefined} value
  * @param {KpiView} kpi
@@ -112,7 +156,10 @@ export function fmtMetricBare(value, kpi) {
   if (kpi.mode === 'effectiveness') {
     return Math.abs(f) <= 1.0 ? `${(f * 100).toFixed(1)}` : `${f.toFixed(0)}`;
   }
-  if (kpi.kpiKind === 'count') return `${f.toFixed(0)}`;
+  if (kpi.kpiKind === 'count') {
+    if (f > 0) return `${(1 / f).toFixed(0)}`;
+    return '—';
+  }
   return `${f.toFixed(2)}`;
 }
 

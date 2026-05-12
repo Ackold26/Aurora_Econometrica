@@ -170,9 +170,21 @@ def _kpi_view(ctx: dict) -> dict:
 def _fmt_metric(value: Any, kpi: dict, fallback: str = "-") -> str:
     """Format metric value per (kpi_kind, mode).
 
-    monetary roi: 1.5 → '1.50×'
-    count: 120.5 → '120 ₽/ед.'
-    effectiveness: 0.25 → '25%' (already as fraction). если value > 1 — already as pct.
+    Backend convention (per narrative_adapter._merge_channels): channel-level
+    mroas/roi всегда mathematical ratio = KPI_units / ₽. Для monetary это
+    ROI multiplier (rubles_kpi / rubles_spend = ×). Для count это units/₽
+    (например 0.0125 ед./₽). CPU = 1 / units_per_ruble = ₽/ед.
+
+    Display rules:
+    - monetary roi: 1.5 → '1.50×' (no transform)
+    - count: 0.0125 → invert → '80 ₽/ед.' (CPU display)
+    - effectiveness fraction (0..1): 0.25 → '25.0%' (×100)
+    - effectiveness >1: 25 → '25%' (assumed already percentage)
+
+    Per-channel raw values for count come как units/₽ в input. Если caller
+    хочет передать ready CPU value (как из weighted_summary intermediate
+    calc), pass it raw: invert again сводится к no-op только if 1/v == v
+    (v=1). Edge case rare.
     """
     if value is None:
         return fallback
@@ -188,12 +200,16 @@ def _fmt_metric(value: Any, kpi: dict, fallback: str = "-") -> str:
             return f"{f * 100:.1f}%"
         return f"{f:.0f}%"
     if kind == "count":
-        return f"{f:.0f} ₽/ед."
+        # B4 audit fix: c.mroas / c.roi от backend = units/₽ (mathematical).
+        # Invert to CPU (₽/ед.) для user-facing display.
+        if f > 0:
+            return f"{1.0 / f:.0f} ₽/ед."
+        return fallback
     return f"{f:.2f}×"
 
 
 def _fmt_metric_bare(value: Any, kpi: dict, fallback: str = "-") -> str:
-    """Inner CI-bracket version (без unit suffix)."""
+    """Inner CI-bracket version (без unit suffix). См. _fmt_metric inversion rules."""
     if value is None:
         return fallback
     try:
@@ -207,19 +223,35 @@ def _fmt_metric_bare(value: Any, kpi: dict, fallback: str = "-") -> str:
             return f"{f * 100:.1f}"
         return f"{f:.0f}"
     if kind == "count":
-        return f"{f:.0f}"
+        # B4 audit fix: invert units/₽ → CPU ₽/ед.
+        if f > 0:
+            return f"{1.0 / f:.0f}"
+        return fallback
     return f"{f:.2f}"
 
 
 def _fmt_metric_with_ci(mean: Any, ci_low: Any, ci_high: Any, kpi: dict) -> str:
-    """KPI-aware analog of _fmt_x_with_ci."""
+    """KPI-aware analog of _fmt_x_with_ci.
+
+    B4 audit fix: для count mode CI inverts (units/₽ → CPU ₽/ед.), что
+    flips ordering: lo_mroas → hi_cpu, hi_mroas → lo_cpu. Swap order для
+    отображения [lo_cpu — hi_cpu].
+    """
     base = _fmt_metric(mean, kpi)
     if ci_low is None or ci_high is None:
         return base
     tier = _ci_tier_class(mean, ci_low, ci_high)
+    # Для count mode swap, т.к. invert flips ordering.
+    if kpi.get("kpi_kind") == "count" and kpi.get("mode") != "effectiveness":
+        # ci_low / ci_high в units/₽ space → invert → CPU space → swap.
+        lo_str = _fmt_metric_bare(ci_high, kpi)  # inverted CI_high = smaller CPU
+        hi_str = _fmt_metric_bare(ci_low, kpi)   # inverted CI_low = larger CPU
+    else:
+        lo_str = _fmt_metric_bare(ci_low, kpi)
+        hi_str = _fmt_metric_bare(ci_high, kpi)
     return (
         f'{base} <span class="ci-bracket {tier}">'
-        f'[{_fmt_metric_bare(ci_low, kpi)} — {_fmt_metric_bare(ci_high, kpi)}]</span>'
+        f'[{lo_str} — {hi_str}]</span>'
     )
 
 
@@ -449,7 +481,17 @@ def render_executive_summary(ctx: dict) -> str:
                 answer = scqar.get("answer_no_scale", {}).get("template", scqar["answer"]["template"]).format(
                     realloc=realloc, cut_source=cut_source,
                 )
-            recommendation = scqar["recommendation"]["template"].format(lift=lift)
+            # v1.3.2 audit fix (M2): scqar.recommendation template = «Ожидаемый
+            # прирост ROAS: +N пп». Для non-monetary modes слово «ROAS» leak.
+            # Override formula manually per kpi mode.
+            if kpi["is_legacy"]:
+                recommendation = scqar["recommendation"]["template"].format(lift=lift)
+            elif kpi["mode"] == "effectiveness":
+                recommendation = f"Ожидаемый прирост доли эффекта: +{lift:.0f} пп."
+            elif kpi["kpi_kind"] == "count":
+                recommendation = f"Ожидаемый прирост продаж: +{lift:.0f} пп."
+            else:
+                recommendation = scqar["recommendation"]["template"].format(lift=lift)
         else:
             # SA19: portfolio with no clear redistribution direction
             counts = facts.get("action_counts") or {}
@@ -571,8 +613,13 @@ def render_at_a_glance(ctx: dict) -> str:
         realloc = facts.get("reallocation_mln") or 0
         lift = facts.get("expected_lift_pct") or 0
         binding = bool(facts.get("binding_constraints"))
-        all_below_breakeven = bool(channels) and all(
-            (float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in channels
+        # v1.3.2 audit fix (M1): для effectiveness mode «all below breakeven»
+        # семантически unapplicable (shares always sum to 100%, threshold
+        # arbitrary). Skip branch и treat as standard portfolio.
+        all_below_breakeven = (
+            bool(channels)
+            and kpi["mode"] != "effectiveness"
+            and all((float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in channels)
         )
         # N3 (Phase 0.1): if optimizer hit binding constraints, surface that
         # explicitly — otherwise narrative says "сохранить аллокацию" while
@@ -1011,21 +1058,26 @@ def render_action_table(ctx: dict) -> str:
         totals_html = ""
 
     # Footnotes
-    # v1.3.2: KPI-aware verdict reason — заменяем «mROAS» / «рубля» на CPU / доля.
+    # v1.3.2 audit fix (M1): KPI-aware verdict reason — для effectiveness mode
+    # «breakeven» metaphor неестественна для shares. Используем «доля ниже
+    # бенчмарка». Для count — переформулируем mROAS-specific terms через
+    # vocabulary CPU/единиц.
     if kpi["is_legacy"]:
         verdict_reasons_view = v_reasons
-    else:
+    elif kpi["mode"] == "effectiveness":
+        verdict_reasons_view = {
+            "Cut": "низкая доля в портфеле; рекомендовано остановить или перевести в другие каналы.",
+            "Reduce": "вклад канала в долю эффекта ниже среднего по портфелю.",
+        }
+    elif kpi["kpi_kind"] == "count":
         metric_short = kpi["metric_short"]
-        verdict_reasons_view = {}
-        for verdict_name, reason_text in v_reasons.items():
-            adapted = reason_text.replace("mROAS", metric_short)
-            if kpi["mode"] == "effectiveness":
-                adapted = adapted.replace("маржинальный возврат от дополнительного рубля",
-                                          "вклад канала в доле эффекта")
-            elif kpi["kpi_kind"] == "count":
-                adapted = adapted.replace("маржинальный возврат от дополнительного рубля",
-                                          "стоимость следующей единицы")
-            verdict_reasons_view[verdict_name] = adapted
+        verdict_reasons_view = {
+            "Cut": f"{metric_short} превышает ценность единицы; рекомендовано остановить или перевести в другие каналы.",
+            "Reduce": "достигнуто насыщение; стоимость следующей единицы выше среднего по портфелю.",
+        }
+    else:
+        # Defensive: unknown mode → keep base reasons (manual / out-of-scope).
+        verdict_reasons_view = v_reasons
 
     if flagged:
         fn_items = []
@@ -1188,24 +1240,37 @@ def render_recommendation(ctx: dict) -> str:
             )
 
         # N4 — Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
-        # v1.3.2: KPI-aware breakeven phrasing.
+        # v1.3.2 audit fix (M1): mode-natural phrasing — «breakeven» metaphor
+        # подходит для monetary/count, для effectiveness используем «низкая доля».
         n_saturated = sum(
             1 for c in channels
             if (c.get("mroas") or 0) > 0 and (c.get("mroas") or 0) < 1.0
         )
-        breakeven_phrase = "mROAS < 1×" if kpi["is_legacy"] else _under_breakeven_phrase(kpi)
         metric_short = kpi["metric_short"]
         if n_saturated > 0:
+            if kpi["is_legacy"]:
+                problem_clause = f"{n_saturated} канал(ов) под breakeven (mROAS < 1×)"
+            elif kpi["mode"] == "effectiveness":
+                problem_clause = f"{n_saturated} канал(ов) с низкой долей в портфеле"
+            elif kpi["kpi_kind"] == "count":
+                problem_clause = f"{n_saturated} канал(ов) под breakeven ({_under_breakeven_phrase(kpi)})"
+            else:
+                problem_clause = f"{n_saturated} канал(ов) под breakeven"
             action_02_text = (
-                f"{n_saturated} канал(ов) под breakeven ({breakeven_phrase}) — "
-                "проверить data quality, adstock decay и сравнить с industry benchmarks "
-                "перед следующей итерацией."
+                f"{problem_clause} — проверить data quality, adstock decay и сравнить "
+                "с industry benchmarks перед следующей итерацией."
             )
         else:
-            action_02_text = (
-                f"Все каналы выше breakeven — мониторить {metric_short} в следующих периодах "
-                "на признаки saturation."
-            )
+            if kpi["mode"] == "effectiveness":
+                action_02_text = (
+                    "Все каналы дают сравнимый вклад в долю эффекта — "
+                    f"мониторить {metric_short.lower()} канала в следующих периодах на признаки saturation."
+                )
+            else:
+                action_02_text = (
+                    f"Все каналы выше breakeven — мониторить {metric_short} в следующих периодах "
+                    "на признаки saturation."
+                )
 
         if underperf:
             # L12 (math-fix v1.4 Section C, 2026-04-29): full list, не top-2 slice.

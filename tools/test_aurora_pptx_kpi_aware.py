@@ -94,11 +94,15 @@ def test_fmt_metric_monetary_roi():
     assert fmt_metric('bad', kpi) == '-'
 
 
-def test_fmt_metric_count():
+def test_fmt_metric_count_inverts_to_cpu():
+    """B4 audit fix: input units/₽ → CPU ₽/ед. via 1/x."""
     from aurora_pptx.kpi_helpers import fmt_metric, kpi_view
     kpi = kpi_view({'kpi': {'kpi_kind': 'count', 'derived_mode': 'roi', 'labels': {}}})
-    assert fmt_metric(120.5, kpi) == '120 ₽/ед.'
-    assert fmt_metric(0, kpi) == '0 ₽/ед.'
+    assert fmt_metric(0.0125, kpi) == '80 ₽/ед.'  # 1/0.0125 = 80
+    assert fmt_metric(0.01, kpi) == '100 ₽/ед.'
+    # Zero / negative → fallback (no signal)
+    assert fmt_metric(0, kpi) == '-'
+    assert fmt_metric(-0.5, kpi) == '-'
 
 
 def test_fmt_metric_effectiveness_fraction():
@@ -120,11 +124,17 @@ def test_fmt_metric_with_ci_legacy():
     assert out == '1.50× [1.20—1.80]'
 
 
-def test_fmt_metric_with_ci_count():
+def test_fmt_metric_with_ci_count_inverts_and_swaps():
+    """B4 audit fix: count CI inverts (1/x) и swaps order [lo_cpu — hi_cpu]."""
     from aurora_pptx.kpi_helpers import fmt_metric_with_ci_text, kpi_view
     kpi = kpi_view({'kpi': {'kpi_kind': 'count', 'derived_mode': 'roi', 'labels': {}}})
-    out = fmt_metric_with_ci_text(120, 110, 130, kpi)
-    assert out == '120 ₽/ед. [110—130]'
+    # mean=0.0125 → CPU 80
+    # ci_low=0.01 → CPU 100 (after invert → high CPU)
+    # ci_high=0.0167 → CPU 60 (after invert → low CPU)
+    # Display: «80 ₽/ед. [60—100]» (canonical [lo_cpu — hi_cpu]).
+    out = fmt_metric_with_ci_text(0.0125, 0.01, 0.01667, kpi)
+    assert '80 ₽/ед.' in out
+    assert '[60—100]' in out
 
 
 def test_fmt_metric_with_ci_effectiveness_fraction():

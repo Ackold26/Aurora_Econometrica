@@ -885,12 +885,13 @@ export function decomposeInsights(data, kpiInput = null) {
   }
 
   // ── 5. ROI лидеры и аутсайдеры — v1.3.2: KPI/mode-aware labels ──
-  // For count KPI: «лучший CPU» = минимум (cheapest per unit); sort ascending.
-  // For monetary/effectiveness: sort descending (highest = best).
+  // B4 audit fix: c.roi от backend = mathematical KPI_units/₽_spend для всех KPI.
+  // - monetary: бóльший = лучший ROI (intuitive).
+  // - count: бóльший units/₽ = меньший ₽/ед. = лучший CPU.
+  // - effectiveness: бóльший share = лидер.
+  // Universal: sort descending raw → best first.
   /** @type {(a: any, b: any) => number} */
-  const sortBest = kpi.kpiKind === 'count'
-    ? (a, b) => (a.roi || Infinity) - (b.roi || Infinity)
-    : (a, b) => (b.roi || 0) - (a.roi || 0);
+  const sortBest = (a, b) => (b.roi || 0) - (a.roi || 0);
   const sortedByRoi = [...channels].filter(c => c.roi != null).sort(sortBest);
   if (sortedByRoi.length >= 2) {
     const topRoi = sortedByRoi[0];
@@ -919,28 +920,32 @@ export function decomposeInsights(data, kpiInput = null) {
         });
       }
     } else if (kpi.kpiKind === 'count') {
-      // CPU semantics: lower = better. vpcu = ценность единицы.
+      // B4 audit fix: c.roi raw = units/₽ (mathematical). CPU = 1/c.roi.
+      // Threshold logic в CPU space (₽/ед.); compare derived CPU vs vpcu.
       const vpcu = kpi.vpcu;
-      const topCpu = topRoi.roi;
+      const topRawMroas = Number(topRoi.roi);
+      const bottomRawMroas = Number(bottomRoi.roi);
+      const topCpu = topRawMroas > 0 ? 1 / topRawMroas : Infinity;
+      const bottomCpu = bottomRawMroas > 0 ? 1 / bottomRawMroas : Infinity;
       const topGood = vpcu ? topCpu <= vpcu * 0.5 : topCpu < 100;
       const topAcceptable = vpcu ? topCpu <= vpcu : topCpu < 200;
       if (topGood) {
         out.push({
           severity: 'success',
-          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topCpu, kpi)} — стоимость единицы значительно ниже ценности${vpcu ? ` (${vpcu.toFixed(0)} ₽)` : ''}.`,
+          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topRawMroas, kpi)} — стоимость единицы значительно ниже ценности${vpcu ? ` (${vpcu.toFixed(0)} ₽)` : ''}.`,
           tip: `${_topBenchmark(kpi)} — отличный показатель. При условии что канал не перенасыщен (Hill saturation), можно увеличить инвестиции.`,
         });
       } else if (topAcceptable) {
         out.push({
           severity: 'info',
-          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topCpu, kpi)} — окупается, но не выдающийся.`,
+          text: `Лучший ${metricShort}: ${topRoi.name} = ${_fmtMetric(topRawMroas, kpi)} — окупается, но не выдающийся.`,
         });
       }
 
-      if (vpcu && bottomRoi.roi > vpcu && bottomRoi.spend > 0) {
+      if (vpcu && bottomCpu > vpcu && bottomRoi.spend > 0) {
         out.push({
           severity: 'warning',
-          text: `Убыточный канал: ${bottomRoi.name} = ${metricShort} ${_fmtMetric(bottomRoi.roi, kpi)} — стоимость единицы превышает её ценность (${vpcu.toFixed(0)} ₽).`,
+          text: `Убыточный канал: ${bottomRoi.name} = ${metricShort} ${_fmtMetric(bottomRawMroas, kpi)} — стоимость единицы превышает её ценность (${vpcu.toFixed(0)} ₽).`,
           tip: 'Прежде чем сокращать: (1) проверить, есть ли brand-эффект; (2) убедиться, что данные по каналу полные; (3) рассмотреть смену формата/креатива до полного отключения.',
         });
       }

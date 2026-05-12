@@ -291,12 +291,21 @@ def test_fmt_metric_monetary_roi():
     assert _fmt_metric(None, kpi) == '-'
 
 
-def test_fmt_metric_count():
+def test_fmt_metric_count_inverts_to_cpu():
+    """B4 audit fix: c.mroas от backend = units/₽; _fmt_metric inverts → CPU.
+
+    Pre-fix: format showed «X ₽/ед.» literal X — semantically wrong для
+    mathematical units/₽ input. Post-fix: invert before display.
+    """
     from aurora_html.sections import _fmt_metric, _kpi_view
     ctx = {'kpi': {'kpi_kind': 'count', 'derived_mode': 'roi', 'labels': {}}}
     kpi = _kpi_view(ctx)
-    assert _fmt_metric(120.5, kpi) == '120 ₽/ед.'
-    assert _fmt_metric(0, kpi) == '0 ₽/ед.'
+    # units/₽ → CPU = 1/x
+    assert _fmt_metric(0.0125, kpi) == '80 ₽/ед.'  # 1/0.0125 = 80
+    assert _fmt_metric(0.01, kpi) == '100 ₽/ед.'   # 1/0.01 = 100
+    # Zero or negative → fallback (canonical no-signal)
+    assert _fmt_metric(0, kpi) == '-'
+    assert _fmt_metric(-0.5, kpi) == '-'
 
 
 def test_fmt_metric_effectiveness_fraction():

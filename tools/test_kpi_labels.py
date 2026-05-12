@@ -69,8 +69,21 @@ def test_format_metric_monetary_roi():
     assert format_metric(1.5, 'monetary', 'roi') == '1.50×'
 
 
-def test_format_metric_count():
-    assert format_metric(120.5, 'count', 'roi') == '120 ₽/ед.'
+def test_format_metric_count_inverts_to_cpu():
+    """B4 audit fix (v1.3.2): backend convention puts mathematical units/₽
+    in per-channel mroas. format_metric inverts to CPU display.
+
+    Pre-fix: assumed input был ready CPU → format appended unit. После
+    consistency audit обнаружено: backend (decomposer/narrative_adapter)
+    pass raw units/₽. Helper now responsible для inversion.
+    """
+    # 0.0125 units/₽ → CPU = 1/0.0125 = 80 ₽/ед.
+    assert format_metric(0.0125, 'count', 'roi') == '80 ₽/ед.'
+    # 0.01 → 100
+    assert format_metric(0.01, 'count', 'roi') == '100 ₽/ед.'
+    # 0 / negative — no signal fallback
+    assert format_metric(0, 'count', 'roi') == '—'
+    assert format_metric(-0.5, 'count', 'roi') == '—'
 
 
 def test_format_metric_effectiveness():
@@ -90,14 +103,18 @@ def test_cover_summary_monetary_roi():
 
 
 def test_cover_summary_count_with_value():
-    summary = cover_metric_summary(120, 'count', 'roi', value_per_count_unit=80)
+    """B4 audit: avg_metric receives mathematical units/₽; cover_summary
+    inverts via format_metric для CPU display."""
+    # avg_metric = 0.0125 units/₽ → CPU 80, value_per_count_unit = 80 ₽
+    summary = cover_metric_summary(0.0125, 'count', 'roi', value_per_count_unit=80)
     assert 'CPU' in summary
-    assert '120 ₽/ед.' in summary
-    assert '80 ₽' in summary  # value mention
+    assert '80 ₽/ед.' in summary
+    assert '80 ₽' in summary  # value mention (also)
 
 
 def test_cover_summary_count_without_value():
-    summary = cover_metric_summary(120, 'count', 'roi', value_per_count_unit=None)
+    """B4 audit: 0.0125 units/₽ → CPU 80; без vpcu — нет «(vs ценность)»."""
+    summary = cover_metric_summary(0.0125, 'count', 'roi', value_per_count_unit=None)
     assert 'CPU' in summary
     assert 'value' not in summary.lower()
 
