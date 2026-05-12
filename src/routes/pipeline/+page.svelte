@@ -60,6 +60,24 @@
     }
     return result;
   });
+
+  // v1.3.2: column stats lookup для PerChannelInputSelector — позволяет
+  // показать data quality preview (zeros%/missing%) per metric option.
+  const columnStats = $derived.by(() => {
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols)) return {};
+    /** @type {Record<string, {zeros_pct: number, missing_pct: number}>} */
+    const stats = {};
+    for (const c of cols) {
+      if (c?.name && c?.stats) {
+        stats[c.name] = {
+          zeros_pct: Number(c.stats.zeros_pct ?? 0),
+          missing_pct: Number(c.stats.missing_pct ?? 0),
+        };
+      }
+    }
+    return stats;
+  });
 </script>
 
 <!-- A3: Single route, all steps present in DOM, visibility controlled by StepWrapper -->
@@ -76,7 +94,7 @@
   <!-- Step 1: Validate - Phase 2 / v1.3.0 derived mode (per ADR-015) -->
   <StepWrapper step={1} helpPage="data-preparation">
     {#if $useDerivedModeUX}
-      <ValidateStepV13 channels={channels} availableMetricsByChannel={availableMetricsByChannel} />
+      <ValidateStepV13 channels={channels} availableMetricsByChannel={availableMetricsByChannel} columnStats={columnStats} />
     {:else}
       <ValidateStep />
     {/if}

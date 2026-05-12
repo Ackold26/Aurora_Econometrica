@@ -334,7 +334,31 @@
           {@const reco = recommendationFor(col)}
           <tr class="role-{role}">
             <td class="col-name">{col.name}</td>
-            <td class="col-kind" title={col.kind ?? ''}>{humanizeKind(col.kind)}</td>
+            <td class="col-kind" title={col.kind ?? ''}>
+              <span class="kind-label">{humanizeKind(col.kind)}</span>
+              {#if col.stats}
+                {@const zeros = Number(col.stats.zeros_pct ?? 0)}
+                {@const missing = Number(col.stats.missing_pct ?? 0)}
+                <span class="stat-badges">
+                  {#if zeros >= 50}
+                    <span class="stat-badge tone-{zeros > 80 ? 'danger' : 'warn'}"
+                      title="Доля нулевых значений: {zeros.toFixed(0)}%. {zeros > 80 ? 'Канал практически неактивен — почти всегда исключают.' : 'Существенная разреженность данных — модель может оценить вклад с большой неопределённостью.'}">
+                      {Math.round(zeros)}% нулей
+                    </span>
+                  {:else if zeros >= 30}
+                    <span class="stat-badge tone-info" title="Доля нулевых значений: {zeros.toFixed(1)}%. Умеренная разреженность — модель справится, но обратите внимание.">
+                      {Math.round(zeros)}% нулей
+                    </span>
+                  {/if}
+                  {#if missing >= 5}
+                    <span class="stat-badge tone-{missing > 20 ? 'warn' : 'neutral'}"
+                      title="Доля пропусков (NaN): {missing.toFixed(1)}%. {missing > 20 ? 'Много пропусков — модель потеряет периоды.' : 'Небольшое число пропусков, не критично.'}">
+                      {Math.round(missing)}% пусто
+                    </span>
+                  {/if}
+                </span>
+              {/if}
+            </td>
             <td class="col-role">
               <div class="role-cell">
                 <span class="role-dot tone-{ROLE_META[role].tone}" aria-hidden="true"></span>
@@ -633,8 +657,52 @@
   .col-kind {
     font-size: 11px;
     color: var(--text-muted);
-    text-transform: lowercase;
     letter-spacing: 0.02em;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
+  }
+  .col-kind .kind-label { text-transform: lowercase; }
+  /* v1.3.2: stat-badges под kind label — zeros%/missing% per column. */
+  .stat-badges {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .stat-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid transparent;
+    text-transform: none;
+    cursor: help;
+    white-space: nowrap;
+  }
+  .stat-badge.tone-danger {
+    background: color-mix(in srgb, var(--danger, #f87171) 12%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #f87171) 30%, transparent);
+    color: var(--danger, #f87171);
+  }
+  .stat-badge.tone-warn {
+    background: color-mix(in srgb, var(--gold, #c9a449) 12%, transparent);
+    border-color: color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
+    color: var(--gold, #c9a449);
+  }
+  .stat-badge.tone-info {
+    background: color-mix(in srgb, var(--accent-primary, #6366f1) 10%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #6366f1) 25%, transparent);
+    color: var(--accent-primary, #6366f1);
+  }
+  .stat-badge.tone-neutral {
+    background: var(--bg-surface-quiet, rgba(255,255,255,0.04));
+    border-color: var(--border-subtle, rgba(255,255,255,0.08));
+    color: var(--text-muted, #64748b);
   }
 
   /* Row tint tied к role (subtle, premium - не chrome-bright) */

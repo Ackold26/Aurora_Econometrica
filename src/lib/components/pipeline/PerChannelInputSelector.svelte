@@ -19,9 +19,55 @@
   const {
     channels,                   // ['tv', 'olv', 'performance', ...]
     availableMetricsByChannel,  // {channel: AvailableMetrics}
+    columnStats = {},           // v1.3.2: {colName: {zeros_pct, missing_pct}}
     currentSelection,           // {channel: 'monetary'|'physical'} | null
     onConfirm,                  // callback(perChannelInput)
   } = $props();
+
+  /**
+   * v1.3.2: aggregate stats для group of columns. Возвращает min zeros / max
+   * missing / average чтобы быстро сравнить «чистоту» monetary vs physical
+   * option per channel.
+   * @param {string[]} colNames
+   * @returns {{ zeros: number, missing: number, count: number } | null}
+   */
+  function aggregateStats(colNames) {
+    if (!colNames || colNames.length === 0) return null;
+    let zerosSum = 0;
+    let missingSum = 0;
+    let count = 0;
+    for (const name of colNames) {
+      const s = columnStats[name];
+      if (!s) continue;
+      zerosSum += Number(s.zeros_pct ?? 0);
+      missingSum += Number(s.missing_pct ?? 0);
+      count += 1;
+    }
+    if (count === 0) return null;
+    return {
+      zeros: zerosSum / count,
+      missing: missingSum / count,
+      count,
+    };
+  }
+
+  /**
+   * Determine рекомендованный choice (monetary vs physical) per channel based
+   * on data quality. Lower zeros% = более надёжный источник.
+   * @param {string} channel
+   * @returns {'monetary' | 'physical' | null}
+   */
+  function recommendedChoice(channel) {
+    const av = availableMetricsByChannel[channel] || { monetary: [], physical: [] };
+    const monAgg = aggregateStats(av.monetary);
+    const physAgg = aggregateStats(av.physical);
+    if (!monAgg && !physAgg) return null;
+    if (!monAgg) return 'physical';
+    if (!physAgg) return 'monetary';
+    // Recommend option с lower zeros% (cleaner data).
+    if (Math.abs(monAgg.zeros - physAgg.zeros) < 5) return null;  // tie
+    return monAgg.zeros < physAgg.zeros ? 'monetary' : 'physical';
+  }
 
   // Initialize selection с smart defaults.
   /** @type {Record<string, string>} */
@@ -111,6 +157,9 @@
       {#each channels as ch (ch)}
         {@const av = availableMetricsByChannel[ch] || { monetary: [], physical: [] }}
         {@const locked = isLocked(ch)}
+        {@const monAgg = aggregateStats(av.monetary)}
+        {@const physAgg = aggregateStats(av.physical)}
+        {@const recommended = recommendedChoice(ch)}
         <tr class:row-monetary={selection[ch] === 'monetary'} class:row-physical={selection[ch] === 'physical'}>
           <td class="channel-name">{ch}</td>
           <td class="available-metrics">
@@ -129,7 +178,10 @@
             {/if}
           </td>
           <td class="radio-cell">
-            <label class:locked={locked && av.physical.length === 0}>
+            <label
+              class:locked={locked && av.physical.length === 0}
+              class:recommended={recommended === 'monetary'}
+            >
               <input
                 type="radio"
                 name="metric-{ch}"
@@ -138,9 +190,21 @@
                 disabled={av.monetary.length === 0}
                 onchange={() => setMetric(ch, 'monetary')}
               />
-              ₽ бюджет
+              <span class="radio-label-text">₽ бюджет</span>
+              {#if monAgg}
+                <span class="quality-stat {monAgg.zeros > 50 ? 'q-bad' : monAgg.zeros > 25 ? 'q-warn' : 'q-good'}"
+                  title="Среднее по {monAgg.count} колон{monAgg.count === 1 ? 'ке' : 'кам'}: {monAgg.zeros.toFixed(0)}% нулей, {monAgg.missing.toFixed(0)}% пропусков.">
+                  {monAgg.zeros.toFixed(0)}% нулей
+                </span>
+              {/if}
+              {#if recommended === 'monetary'}
+                <span class="reco-tag" title="Рекомендуем — у бюджета меньше нулей чем у физических метрик.">рек.</span>
+              {/if}
             </label>
-            <label class:locked={locked && av.monetary.length === 0}>
+            <label
+              class:locked={locked && av.monetary.length === 0}
+              class:recommended={recommended === 'physical'}
+            >
               <input
                 type="radio"
                 name="metric-{ch}"
@@ -149,7 +213,16 @@
                 disabled={av.physical.length === 0}
                 onchange={() => setMetric(ch, 'physical')}
               />
-              📊 контакты
+              <span class="radio-label-text">📊 контакты</span>
+              {#if physAgg}
+                <span class="quality-stat {physAgg.zeros > 50 ? 'q-bad' : physAgg.zeros > 25 ? 'q-warn' : 'q-good'}"
+                  title="Среднее по {physAgg.count} колон{physAgg.count === 1 ? 'ке' : 'кам'}: {physAgg.zeros.toFixed(0)}% нулей, {physAgg.missing.toFixed(0)}% пропусков.">
+                  {physAgg.zeros.toFixed(0)}% нулей
+                </span>
+              {/if}
+              {#if recommended === 'physical'}
+                <span class="reco-tag" title="Рекомендуем — у физических метрик меньше нулей чем у бюджета.">рек.</span>
+              {/if}
             </label>
           </td>
         </tr>
@@ -304,6 +377,58 @@
     text-decoration: line-through;
   }
   .radio-cell input[type="radio"]:disabled + * { color: var(--text-muted); }
+
+  /* v1.3.2: quality-stat badge per radio option — zeros% preview. */
+  .quality-stat {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    border: 1px solid transparent;
+    cursor: help;
+    white-space: nowrap;
+  }
+  .quality-stat.q-good {
+    background: color-mix(in srgb, var(--success, #4ade80) 10%, transparent);
+    border-color: color-mix(in srgb, var(--success, #4ade80) 25%, transparent);
+    color: var(--success, #4ade80);
+  }
+  .quality-stat.q-warn {
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border-color: color-mix(in srgb, var(--gold, #c9a449) 25%, transparent);
+    color: var(--gold, #c9a449);
+  }
+  .quality-stat.q-bad {
+    background: color-mix(in srgb, var(--danger, #f87171) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #f87171) 25%, transparent);
+    color: var(--danger, #f87171);
+  }
+
+  /* v1.3.2: «рек.» recommendation tag для option с лучшей data quality. */
+  .reco-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 40%, transparent);
+    color: var(--gold, #c9a449);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: help;
+  }
+  .radio-cell label.recommended {
+    color: var(--text-primary);
+  }
+  .radio-cell label.recommended .radio-label-text {
+    font-weight: 600;
+  }
 
   .actions {
     display: flex;

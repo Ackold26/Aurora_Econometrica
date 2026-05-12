@@ -44,7 +44,7 @@
   // Audit fix v1.3.0: monetaryColumnHint теперь auto-detected из validateData
   // (если не передан явно). Hardcoded 'sales_rub' ломал auto-detect для
   // не-стандартных schemas (revenue / выручка / sales).
-  const { onComplete = undefined, channels = [], availableMetricsByChannel = {}, monetaryColumnHint = '' } = $props();
+  const { onComplete = undefined, channels = [], availableMetricsByChannel = {}, columnStats = {}, monetaryColumnHint = '' } = $props();
 
   /** v1.3.2 audit fix (M3): preflight role confirmation step. Когда false →
    *  show ColumnMapperConfirm перед KPISelector flow. После confirm flips к
@@ -683,6 +683,7 @@
     <PerChannelInputSelector
       channels={channels}
       availableMetricsByChannel={availableMetricsByChannel}
+      columnStats={columnStats}
       currentSelection={currentPerChannel}
       onConfirm={handlePerChannelConfirm}
     />
