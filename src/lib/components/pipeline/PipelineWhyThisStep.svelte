@@ -25,9 +25,11 @@
   const currentStepId = $derived(stepIdMap[$pipelineCurrentStep] ?? 'validate');
   const currentHelp = $derived(/** @type {any} */ (contextualHelp)[currentStepId]);
 
-  // UX audit v1.3.0: open by default на первых 2 шагах (Import / Validate) для novice.
-  // На остальных collapsed — юзер уже знает контекст.
-  const shouldOpenByDefault = $derived($pipelineCurrentStep <= 1);
+  // v1.3.2 audit: «Зачем шаг» panel collapsed по умолчанию на всех шагах.
+  // Pre-fix: Import/Validate имели defaultOpen=true (UX v1.3.0 — novice-friendly).
+  // Но в премиум-стилистике панель занимает много места и отвлекает от main
+  // content. Юзер открывает её explicit кликом, когда нужен контекст.
+  const shouldOpenByDefault = false;
 </script>
 
 {#if !$hideEducationalHints && currentHelp}
