@@ -216,18 +216,10 @@
   <GlossaryPanel onClose={() => showGlossaryPanel.set(false)} />
 {/if}
 
-<!-- UX audit v1.3.0: visible floating glossary button — раньше был только Ctrl+G hidden hotkey. -->
-{#if !$showGlossaryPanel && !$showIntroTutorial && !paletteOpen}
-  <button
-    type="button"
-    class="glossary-fab"
-    onclick={() => showGlossaryPanel.set(true)}
-    aria-label="Открыть глоссарий (Ctrl+G)"
-    title="Глоссарий — 20 терминов (Ctrl+G)"
-  >
-    📖
-  </button>
-{/if}
+<!-- v1.3.2 audit: floating glossary FAB removed — выбивался из премиум-стилистики.
+     Glossary остаётся доступен через (1) Ctrl+G keyboard shortcut, (2) Settings →
+     «Открыть глоссарий» кнопка, (3) tooltip ?-icon рядом с каждым specialized
+     термином в pipeline (in-context, не глобальный pictograph). -->
 
 {#if $showIntroTutorial}
   <IntroTutorial
@@ -275,30 +267,7 @@
 {/if}
 
 <style>
-  /* UX audit v1.3.0: floating glossary button — visible discoverability vs Ctrl+G hidden hotkey. */
-  .glossary-fab {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 100;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-    font-size: 22px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.15s, box-shadow 0.2s, border-color 0.2s;
-  }
-  .glossary-fab:hover {
-    transform: scale(1.08);
-    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
-    border-color: var(--accent-primary, #6366f1);
-  }
+  /* v1.3.2 audit: .glossary-fab removed (см. template comment). */
 
   .toast-container {
     position: fixed;
