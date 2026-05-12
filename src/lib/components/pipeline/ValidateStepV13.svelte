@@ -15,27 +15,38 @@
    */
 
   import { invoke } from '@tauri-apps/api/core';
+  import { get } from 'svelte/store';
   import {
     kpiType, kpiKind, perChannelInput, derivedMode,
     valuePerCountUnit, valuePerCountUnitSource,
-    activeProject, validateData,
+    activeProject, activeProjectId, validateData,
   } from '$lib/project-state.js';
   import {
     deriveModeWithExplanation,
     kpiKindForType,
     valuePerCountUnitLabel,
   } from '$lib/mode-derivation.js';
+  import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
   import PerChannelInputSelector from './PerChannelInputSelector.svelte';
   import ModeDerivedExplanation from './ModeDerivedExplanation.svelte';
   import WhyThisStep from './WhyThisStep.svelte';
+  // v1.3.2: ColumnMapperConfirm — preflight role confirmation перед KPISelector.
+  // Backend column_detection делает auto-classify; этот компонент показывает
+  // detected roles в read-only table с possibility override.
+  import ColumnMapperConfirm from './ColumnMapperConfirm.svelte';
 
   // Audit fix v1.3.0: monetaryColumnHint теперь auto-detected из validateData
   // (если не передан явно). Hardcoded 'sales_rub' ломал auto-detect для
   // не-стандартных schemas (revenue / выручка / sales).
   const { onComplete = undefined, channels = [], availableMetricsByChannel = {}, monetaryColumnHint = '' } = $props();
 
+  /** v1.3.2: preflight role confirmation step. Когда false → show
+   *  ColumnMapperConfirm перед KPISelector flow. После confirm flips к true и
+   *  далее идёт обычный 4-substep KPI flow. localStorage-persisted чтобы
+   *  один раз потвердить per project. */
+  let rolesConfirmed = $state(false);
   /** @type {0 | 1 | 2 | 3} */
   let subStep = $state(0);
   /** @type {string} */
@@ -186,30 +197,92 @@
   /**
    * Audit fix v1.3.0: linear back navigation (не skip skipValueStep).
    * Prevents user confusion при switching KPI type after substep 2.
+   * v1.3.2: subStep 0 + rolesConfirmed → goBack returns к ColumnMapperConfirm.
    */
   function goBack() {
+    if (subStep === 0 && rolesConfirmed) { rolesConfirmed = false; return; }
     if (subStep === 1) subStep = 0;
     else if (subStep === 2) subStep = skipValueStep ? 0 : 1;
     else if (subStep === 3) subStep = 2;
+  }
+
+  // v1.3.2: ColumnMapperConfirm columns derived из validateData.result.columns.
+  // Преобразуем canonical role vocabulary → ColumnMapperConfirm dropdown set
+  // (kpi/media/control/date/excluded). 'unused' и 'unknown' маппим в 'excluded'.
+  const detectedColumns = $derived.by(() => {
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols)) return [];
+    return cols.map((/** @type {any} */ c) => ({
+      name: c?.name ?? '—',
+      kind: c?.kind ?? c?.dtype ?? null,
+      role: (c?.role === 'unused' || c?.role === 'unknown' || c?.role == null)
+        ? 'excluded'
+        : c.role,
+    }));
+  });
+
+  /** @param {Record<string, string>} mapping — column name → role chosen by user */
+  async function handleRolesConfirm(mapping) {
+    // Persist overrides обратно к validateData.result.columns + project.json.
+    const val = get(validateData);
+    if (val?.result?.columns) {
+      // ColumnMapperConfirm uses 'excluded' → canonical vocabulary use 'unused'.
+      /** @type {Record<string, string[]>} */
+      const byRole = {};
+      for (const [name, uiRole] of Object.entries(mapping)) {
+        const canonical = uiRole === 'excluded' ? 'unused' : uiRole;
+        if (!byRole[canonical]) byRole[canonical] = [];
+        byRole[canonical].push(name);
+      }
+      let updated = val.result.columns;
+      for (const [role, names] of Object.entries(byRole)) {
+        updated = setColumnRolesBulk(updated, names, role);
+      }
+      // Apply local store update (immutable).
+      validateData.set({
+        ...val,
+        result: { ...val.result, columns: updated },
+      });
+      // Persist project.json (best-effort, non-blocking — matches InsightsPanel pattern).
+      const projectId = get(activeProjectId);
+      if (projectId) {
+        const updates = buildProjectUpdates(updated);
+        invoke('project_update', { projectId, updates }).catch(() => { /* silent */ });
+      }
+    }
+    rolesConfirmed = true;
+    subStep = 0;
   }
 </script>
 
 <div class="validate-v13">
   <!-- Sub-step progress indicator -->
   <nav class="substep-nav">
-    {#each ['Целевая метрика', skipValueStep ? null : 'Ценность единицы', 'Метрики каналов', 'Подтверждение'].filter(Boolean) as label, i}
-      <div class="substep-dot" class:active={i === subStep || (skipValueStep && i >= subStep - 1)} class:done={i < subStep}>
+    <!-- v1.3.2: 5-step layout — Роли (NEW) → Целевая → Ценность → Каналы → Подтверждение.
+         Ценность скрыта когда KPI monetary (skipValueStep). Active state per stage:
+         - Роли: !rolesConfirmed
+         - Целевая..Подтверждение: rolesConfirmed && subStep === i
+         Done state — rolesConfirmed для Роли + linear для прочих. -->
+    {#each ['Роли колонок', 'Целевая метрика', skipValueStep ? null : 'Ценность единицы', 'Метрики каналов', 'Подтверждение'].filter(Boolean) as label, i}
+      {@const stageIndex = i === 0 ? -1 : i - 1}
+      {@const isActive = i === 0 ? !rolesConfirmed : (rolesConfirmed && (stageIndex === subStep || (skipValueStep && stageIndex >= subStep - 1 && stageIndex === 0)))}
+      {@const isDone = i === 0 ? rolesConfirmed : (rolesConfirmed && stageIndex < subStep)}
+      <div class="substep-dot" class:active={isActive} class:done={isDone}>
         <span class="dot-number">{i + 1}</span>
         <span class="dot-label">{label}</span>
       </div>
     {/each}
   </nav>
 
-  {#if subStep > 0}
+  {#if rolesConfirmed && subStep > 0}
     <button class="back-link" onclick={goBack}>← Назад</button>
+  {:else if rolesConfirmed && subStep === 0}
+    <button class="back-link" onclick={goBack}>← Изменить роли колонок</button>
   {/if}
 
-  {#if subStep === 0}
+  {#if !rolesConfirmed}
+    <ColumnMapperConfirm columns={detectedColumns} onConfirm={handleRolesConfirm} />
+  {:else if subStep === 0}
     <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
   {:else if subStep === 1}
     <ValuePerCountUnitInput
