@@ -1,8 +1,20 @@
 <script>
   /**
-   * ROI comparison: grouped bar — Share of Spend vs Share of Effect per channel.
-   * Green = effect > spend (efficient), Red = spend > effect (inefficient).
-   * @component ROIComparison
+   * Channel comparison chart: grouped bar — Share of Spend vs Share of Effect.
+   *
+   * Compares каждый канал по двум долям (всегда в %), независимо от KPI mode:
+   * - monetary ROI: «доля бюджета vs доля выручки»
+   * - count: «доля бюджета vs доля проданных единиц»
+   * - effectiveness: «доля бюджета vs доля эффекта в портфеле»
+   *
+   * Зелёный = эффект > расходов (недонасыщен), красный = расходы > эффекта
+   * (перенасыщен). Y-axis всегда percentage — KPI-agnostic.
+   *
+   * v1.3.2: renamed из ROIComparison.svelte. Chart показывает shares of total
+   * в процентах; не путать с ROI×/CPU/Доля метриками (которые показываются
+   * на других чартах: WaterfallChart, action-table).
+   *
+   * @component ChannelComparisonChart
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';

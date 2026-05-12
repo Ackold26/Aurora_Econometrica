@@ -26,7 +26,7 @@
     valuePerCountUnit,
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
-  import ROIComparison from '$lib/components/pipeline/ROIComparison.svelte';
+  import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
   import { pipelineCurrentStep } from '$lib/project-state.js';
   import { formatMoney, formatCount } from '$lib/format-numbers.js';
@@ -457,7 +457,7 @@
     <!-- Two-column: ROI | Timeline -->
     <div class="charts-grid">
       <ExpandableCard title="Расходы vs Эффект" tourKey="decompose-roi">
-        <ROIComparison channels={data.channels} />
+        <ChannelComparisonChart channels={data.channels} />
       </ExpandableCard>
       <ExpandableCard title="Динамика по периодам" tourKey="decompose-timeline">
         {#if data.time_series?.dates?.length}
