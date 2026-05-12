@@ -46,6 +46,9 @@
   function handleSkip() {
     onSkip?.();
   }
+
+  // v1.3.2: «Зачем это?» раскрывающаяся панель.
+  let whyExpanded = $state(false);
 </script>
 
 <div class="value-input">
@@ -53,8 +56,35 @@
     <h2>Какая ценность одной единицы?</h2>
     <p class="lead">
       Чтобы оценить «убыточный/окупаемый» по каналам, нужно знать ценность одной {kpiType === 'sales_packs' ? 'упаковки' : 'единицы KPI'} для бизнеса.
-      <button class="why-link" type="button">Зачем это? <span class="chevron">▾</span></button>
+      <button
+        class="why-link"
+        type="button"
+        aria-expanded={whyExpanded}
+        onclick={() => (whyExpanded = !whyExpanded)}
+      >Зачем это? <span class="chevron" class:open={whyExpanded}>▾</span></button>
     </p>
+    {#if whyExpanded}
+      <div class="why-panel" role="region" aria-label="Подробное объяснение ценности единицы">
+        <p>
+          <strong>Ценность одной единицы</strong> — сколько денег приносит бизнесу одна продажа, лид, регистрация или подписка. Это маржа на единицу — то, что вы реально зарабатываете «сверху», за вычетом себестоимости.
+        </p>
+        <p>Модель использует это значение чтобы оценить, окупается ли канал:</p>
+        <ul>
+          <li>
+            <strong>CPU &lt; ценность</strong> → канал приносит больше, чем стоит привлечь единицу. <strong>Окупается.</strong>
+          </li>
+          <li>
+            <strong>CPU ≈ ценность</strong> → канал на грани окупаемости. Проверьте качество данных и долгосрочный эффект.
+          </li>
+          <li>
+            <strong>CPU &gt; ценность</strong> → канал тратит больше, чем приносит. <strong>Убыточен.</strong>
+          </li>
+        </ul>
+        <p class="why-tip">
+          <strong>Пример:</strong> фарма-препарат стоит 80 ₽/упаковка, маржа после налогов и логистики = 80 ₽ × 30% = 24 ₽. Канал с CPU = 20 ₽/упак — окупается; с CPU = 100 ₽/упак — глубоко убыточен.
+        </p>
+      </div>
+    {/if}
   </header>
 
   {#if autoValue?.value !== null && autoValue?.value !== undefined}
@@ -135,7 +165,36 @@
     text-decoration: underline dashed;
     text-underline-offset: 2px;
   }
-  .chevron { font-size: 9px; }
+  .why-link:hover { color: var(--gold, #c9a449); }
+  .chevron {
+    font-size: 9px;
+    display: inline-block;
+    transition: transform 0.2s;
+  }
+  .chevron.open { transform: rotate(180deg); }
+
+  /* v1.3.2: «Зачем это?» раскрывающаяся панель — premium tier-1. */
+  .why-panel {
+    margin-top: 12px;
+    padding: 14px 18px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 5%, var(--bg-card, #0f172a));
+    border-left: 2px solid var(--gold, #c9a449);
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+  .why-panel p { margin: 0 0 8px; }
+  .why-panel p:last-child { margin-bottom: 0; }
+  .why-panel ul { margin: 0 0 12px; padding-left: 18px; }
+  .why-panel li { padding: 3px 0; }
+  .why-panel strong { color: var(--text-primary); font-weight: 600; }
+  .why-tip {
+    margin-top: 10px !important;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    color: var(--text-primary);
+  }
 
   .auto-suggestion {
     display: flex;

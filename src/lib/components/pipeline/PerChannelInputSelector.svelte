@@ -36,6 +36,9 @@
         }))
   );
 
+  // v1.3.2: «Зачем это?» раскрывающаяся панель с объяснением выбора метрик.
+  let whyExpanded = $state(false);
+
   /** @param {string} channel */
   function isLocked(channel) {
     const av = availableMetricsByChannel[channel] || { monetary: [], physical: [] };
@@ -60,8 +63,40 @@
       <strong>бюджет (₽)</strong> — точные деньги,
       или <strong>физические контакты</strong> (показы, клики, GRP) — точные охваты.
       Программа определит режим автоматически после вашего выбора.
-      <button class="why-link" type="button">Зачем это? <span class="chevron">▾</span></button>
+      <button
+        class="why-link"
+        type="button"
+        aria-expanded={whyExpanded}
+        onclick={() => (whyExpanded = !whyExpanded)}
+      >Зачем это? <span class="chevron" class:open={whyExpanded}>▾</span></button>
     </p>
+    {#if whyExpanded}
+      <div class="why-panel" role="region" aria-label="Подробное объяснение">
+        <p><strong>Выбор метрики определяет режим оценки модели:</strong></p>
+        <ul>
+          <li>
+            <strong>Бюджет (₽)</strong> — модель посчитает ROI (return on investment): сколько рублей продаж приносит каждый рубль вложений.
+            Подходит для каналов где деньги — главный input (Performance, Social Ads, OOH с фиксированной ценой).
+          </li>
+          <li>
+            <strong>Физические контакты</strong> — модель посчитает CPU (cost per unit) и эффективность по охватам.
+            Подходит для каналов где budget «грязный» (бартер, скидки, длинные контракты), но GRP/показы измеряются точно — TV, OLV, прямая реклама.
+          </li>
+        </ul>
+        <p>
+          <strong>Программа выберет режим автоматически:</strong>
+        </p>
+        <ul>
+          <li>Все каналы → бюджет = режим <strong>ROI</strong> (monetary attribution).</li>
+          <li>Все каналы → физические = режим <strong>Эффективность</strong> (share-based attribution).</li>
+          <li>Смешанный выбор = режим <strong>Вручную</strong> (вы контролируете каждый канал).</li>
+        </ul>
+        <p class="why-tip">
+          <strong>Правило:</strong> выбирайте более достоверный источник. Если бюджет канала точный — берите его.
+          Если бюджет искажён бартером или скидками, но GRP/показы измеряются прозрачно — берите физический показатель.
+        </p>
+      </div>
+    {/if}
   </header>
 
   <table class="channels-table">
@@ -161,7 +196,39 @@
     text-decoration: underline dashed;
     padding: 0 4px;
   }
-  .chevron { font-size: 9px; }
+  .why-link:hover { color: var(--gold, #c9a449); }
+  .chevron {
+    font-size: 9px;
+    display: inline-block;
+    transition: transform 0.2s;
+  }
+  .chevron.open { transform: rotate(180deg); }
+
+  /* v1.3.2: «Зачем это?» раскрывающаяся панель — premium tier-1. */
+  .why-panel {
+    margin-top: 12px;
+    padding: 14px 18px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 5%, var(--bg-card, #0f172a));
+    border-left: 2px solid var(--gold, #c9a449);
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+  .why-panel p { margin: 0 0 8px; }
+  .why-panel p:last-child { margin-bottom: 0; }
+  .why-panel ul {
+    margin: 0 0 12px;
+    padding-left: 18px;
+  }
+  .why-panel li { padding: 3px 0; }
+  .why-panel strong { color: var(--text-primary); font-weight: 600; }
+  .why-tip {
+    margin-top: 10px !important;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    color: var(--text-primary);
+  }
 
   .channels-table {
     width: 100%;

@@ -40,6 +40,9 @@
   function handleSelect(id) {
     onSelect?.(id);
   }
+
+  // v1.3.2: «Зачем этот шаг?» раскрывающаяся панель с объяснением выбора KPI.
+  let whyExpanded = $state(false);
 </script>
 
 <div class="kpi-selector">
@@ -48,8 +51,32 @@
     <p class="lead">
       Выберите целевой показатель — то, на что повлияли каналы рекламы.
       Этот выбор определяет, в каких единицах модель будет оценивать каждый канал.
-      <button class="why-link" type="button">Зачем этот шаг? <span class="chevron">▾</span></button>
+      <button
+        class="why-link"
+        type="button"
+        aria-expanded={whyExpanded}
+        onclick={() => (whyExpanded = !whyExpanded)}
+      >Зачем этот шаг? <span class="chevron" class:open={whyExpanded}>▾</span></button>
     </p>
+    {#if whyExpanded}
+      <div class="why-panel" role="region" aria-label="Подробное объяснение выбора KPI">
+        <p><strong>Целевая метрика — это итог, на который влияют каналы рекламы.</strong> Выбор определяет, что модель будет считать «успехом», и в каких единицах оценит каждый канал:</p>
+        <ul>
+          <li>
+            <strong>Деньги (₽):</strong> продажи, выручка, прибыль. Модель посчитает <strong>ROI</strong>: сколько рублей вернул каждый рубль вложений в канал. Подходит для CFO/CMO — финансовая отдача.
+          </li>
+          <li>
+            <strong>Штуки:</strong> упаковки, лиды, регистрации, подписки, установки. Модель посчитает <strong>CPU</strong> (cost per unit): сколько рублей стоит привести одну единицу. Подходит для FMCG, фармы, B2B — где маржа на единицу известна.
+          </li>
+          <li>
+            <strong>Custom counted metric:</strong> своя целевая метрика в штуках (звонки, заявки, customer-метрика). Подходит когда стандартные категории не описывают вашу задачу.
+          </li>
+        </ul>
+        <p class="why-tip">
+          <strong>Подсказка:</strong> выбирайте KPI, который вы реально измеряете и оптимизируете. Если бизнес считает в штуках (упаковки/лиды) — выбирайте «штуки», даже если у канала бюджет в рублях. Модель умеет связать «потратили N руб → продали K упаковок» (это и есть CPU).
+        </p>
+      </div>
+    {/if}
   </header>
 
   <section class="group">
@@ -144,7 +171,36 @@
     text-decoration: underline dashed;
     text-underline-offset: 2px;
   }
-  .chevron { font-size: 9px; }
+  .why-link:hover { color: var(--gold, #c9a449); }
+  .chevron {
+    font-size: 9px;
+    display: inline-block;
+    transition: transform 0.2s;
+  }
+  .chevron.open { transform: rotate(180deg); }
+
+  /* v1.3.2: «Зачем этот шаг?» раскрывающаяся панель — premium tier-1. */
+  .why-panel {
+    margin-top: 12px;
+    padding: 14px 18px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 5%, var(--bg-card, #0f172a));
+    border-left: 2px solid var(--gold, #c9a449);
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+  }
+  .why-panel p { margin: 0 0 8px; }
+  .why-panel p:last-child { margin-bottom: 0; }
+  .why-panel ul { margin: 0 0 12px; padding-left: 18px; }
+  .why-panel li { padding: 3px 0; }
+  .why-panel strong { color: var(--text-primary); font-weight: 600; }
+  .why-tip {
+    margin-top: 10px !important;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    color: var(--text-primary);
+  }
 
   .group { display: flex; flex-direction: column; gap: 8px; }
   .group-title {
