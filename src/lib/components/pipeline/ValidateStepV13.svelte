@@ -16,7 +16,6 @@
 
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
-  import { onMount } from 'svelte';
   import {
     kpiType, kpiKind, perChannelInput, derivedMode,
     valuePerCountUnit, valuePerCountUnitSource,
@@ -85,6 +84,8 @@
   let validating = $state(false);
   /** @type {string | null} */
   let validateError = $state(null);
+  /** Guard против повторного запуска при reactive updates. */
+  let validateAttempted = $state(false);
 
   async function autoRunValidate() {
     const imp = get(importData);
@@ -92,6 +93,7 @@
       validateError = 'Сначала загрузите файл на шаге Импорт.';
       return;
     }
+    validateAttempted = true;
     validating = true;
     validateError = null;
     try {
@@ -122,10 +124,23 @@
     }
   }
 
-  onMount(() => {
-    // Auto-trigger validate если данные не загружены ещё в store.
+  /** Manual retry button — resets attempt flag и пытается заново. */
+  function retryValidate() {
+    validateError = null;
+    validateAttempted = false;
+    autoRunValidate();
+  }
+
+  /** Reactive auto-trigger — ждёт пока $importData.file populated (race
+   *  condition при открытии .aurora archive: ValidateStepV13 mounts ДО
+   *  того как importData filled из bundle). Запускается ОДИН раз когда
+   *  все conditions выполнены. */
+  $effect(() => {
+    const file = $importData?.file;
     const cols = $validateData?.result?.columns;
-    if (!Array.isArray(cols) || cols.length === 0) {
+    const hasFile = !!file;
+    const needsValidation = !Array.isArray(cols) || cols.length === 0;
+    if (hasFile && needsValidation && !validating && !validateAttempted) {
       autoRunValidate();
     }
   });
@@ -390,7 +405,7 @@
     <div class="validation-error" role="alert">
       <p class="error-title">Не удалось проверить данные</p>
       <p class="error-detail">{validateError}</p>
-      <button type="button" class="btn-retry" onclick={autoRunValidate}>
+      <button type="button" class="btn-retry" onclick={retryValidate}>
         Повторить попытку
       </button>
     </div>
