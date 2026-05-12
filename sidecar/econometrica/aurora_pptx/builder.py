@@ -88,6 +88,22 @@ def _fmt_pct(v, fallback="-"):
     return f"{round(f)}%"
 
 
+# ─── KPI/mode-aware helpers (v1.3.2) ────────────────────────────────────────
+#
+# Helpers extracted to aurora_pptx.kpi_helpers — импортируются без aurora_tokens
+# зависимости (тесты могут юзать без production token generation). Aliases в
+# private form для legacy callers внутри builder.py.
+
+from .kpi_helpers import (
+    kpi_view as _kpi_view,
+    fmt_metric as _fmt_metric_pptx,
+    fmt_metric_with_ci_text as _fmt_metric_with_ci_text,
+    weighted_summary_phrase as _weighted_summary_phrase_pptx,
+    under_breakeven_phrase as _under_breakeven_phrase_pptx,
+    table_metric_header as _table_metric_header_pptx,
+)
+
+
 class AuroraPPTXBuilder:
     """Production PPTX builder for Aurora AI Econometrica MMM reports.
 
@@ -207,6 +223,12 @@ class AuroraPPTXBuilder:
         self.channels = self.data.get("channels") or []
         self.facts = self.data.get("narrative_facts")
         self.time_series = self.data.get("time_series") or None
+
+        # v1.3.2: KPI metadata (kpi_kind, derived_mode, labels) per ADR-016.
+        # narrative_adapter populates data['kpi']; legacy callers (v1.2) get
+        # defaults через _kpi_view fallback. self.kpi.is_legacy guards keep
+        # все hardcoded ROI/mROAS strings backward-compat.
+        self.kpi = _kpi_view(self.data)
 
         # --- Report ID (Stage B.4, post-audit unified 2026-04-25) ---
         # Deterministic trace hash shared with aurora_html. Uses the raw
@@ -648,20 +670,30 @@ class AuroraPPTXBuilder:
                 f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} продаж при {_fmt_pct(leader_spend_pct)} бюджета"
             else:
                 f1 = f"{leader} - максимальный вклад в продажи"
+            # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
             if weighted_roi is not None:
-                s1 = f"ROI {weighted_roi:.1f}× средневзвешенный по каналам"
+                if self.kpi["is_legacy"]:
+                    s1 = f"ROI {weighted_roi:.1f}× средневзвешенный по каналам"
+                else:
+                    s1 = f"{_weighted_summary_phrase_pptx(weighted_roi, self.kpi)} средневзвешенный по каналам"
             else:
                 s1 = "Основной драйвер портфеля"
 
         # Finding 2 — hero channel by mROAS
+        # v1.3.2: KPI-aware metric short label + breakeven phrase.
+        hero_metric_short = self.kpi["metric_short"]
+        hero_metric_fmt = (
+            f"{hero_mroas:.1f}×" if self.kpi["is_legacy"]
+            else _fmt_metric_pptx(hero_mroas, self.kpi)
+        )
         if honest and hero_mroas < 1.0:
-            f2 = f"{hero} - лучший среди медиа, но под breakeven (mROAS {hero_mroas:.1f}×)"
-            s2 = "ROI < 1× означает что канал тратит больше чем приносит"
+            f2 = f"{hero} - лучший среди медиа, но под breakeven ({hero_metric_short} {hero_metric_fmt})"
+            s2 = f"{_under_breakeven_phrase_pptx(self.kpi)} означает что канал тратит больше чем приносит"
         elif hero_mroas > 0:
-            f2 = f"{hero} - самый эффективный канал, mROAS {hero_mroas:.1f}×"
+            f2 = f"{hero} - самый эффективный канал, {hero_metric_short} {hero_metric_fmt}"
             s2 = f"Текущий бюджет на нём {_fmt_pct(hero_spend_pct)}" if hero_spend_pct is not None else "Потенциал для перераспределения бюджета"
         else:
-            f2 = f"{hero} - наиболее эффективный канал по mROAS"
+            f2 = f"{hero} - наиболее эффективный канал по {hero_metric_short}"
             s2 = "Потенциал для перераспределения бюджета"
 
         # Finding 3 — reallocation / honest disclosure
@@ -675,7 +707,13 @@ class AuroraPPTXBuilder:
         )
         if honest and all_below_breakeven:
             f3 = "Рекомендация: все каналы под breakeven - сократить медиа или диагностика данных"
-            s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+            if self.kpi["is_legacy"]:
+                s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
+            else:
+                s3 = (
+                    f"Когда у всех каналов {_under_breakeven_phrase_pptx(self.kpi)} — "
+                    "оптимизация перераспределением не вернёт прибыльность"
+                )
         elif reallocation_mln and reallocation_mln >= 0.5 and (
             f.get("cut_source_channel") and f.get("scale_destination_channel")
         ):
@@ -757,7 +795,20 @@ class AuroraPPTXBuilder:
 
             budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
             contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
-            roi_str = f"{float(mroas):.1f}" if mroas else "-"
+            # v1.3.2: KPI-aware metric column. legacy = 1.5 / count = '120' (raw
+            # без unit, unit в header) / effectiveness = '25' (percentage).
+            if self.kpi["is_legacy"]:
+                roi_str = f"{float(mroas):.1f}" if mroas else "-"
+            elif self.kpi["mode"] == "effectiveness":
+                if mroas:
+                    val = float(mroas)
+                    roi_str = f"{val * 100:.1f}" if abs(val) <= 1.0 else f"{val:.0f}"
+                else:
+                    roi_str = "-"
+            elif self.kpi["kpi_kind"] == "count":
+                roi_str = f"{float(mroas):.0f}" if mroas else "-"
+            else:
+                roi_str = f"{float(mroas):.1f}" if mroas else "-"
             share_pct = int(round(contrib / total_contrib * 100))
             share_str = f"{share_pct}" if share_pct > 0 else "0"
             footnote = fn_by_name.get(name, "")
@@ -767,7 +818,16 @@ class AuroraPPTXBuilder:
             ci_high = c.get("mroas_ci_high")
             ci_str = ""
             if ci_low is not None and ci_high is not None:
-                ci_str = f"[{float(ci_low):.1f} - {float(ci_high):.1f}]"
+                if self.kpi["is_legacy"]:
+                    ci_str = f"[{float(ci_low):.1f} - {float(ci_high):.1f}]"
+                elif self.kpi["mode"] == "effectiveness":
+                    lo = float(ci_low) * (100 if abs(float(ci_low)) <= 1.0 else 1)
+                    hi = float(ci_high) * (100 if abs(float(ci_high)) <= 1.0 else 1)
+                    ci_str = f"[{lo:.1f} - {hi:.1f}]"
+                elif self.kpi["kpi_kind"] == "count":
+                    ci_str = f"[{float(ci_low):.0f} - {float(ci_high):.0f}]"
+                else:
+                    ci_str = f"[{float(ci_low):.1f} - {float(ci_high):.1f}]"
 
             rows.append((name, budget_str, contrib_str, roi_str, share_str, verdict, footnote, ci_str))
         return rows
@@ -1176,13 +1236,22 @@ class AuroraPPTXBuilder:
             media_pct = self.facts.get("media_contribution_pct")
             baseline_pct = self.facts.get("baseline_pct")
 
+            # v1.3.2: KPI-aware portfolio metric phrase.
+            portfolio_phrase = (
+                f"ROI портфеля {wr:.2f}× средневзвешенный" if (wr is not None and self.kpi["is_legacy"])
+                else (f"{_weighted_summary_phrase_pptx(wr, self.kpi)} средневзвешенный" if wr is not None else "")
+            )
+
             if honest and media_pct is not None and baseline_pct is not None:
                 # Honest narrative: baseline-dominated model (media < 10%).
                 # Disclose this rather than leading with leader's media-share.
                 title = "Модель преимущественно отражает baseline - медиа-вклад ограничен"
                 big_number = _fmt_pct(media_pct)
                 big_label = "Медиа-вклад в продажи"
-                big_support = f"Baseline: {_fmt_pct(baseline_pct)}. ROI портфеля {wr:.2f}× средневзвешенный." if wr is not None else f"Baseline: {_fmt_pct(baseline_pct)}."
+                big_support = (
+                    f"Baseline: {_fmt_pct(baseline_pct)}. {portfolio_phrase}."
+                    if portfolio_phrase else f"Baseline: {_fmt_pct(baseline_pct)}."
+                )
                 quote_txt = (
                     f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
                     f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
@@ -1194,8 +1263,8 @@ class AuroraPPTXBuilder:
                 # Big number — leader contribution share
                 big_number = _fmt_pct(cpct) if cpct is not None else "-"
                 big_label = f"Доля {leader} в инкрементальных продажах"
-                if spct is not None and wr is not None:
-                    big_support = f"При {_fmt_pct(spct)} доли бюджета. ROI портфеля {wr:.1f}× средневзвешенный."
+                if spct is not None and portfolio_phrase:
+                    big_support = f"При {_fmt_pct(spct)} доли бюджета. {portfolio_phrase}."
                 else:
                     big_support = "Лидер по вкладу в продажи"
                 # Pull quote — hero outperforms leader, reallocate signal
@@ -1271,13 +1340,24 @@ class AuroraPPTXBuilder:
         slide = self._blank()
         self._header(slide, slide_num=7)
 
-        self._category(slide, self.safe, 0.60, "ROI ПО КАНАЛАМ")
+        # v1.3.2: KPI-aware section category + fallback action title.
+        if self.kpi["mode"] == "effectiveness":
+            category_text = "ДОЛЯ КАНАЛОВ В ЭФФЕКТЕ"
+            fallback_action = "Сбалансировать портфель по доле эффекта"
+        elif self.kpi["kpi_kind"] == "count":
+            category_text = "CPU ПО КАНАЛАМ"
+            fallback_action = "Сбалансировать портфель по CPU"
+        else:
+            category_text = "ROI ПО КАНАЛАМ"
+            fallback_action = "Сбалансировать портфель по mROAS"
+
+        self._category(slide, self.safe, 0.60, category_text)
 
         # Stage C.5: McKinsey action-first headline via narrative_adapter.
         # Shared helper keeps PPTX+HTML in sync and applies zero-effect guard.
         action_title = (
             derive_action_headline(self.channels, self.facts, "mroas")
-            or "Сбалансировать портфель по mROAS"
+            or fallback_action
         )
 
         # Stage C.4: action title on s06 can run 4+ lines when channel
@@ -1295,15 +1375,28 @@ class AuroraPPTXBuilder:
         chart_w = (self.w - 2 * self.safe) * 0.58
         chart_h = 3.7
 
-        # Chart title & subtitle
+        # Chart title & subtitle — v1.3.2 KPI-aware.
+        if self.kpi["mode"] == "effectiveness":
+            chart_title_text = "ДОЛЯ КАНАЛОВ В ЭФФЕКТЕ / %"
+        elif self.kpi["kpi_kind"] == "count":
+            chart_title_text = "CPU ПО КАНАЛАМ / ₽ ЗА ЕДИНИЦУ"
+        else:
+            chart_title_text = "MROAS ПО КАНАЛАМ / МУЛЬТИПЛИКАТОР"
         self._text(
             slide, chart_x, chart_y, chart_w, 0.25,
-            "MROAS ПО КАНАЛАМ / МУЛЬТИПЛИКАТОР",
+            chart_title_text,
             font=self.sans, size=9, bold=True, color=self.deep_80,
         )
+        # v1.3.2: chart subtitle adapts per KPI.
+        if self.kpi["mode"] == "effectiveness":
+            chart_subtitle_text = f"Доли каналов в продажах, {self.period_label}"
+        elif self.kpi["kpi_kind"] == "count":
+            chart_subtitle_text = f"Стоимость следующей единицы (incremental cost-per-unit), {self.period_label}"
+        else:
+            chart_subtitle_text = f"Marginal ROI последнего вложенного рубля, {self.period_label}"
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
-            "Marginal ROI последнего вложенного рубля, Q1 2026",
+            chart_subtitle_text,
             font=self.sans, size=9, italic=True, color=self.deep_60,
         )
         # Hairline removed per brand rule - minimize horizontal lines
@@ -1327,7 +1420,8 @@ class AuroraPPTXBuilder:
         chart_data = CategoryChartData()
         # Reversed: PPTX bar chart renders first category at bottom
         chart_data.categories = list(reversed(bar_labels))
-        chart_data.add_series("mROAS", list(reversed(bar_values)))
+        # v1.3.2: series label per KPI.
+        chart_data.add_series(self.kpi["metric_short"], list(reversed(bar_values)))
 
         bar_area_x = chart_x
         bar_area_y = chart_y + 0.75
@@ -1353,11 +1447,16 @@ class AuroraPPTXBuilder:
             point.format.fill.fore_color.rgb = self.gold if i == reversed_hero else self.deep_40
             point.format.line.fill.background()
 
-        # Data labels on bar ends
+        # Data labels on bar ends — v1.3.2: format suffix per KPI.
         plot = chart.plots[0]
         plot.has_data_labels = True
         data_labels = plot.data_labels
-        data_labels.number_format = '0.0"×"'
+        if self.kpi["mode"] == "effectiveness":
+            data_labels.number_format = '0.0"%"'
+        elif self.kpi["kpi_kind"] == "count":
+            data_labels.number_format = '0" ₽/ед."'
+        else:
+            data_labels.number_format = '0.0"×"'
         data_labels.font.size = Pt(10)
         data_labels.font.name = self.sans
         data_labels.font.color.rgb = self.deep_80
@@ -1395,10 +1494,20 @@ class AuroraPPTXBuilder:
         except Exception:
             pass
 
-        # Breakeven reference note above chart (small, tier-1 annotation)
+        # Breakeven reference note — v1.3.2: text adapts per KPI/mode.
+        if self.kpi["mode"] == "effectiveness":
+            breakeven_note = "Доля > среднего по портфелю = недо-инвестирован"
+        elif self.kpi["kpi_kind"] == "count":
+            vpcu = self.kpi.get("vpcu")
+            if vpcu:
+                breakeven_note = f"CPU < {float(vpcu):.0f} ₽/ед. = окупается  ·  ниже = прибыльно"
+            else:
+                breakeven_note = "Чем ниже CPU, тем дешевле каждая единица"
+        else:
+            breakeven_note = "1.0× = безубыточность  ·  выше = прибыльно"
         self._text(
             slide, chart_x + chart_w - 2.5, bar_area_y - 0.22, 2.5, 0.18,
-            "1.0× = безубыточность  ·  выше = прибыльно",
+            breakeven_note,
             font=self.sans, size=7, italic=True, color=self.deep_60,
             align=PP_ALIGN.RIGHT,
         )
@@ -1449,9 +1558,13 @@ class AuroraPPTXBuilder:
                 seen_actions.add(ch_action)
                 ch_name = ch.get("name") or "-"
                 label = ch.get("action_label") or ch_action
-                reasoning = ch.get("action_reasoning") or (
-                    f"mROAS {float(ch.get('mroas') or 0):.1f}× - рекомендация по портфелю."
-                )
+                if ch.get("action_reasoning"):
+                    reasoning = ch["action_reasoning"]
+                elif self.kpi["is_legacy"]:
+                    reasoning = f"mROAS {float(ch.get('mroas') or 0):.1f}× - рекомендация по портфелю."
+                else:
+                    metric_val = _fmt_metric_pptx(ch.get('mroas') or 0, self.kpi)
+                    reasoning = f"{self.kpi['metric_short']} {metric_val} - рекомендация по портфелю."
                 commentary.append((
                     f"{ch_name} - {label}.",
                     f" {reasoning}",
@@ -1463,10 +1576,18 @@ class AuroraPPTXBuilder:
                 hero = by_priority[0] if by_priority else {}
                 hero_name = hero.get("name") or "Лидер"
                 hero_m = float(hero.get("mroas") or 0)
-                commentary.append((
-                    f"{hero_name} - лидер по mROAS.",
-                    f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом saturation.",
-                ))
+                if self.kpi["is_legacy"]:
+                    commentary.append((
+                        f"{hero_name} - лидер по mROAS.",
+                        f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом saturation.",
+                    ))
+                else:
+                    metric_short = self.kpi["metric_short"]
+                    metric_val = _fmt_metric_pptx(hero_m, self.kpi)
+                    commentary.append((
+                        f"{hero_name} - лидер по {metric_short}.",
+                        f" {metric_short} {metric_val}. Бюджет следует пересмотреть с учётом saturation.",
+                    ))
         else:
             # Wireframe placeholder when no channels (preview mode)
             commentary = [
@@ -1527,9 +1648,10 @@ class AuroraPPTXBuilder:
         total_w = sum(col_weights)
         col_widths = [w * (table_w / total_w) for w in col_weights]
 
-        # Header
-        headers = ["Канал", "Бюджет", "Вклад", "mROAS", "Доля эффекта", "Вердикт"]
-        units =   ["",      "₽ млн",  "₽ млн",  "×",     "%",             ""]
+        # Header — v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
+        metric_col_hdr, metric_col_unit = _table_metric_header_pptx(self.kpi)
+        headers = ["Канал", "Бюджет", "Вклад", metric_col_hdr, "Доля эффекта", "Вердикт"]
+        units =   ["",      "₽ млн",  "₽ млн",  metric_col_unit, "%",             ""]
         x = table_x
         for i, (hdr, cw) in enumerate(zip(headers, col_widths)):
             align = PP_ALIGN.LEFT if i in (0, 5) else PP_ALIGN.RIGHT
@@ -1660,10 +1782,25 @@ class AuroraPPTXBuilder:
             tb = self.facts.get("total_budget_mln") or 0
             tc = self.facts.get("total_contrib_mln") or 0
             wr = self.facts.get("weighted_roi")
+            # v1.3.2: aggregate cell adapts per KPI (× / ₽/ед. inverse / 100%).
+            if wr is None:
+                wr_cell = "-"
+            elif self.kpi["is_legacy"]:
+                wr_cell = f"{wr:.2f}"
+            elif self.kpi["mode"] == "effectiveness":
+                wr_cell = "100"  # доли suммируются в 100% по построению
+            elif self.kpi["kpi_kind"] == "count":
+                try:
+                    cpu = 1.0 / float(wr) if float(wr) > 0 else None
+                    wr_cell = f"{cpu:.0f}" if cpu else "-"
+                except (TypeError, ValueError, ZeroDivisionError):
+                    wr_cell = "-"
+            else:
+                wr_cell = f"{wr:.2f}"
             totals = [
                 f"{tb:.0f}",
                 f"{tc:.0f}",
-                f"{wr:.2f}" if wr is not None else "-",
+                wr_cell,
                 "100",
             ]
         else:
@@ -1687,17 +1824,36 @@ class AuroraPPTXBuilder:
             # Filter flagged within the same [:10] window the table rows use,
             # so bottom-block text pairs with the rendered row superscripts.
             flagged = [c for c in self.channels[:10] if c.get("verdict") in ("Reduce", "Cut")][:3]
-            reason_by_verdict = {
-                "Cut": "ниже точки безубыточности по mROAS; рекомендовано остановить или перевести в другие каналы.",
-                "Reduce": "достигнуто насыщение; маржинальный возврат от дополнительного рубля ниже среднего по портфелю.",
-            }
+            # v1.3.2: KPI-aware verdict reasons.
+            if self.kpi["is_legacy"]:
+                reason_by_verdict = {
+                    "Cut": "ниже точки безубыточности по mROAS; рекомендовано остановить или перевести в другие каналы.",
+                    "Reduce": "достигнуто насыщение; маржинальный возврат от дополнительного рубля ниже среднего по портфелю.",
+                }
+            else:
+                metric_short = self.kpi["metric_short"]
+                if self.kpi["mode"] == "effectiveness":
+                    reason_by_verdict = {
+                        "Cut": f"низкая {metric_short.lower()} канала; рекомендовано остановить или перевести в другие каналы.",
+                        "Reduce": f"вклад канала в долю эффекта ниже среднего по портфелю.",
+                    }
+                elif self.kpi["kpi_kind"] == "count":
+                    reason_by_verdict = {
+                        "Cut": f"{metric_short} превышает ценность единицы; рекомендовано остановить или перевести в другие каналы.",
+                        "Reduce": "достигнуто насыщение; стоимость следующей единицы выше среднего по портфелю.",
+                    }
+                else:
+                    reason_by_verdict = {
+                        "Cut": f"ниже точки безубыточности по {metric_short}; рекомендовано остановить или перевести в другие каналы.",
+                        "Reduce": "достигнуто насыщение; маржинальный возврат ниже среднего по портфелю.",
+                    }
             footnotes = [
                 (str(i + 1), f"{c.get('name') or '-'}: {reason_by_verdict.get(c.get('verdict'), 'рекомендовано пересмотреть аллокацию.')}")
                 for i, c in enumerate(flagged)
             ]
             if not footnotes:
-                # No flagged channels - single informational note.
-                footnotes = [("1", "Все каналы портфеля в рабочем диапазоне mROAS; критических рекомендаций нет.")]
+                ok_metric = "mROAS" if self.kpi["is_legacy"] else self.kpi["metric_short"]
+                footnotes = [("1", f"Все каналы портфеля в рабочем диапазоне {ok_metric}; критических рекомендаций нет.")]
         else:
             footnotes = [
                 ("1", "TV: mROAS считается при текущих 85 TRP/нед; выше 100 TRP/нед ROI падает ниже 1.2×."),
@@ -1765,9 +1921,14 @@ class AuroraPPTXBuilder:
         else:
             period_label = self.data_window_label
 
+        # v1.3.2: timeline axis title per KPI unit (₽ / упак).
+        if self.kpi["kpi_kind"] == "count":
+            timeline_axis_label = "ПРОДАЖИ ПО ПЕРИОДАМ / УПАК"
+        else:
+            timeline_axis_label = "ПРОДАЖИ ПО ПЕРИОДАМ / ₽"
         self._text(
             slide, chart_x, chart_y, chart_w, 0.25,
-            "ПРОДАЖИ ПО ПЕРИОДАМ / ₽",
+            timeline_axis_label,
             font=self.sans, size=9, bold=True, color=self.deep_80,
         )
         self._text(
@@ -2005,9 +2166,17 @@ class AuroraPPTXBuilder:
                 or f"Пересмотреть аллокацию {leader}"
             )
 
+            # v1.3.2: KPI-aware portfolio metric phrase в situation.
+            if wr is not None:
+                if self.kpi["is_legacy"]:
+                    wr_segment = f"Средневзвешенный ROI {wr:.1f}×, "
+                else:
+                    wr_segment = f"{_weighted_summary_phrase_pptx(wr, self.kpi)}, "
+            else:
+                wr_segment = ""
             situation_body = (
                 f"{self.client} размещает {tb:.0f} млн ₽ в квартал через {n_ch} активных каналов. "
-                + (f"Средневзвешенный ROI {wr:.1f}×, " if wr is not None else "")
+                + wr_segment
                 + f"MQS модели {self.mqs_score:.0f}/100."
             )
 
@@ -2023,7 +2192,13 @@ class AuroraPPTXBuilder:
                     f"но даёт {_fmt_pct(bd_contrib_pct)} эффекта"
                 )
             if hero != leader and hero_m >= 1.0:
-                complication_parts.append(f"по mROAS {hero} опережает ({hero_m:.1f}×)")
+                # v1.3.2: KPI-aware metric label в complication.
+                if self.kpi["is_legacy"]:
+                    complication_parts.append(f"по mROAS {hero} опережает ({hero_m:.1f}×)")
+                else:
+                    metric_short = self.kpi["metric_short"]
+                    metric_fmt = _fmt_metric_pptx(hero_m, self.kpi)
+                    complication_parts.append(f"по {metric_short} {hero} опережает ({metric_fmt})")
             if underperf:
                 complication_parts.append(f"{underperf_str} тянут портфель вниз")
             complication_body = ". ".join(complication_parts) + (". Портфель требует перебалансировки." if complication_parts else "Портфель требует перебалансировки.")
@@ -2198,8 +2373,15 @@ class AuroraPPTXBuilder:
             slide, impact_x, impact_y + 0.35, 2.5, 0.7, impact_num,
             font=self.serif, size=42, color=self.deep_100,
         )
+        # v1.3.2: KPI-aware impact label.
+        if self.kpi["mode"] == "effectiveness":
+            impact_label_text = "Прогнозный прирост доли"
+        elif self.kpi["kpi_kind"] == "count":
+            impact_label_text = "Прогнозный прирост продаж"
+        else:
+            impact_label_text = "Прогнозный ROAS"
         self._text(
-            slide, impact_x, impact_y + 1.1, 2.5, 0.22, "Прогнозный ROAS",
+            slide, impact_x, impact_y + 1.1, 2.5, 0.22, impact_label_text,
             font=self.sans, size=10, italic=True, color=self.deep_60,
         )
 
