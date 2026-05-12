@@ -28,6 +28,8 @@
     valuePerCountUnitLabel,
   } from '$lib/mode-derivation.js';
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
+  import { validateInsights } from '$lib/insights-rules.js';
+  import { analysisObjective } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
   import PerChannelInputSelector from './PerChannelInputSelector.svelte';
@@ -310,16 +312,79 @@
   // v1.3.2: ColumnMapperConfirm columns derived из validateData.result.columns.
   // Преобразуем canonical role vocabulary → ColumnMapperConfirm dropdown set
   // (kpi/media/control/date/excluded). 'unused' и 'unknown' маппим в 'excluded'.
+  // v1.3.2: sort by role priority — Дата сверху, потом KPI, потом media,
+  // control, excluded в конце. Стабильная sort внутри роли (preserve original
+  // order). Includes col.stats для recommendation heuristic.
+  /** @type {Record<string, number>} */
+  const ROLE_SORT_PRIORITY = {
+    date: 0,
+    kpi: 1,
+    media: 2,
+    control: 3,
+    excluded: 4,
+  };
   const detectedColumns = $derived.by(() => {
     const cols = $validateData?.result?.columns;
     if (!Array.isArray(cols)) return [];
-    return cols.map((/** @type {any} */ c) => ({
+    const mapped = cols.map((/** @type {any} */ c, /** @type {number} */ idx) => ({
+      _origIdx: idx,
       name: c?.name ?? '—',
       kind: c?.kind ?? c?.dtype ?? null,
+      stats: c?.stats ?? null,
       role: (c?.role === 'unused' || c?.role === 'unknown' || c?.role == null)
         ? 'excluded'
         : c.role,
     }));
+    // Stable sort: role priority → original order.
+    mapped.sort((a, b) => {
+      const pa = ROLE_SORT_PRIORITY[a.role] ?? 99;
+      const pb = ROLE_SORT_PRIORITY[b.role] ?? 99;
+      if (pa !== pb) return pa - pb;
+      return a._origIdx - b._origIdx;
+    });
+    return mapped.map(({ _origIdx, ...rest }) => rest);
+  });
+
+  /**
+   * v1.3.2: insights-driven recommendations.
+   * Compute validateInsights using same function как InsightsPanel — ensures
+   * two systems show consistent advice. Insight с action.type='exclude' или
+   * 'keep_only' identifies columns to drop; ColumnMapperConfirm.recommendationFor
+   * читает этот список и показывает «Исключить» соответственно.
+   */
+  const insightExcludeMap = $derived.by(() => {
+    const result = $validateData?.result;
+    if (!result) return {};
+    const objective = $analysisObjective || 'roi';
+    /** @type {Record<string, string>} */
+    const map = {};
+    try {
+      const insights = validateInsights(result, objective);
+      for (const ins of (insights || [])) {
+        const act = ins?.action;
+        if (!act) continue;
+        /** @type {string[]} */
+        let excludeList = [];
+        if (act.type === 'exclude' && Array.isArray(act.columns)) {
+          excludeList = act.columns;
+        } else if (act.type === 'keep_only' && Array.isArray(act.exclude)) {
+          excludeList = act.exclude;
+        } else if (act.type === 'merge' && Array.isArray(act.columns)) {
+          // Merge action — оставляем merged, остальные могут считаться «оставить» —
+          // здесь не помечаем как exclude.
+        }
+        for (const colName of excludeList) {
+          if (typeof colName === 'string' && colName && !map[colName]) {
+            // Save first matching insight text per column.
+            map[colName] = ins.text || act.label || 'Рекомендовано исключить (по результатам анализа).';
+          }
+        }
+      }
+    } catch (e) {
+      // Defensive — insights computation shouldn't break recommendation render.
+      console.warn('insights compute failed:', e);
+    }
+    return map;
   });
 
   // v1.3.2 audit fix (B2): substep-nav stage descriptors. Explicit mapping
@@ -438,6 +503,7 @@
     <ColumnMapperConfirm
       columns={detectedColumns}
       validateResult={$validateData?.result ?? null}
+      insightExcludeMap={insightExcludeMap}
       onConfirm={handleRolesConfirm}
       onRoleChange={handleRoleChange}
     />

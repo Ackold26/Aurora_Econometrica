@@ -20,10 +20,15 @@
   const {
     columns = [],     // [{name, role, kind, stats?}]
     onConfirm,        // (mapping: Record<string, string>) => void
-    /** Backend validate result — для insights-driven recommendations.
-     *  Содержит warnings + issues per column. Если не передан — fallback
-     *  на простую type/role heuristic. */
+    /** Backend validate result — для warnings/issues per column. Если не
+     *  передан — fallback на heuristic only. */
     validateResult = null,
+    /** v1.3.2: insights-driven exclude map (column_name → insight.text).
+     *  Computed by parent via validateInsights() — тот же source как
+     *  InsightsPanel. Если колонка в map → recommendation = «Исключить»
+     *  с insight text как reason. Гарантирует consistency между
+     *  InsightsPanel и ColumnMapperConfirm. */
+    insightExcludeMap = {},
     /** Real-time role change callback. Parent persists change в validateData
      *  store immediately → InsightsPanel + recommendations стабильно sync. */
     onRoleChange = null,
@@ -140,7 +145,19 @@
     const role = effectiveRole(col.name);
     const findings = findingsFor(col.name);
 
-    // 1. Backend critical issues — top priority.
+    // 0. v1.3.2: insights-driven exclude — top priority. Если same column
+    //    flagged by validateInsights в InsightsPanel — show same reason.
+    //    Skip когда юзер уже исключил (role='excluded') — нечего advise.
+    if (insightExcludeMap?.[col.name] && role !== 'excluded') {
+      return {
+        status: 'exclude',
+        label: 'Исключить',
+        reason: insightExcludeMap[col.name],
+        tone: 'danger',
+      };
+    }
+
+    // 1. Backend critical issues — next priority.
     if (findings.critical.length > 0) {
       const msg = findings.critical[0]?.message ?? 'Критическая проблема в данных.';
       return {
