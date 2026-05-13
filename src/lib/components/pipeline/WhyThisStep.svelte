@@ -27,6 +27,8 @@
 
   let isOpen = $state(defaultOpen);
 
+  import { Lightbulb } from 'lucide-svelte';
+
   // v1.3.2 audit fix: classic Svelte 5 controlled/uncontrolled <details> loop.
   // Pre-fix: `open={isOpen} ontoggle={toggle}` → re-render fires toggle event →
   // toggle() flips state → re-render → toggle event → loop десятки раз/сек.
@@ -36,7 +38,7 @@
 
 <details class="why-step" bind:open={isOpen}>
   <summary>
-    <span class="icon">💡</span>
+    <span class="icon"><Lightbulb size={16} strokeWidth={1.5} /></span>
     <span class="summary-text">{title}</span>
     <span class="chevron">{isOpen ? '▾' : '▸'}</span>
   </summary>
@@ -91,7 +93,7 @@
     list-style: none;
   }
   summary::-webkit-details-marker { display: none; }
-  .icon { font-size: 16px; }
+  .icon { display: flex; align-items: center; flex-shrink: 0; color: var(--accent-primary); }
   .summary-text {
     flex: 1;
     font-size: 13px;

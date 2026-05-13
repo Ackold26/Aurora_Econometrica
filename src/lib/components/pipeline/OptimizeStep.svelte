@@ -41,6 +41,7 @@
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   // v1.3.2: primary actionable recommendation card (mirror of DecomposeStep pattern).
   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
+  import { BarChart2, Target, TrendingUp, Scissors, AlertTriangle } from 'lucide-svelte';
   import { formatMoney } from '$lib/format-numbers.js';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding, markOnboardingDone } from '$lib/onboarding-state.js';
@@ -365,7 +366,7 @@
         ? ` Прогнозный прирост: +${lift.toFixed(1)}%.`
         : '';
       return {
-        icon: '🎯',
+        icon: Target,
         title: 'Главная рекомендация',
         text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен) в «${to.name}» (недонасыщен).${liftText}`,
         detail: 'Это оптимальное перераспределение по результату модели. Двигайте ползунки в блоке «Распределение бюджета» чтобы проверить альтернативы - прогноз KPI пересчитывается в реальном времени.',
@@ -378,7 +379,7 @@
         ? ` Прогнозный прирост: +${lift.toFixed(1)}%.`
         : '';
       return {
-        icon: '📈',
+        icon: TrendingUp,
         title: 'Главная рекомендация',
         text: `Нарастите бюджет «${to.name}» на ${formatMoney(Math.abs(to.delta))}.${liftText}`,
         detail: 'Канал недонасыщен - каждый следующий рубль возвращает больше среднего по портфелю. Источник средств: roll-over бюджета или новое поступление.',
@@ -388,7 +389,7 @@
     if (cuts.length > 0) {
       const from = cuts[0];
       return {
-        icon: '✂️',
+        icon: Scissors,
         title: 'Главная рекомендация',
         text: `Сократите бюджет «${from.name}» на ${formatMoney(Math.abs(from.delta))} - канал перенасыщен.`,
         detail: 'Каждый рубль приносит меньше среднего по портфелю. Освободившиеся средства можно перенаправить в активные каналы или сохранить как экономию.',
@@ -1372,7 +1373,7 @@
   <!-- Error banner -->
   {#if stepState === 'error' && errorMessage}
     <div class="error-banner">
-      <span class="error-icon">⚠</span>
+      <span class="error-icon"><AlertTriangle size={16} strokeWidth={1.5} /></span>
       <span class="error-text">{errorMessage}</span>
       <button class="btn-retry" onclick={runOptimize}>Повторить</button>
     </div>
@@ -1394,7 +1395,7 @@
         class:active={taskMode === 'forward'}
         onclick={() => { taskMode = 'forward'; }}
       >
-        <span class="pill-icon">📊</span>
+        <span class="pill-icon"><BarChart2 size={28} strokeWidth={1.5} /></span>
         <div class="pill-text">
           <strong>От бюджета</strong>
           <span class="pill-sub">Forward - куда вложить</span>
@@ -1408,7 +1409,7 @@
         class:active={taskMode === 'goal-seek'}
         onclick={() => { taskMode = 'goal-seek'; }}
       >
-        <span class="pill-icon">🎯</span>
+        <span class="pill-icon"><Target size={28} strokeWidth={1.5} /></span>
         <div class="pill-text">
           <strong>От цели</strong>
           <span class="pill-sub">Goal-Seek - сколько потратить</span>
@@ -1502,11 +1503,11 @@
           Светофор насыщения<span class="help-icon" title={HELP.saturation}>?</span>
         </div>
         <div class="status-value status-traffic">
-          <span class="traffic-good" title="Недонасыщенные - масштабировать">🟢 {saturationCount.good}</span>
-          <span class="traffic-ok"   title="Стабильные">🟡 {saturationCount.ok}</span>
-          <span class="traffic-low"  title="Перенасыщенные - сократить">🔴 {saturationCount.low}</span>
+          <span class="traffic-good" title="Недонасыщенные - масштабировать"><span class="dot dot-good"></span> {saturationCount.good}</span>
+          <span class="traffic-ok"   title="Стабильные"><span class="dot dot-ok"></span> {saturationCount.ok}</span>
+          <span class="traffic-low"  title="Перенасыщенные - сократить"><span class="dot dot-low"></span> {saturationCount.low}</span>
           {#if saturationCount.unused > 0}
-            <span class="traffic-unused" title="Каналы с нулевым бюджетом - не используются">⚪ {saturationCount.unused}</span>
+            <span class="traffic-unused" title="Каналы с нулевым бюджетом - не используются"><span class="dot dot-unused"></span> {saturationCount.unused}</span>
           {/if}
         </div>
         <div class="status-sub">по mROAS каналов</div>
@@ -2037,10 +2038,6 @@
                 r.status === 'good' ? 'miroas-good' :
                 r.status === 'ok'   ? 'miroas-ok' :
                 r.status === 'low'  ? 'miroas-low' : 'miroas-unused'}
-              {@const emoji =
-                r.status === 'good' ? '🟢' :
-                r.status === 'ok'   ? '🟡' :
-                r.status === 'low'  ? '🔴' : '⚪'}
               <!-- Audit fix (2026-04-29): tooltip surfaces action_reasoning from
                    backend (compute_channel_action). For Uncertain channels с wide
                    CI tooltip объясняет «CI [...] шире чем mROAS» вместо
@@ -2051,7 +2048,10 @@
                 <span class="miroas-value">
                   {r.status === 'unused' ? '-' : r.value.toFixed(2) + '×'}
                 </span>
-                <span class="miroas-hint" title={tooltip}>{emoji} {r.actionLabel || 'Под наблюдением'}</span>
+                <span class="miroas-hint" title={tooltip}>
+                  <span class="dot dot-{r.status}"></span>
+                  {r.actionLabel || 'Под наблюдением'}
+                </span>
               </div>
             {/each}
           </div>
@@ -2348,7 +2348,7 @@
     border-color: var(--accent-primary);
     background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
   }
-  .pill-icon { font-size: 28px; line-height: 1; }
+  .pill-icon { display: flex; align-items: center; flex-shrink: 0; color: var(--text-secondary); }
   .pill-text { display: flex; flex-direction: column; gap: 2px; }
   .pill-text strong { font-size: 14px; color: var(--text-primary); }
   .pill-sub { font-size: 11px; color: var(--text-muted); }
@@ -2979,7 +2979,12 @@
     color: var(--text-muted);
   }
   .status-traffic { display: flex; gap: 10px; font-size: 14px; }
-  .traffic-good, .traffic-ok, .traffic-low { font-weight: 600; cursor: help; }
+  .traffic-good, .traffic-ok, .traffic-low, .traffic-unused { display: flex; align-items: center; gap: 5px; font-weight: 600; cursor: help; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-good   { background: var(--success,  #10B981); }
+  .dot-ok     { background: var(--warning,  #F59E0B); }
+  .dot-low    { background: var(--danger,   #EF4444); }
+  .dot-unused { background: var(--text-muted, #7A7A90); }
 
   /* v1.0.16: Block D collapsible (Прогноз на будущий период) */
   .forecast-disclosure { padding: 0; overflow: hidden; }
@@ -3253,7 +3258,7 @@
     border-radius: 10px;
     flex-wrap: wrap;
   }
-  .error-icon { font-size: 16px; flex-shrink: 0; }
+  .error-icon { display: flex; align-items: center; flex-shrink: 0; color: var(--warning, #F59E0B); }
   .error-text { flex: 1; font-size: 13px; color: #ef4444; }
   .btn-retry {
     padding: 6px 14px;

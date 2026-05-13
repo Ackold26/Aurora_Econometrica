@@ -14,7 +14,7 @@
    */
 
   const {
-    icon = '🎯',
+    icon = null,
     title = 'Главная рекомендация',
     text = '',
     detail = '',
@@ -22,11 +22,19 @@
     secondaryAction = null,
     tone = 'info',
   } = $props();
+
+  const isComponent = typeof icon === 'function';
 </script>
 
 <div class="recommendation-card tone-{tone}">
   <div class="rec-header">
-    <span class="rec-icon">{icon}</span>
+    <span class="rec-icon">
+      {#if isComponent}
+        <svelte:component this={icon} size={22} strokeWidth={1.5} />
+      {:else if icon}
+        {icon}
+      {/if}
+    </span>
     <h3>{title}</h3>
   </div>
   {#if text}
@@ -83,7 +91,7 @@
     align-items: center;
     gap: 10px;
   }
-  .rec-icon { font-size: 24px; line-height: 1; }
+  .rec-icon { display: flex; align-items: center; flex-shrink: 0; font-size: 22px; line-height: 1; color: var(--text-primary); }
   .rec-header h3 {
     margin: 0;
     font-size: 14px;

@@ -9,46 +9,48 @@
    * @component IntroTutorial
    */
 
+  import { BarChart2, Hourglass, TrendingUp, Target, Calculator, Scale, Sliders } from 'lucide-svelte';
+
   const { onComplete, onSkip } = $props();
 
   const slides = [
     {
-      emoji: '📊',
+      icon: BarChart2,
       title: 'Что такое MMM',
       body: 'Marketing Mix Modeling - это математический метод, который оценивает вклад каждого канала рекламы в продажи. Aurora использует Bayesian подход - даёт не одну точную цифру, а распределение возможных значений с уровнем уверенности.',
     },
     {
-      emoji: '⏳',
+      icon: Hourglass,
       title: 'Эффект рекламы - adstock',
       body: 'Реклама работает не только в неделю показа. TV дотягивается до 8-12 недель, Performance - 1-3 недели. Параметр decay показывает, как быстро затухает эффект. Brand каналы → длинный adstock, Performance → короткий.',
     },
     {
-      emoji: '📈',
+      icon: TrendingUp,
       title: 'Закон насыщения - Hill function',
       body: 'Каждый следующий рубль на канал даёт меньше эффекта, чем предыдущий. Это закон убывающей отдачи. На графике Hill - S-образная кривая. Канал может быть недонасыщенным (давайте больше!), сбалансированным или перенасыщенным.',
     },
     {
-      emoji: '🎯',
+      icon: Target,
       title: 'Priors - наши ожидания',
       body: 'Модель не начинает с нуля. Мы передаём ожидания: «adstock для TV вероятно 0.5-0.9, для Performance - 0.1-0.3». Это priors. Данные обновляют эти ожидания через MCMC, и получается posterior. На малой выборке priors стабилизируют модель.',
     },
     {
-      emoji: '🧮',
+      icon: Calculator,
       title: 'Декомпозиция продаж',
       body: 'После обучения программа разлагает все ваши продажи на базу (что было бы без рекламы) + вклад каждого канала. ROI = вклад ÷ затраты. Светофор насыщения показывает, какие каналы насыщены, а какие - нет.',
     },
     {
-      emoji: '⚖️',
+      icon: Scale,
       title: 'Forward оптимизация',
       body: 'Дан бюджет → программа находит распределение, максимизирующее продажи. Учитывает Hill saturation, adstock, ограничения. Результат: «перелейте N ₽ из канала А в канал B → +M ₽ выручки».',
     },
     {
-      emoji: '🎯',
+      icon: Target,
       title: 'Goal-Seek (новое в v1.3)',
       body: 'Дана цель продаж → программа находит минимальный бюджет, который её достигает. Отвечает на вопрос CFO: «нужно прирастить продажи на 10% - сколько потратить?». Считается через бисекцию по бюджету.',
     },
     {
-      emoji: '🎛️',
+      icon: Sliders,
       title: 'KPI и режимы (v1.3)',
       body: 'Aurora работает с разными KPI: выручка (₽), продажи в штуках, лиды, регистрации, подписки и т.д. Режим (ROI / Эффективность / Вручную) выводится автоматически из ваших данных. Готово работать в любом сценарии.',
     },
@@ -110,7 +112,9 @@
     </header>
 
     <div class="slide">
-      <div class="emoji">{currentSlide.emoji}</div>
+      <div class="slide-icon">
+        <svelte:component this={currentSlide.icon} size={56} strokeWidth={1} />
+      </div>
       <h2 id="intro-title">{currentSlide.title}</h2>
       <p>{currentSlide.body}</p>
     </div>
@@ -186,10 +190,13 @@
     text-align: center;
     padding: 20px 16px;
   }
-  .emoji {
-    font-size: 64px;
-    line-height: 1;
-    margin-bottom: 12px;
+  .slide-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    color: var(--accent-secondary, #CCFF00);
+    opacity: 0.85;
   }
   .slide h2 {
     font-size: 22px;

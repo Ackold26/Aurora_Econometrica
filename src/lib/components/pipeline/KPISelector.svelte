@@ -11,29 +11,49 @@
    * @component KPISelector
    */
 
+  import {
+    CircleDollarSign, DollarSign, TrendingUp,
+    Package, Target, FileText, CreditCard, Repeat, Smartphone, PenLine,
+    Info,
+  } from 'lucide-svelte';
+
   /** @typedef {'sales' | 'revenue' | 'profit' | 'sales_packs' | 'leads' | 'registrations' | 'loyalty_cards' | 'subscriptions' | 'app_installs' | 'count_custom'} KPIType */
 
   const { onSelect, currentKPI } = $props();
   /** @type {string | null} */
   let hovered = $state(null);
 
+  /** @type {Record<string, any>} */
+  const iconMap = {
+    sales:         CircleDollarSign,
+    revenue:       DollarSign,
+    profit:        TrendingUp,
+    sales_packs:   Package,
+    leads:         Target,
+    registrations: FileText,
+    loyalty_cards: CreditCard,
+    subscriptions: Repeat,
+    app_installs:  Smartphone,
+    count_custom:  PenLine,
+  };
+
   // Список KPI вариантов с UI metadata.
   // monetary group:
   const monetaryOptions = [
-    { id: 'sales', icon: '💰', title: 'Выручка', subtitle: 'продажи в ₽', desc: 'Стандартный сценарий для CMO / CFO. Главная метрика - ROI каждого канала.' },
-    { id: 'revenue', icon: '💵', title: 'Доход', subtitle: 'gross revenue', desc: 'Аналог выручки. Применимо для бизнесов с явным revenue tracking.' },
-    { id: 'profit', icon: '📈', title: 'Прибыль', subtitle: 'profit / маржа', desc: 'Если хотите модель в gross/net profit вместо выручки.' },
+    { id: 'sales',   title: 'Выручка',  subtitle: 'продажи в ₽',     desc: 'Стандартный сценарий для CMO / CFO. Главная метрика - ROI каждого канала.' },
+    { id: 'revenue', title: 'Доход',    subtitle: 'gross revenue',    desc: 'Аналог выручки. Применимо для бизнесов с явным revenue tracking.' },
+    { id: 'profit',  title: 'Прибыль', subtitle: 'profit / маржа',   desc: 'Если хотите модель в gross/net profit вместо выручки.' },
   ];
 
   // count group:
   const countOptions = [
-    { id: 'sales_packs', icon: '📦', title: 'Продажи в штуках', subtitle: 'упаковки / SKU', desc: 'FMCG, фарма, ритейл - модель оценивает CPU (₽/упак) и сравнивает с маржой.' },
-    { id: 'leads', icon: '🎯', title: 'Лиды', subtitle: 'заявки / обращения', desc: 'B2B, страхование, услуги - главная метрика CPU = ₽ за лид. Сравнение с LTV × CR.' },
-    { id: 'registrations', icon: '📝', title: 'Регистрации', subtitle: 'sign-ups', desc: 'SaaS, e-commerce - модель оценивает стоимость одной регистрации.' },
-    { id: 'loyalty_cards', icon: '💳', title: 'Выданные карты', subtitle: 'loyalty cards', desc: 'Программы лояльности - CPU vs ценность (avg_basket × retention).' },
-    { id: 'subscriptions', icon: '🔁', title: 'Подписки', subtitle: 'subscriptions', desc: 'SaaS, медиа - CPU vs MRR на подписку.' },
-    { id: 'app_installs', icon: '📱', title: 'Установки', subtitle: 'app installs', desc: 'Mobile-first продукты - CPU vs LTV.' },
-    { id: 'count_custom', icon: '✍️', title: 'Свой KPI', subtitle: 'custom counted metric', desc: 'Любая считаемая метрика. Вы зададите label и ценность сами.' },
+    { id: 'sales_packs',   title: 'Продажи в штуках', subtitle: 'упаковки / SKU',         desc: 'FMCG, фарма, ритейл - модель оценивает CPU (₽/упак) и сравнивает с маржой.' },
+    { id: 'leads',         title: 'Лиды',              subtitle: 'заявки / обращения',      desc: 'B2B, страхование, услуги - главная метрика CPU = ₽ за лид. Сравнение с LTV × CR.' },
+    { id: 'registrations', title: 'Регистрации',       subtitle: 'sign-ups',                desc: 'SaaS, e-commerce - модель оценивает стоимость одной регистрации.' },
+    { id: 'loyalty_cards', title: 'Выданные карты',    subtitle: 'loyalty cards',           desc: 'Программы лояльности - CPU vs ценность (avg_basket × retention).' },
+    { id: 'subscriptions', title: 'Подписки',          subtitle: 'subscriptions',           desc: 'SaaS, медиа - CPU vs MRR на подписку.' },
+    { id: 'app_installs',  title: 'Установки',         subtitle: 'app installs',            desc: 'Mobile-first продукты - CPU vs LTV.' },
+    { id: 'count_custom',  title: 'Свой KPI',          subtitle: 'custom counted metric',   desc: 'Любая считаемая метрика. Вы зададите label и ценность сами.' },
   ];
 
   /** @param {string} id */
@@ -80,7 +100,10 @@
   </header>
 
   <section class="group">
-    <h3 class="group-title"><span class="group-icon">💰</span> В рублях</h3>
+    <h3 class="group-title">
+      <span class="group-icon"><CircleDollarSign size={16} strokeWidth={1.5} /></span>
+      В рублях
+    </h3>
     <div class="cards">
       {#each monetaryOptions as opt (opt.id)}
         <button
@@ -93,7 +116,9 @@
           onclick={() => handleSelect(opt.id)}
         >
           <div class="card-head">
-            <span class="icon">{opt.icon}</span>
+            <span class="icon">
+              <svelte:component this={iconMap[opt.id]} size={24} strokeWidth={1.5} />
+            </span>
             <div>
               <h4>{opt.title}</h4>
               <span class="subtitle">{opt.subtitle}</span>
@@ -106,7 +131,10 @@
   </section>
 
   <section class="group">
-    <h3 class="group-title"><span class="group-icon">📦</span> В штуках</h3>
+    <h3 class="group-title">
+      <span class="group-icon"><Package size={16} strokeWidth={1.5} /></span>
+      В штуках
+    </h3>
     <div class="cards count-cards">
       {#each countOptions as opt (opt.id)}
         <button
@@ -119,7 +147,9 @@
           onclick={() => handleSelect(opt.id)}
         >
           <div class="card-head">
-            <span class="icon">{opt.icon}</span>
+            <span class="icon">
+              <svelte:component this={iconMap[opt.id]} size={24} strokeWidth={1.5} />
+            </span>
             <div>
               <h4>{opt.title}</h4>
               <span class="subtitle">{opt.subtitle}</span>
@@ -132,7 +162,7 @@
   </section>
 
   <footer class="note">
-    <span class="info-icon">ℹ️</span>
+    <span class="info-icon"><Info size={14} strokeWidth={1.5} /></span>
     <span>Изменить выбор можно в любой момент - модель пересчитается с новыми метриками.</span>
   </footer>
 </div>
@@ -214,7 +244,7 @@
     align-items: center;
     gap: 8px;
   }
-  .group-icon { font-size: 16px; }
+  .group-icon { display: flex; align-items: center; color: var(--text-muted); }
 
   .cards {
     display: grid;
@@ -265,7 +295,7 @@
     align-items: center;
     gap: 10px;
   }
-  .icon { font-size: 24px; line-height: 1; }
+  .icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--text-secondary); }
   .card-head h4 {
     margin: 0;
     font-size: 15px;
@@ -297,5 +327,5 @@
     color: var(--text-secondary);
     font-size: 12px;
   }
-  .info-icon { font-size: 14px; }
+  .info-icon { display: flex; align-items: center; flex-shrink: 0; color: var(--text-muted); }
 </style>
