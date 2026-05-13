@@ -25,14 +25,32 @@ Migration ladder:
                  Pickles trained pre-Phase-2 lack these fields; G2 inference
                  helpers (infer_*_at_load) compute lazily on first need.
                  S8 lock - no reserved future fields, additive evolution only.
+- v2.0.0     - Aurora MMM Optimizer v2.0.0 (ADR-019, PRE_FLIGHT N13). Additive
+               diagnostics caching fields (all None/empty defaults for v1.3.x
+               backward compat):
+               * signed_factor_priors_used: dict — priors applied per factor
+               * holiday_dummies_injected: list[str] — 12 hardcoded holiday names
+               * mcmc_diagnostics: dict — r_hat_max, ess_min, per-param breakdown
+               * backtest_results: dict — holdout metrics + predictions
+               * ppc_results: dict — R², Durbin-Watson, residuals, predicted
+               * sensitivity_tornado_cache: dict | None — on-demand cache
+               * analysis_mode: str — 'roi'|'effectiveness'|'mixed'
+               Methods: save_v20_diagnostics(), load_v20_diagnostics(),
+               clear_sensitivity_cache(), is_v20_compatible().
+               Atomic save: temp file + rename (OS-level atomicity).
 """
 
 from __future__ import annotations
 
+import logging
+import os
 import pickle
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Semantic version comparison helper (avoids stdlib `packaging` dep)
 _VERSION_RE = re.compile(r'(\d+)\.(\d+)(?:\.(\d+))?')
@@ -98,6 +116,10 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     # Defaults match v1.2 behavior: monetary KPI, all channels in ₽, mode=roi, no goal-seek history.
     _inject_v13_defaults(model_data)
 
+    # v2.0.0 additive diagnostics caching fields (PRE_FLIGHT N13, ADR-019 §10).
+    # All default to None/empty for v1.3.x backward compat — never crash on absent field.
+    _inject_v20_defaults(model_data)
+
     return model_data
 
 
@@ -159,6 +181,41 @@ def _inject_v13_defaults(model_data: dict[str, Any]) -> None:
 
     # safe_corridor_cache: lazy invalidate on retrain.
     model_data.setdefault('safe_corridor_cache', None)
+
+
+def _inject_v20_defaults(model_data: dict[str, Any]) -> None:
+    """Inject v2.0.0 additive diagnostics fields with None/empty defaults.
+
+    Per ADR-019 §10 + PRE_FLIGHT N13. Mutates dict in-place.
+
+    All fields default to None or empty — v1.3.x pickles load silently without
+    these fields; callers check `is_v20_compatible()` before accessing them.
+
+    Fields:
+    - signed_factor_priors_used: dict of {factor_name: prior_spec} recorded at
+      train time so diagnostics UI can show «which prior was applied».
+    - holiday_dummies_injected: list of holiday dummy column names that were
+      actually present in the training dataset (subset of the 12 hardcoded РФ
+      holidays). Useful for diagnostics display + certificate.
+    - mcmc_diagnostics: dict with keys r_hat_max, ess_min, r_hat_per_param,
+      ess_per_param. Cached so Diagnostics page loads instantly post Save/Load.
+    - backtest_results: dict from engines/backtest.py run_backtest(). Keys:
+      holdout_periods, metrics (mape/rmse/r2), evaluation (status/message),
+      predictions (actual/predicted lists).
+    - ppc_results: dict from posterior predictive check. Keys: r2,
+      durbin_watson, residuals (list), predicted (list).
+    - sensitivity_tornado_cache: output of compute_sensitivity_tornado(),
+      or None if not yet computed / explicitly invalidated.
+    - analysis_mode: 'roi'|'effectiveness'|'mixed' — v2.0.0 explicit mode
+      recorded at train time (ADR-019). None для pre-v2.0.0 pickles.
+    """
+    model_data.setdefault('signed_factor_priors_used', {})
+    model_data.setdefault('holiday_dummies_injected', [])
+    model_data.setdefault('mcmc_diagnostics', None)
+    model_data.setdefault('backtest_results', None)
+    model_data.setdefault('ppc_results', None)
+    model_data.setdefault('sensitivity_tornado_cache', None)
+    model_data.setdefault('analysis_mode', None)
 
 
 def get_kpi_type(model_data: dict[str, Any]) -> str:
@@ -414,3 +471,226 @@ def is_hierarchical_model(model_data: dict[str, Any]) -> bool:
     n_brand = sum(1 for c in cats.values() if c == 'brand')
     n_perf = sum(1 for c in cats.values() if c == 'performance')
     return n_brand >= 2 or n_perf >= 2
+
+
+# ─── v2.0.0 Diagnostics Caching API (ADR-019 §10, PRE_FLIGHT N13) ────────────
+#
+# After training completes the sidecar writes diagnostics into the same pickle
+# via save_v20_diagnostics(). The UI then reads them back instantly on
+# Save/Load without re-running MCMC or backtest. Fields are additive — v1.3.x
+# pickles simply lack them (load_model_with_compat injects None defaults).
+#
+# Atomic write pattern: dump to <file>.tmp then os.replace() — POSIX-atomic
+# on Linux (rename(2)); on Windows replace() uses MoveFileExW which is
+# effectively atomic for same-volume moves. Avoids corrupt pickle on crash.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _model_path_for_project(project_dir: str | Path) -> Path:
+    """Return canonical latest.pkl path for a project directory."""
+    return Path(project_dir) / 'models' / 'latest.pkl'
+
+
+def is_v20_compatible(model_data: dict[str, Any]) -> bool:
+    """Return True если pickle был сохранён движком v2.0.0+.
+
+    Позволяет UI показать banner «Модель обучена в v1.3.x. Диагностика
+    недоступна — рекомендуется re-train для full v2.0.0 features.» только
+    для старых pickles, и не показывать для v2.0.0+ pickles.
+
+    Contract:
+    - v2.0.0+ pickle: model_version >= (2, 0, 0) AND analysis_mode is not None.
+    - v1.3.x pickle: either condition fails.
+
+    Note: version field '2.0' (two-part) сравнивается как (2, 0, 0) через
+    _parse_version, so '2.0' и '2.0.0' оба считаются compatible.
+    """
+    version = _parse_version(str(model_data.get('model_version') or ''))
+    if version < (2, 0, 0):
+        return False
+    # Additional guard: analysis_mode must be explicitly set (not just version bump)
+    return model_data.get('analysis_mode') is not None
+
+
+def save_v20_diagnostics(project_dir: str | Path, diagnostics: dict[str, Any]) -> None:
+    """Append v2.0.0 diagnostics into existing latest.pkl atomically.
+
+    Reads the current pickle, merges diagnostics fields, bumps model_version
+    to '2.0.0', then atomically replaces the file via temp-rename pattern.
+
+    Args:
+        project_dir: project directory containing models/latest.pkl
+        diagnostics: dict with any subset of v2.0.0 diagnostics fields:
+            - signed_factor_priors_used: dict
+            - holiday_dummies_injected: list[str]
+            - mcmc_diagnostics: dict with r_hat_max, ess_min,
+              r_hat_per_param, ess_per_param
+            - backtest_results: dict with holdout_periods, metrics,
+              evaluation, predictions
+            - ppc_results: dict with r2, durbin_watson, residuals, predicted
+            - sensitivity_tornado_cache: dict | None
+            - analysis_mode: 'roi' | 'effectiveness' | 'mixed'
+          Unknown keys are ignored (strict allowlist to prevent field pollution).
+
+    Raises:
+        FileNotFoundError: если latest.pkl отсутствует.
+        pickle.UnpicklingError: на corrupt pickle.
+        OSError: на disk I/O failure.
+    """
+    _V20_ALLOWED_FIELDS = frozenset({
+        'signed_factor_priors_used',
+        'holiday_dummies_injected',
+        'mcmc_diagnostics',
+        'backtest_results',
+        'ppc_results',
+        'sensitivity_tornado_cache',
+        'analysis_mode',
+    })
+
+    model_path = _model_path_for_project(project_dir)
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"latest.pkl не найден: {model_path}. "
+            f"Обучите модель перед сохранением диагностики."
+        )
+
+    # Load existing pickle (через compat helper чтобы v1.3 defaults уже были)
+    model_data = load_model_with_compat(model_path)
+
+    # Merge only allowed fields (strict allowlist prevents field pollution)
+    applied_fields: list[str] = []
+    for key, value in diagnostics.items():
+        if key in _V20_ALLOWED_FIELDS:
+            model_data[key] = value
+            applied_fields.append(key)
+        else:
+            logger.warning(
+                "save_v20_diagnostics: unknown field %r ignored (allowlist)", key
+            )
+
+    # Bump model_version to '2.0.0' (additive — old code ignores new fields)
+    model_data['model_version'] = '2.0.0'
+
+    # Atomic write: temp file in same directory then os.replace()
+    models_dir = model_path.parent
+    models_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path_str = tempfile.mkstemp(
+        dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
+    )
+    tmp_path = Path(tmp_path_str)
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        # os.replace() is atomic on POSIX; effectively atomic on Windows
+        # (same-volume MoveFileExW). Prevents partial-write corruption.
+        os.replace(tmp_path, model_path)
+    except Exception:
+        # Clean up temp on any failure; don't leave .pkl.tmp files behind
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    logger.info(
+        "save_v20_diagnostics: persisted fields %s to %s (model_version→2.0.0)",
+        applied_fields, model_path,
+    )
+
+
+def load_v20_diagnostics(project_dir: str | Path) -> dict[str, Any]:
+    """Return cached v2.0.0 diagnostics fields from latest.pkl.
+
+    Safe for v1.3.x pickles — returns a dict with all v2.0.0 diagnostics keys
+    present but set to their default (None / empty) values. Callers should
+    check `is_v20_compatible(model_data)` to decide whether to show «re-train»
+    banner.
+
+    Returns:
+        dict with keys:
+          - signed_factor_priors_used: dict (empty dict если absent)
+          - holiday_dummies_injected: list[str] (empty list если absent)
+          - mcmc_diagnostics: dict | None
+          - backtest_results: dict | None
+          - ppc_results: dict | None
+          - sensitivity_tornado_cache: dict | None
+          - analysis_mode: str | None
+          - _v20_compatible: bool — convenience flag (True если model v2.0.0+)
+
+    Raises:
+        FileNotFoundError: если latest.pkl отсутствует.
+    """
+    model_path = _model_path_for_project(project_dir)
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"latest.pkl не найден: {model_path}."
+        )
+
+    model_data = load_model_with_compat(model_path)
+
+    return {
+        'signed_factor_priors_used': model_data.get('signed_factor_priors_used') or {},
+        'holiday_dummies_injected': model_data.get('holiday_dummies_injected') or [],
+        'mcmc_diagnostics': model_data.get('mcmc_diagnostics'),
+        'backtest_results': model_data.get('backtest_results'),
+        'ppc_results': model_data.get('ppc_results'),
+        'sensitivity_tornado_cache': model_data.get('sensitivity_tornado_cache'),
+        'analysis_mode': model_data.get('analysis_mode'),
+        '_v20_compatible': is_v20_compatible(model_data),
+    }
+
+
+def clear_sensitivity_cache(project_dir: str | Path) -> bool:
+    """Invalidate cached sensitivity_tornado_cache in latest.pkl.
+
+    Called when sensitivity parameters change (e.g., budget range updated,
+    channel spend constraints edited) so the next Sensitivity tab access
+    triggers a fresh compute_sensitivity_tornado() call.
+
+    Uses same atomic temp-rename pattern as save_v20_diagnostics().
+
+    Args:
+        project_dir: project directory containing models/latest.pkl
+
+    Returns:
+        True если cache was present and cleared.
+        False если cache was already None (no-op, но не error).
+
+    Raises:
+        FileNotFoundError: если latest.pkl отсутствует.
+    """
+    model_path = _model_path_for_project(project_dir)
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"latest.pkl не найден: {model_path}."
+        )
+
+    model_data = load_model_with_compat(model_path)
+    had_cache = model_data.get('sensitivity_tornado_cache') is not None
+
+    if not had_cache:
+        logger.debug(
+            "clear_sensitivity_cache: cache already None for %s — no-op", project_dir
+        )
+        return False
+
+    model_data['sensitivity_tornado_cache'] = None
+
+    models_dir = model_path.parent
+    fd, tmp_path_str = tempfile.mkstemp(
+        dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
+    )
+    tmp_path = Path(tmp_path_str)
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp_path, model_path)
+    except Exception:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    logger.info("clear_sensitivity_cache: cache cleared for %s", project_dir)
+    return True

@@ -249,6 +249,28 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     if date_col in df.columns:
         df[date_col] = pd.to_datetime(df[date_col])
 
+    # ── v2.0.0 (ADR-019 §5): РФ holiday auto-injection ──
+    # 12 hardcoded holidays auto-добавляются как control columns.
+    # Customer customization (opt-out) откладывается в v2.2.0.
+    # Existing user-supplied holidays preserved (no overwrite).
+    holiday_cols_injected = []
+    if date_col in df.columns:
+        try:
+            from utils.holiday_calendar_ru import generate_holiday_dummies, list_holiday_names
+            holiday_df = generate_holiday_dummies(df[date_col])
+            for hcol in holiday_df.columns:
+                if hcol not in df.columns:  # preserve user-supplied
+                    df[hcol] = holiday_df[hcol].values
+                    holiday_cols_injected.append(hcol)
+                    # Auto-add to control_cols если не included (it must be controlled out)
+                    if hcol not in control_cols:
+                        control_cols.append(hcol)
+            if holiday_cols_injected:
+                logger.info(f'Auto-injected {len(holiday_cols_injected)} РФ holiday dummies: '
+                            f'{", ".join(holiday_cols_injected[:5])}{"..." if len(holiday_cols_injected) > 5 else ""}')
+        except Exception as e:
+            logger.warning('Holiday auto-injection skipped: %s', e)
+
     # ── Материализация виртуальных каналов (merged recommendations) ──
     # См. utils/merge_rules.py. idempotent. Config + merge_rules сохранятся
     # в pickle → decomposer/optimizer увидят те же правила.
@@ -359,6 +381,39 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         control_stds = pd.Series(dtype=float)
         X_control_norm = pd.DataFrame()
 
+    # ─────────────────────────────────────────────────────────────────────
+    # v2.0.0 (ADR-019 §4): Signed factor categorization
+    # ─────────────────────────────────────────────────────────────────────
+    # Каждая control column classified per type:
+    #   - signed_competitor → prior mean negative-leaning (-0.3)
+    #   - signed_price / signed_weather / signed_macro → prior mean 0 (signed)
+    #   - holiday → prior mean 0 (event effect can be + or -)
+    #   - positive control (distribution, trade) → prior mean +0.2 (lean positive)
+    #
+    # Note: prior values are **placeholder** (per PRE_FLIGHT_FIXES.md §B4).
+    # Math review on pilot data scheduled в Phase E2.
+    control_prior_mus = []  # list of prior means per control column
+    control_kinds = []      # list of factor types для signed_factor_contributions
+    if len(control_cols) > 0:
+        try:
+            from utils.column_detection import classify_column
+            for col in control_cols:
+                kind = classify_column(col)
+                control_kinds.append(kind)
+                # Map kind → prior mean (sigma stays at 0.3 across all для backward compat)
+                if kind == 'signed_competitor':
+                    control_prior_mus.append(-0.3)  # negative-leaning (their activity reduces ours)
+                elif kind in ('signed_price', 'signed_weather', 'signed_macro'):
+                    control_prior_mus.append(0.0)   # unconstrained signed
+                elif kind == 'holiday':
+                    control_prior_mus.append(0.0)   # holiday effect can be either sign
+                else:  # 'control' (positive controls: distribution, trade_activity, promo) или fallback
+                    control_prior_mus.append(0.2)   # lean positive
+        except Exception as e:
+            logger.warning('Signed factor classification fallback: %s — using uniform mu=0', e)
+            control_prior_mus = [0.0] * len(control_cols)
+            control_kinds = ['unknown'] * len(control_cols)
+
     y_mean, y_std = y.mean(), max(y.std(), 1e-10)
     y_norm = (y - y_mean) / y_std
 
@@ -422,8 +477,18 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 media_betas = pm.HalfNormal('media_betas', sigma=0.3, shape=len(media_cols))  # было 0.5
 
             # Control coefficients (используем нормализованные X_control_norm)
+            # v2.0.0 (ADR-019 §4): per-column prior mean based on factor type
+            # (competitor=negative-leaning, signed=zero, positive_control=lean+).
+            # Sigma=0.3 retained для backward compat (Phase E2 math review).
             if len(control_cols) > 0:
-                control_betas = pm.Normal('control_betas', mu=0, sigma=0.3, shape=len(control_cols))
+                import numpy as _np
+                _control_mu_array = _np.array(control_prior_mus, dtype=float)
+                control_betas = pm.Normal(
+                    'control_betas',
+                    mu=_control_mu_array,
+                    sigma=0.3,
+                    shape=len(control_cols),
+                )
                 control_effect = pm.math.dot(X_control_norm.values.astype(float), control_betas)
             else:
                 control_effect = 0
@@ -1004,6 +1069,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # A1 fix (post-audit v1.2): channels with zero training variance.
                 # Scenario/optimizer reject spend on these to avoid prior-only fabrication.
                 'untrained_channels': untrained_channels,
+                # v2.0.0 (ADR-019 §4): control factor kinds для signed_factor_contributions
+                # mapping в decomposer (без re-classify). Same order как control_cols.
+                'control_kinds': control_kinds,
+                # v2.0.0 (ADR-019 §5): holidays auto-injected at training time.
+                # Used для backtest exclusion (holidays known) + provenance.
+                'holiday_cols_injected': holiday_cols_injected,
+                # v2.0.0: prior means used per control factor (placeholder per B4).
+                'control_prior_mus': control_prior_mus,
             },
             # Phase 1.9: persist full posterior draws for honest uncertainty quantification.
             # Joint structure preserves per-draw correlation between alpha/gamma/beta of same channel.
