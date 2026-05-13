@@ -433,7 +433,7 @@ export const analysisObjective = derived(
  *   import { analysisObjectiveLegacyShim as analysisObjective } from '$lib/project-state.js';
  *   analysisObjective.set('effectiveness');
  *
- * @type {{ set: (v: 'roi' | 'effectiveness' | 'manual') => void }}
+ * @type {any}
  */
 export const analysisObjectiveLegacyShim = {
   /** @param {'roi' | 'effectiveness' | 'manual'} value */

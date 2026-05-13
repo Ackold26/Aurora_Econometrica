@@ -20,6 +20,7 @@
   import {
     importData, validateData, completeStep, setStepError,
     activeProjectId, expertMode, analysisObjective,
+    analysisObjectiveLegacyShim,
     syncChannelCategoriesToMedia,
   } from '$lib/project-state.js';
   import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
@@ -173,7 +174,7 @@
    * @param {'roi' | 'effectiveness' | 'manual'} obj
    */
   function onObjectiveChosen(obj) {
-    analysisObjective.set(obj);
+    analysisObjectiveLegacyShim.set(obj);  // v2.0.0: routes к analysisMode store
     runValidate();
   }
 
@@ -188,7 +189,7 @@
    */
   function switchObjective(obj) {
     if (get(analysisObjective) === obj) return;
-    analysisObjective.set(obj);
+    analysisObjectiveLegacyShim.set(obj);  // v2.0.0: routes к analysisMode store
     runValidate();  // re-invoke Python validator → fresh columns → apply new objective
   }
 
