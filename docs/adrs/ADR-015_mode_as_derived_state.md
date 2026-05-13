@@ -1,9 +1,16 @@
 # ADR-015: Mode (ROI / Эффективность / Вручную) как Derived State
 
-**Status:** Accepted
-**Date:** 2026-05-12
+**Status:** ⚠️ **SUPERSEDED by ADR-019** (Aurora MMM Optimizer v2.0.0 — Explicit Mode + ScenarioWizard Architecture)
+**Original date:** 2026-05-12
+**Superseded date:** 2026-05-14
 **Owner:** Маша маленькая (review Антон)
 **Related:** ADR-014, ADR-016, REFACTOR_PLAN_v1.3.0.md
+
+> **Note (2026-05-14):** Это решение отменено в пользу **explicit mode choice** (per ADR-019).
+> Root cause: ADR-015 misapplied argument-from-authority (PyMC-Marketing / Robyn / Lightweight MMM
+> — analyst-driven libraries) к Aurora self-service ICP без проверки operating context.
+> Plus methodological недостаток derived-mode подхода для unit_cost conversion accuracy (10-25% error).
+> Документ preserved для historical reference. См. ADR-019 для текущей архитектуры.
 
 ## Context
 
