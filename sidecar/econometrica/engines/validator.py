@@ -26,14 +26,29 @@ MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'vie
                   'ots',
                   # TV (television) - English + Russian
                   'tv', 'television', 'тв ', 'тв_', 'тв-',
-                  'price', 'promo', 'цен', 'промо']
+                  'promo', 'промо']
+# NOTE v2.0.0: 'price' removed from MEDIA_PATTERNS — moved to CONTROL_PATTERNS
+# (signed control factor per ADR-019, may be positive OR negative coefficient).
+# 'цен' also moved.
 DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
 CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
                     'seasonality', 'temperature', 'weather', 'holiday',
                     'som', 'sov', 'sos', 'share_of', 'share of',
                     'конкурент', 'конк.', 'конк ',
                     'сезон', 'дистрибуц', 'погод', 'праздни',
-                    'запрос', 'кол-во запрос']
+                    'запрос', 'кол-во запрос',
+                    # NEW v2.0.0 — signed control factors (ADR-019 §4)
+                    'price', 'цен', 'индекс_цен', 'price_index',
+                    'avg_price', 'unit_price', 'mean_price',
+                    'cpi', 'consumer_price', 'inflation', 'ипц', 'инфляция',
+                    'gdp', 'ввп', 'gdp_growth',
+                    'fx_rate', 'exchange_rate', 'usd_rub', 'eur_rub',
+                    'курс_рубля', 'курс_доллара', 'курс_евро',
+                    'rain', 'snow', 'precipitation', 'осадк',
+                    'temp', 'температур',
+                    'svok',  # ROSST industry: share_of_voice_konkurentov
+                    'event',  # additional holiday/event markers
+                    ]
 
 
 def detect_column_role(col_name: str) -> str:

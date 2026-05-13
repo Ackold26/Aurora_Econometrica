@@ -387,19 +387,70 @@ export function syncChannelCategoriesToMedia(mediaColumns) {
 }
 
 /**
- * @deprecated v1.3.0 (ADR-015): use `derivedMode` + `perChannelInput` + `kpiKind` instead.
- * Сохраняется как writable для backward compat с legacy `ValidateStep.svelte`,
- * `InsightsPanel.svelte`, `UnitCostsPanel.svelte` (4 файла grep).
- * v1.3.0 default flow использует `ValidateStepV13` + `derivedMode` - `analysisObjective`
- * не читается. Будет удалён в v1.4.0 / Phase B после full migration.
+ * v2.0.0 (ADR-019): explicit Manager mode choice (supersedes ADR-015 derived state).
  *
- * Analysis objective - determines which metric to prefer for paired channels.
- *   'roi'           → keep budgets (measure monetary return)
- *   'effectiveness' → keep natural metrics (impressions/clicks/visits)
- *   'manual'        → user chooses per-channel (current behavior)
- * @type {import('svelte/store').Writable<'roi' | 'effectiveness' | 'manual'>}
+ *   'roi'           → all media channels in ₽ (monetary input). Model computes ROI/CPU.
+ *   'effectiveness' → all media channels in physical metrics (TRP/impressions/clicks).
+ *                     Model computes share-of-contribution percentages.
+ *   'mixed'         → per-channel choice (Expert mode only; requires unit_costs).
+ *
+ * Default = 'roi'. Set explicitly через AnalysisModeSelector.svelte в Manager mode,
+ * или через wizard auto-detect migration logic для existing v1.3.x projects.
+ *
+ * Per INV-30 (MMM single-unit preference) — Manager mode видит только 'roi' / 'effectiveness'.
+ * 'mixed' доступен только в Expert mode (см. expertMode store).
+ *
+ * @type {import('svelte/store').Writable<'roi' | 'effectiveness' | 'mixed'>}
  */
-export const analysisObjective = writable('roi');
+export const analysisMode = writable('roi');
+
+/**
+ * @deprecated v2.0.0: backward-compat alias for legacy ValidateStep / InsightsPanel /
+ * UnitCostsPanel. Derived from `analysisMode` — 'mixed' maps to 'manual' (старое имя).
+ *
+ * Legacy code путь:
+ *   $analysisObjective === 'roi'           ↔ $analysisMode === 'roi'
+ *   $analysisObjective === 'effectiveness' ↔ $analysisMode === 'effectiveness'
+ *   $analysisObjective === 'manual'        ↔ $analysisMode === 'mixed'
+ *
+ * Legacy ValidateStep.svelte (deprecated) writes to analysisObjective —
+ * compatibility shim ниже (analysisObjectiveLegacyShim) синхронизирует обратно.
+ *
+ * Будет удалён в v3.0+ после full deprecation legacy ValidateStep.
+ *
+ * @type {import('svelte/store').Readable<'roi' | 'effectiveness' | 'manual'>}
+ */
+export const analysisObjective = derived(
+  analysisMode,
+  ($mode) => ($mode === 'mixed' ? 'manual' : $mode),
+);
+
+/**
+ * Compatibility setter shim для legacy code что вызывает `analysisObjective.set(...)`.
+ * Маршрутизирует write обратно в `analysisMode`.
+ *
+ * Usage в legacy code (e.g., ValidateStep.svelte:176):
+ *   import { analysisObjectiveLegacyShim as analysisObjective } from '$lib/project-state.js';
+ *   analysisObjective.set('effectiveness');
+ *
+ * @type {{ set: (v: 'roi' | 'effectiveness' | 'manual') => void }}
+ */
+export const analysisObjectiveLegacyShim = {
+  /** @param {'roi' | 'effectiveness' | 'manual'} value */
+  set(value) {
+    const mapped = value === 'manual' ? 'mixed' : value;
+    analysisMode.set(/** @type {'roi' | 'effectiveness' | 'mixed'} */ (mapped));
+  },
+  /** @param {(v: 'roi' | 'effectiveness' | 'manual') => 'roi' | 'effectiveness' | 'manual'} updater */
+  update(updater) {
+    const current = get(analysisMode);
+    const legacyCurrent = current === 'mixed' ? 'manual' : current;
+    const updated = updater(/** @type {'roi' | 'effectiveness' | 'manual'} */ (legacyCurrent));
+    const mapped = updated === 'manual' ? 'mixed' : updated;
+    analysisMode.set(/** @type {'roi' | 'effectiveness' | 'mixed'} */ (mapped));
+  },
+  subscribe: analysisObjective.subscribe,
+};
 
 /**
  * v1.3.0: KPI kind selector (per ADR-016).

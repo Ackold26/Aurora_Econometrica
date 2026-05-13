@@ -510,6 +510,10 @@ def decompose(
     intercept_per_period = np.full(n_periods, intercept_mean * y_std + y_mean, dtype=float)
 
     control_effect_per_period = np.zeros(n_periods, dtype=float)
+    # v2.0.0 (ADR-019 §4): signed factor contributions output для UI WaterfallChart
+    # с поддержкой negative bars (signed factors могут уменьшать продажи —
+    # competitor activity, price effects).
+    signed_factor_contributions: dict = {}
     if control_cols and control_betas_mean and len(control_betas_mean) == len(control_cols):
         # Reconstruct control normalization (z-score retained for controls - non-Hill linear)
         c_means = np.array([float(control_means.get(c, 0)) for c in control_cols])
@@ -519,6 +523,37 @@ def decompose(
         beta_c = np.array(control_betas_mean, dtype=float)
         # control_effect normalised → multiply by y_std for original-unit
         control_effect_per_period = (X_control_norm @ beta_c) * y_std
+
+        # v2.0.0: per-factor contribution breakdown using column_detection classifier
+        try:
+            from utils.column_detection import classify_column
+            for i, col in enumerate(control_cols):
+                col_effect = (X_control_norm[:, i] * beta_c[i]) * y_std
+                col_total = float(col_effect.sum())
+                col_kind = classify_column(col)
+                # Map kind → factor_type для UI rendering
+                factor_type_map = {
+                    'signed_competitor': 'signed_competitor',
+                    'signed_price': 'signed_price',
+                    'signed_weather': 'signed_weather',
+                    'signed_macro': 'signed_macro',
+                    'holiday': 'holiday',
+                    'control': 'positive_control',
+                    'unknown': 'positive_control',  # legacy fallback
+                }
+                factor_type = factor_type_map.get(col_kind, 'positive_control')
+                # Use y_actual.sum() для % normalization
+                _y_total = float(y_actual.sum()) if len(y_actual) else 0.0
+                signed_factor_contributions[col] = {
+                    'value': round(col_total, 1),
+                    'pct': round(col_total / (_y_total + 1e-10) * 100, 1) if _y_total > 0 else 0.0,
+                    'type': factor_type,
+                    'beta_mean': float(beta_c[i]),
+                    'per_period': [round(float(v), 1) for v in col_effect],
+                }
+        except Exception as e:
+            logger.warning('signed_factor_contributions computation failed: %s', e)
+            signed_factor_contributions = {}
 
     # Energy conservation (post-audit fix): baseline absorbs residual variance
     # so that sum(baseline) + sum(channels) == sum(y_actual) exactly.
@@ -762,6 +797,12 @@ def decompose(
             'categorization_warnings': list(model_data.get('categorization_warnings') or []),
             'priors_summary': dict(model_data.get('hierarchical_priors') or {}),
         },
+        # v2.0.0 (ADR-019 §4): signed factor contributions для UI WaterfallChart
+        # с negative bars + Report narrative.
+        # Schema: { factor_col_name: { value, pct, type, beta_mean, per_period[] } }
+        # type ∈ {'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro',
+        #         'holiday', 'positive_control'}
+        'signed_factor_contributions': signed_factor_contributions,
     }
 
     # Save
