@@ -170,6 +170,26 @@
     // в localStorage с TTL 1h; embedded fallback engages если backend slow/down.
     ensurePatternsLoaded().catch(() => { /* fallback handled internally */ });
 
+    // Phase 1.4: opportunistic project.json schema migration на activeProject
+    // load. Idempotent — backend returns no_migration_needed если schema_version
+    // current. Errors silenced (sync version; async modal UI defer к v2.0.2).
+    activeProjectId.subscribe(async (id) => {
+      if (!id) return;
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: id }));
+        if (!projectDir) return;
+        const result = /** @type {any} */ (await invoke('econ_migrate_project', { projectDir }));
+        if (result?.status === 'ok') {
+          console.info(
+            `[migration] project ${id}: ${result.from_version} → ${result.to_version}, ` +
+            `moved ${(result.migrated_columns || []).length} cols`,
+          );
+        }
+      } catch (err) {
+        console.warn('[migration] skipped:', err);
+      }
+    });
+
     // Check for ?new=1 - user clicked "Новый проект в Pipeline" on home
     const forceNew = typeof window !== 'undefined'
       && new URLSearchParams(window.location.search).get('new') === '1';

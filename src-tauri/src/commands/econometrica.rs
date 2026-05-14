@@ -78,6 +78,23 @@ pub async fn econ_health() -> Result<Value, String> {
     }
 }
 
+// ── Project migration (Phase 1.4) ────────────────────
+
+/// Migrate project.json к schema_version 2.0.1 (Phase 1.4 / Audit P-03).
+///
+/// Sync migration: reclassifies SOM/SOV/share_of_* columns from
+/// control_columns → excluded_columns per BUG #3 fix. Idempotent —
+/// repeated calls return `status: 'no_migration_needed'`.
+///
+/// Pre-mutation backup `.pre_2.0.1` с SHA-256 (recoverable on failure).
+/// Atomic write через safe_io. NB: sync version; async modal UI defer к v2.0.2.
+#[tauri::command]
+pub async fn econ_migrate_project(project_dir: String) -> Result<Value, String> {
+    info!("econ_migrate_project: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/project/migrate", &body, quick_client()).await
+}
+
 // ── Static asset (Phase 1.1 SSOT) ────────────────────
 
 /// SSOT classifier patterns export для frontend (Phase 1.1).

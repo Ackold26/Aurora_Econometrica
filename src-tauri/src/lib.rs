@@ -3202,6 +3202,7 @@ fn build_app() -> Result<(), String> {
             econ_sidecar_restart,
             commands::econometrica::econ_health,
             commands::econometrica::econ_classifier_patterns,
+            commands::econometrica::econ_migrate_project,
             commands::econometrica::econ_validate,
             commands::econometrica::econ_train,
             commands::econometrica::econ_train_start,

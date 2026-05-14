@@ -564,6 +564,54 @@ async def shutdown():
 
 # ── Static asset endpoints (v2.0.1 SSOT) ─────────────
 
+class ProjectMigrateRequest(BaseModel):
+    """Phase 1.4 — project.json schema migration request."""
+    project_dir: str
+
+
+@app.post('/project/migrate')
+def project_migrate_endpoint(req: ProjectMigrateRequest):
+    """Sync migration project.json к schema_version 2.0.1 (Phase 1.4).
+
+    Идемпотентен: повторный вызов на уже migrated project возвращает
+    {status: 'no_migration_needed'}. Pre-mutation backup с SHA-256
+    checksum (recoverable on failure). Atomic write через Phase 0.3
+    safe_io.
+
+    NB: sync version. Async progress UI с modal — defer к v2.0.2.
+    Expected duration <100ms для project.json <50KB.
+    """
+    try:
+        from pathlib import Path
+        from engines.project_migration import migrate_project_file
+        from utils.log_config import setup_module_logger, log_event
+
+        m_logger = setup_module_logger('migration')
+        proj_dir = Path(req.project_dir)
+        proj_json = proj_dir / 'project.json'
+
+        result = migrate_project_file(proj_json)
+
+        log_event(
+            m_logger,
+            'project_migrate_invoked',
+            project_dir=str(proj_dir),
+            status=result.get('status'),
+            from_version=result.get('from_version'),
+            to_version=result.get('to_version'),
+            moved_count=len(result.get('migrated_columns', [])),
+        )
+
+        return result
+    except Exception as e:
+        logger.exception('Migration endpoint FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error',
+            'message': str(e),
+            'type': type(e).__name__,
+        })
+
+
 @app.get('/api/static/classifier-patterns-v1.json')
 async def get_classifier_patterns_v1():
     """SSOT classifier patterns export для frontend (Phase 1.1).
