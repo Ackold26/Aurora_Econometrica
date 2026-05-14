@@ -49,11 +49,15 @@
 
   /**
    * Currently selected column.
+   * v2.0.0 audit fix: $state captured initial value only — now reactive via $effect.
    * @type {string | null}
    */
-  let selectedColumn = $state(
-    targetCandidates.length > 0 ? targetCandidates[0].column : null
-  );
+  let selectedColumn = $state(/** @type {string | null} */ (null));
+  $effect(() => {
+    if (selectedColumn === null && targetCandidates.length > 0) {
+      selectedColumn = targetCandidates[0].column;
+    }
+  });
 
   /**
    * Value per count unit input (₽). Only relevant for count KPI.
