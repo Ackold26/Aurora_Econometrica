@@ -29,11 +29,14 @@
   } from '$lib/mode-derivation.js';
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
   import { validateInsights } from '$lib/insights-rules.js';
-  import { analysisObjective, expertMode } from '$lib/project-state.js';
+  import { analysisObjective, expertMode, analysisMode } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
   import PerChannelInputSelector from './PerChannelInputSelector.svelte';
   import ModeDerivedExplanation from './ModeDerivedExplanation.svelte';
+  // v2.0.0 (ADR-019): mode selector + applied summary integrated as Manager UX layer
+  import AnalysisModeSelector from './AnalysisModeSelector.svelte';
+  import AppliedModeSummary from './AppliedModeSummary.svelte';
   import WhyThisStep from './WhyThisStep.svelte';
   // v1.3.2: ColumnMapperConfirm - preflight role confirmation перед KPISelector.
   // Backend column_detection делает auto-classify; этот компонент показывает
@@ -669,6 +672,24 @@
       blockedReason={ratioBlockedReason}
     />
   {:else if subStep === 0}
+    <!-- v2.0.0 (ADR-019): AnalysisModeSelector сверху Step 0.
+         Manager mode выбирает ROI / Эффективность одним кликом.
+         Expert mode видит дополнительную «Смешанный» опцию. -->
+    <AnalysisModeSelector
+      onSelect={(mode) => {
+        // Auto-fill perChannelInput uniformly per chosen mode.
+        const uniformValue = mode === 'effectiveness' ? 'physical' : 'monetary';
+        const currentChannels = Object.keys(get(perChannelInput) || {});
+        if (currentChannels.length > 0) {
+          /** @type {Record<string, 'monetary' | 'physical'>} */
+          const next = {};
+          for (const ch of currentChannels) {
+            next[ch] = uniformValue;
+          }
+          perChannelInput.set(next);
+        }
+      }}
+    />
     <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
   {:else if subStep === 1}
     <ValuePerCountUnitInput
@@ -680,6 +701,16 @@
       onSkip={handleValueSkip}
     />
   {:else if subStep === 2}
+    <!-- v2.0.0 (ADR-019 §1): dual-mode rendering.
+         Manager mode → AppliedModeSummary (read-only сводка + CTA «Включить Expert»).
+         Expert mode → existing PerChannelInputSelector (per-channel control).
+         Each component self-conditions via $expertMode store. -->
+    <AppliedModeSummary
+      channels={channels.map((name) => ({
+        name,
+        detectedType: ($perChannelInput?.[name] ?? 'monetary'),
+      }))}
+    />
     <PerChannelInputSelector
       channels={channels}
       availableMetricsByChannel={availableMetricsByChannel}

@@ -8,8 +8,13 @@
    *
    * Emits onConfirm(perChannelInput) - dict {channel: 'monetary'|'physical'}.
    *
+   * ADR-019 §1: visible ТОЛЬКО в Expert mode. В Manager mode родитель рендерит
+   * AppliedModeSummary вместо этого компонента. Данный guard — defense-in-depth.
+   *
    * @component PerChannelInputSelector
    */
+
+  import { expertMode } from '$lib/project-state.js';
 
   /** @typedef {{
     monetary: string[],
@@ -101,6 +106,7 @@
   }
 </script>
 
+{#if $expertMode}
 <div class="per-channel-selector">
   <header>
     <h2>Какие метрики каналов используем?</h2>
@@ -236,6 +242,7 @@
     </button>
   </footer>
 </div>
+{/if}
 
 <style>
   .per-channel-selector {

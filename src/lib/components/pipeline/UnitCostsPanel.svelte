@@ -23,7 +23,20 @@
   import {
     activeProjectId, activeProject, unitCosts, unitCostInflation,
     decomposeData, optimizeData, analysisObjective, forecastContext,
+    analysisMode, expertMode, kpiKind, perChannelInput,
   } from '$lib/project-state.js';
+
+  // ADR-019 §1: UnitCostsPanel visible ТОЛЬКО при Expert + mixed + physical channel + monetary KPI.
+  // В Manager mode (roi / effectiveness) panel скрыта — single-unit mode не требует конверсионных ставок.
+  const hasPhysicalChannel = $derived(
+    Object.values($perChannelInput).some((v) => v === 'physical')
+  );
+  const shouldShow = $derived(
+    $expertMode === true &&
+    $analysisMode === 'mixed' &&
+    hasPhysicalChannel &&
+    $kpiKind === 'monetary'
+  );
 
   /** @type {{ columns: any[] }} */
   let { columns } = $props();
@@ -388,7 +401,7 @@
   }
 </script>
 
-{#if $analysisObjective === 'roi' && allMediaChannels.length > 0}
+{#if shouldShow}
   <section class="unit-costs">
     <div class="header">
       <div class="title">Стоимость юнита для каналов в не-денежных единицах</div>
@@ -400,9 +413,6 @@
           (по РФ типично 25–30% год к году). Backend пересчитает цену по обучающим периодам:
           текущая ÷ (1+rate)<sup>лет</sup> и применит weighted-average. 0 = цена не менялась.
           <br><span class="hint-secondary">⚠ Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в шаге «Оптимизация» (Блок D).</span>
-        {/if}
-        {#if $analysisObjective !== 'roi'}
-          <br><em>Активно только в режиме «ROI» (см. Цель анализа).</em>
         {/if}
       </div>
     </div>
