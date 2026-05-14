@@ -396,25 +396,50 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # ─────────────────────────────────────────────────────────────────────
     # v2.0.0 (ADR-019 §4): Signed factor categorization
     # ─────────────────────────────────────────────────────────────────────
-    # Каждая control column classified per type:
-    #   - signed_competitor → prior mean negative-leaning (-0.3)
+    # Category-aware priors per Phase E2 real-data validation (RD-1 finding):
+    #   - signed_competitor:
+    #     * OTC pharma / категории с expanding market в season →
+    #       prior N(μ=0, σ=0.3) symmetric (market не zero-sum)
+    #     * FMCG / retail (fixed market, direct cannibalization) →
+    #       prior N(μ=-0.3, σ=0.3) negative-leaning
+    #     Default: symmetric (safer fallback — let data drive sign)
     #   - signed_price / signed_weather / signed_macro → prior mean 0 (signed)
     #   - holiday → prior mean 0 (event effect can be + or -)
     #   - positive control (distribution, trade) → prior mean +0.2 (lean positive)
     #
-    # Note: prior values are **placeholder** (per PRE_FLIGHT_FIXES.md §B4).
-    # Math review on pilot data scheduled в Phase E2.
+    # Source: tools/test_priors_real_data.py + PRIORS_VALIDATION_E2.md.
+    # Validated на Кагоцел / Венарус / MMX Афала: competitor TRP correlates с
+    # brand TRP +0.93 в OTC due к shared seasonal demand peak (cold/flu).
+    # After search-query control variable — competitor coef → 0. Symmetric
+    # prior recommended для OTC; negative-leaning preserved для FMCG.
     control_prior_mus = []  # list of prior means per control column
     control_kinds = []      # list of factor types для signed_factor_contributions
+
+    # v2.0.0 Phase E2: detect kpi_type для category-aware competitor prior
+    _kpi_type = config.get('kpi_type', 'sales')
+    _is_otc_or_count = _kpi_type in ('sales_packs', 'leads', 'registrations',
+                                       'subscriptions', 'loyalty_cards',
+                                       'app_installs', 'count_custom', 'profit')
+    # OTC pharma typical kpi=sales_packs. FMCG typical kpi=sales/revenue.
+    # Heuristic: count KPI → likely OTC / pharma / expanding market → symmetric.
+    # Customer may override через project config field 'competitor_prior_mu'.
+    _competitor_mu_override = config.get('competitor_prior_mu')
+    if _competitor_mu_override is not None:
+        _competitor_mu = float(_competitor_mu_override)
+    elif _is_otc_or_count:
+        _competitor_mu = 0.0  # OTC / count KPI — expanding market, symmetric
+    else:
+        _competitor_mu = -0.3  # FMCG / monetary KPI — cannibalization assumption
+
     if len(control_cols) > 0:
         try:
             from utils.column_detection import classify_column
             for col in control_cols:
                 kind = classify_column(col)
                 control_kinds.append(kind)
-                # Map kind → prior mean (sigma stays at 0.3 across all для backward compat)
+                # Map kind → prior mean (sigma stays at 0.3 для backward compat)
                 if kind == 'signed_competitor':
-                    control_prior_mus.append(-0.3)  # negative-leaning (their activity reduces ours)
+                    control_prior_mus.append(_competitor_mu)  # category-aware (Phase E2)
                 elif kind in ('signed_price', 'signed_weather', 'signed_macro'):
                     control_prior_mus.append(0.0)   # unconstrained signed
                 elif kind == 'holiday':
@@ -426,6 +451,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     # 'unknown' kind — true fallback, uninformative zero-centered prior
                     # (data will dominate). Avoid 0.2 «lean positive» bias on unrecognized.
                     control_prior_mus.append(0.0)
+            logger.info(
+                'v2.0.0 priors: competitor_mu=%.2f (KPI=%s, category=%s)',
+                _competitor_mu, _kpi_type,
+                'OTC/count' if _is_otc_or_count else 'FMCG/monetary',
+            )
         except Exception as e:
             logger.warning('Signed factor classification fallback: %s — using uniform mu=0', e)
             control_prior_mus = [0.0] * len(control_cols)

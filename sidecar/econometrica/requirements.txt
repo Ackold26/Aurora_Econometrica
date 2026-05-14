@@ -34,6 +34,13 @@ python-multipart>=0.0.6
 # ── Export ─────────────────────────────────────────────────────
 python-pptx>=0.6.21
 
+# ── Cryptographic hash (INV-06 — JCS RFC 8785) ─────────────────
+# Bit-stable canonical JSON for Methodology Certificate hash payload.
+# Per ENGINEERING_INVARIANTS §INV-06: Pydantic model_dump_json is NOT
+# used for cryptographic payloads — JCS RFC 8785 is cross-version stable.
+# Rust counterpart: serde_jcs (aurora-platform-core/c7-web-verifier).
+rfc8785>=0.1.2
+
 # ── Sprint 3 Pharma Causal (added 2026-04-27, ADR §3.1) ────────
 # Per Q2(B): manual scipy SCM solver — NO pysyncon, NO cvxpy. SCM weights
 # computed via scipy.optimize.minimize with simplex constraints. Isolated
