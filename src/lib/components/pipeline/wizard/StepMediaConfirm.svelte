@@ -69,12 +69,15 @@
   // ─── Local state ──────────────────────────────────────────────────────────
 
   /**
-   * Per-channel override state. Initialized from detected types.
+   * Per-channel override state. v2.0.0 audit fix (Frontend C2):
+   * was `$state(Object.fromEntries(...channels))` — captured prop ONCE at mount.
+   * If parent updates channels prop after mount, stale data. Now reactive via $effect.
    * @type {Record<string, 'monetary' | 'physical'>}
    */
-  let channelOverrides = $state(
-    Object.fromEntries(channels.map(c => [c.name, c.detectedType]))
-  );
+  let channelOverrides = $state(/** @type {Record<string, 'monetary' | 'physical'>} */ ({}));
+  $effect(() => {
+    channelOverrides = Object.fromEntries(channels.map(c => [c.name, c.detectedType]));
+  });
 
   /**
    * Currently open channel dropdown.

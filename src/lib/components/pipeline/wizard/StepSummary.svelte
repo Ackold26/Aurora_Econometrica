@@ -94,9 +94,11 @@
    */
 
   /**
+   * v2.0.0 audit fix: relaxed types to allow partial / null data during
+   * wizard development. Component handles missing fields gracefully via nullish coalescing.
    * @type {{
-   *   summary: SummaryData,
-   *   diagnostics: Diagnostics,
+   *   summary: any,
+   *   diagnostics: any,
    *   onRun: () => void,
    *   onEditExpert: () => void,
    *   onSaveModel?: (() => void) | null,

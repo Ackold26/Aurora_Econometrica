@@ -14,9 +14,13 @@
   import { wizardState, nextStep, prevStep, confirmPrevStep } from '$lib/wizard-state.js';
   import { analysisMode, expertMode } from '$lib/project-state.js';
 
-  import StepTaskIntent    from '$lib/components/pipeline/wizard/StepTaskIntent.svelte';
-  import StepTargetConfirm from '$lib/components/pipeline/wizard/StepTargetConfirm.svelte';
-  import StepMediaConfirm  from '$lib/components/pipeline/wizard/StepMediaConfirm.svelte';
+  import StepTaskIntent     from '$lib/components/pipeline/wizard/StepTaskIntent.svelte';
+  import StepTargetConfirm  from '$lib/components/pipeline/wizard/StepTargetConfirm.svelte';
+  import StepMediaConfirm   from '$lib/components/pipeline/wizard/StepMediaConfirm.svelte';
+  // v2.0.0 audit fix (Frontend C5): integration of Steps 4-6 (previously stubs).
+  import StepPlanInputs     from '$lib/components/pipeline/wizard/StepPlanInputs.svelte';
+  import StepContextConfirm from '$lib/components/pipeline/wizard/StepContextConfirm.svelte';
+  import StepSummary        from '$lib/components/pipeline/wizard/StepSummary.svelte';
 
   /**
    * @type {{
@@ -323,40 +327,24 @@
         />
 
       {:else if $wizardState.currentStep === 4}
-        <!-- StepPlanInputs — future file; placeholder until Phase B complete -->
-        <div class="step-placeholder">
-          <h2>Шаг 4 — Параметры плана</h2>
-          <p class="step-placeholder-body">
-            Укажите горизонт оптимизации и бюджет (реализуется в Phase B).
-          </p>
-          <button type="button" class="btn btn-primary" onclick={handleGenericNext}>
-            Далее <ChevronRight size={16} />
-          </button>
-        </div>
+        <StepPlanInputs
+          taskType={$wizardState.stepData.step1?.taskType ?? 'budget_optimization'}
+          onSubmit={(data) => { nextStep({ stepData: { step4: data } }); }}
+        />
 
       {:else if $wizardState.currentStep === 5}
-        <!-- StepContextConfirm — future file -->
-        <div class="step-placeholder">
-          <h2>Шаг 5 — Контекстные факторы</h2>
-          <p class="step-placeholder-body">
-            Подтвердите автоматически обнаруженные внешние факторы (Phase B).
-          </p>
-          <button type="button" class="btn btn-primary" onclick={handleGenericNext}>
-            Далее <ChevronRight size={16} />
-          </button>
-        </div>
+        <StepContextConfirm
+          autoDetectedFactors={$wizardState.autoDetectResults?.data_signature ?? {}}
+          onConfirm={(data) => { nextStep({ stepData: { step5: data } }); }}
+        />
 
       {:else if $wizardState.currentStep >= 6}
-        <!-- StepSummary — future file -->
-        <div class="step-placeholder">
-          <h2>Шаг 6 — Итог и запуск</h2>
-          <p class="step-placeholder-body">
-            Проверьте все параметры и запустите анализ (Phase B).
-          </p>
-          <button type="button" class="btn btn-run" onclick={handleRun}>
-            Запустить анализ
-          </button>
-        </div>
+        <StepSummary
+          summary={/** @type {any} */ ($wizardState.stepData ?? {})}
+          diagnostics={/** @type {any} */ (null)}
+          onRun={handleRun}
+          onEditExpert={() => { expertMode.set(true); }}
+        />
       {/if}
 
       <!-- ─── Cross-product hint banner (escape reason set but not in ESCAPE state) -->
