@@ -13,7 +13,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { get } from 'svelte/store';
 import AppliedModeSummary from '$lib/components/pipeline/AppliedModeSummary.svelte';
-import { analysisMode, expertMode, unitCosts, unitCostInflation } from '$lib/project-state.js';
+import {
+  analysisMode, expertMode, unitCosts, unitCostInflation,
+  unitCostInputMode, budgetInputs,
+} from '$lib/project-state.js';
 
 
 // Reset stores before each test
@@ -22,6 +25,9 @@ beforeEach(() => {
   expertMode.set(false);
   unitCosts.set({});
   unitCostInflation.set({});
+  // Phase 1.3 — reset new persistence stores чтобы избежать state leakage
+  unitCostInputMode.set({});
+  budgetInputs.set({});
 });
 
 /** Sample channel list */

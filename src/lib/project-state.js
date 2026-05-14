@@ -320,6 +320,27 @@ export const unitCosts = writable({});
 /** @type {import('svelte/store').Writable<Record<string, number>>} */
 export const unitCostInflation = writable(/** @type {Record<string, number>} */ ({}));
 
+/**
+ * Phase 1.3 (v2.0.1) — persist per-channel UI mode preference.
+ * Tracks whether user заполняет unit_cost через 'budget' (total ₽) or
+ * 'unit' (price + inflation) mode. Survives reload через project.json.
+ *
+ * Audit P-03 fix: previously local $state в AppliedModeSummary — reload
+ * losed mode preference, user re-decided every time.
+ *
+ * @type {import('svelte/store').Writable<Record<string, 'budget' | 'unit'>>}
+ */
+export const unitCostInputMode = writable(/** @type {Record<string, 'budget' | 'unit'>} */ ({}));
+
+/**
+ * Phase 1.3 (v2.0.1) — raw budget input string per channel (для UI restore).
+ * Stored как string чтобы preserve user typing (e.g. partial "50000",
+ * locale comma «50,5»). Backend derives unit_cost = budget / Σ(units).
+ *
+ * @type {import('svelte/store').Writable<Record<string, number>>}
+ */
+export const budgetInputs = writable(/** @type {Record<string, number>} */ ({}));
+
 // Sync unitCosts + inflation from activeProject when it loads/changes.
 // Audit pass 5 fix (BUG B1): when activeProject is set but doesn't include
 // `unit_cost_inflation_pct` field (legacy projects), reset store к {}. Without
@@ -329,6 +350,8 @@ activeProject.subscribe((p) => {
   if (!p) {
     unitCosts.set({});
     unitCostInflation.set({});
+    unitCostInputMode.set({});
+    budgetInputs.set({});
     return;
   }
   if (p.unit_costs && typeof p.unit_costs === 'object') {
@@ -340,6 +363,20 @@ activeProject.subscribe((p) => {
     unitCostInflation.set(/** @type {Record<string, number>} */ (p.unit_cost_inflation_pct));
   } else {
     unitCostInflation.set({});  // ← always reset when project switches
+  }
+  // Phase 1.3 (v2.0.1): hydrate UI mode preference + budget input restore.
+  // Source: project.json `unit_cost_input_mode` + `budget_inputs` (Phase 1.2
+  // extended save_kpi_settings persists в settings/v13_kpi.json — но
+  // activeProject loader merges flat). Reset на project switch (avoid leakage).
+  if (p.unit_cost_input_mode && typeof p.unit_cost_input_mode === 'object') {
+    unitCostInputMode.set(/** @type {Record<string, 'budget' | 'unit'>} */ (p.unit_cost_input_mode));
+  } else {
+    unitCostInputMode.set({});
+  }
+  if (p.budget_inputs && typeof p.budget_inputs === 'object') {
+    budgetInputs.set(/** @type {Record<string, number>} */ (p.budget_inputs));
+  } else {
+    budgetInputs.set({});
   }
 });
 

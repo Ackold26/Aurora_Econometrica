@@ -19,7 +19,11 @@
    * @component AppliedModeSummary
    */
 
-  import { analysisMode, expertMode, unitCosts, unitCostInflation } from '$lib/project-state.js';
+  import {
+    analysisMode, expertMode, unitCosts, unitCostInflation,
+    // Phase 1.3 (v2.0.1) — persistence для UI mode preference + budget input restore.
+    unitCostInputMode, budgetInputs,
+  } from '$lib/project-state.js';
   // Phase 1.1 (SSOT): unit label resolution через shared service.
   // Replaces inline unitLabel() regex — теперь one source of truth с
   // backend column_detection.unit_label_for(). Cache-with-fallback.
@@ -44,17 +48,10 @@
    *  Показываем pill «N исключено» с раскрывающимся списком имён. */
   let excludedExpanded = $state(false);
 
-  /** Local UI-only state: ввод режим per канал ('budget' = общий ₽-бюджет;
-   *  'unit' = цена 1 ед. + инфляция CPP/CPM). Default 'unit' — соответствует
-   *  существующему flow прошлых версий (unitCosts + unitCostInflation stores).
-   * @type {Record<string, 'budget' | 'unit'>} */
-  let modeFor = $state(/** @type {Record<string, 'budget' | 'unit'>} */ ({}));
-
-  /** Local UI-only mirror of «общий бюджет, ₽» input для каждого канала.
-   *  Хранится отдельно (а не derived из unitCost × sum), чтобы пользователь
-   *  мог переключаться между modes без потери введённого значения.
-   * @type {Record<string, string>} */
-  let budgetInputs = $state(/** @type {Record<string, string>} */ ({}));
+  // Phase 1.3 (v2.0.1): persistence promotion — modeFor + budgetInputs
+  // promoted from local $state к shared stores. Sync через project.json
+  // на save_kpi_settings (Phase 1.2 extended schema). Reload preserves
+  // mode preference.
 
   /** Helper: канал «converted» если для него задан unit_cost > 0. */
   function isConverted(/** @type {string} */ name) {
@@ -85,28 +82,40 @@
   // Note: unitLabel() now imported from $lib/services/classifier-patterns.js
   // (Phase 1.1 SSOT — eliminates regex duplication со column_detection.py).
 
-  /** Получить текущий mode для канала. Default — 'unit' (как в прошлых версиях). */
+  /** Получить текущий mode для канала. Default — 'unit' (как в прошлых версиях).
+   *  Reads from $unitCostInputMode store (Phase 1.3 persistence). */
   function modeOf(/** @type {string} */ name) {
-    return modeFor[name] ?? 'unit';
+    return $unitCostInputMode[name] ?? 'unit';
   }
 
   /** @param {string} name @param {'budget' | 'unit'} mode */
   function setMode(name, mode) {
-    modeFor = { ...modeFor, [name]: mode };
+    unitCostInputMode.update((curr) => ({ ...curr, [name]: mode }));
   }
 
-  /** Mode A: общий бюджет ₽ → derive unit_cost = budget / sum(units). */
+  /** Mode A: общий бюджет ₽ → derive unit_cost = budget / sum(units).
+   *  Persists raw input в $budgetInputs store (survives reload). */
   function updateBudget(/** @type {string} */ name, /** @type {string} */ value) {
-    budgetInputs = { ...budgetInputs, [name]: value };
     const budget = parseFloat(value);
-    const sum = channelSums?.[name];
-    if (!isFinite(budget) || budget <= 0 || !sum || sum <= 0) {
-      // Clear unit cost if invalid.
+    if (!isFinite(budget) || budget <= 0) {
+      // Clear stored budget + unit cost if invalid.
+      budgetInputs.update((curr) => {
+        const next = { ...curr };
+        delete next[name];
+        return next;
+      });
       unitCosts.update((curr) => {
         const next = { ...curr };
         delete next[name];
         return next;
       });
+      return;
+    }
+    budgetInputs.update((curr) => ({ ...curr, [name]: budget }));
+    const sum = channelSums?.[name];
+    if (!sum || sum <= 0) {
+      // Budget stored, но derive не возможен без sum (sparse channel) —
+      // leave unit_cost untouched, UI shows hint.
       return;
     }
     const derivedUnitCost = budget / sum;
@@ -329,7 +338,7 @@
                       inputmode="decimal"
                       class="uc-input"
                       placeholder="например, 38 000 000"
-                      value={budgetInputs[ch.name] ?? ''}
+                      value={$budgetInputs[ch.name] ?? ''}
                       oninput={(/** @type {Event} */ e) => updateBudget(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
                       data-testid="uc-budget-input-{ch.name}"
                     />
