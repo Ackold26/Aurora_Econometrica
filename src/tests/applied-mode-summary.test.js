@@ -9,7 +9,7 @@
  *   - CTA click sets expertMode store = true
  *   - Empty channels list renders without error (placeholder shown)
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { get } from 'svelte/store';
 import AppliedModeSummary from '$lib/components/pipeline/AppliedModeSummary.svelte';
@@ -28,6 +28,12 @@ beforeEach(() => {
   // Phase 1.3 — reset new persistence stores чтобы избежать state leakage
   unitCostInputMode.set({});
   budgetInputs.set({});
+  // Use fake timers for debounce tests.
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 /** Sample channel list */
@@ -289,6 +295,9 @@ describe('AppliedModeSummary', () => {
     const input = getByTestId('uc-unit-input-TRP');
     expect(input).toBeInTheDocument();
     await fireEvent.input(input, { target: { value: '25000' } });
+    vi.runAllTimers();
+    // Flush Svelte microtask queue after timer fires.
+    await Promise.resolve();
     expect(get(unitCosts).TRP).toBe(25000);
     // Канал стал converted → больше не incompatible → banner исчез.
     expect(container.querySelector('[data-testid="incompat-banner"]')).toBeNull();
@@ -311,6 +320,7 @@ describe('AppliedModeSummary', () => {
     const budgetInput = getByTestId('uc-budget-input-TRP');
     expect(budgetInput).toBeInTheDocument();
     await fireEvent.input(budgetInput, { target: { value: '50000' } });
+    vi.runAllTimers();
     // 50000 / 200 = 250 ₽/ед.
     expect(get(unitCosts).TRP).toBe(250);
   });
@@ -328,6 +338,7 @@ describe('AppliedModeSummary', () => {
     const inflInput = getByTestId('uc-infl-input-TRP');
     expect(inflInput).toBeInTheDocument();
     await fireEvent.input(inflInput, { target: { value: '15' } });
+    vi.runAllTimers();
     expect(get(unitCostInflation).TRP).toBe(15);
   });
 
@@ -344,6 +355,7 @@ describe('AppliedModeSummary', () => {
     await fireEvent.click(/** @type {Element} */ (unitBtn));
     const input = getByTestId('uc-unit-input-TRP');
     await fireEvent.input(input, { target: { value: '' } });
+    vi.runAllTimers();
     expect(get(unitCosts).TRP).toBeUndefined();
   });
 

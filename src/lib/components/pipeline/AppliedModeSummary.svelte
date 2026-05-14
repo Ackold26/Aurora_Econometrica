@@ -150,6 +150,34 @@
     unitCostInflation.update((curr) => ({ ...curr, [name]: num }));
   }
 
+  /** Debounce helper — keyed по channel+field для per-input cancel. */
+  /** @type {Record<string, ReturnType<typeof setTimeout>>} */
+  let pendingTimers = {};
+
+  /**
+   * @param {string} key
+   * @param {() => void} fn
+   * @param {number} [delay]
+   */
+  function debounceCall(key, fn, delay = 150) {
+    if (pendingTimers[key]) clearTimeout(pendingTimers[key]);
+    pendingTimers[key] = setTimeout(() => {
+      delete pendingTimers[key];
+      fn();
+    }, delay);
+  }
+
+  /** Debounced wrappers for template oninput handlers. */
+  function updateBudgetDebounced(/** @type {string} */ name, /** @type {string} */ value) {
+    debounceCall(`budget:${name}`, () => updateBudget(name, value));
+  }
+  function updateUnitCostDebounced(/** @type {string} */ name, /** @type {string} */ value) {
+    debounceCall(`unit:${name}`, () => updateUnitCost(name, value));
+  }
+  function updateInflationDebounced(/** @type {string} */ name, /** @type {string} */ value) {
+    debounceCall(`infl:${name}`, () => updateInflation(name, value));
+  }
+
   /** Display formatter для preview суммы ₽ при mode='unit'. */
   function previewTotal(/** @type {string} */ name) {
     const uc = $unitCosts?.[name];
@@ -338,7 +366,7 @@
                       class="uc-input"
                       placeholder="например, 38 000 000"
                       value={$budgetInputs[ch.name] ?? ''}
-                      oninput={(/** @type {Event} */ e) => updateBudget(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
+                      oninput={(/** @type {Event} */ e) => updateBudgetDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
                       data-testid="uc-budget-input-{ch.name}"
                     />
                   </label>
@@ -365,7 +393,7 @@
                       class="uc-input"
                       placeholder="0"
                       value={ucValue ?? ''}
-                      oninput={(/** @type {Event} */ e) => updateUnitCost(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
+                      oninput={(/** @type {Event} */ e) => updateUnitCostDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
                       data-testid="uc-unit-input-{ch.name}"
                     />
                   </label>
@@ -378,7 +406,7 @@
                       class="uc-input"
                       placeholder="обычно 0-20%, оставьте 0 если не знаете"
                       value={inflValue ?? ''}
-                      oninput={(/** @type {Event} */ e) => updateInflation(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
+                      oninput={(/** @type {Event} */ e) => updateInflationDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
                       data-testid="uc-infl-input-{ch.name}"
                     />
                   </label>
