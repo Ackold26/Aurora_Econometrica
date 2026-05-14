@@ -49,3 +49,7 @@ rfc8785>=0.1.2
 linearmodels>=6.0  # DiD Callaway-Santanna 2021 (panel-data econometrics)
 econml>=0.15       # Causal Forest Wager-Athey (HTE estimator)
 statsmodels>=0.14  # Panel data utilities (transitive but explicit pin)
+
+# ── Concurrency (Phase 1.7 — multi-tab file locking) ───────────
+filelock>=3.13     # Cross-platform advisory file lock (MIT). Wraps OS-level
+                   # locking via fcntl (POSIX) / LockFileEx (Windows).
