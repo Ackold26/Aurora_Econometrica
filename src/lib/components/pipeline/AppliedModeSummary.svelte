@@ -24,6 +24,7 @@
     // Phase 1.3 (v2.0.1) — persistence для UI mode preference + budget input restore.
     unitCostInputMode, budgetInputs,
   } from '$lib/project-state.js';
+  import { pluralizeRu } from '$lib/utils/i18n.js';
   // Phase 1.1 (SSOT): unit label resolution через shared service.
   // Replaces inline unitLabel() regex — теперь one source of truth с
   // backend column_detection.unit_label_for(). Cache-with-fallback.
@@ -268,7 +269,7 @@
     <div class="channel-counts" data-testid="channel-counts">
       <span class="count-pill count-pill--active">
         <strong>{channels.length}</strong>
-        {channels.length === 1 ? 'активный канал' : channels.length < 5 ? 'активных канала' : 'активных каналов'}
+        {pluralizeRu(channels.length, ['активный канал', 'активных канала', 'активных каналов'])}
       </span>
       {#if excludedChannelNames.length > 0}
         <button
@@ -279,7 +280,7 @@
           data-testid="excluded-toggle"
         >
           <strong>⊘ {excludedChannelNames.length}</strong>
-          {excludedChannelNames.length === 1 ? 'исключён' : 'исключено'}
+          {pluralizeRu(excludedChannelNames.length, ['исключён', 'исключено', 'исключено'])}
           <span class="count-chevron" class:open={excludedExpanded}>▾</span>
         </button>
       {/if}
@@ -304,9 +305,7 @@
     {#if incompatibleCount > 0}
       <div class="incompat-banner" role="alert" data-testid="incompat-banner">
         <strong>⚠ {incompatibleCount}
-          {incompatibleCount === 1
-            ? 'канал'
-            : incompatibleCount < 5 ? 'канала' : 'каналов'}</strong>
+          {pluralizeRu(incompatibleCount, ['канал', 'канала', 'каналов'])}</strong>
         с физическими метриками (TRP / показы / клики) — для ROI режима их нужно перевести в ₽.
         <br />
         Укажите для каждого:
