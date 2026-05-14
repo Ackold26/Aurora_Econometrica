@@ -161,6 +161,60 @@
   }
 
   /**
+   * Phase 2.7: Apply same unit_cost + inflation across channels sharing
+   * the same physical unit type (e.g. all «TRP» channels or all «CPM»
+   * channels). Smart batch reduces friction (Audit U4).
+   *
+   * @param {string} sourceChannelName Channel chosen as source of values.
+   */
+  function applyToSameType(sourceChannelName) {
+    const sourceUc = $unitCosts?.[sourceChannelName];
+    if (typeof sourceUc !== 'number' || sourceUc <= 0) return;
+    const sourceLabel = unitLabel(sourceChannelName);
+    const sourceInfl = $unitCostInflation?.[sourceChannelName];
+
+    // Find sister physical channels с same unit label.
+    const targets = channels
+      .filter((/** @type {ChannelInfo} */ c) =>
+        c.detectedType === 'physical'
+        && c.name !== sourceChannelName
+        && unitLabel(c.name) === sourceLabel
+      )
+      .map((c) => c.name);
+
+    if (targets.length === 0) return;
+
+    unitCosts.update((curr) => {
+      const next = { ...curr };
+      for (const t of targets) next[t] = sourceUc;
+      return next;
+    });
+    if (typeof sourceInfl === 'number') {
+      unitCostInflation.update((curr) => {
+        const next = { ...curr };
+        for (const t of targets) next[t] = sourceInfl;
+        return next;
+      });
+    }
+    // Set mode='unit' for targets — sister channels likely use same flow.
+    unitCostInputMode.update((curr) => {
+      const next = { ...curr };
+      for (const t of targets) next[t] = 'unit';
+      return next;
+    });
+  }
+
+  /** Count of sister channels с same unit type as the given channel. */
+  function siblingPhysicalCount(/** @type {string} */ name) {
+    const label = unitLabel(name);
+    return channels.filter((/** @type {ChannelInfo} */ c) =>
+      c.detectedType === 'physical'
+      && c.name !== name
+      && unitLabel(c.name) === label
+    ).length;
+  }
+
+  /**
    * Slugify channel name для valid HTML attribute / test selector.
    * Converts Cyrillic and spaces to ASCII-safe dashes.
    * @param {string | undefined} name
@@ -459,6 +513,18 @@
                       {/if}
                     {/if}
                   </p>
+                  {#if isConverted(ch.name) && siblingPhysicalCount(ch.name) > 0}
+                    <button
+                      type="button"
+                      class="uc-apply-same"
+                      onclick={() => applyToSameType(ch.name)}
+                      data-testid="uc-apply-same-btn-{slugify(ch.name)}"
+                      data-channel={ch.name}
+                    >
+                      Применить ко всем «{unitLabel(ch.name)}»
+                      ({siblingPhysicalCount(ch.name)})
+                    </button>
+                  {/if}
                 </div>
               {/if}
             </div>
@@ -727,6 +793,32 @@
     text-decoration: line-through;
     text-decoration-color: color-mix(in srgb, var(--text-muted, #7A7A90) 50%, transparent);
   }
+  /* Phase 2.7: smart batch — apply unit_cost across same-type channels */
+  .uc-apply-same {
+    margin-top: 6px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 35%, transparent);
+    color: var(--gold, #c9a449);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    align-self: flex-start;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .uc-apply-same {
+      transition: background 0.15s, color 0.15s, transform 0.1s;
+    }
+    .uc-apply-same:hover {
+      background: var(--gold, #c9a449);
+      color: var(--bg-card, #181824);
+    }
+    .uc-apply-same:active {
+      transform: scale(0.97);
+    }
+  }
+
   /* Phase 2.9: per-channel inline restore button */
   .excluded-restore {
     background: transparent;

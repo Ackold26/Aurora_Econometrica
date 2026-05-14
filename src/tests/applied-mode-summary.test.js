@@ -216,6 +216,80 @@ describe('AppliedModeSummary', () => {
     expect(container.querySelector('.count-pill--excluded')).toBeNull();
   });
 
+  // Phase 2.7: «Apply to all of same type» batch button
+  it('shows «Применить ко всем» button when converted physical has siblings', async () => {
+    analysisMode.set('roi');
+    // Two TRP-flavoured channels (same unit label «₽ за 1 TRP»)
+    const channels = [
+      { name: 'TRPs бренд', detectedType: 'physical' },
+      { name: 'TRPs конкуренты', detectedType: 'physical' },
+    ];
+    unitCosts.set({ 'TRPs бренд': 25000 });
+    unitCostInputMode.set({ 'TRPs бренд': 'unit' });
+    const { container } = render(AppliedModeSummary, {
+      props: { channels, channelSums: { 'TRPs бренд': 100, 'TRPs конкуренты': 50 } },
+    });
+    const btn = container.querySelector('[data-channel="TRPs бренд"].uc-apply-same');
+    expect(btn).toBeInTheDocument();
+    expect(btn?.textContent).toMatch(/Применить ко всем/);
+    expect(btn?.textContent).toContain('TRP');
+  });
+
+  it('does NOT show «Применить» button when no siblings', () => {
+    analysisMode.set('roi');
+    unitCosts.set({ 'TRPs бренд': 25000 });
+    unitCostInputMode.set({ 'TRPs бренд': 'unit' });
+    const { container } = render(AppliedModeSummary, {
+      props: {
+        channels: [{ name: 'TRPs бренд', detectedType: 'physical' }],
+        channelSums: { 'TRPs бренд': 100 },
+      },
+    });
+    expect(container.querySelector('.uc-apply-same')).toBeNull();
+  });
+
+  it('does NOT show «Применить» button when channel not converted', () => {
+    analysisMode.set('roi');
+    const { container } = render(AppliedModeSummary, {
+      props: {
+        channels: [
+          { name: 'TRPs бренд', detectedType: 'physical' },
+          { name: 'TRPs конкуренты', detectedType: 'physical' },
+        ],
+        channelSums: { 'TRPs бренд': 100, 'TRPs конкуренты': 50 },
+      },
+    });
+    // unit_costs empty → not converted → no button
+    expect(container.querySelector('.uc-apply-same')).toBeNull();
+  });
+
+  it('clicking «Применить ко всем» copies unit_cost к siblings same type', async () => {
+    analysisMode.set('roi');
+    const channels = [
+      { name: 'TRPs бренд', detectedType: 'physical' },
+      { name: 'TRPs конкуренты', detectedType: 'physical' },
+      { name: 'Показы Banners', detectedType: 'physical' },  // different unit label
+    ];
+    unitCosts.set({ 'TRPs бренд': 25000 });
+    unitCostInflation.set({ 'TRPs бренд': 15 });
+    unitCostInputMode.set({ 'TRPs бренд': 'unit' });
+    const { container } = render(AppliedModeSummary, {
+      props: {
+        channels,
+        channelSums: { 'TRPs бренд': 100, 'TRPs конкуренты': 50, 'Показы Banners': 1000 },
+      },
+    });
+    const btn = container.querySelector('[data-channel="TRPs бренд"].uc-apply-same');
+    expect(btn).toBeInTheDocument();
+    await fireEvent.click(btn);
+    // TRPs конкуренты получил same unit_cost
+    expect(get(unitCosts)['TRPs конкуренты']).toBe(25000);
+    expect(get(unitCostInflation)['TRPs конкуренты']).toBe(15);
+    expect(get(unitCostInputMode)['TRPs конкуренты']).toBe('unit');
+    // Показы Banners (different label) — НЕ затронут
+    expect(get(unitCosts)['Показы Banners']).toBeUndefined();
+  });
+
   // Phase 2.9: per-channel restore button
   it('renders «Вернуть» button when onRestoreChannel callback provided', async () => {
     const { container, getByTestId } = render(AppliedModeSummary, {
