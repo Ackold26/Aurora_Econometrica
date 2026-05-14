@@ -44,7 +44,7 @@ if _sidecar_root not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 # ── Identity & session (required by handshake protocol v1.0.9+) ──────────────
 # Session_id меняется при каждом cold start. Rust сверяет его с sidecar.json
@@ -1874,32 +1874,126 @@ def project_auto_price(req: AutoPriceRequest):
 
 
 class ValuePerCountUnitSaveRequest(BaseModel):
-    """v1.3.0: persist user-confirmed value_per_count_unit + per_channel_input."""
+    """v1.3.0: persist user-confirmed value_per_count_unit + per_channel_input.
+
+    v2.0.1 (Phase 1.2): extended with unit_costs + inflation + mode_for +
+    budget_inputs для defense-in-depth backend validation (audit P-02).
+    All new fields optional — backward compat preserved.
+    """
     project_dir: str
     value_per_count_unit: float | None = None
     value_per_count_unit_label: str = ''
     value_per_count_unit_source: str | None = None  # 'auto'|'manual'|'imported'
     per_channel_input: dict[str, str] | None = None  # {channel: 'monetary'|'physical'}
     kpi_kind: str = 'monetary'                       # 'monetary' | 'count'
+    # v2.0.1 — unit cost persistence + role compatibility validation
+    unit_costs: dict[str, float] | None = None         # {channel: ₽ per unit}
+    unit_cost_inflation: dict[str, float] | None = None  # {channel: annual %}
+    mode_for: dict[str, str] | None = None             # {channel: 'budget'|'unit'} (UI mode preference)
+    budget_inputs: dict[str, float] | None = None      # {channel: raw budget input для UI restore}
+
+    @field_validator('unit_costs')
+    @classmethod
+    def _validate_unit_costs_bounds(cls, v: dict[str, float] | None) -> dict[str, float] | None:
+        if v is None:
+            return None
+        for channel, cost in v.items():
+            if not isinstance(cost, (int, float)):
+                raise ValueError(f'unit_cost для {channel!r} must be numeric, got {type(cost).__name__}')
+            if cost != cost:  # NaN check
+                raise ValueError(f'unit_cost для {channel!r} is NaN')
+            if cost < 0:
+                raise ValueError(f'unit_cost для {channel!r} must be ≥ 0, got {cost}')
+            if cost > 1e9:
+                raise ValueError(f'unit_cost для {channel!r} unreasonably high: {cost} (max 1e9 ₽/unit)')
+        return v
+
+    @field_validator('unit_cost_inflation')
+    @classmethod
+    def _validate_inflation_bounds(cls, v: dict[str, float] | None) -> dict[str, float] | None:
+        if v is None:
+            return None
+        for channel, rate in v.items():
+            if not isinstance(rate, (int, float)):
+                raise ValueError(f'inflation для {channel!r} must be numeric')
+            if rate != rate:  # NaN
+                raise ValueError(f'inflation для {channel!r} is NaN')
+            # Inflation %/год — sanity range [-50, 500]. Negative = deflation, accepted.
+            if rate < -50 or rate > 500:
+                raise ValueError(f'inflation для {channel!r} out of range: {rate}% (expected -50..500)')
+        return v
+
+    @field_validator('mode_for')
+    @classmethod
+    def _validate_mode_for(cls, v: dict[str, str] | None) -> dict[str, str] | None:
+        if v is None:
+            return None
+        for channel, mode in v.items():
+            if mode not in ('budget', 'unit'):
+                raise ValueError(f'mode_for[{channel!r}] must be "budget" or "unit", got {mode!r}')
+        return v
 
 
 @app.post('/project/save_kpi_settings')
 def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
     """Persist v1.3.0 KPI settings (per ADR-015, ADR-016, ADR-017).
 
-    Updates project state с derived_mode, kpi_kind, value_per_count_unit fields.
-    NB: НЕ retrains модель - это lightweight metadata update.
+    v2.0.1 (Phase 1.2): cross-field role compatibility validation
+    (audit P-02 defense-in-depth) + atomic write через safe_io
+    (Phase 0.3) + structured logging (Phase 0.2).
+
+    Updates project state с derived_mode, kpi_kind, value_per_count_unit,
+    unit_costs, inflation, mode_for, budget_inputs fields. NB: НЕ retrains
+    модель — это lightweight metadata update.
     """
     try:
         from pathlib import Path
         from utils.mode_inference import derive_mode
+        from utils.safe_io import atomic_write_json
+        from utils.log_config import setup_module_logger, log_event
+        from engines.validator import validate_role_compatibility
+
+        save_logger = setup_module_logger('save_kpi_settings')
 
         project_path = Path(req.project_dir)
         if not project_path.exists():
+            log_event(save_logger, 'kpi_settings_project_not_found', project_dir=str(project_path))
             return JSONResponse(content={
                 'status': 'error',
                 'error_code': 'PROJECT_NOT_FOUND',
             }, status_code=404)
+
+        # Cross-field validation: unit_costs only for media channels.
+        # Read media list from project.json (if exists) — otherwise skip check.
+        media_columns = []
+        proj_json = project_path / 'project.json'
+        if proj_json.exists():
+            try:
+                with open(proj_json, encoding='utf-8') as pf:
+                    proj_data = json.load(pf)
+                media_columns = proj_data.get('media_columns', []) or []
+            except (OSError, json.JSONDecodeError):
+                media_columns = []
+
+        if req.unit_costs and media_columns:
+            valid, err_code, msg = validate_role_compatibility(
+                req.unit_costs,
+                media_columns,
+            )
+            if not valid:
+                log_event(
+                    save_logger,
+                    'kpi_settings_role_mismatch',
+                    level=logging.WARNING,
+                    project_dir=str(project_path),
+                    error_code=err_code,
+                    detail=msg,
+                )
+                return JSONResponse(content={
+                    'status': 'error',
+                    'error_code': err_code,
+                    'message': msg,
+                }, status_code=422)
 
         # Save as JSON metadata in project's settings/v13_kpi.json.
         settings_dir = project_path / 'settings'
@@ -1918,16 +2012,45 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
             'value_per_count_unit_source': req.value_per_count_unit_source,
             'per_channel_input': req.per_channel_input or {},
             'derived_mode': derived_mode,
+            # v2.0.1 (Phase 1.3 persistence of UI mode state):
+            'unit_costs': req.unit_costs or {},
+            'unit_cost_inflation': req.unit_cost_inflation or {},
+            'mode_for': req.mode_for or {},
+            'budget_inputs': req.budget_inputs or {},
             'updated_at': pd.Timestamp.now().isoformat(),
         }
 
-        with open(settings_file, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, ensure_ascii=False, indent=2)
+        # Atomic write через Phase 0.3 helper — power-loss safe.
+        try:
+            sha = atomic_write_json(settings_file, settings)
+        except OSError as oe:
+            log_event(
+                save_logger,
+                'kpi_settings_disk_error',
+                level=logging.ERROR,
+                project_dir=str(project_path),
+                error=str(oe),
+            )
+            return JSONResponse(status_code=500, content={
+                'status': 'error',
+                'error_code': 'DISK_WRITE_FAILED',
+                'message': f'Не удалось записать настройки: {oe}',
+            })
+
+        log_event(
+            save_logger,
+            'kpi_settings_saved',
+            project_dir=str(project_path),
+            derived_mode=derived_mode,
+            sha256=sha,
+            n_unit_costs=len(req.unit_costs or {}),
+        )
 
         return JSONResponse(content={
             'status': 'ok',
             'derived_mode': derived_mode,
             'saved_to': str(settings_file),
+            'integrity_sha256': sha,
         })
     except Exception as e:
         logger.exception('Save KPI settings FAILED')

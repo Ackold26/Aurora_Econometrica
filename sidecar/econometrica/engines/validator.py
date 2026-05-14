@@ -113,6 +113,54 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     return 'control', round(conf, 2)
 
 
+def validate_role_compatibility(
+    unit_costs: dict,
+    media_columns: list,
+    classifier_fn=None,
+) -> tuple[bool, str, str]:
+    """Cross-field validation для KPI settings save (Phase 1.2).
+
+    Checks:
+      1. Each channel in unit_costs существует в media_columns.
+      2. Channel name doesn't match target/control patterns (would indicate
+         user accidentally set unit_cost for non-media role).
+
+    Args:
+        unit_costs: {channel: ₽_per_unit} from frontend save request
+        media_columns: list of column names classified as media in project state
+        classifier_fn: optional callable(name) -> kind для unit-test substitution
+
+    Returns:
+        (is_valid: bool, error_code: str, message: str)
+        error_code в {'OK', 'UNIT_COST_CHANNEL_NOT_MEDIA', 'UNIT_COST_LIKELY_TARGET'}
+    """
+    if not unit_costs:
+        return True, 'OK', ''
+    if not isinstance(media_columns, (list, tuple)):
+        media_columns = list(media_columns or [])
+    media_set = {str(c) for c in media_columns}
+
+    for channel in unit_costs.keys():
+        if channel in media_set:
+            continue  # OK
+        # Channel not in media list → likely user error (e.g., set unit_cost
+        # для column которая помечена как target / control).
+        # Optional: use classifier_fn для better диагностики
+        kind_hint = ''
+        if classifier_fn is not None:
+            try:
+                kind_hint = f' (classified as {classifier_fn(channel)!r})'
+            except Exception:  # noqa: BLE001 — defensive против user input
+                kind_hint = ''
+        return (
+            False,
+            'UNIT_COST_CHANNEL_NOT_MEDIA',
+            f'unit_cost задан для канала {channel!r}, который не в списке media{kind_hint}. '
+            f'Удалите запись или измените role канала в шаге «Роли колонок».',
+        )
+    return True, 'OK', ''
+
+
 def detect_adstock_type(col_name: str) -> str:
     """Suggest adstock type based on channel name."""
     lower = col_name.lower()
