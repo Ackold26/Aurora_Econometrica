@@ -13,13 +13,15 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import { get } from 'svelte/store';
 import AppliedModeSummary from '$lib/components/pipeline/AppliedModeSummary.svelte';
-import { analysisMode, expertMode } from '$lib/project-state.js';
+import { analysisMode, expertMode, unitCosts, unitCostInflation } from '$lib/project-state.js';
 
 
 // Reset stores before each test
 beforeEach(() => {
   analysisMode.set('roi');
   expertMode.set(false);
+  unitCosts.set({});
+  unitCostInflation.set({});
 });
 
 /** Sample channel list */
@@ -85,19 +87,200 @@ describe('AppliedModeSummary', () => {
   });
 
   it('renders each channel name in the list', () => {
-    render(AppliedModeSummary, { props: { channels: makeChannels() } });
+    const { container } = render(AppliedModeSummary, { props: { channels: makeChannels() } });
+    const list = container.querySelector('.channel-list');
+    expect(list).toBeInTheDocument();
     for (const ch of makeChannels()) {
-      expect(screen.getByText(ch.name)).toBeInTheDocument();
+      // Имя может появляться также в .uc-inputs (для physical channels в ROI mode) — scope к channel-list.
+      expect(list?.textContent).toContain(ch.name);
     }
   });
 
-  it('shows «спенд в ₽» label for all channels in roi mode', () => {
+  it('shows «спенд в ₽» label for monetary channels in roi mode', () => {
     analysisMode.set('roi');
-    const { container } = render(AppliedModeSummary, { props: { channels: makeChannels() } });
+    const channels = [
+      { name: 'TV', detectedType: 'monetary' },
+      { name: 'OOH', detectedType: 'monetary' },
+    ];
+    const { container } = render(AppliedModeSummary, { props: { channels } });
     const labels = container.querySelectorAll('.channel-metric');
     for (const label of labels) {
       expect(label.textContent).toContain('спенд в ₽');
     }
+  });
+
+  // BUG #2 fix (v2.0.1): physical-only канал в ROI mode = incompatible, не «спенд в ₽».
+  it('shows warning label for physical channels in roi mode (BUG #2 fix)', () => {
+    analysisMode.set('roi');
+    const channels = [
+      { name: 'TRPs бренд', detectedType: 'physical' },
+    ];
+    const { container } = render(AppliedModeSummary, { props: { channels } });
+    const label = container.querySelector('.channel-metric');
+    expect(label?.textContent).toContain('нужна конвертация в ₽');
+    expect(label?.textContent).not.toContain('спенд в ₽');
+    expect(label?.classList.contains('metric-incompat')).toBe(true);
+  });
+
+  it('banner mentions both conversion options (budget OR unit cost + inflation)', () => {
+    analysisMode.set('roi');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }
+    });
+    const banner = container.querySelector('[data-testid="incompat-banner"]');
+    expect(banner).toBeInTheDocument();
+    expect(banner?.textContent).toContain('общий бюджет');
+    expect(banner?.textContent).toContain('стоимость 1 единицы');
+    expect(banner?.textContent).toContain('инфляцию');
+    // Не должен упоминать Expert mode как требование — Антон 2026-05-14
+    expect(banner?.textContent).not.toContain('Expert');
+  });
+
+  it('marks incompatible channel item with class.incompatible in roi mode', () => {
+    analysisMode.set('roi');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }  // Digital is physical
+    });
+    const items = container.querySelectorAll('.channel-item');
+    const incompatItems = Array.from(items).filter((el) => el.classList.contains('incompatible'));
+    expect(incompatItems.length).toBe(1);  // только Digital
+  });
+
+  it('renders incompat-banner when ROI mode has physical channels', () => {
+    analysisMode.set('roi');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }  // 1 physical
+    });
+    const banner = container.querySelector('[data-testid="incompat-banner"]');
+    expect(banner).toBeInTheDocument();
+    expect(banner?.textContent).toMatch(/1\s+канал/);
+  });
+
+  it('does NOT render incompat-banner when ROI mode has only monetary channels', () => {
+    analysisMode.set('roi');
+    const channels = [
+      { name: 'TV', detectedType: 'monetary' },
+      { name: 'OOH', detectedType: 'monetary' },
+    ];
+    const { container } = render(AppliedModeSummary, { props: { channels } });
+    expect(container.querySelector('[data-testid="incompat-banner"]')).toBeNull();
+  });
+
+  it('does NOT render incompat-banner in effectiveness mode even with physical channels', () => {
+    analysisMode.set('effectiveness');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }
+    });
+    expect(container.querySelector('[data-testid="incompat-banner"]')).toBeNull();
+  });
+
+  // ─── BUG #2 fix v2.0.1: inline unit_cost inputs ────────────────────────────
+
+  it('renders uc-inputs block when ROI mode has physical channels', () => {
+    analysisMode.set('roi');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }
+    });
+    const block = container.querySelector('[data-testid="uc-inputs"]');
+    expect(block).toBeInTheDocument();
+    // 1 physical (Digital) → 1 row.
+    const rows = block?.querySelectorAll('.uc-row');
+    expect(rows?.length).toBe(1);
+  });
+
+  it('does NOT render uc-inputs when channels are all monetary in ROI', () => {
+    analysisMode.set('roi');
+    const channels = [{ name: 'TV', detectedType: 'monetary' }];
+    const { container } = render(AppliedModeSummary, { props: { channels } });
+    expect(container.querySelector('[data-testid="uc-inputs"]')).toBeNull();
+  });
+
+  it('does NOT render uc-inputs in effectiveness mode', () => {
+    analysisMode.set('effectiveness');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }
+    });
+    expect(container.querySelector('[data-testid="uc-inputs"]')).toBeNull();
+  });
+
+  it('two mode buttons render for each physical channel: budget + unit', () => {
+    analysisMode.set('roi');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }
+    });
+    const row = container.querySelector('.uc-row');
+    const btns = row?.querySelectorAll('.uc-mode-btn');
+    expect(btns?.length).toBe(2);
+    expect(btns?.[0].textContent?.trim()).toBe('Общий бюджет ₽');
+    expect(btns?.[1].textContent?.trim()).toMatch(/Цена 1 ед/);
+  });
+
+  it('default mode is «unit» (как в прошлой версии)', () => {
+    analysisMode.set('roi');
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }
+    });
+    const activeBtn = container.querySelector('.uc-mode-btn.active');
+    expect(activeBtn?.textContent?.trim()).toMatch(/Цена 1 ед/);
+  });
+
+  it('typing unit_cost > 0 stores it in $unitCosts and marks channel converted', async () => {
+    analysisMode.set('roi');
+    const channels = [{ name: 'TRP', detectedType: 'physical' }];
+    const { container, getByTestId } = render(AppliedModeSummary, {
+      props: { channels, channelSums: { TRP: 100 } }
+    });
+    const input = getByTestId('uc-unit-input-TRP');
+    expect(input).toBeInTheDocument();
+    await fireEvent.input(input, { target: { value: '25000' } });
+    expect(get(unitCosts).TRP).toBe(25000);
+    // Канал стал converted → больше не incompatible → banner исчез.
+    expect(container.querySelector('[data-testid="incompat-banner"]')).toBeNull();
+    // Channel-list row показывает converted state.
+    const items = container.querySelectorAll('.channel-item.converted');
+    expect(items.length).toBe(1);
+  });
+
+  it('mode toggle to «budget» derives unit_cost = budget / sum', async () => {
+    analysisMode.set('roi');
+    const channels = [{ name: 'TRP', detectedType: 'physical' }];
+    const { container, getByTestId } = render(AppliedModeSummary, {
+      props: { channels, channelSums: { TRP: 200 } }
+    });
+    // Switch to budget mode.
+    const budgetBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
+      .find((b) => b.textContent?.includes('Общий бюджет'));
+    expect(budgetBtn).toBeDefined();
+    await fireEvent.click(/** @type {Element} */ (budgetBtn));
+    const budgetInput = getByTestId('uc-budget-input-TRP');
+    expect(budgetInput).toBeInTheDocument();
+    await fireEvent.input(budgetInput, { target: { value: '50000' } });
+    // 50000 / 200 = 250 ₽/ед.
+    expect(get(unitCosts).TRP).toBe(250);
+  });
+
+  it('inflation input stores value to $unitCostInflation', async () => {
+    analysisMode.set('roi');
+    const channels = [{ name: 'TRP', detectedType: 'physical' }];
+    const { getByTestId } = render(AppliedModeSummary, {
+      props: { channels, channelSums: { TRP: 100 } }
+    });
+    const inflInput = getByTestId('uc-infl-input-TRP');
+    expect(inflInput).toBeInTheDocument();
+    await fireEvent.input(inflInput, { target: { value: '15' } });
+    expect(get(unitCostInflation).TRP).toBe(15);
+  });
+
+  it('empty unit_cost input clears the store entry', async () => {
+    analysisMode.set('roi');
+    unitCosts.set({ TRP: 1000 });
+    const channels = [{ name: 'TRP', detectedType: 'physical' }];
+    const { getByTestId } = render(AppliedModeSummary, {
+      props: { channels, channelSums: { TRP: 100 } }
+    });
+    const input = getByTestId('uc-unit-input-TRP');
+    await fireEvent.input(input, { target: { value: '' } });
+    expect(get(unitCosts).TRP).toBeUndefined();
   });
 
   it('shows physical metric label for all channels in effectiveness mode', () => {

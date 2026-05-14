@@ -44,6 +44,42 @@
   import ColumnMapperConfirm from './ColumnMapperConfirm.svelte';
   import RatioInfoCard from './RatioInfoCard.svelte';
 
+  // BUG #2 fix (v2.0.1): regex detection physical vs monetary канала из column name.
+  // Mirrors backend column_detection.py MONETARY_PATTERNS + PHYSICAL_PATTERNS.
+  // Используется когда $perChannelInput empty (Manager mode), чтобы AppliedModeSummary
+  // показывала верный unit type и warning для physical-only каналов в ROI режиме.
+  const MONETARY_RE = /(?:^|[_\s\-])(?:spend(?:s|ing)?|budget|cost(?:s)?|expense|investment|бюджет|расход|затрат|стоимость|трат|инвестиц|rub|usd|eur)(?:[_\s\-]|$|\.)|₽/i;
+  const PHYSICAL_RE = /(?:^|[_\s\-])(?:impression(?:s)?|impr|view(?:s)?|click(?:s)?|visit(?:s)?|session(?:s)?|reach|contact(?:s)?|grp(?:s)?|trp(?:s)?|показ(?:ы|ов|а)?|клик(?:ов|и)?|визит(?:ы|ов|а)?|охват(?:ы|ом)?|просмотр(?:ы|ов|а)?|прочтен(?:ия|ие)?|грп|трп)(?:[_\s\-]|$|\()/i;
+
+  /** Detect channel unit type из column name. Defaults к 'monetary' для unknown.
+   * Используется только в Manager mode когда $perChannelInput пустой.
+   * @param {string} name
+   * @returns {'monetary' | 'physical'}
+   */
+  function detectChannelType(name) {
+    if (!name) return 'monetary';
+    const isMonetary = MONETARY_RE.test(name);
+    const isPhysical = PHYSICAL_RE.test(name);
+    if (isPhysical && !isMonetary) return 'physical';
+    return 'monetary';
+  }
+
+  /** Channel sums (Σ единиц за весь период) из validateData. Используется
+   *  AppliedModeSummary для derivation unit_cost из «общего бюджета»
+   *  (budget / sum = ₽ за 1 единицу). */
+  const channelSums = $derived.by(() => {
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols)) return {};
+    /** @type {Record<string, number>} */
+    const sums = {};
+    for (const c of cols) {
+      if (c?.role === 'media' && typeof c?.stats?.sum === 'number') {
+        sums[c.name] = c.stats.sum;
+      }
+    }
+    return sums;
+  });
+
   // Audit fix v1.3.0: monetaryColumnHint теперь auto-detected из validateData
   // (если не передан явно). Hardcoded 'sales_rub' ломал auto-detect для
   // не-стандартных schemas (revenue / выручка / sales).
@@ -708,8 +744,9 @@
     <AppliedModeSummary
       channels={channels.map((name) => ({
         name,
-        detectedType: ($perChannelInput?.[name] ?? 'monetary'),
+        detectedType: $perChannelInput?.[name] ?? detectChannelType(name),
       }))}
+      channelSums={channelSums}
     />
     <PerChannelInputSelector
       channels={channels}

@@ -19,18 +19,137 @@
    * @component AppliedModeSummary
    */
 
-  import { analysisMode, expertMode } from '$lib/project-state.js';
+  import { analysisMode, expertMode, unitCosts, unitCostInflation } from '$lib/project-state.js';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
+   * @typedef {{ label: string, isPhysical: boolean, incompatible: boolean, converted?: boolean }} ChannelLabelMeta
    */
 
   /**
    * @type {{
-   *   channels?: ChannelInfo[]
+   *   channels?: ChannelInfo[],
+   *   channelSums?: Record<string, number>,
    * }}
    */
-  const { channels = [] } = $props();
+  const { channels = [], channelSums = {} } = $props();
+
+  /** Local UI-only state: ввод режим per канал ('budget' = общий ₽-бюджет;
+   *  'unit' = цена 1 ед. + инфляция CPP/CPM). Default 'unit' — соответствует
+   *  существующему flow прошлых версий (unitCosts + unitCostInflation stores).
+   * @type {Record<string, 'budget' | 'unit'>} */
+  let modeFor = $state(/** @type {Record<string, 'budget' | 'unit'>} */ ({}));
+
+  /** Local UI-only mirror of «общий бюджет, ₽» input для каждого канала.
+   *  Хранится отдельно (а не derived из unitCost × sum), чтобы пользователь
+   *  мог переключаться между modes без потери введённого значения.
+   * @type {Record<string, string>} */
+  let budgetInputs = $state(/** @type {Record<string, string>} */ ({}));
+
+  /** Helper: канал «converted» если для него задан unit_cost > 0. */
+  function isConverted(/** @type {string} */ name) {
+    const uc = $unitCosts?.[name];
+    return typeof uc === 'number' && uc > 0;
+  }
+
+  /** BUG #2 fix (v2.0.1): count каналов с physical unit в ROI mode БЕЗ
+   *  установленного unit_cost. После ввода цены канал становится «converted»
+   *  и больше не считается incompatible. */
+  const incompatibleCount = $derived(
+    $analysisMode === 'roi'
+      ? channels.filter((/** @type {ChannelInfo} */ c) =>
+          c.detectedType === 'physical' && !isConverted(c.name)
+        ).length
+      : 0
+  );
+
+  /** Есть ли хотя бы один physical канал в ROI mode (converted или нет).
+   *  Используется чтобы показывать inline unit_cost inputs даже после
+   *  конвертации — для редактирования. */
+  const hasAnyPhysicalInRoi = $derived(
+    $analysisMode === 'roi' && channels.some(
+      (/** @type {ChannelInfo} */ c) => c.detectedType === 'physical'
+    )
+  );
+
+  /** Detect human-readable unit label («за 1 TRP» / «за 1000 показов» / etc.)
+   *  из имени канала для отображения подписи рядом с input. */
+  function unitLabel(/** @type {string} */ name) {
+    const lower = (name || '').toLowerCase();
+    if (/(trp|трп)/.test(lower)) return '₽ за 1 TRP';
+    if (/(grp|грп)/.test(lower)) return '₽ за 1 GRP';
+    if (/(impression|показ)/.test(lower)) return '₽ за 1000 показов (CPM)';
+    if (/(click|клик)/.test(lower)) return '₽ за 1 клик (CPC)';
+    if (/(visit|визит)/.test(lower)) return '₽ за 1 визит';
+    if (/(view|просмотр)/.test(lower)) return '₽ за 1 просмотр';
+    if (/(reach|охват)/.test(lower)) return '₽ за 1000 охвата';
+    if (/(прочтен)/.test(lower)) return '₽ за 1 прочтение';
+    return '₽ за 1 единицу';
+  }
+
+  /** Получить текущий mode для канала. Default — 'unit' (как в прошлых версиях). */
+  function modeOf(/** @type {string} */ name) {
+    return modeFor[name] ?? 'unit';
+  }
+
+  /** @param {string} name @param {'budget' | 'unit'} mode */
+  function setMode(name, mode) {
+    modeFor = { ...modeFor, [name]: mode };
+  }
+
+  /** Mode A: общий бюджет ₽ → derive unit_cost = budget / sum(units). */
+  function updateBudget(/** @type {string} */ name, /** @type {string} */ value) {
+    budgetInputs = { ...budgetInputs, [name]: value };
+    const budget = parseFloat(value);
+    const sum = channelSums?.[name];
+    if (!isFinite(budget) || budget <= 0 || !sum || sum <= 0) {
+      // Clear unit cost if invalid.
+      unitCosts.update((curr) => {
+        const next = { ...curr };
+        delete next[name];
+        return next;
+      });
+      return;
+    }
+    const derivedUnitCost = budget / sum;
+    unitCosts.update((curr) => ({ ...curr, [name]: derivedUnitCost }));
+  }
+
+  /** Mode B: прямой ввод цены 1 единицы. */
+  function updateUnitCost(/** @type {string} */ name, /** @type {string} */ value) {
+    const num = parseFloat(value);
+    if (!isFinite(num) || num <= 0) {
+      unitCosts.update((curr) => {
+        const next = { ...curr };
+        delete next[name];
+        return next;
+      });
+      return;
+    }
+    unitCosts.update((curr) => ({ ...curr, [name]: num }));
+  }
+
+  /** Mode B: годовая инфляция CPP/CPM (%). */
+  function updateInflation(/** @type {string} */ name, /** @type {string} */ value) {
+    const num = parseFloat(value);
+    if (!isFinite(num)) {
+      unitCostInflation.update((curr) => {
+        const next = { ...curr };
+        delete next[name];
+        return next;
+      });
+      return;
+    }
+    unitCostInflation.update((curr) => ({ ...curr, [name]: num }));
+  }
+
+  /** Display formatter для preview суммы ₽ при mode='unit'. */
+  function previewTotal(/** @type {string} */ name) {
+    const uc = $unitCosts?.[name];
+    const sum = channelSums?.[name];
+    if (!uc || !sum) return null;
+    return uc * sum;
+  }
 
   /** Header text driven by $analysisMode */
   const headerText = $derived(
@@ -43,24 +162,49 @@
 
   /**
    * For each channel, infer the display label based on analysisMode.
-   * In ROI mode — all show as monetary (₽). In effectiveness — all as physical.
-   * In mixed — show detected type.
+   * In ROI mode — monetary каналы show «спенд в ₽», physical-only — warning
+   * (incompatible: true). In effectiveness — все as physical. В mixed — as-is.
+   *
+   * BUG #2 fix (v2.0.1): physical unit (TRP, показы) нельзя интерпретировать
+   * как ₽ без unit_cost. Помечаем incompatible с visual warning.
    *
    * @param {ChannelInfo} ch
-   * @returns {{ label: string, isPhysical: boolean }}
+   * @returns {ChannelLabelMeta}
    */
   function channelLabel(ch) {
+    const isPhysical = ch.detectedType === 'physical';
     if ($analysisMode === 'roi') {
-      return { label: 'спенд в ₽', isPhysical: false };
+      if (isPhysical) {
+        // Converted: unit_cost задан > 0 → канал готов к ROI расчёту.
+        if (isConverted(ch.name)) {
+          const uc = $unitCosts?.[ch.name] ?? 0;
+          const ucFmt = uc >= 100
+            ? uc.toLocaleString('ru-RU', { maximumFractionDigits: 0 })
+            : uc.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+          return {
+            label: `${ucFmt} ${unitLabel(ch.name)} — конвертация в ₽`,
+            isPhysical: false,
+            incompatible: false,
+            converted: true,
+          };
+        }
+        return { label: '⚠ нужна конвертация в ₽ (общий бюджет или цена 1 ед.)', isPhysical: true, incompatible: true };
+      }
+      return { label: 'спенд в ₽', isPhysical: false, incompatible: false };
     }
     if ($analysisMode === 'effectiveness') {
-      return { label: ch.detectedType === 'physical' ? 'физ. метрика' : 'конвертируется в физ.', isPhysical: true };
+      return {
+        label: isPhysical ? 'физ. метрика' : 'конвертируется в физ.',
+        isPhysical: true,
+        incompatible: false,
+      };
     }
     // mixed — show as-is
-    if (ch.detectedType === 'monetary') {
-      return { label: 'спенд в ₽', isPhysical: false };
-    }
-    return { label: 'физ. метрика', isPhysical: true };
+    return {
+      label: isPhysical ? 'физ. метрика' : 'спенд в ₽',
+      isPhysical,
+      incompatible: false,
+    };
   }
 
   function enableExpertMode() {
@@ -86,15 +230,146 @@
   </header>
 
   {#if channels.length > 0}
+    {#if incompatibleCount > 0}
+      <div class="incompat-banner" role="alert" data-testid="incompat-banner">
+        <strong>⚠ {incompatibleCount}
+          {incompatibleCount === 1
+            ? 'канал'
+            : incompatibleCount < 5 ? 'канала' : 'каналов'}</strong>
+        с физическими метриками (TRP / показы / клики) — для ROI режима их нужно перевести в ₽.
+        <br />
+        Укажите для каждого:
+        <strong>общий бюджет в ₽</strong> (если известен)
+        либо <strong>стоимость 1 единицы + годовую инфляцию CPP/CPM</strong>
+        (как в предыдущих версиях). Модель сконвертирует автоматически с учётом инфляции
+        или исключите канал из модели.
+      </div>
+    {/if}
+
+    {#if hasAnyPhysicalInRoi}
+      <!-- BUG #2 fix (v2.0.1): inline two-mode unit_cost inputs.
+           Видны ВСЕГДА для physical каналов в ROI mode (даже когда уже converted)
+           — чтобы пользователь мог редактировать unit_cost / переключать режим.
+           Mode A (budget): общий ₽-бюджет за период → derive unit_cost = budget / Σ(units).
+           Mode B (unit): прямой ввод цены 1 ед. + годовая инфляция CPP/CPM
+             — как в прошлых версиях (UnitCostsPanel pattern). -->
+      <div class="uc-inputs" data-testid="uc-inputs" role="group" aria-label="Конвертация физических каналов в ₽">
+        {#each channels as ch (ch.name)}
+          {#if ch.detectedType === 'physical' && $analysisMode === 'roi'}
+            {@const mode = modeOf(ch.name)}
+            {@const ucValue = $unitCosts?.[ch.name]}
+            {@const inflValue = $unitCostInflation?.[ch.name]}
+            {@const sumValue = channelSums?.[ch.name]}
+            {@const preview = previewTotal(ch.name)}
+            <div class="uc-row" class:uc-row--converted={isConverted(ch.name)}>
+              <div class="uc-row-head">
+                <span class="uc-channel">{ch.name}</span>
+                <div class="uc-mode-toggle" role="tablist" aria-label="Способ конвертации">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === 'budget'}
+                    class="uc-mode-btn"
+                    class:active={mode === 'budget'}
+                    onclick={() => setMode(ch.name, 'budget')}
+                  >Общий бюджет ₽</button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === 'unit'}
+                    class="uc-mode-btn"
+                    class:active={mode === 'unit'}
+                    onclick={() => setMode(ch.name, 'unit')}
+                  >Цена 1 ед. + инфляция</button>
+                </div>
+              </div>
+
+              {#if mode === 'budget'}
+                <div class="uc-fields">
+                  <label class="uc-field">
+                    <span class="uc-field-label">Общий бюджет за период, ₽</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputmode="decimal"
+                      class="uc-input"
+                      placeholder="например, 38 000 000"
+                      value={budgetInputs[ch.name] ?? ''}
+                      oninput={(/** @type {Event} */ e) => updateBudget(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
+                      data-testid="uc-budget-input-{ch.name}"
+                    />
+                  </label>
+                  <p class="uc-preview">
+                    {#if sumValue && sumValue > 0 && ucValue && ucValue > 0}
+                      → {ucValue.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} {unitLabel(ch.name)}
+                      <span class="uc-preview-mute">
+                        (бюджет ÷ {sumValue.toLocaleString('ru-RU')} ед.)
+                      </span>
+                    {:else if !sumValue}
+                      <span class="uc-preview-mute">Сумма единиц канала недоступна — выберите режим «Цена 1 ед.»</span>
+                    {/if}
+                  </p>
+                </div>
+              {:else}
+                <div class="uc-fields uc-fields--unit">
+                  <label class="uc-field">
+                    <span class="uc-field-label">{unitLabel(ch.name)} (текущая)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      inputmode="decimal"
+                      class="uc-input"
+                      placeholder="0"
+                      value={ucValue ?? ''}
+                      oninput={(/** @type {Event} */ e) => updateUnitCost(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
+                      data-testid="uc-unit-input-{ch.name}"
+                    />
+                  </label>
+                  <label class="uc-field uc-field--narrow">
+                    <span class="uc-field-label">Инфляция, % / год</span>
+                    <input
+                      type="number"
+                      step="any"
+                      inputmode="decimal"
+                      class="uc-input"
+                      placeholder="0"
+                      value={inflValue ?? ''}
+                      oninput={(/** @type {Event} */ e) => updateInflation(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
+                      data-testid="uc-infl-input-{ch.name}"
+                    />
+                  </label>
+                  <p class="uc-preview">
+                    {#if preview && preview > 0}
+                      → итоговая сумма за период:
+                      <strong>{preview.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽</strong>
+                      {#if inflValue && inflValue !== 0}
+                        <span class="uc-preview-mute">(до взвешивания по инфляции)</span>
+                      {/if}
+                    {/if}
+                  </p>
+                </div>
+              {/if}
+            </div>
+          {/if}
+        {/each}
+      </div>
+    {/if}
     <ul class="channel-list" aria-label="Список каналов с типами метрик">
       {#each channels as ch (ch.name)}
         {@const meta = channelLabel(ch)}
-        <li class="channel-item">
+        <li class="channel-item"
+            class:incompatible={meta.incompatible}
+            class:converted={meta.converted}>
           <span class="channel-name">{ch.name}</span>
           <span class="channel-arrow" aria-hidden="true">→</span>
-          <span class="channel-metric" class:metric-physical={meta.isPhysical}>
+          <span class="channel-metric"
+                class:metric-physical={meta.isPhysical}
+                class:metric-incompat={meta.incompatible}
+                class:metric-converted={meta.converted}>
             {meta.label}
-            {#if !meta.isPhysical}
+            {#if !meta.isPhysical && !meta.incompatible}
               <span class="check-mark" aria-label="Подтверждено">✓</span>
             {/if}
           </span>
@@ -246,11 +521,141 @@
   .channel-metric.metric-physical {
     color: var(--accent-primary, #2E5BFF);
   }
+  .channel-metric.metric-incompat {
+    color: var(--warning, #F59E0B);
+    font-weight: 600;
+  }
+  .channel-item.incompatible {
+    background: color-mix(in srgb, var(--warning, #F59E0B) 6%, transparent) !important;
+    border-left: 2px solid var(--warning, #F59E0B);
+  }
+  .channel-item.converted {
+    background: color-mix(in srgb, var(--success, #10B981) 5%, transparent) !important;
+    border-left: 2px solid var(--success, #10B981);
+  }
+  .channel-metric.metric-converted {
+    color: var(--success, #10B981);
+    font-weight: 500;
+  }
   .check-mark {
     font-size: 11px;
     color: var(--success, #10B981);
     font-weight: 700;
   }
+
+  /* ─── BUG #2 fix v2.0.1: incompatibility banner ─── */
+  .incompat-banner {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--warning, #F59E0B) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #F59E0B) 32%, transparent);
+    color: var(--text-primary);
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .incompat-banner strong { color: var(--warning, #F59E0B); }
+
+  /* ─── BUG #2 fix v2.0.1: inline two-mode unit_cost inputs ─── */
+  .uc-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    border-radius: var(--radius-sm, 8px);
+  }
+  .uc-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-card, #181824);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    border-radius: 6px;
+    transition: border-color 0.18s, background 0.18s;
+  }
+  .uc-row--converted {
+    border-color: color-mix(in srgb, var(--success, #10B981) 32%, transparent);
+    background: color-mix(in srgb, var(--success, #10B981) 4%, var(--bg-card, #181824));
+  }
+  .uc-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .uc-channel {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .uc-mode-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .uc-mode-btn {
+    background: transparent;
+    border: 0;
+    padding: 5px 10px;
+    font-size: 11.5px;
+    color: var(--text-muted, #7A7A90);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .uc-mode-btn + .uc-mode-btn {
+    border-left: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+  }
+  .uc-mode-btn:hover { color: var(--text-primary); }
+  .uc-mode-btn.active {
+    background: color-mix(in srgb, var(--gold, #c9a449) 14%, transparent);
+    color: var(--gold, #c9a449);
+    font-weight: 600;
+  }
+  .uc-fields {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .uc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1 1 200px;
+  }
+  .uc-field--narrow { flex: 0 1 140px; }
+  .uc-field-label {
+    font-size: 11px;
+    color: var(--text-muted, #7A7A90);
+    text-transform: none;
+    font-weight: 500;
+  }
+  .uc-input {
+    padding: 7px 10px;
+    background: var(--bg-input, rgba(255,255,255,0.03));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    transition: border-color 0.15s;
+  }
+  .uc-input:focus {
+    outline: none;
+    border-color: var(--gold, #c9a449);
+  }
+  .uc-preview {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--success, #10B981);
+    flex-basis: 100%;
+  }
+  .uc-preview strong { font-weight: 600; }
+  .uc-preview-mute { color: var(--text-muted, #7A7A90); font-weight: 400; }
 
   /* ─── No channels placeholder ─── */
   .no-channels {
