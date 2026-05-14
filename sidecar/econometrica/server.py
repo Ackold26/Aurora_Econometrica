@@ -562,6 +562,27 @@ async def shutdown():
     return {'status': 'shutting_down', 'session_id': SESSION_ID}
 
 
+# ── Static asset endpoints (v2.0.1 SSOT) ─────────────
+
+@app.get('/api/static/classifier-patterns-v1.json')
+async def get_classifier_patterns_v1():
+    """SSOT classifier patterns export для frontend (Phase 1.1).
+
+    Frontend (src/lib/services/classifier-patterns.js) fetches это once на
+    startup, cache в localStorage, falls back к embedded patterns если
+    endpoint unavailable. Заменяет regex duplication между Python и
+    ValidateStepV13.svelte / AppliedModeSummary.svelte (audit P-04/P-05).
+
+    Versioned (v1) — future pattern updates ship с v2 endpoint + Sunset
+    header для graceful migration.
+    """
+    from utils.column_detection import export_patterns_as_json
+    payload = export_patterns_as_json()
+    payload['generated_at'] = STARTED_AT
+    payload['sidecar_session'] = SESSION_ID
+    return payload
+
+
 # ── Compute endpoints ────────────────────────────────
 
 @app.post('/compute/validate')

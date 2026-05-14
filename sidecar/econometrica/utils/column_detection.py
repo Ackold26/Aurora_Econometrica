@@ -506,6 +506,106 @@ def classify_columns(column_names: List[str]) -> Dict[str, ColumnKind]:
     return {name: classify_column(name) for name in column_names}
 
 
+# ─── v2.0.1: Unit label rules для UI ────────────────────────────────────────
+# Per-channel-name keyword detection для human-readable unit label.
+# Order matters (more specific first). Используется AppliedModeSummary UI
+# для отображения «₽ за 1 TRP» / «₽ за 1000 показов» и т.п.
+_UNIT_LABEL_RULES = [
+    (re.compile(r'(?<![a-zA-Zа-яА-Я])(trp|трп)', re.IGNORECASE), '₽ за 1 TRP'),
+    (re.compile(r'(?<![a-zA-Zа-яА-Я])(grp|грп)', re.IGNORECASE), '₽ за 1 GRP'),
+    (re.compile(r'(impression|показ)', re.IGNORECASE), '₽ за 1000 показов (CPM)'),
+    (re.compile(r'(click|клик)', re.IGNORECASE), '₽ за 1 клик (CPC)'),
+    (re.compile(r'(visit|визит)', re.IGNORECASE), '₽ за 1 визит'),
+    (re.compile(r'(view|просмотр)', re.IGNORECASE), '₽ за 1 просмотр'),
+    (re.compile(r'(reach|охват)', re.IGNORECASE), '₽ за 1000 охвата'),
+    (re.compile(r'(прочтен)', re.IGNORECASE), '₽ за 1 прочтение'),
+]
+
+
+def unit_label_for(channel_name: str) -> str:
+    """Human-readable unit label для physical channel в Manager ROI UI.
+
+    Examples:
+        >>> unit_label_for('TRPs бренд (W 25-54)')
+        '₽ за 1 TRP'
+        >>> unit_label_for('Banners Показы')
+        '₽ за 1000 показов (CPM)'
+        >>> unit_label_for('Unknown channel')
+        '₽ за 1 единицу'
+    """
+    if not channel_name:
+        return '₽ за 1 единицу'
+    for rx, label in _UNIT_LABEL_RULES:
+        if rx.search(channel_name):
+            return label
+    return '₽ за 1 единицу'
+
+
+# Mapping kind → pattern list для SSOT export.
+_PATTERN_KIND_REGISTRY = {
+    'monetary': MONETARY_PATTERNS,
+    'physical': PHYSICAL_PATTERNS,
+    'target_monetary': TARGET_MONETARY_PATTERNS,
+    'target_count': TARGET_COUNT_PATTERNS,
+    'signed_competitor': SIGNED_COMPETITOR_PATTERNS,
+    'signed_price': SIGNED_PRICE_PATTERNS,
+    'signed_weather': SIGNED_WEATHER_PATTERNS,
+    'signed_macro': SIGNED_MACRO_PATTERNS,
+    'holiday': HOLIDAY_PATTERNS,
+    'control': CONTROL_POSITIVE_PATTERNS,
+    'date': DATE_PATTERNS,
+}
+
+# Priority order matches classify_column() decision tree.
+_CLASSIFY_PRIORITY = [
+    'date',
+    'signed_competitor',
+    'signed_price',
+    'signed_weather',
+    'signed_macro',
+    'holiday',
+    'control',
+    'target_count',
+    'target_monetary',
+    'monetary',
+    'physical',
+]
+
+
+def export_patterns_as_json() -> Dict[str, object]:
+    """Export classifier patterns + metadata для frontend SSOT consumption.
+
+    Frontend (src/lib/services/classifier-patterns.js) fetches this via
+    `GET /api/static/classifier-patterns-v1.json`, caches result, and
+    reconstructs JS RegExp objects from these patterns. Это eliminates regex
+    duplication между Python и frontend (audit P-05 / Phase 1.1 SSOT).
+
+    Patterns include separator-aware lookbehind/lookahead — JS V8 (WebView2)
+    supports ES2018+ regex features, тестируется в classifier-patterns.spec.
+
+    Returns:
+        Dict со schema:
+        {
+            'version': 'v1',
+            'kinds': {kind: [pattern_string, ...]},
+            'priority': [kind, ...],
+            'unit_label_rules': [{'pattern': str, 'label': str}],
+        }
+    """
+    return {
+        'version': 'v1',
+        'kinds': {
+            kind: list(patterns)
+            for kind, patterns in _PATTERN_KIND_REGISTRY.items()
+        },
+        'priority': list(_CLASSIFY_PRIORITY),
+        'unit_label_rules': [
+            {'pattern': rx.pattern, 'label': label}
+            for rx, label in _UNIT_LABEL_RULES
+        ],
+    }
+
+
 def detect_available_metrics(
     column_names: List[str],
     channel_name: str,

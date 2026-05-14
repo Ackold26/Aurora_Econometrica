@@ -28,6 +28,9 @@
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
   import ProjectSelector from '$lib/components/ProjectSelector.svelte';
+  // Phase 1.1: kick off SSOT classifier patterns fetch на startup
+  // (cache-with-fallback — UI usable immediately even если backend slow).
+  import { ensurePatternsLoaded } from '$lib/services/classifier-patterns.js';
 
   let { children } = $props();
 
@@ -162,6 +165,10 @@
     // C4: resize handler
     function onResize() { windowWidth = window.innerWidth; }
     window.addEventListener('resize', onResize, { passive: true });
+
+    // Phase 1.1: load SSOT classifier patterns (non-blocking). Result cached
+    // в localStorage с TTL 1h; embedded fallback engages если backend slow/down.
+    ensurePatternsLoaded().catch(() => { /* fallback handled internally */ });
 
     // Check for ?new=1 - user clicked "Новый проект в Pipeline" on home
     const forceNew = typeof window !== 'undefined'

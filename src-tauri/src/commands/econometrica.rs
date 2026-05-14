@@ -78,6 +78,23 @@ pub async fn econ_health() -> Result<Value, String> {
     }
 }
 
+// ── Static asset (Phase 1.1 SSOT) ────────────────────
+
+/// SSOT classifier patterns export для frontend (Phase 1.1).
+///
+/// Frontend (src/lib/services/classifier-patterns.js) calls this once
+/// на startup, caches result. Replaces regex duplication между Python
+/// и Svelte components.
+#[tauri::command]
+pub async fn econ_classifier_patterns() -> Result<Value, String> {
+    let url = econ_url("/api/static/classifier-patterns-v1.json");
+    match with_session(quick_client().get(&url)).send().await {
+        Ok(resp) => parse_resp(resp, "/api/static/classifier-patterns-v1.json").await,
+        Err(e) => Err(format!("Не удалось получить classifier patterns: {e}")),
+    }
+}
+
+
 // ── Compute ──────────────────────────────────────────
 
 #[tauri::command]

@@ -20,6 +20,10 @@
    */
 
   import { analysisMode, expertMode, unitCosts, unitCostInflation } from '$lib/project-state.js';
+  // Phase 1.1 (SSOT): unit label resolution через shared service.
+  // Replaces inline unitLabel() regex — теперь one source of truth с
+  // backend column_detection.unit_label_for(). Cache-with-fallback.
+  import { unitLabelFor as unitLabel } from '$lib/services/classifier-patterns.js';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
@@ -78,20 +82,8 @@
     )
   );
 
-  /** Detect human-readable unit label («за 1 TRP» / «за 1000 показов» / etc.)
-   *  из имени канала для отображения подписи рядом с input. */
-  function unitLabel(/** @type {string} */ name) {
-    const lower = (name || '').toLowerCase();
-    if (/(trp|трп)/.test(lower)) return '₽ за 1 TRP';
-    if (/(grp|грп)/.test(lower)) return '₽ за 1 GRP';
-    if (/(impression|показ)/.test(lower)) return '₽ за 1000 показов (CPM)';
-    if (/(click|клик)/.test(lower)) return '₽ за 1 клик (CPC)';
-    if (/(visit|визит)/.test(lower)) return '₽ за 1 визит';
-    if (/(view|просмотр)/.test(lower)) return '₽ за 1 просмотр';
-    if (/(reach|охват)/.test(lower)) return '₽ за 1000 охвата';
-    if (/(прочтен)/.test(lower)) return '₽ за 1 прочтение';
-    return '₽ за 1 единицу';
-  }
+  // Note: unitLabel() now imported from $lib/services/classifier-patterns.js
+  // (Phase 1.1 SSOT — eliminates regex duplication со column_detection.py).
 
   /** Получить текущий mode для канала. Default — 'unit' (как в прошлых версиях). */
   function modeOf(/** @type {string} */ name) {

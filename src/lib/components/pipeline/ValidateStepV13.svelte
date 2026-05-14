@@ -43,26 +43,12 @@
   // detected roles в read-only table с possibility override.
   import ColumnMapperConfirm from './ColumnMapperConfirm.svelte';
   import RatioInfoCard from './RatioInfoCard.svelte';
-
-  // BUG #2 fix (v2.0.1): regex detection physical vs monetary канала из column name.
-  // Mirrors backend column_detection.py MONETARY_PATTERNS + PHYSICAL_PATTERNS.
-  // Используется когда $perChannelInput empty (Manager mode), чтобы AppliedModeSummary
-  // показывала верный unit type и warning для physical-only каналов в ROI режиме.
-  const MONETARY_RE = /(?:^|[_\s\-])(?:spend(?:s|ing)?|budget|cost(?:s)?|expense|investment|бюджет|расход|затрат|стоимость|трат|инвестиц|rub|usd|eur)(?:[_\s\-]|$|\.)|₽/i;
-  const PHYSICAL_RE = /(?:^|[_\s\-])(?:impression(?:s)?|impr|view(?:s)?|click(?:s)?|visit(?:s)?|session(?:s)?|reach|contact(?:s)?|grp(?:s)?|trp(?:s)?|показ(?:ы|ов|а)?|клик(?:ов|и)?|визит(?:ы|ов|а)?|охват(?:ы|ом)?|просмотр(?:ы|ов|а)?|прочтен(?:ия|ие)?|грп|трп)(?:[_\s\-]|$|\()/i;
-
-  /** Detect channel unit type из column name. Defaults к 'monetary' для unknown.
-   * Используется только в Manager mode когда $perChannelInput пустой.
-   * @param {string} name
-   * @returns {'monetary' | 'physical'}
-   */
-  function detectChannelType(name) {
-    if (!name) return 'monetary';
-    const isMonetary = MONETARY_RE.test(name);
-    const isPhysical = PHYSICAL_RE.test(name);
-    if (isPhysical && !isMonetary) return 'physical';
-    return 'monetary';
-  }
+  // Phase 1.1 (SSOT): detection через shared service вместо inline regex.
+  // Service fetches patterns from backend `/api/static/classifier-patterns-v1.json`,
+  // caches в localStorage, falls back к embedded patterns если backend down.
+  // Replaces previous v2.0.1 hotfix inline MONETARY_RE/PHYSICAL_RE — теперь
+  // single source of truth с column_detection.py.
+  import { detectChannelUnitType as detectChannelType } from '$lib/services/classifier-patterns.js';
 
   /** Channel sums (Σ единиц за весь период) из validateData. Используется
    *  AppliedModeSummary для derivation unit_cost из «общего бюджета»
@@ -93,8 +79,13 @@
     for (const c of cols) {
       if (c?.role !== 'unused' && c?.role !== 'excluded') continue;
       const name = c?.name ?? '';
-      // Heuristic: media если matches monetary OR physical pattern.
-      if (MONETARY_RE.test(name) || PHYSICAL_RE.test(name)) {
+      // Heuristic via SSOT classifier service (Phase 1.1): detect type → если
+      // physical/monetary классифицирован, считаем это media-related column.
+      // detectChannelType returns 'monetary' || 'physical'. Anything matching
+      // patterns considered media-related; default monetary не информативен
+      // for excluded media — но эти cols прошли prior validator role='unused'.
+      // Simple inclusion: any column с recognised unit type considered media.
+      if (detectChannelType(name) !== 'monetary' || /[₽]|бюджет|budget|spend|trp|показ/i.test(name)) {
         out.push(name);
       }
     }
