@@ -31,6 +31,8 @@
   // Phase 1.1: kick off SSOT classifier patterns fetch на startup
   // (cache-with-fallback — UI usable immediately even если backend slow).
   import { ensurePatternsLoaded } from '$lib/services/classifier-patterns.js';
+  // Phase 2.16: trust-signal toast после successful migration.
+  import MigrationCompletedToast from '$lib/components/MigrationCompletedToast.svelte';
 
   let { children } = $props();
 
@@ -41,6 +43,14 @@
   let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1200);
   /** @type {HTMLElement | undefined} Главный скрол-контейнер шагов */
   let mainEl = $state();
+
+  // Phase 2.16 — migration-completed toast state.
+  let migrationToast = $state({
+    show: false,
+    fromVersion: '',
+    toVersion: '',
+    movedCount: 0,
+  });
 
   // C4: Auto-collapse on small screens; on large - уважаем userCollapsed
   const insightsCollapsed = $derived(windowWidth < 1100 ? true : userCollapsed);
@@ -184,6 +194,13 @@
             `[migration] project ${id}: ${result.from_version} → ${result.to_version}, ` +
             `moved ${(result.migrated_columns || []).length} cols`,
           );
+          // Phase 2.16 — surface trust-signal toast (audit P-customer-confidence).
+          migrationToast = {
+            show: true,
+            fromVersion: result.from_version || '',
+            toVersion: result.to_version || '',
+            movedCount: (result.migrated_columns || []).length,
+          };
         }
       } catch (err) {
         console.warn('[migration] skipped:', err);
@@ -359,6 +376,15 @@
       </div>
     </div>
   </div>
+
+  <!-- Phase 2.16 — migration trust-signal toast (visible after schema upgrade) -->
+  <MigrationCompletedToast
+    show={migrationToast.show}
+    fromVersion={migrationToast.fromVersion}
+    toVersion={migrationToast.toVersion}
+    movedCount={migrationToast.movedCount}
+    onDismiss={() => { migrationToast = { ...migrationToast, show: false }; }}
+  />
 {/if}
 
 <style>
