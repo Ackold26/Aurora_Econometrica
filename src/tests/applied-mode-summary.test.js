@@ -137,7 +137,7 @@ describe('AppliedModeSummary', () => {
     expect(banner).toBeInTheDocument();
     expect(banner?.textContent).toContain('общий бюджет');
     expect(banner?.textContent).toContain('стоимость 1 единицы');
-    expect(banner?.textContent).toContain('инфляцию');
+    expect(banner?.textContent).toContain('роста стоимости');
     // Не должен упоминать Expert mode как требование — Антон 2026-05-14
     expect(banner?.textContent).not.toContain('Expert');
   });
@@ -267,13 +267,13 @@ describe('AppliedModeSummary', () => {
     expect(btns?.[1].textContent?.trim()).toMatch(/Цена 1 ед/);
   });
 
-  it('default mode is «unit» (как в прошлой версии)', () => {
+  it('default mode is «budget» (бренд-менеджер знает бюджет, не CPP)', () => {
     analysisMode.set('roi');
     const { container } = render(AppliedModeSummary, {
       props: { channels: makeChannels() }
     });
     const activeBtn = container.querySelector('.uc-mode-btn.active');
-    expect(activeBtn?.textContent?.trim()).toMatch(/Цена 1 ед/);
+    expect(activeBtn?.textContent?.trim()).toMatch(/Общий бюджет/);
   });
 
   it('typing unit_cost > 0 stores it in $unitCosts and marks channel converted', async () => {
@@ -282,6 +282,10 @@ describe('AppliedModeSummary', () => {
     const { container, getByTestId } = render(AppliedModeSummary, {
       props: { channels, channelSums: { TRP: 100 } }
     });
+    // Default is 'budget' mode — switch to unit first.
+    const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
+      .find((b) => b.textContent?.includes('Цена 1 ед'));
+    await fireEvent.click(/** @type {Element} */ (unitBtn));
     const input = getByTestId('uc-unit-input-TRP');
     expect(input).toBeInTheDocument();
     await fireEvent.input(input, { target: { value: '25000' } });
@@ -314,9 +318,13 @@ describe('AppliedModeSummary', () => {
   it('inflation input stores value to $unitCostInflation', async () => {
     analysisMode.set('roi');
     const channels = [{ name: 'TRP', detectedType: 'physical' }];
-    const { getByTestId } = render(AppliedModeSummary, {
+    const { container, getByTestId } = render(AppliedModeSummary, {
       props: { channels, channelSums: { TRP: 100 } }
     });
+    // Default is 'budget' mode — switch to unit first.
+    const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
+      .find((b) => b.textContent?.includes('Цена 1 ед'));
+    await fireEvent.click(/** @type {Element} */ (unitBtn));
     const inflInput = getByTestId('uc-infl-input-TRP');
     expect(inflInput).toBeInTheDocument();
     await fireEvent.input(inflInput, { target: { value: '15' } });
@@ -327,9 +335,13 @@ describe('AppliedModeSummary', () => {
     analysisMode.set('roi');
     unitCosts.set({ TRP: 1000 });
     const channels = [{ name: 'TRP', detectedType: 'physical' }];
-    const { getByTestId } = render(AppliedModeSummary, {
+    const { container, getByTestId } = render(AppliedModeSummary, {
       props: { channels, channelSums: { TRP: 100 } }
     });
+    // Default is 'budget' mode — switch to unit first.
+    const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
+      .find((b) => b.textContent?.includes('Цена 1 ед'));
+    await fireEvent.click(/** @type {Element} */ (unitBtn));
     const input = getByTestId('uc-unit-input-TRP');
     await fireEvent.input(input, { target: { value: '' } });
     expect(get(unitCosts).TRP).toBeUndefined();

@@ -82,10 +82,10 @@
   // Note: unitLabel() now imported from $lib/services/classifier-patterns.js
   // (Phase 1.1 SSOT — eliminates regex duplication со column_detection.py).
 
-  /** Получить текущий mode для канала. Default — 'unit' (как в прошлых версиях).
+  /** Получить текущий mode для канала. Default — 'budget' (бренд-менеджер знает бюджет).
    *  Reads from $unitCostInputMode store (Phase 1.3 persistence). */
   function modeOf(/** @type {string} */ name) {
-    return $unitCostInputMode[name] ?? 'unit';
+    return $unitCostInputMode[name] ?? 'budget';
   }
 
   /** @param {string} name @param {'budget' | 'unit'} mode */
@@ -136,7 +136,7 @@
     unitCosts.update((curr) => ({ ...curr, [name]: num }));
   }
 
-  /** Mode B: годовая инфляция CPP/CPM (%). */
+  /** Mode B: годовой % роста стоимости. */
   function updateInflation(/** @type {string} */ name, /** @type {string} */ value) {
     const num = parseFloat(value);
     if (!isFinite(num)) {
@@ -283,9 +283,9 @@
         <br />
         Укажите для каждого:
         <strong>общий бюджет в ₽</strong> (если известен)
-        либо <strong>стоимость 1 единицы + годовую инфляцию CPP/CPM</strong>
-        (как в предыдущих версиях). Модель сконвертирует автоматически с учётом инфляции
-        или исключите канал из модели.
+        либо <strong>стоимость 1 единицы + годовой % роста стоимости</strong>
+        (если знаете). Модель сконвертирует автоматически.
+        Или исключите канал из модели.
       </div>
     {/if}
 
@@ -294,8 +294,7 @@
            Видны ВСЕГДА для physical каналов в ROI mode (даже когда уже converted)
            — чтобы пользователь мог редактировать unit_cost / переключать режим.
            Mode A (budget): общий ₽-бюджет за период → derive unit_cost = budget / Σ(units).
-           Mode B (unit): прямой ввод цены 1 ед. + годовая инфляция CPP/CPM
-             — как в прошлых версиях (UnitCostsPanel pattern). -->
+           Mode B (unit): прямой ввод цены 1 ед. + годовой % роста стоимости. -->
       <div class="uc-inputs" data-testid="uc-inputs" role="group" aria-label="Конвертация физических каналов в ₽">
         {#each channels as ch (ch.name)}
           {#if ch.detectedType === 'physical' && $analysisMode === 'roi'}
@@ -371,13 +370,13 @@
                     />
                   </label>
                   <label class="uc-field uc-field--narrow">
-                    <span class="uc-field-label">Инфляция, % / год</span>
+                    <span class="uc-field-label">Рост стоимости, % / год</span>
                     <input
                       type="number"
                       step="any"
                       inputmode="decimal"
                       class="uc-input"
-                      placeholder="0"
+                      placeholder="обычно 0-20%, оставьте 0 если не знаете"
                       value={inflValue ?? ''}
                       oninput={(/** @type {Event} */ e) => updateInflation(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
                       data-testid="uc-infl-input-{ch.name}"
@@ -534,7 +533,6 @@
     padding: 9px 14px;
     border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     background: transparent;
-    transition: background 0.15s;
   }
   .channel-item:last-child { border-bottom: none; }
   .channel-item:nth-child(even) {
@@ -568,12 +566,12 @@
     color: var(--warning, #F59E0B);
     font-weight: 600;
   }
-  .channel-item.incompatible {
-    background: color-mix(in srgb, var(--warning, #F59E0B) 6%, transparent) !important;
+  .channel-list .channel-item.incompatible {
+    background: color-mix(in srgb, var(--warning, #F59E0B) 6%, transparent);
     border-left: 2px solid var(--warning, #F59E0B);
   }
-  .channel-item.converted {
-    background: color-mix(in srgb, var(--success, #10B981) 5%, transparent) !important;
+  .channel-list .channel-item.converted {
+    background: color-mix(in srgb, var(--success, #10B981) 5%, transparent);
     border-left: 2px solid var(--success, #10B981);
   }
   .channel-metric.metric-converted {
@@ -616,14 +614,12 @@
     border-color: color-mix(in srgb, var(--text-muted, #7A7A90) 25%, transparent);
     color: var(--text-secondary, #b6b6c5);
     cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
   }
   .count-pill--excluded:hover {
     background: color-mix(in srgb, var(--text-muted, #7A7A90) 14%, transparent);
     color: var(--text-primary);
   }
   .count-chevron {
-    transition: transform 0.15s;
     display: inline-block;
   }
   .count-chevron.open { transform: rotate(180deg); }
@@ -689,7 +685,6 @@
     background: var(--bg-card, #181824);
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     border-radius: 6px;
-    transition: border-color 0.18s, background 0.18s;
   }
   .uc-row--converted {
     border-color: color-mix(in srgb, var(--success, #10B981) 32%, transparent);
@@ -720,7 +715,6 @@
     font-size: 11.5px;
     color: var(--text-muted, #7A7A90);
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
   }
   .uc-mode-btn + .uc-mode-btn {
     border-left: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
@@ -758,7 +752,6 @@
     color: var(--text-primary);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
-    transition: border-color 0.15s;
   }
   .uc-input:focus {
     outline: none;
@@ -812,7 +805,6 @@
     font-weight: 700;
     letter-spacing: 0.03em;
     cursor: pointer;
-    transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
   }
   .btn-expert:hover {
     transform: translateY(-1px);
@@ -848,5 +840,33 @@
     text-transform: uppercase;
     color: var(--warning, #F59E0B);
     flex-shrink: 0;
+  }
+
+  /* ─── Delight transitions — INV-12: only when motion is preferred ─── */
+  @media (prefers-reduced-motion: no-preference) {
+    .channel-item {
+      transition: background 0.15s ease-out;
+    }
+    .uc-row {
+      transition: border-color 0.25s ease-out, background 0.25s ease-out;
+    }
+    .excluded-list {
+      transition: max-height 0.2s ease-out;
+    }
+    .uc-mode-btn {
+      transition: background 0.15s ease-out, color 0.15s ease-out;
+    }
+    .count-pill--excluded {
+      transition: background 0.15s ease-out, border-color 0.15s ease-out;
+    }
+    .uc-input {
+      transition: border-color 0.15s ease-out;
+    }
+    .count-chevron {
+      transition: transform 0.15s ease-out;
+    }
+    .btn-expert {
+      transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+    }
   }
 </style>
