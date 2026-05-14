@@ -292,7 +292,7 @@ describe('AppliedModeSummary', () => {
     const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
       .find((b) => b.textContent?.includes('Цена 1 ед'));
     await fireEvent.click(/** @type {Element} */ (unitBtn));
-    const input = getByTestId('uc-unit-input-TRP');
+    const input = getByTestId('uc-unit-input-trp');
     expect(input).toBeInTheDocument();
     await fireEvent.input(input, { target: { value: '25000' } });
     vi.runAllTimers();
@@ -317,7 +317,7 @@ describe('AppliedModeSummary', () => {
       .find((b) => b.textContent?.includes('Общий бюджет'));
     expect(budgetBtn).toBeDefined();
     await fireEvent.click(/** @type {Element} */ (budgetBtn));
-    const budgetInput = getByTestId('uc-budget-input-TRP');
+    const budgetInput = getByTestId('uc-budget-input-trp');
     expect(budgetInput).toBeInTheDocument();
     await fireEvent.input(budgetInput, { target: { value: '50000' } });
     vi.runAllTimers();
@@ -335,7 +335,7 @@ describe('AppliedModeSummary', () => {
     const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
       .find((b) => b.textContent?.includes('Цена 1 ед'));
     await fireEvent.click(/** @type {Element} */ (unitBtn));
-    const inflInput = getByTestId('uc-infl-input-TRP');
+    const inflInput = getByTestId('uc-infl-input-trp');
     expect(inflInput).toBeInTheDocument();
     await fireEvent.input(inflInput, { target: { value: '15' } });
     vi.runAllTimers();
@@ -353,7 +353,7 @@ describe('AppliedModeSummary', () => {
     const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
       .find((b) => b.textContent?.includes('Цена 1 ед'));
     await fireEvent.click(/** @type {Element} */ (unitBtn));
-    const input = getByTestId('uc-unit-input-TRP');
+    const input = getByTestId('uc-unit-input-trp');
     await fireEvent.input(input, { target: { value: '' } });
     vi.runAllTimers();
     expect(get(unitCosts).TRP).toBeUndefined();

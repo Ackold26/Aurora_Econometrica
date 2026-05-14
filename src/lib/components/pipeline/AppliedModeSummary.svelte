@@ -151,6 +151,22 @@
     unitCostInflation.update((curr) => ({ ...curr, [name]: num }));
   }
 
+  /**
+   * Slugify channel name для valid HTML attribute / test selector.
+   * Converts Cyrillic and spaces to ASCII-safe dashes.
+   * @param {string | undefined} name
+   * @returns {string}
+   */
+  function slugify(name) {
+    if (!name) return 'unnamed';
+    return String(name)
+      .toLowerCase()
+      .replace(/[^\w-]+/g, '-')   // non-word → dash
+      .replace(/^-+|-+$/g, '')    // trim leading/trailing dashes
+      .replace(/-{2,}/g, '-')     // collapse multiple dashes
+      .slice(0, 50) || 'unnamed';
+  }
+
   /** Debounce helper — keyed по channel+field для per-input cancel. */
   /** @type {Record<string, ReturnType<typeof setTimeout>>} */
   let pendingTimers = {};
@@ -366,7 +382,8 @@
                       placeholder="например, 38 000 000"
                       value={$budgetInputs[ch.name] ?? ''}
                       oninput={(/** @type {Event} */ e) => updateBudgetDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
-                      data-testid="uc-budget-input-{ch.name}"
+                      data-testid="uc-budget-input-{slugify(ch.name)}"
+                      data-channel={ch.name}
                     />
                   </label>
                   <p class="uc-preview">
@@ -393,7 +410,8 @@
                       placeholder="0"
                       value={ucValue ?? ''}
                       oninput={(/** @type {Event} */ e) => updateUnitCostDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
-                      data-testid="uc-unit-input-{ch.name}"
+                      data-testid="uc-unit-input-{slugify(ch.name)}"
+                      data-channel={ch.name}
                     />
                   </label>
                   <label class="uc-field uc-field--narrow">
@@ -406,7 +424,8 @@
                       placeholder="обычно 0-20%, оставьте 0 если не знаете"
                       value={inflValue ?? ''}
                       oninput={(/** @type {Event} */ e) => updateInflationDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
-                      data-testid="uc-infl-input-{ch.name}"
+                      data-testid="uc-infl-input-{slugify(ch.name)}"
+                      data-channel={ch.name}
                     />
                   </label>
                   <p class="uc-preview">
