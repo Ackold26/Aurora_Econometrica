@@ -760,6 +760,7 @@
       }))}
       channelSums={channelSums}
       excludedChannelNames={excludedMediaNames}
+      onRestoreChannel={(name) => handleRoleChange(name, 'media')}
     />
     <PerChannelInputSelector
       channels={channels}

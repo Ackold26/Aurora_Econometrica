@@ -216,6 +216,48 @@ describe('AppliedModeSummary', () => {
     expect(container.querySelector('.count-pill--excluded')).toBeNull();
   });
 
+  // Phase 2.9: per-channel restore button
+  it('renders «Вернуть» button when onRestoreChannel callback provided', async () => {
+    const { container, getByTestId } = render(AppliedModeSummary, {
+      props: {
+        channels: makeChannels(),
+        excludedChannelNames: ['Retail Media'],
+        onRestoreChannel: vi.fn(),
+      },
+    });
+    const toggle = getByTestId('excluded-toggle');
+    await fireEvent.click(toggle);
+    const btn = container.querySelector('[data-testid="excluded-restore-btn"]');
+    expect(btn).toBeInTheDocument();
+    expect(btn?.getAttribute('data-channel')).toBe('Retail Media');
+  });
+
+  it('does NOT render «Вернуть» without onRestoreChannel callback', async () => {
+    const { container, getByTestId } = render(AppliedModeSummary, {
+      props: {
+        channels: makeChannels(),
+        excludedChannelNames: ['Retail Media'],
+      },
+    });
+    await fireEvent.click(getByTestId('excluded-toggle'));
+    expect(container.querySelector('[data-testid="excluded-restore-btn"]')).toBeNull();
+  });
+
+  it('clicking «Вернуть» invokes onRestoreChannel with name', async () => {
+    const onRestore = vi.fn();
+    const { container, getByTestId } = render(AppliedModeSummary, {
+      props: {
+        channels: makeChannels(),
+        excludedChannelNames: ['Retail Media'],
+        onRestoreChannel: onRestore,
+      },
+    });
+    await fireEvent.click(getByTestId('excluded-toggle'));
+    const btn = container.querySelector('[data-testid="excluded-restore-btn"]');
+    await fireEvent.click(btn);
+    expect(onRestore).toHaveBeenCalledWith('Retail Media');
+  });
+
   it('clicking excluded pill expands list with names', async () => {
     const { container, getByTestId } = render(AppliedModeSummary, {
       props: {

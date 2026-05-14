@@ -40,9 +40,18 @@
    *   channels?: ChannelInfo[],
    *   channelSums?: Record<string, number>,
    *   excludedChannelNames?: string[],
+   *   onRestoreChannel?: (name: string) => void,
    * }}
    */
-  const { channels = [], channelSums = {}, excludedChannelNames = [] } = $props();
+  const {
+    channels = [],
+    channelSums = {},
+    excludedChannelNames = [],
+    onRestoreChannel = undefined,
+  } = $props();
+
+  /** Phase 2.9: per-channel restore enabled when callback wired. */
+  const hasRestoreAction = $derived(typeof onRestoreChannel === 'function');
 
   /** UX gap fix (v2.0.1): user не видит на «Метрики каналов» что-то excluded
    *  (например ratioRecommendation rule auto-excludes media с zeros% > 50%).
@@ -305,12 +314,25 @@
       <div class="excluded-list" role="region" aria-label="Исключённые каналы" data-testid="excluded-list">
         <p class="excluded-hint">
           Эти каналы автоматически исключены из модели (обычно из-за &gt;50%
-          нулей — низкая активность за период). Можно вернуть через шаг
-          <strong>«Роли колонок»</strong> или применить «Сбросить шаг».
+          нулей — низкая активность за период). {hasRestoreAction
+            ? 'Кнопка «Вернуть» возвращает канал к role=media.'
+            : 'Можно вернуть через шаг «Роли колонок» или применить «Сбросить шаг».'}
         </p>
         <ul class="excluded-items">
           {#each excludedChannelNames as name (name)}
-            <li class="excluded-item">{name}</li>
+            <li class="excluded-item">
+              <span class="excluded-item-name">{name}</span>
+              {#if hasRestoreAction}
+                <button
+                  type="button"
+                  class="excluded-restore"
+                  onclick={() => onRestoreChannel?.(name)}
+                  data-testid="excluded-restore-btn"
+                  data-channel={name}
+                  aria-label="Вернуть канал «{name}» в модель"
+                >↶ Вернуть</button>
+              {/if}
+            </li>
           {/each}
         </ul>
       </div>
@@ -691,14 +713,43 @@
     gap: 6px;
   }
   .excluded-item {
-    padding: 3px 9px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 4px 3px 9px;
     border-radius: 10px;
     background: var(--bg-card, #181824);
     border: 1px dashed var(--border-subtle, rgba(255,255,255,0.18));
     color: var(--text-muted, #7A7A90);
     font-size: 11.5px;
+  }
+  .excluded-item-name {
     text-decoration: line-through;
     text-decoration-color: color-mix(in srgb, var(--text-muted, #7A7A90) 50%, transparent);
+  }
+  /* Phase 2.9: per-channel inline restore button */
+  .excluded-restore {
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 35%, transparent);
+    color: var(--gold, #c9a449);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 1.5;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .excluded-restore {
+      transition: background 0.15s, color 0.15s, transform 0.1s;
+    }
+    .excluded-restore:hover {
+      background: var(--gold, #c9a449);
+      color: var(--bg-card, #181824);
+    }
+    .excluded-restore:active {
+      transform: scale(0.96);
+    }
   }
 
   /* ─── BUG #2 fix v2.0.1: incompatibility banner ─── */
