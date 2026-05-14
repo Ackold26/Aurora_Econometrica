@@ -80,6 +80,27 @@
     return sums;
   });
 
+  /** UX gap fix (v2.0.1): имена media каналов которые были исключены
+   *  (role='unused' или 'excluded'). Чтобы пользователь видел на «Метрики
+   *  каналов» что было автоматически вырезано (ratioRecommendation rule,
+   *  zeros% > 50%, и т.д.) и мог осознанно вернуть. Включаются ТОЛЬКО колонки
+   *  c media-keywords чтобы не показывать excluded controls / kpi candidates. */
+  const excludedMediaNames = $derived.by(() => {
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols)) return [];
+    /** @type {string[]} */
+    const out = [];
+    for (const c of cols) {
+      if (c?.role !== 'unused' && c?.role !== 'excluded') continue;
+      const name = c?.name ?? '';
+      // Heuristic: media если matches monetary OR physical pattern.
+      if (MONETARY_RE.test(name) || PHYSICAL_RE.test(name)) {
+        out.push(name);
+      }
+    }
+    return out;
+  });
+
   // Audit fix v1.3.0: monetaryColumnHint теперь auto-detected из validateData
   // (если не передан явно). Hardcoded 'sales_rub' ломал auto-detect для
   // не-стандартных schemas (revenue / выручка / sales).
@@ -747,6 +768,7 @@
         detectedType: $perChannelInput?.[name] ?? detectChannelType(name),
       }))}
       channelSums={channelSums}
+      excludedChannelNames={excludedMediaNames}
     />
     <PerChannelInputSelector
       channels={channels}

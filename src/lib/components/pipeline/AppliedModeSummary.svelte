@@ -30,9 +30,15 @@
    * @type {{
    *   channels?: ChannelInfo[],
    *   channelSums?: Record<string, number>,
+   *   excludedChannelNames?: string[],
    * }}
    */
-  const { channels = [], channelSums = {} } = $props();
+  const { channels = [], channelSums = {}, excludedChannelNames = [] } = $props();
+
+  /** UX gap fix (v2.0.1): user не видит на «Метрики каналов» что-то excluded
+   *  (например ratioRecommendation rule auto-excludes media с zeros% > 50%).
+   *  Показываем pill «N исключено» с раскрывающимся списком имён. */
+  let excludedExpanded = $state(false);
 
   /** Local UI-only state: ввод режим per канал ('budget' = общий ₽-бюджет;
    *  'unit' = цена 1 ед. + инфляция CPP/CPM). Default 'unit' — соответствует
@@ -228,6 +234,42 @@
       {/if}
     </div>
   </header>
+
+  {#if channels.length > 0 || excludedChannelNames.length > 0}
+    <div class="channel-counts" data-testid="channel-counts">
+      <span class="count-pill count-pill--active">
+        <strong>{channels.length}</strong>
+        {channels.length === 1 ? 'активный канал' : channels.length < 5 ? 'активных канала' : 'активных каналов'}
+      </span>
+      {#if excludedChannelNames.length > 0}
+        <button
+          type="button"
+          class="count-pill count-pill--excluded"
+          aria-expanded={excludedExpanded}
+          onclick={() => (excludedExpanded = !excludedExpanded)}
+          data-testid="excluded-toggle"
+        >
+          <strong>⊘ {excludedChannelNames.length}</strong>
+          {excludedChannelNames.length === 1 ? 'исключён' : 'исключено'}
+          <span class="count-chevron" class:open={excludedExpanded}>▾</span>
+        </button>
+      {/if}
+    </div>
+    {#if excludedExpanded && excludedChannelNames.length > 0}
+      <div class="excluded-list" role="region" aria-label="Исключённые каналы" data-testid="excluded-list">
+        <p class="excluded-hint">
+          Эти каналы автоматически исключены из модели (обычно из-за &gt;50%
+          нулей — низкая активность за период). Можно вернуть через шаг
+          <strong>«Роли колонок»</strong> или применить «Сбросить шаг».
+        </p>
+        <ul class="excluded-items">
+          {#each excludedChannelNames as name (name)}
+            <li class="excluded-item">{name}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+  {/if}
 
   {#if channels.length > 0}
     {#if incompatibleCount > 0}
@@ -541,6 +583,79 @@
     font-size: 11px;
     color: var(--success, #10B981);
     font-weight: 700;
+  }
+
+  /* ─── UX gap fix v2.0.1: counts pills + excluded list ─── */
+  .channel-counts {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .count-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11.5px;
+    font-weight: 500;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: default;
+  }
+  .count-pill strong { font-weight: 700; }
+  .count-pill--active {
+    background: color-mix(in srgb, var(--success, #10B981) 10%, transparent);
+    border-color: color-mix(in srgb, var(--success, #10B981) 28%, transparent);
+    color: var(--success, #10B981);
+  }
+  .count-pill--excluded {
+    background: color-mix(in srgb, var(--text-muted, #7A7A90) 8%, transparent);
+    border-color: color-mix(in srgb, var(--text-muted, #7A7A90) 25%, transparent);
+    color: var(--text-secondary, #b6b6c5);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .count-pill--excluded:hover {
+    background: color-mix(in srgb, var(--text-muted, #7A7A90) 14%, transparent);
+    color: var(--text-primary);
+  }
+  .count-chevron {
+    transition: transform 0.15s;
+    display: inline-block;
+  }
+  .count-chevron.open { transform: rotate(180deg); }
+
+  .excluded-list {
+    padding: 12px;
+    background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    border-radius: var(--radius-sm, 8px);
+  }
+  .excluded-hint {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--text-secondary, #b6b6c5);
+    line-height: 1.5;
+  }
+  .excluded-items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .excluded-item {
+    padding: 3px 9px;
+    border-radius: 10px;
+    background: var(--bg-card, #181824);
+    border: 1px dashed var(--border-subtle, rgba(255,255,255,0.18));
+    color: var(--text-muted, #7A7A90);
+    font-size: 11.5px;
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--text-muted, #7A7A90) 50%, transparent);
   }
 
   /* ─── BUG #2 fix v2.0.1: incompatibility banner ─── */

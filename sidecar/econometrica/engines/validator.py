@@ -77,6 +77,23 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     if any(k in lower for k in COMPETITOR_KEYS):
         return 'control', 0.90
 
+    # BUG #3 fix (v2.0.1): derived metrics (SOM / SOV / market_share) — это
+    # ratio computed from KPI (brand_sales / total_market). Использование как
+    # predictor → endogeneity (predictor зависит от outcome). По умолчанию
+    # исключаем из модели. Юзер может explicitly включить через Roles UI.
+    # Включён trailing space / suffix чтобы не ловить 'svok'/'mosgorsovet'.
+    DERIVED_KEYS = [
+        'som в', 'som (', 'som_',
+        'sov ', 'sov (', 'sov_',
+        'share_of_market', 'share of market', 'market_share', 'market share',
+        'share_of_voice', 'share of voice',
+        'доля_рынка', 'доля рынка', 'доля_голоса', 'доля голоса',
+    ]
+    if (any(k in lower for k in DERIVED_KEYS)
+            or lower in ('som', 'sov')
+            or lower.endswith(' som') or lower.endswith(' sov')):
+        return 'unused', 0.85
+
     # Count pattern matches per category
     kpi_matches = sum(1 for p in KPI_PATTERNS if p in lower)
     media_matches = sum(1 for p in MEDIA_PATTERNS if p in lower)

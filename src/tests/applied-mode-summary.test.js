@@ -174,6 +174,52 @@ describe('AppliedModeSummary', () => {
     expect(container.querySelector('[data-testid="incompat-banner"]')).toBeNull();
   });
 
+  // ─── UX gap fix v2.0.1: excluded channels summary ──────────────────────────
+
+  it('shows active channels count pill', () => {
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels() }
+    });
+    const pill = container.querySelector('.count-pill--active');
+    expect(pill).toBeInTheDocument();
+    expect(pill?.textContent).toContain('3');
+  });
+
+  it('shows excluded count pill when excludedChannelNames provided', () => {
+    const { container } = render(AppliedModeSummary, {
+      props: {
+        channels: makeChannels(),
+        excludedChannelNames: ['Retail Media бюджет', 'Радио в руб.', 'Пресса в руб.', 'ООН в руб.'],
+      }
+    });
+    const pill = container.querySelector('.count-pill--excluded');
+    expect(pill).toBeInTheDocument();
+    expect(pill?.textContent).toContain('4');
+  });
+
+  it('does NOT show excluded pill when list is empty', () => {
+    const { container } = render(AppliedModeSummary, {
+      props: { channels: makeChannels(), excludedChannelNames: [] }
+    });
+    expect(container.querySelector('.count-pill--excluded')).toBeNull();
+  });
+
+  it('clicking excluded pill expands list with names', async () => {
+    const { container, getByTestId } = render(AppliedModeSummary, {
+      props: {
+        channels: makeChannels(),
+        excludedChannelNames: ['Retail Media', 'Радио'],
+      }
+    });
+    expect(container.querySelector('[data-testid="excluded-list"]')).toBeNull();
+    const toggle = getByTestId('excluded-toggle');
+    await fireEvent.click(toggle);
+    const list = container.querySelector('[data-testid="excluded-list"]');
+    expect(list).toBeInTheDocument();
+    expect(list?.textContent).toContain('Retail Media');
+    expect(list?.textContent).toContain('Радио');
+  });
+
   // ─── BUG #2 fix v2.0.1: inline unit_cost inputs ────────────────────────────
 
   it('renders uc-inputs block when ROI mode has physical channels', () => {
