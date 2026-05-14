@@ -7,7 +7,7 @@
  *
  * Why frozen Object вместо TypeScript enum: JSDoc projects don't have
  * native enum support; Object.freeze() gives runtime immutability +
- * IDE autocompletion via @type annotations.
+ * IDE autocompletion via JSDoc type tags.
  *
  * Usage:
  *   import { ROLES, isExcludedRole } from '$lib/types/roles.js';
