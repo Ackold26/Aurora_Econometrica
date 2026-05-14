@@ -32,7 +32,8 @@
   <div class="rec-header">
     <span class="rec-icon">
       {#if isComponent}
-        <svelte:component this={icon} size={22} strokeWidth={1.5} />
+        {@const IconComponent = icon}
+        <IconComponent size={22} strokeWidth={1.5} />
       {:else if icon}
         {icon}
       {/if}

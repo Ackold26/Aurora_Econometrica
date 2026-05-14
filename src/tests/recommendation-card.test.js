@@ -22,13 +22,13 @@ describe('RecommendationCard', () => {
     expect(screen.getByText('Сделайте X - получите Y.')).toBeInTheDocument();
   });
 
-  it('renders с default icon когда не передан', () => {
+  it('renders без icon когда не передан (default = null per v2.0.0 Lucide refactor)', () => {
     const { container } = render(RecommendationCard, {
       props: { text: 'plain card' },
     });
-    // Default icon = 🎯
+    // v2.0.0: default icon = null (Lucide icons via icon prop pattern, no fallback emoji)
     const icon = container.querySelector('.rec-icon');
-    expect(icon?.textContent).toBe('🎯');
+    expect(icon?.textContent?.trim() ?? '').toBe('');
   });
 
   it('respects custom icon prop', () => {
