@@ -172,7 +172,7 @@ S-OLS-1 conformal PI assumes exchangeability of residuals. Hierarchical model
 
 **Status:** test_brand_perf_split.py включает acceptance assertion (≥85% empirical
 coverage) но требует live MCMC sampling - defer к Phase E live alpha gate
-(Антон's Kagocel + Венарус validation session).
+(Антон's pilot pharma dataset + pilot pharma dataset 2 validation session).
 
 **Risk acknowledged в methodology section:** «Атрибуция между brand и performance
 имеет fundamental uncertainty - мы используем priors based on industry norms».
@@ -287,7 +287,7 @@ applies hierarchical attribution → user понимает контекст ROI 
 | Identifiability fallback (N=1)       | ✅ Tested     |
 | Heuristic fallback for legacy pickles| ✅ Tested     |
 | HTML methodology auto-gen            | ✅ Tested     |
-| **Live alpha gate (Kagocel + Венарус)** | **⏸ PENDING - Phase G** |
+| **Live alpha gate (pilot pharma dataset + pilot pharma dataset 2)** | **⏸ PENDING - Phase G** |
 
 **Total automated tests:** 75 unit + 41 channel_categorization/pickle/split + 24 narrative + 20 optimizer = **160 PASS**.
 

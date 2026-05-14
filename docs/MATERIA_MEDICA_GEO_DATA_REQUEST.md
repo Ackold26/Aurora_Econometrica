@@ -1,7 +1,7 @@
-# Materia Medica - запрос regional data для Aurora Econometrica Causal v1.0.15
+# pharma manufacturer - запрос regional data для Aurora Econometrica Causal v1.0.15
 
 **Created:** 2026-04-27
-**Контекст:** Sprint 3 Pharma Causal backend M0-M4 + UI shipped в v1.0.14 на synthetic-only validation (DGP-controlled ground truth recovery, 488 tests PASS). Real-customer validation запланирован в v1.0.15 - требуются geo-disaggregated данные Materia Medica.
+**Контекст:** Sprint 3 Pharma Causal backend M0-M4 + UI shipped в v1.0.14 на synthetic-only validation (DGP-controlled ground truth recovery, 488 tests PASS). Real-customer validation запланирован в v1.0.15 - требуются geo-disaggregated данные pharma manufacturer.
 **Action:** Антон отправляет запрос; шаблон ниже.
 
 ---
@@ -14,7 +14,7 @@
 >
 > Мы выкатили новый модуль причинно-следственного анализа в Aurora Econometrica - поверх MMM добавили три causal-метода: Difference-in-Differences (для оценки эффекта пилотных регионов), Synthetic Control Method (для post-hoc оценки holdout markets) и Causal Forest (heterogeneous treatment effects по сегментам).
 >
-> Чтобы валидировать модуль на реальных данных Materia Medica и подготовить v1.0.15 c case-study на Кагоцеле/Афале, нам нужна региональная разбивка данных, которые у вас и так трекаются:
+> Чтобы валидировать модуль на реальных данных pharma manufacturer и подготовить v1.0.15 c case-study на pilot datasets, нам нужна региональная разбивка данных, которые у вас и так трекаются:
 >
 > 1. **Регион / город** - идентификатор административной единицы (область, город, ФО - что у вас в источнике).
 > 2. **Месячные данные продаж по бренду** в каждом регионе:
@@ -30,7 +30,7 @@
 >
 > 4. **(Опционально) контрольные переменные** - региональные демографические / экономические показатели если есть (численность, средний доход, доля городского населения, etc.). Для Causal Forest сегментирующих features.
 >
-> Период - те же 31 неделя что в существующем Кагоцел-датасете, плюс если можно - extended history до 2-2.5 лет (для SCM нужно ≥6 pre-treatment периодов на каждое регион × intervention).
+> Период - те же 31 неделя что в существующем pilot pharma dataset, плюс если можно - extended history до 2-2.5 лет (для SCM нужно ≥6 pre-treatment периодов на каждое регион × intervention).
 >
 > Формат: xlsx или csv в long-format (одна строка = регион × месяц × kpi × treatment markers). Если у вас сейчас wide-format - мы трансформируем сами, главное чтобы был региональный idиентификатор и временная ось.
 >
@@ -58,12 +58,12 @@
 
 ## Что Aurora Econometrica делает с данными после получения
 
-1. Загружаем в `causal/` workspace проекта Materia Medica (изолированный pickle/JSON, не смешивается с MMM моделями)
+1. Загружаем в `causal/` workspace проекта pharma manufacturer (изолированный pickle/JSON, не смешивается с MMM моделями)
 2. Запускаем `/compute/causal/preflight` - определяет какие методы applicable
 3. Прогоняем все applicable methods через UI route `/causal`
 4. Cross-method consistency check: triangulation verdict (методы согласуются?)
-5. Сравниваем ATT с known business-knowledge: "Кагоцел-флайт в Q3 дал ~X% lift в регионах А/Б/В" - ATT estimate должен попадать в ожидаемый диапазон
-6. Если consistency='agree' и diagnostics ok → ship v1.0.15 с Materia Medica case-study slide deck
+5. Сравниваем ATT с known business-knowledge: "pilot pharma dataset флайт в Q3 дал ~X% lift в регионах А/Б/В" - ATT estimate должен попадать в ожидаемый диапазон
+6. Если consistency='agree' и diagnostics ok → ship v1.0.15 с pharma manufacturer case-study slide deck
 7. Если 'disagree' → debug assumptions через honest_disclosure block, либо downgrade к directional-only claim
 
 ---
@@ -72,5 +72,5 @@
 
 - Данные хранятся локально на машине Антона (`%USERPROFILE%\AppData\Local\aurora-econometrica-gui\projects\<id>\causal\`)
 - В Aurora pickle/JSON артефакты не uploaded никуда автоматически
-- Если Materia Medica просит NDA - готовы подписать перед передачей
+- Если pharma manufacturer просит NDA - готовы подписать перед передачей
 - После validation v1.0.15 ship - данные продолжают использоваться только Антоном для дальнейших client analyses, не share к третьим лицам без отдельного permission

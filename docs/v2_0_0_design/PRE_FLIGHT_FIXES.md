@@ -123,7 +123,7 @@ EN: «Expert mode activated. Your project uses mixed media unit modes (some mone
 - Price/weather/macro: Normal(μ=0, σ=1.0) — uninformative
 
 Recalibration scheduled в Phase E (E2 — math review on pilot data).
-Pilot: Кагоцел / Венарус projects, verify posterior coverage matches expert intuition.
+Pilot: pilot pharma dataset / pilot pharma dataset 2 projects, verify posterior coverage matches expert intuition.
 If significant deviation — adjust mu/sigma per category, re-train models, document в ADR-019 v2.
 ```
 
@@ -402,7 +402,7 @@ Phase A acceptance criteria updated:
   - Numeric column without name hints
   - Multiple potential targets in same dataset (must surface all candidates)
 - Synthetic dataset generator file: test/fixtures/variable_classifier_corpus.py
-- Real-world subsample: Кагоцел + Венарус column names (anonymized)
+- Real-world subsample: pilot pharma dataset + pilot pharma dataset 2 column names (anonymized)
 ```
 
 ---

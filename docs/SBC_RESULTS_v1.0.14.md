@@ -86,7 +86,7 @@ CIs systematically wider than needed (mean width 4.72 vs mean error 0.40 → ove
 
 ## What SBC did NOT validate
 
-- **Real client data behavior** - SBC uses DGP-controlled synthetic. Real Materia Medica/Кагоцел data может have different characteristics (autocorrelated errors, time-varying trends, treatment-confounder correlation). Validate в v1.0.15 cycle с Materia Medica regional data.
+- **Real client data behavior** - SBC uses DGP-controlled synthetic. Real pharma manufacturer/pilot pharma dataset data может have different characteristics (autocorrelated errors, time-varying trends, treatment-confounder correlation). Validate в v1.0.15 cycle с pharma manufacturer regional data.
 - **Bayesian MMM SBC** (separate ADR §5 item) - focused this run на causal endpoints. Bayesian MMM SBC требует full MCMC × 100 sims (~16h compute) - defer к dedicated overnight run.
 - **Staggered adoption coverage** - current SBC uses non-staggered DGP (treatment_period=13 для all treated). Future SBC variant с staggered DGP would test Goodman-Bacon caveat surfacing.
 

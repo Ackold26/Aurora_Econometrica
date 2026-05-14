@@ -48,7 +48,7 @@ Causal endpoints validated ONLY на synthetic data + DGP-controlled ground trut
 - SCM: CI contains true value (loose tolerance per Abadie)
 - Causal Forest: 12.3%
 
-**Real-customer validation запланирован v1.0.15** после получения geo-disaggregated data от Materia Medica (request template отправлен, см. `docs/MATERIA_MEDICA_GEO_DATA_REQUEST.md`).
+**Real-customer validation запланирован v1.0.15** после получения geo-disaggregated data от pharma manufacturer (request template отправлен, см. `docs/MATERIA_MEDICA_GEO_DATA_REQUEST.md`).
 
 UI page header показывает яркий caveat banner для всех причинных вычислений на real client data.
 
@@ -131,7 +131,7 @@ MMM pickle schema получает optional `causal_artifact_path` field (None �
 
 ---
 
-## 🎁 Sprint 3 ADR + Materia Medica request
+## 🎁 Sprint 3 ADR + pharma manufacturer data request
 
 - `docs/SPRINT3_PHARMA_CAUSAL_ADR.md` - полный architectural decision record (12 sections, 4 confirmed refinements Q1-Q4, M0-M4 plan)
 - `docs/MATERIA_MEDICA_GEO_DATA_REQUEST.md` - шаблон запроса regional data для Антона (минимальные требования по каждому методу + privacy notes)
@@ -140,7 +140,7 @@ MMM pickle schema получает optional `causal_artifact_path` field (None �
 
 ## 🔮 Roadmap (v1.0.15+)
 
-- **Real-customer validation case-study** на Materia Medica/Кагоцел/Афала regional data
+- **Real-customer validation case-study** на pharma manufacturer/pilot pharma dataset/Materia Medica brand A regional data
 - **UI polish**: file picker через Tauri dialog, column auto-detect from xlsx
 - **Synergy refactors**: F2/F3 caveats consolidation в HonestDisclosure, soft/hard distinction в diagnostics_failed
 - **True bootstrap для Causal Forest** (currently `cate_mean_se_fallback` honestly labeled)

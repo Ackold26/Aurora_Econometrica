@@ -1,6 +1,6 @@
 # CHANGELOG v1.1.0 - Trust Level 3 (Brand vs Performance Split)
 
-**Status:** READY FOR ALPHA GATE (Antón's live test on Kagocel + Венарус)
+**Status:** READY FOR ALPHA GATE (Antón's live test on pilot pharma dataset + pilot pharma dataset 2)
 **Branch:** math-fix-v1.0.13
 **Major bump rationale:** Architectural change (new schema + new model_version=1.3 + new UI surface)
 
@@ -144,7 +144,7 @@ Returns: {"status": "ok", "suggestions": {"TRPs бренд": {"category": "brand
    для v1.1.0 (matches Robyn industry practice). Phase 1.5 weibull-learnable планируется
    позже как additional refinement.
 2. **Conformal exchangeability на hierarchical posterior** - formal proof requires Phase 1.6+.
-   Empirical validation через alpha gate (Антон's Kagocel + Венарус session).
+   Empirical validation через alpha gate (Антон's pilot pharma dataset + pilot pharma dataset 2 session).
 3. **Per-group Optimize Min/Max sliders** - defer для full scope (post-v1.1.0).
 4. **PPTX methodology auto-gen** - defer (HTML disclosure достаточно для customer awareness).
 5. **ROI shift comparison block** - defer для v1.1.1 (требует «previous run» persistence).

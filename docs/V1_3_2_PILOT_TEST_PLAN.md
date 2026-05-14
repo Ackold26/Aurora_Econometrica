@@ -31,13 +31,13 @@ npm run tauri dev
 
 ---
 
-## Сценарий 1 - Кагоцел (monetary roi, baseline regression)
+## Сценарий 1 - pilot pharma dataset (monetary roi, baseline regression)
 
 **Цель:** убедиться что v1.3.2 НЕ ломает v1.2 backward compat. ROI labels и SCQAR templates должны быть как в v1.2.
 
 ### Шаги
 
-1. Open existing project: `Кагоцел РФ ММХ 1105-26.aurora` (v1.2 bundle).
+1. Open existing project: `pilot pharma dataset.aurora` (v1.2 bundle).
 2. После загрузки → переход к Validate шагу.
 3. **NEW v1.3.2:** видна substep nav "Роли колонок → Целевая метрика → Метрики каналов → Подтверждение" (4 dots, monetary skip Ценность).
 4. ColumnMapperConfirm показывает detected roles. Confirm без правок.

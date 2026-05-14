@@ -72,7 +72,7 @@ Performance: mroi=9.7453  action=Scale
 ---
 
 **Branch:** `math-fix-v1.0.13`
-**Customer ship:** Кагоцел RDP, Materia Medica pilot
+**Customer ship:** pilot pharma dataset RDP, pharma manufacturer pilot
 **Next:** v1.1 (free-budget mode, e2e infra, data-readiness tier indicator)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

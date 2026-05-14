@@ -131,7 +131,7 @@ Auto-update from v1.0.14 / v1.0.13 supported. Или manual install - existing p
 
 ## 🔮 Coming в v1.0.15
 
-- Real-customer Materia Medica/Кагоцел/Афала regional data validation (case-study)
+- Real-customer pharma manufacturer/pilot pharma dataset/Materia Medica brand A regional data validation (case-study)
 - DiD wild-cluster bootstrap для small n_clusters
 - PPTX optimizer state awareness (binding/converged_at_current banners)
 - compute_descriptive_state structured class

@@ -47,7 +47,7 @@
 | # | Feature | Customer value | Effort | Industry | Reuse |
 |---|---|---|---|---|---|
 | 7 | **Multi-scenario сравнение dashboard** | HIGH (agency) | 3d | ✅ Robyn | 40% (chart overlay есть) | Side-by-side: «План А vs План B vs Aurora-optimized» — table + twin chart + diff analysis |
-| 8 | **Project templates / favorites** | MEDIUM | 2d | ⚠️ Robyn templates | 30% | Agency сохраняет «Шаблон Кагоцел-OTC» → applies к похожему клиенту за 30 секунд |
+| 8 | **Project templates / favorites** | MEDIUM | 2d | ⚠️ Robyn templates | 30% | Agency сохраняет «Шаблон pharma-OTC» → applies к похожему клиенту за 30 секунд |
 | 9 | **Custom adstock functions** | LOW-MED | 3d | ⚠️ varies | 60% | Beyond Geometric/Weibull: LogNormal, Gamma adstock для специфических каналов |
 | 10 | **Categorical KPI customization** | MEDIUM | 2-3d | ❌ | 50% | Customer добавляет свой KPI type с custom auto-suggest формулой value_per_count_unit |
 | 11 | **Custom calibration via priors (UI)** | MEDIUM | 3-4d | ⚠️ varies (in code) | 40% | UI для эконометриста/Expert: override prior per channel («я знаю что TV ROI этого бренда исторически 2.0-2.5, поставлю tight prior») |

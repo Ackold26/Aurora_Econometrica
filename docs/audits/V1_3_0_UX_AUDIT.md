@@ -81,7 +81,7 @@
 **C3: ColumnMapper missing в новом ValidateStepV13 flow.**
 - В v1.2 был drag-drop role assignment (KPI / media / control). В v1.3 ValidateStepV13 показывает только KPI selector + per-channel input - но НЕ role assignment.
 - Backend auto-detects role через column heuristic (в pipeline page) - но юзер не видит / не подтверждает.
-- **Mitigation:** auto-detect работает для standard schemas. Pilot validate на Кагоцел подтверждает.
+- **Mitigation:** auto-detect работает для standard schemas. Pilot validate на pilot pharma dataset подтверждает.
 - **Fix scope:** v1.3.1 - embed `ColumnMapperConfirm.svelte` после Import с visible review of detected roles.
 
 ### HIGH

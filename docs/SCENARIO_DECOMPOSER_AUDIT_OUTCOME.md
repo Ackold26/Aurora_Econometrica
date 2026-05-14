@@ -130,7 +130,7 @@ Test count growth across audit:
 | Scenario | S1-S14 (131) | 8 batches (30) | 161 |
 | Decomposer | D1-D13 (114) | 6 batches (27) | 141 |
 | Cross-engine smoke | - | - | 13 (C1-C12) |
-| Real-pickle (Кагоцел) | - | - | 4 |
+| Real-pickle (pilot pharma dataset) | - | - | 4 |
 | **Cumulative** | **35 invariants** | **25 batches** | **538 audit tests** |
 
 Plus pre-existing 261 tests (math correctness, narrative adapter, brand_perf

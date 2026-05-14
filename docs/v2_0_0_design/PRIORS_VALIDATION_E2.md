@@ -3,7 +3,7 @@
 **Date:** 2026-05-13
 **Author:** Aurora MMM v2.0.0 (Phase E2 prep)
 **Method:** Synthetic data validation (NDA-protected real pilot data substituted)
-**Status:** Gap analysis complete. Real Кагоцел / Венарус validation pending.
+**Status:** Gap analysis complete. Real pilot pharma dataset / pilot pharma dataset 2 validation pending.
 
 ---
 
@@ -12,7 +12,7 @@
 PRE_FLIGHT_FIXES.md §B4 зафиксировал signed factor priors как **placeholder values**
 с явной заметкой: «Recalibration scheduled в Phase E (E2 — math review on pilot data)».
 
-Реальные пилотные данные (Кагоцел / Венарус) NDA-protected и недоступны в автономном
+Реальные пилотные данные (pilot pharma dataset / pilot pharma dataset 2) NDA-protected и недоступны в автономном
 режиме. Настоящий документ описывает результаты **synthetic data validation** —
 нижнюю границу calibration confidence перед Phase E real launch.
 
@@ -193,7 +193,7 @@ Bayesian с prior N(-0.3, 0.3) даёт regularized estimate — closer to true 
 | `competitor_coef` (FMCG) | N(μ=-0.3, σ=0.3) | N(μ=-0.20, σ=0.35) | GT=-0.18, overshoot 0.12; wider σ accounts for cross-category variance |
 | `competitor_coef` (OTC) | N(μ=-0.3, σ=0.3) | Keep or N(μ=-0.25, σ=0.3) | GT=-0.22, small overshoot |
 
-**Trigger для recalibration:** Real Кагоцел / Венарус MCMC — если posterior mean
+**Trigger для recalibration:** Real pilot pharma dataset / pilot pharma dataset 2 MCMC — если posterior mean
 competitor_coef систематически смещён от expert intuition → adjust μ.
 
 ---
@@ -222,7 +222,7 @@ competitor_coef систематически смещён от expert intuition 
 
 ## Next Steps (Phase E2)
 
-1. **Получить доступ к данным Кагоцел / Венарус** (Антон разблокирует после NDA).
+1. **Получить доступ к данным pilot pharma dataset / pilot pharma dataset 2** (Антон разблокирует после NDA).
 2. **Запустить полный MCMC** на реальных данных через `train_model()` (4 цепи × 2000 draws).
 3. **Извлечь posterior means** для control_betas → сравнить с expert intuition
    (Антон + бренд-менеджер знают «что ожидать» по competitor эффекту).
@@ -259,9 +259,9 @@ competitor_coef систематически смещён от expert intuition 
 
 | Dataset | Rows | Periods | Category | Target | Competitor variable |
 |---|---|---|---|---|---|
-| Кагоцел РФ+ | 31 | 2023-01 → 2025-07 | OTC antiviral | Продажи уп. бренд | TRPs конкуренты |
-| Венарус + Венапрокт | 31 | 2023-01 → 2025-07 | OTC venous | Продажи уп. бренд | TRPs конкуренты |
-| MMX Афала | 43 | 2021-10 → 2025-04 | OTC small-molecule | Продажи уп. бренд | TRPs конкуренты |
+| pilot pharma dataset | 31 | 2023-01 → 2025-07 | OTC antiviral | Продажи уп. бренд | TRPs конкуренты |
+| pilot pharma dataset 2 | 31 | 2023-01 → 2025-07 | OTC venous | Продажи уп. бренд | TRPs конкуренты |
+| media benchmark Materia Medica brand A | 43 | 2021-10 → 2025-04 | OTC small-molecule | Продажи уп. бренд | TRPs конкуренты |
 
 **Available media channels (all datasets):** OLV budget, Banners budget, Social budget,
 Performance budget, Retail Media budget / Спецпроект budget.
@@ -271,7 +271,7 @@ Performance budget, Retail Media budget / Спецпроект budget.
 
 ### OLS Coefficient Results per Dataset
 
-#### Кагоцел (OTC antiviral, seasonal flu/cold drug)
+#### pilot pharma dataset (OTC antiviral, seasonal flu/cold drug)
 
 | Model | digital_coef | competitor_coef | search_coef | R² |
 |---|---|---|---|---|
@@ -290,21 +290,21 @@ within symmetric prior 95% CI [-0.588, +0.588]. Search queries alone have R²=0.
 they absorb almost all seasonal variation.
 
 **Seasonality confirmed:** Q4 mean sales = 1,109,285 units vs Q2 mean = 370,729 units
-(3× seasonal multiplier). This is the dominant signal в Кагоцел data.
+(3× seasonal multiplier). This is the dominant signal в pilot pharma dataset data.
 
-#### Венарус (OTC venous drug — less seasonal, summer-peak)
+#### pilot pharma dataset 2 (OTC venous drug — less seasonal, summer-peak)
 
 | Model | digital_coef | competitor_coef | search_coef | R² |
 |---|---|---|---|---|
 | Raw (no search control) | +0.466 | +0.092 | — | ~0.22 |
 | Search-controlled | (within CI) | near-zero | (absorbed) | improved |
 
-**Key finding:** Венарус competitor_coef raw ≈ +0.09 (near-zero raw correlation).
+**Key finding:** pilot pharma dataset 2 competitor_coef raw ≈ +0.09 (near-zero raw correlation).
 corr(TRP_competitor, TRP_brand) = **-0.81** — ANTI-correlated. Different seasonal
-dynamics from Кагоцел. Competitor (Венапрокт) peaks in different season.
+dynamics from pilot pharma dataset. Competitor peaks in different season.
 After search control: competitor_coef ~0, within symmetric prior CI.
 
-#### MMX Афала (OTC small-molecule, 43 obs from 2021)
+#### media benchmark Materia Medica brand A (OTC small-molecule, 43 obs from 2021)
 
 | Model | competitor_coef (search-controlled) | R² |
 |---|---|---|
@@ -342,7 +342,7 @@ All 3 search-controlled estimates fall within [-0.588, +0.588] (symmetric prior 
 
 ### Finding RD-2: Search Queries as Seasonal Control
 
-**FINDING RD-2: search queries (запросы) are the dominant predictor for OTC Кагоцел (R²=0.91).**
+**FINDING RD-2: search queries (запросы) are the dominant predictor for OTC pilot pharma dataset (R²=0.91).**
 
 Single-variable OLS: search_coef = +0.87, R²=0.91. This indicates:
 - Organic search demand is the primary leading indicator of OTC sales
@@ -363,9 +363,9 @@ The signed_search prior should be N(μ=0, σ=0.3) — same as other controls.
 
 | Dataset | digital_coef (bivariate) | R² |
 |---|---|---|
-| Кагоцел | +0.580 | corr |
-| Венарус | +0.466 | corr |
-| MMX Афала | low but positive | — |
+| pilot pharma dataset | +0.580 | corr |
+| pilot pharma dataset 2 | +0.466 | corr |
+| media benchmark Materia Medica brand A | low but positive | — |
 
 Media spend sanity check passes. Digital investment correlates positively with sales,
 confirming the modeler's positive media_betas prior is consistent with real data.
@@ -414,11 +414,11 @@ parameter: `'fmcg'` → negative-leaning, `'otc_pharma'` → symmetric.
 3. **31 observations per OTC dataset.** Small N → OLS coefficients have high variance.
    Bayesian prior regularization is critical (which is exactly why correct μ matters).
 
-4. **No TV spend data for Кагоцел digital-only periods.** Several months have
+4. **No TV spend data for pilot pharma dataset digital-only periods.** Several months have
    zero OLV/Banners — cannot distinguish "no advertising" from "TV-only" periods.
 
-5. **Competitor identity assumed.** Кагоцел competitor = any OTC antiviral competitor
-   (TRP pool); Венарус competitor = Венапрокт. Actual competitive set may differ.
+5. **Competitor identity assumed.** pilot pharma dataset competitor = any OTC antiviral competitor
+   (TRP pool); pilot pharma dataset 2 competitor = OTC venous competitor. Actual competitive set may differ.
 
 ---
 

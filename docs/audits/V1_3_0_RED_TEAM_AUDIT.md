@@ -70,7 +70,7 @@ Post-fix: оба файла обновлены - «10 KPI types» (3 monetary + 
 - **What:** `sections.py` (1278 LOC) + `builder.py` (2716 LOC) полностью monetary-hardcoded.
   Метаdata pipeline через `narrative_adapter.kpi` готова, но builders не consume.
 - **Why deferred:** rewrite 14 секций × 13 слайдов × conditional rendering требует ~5 дней
-  работы. Vs ship v1.3.0 для pilot validate (monetary baseline OK для Кагоцел / Венарус).
+  работы. Vs ship v1.3.0 для pilot validate (monetary baseline OK для pilot pharma dataset / pilot pharma dataset 2).
 - **Mitigation:** Release notes честно говорят «Reports не полностью KPI-aware - hotfix v1.3.1».
 - **Risk:** Если pilot захочет count KPI report → manual workaround / wait.
 
@@ -86,7 +86,7 @@ Post-fix: оба файла обновлены - «10 KPI types» (3 monetary + 
 - **What:** `bisect_for_target` purely unit-tested на synthetic; нет end-to-end на real
   trained model.
 - **Why deferred:** Real model требует training (~2 min) для каждого test → CI cost.
-- **Mitigation:** Pilot validate test scenario (Кагоцел target 105M ₽ → expected budget).
+- **Mitigation:** Pilot validate test scenario (pilot pharma dataset target 105M ₽ → expected budget).
 - **Risk:** Bisection convergence edge case при non-monotonic Hill - possible но rare.
 
 ### HIGH #B5: `estimate_budget_ci` gradient ≈ 0 fallback не captures uncertainty.
@@ -141,7 +141,7 @@ Post-fix: оба файла обновлены - «10 KPI types» (3 monetary + 
 
 ## Recommendation
 
-**v1.3.0 ready для pilot validate Кагоцел + Венарус** (monetary scenario primary).
+**v1.3.0 ready для pilot validate pilot pharma dataset + pilot pharma dataset 2** (monetary scenario primary).
 Count KPI workflow validated через synthetic test project в dev mode.
 
 **v1.3.1 hotfix scope** (~5 дней):

@@ -196,7 +196,7 @@ Negative bars для signed factors (competitor / price / weather / macro):
 
 1. **Excel / PPTX export** для multi-scenario page — UI готов, но требует Rust backend commands (`econ_export_scenarios_xlsx`, `export_scenarios_pptx`). CSV export работает полностью. Excel/PPTX → post-ship (v2.0.1).
 
-2. **Signed factor priors** — текущие значения (μ=-0.3 для competitor, μ=0 для signed unconstrained, μ=+0.2 для positive controls) — placeholder. Math review на pilot data (Кагоцел / Венарус) scheduled в Phase E.
+2. **Signed factor priors** — текущие значения (μ=-0.3 для competitor, μ=0 для signed unconstrained, μ=+0.2 для positive controls) — placeholder. Math review на pilot data (pilot pharma dataset / pilot pharma dataset 2) scheduled в Phase E.
 
 3. **Methodology Certificate verifier** (verify.auroraai.pro) — требует update schema для new fields (signed_factor_contributions, holidays). Cross-product coordination с aurora-platform-core.
 

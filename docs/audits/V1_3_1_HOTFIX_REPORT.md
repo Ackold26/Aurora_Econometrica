@@ -112,7 +112,7 @@ KPI-aware = v1.3.2 sprint scope.
 
 ## Recommended next steps
 
-1. **Pilot validate Кагоцел + Венарус** (manual action на feat/v1.3.0-next-gen ИЛИ
+1. **Pilot validate pilot pharma dataset + pilot pharma dataset 2** (manual action на feat/v1.3.0-next-gen ИЛИ
    merge hotfix/v1.3.1 → feat/v1.3.0-next-gen → tag).
 2. **Tag v1.3.0** после approve.
 3. **v1.3.2 sprint** (~3 дня):

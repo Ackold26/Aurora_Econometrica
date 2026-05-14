@@ -103,7 +103,7 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 - **L21** `lift_pct: None` в optimization.json - investigate when touching result_data shape (low priority - есть `expected_lift_pct` fallback)
 - **L24** Finding #2 семантически инвертирован - «единственный близкий к окупаемости» → «единственный ниже окупаемости»
 - **L25** MQS thinness penalty при baseline-dominated моделях (R²/MAPE тривиально достижимы) - нужен warning в Tier
-- **L26** ROI 3-5× с low gap → «Сбалансирован» edge case (Статьи Венарус)
+- **L26** ROI 3-5× с low gap → «Сбалансирован» edge case (Статьи pilot pharma dataset 2)
 
 ## Live-test session - UX дополнения (2026-04-29)
 
@@ -131,7 +131,7 @@ Math identity verified на real Kagocel pickle: `decompose_mroi ≈ optimize_mr
 - Зелёная ✓ checkmark «уже создано в текущей сессии» → меняет CTA на «⟲ Пересоздать»
 - HTML добавлен в insight «Форматы экспорта»
 
-**Narrative consistency (Венарус live-test):**
+**Narrative consistency (pilot pharma dataset 2 live-test):**
 - **L22:** scale_destination = top mROAS (был top contribution) - narrative consistent с COMPLICATION «По mROAS Social опережает»
 - **L23:** dedup cut_source из underperformer_names - устранён дубликат «из TRPs ... остановить TRPs»
 

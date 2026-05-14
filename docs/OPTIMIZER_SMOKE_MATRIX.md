@@ -84,7 +84,7 @@ bugs that unit tests miss.
 
 ## Customer pickle integration (deferred)
 
-Plan §6 specifies: «1+ customer pickle (Кагоцел МMX) verifies real-data correctness».
+Plan §6 specifies: «1+ customer pickle (pilot pharma dataset media benchmark) verifies real-data correctness».
 
 **Status:** ⏸️ Pending customer pickle access (Антон provides path on request).
 

@@ -35,7 +35,7 @@ This is the **load-bearing decision** of this ADR - pin the existing FastAPI sha
 
 All blockers closed as of 2026-04-26:
 - ✅ **Geo-data в фарме у всех** - pharmaceutical clients track sales by geographic regions (cities/областей/regions) as industry standard. Required for SCM (need control regions) and DiD (need treatment vs control geo split).
-- ✅ **Materia Medica/Кагоцел готов validate** - existing client с 31 weeks of geo-disaggregated data, можно использовать как первый causal validation case.
+- ✅ **pharma manufacturer/pilot pharma dataset готов validate** - existing client с 31 weeks of geo-disaggregated data, можно использовать как первый causal validation case.
 
 ### 2.2 Why CAUSAL дополняет MMM
 
@@ -163,7 +163,7 @@ Before shipping Sprint 3 к customers, gate sequence:
 
 1. **SBC (Simulation-Based Calibration) overnight** - ~16h MCMC × 100 sims на synthetic data with known ground truth ATT. Verify CI coverage matches nominal (90% CI captures true ATT in ≥85% sims). Reference: Talts, Betancourt, Simpson, Vehtari 2018 "Validating Bayesian inference algorithms with simulation-based calibration" arXiv:1804.06788.
 
-2. **UI live-test on Materia Medica/Кагоцел real geo data** - end-to-end DiD + SCM + Causal Forest на 31-week pharmaceutical dataset с known regional flights. Manual sanity check ATT magnitude.
+2. **UI live-test on pharma manufacturer/pilot pharma dataset real geo data** - end-to-end DiD + SCM + Causal Forest на 31-week pharmaceutical dataset с known regional flights. Manual sanity check ATT magnitude.
 
 3. **Independent fresh-context audit pass** (D-style review) - same blind-spot doctrine as F1/A1: spawn fresh-context Claude session, read causal/* engines code only, surface ≥3 hidden bugs. Sprint 1+2 audit cycle showed this catches real issues.
 
@@ -186,7 +186,7 @@ Block ship if any gate fails. Per memory `feedback_econometrica_patterns.md` - b
 - `/compute/causal/did` endpoint + Pydantic request model
 - Honest disclosure: parallel-trends assumption, common-shock assumption
 - Unit tests на synthetic data with known DGP
-- Gate 6: MIN-LIVE на Materia Medica synthetic DiD scenario
+- Gate 6: MIN-LIVE на pharma manufacturer synthetic DiD scenario
 
 ### M2 - SCM endpoint (~7-10h)
 - `engines/causal/scm.py` - wrap pysyncon Augmented SCM
@@ -200,7 +200,7 @@ Block ship if any gate fails. Per memory `feedback_econometrica_patterns.md` - b
 - `/compute/causal/forest` endpoint
 - HTE visualization payload - feature importance, treatment effect distribution
 - Honest disclosure: positivity / overlap assumption
-- Gate 8: MIN-LIVE на segmented Кагоцел data
+- Gate 8: MIN-LIVE на segmented pilot pharma dataset data
 
 ### M4 - Integration + cross-method consistency (~3-5h)
 - `/compute/causal/preflight` - unified validation across methods
@@ -246,7 +246,7 @@ Recommendation: **Option B** - keep bundle lean, scipy уже в deps, manual im
 
 Pre-ship gate requires real-data validation. Options:
 **Option A:** Kagocel only (existing client, low overhead).
-**Option B:** Kagocel + Materia Medica + 1 more pharma client (broader coverage but coordination overhead).
+**Option B:** pilot pharma dataset + pharma manufacturer + 1 more pharma client (broader coverage but coordination overhead).
 
 Recommendation: **Option A** для v1.0.14 ship → expand validation post-ship. Don't over-engineer pre-ship gate.
 
@@ -287,13 +287,13 @@ Per-M checkpoint structure: load relevant pickle/data → call new endpoint → 
 
 **Refinement:** define explicit `_solve_scm_weights(Y_treated_pre, Y_donors_pre)` interface that returns weights array. Implementation today = scipy.optimize.minimize with SLSQP + simplex constraints. Future drop-in replacement to cvxpy (Augmented SCM/BSCM) is one-line swap внутри function - caller doesn't know the difference. Clean refactor path.
 
-### Q3 confirmed: A modified - Kagocel + Афала double validation
+### Q3 confirmed: A modified - pilot pharma dataset + Materia Medica brand A double validation
 
-**Refinement:** add Афала dataset (MMX_2021-2025_source.xlsx, sheet 'Афала', n=43 monthly, 5 channels Mr different from Kagocel's 7) to validation set. Same client (Materia Medica) - no calendar slip / new contract. Closes "single dataset = blind spot" risk: real validation diversity без waiting external client.
+**Refinement:** add Materia Medica brand A dataset (historical media benchmark source, sheet 'brand A', n=43 monthly, 5 channels different from pilot pharma dataset's 7) to validation set. Same client (pharma manufacturer) - no calendar slip / new contract. Closes "single dataset = blind spot" risk: real validation diversity без waiting external client.
 
-⚠️ **PANEL DATA CAVEAT:** both Kagocel и Афала are AGGREGATED brand-level data (no geo split). Causal methods (DiD/SCM/Forest) require PANEL data with multiple units (regions/cities). Pre-launch блокер per memory: "geo-data в фарме у всех" - but where в TestData this lives is not yet identified. **M1 cannot run without panel data.** This is a separate workstream:
+⚠️ **PANEL DATA CAVEAT:** both pilot pharma dataset и Materia Medica brand A are AGGREGATED brand-level data (no geo split). Causal methods (DiD/SCM/Forest) require PANEL data with multiple units (regions/cities). Pre-launch блокер per memory: "geo-data в фарме у всех" - but where в TestData this lives is not yet identified. **M1 cannot run without panel data.** This is a separate workstream:
 - Synthetic geo split via stratified sampling от monthly data (DGP-controlled validation)
-- Or request real geo-disaggregated data from Materia Medica для validation
+- Or request real geo-disaggregated data from pharma manufacturer для validation
 - M0 scaffolding is dataset-agnostic - proceeds independently, panel-data resolution happens in parallel with stack install.
 
 ### Q4 confirmed: A (separation) + optional `causal_artifact_path` hint refinement

@@ -956,7 +956,7 @@ Implementation: см. WIZARD_FLOW_v2_FINAL.md
 - [ ] ADR-015 status updated на «Superseded by ADR-019»
 - [ ] Red-team audit pass с 0 BLOCKER findings
 - [ ] Full pytest + vitest + svelte-check zero errors
-- [ ] 3 pilot test scenarios pass (Кагоцел established / synthetic effectiveness / synthetic forecast от плана)
+- [ ] 3 pilot test scenarios pass (pilot pharma dataset established / synthetic effectiveness / synthetic forecast от плана)
 - [ ] NSIS build successful
 - [ ] Tag v2.0.0 + push aurora-releases
 

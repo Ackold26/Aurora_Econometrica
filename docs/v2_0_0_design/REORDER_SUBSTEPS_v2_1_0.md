@@ -24,7 +24,7 @@
 **Issues с текущим порядком:**
 
 1. **Cognitive overload:** Юзер видит ВСЕ 30+ колонок в Roles step,
-   classifications для irrelevant cols. Например, для Кагоцел dataset
+   classifications для irrelevant cols. Например, для pilot pharma dataset
    classifier classifies «Продажи в уп. бренд» и «Продажи в уп. конкуренты»
    и «SOM в уп.» как kpi/control — но если user выбрал KPI = «Продажи в
    руб. бренд», все «в уп.» колонки irrelevant.

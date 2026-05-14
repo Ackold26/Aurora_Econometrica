@@ -9,7 +9,7 @@
 
 ## Motivation
 
-Hotfix patch обнаружен через **pilot UI testing на real dataset Кагоцел РФ+**
+Hotfix patch обнаружен через **pilot UI testing на real dataset pilot pharma dataset**
 2026-05-14 (32 columns: 6 digital media каналов + TV TRPs + OOH/Radio/Press +
 controls + KPI). 4 issues найдены в Manager ROI mode flow:
 

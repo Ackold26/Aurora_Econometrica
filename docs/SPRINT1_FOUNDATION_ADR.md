@@ -28,7 +28,7 @@ Without Sprint 1, downstream sprints build on broken uncertainty quantification,
 | D1 | Adstock priors structure: hierarchical (b) | ⚠️ AMENDED by research (see §3) |
 | D2 | Calendar: research до 31 мая, implementation после Платформы, ship 15-30 июня (v1.0.14) | ✅ confirmed |
 | D3 | A4 audience: hybrid (c) - marketing summary + analyst expandable | ⚠️ AMENDED - budget недооценён, see §6 |
-| D4 | Validation: Kagocel + Venarus + MMX + production pickles | ✅ confirmed, dataset metadata validated |
+| D4 | Validation: pilot pharma dataset + pilot pharma dataset 2 + media benchmark + production pickles | ✅ confirmed, dataset metadata validated |
 | D5 | Sequence: 1.9 → 1.1 → A4, 3 ships v1.0.14/15/16 | ✅ confirmed |
 
 ---
@@ -78,7 +78,7 @@ decay_i = sigmoid(mu_logit + sigma_logit * z_i)  # bounded [0, 1]
 
 **Option C (defer):** Keep `Beta(2, 5)` in v1, document overestimate, fix in v1.5. Risky for production.
 
-**Recommendation:** Option B for v1 (simpler), Option A for v2 if A/B clients need precision. Validation strategy: run on Kagocel/Venarus/MMX, see if Option B's hierarchy correctly separates TV from Digital decay.
+**Recommendation:** Option B for v1 (simpler), Option A for v2 if A/B clients need precision. Validation strategy: run on pilot pharma dataset/pilot pharma dataset 2/media benchmark, see if Option B's hierarchy correctly separates TV from Digital decay.
 
 ### Amendment A3 (Phase 1.9) - CI level: 95% → 90%
 
@@ -254,12 +254,12 @@ Defer learnable Weibull. Aurora's `adstock_selector.py` BIC selection still work
 
 ### Coverage Probability gate (Sprint 1 milestone)
 
-Run synthetic SBC on 100 simulations × 3 datasets (Kagocel-like, Venarus-like, MMX-like):
+Run synthetic SBC on 100 simulations × 3 datasets (pilot-pharma-like, pilot-pharma-2-like, media-benchmark-like):
 - For each simulation: generate data with known decay, fit, check 90% CI contains truth
 - Pass: ≥ 85% coverage across all channels in all datasets
 - Fail: any channel < 70% coverage → not identifiable, hard-fail
 
-If fails on Kagocel n=36: fallback to per-channel-type priors (Option A) or push Phase 1.1 to Sprint 2.
+If fails on pilot pharma dataset n=36: fallback to per-channel-type priors (Option A) or push Phase 1.1 to Sprint 2.
 
 ---
 
@@ -355,11 +355,11 @@ Tier 3 - Insufficient (red, override available):
 |---|---|---|---|---|
 | Kagocel | 36 | 7 + TRPs | monthly | Small-N stress test (worst case) |
 | Venarus | 51 | 7 + TRPs | monthly | Medium-N primary validate |
-| MMX (Афала) | 47 | 5 + TRPs | monthly | Materia Medica brand 1 |
-| MMX (Афалаза) | 49 | 5 + TRPs + SOV | monthly | Materia Medica brand 2 |
-| MMX (Импаза) | 43 | 5 + TRPs | monthly | Materia Medica brand 3 |
+| media benchmark (Materia Medica brand A) | 47 | 5 + TRPs | monthly | Materia Medica brand 1 |
+| media benchmark (Materia Medica brand B) | 49 | 5 + TRPs + SOV | monthly | Materia Medica brand 2 |
+| media benchmark (Materia Medica brand C) | 43 | 5 + TRPs | monthly | Materia Medica brand 3 |
 
-**Bonus:** MMX 3 brands × ~45 obs = real multi-product data within Materia Medica portfolio. Reserve for Sprint 5 Aurora multi-product joint estimation (B3) - not used in Sprint 1.
+**Bonus:** media benchmark 3 brands × ~45 obs = real multi-product data within pharma manufacturer portfolio. Reserve for Sprint 5 Aurora multi-product joint estimation (B3) - not used in Sprint 1.
 
 ### Per-phase validation gates
 
@@ -372,8 +372,8 @@ Tier 3 - Insufficient (red, override available):
 - Synthetic SBC: 100 simulations, ≥ 85% Coverage Probability all channels
 - Kagocel: convergence (R-hat ≤ 1.05, divergences = 0), decay recovery sensible
 - Venarus: same gates + check hierarchical pooling separates TV vs Digital
-- MMX × 3 brands: identifiability, no per-brand catastrophic failure
-- Performance: total training time ≤ 60s on Kagocel (was 20s pre-fix, 1.75-3× expected)
+- media benchmark × 3 brands: identifiability, no per-brand catastrophic failure
+- Performance: total training time ≤ 60s on pilot pharma dataset (was 20s pre-fix, 1.75-3× expected)
 
 **A4 (Reliability):**
 - Synthetic "good data": all 3 layers pass → Tier 1
@@ -414,7 +414,7 @@ Tier 3 - Insufficient (red, override available):
 
 6. **Phase 1.9 backward compat:** v1.0/v1.1 pickles fallback to point-estimate-only with banner - OR force re-train on load (more aggressive)? Default: fallback (less disruption).
 
-7. **MMX multi-product opportunity:** MMX has 3 Materia Medica brands × ~45 obs in one dataset. Reserve for Sprint 5 (B3 multi-product joint), or use as Phase 1.1 hierarchical adstock validation now? Default: reserve.
+7. **media benchmark multi-product opportunity:** media benchmark has 3 pharma manufacturer brands × ~45 obs in one dataset. Reserve for Sprint 5 (B3 multi-product joint), or use as Phase 1.1 hierarchical adstock validation now? Default: reserve.
 
 ---
 

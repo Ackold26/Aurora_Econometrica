@@ -30,7 +30,7 @@ Causal endpoints validated на synthetic data + DGP-controlled ground truth rec
 - **Forest**: coverage 1.00 (conservative)
 - **DiD**: coverage 0.72 - small-sample cluster SE limitation under n_clusters < 10
 
-Real-customer validation запланирован v1.0.15 после получения Materia Medica regional data.
+Real-customer validation запланирован v1.0.15 после получения pharma manufacturer regional data.
 
 ### DiD small-sample caveat
 API возвращает `honest_disclosure.caveats` с предупреждением когда n_clusters < 10. Recommend triangulate с SCM/Forest или wider confidence (0.95+). Wild-cluster bootstrap fix deferred к v1.0.15.
@@ -76,7 +76,7 @@ Auto-update from v1.0.13 supported. Или manual install - keeps existing proje
 
 ## 🔮 Coming в v1.0.15
 
-- Real-customer Materia Medica/Кагоцел/Афала regional data validation (case-study)
+- Real-customer pharma manufacturer/pilot pharma dataset/Materia Medica brand A regional data validation (case-study)
 - DiD wild-cluster bootstrap для small n_clusters fix
 - UI polish: file picker через Tauri dialog, column auto-detect from xlsx
 - Synergy refactors: F2/F3 caveats consolidation в HonestDisclosure

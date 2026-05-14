@@ -108,7 +108,7 @@ def load_model_with_compat(path):
 
 1. **Не destructive.** Все изменения - добавление полей. v1.2 → v1.3.0 формально совместимо (старые читаются с defaults).
 2. **Меньше работы.** Не нужен migration tool, не нужны fixtures, не нужны regression проверки v2.0 ↔ v1.2.
-3. **Less anxious UX для пилотов.** Кагоцел/Венарус видят «v1.2 → v1.3» автоматически при save, не нужно объяснять «мажорное обновление».
+3. **Less anxious UX для пилотов.** Pilot users видят «v1.2 → v1.3» автоматически при save, не нужно объяснять «мажорное обновление».
 4. **Backward write compatibility.** v1.3.0 bundle, открытый в v1.2.0 (hypothetical downgrade scenario), теряет только новые поля - модель работает (per-channel selection деградирует в текущий `analysisObjective`).
 
 **Почему не v1.4 bump:**

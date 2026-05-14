@@ -144,8 +144,8 @@ Real-time computation in diagnostics panel?
 
 ### N9 — Test data corpus для acceptance criteria (MEDIUM)
 
-**Issue:** Acceptance criteria требуют «3 pilot test scenarios pass» (Кагоцел + synthetic + migration). Но:
-- Кагоцел data — NDA-restricted, может ли использоваться в automated test suite?
+**Issue:** Acceptance criteria требуют «3 pilot test scenarios pass» (pilot pharma dataset + synthetic + migration). Но:
+- pilot pharma dataset data — NDA-restricted, может ли использоваться в automated test suite?
 - Synthetic test data builder есть или строится с нуля?
 - Migration test — synthetic v1.3.x bundles для voor-вычитываемости
 

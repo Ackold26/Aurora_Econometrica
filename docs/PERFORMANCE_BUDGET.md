@@ -4,7 +4,7 @@
 **Owner:** Маша маленькая
 **Status:** Live (CI-enforced в Stage 5)
 
-Эталонная тестовая конфигурация: **Кагоцел РФ ММХ 1105-26** baseline проект (7 каналов × 156 наблюдений недельных данных). Этого достаточно для realistic regression. Для absolute benchmarks использовать synthetic dataset (`tests/integration/test_performance_synthetic.py`) с параметризацией 3×10 / 7×156 / 12×260.
+Эталонная тестовая конфигурация: **pilot pharma dataset baseline** проект (7 каналов × 156 наблюдений недельных данных). Этого достаточно для realistic regression. Для absolute benchmarks использовать synthetic dataset (`tests/integration/test_performance_synthetic.py`) с параметризацией 3×10 / 7×156 / 12×260.
 
 ## Бюджет по операциям
 
