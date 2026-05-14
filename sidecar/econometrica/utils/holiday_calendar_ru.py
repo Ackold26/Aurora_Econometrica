@@ -275,13 +275,18 @@ def detect_holiday_collinearity(
     warnings = []
     holiday_cols = holidays_df.columns.tolist()
 
-    # Known expected overlaps (documented, не surprise)
+    # Known expected overlaps (documented, не surprise).
+    # v2.0.0 audit fix (Arch H3): эти pairs all-but-guarantee multicollinearity;
+    # severity 'warn_expected' surfaces в diagnostics так что customer aware.
+    # При overlap >85% — additionally suggest merge.
     EXPECTED_OVERLAPS = {
         ('holiday_newyear_preshop', 'holiday_school_breaks'),
         ('holiday_newyear_postsale', 'holiday_school_breaks'),
         ('holiday_back_to_school', 'holiday_school_breaks'),  # summer break + back-to-school
         ('holiday_black_friday', 'holiday_cyber_monday'),  # adjacent
     }
+    # Threshold for «very high overlap — merge recommended».
+    MERGE_RECOMMENDED_THRESHOLD = 0.85
 
     for h1, h2 in combinations(holiday_cols, 2):
         overlap_count = ((holidays_df[h1] == 1) & (holidays_df[h2] == 1)).sum()
@@ -293,13 +298,36 @@ def detect_holiday_collinearity(
         if overlap_pct > threshold:
             pair = tuple(sorted([h1, h2]))
             is_expected = pair in EXPECTED_OVERLAPS or tuple(reversed(pair)) in EXPECTED_OVERLAPS
+
+            # v2.0.0 audit fix (Arch H3): even expected overlaps surface как 'warn_expected'
+            # — they still cause multicollinearity, customer should be aware. Very high
+            # overlap (>85%) triggers merge recommendation.
+            if overlap_pct > MERGE_RECOMMENDED_THRESHOLD:
+                severity = 'merge_recommended'
+                message = (
+                    f'{h1} and {h2} overlap {overlap_pct*100:.0f}% (>85%) — '
+                    f'high multicollinearity, рекомендуем merge в single dummy.'
+                )
+            elif is_expected:
+                severity = 'warn_expected'
+                message = (
+                    f'{h1} and {h2} overlap {overlap_pct*100:.0f}% '
+                    f'(expected by design — both events span winter/holiday window). '
+                    f'Coefficients для этих holidays могут быть correlated.'
+                )
+            else:
+                severity = 'warn'
+                message = (
+                    f'{h1} and {h2} overlap {overlap_pct*100:.0f}% — may cause '
+                    f'multicollinearity. Consider removing one or merging.'
+                )
+
             warnings.append({
                 'holiday_a': h1,
                 'holiday_b': h2,
                 'overlap_pct': float(overlap_pct),
-                'severity': 'expected' if is_expected else 'warn',
-                'message': f'{h1} and {h2} overlap {overlap_pct*100:.0f}% '
-                           f'({"expected by design" if is_expected else "may cause multicollinearity"})',
+                'severity': severity,
+                'message': message,
             })
 
     return warnings

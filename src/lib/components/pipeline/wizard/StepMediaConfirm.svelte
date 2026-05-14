@@ -87,19 +87,20 @@
 
   /**
    * Selected bulk mode radio.
+   * v2.0.0 audit fix (Frontend C2): was inline IIFE which captures props ONCE.
+   * Now initialized с default + reactive sync via $effect.
    * @type {'monetary' | 'physical' | 'mixed'}
    */
-  let bulkMode = $state(
-    /** @returns {'monetary' | 'physical' | 'mixed'} */
-    function initBulkMode() {
-      if (silentMode) return silentMode;
-      // Default recommendation based on data: majority wins
+  let bulkMode = $state(/** @type {'monetary' | 'physical' | 'mixed'} */ ('monetary'));
+  $effect(() => {
+    if (silentMode) {
+      bulkMode = silentMode;
+    } else {
       const monetary = channels.filter(c => c.detectedType === 'monetary').length;
       const physical = channels.filter(c => c.detectedType === 'physical').length;
-      if (physical > monetary) return 'physical';
-      return 'monetary';
-    }()
-  );
+      bulkMode = physical > monetary ? 'physical' : 'monetary';
+    }
+  });
 
   /** Whether user has confirmed */
   let confirmed = $state(false);

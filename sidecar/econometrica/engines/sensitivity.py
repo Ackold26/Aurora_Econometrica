@@ -47,6 +47,11 @@ _TOP_N_DEFAULT: int = 7
 _MIN_IDENTIFIABLE_DELTA: float = 1e-9
 # Guard against division by near-zero baseline ROI (very small brands).
 _BASELINE_ROI_GUARD: float = 1e-6
+# v2.0.0 audit fix (Backend H4): also guard against near-zero magnitude that
+# produces misleading huge delta percentages. If baseline_roi = 0.0001 and we
+# vary ±20%, technically deltas are correct but reporting «2000% sensitivity»
+# is non-actionable. Set higher threshold для actionable reports.
+_BASELINE_ROI_ACTIONABLE_GUARD: float = 1e-3
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -122,6 +127,15 @@ def compute_sensitivity_tornado(
             baseline_roi,
         )
         return empty_result
+
+    # v2.0.0 audit fix (H4): warn if baseline below actionable threshold but
+    # still proceed (customer may want to see something even if values noisy).
+    if abs(baseline_roi) < _BASELINE_ROI_ACTIONABLE_GUARD:
+        logger.warning(
+            'sensitivity: baseline ROI low magnitude (%.6f) — variations produce '
+            'large percentage deltas. Interpret tornado with caution.',
+            baseline_roi,
+        )
 
     # ── Enumerate candidate parameters ───────────────────────────────────────
     candidates = get_candidate_parameters(model_data)

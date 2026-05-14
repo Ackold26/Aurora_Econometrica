@@ -372,9 +372,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     # Normalize controls - критично: без этого большие контроли (price, budget) дают
     # огромный control_effect, y_pred улетает в ∞, R² получается астрономически отрицательным.
+    # v2.0.0 audit fix (Backend H3): detect zero-variance control columns explicitly,
+    # flag в untrained_controls для downstream visibility (vs silent divide-by-1).
+    untrained_controls = []
     if len(control_cols) > 0:
         control_means = X_control.mean()
-        control_stds = X_control.std().replace(0, 1)
+        control_stds_raw = X_control.std()
+        # Identify zero-variance controls (would be degenerate features in model)
+        for col in control_cols:
+            if control_stds_raw[col] < 1e-10:
+                untrained_controls.append(col)
+                logger.warning(
+                    'Control column %s has zero variance — will be degenerate в model '
+                    '(coefficient unidentifiable, posterior = prior)', col,
+                )
+        control_stds = control_stds_raw.replace(0, 1)
         X_control_norm = (X_control - control_means) / control_stds
     else:
         control_means = pd.Series(dtype=float)
@@ -407,8 +419,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     control_prior_mus.append(0.0)   # unconstrained signed
                 elif kind == 'holiday':
                     control_prior_mus.append(0.0)   # holiday effect can be either sign
-                else:  # 'control' (positive controls: distribution, trade_activity, promo) или fallback
-                    control_prior_mus.append(0.2)   # lean positive
+                elif kind == 'control':
+                    # Positive controls (distribution, trade_activity, promo) — lean positive
+                    control_prior_mus.append(0.2)
+                else:
+                    # 'unknown' kind — true fallback, uninformative zero-centered prior
+                    # (data will dominate). Avoid 0.2 «lean positive» bias on unrecognized.
+                    control_prior_mus.append(0.0)
         except Exception as e:
             logger.warning('Signed factor classification fallback: %s — using uniform mu=0', e)
             control_prior_mus = [0.0] * len(control_cols)
@@ -1077,6 +1094,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 'holiday_cols_injected': holiday_cols_injected,
                 # v2.0.0: prior means used per control factor (placeholder per B4).
                 'control_prior_mus': control_prior_mus,
+                # v2.0.0 audit fix (Backend H3): zero-variance controls flagged
+                # для downstream consistency — coefficients unidentifiable.
+                'untrained_controls': untrained_controls,
             },
             # Phase 1.9: persist full posterior draws for honest uncertainty quantification.
             # Joint structure preserves per-draw correlation between alpha/gamma/beta of same channel.
