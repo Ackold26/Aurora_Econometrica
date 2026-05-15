@@ -15,6 +15,8 @@
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
   import { TrendingUp } from 'lucide-svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   /**
    * @typedef {{
@@ -200,10 +202,15 @@
 <div class="tornado-panel">
   <div class="panel-header">
     <span class="header-icon"><TrendingUp size={15} strokeWidth={1.8} /></span>
-    <h3 class="panel-title">Анализ чувствительности</h3>
+    <Tooltip text={TOOLTIPS['tornado.bar']} position="right">
+      <h3 class="panel-title panel-title-tip">Анализ чувствительности</h3>
+    </Tooltip>
     {#if baselineRoi !== null}
       <span class="baseline-badge">
-        Базовый ROI: <strong>{baselineRoi}</strong>
+        <Tooltip text={TOOLTIPS['metric.roi']} position="top">
+          <span class="baseline-roi-label">Базовый ROI:</span>
+        </Tooltip>
+        <strong>{baselineRoi}</strong>
       </span>
     {/if}
   </div>
@@ -255,6 +262,14 @@
     margin: 0;
     flex: 1;
     letter-spacing: 0.01em;
+  }
+  .panel-title-tip {
+    cursor: help;
+    border-bottom: 1px dashed color-mix(in srgb, var(--text-secondary) 50%, transparent);
+  }
+  .baseline-roi-label {
+    cursor: help;
+    border-bottom: 1px dashed color-mix(in srgb, var(--text-secondary) 40%, transparent);
   }
 
   .baseline-badge {

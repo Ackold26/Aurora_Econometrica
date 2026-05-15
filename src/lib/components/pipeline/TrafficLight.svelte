@@ -29,6 +29,15 @@
 
   import { validateData } from '$lib/project-state.js';
   import { fmtNum } from '$lib/fmt.js';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
+
+  /** Tooltip по статусу светофора */
+  const statusTooltip = $derived(
+    status === 'ok'      ? TOOLTIPS['traffic-light.green'] :
+    status === 'warning' ? TOOLTIPS['traffic-light.yellow'] :
+    /* error */            TOOLTIPS['traffic-light.red']
+  );
 
   let showColumnStats = $state(false);
 
@@ -95,7 +104,9 @@
   <!-- Status indicator -->
   <div class="status-bar">
     <div class="indicator">
-      <span class="dot" style="color:{cfg.color}; text-shadow: 0 0 8px {cfg.color}88">{cfg.icon}</span>
+      <Tooltip text={statusTooltip} position="right">
+        <span class="dot" style="color:{cfg.color}; text-shadow: 0 0 8px {cfg.color}88">{cfg.icon}</span>
+      </Tooltip>
       <div class="status-text">
         <span class="status-label">{cfg.label}</span>
         <span class="verdict">{verdict}</span>
@@ -133,13 +144,11 @@
         <span class="det-chip date">📅 {detected.date}</span>
       {/if}
       {#if detected.ratio}
-        <span class="det-chip ratio" class:ratio-bad={detected.ratio < 4} class:ratio-ok={detected.ratio >= 10}>
-          Ratio: {detected.ratio}:1
-          <span
-            class="help-icon"
-            title="Ratio - соотношение числа наблюдений к числу независимых переменных (rows / (media + control)). Показывает есть ли у модели достаточно данных, чтобы надёжно оценить вклад каждого канала.&#10;&#10;Пороги:&#10;• &lt;2:1 - критически мало, модель не сойдётся&#10;• 2–4:1 - работает, но с широкими доверительными интервалами&#10;• ≥4:1 - идеал (на 1 переменную ≥4 наблюдения)&#10;• ≥10:1 - отличная надёжность&#10;&#10;Почему важно: чем меньше Ratio, тем больше шума в оценках ROI. Решения при низком Ratio: увеличить историю данных (перейти к недельным вместо месячных), исключить малозначимые каналы, объединить парные метрики."
-          >?</span>
-        </span>
+        <Tooltip text={TOOLTIPS['col.ratio']} position="top">
+          <span class="det-chip ratio" class:ratio-bad={detected.ratio < 4} class:ratio-ok={detected.ratio >= 10}>
+            Ratio: {detected.ratio}:1
+          </span>
+        </Tooltip>
       {/if}
     </div>
   {/if}
@@ -186,29 +195,23 @@
             <tr>
               <th>Столбец</th>
               <th>Роль</th>
+              <th>Min</th>
+              <th>Max</th>
+              <th>Mean</th>
               <th>
-                Min
-                <span class="help-icon" title="Минимальное значение в столбце. Показывает нижнюю границу диапазона данных. Если Min = 0, значит столбец содержит нули (часто - периоды без активности канала).">?</span>
+                <Tooltip text={TOOLTIPS['col.cv']} position="top">
+                  <span class="th-tip">CV%</span>
+                </Tooltip>
               </th>
               <th>
-                Max
-                <span class="help-icon" title="Максимальное значение в столбце. Верхняя граница диапазона. Сравнение Min/Max даёт представление о размахе значений.">?</span>
+                <Tooltip text={TOOLTIPS['col.zeros']} position="top">
+                  <span class="th-tip">Нули%</span>
+                </Tooltip>
               </th>
               <th>
-                Mean
-                <span class="help-icon" title="Среднее арифметическое значение по столбцу. Для бюджетов - средний расход за период, для показов - среднее число контактов.">?</span>
-              </th>
-              <th>
-                CV%
-                <span class="help-icon" title="Коэффициент вариации - отношение стандартного отклонения к среднему, в процентах. CV &lt;10% - стабильный канал, 10-50% - нормальная изменчивость, &gt;50% - сильные колебания (пульсирующие кампании, запуск-пауза). Низкий CV на малом объёме данных может означать что модель не увидит эффекта канала.">?</span>
-              </th>
-              <th>
-                Нули%
-                <span class="help-icon" title="Доля строк с нулевым значением. Высокий процент нулей = канал неактивен значительную часть времени. &gt;80% - кандидат на исключение или объединение с другим каналом.">?</span>
-              </th>
-              <th>
-                Пропуски
-                <span class="help-icon" title="Количество строк с отсутствующим значением (NaN). В отличие от нулей, пропуски ломают регрессию. Программа интерполирует небольшие пробелы, при &gt;20% пропусков столбец лучше исключить.">?</span>
+                <Tooltip text={TOOLTIPS['col.nulls']} position="top">
+                  <span class="th-tip">Пропуски</span>
+                </Tooltip>
               </th>
             </tr>
           </thead>
@@ -453,6 +456,10 @@
   .help-icon:hover {
     background: var(--accent-primary);
     color: #fff;
+  }
+  .th-tip {
+    cursor: help;
+    border-bottom: 1px dashed color-mix(in srgb, var(--text-secondary, #94a3b8) 60%, transparent);
   }
 
   .role-click {

@@ -16,6 +16,8 @@
     Package, Target, FileText, CreditCard, Repeat, Smartphone, PenLine,
     Info,
   } from 'lucide-svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   /** @typedef {'sales' | 'revenue' | 'profit' | 'sales_packs' | 'leads' | 'registrations' | 'loyalty_cards' | 'subscriptions' | 'app_installs' | 'count_custom'} KPIType */
 
@@ -106,6 +108,7 @@
     </h3>
     <div class="cards">
       {#each monetaryOptions as opt (opt.id)}
+        <Tooltip text={TOOLTIPS[`kpi.${opt.id}`] ?? ''} position="top">
         <button
           type="button"
           class="card monetary"
@@ -114,6 +117,7 @@
           onmouseenter={() => hovered = opt.id}
           onmouseleave={() => hovered = null}
           onclick={() => handleSelect(opt.id)}
+          data-tour-step="kpi-{opt.id}"
         >
           <div class="card-head">
             <span class="icon">
@@ -126,6 +130,7 @@
           </div>
           <p class="desc">{opt.desc}</p>
         </button>
+        </Tooltip>
       {/each}
     </div>
   </section>
@@ -137,6 +142,7 @@
     </h3>
     <div class="cards count-cards">
       {#each countOptions as opt (opt.id)}
+        <Tooltip text={TOOLTIPS[`kpi.${opt.id}`] ?? ''} position="top">
         <button
           type="button"
           class="card count"
@@ -145,6 +151,7 @@
           onmouseenter={() => hovered = opt.id}
           onmouseleave={() => hovered = null}
           onclick={() => handleSelect(opt.id)}
+          data-tour-step="kpi-{opt.id}"
         >
           <div class="card-head">
             <span class="icon">
@@ -157,6 +164,7 @@
           </div>
           <p class="desc">{opt.desc}</p>
         </button>
+        </Tooltip>
       {/each}
     </div>
   </section>

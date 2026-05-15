@@ -11,6 +11,8 @@
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   /** @type {{ diagnostics: any }} */
   let { diagnostics } = $props();
@@ -262,9 +264,23 @@
         <span class="chart-title-help" title={HELP.avpChart}>?</span>
         {#if avpMetrics.r2 != null || avpMetrics.mape != null}
           <div class="avp-metrics">
-            {#if avpMetrics.r2 != null}<span class="metric-item"><span class="metric-label">R²</span><span class="metric-sep">=</span><b>{avpMetrics.r2}</b></span>{/if}
+            {#if avpMetrics.r2 != null}
+              <span class="metric-item">
+                <Tooltip text={TOOLTIPS['metric.r2']} position="top">
+                  <span class="metric-label metric-label-tip">R²</span>
+                </Tooltip>
+                <span class="metric-sep">=</span><b>{avpMetrics.r2}</b>
+              </span>
+            {/if}
             {#if avpMetrics.r2 != null && avpMetrics.mape != null}<span class="metric-dot">·</span>{/if}
-            {#if avpMetrics.mape != null}<span class="metric-item"><span class="metric-label">MAPE</span><span class="metric-sep">=</span><b>{avpMetrics.mape}%</b></span>{/if}
+            {#if avpMetrics.mape != null}
+              <span class="metric-item">
+                <Tooltip text={TOOLTIPS['metric.mape']} position="top">
+                  <span class="metric-label metric-label-tip">MAPE</span>
+                </Tooltip>
+                <span class="metric-sep">=</span><b>{avpMetrics.mape}%</b>
+              </span>
+            {/if}
           </div>
         {/if}
         <EChartBase option={avpOption} height="260px" />
@@ -356,6 +372,11 @@
   .avp-metrics .metric-label {
     color: var(--text-secondary);
     font-weight: 500;
+  }
+  .avp-metrics .metric-label-tip {
+    cursor: help;
+    border-bottom: 1px dashed var(--text-muted, #64748b);
+    text-decoration: none;
   }
   .avp-metrics .metric-sep {
     color: var(--text-muted);
