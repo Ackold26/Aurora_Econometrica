@@ -601,7 +601,8 @@ def project_migrate_endpoint(req: ProjectMigrateRequest):
         from utils.log_config import setup_module_logger, log_event
 
         m_logger = setup_module_logger('migration')
-        proj_dir = Path(req.project_dir)
+        # H-01 path traversal guard — reject если project_dir вне projects root.
+        proj_dir = _assert_project_dir_safe(req.project_dir)
         proj_json = proj_dir / 'project.json'
 
         result = migrate_project_file(proj_json)
@@ -1656,6 +1657,49 @@ def model_history(req: ModelHistoryRequest):
     return {'status': 'ok', 'versions': versions}
 
 
+# ── Path traversal guard (H-01) ──────────────────────────
+
+def _get_projects_root() -> Path:
+    """Canonical projects root for path validation (H-01).
+
+    Production: `<LOCALAPPDATA или APPDATA>/aurora-econometrica-gui/projects/`.
+    Dev fallback: `<repo>/sidecar/econometrica/projects/` (Cargo bin name
+    matches AppData identifier per feedback_aurora_appdata_identifier.md).
+    """
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA')
+    if not base:
+        return (_sidecar_root / 'projects').resolve()
+    return (Path(base) / 'aurora-econometrica-gui' / 'projects').resolve()
+
+
+def _assert_project_dir_safe(project_dir: str | Path) -> Path:
+    """H-01: validate project_dir is inside expected projects root.
+
+    Защита от path traversal — `project_dir` приходит из webview JS, который
+    может быть скомпрометирован через XSS or malformed import. Без guard'a
+    malicious payload (`../../etc/passwd`, `C:/Windows/System32`) может
+    triggernut atomic_write_json на arbitrary disk locations.
+
+    Raises HTTPException 400 если path вне expected root.
+    Returns resolved absolute Path.
+    """
+    from fastapi import HTTPException
+    try:
+        p = Path(project_dir).resolve(strict=False)
+    except (OSError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=f'invalid project_dir: {e}') from e
+    root = _get_projects_root()
+    try:
+        p.relative_to(root)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f'project_dir outside expected projects root '
+                   f'({p} not under {root}). Path traversal blocked.',
+        )
+    return p
+
+
 # ── PPTX Export ──────────────────────────────────────────
 
 def _resolve_project_dir(project_dir: str | None, project_id: str) -> Path:
@@ -1665,6 +1709,9 @@ def _resolve_project_dir(project_dir: str | None, project_id: str) -> Path:
       1. Явно переданный project_dir (из Rust с учётом Settings override)
       2. Fallback на %APPDATA%\\<identifier>\\projects\\<project_id>\\ для
          обратной совместимости со старыми клиентами Rust.
+
+    NB: для endpoint-level path traversal guards используйте отдельный
+    `_assert_project_dir_safe()` (audit H-01).
     """
     if project_dir:
         return Path(project_dir)
@@ -2041,7 +2088,8 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
 
         save_logger = setup_module_logger('save_kpi_settings')
 
-        project_path = Path(req.project_dir)
+        # H-01 path traversal guard
+        project_path = _assert_project_dir_safe(req.project_dir)
         if not project_path.exists():
             log_event(save_logger, 'kpi_settings_project_not_found', project_dir=str(project_path))
             return JSONResponse(content={

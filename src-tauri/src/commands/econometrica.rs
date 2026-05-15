@@ -80,6 +80,26 @@ pub async fn econ_health() -> Result<Value, String> {
 
 // ── Project migration (Phase 1.4) ────────────────────
 
+/// Validate `project_dir` against path traversal (audit H-01).
+///
+/// Rejects paths containing `..` segments. Defense-in-depth before forwarding
+/// к Python sidecar (который сам проверяет через `_assert_project_dir_safe`).
+/// Этот guard ловит trivial attacks без round-trip к sidecar.
+fn validate_project_dir(project_dir: &str) -> Result<(), String> {
+    if project_dir.is_empty() {
+        return Err("project_dir is empty".to_string());
+    }
+    let path = std::path::Path::new(project_dir);
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err(format!(
+                "project_dir traversal blocked (contains '..'): {project_dir}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Migrate project.json к schema_version 2.0.1 (Phase 1.4 / Audit P-03).
 ///
 /// Sync migration: reclassifies SOM/SOV/share_of_* columns from
@@ -88,9 +108,13 @@ pub async fn econ_health() -> Result<Value, String> {
 ///
 /// Pre-mutation backup `.pre_2.0.1` с SHA-256 (recoverable on failure).
 /// Atomic write через safe_io. NB: sync version; async modal UI defer к v2.0.2.
+///
+/// Path traversal guard (H-01): rejects paths containing `..` segments before
+/// forwarding к Python.
 #[tauri::command]
 pub async fn econ_migrate_project(project_dir: String) -> Result<Value, String> {
     info!("econ_migrate_project: {project_dir}");
+    validate_project_dir(&project_dir)?;
     let body = serde_json::json!({ "project_dir": project_dir });
     post_json("/project/migrate", &body, quick_client()).await
 }
