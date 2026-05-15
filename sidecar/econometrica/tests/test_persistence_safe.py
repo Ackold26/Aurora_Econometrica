@@ -514,6 +514,62 @@ class TestAtomicWrite:
 # ─── Реалистичный сценарий (как у MMM Optimizer) ─────────────────────────
 
 
+class TestIntegrationWithLoadModelCompat:
+    """Интеграция через `engines.persistence.load_model_with_compat`:
+    маршрутизация между aurora-model и legacy pickle, защита SHA-256
+    sidecar для legacy путей."""
+
+    def test_compat_loads_new_format(self, tmp_path: Path):
+        target = tmp_path / 'latest.pkl'
+        original = {
+            'model_version': '2.1',
+            'kpi_type': 'sales',
+            'config': {'media_columns': ['tv', 'digital']},
+            'channel_categories': {'tv': 'brand', 'digital': 'performance'},
+        }
+        save_model_safe(original, target)
+
+        from engines.persistence import load_model_with_compat
+        loaded = load_model_with_compat(target)
+
+        assert loaded['model_version'] == '2.1'
+        assert loaded['kpi_type'] == 'sales'
+        assert loaded['channel_categories'] == {'tv': 'brand', 'digital': 'performance'}
+        # v1.3 defaults injected
+        assert 'per_channel_input' in loaded
+        assert 'derived_mode' in loaded
+
+    def test_compat_loads_legacy_pickle(self, tmp_path: Path):
+        target = tmp_path / 'latest.pkl'
+        original = {
+            'model_version': '1.2',
+            'kpi_type': 'sales',
+            'config': {'media_columns': ['tv']},
+        }
+        with open(target, 'wb') as f:
+            pickle.dump(original, f)
+
+        from engines.persistence import load_model_with_compat
+        loaded = load_model_with_compat(target)
+
+        assert loaded['model_version'] == '1.2'
+        # v1.3 defaults injected для legacy
+        assert loaded.get('channel_categories') == {}
+        assert 'per_channel_input' in loaded
+
+    def test_compat_raises_on_missing_file(self, tmp_path: Path):
+        from engines.persistence import load_model_with_compat
+        with pytest.raises(FileNotFoundError):
+            load_model_with_compat(tmp_path / 'no-file.pkl')
+
+    def test_compat_raises_on_garbage(self, tmp_path: Path):
+        target = tmp_path / 'garbage.pkl'
+        target.write_bytes(b'not pickle, not zip')
+        from engines.persistence import load_model_with_compat
+        with pytest.raises(pickle.UnpicklingError):
+            load_model_with_compat(target)
+
+
 class TestRealisticModelData:
     def test_full_mmm_model_structure(self, tmp_path: Path):
         """Воспроизводит типичную структуру model_data из engines/modeler.py."""

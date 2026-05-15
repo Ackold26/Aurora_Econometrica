@@ -74,7 +74,11 @@ def _parse_version(v: str) -> tuple[int, int, int]:
 
 
 def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
-    """Load pickle с backward-compat fields injected.
+    """Load модель с backward-compat fields injected.
+
+    v2.1.0: маршрутизирует между двумя форматами:
+      * `aurora-model` (ZIP, безопасный) — новые модели начиная с v2.1.0
+      * `pickle` (legacy) — модели обученные в v2.0.x и ранее
 
     Trust Level 3 contract:
     - `channel_categories` always present (empty dict если pre-v1.3 pickle).
@@ -87,22 +91,44 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
 
     Raises:
         FileNotFoundError если path не существует.
-        pickle.UnpicklingError на corrupt files.
+        pickle.UnpicklingError на corrupt legacy pickle.
+        SafeModelFormatError на corrupt aurora-model archive.
     """
     p = Path(model_path)
-    # C-05a (audit): verify SHA-256 sidecar перед deserialize.
-    # Pickle.load deserializes arbitrary bytecode → если malicious `.pkl`
-    # подменён в shared folder, RCE при load. Sidecar hash — short-term
-    # mitigation (full pickle replacement defer к v2.2.0).
-    integrity_ok, integrity_reason = verify_pkl_sha256_sidecar(p)
-    if not integrity_ok:
-        logger.critical(
-            'pickle integrity FAILED для %s: %s. Pickle загружается но возможна '
-            'tamper / RCE. Phase 1 — warn only; Phase 2+ может strict-block.',
-            p, integrity_reason,
+    from engines.persistence_safe import detect_format, load_model_safe
+
+    fmt = detect_format(p)
+
+    if fmt == 'aurora-model':
+        # Новый безопасный формат — не нужен SHA-256 sidecar (zip CRC32 + JSON
+        # structural validation уже дают tamper detection).
+        model_data = load_model_safe(p)
+    elif fmt == 'pickle':
+        # Legacy pickle — verify SHA-256 sidecar перед deserialize.
+        # Pickle.load deserializes arbitrary bytecode → если malicious `.pkl`
+        # подменён в shared folder, RCE при load. Sidecar hash — short-term
+        # mitigation. Полный переход на aurora-model устраняет RCE-surface.
+        integrity_ok, integrity_reason = verify_pkl_sha256_sidecar(p)
+        if not integrity_ok:
+            logger.critical(
+                'pickle integrity FAILED для %s: %s. Pickle загружается но возможна '
+                'tamper / RCE. Phase 1 — warn only; Phase 2+ может strict-block.',
+                p, integrity_reason,
+            )
+        with open(p, 'rb') as f:
+            model_data = pickle.load(f)
+        logger.info(
+            'load_model_with_compat: legacy pickle %s загружен. При следующем save '
+            'будет автоматически мигрирован в aurora-model.',
+            p,
         )
-    with open(p, 'rb') as f:
-        model_data = pickle.load(f)
+    else:
+        # Неопознанный формат — не существует, пустой, или garbage.
+        if not p.exists():
+            raise FileNotFoundError(f'Файл модели не найден: {p}')
+        raise pickle.UnpicklingError(
+            f'{p} не aurora-model и не pickle. Файл повреждён или неподдерживаемого формата.'
+        )
 
     # Defensive defaults (v1.0 legacy may lack these fields entirely)
     model_data.setdefault('model_version', '1.0')
@@ -669,31 +695,16 @@ def save_v20_diagnostics(project_dir: str | Path, diagnostics: dict[str, Any]) -
         # Bump model_version to '2.0.0' (additive — old code ignores new fields)
         model_data['model_version'] = '2.0.0'
 
-        # Atomic write: temp file in same directory then os.replace()
-        models_dir = model_path.parent
-        models_dir.mkdir(parents=True, exist_ok=True)
-        fd, tmp_path_str = tempfile.mkstemp(
-            dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
-        )
-        tmp_path = Path(tmp_path_str)
-        try:
-            with os.fdopen(fd, 'wb') as f:
-                pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-            # os.replace() is atomic on POSIX; effectively atomic on Windows
-            # (same-volume MoveFileExW). Prevents partial-write corruption.
-            os.replace(tmp_path, model_path)
-            # C-05a: stamp SHA-256 sidecar после finalize для tamper detection.
-            write_pkl_sha256_sidecar(model_path)
-        except Exception:
-            # Clean up temp on any failure; don't leave .pkl.tmp files behind
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
+        # v2.1.0: переход на безопасный формат aurora-model.
+        # save_model_safe сам выполняет атомарную запись (temp + os.replace).
+        from engines.persistence_safe import save_model_safe
+        save_model_safe(model_data, model_path)
+        # SHA-256 sidecar остаётся для legacy compatibility с verify path,
+        # но при load aurora-model sidecar не требуется (zip CRC32 + structural validation).
+        write_pkl_sha256_sidecar(model_path)
 
         logger.info(
-            "save_v20_diagnostics: persisted fields %s to %s (model_version→2.0.0)",
+            "save_v20_diagnostics: persisted fields %s to %s (model_version→2.0.0, aurora-model)",
             applied_fields, model_path,
         )
 
@@ -782,23 +793,10 @@ def clear_sensitivity_cache(project_dir: str | Path) -> bool:
 
         model_data['sensitivity_tornado_cache'] = None
 
-        models_dir = model_path.parent
-        fd, tmp_path_str = tempfile.mkstemp(
-            dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
-        )
-        tmp_path = Path(tmp_path_str)
-        try:
-            with os.fdopen(fd, 'wb') as f:
-                pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-            os.replace(tmp_path, model_path)
-            # C-05a: refresh SHA-256 sidecar после atomic finalize.
-            write_pkl_sha256_sidecar(model_path)
-        except Exception:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
+        # v2.1.0: переход на безопасный формат aurora-model.
+        from engines.persistence_safe import save_model_safe
+        save_model_safe(model_data, model_path)
+        write_pkl_sha256_sidecar(model_path)
 
     logger.info("clear_sensitivity_cache: cache cleared for %s", project_dir)
     return True

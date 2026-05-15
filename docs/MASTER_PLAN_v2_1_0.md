@@ -118,6 +118,8 @@
 - ✅ Партия 4 п.6.5: `docs/USER_GUIDE_v2_1_0.md` — 6 разделов, пошаговая инструкция, troubleshooting, PDF
 - ✅ Партия 3 п.5.4: WCAG AA контрастность светлая тема — 7 пар исправлено, 56/56 PASS
 - ✅ Партия 3 п.5.5: WCAG AA контрастность тёплая тема — 14 пар исправлено, 56/56 PASS
+- ✅ Партия 2 п.4.1.4: wire безопасного формата в `engines/persistence.py` (load_model_with_compat детектит формат), `engines/modeler.py` (Bayesian save), `engines/ols_modeler.py` (OLS save)
+- ✅ Партия 2 п.4.1.5 + интеграционные: 50 тестов проходят, 257 sidecar тестов проходят (включая security_attack_vectors)
 
 ---
 

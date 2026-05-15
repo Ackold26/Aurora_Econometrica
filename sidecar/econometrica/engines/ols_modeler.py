@@ -413,8 +413,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             archives[0].unlink(missing_ok=True)
             archives.pop(0)
 
-    with open(model_path, 'wb') as f:
-        pickle.dump(model_data, f)
+    # v2.1.0: безопасный формат aurora-model (zip + JSON + npz).
+    from engines.persistence_safe import save_model_safe
+    save_model_safe(model_data, model_path)
+    from engines.persistence import write_pkl_sha256_sidecar
+    write_pkl_sha256_sidecar(model_path)
 
     params_path = models_dir / 'latest-params.json'
     with open(params_path, 'w', encoding='utf-8') as f:
