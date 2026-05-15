@@ -28,6 +28,8 @@
   import { unitLabelFor as unitLabel } from '$lib/services/classifier-patterns.js';
   // Phase 2.1 (R3): extracted unit-cost editor presentational component.
   import UnitCostEditor from './UnitCostEditor.svelte';
+  // H-10a (Партия 4): reusable empty state instead of inline <p class="no-channels">.
+  import EmptyState from './EmptyState.svelte';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
@@ -345,9 +347,14 @@
       {/each}
     </ul>
   {:else}
-    <p class="no-channels">
-      Каналы определятся после импорта данных.
-    </p>
+    <!-- H-10a — use reusable EmptyState (Phase 2.15 was created but unused). -->
+    <EmptyState
+      icon="📥"
+      title="Каналы не определены"
+      body="После импорта данных мы автоматически определим типы колонок (медиа, контроль, KPI) и покажем их здесь."
+      variant="info"
+      compact
+    />
   {/if}
 
   {#if !$expertMode}
@@ -636,7 +643,7 @@
     border-radius: var(--radius-sm, 8px);
   }
 
-  /* ─── No channels placeholder ─── */
+  /* ─── No channels placeholder (legacy — H-10a now uses EmptyState component) ─── */
   .no-channels {
     margin: 0;
     font-size: 12.5px;

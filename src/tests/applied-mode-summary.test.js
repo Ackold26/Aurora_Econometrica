@@ -540,9 +540,11 @@ describe('AppliedModeSummary', () => {
     expect(() => render(AppliedModeSummary, { props: { channels: [] } })).not.toThrow();
   });
 
-  it('shows placeholder text when channels is empty', () => {
-    render(AppliedModeSummary, { props: { channels: [] } });
-    expect(screen.getByText(/Каналы определятся после импорта данных/)).toBeInTheDocument();
+  it('shows EmptyState когда channels пуст (H-10a)', () => {
+    const { getByTestId } = render(AppliedModeSummary, { props: { channels: [] } });
+    // H-10a: replaced inline <p class="no-channels"> с EmptyState component
+    expect(getByTestId('empty-state')).toBeInTheDocument();
+    expect(screen.getByText(/Каналы не определены/)).toBeInTheDocument();
   });
 
   it('does NOT render channel-list when channels is empty', () => {
