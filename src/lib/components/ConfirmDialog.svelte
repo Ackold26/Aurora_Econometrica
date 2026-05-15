@@ -129,4 +129,17 @@
   .cd-btn--danger:hover {
     background: var(--danger-hover, color-mix(in srgb, var(--danger) 85%, white));
   }
+
+  /* v2.1.0 п.5.6: instant dialog appearance */
+  @media (prefers-reduced-motion: reduce) {
+    dialog.cd-dialog[open] {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    dialog.cd-dialog::backdrop {
+      animation: none;
+      opacity: 1;
+    }
+  }
 </style>

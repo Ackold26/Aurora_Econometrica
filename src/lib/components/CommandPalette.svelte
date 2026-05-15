@@ -358,4 +358,14 @@
     border: 1px solid var(--border);
     margin-right: 3px;
   }
+
+  /* v2.1.0 п.5.6: instant command palette appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .overlay,
+    .palette {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 </style>
