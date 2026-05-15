@@ -62,6 +62,14 @@ PYINSTALLER_ARGS = [
     '--hidden-import=pandas',
     '--hidden-import=openpyxl',
     '--collect-data=openpyxl',          # _constants.json runtime resource (V29 audit 2026-05-04)
+
+    # v2.0.1 Phase 1.6 + 1.7 — JCS canonical hash + multi-tab file lock.
+    # Both lazy-imported внутри hot paths; --hidden-import обязателен иначе
+    # bundle ships silently broken (audit C-01).
+    '--hidden-import=rfc8785',
+    '--collect-data=rfc8785',
+    '--hidden-import=filelock',
+    '--collect-data=filelock',
     '--hidden-import=sklearn',
     '--hidden-import=fastapi',
     '--hidden-import=uvicorn',

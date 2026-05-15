@@ -117,10 +117,24 @@ try:
         # v1.0.9: NumPyro + JAX (Tier-1 NUTS sampler)
         'numpyro/__init__.py',
         'jax/__init__.py',
+        # v2.0.1 Phase 1.6 + 1.7 — JCS canonical hash + multi-tab file lock
+        # (audit C-01: bundle ships silently broken without these).
+        'rfc8785/__init__.py',
+        'filelock/__init__.py',
     ]
     for rel in _required_files:
         p = _bundle_root / rel
         logger.info(f'bundle check: {rel} - {"OK" if p.exists() else "MISSING"} ({p})')
+
+    # Hard probe — import обоих модулей. Lazy import inside utility functions
+    # пропускает ImportError до первого вызова → silent bundle break. Здесь
+    # ловим at startup и логируем явно.
+    for mod_name in ('rfc8785', 'filelock'):
+        try:
+            __import__(mod_name)
+            logger.info(f'bundle check: {mod_name} import OK')
+        except ImportError as e:
+            logger.error(f'bundle check: {mod_name} IMPORT FAILED — {e}')
 
     # PyTensor compiler probe
     from engines.modeler import check_compiler as _check_compiler
