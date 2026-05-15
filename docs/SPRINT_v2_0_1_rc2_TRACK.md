@@ -68,32 +68,34 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 **Test delta:** +5 Rust tests + +4 pytest. 140 Rust + 40 migration pytest + 536 vitest. 0 regressions.
 
-### Партия 4 — UI components wire (~8ч) 🔄 В РАБОТЕ
+### Партия 4 — UI components wire ✅ COMPLETE
 
-| ID | Title | Effort | Status |
+| ID | Title | Commit | Status |
 |---|---|---|---|
-| H-10a | EmptyState заменяет inline `.no-channels` в AppliedModeSummary | 1h | ⏳ |
-| H-10b | LoadingSkeleton при `ensurePatternsLoaded` initial fetch | 3h | ⏳ |
-| H-10c | ErrorState на sidecar 5xx в ValidateStepV13 (partial in H-20a) | 4h | 🟡 partial |
+| H-10a | EmptyState replaces inline .no-channels (+1 vitest) | `8c75b64` | ✅ |
+| H-10b | LoadingSkeleton wire + patternsReady store (+2 vitest) | `774a40d` | ✅ |
+| H-10c | ErrorState wired в migration banner (covered by H-20a `65a9fcd`) | — | ✅ |
 
-### Партия 5 — Persistence + Tests (~14ч) ⏳ ИССЛЕДУЕТСЯ
+**Test delta:** +3 vitest. Total: 538 vitest passing.
 
-| ID | Title | Effort | Status |
+### Партия 5 — Persistence + Tests ✅ COMPLETE
+
+| ID | Title | Commit | Status |
 |---|---|---|---|
-| H-16 | Verify `unit_cost_input_mode` + `budgetInputs` persistence end-to-end | 4h | ⏳ |
-| H-17 | Snapshot tests rebuild на semantic queries + svelte-* serializer | 8h | 🔬 sub-agent research |
-| H-21 | E2E migration test (pytest integration, не Tauri) | 6h | ⏳ |
-| H-08 | Минимум 5 INV-05 attack-scenario тестов | 3h | ⏳ |
+| H-08 | INV-05 attack scenario suite (+38 pytest) | `3273f77` | ✅ |
+| H-21 | E2E migration on realistic 30+ col project (+8 pytest) | `19daf90` | ✅ |
+| H-16 | Wire Phase 1.3 stores к save_kpi_settings (REAL BUG FIX, +5 vitest) | `95fc856` | ✅ |
+| H-17 | Snapshot rebuild на semantic queries (6 rewritten, .snap deleted) | `0b92b71` | ✅ |
+
+**Test delta:** +46 pytest + +5 vitest. Total: 220 sidecar pytest + 543 vitest.
 
 ## Текущий статус
 
 - **Branch:** `feat/v2.0.0-explicit-mode-wizard`
-- **Local commits ahead of origin:** 22 (`c580b60` Phase 2.1, `3dee1eb` Phase 4.1, `7b9fe01` track, `4252591` research + 9 Партия-1 + 5 Партия-2 + 3 Партия-3 + tracker updates)
-- **Sub-agents:** done (H-09 + H-17 research saved)
-- **Active phase:** Партия 4 — UI components wire (ErrorState уже wired в H-20a)
-- **Plan status:** 🟢 APPROVED (расширенный b)
-- **Test baseline:** 536 vitest / 156 pytest / 140 Rust passing, 0 regressions
-- **Push gate:** Партии 1-3 ready для diff review с Антоном после Партии 5
+- **Local commits ahead of origin:** 28 (2 pre-sprint + 22 fix/feat + 4 tracker/research)
+- **Active phase:** ✅ **СПРИНТ ЗАВЕРШЁН** — все 5 партий closed
+- **Test baseline:** 543 vitest / 220 sidecar pytest / 40 migration pytest / 140 Rust = 943 tests passing, 0 regressions
+- **Push gate:** ready для diff review с Антоном → push → tag v2.0.1-rc2
 
 ## Decisions log
 
@@ -107,13 +109,13 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 ## Next Concrete First Step
 
-**Партия 4, шаг 1 — H-10a EmptyState заменяет inline .no-channels.**
+**✅ СПРИНТ ЗАВЕРШЁН.** Все 5 партий, 22 fix/feat commits, +91 pytest + +14 vitest + +5 Rust tests.
 
-Acceptance criteria:
-- `AppliedModeSummary.svelte` — replace `<p class="no-channels">` с `<EmptyState variant="info">`
-- Optional CTA "Перейти к импорту" с onCta callback
-- Snapshot tests updated если затронуты
-- Commit: `feat(h-10a): wire EmptyState к AppliedModeSummary no-channels`
+Next gates требуют Антон approval:
+1. **Diff review** 28 unpushed commits (показать summary + key changes)
+2. **Push** к origin/feat/v2.0.0-explicit-mode-wizard
+3. **Pilot verify** на Кагоцел РФ+ через Tauri dev
+4. **Tag** `v2.0.1-rc2` после pilot ack
 
 ## Pending Антон gates
 
