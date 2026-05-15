@@ -12,8 +12,12 @@
 ✅ **Партия 2 (безопасность pickle) — закрыта целиком** (Маша)
 - 4.1.1-4.1.8 ✅ все 8 подзадач — 59 тестов, документация формата, lazy migration
 
+✅ **Партия 4 п.6.1 + 6.2 — закрыты (Маша)**
+- 6.1 Tooltip.svelte + tooltip-texts.js + интеграция + 10 тестов
+- 6.2 FirstRunTour.svelte + data-tour-step attrs + 13 тестов
+
 🔄 **В работе:**
-- Партия 4.2 (онбординг FirstRunTour) — Маша
+- (нет активных задач — ждём Антона для п.6.6 и Партии 1)
 
 ✅ **Завершено агентами:**
 - Партия 3.1 + 3.2 (анимации каналов) — animations-agent
@@ -91,7 +95,7 @@
 | ID | Пункт | Часов | Статус | Owner |
 |---|---|---|---|---|
 | 6.1 | Подсказки при наведении | 6 | ✅ DONE | Маша |
-| 6.2 | Пошаговый онбординг при первом запуске | 8 | 🔄 IN PROGRESS | Маша |
+| 6.2 | Пошаговый онбординг при первом запуске | 8 | ✅ DONE | Маша |
 | 6.3 | Сценарий видео-демо | 2 | ✅ DONE | Agent D |
 | 6.4 | Глоссарий эконометрических терминов | 5 | ✅ DONE | Agent D |
 | 6.5 | Краткое руководство PDF | 3 | ✅ DONE | Agent D |
@@ -129,6 +133,7 @@
 - ✅ Партия 3 п.5.7: focus-visible ring — global `*:focus-visible` 2px accent-primary, удалён дубль, WCAG AA 5.8:1
 - ✅ Партия 3 п.5.3: плавные переходы между шагами ScenarioWizard — `{#key}` + transition:fly с направлением forward/back, prefers-reduced-motion → duration 0 + offset 0
 - ✅ Партия 4 п.6.1: Tooltip.svelte (viewport-aware, aria-describedby, ESC, prefers-reduced-motion), tooltip-texts.js (40+ записей), интеграция в KPISelector/ConvergenceDashboard/SensitivityTornado/TrafficLight, 10 vitest-тестов
+- ✅ Партия 4 п.6.2: FirstRunTour.svelte (8 шагов, spotlight box-shadow, прогресс, ESC/Arrow, localStorage, prefers-reduced-motion), data-tour-step на 6 элементах, 13 vitest-тестов
 
 ---
 
@@ -148,6 +153,7 @@
 | `3dba7cf` | 2026-05-16 | feat(a11y-motion): anti-pulse global + 37 компонентов (п.5.6) |
 | `86c19c8` | 2026-05-16 | feat(a11y-focus): focus-visible + dialog instant appearance (п.5.7) |
 | `dce4d2a` | 2026-05-16 | feat(tooltips): подсказки при наведении на ключевые элементы (v2.1.0 п.6.1) |
+| `c024c50` | 2026-05-16 | feat(onboarding): первый запуск с пошаговым туром (v2.1.0 п.6.2) |
 
 ---
 
@@ -176,7 +182,7 @@
 
 ## Метрики прогресса (auto-update после commit)
 
-- **Commits в сессии:** 11 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2; animations-agent: п.5.1+5.2; a11y-agent: п.5.6+5.7; Маша: п.6.1 tooltips)
-- **Tests delta:** 569 vitest passing (+10 новых tooltip tests, 0 regressions)
-- **Партий завершено:** 0 / 5 (Партия 3 полностью 7/7; Партия 4 частично — 4/6)
-- **Пунктов плана завершено:** 10 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5, 5.1, 5.2, 5.6, 5.7, 6.1)
+- **Commits в сессии:** 12 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2; animations-agent: п.5.1+5.2; a11y-agent: п.5.6+5.7; Маша: п.6.1 tooltips + п.6.2 onboarding)
+- **Tests delta:** 582 vitest passing (+23 новых тестов: 10 tooltip + 13 first-run-tour, 0 regressions)
+- **Партий завершено:** 0 / 5 (Партия 3 полностью 7/7; Партия 4 частично — 5/6 [ждём п.6.6 от Антона])
+- **Пунктов плана завершено:** 11 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5, 5.1, 5.2, 5.6, 5.7, 6.1, 6.2)
