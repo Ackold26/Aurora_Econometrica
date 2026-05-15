@@ -28,7 +28,12 @@ spec = importlib.util.spec_from_file_location(
 
 
 def _make_helper(projects_root: Path):
-    """Recreate the production guard logic against a configurable root."""
+    """Recreate the production guard logic against a configurable root.
+
+    NB: production уже поддерживает MULTIPLE roots (LOCALAPPDATA + APPDATA +
+    dev fallback) — pilot 2026-05-15 bug. Этот helper тестит single-root
+    contract; multi-root path covered в TestMultiRootSupport ниже.
+    """
     def assert_safe(project_dir: str | Path) -> Path:
         try:
             p = Path(project_dir).resolve(strict=False)
@@ -40,10 +45,30 @@ def _make_helper(projects_root: Path):
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=f'project_dir outside expected projects root '
-                       f'({p} not under {root}). Path traversal blocked.',
+                detail=f'project_dir outside expected projects roots '
+                       f'({p} not under any of: {root}). Path traversal blocked.',
             )
         return p
+    return assert_safe
+
+
+def _make_multi_root_helper(roots: list[Path]):
+    """Production multi-root version — match если path под any of N roots."""
+    def assert_safe(project_dir: str | Path) -> Path:
+        try:
+            p = Path(project_dir).resolve(strict=False)
+        except (OSError, RuntimeError) as e:
+            raise HTTPException(status_code=400, detail=f'invalid project_dir: {e}') from e
+        for root in roots:
+            try:
+                p.relative_to(root.resolve())
+                return p
+            except ValueError:
+                continue
+        raise HTTPException(
+            status_code=400,
+            detail='project_dir outside expected projects roots. Path traversal blocked.',
+        )
     return assert_safe
 
 
@@ -107,3 +132,54 @@ class TestPathTraversalGuard:
         guard = _make_helper(root)
         result = guard(str(deep))
         assert result == deep.resolve()
+
+
+class TestMultiRootSupport:
+    """H-01 v2 (pilot 2026-05-15 fix): production accepts путь под ЛЮБЫМ
+    из allowed roots. Раньше — single root → Python-vs-Rust mismatch
+    rejected legitimate Roaming projects."""
+
+    def test_accepts_path_under_first_root(self, tmp_path):
+        root_a = tmp_path / 'roaming' / 'projects'
+        root_b = tmp_path / 'local' / 'projects'
+        root_a.mkdir(parents=True)
+        root_b.mkdir(parents=True)
+        proj = root_a / 'кагоцел-рф'
+        proj.mkdir()
+
+        guard = _make_multi_root_helper([root_a, root_b])
+        result = guard(str(proj))
+        assert result == proj.resolve()
+
+    def test_accepts_path_under_second_root(self, tmp_path):
+        """Path под second root тоже OK (Roaming fallback после Local)."""
+        root_a = tmp_path / 'local' / 'projects'
+        root_b = tmp_path / 'roaming' / 'projects'
+        root_a.mkdir(parents=True)
+        root_b.mkdir(parents=True)
+        proj = root_b / 'кагоцел-рф'
+        proj.mkdir()
+
+        guard = _make_multi_root_helper([root_a, root_b])
+        result = guard(str(proj))
+        assert result == proj.resolve()
+
+    def test_rejects_path_under_neither_root(self, tmp_path):
+        root_a = tmp_path / 'a' / 'projects'
+        root_b = tmp_path / 'b' / 'projects'
+        root_a.mkdir(parents=True)
+        root_b.mkdir(parents=True)
+        outside = tmp_path / 'unrelated' / 'evil'
+        outside.mkdir(parents=True)
+
+        guard = _make_multi_root_helper([root_a, root_b])
+        with pytest.raises(HTTPException) as exc:
+            guard(str(outside))
+        assert exc.value.status_code == 400
+
+    def test_empty_roots_list_rejects_everything(self, tmp_path):
+        proj = tmp_path / 'foo'
+        proj.mkdir()
+        guard = _make_multi_root_helper([])
+        with pytest.raises(HTTPException):
+            guard(str(proj))

@@ -1707,28 +1707,74 @@ def model_history(req: ModelHistoryRequest):
 
 # ── Path traversal guard (H-01) ──────────────────────────
 
-def _get_projects_root() -> Path:
-    """Canonical projects root for path validation (H-01).
+def _get_projects_roots() -> list[Path]:
+    """Canonical projects roots for path validation (H-01).
 
-    Production: `<LOCALAPPDATA или APPDATA>/aurora-econometrica-gui/projects/`.
-    Dev fallback: `<repo>/sidecar/econometrica/projects/` (Cargo bin name
-    matches AppData identifier per feedback_aurora_appdata_identifier.md).
+    Returns LIST потому что валидный путь может быть под одним из нескольких
+    roots (зависит от installation / Tauri config / pilot env). Mirror Rust
+    `projects_dir()` priority chain (src-tauri/src/commands/project.rs):
+
+    1. `AURORA_PROJECTS_ROOT` env var override (tests / advanced users)
+    2. `user_config.json::econometrica_projects_root` override (user-set)
+    3. Default: `APPDATA/aurora-econometrica-gui/projects` (matches Rust
+       `env::var("APPDATA")` — это Roaming на Windows)
+    4. Fallback: `LOCALAPPDATA/aurora-econometrica-gui/projects` (legacy
+       installs / RDP environments)
+    5. Dev: `<repo>/sidecar/econometrica/projects`
+
+    Pilot 2026-05-15 выявил bug — раньше returned ТОЛЬКО LOCALAPPDATA на
+    Windows (or APPDATA fallback), а Rust пишет в APPDATA Roaming → guard
+    rejected все legitimate projects как traversal.
     """
-    base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA')
-    if not base:
-        return (_sidecar_root / 'projects').resolve()
-    return (Path(base) / 'aurora-econometrica-gui' / 'projects').resolve()
+    roots: list[Path] = []
+
+    # 1. Env override (highest priority)
+    env_root = os.environ.get('AURORA_PROJECTS_ROOT', '').strip()
+    if env_root:
+        roots.append(Path(env_root).resolve())
+
+    # 2. user_config.json override (read same as Rust)
+    appdata = os.environ.get('APPDATA', '')
+    if appdata:
+        config_path = Path(appdata) / 'aurora-econometrica-gui' / 'user_config.json'
+        if config_path.exists():
+            try:
+                with open(config_path, encoding='utf-8') as f:
+                    cfg = json.load(f)
+                cfg_root = cfg.get('econometrica_projects_root', '')
+                if isinstance(cfg_root, str) and cfg_root.strip():
+                    roots.append(Path(cfg_root.strip()).resolve())
+            except (OSError, json.JSONDecodeError):
+                pass
+
+    # 3. APPDATA Roaming default (matches Rust CARGO_PKG_NAME identifier)
+    if appdata:
+        roots.append((Path(appdata) / 'aurora-econometrica-gui' / 'projects').resolve())
+
+    # 4. LOCALAPPDATA fallback (some installs / RDP)
+    localappdata = os.environ.get('LOCALAPPDATA', '')
+    if localappdata and localappdata != appdata:
+        roots.append((Path(localappdata) / 'aurora-econometrica-gui' / 'projects').resolve())
+
+    # 5. Dev fallback
+    roots.append((_sidecar_root / 'projects').resolve())
+
+    return roots
 
 
 def _assert_project_dir_safe(project_dir: str | Path) -> Path:
-    """H-01: validate project_dir is inside expected projects root.
+    """H-01: validate project_dir is inside one of expected projects roots.
 
     Защита от path traversal — `project_dir` приходит из webview JS, который
     может быть скомпрометирован через XSS or malformed import. Без guard'a
     malicious payload (`../../etc/passwd`, `C:/Windows/System32`) может
     triggernut atomic_write_json на arbitrary disk locations.
 
-    Raises HTTPException 400 если path вне expected root.
+    Accepts path если under ЛЮБОГО из allowed roots (env / user_config /
+    APPDATA / LOCALAPPDATA / dev). Mismatch между Python и Rust roots
+    был обнаружен pilot 2026-05-15.
+
+    Raises HTTPException 400 если path вне любого root.
     Returns resolved absolute Path.
     """
     from fastapi import HTTPException
@@ -1736,16 +1782,22 @@ def _assert_project_dir_safe(project_dir: str | Path) -> Path:
         p = Path(project_dir).resolve(strict=False)
     except (OSError, RuntimeError) as e:
         raise HTTPException(status_code=400, detail=f'invalid project_dir: {e}') from e
-    root = _get_projects_root()
-    try:
-        p.relative_to(root)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f'project_dir outside expected projects root '
-                   f'({p} not under {root}). Path traversal blocked.',
-        )
-    return p
+    roots = _get_projects_roots()
+    for root in roots:
+        try:
+            p.relative_to(root)
+            return p  # match — under this root, safe.
+        except ValueError:
+            continue
+    # No root matched.
+    roots_str = ', '.join(str(r) for r in roots)
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f'project_dir outside expected projects roots '
+            f'({p} not under any of: {roots_str}). Path traversal blocked.'
+        ),
+    )
 
 
 # ── PPTX Export ──────────────────────────────────────────
