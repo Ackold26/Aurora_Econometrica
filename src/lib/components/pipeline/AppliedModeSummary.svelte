@@ -21,6 +21,7 @@
 
   import {
     analysisMode, expertMode, unitCosts, unitCostInflation, unitCostInputMode,
+    budgetInputs,
   } from '$lib/project-state.js';
   import { pluralizeRu } from '$lib/utils/i18n.js';
   // Phase 1.1 (SSOT): unit label resolution через shared service.
@@ -131,11 +132,26 @@
         return next;
       });
     }
+    // H-11 fix: copy source mode + budget input → targets вместо force='unit'.
+    // Раньше: user в budget mode заполняет бюджет → click «Применить» → все
+    // siblings силой переключались в unit mode с числом, которое они не вводили.
+    // Now: mode передаётся как есть, plus budget value (если был) копируется.
+    const sourceMode = $unitCostInputMode?.[sourceChannelName] ?? 'unit';
     unitCostInputMode.update((curr) => {
       const next = { ...curr };
-      for (const t of targets) next[t] = 'unit';
+      for (const t of targets) next[t] = sourceMode;
       return next;
     });
+    if (sourceMode === 'budget') {
+      const sourceBudget = $budgetInputs?.[sourceChannelName];
+      if (typeof sourceBudget === 'number' && sourceBudget > 0) {
+        budgetInputs.update((curr) => {
+          const next = { ...curr };
+          for (const t of targets) next[t] = sourceBudget;
+          return next;
+        });
+      }
+    }
   }
 
   /** Count of sister channels с same unit type as the given channel. */

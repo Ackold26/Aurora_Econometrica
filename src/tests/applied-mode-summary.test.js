@@ -290,6 +290,52 @@ describe('AppliedModeSummary', () => {
     expect(get(unitCosts)['Показы Banners']).toBeUndefined();
   });
 
+  // H-12 regression — button visible в budget mode когда channel converted
+  it('H-12: shows «Применить» button в budget mode когда derived unit_cost > 0', async () => {
+    analysisMode.set('roi');
+    // Budget mode: user указал бюджет → derived unit_cost
+    unitCostInputMode.set({ 'TRPs бренд': 'budget' });
+    budgetInputs.set({ 'TRPs бренд': 2_500_000 });
+    unitCosts.set({ 'TRPs бренд': 25000 });  // derived = 2.5M / 100 = 25000
+    const { container } = render(AppliedModeSummary, {
+      props: {
+        channels: [
+          { name: 'TRPs бренд', detectedType: 'physical' },
+          { name: 'TRPs конкуренты', detectedType: 'physical' },
+        ],
+        channelSums: { 'TRPs бренд': 100, 'TRPs конкуренты': 50 },
+      },
+    });
+    const btn = container.querySelector('[data-channel="TRPs бренд"].uc-apply-same');
+    expect(btn).toBeInTheDocument();  // Раньше null'ом возвращался когда mode=budget
+  });
+
+  // H-11 regression — applyToSameType копирует mode из source, не форсирует 'unit'
+  it('H-11: applyToSameType copies source mode + budget к siblings (budget → budget)', async () => {
+    analysisMode.set('roi');
+    const channels = [
+      { name: 'TRPs бренд', detectedType: 'physical' },
+      { name: 'TRPs конкуренты', detectedType: 'physical' },
+    ];
+    unitCostInputMode.set({ 'TRPs бренд': 'budget' });
+    budgetInputs.set({ 'TRPs бренд': 2_500_000 });
+    unitCosts.set({ 'TRPs бренд': 25000 });
+    const { container } = render(AppliedModeSummary, {
+      props: {
+        channels,
+        channelSums: { 'TRPs бренд': 100, 'TRPs конкуренты': 50 },
+      },
+    });
+    const btn = container.querySelector('[data-channel="TRPs бренд"].uc-apply-same');
+    await fireEvent.click(btn);
+    // Target mode копируется (budget), не форсируется к 'unit'
+    expect(get(unitCostInputMode)['TRPs конкуренты']).toBe('budget');
+    // Target budget копируется (раньше затирался)
+    expect(get(budgetInputs)['TRPs конкуренты']).toBe(2_500_000);
+    // unit_cost тоже копируется (для consistency)
+    expect(get(unitCosts)['TRPs конкуренты']).toBe(25000);
+  });
+
   // Phase 2.9: per-channel restore button
   it('renders «Вернуть» button when onRestoreChannel callback provided', async () => {
     const { container, getByTestId } = render(AppliedModeSummary, {

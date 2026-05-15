@@ -245,18 +245,23 @@
           {/if}
         {/if}
       </p>
-      {#if isConverted() && siblingCount > 0 && onApplyToSameType}
-        <button
-          type="button"
-          class="uc-apply-same"
-          onclick={onApplyToSameType}
-          data-testid="uc-apply-same-btn-{slugify(channel.name)}"
-          data-channel={channel.name}
-        >
-          Применить ко всем «{unitLabel(channel.name)}» ({siblingCount})
-        </button>
-      {/if}
     </div>
+  {/if}
+
+  <!-- H-12 fix: «Применить ко всем такого же типа» visible в обоих режимах
+       (budget + unit). В budget mode unit_cost derived из бюджета → isConverted()
+       returns true → кнопка показывается. Аудит выявил что фича была невидима
+       в budget mode → пользователи не находили её. -->
+  {#if isConverted() && siblingCount > 0 && onApplyToSameType}
+    <button
+      type="button"
+      class="uc-apply-same"
+      onclick={onApplyToSameType}
+      data-testid="uc-apply-same-btn-{slugify(channel.name)}"
+      data-channel={channel.name}
+    >
+      Применить ко всем «{unitLabel(channel.name)}» ({siblingCount})
+    </button>
   {/if}
 </div>
 
