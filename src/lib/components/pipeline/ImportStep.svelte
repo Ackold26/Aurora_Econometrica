@@ -324,6 +324,7 @@
         role="button"
         tabindex="0"
         aria-label="Зона перетаскивания файла"
+        data-tour-step="import-file"
         ondragenter={onDragenter}
         ondragover={onDragover}
         ondragleave={onDragleave}

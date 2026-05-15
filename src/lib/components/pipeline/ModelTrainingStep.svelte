@@ -225,6 +225,7 @@
   <div
     class="config-area"
     data-tour="model-config"
+    data-tour-step="run-model"
     class:disabled={stepState === 'training'}
     style={stepState === 'training' ? 'pointer-events:none;opacity:0.5' : ''}
   >
@@ -271,7 +272,7 @@
     {/if}
 
     <!-- Convergence charts -->
-    <div data-tour="model-convergence">
+    <div data-tour="model-convergence" data-tour-step="results-section">
       <ConvergenceDashboard {diagnostics} />
     </div>
 

@@ -14,7 +14,22 @@
   import OptimizeStep from '$lib/components/pipeline/OptimizeStep.svelte';
   import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
   import PipelineWhyThisStep from '$lib/components/pipeline/PipelineWhyThisStep.svelte';
+  import FirstRunTour from '$lib/components/FirstRunTour.svelte';
   import { useDerivedModeUX, validateData } from '$lib/project-state.js';
+  import { onMount } from 'svelte';
+
+  const FIRST_RUN_TOUR_KEY = 'aurora.firstRunTourCompleted';
+
+  /** Показывать ли первый тур */
+  let showFirstRunTour = $state(false);
+
+  onMount(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const done = window.localStorage.getItem(FIRST_RUN_TOUR_KEY);
+      if (!done) showFirstRunTour = true;
+    } catch { /* ok — localStorage blocked */ }
+  });
 
   // Audit fix v1.3.0 (red-team review BLOCKER #1):
   // ValidateStepV13 нуждается в реальных каналах из validate result + auto-detected
@@ -79,6 +94,10 @@
     return stats;
   });
 </script>
+
+{#if showFirstRunTour}
+  <FirstRunTour onDone={() => { showFirstRunTour = false; }} />
+{/if}
 
 <!-- A3: Single route, all steps present in DOM, visibility controlled by StepWrapper -->
 <div class="pipeline-page">

@@ -867,7 +867,9 @@
         }
       }}
     />
-    <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
+    <div data-tour-step="kpi-selector">
+      <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
+    </div>
   {:else if subStep === -1}
     <!-- v2.0.1-rc2 REORDER: Roles preflight, ColumnMapperConfirm с
          filteredColumns под выбранный KPI. Ratio card + insight exclude

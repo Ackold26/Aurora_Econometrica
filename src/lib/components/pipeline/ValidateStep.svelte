@@ -339,7 +339,7 @@
     <div class="results-stack">
 
       <!-- TrafficLight -->
-      <section class="section-full" data-tour="validation-result">
+      <section class="section-full" data-tour="validation-result" data-tour-step="auto-detect">
         <button class="section-toggle" onclick={() => showValidation = !showValidation}>
           <span>{showValidation ? '▼' : '▶'}</span>
           <h4 class="section-title">Результат валидации</h4>

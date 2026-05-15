@@ -2283,7 +2283,7 @@
 
   <!-- ════════════════ Сценарии (постоянно видимы, переедут в Phase 5) ════════════════ -->
   {#if channels.length > 0}
-    <section class="block block-scenarios">
+    <section class="block block-scenarios" data-tour-step="scenario-playground">
       <div class="block-header">
         <span class="block-letter">D</span>
         <h3 class="block-title">Сценарный анализ</h3>

@@ -13,8 +13,7 @@
 - 4.1.1-4.1.8 ✅ все 8 подзадач — 59 тестов, документация формата, lazy migration
 
 🔄 **В работе:**
-- Партия 3.6 + 3.7 (анти-мигание + focus-ring) — a11y-agent
-- Партия 4.1 + 4.2 (tooltips + онбординг) — tooltips-agent
+- Партия 4.2 (онбординг FirstRunTour) — Маша
 
 ✅ **Завершено агентами:**
 - Партия 3.1 + 3.2 (анимации каналов) — animations-agent
@@ -91,8 +90,8 @@
 
 | ID | Пункт | Часов | Статус | Owner |
 |---|---|---|---|---|
-| 6.1 | Подсказки при наведении | 6 | pending | Маша (после Партии 2) |
-| 6.2 | Пошаговый онбординг при первом запуске | 8 | pending | Маша (после Партии 2) |
+| 6.1 | Подсказки при наведении | 6 | ✅ DONE | Маша |
+| 6.2 | Пошаговый онбординг при первом запуске | 8 | 🔄 IN PROGRESS | Маша |
 | 6.3 | Сценарий видео-демо | 2 | ✅ DONE | Agent D |
 | 6.4 | Глоссарий эконометрических терминов | 5 | ✅ DONE | Agent D |
 | 6.5 | Краткое руководство PDF | 3 | ✅ DONE | Agent D |
@@ -129,6 +128,7 @@
 - ✅ Партия 3 п.5.6: anti-pulse защита — global `animation:none` + 37 компонентов, store `prefersReducedMotion`, `docs/A11Y_MOTION_AUDIT.md`
 - ✅ Партия 3 п.5.7: focus-visible ring — global `*:focus-visible` 2px accent-primary, удалён дубль, WCAG AA 5.8:1
 - ✅ Партия 3 п.5.3: плавные переходы между шагами ScenarioWizard — `{#key}` + transition:fly с направлением forward/back, prefers-reduced-motion → duration 0 + offset 0
+- ✅ Партия 4 п.6.1: Tooltip.svelte (viewport-aware, aria-describedby, ESC, prefers-reduced-motion), tooltip-texts.js (40+ записей), интеграция в KPISelector/ConvergenceDashboard/SensitivityTornado/TrafficLight, 10 vitest-тестов
 
 ---
 
@@ -147,6 +147,7 @@
 | `54ac5e7` | 2026-05-16 | feat(animations): stagger copy-flash при applyToSameType (п.5.2) |
 | `3dba7cf` | 2026-05-16 | feat(a11y-motion): anti-pulse global + 37 компонентов (п.5.6) |
 | `86c19c8` | 2026-05-16 | feat(a11y-focus): focus-visible + dialog instant appearance (п.5.7) |
+| `dce4d2a` | 2026-05-16 | feat(tooltips): подсказки при наведении на ключевые элементы (v2.1.0 п.6.1) |
 
 ---
 
@@ -175,7 +176,7 @@
 
 ## Метрики прогресса (auto-update после commit)
 
-- **Commits в сессии:** 10 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2; animations-agent: п.5.1+5.2; a11y-agent: п.5.6+5.7)
-- **Tests delta:** 547 vitest passing (0 regressions от a11y-agent)
-- **Партий завершено:** 0 / 5 (Партия 3 частично — 6/7; Партия 4 частично — 3/6)
-- **Пунктов плана завершено:** 9 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5, 5.1, 5.2, 5.6, 5.7)
+- **Commits в сессии:** 11 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2; animations-agent: п.5.1+5.2; a11y-agent: п.5.6+5.7; Маша: п.6.1 tooltips)
+- **Tests delta:** 569 vitest passing (+10 новых tooltip tests, 0 regressions)
+- **Партий завершено:** 0 / 5 (Партия 3 полностью 7/7; Партия 4 частично — 4/6)
+- **Пунктов плана завершено:** 10 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5, 5.1, 5.2, 5.6, 5.7, 6.1)
