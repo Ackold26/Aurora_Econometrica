@@ -26,17 +26,22 @@ from engines.validator import (
 
 
 class TestNoneInputSafety:
-    """S1: None / non-string col_name. Currently raises AttributeError.
+    """S1 + H-19: None / non-string col_name returns 'unknown' gracefully.
 
-    Documenting current behaviour. Future hardening will catch и return
-    'unknown' gracefully (defensive contract). Defining failure mode
-    here so any regression is detected.
+    Real-world trigger: pandas reads Excel с merged cells → NaN (float) или
+    None column name → detect_column_role(NaN) ранее raised AttributeError
+    → /validate endpoint crashed 500. v2.0.1-rc2 H-19 fix: defensive
+    isinstance check, returns ('unknown', 0.0).
     """
 
-    def test_none_currently_raises(self):
-        """detect_column_role(None) → AttributeError на .lower() call."""
-        with pytest.raises(AttributeError):
-            detect_column_role(None)  # type: ignore[arg-type]
+    def test_none_returns_unknown(self):
+        """detect_column_role(None) returns 'unknown' (no crash)."""
+        assert detect_column_role(None) == 'unknown'  # type: ignore[arg-type]
+
+    def test_none_with_confidence_returns_zero(self):
+        role, conf = detect_column_role_with_confidence(None)  # type: ignore[arg-type]
+        assert role == 'unknown'
+        assert conf == 0.0
 
     def test_empty_string_returns_unknown(self):
         """Empty string не crashes, returns 'unknown'."""
@@ -47,10 +52,15 @@ class TestNoneInputSafety:
         role = detect_column_role('   ')
         assert role == 'unknown'
 
-    def test_numeric_input_raises(self):
-        """Integer not allowed (Python type protocol)."""
-        with pytest.raises(AttributeError):
-            detect_column_role(42)  # type: ignore[arg-type]
+    def test_numeric_input_returns_unknown(self):
+        """Integer / float — non-string types return 'unknown' (no crash)."""
+        assert detect_column_role(42) == 'unknown'  # type: ignore[arg-type]
+        assert detect_column_role(3.14) == 'unknown'  # type: ignore[arg-type]
+
+    def test_nan_float_returns_unknown(self):
+        """pandas NaN header (typical openpyxl edge case) returns 'unknown'."""
+        import math
+        assert detect_column_role(math.nan) == 'unknown'  # type: ignore[arg-type]
 
     def test_with_confidence_returns_zero_for_empty(self):
         role, conf = detect_column_role_with_confidence('')

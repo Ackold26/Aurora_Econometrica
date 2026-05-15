@@ -63,6 +63,11 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     Returns:
         (role, confidence) where role is 'kpi'|'media'|'control'|'date'|'unknown'
     """
+    # Defensive guard (audit H-19). pandas header parsing на merged cells /
+    # blank Excel columns может вернуть NaN (float) или None — без guard'a
+    # .lower() raises AttributeError → весь /validate endpoint крашится 500.
+    if not isinstance(col_name, str):
+        return 'unknown', 0.0
     lower = col_name.lower()
 
     # Date: high confidence for exact names
