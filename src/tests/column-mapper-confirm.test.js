@@ -70,12 +70,19 @@ describe('ColumnMapperConfirm', () => {
   });
 
   it('handleConfirm builds full mapping и calls onConfirm', async () => {
+    // v2.1.0 п.5.1: confirm animation introduces CONFIRM_DELAY (420ms) before
+    // onConfirm is called. Use fake timers to advance past the delay.
+    vi.useFakeTimers();
     const onConfirm = vi.fn();
     render(ColumnMapperConfirm, {
       props: { columns: makeColumns(), onConfirm },
     });
     const btn = screen.getByText(/Подтвердить роли/);
     await fireEvent.click(btn);
+    // onConfirm not yet called — animation delay in progress.
+    expect(onConfirm).toHaveBeenCalledTimes(0);
+    // Advance past CONFIRM_DELAY (420ms).
+    vi.advanceTimersByTime(500);
     expect(onConfirm).toHaveBeenCalledTimes(1);
     const mapping = onConfirm.mock.calls[0][0];
     // Each column present в mapping
@@ -86,9 +93,12 @@ describe('ColumnMapperConfirm', () => {
       digital: 'media',
       temp: 'control',
     });
+    vi.useRealTimers();
   });
 
   it('override через dropdown changes effective role в mapping', async () => {
+    // v2.1.0 п.5.1: same timer guard as above.
+    vi.useFakeTimers();
     const onConfirm = vi.fn();
     const { container } = render(ColumnMapperConfirm, {
       props: { columns: makeColumns(), onConfirm },
@@ -109,10 +119,12 @@ describe('ColumnMapperConfirm', () => {
 
     const btn = screen.getByText(/Подтвердить роли/);
     await fireEvent.click(btn);
+    vi.advanceTimersByTime(500);
     const mapping = onConfirm.mock.calls[0][0];
     expect(mapping.digital).toBe('excluded');
     // Others unchanged
     expect(mapping.tv_grp).toBe('media');
+    vi.useRealTimers();
   });
 
   it('renders all 5 role options в каждом dropdown', () => {

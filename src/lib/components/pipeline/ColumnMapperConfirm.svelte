@@ -252,13 +252,26 @@
     onRoleChange?.(colName, newRole);
   }
 
+  /** v2.1.0 п.5.1: pulse-confirm animation state.
+   *  When true — button enters confirming state (pulse + check icon).
+   *  After CONFIRM_DELAY ms, onConfirm is called and parent transitions.
+   *  prefers-reduced-motion guard: global app.css collapses animation to
+   *  0.01ms, so onConfirm fires effectively immediately. */
+  let confirming = $state(false);
+  const CONFIRM_DELAY = 420;
+
   function handleConfirm() {
+    if (confirming) return; // prevent double-click
+    confirming = true;
     /** @type {Record<string, string>} */
     const mapping = {};
     for (const col of columns) {
       mapping[col.name] = effectiveRole(col.name);
     }
-    onConfirm?.(mapping);
+    setTimeout(() => {
+      onConfirm?.(mapping);
+      // confirming reset is not needed — parent unmounts this component.
+    }, CONFIRM_DELAY);
   }
 
   const stats = $derived.by(() => {
@@ -402,12 +415,34 @@
     <button
       type="button"
       class="btn-confirm"
+      class:btn-confirm--confirming={confirming}
       onclick={handleConfirm}
-      disabled={!!blockedReason}
+      disabled={!!blockedReason || confirming}
+      aria-label={confirming ? 'Роли подтверждены' : 'Подтвердить роли'}
       title={blockedReason || ''}
     >
-      Подтвердить роли
-      <span class="btn-arrow" aria-hidden="true">→</span>
+      {#if confirming}
+        <!-- v2.1.0 п.5.1: check-icon fade-in on confirm (lucide Check SVG inline) -->
+        <svg
+          class="btn-check-icon"
+          aria-hidden="true"
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        Подтверждено
+      {:else}
+        Подтвердить роли
+        <span class="btn-arrow" aria-hidden="true">→</span>
+      {/if}
     </button>
   </footer>
 </div>
@@ -855,5 +890,37 @@
   }
   .btn-confirm:hover .btn-arrow {
     transform: translateX(3px);
+  }
+
+  /* v2.1.0 п.5.1: pulse-confirm animation.
+     Applied only under no-preference; global app.css prefers-reduced-motion
+     rule collapses all animations to 0.01ms for motion-sensitive users. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes pulse-once {
+      0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success, #10B981) 55%, transparent); }
+      45%  { box-shadow: 0 0 0 8px color-mix(in srgb, var(--success, #10B981) 0%, transparent); }
+      100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--success, #10B981) 0%, transparent); }
+    }
+    @keyframes check-fade-in {
+      from { opacity: 0; transform: scale(0.7) rotate(-10deg); }
+      to   { opacity: 1; transform: scale(1) rotate(0deg); }
+    }
+
+    .btn-confirm--confirming {
+      background: var(--success, #10B981);
+      color: var(--bg-card, #0f172a);
+      animation: pulse-once 0.42s ease-out forwards;
+    }
+    .btn-check-icon {
+      animation: check-fade-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+  }
+
+  /* Non-animated state for reduced-motion — just show success colour instantly. */
+  @media (prefers-reduced-motion: reduce) {
+    .btn-confirm--confirming {
+      background: var(--success, #10B981);
+      color: var(--bg-card, #0f172a);
+    }
   }
 </style>
