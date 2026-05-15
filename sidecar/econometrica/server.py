@@ -637,7 +637,23 @@ def project_migrate_endpoint(req: ProjectMigrateRequest):
         proj_dir = _assert_project_dir_safe(req.project_dir)
         proj_json = proj_dir / 'project.json'
 
-        result = migrate_project_file(proj_json)
+        # C-02 multi-tab safety: lock на время read-modify-write.
+        # Если другая вкладка / процесс уже мигрирует тот же project —
+        # ждём до 5s, потом 423 Locked.
+        from utils.file_lock import project_lock, LockTimeout
+        try:
+            with project_lock(proj_dir, timeout=5.0):
+                result = migrate_project_file(proj_json)
+        except LockTimeout as lt:
+            log_event(
+                m_logger, 'project_migrate_lock_timeout',
+                level=logging.WARNING, project_dir=str(proj_dir),
+            )
+            return JSONResponse(status_code=423, content={
+                'status': 'error',
+                'error_code': 'LOCK_TIMEOUT',
+                'message': str(lt),
+            })
 
         log_event(
             m_logger,
@@ -2119,6 +2135,7 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
         from engines.validator import validate_role_compatibility
 
         save_logger = setup_module_logger('save_kpi_settings')
+        from utils.file_lock import project_lock, LockTimeout
 
         # H-01 path traversal guard
         project_path = _assert_project_dir_safe(req.project_dir)
@@ -2129,95 +2146,109 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
                 'error_code': 'PROJECT_NOT_FOUND',
             }, status_code=404)
 
-        # Cross-field validation: unit_costs only for media channels.
-        # Read media list from project.json (if exists) — otherwise skip check.
-        media_columns = []
-        proj_json = project_path / 'project.json'
-        if proj_json.exists():
-            try:
-                with open(proj_json, encoding='utf-8') as pf:
-                    proj_data = json.load(pf)
-                media_columns = proj_data.get('media_columns', []) or []
-            except (OSError, json.JSONDecodeError):
+        # C-02 multi-tab safety: lock на read-modify-write всей операции.
+        # Если другая вкладка / процесс держит lock — wait до 5s, потом 423.
+        try:
+            with project_lock(project_path, timeout=5.0):
+                # Cross-field validation: unit_costs only for media channels.
+                # Read media list from project.json (if exists) — otherwise skip check.
                 media_columns = []
+                proj_json = project_path / 'project.json'
+                if proj_json.exists():
+                    try:
+                        with open(proj_json, encoding='utf-8') as pf:
+                            proj_data = json.load(pf)
+                        media_columns = proj_data.get('media_columns', []) or []
+                    except (OSError, json.JSONDecodeError):
+                        media_columns = []
 
-        if req.unit_costs and media_columns:
-            valid, err_code, msg = validate_role_compatibility(
-                req.unit_costs,
-                media_columns,
-            )
-            if not valid:
+                if req.unit_costs and media_columns:
+                    valid, err_code, msg = validate_role_compatibility(
+                        req.unit_costs,
+                        media_columns,
+                    )
+                    if not valid:
+                        log_event(
+                            save_logger,
+                            'kpi_settings_role_mismatch',
+                            level=logging.WARNING,
+                            project_dir=str(project_path),
+                            error_code=err_code,
+                            detail=msg,
+                        )
+                        return JSONResponse(content={
+                            'status': 'error',
+                            'error_code': err_code,
+                            'message': msg,
+                        }, status_code=422)
+
+                # Save as JSON metadata in project's settings/v13_kpi.json.
+                settings_dir = project_path / 'settings'
+                settings_dir.mkdir(parents=True, exist_ok=True)
+                settings_file = settings_dir / 'v13_kpi.json'
+
+                # Compute derived mode if per_channel_input provided.
+                derived_mode = None
+                if req.per_channel_input:
+                    derived_mode = derive_mode(req.per_channel_input)
+
+                settings = {
+                    'kpi_kind': req.kpi_kind,
+                    'value_per_count_unit': req.value_per_count_unit,
+                    'value_per_count_unit_label': req.value_per_count_unit_label,
+                    'value_per_count_unit_source': req.value_per_count_unit_source,
+                    'per_channel_input': req.per_channel_input or {},
+                    'derived_mode': derived_mode,
+                    # v2.0.1 (Phase 1.3 persistence of UI mode state):
+                    'unit_costs': req.unit_costs or {},
+                    'unit_cost_inflation': req.unit_cost_inflation or {},
+                    'mode_for': req.mode_for or {},
+                    'budget_inputs': req.budget_inputs or {},
+                    'updated_at': pd.Timestamp.now().isoformat(),
+                }
+
+                # Atomic write через Phase 0.3 helper — power-loss safe.
+                try:
+                    sha = atomic_write_json(settings_file, settings)
+                except OSError as oe:
+                    log_event(
+                        save_logger,
+                        'kpi_settings_disk_error',
+                        level=logging.ERROR,
+                        project_dir=str(project_path),
+                        error=str(oe),
+                    )
+                    return JSONResponse(status_code=500, content={
+                        'status': 'error',
+                        'error_code': 'DISK_WRITE_FAILED',
+                        'message': f'Не удалось записать настройки: {oe}',
+                    })
+
                 log_event(
                     save_logger,
-                    'kpi_settings_role_mismatch',
-                    level=logging.WARNING,
+                    'kpi_settings_saved',
                     project_dir=str(project_path),
-                    error_code=err_code,
-                    detail=msg,
+                    derived_mode=derived_mode,
+                    sha256=sha,
+                    n_unit_costs=len(req.unit_costs or {}),
                 )
+
                 return JSONResponse(content={
-                    'status': 'error',
-                    'error_code': err_code,
-                    'message': msg,
-                }, status_code=422)
-
-        # Save as JSON metadata in project's settings/v13_kpi.json.
-        settings_dir = project_path / 'settings'
-        settings_dir.mkdir(parents=True, exist_ok=True)
-        settings_file = settings_dir / 'v13_kpi.json'
-
-        # Compute derived mode if per_channel_input provided.
-        derived_mode = None
-        if req.per_channel_input:
-            derived_mode = derive_mode(req.per_channel_input)
-
-        settings = {
-            'kpi_kind': req.kpi_kind,
-            'value_per_count_unit': req.value_per_count_unit,
-            'value_per_count_unit_label': req.value_per_count_unit_label,
-            'value_per_count_unit_source': req.value_per_count_unit_source,
-            'per_channel_input': req.per_channel_input or {},
-            'derived_mode': derived_mode,
-            # v2.0.1 (Phase 1.3 persistence of UI mode state):
-            'unit_costs': req.unit_costs or {},
-            'unit_cost_inflation': req.unit_cost_inflation or {},
-            'mode_for': req.mode_for or {},
-            'budget_inputs': req.budget_inputs or {},
-            'updated_at': pd.Timestamp.now().isoformat(),
-        }
-
-        # Atomic write через Phase 0.3 helper — power-loss safe.
-        try:
-            sha = atomic_write_json(settings_file, settings)
-        except OSError as oe:
+                    'status': 'ok',
+                    'derived_mode': derived_mode,
+                    'saved_to': str(settings_file),
+                    'integrity_sha256': sha,
+                })
+        except LockTimeout as lt:
             log_event(
-                save_logger,
-                'kpi_settings_disk_error',
-                level=logging.ERROR,
-                project_dir=str(project_path),
-                error=str(oe),
+                save_logger, 'kpi_settings_lock_timeout',
+                level=logging.WARNING, project_dir=str(project_path),
             )
-            return JSONResponse(status_code=500, content={
+            return JSONResponse(status_code=423, content={
                 'status': 'error',
-                'error_code': 'DISK_WRITE_FAILED',
-                'message': f'Не удалось записать настройки: {oe}',
+                'error_code': 'LOCK_TIMEOUT',
+                'message': str(lt),
             })
-
-        log_event(
-            save_logger,
-            'kpi_settings_saved',
-            project_dir=str(project_path),
-            derived_mode=derived_mode,
-            sha256=sha,
-            n_unit_costs=len(req.unit_costs or {}),
-        )
-
-        return JSONResponse(content={
-            'status': 'ok',
-            'derived_mode': derived_mode,
-            'saved_to': str(settings_file),
-            'integrity_sha256': sha,
-        })
     except Exception as e:
         logger.exception('Save KPI settings FAILED')
         return JSONResponse(status_code=500, content={

@@ -554,48 +554,53 @@ def save_v20_diagnostics(project_dir: str | Path, diagnostics: dict[str, Any]) -
             f"Обучите модель перед сохранением диагностики."
         )
 
-    # Load existing pickle (через compat helper чтобы v1.3 defaults уже были)
-    model_data = load_model_with_compat(model_path)
+    # C-02 multi-tab race protection (audit H-06): backtest и sensitivity
+    # invalidation могут стрелять одновременно → второй reads pre-write state,
+    # перетирает первый. Lock на entire read-modify-write.
+    from utils.file_lock import project_lock
+    with project_lock(Path(project_dir), timeout=5.0):
+        # Load existing pickle (через compat helper чтобы v1.3 defaults уже были)
+        model_data = load_model_with_compat(model_path)
 
-    # Merge only allowed fields (strict allowlist prevents field pollution)
-    applied_fields: list[str] = []
-    for key, value in diagnostics.items():
-        if key in _V20_ALLOWED_FIELDS:
-            model_data[key] = value
-            applied_fields.append(key)
-        else:
-            logger.warning(
-                "save_v20_diagnostics: unknown field %r ignored (allowlist)", key
-            )
+        # Merge only allowed fields (strict allowlist prevents field pollution)
+        applied_fields: list[str] = []
+        for key, value in diagnostics.items():
+            if key in _V20_ALLOWED_FIELDS:
+                model_data[key] = value
+                applied_fields.append(key)
+            else:
+                logger.warning(
+                    "save_v20_diagnostics: unknown field %r ignored (allowlist)", key
+                )
 
-    # Bump model_version to '2.0.0' (additive — old code ignores new fields)
-    model_data['model_version'] = '2.0.0'
+        # Bump model_version to '2.0.0' (additive — old code ignores new fields)
+        model_data['model_version'] = '2.0.0'
 
-    # Atomic write: temp file in same directory then os.replace()
-    models_dir = model_path.parent
-    models_dir.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path_str = tempfile.mkstemp(
-        dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
-    )
-    tmp_path = Path(tmp_path_str)
-    try:
-        with os.fdopen(fd, 'wb') as f:
-            pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-        # os.replace() is atomic on POSIX; effectively atomic on Windows
-        # (same-volume MoveFileExW). Prevents partial-write corruption.
-        os.replace(tmp_path, model_path)
-    except Exception:
-        # Clean up temp on any failure; don't leave .pkl.tmp files behind
+        # Atomic write: temp file in same directory then os.replace()
+        models_dir = model_path.parent
+        models_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path_str = tempfile.mkstemp(
+            dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
+        )
+        tmp_path = Path(tmp_path_str)
         try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, 'wb') as f:
+                pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            # os.replace() is atomic on POSIX; effectively atomic on Windows
+            # (same-volume MoveFileExW). Prevents partial-write corruption.
+            os.replace(tmp_path, model_path)
+        except Exception:
+            # Clean up temp on any failure; don't leave .pkl.tmp files behind
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
-    logger.info(
-        "save_v20_diagnostics: persisted fields %s to %s (model_version→2.0.0)",
-        applied_fields, model_path,
-    )
+        logger.info(
+            "save_v20_diagnostics: persisted fields %s to %s (model_version→2.0.0)",
+            applied_fields, model_path,
+        )
 
 
 def load_v20_diagnostics(project_dir: str | Path) -> dict[str, Any]:
@@ -665,32 +670,36 @@ def clear_sensitivity_cache(project_dir: str | Path) -> bool:
             f"latest.pkl не найден: {model_path}."
         )
 
-    model_data = load_model_with_compat(model_path)
-    had_cache = model_data.get('sensitivity_tornado_cache') is not None
+    # C-02 multi-tab race protection: same lock as save_v20_diagnostics —
+    # filelock.is_singleton делает re-entrant safe в рамках процесса.
+    from utils.file_lock import project_lock
+    with project_lock(Path(project_dir), timeout=5.0):
+        model_data = load_model_with_compat(model_path)
+        had_cache = model_data.get('sensitivity_tornado_cache') is not None
 
-    if not had_cache:
-        logger.debug(
-            "clear_sensitivity_cache: cache already None for %s — no-op", project_dir
+        if not had_cache:
+            logger.debug(
+                "clear_sensitivity_cache: cache already None for %s — no-op", project_dir
+            )
+            return False
+
+        model_data['sensitivity_tornado_cache'] = None
+
+        models_dir = model_path.parent
+        fd, tmp_path_str = tempfile.mkstemp(
+            dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
         )
-        return False
-
-    model_data['sensitivity_tornado_cache'] = None
-
-    models_dir = model_path.parent
-    fd, tmp_path_str = tempfile.mkstemp(
-        dir=models_dir, suffix='.pkl.tmp', prefix='latest_'
-    )
-    tmp_path = Path(tmp_path_str)
-    try:
-        with os.fdopen(fd, 'wb') as f:
-            pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-        os.replace(tmp_path, model_path)
-    except Exception:
+        tmp_path = Path(tmp_path_str)
         try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, 'wb') as f:
+                pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp_path, model_path)
+        except Exception:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     logger.info("clear_sensitivity_cache: cache cleared for %s", project_dir)
     return True
