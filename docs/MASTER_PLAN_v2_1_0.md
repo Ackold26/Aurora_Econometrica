@@ -83,8 +83,8 @@
 | 5.3 | Плавность переходов wizard | 5 | pending | Agent A (после 5.1+5.2) |
 | 5.4 | Контрастность светлая тема | 3 | ✅ DONE | Agent B |
 | 5.5 | Контрастность тёплая тема | 3 | ✅ DONE | Agent B |
-| 5.6 | Защита от мигания на ВСЕХ компонентах | 6 | 🟢 in progress | Agent C |
-| 5.7 | Видимая рамка фокуса на ВСЕХ кнопках | 4 | 🟢 in progress | Agent C |
+| 5.6 | Защита от мигания на ВСЕХ компонентах | 6 | ✅ DONE | Agent C |
+| 5.7 | Видимая рамка фокуса на ВСЕХ кнопках | 4 | ✅ DONE | Agent C |
 | 5.8 | Ревизия внешним дизайнером | 2 | ⏸ опционально, на потом |
 
 ### Партия 4 — Документация (АГЕНТЫ В ПАРАЛЛЕЛЬ)
@@ -126,6 +126,8 @@
 - ✅ Партия 2 п.4.1.6: lazy migration legacy pickle → aurora-model при load (backup `.pre_safe_migration`, swallow errors при read-only FS)
 - ✅ Партия 2 п.4.1.7: extended security tests — zip-bomb (extreme compression), exe payload в ZIP игнорируется, symlinks не следуем, unicode names, concurrent save race
 - ✅ Партия 2 п.4.1.8: `docs/AURORAMODEL_FORMAT.md` — спецификация формата (структура, защита, API, миграция, совместимость, дальнейшее развитие)
+- ✅ Партия 3 п.5.6: anti-pulse защита — global `animation:none` + 37 компонентов, store `prefersReducedMotion`, `docs/A11Y_MOTION_AUDIT.md`
+- ✅ Партия 3 п.5.7: focus-visible ring — global `*:focus-visible` 2px accent-primary, удалён дубль, WCAG AA 5.8:1
 
 ---
 
@@ -142,6 +144,8 @@
 | `e8d6966` | 2026-05-16 | feat(persistence): wire безопасный формат aurora-model (п.4.1) |
 | `c22911c` | 2026-05-16 | feat(animations): pulse confirm на ValidateStep (п.5.1) — включён в master-plan commit |
 | `54ac5e7` | 2026-05-16 | feat(animations): stagger copy-flash при applyToSameType (п.5.2) |
+| `3dba7cf` | 2026-05-16 | feat(a11y-motion): anti-pulse global + 37 компонентов (п.5.6) |
+| `86c19c8` | 2026-05-16 | feat(a11y-focus): focus-visible + dialog instant appearance (п.5.7) |
 
 ---
 
@@ -170,7 +174,7 @@
 
 ## Метрики прогресса (auto-update после commit)
 
-- **Commits в сессии:** 8 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2; animations-agent: п.5.1+5.2)
-- **Tests delta:** 547 vitest passing (+2 от animations-agent fake timer tests)
-- **Партий завершено:** 0 / 5 (Партия 3 частично — 4/7; Партия 4 частично — 3/6)
-- **Пунктов плана завершено:** 7 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5, 5.1, 5.2)
+- **Commits в сессии:** 10 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2; animations-agent: п.5.1+5.2; a11y-agent: п.5.6+5.7)
+- **Tests delta:** 547 vitest passing (0 regressions от a11y-agent)
+- **Партий завершено:** 0 / 5 (Партия 3 частично — 6/7; Партия 4 частично — 3/6)
+- **Пунктов плана завершено:** 9 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5, 5.1, 5.2, 5.6, 5.7)
