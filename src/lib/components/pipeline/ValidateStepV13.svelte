@@ -29,7 +29,11 @@
   } from '$lib/mode-derivation.js';
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
   import { validateInsights } from '$lib/insights-rules.js';
-  import { analysisObjective, expertMode, analysisMode } from '$lib/project-state.js';
+  import {
+    analysisObjective, expertMode, analysisMode,
+    // H-16 (audit): Phase 1.3 persistence stores — нужны в save flow.
+    unitCosts, unitCostInflation, unitCostInputMode, budgetInputs,
+  } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
   import PerChannelInputSelector from './PerChannelInputSelector.svelte';
@@ -322,6 +326,9 @@
     try {
       // Persist KPI settings to backend.
       if ($activeProject?.path) {
+        // H-16 (audit): Phase 1.3 store persistence — earlier версия не
+        // передавала unit_costs / inflation / mode_for / budget_inputs к
+        // backend. Reload терял состояние. Теперь полный snapshot.
         await invoke('econ_save_kpi_settings', {
           projectDir: $activeProject.path,
           valuePerCountUnit: currentValuePerUnit,
@@ -329,6 +336,10 @@
           valuePerCountUnitSource: $valuePerCountUnitSource,
           perChannelInput: currentPerChannel,
           kpiKind: currentKpiKind,
+          unitCosts: $unitCosts ?? null,
+          unitCostInflation: $unitCostInflation ?? null,
+          modeFor: $unitCostInputMode ?? null,
+          budgetInputs: $budgetInputs ?? null,
         });
       }
       onComplete?.({

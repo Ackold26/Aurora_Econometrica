@@ -612,6 +612,7 @@ pub async fn econ_auto_detect_price(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn econ_save_kpi_settings(
     project_dir: String,
     value_per_count_unit: Option<f64>,
@@ -619,6 +620,14 @@ pub async fn econ_save_kpi_settings(
     value_per_count_unit_source: Option<String>,
     per_channel_input: Option<Value>,
     kpi_kind: Option<String>,
+    // H-16 (audit): Phase 1.3 stores не персистировались — frontend сетит
+    // unitCostInputMode + budgetInputs + unitCosts + unitCostInflation, но
+    // econ_save_kpi_settings командой эти fields передавать не позволяла.
+    // Reload → стэйт терялся.
+    unit_costs: Option<Value>,
+    unit_cost_inflation: Option<Value>,
+    mode_for: Option<Value>,
+    budget_inputs: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_save_kpi_settings: {project_dir}");
     let body = serde_json::json!({
@@ -628,6 +637,11 @@ pub async fn econ_save_kpi_settings(
         "value_per_count_unit_source": value_per_count_unit_source,
         "per_channel_input": per_channel_input,
         "kpi_kind": kpi_kind.unwrap_or_else(|| "monetary".to_string()),
+        // H-16: Phase 1.3 persistence — pass through new fields.
+        "unit_costs": unit_costs,
+        "unit_cost_inflation": unit_cost_inflation,
+        "mode_for": mode_for,
+        "budget_inputs": budget_inputs,
     });
     post_json("/project/save_kpi_settings", &body, quick_client()).await
 }
