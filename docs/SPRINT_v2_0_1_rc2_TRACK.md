@@ -45,17 +45,18 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 **Test delta:** +12 pytest, +6 vitest. 536 vitest + ~150 pytest passing. 0 regressions.
 
-### Партия 2 — Wiring критичных утилит (~6-7ч) 🔄 В РАБОТЕ
+### Партия 2 — Wiring критичных утилит ✅ COMPLETE
 
-| ID | Title | Effort | Status |
+| ID | Title | Commit | Status |
 |---|---|---|---|
-| C-02 | Wire `project_lock` в 4 callsites (save_kpi/migrate/save_v20/clear_cache) | 90min | ⏳ |
-| C-03 | Wire JCS-hash в save/load `project.json` (`_jcs_sha256` field) | 90min | ⏳ |
-| C-05a | Pickle SHA-256 sidecar check (`latest.pkl.sha256`) | 60min | ⏳ |
-| H-04 | Backup restore: `os.replace` + checksum verify pre-restore | 60min | ⏳ |
-| H-05 | Numpy types sanitize в `save_v20_diagnostics` | 60min | ⏳ |
-| H-06 | Pickle race lock в `save_v20_diagnostics`/`clear_sensitivity_cache` | 60min | ⏳ |
-| H-20a | Migration error surface к UI (не `console.warn`) | 30min | ⏳ |
+| C-02 | Wire project_lock в 4 production callsites | `5f1f4ca` | ✅ |
+| C-03 | Wire JCS-hash в migration + verify_project_integrity (+7 pytest) | `db49d3d` | ✅ |
+| H-04+H-05 | Atomic backup restore + numpy sanitize в diagnostics | `20c158d` | ✅ |
+| H-06 | Pickle race lock (covered by C-02 project_lock) | (in C-02) | ✅ |
+| C-05a | Pickle SHA-256 sidecar (+8 pytest) | `e335502` | ✅ |
+| H-20a | Migration error UI banner с retry (ErrorState wired) | `65a9fcd` | ✅ |
+
+**Test delta:** +15 pytest. Total: 156 sidecar pytest + 536 vitest. 0 regressions.
 
 ### Партия 3 — Rust атомарность + Industry CPP wire (~10ч) ⏳ ИССЛЕДУЕТСЯ
 
@@ -84,11 +85,12 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 ## Текущий статус
 
 - **Branch:** `feat/v2.0.0-explicit-mode-wizard`
-- **Local commits ahead of origin:** 12 (`c580b60` Phase 2.1, `3dee1eb` Phase 4.1, `7b9fe01` track, `4252591` research + 8 Партия-1 фиксов)
-- **Sub-agents:** done (H-09 + H-17 research saved в docs/SPRINT_v2_0_1_rc2_subagent_research.md)
-- **Active phase:** Партия 2 — wiring critical utilities
+- **Local commits ahead of origin:** 18 (`c580b60` Phase 2.1, `3dee1eb` Phase 4.1, `7b9fe01` track, `4252591` research + 9 Партия-1 + 5 Партия-2 + tracker updates)
+- **Sub-agents:** done (H-09 + H-17 research saved)
+- **Active phase:** Партия 3 — Rust атомарность + Industry CPP wire
 - **Plan status:** 🟢 APPROVED (расширенный b)
-- **Test baseline:** 536 vitest / ~165 pytest passing, 0 regressions
+- **Test baseline:** 536 vitest / 156 pytest passing, 0 regressions
+- **Push gate:** Партии 1-2 ready для diff review с Антоном (per working agreement)
 
 ## Decisions log
 
@@ -102,16 +104,14 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 ## Next Concrete First Step
 
-**Партия 2, шаг 1 — C-02 wire `project_lock` в production callsites.**
+**Партия 3, шаг 1 — C-04 Rust write_project atomic + per-project mutex.**
 
 Acceptance criteria:
-- `with project_lock(project_dir):` обёрнут вокруг read-modify-write в 4 endpoint'ах:
-  - `project_save_kpi_settings` (server.py:~2006)
-  - `project_migrate_endpoint` (server.py:~604)
-  - `save_v20_diagnostics` (persistence.py:~515)
-  - `clear_sensitivity_cache` (persistence.py:~696)
-- Regression test: 2 concurrent calls на same project — один блокирует другого
-- Commit: `fix(c-02): wire project_lock to save/migrate/diagnostics endpoints`
+- `src-tauri/src/commands/project.rs` `write_project()` — temp file + rename pattern (тот же что Python safe_io)
+- `DashMap<String, Arc<Mutex<()>>>` per-project mutex для serialization `read_project + write_project` pairs
+- Все 3 callsites (project_update, project_upload_data, project_activate) используют mutex
+- Cargo build + test passing
+- Commit: `fix(c-04): atomic write_project + per-project mutex (Rust side)`
 
 ## Pending Антон gates
 
