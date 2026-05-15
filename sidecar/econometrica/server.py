@@ -1995,6 +1995,30 @@ class ValuePerCountUnitSaveRequest(BaseModel):
                 raise ValueError(f'mode_for[{channel!r}] must be "budget" or "unit", got {mode!r}')
         return v
 
+    @field_validator('value_per_count_unit')
+    @classmethod
+    def _validate_value_per_count_unit(cls, v: float | None) -> float | None:
+        """Reject NaN / Infinity / negative / unreasonable values (audit H-03).
+
+        Pydantic v2 accepts float('inf') as valid float — без guard'a проскакивает
+        в settings JSON, downstream produces inf * spend = inf ROAS. Same bounds
+        as unit_costs validator (sister field, parallel logic).
+        """
+        if v is None:
+            return None
+        if not isinstance(v, (int, float)):
+            raise ValueError(f'value_per_count_unit must be numeric, got {type(v).__name__}')
+        if v != v:  # NaN check
+            raise ValueError('value_per_count_unit is NaN')
+        import math
+        if math.isinf(v):
+            raise ValueError('value_per_count_unit is Infinity')
+        if v < 0:
+            raise ValueError(f'value_per_count_unit must be ≥ 0, got {v}')
+        if v > 1e9:
+            raise ValueError(f'value_per_count_unit unreasonably high: {v} (max 1e9)')
+        return float(v)
+
 
 @app.post('/project/save_kpi_settings')
 def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
