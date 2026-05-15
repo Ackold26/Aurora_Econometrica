@@ -58,20 +58,23 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 **Test delta:** +15 pytest. Total: 156 sidecar pytest + 536 vitest. 0 regressions.
 
-### Партия 3 — Rust атомарность + Industry CPP wire (~10ч) ⏳ ИССЛЕДУЕТСЯ
+### Партия 3 — Rust атомарность + Industry CPP wire ✅ COMPLETE
 
-| ID | Title | Effort | Status |
+| ID | Title | Commit | Status |
 |---|---|---|---|
-| C-04 | Rust `write_project` atomic + per-project mutex | 3h | ⏳ |
-| H-09 | Wire `industry-cpp-defaults.js` к UnitCostEditor (поле industry + миграция + placeholder/tooltip) | 6h | 🔬 sub-agent research |
+| C-04 | Rust write_project atomic + per-project mutex (+5 Rust tests) | `1d5d02f` | ✅ |
+| H-09 backend | ProjectInfo.industry field + schema migration v2.0.2 (+4 pytest) | `c48fcc6` | ✅ |
+| H-09 frontend | ProjectSelector industry-select + UnitCostEditor suggestion hints | `f1082fa` | ✅ |
 
-### Партия 4 — UI components wire (~8ч) ⏳ В ОЧЕРЕДИ
+**Test delta:** +5 Rust tests + +4 pytest. 140 Rust + 40 migration pytest + 536 vitest. 0 regressions.
+
+### Партия 4 — UI components wire (~8ч) 🔄 В РАБОТЕ
 
 | ID | Title | Effort | Status |
 |---|---|---|---|
 | H-10a | EmptyState заменяет inline `.no-channels` в AppliedModeSummary | 1h | ⏳ |
 | H-10b | LoadingSkeleton при `ensurePatternsLoaded` initial fetch | 3h | ⏳ |
-| H-10c | ErrorState на sidecar 5xx в ValidateStepV13 | 4h | ⏳ |
+| H-10c | ErrorState на sidecar 5xx в ValidateStepV13 (partial in H-20a) | 4h | 🟡 partial |
 
 ### Партия 5 — Persistence + Tests (~14ч) ⏳ ИССЛЕДУЕТСЯ
 
@@ -85,12 +88,12 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 ## Текущий статус
 
 - **Branch:** `feat/v2.0.0-explicit-mode-wizard`
-- **Local commits ahead of origin:** 18 (`c580b60` Phase 2.1, `3dee1eb` Phase 4.1, `7b9fe01` track, `4252591` research + 9 Партия-1 + 5 Партия-2 + tracker updates)
+- **Local commits ahead of origin:** 22 (`c580b60` Phase 2.1, `3dee1eb` Phase 4.1, `7b9fe01` track, `4252591` research + 9 Партия-1 + 5 Партия-2 + 3 Партия-3 + tracker updates)
 - **Sub-agents:** done (H-09 + H-17 research saved)
-- **Active phase:** Партия 3 — Rust атомарность + Industry CPP wire
+- **Active phase:** Партия 4 — UI components wire (ErrorState уже wired в H-20a)
 - **Plan status:** 🟢 APPROVED (расширенный b)
-- **Test baseline:** 536 vitest / 156 pytest passing, 0 regressions
-- **Push gate:** Партии 1-2 ready для diff review с Антоном (per working agreement)
+- **Test baseline:** 536 vitest / 156 pytest / 140 Rust passing, 0 regressions
+- **Push gate:** Партии 1-3 ready для diff review с Антоном после Партии 5
 
 ## Decisions log
 
@@ -104,14 +107,13 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 ## Next Concrete First Step
 
-**Партия 3, шаг 1 — C-04 Rust write_project atomic + per-project mutex.**
+**Партия 4, шаг 1 — H-10a EmptyState заменяет inline .no-channels.**
 
 Acceptance criteria:
-- `src-tauri/src/commands/project.rs` `write_project()` — temp file + rename pattern (тот же что Python safe_io)
-- `DashMap<String, Arc<Mutex<()>>>` per-project mutex для serialization `read_project + write_project` pairs
-- Все 3 callsites (project_update, project_upload_data, project_activate) используют mutex
-- Cargo build + test passing
-- Commit: `fix(c-04): atomic write_project + per-project mutex (Rust side)`
+- `AppliedModeSummary.svelte` — replace `<p class="no-channels">` с `<EmptyState variant="info">`
+- Optional CTA "Перейти к импорту" с onCta callback
+- Snapshot tests updated если затронуты
+- Commit: `feat(h-10a): wire EmptyState к AppliedModeSummary no-channels`
 
 ## Pending Антон gates
 
