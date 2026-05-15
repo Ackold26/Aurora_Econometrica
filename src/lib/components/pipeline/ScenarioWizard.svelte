@@ -11,8 +11,11 @@
    */
 
   import { ChevronLeft, ChevronRight, SkipForward, Loader2, AlertTriangle, Info, Lightbulb } from 'lucide-svelte';
+  import { fly, fade } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import { wizardState, nextStep, prevStep, confirmPrevStep } from '$lib/wizard-state.js';
   import { analysisMode, expertMode } from '$lib/project-state.js';
+  import { prefersReducedMotion } from '$lib/stores/a11y.js';
 
   import StepTaskIntent     from '$lib/components/pipeline/wizard/StepTaskIntent.svelte';
   import StepTargetConfirm  from '$lib/components/pipeline/wizard/StepTargetConfirm.svelte';
@@ -219,6 +222,24 @@
   const canGoBack = $derived(!isFrozen && $wizardState.currentStep > 1);
   const isLastStep = $derived($wizardState.currentStep >= 6);
 
+  // ─── Step transition direction (v2.1.0 п.5.3: плавные переходы) ──────────
+  // Отслеживаем направление перехода: forward (fly справа) vs back (fly слева).
+  // prefers-reduced-motion → duration 0 (мгновенный crossfade).
+
+  let prevStepIndex = $state($wizardState.currentStep);
+  let transitionDirection = $state(/** @type {'forward' | 'back'} */ ('forward'));
+
+  $effect(() => {
+    const current = $wizardState.currentStep;
+    if (current !== prevStepIndex) {
+      transitionDirection = current > prevStepIndex ? 'forward' : 'back';
+      prevStepIndex = current;
+    }
+  });
+
+  const transitionDuration = $derived($prefersReducedMotion ? 0 : 280);
+  const flyOffset = $derived($prefersReducedMotion ? 0 : (transitionDirection === 'forward' ? 32 : -32));
+
   /** Whether current step is conditionally skippable */
   const canSkip = $derived(
     $wizardState.currentStep === 2 || $wizardState.currentStep === 3 || $wizardState.currentStep === 5
@@ -309,43 +330,53 @@
   {:else}
     <div class="wizard-content">
 
-      <!-- Step components -->
-      {#if $wizardState.currentStep === 1}
-        <StepTaskIntent onSelect={handleStep1Select} />
+      <!-- Step components — v2.1.0 п.5.3: плавные переходы.
+           {#key} форсит remount при смене currentStep, transition:fly даёт slide effect.
+           prefers-reduced-motion → duration 0 + offset 0 (мгновенное появление). -->
+      {#key $wizardState.currentStep}
+        <div
+          class="wizard-step-frame"
+          in:fly={{ x: flyOffset, duration: transitionDuration, easing: cubicOut, delay: transitionDuration > 0 ? 60 : 0 }}
+          out:fade={{ duration: transitionDuration / 2 }}
+        >
+          {#if $wizardState.currentStep === 1}
+            <StepTaskIntent onSelect={handleStep1Select} />
 
-      {:else if $wizardState.currentStep === 2}
-        <StepTargetConfirm
-          targetCandidates={$wizardState.autoDetectResults?.data_signature?.target_candidates ?? []}
-          onConfirm={handleStep2Confirm}
-        />
+          {:else if $wizardState.currentStep === 2}
+            <StepTargetConfirm
+              targetCandidates={$wizardState.autoDetectResults?.data_signature?.target_candidates ?? []}
+              onConfirm={handleStep2Confirm}
+            />
 
-      {:else if $wizardState.currentStep === 3}
-        <StepMediaConfirm
-          channels={$wizardState.autoDetectResults?.data_signature?.channels ?? []}
-          bestPracticeWarnings={$wizardState.autoDetectResults?.best_practice_warnings ?? []}
-          onConfirm={handleStep3Confirm}
-        />
+          {:else if $wizardState.currentStep === 3}
+            <StepMediaConfirm
+              channels={$wizardState.autoDetectResults?.data_signature?.channels ?? []}
+              bestPracticeWarnings={$wizardState.autoDetectResults?.best_practice_warnings ?? []}
+              onConfirm={handleStep3Confirm}
+            />
 
-      {:else if $wizardState.currentStep === 4}
-        <StepPlanInputs
-          taskType={$wizardState.stepData.step1?.taskType ?? 'budget_optimization'}
-          onSubmit={(data) => { nextStep({ stepData: { step4: data } }); }}
-        />
+          {:else if $wizardState.currentStep === 4}
+            <StepPlanInputs
+              taskType={$wizardState.stepData.step1?.taskType ?? 'budget_optimization'}
+              onSubmit={(data) => { nextStep({ stepData: { step4: data } }); }}
+            />
 
-      {:else if $wizardState.currentStep === 5}
-        <StepContextConfirm
-          autoDetectedFactors={$wizardState.autoDetectResults?.data_signature ?? {}}
-          onConfirm={(data) => { nextStep({ stepData: { step5: data } }); }}
-        />
+          {:else if $wizardState.currentStep === 5}
+            <StepContextConfirm
+              autoDetectedFactors={$wizardState.autoDetectResults?.data_signature ?? {}}
+              onConfirm={(data) => { nextStep({ stepData: { step5: data } }); }}
+            />
 
-      {:else if $wizardState.currentStep >= 6}
-        <StepSummary
-          summary={/** @type {any} */ ($wizardState.stepData ?? {})}
-          diagnostics={/** @type {any} */ (null)}
-          onRun={handleRun}
-          onEditExpert={() => { expertMode.set(true); }}
-        />
-      {/if}
+          {:else if $wizardState.currentStep >= 6}
+            <StepSummary
+              summary={/** @type {any} */ ($wizardState.stepData ?? {})}
+              diagnostics={/** @type {any} */ (null)}
+              onRun={handleRun}
+              onEditExpert={() => { expertMode.set(true); }}
+            />
+          {/if}
+        </div>
+      {/key}
 
       <!-- ─── Cross-product hint banner (escape reason set but not in ESCAPE state) -->
       {#if $wizardState.escapeReason && !showEscapeBanner}
@@ -589,6 +620,24 @@
     gap: 0;
     flex: 1;
     min-height: 0;
+  }
+
+  /* v2.1.0 п.5.3 — обёртка вокруг {#key} для плавных переходов между шагами.
+     Старый шаг исчезает с fade, новый въезжает справа (forward) или слева (back).
+     overflow:hidden предотвращает «выпадание» содержимого за границу при transition. */
+  .wizard-step-frame {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wizard-step-frame {
+      /* Дополнительная страховка: даже если transition сработала, не двигаемся */
+      transform: none !important;
+    }
   }
 
   /* ─── Step placeholder (Phase B stubs) ──────────────────────────────── */

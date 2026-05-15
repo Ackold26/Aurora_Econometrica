@@ -80,7 +80,7 @@
 |---|---|---|---|---|
 | 5.1 | Микро-анимация подтверждения канала | 4 | ✅ DONE | Agent A |
 | 5.2 | Анимация копирования настроек | 3 | ✅ DONE | Agent A |
-| 5.3 | Плавность переходов wizard | 5 | pending | Agent A (после 5.1+5.2) |
+| 5.3 | Плавность переходов wizard | 5 | ✅ DONE | Маша |
 | 5.4 | Контрастность светлая тема | 3 | ✅ DONE | Agent B |
 | 5.5 | Контрастность тёплая тема | 3 | ✅ DONE | Agent B |
 | 5.6 | Защита от мигания на ВСЕХ компонентах | 6 | ✅ DONE | Agent C |
@@ -128,6 +128,7 @@
 - ✅ Партия 2 п.4.1.8: `docs/AURORAMODEL_FORMAT.md` — спецификация формата (структура, защита, API, миграция, совместимость, дальнейшее развитие)
 - ✅ Партия 3 п.5.6: anti-pulse защита — global `animation:none` + 37 компонентов, store `prefersReducedMotion`, `docs/A11Y_MOTION_AUDIT.md`
 - ✅ Партия 3 п.5.7: focus-visible ring — global `*:focus-visible` 2px accent-primary, удалён дубль, WCAG AA 5.8:1
+- ✅ Партия 3 п.5.3: плавные переходы между шагами ScenarioWizard — `{#key}` + transition:fly с направлением forward/back, prefers-reduced-motion → duration 0 + offset 0
 
 ---
 
