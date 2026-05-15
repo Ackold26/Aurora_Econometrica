@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Project metadata (stored as project.json).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,12 +108,55 @@ fn read_project(dir: &Path) -> Result<ProjectInfo, String> {
         .map_err(|e| format!("Invalid project.json: {e}"))
 }
 
+/// C-04: atomic write through tmp-file + rename pattern.
+///
+/// Raw `std::fs::write` non-atomic: power loss или antivirus quarantine между
+/// write и flush → truncated project.json без recovery. Pattern (тот же что
+/// Python safe_io.atomic_write_json):
+///   1. Serialize к json string
+///   2. Open `<path>.tmp` для write
+///   3. write_all + sync_all (fsync equivalent — bytes на disk)
+///   4. Close
+///   5. fs::rename(tmp, target) — atomic on same volume
 fn write_project(dir: &Path, info: &ProjectInfo) -> Result<(), String> {
+    use std::io::Write;
     let path = dir.join("project.json");
     let json = serde_json::to_string_pretty(info)
         .map_err(|e| format!("Serialize error: {e}"))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Write error: {e}"))
+    let tmp = path.with_extension("json.tmp");
+    {
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("Open tmp: {e}"))?;
+        f.write_all(json.as_bytes())
+            .map_err(|e| format!("Write tmp: {e}"))?;
+        f.sync_all().map_err(|e| format!("Sync tmp: {e}"))?;
+    }
+    std::fs::rename(&tmp, &path)
+        .map_err(|e| format!("Rename tmp→target: {e}"))
+}
+
+/// C-04: per-project mutex registry для serialize read-modify-write pairs.
+///
+/// Raw read_project + write_project — TOCTOU race: user edits name while data
+/// upload runs concurrently → second write reads pre-mutation state, overwrites
+/// first commit. Per-project Arc<Mutex<()>> — concurrent writes на разные projects
+/// независимы; concurrent writes на same project serialize.
+static PROJECT_MUTEXES: OnceLock<RwLock<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+fn project_mutex(project_id: &str) -> Arc<Mutex<()>> {
+    let map = PROJECT_MUTEXES.get_or_init(|| RwLock::new(HashMap::new()));
+    // Fast path: read lock на existing entry.
+    {
+        let r = map.read().expect("PROJECT_MUTEXES poisoned");
+        if let Some(m) = r.get(project_id) {
+            return m.clone();
+        }
+    }
+    // Slow path: insert under write lock.
+    let mut w = map.write().expect("PROJECT_MUTEXES poisoned");
+    w.entry(project_id.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
 }
 
 fn now_iso() -> String {
@@ -196,6 +240,9 @@ pub async fn project_get(project_id: String) -> Result<ProjectInfo, String> {
 #[tauri::command]
 pub async fn project_update(project_id: String, updates: Value) -> Result<ProjectInfo, String> {
     let dir = project_dir(&project_id)?;
+    // C-04 TOCTOU guard: serialize read+write pair с per-project mutex.
+    let mtx = project_mutex(&project_id);
+    let _guard = mtx.lock().expect("project mutex poisoned");
     let mut info = read_project(&dir)?;
 
     if let Some(name) = updates.get("name").and_then(|v| v.as_str()) {
@@ -287,7 +334,9 @@ pub async fn project_upload_data(project_id: String, file_path: String) -> Resul
     let dst = dir.join("data").join(&filename);
     std::fs::copy(&src, &dst).map_err(|e| format!("Copy failed: {e}"))?;
 
-    // Update project metadata
+    // Update project metadata — C-04 TOCTOU guard.
+    let mtx = project_mutex(&project_id);
+    let _guard = mtx.lock().expect("project mutex poisoned");
     let mut info = read_project(&dir)?;
     info.data_file = Some(dst.to_string_lossy().to_string());
     info.updated_at = now_iso();
@@ -317,11 +366,19 @@ fn active_project_path() -> Result<PathBuf, String> {
 }
 
 fn set_active_project_inner(project_id: &str) -> Result<(), String> {
+    use std::io::Write;
     let path = active_project_path()?;
     let json = serde_json::json!({ "active_project": project_id });
     let serialized = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Serialize error: {e}"))?;
-    std::fs::write(&path, serialized)
+    // C-04: atomic write via tmp + rename (тот же pattern что write_project).
+    let tmp = path.with_extension("json.tmp");
+    {
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(serialized.as_bytes()).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp, &path)
         .map_err(|e| e.to_string())
 }
 
@@ -855,5 +912,96 @@ mod comparison_tests {
         let last_idx = scenarios[49]["idx"].as_u64().unwrap();
         assert_eq!(first_idx, 99, "первый = самый свежий");
         assert_eq!(last_idx, 50, "50-й = граница");
+    }
+}
+
+// ── C-04 atomic write_project + mutex tests ──
+#[cfg(test)]
+mod atomic_write_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn make_info(id: &str, name: &str) -> ProjectInfo {
+        ProjectInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: String::new(),
+            created_at: "2026-05-15T00:00:00Z".to_string(),
+            updated_at: "2026-05-15T00:00:00Z".to_string(),
+            kpi_column: None,
+            media_columns: vec![],
+            control_columns: vec![],
+            data_file: None,
+            unit_costs: HashMap::new(),
+            excluded_columns: vec![],
+            channel_categories: HashMap::new(),
+            unit_cost_inflation_pct: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn write_project_atomic_no_tmp_leftover() {
+        let tmp = TempDir::new().unwrap();
+        let info = make_info("test", "Test");
+        write_project(tmp.path(), &info).expect("write OK");
+        assert!(tmp.path().join("project.json").exists());
+        // No `.tmp` leftover после успешной atomic write.
+        assert!(!tmp.path().join("project.json.tmp").exists());
+    }
+
+    #[test]
+    fn write_project_roundtrip_preserves_fields() {
+        let tmp = TempDir::new().unwrap();
+        let mut info = make_info("rt", "Round-trip");
+        info.media_columns = vec!["tv_spend".to_string(), "olv_impressions".to_string()];
+        info.unit_costs.insert("tv_spend".to_string(), 1.0);
+        write_project(tmp.path(), &info).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.media_columns, info.media_columns);
+        assert_eq!(loaded.unit_costs.get("tv_spend"), Some(&1.0));
+    }
+
+    #[test]
+    fn project_mutex_returns_same_arc_for_same_id() {
+        let m1 = project_mutex("p1");
+        let m2 = project_mutex("p1");
+        assert!(Arc::ptr_eq(&m1, &m2), "same project_id → same mutex Arc");
+    }
+
+    #[test]
+    fn project_mutex_returns_different_arc_for_different_ids() {
+        let m1 = project_mutex("alpha");
+        let m2 = project_mutex("beta");
+        assert!(!Arc::ptr_eq(&m1, &m2), "different ids → independent mutexes");
+    }
+
+    #[test]
+    fn project_mutex_serializes_concurrent_locks_same_id() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::thread;
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let max_concurrent = Arc::new(AtomicU32::new(0));
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let counter = counter.clone();
+                let max_concurrent = max_concurrent.clone();
+                thread::spawn(move || {
+                    let mtx = project_mutex("shared");
+                    let _g = mtx.lock().unwrap();
+                    let cur = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(cur, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    counter.fetch_sub(1, Ordering::SeqCst);
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        // Только один thread должен держать lock в любой момент.
+        assert_eq!(max_concurrent.load(Ordering::SeqCst), 1,
+            "concurrent count must never exceed 1 (mutex serialization)");
     }
 }
