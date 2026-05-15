@@ -90,6 +90,17 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
         pickle.UnpicklingError на corrupt files.
     """
     p = Path(model_path)
+    # C-05a (audit): verify SHA-256 sidecar перед deserialize.
+    # Pickle.load deserializes arbitrary bytecode → если malicious `.pkl`
+    # подменён в shared folder, RCE при load. Sidecar hash — short-term
+    # mitigation (full pickle replacement defer к v2.2.0).
+    integrity_ok, integrity_reason = verify_pkl_sha256_sidecar(p)
+    if not integrity_ok:
+        logger.critical(
+            'pickle integrity FAILED для %s: %s. Pickle загружается но возможна '
+            'tamper / RCE. Phase 1 — warn only; Phase 2+ может strict-block.',
+            p, integrity_reason,
+        )
     with open(p, 'rb') as f:
         model_data = pickle.load(f)
 
@@ -512,6 +523,57 @@ def is_v20_compatible(model_data: dict[str, Any]) -> bool:
     return model_data.get('analysis_mode') is not None
 
 
+def _pkl_sha256_sidecar_path(pkl_path: Path) -> Path:
+    """Canonical sidecar path для pickle SHA-256 hash file."""
+    return pkl_path.with_suffix(pkl_path.suffix + '.sha256')
+
+
+def write_pkl_sha256_sidecar(pkl_path: Path) -> str:
+    """C-05a: compute SHA-256 of pickle file + write к sidecar file.
+
+    Called immediately после `os.replace(tmp, target)` finalize. Provides
+    integrity baseline для tamper detection при subsequent pickle.load.
+
+    Returns SHA-256 hex digest.
+    """
+    from utils.safe_io import compute_file_sha256
+    sha = compute_file_sha256(pkl_path)
+    sidecar = _pkl_sha256_sidecar_path(pkl_path)
+    # Atomic-ish: write tmp then replace. Sidecar self не критичен — если
+    # write fails, load_model_with_compat downgrades к 'no sidecar' warn.
+    tmp = sidecar.with_suffix(sidecar.suffix + '.tmp')
+    try:
+        tmp.write_text(sha + '\n', encoding='utf-8')
+        os.replace(tmp, sidecar)
+    except OSError as exc:
+        logger.warning('pkl sidecar hash write failed: %s', exc)
+    return sha
+
+
+def verify_pkl_sha256_sidecar(pkl_path: Path) -> tuple[bool, str]:
+    """C-05a: verify pickle SHA-256 matches sidecar file.
+
+    Returns:
+        (ok, reason). ok=True если match OR sidecar absent (pre-Phase-2 pickle).
+        ok=False только если sidecar exists и hash mismatch — потенциальный
+        tamper / RCE attack signal per Aurora Launch retro 2026-05-15.
+    """
+    from utils.safe_io import compute_file_sha256
+    sidecar = _pkl_sha256_sidecar_path(pkl_path)
+    if not sidecar.exists():
+        return True, 'no sidecar (pre-Phase-2 pickle, legacy compat)'
+    try:
+        stored = sidecar.read_text(encoding='utf-8').strip()
+    except OSError as exc:
+        return True, f'sidecar read failed: {exc} (degraded)'
+    if not stored or len(stored) != 64:
+        return False, f'malformed sidecar content: {stored!r}'
+    actual = compute_file_sha256(pkl_path)
+    if actual == stored:
+        return True, 'pickle integrity OK'
+    return False, f'pickle hash MISMATCH: stored={stored[:8]}.., actual={actual[:8]}..'
+
+
 def _normalize_numpy(obj: Any) -> Any:
     """H-05: Recursively convert numpy types к Python primitives.
 
@@ -620,6 +682,8 @@ def save_v20_diagnostics(project_dir: str | Path, diagnostics: dict[str, Any]) -
             # os.replace() is atomic on POSIX; effectively atomic on Windows
             # (same-volume MoveFileExW). Prevents partial-write corruption.
             os.replace(tmp_path, model_path)
+            # C-05a: stamp SHA-256 sidecar после finalize для tamper detection.
+            write_pkl_sha256_sidecar(model_path)
         except Exception:
             # Clean up temp on any failure; don't leave .pkl.tmp files behind
             try:
@@ -727,6 +791,8 @@ def clear_sensitivity_cache(project_dir: str | Path) -> bool:
             with os.fdopen(fd, 'wb') as f:
                 pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
             os.replace(tmp_path, model_path)
+            # C-05a: refresh SHA-256 sidecar после atomic finalize.
+            write_pkl_sha256_sidecar(model_path)
         except Exception:
             try:
                 tmp_path.unlink(missing_ok=True)
