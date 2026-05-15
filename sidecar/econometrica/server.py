@@ -173,6 +173,38 @@ app = FastAPI(
 )
 
 
+# ── Stale backup cleanup (H-07) ──────────────────────────────────────────────
+# Phase 0.3 + 1.4 created `.pre_2.0.1` backups per migration but `cleanup_stale_backups`
+# never gets called → unbounded backup accumulation on terminal-server / RDP installs
+# with 100+ projects migrated over time. Run once on sidecar startup, keep last 3
+# per project.
+@app.on_event('startup')
+async def _startup_cleanup_stale_backups():
+    try:
+        # Lazy import — utils.safe_io доступен только после basic startup probes.
+        from utils.safe_io import cleanup_stale_backups
+        # Канонический projects root — единый источник для всех проектов.
+        appdata = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA')
+        if not appdata:
+            return
+        projects_root = Path(appdata) / 'aurora-econometrica-gui' / 'projects'
+        if not projects_root.exists():
+            return
+        total_removed = 0
+        for project_dir in projects_root.iterdir():
+            if not project_dir.is_dir():
+                continue
+            try:
+                removed = cleanup_stale_backups(project_dir, keep_last=3)
+                total_removed += len(removed)
+            except OSError:
+                continue
+        if total_removed:
+            logger.info(f'startup cleanup: removed {total_removed} stale backup file(s)')
+    except Exception as e:
+        logger.warning(f'startup backup cleanup failed: {e}')
+
+
 # ── Global exception handler (JSON envelope) ─────────────────────────────────
 # Без него любая необработанная ошибка возвращается uvicorn'ом как plain text
 # `Internal Server Error`. Rust-сторона валится на парсинге с «expected value
