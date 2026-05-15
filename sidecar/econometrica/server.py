@@ -1756,8 +1756,9 @@ def _get_projects_roots() -> list[Path]:
     if localappdata and localappdata != appdata:
         roots.append((Path(localappdata) / 'aurora-econometrica-gui' / 'projects').resolve())
 
-    # 5. Dev fallback
-    roots.append((_sidecar_root / 'projects').resolve())
+    # 5. Dev fallback — `_sidecar_root` is a str (module-level constant),
+    # wrap в Path первым чтобы избежать str/str TypeError.
+    roots.append((Path(_sidecar_root) / 'projects').resolve())
 
     return roots
 
