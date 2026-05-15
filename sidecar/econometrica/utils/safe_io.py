@@ -68,11 +68,16 @@ def atomic_write_json(
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    # allow_nan=False rejects float('inf') / float('nan') / -inf.
+    # Default Python json.dumps(allow_nan=True) emits non-standard tokens
+    # `Infinity` / `NaN` (RFC 8259 violation). Subsequent json.load on такого
+    # файла raises JSONDecodeError. Audit H-02.
     serialized = json.dumps(
         data,
         indent=indent,
         ensure_ascii=ensure_ascii,
         sort_keys=sort_keys,
+        allow_nan=False,
     ).encode('utf-8')
     sha = _compute_sha256_bytes(serialized)
     tmp = target.with_suffix(target.suffix + '.tmp')

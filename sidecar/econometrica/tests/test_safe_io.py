@@ -70,6 +70,33 @@ class TestAtomicWriteJson:
         # verify both produce valid output.
         assert sha_sorted == compute_file_sha256(target)
 
+    def test_rejects_infinity(self, tmp_path):
+        """Audit H-02: allow_nan=False prevents writing non-standard JSON tokens
+        `Infinity` / `NaN` (RFC 8259 violation). Subsequent json.load would crash."""
+        target = tmp_path / 'data.json'
+        with pytest.raises(ValueError, match=r'(?i)not.*JSON.*compliant|out of range'):
+            atomic_write_json(target, {'budget': float('inf')})
+
+    def test_rejects_negative_infinity(self, tmp_path):
+        target = tmp_path / 'data.json'
+        with pytest.raises(ValueError):
+            atomic_write_json(target, {'inflation': float('-inf')})
+
+    def test_rejects_nan(self, tmp_path):
+        target = tmp_path / 'data.json'
+        with pytest.raises(ValueError):
+            atomic_write_json(target, {'pct': float('nan')})
+
+    def test_rejects_nested_infinity(self, tmp_path):
+        """Inf в глубоко вложенной структуре тоже отклоняется."""
+        target = tmp_path / 'data.json'
+        with pytest.raises(ValueError):
+            atomic_write_json(target, {
+                'channels': {
+                    'tv': {'unit_cost': 100, 'inflation': float('inf')},
+                },
+            })
+
 
 class TestVerifyJsonIntegrity:
     def test_matching_hash_returns_true(self, tmp_path):
