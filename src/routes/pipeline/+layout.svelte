@@ -33,6 +33,7 @@
   import { ensurePatternsLoaded } from '$lib/services/classifier-patterns.js';
   // Phase 2.16: trust-signal toast после successful migration.
   import MigrationCompletedToast from '$lib/components/MigrationCompletedToast.svelte';
+  import ErrorState from '$lib/components/pipeline/ErrorState.svelte';
 
   let { children } = $props();
 
@@ -51,6 +52,36 @@
     toVersion: '',
     movedCount: 0,
   });
+
+  // H-20a — migration error surface (audit). Раньше ошибки уходили в
+  // console.warn — customer not notified. Теперь banner с retry button.
+  /** @type {{ show: boolean, message: string, projectId: string | null }} */
+  let migrationError = $state({ show: false, message: '', projectId: null });
+
+  async function retryMigration() {
+    if (!migrationError.projectId) return;
+    const id = migrationError.projectId;
+    migrationError = { show: false, message: '', projectId: null };
+    try {
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: id }));
+      if (!projectDir) return;
+      const result = /** @type {any} */ (await invoke('econ_migrate_project', { projectDir }));
+      if (result?.status === 'ok') {
+        migrationToast = {
+          show: true,
+          fromVersion: result.from_version || '',
+          toVersion: result.to_version || '',
+          movedCount: (result.migrated_columns || []).length,
+        };
+      }
+    } catch (err) {
+      migrationError = {
+        show: true,
+        message: String(err),
+        projectId: id,
+      };
+    }
+  }
 
   // C4: Auto-collapse on small screens; on large - уважаем userCollapsed
   const insightsCollapsed = $derived(windowWidth < 1100 ? true : userCollapsed);
@@ -203,7 +234,15 @@
           };
         }
       } catch (err) {
-        console.warn('[migration] skipped:', err);
+        // H-20a: surface error к UI вместо silent console.warn. Customer видит
+        // banner + retry button. Без этого corruption / lock timeout уходили
+        // в DevTools console — никто не видел.
+        console.warn('[migration] failed:', err);
+        migrationError = {
+          show: true,
+          message: String(err),
+          projectId: id,
+        };
       }
     });
 
@@ -385,9 +424,33 @@
     movedCount={migrationToast.movedCount}
     onDismiss={() => { migrationToast = { ...migrationToast, show: false }; }}
   />
+
+  <!-- H-20a — migration error banner с retry. Раньше ошибки уходили в console.warn -->
+  {#if migrationError.show}
+    <div class="migration-error-wrap" data-testid="migration-error-banner">
+      <ErrorState
+        title="Не удалось обновить формат проекта"
+        message="Резервная копия project.json сохранена. Попробуйте ещё раз — если ошибка повторится, закройте остальные вкладки и проверьте свободное место на диске."
+        severity="error"
+        errorCode="MIGRATION_FAILED"
+        retryText="Повторить"
+        onRetry={retryMigration}
+        detailText={migrationError.message}
+      />
+    </div>
+  {/if}
 {/if}
 
 <style>
+  .migration-error-wrap {
+    position: fixed;
+    top: 80px;
+    right: 24px;
+    z-index: 9999;
+    max-width: 480px;
+    box-shadow: var(--shadow, 0 4px 32px rgba(0,0,0,0.55));
+  }
+
   .pipeline-shell {
     display: flex;
     flex-direction: column;
