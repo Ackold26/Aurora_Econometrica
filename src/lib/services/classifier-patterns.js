@@ -16,6 +16,7 @@
  * @module classifier-patterns
  */
 import { invoke } from '@tauri-apps/api/core';
+import { writable } from 'svelte/store';
 
 const CACHE_KEY = 'aurora-classifier-patterns-v1';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -156,6 +157,15 @@ function rebuildCompiledCache(payload) {
 }
 
 /**
+ * H-10b (Партия 4): readiness signal для LoadingSkeleton wiring.
+ *
+ * False до первой успешной resolve `ensurePatternsLoaded()`. UI components
+ * могут показать skeleton placeholder пока false. После first resolve
+ * (cache hit или backend / embedded fallback) — true и остаётся true.
+ */
+export const patternsReady = writable(false);
+
+/**
  * Initialize patterns: try cache → backend → embedded fallback.
  *
  * Idempotent (safe to call multiple times). Returns currently active payload.
@@ -163,13 +173,17 @@ function rebuildCompiledCache(payload) {
  * @returns {Promise<ClassifierPatternsPayload>}
  */
 export async function ensurePatternsLoaded() {
-  if (cachedPayload) return cachedPayload;
+  if (cachedPayload) {
+    patternsReady.set(true);
+    return cachedPayload;
+  }
 
   // 1. Try localStorage
   const cached = readFromLocalStorage();
   if (cached) {
     cachedPayload = cached;
     rebuildCompiledCache(cached);
+    patternsReady.set(true);
     // Refresh from backend в background (don't await — best-effort)
     refreshFromBackend().catch(() => {});
     return cached;
@@ -184,6 +198,7 @@ export async function ensurePatternsLoaded() {
       cachedPayload = fresh;
       writeToLocalStorage(fresh);
       rebuildCompiledCache(fresh);
+      patternsReady.set(true);
       return fresh;
     }
   } catch {
@@ -193,6 +208,7 @@ export async function ensurePatternsLoaded() {
   // 3. Embedded fallback
   cachedPayload = EMBEDDED_FALLBACK;
   rebuildCompiledCache(EMBEDDED_FALLBACK);
+  patternsReady.set(true);
   return EMBEDDED_FALLBACK;
 }
 
@@ -273,11 +289,14 @@ export function _getCachedPayload() {
 
 /**
  * Reset cached state — для tests only.
+ * Also resets patternsReady store (H-10b — иначе setup.js sets true and
+ * classifier-patterns own tests cannot exercise cold-start path).
  */
 export function _resetCache() {
   cachedPayload = null;
   compiledKindCache.clear();
   compiledUnitLabelRules = null;
+  patternsReady.set(false);
   try {
     localStorage.removeItem(CACHE_KEY);
   } catch {

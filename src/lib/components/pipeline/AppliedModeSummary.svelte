@@ -25,11 +25,12 @@
   } from '$lib/project-state.js';
   import { pluralizeRu } from '$lib/utils/i18n.js';
   // Phase 1.1 (SSOT): unit label resolution через shared service.
-  import { unitLabelFor as unitLabel } from '$lib/services/classifier-patterns.js';
+  import { unitLabelFor as unitLabel, patternsReady } from '$lib/services/classifier-patterns.js';
   // Phase 2.1 (R3): extracted unit-cost editor presentational component.
   import UnitCostEditor from './UnitCostEditor.svelte';
-  // H-10a (Партия 4): reusable empty state instead of inline <p class="no-channels">.
+  // H-10a + H-10b (Партия 4): reusable empty state + loading skeleton.
   import EmptyState from './EmptyState.svelte';
+  import LoadingSkeleton from './LoadingSkeleton.svelte';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
@@ -244,7 +245,13 @@
     </div>
   </header>
 
-  {#if channels.length > 0 || excludedChannelNames.length > 0}
+  <!-- H-10b: LoadingSkeleton пока classifier-patterns не loaded. Edge case —
+       cold start: customer открывает проект первый раз → backend cold →
+       patterns fetch занимает 200-500ms. Без skeleton — UI flash пустой,
+       потом channels появляются. -->
+  {#if !$patternsReady && channels.length > 0}
+    <LoadingSkeleton variant="channel-row" rows={channels.length} label="Подгружаем правила классификации каналов..." />
+  {:else if channels.length > 0 || excludedChannelNames.length > 0}
     <div class="channel-counts" data-testid="channel-counts">
       <span class="count-pill count-pill--active">
         <strong>{channels.length}</strong>

@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { render } from '@testing-library/svelte';
 import AppliedModeSummary from '$lib/components/pipeline/AppliedModeSummary.svelte';
 import { analysisMode, expertMode, unitCosts, unitCostInflation } from '$lib/project-state.js';
+import { patternsReady } from '$lib/services/classifier-patterns.js';
 
 
 /** Realistic Кагоцел-shape channels: 3 monetary digital + 1 physical TRP. */
@@ -48,6 +49,8 @@ beforeEach(() => {
   expertMode.set(false);
   unitCosts.set({});
   unitCostInflation.set({});
+  // H-10b: snapshot baseline для post-load state, не cold-start skeleton.
+  patternsReady.set(true);
 });
 
 

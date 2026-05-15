@@ -17,6 +17,7 @@ import {
   analysisMode, expertMode, unitCosts, unitCostInflation,
   unitCostInputMode, budgetInputs,
 } from '$lib/project-state.js';
+import { patternsReady } from '$lib/services/classifier-patterns.js';
 
 
 // Reset stores before each test
@@ -28,6 +29,10 @@ beforeEach(() => {
   // Phase 1.3 — reset new persistence stores чтобы избежать state leakage
   unitCostInputMode.set({});
   budgetInputs.set({});
+  // H-10b: by default считаем patterns loaded (production cold-start
+  // редкий). Конкретные тесты H-10b skeleton тестируют cold-start case
+  // через explicit patternsReady.set(false).
+  patternsReady.set(true);
   // Use fake timers for debounce tests.
   vi.useFakeTimers();
 });
@@ -545,6 +550,22 @@ describe('AppliedModeSummary', () => {
     // H-10a: replaced inline <p class="no-channels"> с EmptyState component
     expect(getByTestId('empty-state')).toBeInTheDocument();
     expect(screen.getByText(/Каналы не определены/)).toBeInTheDocument();
+  });
+
+  it('H-10b: shows LoadingSkeleton пока patternsReady=false', () => {
+    patternsReady.set(false);
+    const channels = makeChannels();
+    const { getByTestId } = render(AppliedModeSummary, { props: { channels } });
+    expect(getByTestId('loading-skeleton')).toBeInTheDocument();
+    // Reset для последующих тестов (setup.js устанавливает true но мы переключили).
+    patternsReady.set(true);
+  });
+
+  it('H-10b: NO LoadingSkeleton когда patternsReady=true', () => {
+    patternsReady.set(true);
+    const channels = makeChannels();
+    const { queryByTestId } = render(AppliedModeSummary, { props: { channels } });
+    expect(queryByTestId('loading-skeleton')).toBeNull();
   });
 
   it('does NOT render channel-list when channels is empty', () => {
