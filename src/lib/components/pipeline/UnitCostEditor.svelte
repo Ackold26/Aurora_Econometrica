@@ -34,6 +34,7 @@
    *   siblingCount?: number,
    *   industry?: string,
    *   onApplyToSameType?: () => void,
+   *   isFlashing?: boolean,
    * }}
    */
   const {
@@ -42,6 +43,7 @@
     siblingCount = 0,
     industry = 'unknown',
     onApplyToSameType = undefined,
+    isFlashing = false,
   } = $props();
 
   /**
@@ -175,8 +177,11 @@
 <div
   class="uc-row"
   class:uc-row--converted={isConverted()}
+  class:uc-row--flash={isFlashing}
   data-testid="uc-editor"
   data-channel={channel.name}
+  aria-live={isFlashing ? 'polite' : undefined}
+  aria-label={isFlashing ? `${channel.name}: настройки скопированы` : undefined}
 >
   <div class="uc-row-head">
     <span class="uc-channel">{channel.name}</span>
@@ -437,6 +442,22 @@
     }
     .uc-apply-same:active {
       transform: scale(0.97);
+    }
+  }
+
+  /* v2.1.0 п.5.2: stagger flash animation on target channels after
+     «Применить ко всем» copy action.
+     prefers-reduced-motion: global app.css rule collapses to 0.01ms for
+     motion-sensitive users — no separate override needed here. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes copy-flash {
+      0%   { background: var(--bg-card, #181824); border-color: var(--border-subtle, rgba(255,255,255,0.06)); }
+      25%  { background: color-mix(in srgb, var(--success, #10B981) 18%, var(--bg-card, #181824));
+              border-color: color-mix(in srgb, var(--success, #10B981) 55%, transparent); }
+      100% { background: var(--bg-card, #181824); border-color: var(--border-subtle, rgba(255,255,255,0.06)); }
+    }
+    .uc-row--flash {
+      animation: copy-flash 0.55s ease-out forwards;
     }
   }
 </style>

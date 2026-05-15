@@ -60,6 +60,12 @@
    *  Показываем pill «N исключено» с раскрывающимся списком имён. */
   let excludedExpanded = $state(false);
 
+  /** v2.1.0 п.5.2: Set of channel names currently playing copy-flash animation.
+   *  Populated by applyToSameType with staggered timeouts (80ms between each).
+   *  Cleared via individual per-channel timeouts (540ms flash duration + stagger).
+   *  @type {Set<string>} */
+  let flashingChannels = $state(new Set());
+
   // Phase 1.3 (v2.0.1): persistence promotion — modeFor + budgetInputs
   // promoted from local $state к shared stores. Sync через project.json
   // на save_kpi_settings (Phase 1.2 extended schema). Reload preserves
@@ -155,6 +161,24 @@
         });
       }
     }
+
+    // v2.1.0 п.5.2: stagger copy-flash animation on target cards.
+    // STAGGER: 80–120ms between each target so user sees the copy "travelling".
+    // Flash duration: 550ms. prefers-reduced-motion guard: global app.css
+    // collapses animation to 0.01ms, so setState still happens (stores updated
+    // above) but visual flash is imperceptible. UX is not degraded.
+    const STAGGER_MS = 100;
+    const FLASH_DURATION_MS = 560;
+    targets.forEach((targetName, idx) => {
+      setTimeout(() => {
+        flashingChannels = new Set([...flashingChannels, targetName]);
+        setTimeout(() => {
+          flashingChannels = new Set(
+            [...flashingChannels].filter((n) => n !== targetName)
+          );
+        }, FLASH_DURATION_MS);
+      }, idx * STAGGER_MS);
+    });
   }
 
   /** Count of sister channels с same unit type as the given channel. */
@@ -328,6 +352,7 @@
               siblingCount={siblingPhysicalCount(ch.name)}
               industry={$activeProject?.industry ?? 'unknown'}
               onApplyToSameType={() => applyToSameType(ch.name)}
+              isFlashing={flashingChannels.has(ch.name)}
             />
           {/if}
         {/each}
