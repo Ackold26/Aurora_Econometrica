@@ -13,6 +13,7 @@ from engines.project_migration import (
     needs_migration,
     apply_migration,
     migrate_project_file,
+    verify_project_integrity,
     TARGET_SCHEMA_VERSION,
     DERIVED_KEYS,
 )
@@ -133,6 +134,57 @@ class TestApplyMigration:
         }
         after = apply_migration(before)
         assert after['excluded_columns'].count('SOM') == 1
+
+    # C-03 — JCS hash stamping
+    def test_stamps_jcs_sha256(self):
+        """apply_migration adds _jcs_sha256 field (INV-06 compliance)."""
+        after = apply_migration({'control_columns': []})
+        assert '_jcs_sha256' in after
+        assert isinstance(after['_jcs_sha256'], str)
+        assert len(after['_jcs_sha256']) == 64
+
+    def test_hash_excludes_self(self):
+        """Stored hash recomputable from payload без _jcs_sha256 field."""
+        from utils.canonical_hash import compute_project_hash
+        after = apply_migration({'control_columns': ['tv_spend']})
+        stored = after['_jcs_sha256']
+        payload_no_hash = {k: v for k, v in after.items() if k != '_jcs_sha256'}
+        recomputed = compute_project_hash(payload_no_hash)
+        assert recomputed == stored
+
+
+class TestVerifyProjectIntegrity:
+    """C-03 / INV-06 hash verification on load."""
+
+    def test_no_hash_field_returns_ok(self):
+        """Pre-Phase 1.6 projects (no field) — return ok."""
+        ok, reason = verify_project_integrity({'control_columns': []})
+        assert ok is True
+        assert 'pre-Phase' in reason
+
+    def test_matching_hash_returns_ok(self):
+        """Round-trip apply_migration → verify_project_integrity = ok."""
+        migrated = apply_migration({'control_columns': []})
+        ok, reason = verify_project_integrity(migrated)
+        assert ok is True
+        assert 'OK' in reason
+
+    def test_tampered_returns_mismatch(self):
+        """Modify a field after stamping → verify detects mismatch."""
+        migrated = apply_migration({'control_columns': ['tv_spend']})
+        migrated['control_columns'] = ['tv_spend', 'tampered_column']
+        ok, reason = verify_project_integrity(migrated)
+        assert ok is False
+        assert 'mismatch' in reason.lower()
+
+    def test_malformed_hash_returns_false(self):
+        ok, reason = verify_project_integrity({'_jcs_sha256': 'too_short'})
+        assert ok is False
+        assert 'malformed' in reason.lower()
+
+    def test_non_string_hash_returns_false(self):
+        ok, reason = verify_project_integrity({'_jcs_sha256': 12345})
+        assert ok is False
 
 
 class TestMigrateProjectFile:

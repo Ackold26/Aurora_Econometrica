@@ -86,7 +86,8 @@ def apply_migration(project_dict: dict[str, Any]) -> dict[str, Any]:
     Steps:
     1. Move derived metric columns from control_columns → excluded_columns
     2. Update schema_version к TARGET_SCHEMA_VERSION
-    3. Preserve all other fields (additive evolution per ADR-019)
+    3. Stamp `_jcs_sha256` canonical hash (C-03 / INV-06)
+    4. Preserve all other fields (additive evolution per ADR-019)
 
     Idempotent: re-running migration on already-migrated dict = no-op (no
     derived metrics в control_columns after first pass).
@@ -105,7 +106,45 @@ def apply_migration(project_dict: dict[str, Any]) -> dict[str, Any]:
         out['excluded_columns'] = excluded_cols
 
     out['schema_version'] = TARGET_SCHEMA_VERSION
+
+    # C-03 (INV-06): stamp JCS canonical hash для tamper detection.
+    # Exclude self (`_jcs_sha256`) from hash computation, avoid chicken-egg.
+    out.pop('_jcs_sha256', None)
+    try:
+        from utils.canonical_hash import compute_project_hash
+        out['_jcs_sha256'] = compute_project_hash(out)
+    except ImportError:
+        # rfc8785 absent (dev environment без pip install). Skip stamping;
+        # downstream verification will skip too.
+        logger.warning('rfc8785 unavailable — _jcs_sha256 not stamped')
     return out
+
+
+def verify_project_integrity(project_dict: dict[str, Any]) -> tuple[bool, str]:
+    """Verify project.json `_jcs_sha256` matches recomputed canonical hash.
+
+    Soft check — caller decides action (warn vs raise). Phase 1.6 ships
+    as warning-only; future Phase 2+ may strict-enforce.
+
+    Returns:
+        (ok, reason). ok=True если hash matches or field absent (no-op for
+        pre-1.6 projects). reason describes match/mismatch.
+    """
+    stored = project_dict.get('_jcs_sha256')
+    if not stored:
+        return True, 'no _jcs_sha256 field (pre-Phase-1.6 project)'
+    if not isinstance(stored, str) or len(stored) != 64:
+        return False, f'malformed _jcs_sha256: {stored!r}'
+    try:
+        from utils.canonical_hash import compute_project_hash
+    except ImportError:
+        return True, 'rfc8785 unavailable, skipping verify'
+    # Recompute excluding self.
+    payload = {k: v for k, v in project_dict.items() if k != '_jcs_sha256'}
+    actual = compute_project_hash(payload)
+    if actual == stored:
+        return True, 'integrity OK'
+    return False, f'hash mismatch: stored={stored[:8]}.., actual={actual[:8]}..'
 
 
 def migrate_project_file(project_json_path: Path) -> dict[str, Any]:
@@ -138,6 +177,15 @@ def migrate_project_file(project_json_path: Path) -> dict[str, Any]:
     # Read current state
     with open(project_json_path, encoding='utf-8') as f:
         project_dict = json.load(f)
+
+    # C-03 / INV-06: soft hash verify (warn-only в Phase 1).
+    integrity_ok, integrity_msg = verify_project_integrity(project_dict)
+    if not integrity_ok:
+        logger.warning(
+            'project.json hash verify FAILED before migration: %s. '
+            'Proceeding anyway (Phase 1 soft enforcement).',
+            integrity_msg,
+        )
 
     needs, reason = needs_migration(project_dict)
     if not needs:
