@@ -552,11 +552,19 @@
   .computing-indicator {
     font-size: 12px;
     color: var(--accent-primary, #3b82f6);
-    animation: pulse 1.5s ease-in-out infinite;
   }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.45; }
+  /* H-13: pulse-анимация только при no-preference (INV-12).
+     Reduced-motion users видят static indicator без визуального мерцания.
+     Training может занимать 20-60s — без guard'a вестибулярные нарушения
+     получают непрерывную раздражающую анимацию. */
+  @media (prefers-reduced-motion: no-preference) {
+    .computing-indicator {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
   }
 
   .nav-btn {

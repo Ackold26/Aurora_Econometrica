@@ -40,7 +40,10 @@
   /* ── Text ── */
   --text-primary:   #EAEAF0;
   --text-secondary: #A8A8B8;
-  --text-muted:     #7A7A90;
+  /* H-15: --text-muted bumped с #7A7A90 (3.8:1 на #181824, ниже WCAG AA 4.5:1)
+     к #9090A8 (~4.7:1). Используется в field labels, hints, mute spans —
+     functional text, не decorative. Light + fun themes — separate audit pass. */
+  --text-muted:     #9090A8;
 
   /* ── Borders ── */
   --border:        rgba(255, 255, 255, 0.16);
@@ -248,6 +251,22 @@
 
   /* ── Disabled opacity: light needs stronger contrast ── */
   --disabled-opacity: 0.5;
+}
+
+/* ── A11y: visible keyboard focus ring (H-14) ──
+   Global :focus-visible rule — WCAG 2.1 SC 2.4.7 (focus visible).
+   Components могут override через class-specific :focus-visible если
+   нужен другой visual treatment. `outline: none` без :focus-visible
+   replacement — accessibility violation. */
+*:focus-visible {
+  outline: 2px solid var(--gold, #c9a449);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 8px);
+}
+
+/* Suppress default outline на mouse focus — keyboard focus only. */
+*:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* ── Fun Theme - pastel, warm, playful ── */
