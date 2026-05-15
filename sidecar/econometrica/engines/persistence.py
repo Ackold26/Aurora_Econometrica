@@ -512,6 +512,35 @@ def is_v20_compatible(model_data: dict[str, Any]) -> bool:
     return model_data.get('analysis_mode') is not None
 
 
+def _normalize_numpy(obj: Any) -> Any:
+    """H-05: Recursively convert numpy types к Python primitives.
+
+    Saved diagnostics dicts (backtest_results, ppc_results) могут содержать
+    numpy.ndarray, numpy.float64, numpy.int64 etc. — эти типы не JSON-serializable.
+    После save_v20_diagnostics → load_v20_diagnostics → JSONResponse(...) FastAPI
+    raises TypeError. Применяется при save (clean storage) + при load (defensive
+    для legacy pickles).
+    """
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: _normalize_numpy(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_normalize_numpy(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        # NaN / Inf — JSON-illegal. Return None для downstream safety.
+        v = float(obj)
+        if v != v or v in (float('inf'), float('-inf')):
+            return None
+        return v
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    return obj
+
+
 def save_v20_diagnostics(project_dir: str | Path, diagnostics: dict[str, Any]) -> None:
     """Append v2.0.0 diagnostics into existing latest.pkl atomically.
 
@@ -563,10 +592,12 @@ def save_v20_diagnostics(project_dir: str | Path, diagnostics: dict[str, Any]) -
         model_data = load_model_with_compat(model_path)
 
         # Merge only allowed fields (strict allowlist prevents field pollution)
+        # H-05: sanitize numpy types к Python primitives перед storage чтобы
+        # downstream JSONResponse не падал на ndarray / float32 / int64.
         applied_fields: list[str] = []
         for key, value in diagnostics.items():
             if key in _V20_ALLOWED_FIELDS:
-                model_data[key] = value
+                model_data[key] = _normalize_numpy(value)
                 applied_fields.append(key)
             else:
                 logger.warning(
@@ -633,7 +664,9 @@ def load_v20_diagnostics(project_dir: str | Path) -> dict[str, Any]:
 
     model_data = load_model_with_compat(model_path)
 
-    return {
+    # H-05: defensive numpy sanitize при load для legacy v1.x pickles, которые
+    # содержали ndarray в diagnostics fields. Новые pickles уже sanitized at save.
+    return _normalize_numpy({
         'signed_factor_priors_used': model_data.get('signed_factor_priors_used') or {},
         'holiday_dummies_injected': model_data.get('holiday_dummies_injected') or [],
         'mcmc_diagnostics': model_data.get('mcmc_diagnostics'),
@@ -642,7 +675,7 @@ def load_v20_diagnostics(project_dir: str | Path) -> dict[str, Any]:
         'sensitivity_tornado_cache': model_data.get('sensitivity_tornado_cache'),
         'analysis_mode': model_data.get('analysis_mode'),
         '_v20_compatible': is_v20_compatible(model_data),
-    }
+    })
 
 
 def clear_sensitivity_cache(project_dir: str | Path) -> bool:

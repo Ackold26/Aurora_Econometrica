@@ -233,18 +233,43 @@ def migrate_project_file(project_json_path: Path) -> dict[str, Any]:
             'reason': reason,
         }
     except Exception as exc:  # noqa: BLE001 — restore on any error
-        # Restore from backup
+        # H-04: verify backup integrity перед restore + atomic restore.
+        # Раньше `shutil.copy2` — non-atomic + не проверял backup checksum.
+        # Если backup сам corrupted (disk error, antivirus quarantine) →
+        # silent overwrite original с битыми данными.
+        from utils.safe_io import verify_json_integrity, atomic_write_json
+        restore_ok = False
+        restore_reason = ''
         try:
-            import shutil
-            shutil.copy2(backup_path, project_json_path)
-            logger.exception('Migration FAILED, restored from backup: %s', exc)
-        except Exception:
-            logger.exception('Migration FAILED + backup restore ALSO FAILED')
+            if not verify_json_integrity(backup_path, backup_sha):
+                restore_reason = (
+                    f'backup checksum mismatch ({backup_path}, expected '
+                    f'{backup_sha[:8]}..). Restore aborted to avoid corruption.'
+                )
+                logger.critical(
+                    'Migration FAILED + backup INTEGRITY ALSO FAILED: %s', restore_reason
+                )
+            else:
+                # Read verified backup, atomic write target.
+                with open(backup_path, encoding='utf-8') as bf:
+                    backup_data = json.load(bf)
+                atomic_write_json(project_json_path, backup_data)
+                restore_ok = True
+                logger.exception(
+                    'Migration FAILED, atomic restore from verified backup: %s', exc,
+                )
+        except Exception as restore_exc:
+            restore_reason = f'atomic restore failed: {restore_exc}'
+            logger.exception(
+                'Migration FAILED + backup restore ALSO FAILED: %s', restore_exc,
+            )
         return {
             'status': 'error',
             'from_version': from_version,
             'to_version': TARGET_SCHEMA_VERSION,
             'backup_path': str(backup_path),
             'backup_sha256': backup_sha,
-            'reason': f'migration failed (restored from backup): {exc}',
+            'restore_ok': restore_ok,
+            'restore_reason': restore_reason,
+            'reason': f'migration failed{" (restored from backup)" if restore_ok else ""}: {exc}',
         }
