@@ -33,7 +33,15 @@ DERIVED_KEYS = [
     'доля_голоса', 'доля голоса',
 ]
 
-TARGET_SCHEMA_VERSION = '2.0.1'
+TARGET_SCHEMA_VERSION = '2.0.2'
+
+# H-09 (Phase 4.1 wire): industry whitelist для context-aware unit_cost
+# suggestions. Mirrors INDUSTRY_CPP_TABLE keys в frontend
+# src/lib/services/industry-cpp-defaults.js.
+ALLOWED_INDUSTRIES = (
+    'pharma_otc', 'pharma_rx', 'fmcg', 'retail',
+    'saas', 'finance', 'b2b', 'unknown',
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +64,7 @@ def is_derived_metric(column_name: str) -> bool:
 
 
 def needs_migration(project_dict: dict[str, Any]) -> tuple[bool, str]:
-    """Decide if project.json needs Phase 1.4 migration.
+    """Decide if project.json needs Phase 1.4 / H-09 migration.
 
     Returns:
         (needs_migration, reason). Reason — diagnostic string.
@@ -71,13 +79,20 @@ def needs_migration(project_dict: dict[str, Any]) -> tuple[bool, str]:
     if not isinstance(control_cols, list):
         return False, 'control_columns malformed'
     misclassified = [c for c in control_cols if is_derived_metric(str(c))]
-    if not misclassified:
+    # H-09: industry поле absent → needs migration (add default 'unknown').
+    industry_missing = 'industry' not in project_dict
+    if not misclassified and not industry_missing:
         # No actual mismatch — just bump version (cheap)
         return True, f'version bump only (no content change): {current} → {TARGET_SCHEMA_VERSION}'
-    return True, (
-        f'{len(misclassified)} derived metric(s) misclassified as control: '
-        f'{", ".join(misclassified[:3])}{"..." if len(misclassified) > 3 else ""}'
-    )
+    parts = []
+    if misclassified:
+        parts.append(
+            f'{len(misclassified)} derived metric(s) misclassified as control: '
+            f'{", ".join(misclassified[:3])}{"..." if len(misclassified) > 3 else ""}'
+        )
+    if industry_missing:
+        parts.append('industry field missing (added default "unknown")')
+    return True, '; '.join(parts)
 
 
 def apply_migration(project_dict: dict[str, Any]) -> dict[str, Any]:
@@ -104,6 +119,11 @@ def apply_migration(project_dict: dict[str, Any]) -> dict[str, Any]:
             if c not in excluded_cols:
                 excluded_cols.append(c)
         out['excluded_columns'] = excluded_cols
+
+    # H-09: stamp default 'unknown' для industry если missing OR malformed.
+    existing_ind = out.get('industry')
+    if not isinstance(existing_ind, str) or existing_ind not in ALLOWED_INDUSTRIES:
+        out['industry'] = 'unknown'
 
     out['schema_version'] = TARGET_SCHEMA_VERSION
 

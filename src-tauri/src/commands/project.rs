@@ -47,6 +47,17 @@ pub struct ProjectInfo {
     /// Backward compat: default empty (no adjustment) for legacy projects.
     #[serde(default)]
     pub unit_cost_inflation_pct: HashMap<String, f64>,
+    /// H-09 (Phase 4.1 wire): industry для context-aware unit_cost suggestions.
+    /// Values matching INDUSTRY_CPP_TABLE в src/lib/services/industry-cpp-defaults.js:
+    /// pharma_otc / pharma_rx / fmcg / retail / saas / finance / b2b / unknown.
+    /// Backward compat: default "unknown" — UI shows low-confidence generic ranges.
+    /// Schema bump к v2.0.2 (project_migration.py).
+    #[serde(default = "default_industry")]
+    pub industry: String,
+}
+
+fn default_industry() -> String {
+    "unknown".to_string()
 }
 
 /// Get the projects root directory.
@@ -183,7 +194,7 @@ pub async fn project_list() -> Result<Vec<ProjectInfo>, String> {
 }
 
 #[tauri::command]
-pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
+pub async fn project_create(name: String, industry: Option<String>) -> Result<ProjectInfo, String> {
     let id = name.to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
@@ -204,6 +215,13 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
     std::fs::create_dir_all(dir.join("exports")).map_err(|e| e.to_string())?;
 
     let now = now_iso();
+    // H-09: industry whitelist (mirrors INDUSTRY_CPP_TABLE keys в frontend).
+    let industry_validated = match industry.as_deref() {
+        Some("pharma_otc") | Some("pharma_rx") | Some("fmcg") | Some("retail")
+        | Some("saas") | Some("finance") | Some("b2b") | Some("unknown")
+            => industry.unwrap(),
+        _ => "unknown".to_string(),
+    };
     let info = ProjectInfo {
         id: id.clone(),
         name,
@@ -218,6 +236,7 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
         excluded_columns: Vec::new(),
         channel_categories: HashMap::new(),
         unit_cost_inflation_pct: HashMap::new(),
+        industry: industry_validated,
     };
     write_project(&dir, &info)?;
 
@@ -299,6 +318,13 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
                 })
             })
             .collect();
+    }
+    // H-09: industry update — whitelist same как в project_create.
+    if let Some(ind) = updates.get("industry").and_then(|v| v.as_str()) {
+        let allowed = ["pharma_otc", "pharma_rx", "fmcg", "retail", "saas", "finance", "b2b", "unknown"];
+        if allowed.contains(&ind) {
+            info.industry = ind.to_string();
+        }
     }
 
     info.updated_at = now_iso();
@@ -936,6 +962,7 @@ mod atomic_write_tests {
             excluded_columns: vec![],
             channel_categories: HashMap::new(),
             unit_cost_inflation_pct: HashMap::new(),
+            industry: "unknown".to_string(),
         }
     }
 

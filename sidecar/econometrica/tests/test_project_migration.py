@@ -47,10 +47,24 @@ class TestNeedsMigration:
         assert needs is False
 
     def test_legacy_v1_0_no_derived(self):
-        project = {'control_columns': ['Кол-во запросов', 'temperature']}
+        # H-09 added industry field — legacy without industry → needs migration
+        project = {
+            'control_columns': ['Кол-во запросов', 'temperature'],
+            'industry': 'fmcg',  # legacy с уже выставленным industry → version bump only
+        }
         needs, reason = needs_migration(project)
         assert needs is True
         assert 'version bump only' in reason
+
+    def test_legacy_v1_0_missing_industry(self):
+        """H-09: industry field absent → needs migration even без других changes."""
+        project = {
+            'schema_version': '2.0.1',  # already at previous target
+            'control_columns': ['Кол-во запросов'],
+        }
+        needs, reason = needs_migration(project)
+        assert needs is True
+        assert 'industry' in reason.lower()
 
     def test_legacy_with_derived(self):
         project = {
@@ -134,6 +148,26 @@ class TestApplyMigration:
         }
         after = apply_migration(before)
         assert after['excluded_columns'].count('SOM') == 1
+
+    # H-09 — industry field default stamping
+    def test_stamps_industry_unknown_default(self):
+        """Pre-Phase-4.1 project без industry → 'unknown' default."""
+        after = apply_migration({'control_columns': []})
+        assert after['industry'] == 'unknown'
+
+    def test_preserves_valid_industry(self):
+        """User-set industry (whitelist match) preserved through migration."""
+        after = apply_migration({'control_columns': [], 'industry': 'pharma_otc'})
+        assert after['industry'] == 'pharma_otc'
+
+    def test_corrects_invalid_industry(self):
+        """Malformed industry → corrected к 'unknown'."""
+        after = apply_migration({'control_columns': [], 'industry': 'made_up'})
+        assert after['industry'] == 'unknown'
+
+    def test_corrects_non_string_industry(self):
+        after = apply_migration({'control_columns': [], 'industry': 42})
+        assert after['industry'] == 'unknown'
 
     # C-03 — JCS hash stamping
     def test_stamps_jcs_sha256(self):
