@@ -30,23 +30,22 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 ## Партии работ
 
-### Партия 1 — Критичная безопасность + UX-баги (~4-5ч) ⏳ В ОЧЕРЕДИ
+### Партия 1 — Критичная безопасность + UX-баги ✅ COMPLETE
 
-| ID | Title | Effort | Status |
+| ID | Title | Commit | Status |
 |---|---|---|---|
-| C-01 | PyInstaller spec: `rfc8785` + `filelock` + smoke probe | 10min | ⏳ |
-| H-01 | Path traversal guard (Rust + Python) | 30min | ⏳ |
-| H-02 | `allow_nan=False` в atomic_write_json | 10min | ⏳ |
-| H-03 | `value_per_count_unit` field_validator (NaN/Inf/neg/>1e9) | 15min | ⏳ |
-| H-07 | `cleanup_stale_backups` startup lifespan call | 15min | ⏳ |
-| H-11 | applyToSameType копирует mode из source channel | 15min | ⏳ |
-| H-12 | applyToSameType visible в budget mode | 60min | ⏳ |
-| H-13 | `pulse-anim` в `@media (prefers-reduced-motion)` | 15min | ⏳ |
-| H-14 | `:focus-visible` ring на custom buttons | 60min | ⏳ |
-| H-15 | `--text-muted` ratio fix (3.8 → 4.5+) | 10min | ⏳ |
-| H-19 | `detect_column_role(None)` fix + regression test | 30min | ⏳ |
+| C-01 | PyInstaller spec: rfc8785 + filelock + bundle probe | `c75e6cd` | ✅ |
+| H-02 | allow_nan=False в atomic_write_json (+4 vitest) | `69d95e0` | ✅ |
+| H-19 | detect_column_role(None) → 'unknown' (+2 vitest) | `ce0e9c2` | ✅ |
+| H-03 | value_per_count_unit field_validator | `11743c9` | ✅ |
+| H-01 | Path traversal guard Rust+Python (+6 pytest) | `2e69ef5` | ✅ |
+| H-07 | cleanup_stale_backups startup hook | `7bc3d9d` | ✅ |
+| H-11+H-12 | applyToSameType budget mode + mode copy (+2 vitest) | `e4fca9d` | ✅ |
+| H-13+H-14+H-15 | a11y motion guard + focus ring + muted contrast | `b264294` | ✅ |
 
-### Партия 2 — Wiring критичных утилит (~6-7ч) ⏳ В ОЧЕРЕДИ
+**Test delta:** +12 pytest, +6 vitest. 536 vitest + ~150 pytest passing. 0 regressions.
+
+### Партия 2 — Wiring критичных утилит (~6-7ч) 🔄 В РАБОТЕ
 
 | ID | Title | Effort | Status |
 |---|---|---|---|
@@ -85,10 +84,11 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 ## Текущий статус
 
 - **Branch:** `feat/v2.0.0-explicit-mode-wizard`
-- **Local commits ahead of origin:** 2 (`c580b60` Phase 2.1, `3dee1eb` Phase 4.1)
-- **Sub-agents running:** 2 (H-09 research, H-17 research)
-- **Active phase:** Подготовка к Партии 1
+- **Local commits ahead of origin:** 12 (`c580b60` Phase 2.1, `3dee1eb` Phase 4.1, `7b9fe01` track, `4252591` research + 8 Партия-1 фиксов)
+- **Sub-agents:** done (H-09 + H-17 research saved в docs/SPRINT_v2_0_1_rc2_subagent_research.md)
+- **Active phase:** Партия 2 — wiring critical utilities
 - **Plan status:** 🟢 APPROVED (расширенный b)
+- **Test baseline:** 536 vitest / ~165 pytest passing, 0 regressions
 
 ## Decisions log
 
@@ -102,12 +102,16 @@ Sprint v2.0.1 (Phases 0-4.1, 25 commits) прошёл senior-level аудит 4 
 
 ## Next Concrete First Step
 
-**Партия 1, шаг 1 — C-01 PyInstaller spec.**
+**Партия 2, шаг 1 — C-02 wire `project_lock` в production callsites.**
 
 Acceptance criteria:
-- `sidecar/econometrica/build_sidecar.py` содержит `--hidden-import=rfc8785 --collect-data=rfc8785 --hidden-import=filelock --collect-data=filelock`
-- Startup bundle-check loop (`server.py:112-131`) пробует `import rfc8785` + `import filelock` + log warn если не находит
-- Commit local (engineering-ledger): `fix(c-01): bundle rfc8785 + filelock in PyInstaller spec`
+- `with project_lock(project_dir):` обёрнут вокруг read-modify-write в 4 endpoint'ах:
+  - `project_save_kpi_settings` (server.py:~2006)
+  - `project_migrate_endpoint` (server.py:~604)
+  - `save_v20_diagnostics` (persistence.py:~515)
+  - `clear_sensitivity_cache` (persistence.py:~696)
+- Regression test: 2 concurrent calls на same project — один блокирует другого
+- Commit: `fix(c-02): wire project_lock to save/migrate/diagnostics endpoints`
 
 ## Pending Антон gates
 
