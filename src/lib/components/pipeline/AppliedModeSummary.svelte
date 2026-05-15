@@ -20,15 +20,13 @@
    */
 
   import {
-    analysisMode, expertMode, unitCosts, unitCostInflation,
-    // Phase 1.3 (v2.0.1) — persistence для UI mode preference + budget input restore.
-    unitCostInputMode, budgetInputs,
+    analysisMode, expertMode, unitCosts, unitCostInflation, unitCostInputMode,
   } from '$lib/project-state.js';
   import { pluralizeRu } from '$lib/utils/i18n.js';
   // Phase 1.1 (SSOT): unit label resolution через shared service.
-  // Replaces inline unitLabel() regex — теперь one source of truth с
-  // backend column_detection.unit_label_for(). Cache-with-fallback.
   import { unitLabelFor as unitLabel } from '$lib/services/classifier-patterns.js';
+  // Phase 2.1 (R3): extracted unit-cost editor presentational component.
+  import UnitCostEditor from './UnitCostEditor.svelte';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
@@ -89,81 +87,18 @@
     )
   );
 
-  // Note: unitLabel() now imported from $lib/services/classifier-patterns.js
-  // (Phase 1.1 SSOT — eliminates regex duplication со column_detection.py).
-
-  /** Получить текущий mode для канала. Default — 'budget' (бренд-менеджер знает бюджет).
-   *  Reads from $unitCostInputMode store (Phase 1.3 persistence). */
-  function modeOf(/** @type {string} */ name) {
-    return $unitCostInputMode[name] ?? 'budget';
-  }
-
-  /** @param {string} name @param {'budget' | 'unit'} mode */
-  function setMode(name, mode) {
-    unitCostInputMode.update((curr) => ({ ...curr, [name]: mode }));
-  }
-
-  /** Mode A: общий бюджет ₽ → derive unit_cost = budget / sum(units).
-   *  Persists raw input в $budgetInputs store (survives reload). */
-  function updateBudget(/** @type {string} */ name, /** @type {string} */ value) {
-    const budget = parseFloat(value);
-    if (!isFinite(budget) || budget <= 0) {
-      // Clear stored budget + unit cost if invalid.
-      budgetInputs.update((curr) => {
-        const next = { ...curr };
-        delete next[name];
-        return next;
-      });
-      unitCosts.update((curr) => {
-        const next = { ...curr };
-        delete next[name];
-        return next;
-      });
-      return;
-    }
-    budgetInputs.update((curr) => ({ ...curr, [name]: budget }));
-    const sum = channelSums?.[name];
-    if (!sum || sum <= 0) {
-      // Budget stored, но derive не возможен без sum (sparse channel) —
-      // leave unit_cost untouched, UI shows hint.
-      return;
-    }
-    const derivedUnitCost = budget / sum;
-    unitCosts.update((curr) => ({ ...curr, [name]: derivedUnitCost }));
-  }
-
-  /** Mode B: прямой ввод цены 1 единицы. */
-  function updateUnitCost(/** @type {string} */ name, /** @type {string} */ value) {
-    const num = parseFloat(value);
-    if (!isFinite(num) || num <= 0) {
-      unitCosts.update((curr) => {
-        const next = { ...curr };
-        delete next[name];
-        return next;
-      });
-      return;
-    }
-    unitCosts.update((curr) => ({ ...curr, [name]: num }));
-  }
-
-  /** Mode B: годовой % роста стоимости. */
-  function updateInflation(/** @type {string} */ name, /** @type {string} */ value) {
-    const num = parseFloat(value);
-    if (!isFinite(num)) {
-      unitCostInflation.update((curr) => {
-        const next = { ...curr };
-        delete next[name];
-        return next;
-      });
-      return;
-    }
-    unitCostInflation.update((curr) => ({ ...curr, [name]: num }));
-  }
+  // Phase 2.1 (R3): editor handlers / debounce / slugify / preview moved
+  // into UnitCostEditor.svelte child component (SRP). AppliedModeSummary
+  // remains as orchestrator: applies modes, dispatches к editors, renders
+  // channel summary list.
 
   /**
    * Phase 2.7: Apply same unit_cost + inflation across channels sharing
    * the same physical unit type (e.g. all «TRP» channels or all «CPM»
    * channels). Smart batch reduces friction (Audit U4).
+   *
+   * Stays в parent because requires `channels` list (siblings lookup) —
+   * editor child только know about itself.
    *
    * @param {string} sourceChannelName Channel chosen as source of values.
    */
@@ -196,7 +131,6 @@
         return next;
       });
     }
-    // Set mode='unit' for targets — sister channels likely use same flow.
     unitCostInputMode.update((curr) => {
       const next = { ...curr };
       for (const t of targets) next[t] = 'unit';
@@ -212,58 +146,6 @@
       && c.name !== name
       && unitLabel(c.name) === label
     ).length;
-  }
-
-  /**
-   * Slugify channel name для valid HTML attribute / test selector.
-   * Converts Cyrillic and spaces to ASCII-safe dashes.
-   * @param {string | undefined} name
-   * @returns {string}
-   */
-  function slugify(name) {
-    if (!name) return 'unnamed';
-    return String(name)
-      .toLowerCase()
-      .replace(/[^\w-]+/g, '-')   // non-word → dash
-      .replace(/^-+|-+$/g, '')    // trim leading/trailing dashes
-      .replace(/-{2,}/g, '-')     // collapse multiple dashes
-      .slice(0, 50) || 'unnamed';
-  }
-
-  /** Debounce helper — keyed по channel+field для per-input cancel. */
-  /** @type {Record<string, ReturnType<typeof setTimeout>>} */
-  let pendingTimers = {};
-
-  /**
-   * @param {string} key
-   * @param {() => void} fn
-   * @param {number} [delay]
-   */
-  function debounceCall(key, fn, delay = 150) {
-    if (pendingTimers[key]) clearTimeout(pendingTimers[key]);
-    pendingTimers[key] = setTimeout(() => {
-      delete pendingTimers[key];
-      fn();
-    }, delay);
-  }
-
-  /** Debounced wrappers for template oninput handlers. */
-  function updateBudgetDebounced(/** @type {string} */ name, /** @type {string} */ value) {
-    debounceCall(`budget:${name}`, () => updateBudget(name, value));
-  }
-  function updateUnitCostDebounced(/** @type {string} */ name, /** @type {string} */ value) {
-    debounceCall(`unit:${name}`, () => updateUnitCost(name, value));
-  }
-  function updateInflationDebounced(/** @type {string} */ name, /** @type {string} */ value) {
-    debounceCall(`infl:${name}`, () => updateInflation(name, value));
-  }
-
-  /** Display formatter для preview суммы ₽ при mode='unit'. */
-  function previewTotal(/** @type {string} */ name) {
-    const uc = $unitCosts?.[name];
-    const sum = channelSums?.[name];
-    if (!uc || !sum) return null;
-    return uc * sum;
   }
 
   /** Header text driven by $analysisMode */
@@ -409,125 +291,18 @@
     {/if}
 
     {#if hasAnyPhysicalInRoi}
-      <!-- BUG #2 fix (v2.0.1): inline two-mode unit_cost inputs.
-           Видны ВСЕГДА для physical каналов в ROI mode (даже когда уже converted)
-           — чтобы пользователь мог редактировать unit_cost / переключать режим.
-           Mode A (budget): общий ₽-бюджет за период → derive unit_cost = budget / Σ(units).
-           Mode B (unit): прямой ввод цены 1 ед. + годовой % роста стоимости. -->
+      <!-- Phase 2.1 (R3): UnitCostEditor extracted as child component.
+           Parent dispatches per physical channel в ROI mode; child owns
+           mode toggle / inputs / debouncing / preview rendering. -->
       <div class="uc-inputs" data-testid="uc-inputs" role="group" aria-label="Конвертация физических каналов в ₽">
         {#each channels as ch (ch.name)}
           {#if ch.detectedType === 'physical' && $analysisMode === 'roi'}
-            {@const mode = modeOf(ch.name)}
-            {@const ucValue = $unitCosts?.[ch.name]}
-            {@const inflValue = $unitCostInflation?.[ch.name]}
-            {@const sumValue = channelSums?.[ch.name]}
-            {@const preview = previewTotal(ch.name)}
-            <div class="uc-row" class:uc-row--converted={isConverted(ch.name)}>
-              <div class="uc-row-head">
-                <span class="uc-channel">{ch.name}</span>
-                <div class="uc-mode-toggle" role="tablist" aria-label="Способ конвертации">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={mode === 'budget'}
-                    class="uc-mode-btn"
-                    class:active={mode === 'budget'}
-                    onclick={() => setMode(ch.name, 'budget')}
-                  >Общий бюджет ₽</button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={mode === 'unit'}
-                    class="uc-mode-btn"
-                    class:active={mode === 'unit'}
-                    onclick={() => setMode(ch.name, 'unit')}
-                  >Цена 1 ед. + инфляция</button>
-                </div>
-              </div>
-
-              {#if mode === 'budget'}
-                <div class="uc-fields">
-                  <label class="uc-field">
-                    <span class="uc-field-label">Общий бюджет за период, ₽</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      inputmode="decimal"
-                      class="uc-input"
-                      placeholder="например, 38 000 000"
-                      value={$budgetInputs[ch.name] ?? ''}
-                      oninput={(/** @type {Event} */ e) => updateBudgetDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
-                      data-testid="uc-budget-input-{slugify(ch.name)}"
-                      data-channel={ch.name}
-                    />
-                  </label>
-                  <p class="uc-preview">
-                    {#if sumValue && sumValue > 0 && ucValue && ucValue > 0}
-                      → {ucValue.toLocaleString('ru-RU', { maximumFractionDigits: 2 })} {unitLabel(ch.name)}
-                      <span class="uc-preview-mute">
-                        (бюджет ÷ {sumValue.toLocaleString('ru-RU')} ед.)
-                      </span>
-                    {:else if !sumValue}
-                      <span class="uc-preview-mute">Сумма единиц канала недоступна — выберите режим «Цена 1 ед.»</span>
-                    {/if}
-                  </p>
-                </div>
-              {:else}
-                <div class="uc-fields uc-fields--unit">
-                  <label class="uc-field">
-                    <span class="uc-field-label">{unitLabel(ch.name)} (текущая)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      inputmode="decimal"
-                      class="uc-input"
-                      placeholder="0"
-                      value={ucValue ?? ''}
-                      oninput={(/** @type {Event} */ e) => updateUnitCostDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
-                      data-testid="uc-unit-input-{slugify(ch.name)}"
-                      data-channel={ch.name}
-                    />
-                  </label>
-                  <label class="uc-field uc-field--narrow">
-                    <span class="uc-field-label">Рост стоимости, % / год</span>
-                    <input
-                      type="number"
-                      step="any"
-                      inputmode="decimal"
-                      class="uc-input"
-                      placeholder="обычно 0-20%, оставьте 0 если не знаете"
-                      value={inflValue ?? ''}
-                      oninput={(/** @type {Event} */ e) => updateInflationDebounced(ch.name, /** @type {HTMLInputElement} */ (e.target).value)}
-                      data-testid="uc-infl-input-{slugify(ch.name)}"
-                      data-channel={ch.name}
-                    />
-                  </label>
-                  <p class="uc-preview">
-                    {#if preview && preview > 0}
-                      → итоговая сумма за период:
-                      <strong>{preview.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽</strong>
-                      {#if inflValue && inflValue !== 0}
-                        <span class="uc-preview-mute">(до взвешивания по инфляции)</span>
-                      {/if}
-                    {/if}
-                  </p>
-                  {#if isConverted(ch.name) && siblingPhysicalCount(ch.name) > 0}
-                    <button
-                      type="button"
-                      class="uc-apply-same"
-                      onclick={() => applyToSameType(ch.name)}
-                      data-testid="uc-apply-same-btn-{slugify(ch.name)}"
-                      data-channel={ch.name}
-                    >
-                      Применить ко всем «{unitLabel(ch.name)}»
-                      ({siblingPhysicalCount(ch.name)})
-                    </button>
-                  {/if}
-                </div>
-              {/if}
-            </div>
+            <UnitCostEditor
+              channel={ch}
+              channelSum={channelSums?.[ch.name]}
+              siblingCount={siblingPhysicalCount(ch.name)}
+              onApplyToSameType={() => applyToSameType(ch.name)}
+            />
           {/if}
         {/each}
       </div>
@@ -793,31 +568,7 @@
     text-decoration: line-through;
     text-decoration-color: color-mix(in srgb, var(--text-muted, #7A7A90) 50%, transparent);
   }
-  /* Phase 2.7: smart batch — apply unit_cost across same-type channels */
-  .uc-apply-same {
-    margin-top: 6px;
-    background: transparent;
-    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 35%, transparent);
-    color: var(--gold, #c9a449);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 6px;
-    cursor: pointer;
-    align-self: flex-start;
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .uc-apply-same {
-      transition: background 0.15s, color 0.15s, transform 0.1s;
-    }
-    .uc-apply-same:hover {
-      background: var(--gold, #c9a449);
-      color: var(--bg-card, #181824);
-    }
-    .uc-apply-same:active {
-      transform: scale(0.97);
-    }
-  }
+  /* Phase 2.7 .uc-apply-same styling moved к UnitCostEditor.svelte (R3 extract) */
 
   /* Phase 2.9: per-channel inline restore button */
   .excluded-restore {
@@ -856,7 +607,8 @@
   }
   .incompat-banner strong { color: var(--warning, #F59E0B); }
 
-  /* ─── BUG #2 fix v2.0.1: inline two-mode unit_cost inputs ─── */
+  /* Phase 2.1 (R3): uc-inputs container styling — children styled
+     внутри UnitCostEditor.svelte component. */
   .uc-inputs {
     display: flex;
     flex-direction: column;
@@ -866,94 +618,6 @@
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     border-radius: var(--radius-sm, 8px);
   }
-  .uc-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 10px 12px;
-    background: var(--bg-card, #181824);
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
-    border-radius: 6px;
-  }
-  .uc-row--converted {
-    border-color: color-mix(in srgb, var(--success, #10B981) 32%, transparent);
-    background: color-mix(in srgb, var(--success, #10B981) 4%, var(--bg-card, #181824));
-  }
-  .uc-row-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .uc-channel {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .uc-mode-toggle {
-    display: inline-flex;
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .uc-mode-btn {
-    background: transparent;
-    border: 0;
-    padding: 5px 10px;
-    font-size: 11.5px;
-    color: var(--text-muted, #7A7A90);
-    cursor: pointer;
-  }
-  .uc-mode-btn + .uc-mode-btn {
-    border-left: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
-  }
-  .uc-mode-btn:hover { color: var(--text-primary); }
-  .uc-mode-btn.active {
-    background: color-mix(in srgb, var(--gold, #c9a449) 14%, transparent);
-    color: var(--gold, #c9a449);
-    font-weight: 600;
-  }
-  .uc-fields {
-    display: flex;
-    gap: 12px;
-    align-items: flex-end;
-    flex-wrap: wrap;
-  }
-  .uc-field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex: 1 1 200px;
-  }
-  .uc-field--narrow { flex: 0 1 140px; }
-  .uc-field-label {
-    font-size: 11px;
-    color: var(--text-muted, #7A7A90);
-    text-transform: none;
-    font-weight: 500;
-  }
-  .uc-input {
-    padding: 7px 10px;
-    background: var(--bg-input, rgba(255,255,255,0.03));
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
-    border-radius: 5px;
-    color: var(--text-primary);
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-  }
-  .uc-input:focus {
-    outline: none;
-    border-color: var(--gold, #c9a449);
-  }
-  .uc-preview {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: var(--success, #10B981);
-    flex-basis: 100%;
-  }
-  .uc-preview strong { font-weight: 600; }
-  .uc-preview-mute { color: var(--text-muted, #7A7A90); font-weight: 400; }
 
   /* ─── No channels placeholder ─── */
   .no-channels {
