@@ -841,4 +841,11 @@
   .verdict-good { color: var(--success); font-weight: 500; }
   .verdict-warn { color: var(--warning); font-weight: 500; }
   .verdict-bad  { color: var(--danger);  font-weight: 500; }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    }
+  }
 </style>

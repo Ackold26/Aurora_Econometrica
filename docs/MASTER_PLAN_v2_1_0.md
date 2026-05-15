@@ -77,8 +77,8 @@
 
 | ID | Пункт | Часов | Статус | Owner |
 |---|---|---|---|---|
-| 5.1 | Микро-анимация подтверждения канала | 4 | 🟢 in progress | Agent A |
-| 5.2 | Анимация копирования настроек | 3 | 🟢 in progress | Agent A |
+| 5.1 | Микро-анимация подтверждения канала | 4 | ✅ DONE | Agent A |
+| 5.2 | Анимация копирования настроек | 3 | ✅ DONE | Agent A |
 | 5.3 | Плавность переходов wizard | 5 | pending | Agent A (после 5.1+5.2) |
 | 5.4 | Контрастность светлая тема | 3 | ✅ DONE | Agent B |
 | 5.5 | Контрастность тёплая тема | 3 | ✅ DONE | Agent B |
@@ -120,6 +120,8 @@
 - ✅ Партия 3 п.5.5: WCAG AA контрастность тёплая тема — 14 пар исправлено, 56/56 PASS
 - ✅ Партия 2 п.4.1.4: wire безопасного формата в `engines/persistence.py` (load_model_with_compat детектит формат), `engines/modeler.py` (Bayesian save), `engines/ols_modeler.py` (OLS save)
 - ✅ Партия 2 п.4.1.5 + интеграционные: 50 тестов проходят, 257 sidecar тестов проходят (включая security_attack_vectors)
+- ✅ Партия 3 п.5.1: pulse-once анимация подтверждения ролей (ColumnMapperConfirm) — check-icon + success-green pulse, prefers-reduced-motion guard, тесты с fake timers
+- ✅ Партия 3 п.5.2: stagger copy-flash анимация applyToSameType (UnitCostEditor + AppliedModeSummary) — 100ms stagger, 560ms flash, aria-live for a11y
 
 ---
 
@@ -133,6 +135,9 @@
 | `28e894d` | 2026-05-16 | docs(contrast): WCAG AA аудит + helper scripts (п.5.4+5.5) |
 | `00d2ce6` | 2026-05-16 | fix(theme-light): correct contrast pairs к WCAG AA (п.5.4) |
 | `4459b65` | 2026-05-16 | fix(theme-warm): correct contrast pairs к WCAG AA (п.5.5) |
+| `e8d6966` | 2026-05-16 | feat(persistence): wire безопасный формат aurora-model (п.4.1) |
+| `c22911c` | 2026-05-16 | feat(animations): pulse confirm на ValidateStep (п.5.1) — включён в master-plan commit |
+| `54ac5e7` | 2026-05-16 | feat(animations): stagger copy-flash при applyToSameType (п.5.2) |
 
 ---
 
@@ -161,7 +166,7 @@
 
 ## Метрики прогресса (auto-update после commit)
 
-- **Commits в сессии:** 6 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2)
-- **Tests delta:** baseline 947 — CSS-only changes, 0 test delta (vitest 545 pass, 2 pre-existing fail)
-- **Партий завершено:** 0 / 5 (Партия 3 частично — 2/7; Партия 4 частично — 3/6)
-- **Пунктов плана завершено:** 5 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5)
+- **Commits в сессии:** 8 (docs-agent: п.6.3+6.4+6.5; contrast-agent: п.5.4+5.5 audit+fix×2; animations-agent: п.5.1+5.2)
+- **Tests delta:** 547 vitest passing (+2 от animations-agent fake timer tests)
+- **Партий завершено:** 0 / 5 (Партия 3 частично — 4/7; Партия 4 частично — 3/6)
+- **Пунктов плана завершено:** 7 / 19 (п.6.3, 6.4, 6.5, 5.4, 5.5, 5.1, 5.2)

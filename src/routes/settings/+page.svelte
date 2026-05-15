@@ -1367,4 +1367,11 @@
   .btn-path-reset {
     color: var(--text-muted);
   }
+
+  /* v2.1.0 п.5.6: static status dot - no pulse glow */
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot.dot-ok {
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 40%, transparent);
+    }
+  }
 </style>

@@ -559,4 +559,11 @@
   @keyframes spinner-rotate {
     to { transform: rotate(360deg); }
   }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .loading-presets .spinner {
+      border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    }
+  }
 </style>

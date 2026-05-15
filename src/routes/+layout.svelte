@@ -307,4 +307,12 @@
     from { opacity: 0.6; }
     to { opacity: 1; }
   }
+
+  /* v2.1.0 п.5.6: skip fade-in page transition */
+  @media (prefers-reduced-motion: reduce) {
+    .page-transition {
+      animation: none;
+      opacity: 1;
+    }
+  }
 </style>

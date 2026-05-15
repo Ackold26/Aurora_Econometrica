@@ -390,4 +390,13 @@
 
   .btn-retry:hover { opacity: 0.85; }
   .btn-edit:hover { border-color: rgba(255,255,255,0.3); color: var(--text-primary, #e2e8f0); }
+
+  /* v2.1.0 п.5.6: instant success banner appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .success-banner {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 </style>

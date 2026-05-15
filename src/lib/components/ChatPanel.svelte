@@ -9,6 +9,7 @@
   import { playSendSound, playCompleteSound, playAchievementSound } from '$lib/audio.js';
   import { parseResponseSections, shouldRenderStructured, isSlideDeckResponse, splitSlideSections, cleanSlideTitle, extractCompletionStats } from '$lib/response-parser.js';
   import { fade } from 'svelte/transition';
+  import { prefersReducedMotion } from '$lib/stores/a11y.js';
   import ResponseSection from '$lib/components/ResponseSection.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -1114,7 +1115,7 @@
         </div>
       {/if}
       {#if completionStats}
-        <div class="completion-card" transition:fade={{ duration: 300 }}>
+        <div class="completion-card" transition:fade={{ duration: $prefersReducedMotion ? 0 : 300 }}>
           <span class="cc-time">Готово за {completionStats.elapsed}с</span>
           <div class="cc-stats">
             <span>{completionStats.slides} {pluralRu(completionStats.slides, 'слайд', 'слайда', 'слайдов')}</span>

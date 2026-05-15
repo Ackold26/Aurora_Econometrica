@@ -1278,4 +1278,17 @@
     background: var(--border);
     color: var(--text-primary);
   }
+
+  /* v2.1.0 п.5.6: hide confetti + static celebration state */
+  @media (prefers-reduced-motion: reduce) {
+    .confetti-piece {
+      display: none;
+    }
+    .celebration-overlay {
+      opacity: 1;
+    }
+    .celebration-icon {
+      transform: scale(1);
+    }
+  }
 </style>

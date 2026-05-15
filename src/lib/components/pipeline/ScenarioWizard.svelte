@@ -796,4 +796,11 @@
     font-size: 12.5px;
     padding: 7px 14px;
   }
+
+  /* v2.1.0 п.5.6: static loading icon */
+  @media (prefers-reduced-motion: reduce) {
+    :global(.spin-icon) {
+      animation: none;
+    }
+  }
 </style>

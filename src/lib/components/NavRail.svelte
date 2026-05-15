@@ -286,4 +286,12 @@
   .nav-scroll::-webkit-scrollbar-thumb:hover {
     background: var(--border);
   }
+
+  /* v2.1.0 п.5.6: spinner static fallback */
+  @media (prefers-reduced-motion: reduce) {
+    .nav-spinner {
+      border-top-color: var(--border);
+      border-color: var(--cab-color);
+    }
+  }
 </style>

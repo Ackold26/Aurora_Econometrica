@@ -242,4 +242,16 @@
     from { transform: scale(0.8); opacity: 0; }
     to { transform: scale(1); opacity: 0.85; }
   }
+
+  /* v2.1.0 п.5.6: instant overlay appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .modal,
+    .step-content,
+    .step-icon {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    .step-icon { opacity: 0.85; }
+  }
 </style>

@@ -267,4 +267,17 @@
     background: var(--hover-bg, rgba(255, 255, 255, 0.04));
     color: var(--text-primary);
   }
+
+  /* v2.1.0 п.5.6: instant modal appearance */
+  @media (prefers-reduced-motion: reduce) {
+    dialog.pm-dialog[open] {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    dialog.pm-dialog::backdrop {
+      animation: none;
+      opacity: 1;
+    }
+  }
 </style>

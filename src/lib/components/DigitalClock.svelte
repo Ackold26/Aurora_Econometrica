@@ -37,4 +37,11 @@
     from { opacity: 0.75; }
     to   { opacity: 0.9; }
   }
+
+  /* v2.1.0 п.5.6: steady opacity for clock */
+  @media (prefers-reduced-motion: reduce) {
+    .clock {
+      opacity: 0.85;
+    }
+  }
 </style>

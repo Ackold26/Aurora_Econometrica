@@ -294,4 +294,11 @@
     background: var(--accent-primary);
     color: #fff;
   }
+
+  /* v2.1.0 п.5.6: static dashed border for unknown role badge */
+  @media (prefers-reduced-motion: reduce) {
+    .role-badge.unknown {
+      border-color: var(--warning, #f59e0b);
+    }
+  }
 </style>

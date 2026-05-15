@@ -810,4 +810,11 @@
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: rgba(255,255,255,0.6);
+    }
+  }
 </style>

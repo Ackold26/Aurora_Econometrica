@@ -257,4 +257,14 @@
     opacity: 0.55;
     cursor: not-allowed;
   }
+
+  /* v2.1.0 п.5.6: static bar fill when motion is reduced */
+  @media (prefers-reduced-motion: reduce) {
+    .bar-fill.pulse {
+      opacity: 0.85;
+    }
+    .bar-fill {
+      transition: none;
+    }
+  }
 </style>

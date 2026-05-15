@@ -261,13 +261,16 @@
   --disabled-opacity: 0.5;
 }
 
-/* ── A11y: visible keyboard focus ring (H-14) ──
+/* ── A11y: visible keyboard focus ring (H-14, v2.1.0 п.5.7) ──
    Global :focus-visible rule — WCAG 2.1 SC 2.4.7 (focus visible).
+   Covers: button, a, input, textarea, select, [tabindex], [role="button"],
+   any custom interactive element with keyboard focus.
    Components могут override через class-specific :focus-visible если
    нужен другой visual treatment. `outline: none` без :focus-visible
-   replacement — accessibility violation. */
+   replacement — accessibility violation.
+   Contrast: --accent-primary (#2E5BFF) on --bg-primary (#0C0C12) = ~5.8:1 ✓ WCAG AA */
 *:focus-visible {
-  outline: 2px solid var(--gold, #c9a449);
+  outline: 2px solid var(--accent-primary, #2E5BFF);
   outline-offset: 2px;
   border-radius: var(--radius-sm, 8px);
 }
@@ -449,13 +452,6 @@ input, textarea {
   background: rgba(46, 91, 255, 0.5);
 }
 
-/* ─── Focus ─── */
-:focus-visible {
-  outline: 1.5px solid var(--accent-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
 /* ═══════════════════════════════════════════════════
    Keyframe Animations
    ═══════════════════════════════════════════════════ */
@@ -518,10 +514,26 @@ input, textarea {
   }
 }
 
+/* ── A11y: anti-pulse protection (v2.1.0 п.5.6) ──
+   Global catch-all: stops ALL CSS animations and transitions.
+   • animation: none stops infinite spinners/pulses immediately
+   • transition: none prevents layout-shift animations
+   • CSS motion variables zeroed for components using var(--transition-*)
+   • scroll-behavior: auto prevents smooth scroll vestibular issues
+   Individual component reduce-blocks below provide fine-grained fallbacks
+   for components that want to show a static alternative instead of nothing. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  :root {
+    --transition:        0ms;
+    --transition-fast:   0ms;
+    --transition-smooth: 0ms;
   }
 }

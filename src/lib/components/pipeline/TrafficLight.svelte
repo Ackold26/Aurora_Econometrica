@@ -484,4 +484,11 @@
   .val-ok   { color: var(--success, #16a34a) !important; }
   .val-warn { color: var(--warning, #d97706) !important; }
   .val-bad  { color: var(--danger, #dc2626) !important; }
+
+  /* v2.1.0 п.5.6: static border for unknown column indicator */
+  @media (prefers-reduced-motion: reduce) {
+    .role-click.unknown {
+      border-color: var(--warning, #f59e0b);
+    }
+  }
 </style>

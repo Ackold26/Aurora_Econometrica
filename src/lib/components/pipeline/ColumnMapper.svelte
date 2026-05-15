@@ -764,4 +764,11 @@
     color: var(--text-muted, rgba(148,163,184,0.5));
     border: 1px dashed color-mix(in srgb, var(--text-muted) 25%, transparent);
   }
+
+  /* v2.1.0 п.5.6: static zone-pulse click target border */
+  @media (prefers-reduced-motion: reduce) {
+    .zone.click-target {
+      border-color: color-mix(in srgb, var(--success) 70%, transparent);
+    }
+  }
 </style>

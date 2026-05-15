@@ -399,4 +399,11 @@
     color: var(--accent-primary, #2E5BFF);
     background: var(--hover-bg);
   }
+
+  /* v2.1.0 п.5.6: static skeleton background */
+  @media (prefers-reduced-motion: reduce) {
+    .grid-skeleton {
+      background: var(--bg-card-hover);
+    }
+  }
 </style>

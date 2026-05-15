@@ -516,4 +516,13 @@
     opacity: 0.35;
     cursor: default;
   }
+
+  /* v2.1.0 п.5.6: instant panel appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .brief-panel {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 </style>

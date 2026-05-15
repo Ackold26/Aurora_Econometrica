@@ -365,4 +365,11 @@
     color: var(--text-muted);
     padding: 4px 0;
   }
+
+  /* v2.1.0 п.5.6: static running step border */
+  @media (prefers-reduced-motion: reduce) {
+    .wf-step--running {
+      box-shadow: 0 0 0 2px var(--accent-primary);
+    }
+  }
 </style>

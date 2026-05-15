@@ -746,4 +746,17 @@
     color: var(--accent-primary, #3b82f6);
     font-weight: 600;
   }
+
+  /* v2.1.0 п.5.6: instant dialog appearance */
+  @media (prefers-reduced-motion: reduce) {
+    dialog.cmp-dialog[open] {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    dialog.cmp-dialog::backdrop {
+      animation: none;
+      opacity: 1;
+    }
+  }
 </style>

@@ -1811,4 +1811,12 @@
     font-size: 13px;
     line-height: 1.6;
   }
+
+  /* v2.1.0 п.5.6: static spinner rings */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner,
+    .spinner-sm {
+      border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    }
+  }
 </style>

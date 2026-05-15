@@ -3682,4 +3682,11 @@
     animation: spin-lg 0.8s linear infinite;
   }
   @keyframes spin-lg { to { transform: rotate(360deg); } }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner-lg {
+      border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    }
+  }
 </style>

@@ -1031,4 +1031,16 @@
     background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
     border-color: var(--accent-primary);
   }
+
+  /* v2.1.0 п.5.6: static spinner and skip card-appear entrance */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: var(--accent-primary);
+    }
+    .cabinet-card {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 </style>
