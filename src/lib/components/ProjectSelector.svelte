@@ -10,6 +10,12 @@
   let projects = $state([]);
   let showCreate = $state(false);
   let newName = $state('');
+  /**
+   * H-09: industry selection при создании проекта. Default 'unknown' →
+   * UnitCostEditor показывает generic low-confidence ranges. Customer
+   * выбирает specific industry для targeted suggestions (Mediascope 2024).
+   */
+  let newIndustry = $state('unknown');
   let loading = $state(false);
   let archiving = $state(false);
   /** @type {string} */
@@ -119,7 +125,11 @@
     if (!name) return;
     loading = true;
     try {
-      const info = await invoke('project_create', { name });
+      // H-09: pass industry для context-aware unit_cost suggestions.
+      const info = await invoke('project_create', {
+        name,
+        industry: newIndustry || 'unknown',
+      });
       activeProjectId.set(info.id);
       activeProject.set(info);
       // NOTE: do NOT resetPipeline() here - creating a project while importing
@@ -127,6 +137,7 @@
       projects = [...projects, info];
       showCreate = false;
       newName = '';
+      newIndustry = 'unknown';
     } catch (e) {
       console.error('Create failed:', e);
     }
@@ -259,6 +270,22 @@
           bind:value={newName}
           onkeydown={(e) => e.key === 'Enter' && createProject()}
         />
+        <!-- H-09: industry selector для смарт-подсказок unit_cost (Phase 4.1 wire) -->
+        <select
+          class="industry-select"
+          bind:value={newIndustry}
+          title="Отрасль — для подсказок типичной стоимости 1 ед. медиа"
+          aria-label="Отрасль проекта"
+        >
+          <option value="unknown">— Отрасль —</option>
+          <option value="pharma_otc">Фарма OTC</option>
+          <option value="pharma_rx">Фарма Rx</option>
+          <option value="fmcg">FMCG</option>
+          <option value="retail">Розница</option>
+          <option value="saas">SaaS / Digital</option>
+          <option value="finance">Финансы</option>
+          <option value="b2b">B2B</option>
+        </select>
         <button class="create-btn" onclick={createProject} disabled={loading || !newName.trim()}>
           {loading ? '...' : 'Создать'}
         </button>
@@ -446,6 +473,22 @@
   }
 
   .project-create input:focus {
+    border-color: var(--accent-primary, #3b82f6);
+  }
+
+  /* H-09: industry selector для smart unit_cost suggestions. */
+  .industry-select {
+    padding: 6px 10px;
+    background: var(--bg-input, rgba(255,255,255,0.03));
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.10));
+    border-radius: 6px;
+    font-size: 12.5px;
+    cursor: pointer;
+    flex: 0 0 130px;
+  }
+  .industry-select:focus {
+    outline: none;
     border-color: var(--accent-primary, #3b82f6);
   }
 

@@ -21,7 +21,7 @@
 
   import {
     analysisMode, expertMode, unitCosts, unitCostInflation, unitCostInputMode,
-    budgetInputs,
+    budgetInputs, activeProject,
   } from '$lib/project-state.js';
   import { pluralizeRu } from '$lib/utils/i18n.js';
   // Phase 1.1 (SSOT): unit label resolution через shared service.
@@ -317,6 +317,7 @@
               channel={ch}
               channelSum={channelSums?.[ch.name]}
               siblingCount={siblingPhysicalCount(ch.name)}
+              industry={$activeProject?.industry ?? 'unknown'}
               onApplyToSameType={() => applyToSameType(ch.name)}
             />
           {/if}

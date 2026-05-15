@@ -20,6 +20,8 @@
     unitCosts, unitCostInflation, unitCostInputMode, budgetInputs,
   } from '$lib/project-state.js';
   import { unitLabelFor as unitLabel } from '$lib/services/classifier-patterns.js';
+  // H-09 (Phase 4.1 wire): industry-aware unit_cost подсказки.
+  import { suggestUnitCostDefault } from '$lib/services/industry-cpp-defaults.js';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
@@ -30,6 +32,7 @@
    *   channel: ChannelInfo,
    *   channelSum?: number,
    *   siblingCount?: number,
+   *   industry?: string,
    *   onApplyToSameType?: () => void,
    * }}
    */
@@ -37,8 +40,29 @@
     channel,
     channelSum = undefined,
     siblingCount = 0,
+    industry = 'unknown',
     onApplyToSameType = undefined,
   } = $props();
+
+  /**
+   * H-09: industry-aware suggestion для текущего канала. null если pattern
+   * не определён (channel name не matches TRP/GRP/CPM/CPC/etc.).
+   */
+  const suggestion = $derived(suggestUnitCostDefault(channel.name, industry));
+
+  /** Format suggestion value к compact human-readable string. */
+  function formatSuggestion(/** @type {number} */ v) {
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `${Math.round(v / 1000)}k`;
+    return String(Math.round(v));
+  }
+
+  /** Confidence label для UI tooltip. */
+  function confidenceLabel(/** @type {string} */ c) {
+    return c === 'high' ? 'высокая точность'
+      : c === 'medium' ? 'средняя точность'
+      : 'низкая точность';
+  }
 
   /** Получить текущий mode для канала. Default — 'budget' (audit U1). */
   function modeOf() {
@@ -186,7 +210,11 @@
           step="any"
           inputmode="decimal"
           class="uc-input"
-          placeholder="например, 38 000 000"
+          placeholder={
+            suggestion && channelSum
+              ? `например, ${(suggestion.value * channelSum).toLocaleString('ru-RU')}`
+              : 'например, 38 000 000'
+          }
           value={$budgetInputs[channel.name] ?? ''}
           oninput={(/** @type {Event} */ e) => updateBudgetDebounced(/** @type {HTMLInputElement} */ (e.target).value)}
           data-testid="uc-budget-input-{slugify(channel.name)}"
@@ -215,12 +243,22 @@
           step="any"
           inputmode="decimal"
           class="uc-input"
-          placeholder="0"
+          placeholder={suggestion ? `~${formatSuggestion(suggestion.value)}` : '0'}
           value={$unitCosts?.[channel.name] ?? ''}
           oninput={(/** @type {Event} */ e) => updateUnitCostDebounced(/** @type {HTMLInputElement} */ (e.target).value)}
           data-testid="uc-unit-input-{slugify(channel.name)}"
           data-channel={channel.name}
         />
+        {#if suggestion}
+          <span
+            class="uc-suggestion-hint"
+            data-testid="uc-suggestion-hint"
+            data-channel={channel.name}
+            title="{confidenceLabel(suggestion.confidence)}{suggestion.source ? `, ${suggestion.source}` : ''}"
+          >
+            типично {formatSuggestion(suggestion.range.min)}–{formatSuggestion(suggestion.range.max)} ₽
+          </span>
+        {/if}
       </label>
       <label class="uc-field uc-field--narrow">
         <span class="uc-field-label">Рост стоимости, % / год</span>
@@ -341,6 +379,14 @@
     font-size: 11px;
     color: var(--text-muted, #7A7A90);
     font-weight: 500;
+  }
+  /* H-09: industry-aware suggestion hint под input. */
+  .uc-suggestion-hint {
+    font-size: 10.5px;
+    color: var(--text-muted, #7A7A90);
+    font-style: italic;
+    margin-top: 2px;
+    cursor: help;
   }
   .uc-input {
     padding: 7px 10px;
