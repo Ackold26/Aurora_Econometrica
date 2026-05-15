@@ -117,11 +117,19 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
             )
         with open(p, 'rb') as f:
             model_data = pickle.load(f)
-        logger.info(
-            'load_model_with_compat: legacy pickle %s загружен. При следующем save '
-            'будет автоматически мигрирован в aurora-model.',
-            p,
-        )
+
+        # Lazy migration: переписываем legacy pickle в aurora-model сразу при load.
+        # Это устраняет окно атаки — следующий load уже идёт через безопасный путь.
+        # Errors при миграции не должны мешать загрузке (read-only FS, EACCES и т.д.).
+        try:
+            _lazy_migrate_to_safe(p, model_data)
+        except Exception as exc:
+            logger.warning(
+                'Lazy migration legacy pickle %s в aurora-model не удалась: %s. '
+                'Загрузка продолжается, модель работает в read-only режиме до '
+                'следующего успешного save.',
+                p, exc,
+            )
     else:
         # Неопознанный формат — не существует, пустой, или garbage.
         if not p.exists():
@@ -158,6 +166,54 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     _inject_v20_defaults(model_data)
 
     return model_data
+
+
+def _lazy_migrate_to_safe(legacy_path: Path, model_data: dict[str, Any]) -> bool:
+    """v2.1.0: переписывает legacy pickle в aurora-model сразу при load.
+
+    Безопасность: устраняет окно атаки между текущим load и следующим save.
+    Если новый файл записан успешно — следующий load идёт через безопасный путь
+    (json.load + np.load с allow_pickle=False), без pickle.load.
+
+    Backup сохраняется с суффиксом `.pre_safe_migration` рядом с исходником.
+
+    Идемпотентность: повторный вызов на уже мигрированный файл no-op (formato
+    aurora-model — выходим без записи).
+
+    Args:
+        legacy_path: путь к .pkl файлу.
+        model_data: уже загруженный dict (избегаем повторный pickle.load).
+
+    Returns:
+        True если миграция выполнена, False если no-op (уже aurora-model).
+
+    Raises:
+        OSError на disk failure (caller swallows + logs).
+    """
+    from engines.persistence_safe import detect_format, save_model_safe
+
+    # Двойная проверка — caller мог вызвать миграцию на свежеобновлённом файле.
+    if detect_format(legacy_path) == 'aurora-model':
+        return False
+
+    # Backup legacy pickle перед перезаписью. shutil.copy2 сохраняет mtime,
+    # что важно для диагностики «когда модель была впервые обучена».
+    backup = legacy_path.with_suffix(legacy_path.suffix + '.pre_safe_migration')
+    if not backup.exists():
+        import shutil
+        shutil.copy2(legacy_path, backup)
+        logger.info('Lazy migration: backup сохранён %s', backup)
+
+    # Запись в новом формате. save_model_safe атомарно заменяет файл
+    # через temp+rename, так что неуспех не повредит данные.
+    save_model_safe(model_data, legacy_path, extra_manifest={
+        'migrated_from': 'legacy_pickle',
+        'migration_kind': 'lazy_on_load',
+    })
+    # Обновляем SHA-256 sidecar для нового файла (legacy sidecar становится невалидным).
+    write_pkl_sha256_sidecar(legacy_path)
+    logger.info('Lazy migration: %s переписан в aurora-model', legacy_path)
+    return True
 
 
 def _inject_v13_defaults(model_data: dict[str, Any]) -> None:

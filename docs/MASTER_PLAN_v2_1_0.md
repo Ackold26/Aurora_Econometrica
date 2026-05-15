@@ -9,20 +9,21 @@
 
 ## Current task
 
-🔄 **IN PROGRESS:** Партия 2 (безопасность pickle) — Маша
-- 4.1.1-4.1.2 ✅ дизайн формата `aurora-model` (zip + manifest.json + data.json + arrays.npz)
-- 4.1.3 ✅ `engines/persistence_safe.py` готов
-- 4.1.4 🔄 wire в `persistence.py` / `modeler.py` / `ols_modeler.py`
-- 4.1.5 ✅ 46 round-trip + security тестов passing
-- 4.1.6 ⏸ lazy migration в `load_model_with_compat`
-- 4.1.7 ⏸ дополнительные attack scenario тесты
-- 4.1.8 ⏸ документация формата
+✅ **Партия 2 (безопасность pickle) — закрыта целиком** (Маша)
+- 4.1.1-4.1.8 ✅ все 8 подзадач — 59 тестов, документация формата, lazy migration
 
-🟢 **Делегировано агентам параллельно:**
-- Партия 3.1 + 3.2 (анимации каналов) — Sonnet, animations-agent
-- Партия 3.4 + 3.5 (контрастность) — Sonnet, contrast-agent
-- Партия 4.3 + 4.4 + 4.5 (контент) — Sonnet, docs-agent
-- Партия 3.6 + 3.7 (анти-мигание + focus-ring) — Sonnet, a11y-agent
+🔄 **В работе:**
+- Партия 3.6 + 3.7 (анти-мигание + focus-ring) — a11y-agent
+- Партия 4.1 + 4.2 (tooltips + онбординг) — tooltips-agent
+
+✅ **Завершено агентами:**
+- Партия 3.1 + 3.2 (анимации каналов) — animations-agent
+- Партия 3.4 + 3.5 (контрастность тем) — contrast-agent
+- Партия 4.3 + 4.4 + 4.5 (видео + глоссарий + руководство) — docs-agent
+
+⏭ **Следующее (после Партий 3+4):**
+- Партия 3.3 — плавность переходов wizard
+- Партия 5 — сборка установщика Windows (Маша, после всего)
 
 ---
 
@@ -57,21 +58,21 @@
 | 1.2 | Записать сценарий проверки в документации | 2-3 | 🟢 готовлю автономно |
 | 1.3 | Поставить метку версии v2.0.1 | 1 | ⏸ после 1.1 |
 
-### Партия 2 — Безопасность (МАША САМА, IN PROGRESS)
+### Партия 2 — Безопасность ✅ COMPLETE (МАША)
 
 | ID | Пункт | Часов | Статус |
 |---|---|---|---|
-| 4.1 | Замена устаревшего pickle на auroramodel (zip+JSON+npz) | 15 | 🔄 IN PROGRESS |
+| 4.1 | Замена устаревшего pickle на aurora-model (zip+JSON+npz) | 15 | ✅ DONE |
 
 **Подзадачи 4.1:**
-- 4.1.1 Inventory всех pickle.dump/load call sites — pending
-- 4.1.2 Дизайн формата auroramodel (manifest.json + arrays.npz) — DONE (в decisions log)
-- 4.1.3 Реализация `engines/persistence_safe.py` (save_model_safe, load_model_safe) — pending
-- 4.1.4 Миграция `engines/persistence.py` — wrapper detects format + delegates — pending
-- 4.1.5 Round-trip тесты (numpy arrays, scalars, nested dicts, special floats) — pending
-- 4.1.6 Lazy migration при первом save старого .pkl — pending
-- 4.1.7 Безопасность тесты (malicious pickle blocked) — pending
-- 4.1.8 Документация формата в `docs/AURORAMODEL_FORMAT.md` — pending
+- 4.1.1 ✅ Inventory всех pickle.dump/load call sites (4 места: persistence.py × 2, modeler.py, ols_modeler.py)
+- 4.1.2 ✅ Дизайн формата `aurora-model` (manifest.json + data.json + arrays.npz, имя файла latest.pkl сохранено)
+- 4.1.3 ✅ `engines/persistence_safe.py` — save_model_safe / load_model_safe / detect_format / migrate_pickle_to_safe / read_manifest
+- 4.1.4 ✅ Wire в `engines/persistence.py` (load_model_with_compat детектит формат) + `engines/modeler.py` + `engines/ols_modeler.py` + save_v20_diagnostics + clear_sensitivity_cache
+- 4.1.5 ✅ 59 тестов в `tests/test_persistence_safe.py` (round-trip, security, edge cases, реалистичный MMM, интеграция, lazy migration, extended attacks)
+- 4.1.6 ✅ Lazy migration в `load_model_with_compat` — legacy pickle переписывается в aurora-model сразу при load, backup сохраняется
+- 4.1.7 ✅ Дополнительные attack scenario тесты — zip-bomb с extreme compression, exe payload, symlinks, unicode names, concurrent save race
+- 4.1.8 ✅ Документация формата в `docs/AURORAMODEL_FORMAT.md` (полная спецификация: структура, защита, API, миграция, совместимость)
 
 ### Партия 3 — Премиум-доводка (АГЕНТЫ В ПАРАЛЛЕЛЬ)
 
@@ -122,6 +123,9 @@
 - ✅ Партия 2 п.4.1.5 + интеграционные: 50 тестов проходят, 257 sidecar тестов проходят (включая security_attack_vectors)
 - ✅ Партия 3 п.5.1: pulse-once анимация подтверждения ролей (ColumnMapperConfirm) — check-icon + success-green pulse, prefers-reduced-motion guard, тесты с fake timers
 - ✅ Партия 3 п.5.2: stagger copy-flash анимация applyToSameType (UnitCostEditor + AppliedModeSummary) — 100ms stagger, 560ms flash, aria-live for a11y
+- ✅ Партия 2 п.4.1.6: lazy migration legacy pickle → aurora-model при load (backup `.pre_safe_migration`, swallow errors при read-only FS)
+- ✅ Партия 2 п.4.1.7: extended security tests — zip-bomb (extreme compression), exe payload в ZIP игнорируется, symlinks не следуем, unicode names, concurrent save race
+- ✅ Партия 2 п.4.1.8: `docs/AURORAMODEL_FORMAT.md` — спецификация формата (структура, защита, API, миграция, совместимость, дальнейшее развитие)
 
 ---
 

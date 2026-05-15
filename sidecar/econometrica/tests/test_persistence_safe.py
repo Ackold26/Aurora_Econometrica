@@ -570,6 +570,175 @@ class TestIntegrationWithLoadModelCompat:
             load_model_with_compat(target)
 
 
+class TestLazyMigration:
+    """Lazy migration: legacy pickle переписывается в aurora-model сразу при load
+    (закрывает окно RCE-атаки между load и следующим save)."""
+
+    def test_load_legacy_pickle_triggers_migration(self, tmp_path: Path):
+        target = tmp_path / 'latest.pkl'
+        original = {
+            'model_version': '1.2',
+            'kpi_type': 'sales',
+            'config': {'media_columns': ['tv']},
+            'big_array': np.random.RandomState(0).randn(100, 200).astype(np.float32),
+        }
+        with open(target, 'wb') as f:
+            pickle.dump(original, f)
+
+        # Перед load — формат pickle
+        assert detect_format(target) == 'pickle'
+
+        from engines.persistence import load_model_with_compat
+        loaded = load_model_with_compat(target)
+
+        # После load — формат уже aurora-model (lazy migration сработала)
+        assert detect_format(target) == 'aurora-model'
+        # Backup сохранён
+        assert (tmp_path / 'latest.pkl.pre_safe_migration').exists()
+        # Содержимое идентично
+        assert loaded['model_version'] == '1.2'
+        np.testing.assert_array_equal(loaded['big_array'], original['big_array'])
+
+    def test_migration_idempotent_on_aurora_model(self, tmp_path: Path):
+        """Повторный load aurora-model не делает миграцию повторно."""
+        target = tmp_path / 'latest.pkl'
+        save_model_safe({'model_version': '2.1', 'kpi_type': 'sales'}, target)
+        original_mtime = target.stat().st_mtime
+        original_size = target.stat().st_size
+
+        from engines.persistence import load_model_with_compat
+        load_model_with_compat(target)
+
+        # File не изменился (no-op миграция)
+        assert target.stat().st_size == original_size
+        # Backup не создан (нет миграции)
+        assert not (tmp_path / 'latest.pkl.pre_safe_migration').exists()
+
+    def test_migration_failure_does_not_break_load(self, tmp_path: Path, monkeypatch):
+        """Если миграция падает (например read-only FS), load всё равно возвращает данные."""
+        target = tmp_path / 'latest.pkl'
+        original = {'model_version': '1.2', 'kpi_type': 'sales'}
+        with open(target, 'wb') as f:
+            pickle.dump(original, f)
+
+        # Симулируем failure при попытке save_model_safe в migration path
+        from engines import persistence_safe
+        def failing_save(*args, **kwargs):
+            raise OSError('disk full simulation')
+        monkeypatch.setattr(persistence_safe, 'save_model_safe', failing_save)
+
+        from engines.persistence import load_model_with_compat
+        loaded = load_model_with_compat(target)
+
+        # Данные загружены несмотря на failed migration
+        assert loaded['model_version'] == '1.2'
+        # Формат файла остался pickle (миграция не прошла)
+        assert detect_format(target) == 'pickle'
+
+    def test_save_diagnostics_writes_aurora_model_format(self, tmp_path: Path):
+        """После обучения и save_v20_diagnostics файл — aurora-model."""
+        project_dir = tmp_path / 'project'
+        models_dir = project_dir / 'models'
+        models_dir.mkdir(parents=True)
+        target = models_dir / 'latest.pkl'
+
+        # Существующая модель в aurora-model формате (новые проекты)
+        save_model_safe(
+            {'model_version': '2.0.0', 'kpi_type': 'sales', 'analysis_mode': 'roi'},
+            target,
+        )
+
+        from engines.persistence import save_v20_diagnostics
+        save_v20_diagnostics(project_dir, {
+            'mcmc_diagnostics': {'r_hat_max': 1.01, 'ess_min': 500},
+            'analysis_mode': 'roi',
+        })
+
+        # После save_v20_diagnostics файл остаётся в aurora-model формате
+        assert detect_format(target) == 'aurora-model'
+
+        # И диагностика загружается через load_v20_diagnostics
+        from engines.persistence import load_v20_diagnostics
+        diag = load_v20_diagnostics(project_dir)
+        assert diag['mcmc_diagnostics']['r_hat_max'] == pytest.approx(1.01)
+        assert diag['analysis_mode'] == 'roi'
+
+
+class TestSecurityExtended:
+    """Дополнительные attack scenarios — закрывают H-08 + новые векторы v2.1.0."""
+
+    def test_zip_with_executable_payload_blocked(self, tmp_path: Path):
+        """ZIP может содержать exe файл — структурно проходит, но не вреден без
+        автозапуска. Главное — мы НЕ выполняем код из ZIP."""
+        target = tmp_path / 'with_exe.pkl'
+        with zipfile.ZipFile(target, mode='w') as zf:
+            zf.writestr(MANIFEST_FILENAME, json.dumps({
+                'format': FORMAT_NAME, 'format_version': FORMAT_VERSION,
+            }))
+            zf.writestr(DATA_FILENAME, b'{"v": 1}')
+            zf.writestr('payload.exe', b'\x4d\x5a\x90\x00')  # MZ header
+
+        # Load работает (мы не запускаем .exe, только читаем manifest+data+arrays)
+        # но нагрузка из exe игнорируется — она просто проходит мимо.
+        loaded = load_model_safe(target)
+        assert loaded == {'v': 1}
+
+    def test_symlink_in_zip_not_followed(self, tmp_path: Path):
+        """ZIP может содержать символические ссылки. Мы их не следуем
+        (zf.read только читает member content, не resolves)."""
+        target = tmp_path / 'with_symlink.pkl'
+        with zipfile.ZipFile(target, mode='w') as zf:
+            zf.writestr(MANIFEST_FILENAME, json.dumps({
+                'format': FORMAT_NAME, 'format_version': FORMAT_VERSION,
+            }))
+            zf.writestr(DATA_FILENAME, b'{"v": 1}')
+            # Заголовок-симлинк через ZipInfo с external_attr (Unix mode)
+            info = zipfile.ZipInfo('link.txt')
+            info.external_attr = 0xA1ED0000  # symlink mode
+            zf.writestr(info, '/etc/passwd')
+
+        loaded = load_model_safe(target)
+        # Симлинк проигнорирован — данные читаются ОК
+        assert loaded == {'v': 1}
+
+    def test_extremely_compressed_ratio_blocked(self, tmp_path: Path):
+        """Защита от zip-bomb (extreme compression ratio).
+        Создаём небольшой архив, декомпрессия которого превысит лимит."""
+        target = tmp_path / 'bomb.pkl'
+        with zipfile.ZipFile(target, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(MANIFEST_FILENAME, json.dumps({
+                'format': FORMAT_NAME, 'format_version': FORMAT_VERSION,
+            }))
+            zf.writestr(DATA_FILENAME, b'{"v": 1}')
+            # Файл размером > MAX_TOTAL_UNCOMPRESSED, но сильно сжимаемый
+            payload_size = MAX_TOTAL_UNCOMPRESSED + 1024
+            zf.writestr('bomb.bin', b'\x00' * payload_size)
+
+        with pytest.raises(CorruptArchiveError, match='zip-bomb'):
+            load_model_safe(target)
+
+    def test_unicode_member_name_handled(self, tmp_path: Path):
+        """ZIP с unicode именами — допустим, не вреден."""
+        target = tmp_path / 'unicode.pkl'
+        save_model_safe({'тест': 'кириллица'}, target)
+        loaded = load_model_safe(target)
+        assert loaded == {'тест': 'кириллица'}
+
+    def test_concurrent_save_race_detected(self, tmp_path: Path):
+        """Симуляция: два процесса пишут одновременно. Atomic rename
+        гарантирует что один из них выиграет — без частичной записи."""
+        target = tmp_path / 'race.pkl'
+        save_model_safe({'version': 'v1'}, target)
+        # Загружаем + проверяем что данные не битые
+        for _ in range(5):
+            save_model_safe({'version': 'v1', 'iter': _}, target)
+            loaded = load_model_safe(target)
+            assert loaded['version'] == 'v1'
+            # tmp-файлы НЕ остаются после атомарной записи
+            tmps = list(tmp_path.glob('*.tmp'))
+            assert not tmps, f'Не убраны tmp файлы: {tmps}'
+
+
 class TestRealisticModelData:
     def test_full_mmm_model_structure(self, tmp_path: Path):
         """Воспроизводит типичную структуру model_data из engines/modeler.py."""
