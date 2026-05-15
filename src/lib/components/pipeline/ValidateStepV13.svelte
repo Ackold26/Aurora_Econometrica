@@ -105,10 +105,21 @@
    *  show ColumnMapperConfirm перед KPISelector flow. После confirm flips к
    *  true и далее идёт обычный 4-substep KPI flow.
    *
-   *  Persisted to localStorage per projectId - юзер confirm-ит роли один раз
+   *  v2.0.1-rc2 REORDER (Антон's FB pilot 2026-05-15): KPISelector теперь
+   *  ПЕРВЫЙ preflight, ColumnMapperConfirm — ВТОРОЙ. Логика: определяем
+   *  цель (ROI vs Эффективность) → потом role classification фильтрованных
+   *  колонок (sales_rub KPI → скрыть *уп., и наоборот).
+   *
+   *  Persisted to localStorage per projectId - юзер confirm-ит один раз
    *  на проект; повторное mount читает state. Reset через goBack button.
-   *  Key format: `aurora-econ:roles-confirmed:{projectId}`. */
+   *  Keys:
+   *    `aurora-econ:kpi-confirmed:{projectId}` — KPI gate (new)
+   *    `aurora-econ:roles-confirmed:{projectId}` — Roles gate
+   *  Backward compat: если rolesConfirmed=true (legacy old flow), но
+   *  kpiConfirmed=false → автоматически kpiConfirmed=true (user уже прошёл
+   *  KPI step в старом flow). */
   const ROLES_CONFIRMED_KEY_PREFIX = 'aurora-econ:roles-confirmed:';
+  const KPI_CONFIRMED_KEY_PREFIX = 'aurora-econ:kpi-confirmed:';
 
   function loadRolesConfirmed() {
     try {
@@ -117,6 +128,20 @@
       return localStorage.getItem(ROLES_CONFIRMED_KEY_PREFIX + pid) === '1';
     } catch {
       return false;  // localStorage может быть unavailable
+    }
+  }
+
+  function loadKpiConfirmed() {
+    try {
+      const pid = get(activeProjectId);
+      if (!pid) return false;
+      const explicit = localStorage.getItem(KPI_CONFIRMED_KEY_PREFIX + pid) === '1';
+      if (explicit) return true;
+      // Backward compat: legacy roles-confirmed implies KPI was selected.
+      const legacyRoles = localStorage.getItem(ROLES_CONFIRMED_KEY_PREFIX + pid) === '1';
+      return legacyRoles;
+    } catch {
+      return false;
     }
   }
 
@@ -133,6 +158,20 @@
     } catch { /* best-effort */ }
   }
 
+  /** @param {boolean} value */
+  function persistKpiConfirmed(value) {
+    try {
+      const pid = get(activeProjectId);
+      if (!pid) return;
+      if (value) {
+        localStorage.setItem(KPI_CONFIRMED_KEY_PREFIX + pid, '1');
+      } else {
+        localStorage.removeItem(KPI_CONFIRMED_KEY_PREFIX + pid);
+      }
+    } catch { /* best-effort */ }
+  }
+
+  let kpiConfirmed = $state(loadKpiConfirmed());
   let rolesConfirmed = $state(loadRolesConfirmed());
 
   /** v1.3.2 audit fix: auto-trigger validate если imported file есть но
@@ -202,8 +241,25 @@
       autoRunValidate();
     }
   });
-  /** @type {0 | 1 | 2 | 3} */
-  let subStep = $state(0);
+  /**
+   * v2.0.1-rc2 REORDER: substep states extended:
+   *   -2 → KPISelector (new preflight, ПЕРВЫЙ)
+   *   -1 → ColumnMapperConfirm (preflight, ВТОРОЙ; filtered под выбранный KPI)
+   *    0 → AnalysisModeSelector + KPI confirm-edit panel (deprecated path; используется backward compat для legacy projects где kpiConfirmed setрешалось inside subStep=0)
+   *    1 → ValuePerCountUnitInput (skip для monetary KPI)
+   *    2 → AppliedModeSummary + PerChannelInputSelector
+   *    3 → ModeDerivedExplanation
+   *
+   * Initial state — depends on confirmation flags:
+   *   - !kpiConfirmed → -2 (KPI preflight)
+   *   - kpiConfirmed && !rolesConfirmed → -1 (Roles preflight)
+   *   - both true → 0 (legacy flow re-enters here; new code skips к 1/2)
+   *
+   * @type {-2 | -1 | 0 | 1 | 2 | 3}
+   */
+  let subStep = $state(
+    !kpiConfirmed ? -2 : (!rolesConfirmed ? -1 : 0)
+  );
   /** @type {string} */
   let currentKPI = $state($kpiType);
   /** @type {number | null} */
@@ -230,11 +286,25 @@
     const safeKind = /** @type {'monetary' | 'count'} */ (kind === 'count' ? 'count' : 'monetary');
     kpiKind.set(safeKind);
 
-    // Skip ValuePerCountUnitInput for monetary KPIs.
+    // v2.0.1-rc2 REORDER: KPI selection теперь preflight (subStep=-2 → -1 →
+    // ColumnMapperConfirm с filtered columns). Confirm flag persisted.
+    kpiConfirmed = true;
+    persistKpiConfirmed(true);
+
+    // Если roles ещё не confirmed → next preflight = Roles.
+    if (!rolesConfirmed) {
+      // Try auto-detect value per count unit в фоне (для count KPI после roles).
+      if (kind === 'count') {
+        await tryAutoDetectValue(id);
+      }
+      subStep = -1;
+      return;
+    }
+
+    // Legacy path: оба confirmed, продолжаем в обычный flow.
     if (kind === 'monetary') {
       subStep = 2;
     } else {
-      // Try auto-detect value per count unit.
       await tryAutoDetectValue(id);
       subStep = 1;
     }
@@ -358,18 +428,45 @@
 
   /**
    * Audit fix v1.3.0: linear back navigation (не skip skipValueStep).
-   * Prevents user confusion при switching KPI type after substep 2.
    * v1.3.2: subStep 0 + rolesConfirmed → goBack returns к ColumnMapperConfirm.
+   * v2.0.1-rc2 REORDER (Антон pilot 2026-05-15): добавлены steps -2 (KPI),
+   * -1 (Roles). Back chain: -1 → -2; 1 → -1; 2 → (skipValueStep ? -1 : 1);
+   * 3 → 2. Сброс confirmation flags при отступлении.
    */
   function goBack() {
-    if (subStep === 0 && rolesConfirmed) {
-      rolesConfirmed = false;
-      persistRolesConfirmed(false);
+    if (subStep === -1) {
+      // Из Roles preflight назад → к KPI preflight, сбросить kpiConfirmed.
+      kpiConfirmed = false;
+      persistKpiConfirmed(false);
+      subStep = -2;
       return;
     }
-    if (subStep === 1) subStep = 0;
-    else if (subStep === 2) subStep = skipValueStep ? 0 : 1;
-    else if (subStep === 3) subStep = 2;
+    if (subStep === 1) {
+      // Из ValuePerCountUnit → назад к Roles preflight, сбросить rolesConfirmed.
+      rolesConfirmed = false;
+      persistRolesConfirmed(false);
+      subStep = -1;
+      return;
+    }
+    if (subStep === 2) {
+      subStep = skipValueStep ? -1 : 1;
+      if (skipValueStep) {
+        rolesConfirmed = false;
+        persistRolesConfirmed(false);
+      }
+      return;
+    }
+    if (subStep === 3) {
+      subStep = 2;
+      return;
+    }
+    // subStep === 0 (legacy backward compat): отступаем к -1.
+    if (subStep === 0) {
+      rolesConfirmed = false;
+      persistRolesConfirmed(false);
+      subStep = -1;
+      return;
+    }
   }
 
   // v1.3.2: ColumnMapperConfirm columns derived из validateData.result.columns.
@@ -406,6 +503,37 @@
       return a._origIdx - b._origIdx;
     });
     return mapped.map(({ _origIdx, ...rest }) => rest);
+  });
+
+  /**
+   * v2.0.1-rc2 REORDER: KPI-driven фильтрация колонок для ColumnMapperConfirm.
+   * После выбора KPI скрываем irrelevant unit-mismatch колонки. Логика mirrors
+   * design doc `docs/v2_0_0_design/REORDER_SUBSTEPS_v2_1_0.md`:
+   * - sales_rub KPI → скрыть `*в уп.*`, `*в шт.*` (count-only sales)
+   * - count KPI (sales_packs/leads/etc.) → скрыть `*в руб.*`, revenue, выручка, profit
+   * - Always show: date, media, KPI itself
+   *
+   * Edge cases:
+   * - kpiConfirmed=false → no filter (показываем все cols).
+   * - currentKpiKind null/undefined → fallback на 'monetary' filter.
+   */
+  const filteredColumns = $derived.by(() => {
+    const all = detectedColumns;
+    if (!kpiConfirmed || !Array.isArray(all) || all.length === 0) return all;
+    const kind = currentKpiKind;
+    return all.filter((c) => {
+      // Always show: date, media, KPI itself.
+      if (c.role === 'date' || c.role === 'media' || c.role === 'kpi') return true;
+      const name = String(c.name ?? '');
+      if (kind === 'monetary') {
+        // Hide count-only sales cols (sales_rub KPI выбран → «в уп.» irrelevant).
+        if (/(в уп\.|в шт\.|в pack)/i.test(name)) return false;
+      } else if (kind === 'count') {
+        // Hide ₽-only sales cols (count KPI → «в руб.» irrelevant).
+        if (/(в руб|revenue|выручка|profit)/i.test(name)) return false;
+      }
+      return true;
+    });
   });
 
   /**
@@ -530,13 +658,16 @@
     return map;
   });
 
-  // v1.3.2 audit fix (B2): substep-nav stage descriptors. Explicit mapping
-  // displayIdx ↔ subStep prevents off-by-one на skipValueStep collapse.
+  // v2.0.1-rc2 REORDER: КPI preflight first (subStep=-2), Roles preflight
+  // second (subStep=-1). Legacy subStep=0 (AnalysisModeSelector + KPI panel)
+  // удалён из nav — теперь KPI selection происходит в preflight, panel не
+  // нужен. Если existing project имеет subStep=0 (backward compat) — nav
+  // показывает «Подтверждение» как next active.
   const navStages = $derived.by(() => {
     /** @type {Array<{label: string, subStep: number}>} */
     const stages = [
+      { label: 'Целевая метрика', subStep: -2 },
       { label: 'Роли колонок', subStep: -1 },
-      { label: 'Целевая метрика', subStep: 0 },
       { label: 'Ценность единицы', subStep: 1 },
       { label: 'Метрики каналов', subStep: 2 },
       { label: 'Подтверждение', subStep: 3 },
@@ -570,11 +701,14 @@
     derivedMode.set('roi');
     valuePerCountUnit.set(null);
     valuePerCountUnitSource.set(null);
-    // 2. Reset confirmation flag + localStorage.
+    // 2. Reset confirmation flags + localStorage.
+    // v2.0.1-rc2 REORDER: reset обоих gates.
+    kpiConfirmed = false;
+    persistKpiConfirmed(false);
     rolesConfirmed = false;
     persistRolesConfirmed(false);
-    // 3. Reset substep.
-    subStep = 0;
+    // 3. Reset substep к новому первому preflight.
+    subStep = -2;
     currentKPI = 'sales';
     currentValuePerUnit = null;
     currentPerChannel = {};
@@ -653,7 +787,10 @@
     }
     rolesConfirmed = true;
     persistRolesConfirmed(true);
-    subStep = 0;
+    // v2.0.1-rc2 REORDER: после подтверждения ролей → переход напрямую к
+    // ValuePerCountUnit (count KPI) или к Channels (monetary KPI).
+    // Прежний KPI substep (=0) удалён — KPI уже выбран в preflight.
+    subStep = skipValueStep ? 2 : 1;
   }
 </script>
 
@@ -663,9 +800,13 @@
        чтобы skipValueStep collapse не ломал нумерацию dots. -->
   <nav class="substep-nav">
     {#each navStages as stage, displayIdx}
-      {@const isPreflight = stage.subStep === -1}
-      {@const isActive = isPreflight ? !rolesConfirmed : (rolesConfirmed && stage.subStep === subStep)}
-      {@const isDone = isPreflight ? rolesConfirmed : (rolesConfirmed && stage.subStep < subStep)}
+      {@const stageIdx = stage.subStep}
+      {@const isActive = stageIdx === subStep}
+      {@const isDone = (
+        (stageIdx === -2 && kpiConfirmed) ||
+        (stageIdx === -1 && rolesConfirmed) ||
+        (stageIdx >= 0 && rolesConfirmed && stageIdx < subStep)
+      )}
       <div class="substep-dot" class:active={isActive} class:done={isDone}>
         <span class="dot-number">{displayIdx + 1}</span>
         <span class="dot-label">{stage.label}</span>
@@ -684,9 +825,12 @@
     </button>
   </nav>
 
-  {#if rolesConfirmed && subStep > 0}
+  {#if subStep === -1}
+    <button class="back-link" onclick={goBack}>← Изменить целевую метрику</button>
+  {:else if subStep >= 1}
     <button class="back-link" onclick={goBack}>← Назад</button>
-  {:else if rolesConfirmed && subStep === 0}
+  {:else if subStep === 0}
+    <!-- Legacy backward compat path — не должен triggered в new flow. -->
     <button class="back-link" onclick={goBack}>← Изменить роли колонок</button>
   {/if}
 
@@ -704,10 +848,30 @@
         Повторить попытку
       </button>
     </div>
-  {:else if !rolesConfirmed}
-    <!-- v1.3.2: Ratio info card сверху - critical signal для data quality
-         decision до выбора ролей. Manager mode: visual indicator + apply
-         button. Expert mode: breakdown с weak channel names + thresholds. -->
+  {:else if subStep === -2}
+    <!-- v2.0.1-rc2 REORDER (Антон pilot 2026-05-15): KPI preflight FIRST.
+         Сначала AnalysisModeSelector (ROI / Эффективность / Mixed Expert),
+         потом KPISelector — после select переходим к Roles preflight. -->
+    <AnalysisModeSelector
+      onSelect={(mode) => {
+        // Auto-fill perChannelInput uniformly per chosen mode.
+        const uniformValue = mode === 'effectiveness' ? 'physical' : 'monetary';
+        const currentChannels = Object.keys(get(perChannelInput) || {});
+        if (currentChannels.length > 0) {
+          /** @type {Record<string, 'monetary' | 'physical'>} */
+          const next = {};
+          for (const ch of currentChannels) {
+            next[ch] = uniformValue;
+          }
+          perChannelInput.set(next);
+        }
+      }}
+    />
+    <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
+  {:else if subStep === -1}
+    <!-- v2.0.1-rc2 REORDER: Roles preflight, ColumnMapperConfirm с
+         filteredColumns под выбранный KPI. Ratio card + insight exclude
+         pattern preserved из старого flow. -->
     {#if ratioCardData}
       <div class="ratio-card-wrapper">
         <RatioInfoCard
@@ -723,7 +887,7 @@
       </div>
     {/if}
     <ColumnMapperConfirm
-      columns={detectedColumns}
+      columns={filteredColumns}
       validateResult={$validateData?.result ?? null}
       insightExcludeMap={insightExcludeMap}
       onConfirm={handleRolesConfirm}
@@ -731,12 +895,12 @@
       blockedReason={ratioBlockedReason}
     />
   {:else if subStep === 0}
-    <!-- v2.0.0 (ADR-019): AnalysisModeSelector сверху Step 0.
-         Manager mode выбирает ROI / Эффективность одним кликом.
-         Expert mode видит дополнительную «Смешанный» опцию. -->
+    <!-- Legacy backward compat: old projects где flow дошёл к subStep=0 -
+         показываем AnalysisModeSelector + KPISelector (старая логика). После
+         КPI select перешли к subStep=2 (если monetary) или 1 (если count).
+         Новые projects никогда не достигают subStep=0. -->
     <AnalysisModeSelector
       onSelect={(mode) => {
-        // Auto-fill perChannelInput uniformly per chosen mode.
         const uniformValue = mode === 'effectiveness' ? 'physical' : 'monetary';
         const currentChannels = Object.keys(get(perChannelInput) || {});
         if (currentChannels.length > 0) {
