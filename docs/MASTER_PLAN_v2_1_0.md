@@ -134,6 +134,12 @@
 - ✅ Партия 3 п.5.3: плавные переходы между шагами ScenarioWizard — `{#key}` + transition:fly с направлением forward/back, prefers-reduced-motion → duration 0 + offset 0
 - ✅ Партия 4 п.6.1: Tooltip.svelte (viewport-aware, aria-describedby, ESC, prefers-reduced-motion), tooltip-texts.js (40+ записей), интеграция в KPISelector/ConvergenceDashboard/SensitivityTornado/TrafficLight, 10 vitest-тестов
 - ✅ Партия 4 п.6.2: FirstRunTour.svelte (8 шагов, spotlight box-shadow, прогресс, ESC/Arrow, localStorage, prefers-reduced-motion), data-tour-step на 6 элементах, 13 vitest-тестов
+- ✅ Партия 1 п.1.2: `docs/PILOT_SCENARIO_KAGOCEL.md` — 8-шаговый сценарий пилотной проверки Кагоцел РФ+
+- ✅ Партия 5 п.9.1+9.4 инфраструктура: версии 2.1.0-rc1 в package.json/tauri.conf.json/Cargo.toml, `scripts/build/sign_installer.ps1` (DryRun/SelfSigned/Production), `docs/BUILD_WINDOWS_v2_1_0.md` runbook
+- ✅ docs/CHANGELOG_v2.1.0-rc1.md — release notes
+- ✅ Tools/conftest перевод 5 файлов на `load_model_with_compat` + `save_model_safe` (устранён прямой pickle.load/dump в integration tests)
+- ✅ Red-team security audit aurora-model (`docs/SECURITY_AUDIT_aurora_model_v2_1_0.md`) — 12 находок
+- ✅ 5 security fixes (SH-AM-04 object arrays, SH-AM-05 sha256 verify, SH-AM-07 recursion bomb, SH-AM-11 project_lock в modeler/ols, SH-AM-12 sidecar verify для aurora-model) — 277/277 pytest passing
 
 ---
 
@@ -154,6 +160,13 @@
 | `86c19c8` | 2026-05-16 | feat(a11y-focus): focus-visible + dialog instant appearance (п.5.7) |
 | `dce4d2a` | 2026-05-16 | feat(tooltips): подсказки при наведении на ключевые элементы (v2.1.0 п.6.1) |
 | `c024c50` | 2026-05-16 | feat(onboarding): первый запуск с пошаговым туром (v2.1.0 п.6.2) |
+| `662ae57` | 2026-05-16 | feat(persistence): lazy migration + extended security tests + спецификация (п.4.1.6-4.1.8) |
+| `986fe34` | 2026-05-16 | feat(wizard-transitions): плавные переходы между шагами (п.5.3) |
+| `b382082` | 2026-05-16 | chore(release): bump до 2.1.0-rc1 + signtool infrastructure (п.9.1+9.4) |
+| `3050de8` | 2026-05-16 | docs(pilot): сценарий пилотной проверки Кагоцел РФ+ (п.1.2) |
+| `c8e35b7` | 2026-05-16 | docs(changelog): v2.1.0-rc1 release notes — 5 партий завершены |
+| `7aaffa9` | 2026-05-16 | docs(security): red-team аудит aurora-model — 12 находок |
+| `e395731` | 2026-05-16 | fix(security): закрытие 5 находок аудита aurora-model (SH-AM-04/05/07/11/12) |
 
 ---
 
