@@ -112,7 +112,8 @@ def test_I2_conservation_with_override(tmp_path, seed):
     build_synthetic_pickle(proj, seed=seed)
 
     df = pd.read_excel(proj / 'data' / 'synthetic.xlsx')
-    md = pickle.load(open(proj / 'models' / 'latest.pkl', 'rb'))
+    from engines.persistence import load_model_with_compat
+    md = load_model_with_compat(proj / 'models' / 'latest.pkl')
     media_cols = md['config']['media_columns']
     uc = md['config']['unit_costs']
     current_total_money = sum(
@@ -366,7 +367,8 @@ def test_I7_per_channel_overrides_global(tmp_path, seed):
     build_synthetic_pickle(proj, seed=seed, n_channels=4)
 
     df = pd.read_excel(proj / 'data' / 'synthetic.xlsx')
-    md = pickle.load(open(proj / 'models' / 'latest.pkl', 'rb'))
+    from engines.persistence import load_model_with_compat
+    md = load_model_with_compat(proj / 'models' / 'latest.pkl')
     media_cols = md['config']['media_columns']
     target_ch = media_cols[1] if len(media_cols) >= 2 else media_cols[0]
 

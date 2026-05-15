@@ -241,8 +241,10 @@ def test_real_C1_analyst_baseline(real_kagocel_project):
 @pytest.mark.requires_real_data
 def test_real_C5_planner_inflation_perchannel(real_kagocel_project):
     """C5-equivalent на real OLS pickle - planning + inflation + per-channel."""
-    import pickle
-    md = pickle.load(open(Path(real_kagocel_project) / 'models' / 'latest.pkl', 'rb'))
+    # v2.1.0: загрузка через load_model_with_compat — работает и со старым
+    # pickle, и с новым aurora-model форматом.
+    from engines.persistence import load_model_with_compat
+    md = load_model_with_compat(Path(real_kagocel_project) / 'models' / 'latest.pkl')
     cols = md['config']['media_columns']
 
     from engines.optimizer import optimize
@@ -261,8 +263,8 @@ def test_real_C5_planner_inflation_perchannel(real_kagocel_project):
 @pytest.mark.requires_real_data
 def test_real_C12_whatif_pass18_regression(real_kagocel_project):
     """C12-equivalent на real OLS pickle - pass-18 What-if 0.5× с wide bounds."""
-    import pickle
-    md = pickle.load(open(Path(real_kagocel_project) / 'models' / 'latest.pkl', 'rb'))
+    from engines.persistence import load_model_with_compat
+    md = load_model_with_compat(Path(real_kagocel_project) / 'models' / 'latest.pkl')
     df = pd.read_excel(md['config']['data_file'])
     media_cols = md['config']['media_columns']
     uc = md['config']['unit_costs']

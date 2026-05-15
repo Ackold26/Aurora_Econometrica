@@ -267,8 +267,9 @@ def synthetic_trained_project(tmp_path_factory):
     }
 
     pickle_path = models_dir / 'latest.pkl'
-    with open(pickle_path, 'wb') as f:
-        pickle.dump(model_data, f)
+    # v2.1.0: безопасный формат aurora-model.
+    from engines.persistence_safe import save_model_safe
+    save_model_safe(model_data, pickle_path)
 
     return project_dir
 
@@ -388,7 +389,7 @@ def kagocel_pathology_project(tmp_path_factory):
     }
 
     pickle_path = models_dir / 'latest.pkl'
-    with open(pickle_path, 'wb') as f:
-        pickle.dump(model_data, f)
+    from engines.persistence_safe import save_model_safe
+    save_model_safe(model_data, pickle_path)
 
     return project_dir

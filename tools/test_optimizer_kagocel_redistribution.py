@@ -306,8 +306,8 @@ def main() -> int:
 
         # Compute current money total через config + xlsx (matches optimizer.py logic)
         import pandas as pd
-        with open(proj / 'models' / 'latest.pkl', 'rb') as f:
-            md = pickle.load(f)
+        from engines.persistence import load_model_with_compat
+        md = load_model_with_compat(proj / 'models' / 'latest.pkl')
         df_m = pd.read_excel(md['config']['data_file'])
         media_cols_m = md['config']['media_columns']
         uc_m = md['config']['unit_costs']

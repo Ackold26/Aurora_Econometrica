@@ -1253,12 +1253,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
         # v2.1.0: безопасный формат aurora-model (zip + JSON + npz).
         # Заменяет pickle.dump — устраняет RCE-surface при load malicious моделей.
+        # SH-AM-11: project_lock защищает от race условий с save_v20_diagnostics /
+        # clear_sensitivity_cache, которые могут вызываться параллельно.
         from engines.persistence_safe import save_model_safe
-        save_model_safe(model_data, model_path)
-        # SHA-256 sidecar также пишется в `engines/persistence.py:write_pkl_sha256_sidecar`,
-        # но для свежей модели мы записываем явно здесь.
         from engines.persistence import write_pkl_sha256_sidecar
-        write_pkl_sha256_sidecar(model_path)
+        from utils.file_lock import project_lock
+        with project_lock(Path(project_dir), timeout=10.0):
+            save_model_safe(model_data, model_path)
+            write_pkl_sha256_sidecar(model_path)
 
         # Save params as JSON (for UI without loading pickle)
         params_path = models_dir / 'latest-params.json'

@@ -100,8 +100,15 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     fmt = detect_format(p)
 
     if fmt == 'aurora-model':
-        # Новый безопасный формат — не нужен SHA-256 sidecar (zip CRC32 + JSON
-        # structural validation уже дают tamper detection).
+        # Новый безопасный формат: zip CRC32 + manifest sha256_data/sha256_arrays
+        # дают tamper detection внутри ZIP. SH-AM-12: SHA-256 sidecar
+        # тоже верифицируется, если присутствует — добавочная защита.
+        integrity_ok, integrity_reason = verify_pkl_sha256_sidecar(p)
+        if not integrity_ok:
+            logger.critical(
+                'aurora-model integrity FAILED для %s: %s. Загружается но возможна '
+                'tamper. SH-AM-12.', p, integrity_reason,
+            )
         model_data = load_model_safe(p)
     elif fmt == 'pickle':
         # Legacy pickle — verify SHA-256 sidecar перед deserialize.

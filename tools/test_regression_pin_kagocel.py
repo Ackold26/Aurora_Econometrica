@@ -118,10 +118,10 @@ def test_synthetic_pickle_summary_matches_baseline(synthetic_trained_project):
 
     Or interactively: delete tools/regression_baseline.json и re-run.
     """
-    import pickle as _pickle
+    # v2.1.0: load_model_with_compat поддерживает оба формата (legacy pickle + aurora-model).
+    from engines.persistence import load_model_with_compat
     pickle_path = synthetic_trained_project / 'models' / 'latest.pkl'
-    with open(pickle_path, 'rb') as f:
-        model_data = _pickle.load(f)
+    model_data = load_model_with_compat(pickle_path)
 
     summary = _extract_summary(model_data)
     current_hash = _hash_summary(summary)

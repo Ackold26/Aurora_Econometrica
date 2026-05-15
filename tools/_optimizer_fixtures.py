@@ -219,7 +219,9 @@ def make_media_plan_from_current(
     Returns:
         {channel_name: [...] }
     """
-    md = pickle.load(open(project_dir / 'models' / 'latest.pkl', 'rb'))
+    # v2.1.0: совместимо со старым pickle и новым aurora-model форматом.
+    from engines.persistence import load_model_with_compat
+    md = load_model_with_compat(project_dir / 'models' / 'latest.pkl')
     df = pd.read_excel(md['config']['data_file'])
     media_cols = md['config']['media_columns']
     out: dict[str, list[float]] = {}
@@ -235,7 +237,8 @@ def make_media_plan_from_current(
 
 def current_total_money(project_dir: Path) -> float:
     """Sum of df[col].sum() × unit_cost for all media_cols (matches optimizer)."""
-    md = pickle.load(open(project_dir / 'models' / 'latest.pkl', 'rb'))
+    from engines.persistence import load_model_with_compat
+    md = load_model_with_compat(project_dir / 'models' / 'latest.pkl')
     df = pd.read_excel(md['config']['data_file'])
     media_cols = md['config']['media_columns']
     uc = md['config']['unit_costs']
@@ -282,7 +285,9 @@ def promote_to_hierarchical(
     Returns updated model_data (also persisted к pickle).
     """
     pkl = project_dir / 'models' / 'latest.pkl'
-    md = pickle.load(open(pkl, 'rb'))
+    from engines.persistence import load_model_with_compat
+    from engines.persistence_safe import save_model_safe
+    md = load_model_with_compat(pkl)
     media_cols = md['config']['media_columns']
     n = len(media_cols)
     if categories is None:
@@ -298,8 +303,8 @@ def promote_to_hierarchical(
         'performance_mean': 0.085,
         'performance_sigma': 0.02,
     }
-    with open(pkl, 'wb') as f:
-        pickle.dump(md, f)
+    # v2.1.0: запись в безопасном формате aurora-model.
+    save_model_safe(md, pkl)
     return md
 
 

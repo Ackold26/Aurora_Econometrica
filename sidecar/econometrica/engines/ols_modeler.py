@@ -414,10 +414,13 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             archives.pop(0)
 
     # v2.1.0: безопасный формат aurora-model (zip + JSON + npz).
+    # SH-AM-11: project_lock — защита от race с save_v20_diagnostics.
     from engines.persistence_safe import save_model_safe
-    save_model_safe(model_data, model_path)
     from engines.persistence import write_pkl_sha256_sidecar
-    write_pkl_sha256_sidecar(model_path)
+    from utils.file_lock import project_lock
+    with project_lock(Path(project_dir), timeout=10.0):
+        save_model_safe(model_data, model_path)
+        write_pkl_sha256_sidecar(model_path)
 
     params_path = models_dir / 'latest-params.json'
     with open(params_path, 'w', encoding='utf-8') as f:

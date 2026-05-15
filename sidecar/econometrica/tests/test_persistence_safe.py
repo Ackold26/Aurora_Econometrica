@@ -570,6 +570,91 @@ class TestIntegrationWithLoadModelCompat:
             load_model_with_compat(target)
 
 
+class TestSecurityFixesV2:
+    """Закрытие 5 находок red-team аудита (commit `7aaffa9`):
+    SH-AM-04 (object arrays), SH-AM-05 (sha256_data verify),
+    SH-AM-07 (recursion bomb), SH-AM-11/12 (lock + sidecar verify).
+    """
+
+    def test_object_array_rejected_at_save(self, tmp_path: Path):
+        """SH-AM-04: object/structured arrays отвергаются при save."""
+        target = tmp_path / 'obj-arr.pkl'
+        bad_data = {'channels': np.array(['tv', 'digital'], dtype=object)}
+        with pytest.raises(UnsupportedTypeError, match='object'):
+            save_model_safe(bad_data, target)
+
+    def test_structured_array_rejected_at_save(self, tmp_path: Path):
+        """SH-AM-04: structured (V kind) arrays отвергаются."""
+        target = tmp_path / 'struct.pkl'
+        bad = np.array([(1, 2.0), (3, 4.0)], dtype=[('a', 'i4'), ('b', 'f4')])
+        with pytest.raises(UnsupportedTypeError, match='object|structured'):
+            save_model_safe({'rec': bad}, target)
+
+    def test_deep_recursion_rejected_at_save(self, tmp_path: Path):
+        """SH-AM-07: глубоко вложенная структура → отвергается на save."""
+        target = tmp_path / 'recursion.pkl'
+        current = {}
+        deep = current
+        for _ in range(200):  # > MAX_NESTING_DEPTH=64
+            current['next'] = {}
+            current = current['next']
+        with pytest.raises(UnsupportedTypeError, match='recursion|вложенности'):
+            save_model_safe(deep, target)
+
+    def test_recursion_bomb_blocked_at_load(self, tmp_path: Path):
+        """SH-AM-07: deeply-nested data.json в подменённом ZIP блокируется при load."""
+        target = tmp_path / 'recursion-bomb.pkl'
+        # Создаём JSON глубиной 200 уровней
+        nested = '{"k":' * 200 + '"v"' + '}' * 200
+        with zipfile.ZipFile(target, mode='w') as zf:
+            zf.writestr(MANIFEST_FILENAME, json.dumps({
+                'format': FORMAT_NAME, 'format_version': FORMAT_VERSION,
+            }))
+            zf.writestr(DATA_FILENAME, nested.encode('utf-8'))
+        with pytest.raises(CorruptArchiveError, match='recursion|вложенности'):
+            load_model_safe(target)
+
+    def test_sha256_data_tamper_detected(self, tmp_path: Path):
+        """SH-AM-05: подмена data.json при валидном manifest sha → отвергается."""
+        target = tmp_path / 'tampered.pkl'
+        save_model_safe({'kpi_type': 'sales', 'version': 'v1'}, target)
+
+        # Читаем содержимое ZIP, подменяем data.json
+        with zipfile.ZipFile(target, 'r') as zf:
+            manifest_bytes = zf.read(MANIFEST_FILENAME)
+            arrays_bytes = zf.read(ARRAYS_FILENAME) if ARRAYS_FILENAME in zf.namelist() else None
+        # Пишем подменённый data.json (валидный JSON, но другие данные)
+        tampered = json.dumps({'kpi_type': 'evil', 'version': 'hacked'}).encode('utf-8')
+        with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(MANIFEST_FILENAME, manifest_bytes)
+            zf.writestr(DATA_FILENAME, tampered)
+            if arrays_bytes is not None:
+                zf.writestr(ARRAYS_FILENAME, arrays_bytes)
+
+        with pytest.raises(CorruptArchiveError, match='sha256_data mismatch'):
+            load_model_safe(target)
+
+    def test_sha256_data_match_passes(self, tmp_path: Path):
+        """SH-AM-05: при корректном hash load проходит."""
+        target = tmp_path / 'valid.pkl'
+        save_model_safe({'kpi_type': 'sales'}, target)
+        # Никакой подмены — load должен пройти
+        loaded = load_model_safe(target)
+        assert loaded == {'kpi_type': 'sales'}
+
+    def test_manifest_without_sha256_still_loads(self, tmp_path: Path):
+        """SH-AM-05: если sha256_data отсутствует в манифесте (старые файлы) — load работает."""
+        target = tmp_path / 'no-sha.pkl'
+        with zipfile.ZipFile(target, mode='w') as zf:
+            zf.writestr(MANIFEST_FILENAME, json.dumps({
+                'format': FORMAT_NAME, 'format_version': FORMAT_VERSION,
+                # sha256_data отсутствует
+            }))
+            zf.writestr(DATA_FILENAME, b'{"v": 1}')
+        loaded = load_model_safe(target)
+        assert loaded == {'v': 1}
+
+
 class TestLazyMigration:
     """Lazy migration: legacy pickle переписывается в aurora-model сразу при load
     (закрывает окно RCE-атаки между load и следующим save)."""

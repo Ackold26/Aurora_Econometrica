@@ -21,13 +21,27 @@ import { readable } from 'svelte/store';
  */
 export const prefersReducedMotion = readable(false, (set) => {
   if (typeof window === 'undefined') return;
+  // jsdom (vitest) не реализует matchMedia; fallback к false без подписки.
+  if (typeof window.matchMedia !== 'function') return;
 
-  const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+  let mq;
+  try {
+    mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+  } catch {
+    // Некоторые headless среды могут бросать TypeError; деградируем тихо.
+    return;
+  }
   set(mq.matches);
 
   /** @param {MediaQueryListEvent} e */
   const onChange = (e) => set(e.matches);
-  mq.addEventListener('change', onChange);
-
-  return () => mq.removeEventListener('change', onChange);
+  // addEventListener поддерживается современными браузерами; старые имели addListener.
+  if (typeof mq.addEventListener === 'function') {
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }
+  if (typeof mq.addListener === 'function') {
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
+  }
 });

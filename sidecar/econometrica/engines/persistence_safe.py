@@ -75,6 +75,11 @@ MAX_TOTAL_UNCOMPRESSED = 500 * 1024 * 1024  # 500 MB
 MAX_FILES = 16  # manifest + data + arrays + запас для будущих расширений
 MAX_MEMBER_NAME_LEN = 200
 
+# SH-AM-07: защита от recursion bomb. Глубина 64 уровней покрывает все реальные
+# структуры model_data (~3-4 уровня вложенности), но блокирует deeply-nested
+# атакующий payload, который вызвал бы RecursionError при `_split_arrays`/`_merge_arrays`.
+MAX_NESTING_DEPTH = 64
+
 # JSON ключ-маркер для placeholder'а numpy array
 NUMPY_PLACEHOLDER_KEY = '__numpy_array__'
 
@@ -143,16 +148,27 @@ def _convert_numpy_scalar(v: Any) -> Any:
     return v
 
 
-def _split_arrays(value: Any, arrays: dict[str, np.ndarray], path: str = '$') -> Any:
+def _split_arrays(
+    value: Any,
+    arrays: dict[str, np.ndarray],
+    path: str = '$',
+    depth: int = 0,
+) -> Any:
     """Рекурсивно обходит value, выделяет numpy arrays в arrays dict.
 
     Возвращает «очищенную» структуру: numpy arrays заменены на placeholder
     `{NUMPY_PLACEHOLDER_KEY: <unique_name>}`. Имена в arrays формируются
     по пути доступа: `posterior_samples.media_betas`, `params.0.weights`.
 
+    SH-AM-07: depth ограничен `MAX_NESTING_DEPTH` для защиты от recursion bomb.
+
     Raises:
-        UnsupportedTypeError: если встречен неподдерживаемый тип.
+        UnsupportedTypeError: если встречен неподдерживаемый тип или превышен лимит глубины.
     """
+    if depth > MAX_NESTING_DEPTH:
+        raise UnsupportedTypeError(
+            f'Глубина вложенности > {MAX_NESTING_DEPTH} (защита от recursion bomb): путь {path}.'
+        )
     if value is None or isinstance(value, (bool, int, str)):
         # int обрабатывается до проверки на bool — потому что bool это subclass int,
         # но мы хотим сохранить тип. JSON не различает int/bool явно, но Python да.
@@ -175,6 +191,15 @@ def _split_arrays(value: Any, arrays: dict[str, np.ndarray], path: str = '$') ->
         return {'__datetime__': value.isoformat()}
 
     if isinstance(value, np.ndarray):
+        # SH-AM-04: object arrays несут pickle-payload даже при np.savez —
+        # отвергаем при save чтобы избежать silent data loss при load с
+        # allow_pickle=False.
+        if value.dtype == object or value.dtype.kind in ('O', 'V'):
+            raise UnsupportedTypeError(
+                f'numpy.ndarray с dtype={value.dtype} (object/structured) не '
+                f'поддерживается — pickle-payload блокируется allow_pickle=False. '
+                f'Путь {path}. Сконвертируйте в numeric array или list/dict.'
+            )
         # Уникальное имя на основе пути. Двоеточия / точки / индексы → подчёркивания.
         name = _path_to_array_name(path)
         # Если имя коллидирует — добавляем суффикс.
@@ -198,11 +223,11 @@ def _split_arrays(value: Any, arrays: dict[str, np.ndarray], path: str = '$') ->
                     f'Не-строковый ключ dict не поддерживается: путь {path}, '
                     f'ключ {k!r} тип {type(k).__name__}.'
                 )
-            out[k] = _split_arrays(v, arrays, f'{path}.{k}')
+            out[k] = _split_arrays(v, arrays, f'{path}.{k}', depth + 1)
         return out
 
     if isinstance(value, (list, tuple)):
-        return [_split_arrays(v, arrays, f'{path}[{i}]') for i, v in enumerate(value)]
+        return [_split_arrays(v, arrays, f'{path}[{i}]', depth + 1) for i, v in enumerate(value)]
 
     if isinstance(value, (bytes, bytearray)):
         raise UnsupportedTypeError(
@@ -238,15 +263,23 @@ def _path_to_array_name(path: str) -> str:
     return name[:MAX_MEMBER_NAME_LEN - len('arrays_'):]  # запас на префикс
 
 
-def _merge_arrays(data: Any, arrays: dict[str, np.ndarray]) -> Any:
+def _merge_arrays(data: Any, arrays: dict[str, np.ndarray], depth: int = 0) -> Any:
     """Обратное преобразование: placeholder → numpy array.
 
     Рекурсивно обходит десериализованный JSON, заменяет placeholder'ы
     реальными arrays из загруженного npz.
 
+    SH-AM-07: depth ограничен `MAX_NESTING_DEPTH` для защиты от recursion bomb.
+
     Raises:
-        CorruptArchiveError: если placeholder ссылается на отсутствующий array.
+        CorruptArchiveError: если placeholder ссылается на отсутствующий array
+            или превышена глубина вложенности.
     """
+    if depth > MAX_NESTING_DEPTH:
+        raise CorruptArchiveError(
+            f'Глубина вложенности > {MAX_NESTING_DEPTH} в data.json '
+            '(защита от recursion bomb).'
+        )
     if isinstance(data, dict):
         if NUMPY_PLACEHOLDER_KEY in data:
             name = data[NUMPY_PLACEHOLDER_KEY]
@@ -263,9 +296,9 @@ def _merge_arrays(data: Any, arrays: dict[str, np.ndarray]) -> Any:
                 raise CorruptArchiveError(
                     f'Некорректный datetime в data.json: {exc}'
                 ) from exc
-        return {k: _merge_arrays(v, arrays) for k, v in data.items()}
+        return {k: _merge_arrays(v, arrays, depth + 1) for k, v in data.items()}
     if isinstance(data, list):
-        return [_merge_arrays(v, arrays) for v in data]
+        return [_merge_arrays(v, arrays, depth + 1) for v in data]
     return data
 
 
@@ -458,6 +491,19 @@ def load_model_safe(path: Path | str) -> dict[str, Any]:
             )
 
         data_raw = zf.read(DATA_FILENAME)
+
+        # SH-AM-05: verify sha256_data перед парсингом — атакующий может
+        # подменить data.json с валидным JSON но повреждённой структурой.
+        # Манифест хранит digest, мы его проверяем; mismatch → CorruptArchiveError.
+        expected_data_sha = manifest.get('sha256_data')
+        if expected_data_sha and isinstance(expected_data_sha, str) and len(expected_data_sha) == 64:
+            actual_data_sha = hashlib.sha256(data_raw).hexdigest()
+            if actual_data_sha != expected_data_sha:
+                raise CorruptArchiveError(
+                    f'sha256_data mismatch: manifest={expected_data_sha[:8]}.., '
+                    f'actual={actual_data_sha[:8]}.. — data.json подменён.'
+                )
+
         try:
             data = json.loads(data_raw.decode('utf-8'))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -466,6 +512,17 @@ def load_model_safe(path: Path | str) -> dict[str, Any]:
         arrays: dict[str, np.ndarray] = {}
         if ARRAYS_FILENAME in members:
             arrays_raw = zf.read(ARRAYS_FILENAME)
+
+            # SH-AM-05: verify sha256_arrays аналогично.
+            expected_arrays_sha = manifest.get('sha256_arrays')
+            if expected_arrays_sha and isinstance(expected_arrays_sha, str) and len(expected_arrays_sha) == 64:
+                actual_arrays_sha = hashlib.sha256(arrays_raw).hexdigest()
+                if actual_arrays_sha != expected_arrays_sha:
+                    raise CorruptArchiveError(
+                        f'sha256_arrays mismatch: manifest={expected_arrays_sha[:8]}.., '
+                        f'actual={actual_arrays_sha[:8]}.. — arrays.npz подменён.'
+                    )
+
             try:
                 with np.load(
                     io.BytesIO(arrays_raw), allow_pickle=False,
