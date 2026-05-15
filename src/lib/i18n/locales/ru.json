@@ -1,0 +1,70 @@
+{
+  "$schema": "Aurora MMM Optimizer i18n dictionary (RU). Этот файл — основной источник UI strings. Переводы для en.json берутся отсюда. Ключи иерархические: <area>.<context>.<concept>.",
+
+  "common": {
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "confirm": "Подтвердить",
+    "continue": "Продолжить",
+    "back": "Назад",
+    "next": "Далее",
+    "retry": "Повторить",
+    "close": "Закрыть",
+    "delete": "Удалить",
+    "edit": "Редактировать",
+    "loading": "Загрузка...",
+    "saving": "Сохраняем...",
+    "yes": "Да",
+    "no": "Нет",
+    "ok": "ОК",
+    "remove": "Убрать",
+    "restore": "Вернуть",
+    "apply": "Применить",
+    "more": "Подробнее"
+  },
+
+  "errors": {
+    "generic": "Произошла ошибка",
+    "network": "Ошибка соединения с сервером",
+    "save_failed": "Не удалось сохранить",
+    "load_failed": "Не удалось загрузить",
+    "migration_failed": "Не удалось обновить формат проекта",
+    "migration_failed_detail": "Резервная копия project.json сохранена. Попробуйте ещё раз — если ошибка повторится, закройте остальные вкладки и проверьте свободное место на диске.",
+    "lock_timeout": "Проект используется другой сессией. Подождите и повторите."
+  },
+
+  "industry": {
+    "label": "Отрасль",
+    "placeholder": "— Отрасль —",
+    "pharma_otc": "Фарма OTC",
+    "pharma_rx": "Фарма Rx",
+    "fmcg": "FMCG",
+    "retail": "Розница",
+    "saas": "SaaS / Digital",
+    "finance": "Финансы",
+    "b2b": "B2B",
+    "unknown": "Не указано"
+  },
+
+  "pipeline": {
+    "import": "Импорт",
+    "validate": "Валидация",
+    "model": "Модель",
+    "decomposition": "Декомпозиция",
+    "optimization": "Оптимизация",
+    "report": "Отчёт"
+  },
+
+  "validate": {
+    "substep": {
+      "kpi": "Целевая метрика",
+      "roles": "Роли колонок",
+      "value_per_count": "Ценность единицы",
+      "channels": "Метрики каналов",
+      "confirmation": "Подтверждение"
+    },
+    "reset_step": "Сбросить шаг",
+    "back_to_kpi": "← Изменить целевую метрику",
+    "back_to_roles": "← Изменить роли колонок"
+  }
+}
