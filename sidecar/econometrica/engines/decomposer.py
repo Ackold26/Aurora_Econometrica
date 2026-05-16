@@ -241,6 +241,37 @@ def decompose(
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config.get('merge_rules'))
 
+    # v2.1.0 (pilot 2026-05-16 fix B-01): re-inject holiday dummies для матча
+    # с обученной моделью. modeler.py инжектирует 12 РФ holiday колонок в df
+    # при тренировке (ADR-019 §5), они попадают в control_cols, но в исходном
+    # Excel/CSV их нет — поэтому df[control_cols] на стр.521 падал с
+    # `['holiday_newyear_preshop', ...] not in index`. Список injected
+    # колонок сохранён в normalization.holiday_cols_injected (v2.0.0 ADR).
+    holiday_cols_to_inject = (
+        model_data.get('normalization', {}).get('holiday_cols_injected') or []
+    )
+    if holiday_cols_to_inject:
+        date_col = config.get('date_column', 'Дата')
+        if date_col in df.columns:
+            try:
+                from utils.holiday_calendar_ru import generate_holiday_dummies
+                holiday_df = generate_holiday_dummies(df[date_col])
+                for hcol in holiday_cols_to_inject:
+                    if hcol not in df.columns and hcol in holiday_df.columns:
+                        df[hcol] = holiday_df[hcol].values
+            except Exception as exc:
+                # Graceful degradation: если re-inject failed - пытаемся декомпозицию
+                # без holiday dummies (β-коэффициенты для них останутся - но соответствующие
+                # X-значения будут нулевыми → контроль NaN-protect ниже).
+                logger.warning(
+                    'Decomposer: re-injection holiday dummies failed (%s). '
+                    'Will proceed with df, controls без holidays may be 0.', exc,
+                )
+                # Защитная мера: убираем holiday cols из control_cols чтобы
+                # df[control_cols] не падал. β для них останется в model_data
+                # но без X-данных вклад будет 0.
+                control_cols = [c for c in control_cols if c not in holiday_cols_to_inject]
+
     # Phase 2 audit pass 4 - per-channel inflation: customer entered current
     # cost (latest training year) + annual_inflation_pct → adjust к training-
     # period weighted average. ROI/mROAS теперь reflect actual training prices.
