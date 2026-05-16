@@ -252,6 +252,62 @@
     onRoleChange?.(colName, newRole);
   }
 
+  /** M-01 / 4i (пилот 2026-05-16): bulk recommendation actions.
+   *  skippedRecommendations - Set of column names that user chose to ignore.
+   *  flashingRows - Set of column names currently showing row-flash animation.
+   */
+  /** @type {Set<string>} */
+  let skippedRecommendations = $state(new Set());
+  /** @type {Set<string>} */
+  let flashingRows = $state(new Set());
+
+  /**
+   * Pending recommendations = columns with 'exclude' recommendation that:
+   * - are not yet set to excluded role (effectiveRole !== 'excluded')
+   * - are not in skippedRecommendations
+   * "keep"/"review" recommendations are not actionable via bulk-apply.
+   */
+  const pendingRecommendations = $derived.by(() => {
+    return columns.filter((/** @type {any} */ col) => {
+      if (skippedRecommendations.has(col.name)) return false;
+      const reco = recommendationFor(col);
+      return reco.status === 'exclude' && effectiveRole(col.name) !== 'excluded';
+    });
+  });
+
+  const pendingRecommendationsCount = $derived(pendingRecommendations.length);
+
+  /**
+   * Apply all pending «Исключить» recommendations:
+   * - For each pending column: set override to 'excluded'
+   * - Trigger row-flash animation for each affected row
+   */
+  function applyAllRecommendations() {
+    const toApply = [...pendingRecommendations];
+    for (let i = 0; i < toApply.length; i++) {
+      const col = toApply[i];
+      setOverride(col.name, 'excluded');
+      // Stagger row-flash animation
+      const delay = i * 60;
+      setTimeout(() => {
+        flashingRows = new Set([...flashingRows, col.name]);
+        setTimeout(() => {
+          const next = new Set(flashingRows);
+          next.delete(col.name);
+          flashingRows = next;
+        }, 620);
+      }, delay);
+    }
+  }
+
+  /**
+   * Skip all pending recommendations (mark as seen, no role change).
+   */
+  function skipAllRecommendations() {
+    const names = pendingRecommendations.map((/** @type {any} */ col) => col.name);
+    skippedRecommendations = new Set([...skippedRecommendations, ...names]);
+  }
+
   /** v2.1.0 п.5.1: pulse-confirm animation state.
    *  When true - button enters confirming state (pulse + check icon).
    *  After CONFIRM_DELAY ms, onConfirm is called and parent transitions.
@@ -321,6 +377,30 @@
     </div>
   {/if}
 
+  {#if pendingRecommendationsCount > 0}
+    <div class="bulk-actions" role="region" aria-label="Массовое применение рекомендаций">
+      <span class="bulk-label">
+        Есть рекомендации к исключению
+      </span>
+      <button
+        type="button"
+        class="bulk-apply-btn"
+        onclick={applyAllRecommendations}
+        aria-label="Применить все рекомендации по исключению колонок ({pendingRecommendationsCount} шт.)"
+      >
+        Применить все рекомендации ({pendingRecommendationsCount})
+      </button>
+      <button
+        type="button"
+        class="bulk-skip-btn"
+        onclick={skipAllRecommendations}
+        aria-label="Пропустить все рекомендации"
+      >
+        Пропустить все
+      </button>
+    </div>
+  {/if}
+
   <div class="table-wrapper">
     <table>
       <thead>
@@ -344,7 +424,7 @@
         {#each columns as col (col.name)}
           {@const role = effectiveRole(col.name)}
           {@const reco = recommendationFor(col)}
-          <tr class="role-{role}">
+          <tr class="role-{role}" class:row-flash={flashingRows.has(col.name)}>
             <td class="col-name">{col.name}</td>
             <td class="col-kind" title={col.kind ?? ''}>
               <span class="kind-label">{humanizeKind(col.kind)}</span>
@@ -923,5 +1003,63 @@
       background: var(--success, #10B981);
       color: var(--bg-card, #0f172a);
     }
+  }
+
+  /* ─── M-01/4i: Bulk actions panel ─── */
+  .bulk-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--accent-primary, #6366f1) 6%, transparent);
+    border-radius: 8px;
+    margin-bottom: 4px;
+  }
+  .bulk-label {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.4;
+  }
+  .bulk-apply-btn {
+    padding: 8px 16px;
+    background: var(--accent-primary, #6366f1);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .bulk-apply-btn:hover { opacity: 0.9; }
+  .bulk-skip-btn {
+    padding: 8px 16px;
+    background: transparent;
+    color: var(--text-secondary, #94a3b8);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  .bulk-skip-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary, #94a3b8);
+  }
+
+  /* ─── M-01/4i: Row flash animation (applied on bulk-apply) ─── */
+  @keyframes row-flash {
+    0%   { background: color-mix(in srgb, var(--success, #4ade80) 0%, transparent); }
+    40%  { background: color-mix(in srgb, var(--success, #4ade80) 18%, transparent); }
+    100% { background: color-mix(in srgb, var(--success, #4ade80) 0%, transparent); }
+  }
+  .row-flash {
+    animation: row-flash 620ms ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .row-flash { animation: none; }
   }
 </style>
