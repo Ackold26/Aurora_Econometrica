@@ -99,7 +99,14 @@
       // patterns considered media-related; default monetary не информативен
       // for excluded media - но эти cols прошли prior validator role='unused'.
       // Simple inclusion: any column с recognised unit type considered media.
-      if (detectChannelType(name) !== 'monetary' || /[₽]|бюджет|budget|spend|trp|показ/i.test(name)) {
+      // v2.1.0 (пилот 2026-05-17 audit H-2): расширенный pattern - покрывает
+      // GRP / OLV / Banner / Radio / OOH / Press / Performance / Social /
+      // Search / Click / Visit / View / Impression / Reach / показ /
+      // визит / просмотр / охват. Раньше отсутствие GRP/OLV/Banners
+      // приводило к тому что excluded канал не появлялся в badge «N
+      // исключено» в AppliedModeSummary.
+      const mediaRegex = /[₽]|бюджет|budget|spend|cost|trp|grp|olv|banner|баннер|радио|radio|ooh|пресс|press|perform|social|search|click|клик|visit|визит|view|просмотр|impress|показ|reach|охват/i;
+      if (detectChannelType(name) !== 'monetary' || mediaRegex.test(name)) {
         out.push(name);
       }
     }
@@ -864,6 +871,16 @@
       ...val,
       result: { ...val.result, columns: updated },
     });
+    // v2.1.0 (пилот 2026-05-17 audit H-8): real-time KPI persistence.
+    // Раньше chosenKpiColumn писалось только на handleRolesConfirm -
+    // ConfigPanel читал stale значение после dropdown override.
+    if (canonical === 'kpi') {
+      chosenKpiColumn.set(colName);
+    } else {
+      // Если юзер снял role='kpi' с колонки - проверим, какая ещё имеет KPI.
+      const stillKpi = updated.find((c) => c.role === 'kpi');
+      if (stillKpi) chosenKpiColumn.set(stillKpi.name);
+    }
     // Persist project.json (best-effort).
     const projectId = get(activeProjectId);
     if (projectId) {

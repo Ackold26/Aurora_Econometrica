@@ -78,7 +78,8 @@ def bootstrap_js(
         tooltipBorder: 'rgba(0,0,0,0.12)',
         tooltipText: '#0a1628',
         accent: '#c5a46d',
-        lime: '#ccff00'
+        lime: '#ccff00',
+        palette: ['#c5a46d', '#3b82f6', '#22c55e', '#dc2626', '#f59e0b', '#8b5cf6', '#06b6d4', '#84cc16']
       }},
       dark: {{
         textColor: '#e6edf3',
@@ -93,7 +94,8 @@ def bootstrap_js(
         tooltipBorder: 'rgba(255,255,255,0.12)',
         tooltipText: '#e6edf3',
         accent: '#c5a46d',
-        lime: '#ccff00'
+        lime: '#ccff00',
+        palette: ['#c5a46d', '#3b82f6', '#22c55e', '#dc2626', '#f59e0b', '#8b5cf6', '#06b6d4', '#84cc16']
       }},
       fun: {{
         textColor: '#0a1628',
@@ -108,7 +110,8 @@ def bootstrap_js(
         tooltipBorder: 'rgba(0,0,0,0.12)',
         tooltipText: '#0a1628',
         accent: '#c5a46d',
-        lime: '#ccff00'
+        lime: '#ccff00',
+        palette: ['#c5a46d', '#3b82f6', '#22c55e', '#dc2626', '#f59e0b', '#8b5cf6', '#06b6d4', '#84cc16']
       }}
     }};
   }}
@@ -256,14 +259,17 @@ def bootstrap_js(
       animationDuration: 600,
       textStyle: {{ color: pal.textColor, fontFamily: 'Inter, sans-serif' }},
       grid: {{ left: 8, right: 40, bottom: 8, top: 8, containLabel: true }},
+      // v2.1.0 (пилот 2026-05-17 audit H-2): KPI-aware mROAS suffix.
+      // MODEL_CTX.kpi_kind = 'count' → шт./₽, 'effectiveness' → %,
+      // default 'monetary' → ×. Fallback на × если context отсутствует.
       tooltip: Object.assign(baseTooltip(pal), {{
         formatter: function(ps) {{
           var p = Array.isArray(ps) ? ps[0] : ps;
-          return '<b>' + escapeHtml(p.name) + '</b><br/>mROAS: ' + p.value.toFixed(2) + '×';
+          return '<b>' + escapeHtml(p.name) + '</b><br/>mROAS: ' + formatMroas(p.value);
         }}
       }}),
       xAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal), {{
-        axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{ formatter: '{{value}}×' }})
+        axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{ formatter: function(v) {{ return formatMroas(v); }} }})
       }}),
       yAxis: Object.assign({{ type: 'category', data: names }}, baseAxisStyle(pal)),
       series: [{{
@@ -280,11 +286,22 @@ def bootstrap_js(
         label: {{
           show: true, position: 'right',
           color: pal.textColor, fontSize: 11, fontWeight: 600,
-          formatter: function(p) {{ return p.value.toFixed(2) + '×'; }}
+          formatter: function(p) {{ return formatMroas(p.value); }}
         }},
         barMaxWidth: 22,
       }}]
     }};
+  }}
+
+  // v2.1.0 (пилот 2026-05-17): centralized mROAS formatter, KPI-aware.
+  function formatMroas(v) {{
+    var kind = (MODEL_CTX && MODEL_CTX.kpi_kind) || 'monetary';
+    if (kind === 'count') {{
+      return v.toFixed(2) + ' ед./₽';
+    }} else if (kind === 'effectiveness' || kind === 'proportional') {{
+      return (v * 100).toFixed(1) + '%';
+    }}
+    return v.toFixed(2) + '×';
   }}
 
   function buildShareOption(data) {{
@@ -506,7 +523,7 @@ def bootstrap_js(
       '<div style="margin-top:20px;">' +
         row('Бюджет, млн ₽',       d.spend_mln.toFixed(1)) +
         row('Вклад, млн ₽',         d.contrib_mln.toFixed(1)) +
-        row('mROAS',                d.mroas.toFixed(2) + '×') +
+        row('mROAS',                formatMroas(d.mroas)) +
         (d.current_spend_mln ? row('Текущий spend, млн',   d.current_spend_mln.toFixed(1)) : '') +
         (d.optimal_spend_mln ? row('Оптимальный spend, млн', d.optimal_spend_mln.toFixed(1)) : '') +
       '</div>' +

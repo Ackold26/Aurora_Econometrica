@@ -31,10 +31,54 @@ try:
         AURORA_BG_WHITE,
         CHANNEL_COLORS,
     )
-except ImportError as e:
-    raise RuntimeError(
-        "aurora_tokens not generated. Run: python Standards/tokens/build.py --target python"
-    ) from e
+except ImportError:
+    # v2.1.0 (пилот 2026-05-17 audit C-1): nested fallback matching expected
+    # access patterns COLORS["brand"]["deep"]["100"] etc. Раньше выбрасывался
+    # RuntimeError с devops-сообщением которое попадало в красный banner
+    # на frontend Отчёта.
+    AURORA_DEEP_100 = '#0A1628'
+    AURORA_DEEP_80 = '#1E293B'
+    AURORA_DEEP_60 = '#475569'
+    AURORA_GOLD = '#C5A46D'
+    AURORA_BG_WHITE = '#F7F7F7'
+    SIGNATURE_LIME = '#CCFF00'
+    COLORS = {
+        'brand': {
+            'deep':  {'100': '#0A1628', '80': '#1E293B', '60': '#475569', '40': '#94A3B8', '20': '#CBD5E1'},
+            'gold':  {'primary': '#C5A46D', 'muted': '#B8975D'},
+            'bg':    {'white': '#FFFFFF', 'quiet': '#F7F7F7'},
+            'rule':  '#E5E7EB',
+        },
+        'data': {
+            'ocean': '#3B82F6', 'jade': '#22C55E',
+            'berry': '#DC2626', 'tangerine': '#F59E0B',
+        },
+        'semantic': {
+            'stop': '#DC2626', 'caution': '#F59E0B', 'go': '#22C55E',
+        },
+    }
+    TYPOGRAPHY = {
+        'fontFamily': {'sans': 'Arial', 'serif': 'Georgia', 'mono': 'Consolas'},
+        'fontSize': {
+            'pptx': {
+                'coverTitle': 44, 'coverSubtitle': 22, 'sectionNumber': 28,
+                'sectionName': 18, 'actionTitle': 28, 'subtitle': 16,
+                'bodyKM': 14, 'bodyDetail': 12, 'caption': 10,
+                'footnote': 9, 'mono': 11,
+            },
+        },
+    }
+    SIZING = {
+        'pptx': {
+            'safeArea': 12.333, 'gridGutter': 0.25, 'logoCover': 2.0,
+            'logoSmall': 0.6, 'signatureLimeOffset': 6,
+        },
+    }
+    BORDER = {'thin': 0.5, 'medium': 1.0, 'thick': 1.5}
+    CHANNEL_COLORS = [
+        '#C5A46D', '#3B82F6', '#22C55E', '#DC2626',
+        '#F59E0B', '#8B5CF6', '#06B6D4', '#84CC16',
+    ]
 
 
 def _rgb(hex_color: str) -> RGBColor:

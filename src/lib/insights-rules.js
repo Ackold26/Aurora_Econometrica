@@ -1088,6 +1088,23 @@ export function modelInsights(data, ratioOverride = undefined) {
   const channels = data.channelParams ? Object.keys(data.channelParams) : [];
   const nChannels = channels.length;
 
+  // v2.1.0 (пилот 2026-05-17 audit H-1): catastrophe warning при R²<0 /
+  // MAPE>50%. Раньше R²<0 не имел отдельной ветки - модель не сошлась,
+  // но юзер видел только generic thinness warning без actionable hint.
+  if (rSq < 0 || mape > 100) {
+    out.push({
+      severity: 'error',
+      text: `⚠ Модель НЕ сошлась: R² = ${(rSq * 100).toFixed(0)}% (отрицательный означает «модель хуже среднего»), MAPE = ${mape.toFixed(0)}%. Результаты не интерпретируйте.`,
+      tip: 'Возможные причины: (1) outlier-фактор в данных - проверьте «Объём за период» в Валидации, если одна колонка в 100× больше других - пометьте её «Не использовать»; (2) mixed mode (KPI=шт, media=₽) без задания CPP/CPM - конверсии нет, модель путается; (3) сильная мультиколлинеарность - объедините парные каналы (OLV Бюджет+OLV Показы); (4) попробуйте упростить модель: 4-5 каналов вместо 10+, режим OLS вместо Bayesian.',
+    });
+  } else if (rHat > 1.5 || divergences / Math.max(8000, 1) > 0.05) {
+    out.push({
+      severity: 'error',
+      text: `⚠ Цепи Markov Chain Monte Carlo не сошлись: R-hat = ${rHat.toFixed(2)} (норма < 1.05), дивергенций ${divergences} (${(divergences / 80).toFixed(1)}%). Доверять выводам нельзя.`,
+      tip: 'Действия: упростите модель (меньше каналов / контрольных), проверьте outlier-факторы в Валидации, либо переключитесь в режим OLS (Расширенные настройки → Эксперт) - он работает на малых выборках стабильнее Bayesian.',
+    });
+  }
+
   // ── 0. Data thinness warning - trumps everything else ──
   // v2.1.0 (пилот 2026-05-16): SSOT classifyRatio для label/description -
   // согласовано с RatioInfoCard, sticky header, Контроль качества Валидации.
@@ -1929,13 +1946,34 @@ export function optimizeInsights(data, ctx = {}) {
 export function reportInsights(ctx = {}) {
   /** @type {Insight[]} */
   const out = [];
-  const { mod, dec, opt, scenarioCount = 0, kpi: kpiInput = null } = ctx;
+  const { mod, dec, opt, scenarioCount = 0, kpi: kpiInput = null, ssotRatio = null } = ctx;
   const kpi = resolveKpi(kpiInput);
-  const mqs = mod?.diagnostics?.mqs?.score ?? null;
-  const tierLabel = mod?.diagnostics?.mqs?.tier_label ?? '';
   const rSq = mod?.diagnostics?.metrics?.r_squared ?? null;
   const mape = mod?.diagnostics?.metrics?.mape_pct ?? null;
-  const ratio = mod?.diagnostics?.metrics?.ratio ?? null;
+  // v2.1.0 (пилот 2026-05-17 audit C-3): SSOT ratio + MQS override.
+  // Раньше шапка Отчёта читала backend metrics напрямую - MQS=50 Слабое
+  // при реальном 87 Отличное (frontend SSOT когда ratio>=4).
+  const backendRatio = mod?.diagnostics?.metrics?.ratio ?? null;
+  const ratio = typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0
+    ? ssotRatio
+    : backendRatio;
+  const backendMqsScore = Number(mod?.diagnostics?.mqs?.score ?? 0);
+  const rawScore = Number(mod?.diagnostics?.mqs?.raw_score ?? backendMqsScore);
+  let mqs, tierLabel;
+  if (mod?.diagnostics?.mqs == null) {
+    mqs = null;
+    tierLabel = '';
+  } else if (ratio != null && ratio >= 4 && rawScore > backendMqsScore) {
+    mqs = Math.round(rawScore * 10) / 10;
+    if (mqs >= 85) tierLabel = 'Отличное';
+    else if (mqs >= 70) tierLabel = 'Хорошее';
+    else if (mqs >= 55) tierLabel = 'Приемлемое';
+    else if (mqs >= 40) tierLabel = 'Слабое';
+    else tierLabel = 'Ненадёжное';
+  } else {
+    mqs = backendMqsScore;
+    tierLabel = mod?.diagnostics?.mqs?.tier_label ?? '';
+  }
   const lift = opt?.expected_lift_pct ?? null;
   const budget = opt?.total_budget_money ?? null;
   const basePct = dec?.baseline_pct ?? null;

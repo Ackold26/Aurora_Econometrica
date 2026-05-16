@@ -53,8 +53,25 @@ def escape_js_embed(obj: Any) -> str:
     U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR) as \\uXXXX. This
     defuses the classic XSS vector where U+2028/U+2029 breaks JS string
     literal parsing.
+
+    v2.1.0 (пилот 2026-05-17 audit H-3): pre-sanitize NaN / Infinity / -Infinity
+    в 0. По умолчанию Python json.dumps emits NaN / Infinity keywords - валидный
+    JS, но НЕ валидный JSON. ECharts рисует пустые бары / падает с TypeError.
+    mroas / spend могут быть NaN если decomposer/optimizer столкнулся с
+    channel.contribution=0 или spend=0 (deлeние).
     """
-    return json.dumps(obj, ensure_ascii=True, separators=(',', ':'))
+    import math
+    def _sanitize(o):
+        if isinstance(o, float):
+            if math.isnan(o) or math.isinf(o):
+                return 0
+            return o
+        if isinstance(o, dict):
+            return {k: _sanitize(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_sanitize(v) for v in o]
+        return o
+    return json.dumps(_sanitize(obj), ensure_ascii=True, separators=(',', ':'))
 
 
 def csp_sha256(content: str) -> str:

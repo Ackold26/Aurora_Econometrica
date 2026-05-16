@@ -286,7 +286,12 @@
         globalMaxPct: live.globalMaxPct,
         kpi,
       });
-      case 5: return reportInsights({ mod, dec, opt, kpi });
+      case 5: {
+        // v2.1.0 (пилот 2026-05-17 audit C-3): передаём SSOT ratio чтобы
+        // правая панель Отчёта показывала те же MQS/Ratio что плитка.
+        const ssotRatio = $validationHeaderMetrics?.ratio;
+        return reportInsights({ mod, dec, opt, kpi, ssotRatio });
+      }
       default: return [];
     }
   });

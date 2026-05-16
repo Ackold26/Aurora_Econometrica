@@ -219,7 +219,16 @@
   const heavyModelWarn = $derived(enabledCount > 10);
 
   // ── Actions ──
+  // v2.1.0 (пилот 2026-05-17 audit C-2): guard от двойного клика. Ранее
+  // между нажатием кнопки и `isComputing.set(true)` выполнялось 4 await
+  // (project_get_dir, project_update, get(modelEngine), econ_train_start).
+  // Кнопка оставалась enabled - юзер мог отправить 2 POST /compute/train,
+  // создавалось 2 task_id, оба бежали MCMC параллельно, гонка pickle write.
+  let trainInFlight = $state(false);
+
   async function trainModel() {
+    if (trainInFlight || $isComputing) return;
+    trainInFlight = true;
     const projectId = $activeProjectId;
     if (!projectId) {
       computeStatus.set('Ошибка: проект не выбран. Создайте проект на шаге Импорт.');
@@ -364,6 +373,8 @@
       }
     } catch (e) {
       computeStatus.set(`Ошибка: ${e}`);
+    } finally {
+      trainInFlight = false;
     }
 
     setTimeout(() => {
@@ -523,7 +534,7 @@
     class="run-btn"
     class:trained={modelTrained && !$isComputing}
     onclick={trainModel}
-    disabled={$isComputing || !selectedKpi || Object.values(channelEnabled).filter(Boolean).length === 0}
+    disabled={$isComputing || trainInFlight || !selectedKpi || Object.values(channelEnabled).filter(Boolean).length === 0}
   >
     {#if $isComputing}
       <span class="spinner"></span> {$computeStatus || 'Обучаю модель...'}

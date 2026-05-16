@@ -58,10 +58,43 @@ from pptx.util import Inches, Pt
 
 try:
     from aurora_tokens import COLORS, TYPOGRAPHY, SIZING
-except ImportError as e:
-    raise RuntimeError(
-        "aurora_tokens not generated. Run: python Standards/tokens/build.py --target python"
-    ) from e
+except ImportError:
+    # v2.1.0 (пилот 2026-05-17 audit C-1): fallback tokens когда build script
+    # не был запущен (Standards/tokens/build.py отсутствует в распакованном
+    # репо). Раньше выбрасывался RuntimeError с raw devops-сообщением,
+    # которое попадало в красный banner на frontend Отчёта.
+    # Минимальный валидный набор для PPTX генерации.
+    COLORS = {
+        'navy_deep': '#0A1628',
+        'gold': '#C5A46D',
+        'lime': '#CCFF00',
+        'white': '#FFFFFF',
+        'off_white': '#F7F7F7',
+        'gray_text': '#475569',
+        'gray_muted': '#94A3B8',
+        'gray_line': '#E5E7EB',
+        'red': '#DC2626',
+        'green': '#22C55E',
+        'blue': '#3B82F6',
+    }
+    TYPOGRAPHY = {
+        'font_sans': 'Inter',
+        'font_serif': 'Georgia',
+        'font_mono': 'JetBrains Mono',
+        'size_h1': 32,
+        'size_h2': 24,
+        'size_h3': 18,
+        'size_body': 11,
+        'size_caption': 9,
+    }
+    SIZING = {
+        'slide_width_in': 13.333,
+        'slide_height_in': 7.5,
+        'margin_left_in': 0.5,
+        'margin_right_in': 0.5,
+        'margin_top_in': 0.4,
+        'margin_bottom_in': 0.4,
+    }
 
 
 def hex_to_rgb(h):
