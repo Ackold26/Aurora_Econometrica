@@ -10,6 +10,7 @@
  */
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
+import { classifyRatio, severityTo3Tier } from './ratio-classifier.js';
 
 /** @type {import('svelte/store').Writable<string|null>} Active project ID */
 export const activeProjectId = writable(null);
@@ -264,8 +265,10 @@ export const validateSubStep = writable(-2);
  * @type {import('svelte/store').Readable<{
  *   ratio: number,
  *   ratioStatus: 'ok'|'warn'|'bad',
- *   ratioSeverity: 'error'|'warning-high'|'warning'|'info'|'success',
+ *   ratioSeverity: 'error'|'warning-high'|'warning'|'info'|'success'|'unknown',
  *   ratioMessage: string,
+ *   ratioLabel: string,
+ *   ratioTone: 'danger'|'warn-strong'|'warn'|'info'|'success'|'neutral',
  *   maxVif: number|null,
  *   vifStatus: 'ok'|'warn'|'bad'|'na',
  *   nObs: number,
@@ -326,40 +329,21 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
    */
   const tierDown = (v, okMax, warnMax) => v <= okMax ? 'ok' : (v <= warnMax ? 'warn' : 'bad');
 
-  // v2.1.0 (пилот 2026-05-16 B-03): severity градация по ratio.
-  // Согласовано с insights-rules.js + RatioInfoCard (single source of truth).
-  // Порог 2:1 - math foundation (Bayesian model identifiability с priors).
-  // Никаких «моделирование невозможно» при ratio >= 2:1.
-  /** @type {'error'|'warning-high'|'warning'|'info'|'success'} */
-  let ratioSeverity;
-  /** @type {string} */
-  let ratioMessage;
-  if (ratio < 2) {
-    ratioSeverity = 'error';
-    ratioMessage = 'Слишком мало данных - модель почти наверняка переобучится';
-  } else if (ratio < 3) {
-    ratioSeverity = 'warning-high';
-    ratioMessage = 'Критически мало данных - модель ненадёжна, оценивайте результаты как качественные ориентиры';
-  } else if (ratio < 4) {
-    ratioSeverity = 'warning';
-    ratioMessage = 'Мало данных - модель работает, но с широкими доверительными интервалами';
-  } else if (ratio < 5) {
-    ratioSeverity = 'info';
-    ratioMessage = 'Достаточно для пилотного запуска. Для production рекомендуется >=4:1';
-  } else {
-    ratioSeverity = 'success';
-    ratioMessage = 'Хорошее соотношение для надёжной модели';
-  }
-
-  // v2.1.0 (RC2-AUD-05 fix): ratioStatus теперь согласован с ratioSeverity.
-  // Раньше ratioStatus='warn' при ratio 5-9 показывал orange, в то время
-  // как ratioSeverity='success' говорил «Хорошее соотношение» - конфликт.
-  /** @type {'ok'|'warn'|'bad'} */
-  const ratioStatusAligned = (ratioSeverity === 'success' || ratioSeverity === 'info')
-    ? 'ok'
-    : ratioSeverity === 'warning'
-      ? 'warn'
-      : 'bad';
+  // v2.1.0 (пилот 2026-05-16, стандартизация ratio): SSOT-классификатор
+  // вернёт severity / label / description / tone в одном объекте. Все UI-
+  // компоненты импортируют classifyRatio из ratio-classifier.js, чтобы не
+  // плодить рассогласованные пороги и тексты (Антон: «надо стандартизировать
+  // оценки по коридорам ratio»).
+  const ratioClass = classifyRatio(ratio);
+  const ratioSeverity = ratioClass.severity;
+  const ratioMessage = ratioClass.description;
+  const ratioLabel = ratioClass.label;
+  const ratioTone = ratioClass.tone;
+  // ratioStatus - legacy 3-tier для traffic-light UI badges (где нет места
+  // на 5 коридоров). Через severityTo3Tier чтобы маппинг был согласован.
+  const ratioStatusAligned = /** @type {'ok'|'warn'|'bad'} */ (
+    severityTo3Tier(ratioSeverity) === 'na' ? 'bad' : severityTo3Tier(ratioSeverity)
+  );
 
   return {
     ratio,
@@ -367,6 +351,10 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
     /** v2.1.0: расширенная severity (5 уровней) для UI badges и инсайтов */
     ratioSeverity,
     ratioMessage,
+    /** v2.1.0 (пилот 2026-05-16): короткий label из ratio-classifier SSOT. */
+    ratioLabel,
+    /** v2.1.0 (пилот 2026-05-16): tone для CSS из ratio-classifier SSOT. */
+    ratioTone,
     maxVif,
     vifStatus: maxVif == null ? /** @type {'na'} */ ('na') : tierDown(maxVif, 5, 10),
     nObs,

@@ -20,6 +20,9 @@
    */
 
   import { validateData, perChannelInput, unitCosts, analysisMode, kpiType, validationMetrics } from '$lib/project-state.js';
+  // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
+  // меток в Контроле качества с RatioInfoCard и sticky header.
+  import { classifyRatio, severityTo3Tier } from '$lib/ratio-classifier.js';
   import RatioInfoCard from './RatioInfoCard.svelte';
 
   /** @typedef {'roi' | 'effectiveness' | 'mixed'} AnalysisMode */
@@ -111,25 +114,13 @@
     $validationMetrics?.nPredictors ?? (mediaColumns.length + controlColumns.length)
   );
 
-  /** Цвет и статус ratio - согласовано с B-03 5-уровневой градацией */
-  const ratioStatus = $derived.by(() => {
-    // v2.1.0: используем ratioSeverity из SSOT, если доступен
-    const sev = $validationMetrics?.ratioSeverity;
-    if (sev === 'success' || sev === 'info') return /** @type {const} */ ('ok');
-    if (sev === 'warning') return /** @type {const} */ ('warn');
-    if (sev === 'warning-high' || sev === 'error') return /** @type {const} */ ('bad');
-    // Fallback на пороги если SSOT не дал severity
-    if (detectedRatio >= 4) return /** @type {const} */ ('ok');
-    if (detectedRatio >= 3) return /** @type {const} */ ('warn');
-    return /** @type {const} */ ('bad');
-  });
-
-  /** @type {Record<string, string>} */
-  const ratioStatusLabel = {
-    ok:   'Хорошее',
-    warn: 'Приемлемое',
-    bad:  'Критически мало',
-  };
+  // v2.1.0 (пилот 2026-05-16, стандартизация ratio): label и tone приходят
+  // из ratio-classifier SSOT. Раньше использовался свой mini-mapping
+  // (ok/warn/bad → 'Хорошее'/'Приемлемое'/'Критически мало') - 2.8 ratio
+  // показывал «Критически мало», что противоречит severity warning-high.
+  const ratioClass = $derived(classifyRatio(detectedRatio));
+  const ratioStatus = $derived(severityTo3Tier(ratioClass.severity));
+  const ratioStatusLabel = $derived(ratioClass.label);
 
   // ─── Таблица медиа-каналов ─────────────────────────────────────────
 
@@ -366,7 +357,7 @@
       <div class="quality-card tone-{ratioStatus}" aria-label="Соотношение данных">
         <span class="qc-label">Ratio данных</span>
         <span class="qc-value">{detectedRatio > 0 ? detectedRatio.toFixed(1) + ':1' : '—'}</span>
-        <span class="qc-status">{ratioStatusLabel[ratioStatus]}</span>
+        <span class="qc-status">{ratioStatusLabel}</span>
       </div>
 
       <!-- Период -->

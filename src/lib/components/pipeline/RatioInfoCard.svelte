@@ -46,24 +46,22 @@
     onApplyExclude = null,
   } = $props();
 
-  // Thresholds (per insights-rules.js convention).
-  const MIN_RATIO = 2;        // ниже этого - критически мало
-  const RECOMMENDED_RATIO = 4;  // достаточно для модели
-  const IDEAL_RATIO = 6;        // отлично
+  // v2.1.0 (пилот 2026-05-16): SSOT thresholds из ratio-classifier.js.
+  // Раньше RatioInfoCard считала свою градацию (2/4/6 порогов) → label
+  // расходился с sticky header / ModeDerivedExplanation. Теперь все 5
+  // коридоров и тексты приходят из одной функции - гарантия консистентности.
+  import { classifyRatio, RATIO_THRESHOLDS } from '$lib/ratio-classifier.js';
 
-  const status = $derived.by(() => {
-    if (ratio < MIN_RATIO) return /** @type {const} */ ('critical');
-    if (ratio < RECOMMENDED_RATIO) return /** @type {const} */ ('warning');
-    if (ratio < IDEAL_RATIO) return /** @type {const} */ ('acceptable');
-    return /** @type {const} */ ('excellent');
+  const MIN_RATIO = RATIO_THRESHOLDS.ERROR;
+  const RECOMMENDED_RATIO = RATIO_THRESHOLDS.WARNING;
+  const IDEAL_RATIO = RATIO_THRESHOLDS.IDEAL;
+
+  const ratioClass = $derived(classifyRatio(ratio));
+  const statusMeta = $derived({
+    label: ratioClass.label,
+    tone: ratioClass.tone,
+    short: ratioClass.description,
   });
-
-  const statusMeta = $derived(({
-    critical:   { label: 'Критически мало', tone: 'danger',  short: 'Модель может «выучить» точки вместо закономерности' },
-    warning:    { label: 'Ниже рекомендованного', tone: 'warn', short: 'Модель сойдётся, но с широкими доверительными интервалами' },
-    acceptable: { label: 'Приемлемо', tone: 'info',     short: 'Модель надёжна, но для узких интервалов нужно ≥6:1' },
-    excellent:  { label: 'Отличное соотношение', tone: 'success', short: 'Достаточно данных для надёжных оценок и узких CI' },
-  })[status]);
 
   // Position для visual indicator (linear scale 0..ideal+2).
   const scaleMax = IDEAL_RATIO + 2;
@@ -144,9 +142,9 @@
         Применить рекомендацию
       </button>
     </div>
-  {:else if status === 'excellent' || status === 'acceptable'}
+  {:else if ratioClass.severity === 'success' || ratioClass.severity === 'info'}
     <p class="action-text minor">Данных достаточно. Никаких действий не требуется.</p>
-  {:else if status === 'critical'}
+  {:else if ratioClass.severity === 'error'}
     <p class="action-text minor">
       Чтобы повысить ratio: соберите больше истории (≥52 недель) и/или исключите малоактивные каналы, объедините близкие метрики.
     </p>
@@ -265,10 +263,13 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
   }
-  .tone-danger  .ratio-status { color: var(--danger, #f87171); }
-  .tone-warn    .ratio-status { color: var(--gold, #c9a449); }
-  .tone-info    .ratio-status { color: var(--accent-primary, #6366f1); }
-  .tone-success .ratio-status { color: var(--success, #4ade80); }
+  .tone-danger      .ratio-status { color: var(--danger, #f87171); }
+  /* v2.1.0: warn-strong - между red и amber, для ratio 2-3 (Ниже минимума). */
+  .tone-warn-strong .ratio-status { color: color-mix(in srgb, var(--danger, #f87171) 55%, var(--gold, #c9a449) 45%); }
+  .tone-warn        .ratio-status { color: var(--gold, #c9a449); }
+  .tone-info        .ratio-status { color: var(--accent-primary, #6366f1); }
+  .tone-success     .ratio-status { color: var(--success, #4ade80); }
+  .tone-neutral     .ratio-status { color: var(--text-muted, #64748b); }
 
   /* ─── 3-zone indicator track ─── */
   .indicator-wrapper { display: flex; flex-direction: column; gap: 14px; padding: 0 4px; }
