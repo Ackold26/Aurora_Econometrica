@@ -19,6 +19,9 @@ import {
   underBreakevenPhrase as _underBreakeven,
   topMetricBenchmark as _topBenchmark,
 } from './kpi-aware-formatting.js';
+// v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
+// меток с RatioInfoCard / sticky header / Контроль качества.
+import { classifyRatio } from './ratio-classifier.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -878,18 +881,29 @@ export function validateInsights(result, objective = 'roi') {
  * Uses the validated data context to educate & warn the user.
  *
  * @param {any} validateResult - the validator output stored in validateData.result
+ * @param {string[]} [enabledMediaNames] - v2.1.0 (пилот 2026-05-16): имена
+ *   реально активных каналов на шаге Модель (с галочками). Если передано -
+ *   счётчики и ratio считаются по нему, а не по всем media-ролям из
+ *   validateResult. Это устраняет рассинхрон «10 медиаканалов» в инсайте
+ *   при 7 включённых чекбоксах.
  * @returns {Insight[]}
  */
-export function modelPreTrainingInsights(validateResult) {
+export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined) {
   /** @type {Insight[]} */
   const out = [];
   if (!validateResult) return out;
 
   const cols = validateResult.columns ?? [];
-  const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media').length;
+  const allMediaCols = cols.filter(/** @param {any} c */ c => c.role === 'media');
+  // v2.1.0 (пилот 2026-05-16): если ConfigPanel передал список active каналов -
+  // считаем по нему. Иначе fallback - все media-роли.
+  const activeMediaCols = Array.isArray(enabledMediaNames)
+    ? allMediaCols.filter(/** @param {any} c */ c => enabledMediaNames.includes(c.name))
+    : allMediaCols;
+  const mediaCount = activeMediaCols.length;
   const controlCount = cols.filter(/** @param {any} c */ c => c.role === 'control').length;
   const kpiNames = cols.filter(/** @param {any} c */ c => c.role === 'kpi').map(/** @param {any} c */ c => c.name);
-  const mediaNames = cols.filter(/** @param {any} c */ c => c.role === 'media').map(/** @param {any} c */ c => c.name);
+  const mediaNames = activeMediaCols.map(/** @param {any} c */ c => c.name);
   const rows = validateResult.file?.rows ?? 0;
   // v2.1.0 (RC2-AUD-04 fix): ratio считается из ТЕКУЩИХ ролей колонок
   // (как в validateInsights), не из stale validateResult.detected.ratio
@@ -920,19 +934,29 @@ export function modelPreTrainingInsights(validateResult) {
     tip: 'Geometric: стандарт для OLV, Banners, Social, Performance, Search - эффект рекламы затухает экспоненциально после контакта. Weibull: лучше для охватных (TV, OOH, Радио, Пресса) - эффект нарастает и уходит медленнее. «Авто» - программа выбирает по имени канала.',
   });
 
-  // ── 4. Ratio-based warning ──
-  if (ratio > 0 && ratio < 4) {
-    const severity = /** @type {'error' | 'warning'} */ (ratio < 2 ? 'error' : 'warning');
-    out.push({
-      severity,
-      text: `Ratio ${ratio.toFixed(1)}:1 - ниже идеала 4:1. Модель запустится, но доверительные интервалы будут широкими.`,
-      tip: `Байесовская MMM работает с малыми выборками через priors, но при ${rows} наблюдениях на ${mediaCount + controlCount} переменных отдельные каналы могут быть слабо значимы. Интерпретируйте ROI по top-3 каналам с наибольшим вкладом.`,
-    });
-  } else if (ratio >= 4) {
-    out.push({
-      severity: 'success',
-      text: `Ratio ${ratio.toFixed(1)}:1 - отличный объём данных для ${mediaCount + controlCount} переменных.`,
-    });
+  // ── 4. Ratio-based warning - v2.1.0 (пилот 2026-05-16): SSOT classifyRatio
+  // вернёт label/description согласованные с RatioInfoCard и Контроль качества.
+  if (ratio > 0) {
+    const cls = classifyRatio(ratio);
+    /** @type {'error' | 'warning' | 'info' | 'success'} */
+    let sev;
+    if (cls.severity === 'error') sev = 'error';
+    else if (cls.severity === 'warning-high' || cls.severity === 'warning') sev = 'warning';
+    else if (cls.severity === 'info') sev = 'info';
+    else sev = 'success';
+
+    if (sev === 'success' || sev === 'info') {
+      out.push({
+        severity: sev,
+        text: `Ratio ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}.`,
+      });
+    } else {
+      out.push({
+        severity: sev,
+        text: `Ratio ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}.`,
+        tip: `Байесовская MMM работает с малыми выборками через priors, но при ${rows} наблюдениях на ${mediaCount + controlCount} переменных отдельные каналы могут быть слабо значимы. Интерпретируйте ROI по top-3 каналам с наибольшим вкладом.`,
+      });
+    }
   }
 
   // ── 5. Virtual merged channel warning ──
@@ -953,7 +977,9 @@ export function modelPreTrainingInsights(validateResult) {
     tip: 'MQS - агрегированная оценка качества от 0 до 100. R² - доля объяснённой вариации KPI. R-hat - сходимость Байесовских цепей; если >1.05 - увеличьте draws (в Расширенных настройках, режим Эксперт).',
   });
 
-  // ── 7. Time estimate (educational) ──
+  // ── 7. Time estimate (educational) - v2.1.0 (пилот 2026-05-16): считаем
+  // по active каналам, не по всем media-ролям. Раньше показывал «~4 мин
+  // для 10 каналов» при 7 включённых чекбоксах.
   // JAX/NumPyro NUTS на CPU: ~1-3 мин на 4-8 каналах при дефолтах (4×(2000+2000) samples).
   // Формула синхронизирована с ConfigPanel.svelte estimateMinutes (JIT + ~5-10 мс/sample).
   const estimatedMinutes = Math.max(1, Math.round(0.3 * mediaCount + 1));

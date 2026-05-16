@@ -36,7 +36,7 @@
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
-  import { validateSubStep, analysisMode, perChannelInput, unitCosts } from '$lib/project-state.js';
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, modelEnabledMediaNames } from '$lib/project-state.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -262,8 +262,14 @@
         return validateRolesInsights(val?.result, objective);
       }
       case 2: {
-        // If training hasn't produced diagnostics yet → educational/context insights
-        if (!mod?.diagnostics) return modelPreTrainingInsights(val?.result);
+        // If training hasn't produced diagnostics yet → educational/context insights.
+        // v2.1.0 (пилот 2026-05-16): передаём active media каналы из ConfigPanel,
+        // чтобы счётчик «10 медиаканалов» отражал реальные галочки (7), не все
+        // media-роли. modelEnabledMediaNames пустой до Init шага Модель.
+        if (!mod?.diagnostics) {
+          const activeMedia = $modelEnabledMediaNames;
+          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined);
+        }
         return modelInsights(mod);
       }
       case 3: return decomposeInsights(dec, kpi);

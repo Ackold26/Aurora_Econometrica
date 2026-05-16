@@ -258,6 +258,30 @@ export const validateData = writable({ result: null, correlationMatrix: null, co
 export const validateSubStep = writable(-2);
 
 /**
+ * v2.1.0 (пилот 2026-05-16): writable набор active media-каналов на шаге
+ * Модель. Ключ - имя канала, значение - включён (галочка стоит) или нет.
+ *
+ * ConfigPanel при каждом тоггле / init пишет состояние. InsightsPanel и
+ * прочие читают, чтобы инсайты («10 медиаканалов»), оценка времени и
+ * adstock-меток были согласованы с реально активными каналами, не со всеми
+ * media-ролями из validateResult.
+ *
+ * @type {import('svelte/store').Writable<Record<string, boolean>>}
+ */
+export const modelChannelEnabled = writable(/** @type {Record<string, boolean>} */ ({}));
+
+/**
+ * Derived: names of active media channels on шаге Модель (filter по
+ * modelChannelEnabled === true). Источник правды для insights / adstock /
+ * time estimate.
+ *
+ * @type {import('svelte/store').Readable<string[]>}
+ */
+export const modelEnabledMediaNames = derived(modelChannelEnabled, ($map) => {
+  return Object.entries($map).filter(([, v]) => v).map(([k]) => k);
+});
+
+/**
  * Derived store: ключевые параметры валидации для sticky header.
  * Reactively пересчитывается при смене ролей columns / запуска валидации.
  * Возвращает null если валидация не выполнена.

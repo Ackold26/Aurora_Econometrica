@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
@@ -101,18 +101,42 @@
       }
       channelEnabled = enabled;
       channelAdstock = adstock;
+      // v2.1.0 (пилот 2026-05-16): синхронизация active-каналов в global
+      // store, чтобы InsightsPanel и оценка времени читали ту же истину.
+      modelChannelEnabled.set(enabled);
     }
   });
 
+  // v2.1.0 (пилот 2026-05-16): toggle чекбокса → sync в global store.
+  // Раньше InsightsPanel читал validation.columns.filter(role='media')
+  // (все), показывал «10 медиаканалов» когда юзер оставил только 7.
+  $effect(() => {
+    modelChannelEnabled.set({ ...channelEnabled });
+  });
+
   // ── Adstock auto-select (marketer mode) ──
-  let adstockAutoSelected = $state(false);
   let adstockAutoLabel = $state('');
+  // v2.1.0 (пилот 2026-05-16): ключ active set для re-fetch detection.
+  // Раньше adstockAutoSelected=true гарантировал только один запуск -
+  // когда юзер снимал галочку с канала, label оставался прежним и
+  // показывал adstock назначения по уже исключённым каналам.
+  let lastAdstockKey = $state('');
 
   $effect(() => {
     // In marketer mode: auto-select adstock via BIC when KPI + channels ready
-    if ($expertMode || adstockAutoSelected || !selectedKpi) return;
+    if ($expertMode || !selectedKpi) return;
     const enabledChannels = Object.entries(channelEnabled).filter(([, v]) => v).map(([k]) => k);
-    if (enabledChannels.length === 0) return;
+    if (enabledChannels.length === 0) {
+      adstockAutoLabel = '';
+      lastAdstockKey = '';
+      return;
+    }
+    // Re-fetch только когда состав каналов или KPI изменились. Toggle одной
+    // галочки = новый key → backend пересчитает adstock на актуальном наборе.
+    const key = `${selectedKpi}|${enabledChannels.sort().join(',')}`;
+    if (key === lastAdstockKey) return;
+    lastAdstockKey = key;
+
     const filePath = $importData?.file || $pipelineState?.data?.file;
     if (!filePath) return;
 
@@ -126,12 +150,14 @@
           const updated = { ...channelAdstock };
           const labels = [];
           for (const [ch, sel] of Object.entries(result.selections)) {
+            // v2.1.0: фильтрация - backend может вернуть данные по каналам,
+            // которые с тех пор юзер выключил. Показываем только active.
+            if (!channelEnabled[ch]) continue;
             const s = /** @type {any} */ (sel);
             updated[ch] = s.type;
             labels.push(`${ch}: ${s.type === 'weibull' ? 'Weibull' : 'Geometric'}`);
           }
           channelAdstock = updated;
-          adstockAutoSelected = true;
           adstockAutoLabel = labels.join(', ');
         }
       } catch { /* sidecar not ready yet - use defaults */ }
@@ -497,7 +523,7 @@
       Можно снизить в «Расширенных» до 2 цепей × 1000 draws - будет в разы быстрее.
     </p>
   {/if}
-  {#if adstockAutoSelected && !$expertMode}
+  {#if adstockAutoLabel && !$expertMode}
     <p class="adstock-auto-label">Adstock: {adstockAutoLabel} (авто по BIC)</p>
   {/if}
 </div>
