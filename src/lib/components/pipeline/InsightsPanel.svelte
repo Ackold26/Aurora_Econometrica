@@ -36,7 +36,7 @@
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, modelEnabledMediaNames } from '$lib/project-state.js';
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -270,7 +270,11 @@
           const activeMedia = $modelEnabledMediaNames;
           return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined);
         }
-        return modelInsights(mod);
+        // v2.1.0 (пилот 2026-05-16): передаём frontend SSOT ratio - Антон:
+        // «ratio в расчёте было 3.9, на модели опять неверные ratio».
+        // Backend m.ratio иногда расходится с тем что юзер видел на Валидации.
+        const ssotRatio = $validationHeaderMetrics?.ratio;
+        return modelInsights(mod, ssotRatio);
       }
       case 3: return decomposeInsights(dec, kpi);
       case 4: return optimizeInsights(opt, {

@@ -994,8 +994,15 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   return out;
 }
 
-/** @param {any} data */
-export function modelInsights(data) {
+/**
+ * @param {any} data
+ * @param {number} [ratioOverride] v2.1.0 (пилот 2026-05-16): SSOT ratio из
+ *   frontend validationMetrics. Backend `m.ratio` иногда расходится с тем,
+ *   что юзер видел на Валидации (Антон в пилоте: «Ратио в расчёте было 3.9,
+ *   на модели опять неверные ratio»). Frontend SSOT использует ту же
+ *   формулу что в Валидации - один источник правды.
+ */
+export function modelInsights(data, ratioOverride = undefined) {
   /** @type {Insight[]} */
   const out = [];
   if (!data?.diagnostics) return out;
@@ -1010,25 +1017,34 @@ export function modelInsights(data) {
   const mape = m.mape_pct ?? d.mape ?? 0;
   const rHat = m.r_hat_max ?? d.r_hat ?? 0;
   const divergences = m.divergences ?? d.divergences ?? 0;
-  const ratio = m.ratio ?? 0;
+  // v2.1.0 (пилот 2026-05-16): ratio из frontend SSOT (что юзер видел в
+  // Валидации). Fallback - backend m.ratio для backward compat / тестов.
+  const ratio = typeof ratioOverride === 'number' && Number.isFinite(ratioOverride) && ratioOverride > 0
+    ? ratioOverride
+    : (m.ratio ?? 0);
   const isThin = ratio > 0 && ratio < 4;
   const isVeryThin = ratio > 0 && ratio < 2;
   const channels = data.channelParams ? Object.keys(data.channelParams) : [];
   const nChannels = channels.length;
 
   // ── 0. Data thinness warning - trumps everything else ──
-  if (isVeryThin) {
-    out.push({
-      severity: 'error',
-      text: `⚠ Данных критически мало: Ratio ${ratio.toFixed(1)}:1 (< 2:1). Модель может «выучить» точки, а не закономерность. Высокий R² здесь - артефакт переобучения, а не сигнал надёжности.`,
-      tip: 'Рекомендуем: увеличить историю до ≥52 недель, либо упростить модель (меньше каналов, перевести недели в месяцы). ROI и декомпозиция ненадёжны при таком Ratio.',
-    });
-  } else if (isThin) {
-    out.push({
-      severity: 'warning',
-      text: `⚠ Данных мало: Ratio ${ratio.toFixed(1)}:1 (< 4:1). Высокий R² может быть артефактом переобучения. ROI-оценки имеют широкие доверительные интервалы.`,
-      tip: 'Bayesian MMM с priors смягчает проблему, но не устраняет. Относитесь к декомпозиции как к ориентиру, а не истине. Для надёжности - ≥52 недель данных.',
-    });
+  // v2.1.0 (пилот 2026-05-16): SSOT classifyRatio для label/description -
+  // согласовано с RatioInfoCard, sticky header, Контроль качества Валидации.
+  if (ratio > 0) {
+    const cls = classifyRatio(ratio);
+    if (cls.severity === 'error') {
+      out.push({
+        severity: 'error',
+        text: `⚠ Ratio ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}. Модель может «выучить» точки, а не закономерность - высокий R² здесь артефакт переобучения.`,
+        tip: 'Рекомендуем: увеличить историю до ≥52 недель, либо упростить модель (меньше каналов, перевести недели в месяцы). ROI и декомпозиция ненадёжны при таком Ratio.',
+      });
+    } else if (cls.severity === 'warning-high' || cls.severity === 'warning') {
+      out.push({
+        severity: 'warning',
+        text: `Ratio ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}. Высокий R² может быть артефактом переобучения.`,
+        tip: 'Bayesian MMM с priors смягчает проблему, но не устраняет. Относитесь к декомпозиции как к ориентиру, а не истине. Для надёжности - ≥52 недель данных.',
+      });
+    }
   }
 
   // ── 1. Headline verdict (MQS-based) ──
