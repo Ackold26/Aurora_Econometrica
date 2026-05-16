@@ -230,38 +230,52 @@
     const channelNames = Object.keys(channels);
     const allSeries = [];
 
-    // v2.1.0 (пилот 2026-05-16): разделим signedFactors на negative (ниже
-    // нуля) и positive (поверх baseline). Negative выносится из baseline,
-    // чтобы юзер увидел сколько продаж «отъели» конкуренты/цены.
-    /** @type {Array<{name: string, color: string, label: string, perPeriod: number[]}>} */
-    const negativeFactors = [];
-    /** @type {Array<{name: string, color: string, label: string, perPeriod: number[]}>} */
-    const positiveFactors = [];
+    // v2.1.0 (пилот 2026-05-16): разделим signedFactors на отдельные полосы,
+    // чтобы юзер видел вклад конкурентов / цен / погоды / макро независимо.
+    // ВАЖНО: бизнес-семантика типа важнее статистического знака beta.
+    // signed_competitor / signed_price / signed_weather / signed_macro -
+    // всегда выносим отдельной полосой (красно-оранжевая палитра) даже
+    // если модель оценила beta > 0 (например, общий рост рынка с
+    // конкурентами). Это даёт пользователю visibility «вот эффект внешнего
+    // фактора», а его знак показывает выше/ниже нуля.
+    /** @type {Array<{name: string, color: string, label: string, perPeriod: number[], goesNegative: boolean}>} */
+    const externalFactors = [];
     let baselineAdjusted = baseline.slice();
+    const SIGNED_TYPES = new Set([
+      'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro',
+    ]);
     if (signedFactors && typeof signedFactors === 'object') {
       for (const [colName, fact] of Object.entries(signedFactors)) {
         if (!fact || !Array.isArray(fact.per_period)) continue;
         const total = Number(fact.value ?? 0);
         const type = String(fact.type ?? 'positive_control');
+        const isSigned = SIGNED_TYPES.has(type);
+        const isHoliday = type === 'holiday';
+        // positive_control (distribution, trade_activity) оставляем внутри
+        // baseline - это noise-like эффект, не интересный отдельно.
+        if (!isSigned && !isHoliday) continue;
         const color = FACTOR_COLORS[type] ?? '#94a3b8';
         const groupLabel = FACTOR_LABELS[type] ?? 'Внешние';
         const label = `${groupLabel}: ${colName}`;
-        if (total < 0) {
-          // Отрицательный вклад - выносим из baseline и показываем ниже нуля.
-          // baseline_clean = baseline_original - per_period (вычитаем negative
-          // contrib обратно, чтобы baseline стал «чистым», без давления).
+        // Определяем сторону отображения: если средний contribution
+        // отрицательный → ниже нуля; иначе над baseline.
+        // Используем mean per_period, не total value (округление до -0.0
+        // ломало detection - см. пилот 2026-05-16).
+        const mean = fact.per_period.length
+          ? fact.per_period.reduce((s, v) => s + Number(v ?? 0), 0) / fact.per_period.length
+          : 0;
+        const goesNegative = mean < 0;
+        if (goesNegative) {
+          // Выносим из baseline и показываем ниже нуля.
           baselineAdjusted = baselineAdjusted.map(
             (v, t) => v - Number(fact.per_period[t] ?? 0),
           );
-          negativeFactors.push({ name: label, color, label: groupLabel, perPeriod: fact.per_period });
-        } else if (total > 0 && type !== 'positive_control') {
-          // Holiday и явно положительные signed factors - показываем
-          // отдельной полосой над baseline. positive_control оставляем
-          // внутри baseline (это intercept-подобный шум).
-          positiveFactors.push({ name: label, color, label: groupLabel, perPeriod: fact.per_period });
         }
+        externalFactors.push({ name: label, color, label: groupLabel, perPeriod: fact.per_period, goesNegative });
       }
     }
+    const negativeFactors = externalFactors.filter((f) => f.goesNegative);
+    const positiveFactors = externalFactors.filter((f) => !f.goesNegative);
 
     // Baseline series (bottom) - использует "очищенный" baseline без
     // отрицательных factors. Когда signedFactors не передан - baseline
