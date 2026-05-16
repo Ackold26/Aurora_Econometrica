@@ -44,7 +44,26 @@
 
   // Current model diagnostics (if trained)
   const diagnostics = $derived($modelData?.diagnostics || null);
-  const mqs = $derived(diagnostics?.mqs || null);
+  const mqsRaw = $derived(diagnostics?.mqs || null);
+
+  // v2.1.0 (пилот 2026-05-16): SSOT MQS - когда frontend ratio >= 4 (info /
+  // success коридоры), backend thinness_cap=50 ставит «Слабое» при reality
+  // «Отличное» (R-hat=1.0, divs=0, R²=0.88). Используем raw_score без cap.
+  // Согласовано с MQSBadge.displayMqs и modelInsights MQS override.
+  const mqs = $derived.by(() => {
+    if (!mqsRaw) return null;
+    const ssotRatio = $validationHeaderMetrics?.ratio;
+    if (typeof ssotRatio !== 'number' || ssotRatio < 4) return mqsRaw;
+    const rawScore = Number(mqsRaw.raw_score ?? mqsRaw.score ?? 0);
+    if (!Number.isFinite(rawScore) || rawScore <= mqsRaw.score) return mqsRaw;
+    let tier, tier_label, color;
+    if (rawScore >= 85) { tier = 'excellent'; tier_label = 'Отличное'; color = '#22c55e'; }
+    else if (rawScore >= 70) { tier = 'good'; tier_label = 'Хорошее'; color = '#3b82f6'; }
+    else if (rawScore >= 55) { tier = 'acceptable'; tier_label = 'Приемлемое'; color = '#f59e0b'; }
+    else if (rawScore >= 40) { tier = 'weak'; tier_label = 'Слабое'; color = '#f97316'; }
+    else { tier = 'poor'; tier_label = 'Ненадёжное'; color = '#ef4444'; }
+    return { ...mqsRaw, score: Math.round(rawScore * 10) / 10, tier, tier_label, color };
+  });
 
   // Онбординг - запуск когда модель обучена (есть и config, и результаты на экране).
   $effect(() => {

@@ -1010,9 +1010,6 @@ export function modelInsights(data, ratioOverride = undefined) {
   const d = data.diagnostics;
   // Backend nests metrics under diagnostics.metrics; legacy paths kept flat values.
   const m = d.metrics ?? d;
-  const mqs = d.mqs?.score ?? 0;
-  const label = d.mqs?.tier_label ?? '';
-  const thinnessCap = d.mqs?.thinness_cap ?? null;
   const rSq = m.r_squared ?? d.r_squared ?? 0;
   const mape = m.mape_pct ?? d.mape ?? 0;
   const rHat = m.r_hat_max ?? d.r_hat ?? 0;
@@ -1022,6 +1019,30 @@ export function modelInsights(data, ratioOverride = undefined) {
   const ratio = typeof ratioOverride === 'number' && Number.isFinite(ratioOverride) && ratioOverride > 0
     ? ratioOverride
     : (m.ratio ?? 0);
+
+  // v2.1.0 (пилот 2026-05-16): MQS override. Backend thinness_cap=50 при
+  // backend ratio<2 ставил «Слабое» когда модель реально сошлась
+  // (R-hat=1.0, 0 divergences, R²=0.88). При frontend SSOT ratio >= 4
+  // используем raw_score (без cap) и пересчитываем tier - так MQSBadge
+  // плитка показывает 86 «Отличное», а инсайт здесь - то же самое.
+  const rawScore = Number(d.mqs?.raw_score ?? d.mqs?.score ?? 0);
+  const backendScore = Number(d.mqs?.score ?? 0);
+  /** @type {number} */
+  let mqs;
+  /** @type {string} */
+  let label;
+  if (ratio >= 4 && rawScore > backendScore) {
+    mqs = Math.round(rawScore * 10) / 10;
+    if (mqs >= 85) label = 'Отличное';
+    else if (mqs >= 70) label = 'Хорошее';
+    else if (mqs >= 55) label = 'Приемлемое';
+    else if (mqs >= 40) label = 'Слабое';
+    else label = 'Ненадёжное';
+  } else {
+    mqs = backendScore;
+    label = d.mqs?.tier_label ?? '';
+  }
+  const thinnessCap = d.mqs?.thinness_cap ?? null;
   const isThin = ratio > 0 && ratio < 4;
   const isVeryThin = ratio > 0 && ratio < 2;
   const channels = data.channelParams ? Object.keys(data.channelParams) : [];

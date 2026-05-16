@@ -140,7 +140,7 @@
         </div>
         <div class="metric-row">
           <span class="metric-label">Ratio<span class="help-icon" title={HELP.ratio}>?</span></span>
-          <span class="metric-value">{metrics.ratio}:1</span>
+          <span class="metric-value">{useSsot ? ssotRatio.toFixed(1) : metrics.ratio}:1</span>
           <span class="metric-check">{checks.ratio ? '✓' : '⚠'}</span>
         </div>
       </div>
