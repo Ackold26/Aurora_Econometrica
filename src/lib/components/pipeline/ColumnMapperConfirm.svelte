@@ -267,6 +267,34 @@
     const mode = $analysisMode || 'roi';
     const isCritical = isCriticalMediaChannel(col.name) && role === 'media';
 
+    // v2.1.0 (пилот 2026-05-16): zeros >80% для media-каналов проверяем
+    // ДО mode-aware блока. Антон в пилоте: «почему реко - оставить, если
+    // там более 80% нулей? И одновременно есть рекомендация убрать (банер
+    // "исключите 4 канала с большой долей нулей")».
+    // Причина: mode-aware ROI блок возвращал «Оставить» для любого ₽-канала
+    // независимо от data quality - конфликт с banner и ConfigPanel
+    // auto-uncheck (channelEnabled = !(zeros_pct > 80)).
+    if (role === 'media') {
+      const zerosPct = Number(col.stats?.zeros_pct ?? 0);
+      if (zerosPct > 80) {
+        if (isCritical) {
+          // ТВ / OLV / Banners с >80% нулей - возможно сезонная активность.
+          return {
+            status: 'review',
+            label: 'Проверить',
+            reason: `${Math.round(zerosPct)}% нулей - возможно сезонная активность канала. Перед исключением убедитесь, что данные за активные периоды полны.`,
+            tone: 'warn',
+          };
+        }
+        return {
+          status: 'exclude',
+          label: 'Исключить',
+          reason: `${Math.round(zerosPct)}% нулей - канал почти не активен, недостаточно данных для устойчивой оценки эффекта. Также влияет на ratio данных.`,
+          tone: 'danger',
+        };
+      }
+    }
+
     // ───────────────────────────────────────────────────────────────
     // v2.1.0 (rc2 retry): MODE-AWARE ИЕРАРХИЯ для media каналов.
     // Применяется ПЕРВОЙ - до insights-driven и backend warnings.
