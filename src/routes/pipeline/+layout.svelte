@@ -24,6 +24,7 @@
     loadPipelineForProject,
     validateData,
     importData,
+    validateSubStep,
   } from '$lib/project-state.js';
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
@@ -279,8 +280,24 @@
     return () => window.removeEventListener('resize', onResize);
   });
 
+  // v2.1.0 (пилот 2026-05-16): на под-шаге «Роли колонок» (subStep === -1)
+  // главная кнопка «Далее» блокируется до нажатия «Подтвердить роли»
+  // внутри ColumnMapperConfirm. После confirm subStep меняется → «Далее»
+  // снова активна. Защищает от пропуска явного подтверждения ролей.
+  const rolesNotConfirmed = $derived(
+    $pipelineCurrentStep === 1 && $validateSubStep === -1
+  );
+
   const canGoNext = $derived(
-    $pipelineCurrentStep < 5 && $pipelineStepMeta[$pipelineCurrentStep + 1]?.status !== 'locked'
+    $pipelineCurrentStep < 5
+    && $pipelineStepMeta[$pipelineCurrentStep + 1]?.status !== 'locked'
+    && !rolesNotConfirmed
+  );
+
+  const nextBtnTitle = $derived(
+    rolesNotConfirmed
+      ? 'Сначала нажмите «Подтвердить роли» ниже'
+      : ''
   );
 
   // Objective overlay is open: step 1 (validate) with no validation result yet
@@ -399,6 +416,7 @@
         class="nav-btn primary"
         disabled={!canGoNext}
         onclick={goNext}
+        title={nextBtnTitle}
       >
         Далее ▶
       </button>
