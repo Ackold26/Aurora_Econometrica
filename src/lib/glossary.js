@@ -154,7 +154,7 @@ export const GLOSSARY = {
     id: 'mode_effectiveness',
     term: 'Mode Эффективность',
     short: 'Режим, в котором все каналы измеряются в физических контактах.',
-    long: 'Input - показы / клики / GRP, модель оценивает sales share %. Подходит когда бюджеты «грязные» (бартер, in-kind, скидки), но трафик меряется точно. Cross-channel сравнение только через share %.',
+    long: 'Input - показы / клики / GRP, модель оценивает sales share %. Подходит когда бюджеты непрозрачны (агентские скидки, доступ только к физическим метрикам), но трафик меряется точно. Cross-channel сравнение только через share %.',
     example: 'Все каналы в показах/GRP → Эффективность mode → share columns вместо ROI.',
     related: ['derived_mode', 'mode_roi', 'sales_share'],
   },

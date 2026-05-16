@@ -142,17 +142,51 @@
    * @param {any} col
    * @returns {Recommendation}
    */
+  /**
+   * v2.1.0 (rc2 пилот retry): защита важных медиа-каналов (TRP / GRP / ТВ
+   * бренда) от автоматического исключения. ТВ обычно 30-70% медиа-бюджета
+   * OTC фарма-бренда - убийство этого канала ради улучшения ratio даёт
+   * omitted variable bias, ROI остальных каналов завышается в 2-4 раза.
+   *
+   * Если канал распознан как критичный media:
+   *   - Любая рекомендация «Исключить» -> понижается до «Проверить»
+   *   - Reason дополняется подсказкой про конверсию (физика <-> деньги)
+   *
+   * @param {string} name
+   * @returns {boolean}
+   */
+  function isCriticalMediaChannel(name) {
+    if (!name) return false;
+    const upper = String(name).toUpperCase();
+    // ТВ/TV бренда (TRP / GRP / ТВ / TV) - всегда критично
+    if (/\b(TRP|GRP|ТВ|TV|ТЕЛЕВИЗ)\b/.test(upper)) return true;
+    // Большие медийные блоки (OLV, Banners для бренда)
+    if (/\b(OLV|BANNER|БАННЕР|МЕДИЙ)\b/.test(upper)) return true;
+    return false;
+  }
+
   function recommendationFor(col) {
     if (!col) {
       return { status: 'review', label: 'Проверить', reason: 'Нет данных по колонке.', tone: 'neutral' };
     }
     const role = effectiveRole(col.name);
     const findings = findingsFor(col.name);
+    const isCritical = isCriticalMediaChannel(col.name) && role === 'media';
 
     // 0. v1.3.2: insights-driven exclude - top priority. Если same column
     //    flagged by validateInsights в InsightsPanel - show same reason.
     //    Skip когда юзер уже исключил (role='excluded') - нечего advise.
     if (insightExcludeMap?.[col.name] && role !== 'excluded') {
+      // v2.1.0 (rc2 retry): критичные media каналы не исключаем автоматически,
+      // понижаем до «Проверить» с подсказкой про конверсию.
+      if (isCritical) {
+        return {
+          status: 'review',
+          label: 'Проверить',
+          reason: `Важный медиа-канал. ${insightExcludeMap[col.name]} Рассмотрите конверсию (TRP → ₽ через CPP, или наоборот) перед исключением.`,
+          tone: 'warn',
+        };
+      }
       return {
         status: 'exclude',
         label: 'Исключить',
@@ -178,7 +212,19 @@
       const msg = w?.message ?? 'Предупреждение по колонке.';
       // Decide tone by warning type/severity. Default - warn (gold).
       const severeTypes = new Set(['insufficient_data', 'too_many_zeros', 'collinearity', 'duplicate_metric']);
-      const tone = severeTypes.has(String(w?.type ?? '')) ? 'danger' : 'warn';
+      const isSevere = severeTypes.has(String(w?.type ?? ''));
+      // v2.1.0 (rc2 retry): для критичных media каналов severe warning
+      // не переводим в «Исключить» автоматически - понижаем до «Проверить»
+      // с подсказкой про конверсию или объединение метрик.
+      if (isSevere && isCritical) {
+        return {
+          status: 'review',
+          label: 'Проверить',
+          reason: `Важный медиа-канал. ${msg} Возможные действия: конверсия (TRP <-> ₽), объединение с парной метрикой, или сбор больше истории.`,
+          tone: 'warn',
+        };
+      }
+      const tone = isSevere ? 'danger' : 'warn';
       const label = tone === 'danger' ? 'Исключить' : 'Проверить';
       const status = tone === 'danger' ? 'exclude' : 'review';
       return { status, label, reason: msg, tone };
@@ -204,6 +250,17 @@
       return { status: 'review', label: 'Проверить', reason: 'Роль "Дата" назначена, но тип данных не похож на дату.', tone: 'warn' };
     }
     if (isNumeric && zerosPct > 80 && role !== 'excluded') {
+      // v2.1.0 (rc2 retry): даже при >80% нулей, критичные media каналы
+      // (ТВ TRP/GRP) не исключаем автоматически - может быть сезонная
+      // активность. Понижаем до «Проверить».
+      if (isCritical) {
+        return {
+          status: 'review',
+          label: 'Проверить',
+          reason: `${Math.round(zerosPct)}% нулей - возможно сезонная активность канала. Перед исключением убедитесь, что данные за активные периоды полны.`,
+          tone: 'warn',
+        };
+      }
       return { status: 'exclude', label: 'Исключить', reason: `${Math.round(zerosPct)}% нулей - недостаточно данных для устойчивой оценки эффекта.`, tone: 'danger' };
     }
     if (isNumeric && zerosPct > 50 && role !== 'excluded') {
