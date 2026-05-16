@@ -246,9 +246,14 @@ export const validateData = writable({ result: null, correlationMatrix: null, co
  * @type {import('svelte/store').Readable<{
  *   ratio: number,
  *   ratioStatus: 'ok'|'warn'|'bad',
+ *   ratioSeverity: 'error'|'warning-high'|'warning'|'info'|'success',
+ *   ratioMessage: string,
  *   maxVif: number|null,
  *   vifStatus: 'ok'|'warn'|'bad'|'na',
  *   nObs: number,
+ *   nPredictors: number,
+ *   activeMedia: number,
+ *   activeControls: number,
  *   periodStatus: 'ok'|'warn'|'bad',
  *   mqs: number,
  *   mqsStatus: 'ok'|'warn'|'bad'
@@ -328,9 +333,19 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
     ratioMessage = 'Хорошее соотношение для надёжной модели';
   }
 
+  // v2.1.0 (RC2-AUD-05 fix): ratioStatus теперь согласован с ratioSeverity.
+  // Раньше ratioStatus='warn' при ratio 5-9 показывал orange, в то время
+  // как ratioSeverity='success' говорил «Хорошее соотношение» - конфликт.
+  /** @type {'ok'|'warn'|'bad'} */
+  const ratioStatusAligned = (ratioSeverity === 'success' || ratioSeverity === 'info')
+    ? 'ok'
+    : ratioSeverity === 'warning'
+      ? 'warn'
+      : 'bad';
+
   return {
     ratio,
-    ratioStatus: tierUp(ratio, 10, 4),
+    ratioStatus: ratioStatusAligned,
     /** v2.1.0: расширенная severity (5 уровней) для UI badges и инсайтов */
     ratioSeverity,
     ratioMessage,

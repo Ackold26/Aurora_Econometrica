@@ -183,10 +183,14 @@ export function validateInsights(result, objective = 'roi') {
     // Никаких «моделирование невозможно» - Bayesian модель технически
     // обучится даже при ratio 2:1 (с informative priors).
 
-    /** Сколько каналов реально weak (>50% нулей) - кандидаты исключения */
-    const weakRatio = weakNames.length > 0
-      ? totalRows / Math.max(mediaCols.length - weakNames.length + controlCols.length, 1)
-      : ratio;
+    /** Сколько каналов реально weak (>50% нулей) - кандидаты исключения.
+     *  RC2-AUD-08 fix: если ВСЕ media каналы weak (mediaCols.length - weakNames.length === 0)
+     *  и нет controls - модель невозможна (0 параметров). Не показываем
+     *  обманчивый «после исключения ratio N:1». */
+    const remainingPredictors = mediaCols.length - weakNames.length + controlCols.length;
+    const weakRatio = weakNames.length > 0 && remainingPredictors > 0
+      ? totalRows / remainingPredictors
+      : null;  // null = «не считаем», caller должен fallback на сбор данных
 
     if (ratio < 2) {
       out.push({
@@ -199,7 +203,7 @@ export function validateInsights(result, objective = 'roi') {
       out.push({
         severity: 'warning',
         text: `Критически мало данных: ratio ${ratio.toFixed(1)}:1 (минимум 4:1 для надёжной модели). Модель работает, но широкие доверительные интервалы - результаты как качественные ориентиры, не точные оценки.`,
-        tip: `Приоритет действий: (1) объединить парные метрики (OLV Бюджет + OLV Показы = одна переменная); (2) ${weakNames.length > 0 ? `исключить ${weakNames.length} каналов с >50% нулей (после исключения ratio ${weakRatio.toFixed(1)}:1)` : 'добавить больше истории'}; (3) собрать ≥52 недели данных. Не исключайте основные media каналы (ТВ, OLV, Banners для бренда) без явных data quality проблем - это omitted variable bias, ROI остальных каналов будет завышен.`,
+        tip: `Приоритет действий: (1) объединить парные метрики (OLV Бюджет + OLV Показы = одна переменная); (2) ${weakRatio != null && weakNames.length > 0 ? `исключить ${weakNames.length} каналов с >50% нулей (после исключения ratio ${weakRatio.toFixed(1)}:1)` : weakNames.length > 0 ? `${weakNames.length} weak каналов есть, но их исключение оставит модель без media - нужны новые данные` : 'добавить больше истории'}; (3) собрать ≥52 недели данных. Не исключайте основные media каналы (ТВ, OLV, Banners для бренда) без явных data quality проблем - это omitted variable bias, ROI остальных каналов будет завышен.`,
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
       });
     } else if (ratio < 4) {
@@ -562,7 +566,12 @@ export function modelPreTrainingInsights(validateResult) {
   const kpiNames = cols.filter(/** @param {any} c */ c => c.role === 'kpi').map(/** @param {any} c */ c => c.name);
   const mediaNames = cols.filter(/** @param {any} c */ c => c.role === 'media').map(/** @param {any} c */ c => c.name);
   const rows = validateResult.file?.rows ?? 0;
-  const ratio = validateResult.detected?.ratio ?? 0;
+  // v2.1.0 (RC2-AUD-04 fix): ratio считается из ТЕКУЩИХ ролей колонок
+  // (как в validateInsights), не из stale validateResult.detected.ratio
+  // (которое было посчитано один раз при первом econ_validate).
+  // Это устраняет рассогласование с SSOT validationHeaderMetrics.
+  const paramCount = mediaCount + controlCount;
+  const ratio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
 
   // ── 1. Ready-state summary ──
   if (kpiNames.length > 0 && mediaCount > 0) {

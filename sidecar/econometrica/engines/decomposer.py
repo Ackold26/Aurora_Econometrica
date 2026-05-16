@@ -9,11 +9,16 @@ Post-fix: contribution_per_period = β × hill(adstock(x)/mean) × y_std.
 Baseline = intercept × y_std + y_mean × n + control_effect × y_std.
 """
 import json
+import logging
 import pickle
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Any
+
+# AUD-01 fix (rc2): logger ранее использовался в exception handlers без объявления
+# на уровне модуля → NameError при срабатывании except path. Объявляем явно.
+logger = logging.getLogger('econometrica')
 
 from utils.adstock import apply_adstock, geometric_adstock_batch
 from utils.saturation import hill_function, hill_function_batch, hill_function_batch_2d
@@ -271,6 +276,18 @@ def decompose(
                 # df[control_cols] не падал. β для них останется в model_data
                 # но без X-данных вклад будет 0.
                 control_cols = [c for c in control_cols if c not in holiday_cols_to_inject]
+        else:
+            # AUD-02 fix (rc2): если date_col отсутствует в df (пользователь
+            # переименовал колонку даты после тренировки), невозможно
+            # re-injectit holidays - убираем их из control_cols, чтобы
+            # df[control_cols] на стр.548 не упал с KeyError.
+            logger.warning(
+                'Decomposer: date_col %r отсутствует в df.columns - re-injection '
+                'holidays невозможна. Убираем %d holiday колонок из control_cols '
+                '(β для них останутся в model_data, но без X-данных вклад будет 0).',
+                date_col, len(holiday_cols_to_inject),
+            )
+            control_cols = [c for c in control_cols if c not in holiday_cols_to_inject]
 
     # Phase 2 audit pass 4 - per-channel inflation: customer entered current
     # cost (latest training year) + annual_inflation_pct → adjust к training-

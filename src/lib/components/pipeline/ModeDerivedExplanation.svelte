@@ -19,7 +19,7 @@
    * @component ModeDerivedExplanation
    */
 
-  import { validateData, perChannelInput, unitCosts, analysisMode, kpiType } from '$lib/project-state.js';
+  import { validateData, perChannelInput, unitCosts, analysisMode, kpiType, validationMetrics } from '$lib/project-state.js';
   import RatioInfoCard from './RatioInfoCard.svelte';
 
   /** @typedef {'roi' | 'effectiveness' | 'mixed'} AnalysisMode */
@@ -103,18 +103,24 @@
     return `${m}.${y}`;
   }
 
-  // Ratio из detected
-  const detectedRatio = $derived(
-    Number($validateData?.result?.detected?.ratio ?? 0)
-  );
+  // v2.1.0 (RC2-AUD-03 fix): читаем ratio из SSOT validationMetrics, не из
+  // stale `detected.ratio` (которое было посчитано один раз при первом
+  // econ_validate и не пересчитывается при frontend exclusions).
+  const detectedRatio = $derived($validationMetrics?.ratio ?? 0);
   const nPredictors = $derived(
-    Number($validateData?.result?.detected?.n_predictors ?? (mediaColumns.length + controlColumns.length))
+    $validationMetrics?.nPredictors ?? (mediaColumns.length + controlColumns.length)
   );
 
-  /** Цвет и статус ratio */
+  /** Цвет и статус ratio - согласовано с B-03 5-уровневой градацией */
   const ratioStatus = $derived.by(() => {
-    if (detectedRatio >= 6) return /** @type {const} */ ('ok');
-    if (detectedRatio >= 4) return /** @type {const} */ ('warn');
+    // v2.1.0: используем ratioSeverity из SSOT, если доступен
+    const sev = $validationMetrics?.ratioSeverity;
+    if (sev === 'success' || sev === 'info') return /** @type {const} */ ('ok');
+    if (sev === 'warning') return /** @type {const} */ ('warn');
+    if (sev === 'warning-high' || sev === 'error') return /** @type {const} */ ('bad');
+    // Fallback на пороги если SSOT не дал severity
+    if (detectedRatio >= 4) return /** @type {const} */ ('ok');
+    if (detectedRatio >= 3) return /** @type {const} */ ('warn');
     return /** @type {const} */ ('bad');
   });
 
@@ -360,7 +366,7 @@
       <div class="quality-card tone-{ratioStatus}" aria-label="Соотношение данных">
         <span class="qc-label">Ratio данных</span>
         <span class="qc-value">{detectedRatio > 0 ? detectedRatio.toFixed(1) + ':1' : '—'}</span>
-        <span class="qc-status">{ratioStatus !== 'ok' && ratioStatus !== 'warn' ? ratioStatusLabel[ratioStatus] : ratioStatusLabel[ratioStatus]}</span>
+        <span class="qc-status">{ratioStatusLabel[ratioStatus]}</span>
       </div>
 
       <!-- Период -->

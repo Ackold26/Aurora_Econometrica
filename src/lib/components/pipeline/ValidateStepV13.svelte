@@ -286,10 +286,13 @@
   // ─── v2.1.0 (пилот 2026-05-16): анимация переходов между под-шагами ───
   // Отслеживаем направление: forward (правый сдвиг) vs back (левый сдвиг).
   // prefers-reduced-motion → duration 0 (мгновенно).
-  let prevSubStepIdx = $state(subStep);
+  // Type-cast subStep к number чтобы избежать narrowing к initial type literal
+  // (subStep declared как `-2 | -1 | 0 | 1 | 2 | 3` union).
+  /** @type {number} */
+  let prevSubStepIdx = $state(/** @type {number} */ (subStep));
   let substepDir = $state(/** @type {'forward' | 'back'} */ ('forward'));
   $effect(() => {
-    const current = subStep;
+    const current = /** @type {number} */ (subStep);
     if (current !== prevSubStepIdx) {
       substepDir = current > prevSubStepIdx ? 'forward' : 'back';
       prevSubStepIdx = current;
