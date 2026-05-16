@@ -643,6 +643,31 @@
   });
 
   /**
+   * v2.1.0 (rc2 retry): hard-block если 0 или >1 целевых метрик.
+   * MMM-модель ОБЯЗАНА обучаться на ОДНОЙ зависимой переменной (KPI).
+   * Раньше backend silently выбирал первую при множественных KPI -
+   * пользователь не понимал результат. Теперь явная блокировка с
+   * подсказкой что делать.
+   */
+  const kpiCountBlockedReason = $derived.by(() => {
+    const cols = $validateData?.result?.columns;
+    if (!Array.isArray(cols)) return null;
+    const kpiCols = cols.filter((/** @type {any} */ c) => c?.role === 'kpi');
+    if (kpiCols.length === 1) return null;  // ровно одна - OK
+    if (kpiCols.length === 0) {
+      return 'Не выбрана целевая метрика. MMM-модель требует одну колонку с ролью «Целевая метрика» - выберите её в таблице ниже.';
+    }
+    // > 1 KPI - блок с предложением выбрать одну
+    const names = kpiCols.map((/** @type {any} */ c) => `«${c.name}»`).join(', ');
+    return `Найдено ${kpiCols.length} целевых метрик: ${names}. MMM-модель обучается на одной зависимой переменной. Оставьте одну (главную для текущего режима), остальные отметьте как «Не использовать».`;
+  });
+
+  /** Объединённый blockedReason: ratio priority > KPI count priority */
+  const validateBlockedReason = $derived(
+    ratioBlockedReason ?? kpiCountBlockedReason
+  );
+
+  /**
    * Apply ratio recommendation: excludes weak media channels (>50% zeros).
    * Reuses setColumnRolesBulk → role='unused'.
    */
@@ -1006,7 +1031,7 @@
       insightExcludeMap={insightExcludeMap}
       onConfirm={handleRolesConfirm}
       onRoleChange={handleRoleChange}
-      blockedReason={ratioBlockedReason}
+      blockedReason={validateBlockedReason}
     />
   {:else if subStep === 0}
     <!-- Legacy backward compat: old projects где flow дошёл к subStep=0 -

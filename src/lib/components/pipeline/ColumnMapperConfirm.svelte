@@ -17,6 +17,9 @@
    * @component ColumnMapperConfirm
    */
 
+  // v2.1.0 (rc2 retry): mode-aware рекомендации требуют доступа к analysisMode.
+  import { analysisMode } from '$lib/project-state.js';
+
   const {
     columns = [],     // [{name, role, kind, stats?}]
     onConfirm,        // (mapping: Record<string, string>) => void
@@ -158,15 +161,80 @@
   function isCriticalMediaChannel(name) {
     if (!name) return false;
     const upper = String(name).toUpperCase();
-    // ТВ/TV бренда (TRP / GRP / ТВ / TV / ТЕЛЕВИЗ).
-    // ВАЖНО: убрано trailing \b - не матчит «TRPS» / «TRPM» (s/m word char).
-    // Кириллица также имеет quirks с \b в JS regex - убираем word-boundary
-    // полностью, используем containment test.
     if (/(^|[^A-Z])(TRP|GRP)/i.test(upper)) return true;
     if (/(^|\s|_|-)(ТВ|TV|ТЕЛЕВИЗ)/i.test(upper)) return true;
-    // Большие медийные блоки (OLV, Banners для бренда).
     if (/(^|[^A-Z])(OLV|BANNER|БАННЕР|МЕДИЙ)/i.test(upper)) return true;
     return false;
+  }
+
+  /**
+   * v2.1.0 (rc2 retry): распознаёт колонку как физическую метрику
+   * (TRP / GRP / показы / клики / визиты / просмотры / охваты).
+   * @param {string} name
+   * @returns {boolean}
+   */
+  function isPhysicalMetric(name) {
+    if (!name) return false;
+    const upper = String(name).toUpperCase();
+    return /(^|\s|_|-|[^A-Z])(TRP|GRP|ПОКАЗ|IMPRESS|КЛИК|CLICK|ВИЗИТ|VISIT|OTS|VIEW|ПРОСМОТР|РЕЙТИНГ|REACH|ОХВАТ)/i.test(upper);
+  }
+
+  /**
+   * v2.1.0 (rc2 retry): распознаёт колонку как денежную метрику
+   * (бюджет / спенд / ₽ / cost).
+   * @param {string} name
+   * @returns {boolean}
+   */
+  function isMonetaryMetric(name) {
+    if (!name) return false;
+    const upper = String(name).toUpperCase();
+    return /(^|\s|_|-)(БЮДЖЕТ|BUDGET|SPEND|РУБ|РУБЛ|COST|СПЕНД|РАСХОД)/i.test(upper) || /[₽]/.test(name);
+  }
+
+  /**
+   * v2.1.0 (rc2 retry): извлекает корневое имя канала для pair detection.
+   * «OLV Бюджет до НДС» → «OLV»; «OLV Показы» → «OLV».
+   * @param {string} name
+   * @returns {string}
+   */
+  function extractChannelRoot(name) {
+    if (!name) return '';
+    const upper = String(name).toUpperCase();
+    // Известные prefix-имена каналов.
+    const knownPrefixes = ['OLV', 'BANNERS', 'BANNER', 'SOCIAL', 'PERFORMANCE', 'RETAIL', 'TV', 'ТВ', 'РАДИО', 'RADIO', 'ПРЕССА', 'PRESS', 'OOH', 'ООН', 'SEARCH', 'CONTEXT', 'DIGITAL', 'YOUTUBE', 'VK', 'OK', 'TELEGRAM', 'TG'];
+    for (const prefix of knownPrefixes) {
+      if (upper.startsWith(prefix)) return prefix;
+    }
+    // Fallback: первое слово.
+    return upper.split(/\s|_|-/)[0] || upper;
+  }
+
+  /**
+   * v2.1.0 (rc2 retry): находит парную метрику для канала. Парная = другая
+   * колонка media с тем же channel root, но другой kind (monetary <-> physical).
+   *
+   * Пример: «OLV Бюджет» ↔ «OLV Показы» парные. В ROI режиме оставляем бюджет,
+   * исключаем показы (мультиколлинеарность).
+   *
+   * @param {string} name - текущая колонка
+   * @returns {{ name: string, kind: 'monetary' | 'physical' } | null}
+   */
+  function findPairedMetric(name) {
+    if (!name) return null;
+    const selfKind = isMonetaryMetric(name) ? 'monetary' : isPhysicalMetric(name) ? 'physical' : null;
+    if (!selfKind) return null;
+    const root = extractChannelRoot(name);
+    if (!root) return null;
+    for (const c of columns) {
+      if (!c?.name || c.name === name) continue;
+      if (c.role !== 'media') continue;
+      const otherRoot = extractChannelRoot(c.name);
+      if (otherRoot !== root) continue;
+      const otherKind = isMonetaryMetric(c.name) ? 'monetary' : isPhysicalMetric(c.name) ? 'physical' : null;
+      if (!otherKind || otherKind === selfKind) continue;
+      return { name: c.name, kind: /** @type {'monetary' | 'physical'} */ (otherKind) };
+    }
+    return null;
   }
 
   function recommendationFor(col) {
@@ -175,14 +243,98 @@
     }
     const role = effectiveRole(col.name);
     const findings = findingsFor(col.name);
+    const mode = $analysisMode || 'roi';
     const isCritical = isCriticalMediaChannel(col.name) && role === 'media';
 
-    // 0. v1.3.2: insights-driven exclude - top priority. Если same column
-    //    flagged by validateInsights в InsightsPanel - show same reason.
-    //    Skip когда юзер уже исключил (role='excluded') - нечего advise.
+    // ───────────────────────────────────────────────────────────────
+    // v2.1.0 (rc2 retry): MODE-AWARE ИЕРАРХИЯ для media каналов.
+    // Применяется ПЕРВОЙ - до insights-driven и backend warnings.
+    // Логика:
+    //   ROI режим:
+    //     1. Бюджет в ₽           → ✅ Оставить (готов для ROI)
+    //     2. Физика + парный ₽    → ❌ Исключить (мультиколлинеарность)
+    //     3. Физика без пары + critical → ⚠ Проверить (конверсия)
+    //     4. Физика без пары      → ⚠ Проверить (конверсия или исключить)
+    //   Эффективность режим (симметрично):
+    //     1. Физика               → ✅ Оставить
+    //     2. ₽ + парная физика    → ❌ Исключить
+    //     3. ₽ без пары           → ⚠ Проверить (обратная конверсия)
+    // ───────────────────────────────────────────────────────────────
+    if (role === 'media') {
+      const isMonetary = isMonetaryMetric(col.name);
+      const isPhysical = isPhysicalMetric(col.name);
+      const pair = (isMonetary || isPhysical) ? findPairedMetric(col.name) : null;
+
+      if (mode === 'roi') {
+        if (isMonetary) {
+          // Бюджет в ₽ - идеально для ROI режима.
+          return {
+            status: 'keep',
+            label: 'Оставить',
+            reason: 'Бюджет в ₽ - готов для ROI модели.',
+            tone: 'ok',
+          };
+        }
+        if (isPhysical && pair && pair.kind === 'monetary') {
+          // Парный ₽ есть - физика дублирует, исключить (мультиколлинеарность).
+          return {
+            status: 'exclude',
+            label: 'Исключить',
+            reason: `Дублирует «${pair.name}» (парный бюджет того же канала). В ROI режиме оставьте один - бюджет в ₽.`,
+            tone: 'danger',
+          };
+        }
+        if (isPhysical && isCritical) {
+          // Критичный physical канал без парного бюджета - конверсия нужна.
+          return {
+            status: 'review',
+            label: 'Проверить',
+            reason: 'Важный медиа-канал без парного бюджета в ₽. На следующем шаге укажите цену единицы (CPP/CPM) для конверсии - иначе модель не посчитает ROI этого канала.',
+            tone: 'warn',
+          };
+        }
+        if (isPhysical) {
+          // Не critical physical без пары - тоже конверсия или явное исключение.
+          return {
+            status: 'review',
+            label: 'Проверить',
+            reason: 'Физическая метрика без парного бюджета. В ROI режиме нужна конверсия в ₽ (CPP/CPM) или исключение из модели.',
+            tone: 'warn',
+          };
+        }
+      } else if (mode === 'effectiveness') {
+        if (isPhysical) {
+          return {
+            status: 'keep',
+            label: 'Оставить',
+            reason: 'Физические контакты - готовы для режима Эффективность.',
+            tone: 'ok',
+          };
+        }
+        if (isMonetary && pair && pair.kind === 'physical') {
+          return {
+            status: 'exclude',
+            label: 'Исключить',
+            reason: `Дублирует «${pair.name}» (парные физические контакты того же канала). В режиме Эффективность оставьте физику.`,
+            tone: 'danger',
+          };
+        }
+        if (isMonetary) {
+          return {
+            status: 'review',
+            label: 'Проверить',
+            reason: 'В режиме Эффективность нужны физические контакты. Бюджет можно конвертировать через обратное CPP/CPM или исключить.',
+            tone: 'warn',
+          };
+        }
+      }
+      // Mixed Expert или unrecognized kind - падаем в обычные проверки ниже.
+    }
+
+    // 0. v1.3.2: insights-driven exclude - применяется ПОСЛЕ mode-aware
+    //    решения. Для media каналов вышеприведённая логика уже отработала.
+    //    Здесь обрабатываем controls / KPI / прочее.
     if (insightExcludeMap?.[col.name] && role !== 'excluded') {
-      // v2.1.0 (rc2 retry): критичные media каналы не исключаем автоматически,
-      // понижаем до «Проверить» с подсказкой про конверсию.
       if (isCritical) {
         return {
           status: 'review',
