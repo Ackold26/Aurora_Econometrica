@@ -158,10 +158,14 @@
   function isCriticalMediaChannel(name) {
     if (!name) return false;
     const upper = String(name).toUpperCase();
-    // ТВ/TV бренда (TRP / GRP / ТВ / TV) - всегда критично
-    if (/\b(TRP|GRP|ТВ|TV|ТЕЛЕВИЗ)\b/.test(upper)) return true;
-    // Большие медийные блоки (OLV, Banners для бренда)
-    if (/\b(OLV|BANNER|БАННЕР|МЕДИЙ)\b/.test(upper)) return true;
+    // ТВ/TV бренда (TRP / GRP / ТВ / TV / ТЕЛЕВИЗ).
+    // ВАЖНО: убрано trailing \b - не матчит «TRPS» / «TRPM» (s/m word char).
+    // Кириллица также имеет quirks с \b в JS regex - убираем word-boundary
+    // полностью, используем containment test.
+    if (/(^|[^A-Z])(TRP|GRP)/i.test(upper)) return true;
+    if (/(^|\s|_|-)(ТВ|TV|ТЕЛЕВИЗ)/i.test(upper)) return true;
+    // Большие медийные блоки (OLV, Banners для бренда).
+    if (/(^|[^A-Z])(OLV|BANNER|БАННЕР|МЕДИЙ)/i.test(upper)) return true;
     return false;
   }
 
