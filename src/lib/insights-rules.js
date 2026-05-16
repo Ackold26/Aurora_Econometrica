@@ -1214,6 +1214,44 @@ export function decomposeInsights(data, kpiInput = null) {
     });
   }
 
+  // v2.1.0 (пилот 2026-05-16): инсайт об отъедании продаж конкурентами /
+  // ценами / прочими отрицательными signed-факторами. Антон: «хочу видеть,
+  // как сильно от продаж отъедают рекламные активности конкурентов».
+  const signedFactors = data.signed_factor_contributions || {};
+  /** @type {Array<{name: string, value: number, pct: number, type: string}>} */
+  const negativeFactors = [];
+  /** @type {Record<string, string>} */
+  const factorGroupLabel = {
+    signed_competitor: 'конкуренты',
+    signed_price:      'цена',
+    signed_weather:    'погода',
+    signed_macro:      'макро-факторы',
+  };
+  for (const [name, fact] of Object.entries(signedFactors)) {
+    if (!fact || typeof fact !== 'object') continue;
+    const value = Number(fact.value ?? 0);
+    if (value < 0 && factorGroupLabel[fact.type]) {
+      negativeFactors.push({ name, value, pct: Number(fact.pct ?? 0), type: String(fact.type) });
+    }
+  }
+  if (negativeFactors.length > 0) {
+    // Группируем по типу для агрегированного % impact.
+    /** @type {Record<string, number>} */
+    const sumByGroup = {};
+    for (const f of negativeFactors) {
+      sumByGroup[f.type] = (sumByGroup[f.type] ?? 0) + Math.abs(f.pct);
+    }
+    const parts = Object.entries(sumByGroup).map(
+      ([type, totalPct]) => `${factorGroupLabel[type]} ~${totalPct.toFixed(1)}%`
+    );
+    const topNegative = [...negativeFactors].sort((a, b) => a.value - b.value)[0];
+    out.push({
+      severity: 'warning',
+      text: `Внешние факторы отъедают продажи: ${parts.join(', ')}. Самый сильный: «${topNegative.name}» (-${Math.abs(topNegative.pct).toFixed(1)}% от продаж за период).`,
+      tip: 'На графике «Динамика по периодам» отрицательный вклад показан ниже нулевой линии красно-оранжевой полосой. Это «потерянные продажи» - то, что бренд получил бы, если бы конкуренты/цены/погода не давили в течение периода.',
+    });
+  }
+
   // ── 2. Трактовка базовых продаж ──
   if (basePct > 80) {
     out.push({

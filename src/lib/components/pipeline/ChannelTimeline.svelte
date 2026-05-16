@@ -16,10 +16,36 @@
    *     dates: string[],
    *     baseline: number[],
    *     channels: Record<string, number[]>
-   *   }
+   *   },
+   *   signedFactors?: Record<string, {
+   *     value: number, pct: number, type: string,
+   *     beta_mean: number, per_period: number[]
+   *   }>,
    * }}
    */
-  let { timeSeries } = $props();
+  let { timeSeries, signedFactors = undefined } = $props();
+
+  // v2.1.0 (пилот 2026-05-16): отрицательные signed factors (конкуренты,
+  // цены, погода с отрицательным эффектом) показываем ниже нулевой линии
+  // отдельным stack-group'ом - красно-оранжевая палитра, читается как
+  // «отъедают продажи». Положительные controls (holiday + positive_control)
+  // добавляются в общий positive stack.
+  const FACTOR_COLORS = {
+    signed_competitor: '#dc2626', // red-600
+    signed_price:      '#ea580c', // orange-600
+    signed_weather:    '#f59e0b', // amber-500
+    signed_macro:      '#d97706', // amber-600
+    holiday:           '#84cc16', // lime-500
+    positive_control:  '#06b6d4', // cyan-500
+  };
+  const FACTOR_LABELS = {
+    signed_competitor: 'Конкуренты',
+    signed_price:      'Цена',
+    signed_weather:    'Погода',
+    signed_macro:      'Макро-факторы',
+    holiday:           'Праздники',
+    positive_control:  'Внешние факторы',
+  };
 
   // FIX 2026-05-02: track currently hovered series для подсветки в tooltip.
   // Plain mutable (не $state) - closure formatter reads current value без
@@ -204,15 +230,50 @@
     const channelNames = Object.keys(channels);
     const allSeries = [];
 
-    // Baseline series (bottom)
+    // v2.1.0 (пилот 2026-05-16): разделим signedFactors на negative (ниже
+    // нуля) и positive (поверх baseline). Negative выносится из baseline,
+    // чтобы юзер увидел сколько продаж «отъели» конкуренты/цены.
+    /** @type {Array<{name: string, color: string, label: string, perPeriod: number[]}>} */
+    const negativeFactors = [];
+    /** @type {Array<{name: string, color: string, label: string, perPeriod: number[]}>} */
+    const positiveFactors = [];
+    let baselineAdjusted = baseline.slice();
+    if (signedFactors && typeof signedFactors === 'object') {
+      for (const [colName, fact] of Object.entries(signedFactors)) {
+        if (!fact || !Array.isArray(fact.per_period)) continue;
+        const total = Number(fact.value ?? 0);
+        const type = String(fact.type ?? 'positive_control');
+        const color = FACTOR_COLORS[type] ?? '#94a3b8';
+        const groupLabel = FACTOR_LABELS[type] ?? 'Внешние';
+        const label = `${groupLabel}: ${colName}`;
+        if (total < 0) {
+          // Отрицательный вклад - выносим из baseline и показываем ниже нуля.
+          // baseline_clean = baseline_original - per_period (вычитаем negative
+          // contrib обратно, чтобы baseline стал «чистым», без давления).
+          baselineAdjusted = baselineAdjusted.map(
+            (v, t) => v - Number(fact.per_period[t] ?? 0),
+          );
+          negativeFactors.push({ name: label, color, label: groupLabel, perPeriod: fact.per_period });
+        } else if (total > 0 && type !== 'positive_control') {
+          // Holiday и явно положительные signed factors - показываем
+          // отдельной полосой над baseline. positive_control оставляем
+          // внутри baseline (это intercept-подобный шум).
+          positiveFactors.push({ name: label, color, label: groupLabel, perPeriod: fact.per_period });
+        }
+      }
+    }
+
+    // Baseline series (bottom) - использует "очищенный" baseline без
+    // отрицательных factors. Когда signedFactors не передан - baseline
+    // как раньше (backward-compat).
     allSeries.push({
       name: 'Базовый уровень',
       type: 'line',
-      stack: 'total',
+      stack: 'positive',
       areaStyle: { opacity: 0.6, color: '#3b82f6' },
       lineStyle: { width: 0 },
       symbol: 'none',
-      data: baseline,
+      data: baselineAdjusted,
       itemStyle: { color: '#3b82f6' },
       emphasis: { focus: 'series' },
     });
@@ -223,12 +284,46 @@
       allSeries.push({
         name: ch,
         type: 'line',
-        stack: 'total',
+        stack: 'positive',
         areaStyle: { opacity: 0.65, color },
         lineStyle: { width: 0 },
         symbol: 'none',
         data: channels[ch],
         itemStyle: { color },
+        emphasis: { focus: 'series' },
+      });
+    });
+
+    // v2.1.0: положительные factors над media (holiday и т.п.)
+    positiveFactors.forEach((f) => {
+      allSeries.push({
+        name: f.name,
+        type: 'line',
+        stack: 'positive',
+        areaStyle: { opacity: 0.6, color: f.color },
+        lineStyle: { width: 0 },
+        symbol: 'none',
+        data: f.perPeriod,
+        itemStyle: { color: f.color },
+        emphasis: { focus: 'series' },
+      });
+    });
+
+    // v2.1.0: отрицательные factors ниже нулевой линии.
+    // ECharts: для negative stack значения подаются как есть (отрицательные).
+    // Отдельный stack name = 'negative' - не смешивается с positive.
+    negativeFactors.forEach((f) => {
+      allSeries.push({
+        name: f.name,
+        type: 'line',
+        stack: 'negative',
+        areaStyle: { opacity: 0.55, color: f.color },
+        lineStyle: { width: 0 },
+        symbol: 'none',
+        // per_period от backend содержит signed значения - отрицательные
+        // факторы дают отрицательные числа, ECharts отрисует ниже нуля.
+        data: f.perPeriod,
+        itemStyle: { color: f.color },
         emphasis: { focus: 'series' },
       });
     });

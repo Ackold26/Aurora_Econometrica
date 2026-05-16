@@ -461,7 +461,14 @@
       </ExpandableCard>
       <ExpandableCard title="Динамика по периодам" tourKey="decompose-timeline">
         {#if data.time_series?.dates?.length}
-          <ChannelTimeline timeSeries={data.time_series} />
+          <!-- v2.1.0 (пилот 2026-05-16): прокидываем signed factors,
+               чтобы negative controls (конкуренты, цены) показывались
+               ниже нулевой линии отдельной полосой - юзер видит сколько
+               продаж «отъели» внешние факторы. -->
+          <ChannelTimeline
+            timeSeries={data.time_series}
+            signedFactors={data.signed_factor_contributions}
+          />
         {:else}
           <div class="no-data">Нет данных для временного ряда</div>
         {/if}
