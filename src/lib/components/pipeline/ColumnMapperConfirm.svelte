@@ -92,6 +92,22 @@
     'за вами.',
   ].join('\n');
 
+  // v2.1.0 (пилот 2026-05-16): столбец «Объём за период» помогает бренд-
+  // менеджеру оценить масштаб канала / показателя за всю историю данных
+  // одним взглядом. Полезен для решения «оставить vs исключить» и для
+  // отсева мелких / шумных факторов.
+  const VOLUME_HEADER_HELP = [
+    'Суммарное значение колонки за весь период данных:',
+    '',
+    '• Бюджеты - общая сумма потраченного в рублях.',
+    '• TRP / GRP - суммарные рейтинги за весь период.',
+    '• Показы / клики / просмотры - суммарное количество контактов.',
+    '• Целевая метрика (продажи, выручка) - итог за период.',
+    '',
+    'Помогает увидеть масштаб каждого фактора и сравнить их между собой.',
+    'Дата и текст не имеют суммы - отображаются как «-».',
+  ].join('\n');
+
   /**
    * Translates pandas dtype names (float64, int64, object, datetime64, bool)
    * к человеческим русским labels. Fallback: «-» если type unknown.
@@ -237,6 +253,11 @@
     return null;
   }
 
+  /**
+   * Generate recommendation для колонки (см. README JSDoc выше).
+   * @param {any} col
+   * @returns {Recommendation}
+   */
   function recommendationFor(col) {
     if (!col) {
       return { status: 'review', label: 'Проверить', reason: 'Нет данных по колонке.', tone: 'neutral' };
@@ -436,6 +457,59 @@
   }
 
   /**
+   * v2.1.0 (пилот 2026-05-16): авто-определение единицы измерения колонки
+   * для столбца «Объём за период». Используется ИМЯ колонки (а не тип
+   * данных), потому что backend возвращает всё как float64 / int64.
+   *
+   * Денежные → «₽», TRP/GRP → как есть, физика → русское слово в
+   * родительном падеже (показов / кликов / визитов / просмотров / охватов /
+   * лидов / заявок / регистраций). Если ничего не распознано - пустая
+   * строка (значение покажется без единицы измерения).
+   *
+   * @param {string} name
+   * @returns {string}
+   */
+  function detectVolumeUnit(name) {
+    if (!name) return '';
+    const upper = String(name).toUpperCase();
+    if (isMonetaryMetric(name)) return '₽';
+    if (/(^|[^A-Z])TRP/i.test(upper)) return 'TRP';
+    if (/(^|[^A-Z])GRP/i.test(upper)) return 'GRP';
+    if (/ПОКАЗ|IMPRESS/i.test(upper)) return 'показов';
+    if (/КЛИК|CLICK/i.test(upper)) return 'кликов';
+    if (/ВИЗИТ|VISIT/i.test(upper)) return 'визитов';
+    if (/ПРОСМОТР|VIEW/i.test(upper)) return 'просмотров';
+    if (/ОХВАТ|REACH/i.test(upper)) return 'охватов';
+    if (/ЛИД(?!Е)|LEAD/i.test(upper)) return 'лидов';
+    if (/ЗАЯВ/i.test(upper)) return 'заявок';
+    if (/РЕГИСТРАЦ|SIGNUP/i.test(upper)) return 'регистраций';
+    if (/ПОДПИС|SUBSCRIB/i.test(upper)) return 'подписок';
+    if (/ПРОДАЖ|SALES|UNITS/i.test(upper)) return 'шт.';
+    if (/ВЫРУЧК|REVENUE|ДОХОД/i.test(upper)) return '₽';
+    return '';
+  }
+
+  /**
+   * v2.1.0 (пилот 2026-05-16): форматирует итоговую сумму колонки за весь
+   * период. Возвращает null когда сумма недоступна (дата / текст / флаг /
+   * stats не пришли) - UI покажет «-».
+   *
+   * @param {any} col
+   * @returns {{ value: string, unit: string } | null}
+   */
+  function formatVolume(col) {
+    if (!col?.stats || typeof col.stats.sum !== 'number') return null;
+    const rawKind = String(col.kind ?? '').toLowerCase();
+    const isNumeric = rawKind.includes('int') || rawKind.includes('float') || rawKind === 'number' || rawKind === 'numeric';
+    if (!isNumeric) return null;
+    const sum = col.stats.sum;
+    // Округление до целого - бренд-менеджер не нуждается в копейках.
+    const rounded = Math.round(sum);
+    const formatted = new Intl.NumberFormat('ru-RU').format(rounded);
+    return { value: formatted, unit: detectVolumeUnit(col.name) };
+  }
+
+  /**
    * Canonical role → UI vocabulary mapping. Backend column-roles.js uses
    * 6 roles (kpi/media/control/date/unused/unknown); UI displays 5
    * (kpi/media/control/date/excluded). unused/unknown/null → excluded.
@@ -619,6 +693,10 @@
       <thead>
         <tr>
           <th scope="col" class="th-name">Колонка</th>
+          <th scope="col" class="th-volume">
+            Объём за период
+            <span class="help-icon" title={VOLUME_HEADER_HELP} aria-label="Что значит объём за период">?</span>
+          </th>
           <th scope="col" class="th-kind">
             Тип данных
             <span class="help-icon" title={KIND_HEADER_HELP} aria-label="Что значат типы данных">?</span>
@@ -637,8 +715,19 @@
         {#each columns as col (col.name)}
           {@const role = effectiveRole(col.name)}
           {@const reco = recommendationFor(col)}
+          {@const volume = formatVolume(col)}
           <tr class="role-{role}" class:row-flash={flashingRows.has(col.name)}>
             <td class="col-name">{col.name}</td>
+            <td class="col-volume">
+              {#if volume}
+                <span class="volume-value">{volume.value}</span>
+                {#if volume.unit}
+                  <span class="volume-unit">{volume.unit}</span>
+                {/if}
+              {:else}
+                <span class="volume-empty" aria-label="Объём не применим">-</span>
+              {/if}
+            </td>
             <td class="col-kind" title={col.kind ?? ''}>
               <span class="kind-label">{humanizeKind(col.kind)}</span>
               {#if col.stats}
@@ -962,10 +1051,12 @@
   .reco-badge:hover {
     background-color: color-mix(in srgb, currentColor 18%, transparent);
   }
-  .th-name { width: 30%; }
-  .th-kind { width: 15%; }
-  .th-role { width: 32%; }
-  .th-reco { width: 23%; }
+  /* v2.1.0 (пилот 2026-05-16): добавлен th-volume; ширины перераспределены. */
+  .th-name   { width: 22%; }
+  .th-volume { width: 18%; text-align: right; padding-right: 16px; }
+  .th-kind   { width: 14%; }
+  .th-role   { width: 28%; }
+  .th-reco   { width: 18%; }
 
   tbody td {
     padding: 11px 0;
@@ -982,6 +1073,33 @@
     font-size: 12.5px;
     font-weight: 500;
     color: var(--text-primary);
+  }
+
+  /* v2.1.0 (пилот 2026-05-16): «Объём за период» - правое выравнивание,
+     tabular-nums чтобы цифры висели колонкой, единица серым в нижнем
+     регистре. Пустое значение (даты / текст) - тонкий em-dash центром. */
+  .col-volume {
+    text-align: right;
+    padding-right: 16px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--text-primary);
+  }
+  .volume-value {
+    font-family: var(--font-mono, 'JetBrains Mono', Consolas, monospace);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .volume-unit {
+    margin-left: 5px;
+    font-size: 11px;
+    color: var(--text-muted, #64748b);
+    font-weight: 400;
+  }
+  .volume-empty {
+    color: var(--text-muted, #64748b);
+    font-size: 12px;
+    opacity: 0.5;
   }
   .col-kind {
     font-size: 11px;
