@@ -13,6 +13,7 @@
   import {
     validateData, modelData, isComputing, computeStatus,
     completeStep, setStepError, resetDownstream, expertMode,
+    validationHeaderMetrics,
   } from '$lib/project-state.js';
   import ExpertModelPanel from '$lib/components/pipeline/ExpertModelPanel.svelte';
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
@@ -267,7 +268,7 @@
     <!-- MQS Badge -->
     {#if mqs}
       <div data-tour="model-mqs">
-        <MQSBadge diagnostics={diagnostics} />
+        <MQSBadge diagnostics={diagnostics} ssotRatio={$validationHeaderMetrics?.ratio} />
       </div>
     {/if}
 

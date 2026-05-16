@@ -6,16 +6,83 @@
    * @component MQSBadge
    */
 
-  /** @type {{ diagnostics: any }} */
-  let { diagnostics } = $props();
+  /**
+   * @type {{
+   *   diagnostics: any,
+   *   ssotRatio?: number
+   * }}
+   *
+   * ssotRatio - v2.1.0 (пилот 2026-05-16) frontend SSOT ratio из
+   * validationHeaderMetrics. Если передан и расходится с backend
+   * diagnostics.metrics.ratio - используется он, чтобы юзер не видел
+   * разные цифры в Валидации (3.9:1) и Модели (1.5:1).
+   */
+  let { diagnostics, ssotRatio = undefined } = $props();
 
   let showDetails = $state(false);
 
   /** @type {any} */
   let mqs = $derived(diagnostics?.mqs || null);
-  let verdict = $derived(diagnostics?.verdict || '');
+  let backendVerdict = $derived(diagnostics?.verdict || '');
   let metrics = $derived(diagnostics?.metrics || {});
   let checks = $derived(diagnostics?.checks || {});
+
+  // v2.1.0 (пилот 2026-05-16): подменяем backend ratio в verdict-тексте
+  // и пересчитываем MQS tier если SSOT ratio >= 4 (info / success коридоры).
+  // Backend thinness_cap=50 при backend ratio<2 ставит «Слабое», что
+  // несовместимо с frontend SSOT «Ниже рекомендуемого» (4.4:1) или
+  // «Рекомендуемый уровень». Дотягиваем UI consistency без переписи backend.
+  const useSsot = $derived(
+    typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0
+  );
+
+  const displayVerdict = $derived.by(() => {
+    if (!useSsot) return backendVerdict;
+    // Заменяем числовое значение ratio в верндикте. Patterns которые
+    // встречаются в backend `generate_diagnostics_summary`:
+    //   «Ratio 1.5:1»
+    //   «Ratio 1.5:1 < 4:1»
+    // Также заменяем тестовую часть «Данных критически мало / Данных мало»
+    // когда SSOT даёт другой коридор.
+    let v = backendVerdict;
+    // 1) Подменить число в "Ratio X.X:1"
+    v = v.replace(/Ratio\s+\d+(?:\.\d+)?:1/g, `Ratio ${ssotRatio.toFixed(1)}:1`);
+    // 2) Если SSOT ratio >= 4 - убрать «критически мало» / «мало (Ratio < 4:1)»
+    if (ssotRatio >= 4) {
+      v = v.replace(
+        /⚠\s*Данных (критически\s*)?мало[^.]*\.\s*/g,
+        ''
+      );
+      v = v.replace(
+        /\s*-\s*высокий риск переобучения[^.]*\.\s*/g,
+        '. '
+      );
+    }
+    return v.trim();
+  });
+
+  const displayMqs = $derived.by(() => {
+    if (!mqs || !useSsot) return mqs;
+    // Backend применил thinness_cap (50 / 70) на основе backend ratio.
+    // Если SSOT ratio в info / success коридоре - используем raw_score и
+    // пересчитаем tier_label.
+    if (ssotRatio < 4) return mqs;  // оставляем backend cap
+    const rawScore = Number(mqs.raw_score ?? mqs.score ?? 0);
+    if (!Number.isFinite(rawScore) || rawScore <= mqs.score) return mqs;
+    let tier, tier_label, color;
+    if (rawScore >= 85) {
+      tier = 'excellent'; tier_label = 'Отличное'; color = '#22c55e';
+    } else if (rawScore >= 70) {
+      tier = 'good'; tier_label = 'Хорошее'; color = '#3b82f6';
+    } else if (rawScore >= 55) {
+      tier = 'acceptable'; tier_label = 'Приемлемое'; color = '#f59e0b';
+    } else if (rawScore >= 40) {
+      tier = 'weak'; tier_label = 'Слабое'; color = '#f97316';
+    } else {
+      tier = 'poor'; tier_label = 'Ненадёжное'; color = '#ef4444';
+    }
+    return { ...mqs, score: Math.round(rawScore * 10) / 10, tier, tier_label, color };
+  });
 
   // Общая подсказочная база - синхронизирована с ExpertModelPanel.svelte.
   const HELP = {
@@ -28,20 +95,20 @@
   };
 </script>
 
-{#if mqs}
+{#if displayMqs}
   <div class="mqs-badge">
     <div class="mqs-header">
       <div
         class="mqs-score"
-        style="--score-color: {mqs.color}"
+        style="--score-color: {displayMqs.color}"
         title="MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.&#10;&#10;Формула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).&#10;&#10;Шкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."
       >
         <span class="score-title">MQS</span>
-        <span class="score-value">{Math.round(mqs.score)}</span>
-        <span class="score-label">{mqs.tier_label}</span>
+        <span class="score-value">{Math.round(displayMqs.score)}</span>
+        <span class="score-label">{displayMqs.tier_label}</span>
       </div>
       <div class="mqs-verdict">
-        <p>{verdict}</p>
+        <p>{displayVerdict}</p>
       </div>
     </div>
 
