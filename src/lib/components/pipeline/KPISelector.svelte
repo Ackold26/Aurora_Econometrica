@@ -47,18 +47,18 @@
   // продолжают корректно загружаться через kpi_registry (backward compat).
   const monetaryOptions = [
     { id: 'sales',   title: 'Выручка',  subtitle: 'продажи в ₽',    desc: 'Сколько денег принесли продажи.\nГлавная метрика - ROI каждого канала.' },
-    { id: 'profit',  title: 'Прибыль', subtitle: 'profit / маржа', desc: 'Если у вас есть прибыль с единицы товара\n- модель посчитает в прибыли, а не в выручке.' },
+    { id: 'profit',  title: 'Прибыль', subtitle: 'прибыль / маржа', desc: 'Если у вас есть прибыль с единицы товара\n- модель посчитает в прибыли, а не в выручке.' },
   ];
 
   // count group:
   const countOptions = [
     { id: 'sales_packs',   title: 'Продажи в штуках', subtitle: 'упаковки / SKU',         desc: 'FMCG, фарма, ритейл\n- модель оценивает CPU (₽/упак) и сравнивает с маржой.' },
     { id: 'leads',         title: 'Лиды',              subtitle: 'заявки / обращения',      desc: 'B2B, страхование, недвижимость\n- главная метрика CPU = ₽ за лид. Сравнение с LTV × CR.' },
-    { id: 'registrations', title: 'Регистрации',       subtitle: 'sign-ups',                desc: 'SaaS, e-commerce\n- модель оценивает стоимость одной регистрации.' },
-    { id: 'loyalty_cards', title: 'Выданные карты',    subtitle: 'банковские и лояльности', desc: 'Модель считает стоимость выпуска одной карты\nи сравнивает с LTV клиента.' },
-    { id: 'subscriptions', title: 'Подписки',          subtitle: 'subscriptions',           desc: 'SaaS, онлайн-кинотеатры и т.п.\n- CPU vs MRR на подписку.' },
-    { id: 'app_installs',  title: 'Установки',         subtitle: 'app installs',            desc: 'Mobile-first продукты\n- CPU vs LTV.' },
-    { id: 'count_custom',  title: 'Свой KPI',          subtitle: 'custom counted metric',   desc: 'Любая считаемая метрика.\nВы зададите название и ценность сами.' },
+    { id: 'registrations', title: 'Регистрации',       subtitle: 'регистрации',              desc: 'SaaS, e-commerce\n- модель оценивает стоимость одной регистрации.' },
+    { id: 'loyalty_cards', title: 'Выданные карты',    subtitle: 'банковские и лояльности',  desc: 'Модель считает стоимость выпуска одной карты\nи сравнивает с LTV клиента.' },
+    { id: 'subscriptions', title: 'Подписки',          subtitle: 'подписки',                 desc: 'SaaS, онлайн-кинотеатры и т.п.\n- CPU vs MRR на подписку.' },
+    { id: 'app_installs',  title: 'Установки',         subtitle: 'установки приложений',     desc: 'Mobile-first продукты\n- CPU vs LTV.' },
+    { id: 'count_custom',  title: 'Свой KPI',          subtitle: 'своя метрика',             desc: 'Любая считаемая метрика.\nВы зададите название и ценность сами.' },
   ];
 
   /** @param {string} id */
