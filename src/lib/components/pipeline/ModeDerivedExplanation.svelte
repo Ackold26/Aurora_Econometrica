@@ -28,7 +28,10 @@
   /** @typedef {'roi' | 'effectiveness' | 'mixed'} AnalysisMode */
 
   const {
-    onContinue,     // callback () → переход к Модели
+    // v2.1.0 (пилот 2026-05-16): unused - локальная кнопка заменена на
+    // info-строку, реальный переход через глобальную "Далее ▶".
+    // Prop оставлен для backward-compat с ValidateStepV13.
+    onContinue: _onContinue = undefined,
     // legacy props (backward compat — ValidateStepV13 ещё передаёт их)
     derivedMode: _derivedMode = undefined,
     explanation: _explanation = undefined,
@@ -395,21 +398,20 @@
     {/if}
   </section>
 
-  <!-- ─── 6. Финальная кнопка ─────────────────────── -->
+  <!-- ─── 6. Информирующая строка (не кнопка - см. fix 2026-05-16) ─── -->
   <footer class="summary-footer">
     <div class="footer-hint">
       Все параметры можно изменить на шаге Декомпозиция после обучения.
     </div>
-    <button
-      type="button"
-      class="btn-continue"
-      onclick={() => onContinue?.()}
-      aria-label="Перейти к моделированию"
-    >
-      Перейти к моделированию
-      <span class="btn-time">(~{estimatedTime} обучения)</span>
-      <span class="btn-arrow" aria-hidden="true">→</span>
-    </button>
+    <!-- v2.1.0 (пилот 2026-05-16): Антон: «Перейти к моделированию не должна
+         быть кнопкой - сейчас нажимается без эффекта, дублирует "Далее ▶".
+         Должна быть информирующая строка без взаимодействия». Глобальная
+         кнопка "Далее ▶" в footer'е делает реальный переход. -->
+    <div class="next-hint" aria-live="polite">
+      <span class="next-hint-clock" aria-hidden="true">⧗</span>
+      <span class="next-hint-text">При нажатии «Далее» запустится обучение модели</span>
+      <span class="next-hint-time">~{estimatedTime}</span>
+    </div>
   </footer>
 </div>
 
@@ -807,31 +809,36 @@
     font-style: italic;
     max-width: 300px;
   }
-  .btn-continue {
+  /* v2.1.0 (пилот 2026-05-16): информирующая строка вместо кнопки.
+     Без cursor / hover / border / background-accent - чтобы пользователь
+     не пытался кликнуть и не думал, что это интерактивный элемент.
+     Реальный переход выполняет глобальная "Далее ▶" в footer'е layout'а. */
+  .next-hint {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 12px 20px;
+    padding: 10px 14px;
     border-radius: var(--radius-btn, 6px);
-    font-size: 14px;
-    font-weight: 600;
-    font-family: inherit;
-    background: var(--accent-primary, #6366f1);
-    color: #fff;
-    border: none;
-    cursor: pointer;
-    transition: transform 0.15s, opacity 0.15s;
-    white-space: nowrap;
-  }
-  .btn-continue:hover { transform: translateY(-1px); opacity: 0.92; }
-  .btn-continue:active { transform: translateY(0); }
-  .btn-time {
-    font-size: 11.5px;
+    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    color: var(--text-secondary, #94a3b8);
+    font-size: 12.5px;
     font-weight: 400;
-    opacity: 0.75;
+    line-height: 1.3;
+    white-space: nowrap;
+    cursor: default;
+    user-select: text;
   }
-  .btn-arrow {
-    font-size: 16px;
+  .next-hint-clock {
+    font-size: 14px;
+    color: var(--text-muted, #64748b);
+  }
+  .next-hint-text {
+    color: var(--text-secondary, #94a3b8);
+  }
+  .next-hint-time {
+    color: var(--text-muted, #64748b);
+    font-variant-numeric: tabular-nums;
   }
 
   /* ─── Responsive ─────────────────────────────────── */
