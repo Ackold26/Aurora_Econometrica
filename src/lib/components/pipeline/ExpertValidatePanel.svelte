@@ -44,12 +44,15 @@
   /** @type {string|null} */
   let editingColumn = $state(null);
 
+  // v2.1.0 (rc2 retry): унификация терминов с ColumnMapperConfirm.
+  // Раньше использовались короткие термины (Медиа / KPI / Внешние /
+  // Исключить), теперь полные общепринятые из MMM (Nielsen / Kantar).
   const ROLE_OPTIONS = [
-    { id: 'media',   icon: '📺', label: 'Медиа' },
-    { id: 'kpi',     icon: '📈', label: 'KPI' },
-    { id: 'control', icon: '🎛', label: 'Внешние' },
+    { id: 'media',   icon: '📺', label: 'Медиа-канал' },
+    { id: 'kpi',     icon: '📈', label: 'Целевая метрика' },
+    { id: 'control', icon: '🎛', label: 'Контрольная' },
     { id: 'date',    icon: '📅', label: 'Дата' },
-    { id: 'unused',  icon: '🚫', label: 'Исключить' },
+    { id: 'unused',  icon: '🚫', label: 'Не использовать' },
   ];
 
   /** @param {string} colName @param {string} newRole */

@@ -44,12 +44,13 @@
   // ── Inline role editor ──
   /** @type {string|null} */
   let editingCol = $state(null);
+  // v2.1.0 (rc2 retry): унификация терминов с ColumnMapperConfirm (Nielsen MMM).
   const ROLE_OPTS = [
-    { id: 'media', icon: '📺', label: 'Медиа' },
-    { id: 'kpi', icon: '📈', label: 'KPI' },
-    { id: 'control', icon: '🎛', label: 'Внешние' },
+    { id: 'media', icon: '📺', label: 'Медиа-канал' },
+    { id: 'kpi', icon: '📈', label: 'Целевая метрика' },
+    { id: 'control', icon: '🎛', label: 'Контрольная' },
     { id: 'date', icon: '📅', label: 'Дата' },
-    { id: 'unused', icon: '🚫', label: 'Исключить' },
+    { id: 'unused', icon: '🚫', label: 'Не использовать' },
   ];
   /** @param {string} colName @param {string} newRole */
   function setRole(colName, newRole) {
@@ -72,7 +73,14 @@
 
   /** @param {any} col */
   function roleLabel(col) {
-    const map = /** @type {Record<string, string>} */ ({ kpi: '📈 KPI', media: '📺 Медиа', control: '🎛 Внешние', date: '📅 Дата', unused: '🚫', unknown: '?' });
+    const map = /** @type {Record<string, string>} */ ({
+      kpi: '📈 Целевая метрика',
+      media: '📺 Медиа-канал',
+      control: '🎛 Контрольная',
+      date: '📅 Дата',
+      unused: '🚫 Не использовать',
+      unknown: '?',
+    });
     return map[col.role] ?? col.role;
   }
 
