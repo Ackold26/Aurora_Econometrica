@@ -239,6 +239,24 @@ export const importData = writable({ file: null, columns: null, rows: null });
 export const validateData = writable({ result: null, correlationMatrix: null, columnHistograms: null });
 
 /**
+ * v2.1.0 (rc2 U-05 fix): текущий под-шаг внутри Валидации.
+ * Значения соответствуют ValidateStepV13.subStep:
+ *   -2 = «Целевая метрика» (KPISelector + AnalysisModeSelector)
+ *   -1 = «Роли колонок» (ColumnMapperConfirm)
+ *    0 = legacy backward compat
+ *    1 = value per count unit (для count KPIs)
+ *    2 = «Метрики каналов» (AppliedModeSummary / PerChannelInputSelector)
+ *    3 = «Подтверждение» (ModeDerivedExplanation)
+ *
+ * Используется InsightsPanel для контекстной маршрутизации - на каждом
+ * под-шаге свой набор инсайтов (Целевая метрика - про выбор режима/KPI,
+ * Роли колонок - про роли, и т.д.).
+ *
+ * @type {import('svelte/store').Writable<-2 | -1 | 0 | 1 | 2 | 3>}
+ */
+export const validateSubStep = writable(-2);
+
+/**
  * Derived store: ключевые параметры валидации для sticky header.
  * Reactively пересчитывается при смене ролей columns / запуска валидации.
  * Возвращает null если валидация не выполнена.

@@ -32,7 +32,11 @@
   }
   import {
     importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, reportInsights,
+    // v2.1.0 (rc2 U-05): функции по под-шагам Валидации.
+    validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
+  // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts } from '$lib/project-state.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -212,7 +216,24 @@
           fileName: imp.fileName ?? '',
         });
       }
-      case 1: return validateInsights(val?.result, objective);
+      case 1: {
+        // v2.1.0 (rc2 U-05): контекстные инсайты по под-шагу Валидации.
+        // На «1 Целевая метрика» инсайты про выбор режима/KPI (не про каналы),
+        // на «2 Роли колонок» - текущая (общая) логика про каналы,
+        // на «3 Метрики каналов» - подсказки конверсии для текущего режима,
+        // на «4 Подтверждение» - готовность к обучению.
+        const sub = $validateSubStep;
+        const ctx = {
+          analysisMode: $analysisMode,
+          perChannelInput: $perChannelInput,
+          unitCosts: $unitCosts,
+        };
+        if (sub === -2) return validateKpiInsights(val?.result, ctx);
+        if (sub === 2)  return validateMetricsInsights(val?.result, ctx);
+        if (sub === 3)  return validateConfirmInsights(val?.result, ctx);
+        // -1 (Роли колонок) и 0 / 1 (legacy) - общая validateInsights logic
+        return validateRolesInsights(val?.result, objective);
+      }
       case 2: {
         // If training hasn't produced diagnostics yet → educational/context insights
         if (!mod?.diagnostics) return modelPreTrainingInsights(val?.result);

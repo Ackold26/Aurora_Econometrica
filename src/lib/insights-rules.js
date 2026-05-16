@@ -123,6 +123,229 @@ export function importInsights(data) {
 // ── Validate Step ───────────────────────────────────────
 
 /**
+ * v2.1.0 (rc2 U-05): инсайты для под-шага «1. Целевая метрика» Валидации.
+ *
+ * Цель пользователя здесь: выбрать режим (ROI / Эффективность / Mixed) +
+ * KPI. Инсайты должны ПОМОГАТЬ выбору, а не сообщать про каналы
+ * (это для следующего под-шага «Роли колонок»).
+ *
+ * Подходящие темы:
+ *  - Какие KPI колонки обнаружены (auto-detect)
+ *  - Что в данных бюджетные / физические метрики → подсказка режима
+ *  - Период данных, гранулярность - sufficient для надёжной модели?
+ *  - Якорь на типичный выбор (90% ROI режим)
+ *
+ * НЕ обсуждаем:
+ *  - % нулей в каналах, мультиколлинеарность, имена media каналов
+ *  - exclusion рекомендации
+ *
+ * @param {any} result - validateData.result
+ * @param {{ analysisMode?: string, kpiType?: string }} [context]
+ * @returns {Insight[]}
+ */
+export function validateKpiInsights(result, context = {}) {
+  /** @type {Insight[]} */
+  const out = [];
+  if (!result) return out;
+
+  const cols = Array.isArray(result.columns) ? result.columns : [];
+  const kpiCandidates = cols.filter(/** @param {any} c */ c => c.role === 'kpi');
+  const totalRows = result.file?.rows ?? result.detected?.rows ?? 0;
+  const granularity = totalRows <= 60 ? 'месячная' : totalRows <= 260 ? 'недельная' : 'дневная';
+
+  // 1. Распознавание KPI колонки
+  if (kpiCandidates.length === 1) {
+    out.push({
+      severity: 'success',
+      text: `KPI распознан автоматически: «${kpiCandidates[0].name}». Это целевая метрика - то, что модель будет объяснять.`,
+    });
+  } else if (kpiCandidates.length > 1) {
+    out.push({
+      severity: 'info',
+      text: `Найдено ${kpiCandidates.length} колонки похожих на KPI: ${kpiCandidates.slice(0, 3).map(/** @param {any} c */ c => `«${c.name}»`).join(', ')}. На следующем под-шаге («Роли колонок») оставите одну - ту, что считаете главной целью.`,
+      tip: 'Если думаете в деньгах - выбирайте «Выручка». Если в штуках (упаковки, лиды) - выбирайте «Продажи в штуках» (изменится тип KPI и логика модели).',
+    });
+  } else {
+    out.push({
+      severity: 'warning',
+      text: 'KPI колонка не распознана автоматически. На следующем под-шаге «Роли колонок» назначьте роль «Целевая метрика» вручную.',
+    });
+  }
+
+  // 2. Подсказка режима из данных
+  const colsUpper = cols.map(/** @param {any} c */ c => String(c.name ?? '').toUpperCase());
+  const moneySignals = ['БЮДЖЕТ', 'BUDGET', 'SPEND', 'РУБ', '₽', 'COST'];
+  const physicalSignals = ['TRP', 'GRP', 'ПОКАЗ', 'IMPRESS', 'КЛИК', 'CLICK', 'VISIT', 'ВИЗИТ', 'OTS', 'CPM', 'CPC'];
+  const moneyCount = colsUpper.filter(n => moneySignals.some(s => n.includes(s))).length;
+  const physCount = colsUpper.filter(n => physicalSignals.some(s => n.includes(s))).length;
+
+  if (moneyCount > 0 && physCount === 0) {
+    out.push({
+      severity: 'success',
+      text: `Все ваши медиа-данные - в рублях (${moneyCount} бюджетных колонок). Это идеальный кейс для **ROI режима** - модель сразу даст ответ «сколько ₽ принёс канал».`,
+    });
+  } else if (moneyCount === 0 && physCount > 0) {
+    out.push({
+      severity: 'info',
+      text: `Все ваши медиа-данные - в физических метриках (${physCount} колонок: TRP / показы / клики). Без бюджетов ROI считать не получится - выбирайте **Эффективность режим** или укажите цену единицы на следующем шаге для конверсии в ₽.`,
+    });
+  } else if (moneyCount > 0 && physCount > 0) {
+    out.push({
+      severity: 'info',
+      text: `В данных смешано: ${moneyCount} бюджетных + ${physCount} физических метрик (TRP / показы / клики). В **ROI режиме** физические каналы конвертируются в ₽ через цену единицы (CPP/CPM) - укажете на следующем шаге.`,
+      tip: 'Если ТВ-кампания шла по бартеру (TRP есть, бюджета нет), оцените средний CPP по рынку: для аудитории W25-54 это обычно 500-2000 ₽/TRP.',
+    });
+  }
+
+  // 3. Якорь на типичный выбор
+  out.push({
+    severity: 'info',
+    text: '90% наших пилотных проектов используют **ROI режим** - он понятнее на презентации руководству, и потом легко перевести в эффективность одной кнопкой.',
+    tip: 'Эффективность режим оправдан когда бюджеты не точны (агентские скидки, бартер, доступ только к GRP) - в этом случае модель выдаёт «доли вклада в %», не рубли.',
+  });
+
+  // 4. Период данных
+  if (totalRows > 0) {
+    if (totalRows < 24) {
+      out.push({
+        severity: 'warning',
+        text: `${totalRows} наблюдений (${granularity} гранулярность) - очень мало для надёжной MMM. Модель запустится, но результаты будут с большой неопределённостью.`,
+        tip: 'Рекомендуется ≥24 месяцев / ≥104 недель данных. Перейдите на недельную гранулярность если есть исходники - это в 4× больше точек.',
+      });
+    } else if (totalRows < 52) {
+      out.push({
+        severity: 'info',
+        text: `${totalRows} наблюдений (${granularity} гранулярность) - приемлемо для пилота. Для production рекомендуется ≥52 наблюдений (год недельных или 2 года месячных).`,
+      });
+    } else {
+      out.push({
+        severity: 'success',
+        text: `${totalRows} наблюдений (${granularity} гранулярность) - достаточно для надёжной MMM.`,
+      });
+    }
+  }
+
+  return out;
+}
+
+/**
+ * v2.1.0 (rc2 U-05): инсайты для под-шага «2. Роли колонок».
+ * Это была монолитная validateInsights - теперь явное имя.
+ *
+ * @param {any} result
+ * @param {string} [objective]
+ * @returns {Insight[]}
+ */
+export function validateRolesInsights(result, objective = 'roi') {
+  return validateInsights(result, objective);
+}
+
+/**
+ * v2.1.0 (rc2 U-05): инсайты для под-шага «3. Метрики каналов».
+ *
+ * На этом под-шаге пользователь видит AppliedModeSummary (Manager mode)
+ * или PerChannelInputSelector (Expert mode). Инсайты должны помогать
+ * корректно настроить единицы / конверсии.
+ *
+ * @param {any} result
+ * @param {{ analysisMode?: string, perChannelInput?: Record<string, string>, unitCosts?: Record<string, number> }} [context]
+ * @returns {Insight[]}
+ */
+export function validateMetricsInsights(result, context = {}) {
+  /** @type {Insight[]} */
+  const out = [];
+  if (!result) return out;
+
+  const cols = Array.isArray(result.columns) ? result.columns : [];
+  const mediaCols = cols.filter(/** @param {any} c */ c => c.role === 'media');
+  const mode = context.analysisMode || 'roi';
+  const perChannel = context.perChannelInput || {};
+  const unitCosts = context.unitCosts || {};
+
+  if (mediaCols.length === 0) {
+    out.push({
+      severity: 'error',
+      text: 'Нет активных медиа-каналов. Вернитесь на «Роли колонок» и назначьте хотя бы один канал.',
+    });
+    return out;
+  }
+
+  // Проверка mode-specific конверсий
+  if (mode === 'roi') {
+    const needsConversion = mediaCols.filter(/** @param {any} c */ c => {
+      const kind = perChannel[c.name] || 'monetary';
+      return kind === 'physical' && !(Number(unitCosts[c.name]) > 0);
+    });
+    if (needsConversion.length > 0) {
+      out.push({
+        severity: 'warning',
+        text: `${needsConversion.length} канал${needsConversion.length === 1 ? '' : 'ов'} с физическими метриками без цены единицы. В ROI режиме нужно указать CPP/CPM для конверсии в ₽, иначе модель не посчитает ROI этих каналов.`,
+        tip: 'Если не знаете точно - укажите средний CPP по рынку. Для W25-54 ТВ это обычно 500-2000 ₽/TRP, для digital показов 50-200 ₽/CPM.',
+      });
+    } else {
+      out.push({
+        severity: 'success',
+        text: `Все ${mediaCols.length} каналов готовы: бюджеты в ₽ или физические с конверсией. Можно идти к подтверждению.`,
+      });
+    }
+  } else if (mode === 'effectiveness') {
+    out.push({
+      severity: 'info',
+      text: `Эффективность режим: все ${mediaCols.length} каналов будут поданы в физических метриках. Модель посчитает доли вклада в KPI (%), без оценки ROI.`,
+    });
+  } else {
+    out.push({
+      severity: 'warning',
+      text: `Смешанный режим: ${mediaCols.length} каналов. Точность ROI ±10-25% из-за смешения единиц измерения.`,
+    });
+  }
+
+  return out;
+}
+
+/**
+ * v2.1.0 (rc2 U-05): инсайты для под-шага «4. Подтверждение».
+ *
+ * Пользователь видит финальную сводку перед обучением. Инсайты должны
+ * подсветить риски и рекомендации перед запуском MMM.
+ *
+ * @param {any} result
+ * @param {{ analysisMode?: string }} [context]
+ * @returns {Insight[]}
+ */
+export function validateConfirmInsights(result, context = {}) {
+  /** @type {Insight[]} */
+  const out = [];
+  if (!result) return out;
+
+  const cols = Array.isArray(result.columns) ? result.columns : [];
+  const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media').length;
+  const controlCount = cols.filter(/** @param {any} c */ c => c.role === 'control').length;
+  const rows = result.file?.rows ?? 0;
+  const ratio = rows > 0 && (mediaCount + controlCount) > 0 ? rows / (mediaCount + controlCount) : 0;
+
+  out.push({
+    severity: 'success',
+    text: `Готово к обучению: ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? ` + ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'}` : ''}, режим **${(context.analysisMode || 'roi').toUpperCase()}**. Обучение займёт 30-60 секунд (Bayesian) или ~5 секунд (OLS fallback).`,
+  });
+
+  if (ratio < 4) {
+    out.push({
+      severity: 'warning',
+      text: `Ratio ${ratio.toFixed(1)}:1 ниже рекомендованного 4:1. Модель обучится, но результаты с широкими доверительными интервалами.`,
+      tip: 'После обучения смотрите R-hat и MQS - если < 1.05 и > 60 соответственно, модель надёжна для пилотных решений.',
+    });
+  }
+
+  out.push({
+    severity: 'info',
+    text: 'После обучения вы увидите: декомпозицию продаж по каналам, ROI / mROAS, рекомендации по перераспределению бюджета, сценарии «что если».',
+  });
+
+  return out;
+}
+
+/**
  * @param {any} result
  * @returns {Insight[]}
  */

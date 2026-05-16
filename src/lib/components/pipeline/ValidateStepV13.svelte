@@ -25,6 +25,8 @@
     valuePerCountUnit, valuePerCountUnitSource,
     activeProject, activeProjectId, validateData, importData,
     completeStep, setStepError,
+    // v2.1.0 (rc2 U-05): sync subStep в store для InsightsPanel routing.
+    validateSubStep,
   } from '$lib/project-state.js';
   import {
     deriveModeWithExplanation,
@@ -302,6 +304,12 @@
   const substepFlyOffset = $derived(
     $prefersReducedMotion ? 0 : (substepDir === 'forward' ? 32 : -32)
   );
+
+  // v2.1.0 (rc2 U-05): sync subStep в store, чтобы InsightsPanel мог
+  // показывать контекстные инсайты для текущего под-шага Валидации.
+  $effect(() => {
+    validateSubStep.set(/** @type {-2 | -1 | 0 | 1 | 2 | 3} */ (subStep));
+  });
 
   /**
    * v2.1.0 (пилот 2026-05-16): handleKPISelect теперь ТОЛЬКО устанавливает

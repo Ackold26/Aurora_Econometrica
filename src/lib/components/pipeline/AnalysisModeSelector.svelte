@@ -164,15 +164,16 @@
           {#if card.tone === 'expert'}
             <span class="expert-badge">EXPERT</span>
           {/if}
+          <!-- v2.1.0 (rc2 пилот retry): «90% моделей» badge перенесён в
+               правый верхний угол карточки (как EXPERT для Mixed),
+               вместо рядом с заголовком. -->
+          {#if card.badge && card.tone !== 'expert'}
+            <span class="card-corner-badge" aria-label="Подсказка">{card.badge}</span>
+          {/if}
         </div>
 
         <div class="card-body">
-          <div class="card-title-row">
-            <h3 class="card-title">{card.title}</h3>
-            {#if card.badge}
-              <span class="card-badge" aria-label="Подсказка">{card.badge}</span>
-            {/if}
-          </div>
+          <h3 class="card-title">{card.title}</h3>
           <p class="card-subtitle">{card.subtitle}</p>
           <ul class="card-features">
             {#each card.body as line}
@@ -392,6 +393,22 @@
     text-transform: uppercase;
     color: var(--warning, #F59E0B);
     flex-shrink: 0;
+  }
+
+  /* v2.1.0 (rc2 retry): «90% моделей» badge в правом верхнем углу карточки. */
+  .card-corner-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--accent-primary);
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 
   /* ─── Card body ─── */
