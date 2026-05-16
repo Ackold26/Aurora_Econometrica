@@ -20,6 +20,7 @@
     completeStep,
     setStepError,
     triggerCompletion,
+    validationHeaderMetrics,
   } from '$lib/project-state.js';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
@@ -160,8 +161,33 @@
   const oData = $derived($optimizeData);
 
   // Summary card values
-  const mqs      = $derived(/** @type {number|null} */ (mData?.diagnostics?.mqs?.score ?? null));
-  const mqsLabel = $derived(/** @type {string} */ (mData?.diagnostics?.mqs?.tier_label ?? '-'));
+  // v2.1.0 (пилот 2026-05-17, #49 finish): SSOT MQS override. Frontend ratio
+  // >= 4 → используем raw_score без backend thinness_cap. Согласовано с
+  // MQSBadge / Экспертный режим / Success-banner / Modal-инсайтами.
+  const mqs = $derived.by(() => {
+    const m = mData?.diagnostics?.mqs;
+    if (!m) return null;
+    const backendScore = Number(m.score ?? 0);
+    const rawScore = Number(m.raw_score ?? backendScore);
+    const ssotRatio = $validationHeaderMetrics?.ratio;
+    if (typeof ssotRatio !== 'number' || ssotRatio < 4 || rawScore <= backendScore) {
+      return backendScore;
+    }
+    return Math.round(rawScore * 10) / 10;
+  });
+  const mqsLabel = $derived.by(() => {
+    const m = mData?.diagnostics?.mqs;
+    if (!m) return '-';
+    const score = mqs;
+    if (score == null) return m.tier_label ?? '-';
+    // Если SSOT override изменил score - пересчитать label.
+    if (score === m.score) return m.tier_label ?? '-';
+    if (score >= 85) return 'Отличное';
+    if (score >= 70) return 'Хорошее';
+    if (score >= 55) return 'Приемлемое';
+    if (score >= 40) return 'Слабое';
+    return 'Ненадёжное';
+  });
   const rSq      = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_squared ?? mData?.diagnostics?.r_squared ?? null));
   const mape     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.mape_pct ?? mData?.diagnostics?.mape ?? null));
   const lift     = $derived(/** @type {number|null} */ (oData?.expected_lift_pct ?? null));

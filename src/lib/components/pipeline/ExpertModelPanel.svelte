@@ -4,10 +4,33 @@
    * Shows: per-channel adstock details, MCMC diagnostics, convergence stats.
    * @component ExpertModelPanel
    */
-  import { modelData } from '$lib/project-state.js';
+  import { modelData, validationHeaderMetrics } from '$lib/project-state.js';
 
   const diagnostics = $derived($modelData?.diagnostics);
   const channelParams = $derived($modelData?.channelParams);
+
+  // v2.1.0 (пилот 2026-05-17, #49 finish): SSOT MQS override. Backend
+  // thinness_cap=50 при backend ratio<2 ставил «Слабое» когда модель
+  // реально сошлась (R-hat=1.0, divs=0, R²=0.98). При frontend SSOT
+  // ratio >= 4 используем raw_score без cap - согласовано с MQSBadge
+  // плиткой и success-banner'ом. Раньше Экспертный режим показывал
+  // backend MQS=50, юзер видел рассогласование с верхним блоком 87.
+  const ssotMqs = $derived.by(() => {
+    if (!diagnostics?.mqs) return { score: null, label: '' };
+    const backendScore = Number(diagnostics.mqs.score ?? 0);
+    const rawScore = Number(diagnostics.mqs.raw_score ?? backendScore);
+    const ssotRatio = $validationHeaderMetrics?.ratio;
+    if (typeof ssotRatio !== 'number' || ssotRatio < 4 || rawScore <= backendScore) {
+      return { score: backendScore, label: diagnostics.mqs.tier_label ?? '' };
+    }
+    let label = '';
+    if (rawScore >= 85) label = 'Отличное';
+    else if (rawScore >= 70) label = 'Хорошее';
+    else if (rawScore >= 55) label = 'Приемлемое';
+    else if (rawScore >= 40) label = 'Слабое';
+    else label = 'Ненадёжное';
+    return { score: Math.round(rawScore * 10) / 10, label };
+  });
 
   const paramRows = $derived.by(() => {
     if (!channelParams) return [];
@@ -103,8 +126,8 @@
     {@const divs = m.divergences ?? diagnostics.divergences ?? 0}
     {@const rSq = m.r_squared ?? diagnostics.r_squared}
     {@const mape = m.mape_pct ?? diagnostics.mape}
-    {@const mqsScore = diagnostics.mqs?.score}
-    {@const mqsTier = diagnostics.mqs?.tier_label ?? ''}
+    {@const mqsScore = ssotMqs.score}
+    {@const mqsTier = ssotMqs.label}
     {@const totalDraws = (m.mcmc?.chains ?? 4) * (m.mcmc?.draws ?? 2000)}
     {@const rh = rHatLabel(rHat)}
     {@const dv = divsLabel(divs, totalDraws)}

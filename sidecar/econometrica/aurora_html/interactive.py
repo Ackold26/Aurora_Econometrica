@@ -59,6 +59,60 @@ def bootstrap_js(
   var AURORA_CHARTS = {{}};  // {{ chartId: echartsInstance }}
   window.AURORA_CHARTS = AURORA_CHARTS;
 
+  // v2.1.0 (пилот 2026-05-17): fallback AURORA_THEMES когда
+  // aurora_html_tokens.js не сгенерирован build script'ом. Без этого
+  // ECharts builders получали undefined colors через currentPalette() →
+  // графики не рисовались. Fallback гарантирует базовую визуализацию.
+  if (!window.AURORA_THEMES) {{
+    window.AURORA_THEMES = {{
+      light: {{
+        textColor: '#0a1628',
+        textMutedColor: '#64748b',
+        heroColor: '#c5a46d',
+        mutedColor: '#94a3b8',
+        gridColor: 'rgba(0,0,0,0.08)',
+        baselineColor: '#3b82f6',
+        positiveColor: '#22c55e',
+        negativeColor: '#dc2626',
+        tooltipBg: '#ffffff',
+        tooltipBorder: 'rgba(0,0,0,0.12)',
+        tooltipText: '#0a1628',
+        accent: '#c5a46d',
+        lime: '#ccff00'
+      }},
+      dark: {{
+        textColor: '#e6edf3',
+        textMutedColor: '#94a3b8',
+        heroColor: '#c5a46d',
+        mutedColor: '#475569',
+        gridColor: 'rgba(255,255,255,0.08)',
+        baselineColor: '#3b82f6',
+        positiveColor: '#22c55e',
+        negativeColor: '#dc2626',
+        tooltipBg: '#1a2438',
+        tooltipBorder: 'rgba(255,255,255,0.12)',
+        tooltipText: '#e6edf3',
+        accent: '#c5a46d',
+        lime: '#ccff00'
+      }},
+      fun: {{
+        textColor: '#0a1628',
+        textMutedColor: '#64748b',
+        heroColor: '#c5a46d',
+        mutedColor: '#94a3b8',
+        gridColor: 'rgba(0,0,0,0.08)',
+        baselineColor: '#3b82f6',
+        positiveColor: '#22c55e',
+        negativeColor: '#dc2626',
+        tooltipBg: '#ffffff',
+        tooltipBorder: 'rgba(0,0,0,0.12)',
+        tooltipText: '#0a1628',
+        accent: '#c5a46d',
+        lime: '#ccff00'
+      }}
+    }};
+  }}
+
   var PREFERS_REDUCED_MOTION = window.matchMedia &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
