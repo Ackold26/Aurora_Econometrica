@@ -154,6 +154,17 @@
     appliedActions = nextMap;
   }
 
+  // v2.1.0 (rc2 retry): реактивный sync step-lock при ЛЮБОМ изменении
+  // validateData (не только через insight actions). Раньше status menue
+  // через UI-таблицу ColumnMapperConfirm не триггерил sync → header
+  // показывал stale «Критические проблемы».
+  $effect(() => {
+    const result = $validateData?.result;
+    if (!result) return;
+    if ($pipelineCurrentStep !== 1) return;
+    syncStepLockAfterValidate(result);
+  });
+
   /**
    * Sync pipeline step-lock state with current validation result.
    * Called after any action that recomputes status (apply/revert).
@@ -166,8 +177,24 @@
     // Only sync if we're actually ON the validation step
     const step = $pipelineCurrentStep;
     if (step !== 1) return;
-    if (result.status === 'error') {
-      setStepError(1, 'Критические проблемы с данными');
+    // v2.1.0 (rc2 retry): пересчитываем effective status из current ролей
+    // колонок (не stale result.status). Согласовано с validateInsights.
+    const cols = Array.isArray(result.columns) ? result.columns : [];
+    const kpiCount = cols.filter(/** @param {any} c */ c => c?.role === 'kpi').length;
+    const mediaCount = cols.filter(/** @param {any} c */ c => c?.role === 'media').length;
+    const controlCount = cols.filter(/** @param {any} c */ c => c?.role === 'control').length;
+    const rows = result.file?.rows ?? result.detected?.rows ?? 0;
+    const paramCount = mediaCount + controlCount;
+    const liveRatio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
+
+    let errorMsg = null;
+    if (kpiCount === 0) errorMsg = 'Не выбрана целевая метрика';
+    else if (kpiCount > 1) errorMsg = `Выбрано ${kpiCount} целевых метрик (нужна одна)`;
+    else if (mediaCount === 0) errorMsg = 'Нет медиа-каналов';
+    else if (liveRatio > 0 && liveRatio < 2) errorMsg = `Ratio ${liveRatio.toFixed(1)}:1 - слишком мало данных`;
+
+    if (errorMsg) {
+      setStepError(1, errorMsg);
     } else {
       completeStep(1);
     }

@@ -354,21 +354,91 @@ export function validateInsights(result, objective = 'roi') {
   const out = [];
   if (!result) return out;
 
+  // v2.1.0 (rc2 retry): пересчёт effective status на frontend из текущих
+  // ролей колонок. Раньше result.status был stale (backend value не
+  // пересчитывался при frontend exclusions), приходилось видеть «error»
+  // даже после фикса.
+  /** @type {any[]} */
+  const colsCheck = Array.isArray(result.columns) ? result.columns : [];
+  const kpiCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'kpi').length;
+  const mediaCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'media').length;
+  const controlCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'control').length;
+  const rowsCheck = result.file?.rows ?? result.detected?.rows ?? 0;
+  const paramCountCheck = mediaCount + controlCount;
+  const liveRatio = rowsCheck > 0 && paramCountCheck > 0 ? rowsCheck / paramCountCheck : 0;
+  /** @type {'ok'|'warning'|'error'} */
+  let effectiveStatus = 'ok';
+  if (kpiCount !== 1 || mediaCount === 0 || liveRatio < 2) {
+    effectiveStatus = 'error';
+  } else if (liveRatio < 4) {
+    effectiveStatus = 'warning';
+  } else {
+    // Если backend выдал warnings - keep warning
+    effectiveStatus = (Array.isArray(result.warnings) && result.warnings.length > 0)
+      ? 'warning' : 'ok';
+  }
+
   // ── Общий статус ──
-  if (result.status === 'ok') {
-    out.push({ severity: 'success', text: 'Данные прошли валидацию. Структура подходит для MMM-моделирования.' });
-  } else if (result.status === 'warning') {
-    const warnCount = result.warnings?.length ?? 0;
-    out.push({ severity: 'warning', text: `Валидация выявила ${warnCount} предупреждени${warnCount === 1 ? 'е' : warnCount < 5 ? 'я' : 'й'}. Модель можно запустить, но точность может быть ниже.`, tip: 'Предупреждения не блокируют моделирование, но каждое снижает надёжность результатов. Рекомендуем устранить хотя бы критичные.' });
-  } else if (result.status === 'error') {
-    // v2.1.0 (rc2 пилот retry): описание критических проблем + рекомендации.
-    // Раньше показывалось «Моделирование невозможно без исправления» -
-    // пугающе и без актионабельной подсказки. Теперь перечисляем конкретные
-    // проблемы из result.issues и даём recovery hint.
+  if (effectiveStatus === 'ok') {
+    out.push({ severity: 'success', text: 'Данные готовы к обучению модели. Структура валидна.' });
+  } else if (effectiveStatus === 'warning') {
+    if (liveRatio > 0 && liveRatio < 4) {
+      out.push({
+        severity: 'warning',
+        text: `Ratio ${liveRatio.toFixed(1)}:1 - ниже рекомендованного 4:1. Модель работает, но с широкими доверительными интервалами.`,
+        tip: 'Рекомендации по приоритету: (1) объединить парные метрики каналов, (2) конвертировать физические метрики в ₽ через CPP, (3) собрать ≥52 недели данных.',
+      });
+    } else {
+      const warnCount = Array.isArray(result.warnings) ? result.warnings.length : 0;
+      out.push({
+        severity: 'warning',
+        text: `Найдено ${warnCount} предупреждени${warnCount === 1 ? 'е' : warnCount < 5 ? 'я' : 'й'}. Модель можно запустить, но точность может быть ниже.`,
+        tip: 'Предупреждения не блокируют моделирование, но каждое снижает надёжность результатов.',
+      });
+    }
+  } else {
+    // effectiveStatus === 'error': конкретное описание проблемы
+    if (kpiCount === 0) {
+      out.push({
+        severity: 'error',
+        text: 'Не выбрана целевая метрика. Назначьте одной колонке роль «Целевая метрика» в таблице ниже.',
+        tip: 'Целевая метрика — это то, что модель будет объяснять: выручка, продажи в штуках, лиды, регистрации.',
+      });
+    } else if (kpiCount > 1) {
+      const kpiNames = colsCheck
+        .filter(/** @param {any} c */ c => c?.role === 'kpi')
+        .map(/** @param {any} c */ c => `«${c.name}»`).slice(0, 3).join(', ');
+      out.push({
+        severity: 'error',
+        text: `Найдено ${kpiCount} целевых метрик: ${kpiNames}. MMM-модель обучается на одной зависимой переменной.`,
+        tip: 'Оставьте одну (главную для текущего режима), остальные отметьте как «Не использовать».',
+      });
+    } else if (mediaCount === 0) {
+      out.push({
+        severity: 'error',
+        text: 'Нет активных медиа-каналов. Назначьте хотя бы одной колонке роль «Медиа-канал».',
+        tip: 'Медиа-канал - это вложение в маркетинговую активность (бюджет канала или его физическая метрика - TRP/показы/клики).',
+      });
+    } else if (liveRatio < 2) {
+      out.push({
+        severity: 'error',
+        text: `Ratio ${liveRatio.toFixed(1)}:1 - слишком мало данных (минимум 2:1, рекомендуется ≥4:1). Модель почти наверняка переобучится.`,
+        tip: 'Приоритет действий: (1) объединить парные метрики каналов (бюджет + показы того же канала), (2) конвертация физических метрик в ₽, (3) собрать ≥52 недели данных.',
+      });
+    }
+  }
+
+  // v2.1.0 (rc2 retry): backward-compat для случаев когда backend выдал
+  // critical issues которые не покрыты выше (специфичные data-type issues).
+  // Сохраняем как «дополнительные критические проблемы» без префикса «status=error».
+  if (effectiveStatus !== 'error' && result.status === 'error') {
     /** @type {any[]} */
     const criticalIssues = Array.isArray(result.issues) ? result.issues : [];
     const errorIssues = criticalIssues.filter(/** @param {any} i */ i =>
-      i?.severity === 'critical' || i?.severity === 'error'
+      (i?.severity === 'critical' || i?.severity === 'error') &&
+      i?.type !== 'insufficient_data' &&  // покрыто выше через liveRatio
+      i?.type !== 'low_data' &&
+      i?.type !== 'borderline_data'
     );
 
     if (errorIssues.length === 0) {
