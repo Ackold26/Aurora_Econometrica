@@ -1,6 +1,6 @@
 <script>
   /**
-   * WizardErrorBoundary — production error UX для ScenarioWizard.
+   * WizardErrorBoundary - production error UX для ScenarioWizard.
    *
    * Перехватывает runtime-ошибки (network failures, validation errors,
    * malformed data, backend timeout, async race conditions) через
@@ -34,7 +34,7 @@
 
   /**
    * Logs error context for future Sentry integration (post-ship).
-   * For now — structured console.error with context.
+   * For now - structured console.error with context.
    * @param {Error} err
    */
   function logErrorContext(err) {
@@ -77,7 +77,7 @@
       <h2 class="error-title" id="eb-title">Ошибка в мастере настройки</h2>
 
       <p class="error-body">
-        Возникла непредвиденная ошибка. Программа сохранила ваши данные —
+        Возникла непредвиденная ошибка. Программа сохранила ваши данные -
         вы можете начать заново или вернуться к pipeline.
       </p>
 
@@ -107,7 +107,7 @@
       </div>
 
       <p class="error-hint">
-        Если ошибка повторяется — проверьте данные импорта или обратитесь в поддержку.
+        Если ошибка повторяется - проверьте данные импорта или обратитесь в поддержку.
       </p>
     </div>
   {/snippet}
@@ -249,7 +249,7 @@
     cursor: not-allowed;
   }
 
-  /* Primary: gold — matches btn-run in ScenarioWizard */
+  /* Primary: gold - matches btn-run in ScenarioWizard */
   .btn-reset {
     background: var(--gold, #c9a449);
     color: #0c0c14;

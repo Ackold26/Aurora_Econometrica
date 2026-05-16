@@ -1,5 +1,5 @@
 /**
- * scenario-export.js unit tests — v2.0.0 Phase D.
+ * scenario-export.js unit tests - v2.0.0 Phase D.
  *
  * Coverage:
  *   - exportToCsv: empty, single, multi-scenario, BOM prefix, comma escaping, number format
@@ -62,9 +62,9 @@ function makePlanB() {
 
 
 // ---------------------------------------------------------------------------
-// Suite 1: exportToCsv — structure
+// Suite 1: exportToCsv - structure
 // ---------------------------------------------------------------------------
-describe('exportToCsv — structure', () => {
+describe('exportToCsv - structure', () => {
 
   it('empty scenarios → header-only CSV (1 row after BOM)', () => {
     const csv = exportToCsv([], null);
@@ -103,16 +103,16 @@ describe('exportToCsv — structure', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 2: exportToCsv — BOM and encoding
+// Suite 2: exportToCsv - BOM and encoding
 // ---------------------------------------------------------------------------
-describe('exportToCsv — BOM prefix', () => {
+describe('exportToCsv - BOM prefix', () => {
 
   it('starts with UTF-8 BOM character (U+FEFF) for Excel compat', () => {
     const csv = exportToCsv([makePlanA()], null);
     expect(csv.charCodeAt(0)).toBe(0xFEFF);
   });
 
-  it('BOM is exactly first char — second char starts the header column', () => {
+  it('BOM is exactly first char - second char starts the header column', () => {
     const csv = exportToCsv([makePlanA()], null);
     expect(csv[1]).not.toBe('﻿');
     // First header column starts with Сценарий
@@ -123,9 +123,9 @@ describe('exportToCsv — BOM prefix', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 3: exportToCsv — CSV escaping and number formatting
+// Suite 3: exportToCsv - CSV escaping and number formatting
 // ---------------------------------------------------------------------------
-describe('exportToCsv — escaping and formatting', () => {
+describe('exportToCsv - escaping and formatting', () => {
 
   it('scenario name containing comma → wrapped in double quotes', () => {
     const sc = {
@@ -152,7 +152,7 @@ describe('exportToCsv — escaping and formatting', () => {
   it('budget written as integer without thousands separator in CSV', () => {
     const sc = { id: 'x', name: 'Тест', budget: 50_000_000, predictedKpi: 200_000 };
     const csv = exportToCsv([sc], null);
-    // Should contain 50000000 (not 50,000,000 — that would break CSV parsing)
+    // Should contain 50000000 (not 50,000,000 - that would break CSV parsing)
     expect(csv).toContain('50000000');
   });
 
@@ -162,14 +162,14 @@ describe('exportToCsv — escaping and formatting', () => {
     expect(csv).toContain('123457');
   });
 
-  it('uplift column shows — for baseline row', () => {
+  it('uplift column shows - for baseline row', () => {
     const baseline = makeBaseline();
     const csv = exportToCsv([makePlanA()], baseline);
-    // Baseline row: uplift = — (cannot compare against itself)
+    // Baseline row: uplift = - (cannot compare against itself)
     const rows = csv.replace(/^﻿/, '').split('\r\n');
     const baselineRow = rows.find(r => r.startsWith('Базовый') || r.includes('Базовый'));
     expect(baselineRow).toBeDefined();
-    expect(baselineRow).toContain('—');
+    expect(baselineRow).toContain('-');
   });
 
   it('channel allocation formatted as percentage string (not raw fraction)', () => {
@@ -192,13 +192,13 @@ describe('exportToCsv — escaping and formatting', () => {
     expect(csv).toContain('215000');
   });
 
-  it('CI — marker when ciLow/ciHigh absent', () => {
+  it('CI - marker when ciLow/ciHigh absent', () => {
     const sc = { id: 'x', name: 'Тест', budget: 10_000_000, predictedKpi: 100_000 };
     const csv = exportToCsv([sc], null);
-    // ciLow and ciHigh missing → '—'
+    // ciLow and ciHigh missing → '-'
     const rows = csv.replace(/^﻿/, '').split('\r\n');
     const dataRow = rows[1];
-    expect(dataRow).toContain('—');
+    expect(dataRow).toContain('-');
   });
 
 });
@@ -235,9 +235,9 @@ describe('buildExportFilename', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 5: downloadBlob — DOM interaction
+// Suite 5: downloadBlob - DOM interaction
 // ---------------------------------------------------------------------------
-describe('downloadBlob — DOM interaction', () => {
+describe('downloadBlob - DOM interaction', () => {
 
   let createdUrls = [];
   let revokedUrls = [];
@@ -305,9 +305,9 @@ describe('downloadBlob — DOM interaction', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 6: exportToExcel — invoke mock
+// Suite 6: exportToExcel - invoke mock
 // ---------------------------------------------------------------------------
-describe('exportToExcel — invoke mock', () => {
+describe('exportToExcel - invoke mock', () => {
 
   it('returns path result on successful invoke', async () => {
     invoke.mockResolvedValueOnce({ path: '/tmp/scenarios.xlsx' });
@@ -339,9 +339,9 @@ describe('exportToExcel — invoke mock', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 7: exportToPptx — invoke mock
+// Suite 7: exportToPptx - invoke mock
 // ---------------------------------------------------------------------------
-describe('exportToPptx — invoke mock', () => {
+describe('exportToPptx - invoke mock', () => {
 
   it('returns path result on successful invoke', async () => {
     invoke.mockResolvedValueOnce({ path: '/tmp/scenarios.pptx' });

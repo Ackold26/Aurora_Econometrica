@@ -2,7 +2,7 @@
   /**
    * AnalysisModeSelector - v2.0.0 wizard step: choose analysis mode.
    *
-   * Manager mode (default): 2 cards — «ROI режим» / «Эффективность режим».
+   * Manager mode (default): 2 cards - «ROI режим» / «Эффективность режим».
    * Expert mode ($expertMode === true): 3-я карточка «Смешанный (Expert)» появляется.
    *
    * Per §2 WIZARD_FLOW_v2_FINAL.md + PRE_FLIGHT_FIXES.md N1:
@@ -41,15 +41,19 @@
     onSelect?.(mode);
   }
 
-  /** @type {readonly {id: AnalysisMode, icon: any, title: string, subtitle: string, body: string[], expertOnly: boolean, tone: string}[]} */
+  /** @type {readonly {id: AnalysisMode, icon: any, title: string, subtitle: string, body: string[], expertOnly: boolean, tone: string, badge?: string}[]} */
   const cards = [
     {
       id: 'roi',
       icon: CircleDollarSign,
       title: 'ROI режим',
       subtitle: 'Все каналы в ₽',
+      // v2.1.0 (пилот 2026-05-16): badge «90% моделей» - anchoring для бренд-менеджера,
+      // подсказывает что это самый распространённый выбор.
+      badge: '90% моделей',
       body: [
-        'KPI любой (продажи / лиды / упаковки)',
+        // v2.1.0 (пилот 2026-05-16): унифицировано с «Эффективность» - «KPI любой».
+        'KPI любой',
         'Модель считает ROI / CPU',
         'Подходит при точных данных бюджетов',
       ],
@@ -77,14 +81,14 @@
       body: [
         'Требует ставки конверсии для физ. каналов',
         'Точность ROI ±10-25% дополнительной неопределённости',
-        'Только для опытных аналитиков',
+        'Только для опытных эконометристов и аналитиков',
       ],
       expertOnly: true,
       tone: 'expert',
     },
   ];
 
-  /** Visible cards — expert-only hidden unless $expertMode */
+  /** Visible cards - expert-only hidden unless $expertMode */
   const visibleCards = $derived(
     cards.filter(c => !c.expertOnly || $expertMode)
   );
@@ -106,31 +110,31 @@
     {#if whyExpanded}
       <div class="why-panel" role="region" aria-label="Подробное объяснение выбора режима анализа">
         <p>
-          <strong>Режим определяет единицы медиа-каналов</strong> — в чём вы подаёте активность
+          <strong>Режим определяет единицы медиа-каналов</strong> - в чём вы подаёте активность
           каждого канала в модель. Это не зависит от выбранного KPI.
         </p>
         <ul>
           <li>
             <strong>ROI режим (₽):</strong> все каналы в рублях (бюджеты спенда). Модель напрямую
-            оценивает финансовую отдачу — ROI (₽ выручки / ₽ вложений) или CPU (₽ за единицу KPI).
+            оценивает финансовую отдачу - ROI (₽ выручки / ₽ вложений) или CPU (₽ за единицу KPI).
             Подходит когда данные бюджетов точные: прямые закупки без агентских наценок и бартера.
           </li>
           <li>
-            <strong>Эффективность режим (физика):</strong> каналы в физических метриках —
+            <strong>Эффективность режим (физика):</strong> каналы в физических метриках -
             TRP для ТВ, показы для Digital/OOH, клики для Performance. Модель считает
             вклад каждого канала в % от KPI, без пересчёта в деньги. Оптимален когда
             бюджеты непрозрачны (агентские скидки, ГРП по скидкам, бартерные размещения).
           </li>
           <li>
-            <strong>Смешанный (Expert):</strong> per-channel выбор единиц — часть каналов в ₽,
+            <strong>Смешанный (Expert):</strong> per-channel выбор единиц - часть каналов в ₽,
             часть в физических метриках. Требует указания ставок конверсии для физ. каналов
             (CPP/CPM). Добавляет ±10-25% неопределённости в ROI. Только для опытных аналитиков.
           </li>
         </ul>
         <p class="why-tip">
-          <strong>Рекомендация:</strong> если сомневаетесь — выберите «Эффективность режим».
+          <strong>Рекомендация:</strong> если сомневаетесь - выберите «Эффективность режим».
           Он даёт стабильные оценки вкладов даже при неточных бюджетных данных. Переключить
-          режим можно в любой момент — модель пересчитается.
+          режим можно в любой момент - модель пересчитается.
         </p>
       </div>
     {/if}
@@ -163,7 +167,12 @@
         </div>
 
         <div class="card-body">
-          <h3 class="card-title">{card.title}</h3>
+          <div class="card-title-row">
+            <h3 class="card-title">{card.title}</h3>
+            {#if card.badge}
+              <span class="card-badge" aria-label="Подсказка">{card.badge}</span>
+            {/if}
+          </div>
           <p class="card-subtitle">{card.subtitle}</p>
           <ul class="card-features">
             {#each card.body as line}
@@ -182,7 +191,7 @@
   {#if !$expertMode}
     <p class="expert-hint">
       Нужен per-channel выбор единиц? Включите
-      <strong>Expert mode</strong> в настройках — появится третья опция.
+      <strong>Expert mode</strong> в настройках - появится третья опция.
     </p>
   {/if}
 </div>
@@ -391,6 +400,27 @@
     flex-direction: column;
     gap: 6px;
     flex: 1;
+  }
+  /* v2.1.0 (пилот 2026-05-16): card-title-row для размещения title + badge на одной линии. */
+  .card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .card-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    color: var(--accent-primary);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+    white-space: nowrap;
   }
   .card-title {
     margin: 0;

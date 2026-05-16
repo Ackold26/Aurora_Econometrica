@@ -1,5 +1,5 @@
 /**
- * AppliedModeSummary component tests — v2.0.0.
+ * AppliedModeSummary component tests - v2.0.0.
  *
  * Tests:
  *   - Header text «Все каналы в ₽» for roi / «физические метрики» for effectiveness
@@ -26,7 +26,7 @@ beforeEach(() => {
   expertMode.set(false);
   unitCosts.set({});
   unitCostInflation.set({});
-  // Phase 1.3 — reset new persistence stores чтобы избежать state leakage
+  // Phase 1.3 - reset new persistence stores чтобы избежать state leakage
   unitCostInputMode.set({});
   budgetInputs.set({});
   // H-10b: by default считаем patterns loaded (production cold-start
@@ -97,7 +97,7 @@ describe('AppliedModeSummary', () => {
 
   // ─── Channel list ────────────────────────────────────────────────────────
 
-  it('renders channel list items — correct count', () => {
+  it('renders channel list items - correct count', () => {
     const { container } = render(AppliedModeSummary, { props: { channels: makeChannels() } });
     const items = container.querySelectorAll('.channel-item');
     expect(items.length).toBe(3);
@@ -108,7 +108,7 @@ describe('AppliedModeSummary', () => {
     const list = container.querySelector('.channel-list');
     expect(list).toBeInTheDocument();
     for (const ch of makeChannels()) {
-      // Имя может появляться также в .uc-inputs (для physical channels в ROI mode) — scope к channel-list.
+      // Имя может появляться также в .uc-inputs (для physical channels в ROI mode) - scope к channel-list.
       expect(list?.textContent).toContain(ch.name);
     }
   });
@@ -149,7 +149,7 @@ describe('AppliedModeSummary', () => {
     expect(banner?.textContent).toContain('общий бюджет');
     expect(banner?.textContent).toContain('стоимость 1 единицы');
     expect(banner?.textContent).toContain('роста стоимости');
-    // Не должен упоминать Expert mode как требование — Антон 2026-05-14
+    // Не должен упоминать Expert mode как требование - Антон 2026-05-14
     expect(banner?.textContent).not.toContain('Expert');
   });
 
@@ -291,11 +291,11 @@ describe('AppliedModeSummary', () => {
     expect(get(unitCosts)['TRPs конкуренты']).toBe(25000);
     expect(get(unitCostInflation)['TRPs конкуренты']).toBe(15);
     expect(get(unitCostInputMode)['TRPs конкуренты']).toBe('unit');
-    // Показы Banners (different label) — НЕ затронут
+    // Показы Banners (different label) - НЕ затронут
     expect(get(unitCosts)['Показы Banners']).toBeUndefined();
   });
 
-  // H-12 regression — button visible в budget mode когда channel converted
+  // H-12 regression - button visible в budget mode когда channel converted
   it('H-12: shows «Применить» button в budget mode когда derived unit_cost > 0', async () => {
     analysisMode.set('roi');
     // Budget mode: user указал бюджет → derived unit_cost
@@ -315,7 +315,7 @@ describe('AppliedModeSummary', () => {
     expect(btn).toBeInTheDocument();  // Раньше null'ом возвращался когда mode=budget
   });
 
-  // H-11 regression — applyToSameType копирует mode из source, не форсирует 'unit'
+  // H-11 regression - applyToSameType копирует mode из source, не форсирует 'unit'
   it('H-11: applyToSameType copies source mode + budget к siblings (budget → budget)', async () => {
     analysisMode.set('roi');
     const channels = [
@@ -455,7 +455,7 @@ describe('AppliedModeSummary', () => {
     const { container, getByTestId } = render(AppliedModeSummary, {
       props: { channels, channelSums: { TRP: 100 } }
     });
-    // Default is 'budget' mode — switch to unit first.
+    // Default is 'budget' mode - switch to unit first.
     const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
       .find((b) => b.textContent?.includes('Цена 1 ед'));
     await fireEvent.click(/** @type {Element} */ (unitBtn));
@@ -498,7 +498,7 @@ describe('AppliedModeSummary', () => {
     const { container, getByTestId } = render(AppliedModeSummary, {
       props: { channels, channelSums: { TRP: 100 } }
     });
-    // Default is 'budget' mode — switch to unit first.
+    // Default is 'budget' mode - switch to unit first.
     const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
       .find((b) => b.textContent?.includes('Цена 1 ед'));
     await fireEvent.click(/** @type {Element} */ (unitBtn));
@@ -516,7 +516,7 @@ describe('AppliedModeSummary', () => {
     const { container, getByTestId } = render(AppliedModeSummary, {
       props: { channels, channelSums: { TRP: 100 } }
     });
-    // Default is 'budget' mode — switch to unit first.
+    // Default is 'budget' mode - switch to unit first.
     const unitBtn = Array.from(container.querySelectorAll('.uc-mode-btn'))
       .find((b) => b.textContent?.includes('Цена 1 ед'));
     await fireEvent.click(/** @type {Element} */ (unitBtn));

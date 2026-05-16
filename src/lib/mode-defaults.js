@@ -1,5 +1,5 @@
 /**
- * Aurora MMM Optimizer v2.0.0 — v1.3.x → v2.0.0 migration helpers.
+ * Aurora MMM Optimizer v2.0.0 - v1.3.x → v2.0.0 migration helpers.
  *
  * Implements the migration algorithm from PRE_FLIGHT_FIXES.md §B3.
  * Also provides defaultPerChannelInput() and detectExistingMode() helpers
@@ -38,7 +38,7 @@ const TOAST_RU =
   'Включён Expert mode. Ваш проект использует смешанный режим единиц медиа-каналов ' +
   '(часть в ₽, часть в физических метриках). ' +
   'Управление per-channel доступно в Expert UI. ' +
-  'Переключить режим — Settings.';
+  'Переключить режим - Settings.';
 
 const TOAST_EN =
   'Expert mode activated. Your project uses mixed media unit modes ' +
@@ -61,17 +61,17 @@ const TOAST_EN =
  * @returns {MigrationResult}
  *
  * @example
- * // Case 2 — pure monetary
+ * // Case 2 - pure monetary
  * migrateV13ToV20({ perChannelInput: { TV: 'monetary', Digital: 'monetary' } });
  * // → { migrated: true, scenario: 'pure_monetary_to_roi', toast: false }
  *
  * @example
- * // Case 4 — mixed
+ * // Case 4 - mixed
  * migrateV13ToV20({ perChannelInput: { TV: 'physical', Digital: 'monetary' } });
  * // → { migrated: true, scenario: 'mixed_to_expert', toast: true, toastMessage: '...' }
  *
  * @example
- * // Case 1 — new/empty
+ * // Case 1 - new/empty
  * migrateV13ToV20({});
  * // → { migrated: false, scenario: 'new', toast: false }
  */
@@ -90,14 +90,14 @@ export function migrateV13ToV20(projectState) {
     };
   }
 
-  // Classify values — treat null / undefined / unexpected strings as unknown
+  // Classify values - treat null / undefined / unexpected strings as unknown
   const monetary = channels.filter((ch) => pcInput[ch] === 'monetary');
   const physical = channels.filter((ch) => pcInput[ch] === 'physical');
   const unknown  = channels.filter((ch) => pcInput[ch] !== 'monetary' && pcInput[ch] !== 'physical');
 
   // Case 5: all values are unknown/null (legacy bundle without per-channel field, fallback)
   // This check comes before Case 2/3 because unknown.length > 0 with mixed cases.
-  // If ALL are unknown — it's a fully unrecognized legacy bundle.
+  // If ALL are unknown - it's a fully unrecognized legacy bundle.
   if (unknown.length === channels.length) {
     analysisMode.set('mixed');
     expertMode.set(true);
@@ -172,7 +172,7 @@ export function migrateV13ToV20(projectState) {
  * // → { TV: 'physical', Digital: 'physical', OOH: 'physical' }
  *
  * @example
- * // Mixed mode: no single default — returns empty map (caller sets per-channel)
+ * // Mixed mode: no single default - returns empty map (caller sets per-channel)
  * defaultPerChannelInput(['TV', 'Digital'], 'mixed');
  * // → {}
  */
@@ -187,7 +187,7 @@ export function defaultPerChannelInput(channels, mode) {
     return Object.fromEntries(channels.map((ch) => [ch, 'physical']));
   }
 
-  // mixed — no uniform default; caller must specify per-channel
+  // mixed - no uniform default; caller must specify per-channel
   return {};
 }
 
@@ -217,7 +217,7 @@ export function detectExistingMode(pcInput) {
     (v) => v === 'monetary' || v === 'physical',
   );
 
-  if (values.length === 0) return 'roi'; // all unknown — safe default
+  if (values.length === 0) return 'roi'; // all unknown - safe default
 
   const hasMonetary = values.includes('monetary');
   const hasPhysical = values.includes('physical');

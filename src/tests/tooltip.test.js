@@ -1,5 +1,5 @@
 /**
- * Tooltip component tests — v2.1.0 п.6.1
+ * Tooltip component tests - v2.1.0 п.6.1
  *
  * Tests:
  *   - Tooltip не видим изначально
@@ -61,7 +61,7 @@ describe('Tooltip', () => {
     await fireEvent.mouseEnter(wrapper);
     // Bubble не появился до истечения delay
     expect(container.querySelector('[role="tooltip"]')).toBeNull();
-    // Прошло 150ms > delay 100ms — должен появиться
+    // Прошло 150ms > delay 100ms - должен появиться
     await advanceAndFlush(150);
     expect(container.querySelector('[role="tooltip"]')).toBeTruthy();
   });
@@ -131,7 +131,7 @@ describe('Tooltip', () => {
     expect(bubble?.textContent).toContain('R²');
   });
 
-  it('пустой text — tooltip bubble не рендерится', async () => {
+  it('пустой text - tooltip bubble не рендерится', async () => {
     const { container } = render(Tooltip, {
       props: { text: '', delay: 0 },
     });

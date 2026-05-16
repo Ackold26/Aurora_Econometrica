@@ -41,21 +41,24 @@
 
   // Список KPI вариантов с UI metadata.
   // monetary group:
+  // v2.1.0 (пилот 2026-05-16): убран дубликат «Доход» (kpi_type='revenue') -
+  // для целевой аудитории (бренд-менеджер фармы / FMCG) различие между выручкой
+  // и доходом бухгалтерское, не операционное. Старые проекты с kpi_type='revenue'
+  // продолжают корректно загружаться через kpi_registry (backward compat).
   const monetaryOptions = [
-    { id: 'sales',   title: 'Выручка',  subtitle: 'продажи в ₽',     desc: 'Стандартный сценарий для CMO / CFO. Главная метрика - ROI каждого канала.' },
-    { id: 'revenue', title: 'Доход',    subtitle: 'gross revenue',    desc: 'Аналог выручки. Применимо для бизнесов с явным revenue tracking.' },
-    { id: 'profit',  title: 'Прибыль', subtitle: 'profit / маржа',   desc: 'Если хотите модель в gross/net profit вместо выручки.' },
+    { id: 'sales',   title: 'Выручка',  subtitle: 'продажи в ₽',    desc: 'Сколько денег принесли продажи.\nГлавная метрика - ROI каждого канала.' },
+    { id: 'profit',  title: 'Прибыль', subtitle: 'profit / маржа', desc: 'Если у вас есть прибыль с единицы товара\n- модель посчитает в прибыли, а не в выручке.' },
   ];
 
   // count group:
   const countOptions = [
-    { id: 'sales_packs',   title: 'Продажи в штуках', subtitle: 'упаковки / SKU',         desc: 'FMCG, фарма, ритейл - модель оценивает CPU (₽/упак) и сравнивает с маржой.' },
-    { id: 'leads',         title: 'Лиды',              subtitle: 'заявки / обращения',      desc: 'B2B, страхование, услуги - главная метрика CPU = ₽ за лид. Сравнение с LTV × CR.' },
-    { id: 'registrations', title: 'Регистрации',       subtitle: 'sign-ups',                desc: 'SaaS, e-commerce - модель оценивает стоимость одной регистрации.' },
-    { id: 'loyalty_cards', title: 'Выданные карты',    subtitle: 'loyalty cards',           desc: 'Программы лояльности - CPU vs ценность (avg_basket × retention).' },
-    { id: 'subscriptions', title: 'Подписки',          subtitle: 'subscriptions',           desc: 'SaaS, медиа - CPU vs MRR на подписку.' },
-    { id: 'app_installs',  title: 'Установки',         subtitle: 'app installs',            desc: 'Mobile-first продукты - CPU vs LTV.' },
-    { id: 'count_custom',  title: 'Свой KPI',          subtitle: 'custom counted metric',   desc: 'Любая считаемая метрика. Вы зададите label и ценность сами.' },
+    { id: 'sales_packs',   title: 'Продажи в штуках', subtitle: 'упаковки / SKU',         desc: 'FMCG, фарма, ритейл\n- модель оценивает CPU (₽/упак) и сравнивает с маржой.' },
+    { id: 'leads',         title: 'Лиды',              subtitle: 'заявки / обращения',      desc: 'B2B, страхование, недвижимость\n- главная метрика CPU = ₽ за лид. Сравнение с LTV × CR.' },
+    { id: 'registrations', title: 'Регистрации',       subtitle: 'sign-ups',                desc: 'SaaS, e-commerce\n- модель оценивает стоимость одной регистрации.' },
+    { id: 'loyalty_cards', title: 'Выданные карты',    subtitle: 'банковские и лояльности', desc: 'Модель считает стоимость выпуска одной карты\nи сравнивает с LTV клиента.' },
+    { id: 'subscriptions', title: 'Подписки',          subtitle: 'subscriptions',           desc: 'SaaS, онлайн-кинотеатры и т.п.\n- CPU vs MRR на подписку.' },
+    { id: 'app_installs',  title: 'Установки',         subtitle: 'app installs',            desc: 'Mobile-first продукты\n- CPU vs LTV.' },
+    { id: 'count_custom',  title: 'Свой KPI',          subtitle: 'custom counted metric',   desc: 'Любая считаемая метрика.\nВы зададите название и ценность сами.' },
   ];
 
   /** @param {string} id */
@@ -85,17 +88,17 @@
         <p><strong>Целевая метрика - это итог, на который влияют каналы рекламы.</strong> Выбор определяет, что модель будет считать «успехом», и в каких единицах оценит каждый канал:</p>
         <ul>
           <li>
-            <strong>Деньги (₽):</strong> продажи, выручка, прибыль. Модель посчитает <strong>ROI</strong>: сколько рублей вернул каждый рубль вложений в канал. Подходит для CFO/CMO - финансовая отдача.
+            <strong>Деньги (₽):</strong> выручка или прибыль. Модель посчитает <strong>ROI</strong> - сколько рублей вернул каждый рубль, вложенный в канал. Подходит когда вы отвечаете перед руководством за финансовый результат.
           </li>
           <li>
-            <strong>Штуки:</strong> упаковки, лиды, регистрации, подписки, установки. Модель посчитает <strong>CPU</strong> (cost per unit): сколько рублей стоит привести одну единицу. Подходит для FMCG, фармы, B2B - где маржа на единицу известна.
+            <strong>Штуки:</strong> упаковки, лиды, регистрации, подписки, установки. Модель посчитает <strong>стоимость одной единицы</strong> - сколько рублей нужно потратить, чтобы привести одну продажу / заявку. Подходит для фармы, FMCG, B2B - где известна маржа на единицу.
           </li>
           <li>
-            <strong>Custom counted metric:</strong> своя целевая метрика в штуках (звонки, заявки, customer-метрика). Подходит когда стандартные категории не описывают вашу задачу.
+            <strong>Своя метрика:</strong> любой счётчик, который вы измеряете сами - звонки, заявки, своя клиентская метрика. Подходит когда стандартные категории не описывают вашу задачу.
           </li>
         </ul>
         <p class="why-tip">
-          <strong>Подсказка:</strong> выбирайте KPI, который вы реально измеряете и оптимизируете. Если бизнес считает в штуках (упаковки/лиды) - выбирайте «штуки», даже если у канала бюджет в рублях. Модель умеет связать «потратили N руб → продали K упаковок» (это и есть CPU).
+          <strong>Подсказка:</strong> выбирайте KPI, который вы реально измеряете и оптимизируете. Если бизнес считает в штуках (упаковки / лиды) - выбирайте «штуки», даже если у канала бюджет в рублях. Модель умеет связать «потратили N рублей → продали K упаковок».
         </p>
       </div>
     {/if}
@@ -254,19 +257,37 @@
   }
   .group-icon { display: flex; align-items: center; color: var(--text-muted); }
 
+  /* v2.1.0 (пилот 2026-05-16): фиксированная ширина карточек внутри группы.
+     Monetary (Выручка/Прибыль) - 2 широкие карточки 380px каждая.
+     Count (штуки) - все 220px фиксированной ширины, auto-fill для переноса.
+     Высота единая через min-height на .card. */
   .cards {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 380px);
+    /* v2.1.0 (пилот 2026-05-16): gap 10px - одинаковый с count-cards. */
     gap: 10px;
+    justify-content: start;
   }
   .count-cards {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fill, 235px);
+  }
+
+  /* v2.1.0 (пилот 2026-05-16): Tooltip wrapper по умолчанию inline-flex -
+     не растягивается на ширину grid-колонки. Override чтобы каждая обёртка
+     занимала всю свою колонку, и кнопка-карточка получала фиксированную ширину. */
+  .cards :global(.tooltip-wrapper) {
+    display: block;
+    width: 100%;
+  }
+  .cards .card {
+    width: 100%;
   }
   @media (max-width: 1100px) {
-    .cards { grid-template-columns: 1fr 1fr; }
+    .cards { grid-template-columns: repeat(2, minmax(280px, 360px)); }
   }
   @media (max-width: 700px) {
     .cards { grid-template-columns: 1fr; }
+    .count-cards { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
   }
 
   .card {
@@ -274,6 +295,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 14px;
+    /* v2.1.0 (пилот 2026-05-16): фиксированная высота - все карточки
+       в группе одинаковые независимо от длины desc. */
+    height: 150px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-card, 12px);
@@ -323,6 +347,8 @@
     line-height: 1.5;
     color: var(--text-secondary);
     margin: 0;
+    /* v2.1.0 (пилот 2026-05-16): \n в desc -> реальные переносы строки. */
+    white-space: pre-line;
   }
   .note {
     display: flex;

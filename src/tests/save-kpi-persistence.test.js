@@ -1,5 +1,5 @@
 /**
- * H-16 — verify econ_save_kpi_settings payload включает Phase 1.3 fields.
+ * H-16 - verify econ_save_kpi_settings payload включает Phase 1.3 fields.
  *
  * Audit обнаружил: ValidateStepV13.handleContinue() ранее не передавал
  * unit_costs / unit_cost_inflation / mode_for / budget_inputs к backend.
@@ -32,7 +32,7 @@ beforeEach(() => {
 
 
 /**
- * Helper — simulate ValidateStepV13.handleContinue() save action.
+ * Helper - simulate ValidateStepV13.handleContinue() save action.
  * Should match production logic в src/lib/components/pipeline/ValidateStepV13.svelte:323.
  */
 async function simulateSave({

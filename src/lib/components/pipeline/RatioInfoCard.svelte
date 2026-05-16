@@ -47,7 +47,7 @@
   } = $props();
 
   // Thresholds (per insights-rules.js convention).
-  const MIN_RATIO = 2;        // ниже этого — критически мало
+  const MIN_RATIO = 2;        // ниже этого - критически мало
   const RECOMMENDED_RATIO = 4;  // достаточно для модели
   const IDEAL_RATIO = 6;        // отлично
 
@@ -69,7 +69,7 @@
   const scaleMax = IDEAL_RATIO + 2;
   const indicatorPct = $derived(Math.min(100, (ratio / scaleMax) * 100));
 
-  // Recommendation action — показать если есть weak channels и улучшение значимое.
+  // Recommendation action - показать если есть weak channels и улучшение значимое.
   const canImprove = $derived(
     weakChannelsCount > 0 &&
     afterExcludeRatio != null &&
@@ -79,17 +79,17 @@
 
   // Tooltip объясняет что такое Ratio + почему важно.
   const RATIO_HELP = [
-    'Ratio (соотношение данных) — это N наблюдений / K переменных в модели.',
+    'Ratio (соотношение данных) - это N наблюдений / K переменных в модели.',
     '',
-    'Например: 52 недели данных и 13 каналов рекламы → ratio 4:1 — на каждую',
+    'Например: 52 недели данных и 13 каналов рекламы → ratio 4:1 - на каждую',
     'переменную приходится 4 наблюдения. Чем выше ratio, тем надёжнее модель',
     'может оценить вклад каждого канала.',
     '',
     'Почему важно:',
-    '• Низкий ratio (<2:1) — модель «выучит» отдельные точки вместо',
-    '  закономерности (overfitting). Высокий R² здесь — артефакт.',
-    '• Рекомендуемый ≥4:1 — модель надёжна, но интервалы шире желаемого.',
-    '• Идеальный ≥6:1 — узкие доверительные интервалы, можно опираться',
+    '• Низкий ratio (<2:1) - модель «выучит» отдельные точки вместо',
+    '  закономерности (overfitting). Высокий R² здесь - артефакт.',
+    '• Рекомендуемый ≥4:1 - модель надёжна, но интервалы шире желаемого.',
+    '• Идеальный ≥6:1 - узкие доверительные интервалы, можно опираться',
     '  на абсолютные значения ROI/CPU.',
     '',
     'Как повысить: больше истории (≥52 недель), исключить неактивные',
@@ -220,7 +220,7 @@
     align-items: baseline;
     gap: 8px;
   }
-  /* v1.3.2: help-icon в h3 — premium tier-1 unobtrusive «?» tooltip */
+  /* v1.3.2: help-icon в h3 - premium tier-1 unobtrusive «?» tooltip */
   .card-title .help-icon {
     display: inline-flex;
     align-items: center;

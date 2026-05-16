@@ -1,6 +1,6 @@
 <script>
   /**
-   * MigrationCompletedToast — Phase 2.16 / Audit P-customer-confidence.
+   * MigrationCompletedToast - Phase 2.16 / Audit P-customer-confidence.
    *
    * Visible briefly after successful project.json migration (Phase 1.4).
    * Builds customer trust: explicit signal that data was updated, what
@@ -65,7 +65,7 @@
         {#if movedCount > 0}
           Переклассифицировано {movedCount}
           {movedCount === 1 ? 'столбец' : (movedCount < 5 ? 'столбца' : 'столбцов')}
-          (SOM / SOV / share_of_*) — исключены из модели как derived metrics
+          (SOM / SOV / share_of_*) - исключены из модели как derived metrics
           (избежание endogeneity).
         {:else}
           Формат данных обновлён без изменения классификации.

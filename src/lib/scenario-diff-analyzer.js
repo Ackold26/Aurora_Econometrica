@@ -1,5 +1,5 @@
 /**
- * Scenario Diff Analyzer — auto-generates Russian narrative comparisons
+ * Scenario Diff Analyzer - auto-generates Russian narrative comparisons
  * between MMM optimization scenarios.
  *
  * Per WIZARD_FLOW_v2_FINAL.md §4.2 DiffAnalyzer.
@@ -10,7 +10,7 @@
  * @example
  * import { generateDiffNarratives } from '$lib/scenario-diff-analyzer.js';
  * const lines = generateDiffNarratives([planA, planB, optimized], baseline);
- * // → ['План B даёт +27.3% KPI при +40% budget vs Базовый — высокая marginal стоимость роста.',
+ * // → ['План B даёт +27.3% KPI при +40% budget vs Базовый - высокая marginal стоимость роста.',
  * //    'Aurora-optimized превосходит План А на +6.4% при том же бюджете...']
  */
 
@@ -126,7 +126,7 @@ function describeTopShifts(diffs) {
  * Generate narrative comparison между scenarios.
  *
  * Each narrative is a concrete 1-2 sentence string in Russian with real numbers.
- * If baseline is provided — each scenario is compared to it first.
+ * If baseline is provided - each scenario is compared to it first.
  * Then scenarios are compared pairwise (each vs Aurora-optimized if present,
  * else vs the first/best scenario).
  *
@@ -136,7 +136,7 @@ function describeTopShifts(diffs) {
  *
  * @example
  * generateDiffNarratives([planA, planB, optimized], baseline)
- * // → ['План B даёт +27.3% KPI при +40% budget vs Базовый — высокая marginal отдача.',
+ * // → ['План B даёт +27.3% KPI при +40% budget vs Базовый - высокая marginal отдача.',
  * //    'Aurora-optimized превосходит План А на +6.4% при том же бюджете...']
  */
 export function generateDiffNarratives(scenarios, baseline = null) {
@@ -168,7 +168,7 @@ export function generateDiffNarratives(scenarios, baseline = null) {
         line += ` при том же бюджете`;
       }
 
-      line += ` vs ${baseline.name} — ${margEff}`;
+      line += ` vs ${baseline.name} - ${margEff}`;
       if (shiftStr) line += `. ${shiftStr.charAt(0).toUpperCase() + shiftStr.slice(1)}.`;
       else line += '.';
 
@@ -183,7 +183,7 @@ export function generateDiffNarratives(scenarios, baseline = null) {
     s.id === 'aurora-optimized'
   );
 
-  // Identify «best user plan» — highest KPI among non-Aurora scenarios, excluding baseline
+  // Identify «best user plan» - highest KPI among non-Aurora scenarios, excluding baseline
   const userPlans = scenarios.filter(s =>
     s !== auroraOpt && (!baseline || s.id !== baseline.id)
   );
@@ -220,7 +220,7 @@ export function generateDiffNarratives(scenarios, baseline = null) {
     }
   }
 
-  // ── Section 3: cross-scenario insight — best efficiency ─────────────────────
+  // ── Section 3: cross-scenario insight - best efficiency ─────────────────────
   const allForEff = [
     ...(baseline ? [baseline] : []),
     ...scenarios,

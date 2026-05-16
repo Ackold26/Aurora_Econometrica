@@ -1,5 +1,5 @@
 /**
- * Industry CPP defaults — Phase 4.1 (R3 first step).
+ * Industry CPP defaults - Phase 4.1 (R3 first step).
  *
  * Static lookup table для smart unit_cost suggestions per industry × channel
  * unit type. Customer brand-manager opens project → system suggests typical
@@ -11,11 +11,11 @@
  * - Static = no COGS (no API calls)
  * - Static = customer-extensible (override values via project metadata)
  * - Bounded ICP (pharma / FMCG / SaaS / Finance / Retail в RU/CIS) sufficient
- * - Phi-3.5 deferred к v2.3.0 — table validates demand первый
+ * - Phi-3.5 deferred к v2.3.0 - table validates demand первый
  *
  * Data sources:
  * - Pharma OTC rates: Mediascope reports 2024-2025 + agency benchmarks
- *   (sanitized — no specific customer values)
+ *   (sanitized - no specific customer values)
  * - FMCG: industry averages from public reports
  * - Retail/SaaS/Finance: typical RU market rates 2024
  *
@@ -56,8 +56,8 @@ export const INDUSTRY_CPP_TABLE = Object.freeze({
     cpv: { typical: 6, min: 2, max: 18, confidence: 'medium', year: 2024 },
   },
   pharma_rx: {
-    // Rx pharma — limited TV (ФЗ-38 restrictions). Mostly trade marketing,
-    // sales rep visits — рідко direct media buy. Conservative ranges.
+    // Rx pharma - limited TV (ФЗ-38 restrictions). Mostly trade marketing,
+    // sales rep visits - рідко direct media buy. Conservative ranges.
     cpm: { typical: 400, min: 200, max: 900, confidence: 'medium', year: 2024 },
     cpc: { typical: 60, min: 30, max: 150, confidence: 'medium', year: 2024 },
     cpa: { typical: 2_500, min: 800, max: 8_000, confidence: 'low', year: 2024 },
@@ -76,7 +76,7 @@ export const INDUSTRY_CPP_TABLE = Object.freeze({
     cpa: { typical: 1_200, min: 400, max: 4_000, confidence: 'medium', year: 2024 },
   },
   saas: {
-    // No traditional TV — focus digital + content.
+    // No traditional TV - focus digital + content.
     cpm: { typical: 450, min: 200, max: 1_100, confidence: 'high', year: 2024, source: 'B2B SaaS RU programmatic' },
     cpc: { typical: 85, min: 30, max: 220, confidence: 'high', year: 2024 },
     cpa: { typical: 3_500, min: 1_200, max: 12_000, confidence: 'medium', year: 2024 },
@@ -93,7 +93,7 @@ export const INDUSTRY_CPP_TABLE = Object.freeze({
     cpa: { typical: 6_000, min: 2_000, max: 25_000, confidence: 'low', year: 2024 },
   },
   unknown: {
-    // Fallback — broadest ranges, low confidence.
+    // Fallback - broadest ranges, low confidence.
     trp: { typical: 500_000, min: 100_000, max: 2_000_000, confidence: 'low', year: 2024 },
     cpm: { typical: 350, min: 100, max: 1_200, confidence: 'low', year: 2024 },
     cpc: { typical: 60, min: 15, max: 300, confidence: 'low', year: 2024 },

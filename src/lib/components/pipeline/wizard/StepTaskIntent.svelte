@@ -1,13 +1,13 @@
 <script>
   /**
-   * StepTaskIntent — Wizard Step 1: choose task type (F4 factor).
+   * StepTaskIntent - Wizard Step 1: choose task type (F4 factor).
    *
-   * Per WIZARD_FLOW_v2_FINAL.md §2.1 — 5 options:
-   *   1. budget_optimization       — Distribute planned budget
-   *   2. inverse_optimization      — Reach a goal, find spend
-   *   3. what_if                   — Find optimal budget size
-   *   4. forecast_planned_activities — Forecast from planned activities (NEW v2.0.0)
-   *   5. decompose-only            — Decompose past period only
+   * Per WIZARD_FLOW_v2_FINAL.md §2.1 - 5 options:
+   *   1. budget_optimization       - Distribute planned budget
+   *   2. inverse_optimization      - Reach a goal, find spend
+   *   3. what_if                   - Find optimal budget size
+   *   4. forecast_planned_activities - Forecast from planned activities (NEW v2.0.0)
+   *   5. decompose-only            - Decompose past period only
    *
    * Cross-product checks:
    *   - Option 4 + history < 24 months → warn Aurora Launch Planner
@@ -51,15 +51,15 @@
       id: 'budget_optimization',
       icon: Target,
       title: 'Распределить плановый бюджет',
-      question: 'У меня бюджет на следующий период — как распределить между каналами?',
+      question: 'У меня бюджет на следующий период - как распределить между каналами?',
       tooltip: 'Прямая оптимизация (Robyn-style): модель находит распределение, максимизирующее KPI при заданном суммарном бюджете.',
       tone: 'gold',
     },
     {
       id: 'inverse_optimization',
       icon: Goal,
-      title: 'Достичь цели — сколько потратить?',
-      question: 'У меня целевой объём продаж — какой минимальный бюджет для его достижения?',
+      title: 'Достичь цели - сколько потратить?',
+      question: 'У меня целевой объём продаж - какой минимальный бюджет для его достижения?',
       tooltip: 'Обратная оптимизация: модель ищет минимальные вложения для достижения указанной цели по KPI.',
       tone: 'accent',
     },
@@ -75,7 +75,7 @@
       id: 'forecast_planned_activities',
       icon: FileLineChart,
       title: 'Прогноз по моему плану активностей',
-      question: 'Я уже спланировал кампанию — что прогнозирует модель при этом плане?',
+      question: 'Я уже спланировал кампанию - что прогнозирует модель при этом плане?',
       tooltip: 'NEW v2.0.0: загрузите файл с плановыми активностями по каналам. Модель предскажет ожидаемый KPI с доверительными интервалами.',
       tone: 'neutral',
     },
@@ -83,7 +83,7 @@
       id: 'decompose-only',
       icon: BarChart3,
       title: 'Декомпозировать прошлый период',
-      question: 'Понять вклад каждого канала в прошлом периоде — без оптимизации.',
+      question: 'Понять вклад каждого канала в прошлом периоде - без оптимизации.',
       tooltip: 'Только декомпозиция: модель оценивает исторические вклады (attribution) без шага оптимизации. Подходит для аудита прошлых кампаний.',
       tone: 'muted',
     },
@@ -108,7 +108,7 @@
   const crossProductWarning = $derived.by(() => {
     if (!selected) return null;
     if (selected === 'forecast_planned_activities' && historyMonths > 0 && historyMonths < 24) {
-      return 'Для прогноза нужна обученная модель — у вас данных мало (менее 24 месяцев). ' +
+      return 'Для прогноза нужна обученная модель - у вас данных мало (менее 24 месяцев). ' +
              'Aurora Launch Planner подойдёт лучше для нового продукта с прокси-категорией.';
     }
     if (selected === 'decompose-only' && activeAdvertisingPct < 0.5) {
@@ -131,7 +131,7 @@
   <header class="intro">
     <h2>Что вы хотите получить от анализа?</h2>
     <p class="lead">
-      Выберите задачу — программа настроит все параметры автоматически.
+      Выберите задачу - программа настроит все параметры автоматически.
     </p>
   </header>
 
@@ -208,7 +208,7 @@
     line-height: 1.5;
   }
 
-  /* ─── Cards grid — 2 columns ─── */
+  /* ─── Cards grid - 2 columns ─── */
   .cards-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

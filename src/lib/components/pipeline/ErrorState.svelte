@@ -1,14 +1,14 @@
 <script>
   /**
-   * ErrorState — Phase 2.15 / Audit P-premium-feel.
+   * ErrorState - Phase 2.15 / Audit P-premium-feel.
    *
    * Error display с retry affordance. Used когда backend returns 5xx
    * или sidecar unavailable. Replaces silent failures с inline message +
    * clear next action.
    *
    * Severity:
-   * - 'warning' (default) — recoverable, retry available
-   * - 'error' — critical, user action required
+   * - 'warning' (default) - recoverable, retry available
+   * - 'error' - critical, user action required
    *
    * Includes optional error_code (machine-readable) + human message +
    * optional retry button + optional detail expander.

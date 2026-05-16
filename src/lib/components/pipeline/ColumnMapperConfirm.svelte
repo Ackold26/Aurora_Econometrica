@@ -253,7 +253,7 @@
   }
 
   /** v2.1.0 п.5.1: pulse-confirm animation state.
-   *  When true — button enters confirming state (pulse + check icon).
+   *  When true - button enters confirming state (pulse + check icon).
    *  After CONFIRM_DELAY ms, onConfirm is called and parent transitions.
    *  prefers-reduced-motion guard: global app.css collapses animation to
    *  0.01ms, so onConfirm fires effectively immediately. */
@@ -270,7 +270,7 @@
     }
     setTimeout(() => {
       onConfirm?.(mapping);
-      // confirming reset is not needed — parent unmounts this component.
+      // confirming reset is not needed - parent unmounts this component.
     }, CONFIRM_DELAY);
   }
 
@@ -289,8 +289,7 @@
     <span class="kicker">ШАГ 1 ИЗ 4 · РОЛИ КОЛОНОК</span>
     <h2>Подтвердите роли</h2>
     <div class="sacred-lime" aria-hidden="true"></div>
-    <p class="lead">Программа автоматически распознала роли колонок в данных.</p>
-    <p class="lead">Проверьте таблицу - измените, если что-то определено неверно.</p>
+    <p class="lead">Программа автоматически распознала роли колонок в данных. Проверьте таблицу - измените, если что-то определено неверно.</p>
   </header>
 
   <div class="summary-row">
@@ -355,17 +354,17 @@
                 <span class="stat-badges">
                   {#if zeros >= 50}
                     <span class="stat-badge tone-{zeros > 80 ? 'danger' : 'warn'}"
-                      title="Доля нулевых значений: {zeros.toFixed(0)}%. {zeros > 80 ? 'Канал практически неактивен — почти всегда исключают.' : 'Существенная разреженность данных — модель может оценить вклад с большой неопределённостью.'}">
+                      title="Доля нулевых значений: {zeros.toFixed(0)}%. {zeros > 80 ? 'Канал практически неактивен - почти всегда исключают.' : 'Существенная разреженность данных - модель может оценить вклад с большой неопределённостью.'}">
                       {Math.round(zeros)}% нулей
                     </span>
                   {:else if zeros >= 30}
-                    <span class="stat-badge tone-info" title="Доля нулевых значений: {zeros.toFixed(1)}%. Умеренная разреженность — модель справится, но обратите внимание.">
+                    <span class="stat-badge tone-info" title="Доля нулевых значений: {zeros.toFixed(1)}%. Умеренная разреженность - модель справится, но обратите внимание.">
                       {Math.round(zeros)}% нулей
                     </span>
                   {/if}
                   {#if missing >= 5}
                     <span class="stat-badge tone-{missing > 20 ? 'warn' : 'neutral'}"
-                      title="Доля пропусков (NaN): {missing.toFixed(1)}%. {missing > 20 ? 'Много пропусков — модель потеряет периоды.' : 'Небольшое число пропусков, не критично.'}">
+                      title="Доля пропусков (NaN): {missing.toFixed(1)}%. {missing > 20 ? 'Много пропусков - модель потеряет периоды.' : 'Небольшое число пропусков, не критично.'}">
                       {Math.round(missing)}% пусто
                     </span>
                   {/if}
@@ -400,7 +399,7 @@
 
   <footer class="card-footer">
     {#if blockedReason}
-      <!-- v1.3.2: hard-block при ratio <2:1 — кнопка disabled + reason text. -->
+      <!-- v1.3.2: hard-block при ratio <2:1 - кнопка disabled + reason text. -->
       <div class="block-banner" role="alert">
         <span class="block-mark" aria-hidden="true"></span>
         <div class="block-body">
@@ -464,7 +463,9 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-width: 64ch;
+    /* v2.1.0 (пилот 2026-05-16): расширено с 64ch чтобы lead-параграф
+       помещался в одну строку без переноса. */
+    max-width: 110ch;
   }
   .kicker {
     font-family: var(--font-sans, system-ui), sans-serif;
@@ -699,7 +700,7 @@
     align-items: flex-start;
   }
   .col-kind .kind-label { text-transform: lowercase; }
-  /* v1.3.2: stat-badges под kind label — zeros%/missing% per column. */
+  /* v1.3.2: stat-badges под kind label - zeros%/missing% per column. */
   .stat-badges {
     display: flex;
     gap: 4px;
@@ -843,7 +844,7 @@
     cursor: pointer;
     transition: transform 0.15s, box-shadow 0.15s;
   }
-  /* v1.3.2: hard-block banner — red attention для ratio <2:1 case. */
+  /* v1.3.2: hard-block banner - red attention для ratio <2:1 case. */
   .block-banner {
     display: flex;
     gap: 12px;
@@ -916,7 +917,7 @@
     }
   }
 
-  /* Non-animated state for reduced-motion — just show success colour instantly. */
+  /* Non-animated state for reduced-motion - just show success colour instantly. */
   @media (prefers-reduced-motion: reduce) {
     .btn-confirm--confirming {
       background: var(--success, #10B981);

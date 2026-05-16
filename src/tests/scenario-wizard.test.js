@@ -1,5 +1,5 @@
 /**
- * ScenarioWizard component tests — v2.0.0.
+ * ScenarioWizard component tests - v2.0.0.
  *
  * Tests:
  *   - Progress bar / step label renders with currentStep number
@@ -13,7 +13,7 @@
  *   - Navigation bar hidden when frozen (RUNNING/COMPLETED)
  *
  * Note: StepSummary is mocked because ScenarioWizard passes diagnostics=null and
- * StepSummary accesses diagnostics.mcmcConvergence in $derived — crashing with null.
+ * StepSummary accesses diagnostics.mcmcConvergence in $derived - crashing with null.
  * The stub exposes «Запустить анализ» so Step 6 / onComplete tests can exercise the
  * handleRun path through the wizard.
  */
@@ -56,7 +56,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 // Suite 1: Progress bar rendering
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — progress bar', () => {
+describe('ScenarioWizard - progress bar', () => {
   it('renders «Шаг 1 из 6» label at step 1', () => {
     activateAtStep(1);
     render(ScenarioWizard);
@@ -104,7 +104,7 @@ describe('ScenarioWizard — progress bar', () => {
 // ---------------------------------------------------------------------------
 // Suite 2: Step components conditional rendering
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — step component rendering', () => {
+describe('ScenarioWizard - step component rendering', () => {
   it('step 1: Back button is disabled (cannot go back from first step)', () => {
     activateAtStep(1);
     render(ScenarioWizard);
@@ -129,7 +129,7 @@ describe('ScenarioWizard — step component rendering', () => {
   it('step 6: «Запустить анализ» button visible (via StepSummary stub)', () => {
     activateAtStep(6);
     render(ScenarioWizard);
-    // Multiple «Запустить анализ» buttons may exist (stub + wizard nav) — at least one required
+    // Multiple «Запустить анализ» buttons may exist (stub + wizard nav) - at least one required
     const btns = screen.getAllByRole('button', { name: /Запустить анализ/i });
     expect(btns.length).toBeGreaterThan(0);
   });
@@ -155,7 +155,7 @@ describe('ScenarioWizard — step component rendering', () => {
 // ---------------------------------------------------------------------------
 // Suite 3: Navigation buttons
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — navigation', () => {
+describe('ScenarioWizard - navigation', () => {
   it('Back button disabled at step 1', () => {
     activateAtStep(1);
     render(ScenarioWizard);
@@ -181,7 +181,7 @@ describe('ScenarioWizard — navigation', () => {
 // ---------------------------------------------------------------------------
 // Suite 4: Loading overlay (AUTO_DETECTING)
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — loading overlay', () => {
+describe('ScenarioWizard - loading overlay', () => {
   it('shows «Анализирую данные...» label when lifecycle=AUTO_DETECTING', () => {
     resetWizard();
     transitionTo('WIZARD_PENDING');
@@ -211,7 +211,7 @@ describe('ScenarioWizard — loading overlay', () => {
 // ---------------------------------------------------------------------------
 // Suite 5: Escape banner
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — escape banner', () => {
+describe('ScenarioWizard - escape banner', () => {
   it('shows escape banner when lifecycle=ESCAPE with history_short', () => {
     resetWizard();
     transitionTo('WIZARD_PENDING');
@@ -256,7 +256,7 @@ describe('ScenarioWizard — escape banner', () => {
 // ---------------------------------------------------------------------------
 // Suite 6: Cross-product hint banner
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — cross-product hint banner', () => {
+describe('ScenarioWizard - cross-product hint banner', () => {
   it('inline hint banner shown when escapeReason set but NOT in ESCAPE lifecycle', () => {
     resetWizard();
     transitionTo('WIZARD_PENDING');
@@ -280,7 +280,7 @@ describe('ScenarioWizard — cross-product hint banner', () => {
 // ---------------------------------------------------------------------------
 // Suite 7: onComplete callback
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — onComplete', () => {
+describe('ScenarioWizard - onComplete', () => {
   it('onComplete fires when «Запустить анализ» clicked at step 6', async () => {
     activateAtStep(6);
     const onComplete = vi.fn();
@@ -308,7 +308,7 @@ describe('ScenarioWizard — onComplete', () => {
 // ---------------------------------------------------------------------------
 // Suite 8: Frozen state (RUNNING / COMPLETED)
 // ---------------------------------------------------------------------------
-describe('ScenarioWizard — frozen state', () => {
+describe('ScenarioWizard - frozen state', () => {
   it('wizard-nav hidden when lifecycle=RUNNING', () => {
     activateAtStep(6);
     transitionTo('RUNNING');

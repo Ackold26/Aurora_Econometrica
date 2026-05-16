@@ -1,6 +1,6 @@
 <script>
   /**
-   * StepSummaryStub — minimal test double for StepSummary.svelte.
+   * StepSummaryStub - minimal test double for StepSummary.svelte.
    * Used by scenario-wizard.test.js to avoid diagnostics crash.
    */
   const { onRun = null, onEditExpert = null } = $props();

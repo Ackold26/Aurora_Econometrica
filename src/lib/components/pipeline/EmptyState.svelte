@@ -1,14 +1,14 @@
 <script>
   /**
-   * EmptyState — Phase 2.15 / Audit P-premium-feel.
+   * EmptyState - Phase 2.15 / Audit P-premium-feel.
    *
    * Reusable component for «no data yet» scenarios. Replaces inline
    * «Каналы определятся после импорта данных» style messages с
    * consistent visual vocabulary.
    *
    * Variants:
-   * - 'info' (default) — neutral grey, just informative
-   * - 'action' — выделен gold accent, has primary CTA
+   * - 'info' (default) - neutral grey, just informative
+   * - 'action' - выделен gold accent, has primary CTA
    *
    * Includes optional icon (SVG inline or text emoji) + title + body +
    * optional CTA button.

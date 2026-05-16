@@ -1,7 +1,7 @@
 /**
  * Sanity test для i18n infrastructure (foundation v2.0.1-rc2).
  *
- * Не покрывает translation completeness — только asserts что framework
+ * Не покрывает translation completeness - только asserts что framework
  * initialized, locale store работает, translate() helper returns string.
  */
 import { describe, it, expect, beforeAll } from 'vitest';

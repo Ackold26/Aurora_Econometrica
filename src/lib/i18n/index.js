@@ -1,8 +1,8 @@
 /**
- * i18n entry point — Aurora MMM Optimizer.
+ * i18n entry point - Aurora MMM Optimizer.
  *
  * Foundation laid 2026-05-15 (sprint v2.0.1-rc2). На этой стадии translations
- * содержат skeletal placeholders — реальный перевод запланирован к v2.2.0+.
+ * содержат skeletal placeholders - реальный перевод запланирован к v2.2.0+.
  *
  * Использование в Svelte компонентах:
  *
@@ -23,7 +23,7 @@
  * с underscores. Plurals через ICU MessageFormat (см. https://format-message.github.io/icu-message-format-for-translators/).
  *
  * Locale persistence: localStorage key `aurora-locale`. Defaults к 'ru' если
- * не задано. Tauri OS locale detection — будущее (v2.3.0).
+ * не задано. Tauri OS locale detection - будущее (v2.3.0).
  *
  * @module i18n
  */
@@ -64,7 +64,7 @@ function loadStoredLocale() {
 }
 
 
-// Initial locale resolution — invoked once at module load.
+// Initial locale resolution - invoked once at module load.
 const initialLocale = loadStoredLocale();
 
 init({
@@ -102,10 +102,10 @@ export const supportedLocales = SUPPORTED_LOCALES;
 
 /**
  * Plain-function translation helper для usage вне компонентов
- * (services, utils, error handlers). Wraps get($_). NB: реактивности нет —
+ * (services, utils, error handlers). Wraps get($_). NB: реактивности нет -
  * если locale меняется, вызывающий код должен пере-вычислить.
  *
- * Params типа InterpolationValues — accepts string / number / boolean /
+ * Params типа InterpolationValues - accepts string / number / boolean /
  * Date / null. Object values нужно сначала coerce к string.
  *
  * @param {string} key
@@ -122,7 +122,7 @@ export function translate(key, params) {
 
 
 /**
- * Convenience re-export — `_` store для Svelte template usage.
+ * Convenience re-export - `_` store для Svelte template usage.
  * Components import as: `import { _ } from 'svelte-i18n'` directly OR
  * `import { _ } from '$lib/i18n'` (this is alias).
  */

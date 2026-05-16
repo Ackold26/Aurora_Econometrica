@@ -16,6 +16,10 @@
 
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
+  // v2.1.0 (пилот 2026-05-16): плавные переходы между под-шагами Валидации.
+  import { fly, fade } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
+  import { prefersReducedMotion } from '$lib/stores/a11y.js';
   import {
     kpiType, kpiKind, perChannelInput, derivedMode,
     valuePerCountUnit, valuePerCountUnitSource,
@@ -31,7 +35,7 @@
   import { validateInsights } from '$lib/insights-rules.js';
   import {
     analysisObjective, expertMode, analysisMode,
-    // H-16 (audit): Phase 1.3 persistence stores — нужны в save flow.
+    // H-16 (audit): Phase 1.3 persistence stores - нужны в save flow.
     unitCosts, unitCostInflation, unitCostInputMode, budgetInputs,
   } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
@@ -50,7 +54,7 @@
   // Phase 1.1 (SSOT): detection через shared service вместо inline regex.
   // Service fetches patterns from backend `/api/static/classifier-patterns-v1.json`,
   // caches в localStorage, falls back к embedded patterns если backend down.
-  // Replaces previous v2.0.1 hotfix inline MONETARY_RE/PHYSICAL_RE — теперь
+  // Replaces previous v2.0.1 hotfix inline MONETARY_RE/PHYSICAL_RE - теперь
   // single source of truth с column_detection.py.
   import { detectChannelUnitType as detectChannelType } from '$lib/services/classifier-patterns.js';
 
@@ -87,7 +91,7 @@
       // physical/monetary классифицирован, считаем это media-related column.
       // detectChannelType returns 'monetary' || 'physical'. Anything matching
       // patterns considered media-related; default monetary не информативен
-      // for excluded media — но эти cols прошли prior validator role='unused'.
+      // for excluded media - но эти cols прошли prior validator role='unused'.
       // Simple inclusion: any column с recognised unit type considered media.
       if (detectChannelType(name) !== 'monetary' || /[₽]|бюджет|budget|spend|trp|показ/i.test(name)) {
         out.push(name);
@@ -106,15 +110,15 @@
    *  true и далее идёт обычный 4-substep KPI flow.
    *
    *  v2.0.1-rc2 REORDER (Антон's FB pilot 2026-05-15): KPISelector теперь
-   *  ПЕРВЫЙ preflight, ColumnMapperConfirm — ВТОРОЙ. Логика: определяем
+   *  ПЕРВЫЙ preflight, ColumnMapperConfirm - ВТОРОЙ. Логика: определяем
    *  цель (ROI vs Эффективность) → потом role classification фильтрованных
    *  колонок (sales_rub KPI → скрыть *уп., и наоборот).
    *
    *  Persisted to localStorage per projectId - юзер confirm-ит один раз
    *  на проект; повторное mount читает state. Reset через goBack button.
    *  Keys:
-   *    `aurora-econ:kpi-confirmed:{projectId}` — KPI gate (new)
-   *    `aurora-econ:roles-confirmed:{projectId}` — Roles gate
+   *    `aurora-econ:kpi-confirmed:{projectId}` - KPI gate (new)
+   *    `aurora-econ:roles-confirmed:{projectId}` - Roles gate
    *  Backward compat: если rolesConfirmed=true (legacy old flow), но
    *  kpiConfirmed=false → автоматически kpiConfirmed=true (user уже прошёл
    *  KPI step в старом flow). */
@@ -250,7 +254,7 @@
    *    2 → AppliedModeSummary + PerChannelInputSelector
    *    3 → ModeDerivedExplanation
    *
-   * Initial state — depends on confirmation flags:
+   * Initial state - depends on confirmation flags:
    *   - !kpiConfirmed → -2 (KPI preflight)
    *   - kpiConfirmed && !rolesConfirmed → -1 (Roles preflight)
    *   - both true → 0 (legacy flow re-enters here; new code skips к 1/2)
@@ -277,25 +281,58 @@
     deriveModeWithExplanation(currentPerChannel || {})
   );
 
-  /** @param {string} id */
-  async function handleKPISelect(id) {
+  // ─── v2.1.0 (пилот 2026-05-16): анимация переходов между под-шагами ───
+  // Отслеживаем направление: forward (правый сдвиг) vs back (левый сдвиг).
+  // prefers-reduced-motion → duration 0 (мгновенно).
+  let prevSubStepIdx = $state(subStep);
+  let substepDir = $state(/** @type {'forward' | 'back'} */ ('forward'));
+  $effect(() => {
+    const current = subStep;
+    if (current !== prevSubStepIdx) {
+      substepDir = current > prevSubStepIdx ? 'forward' : 'back';
+      prevSubStepIdx = current;
+    }
+  });
+  const substepTransitionMs = $derived($prefersReducedMotion ? 0 : 260);
+  const substepFlyOffset = $derived(
+    $prefersReducedMotion ? 0 : (substepDir === 'forward' ? 32 : -32)
+  );
+
+  /**
+   * v2.1.0 (пилот 2026-05-16): handleKPISelect теперь ТОЛЬКО устанавливает
+   * выбор (подсветку карточки). Конфирм и переход на следующий под-шаг
+   * выполняет confirmKpiAndProceed() через явную кнопку «Далее».
+   *
+   * Раньше клик на карточку = и выбор, и confirm, и переход одновременно —
+   * не давал пользователю передумать. После пилота 2026-05-16 разделено
+   * для корректного UX: выбираешь → видишь подсветку → жмёшь «Далее».
+   *
+   * @param {string} id
+   */
+  function handleKPISelect(id) {
     currentKPI = id;
     kpiType.set(id);
     const kind = kpiKindForType(id);
     // proportional KPIs (awareness) out_of_scope_v13 - treat as monetary fallback.
     const safeKind = /** @type {'monetary' | 'count'} */ (kind === 'count' ? 'count' : 'monetary');
     kpiKind.set(safeKind);
+  }
 
-    // v2.0.1-rc2 REORDER: KPI selection теперь preflight (subStep=-2 → -1 →
-    // ColumnMapperConfirm с filtered columns). Confirm flag persisted.
+  /**
+   * v2.1.0: явное подтверждение выбора KPI через кнопку «Далее».
+   * Запускает persist + переход на следующий под-шаг.
+   */
+  async function confirmKpiAndProceed() {
+    if (!currentKPI) return;  // защита от вызова без выбора
+    const kind = kpiKindForType(currentKPI);
+
     kpiConfirmed = true;
     persistKpiConfirmed(true);
 
     // Если roles ещё не confirmed → next preflight = Roles.
     if (!rolesConfirmed) {
-      // Try auto-detect value per count unit в фоне (для count KPI после roles).
       if (kind === 'count') {
-        await tryAutoDetectValue(id);
+        await tryAutoDetectValue(currentKPI);
       }
       subStep = -1;
       return;
@@ -305,7 +342,7 @@
     if (kind === 'monetary') {
       subStep = 2;
     } else {
-      await tryAutoDetectValue(id);
+      await tryAutoDetectValue(currentKPI);
       subStep = 1;
     }
   }
@@ -396,7 +433,7 @@
     try {
       // Persist KPI settings to backend.
       if ($activeProject?.path) {
-        // H-16 (audit): Phase 1.3 store persistence — earlier версия не
+        // H-16 (audit): Phase 1.3 store persistence - earlier версия не
         // передавала unit_costs / inflation / mode_for / budget_inputs к
         // backend. Reload терял состояние. Теперь полный snapshot.
         await invoke('econ_save_kpi_settings', {
@@ -537,7 +574,7 @@
   });
 
   /**
-   * v1.3.2: Ratio info card data — computed from validateData + columns stats.
+   * v1.3.2: Ratio info card data - computed from validateData + columns stats.
    * weakChannels = media каналы с >50% нулей (можно исключить для повышения ratio).
    * afterExcludeRatio = ratio после исключения weak channels.
    */
@@ -573,7 +610,7 @@
   /**
    * v1.3.2: hard-block reason для «Подтвердить роли» button. Когда ratio
    * <2:1 (минимальный порог для запуска модели), кнопка disabled с
-   * объяснением — нельзя продолжить до улучшения data quality.
+   * объяснением - нельзя продолжить до улучшения data quality.
    * Reason text включает текущее значение, требуемый минимум, и actionable
    * recommendation (исключить N weak каналов).
    */
@@ -583,7 +620,7 @@
     if (data.ratio >= 2) return null;  // unblock at ratio >= 2:1
     const after = data.afterExcludeRatio;
     const canFix = data.weakChannelsCount > 0 && after != null && after >= 2;
-    let reason = `Текущий ratio ${data.ratio.toFixed(1)}:1 ниже минимального 2:1 — модель «выучит» точки вместо закономерности. `;
+    let reason = `Текущий ratio ${data.ratio.toFixed(1)}:1 ниже минимального 2:1 - модель «выучит» точки вместо закономерности. `;
     if (canFix) {
       reason += `Исключите ${data.weakChannelsCount} малоактивн${data.weakChannelsCount === 1 ? 'ый канал' : data.weakChannelsCount < 5 ? 'ых канала' : 'ых каналов'} (кнопка «Применить рекомендацию» выше) → ratio станет ${after.toFixed(1)}:1.`;
     } else {
@@ -660,8 +697,8 @@
 
   // v2.0.1-rc2 REORDER: КPI preflight first (subStep=-2), Roles preflight
   // second (subStep=-1). Legacy subStep=0 (AnalysisModeSelector + KPI panel)
-  // удалён из nav — теперь KPI selection происходит в preflight, panel не
-  // нужен. Если existing project имеет subStep=0 (backward compat) — nav
+  // удалён из nav - теперь KPI selection происходит в preflight, panel не
+  // нужен. Если existing project имеет subStep=0 (backward compat) - nav
   // показывает «Подтверждение» как next active.
   const navStages = $derived.by(() => {
     /** @type {Array<{label: string, subStep: number}>} */
@@ -789,7 +826,7 @@
     persistRolesConfirmed(true);
     // v2.0.1-rc2 REORDER: после подтверждения ролей → переход напрямую к
     // ValuePerCountUnit (count KPI) или к Channels (monetary KPI).
-    // Прежний KPI substep (=0) удалён — KPI уже выбран в preflight.
+    // Прежний KPI substep (=0) удалён - KPI уже выбран в preflight.
     subStep = skipValueStep ? 2 : 1;
   }
 </script>
@@ -830,7 +867,7 @@
   {:else if subStep >= 1}
     <button class="back-link" onclick={goBack}>← Назад</button>
   {:else if subStep === 0}
-    <!-- Legacy backward compat path — не должен triggered в new flow. -->
+    <!-- Legacy backward compat path - не должен triggered в new flow. -->
     <button class="back-link" onclick={goBack}>← Изменить роли колонок</button>
   {/if}
 
@@ -848,10 +885,19 @@
         Повторить попытку
       </button>
     </div>
-  {:else if subStep === -2}
+  {:else}
+  <!-- v2.1.0 (пилот 2026-05-16): плавный переход между под-шагами Валидации.
+       {#key subStep} форсит remount при смене, fly/fade даёт направленный slide. -->
+  {#key subStep}
+  <div
+    class="substep-frame"
+    in:fly={{ x: substepFlyOffset, duration: substepTransitionMs, easing: cubicOut, delay: substepTransitionMs > 0 ? 60 : 0 }}
+    out:fade={{ duration: substepTransitionMs / 2 }}
+  >
+  {#if subStep === -2}
     <!-- v2.0.1-rc2 REORDER (Антон pilot 2026-05-15): KPI preflight FIRST.
          Сначала AnalysisModeSelector (ROI / Эффективность / Mixed Expert),
-         потом KPISelector — после select переходим к Roles preflight. -->
+         потом KPISelector - после select переходим к Roles preflight. -->
     <AnalysisModeSelector
       onSelect={(mode) => {
         // Auto-fill perChannelInput uniformly per chosen mode.
@@ -869,6 +915,20 @@
     />
     <div data-tour-step="kpi-selector">
       <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
+    </div>
+    <!-- v2.1.0 (пилот 2026-05-16): явная кнопка «Далее» под KPISelector.
+         Раньше клик на карточку сразу переключал под-шаг — пользователь
+         не мог пересмотреть выбор. Теперь выбор подсвечивается,
+         подтверждение через эту кнопку. -->
+    <div class="substep-footer">
+      <button
+        type="button"
+        class="substep-next-btn"
+        onclick={confirmKpiAndProceed}
+        disabled={!currentKPI}
+      >
+        Далее ▶
+      </button>
     </div>
   {:else if subStep === -1}
     <!-- v2.0.1-rc2 REORDER: Roles preflight, ColumnMapperConfirm с
@@ -955,6 +1015,9 @@
       onContinue={handleContinue}
     />
   {/if}
+  </div>
+  {/key}
+  {/if}
 
   {#if busy}
     <div class="busy-overlay">Сохраняем...</div>
@@ -968,11 +1031,48 @@
     gap: 12px;
     padding: 0;
     width: 100%;
-    height: 100%;
-    overflow-y: auto;
+    /* v2.1.0 (пилот 2026-05-16): убран overflow-y - родительский .pipeline-main
+       уже скроллится. Двойной scroll давал два scrollbar подряд. */
     box-sizing: border-box;
     position: relative;
   }
+  /* v2.1.0 (пилот 2026-05-16): обёртка для плавного перехода между под-шагами. */
+  .substep-frame {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .substep-frame {
+      transform: none !important;
+    }
+  }
+
+  /* v2.1.0 (пилот 2026-05-16): footer с кнопкой «Далее» под KPISelector. */
+  .substep-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 24px 8px;
+  }
+  .substep-next-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    background: var(--accent-primary);
+    color: #fff;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .substep-next-btn:hover { opacity: 0.9; }
+  .substep-next-btn:active { transform: translateY(1px); }
+  .substep-next-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
   .substep-nav {
     display: flex;
     gap: 0;
@@ -981,7 +1081,7 @@
     background: var(--bg-surface-quiet);
     border-bottom: 1px solid var(--border-subtle);
   }
-  /* v1.3.2: Ratio info card wrapper — отступ перед ColumnMapperConfirm. */
+  /* v1.3.2: Ratio info card wrapper - отступ перед ColumnMapperConfirm. */
   .ratio-card-wrapper {
     padding: 14px 32px 0;
     max-width: 1100px;

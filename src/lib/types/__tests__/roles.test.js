@@ -1,5 +1,5 @@
 /**
- * roles.js tests — Phase 2.5 shared role enum.
+ * roles.js tests - Phase 2.5 shared role enum.
  */
 import { describe, it, expect } from 'vitest';
 import {

@@ -6,7 +6,7 @@
    * Two bars per parameter: low_variation (negative, warm/red) and
    * high_variation (positive, cool/blue).
    * Sorted by |sensitivity_pct| descending. Baseline ROI label at top.
-   * Empty state when parameters array is empty (post H4 fix — sensitivity guarded).
+   * Empty state when parameters array is empty (post H4 fix - sensitivity guarded).
    *
    * Per WIZARD_FLOW_v2_FINAL.md §6.4.
    *
@@ -225,7 +225,7 @@
     <EChartBase option={option} height={chartHeight} />
     <p class="chart-caption">
       Топ-{sortedParams.length} параметров по влиянию на ROI.
-      Красные бары — отрицательное влияние, синие — положительное.
+      Красные бары - отрицательное влияние, синие - положительное.
     </p>
   {/if}
 </div>

@@ -1,14 +1,14 @@
 /**
- * Scenario Export helpers — CSV / Excel (XLSX via Rust backend) / PPTX export.
+ * Scenario Export helpers - CSV / Excel (XLSX via Rust backend) / PPTX export.
  *
  * Per WIZARD_FLOW_v2_FINAL.md §4.2 ScenarioExport + ADR-019 §7.
  *
  * XLSX uses Rust backend command `econ_export_scenarios_xlsx` (same pattern as
  * `econ_export_xlsx` in ReportStep). PPTX delegates to `export_scenarios_pptx`.
- * Both commands may not be implemented yet — stubs return placeholder Blob with
+ * Both commands may not be implemented yet - stubs return placeholder Blob with
  * TODO comment (per spec instruction).
  *
- * CSV is native JS — no extra deps required.
+ * CSV is native JS - no extra deps required.
  *
  * @module scenario-export
  */
@@ -39,8 +39,8 @@ import { invoke } from '@tauri-apps/api/core';
  * @returns {string}
  */
 function upliftStr(scenario, baseline) {
-  if (!baseline || !baseline.predictedKpi) return '—';
-  if (scenario.id === baseline.id) return '—';
+  if (!baseline || !baseline.predictedKpi) return '-';
+  if (scenario.id === baseline.id) return '-';
   const pct = ((scenario.predictedKpi - baseline.predictedKpi) / Math.abs(baseline.predictedKpi)) * 100;
   const sign = pct >= 0 ? '+' : '';
   return `${sign}${pct.toFixed(1)}%`;
@@ -86,7 +86,7 @@ function collectChannels(scenarios, baseline) {
  * Format:
  * ```
  * Scenario,Budget (₽),Predicted KPI,CI 90% Low,CI 90% High,Uplift %,<Channel1> %,...
- * Baseline,50000000,245000,230000,262000,—,40,35,15,10
+ * Baseline,50000000,245000,230000,262000,-,40,35,15,10
  * План А,50000000,264000,248000,281000,+7.8,25,50,10,15
  * ```
  *
@@ -118,15 +118,15 @@ export function exportToCsv(scenarios, baseline = null) {
     const alloc = sc.perChannelAllocation ?? {};
     const channelCells = channels.map(ch => {
       const v = alloc[ch];
-      return v != null ? `${(v * 100).toFixed(1)}` : '—';
+      return v != null ? `${(v * 100).toFixed(1)}` : '-';
     });
 
     const row = [
       sc.name,
       sc.budget != null ? Math.round(sc.budget) : '',
       sc.predictedKpi != null ? Math.round(sc.predictedKpi) : '',
-      sc.ciLow != null ? Math.round(sc.ciLow) : '—',
-      sc.ciHigh != null ? Math.round(sc.ciHigh) : '—',
+      sc.ciLow != null ? Math.round(sc.ciLow) : '-',
+      sc.ciHigh != null ? Math.round(sc.ciHigh) : '-',
       upliftStr(sc, baseline),
       ...channelCells,
     ];
@@ -176,7 +176,7 @@ export async function exportToExcel(scenarios, baseline = null) {
     );
     return result;
   } catch (err) {
-    // Backend command not yet implemented — return stub
+    // Backend command not yet implemented - return stub
     // TODO: implement Rust command `econ_export_scenarios_xlsx` that writes
     // a multi-sheet XLSX (Sheet1: comparison table, Sheet2: per-period forecasts).
     console.warn('econ_export_scenarios_xlsx not implemented, returning stub:', err);
@@ -192,7 +192,7 @@ export async function exportToExcel(scenarios, baseline = null) {
 /**
  * Export scenarios to PPTX (single slide with comparison table + chart).
  *
- * Delegates to Tauri command `export_scenarios_pptx`. If not implemented —
+ * Delegates to Tauri command `export_scenarios_pptx`. If not implemented -
  * returns stub Blob with TODO comment.
  *
  * @param {Scenario[]} scenarios
@@ -223,7 +223,7 @@ export async function exportToPptx(scenarios, baseline = null) {
     );
     return result;
   } catch (err) {
-    // Backend command not yet implemented — return stub
+    // Backend command not yet implemented - return stub
     // TODO: implement Rust command `export_scenarios_pptx` that generates a
     // PPTX slide using a template with: comparison table + ECharts screenshot.
     console.warn('export_scenarios_pptx not implemented, returning stub:', err);

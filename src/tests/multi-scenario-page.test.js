@@ -1,5 +1,5 @@
 /**
- * MultiScenarioPage component tests — v2.0.0 Phase D.
+ * MultiScenarioPage component tests - v2.0.0 Phase D.
  *
  * Coverage:
  *   - Empty scenarios → empty state с CTA text
@@ -72,7 +72,7 @@ function makeBaseline() {
 // ---------------------------------------------------------------------------
 // Suite 1: Empty / single scenario states
 // ---------------------------------------------------------------------------
-describe('MultiScenarioPage — empty and single states', () => {
+describe('MultiScenarioPage - empty and single states', () => {
 
   it('empty scenarios → empty-state element rendered', () => {
     const { container } = render(MultiScenarioPage, { props: { scenarios: [] } });
@@ -121,7 +121,7 @@ describe('MultiScenarioPage — empty and single states', () => {
 // ---------------------------------------------------------------------------
 // Suite 2: Comparison table
 // ---------------------------------------------------------------------------
-describe('MultiScenarioPage — comparison table', () => {
+describe('MultiScenarioPage - comparison table', () => {
 
   it('comparison table renders with 2 scenarios', () => {
     const { container } = render(MultiScenarioPage, {
@@ -136,7 +136,7 @@ describe('MultiScenarioPage — comparison table', () => {
         scenarios: [makeScenario('sc-1', { name: 'Альфа' }), makeScenario('sc-2', { name: 'Бета' })],
       },
     });
-    // Use getAllByText — scenario names appear in the table (at least one instance)
+    // Use getAllByText - scenario names appear in the table (at least one instance)
     expect(screen.getAllByText('Альфа').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Бета').length).toBeGreaterThan(0);
   });
@@ -182,7 +182,7 @@ describe('MultiScenarioPage — comparison table', () => {
 // ---------------------------------------------------------------------------
 // Suite 3: Sortable columns
 // ---------------------------------------------------------------------------
-describe('MultiScenarioPage — sortable columns', () => {
+describe('MultiScenarioPage - sortable columns', () => {
 
   it('clicking «Бюджет» header does not throw', async () => {
     const { container } = render(MultiScenarioPage, {
@@ -220,7 +220,7 @@ describe('MultiScenarioPage — sortable columns', () => {
 // ---------------------------------------------------------------------------
 // Suite 4: Per-channel breakdown collapsible
 // ---------------------------------------------------------------------------
-describe('MultiScenarioPage — per-channel breakdown', () => {
+describe('MultiScenarioPage - per-channel breakdown', () => {
 
   it('breakdown <details> element is present', () => {
     const { container } = render(MultiScenarioPage, {
@@ -268,7 +268,7 @@ describe('MultiScenarioPage — per-channel breakdown', () => {
 // ---------------------------------------------------------------------------
 // Suite 5: Diff narratives section
 // ---------------------------------------------------------------------------
-describe('MultiScenarioPage — diff narratives section', () => {
+describe('MultiScenarioPage - diff narratives section', () => {
 
   it('analysis block is present in DOM', () => {
     const { container } = render(MultiScenarioPage, {
@@ -300,7 +300,7 @@ describe('MultiScenarioPage — diff narratives section', () => {
 // ---------------------------------------------------------------------------
 // Suite 6: Action dropdowns
 // ---------------------------------------------------------------------------
-describe('MultiScenarioPage — Export dropdown', () => {
+describe('MultiScenarioPage - Export dropdown', () => {
 
   it('Export button is present', () => {
     render(MultiScenarioPage, {
@@ -377,7 +377,7 @@ describe('MultiScenarioPage — Export dropdown', () => {
 });
 
 
-describe('MultiScenarioPage — Accept dropdown', () => {
+describe('MultiScenarioPage - Accept dropdown', () => {
 
   it('Accept button NOT rendered when onAccept not provided', () => {
     render(MultiScenarioPage, {
@@ -432,7 +432,7 @@ describe('MultiScenarioPage — Accept dropdown', () => {
 });
 
 
-describe('MultiScenarioPage — Duplicate and Delete dropdowns', () => {
+describe('MultiScenarioPage - Duplicate and Delete dropdowns', () => {
 
   it('Duplicate button NOT rendered when onDuplicate not provided', () => {
     render(MultiScenarioPage, {
@@ -480,7 +480,7 @@ describe('MultiScenarioPage — Duplicate and Delete dropdowns', () => {
     await fireEvent.click(acceptBtn);
     const menus1 = container.querySelectorAll('[role="menu"]');
     expect(menus1.length).toBe(1);
-    // Now click Export — should close Accept and open Export
+    // Now click Export - should close Accept and open Export
     const exportBtn = screen.getByRole('button', { name: /Экспорт/ });
     await fireEvent.click(exportBtn);
     const menus2 = container.querySelectorAll('[role="menu"]');

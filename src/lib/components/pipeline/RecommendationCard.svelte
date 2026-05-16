@@ -24,7 +24,7 @@
   } = $props();
 
   // v2.0.0 audit fix: was `const` capturing initial prop value (Svelte 5 anti-pattern)
-  // Now reactive via $derived — updates когда parent passes new icon.
+  // Now reactive via $derived - updates когда parent passes new icon.
   const isComponent = $derived(typeof icon === 'function');
 </script>
 

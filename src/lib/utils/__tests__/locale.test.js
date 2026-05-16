@@ -1,5 +1,5 @@
 /**
- * Locale parsing tests — Phase 2.11 / Audit Q2.
+ * Locale parsing tests - Phase 2.11 / Audit Q2.
  *
  * Tests RU locale decimal parsing for numeric inputs. parseFloat() in
  * JavaScript handles ASCII '.' but не ',' (Russian decimal separator).
@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest';
 
 
-describe('JavaScript parseFloat — RU locale baseline', () => {
+describe('JavaScript parseFloat - RU locale baseline', () => {
   it('parses ASCII decimal correctly', () => {
     expect(parseFloat('25.50')).toBe(25.5);
   });
@@ -36,7 +36,7 @@ describe('JavaScript parseFloat — RU locale baseline', () => {
   });
 
   it('parseFloat handles space separator (RU thousands)', () => {
-    // «25 000.50» — parseFloat stops at first space → returns 25
+    // «25 000.50» - parseFloat stops at first space → returns 25
     expect(parseFloat('25 000.50')).toBe(25);
   });
 });
@@ -44,7 +44,7 @@ describe('JavaScript parseFloat — RU locale baseline', () => {
 
 /**
  * Locale-aware parse helper (recommended for AppliedModeSummary inputs).
- * Not yet imported into component — documenting expected behaviour.
+ * Not yet imported into component - documenting expected behaviour.
  *
  * @param {string} value User input string
  * @returns {number | NaN}

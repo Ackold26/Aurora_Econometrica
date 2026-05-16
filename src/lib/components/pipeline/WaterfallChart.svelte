@@ -33,7 +33,7 @@
     const support = new Array(n).fill(0);
     /** @type {number[]} display heights (always positive for ECharts) */
     const displayValues = new Array(n).fill(0);
-    /** @type {boolean[]} negative flag per bar — для tooltip + color */
+    /** @type {boolean[]} negative flag per bar - для tooltip + color */
     const isNegative = new Array(n).fill(false);
     let cumulative = 0;
     for (let i = 0; i < n; i++) {
@@ -61,15 +61,15 @@
       const t = types[i];
       if (t === 'baseline') return '#3b82f6';            // blue
       if (t === 'total') return 'rgba(148,163,184,0.5)';  // light grey
-      if (t === 'signed_competitor') return '#dc2626';    // red — explicit negative
-      if (t === 'signed_price') return '#a855f7';         // purple — signed unconstrained
+      if (t === 'signed_competitor') return '#dc2626';    // red - explicit negative
+      if (t === 'signed_price') return '#a855f7';         // purple - signed unconstrained
       if (t === 'signed_weather') return '#0ea5e9';       // sky-blue
       if (t === 'signed_macro') return '#f59e0b';         // amber
       if (t === 'holiday') return '#8b5cf6';              // violet
       if (t === 'positive_control') return '#10b981';     // teal
-      // Negative value, fallback type — still red
+      // Negative value, fallback type - still red
       if (isNegative[i]) return '#dc2626';
-      // 'channel' or generic positive — pick from palette by channel index
+      // 'channel' or generic positive - pick from palette by channel index
       const chIdx = types.slice(0, i).filter(x => x === 'channel').length;
       return CHANNEL_COLORS[(chIdx + 1) % CHANNEL_COLORS.length];
     });

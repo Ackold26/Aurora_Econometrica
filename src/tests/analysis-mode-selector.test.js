@@ -1,5 +1,5 @@
 /**
- * AnalysisModeSelector component tests — v2.0.0.
+ * AnalysisModeSelector component tests - v2.0.0.
  *
  * Tests:
  *   - 2 cards in Manager mode (expertMode=false)

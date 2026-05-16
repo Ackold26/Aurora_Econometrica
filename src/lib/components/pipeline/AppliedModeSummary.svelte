@@ -11,8 +11,8 @@
    *   - CTA to enable Expert mode for per-channel manual control
    *
    * Reads from:
-   *   - $analysisMode — chosen mode store
-   *   - $expertMode — to show/hide CTA
+   *   - $analysisMode - chosen mode store
+   *   - $expertMode - to show/hide CTA
    *
    * Styling: matches KPISelector.svelte + RatioInfoCard.svelte premium tier-1 vocabulary.
    *
@@ -66,7 +66,7 @@
    *  @type {Set<string>} */
   let flashingChannels = $state(new Set());
 
-  // Phase 1.3 (v2.0.1): persistence promotion — modeFor + budgetInputs
+  // Phase 1.3 (v2.0.1): persistence promotion - modeFor + budgetInputs
   // promoted from local $state к shared stores. Sync через project.json
   // на save_kpi_settings (Phase 1.2 extended schema). Reload preserves
   // mode preference.
@@ -90,7 +90,7 @@
 
   /** Есть ли хотя бы один physical канал в ROI mode (converted или нет).
    *  Используется чтобы показывать inline unit_cost inputs даже после
-   *  конвертации — для редактирования. */
+   *  конвертации - для редактирования. */
   const hasAnyPhysicalInRoi = $derived(
     $analysisMode === 'roi' && channels.some(
       (/** @type {ChannelInfo} */ c) => c.detectedType === 'physical'
@@ -107,7 +107,7 @@
    * the same physical unit type (e.g. all «TRP» channels or all «CPM»
    * channels). Smart batch reduces friction (Audit U4).
    *
-   * Stays в parent because requires `channels` list (siblings lookup) —
+   * Stays в parent because requires `channels` list (siblings lookup) -
    * editor child только know about itself.
    *
    * @param {string} sourceChannelName Channel chosen as source of values.
@@ -202,8 +202,8 @@
 
   /**
    * For each channel, infer the display label based on analysisMode.
-   * In ROI mode — monetary каналы show «спенд в ₽», physical-only — warning
-   * (incompatible: true). In effectiveness — все as physical. В mixed — as-is.
+   * In ROI mode - monetary каналы show «спенд в ₽», physical-only - warning
+   * (incompatible: true). In effectiveness - все as physical. В mixed - as-is.
    *
    * BUG #2 fix (v2.0.1): physical unit (TRP, показы) нельзя интерпретировать
    * как ₽ без unit_cost. Помечаем incompatible с visual warning.
@@ -222,7 +222,7 @@
             ? uc.toLocaleString('ru-RU', { maximumFractionDigits: 0 })
             : uc.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
           return {
-            label: `${ucFmt} ${unitLabel(ch.name)} — конвертация в ₽`,
+            label: `${ucFmt} ${unitLabel(ch.name)} - конвертация в ₽`,
             isPhysical: false,
             incompatible: false,
             converted: true,
@@ -239,7 +239,7 @@
         incompatible: false,
       };
     }
-    // mixed — show as-is
+    // mixed - show as-is
     return {
       label: isPhysical ? 'физ. метрика' : 'спенд в ₽',
       isPhysical,
@@ -269,9 +269,9 @@
     </div>
   </header>
 
-  <!-- H-10b: LoadingSkeleton пока classifier-patterns не loaded. Edge case —
+  <!-- H-10b: LoadingSkeleton пока classifier-patterns не loaded. Edge case -
        cold start: customer открывает проект первый раз → backend cold →
-       patterns fetch занимает 200-500ms. Без skeleton — UI flash пустой,
+       patterns fetch занимает 200-500ms. Без skeleton - UI flash пустой,
        потом channels появляются. -->
   {#if !$patternsReady && channels.length > 0}
     <LoadingSkeleton variant="channel-row" rows={channels.length} label="Подгружаем правила классификации каналов..." />
@@ -299,7 +299,7 @@
       <div class="excluded-list" role="region" aria-label="Исключённые каналы" data-testid="excluded-list">
         <p class="excluded-hint">
           Эти каналы автоматически исключены из модели (обычно из-за &gt;50%
-          нулей — низкая активность за период). {hasRestoreAction
+          нулей - низкая активность за период). {hasRestoreAction
             ? 'Кнопка «Вернуть» возвращает канал к role=media.'
             : 'Можно вернуть через шаг «Роли колонок» или применить «Сбросить шаг».'}
         </p>
@@ -329,7 +329,7 @@
       <div class="incompat-banner" role="alert" data-testid="incompat-banner">
         <strong>⚠ {incompatibleCount}
           {pluralizeRu(incompatibleCount, ['канал', 'канала', 'каналов'])}</strong>
-        с физическими метриками (TRP / показы / клики) — для ROI режима их нужно перевести в ₽.
+        с физическими метриками (TRP / показы / клики) - для ROI режима их нужно перевести в ₽.
         <br />
         Укажите для каждого:
         <strong>общий бюджет в ₽</strong> (если известен)
@@ -379,7 +379,7 @@
       {/each}
     </ul>
   {:else}
-    <!-- H-10a — use reusable EmptyState (Phase 2.15 was created but unused). -->
+    <!-- H-10a - use reusable EmptyState (Phase 2.15 was created but unused). -->
     <EmptyState
       icon="📥"
       title="Каналы не определены"
@@ -392,7 +392,7 @@
   {#if !$expertMode}
     <div class="cta-block">
       <p class="cta-text">
-        Нужен ручной выбор единиц per-канал? Включите Expert mode — появится
+        Нужен ручной выбор единиц per-канал? Включите Expert mode - появится
         полный контроль над каждым каналом.
       </p>
       <button type="button" class="btn-expert" onclick={enableExpertMode}>
@@ -663,7 +663,7 @@
   }
   .incompat-banner strong { color: var(--warning, #F59E0B); }
 
-  /* Phase 2.1 (R3): uc-inputs container styling — children styled
+  /* Phase 2.1 (R3): uc-inputs container styling - children styled
      внутри UnitCostEditor.svelte component. */
   .uc-inputs {
     display: flex;
@@ -675,7 +675,7 @@
     border-radius: var(--radius-sm, 8px);
   }
 
-  /* ─── No channels placeholder (legacy — H-10a now uses EmptyState component) ─── */
+  /* ─── No channels placeholder (legacy - H-10a now uses EmptyState component) ─── */
   .no-channels {
     margin: 0;
     font-size: 12.5px;
@@ -751,7 +751,7 @@
     flex-shrink: 0;
   }
 
-  /* ─── Delight transitions — INV-12: only when motion is preferred ─── */
+  /* ─── Delight transitions - INV-12: only when motion is preferred ─── */
   @media (prefers-reduced-motion: no-preference) {
     .channel-item {
       transition: background 0.15s ease-out;

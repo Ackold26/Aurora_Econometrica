@@ -1,5 +1,5 @@
 /**
- * MigrationCompletedToast tests — Phase 2.16.
+ * MigrationCompletedToast tests - Phase 2.16.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';

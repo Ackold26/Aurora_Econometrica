@@ -1,5 +1,5 @@
 /**
- * Classifier patterns SSOT client — Phase 1.1.
+ * Classifier patterns SSOT client - Phase 1.1.
  *
  * Fetches канонические patterns из backend `/api/static/classifier-patterns-v1.json`
  * через Tauri command `econ_classifier_patterns`. Caches result в localStorage
@@ -10,7 +10,7 @@
  * unitLabel() в AppliedModeSummary.svelte. Eliminates regex duplication между
  * Python (utils/column_detection.py) и frontend.
  *
- * Architecture: cache-with-fallback (per audit P-05) — no SPOF, works offline
+ * Architecture: cache-with-fallback (per audit P-05) - no SPOF, works offline
  * после initial fetch.
  *
  * @module classifier-patterns
@@ -22,9 +22,9 @@ const CACHE_KEY = 'aurora-classifier-patterns-v1';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
- * Embedded fallback — last-known good patterns. Synced manually при major
+ * Embedded fallback - last-known good patterns. Synced manually при major
  * version bumps. Used когда backend endpoint unreachable (sidecar crash,
- * network error) — prevents UI hard fail.
+ * network error) - prevents UI hard fail.
  *
  * MUST match shape of backend export_patterns_as_json() output.
  *
@@ -120,7 +120,7 @@ function writeToLocalStorage(payload) {
       JSON.stringify({ _cached_at: Date.now(), _payload: payload }),
     );
   } catch {
-    /* localStorage quota exceeded or unavailable — best-effort */
+    /* localStorage quota exceeded or unavailable - best-effort */
   }
 }
 
@@ -161,7 +161,7 @@ function rebuildCompiledCache(payload) {
  *
  * False до первой успешной resolve `ensurePatternsLoaded()`. UI components
  * могут показать skeleton placeholder пока false. После first resolve
- * (cache hit или backend / embedded fallback) — true и остаётся true.
+ * (cache hit или backend / embedded fallback) - true и остаётся true.
  */
 export const patternsReady = writable(false);
 
@@ -184,7 +184,7 @@ export async function ensurePatternsLoaded() {
     cachedPayload = cached;
     rebuildCompiledCache(cached);
     patternsReady.set(true);
-    // Refresh from backend в background (don't await — best-effort)
+    // Refresh from backend в background (don't await - best-effort)
     refreshFromBackend().catch(() => {});
     return cached;
   }
@@ -230,10 +230,10 @@ async function refreshFromBackend() {
 
 /**
  * Classify column name. Returns 'monetary' | 'physical' для media columns.
- * For Phase 1.1 scope — only those два kinds; rich classification via
+ * For Phase 1.1 scope - only those два kinds; rich classification via
  * backend `econ_validate` returns full role tag.
  *
- * Defaults к 'monetary' если nothing matches (matches audit P-06 decision —
+ * Defaults к 'monetary' если nothing matches (matches audit P-06 decision -
  * conservative default безопасен для ROI mode).
  *
  * @param {string} name
@@ -288,8 +288,8 @@ export function _getCachedPayload() {
 }
 
 /**
- * Reset cached state — для tests only.
- * Also resets patternsReady store (H-10b — иначе setup.js sets true and
+ * Reset cached state - для tests only.
+ * Also resets patternsReady store (H-10b - иначе setup.js sets true and
  * classifier-patterns own tests cannot exercise cold-start path).
  */
 export function _resetCache() {

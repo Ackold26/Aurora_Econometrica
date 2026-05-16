@@ -1,5 +1,5 @@
 /**
- * wizard-state.js unit tests — v2.0.0 state machine + lifecycle.
+ * wizard-state.js unit tests - v2.0.0 state machine + lifecycle.
  *
  * Coverage:
  *   - Initial state defaults

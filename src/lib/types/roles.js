@@ -1,5 +1,5 @@
 /**
- * Column role enum — Phase 2.5 / Audit P-shared-enum.
+ * Column role enum - Phase 2.5 / Audit P-shared-enum.
  *
  * Single source of truth для column role strings used в Aurora MMM
  * Optimizer pipeline. Mirrors Python backend's ColumnKind taxonomy
@@ -93,7 +93,7 @@ export const CONTROL_ROLES = Object.freeze(
 
 /**
  * True если role означает что column excluded from model.
- * Null/undefined treated as excluded (defensive — unknown role state).
+ * Null/undefined treated as excluded (defensive - unknown role state).
  *
  * @param {string | null | undefined} role
  * @returns {boolean}

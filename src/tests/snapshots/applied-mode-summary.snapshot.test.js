@@ -1,5 +1,5 @@
 /**
- * AppliedModeSummary semantic-queries regression — H-17 (Партия 5).
+ * AppliedModeSummary semantic-queries regression - H-17 (Партия 5).
  *
  * Заменяет full HTML blob snapshots на behavioural assertions через
  * @testing-library/svelte queries. Audit F-02 / F-11 identified prior
@@ -62,7 +62,7 @@ beforeEach(() => {
 });
 
 
-describe('AppliedModeSummary — semantic regression (H-17)', () => {
+describe('AppliedModeSummary - semantic regression (H-17)', () => {
   it('case 1: ROI mode с 1 physical TRP unconverted → incompat banner + uc-editor', () => {
     const { getByTestId, getByText, queryByText, container } = render(AppliedModeSummary, {
       props: {
@@ -72,7 +72,7 @@ describe('AppliedModeSummary — semantic regression (H-17)', () => {
       },
     });
 
-    // Header reflects ROI mode — root <aside> с aria-label.
+    // Header reflects ROI mode - root <aside> с aria-label.
     expect(container.querySelector('aside[aria-label="Применённый режим анализа"]')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Все каналы будут поданы в модель как ₽/i })).toBeInTheDocument();
     // mode-badge ROI режим (use queryAll because text может встречаться в badge + kicker)

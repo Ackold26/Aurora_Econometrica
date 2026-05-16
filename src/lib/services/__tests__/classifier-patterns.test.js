@@ -1,5 +1,5 @@
 /**
- * classifier-patterns service tests — Phase 1.1.
+ * classifier-patterns service tests - Phase 1.1.
  *
  * Tests cover: cache-with-fallback flow, RegExp compilation from
  * Python-exported patterns, unit label detection. SSOT parity с backend
@@ -49,11 +49,11 @@ beforeEach(() => {
   _resetCache();
   vi.clearAllMocks();
   invoke.mockReset();
-  // Default mock — empty so embedded fallback engages если test не overrides
+  // Default mock - empty so embedded fallback engages если test не overrides
   invoke.mockResolvedValue(null);
 });
 
-describe('ensurePatternsLoaded — backend success', () => {
+describe('ensurePatternsLoaded - backend success', () => {
   it('fetches from backend и cache в memory', async () => {
     invoke.mockResolvedValueOnce(BACKEND_PAYLOAD);
     const payload = await ensurePatternsLoaded();
@@ -62,7 +62,7 @@ describe('ensurePatternsLoaded — backend success', () => {
     expect(payload.kinds.monetary).toBeDefined();
   });
 
-  it('idempotent — second call uses memory cache', async () => {
+  it('idempotent - second call uses memory cache', async () => {
     invoke.mockResolvedValueOnce(BACKEND_PAYLOAD);
     await ensurePatternsLoaded();
     invoke.mockClear();
@@ -71,7 +71,7 @@ describe('ensurePatternsLoaded — backend success', () => {
   });
 });
 
-describe('ensurePatternsLoaded — backend failure → embedded fallback', () => {
+describe('ensurePatternsLoaded - backend failure → embedded fallback', () => {
   it('uses embedded fallback when backend throws', async () => {
     invoke.mockRejectedValueOnce(new Error('sidecar unreachable'));
     const payload = await ensurePatternsLoaded();
@@ -112,9 +112,9 @@ describe('detectChannelUnitType', () => {
   });
 
   it('handles null/undefined safely', () => {
-    // @ts-expect-error — explicit nullish test
+    // @ts-expect-error - explicit nullish test
     expect(detectChannelUnitType(null)).toBe('monetary');
-    // @ts-expect-error — explicit nullish test
+    // @ts-expect-error - explicit nullish test
     expect(detectChannelUnitType(undefined)).toBe('monetary');
   });
 
@@ -143,7 +143,7 @@ describe('unitLabelFor', () => {
 
   it('handles empty/null', () => {
     expect(unitLabelFor('')).toBe('₽ за 1 единицу');
-    // @ts-expect-error — explicit nullish test
+    // @ts-expect-error - explicit nullish test
     expect(unitLabelFor(null)).toBe('₽ за 1 единицу');
   });
 });

@@ -1,5 +1,5 @@
 /**
- * mode-defaults.js unit tests — v1.3.x → v2.0.0 migration helpers.
+ * mode-defaults.js unit tests - v1.3.x → v2.0.0 migration helpers.
  *
  * Coverage:
  *   - migrateV13ToV20: Cases 1-5 + edge cases

@@ -1,6 +1,6 @@
 <script>
   /**
-   * Multi-scenario comparison route — v2.0.0 (ADR-019 §7).
+   * Multi-scenario comparison route - v2.0.0 (ADR-019 §7).
    *
    * Page shown после Optimize stage когда у project есть ≥2 scenarios.
    * Embeds MultiScenarioPage с overlay chart, comparison table,
@@ -39,7 +39,7 @@
 </script>
 
 <svelte:head>
-  <title>Aurora MMM Optimizer — Сравнение сценариев</title>
+  <title>Aurora MMM Optimizer - Сравнение сценариев</title>
 </svelte:head>
 
 <main class="compare-route">

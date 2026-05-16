@@ -458,9 +458,8 @@
     flex-direction: column;
     gap: 20px;
     padding: 24px;
-    height: 100%;
     box-sizing: border-box;
-    overflow-y: auto;
+    /* v2.1.0 (пилот 2026-05-16): overflow-y убран - .pipeline-main владеет scroll. */
   }
 
   /* ── Action bar ── */

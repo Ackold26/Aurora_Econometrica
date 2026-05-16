@@ -28,7 +28,7 @@
     try {
       const done = window.localStorage.getItem(FIRST_RUN_TOUR_KEY);
       if (!done) showFirstRunTour = true;
-    } catch { /* ok — localStorage blocked */ }
+    } catch { /* ok - localStorage blocked */ }
   });
 
   // Audit fix v1.3.0 (red-team review BLOCKER #1):
@@ -76,7 +76,7 @@
     return result;
   });
 
-  // v1.3.2: column stats lookup для PerChannelInputSelector — позволяет
+  // v1.3.2: column stats lookup для PerChannelInputSelector - позволяет
   // показать data quality preview (zeros%/missing%) per metric option.
   const columnStats = $derived.by(() => {
     const cols = $validateData?.result?.columns;

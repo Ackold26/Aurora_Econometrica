@@ -1,5 +1,5 @@
 /**
- * MultiScenarioChart component tests — v2.0.0 Phase D.
+ * MultiScenarioChart component tests - v2.0.0 Phase D.
  *
  * Chart wraps EChartBase (ECharts, async canvas init). Tests focus on:
  * - DOM structure and conditional rendering (empty state, overflow warning)
@@ -60,7 +60,7 @@ function makeScenarios(n) {
 // ---------------------------------------------------------------------------
 // Suite 1: Empty and guard states
 // ---------------------------------------------------------------------------
-describe('MultiScenarioChart — empty state', () => {
+describe('MultiScenarioChart - empty state', () => {
 
   it('renders without crash when scenarios=[] and no baseline', () => {
     expect(() => render(MultiScenarioChart, { props: { scenarios: [] } })).not.toThrow();
@@ -87,7 +87,7 @@ describe('MultiScenarioChart — empty state', () => {
 // ---------------------------------------------------------------------------
 // Suite 2: Single scenario
 // ---------------------------------------------------------------------------
-describe('MultiScenarioChart — single scenario', () => {
+describe('MultiScenarioChart - single scenario', () => {
 
   it('renders without crash with 1 scenario', () => {
     expect(() =>
@@ -106,7 +106,7 @@ describe('MultiScenarioChart — single scenario', () => {
 // ---------------------------------------------------------------------------
 // Suite 3: Multiple scenarios
 // ---------------------------------------------------------------------------
-describe('MultiScenarioChart — multiple scenarios', () => {
+describe('MultiScenarioChart - multiple scenarios', () => {
 
   it('renders without crash with 3 scenarios', () => {
     expect(() =>
@@ -159,7 +159,7 @@ describe('MultiScenarioChart — multiple scenarios', () => {
 // ---------------------------------------------------------------------------
 // Suite 4: baseline prop
 // ---------------------------------------------------------------------------
-describe('MultiScenarioChart — baseline prop', () => {
+describe('MultiScenarioChart - baseline prop', () => {
 
   it('renders without crash when baseline provided', () => {
     expect(() =>
@@ -184,7 +184,7 @@ describe('MultiScenarioChart — baseline prop', () => {
 // ---------------------------------------------------------------------------
 // Suite 5: CI ribbons
 // ---------------------------------------------------------------------------
-describe('MultiScenarioChart — CI ribbons', () => {
+describe('MultiScenarioChart - CI ribbons', () => {
 
   it('renders without crash when ciLowSeries/ciHighSeries provided', () => {
     const sc = {
@@ -214,18 +214,18 @@ describe('MultiScenarioChart — CI ribbons', () => {
 // ---------------------------------------------------------------------------
 // Suite 6: kpiLabel prop
 // ---------------------------------------------------------------------------
-describe('MultiScenarioChart — kpiLabel prop', () => {
+describe('MultiScenarioChart - kpiLabel prop', () => {
 
   it('chart title contains kpiLabel value', () => {
     render(MultiScenarioChart, {
       props: { scenarios: makeScenarios(1), kpiLabel: 'Продажи' },
     });
-    expect(screen.getByText(/Продажи — Сравнение сценариев/)).toBeInTheDocument();
+    expect(screen.getByText(/Продажи - Сравнение сценариев/)).toBeInTheDocument();
   });
 
   it('default kpiLabel = «KPI» appears in title', () => {
     render(MultiScenarioChart, { props: { scenarios: makeScenarios(1) } });
-    expect(screen.getByText(/KPI — Сравнение сценариев/)).toBeInTheDocument();
+    expect(screen.getByText(/KPI - Сравнение сценариев/)).toBeInTheDocument();
   });
 
   it('custom kpiLabel renders in chart title without crash', () => {

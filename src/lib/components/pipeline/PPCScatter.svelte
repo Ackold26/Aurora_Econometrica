@@ -199,7 +199,7 @@
       },
       tooltip: chartTooltipDark({ trigger: 'axis' }),
       series: /** @type {any[]} */ ([
-        // Mean ± 2σ band — high bound (invisible anchor)
+        // Mean ± 2σ band - high bound (invisible anchor)
         {
           name: 'mean+2σ',
           type: 'line',

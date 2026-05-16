@@ -1,5 +1,5 @@
 /**
- * Phase 2.15 state components tests — EmptyState / LoadingSkeleton / ErrorState.
+ * Phase 2.15 state components tests - EmptyState / LoadingSkeleton / ErrorState.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';

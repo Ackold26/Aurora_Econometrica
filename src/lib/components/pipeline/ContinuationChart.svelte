@@ -147,7 +147,7 @@
       const lineType = (sc.style === 'dashed' || (!sc.style && i % 2 === 1)) ? 'dashed' : 'solid';
       const aligned = alignToTimeline(sc.dates ?? [], sc.predictions ?? []);
 
-      // CI low band (invisible — used only as lower bound for area-between)
+      // CI low band (invisible - used only as lower bound for area-between)
       if (sc.ciLow?.length && sc.ciHigh?.length) {
         const ciLowAligned = alignToTimeline(sc.dates ?? [], sc.ciLow);
         series.push(/** @type {any} */ ({
@@ -164,7 +164,7 @@
           z: 1,
         }));
 
-        // CI high band — fills down to ci_low series
+        // CI high band - fills down to ci_low series
         const ciHighAligned = alignToTimeline(sc.dates ?? [], sc.ciHigh);
         series.push(/** @type {any} */ ({
           name: `${sc.name}_ci_high`,
@@ -277,11 +277,11 @@
 
 <div class="continuation-chart">
   <div class="chart-header">
-    <h3 class="chart-title">{kpiLabel} — Прогноз по сценариям</h3>
+    <h3 class="chart-title">{kpiLabel} - Прогноз по сценариям</h3>
     {#if hiddenCount > 0}
       <div class="overflow-warn" role="alert">
         <Info size={12} />
-        <span>Показаны первые {maxScenarios} из {scenarios.length} сценариев — toggle через legend</span>
+        <span>Показаны первые {maxScenarios} из {scenarios.length} сценариев - toggle через legend</span>
       </div>
     {/if}
   </div>

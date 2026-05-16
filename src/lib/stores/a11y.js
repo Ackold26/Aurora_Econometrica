@@ -1,5 +1,5 @@
 /**
- * a11y.js — accessibility stores (v2.1.0 п.5.6)
+ * a11y.js - accessibility stores (v2.1.0 п.5.6)
  *
  * prefersReducedMotion: reactive readable store that mirrors the
  * CSS media query `(prefers-reduced-motion: reduce)`.

@@ -1,5 +1,5 @@
 /**
- * Industry CPP defaults tests — Phase 4.1.
+ * Industry CPP defaults tests - Phase 4.1.
  */
 import { describe, it, expect } from 'vitest';
 import {

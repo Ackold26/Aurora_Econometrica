@@ -1,15 +1,15 @@
 <script>
   /**
-   * LoadingSkeleton — Phase 2.15 / Audit P-premium-feel.
+   * LoadingSkeleton - Phase 2.15 / Audit P-premium-feel.
    *
    * Shimmer placeholder для loading states (e.g. async fetch classifier
    * patterns, initial validation). Shows blocks at approximate content
    * proportions to reduce perceived wait time.
    *
    * Variants:
-   * - 'card' (default) — single rounded block
-   * - 'list' — N rows of skeleton items (use rows prop)
-   * - 'channel-row' — mimics AppliedModeSummary channel-item visual
+   * - 'card' (default) - single rounded block
+   * - 'list' - N rows of skeleton items (use rows prop)
+   * - 'channel-row' - mimics AppliedModeSummary channel-item visual
    *
    * Respects prefers-reduced-motion: no shimmer if user prefers reduced.
    */

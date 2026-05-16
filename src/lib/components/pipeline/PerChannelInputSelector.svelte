@@ -9,7 +9,7 @@
    * Emits onConfirm(perChannelInput) - dict {channel: 'monetary'|'physical'}.
    *
    * ADR-019 §1: visible ТОЛЬКО в Expert mode. В Manager mode родитель рендерит
-   * AppliedModeSummary вместо этого компонента. Данный guard — defense-in-depth.
+   * AppliedModeSummary вместо этого компонента. Данный guard - defense-in-depth.
    *
    * @component PerChannelInputSelector
    */
@@ -204,7 +204,7 @@
                 </span>
               {/if}
               {#if recommended === 'monetary'}
-                <span class="reco-tag" title="Рекомендуем — у бюджета меньше нулей чем у физических метрик.">рек.</span>
+                <span class="reco-tag" title="Рекомендуем - у бюджета меньше нулей чем у физических метрик.">рек.</span>
               {/if}
             </label>
             <label
@@ -227,7 +227,7 @@
                 </span>
               {/if}
               {#if recommended === 'physical'}
-                <span class="reco-tag" title="Рекомендуем — у физических метрик меньше нулей чем у бюджета.">рек.</span>
+                <span class="reco-tag" title="Рекомендуем - у физических метрик меньше нулей чем у бюджета.">рек.</span>
               {/if}
             </label>
           </td>
@@ -385,7 +385,7 @@
   }
   .radio-cell input[type="radio"]:disabled + * { color: var(--text-muted); }
 
-  /* v1.3.2: quality-stat badge per radio option — zeros% preview. */
+  /* v1.3.2: quality-stat badge per radio option - zeros% preview. */
   .quality-stat {
     display: inline-flex;
     align-items: center;

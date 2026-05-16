@@ -1,6 +1,6 @@
 <script>
   /**
-   * StepSummary — Wizard Step 6: Summary + Diagnostics + Run.
+   * StepSummary - Wizard Step 6: Summary + Diagnostics + Run.
    *
    * Per §2.6 WIZARD_FLOW_v2_FINAL.md:
    *   Shown AFTER training completes (model has been built).
@@ -171,7 +171,7 @@
   /** Sensitivity always yellow (informational) */
   const sensTopEntry = $derived(diagnostics.sensitivity[0] ?? null);
 
-  /** Overall diagnostics status — worst of the three non-sensitivity */
+  /** Overall diagnostics status - worst of the three non-sensitivity */
   const overallStatus = $derived.by(() => {
     const statuses = [mcmcSt, backtestSt, ppcSt];
     if (statuses.includes('red')) return 'red';
@@ -179,7 +179,7 @@
     return 'green';
   });
 
-  /** true if any diagnostic is red — shows cascade warning */
+  /** true if any diagnostic is red - shows cascade warning */
   const hasRedDiagnostic = $derived(
     mcmcSt === 'red' || backtestSt === 'red' || ppcSt === 'red'
   );
@@ -272,11 +272,11 @@
             R-hat {fmt2(diagnostics.mcmcConvergence.rHatMax)},
             ESS {diagnostics.mcmcConvergence.essMin}
             {#if mcmcSt === 'red'}
-              <span class="diag-action"> — рекомендуем re-train</span>
+              <span class="diag-action"> - рекомендуем re-train</span>
             {:else if mcmcSt === 'yellow'}
-              <span class="diag-action"> — допустимо, возможен re-train</span>
+              <span class="diag-action"> - допустимо, возможен re-train</span>
             {:else}
-              <span class="diag-ok"> — OK</span>
+              <span class="diag-ok"> - OK</span>
             {/if}
           </span>
         </div>
@@ -296,11 +296,11 @@
             {/if}
             , R² {fmt2(diagnostics.backtest.r2)}
             {#if backtestSt === 'red'}
-              <span class="diag-action"> — проверьте данные</span>
+              <span class="diag-action"> - проверьте данные</span>
             {:else if backtestSt === 'yellow'}
-              <span class="diag-action"> — есть резерв точности</span>
+              <span class="diag-action"> - есть резерв точности</span>
             {:else}
-              <span class="diag-ok"> — OK</span>
+              <span class="diag-ok"> - OK</span>
             {/if}
           </span>
         </div>
@@ -316,9 +316,9 @@
           <span class="diag-vals">
             R² {fmt2(diagnostics.ppc.r2)} на observed
             {#if diagnostics.ppc.hasBias}
-              <span class="diag-action"> — обнаружен bias в residuals</span>
+              <span class="diag-action"> - обнаружен bias в residuals</span>
             {:else}
-              <span class="diag-ok"> — без bias residuals</span>
+              <span class="diag-ok"> - без bias residuals</span>
             {/if}
           </span>
         </div>
@@ -347,7 +347,7 @@
         <div class="cascade-body">
           <strong>Качество модели требует внимания.</strong>
           Рекомендуем проверить данные и при необходимости повторить обучение прежде чем запускать анализ.
-          Можно продолжить — результаты будут с пометкой «низкая надёжность».
+          Можно продолжить - результаты будут с пометкой «низкая надёжность».
         </div>
       </div>
     {/if}
@@ -380,7 +380,7 @@
           {#each summary.softRecommendations as rec}
             <li class="soft-rec-item">
               <span class="dot">•</span>
-              {rec.channel} — {rec.message}
+              {rec.channel} - {rec.message}
             </li>
           {/each}
         </ul>

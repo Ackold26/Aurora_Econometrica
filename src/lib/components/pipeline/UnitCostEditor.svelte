@@ -1,6 +1,6 @@
 <script>
   /**
-   * UnitCostEditor — Phase 2.1 (R3) partial extract.
+   * UnitCostEditor - Phase 2.1 (R3) partial extract.
    *
    * Two-mode input controller для physical channel в ROI режиме:
    * - Mode A (budget): общий ₽-бюджет за период → derive unit_cost = budget / Σ(units)
@@ -9,7 +9,7 @@
    * State lives в shared stores (unitCosts / unitCostInflation /
    * unitCostInputMode / budgetInputs). Component = presentational + handlers.
    *
-   * Decoupled from AppliedModeSummary parent — receives channel info as
+   * Decoupled from AppliedModeSummary parent - receives channel info as
    * props, parent decides which channels need editor (typically physical
    * channels в ROI mode).
    *
@@ -66,7 +66,7 @@
       : 'низкая точность';
   }
 
-  /** Получить текущий mode для канала. Default — 'budget' (audit U1). */
+  /** Получить текущий mode для канала. Default - 'budget' (audit U1). */
   function modeOf() {
     return $unitCostInputMode[channel.name] ?? 'budget';
   }
@@ -139,7 +139,7 @@
     return uc * channelSum;
   }
 
-  /** Debounce per-input (keyed). Phase 2.4 — 150ms. */
+  /** Debounce per-input (keyed). Phase 2.4 - 150ms. */
   /** @type {Record<string, ReturnType<typeof setTimeout>>} */
   let pendingTimers = {};
 
@@ -233,7 +233,7 @@
             (бюджет ÷ {channelSum.toLocaleString('ru-RU')} ед.)
           </span>
         {:else if !channelSum}
-          <span class="uc-preview-mute">Сумма единиц канала недоступна — выберите режим «Цена 1 ед.»</span>
+          <span class="uc-preview-mute">Сумма единиц канала недоступна - выберите режим «Цена 1 ед.»</span>
         {/if}
       </p>
     </div>
@@ -448,7 +448,7 @@
   /* v2.1.0 п.5.2: stagger flash animation on target channels after
      «Применить ко всем» copy action.
      prefers-reduced-motion: global app.css rule collapses to 0.01ms for
-     motion-sensitive users — no separate override needed here. */
+     motion-sensitive users - no separate override needed here. */
   @media (prefers-reduced-motion: no-preference) {
     @keyframes copy-flash {
       0%   { background: var(--bg-card, #181824); border-color: var(--border-subtle, rgba(255,255,255,0.06)); }

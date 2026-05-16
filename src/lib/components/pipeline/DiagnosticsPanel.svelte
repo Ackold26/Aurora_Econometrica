@@ -3,7 +3,7 @@
    * DiagnosticsPanel - v2.0.0 Phase C diagnostic summary.
    *
    * Manager view (default): 4 traffic-light rows with CSS dot indicators
-   * (accessibility per audit M2 — no emoji for status).
+   * (accessibility per audit M2 - no emoji for status).
    * Expert expand: trace plots placeholder + ESS per-parameter table +
    * PPCScatter sub-component.
    *
@@ -79,8 +79,8 @@
     const ess = d?.ess ?? undefined;
     return {
       status: mcmcStatus(rhat, ess),
-      rhat: rhat != null ? Number(rhat).toFixed(4) : '—',
-      ess: ess != null ? Math.round(ess) : '—',
+      rhat: rhat != null ? Number(rhat).toFixed(4) : '-',
+      ess: ess != null ? Math.round(ess) : '-',
     };
   });
 
@@ -90,8 +90,8 @@
     const r2 = d?.r2 ?? undefined;
     return {
       status: backtestStatus(mape),
-      mape: mape != null ? Number(mape).toFixed(1) : '—',
-      r2: r2 != null ? Number(r2).toFixed(3) : '—',
+      mape: mape != null ? Number(mape).toFixed(1) : '-',
+      r2: r2 != null ? Number(r2).toFixed(3) : '-',
     };
   });
 
@@ -101,8 +101,8 @@
     const dw = d?.durbin_watson ?? undefined;
     return {
       status: ppcStatus(r2),
-      r2: r2 != null ? Number(r2).toFixed(3) : '—',
-      dw: dw != null ? Number(dw).toFixed(2) : '—',
+      r2: r2 != null ? Number(r2).toFixed(3) : '-',
+      dw: dw != null ? Number(dw).toFixed(2) : '-',
     };
   });
 
@@ -110,7 +110,7 @@
     const d = diagnostics?.sensitivity;
     return {
       label: d?.param_label ?? 'Топ-параметр',
-      pct: d?.sensitivity_pct != null ? Number(d.sensitivity_pct).toFixed(1) : '—',
+      pct: d?.sensitivity_pct != null ? Number(d.sensitivity_pct).toFixed(1) : '-',
     };
   });
 
@@ -184,7 +184,7 @@
       <span class="row-hint">
         {#if mcmc.status === 'ok'}Модель сошлась
         {:else if mcmc.status === 'warn'}Частичная сходимость
-        {:else}Не сошлась — нужно больше итераций{/if}
+        {:else}Не сошлась - нужно больше итераций{/if}
       </span>
     </div>
 
@@ -221,7 +221,7 @@
     <!-- Row 4: Sensitivity -->
     <div class="diag-row" role="listitem">
       <span class="tl-dot tl-ok" aria-label="Чувствительность: информация"></span>
-      <span class="row-label">Чувствительность — {sensitivity.label}</span>
+      <span class="row-label">Чувствительность - {sensitivity.label}</span>
       <span class="row-values">
         <span class="metric-chip chip-info">±{sensitivity.pct}%</span>
       </span>
@@ -235,7 +235,7 @@
 
       <div class="expert-badge-row">
         <span class="expert-badge">EXPERT</span>
-        <span class="expert-note"><Info size={12} /> Детальные метрики — только для аналитиков</span>
+        <span class="expert-note"><Info size={12} /> Детальные метрики - только для аналитиков</span>
       </div>
 
       <!-- Trace plots placeholder -->
@@ -279,7 +279,7 @@
       <!-- PPC Scatter sub-component -->
       {#if ppcData}
         <div class="ppc-scatter-wrap">
-          <h4 class="expert-section-title">Posterior Predictive Check — детали</h4>
+          <h4 class="expert-section-title">Posterior Predictive Check - детали</h4>
           <PPCScatter ppcData={ppcData} />
         </div>
       {/if}

@@ -1,6 +1,6 @@
 <script>
   /**
-   * StepMediaConfirm — Wizard Step 3: confirm media input types (F3 factor).
+   * StepMediaConfirm - Wizard Step 3: confirm media input types (F3 factor).
    *
    * Per WIZARD_FLOW_v2_FINAL.md §2.3:
    *   - Table layout of detected channels with auto-detected input type + confidence
@@ -70,7 +70,7 @@
 
   /**
    * Per-channel override state. v2.0.0 audit fix (Frontend C2):
-   * was `$state(Object.fromEntries(...channels))` — captured prop ONCE at mount.
+   * was `$state(Object.fromEntries(...channels))` - captured prop ONCE at mount.
    * If parent updates channels prop after mount, stale data. Now reactive via $effect.
    * @type {Record<string, 'monetary' | 'physical'>}
    */
@@ -218,7 +218,7 @@
     <div class="silent-banner">
       <CheckCircle size={20} strokeWidth={1.5} />
       <span>
-        Все каналы в одном формате ({silentMode === 'monetary' ? '₽' : 'физические метрики'}) — подтверждение автоматически.
+        Все каналы в одном формате ({silentMode === 'monetary' ? '₽' : 'физические метрики'}) - подтверждение автоматически.
       </span>
       <button type="button" class="btn btn-auto" onclick={handleConfirm}>
         Подтвердить <ChevronRight size={14} />
@@ -376,7 +376,7 @@
           <span class="radio-dot" aria-hidden="true"></span>
           <div class="bulk-radio-body">
             <span class="bulk-radio-title">Все каналы в физических метриках</span>
-            <span class="bulk-radio-sub">Эффективность — TRP, показы, клики. Рекомендовано при смешанных данных.</span>
+            <span class="bulk-radio-sub">Эффективность - TRP, показы, клики. Рекомендовано при смешанных данных.</span>
           </div>
         </label>
 

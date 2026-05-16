@@ -1,13 +1,13 @@
 <script>
   /**
-   * StepPlanInputs — Wizard Step 4: task-specific plan inputs.
+   * StepPlanInputs - Wizard Step 4: task-specific plan inputs.
    *
    * 5 variants keyed by taskType:
-   *   A) budget_optimization   — плановый бюджет + период + channel constraints
-   *   B) inverse_optimization  — goal-seek: absolute or relative target + period
-   *   C) what_if               — budget range: ±20% / ±50% / Custom + period
-   *   D) forecast_planned_activities — upload planned activities file + optional non-media
-   *   E) decompose-only        — no inputs; info card only
+   *   A) budget_optimization   - плановый бюджет + период + channel constraints
+   *   B) inverse_optimization  - goal-seek: absolute or relative target + period
+   *   C) what_if               - budget range: ±20% / ±50% / Custom + period
+   *   D) forecast_planned_activities - upload planned activities file + optional non-media
+   *   E) decompose-only        - no inputs; info card only
    *
    * РФ-monthly default per Q-fin-1 / INV-30.
    * Validation is per-variant; «Далее →» enabled only when valid.
@@ -129,7 +129,7 @@
       if (!uploadedFile) return 'Загрузите файл с плановыми активностями';
       return null;
     }
-    // decompose-only — no validation
+    // decompose-only - no validation
     return null;
   });
 
@@ -147,7 +147,7 @@
       fileValidations = [
         { text: 'Каналы соответствуют trained model', status: 'ok' },
         { text: 'Период покрывает плановый горизонт', status: 'ok' },
-        { text: 'Канал «Print» отсутствует в trained model — будет проигнорирован', status: 'warn' },
+        { text: 'Канал «Print» отсутствует в trained model - будет проигнорирован', status: 'warn' },
       ];
     } else {
       fileValidations = [];
@@ -236,7 +236,7 @@
         <span class="unit-label">₽</span>
       </div>
       <p id="budget-hint" class="field-hint">
-        Ориентир: средний бюджет последней активной кампании — 50 млн ₽
+        Ориентир: средний бюджет последней активной кампании - 50 млн ₽
       </p>
     </div>
 
@@ -259,7 +259,7 @@
           <option value="weeks">недель</option>
         </select>
       </div>
-      <p class="field-hint">По умолчанию — 12 месяцев (РФ-стандарт MMM)</p>
+      <p class="field-hint">По умолчанию - 12 месяцев (РФ-стандарт MMM)</p>
     </div>
 
     <div class="section">
@@ -383,7 +383,7 @@
           <option value="weeks">недель</option>
         </select>
       </div>
-      <p class="field-hint">По умолчанию — 12 месяцев</p>
+      <p class="field-hint">По умолчанию - 12 месяцев</p>
     </div>
 
   <!-- ─────── Variant C: what_if ─────── -->
@@ -452,7 +452,7 @@
           <option value="weeks">недель</option>
         </select>
       </div>
-      <p class="field-hint">По умолчанию — 12 месяцев</p>
+      <p class="field-hint">По умолчанию - 12 месяцев</p>
     </div>
 
   <!-- ─────── Variant D: forecast_planned_activities ─────── -->
@@ -472,7 +472,7 @@
           {:else}
             <FileLineChart size={24} strokeWidth={1.5} class="upload-icon" />
             <span class="upload-prompt">Выбрать Excel</span>
-            <span class="upload-hint">.xlsx — плановые активности по каналам</span>
+            <span class="upload-hint">.xlsx - плановые активности по каналам</span>
           {/if}
         </label>
         <input

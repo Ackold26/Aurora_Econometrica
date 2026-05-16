@@ -1,6 +1,6 @@
 <script>
   /**
-   * StepTargetConfirm — Wizard Step 2: confirm target metric (F2 factor).
+   * StepTargetConfirm - Wizard Step 2: confirm target metric (F2 factor).
    *
    * Per WIZARD_FLOW_v2_FINAL.md §2.2:
    *   - Single candidate ≥ 0.95 confidence → silent auto-confirm card + auto-advance hint
@@ -37,19 +37,19 @@
 
   const CONFIDENCE_THRESHOLD = 0.95;
 
-  /** True when single confident candidate — show auto-confirm card */
+  /** True when single confident candidate - show auto-confirm card */
   const isSilentConfirm = $derived(
     targetCandidates.length === 1 && targetCandidates[0]?.confidence >= CONFIDENCE_THRESHOLD
   );
 
-  /** True when multiple candidates — show radio list */
+  /** True when multiple candidates - show radio list */
   const isDisambiguous = $derived(targetCandidates.length > 1);
 
   // ─── Local state ──────────────────────────────────────────────────────────
 
   /**
    * Currently selected column.
-   * v2.0.0 audit fix: $state captured initial value only — now reactive via $effect.
+   * v2.0.0 audit fix: $state captured initial value only - now reactive via $effect.
    * @type {string | null}
    */
   let selectedColumn = $state(/** @type {string | null} */ (null));
@@ -102,7 +102,7 @@
 
   /**
    * Readable label for the «Ценность единицы» input field.
-   * Manager mode — generic. Expert — per-type.
+   * Manager mode - generic. Expert - per-type.
    * @type {string}
    */
   const valueLabel = $derived.by(() => {
@@ -174,7 +174,7 @@
   <header class="intro">
     <h2>Какой целевой показатель будем оптимизировать?</h2>
     <p class="lead">
-      Программа обнаружила следующие кандидаты. Выберите основной показатель — то,
+      Программа обнаружила следующие кандидаты. Выберите основной показатель - то,
       что вы хотите объяснить и улучшить.
     </p>
   </header>

@@ -410,11 +410,16 @@
         <h4>Предпросмотр данных</h4>
         <span class="preview-badge">первые 20 строк</span>
       </div>
-      <DataTable
-        headers={previewHeaders}
-        rows={previewRows}
-        emptyMessage="Нет данных для отображения"
-      />
+      <!-- v2.1.0 (пилот 2026-05-16): ограничение высоты превью внутренним
+           scroll, чтобы кнопка "Далее: Валидация" и блок "Тип моделирования"
+           помещались на первый экран. -->
+      <div class="preview-table-wrap">
+        <DataTable
+          headers={previewHeaders}
+          rows={previewRows}
+          emptyMessage="Нет данных для отображения"
+        />
+      </div>
 
       <!-- v1.0.16+: автоматический выбор движка на основе n_rows.
            n<30 → OLS (small-data fallback, closed-form, ~2-5 сек),
@@ -485,16 +490,18 @@
   .import-step {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: 24px;
-    height: 100%;
+    /* v2.1.0 (пилот 2026-05-16): сокращены gap и padding, убран overflow-y
+       (родительский .pipeline-main владеет scroll) - чтобы кнопка
+       "Далее: Валидация" помещалась на первый экран без обрезки. */
+    gap: 14px;
+    padding: 16px 24px;
     box-sizing: border-box;
-    overflow-y: auto;
   }
 
   /* ── Drop zone ── */
   .drop-zone {
-    min-height: 180px;
+    /* v2.1.0: 180px -> 140px для пустой dropzone (без файла). */
+    min-height: 140px;
     border: 2px dashed var(--dropzone-border);
     border-radius: var(--radius-card, 16px);
     background: var(--dropzone-bg);
@@ -524,7 +531,12 @@
     border-style: solid;
     border-color: color-mix(in srgb, var(--success) 45%, transparent);
     background: color-mix(in srgb, var(--success) 6%, var(--bg-card));
-    min-height: 120px;
+    /* v2.1.0 (пилот 2026-05-16): когда файл загружен - компактная карточка
+       вместо 120px воздуха. */
+    min-height: 0;
+  }
+  .drop-zone.has-file .drop-content {
+    padding: 14px 24px;
   }
 
   /* Inline dropzone - компактная, живёт внутри intro-chooser между карточками */
@@ -656,6 +668,17 @@
     gap: 10px;
     min-height: 0;
     flex: 1;
+  }
+
+  /* v2.1.0 (пилот 2026-05-16): ограничение высоты табличного предпросмотра
+     внутренним scroll. Раньше таблица показывала все 20 строк подряд,
+     отжимая блок "Тип моделирования" и кнопку "Далее" за пределы экрана.
+     290px = около 8 строк видны сразу, остальное прокручивается внутри. */
+  .preview-table-wrap {
+    max-height: 290px;
+    overflow: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
   }
 
   .preview-header {

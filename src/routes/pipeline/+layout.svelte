@@ -29,7 +29,7 @@
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
   import ProjectSelector from '$lib/components/ProjectSelector.svelte';
   // Phase 1.1: kick off SSOT classifier patterns fetch на startup
-  // (cache-with-fallback — UI usable immediately even если backend slow).
+  // (cache-with-fallback - UI usable immediately even если backend slow).
   import { ensurePatternsLoaded } from '$lib/services/classifier-patterns.js';
   // Phase 2.16: trust-signal toast после successful migration.
   import MigrationCompletedToast from '$lib/components/MigrationCompletedToast.svelte';
@@ -45,7 +45,7 @@
   /** @type {HTMLElement | undefined} Главный скрол-контейнер шагов */
   let mainEl = $state();
 
-  // Phase 2.16 — migration-completed toast state.
+  // Phase 2.16 - migration-completed toast state.
   let migrationToast = $state({
     show: false,
     fromVersion: '',
@@ -53,8 +53,8 @@
     movedCount: 0,
   });
 
-  // H-20a — migration error surface (audit). Раньше ошибки уходили в
-  // console.warn — customer not notified. Теперь banner с retry button.
+  // H-20a - migration error surface (audit). Раньше ошибки уходили в
+  // console.warn - customer not notified. Теперь banner с retry button.
   /** @type {{ show: boolean, message: string, projectId: string | null }} */
   let migrationError = $state({ show: false, message: '', projectId: null });
 
@@ -212,7 +212,7 @@
     ensurePatternsLoaded().catch(() => { /* fallback handled internally */ });
 
     // Phase 1.4: opportunistic project.json schema migration на activeProject
-    // load. Idempotent — backend returns no_migration_needed если schema_version
+    // load. Idempotent - backend returns no_migration_needed если schema_version
     // current. Errors silenced (sync version; async modal UI defer к v2.0.2).
     activeProjectId.subscribe(async (id) => {
       if (!id) return;
@@ -225,7 +225,7 @@
             `[migration] project ${id}: ${result.from_version} → ${result.to_version}, ` +
             `moved ${(result.migrated_columns || []).length} cols`,
           );
-          // Phase 2.16 — surface trust-signal toast (audit P-customer-confidence).
+          // Phase 2.16 - surface trust-signal toast (audit P-customer-confidence).
           migrationToast = {
             show: true,
             fromVersion: result.from_version || '',
@@ -236,7 +236,7 @@
       } catch (err) {
         // H-20a: surface error к UI вместо silent console.warn. Customer видит
         // banner + retry button. Без этого corruption / lock timeout уходили
-        // в DevTools console — никто не видел.
+        // в DevTools console - никто не видел.
         console.warn('[migration] failed:', err);
         migrationError = {
           show: true,
@@ -416,7 +416,7 @@
     </div>
   </div>
 
-  <!-- Phase 2.16 — migration trust-signal toast (visible after schema upgrade) -->
+  <!-- Phase 2.16 - migration trust-signal toast (visible after schema upgrade) -->
   <MigrationCompletedToast
     show={migrationToast.show}
     fromVersion={migrationToast.fromVersion}
@@ -425,12 +425,12 @@
     onDismiss={() => { migrationToast = { ...migrationToast, show: false }; }}
   />
 
-  <!-- H-20a — migration error banner с retry. Раньше ошибки уходили в console.warn -->
+  <!-- H-20a - migration error banner с retry. Раньше ошибки уходили в console.warn -->
   {#if migrationError.show}
     <div class="migration-error-wrap" data-testid="migration-error-banner">
       <ErrorState
         title="Не удалось обновить формат проекта"
-        message="Резервная копия project.json сохранена. Попробуйте ещё раз — если ошибка повторится, закройте остальные вкладки и проверьте свободное место на диске."
+        message="Резервная копия project.json сохранена. Попробуйте ещё раз - если ошибка повторится, закройте остальные вкладки и проверьте свободное место на диске."
         severity="error"
         errorCode="MIGRATION_FAILED"
         retryText="Повторить"
@@ -618,7 +618,7 @@
   }
   /* H-13: pulse-анимация только при no-preference (INV-12).
      Reduced-motion users видят static indicator без визуального мерцания.
-     Training может занимать 20-60s — без guard'a вестибулярные нарушения
+     Training может занимать 20-60s - без guard'a вестибулярные нарушения
      получают непрерывную раздражающую анимацию. */
   @media (prefers-reduced-motion: no-preference) {
     .computing-indicator {

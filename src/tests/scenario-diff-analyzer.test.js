@@ -1,5 +1,5 @@
 /**
- * scenario-diff-analyzer.js unit tests — v2.0.0 Phase D.
+ * scenario-diff-analyzer.js unit tests - v2.0.0 Phase D.
  *
  * Coverage:
  *   - generateDiffNarratives: empty, single, 2, 3 scenarios vs baseline
@@ -81,9 +81,9 @@ function makePlanNeg() {
 
 
 // ---------------------------------------------------------------------------
-// Suite 1: generateDiffNarratives — basic guards
+// Suite 1: generateDiffNarratives - basic guards
 // ---------------------------------------------------------------------------
-describe('generateDiffNarratives — guards', () => {
+describe('generateDiffNarratives - guards', () => {
 
   it('empty scenarios array → returns empty array', () => {
     const result = generateDiffNarratives([], null);
@@ -114,9 +114,9 @@ describe('generateDiffNarratives — guards', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 2: generateDiffNarratives — vs baseline narratives
+// Suite 2: generateDiffNarratives - vs baseline narratives
 // ---------------------------------------------------------------------------
-describe('generateDiffNarratives — vs baseline', () => {
+describe('generateDiffNarratives - vs baseline', () => {
 
   it('2 scenarios vs baseline → at least 2 narrative strings', () => {
     const baseline = makeBaseline();
@@ -177,9 +177,9 @@ describe('generateDiffNarratives — vs baseline', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 3: generateDiffNarratives — Aurora-optimized detection
+// Suite 3: generateDiffNarratives - Aurora-optimized detection
 // ---------------------------------------------------------------------------
-describe('generateDiffNarratives — Aurora-opt detection', () => {
+describe('generateDiffNarratives - Aurora-opt detection', () => {
 
   it('Aurora-optimized scenario is detected by name «aurora» pattern', () => {
     const baseline = makeBaseline();
@@ -232,9 +232,9 @@ describe('generateDiffNarratives — Aurora-opt detection', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 4: computePerChannelDiff — structure and sorting
+// Suite 4: computePerChannelDiff - structure and sorting
 // ---------------------------------------------------------------------------
-describe('computePerChannelDiff — structure', () => {
+describe('computePerChannelDiff - structure', () => {
 
   it('returns array of ChannelDiff objects', () => {
     const from = makeBaseline();
@@ -251,7 +251,7 @@ describe('computePerChannelDiff — structure', () => {
     });
   });
 
-  it('sorted by |deltaAbs| descending — largest shift first', () => {
+  it('sorted by |deltaAbs| descending - largest shift first', () => {
     const from = makeBaseline();
     const to = makePlanA();
     // TV: 0.40→0.25 = -0.15, Digital: 0.35→0.50 = +0.15, OOH: same, Print: same
@@ -289,9 +289,9 @@ describe('computePerChannelDiff — structure', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 5: computePerChannelDiff — missing channels
+// Suite 5: computePerChannelDiff - missing channels
 // ---------------------------------------------------------------------------
-describe('computePerChannelDiff — missing channels', () => {
+describe('computePerChannelDiff - missing channels', () => {
 
   it('channel only in «from» → toAlloc=0, deltaAbs negative', () => {
     const from = { id: 'f', name: 'F', budget: 1, predictedKpi: 1, perChannelAllocation: { TV: 0.40, Radio: 0.20 } };

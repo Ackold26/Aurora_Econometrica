@@ -19,7 +19,7 @@
   import { initPsyData } from '$lib/psy.js';
   import { initClassifierData } from '$lib/chat-classifier.js';
   import { initOnboardingData } from '$lib/onboarding-config.js';
-  // v2.0.1-rc2: i18n infrastructure bootstrap. Side-effect import — triggers
+  // v2.0.1-rc2: i18n infrastructure bootstrap. Side-effect import - triggers
   // register() для locale dictionaries + init() с persisted locale.
   // Реальная migration существующих strings → к v2.2.0.
   import '$lib/i18n/index.js';

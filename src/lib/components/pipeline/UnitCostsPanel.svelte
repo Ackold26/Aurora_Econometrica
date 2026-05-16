@@ -27,7 +27,7 @@
   } from '$lib/project-state.js';
 
   // ADR-019 §1: UnitCostsPanel visible ТОЛЬКО при Expert + mixed + physical channel + monetary KPI.
-  // В Manager mode (roi / effectiveness) panel скрыта — single-unit mode не требует конверсионных ставок.
+  // В Manager mode (roi / effectiveness) panel скрыта - single-unit mode не требует конверсионных ставок.
   const hasPhysicalChannel = $derived(
     Object.values($perChannelInput).some((v) => v === 'physical')
   );

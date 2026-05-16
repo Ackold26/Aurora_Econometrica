@@ -1,5 +1,5 @@
 /**
- * FirstRunTour component tests — v2.1.0 п.6.2
+ * FirstRunTour component tests - v2.1.0 п.6.2
  *
  * Tests:
  *   - Рендерится с шагом 1/8
@@ -109,11 +109,11 @@ describe('FirstRunTour', () => {
     const onDone = vi.fn();
     const { container } = render(FirstRunTour, { props: { onDone } });
     const nextBtn = container.querySelector('.frt-btn-next');
-    // Пройти все 8 шагов (последний — «Готово»)
+    // Пройти все 8 шагов (последний - «Готово»)
     for (let i = 0; i < 7; i++) {
       await fireEvent.click(container.querySelector('.frt-btn-next'));
     }
-    // Теперь последний шаг — кнопка говорит «Готово»
+    // Теперь последний шаг - кнопка говорит «Готово»
     expect(container.querySelector('.frt-btn-next')?.textContent?.trim()).toBe('Готово');
     await fireEvent.click(container.querySelector('.frt-btn-next'));
     expect(onDone).toHaveBeenCalledTimes(1);

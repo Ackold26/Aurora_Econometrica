@@ -79,7 +79,7 @@ describe('ColumnMapperConfirm', () => {
     });
     const btn = screen.getByText(/Подтвердить роли/);
     await fireEvent.click(btn);
-    // onConfirm not yet called — animation delay in progress.
+    // onConfirm not yet called - animation delay in progress.
     expect(onConfirm).toHaveBeenCalledTimes(0);
     // Advance past CONFIRM_DELAY (420ms).
     vi.advanceTimersByTime(500);

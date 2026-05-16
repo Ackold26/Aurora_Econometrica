@@ -321,11 +321,11 @@ export const unitCosts = writable({});
 export const unitCostInflation = writable(/** @type {Record<string, number>} */ ({}));
 
 /**
- * Phase 1.3 (v2.0.1) — persist per-channel UI mode preference.
+ * Phase 1.3 (v2.0.1) - persist per-channel UI mode preference.
  * Tracks whether user заполняет unit_cost через 'budget' (total ₽) or
  * 'unit' (price + inflation) mode. Survives reload через project.json.
  *
- * Audit P-03 fix: previously local $state в AppliedModeSummary — reload
+ * Audit P-03 fix: previously local $state в AppliedModeSummary - reload
  * losed mode preference, user re-decided every time.
  *
  * @type {import('svelte/store').Writable<Record<string, 'budget' | 'unit'>>}
@@ -333,7 +333,7 @@ export const unitCostInflation = writable(/** @type {Record<string, number>} */ 
 export const unitCostInputMode = writable(/** @type {Record<string, 'budget' | 'unit'>} */ ({}));
 
 /**
- * Phase 1.3 (v2.0.1) — raw budget input string per channel (для UI restore).
+ * Phase 1.3 (v2.0.1) - raw budget input string per channel (для UI restore).
  * Stored как string чтобы preserve user typing (e.g. partial "50000",
  * locale comma «50,5»). Backend derives unit_cost = budget / Σ(units).
  *
@@ -366,7 +366,7 @@ activeProject.subscribe((p) => {
   }
   // Phase 1.3 (v2.0.1): hydrate UI mode preference + budget input restore.
   // Source: project.json `unit_cost_input_mode` + `budget_inputs` (Phase 1.2
-  // extended save_kpi_settings persists в settings/v13_kpi.json — но
+  // extended save_kpi_settings persists в settings/v13_kpi.json - но
   // activeProject loader merges flat). Reset на project switch (avoid leakage).
   if (p.unit_cost_input_mode && typeof p.unit_cost_input_mode === 'object') {
     unitCostInputMode.set(/** @type {Record<string, 'budget' | 'unit'>} */ (p.unit_cost_input_mode));
@@ -434,7 +434,7 @@ export function syncChannelCategoriesToMedia(mediaColumns) {
  * Default = 'roi'. Set explicitly через AnalysisModeSelector.svelte в Manager mode,
  * или через wizard auto-detect migration logic для existing v1.3.x projects.
  *
- * Per INV-30 (MMM single-unit preference) — Manager mode видит только 'roi' / 'effectiveness'.
+ * Per INV-30 (MMM single-unit preference) - Manager mode видит только 'roi' / 'effectiveness'.
  * 'mixed' доступен только в Expert mode (см. expertMode store).
  *
  * @type {import('svelte/store').Writable<'roi' | 'effectiveness' | 'mixed'>}
@@ -443,14 +443,14 @@ export const analysisMode = writable('roi');
 
 /**
  * @deprecated v2.0.0: backward-compat alias for legacy ValidateStep / InsightsPanel /
- * UnitCostsPanel. Derived from `analysisMode` — 'mixed' maps to 'manual' (старое имя).
+ * UnitCostsPanel. Derived from `analysisMode` - 'mixed' maps to 'manual' (старое имя).
  *
  * Legacy code путь:
  *   $analysisObjective === 'roi'           ↔ $analysisMode === 'roi'
  *   $analysisObjective === 'effectiveness' ↔ $analysisMode === 'effectiveness'
  *   $analysisObjective === 'manual'        ↔ $analysisMode === 'mixed'
  *
- * Legacy ValidateStep.svelte (deprecated) writes to analysisObjective —
+ * Legacy ValidateStep.svelte (deprecated) writes to analysisObjective -
  * compatibility shim ниже (analysisObjectiveLegacyShim) синхронизирует обратно.
  *
  * Будет удалён в v3.0+ после full deprecation legacy ValidateStep.

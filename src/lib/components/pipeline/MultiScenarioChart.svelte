@@ -1,6 +1,6 @@
 <script>
   /**
-   * MultiScenarioChart — N-scenario overlay extension of ContinuationChart.
+   * MultiScenarioChart - N-scenario overlay extension of ContinuationChart.
    *
    * Renders a baseline line + up to N scenario lines, each with:
    *   - CI 90% ribbon (area-between low/high bands)
@@ -55,11 +55,11 @@
    * Alternating solid (1,3,5) + dashed (2,4) for colorblind accessibility.
    */
   const SCENARIO_COLORS = [
-    '#10b981', // emerald — scenario 1
-    '#3b82f6', // blue    — scenario 2
-    '#f59e0b', // amber   — scenario 3
-    '#8b5cf6', // violet  — scenario 4
-    '#ef4444', // red     — scenario 5
+    '#10b981', // emerald - scenario 1
+    '#3b82f6', // blue    - scenario 2
+    '#f59e0b', // amber   - scenario 3
+    '#8b5cf6', // violet  - scenario 4
+    '#ef4444', // red     - scenario 5
   ];
 
   /** Baseline is always grey-slate */
@@ -170,7 +170,7 @@
       const lineType = i % 2 === 0 ? 'solid' : 'dashed';
       const aligned = alignToTimeline(sc.dates ?? [], sc.predictions ?? []);
 
-      // CI bands — only if per-period arrays provided
+      // CI bands - only if per-period arrays provided
       const ciLowArr = sc.ciLowSeries;
       const ciHighArr = sc.ciHighSeries;
 
@@ -178,7 +178,7 @@
         const ciLowAligned = alignToTimeline(sc.dates ?? [], ciLowArr);
         const ciHighAligned = alignToTimeline(sc.dates ?? [], ciHighArr);
 
-        // Lower bound — invisible baseline for area fill
+        // Lower bound - invisible baseline for area fill
         series.push(/** @type {any} */ ({
           name: `${sc.name}_ci_low`,
           type: 'line',
@@ -193,7 +193,7 @@
           z: 1,
         }));
 
-        // Upper bound — fills down to ci_low with semi-transparent area
+        // Upper bound - fills down to ci_low with semi-transparent area
         series.push(/** @type {any} */ ({
           name: `${sc.name}_ci_high`,
           type: 'line',
@@ -309,11 +309,11 @@
 
 <div class="multi-scenario-chart">
   <div class="chart-header">
-    <h3 class="chart-title">{kpiLabel} — Сравнение сценариев</h3>
+    <h3 class="chart-title">{kpiLabel} - Сравнение сценариев</h3>
     {#if hiddenCount > 0}
       <div class="overflow-warn" role="alert">
         <Info size={12} />
-        <span>На графике первые {maxVisible} из {scenarios.length} — остальные только в таблице</span>
+        <span>На графике первые {maxVisible} из {scenarios.length} - остальные только в таблице</span>
       </div>
     {/if}
   </div>

@@ -1,13 +1,13 @@
 <script>
   /**
-   * StepContextConfirm — Wizard Step 5: non-media context factors confirmation.
+   * StepContextConfirm - Wizard Step 5: non-media context factors confirmation.
    *
    * Per §2.5 WIZARD_FLOW_v2_FINAL.md:
    *   Conditional: shown only when ambiguous / unconfirmed non-media factors exist.
    *   If no factors detected, parent ScenarioWizard silently skips this step.
    *
    * Shows:
-   *   - Auto-detected factors (silent, used — confidence ≥0.9)
+   *   - Auto-detected factors (silent, used - confidence ≥0.9)
    *   - Ambiguous factors needing confirmation (competitor_trp, price_average)
    *   - РФ-праздники count (auto-injected, always shown for transparency)
    *   - Planned non-media changes for the forecast period
@@ -136,7 +136,7 @@
       </div>
     </div>
 
-    <!-- ─── Competitor activity (ambiguous — confirm) ─── -->
+    <!-- ─── Competitor activity (ambiguous - confirm) ─── -->
     {#if autoDetectedFactors.competitors?.detected}
       <div class="factor-row factor-ambiguous">
         <span class="factor-status warn">
@@ -179,7 +179,7 @@
       </div>
     {/if}
 
-    <!-- ─── Price (derivable — confirm) ─── -->
+    <!-- ─── Price (derivable - confirm) ─── -->
     {#if autoDetectedFactors.prices?.detected || autoDetectedFactors.prices?.derivable}
       <div class="factor-row factor-ambiguous">
         <span class="factor-status warn">
@@ -250,7 +250,7 @@
       </label>
       <label class="radio-row">
         <input type="radio" name="plannedNonMedia" value="specify" bind:group={plannedNonMedia} />
-        <span class="radio-label">Да — указать плановые значения</span>
+        <span class="radio-label">Да - указать плановые значения</span>
       </label>
     </div>
 

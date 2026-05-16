@@ -1,6 +1,6 @@
 <script>
   /**
-   * MultiScenarioPage — Phase D comparison page orchestrator.
+   * MultiScenarioPage - Phase D comparison page orchestrator.
    *
    * Layout per WIZARD_FLOW_v2_FINAL.md §4.1:
    *   1. MultiScenarioChart (top, full width)
@@ -179,7 +179,7 @@
    * @returns {string}
    */
   function fmtBudget(v) {
-    if (!Number.isFinite(v)) return '—';
+    if (!Number.isFinite(v)) return '-';
     const m = v / 1_000_000;
     if (m >= 1) return `${m.toFixed(m >= 10 ? 0 : 1)} млн ₽`;
     return `${(v / 1_000).toFixed(0)} тыс. ₽`;
@@ -191,7 +191,7 @@
    * @returns {string}
    */
   function fmtKpi(v) {
-    if (!Number.isFinite(v)) return '—';
+    if (!Number.isFinite(v)) return '-';
     if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';
     if (v >= 1_000) return (v / 1_000).toFixed(0) + 'K';
     return Math.round(v).toLocaleString('ru-RU');
@@ -203,7 +203,7 @@
    * @returns {string}
    */
   function fmtCi(sc) {
-    if (sc.ciLow == null || sc.ciHigh == null) return '—';
+    if (sc.ciLow == null || sc.ciHigh == null) return '-';
     return `${fmtKpi(sc.ciLow)} – ${fmtKpi(sc.ciHigh)}`;
   }
 
@@ -213,7 +213,7 @@
    * @returns {string}
    */
   function fmtUplift(sc) {
-    if (!baseline || sc.id === baseline.id) return '—';
+    if (!baseline || sc.id === baseline.id) return '-';
     const pct = upliftPct(sc);
     const sign = pct >= 0 ? '+' : '';
     return `${sign}${pct.toFixed(1)}%`;
@@ -477,7 +477,7 @@
                     {#each allRows as sc (sc.id)}
                       {@const alloc = (sc.perChannelAllocation ?? {})[ch]}
                       <td class="bd-value">
-                        {alloc != null ? `${(alloc * 100).toFixed(1)}%` : '—'}
+                        {alloc != null ? `${(alloc * 100).toFixed(1)}%` : '-'}
                       </td>
                     {/each}
                   </tr>
@@ -552,12 +552,12 @@
           <ul class="dropdown-menu" role="menu">
             <li role="menuitem">
               <button type="button" onclick={handleExportCsv}>
-                CSV — сравнение
+                CSV - сравнение
               </button>
             </li>
             <li role="menuitem">
               <button type="button" onclick={handleExportExcel}>
-                Excel (.xlsx) — сравнение
+                Excel (.xlsx) - сравнение
               </button>
             </li>
             <li role="menuitem">

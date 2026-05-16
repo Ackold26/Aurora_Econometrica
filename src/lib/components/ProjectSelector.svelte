@@ -274,10 +274,10 @@
         <select
           class="industry-select"
           bind:value={newIndustry}
-          title="Отрасль — для подсказок типичной стоимости 1 ед. медиа"
+          title="Отрасль - для подсказок типичной стоимости 1 ед. медиа"
           aria-label="Отрасль проекта"
         >
-          <option value="unknown">— Отрасль —</option>
+          <option value="unknown">- Отрасль -</option>
           <option value="pharma_otc">Фарма OTC</option>
           <option value="pharma_rx">Фарма Rx</option>
           <option value="fmcg">FMCG</option>

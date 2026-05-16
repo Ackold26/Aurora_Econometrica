@@ -10,11 +10,11 @@ describe('pluralizeRu', () => {
     [4, 'канала'],
     [5, 'каналов'],
     [10, 'каналов'],
-    [21, 'канал'],   // exception — units digit 1 but not 11
+    [21, 'канал'],   // exception - units digit 1 but not 11
     [22, 'канала'],
     [25, 'каналов'],
     [101, 'канал'],
-    [121, 'канал'],  // exception — units digit 1 but not 11
+    [121, 'канал'],  // exception - units digit 1 but not 11
   ])('%i → %s', (n, expected) => {
     expect(pluralizeRu(n, forms)).toBe(expected);
   });

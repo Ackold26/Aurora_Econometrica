@@ -1,5 +1,5 @@
 /**
- * Aurora MMM Optimizer v2.0.0 — ScenarioWizard state management.
+ * Aurora MMM Optimizer v2.0.0 - ScenarioWizard state management.
  *
  * Implements the Wizard State Lifecycle from WIZARD_FLOW_v2_FINAL.md §0.6.
  * State machine: IDLE → WIZARD_PENDING → AUTO_DETECTING →
@@ -100,7 +100,7 @@ function lsKey(projectId) {
 
 /**
  * Fields of WizardState that are safe to persist (exclude large autoDetectResults).
- * Per §0.6: localStorage stores partial state for resume — not full detect results.
+ * Per §0.6: localStorage stores partial state for resume - not full detect results.
  * @type {string[]}
  */
 const PERSIST_FIELDS = ['lifecycle', 'currentStep', 'stepData', 'resolvedFactors', 'bestPracticeWarnings', 'escapeReason'];
@@ -149,7 +149,7 @@ export const currentStep = derived(wizardState, ($ws) => $ws.currentStep);
 
 /**
  * True when wizard is actively shown (WIZARD_ACTIVE or AUTO_FILLED states).
- * RUNNING/COMPLETED are read-only (frozen) — not "active" for interaction.
+ * RUNNING/COMPLETED are read-only (frozen) - not "active" for interaction.
  * @type {import('svelte/store').Readable<boolean>}
  */
 export const isWizardActive = derived(
@@ -243,7 +243,7 @@ function computeInvalidatedSteps(changedStep, currentStepData) {
 /**
  * Advance to the next wizard step.
  * Saves current step data before advancing.
- * Frozen wizard (RUNNING/COMPLETED) — ignores with warning.
+ * Frozen wizard (RUNNING/COMPLETED) - ignores with warning.
  *
  * @param {Record<string, any>} [stepDataForCurrentStep] - data to save for the current step
  * @returns {void}
@@ -255,7 +255,7 @@ export function nextStep(stepDataForCurrentStep = {}) {
   const ws = get(wizardState);
 
   if (ws.lifecycle === 'RUNNING' || ws.lifecycle === 'COMPLETED') {
-    console.warn('[WizardState] nextStep() ignored — wizard is frozen in state:', ws.lifecycle);
+    console.warn('[WizardState] nextStep() ignored - wizard is frozen in state:', ws.lifecycle);
     return;
   }
 
@@ -295,7 +295,7 @@ export function prevStep() {
   const ws = get(wizardState);
 
   if (ws.lifecycle === 'RUNNING' || ws.lifecycle === 'COMPLETED') {
-    console.warn('[WizardState] prevStep() ignored — wizard is frozen.');
+    console.warn('[WizardState] prevStep() ignored - wizard is frozen.');
     return null;
   }
 
@@ -309,7 +309,7 @@ export function prevStep() {
   const invalidated = computeInvalidatedSteps(targetStep, ws.stepData);
 
   if (invalidated.length > 0) {
-    // Return warning — caller must show dialog and call confirmPrevStep() on confirm.
+    // Return warning - caller must show dialog and call confirmPrevStep() on confirm.
     const stepNames = invalidated.map((s) => `Step ${s}`).join(', ');
     return {
       changedStep: targetStep,
@@ -318,7 +318,7 @@ export function prevStep() {
     };
   }
 
-  // No invalidation — navigate immediately.
+  // No invalidation - navigate immediately.
   wizardState.update((state) => ({ ...state, currentStep: targetStep }));
   return null;
 }
@@ -357,7 +357,7 @@ export function confirmPrevStep(warning) {
  * @returns {void}
  *
  * @example
- * // User changed Step 2 data — invalidate steps 3, 4, 5, 6
+ * // User changed Step 2 data - invalidate steps 3, 4, 5, 6
  * invalidateDownstream(2);
  */
 export function invalidateDownstream(fromStep) {
@@ -469,7 +469,7 @@ export function applyAutoDetectResults(detectResults) {
     return 'AUTO_FILLED';
   }
 
-  // Partial resolution — show wizard steps
+  // Partial resolution - show wizard steps
   transitionTo('WIZARD_ACTIVE', {
     autoDetectResults: detectResults,
     resolvedFactors: {
@@ -505,7 +505,7 @@ export function persistToLocalStorage(projectId) {
     /** @type {Partial<WizardState>} */
     const partial = {};
     for (const field of PERSIST_FIELDS) {
-      // @ts-ignore — iterating known keys
+      // @ts-ignore - iterating known keys
       partial[field] = ws[field];
     }
     const key = lsKey(projectId);
@@ -519,8 +519,8 @@ export function persistToLocalStorage(projectId) {
 
 /**
  * Load wizard partial state from localStorage (project-scoped key).
- * Merges with defaultWizardState() — missing fields use defaults.
- * Resets autoDetectResults (not persisted — too large, re-run on reload).
+ * Merges with defaultWizardState() - missing fields use defaults.
+ * Resets autoDetectResults (not persisted - too large, re-run on reload).
  *
  * @param {string} projectId
  * @returns {boolean} true if a saved state was found and restored
@@ -551,7 +551,7 @@ export function loadFromLocalStorage(projectId) {
     wizardState.update((current) => ({
       ...current,
       ...parsed,
-      // autoDetectResults never persisted — always reset on reload
+      // autoDetectResults never persisted - always reset on reload
       autoDetectResults: {},
       // Ensure resolvedFactors has all 4 keys even from older persisted state
       resolvedFactors: {
