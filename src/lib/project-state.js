@@ -258,6 +258,19 @@ export const validateData = writable({ result: null, correlationMatrix: null, co
 export const validateSubStep = writable(-2);
 
 /**
+ * v2.1.0 (пилот 2026-05-17): имя KPI колонки, выбранной юзером на Валидации.
+ * ConfigPanel читает этот store для initial selectedKpi - чтобы при смене
+ * KPI на Валидации dropdown на шаге Модель показал тот же выбор.
+ *
+ * Раньше ConfigPanel брал validation.columns.filter(role='kpi')[0].name
+ * (первый KPI alphabetically) - что давало «Продажи в руб. бренд» когда
+ * Антон выбирал «Продажи в уп. бренд».
+ *
+ * @type {import('svelte/store').Writable<string | null>}
+ */
+export const chosenKpiColumn = writable(/** @type {string | null} */ (null));
+
+/**
  * v2.1.0 (пилот 2026-05-16): writable набор active media-каналов на шаге
  * Модель. Ключ - имя канала, значение - включён (галочка стоит) или нет.
  *
@@ -670,6 +683,61 @@ export const modelEngine = writable('bayesian');
 
 /** @type {import('svelte/store').Writable<{diagnostics: any|null, channelParams: any|null, picklePath: string|null, normalization?: {y_mean: number, y_std: number}|null}>} */
 export const modelData = writable({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
+
+/**
+ * v2.1.0 (пилот 2026-05-17): snapshot конфигурации на момент последнего
+ * обучения. Используется для детекции stale model - если юзер изменил
+ * роли колонок / KPI в Валидации после обучения, modelData.diagnostics
+ * и pickle всё ещё содержат старые controls, и декомпозиция показывает
+ * лишние факторы. Сравнение с current validateData даёт banner
+ * «модель устарела».
+ *
+ * @type {import('svelte/store').Writable<{
+ *   kpi: string,
+ *   media: string[],
+ *   control: string[]
+ * } | null>}
+ */
+export const lastTrainedConfig = writable(/** @type {{kpi: string, media: string[], control: string[]} | null} */ (null));
+
+/**
+ * Derived store: проверяет staleness обученной модели.
+ * stale = true когда trained config расходится с current validation
+ * roles (media / control / kpi). Возвращает причину для banner UI.
+ *
+ * @type {import('svelte/store').Readable<{
+ *   stale: boolean,
+ *   reason: string,
+ *   diff: string[]
+ * }>}
+ */
+export const modelStaleStatus = derived(
+  [modelData, validateData, lastTrainedConfig],
+  ([$m, $v, $tc]) => {
+    if (!$m?.diagnostics || !$tc) return { stale: false, reason: '', diff: [] };
+    const cur = /** @type {any[]} */ ($v?.result?.columns || []);
+    const curMedia = cur.filter(c => c?.role === 'media').map(c => c.name).sort();
+    const curControl = cur.filter(c => c?.role === 'control').map(c => c.name).sort();
+    const curKpi = cur.find(c => c?.role === 'kpi')?.name ?? '';
+    const tm = [...($tc.media || [])].sort();
+    const tc = [...($tc.control || [])].sort();
+    /** @type {string[]} */
+    const diff = [];
+    if (curKpi !== $tc.kpi) diff.push(`KPI: «${$tc.kpi}» → «${curKpi}»`);
+    if (curMedia.length !== tm.length || curMedia.some((x, i) => x !== tm[i])) {
+      diff.push(`Медиа-каналы: было ${tm.length}, стало ${curMedia.length}`);
+    }
+    if (curControl.length !== tc.length || curControl.some((x, i) => x !== tc[i])) {
+      diff.push(`Контрольные: было ${tc.length}, стало ${curControl.length}`);
+    }
+    if (diff.length === 0) return { stale: false, reason: '', diff: [] };
+    return {
+      stale: true,
+      reason: 'Конфигурация изменилась после обучения. Текущие результаты содержат факторы предыдущей версии. Переобучите модель.',
+      diff,
+    };
+  }
+);
 
 /** @type {import('svelte/store').Writable<any|null>} */
 export const decomposeData = writable(null);

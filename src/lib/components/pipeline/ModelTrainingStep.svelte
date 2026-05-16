@@ -13,7 +13,7 @@
   import {
     validateData, modelData, isComputing, computeStatus,
     completeStep, setStepError, resetDownstream, expertMode,
-    validationHeaderMetrics,
+    validationHeaderMetrics, modelStaleStatus,
   } from '$lib/project-state.js';
   import ExpertModelPanel from '$lib/components/pipeline/ExpertModelPanel.svelte';
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
@@ -222,6 +222,24 @@
 
 <div class="model-training-step">
 
+  <!-- v2.1.0 (пилот 2026-05-17): stale model banner. Если юзер изменил
+       роли колонок в Валидации ПОСЛЕ обучения - текущие diagnostics и
+       pickle содержат старую конфигурацию. -->
+  {#if stepState === 'trained' && $modelStaleStatus?.stale}
+    <div class="stale-banner" role="alert">
+      <span class="stale-icon" aria-hidden="true">⚠</span>
+      <div class="stale-text">
+        <strong>Конфигурация изменилась после обучения.</strong>
+        {$modelStaleStatus.reason}
+        {#if $modelStaleStatus.diff?.length}
+          <ul class="stale-diff">
+            {#each $modelStaleStatus.diff as line}<li>{line}</li>{/each}
+          </ul>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <!-- Success banner (после тренировки) - заметная подсказка что результаты ниже. -->
   {#if stepState === 'trained' && diagnostics}
     {@const m = diagnostics.metrics ?? diagnostics}
@@ -334,6 +352,40 @@
     border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
     border-radius: 10px;
     animation: success-slide-in 0.4s ease-out;
+  }
+
+  /* v2.1.0 (пилот 2026-05-17): stale model warning banner. */
+  .stale-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 35%, transparent);
+    border-radius: 10px;
+  }
+  .stale-icon {
+    font-size: 18px;
+    line-height: 1.3;
+    color: var(--gold, #c9a449);
+    flex-shrink: 0;
+  }
+  .stale-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .stale-text strong {
+    color: var(--gold, #c9a449);
+    margin-right: 4px;
+  }
+  .stale-diff {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
   }
   @keyframes success-slide-in {
     from { opacity: 0; transform: translateY(-8px); }

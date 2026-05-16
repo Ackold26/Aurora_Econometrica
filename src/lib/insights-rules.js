@@ -476,6 +476,37 @@ export function validateInsights(result, objective = 'roi') {
   const controlCols = cols.filter(/** @param {any} c */ c => c.role === 'control');
   const dateCols = cols.filter(/** @param {any} c */ c => c.role === 'date');
 
+  // v2.1.0 (пилот 2026-05-17): auto-detect outlier колонок. Если control
+  // или kpi колонка имеет sum в 100× больше max media sum → флагнуть как
+  // вероятную ошибку данных. Пилот: «Продажи в руб. конкуренты» 195 млрд
+  // при media 107 млн ломала Bayesian MMM (R²=-159%, 14774 divergences).
+  // Без явного предупреждения юзер не догадается что фактор в 2000× больше
+  // других ломает нормализацию.
+  const maxMediaSum = mediaCols.reduce(
+    /** @param {number} m @param {any} c */
+    (m, c) => Math.max(m, Math.abs(Number(c.stats?.sum ?? 0))),
+    0,
+  );
+  if (maxMediaSum > 0) {
+    /** @type {Array<{name: string, sum: number, ratio: number, role: string}>} */
+    const outliers = [];
+    for (const c of [...controlCols, ...kpiCols]) {
+      const sum = Math.abs(Number(c.stats?.sum ?? 0));
+      if (sum > maxMediaSum * 100) {
+        outliers.push({ name: c.name, sum, ratio: sum / maxMediaSum, role: c.role });
+      }
+    }
+    if (outliers.length > 0) {
+      const top = outliers[0];
+      const fmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
+      out.push({
+        severity: 'warning',
+        text: `Колонка «${top.name}» в ${Math.round(top.ratio)}× больше самого крупного медиа-канала (${fmt.format(Math.round(top.sum))} vs ${fmt.format(Math.round(maxMediaSum))}). Вероятно ошибка данных - проверьте единицы измерения (рубли vs копейки) или формат.`,
+        tip: 'Bayesian MMM нормализует все переменные перед обучением. Фактор в 100× больше остальных доминирует в normalization, что приводит к не-сходимости (R-hat>1.5, высокие divergences) и переобучению. Рекомендуем: либо исправить данные в Excel, либо пометить колонку как «Не использовать».',
+      });
+    }
+  }
+
   if (kpiCols.length > 0 && mediaCols.length > 0) {
     out.push({ severity: 'success', text: `Распознано: KPI - ${kpiCols.map(/** @param {any} c */ c => c.name).join(', ')}, ${mediaCols.length} медиаканал${mediaCols.length > 4 ? 'ов' : mediaCols.length > 1 ? 'а' : ''}, ${controlCols.length} контрольн${controlCols.length === 1 ? 'ая' : 'ых'} переменн${controlCols.length === 1 ? 'ая' : 'ых'}.` });
   } else if (kpiCols.length === 0) {
@@ -932,6 +963,15 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
     severity: 'info',
     text: 'Adstock: «Geometric» - быстрый спад эффекта (1-2 недели, digital). «Weibull» - плавная кривая с build-up (TV, OOH, Радио).',
     tip: 'Geometric: стандарт для OLV, Banners, Social, Performance, Search - эффект рекламы затухает экспоненциально после контакта. Weibull: лучше для охватных (TV, OOH, Радио, Пресса) - эффект нарастает и уходит медленнее. «Авто» - программа выбирает по имени канала.',
+  });
+
+  // ── 3b. v2.1.0 (пилот 2026-05-17): явная информация про auto-injected
+  // holidays. Backend modeler.py:267 добавляет 12 РФ праздников как control
+  // (ADR-019 §5). Юзер не выбирал их и удивляется когда видит в декомпозиции.
+  out.push({
+    severity: 'info',
+    text: 'К контрольным переменным автоматически добавляется 12 праздников РФ (Новый год, 23 февраля, 8 марта, майские, 1 сентября и др.). Это нужно чтобы модель не приписывала сезонные скачки продаж рекламе.',
+    tip: 'Если не нужно учитывать праздники - перейдите в Эксперт-режим и снимите соответствующие галочки в Расширенных настройках. Праздники проходят как обычные controls с собственным коэффициентом.',
   });
 
   // ── 4. Ratio-based warning - v2.1.0 (пилот 2026-05-16): SSOT classifyRatio

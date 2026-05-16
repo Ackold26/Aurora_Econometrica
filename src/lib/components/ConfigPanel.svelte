@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
@@ -88,7 +88,17 @@
   $effect(() => {
     if (validation?.columns) {
       const kpis = validation.columns.filter(/** @param {any} c */ (c) => c.role === 'kpi');
-      if (kpis.length && !selectedKpi) selectedKpi = kpis[0].name;
+      // v2.1.0 (пилот 2026-05-17): отдаём приоритет $chosenKpiColumn (что
+      // юзер выбрал на Валидации), потом fallback на kpis[0].
+      if (kpis.length) {
+        const chosen = $chosenKpiColumn;
+        const fromChosen = chosen && kpis.some(/** @param {any} k */ (k) => k.name === chosen)
+          ? chosen
+          : null;
+        if (!selectedKpi || (fromChosen && fromChosen !== selectedKpi)) {
+          selectedKpi = fromChosen || kpis[0].name;
+        }
+      }
 
       const media = validation.columns.filter(/** @param {any} c */ (c) => c.role === 'media');
       /** @type {Record<string, boolean>} */
@@ -315,6 +325,15 @@
       };
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)
+      // v2.1.0 (пилот 2026-05-17): сохраняем snapshot конфигурации в SSOT
+      // store для последующей детекции stale model (когда юзер меняет роли
+      // в Валидации после обучения - banner предлагает переобучить).
+      lastTrainedConfig.set({
+        kpi: selectedKpi,
+        media: [...enabledChannels],
+        control: [...controlColumns],
+      });
+
       if (useAsyncTraining) {
         lastConfig = config;
         const start = await invoke('econ_train_start', { config });

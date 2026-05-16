@@ -27,6 +27,8 @@
     completeStep, setStepError,
     // v2.1.0 (rc2 U-05): sync subStep в store для InsightsPanel routing.
     validateSubStep,
+    // v2.1.0 (пилот 2026-05-17): persist KPI выбор → ConfigPanel.
+    chosenKpiColumn,
   } from '$lib/project-state.js';
   import {
     deriveModeWithExplanation,
@@ -872,6 +874,13 @@
 
   /** @param {Record<string, string>} mapping - column name → role chosen by user */
   async function handleRolesConfirm(mapping) {
+    // v2.1.0 (пилот 2026-05-17): persist выбор KPI колонки чтобы ConfigPanel
+    // не сбрасывал dropdown на «первый KPI alphabetically».
+    {
+      const kpiName = Object.entries(mapping)
+        .find(([, role]) => role === 'kpi')?.[0];
+      if (kpiName) chosenKpiColumn.set(kpiName);
+    }
     // Persist overrides обратно к validateData.result.columns + project.json.
     const val = get(validateData);
     if (val?.result?.columns) {

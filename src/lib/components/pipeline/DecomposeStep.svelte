@@ -24,6 +24,7 @@
     kpiKind,
     derivedMode,
     valuePerCountUnit,
+    modelStaleStatus,
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
   import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
@@ -388,6 +389,24 @@
 
 <div class="decompose-step">
 
+  <!-- v2.1.0 (пилот 2026-05-17): stale model banner. Декомпозиция читает
+       pickle от прошлого обучения - если юзер изменил роли в Валидации,
+       лишние factors могут появиться в результатах. -->
+  {#if $modelStaleStatus?.stale}
+    <div class="stale-banner" role="alert">
+      <span class="stale-icon" aria-hidden="true">⚠</span>
+      <div class="stale-text">
+        <strong>Декомпозиция устарела.</strong>
+        {$modelStaleStatus.reason} Текущие графики могут содержать факторы, которых уже нет в текущих ролях.
+        {#if $modelStaleStatus.diff?.length}
+          <ul class="stale-diff">
+            {#each $modelStaleStatus.diff as line}<li>{line}</li>{/each}
+          </ul>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   <!-- Loading state -->
   {#if stepState === 'loading'}
     <div class="loading-banner">
@@ -629,6 +648,38 @@
     border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
     border-radius: 10px;
     flex-wrap: wrap;
+  }
+  .stale-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 35%, transparent);
+    border-radius: 10px;
+  }
+  .stale-icon {
+    font-size: 18px;
+    line-height: 1.3;
+    color: var(--gold, #c9a449);
+    flex-shrink: 0;
+  }
+  .stale-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .stale-text strong {
+    color: var(--gold, #c9a449);
+    margin-right: 4px;
+  }
+  .stale-diff {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
   .error-text { flex: 1; font-size: 13px; color: #ef4444; }
