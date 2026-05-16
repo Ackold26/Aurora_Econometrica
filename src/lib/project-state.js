@@ -258,11 +258,19 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
   const result = $vd?.result;
   if (!result) return null;
 
-  const ratio = Number(result.detected?.ratio ?? result.ratio ?? 0) || 0;
-  const nObs = Number(result.file?.rows ?? 0) || 0;
+  // v2.1.0 (пилот 2026-05-16 B-02): ratio считается из ТЕКУЩИХ ролей колонок,
+  // не из stale `result.detected.ratio` (которое было посчитано один раз
+  // при первом econ_validate и не пересчитывается при frontend exclusions).
+  // Эконометрически - ratio = n_observations / (media + control predictors).
+  // Согласовано с ValidateStepV13.ratioCardData (single source of truth).
+  const nObs = Number(result.file?.rows ?? result.detected?.n_rows ?? 0) || 0;
   const cols = /** @type {any[]} */ (result.columns ?? []);
   const mediaCols = cols.filter(c => c.role === 'media');
   const activeMedia = mediaCols.length;
+  const controlCols = cols.filter(c => c.role === 'control');
+  const activeControls = controlCols.length;
+  const nPredictors = activeMedia + activeControls;
+  const ratio = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
 
   // VIF max - collinearity worst-case среди media каналов
   const vifs = mediaCols
@@ -295,17 +303,60 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
    */
   const tierDown = (v, okMax, warnMax) => v <= okMax ? 'ok' : (v <= warnMax ? 'warn' : 'bad');
 
+  // v2.1.0 (пилот 2026-05-16 B-03): severity градация по ratio.
+  // Согласовано с insights-rules.js + RatioInfoCard (single source of truth).
+  // Порог 2:1 - math foundation (Bayesian model identifiability с priors).
+  // Никаких «моделирование невозможно» при ratio >= 2:1.
+  /** @type {'error'|'warning-high'|'warning'|'info'|'success'} */
+  let ratioSeverity;
+  /** @type {string} */
+  let ratioMessage;
+  if (ratio < 2) {
+    ratioSeverity = 'error';
+    ratioMessage = 'Слишком мало данных - модель почти наверняка переобучится';
+  } else if (ratio < 3) {
+    ratioSeverity = 'warning-high';
+    ratioMessage = 'Критически мало данных - модель ненадёжна, оценивайте результаты как качественные ориентиры';
+  } else if (ratio < 4) {
+    ratioSeverity = 'warning';
+    ratioMessage = 'Мало данных - модель работает, но с широкими доверительными интервалами';
+  } else if (ratio < 5) {
+    ratioSeverity = 'info';
+    ratioMessage = 'Достаточно для пилотного запуска. Для production рекомендуется >=4:1';
+  } else {
+    ratioSeverity = 'success';
+    ratioMessage = 'Хорошее соотношение для надёжной модели';
+  }
+
   return {
     ratio,
     ratioStatus: tierUp(ratio, 10, 4),
+    /** v2.1.0: расширенная severity (5 уровней) для UI badges и инсайтов */
+    ratioSeverity,
+    ratioMessage,
     maxVif,
     vifStatus: maxVif == null ? /** @type {'na'} */ ('na') : tierDown(maxVif, 5, 10),
     nObs,
+    nPredictors,
+    activeMedia,
+    activeControls,
     periodStatus: tierUp(nObs, 24, 12),
     mqs,
     mqsStatus: tierUp(mqs, 80, 60),
   };
 });
+
+/**
+ * v2.1.0 (пилот 2026-05-16 B-02): alias для validationHeaderMetrics с понятным
+ * именем для использования в derived components. Это single source of truth
+ * для всех validation metrics (ratio, VIF, nObs, MQS, severity).
+ *
+ * Раньше: sticky header / RatioInfoCard / Insights считали ratio из разных
+ * источников - получали разные значения одновременно (state propagation bug).
+ *
+ * Теперь: все читают `validationMetrics` (или его alias) - гарантия sync.
+ */
+export const validationMetrics = validationHeaderMetrics;
 
 /**
  * Trust Level 2: стоимость 1 юнита канала в валюте KPI (CPP/CPM).
