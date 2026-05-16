@@ -402,8 +402,13 @@ def get_channel_categories(
         return categories
     if not fallback_heuristic:
         return {}
-    # Lazy import (avoid cyclic если utils imports from engines)
-    from econometrica.utils.channel_categorization import infer_categories_heuristic
+    # Lazy import (avoid cyclic если utils imports from engines).
+    # v2.1.0 (пилот 2026-05-16, sidecar 500 fix): абсолютный путь
+    # `from econometrica.utils...` падал с ImportError на шаге Оптимизация,
+    # потому что sidecar запускается с cwd=sidecar/econometrica и пакет
+    # «econometrica» не зарегистрирован на sys.path. Relative-импорт
+    # совпадает с конвенцией остальных модулей в этом файле.
+    from utils.channel_categorization import infer_categories_heuristic
     media_cols = model_data.get('media_columns') or model_data.get('config', {}).get('media_columns', [])
     if not media_cols:
         return {}
