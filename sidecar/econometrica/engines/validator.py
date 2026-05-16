@@ -390,18 +390,32 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         })
 
     # ── Data volume check ──
+    # v2.1.0 (rc2 пилот retry): согласовано с frontend severity градацией
+    # (insights-rules.js, validationHeaderMetrics). Пороги:
+    #   < 2:1 - critical (модель почти наверняка переобучится, минимум для
+    #           Bayesian model identifiability с informative priors)
+    #   2-3:1 - warning (модель ненадёжна, широкие CI)
+    #   3-4:1 - warning (мало данных, для production ≥4:1)
+    #   ≥ 4:1 - ok (рекомендованный уровень)
+    # Никаких «минимум 4:1» - 4:1 это РЕКОМЕНДОВАННЫЙ, а минимум 2:1.
     n_predictors = len(media_cols) + len(control_cols)
     ratio = n_rows / max(n_predictors, 1)
-    if ratio < 3:
+    if ratio < 2:
         issues.append({
             'type': 'insufficient_data',
-            'message': f'Ratio данных {ratio:.1f}:1 - критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных',
+            'message': f'Ratio данных {ratio:.1f}:1 - слишком мало (минимум 2:1, рекомендуется ≥4:1). Модель почти наверняка переобучится - β-коэффициенты будут случайными',
             'severity': 'critical',
+        })
+    elif ratio < 3:
+        warnings.append({
+            'type': 'low_data',
+            'message': f'Ratio {ratio:.1f}:1 - критически мало (рекомендуется ≥4:1). Модель работает, но результаты с широкими доверительными интервалами',
+            'severity': 'warning',
         })
     elif ratio < 4:
         warnings.append({
             'type': 'borderline_data',
-            'message': f'Ratio {ratio:.1f}:1 - пограничное (рекомендуем ≥10:1). Модель построится с расширенными доверительными интервалами',
+            'message': f'Ratio {ratio:.1f}:1 - ниже рекомендованного 4:1. Модель построится, оценки с расширенными доверительными интервалами',
             'severity': 'warning',
         })
 
