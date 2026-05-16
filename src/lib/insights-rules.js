@@ -167,25 +167,58 @@ export function validateInsights(result, objective = 'roi') {
       .sort(/** @param {any} a @param {any} b */ (a, b) => (b.stats?.zeros_pct ?? 0) - (a.stats?.zeros_pct ?? 0));
     const weakNames = weakChannels.map(/** @param {any} c */ c => c.name);
 
+    // v2.1.0 (пилот 2026-05-16 U-03 + B-03): иерархия ratio-fix.
+    // Раньше Aurora сразу предлагала «Исключить N каналов» - это
+    // профессионально вредно (убивает ТВ/digital - omitted variable bias).
+    // Новая логика: конверсия / сбор данных first, исключение last
+    // и только для data quality issues (>50% нулей).
+    //
+    // Severity градация согласована с validationHeaderMetrics:
+    //   ratio < 2:1 -> error
+    //   2-3:1 -> warning (высокий)
+    //   3-4:1 -> warning (обычный)
+    //   4-5:1 -> info
+    //   >= 5:1 -> success
+    //
+    // Никаких «моделирование невозможно» - Bayesian модель технически
+    // обучится даже при ratio 2:1 (с informative priors).
+
+    /** Сколько каналов реально weak (>50% нулей) - кандидаты исключения */
+    const weakRatio = weakNames.length > 0
+      ? totalRows / Math.max(mediaCols.length - weakNames.length + controlCols.length, 1)
+      : ratio;
+
     if (ratio < 2) {
-      const afterExclude = weakNames.length > 0 ? totalRows / Math.max(mediaCols.length - weakNames.length + controlCols.length, 1) : ratio;
       out.push({
         severity: 'error',
-        text: `Критически мало данных: ${totalRows} наблюдений / ${mediaCols.length + controlCols.length} переменных (ratio ${ratio.toFixed(1)}:1, минимум 4:1). ${weakNames.length > 0 ? `Исключите ${weakNames.length} неактивных каналов → ratio станет ${afterExclude.toFixed(1)}:1.` : 'Добавьте данные или уменьшите каналы.'}`,
-        tip: `При ${totalRows} наблюдениях рекомендуется не более ${Math.floor(totalRows / 4)} переменных (4:1). Два пути: (1) добавить данные в недельной гранулярности (${Math.round(totalRows * 4.3)} наблюдений), (2) исключить каналы с >50% нулей и объединить парные метрики.`,
-        action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} неактивных` } : undefined,
+        text: `Слишком мало данных: ${totalRows} наблюдений / ${paramCount} переменных (ratio ${ratio.toFixed(1)}:1). Модель почти наверняка переобучится - β-коэффициенты будут случайными.`,
+        tip: `Bayesian модель технически обучится с informative priors, но результаты будут произвольными. Лучшие пути (по приоритету): (1) добавить данные - перейти на недельную гранулярность (${Math.round(totalRows * 4.3)} наблюдений) или собрать ещё ${Math.max(48 - totalRows, 12)} месяцев; (2) объединить парные метрики каналов (бюджет + показы одного канала = коллинеарность); (3) исключить ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей` : 'каналы без активности'} - только если их вклад в продажи действительно нулевой.`,
+        action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
+      });
+    } else if (ratio < 3) {
+      out.push({
+        severity: 'warning',
+        text: `Критически мало данных: ratio ${ratio.toFixed(1)}:1 (минимум 4:1 для надёжной модели). Модель работает, но широкие доверительные интервалы - результаты как качественные ориентиры, не точные оценки.`,
+        tip: `Приоритет действий: (1) объединить парные метрики (OLV Бюджет + OLV Показы = одна переменная); (2) ${weakNames.length > 0 ? `исключить ${weakNames.length} каналов с >50% нулей (после исключения ratio ${weakRatio.toFixed(1)}:1)` : 'добавить больше истории'}; (3) собрать ≥52 недели данных. Не исключайте основные media каналы (ТВ, OLV, Banners для бренда) без явных data quality проблем - это omitted variable bias, ROI остальных каналов будет завышен.`,
+        action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
       });
     } else if (ratio < 4) {
       out.push({
         severity: 'warning',
-        text: `Мало данных: ratio ${ratio.toFixed(1)}:1 (рекомендуется ≥4:1). ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей можно исключить.` : ''}`,
-        tip: `Для ${mediaCols.length} каналов оптимально ≥${mediaCols.length * 4} наблюдений. Байесовская модель сработает, но с широкими доверительными интервалами.`,
-        action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} неактивных` } : undefined,
+        text: `Мало данных: ratio ${ratio.toFixed(1)}:1 (рекомендуется ≥4:1). Модель сойдётся, но с широкими доверительными интервалами.`,
+        tip: `Для ${mediaCols.length} каналов оптимально ≥${mediaCols.length * 4} наблюдений. Доступные улучшения (по приоритету): объединение парных метрик > конверсия физических метрик в ₽ > сбор больше истории > исключение каналов с явными data quality issues (>50% нулей).`,
+        action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
       });
-    } else if (ratio < 6) {
-      out.push({ severity: 'info', text: `Ratio ${ratio.toFixed(1)}:1 - приемлемо. Модель сойдётся, но для узких доверительных интервалов нужно ≥6:1.` });
+    } else if (ratio < 5) {
+      out.push({
+        severity: 'info',
+        text: `Ratio ${ratio.toFixed(1)}:1 - достаточно для пилота. Для production рекомендуется ≥4:1, для лучших доверительных интервалов ≥5:1.`,
+      });
     } else {
-      out.push({ severity: 'success', text: `Ratio ${ratio.toFixed(1)}:1 - отличное соотношение данных к параметрам.` });
+      out.push({
+        severity: 'success',
+        text: `Ratio ${ratio.toFixed(1)}:1 - хорошее соотношение данных к параметрам. Модель надёжна.`,
+      });
     }
   }
 
