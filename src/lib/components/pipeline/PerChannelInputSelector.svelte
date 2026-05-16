@@ -14,7 +14,33 @@
    * @component PerChannelInputSelector
    */
 
-  import { expertMode } from '$lib/project-state.js';
+  import { expertMode, analysisMode } from '$lib/project-state.js';
+
+  // Mode-aware заголовки и тексты (U-02/4e).
+  const modeHeading = $derived(
+    $analysisMode === 'roi'
+      ? 'Все каналы в модели будут в рублях'
+      : $analysisMode === 'effectiveness'
+        ? 'Все каналы в модели будут в физических контактах'
+        : 'Поканальный выбор единиц'
+  );
+
+  const modeLead = $derived(
+    $analysisMode === 'roi'
+      ? 'Если у канала есть бюджет — используйте ₽-бюджет. Если только физические контакты (TRP, показы, клики) — укажите цену 1 единицы или общий бюджет за период, и Aurora сконвертирует. Без денежного эквивалента ROI канала математически не определён.'
+      : $analysisMode === 'effectiveness'
+        ? 'Если у канала есть только бюджет — можем конвертировать обратно через обычную цену контакта (CPP/CPM). Деньги как сырая метрика в этом режиме не дают долей вклада в KPI.'
+        : 'Каждый канал в той единице, в которой данные более надёжны. Точность ROI ±10–25% за счёт смешения единиц.'
+  );
+
+  // Метки радио-опций адаптируются к режиму.
+  const monetaryLabel = $derived(
+    $analysisMode === 'effectiveness' ? '₽ бюджет + цена контакта' : '₽ бюджет'
+  );
+
+  const physicalLabel = $derived(
+    $analysisMode === 'roi' ? '📊 контакты + цена' : '📊 контакты'
+  );
 
   /** @typedef {{
     monetary: string[],
@@ -109,12 +135,9 @@
 {#if $expertMode}
 <div class="per-channel-selector">
   <header>
-    <h2>Какие метрики каналов используем?</h2>
+    <h2>{modeHeading}</h2>
     <p class="lead">
-      Для каждого канала выберите более надёжный источник данных:
-      <strong>бюджет (₽)</strong> - точные деньги,
-      или <strong>физические контакты</strong> (показы, клики, GRP) - точные охваты.
-      Программа определит режим автоматически после вашего выбора.
+      {modeLead}
       <button
         class="why-link"
         type="button"
@@ -124,29 +147,62 @@
     </p>
     {#if whyExpanded}
       <div class="why-panel" role="region" aria-label="Подробное объяснение">
-        <p><strong>Выбор метрики определяет режим оценки модели:</strong></p>
-        <ul>
-          <li>
-            <strong>Бюджет (₽)</strong> - модель посчитает ROI (return on investment): сколько рублей продаж приносит каждый рубль вложений.
-            Подходит для каналов где деньги - главный input (Performance, Social Ads, OOH с фиксированной ценой).
-          </li>
-          <li>
-            <strong>Физические контакты</strong> - модель посчитает CPU (cost per unit) и эффективность по охватам.
-            Подходит для каналов где budget «грязный» (бартер, скидки, длинные контракты), но GRP/показы измеряются точно - TV, OLV, прямая реклама.
-          </li>
-        </ul>
-        <p>
-          <strong>Программа выберет режим автоматически:</strong>
-        </p>
-        <ul>
-          <li>Все каналы → бюджет = режим <strong>ROI</strong> (monetary attribution).</li>
-          <li>Все каналы → физические = режим <strong>Эффективность</strong> (share-based attribution).</li>
-          <li>Смешанный выбор = режим <strong>Вручную</strong> (вы контролируете каждый канал).</li>
-        </ul>
-        <p class="why-tip">
-          <strong>Правило:</strong> выбирайте более достоверный источник. Если бюджет канала точный - берите его.
-          Если бюджет искажён бартером или скидками, но GRP/показы измеряются прозрачно - берите физический показатель.
-        </p>
+        {#if $analysisMode === 'roi'}
+          <p><strong>Почему все каналы в рублях в режиме ROI?</strong></p>
+          <p>
+            ROI — это возврат на инвестиции: сколько рублей продаж приносит каждый рубль вложений.
+            Для расчёта ROI модели нужен <em>денежный эквивалент</em> каждого канала.
+          </p>
+          <ul>
+            <li>
+              <strong>Есть бюджет (₽)</strong> — используйте напрямую. Это самый чистый вариант.
+            </li>
+            <li>
+              <strong>Есть только физические контакты (TRP, показы, клики)</strong> — укажите цену 1 единицы
+              или общий бюджет за период. Aurora выполнит конвертацию автоматически.
+            </li>
+          </ul>
+          <p class="why-tip">
+            <strong>Важно:</strong> если ни бюджета, ни цены контакта нет — ROI канала математически не определён.
+            Модель либо исключит канал, либо использует контрольную оценку.
+          </p>
+        {:else if $analysisMode === 'effectiveness'}
+          <p><strong>Почему все каналы в физических контактах в режиме Эффективности?</strong></p>
+          <p>
+            Режим Эффективности измеряет <em>доли вклада</em> каналов в KPI (продажи, знание, трафик).
+            Единица — контакты, GRP, показы: именно они создают «давление» на потребителя.
+          </p>
+          <ul>
+            <li>
+              <strong>Есть физические контакты</strong> — используйте напрямую. Это корректная единица для share-attribution.
+            </li>
+            <li>
+              <strong>Есть только бюджет (₽)</strong> — укажите типичную цену контакта (CPP/CPM).
+              Aurora конвертирует бюджет в контакты для выравнивания шкал.
+            </li>
+          </ul>
+          <p class="why-tip">
+            <strong>Важно:</strong> рубли как <em>сырая</em> метрика в этом режиме не показывают доли вклада —
+            только косвенно через стоимость. Без конвертации через цену контакта результаты будут искажены.
+          </p>
+        {:else}
+          <p><strong>Поканальный выбор единиц (режим Эксперт):</strong></p>
+          <p>
+            Каждый канал можно настроить индивидуально — в той единице, в которой данные надёжнее.
+          </p>
+          <ul>
+            <li>
+              <strong>Бюджет (₽)</strong> — если деньги точные (Performance, Social Ads, OOH с фиксированной ценой).
+            </li>
+            <li>
+              <strong>Физические контакты</strong> — если budget «грязный» (бартер, скидки), но GRP/показы прозрачны (TV, OLV).
+            </li>
+          </ul>
+          <p class="why-tip">
+            <strong>Предупреждение:</strong> смешение единиц вносит погрешность ±10–25% в точность ROI.
+            Используйте этот режим осознанно, когда единообразие данных невозможно.
+          </p>
+        {/if}
       </div>
     {/if}
   </header>
@@ -196,7 +252,7 @@
                 disabled={av.monetary.length === 0}
                 onchange={() => setMetric(ch, 'monetary')}
               />
-              <span class="radio-label-text">₽ бюджет</span>
+              <span class="radio-label-text">{monetaryLabel}</span>
               {#if monAgg}
                 <span class="quality-stat {monAgg.zeros > 50 ? 'q-bad' : monAgg.zeros > 25 ? 'q-warn' : 'q-good'}"
                   title="Среднее по {monAgg.count} колон{monAgg.count === 1 ? 'ке' : 'кам'}: {monAgg.zeros.toFixed(0)}% нулей, {monAgg.missing.toFixed(0)}% пропусков.">
@@ -219,7 +275,7 @@
                 disabled={av.physical.length === 0}
                 onchange={() => setMetric(ch, 'physical')}
               />
-              <span class="radio-label-text">📊 контакты</span>
+              <span class="radio-label-text">{physicalLabel}</span>
               {#if physAgg}
                 <span class="quality-stat {physAgg.zeros > 50 ? 'q-bad' : physAgg.zeros > 25 ? 'q-warn' : 'q-good'}"
                   title="Среднее по {physAgg.count} колон{physAgg.count === 1 ? 'ке' : 'кам'}: {physAgg.zeros.toFixed(0)}% нулей, {physAgg.missing.toFixed(0)}% пропусков.">

@@ -51,6 +51,8 @@
   // detected roles в read-only table с possibility override.
   import ColumnMapperConfirm from './ColumnMapperConfirm.svelte';
   import RatioInfoCard from './RatioInfoCard.svelte';
+  import ExpertValidatePanel from './ExpertValidatePanel.svelte';
+  import CorrelationHeatmap from './CorrelationHeatmap.svelte';
   // Phase 1.1 (SSOT): detection через shared service вместо inline regex.
   // Service fetches patterns from backend `/api/static/classifier-patterns-v1.json`,
   // caches в localStorage, falls back к embedded patterns если backend down.
@@ -695,6 +697,45 @@
     return map;
   });
 
+  /**
+   * U-01/4d (пилот 2026-05-16): проверка готовности всех каналов в Manager mode.
+   * Кнопка «Далее» активна когда:
+   *   - все physical-каналы в ROI mode имеют unit_cost > 0 (CPP-конверсия задана)
+   *   - В effectiveness mode physical-каналы готовы без конверсии
+   *   - monetary-каналы всегда готовы (бюджет в ₽ уже есть)
+   * Mirrors логику AppliedModeSummary.incompatibleCount.
+   */
+  const allChannelsConfigured = $derived.by(() => {
+    if (channels.length === 0) return true;  // пустой список → разрешаем продолжить
+    const mode = $analysisMode;
+    const costs = $unitCosts ?? {};
+    for (const name of channels) {
+      const detectedType = $perChannelInput?.[name] ?? detectChannelType(name);
+      if (detectedType === 'physical' && mode === 'roi') {
+        // physical в ROI mode: нужен unit_cost > 0
+        const uc = costs[name];
+        if (typeof uc !== 'number' || uc <= 0) return false;
+      }
+      // monetary → всегда OK; physical + effectiveness → OK без конверсии
+    }
+    return true;
+  });
+
+  /**
+   * U-01/4d (пилот 2026-05-16): подтверждение метрик каналов в Manager mode.
+   * Формирует currentPerChannel из perChannelInput store (или auto-detected типов)
+   * и вызывает handlePerChannelConfirm → subStep = 3.
+   */
+  function confirmMetricsAndProceed() {
+    /** @type {Record<string, 'monetary' | 'physical'>} */
+    const snapshot = {};
+    for (const name of channels) {
+      const t = $perChannelInput?.[name] ?? detectChannelType(name);
+      snapshot[name] = /** @type {'monetary' | 'physical'} */ (t === 'physical' ? 'physical' : 'monetary');
+    }
+    handlePerChannelConfirm(snapshot);
+  }
+
   // v2.0.1-rc2 REORDER: КPI preflight first (subStep=-2), Roles preflight
   // second (subStep=-1). Legacy subStep=0 (AnalysisModeSelector + KPI panel)
   // удалён из nav - теперь KPI selection происходит в preflight, panel не
@@ -999,6 +1040,27 @@
       excludedChannelNames={excludedMediaNames}
       onRestoreChannel={(name) => handleRoleChange(name, 'media')}
     />
+    <!-- U-01/4d (пилот 2026-05-16): Manager mode — явная кнопка «Далее».
+         Без Expert mode пользователь не мог активировать глобальную кнопку
+         «Далее» в footer pipeline — она была заблокирована пока не пройдена
+         PerChannelInputSelector. UX-антипаттерн: корректно настроенные каналы
+         (₽-бюджет / physical с CPP) требовали обязательного захода в Expert.
+         Теперь Manager-path сам подтверждает через confirmMetricsAndProceed(). -->
+    {#if !$expertMode}
+      <div class="substep-footer">
+        <button
+          type="button"
+          class="substep-next-btn"
+          onclick={confirmMetricsAndProceed}
+          disabled={!allChannelsConfigured}
+          title={allChannelsConfigured
+            ? 'Перейти к подтверждению режима анализа'
+            : 'Укажите стоимость 1 единицы (CPP) для всех физических каналов в ROI-режиме'}
+        >
+          Далее ▶
+        </button>
+      </div>
+    {/if}
     <PerChannelInputSelector
       channels={channels}
       availableMetricsByChannel={availableMetricsByChannel}
@@ -1017,6 +1079,23 @@
   {/if}
   </div>
   {/key}
+  {/if}
+
+  {#if $expertMode && $validateData?.result}
+    <section class="expert-extras">
+      <header class="expert-header">
+        <h3>Расширенная диагностика</h3>
+        <p class="expert-lead">
+          Дополнительные показатели для аналитиков: матрица корреляций,
+          мультиколлинеарность (VIF), детальные статистики по колонкам.
+        </p>
+      </header>
+      <CorrelationHeatmap
+        correlationMatrix={$validateData?.result?.full_correlation_matrix ?? { labels: [], matrix: [] }}
+        highCorrelations={$validateData?.result?.high_correlations ?? []}
+      />
+      <ExpertValidatePanel />
+    </section>
   {/if}
 
   {#if busy}
@@ -1238,5 +1317,29 @@
     .spinner {
       border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
     }
+  }
+
+  /* M-02 (пилот 2026-05-16): Expert mode расширенная диагностика */
+  .expert-extras {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 20px 24px;
+    margin-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--accent-primary) 4%, transparent);
+  }
+  .expert-header h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
+  }
+  .expert-lead {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
   }
 </style>
