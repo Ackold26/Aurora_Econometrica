@@ -447,6 +447,29 @@
   <div class="config-group">
     <label class="config-label">
       Adstock
+      <span
+        class="adstock-help-icon"
+        tabindex="0"
+        role="button"
+        aria-label="Справка о типах Adstock"
+        title={`Adstock — модель «остаточного эффекта» рекламы во времени.
+
+Geometric (быстрый спад):
+- Подходит digital каналам (Social, Search, Performance, Banners).
+- Формула: x_t' = x_t + d·x_{t-1} + d²·x_{t-2} + ...
+- Эффект убывает экспоненциально (1-2 недели).
+- Параметр decay d ∈ (0,1). Bayesian модель обучает d.
+
+Weibull (плавная build-up):
+- Подходит охватным каналам с долгосрочным эффектом (TV/TRPs, OOH, Радио).
+- Параметры: shape (форма кривой) + scale (длительность).
+- Эффект сначала растёт, потом убывает (peak через 2-4 недели, длится 8-12).
+- Лучше моделирует brand-building.
+
+Авто:
+- Программа выбирает тип per channel на основе названия (TRP/OOH → Weibull, digital → Geometric).
+- Рекомендуемый выбор для большинства проектов.`}
+      >?</span>
       <span class="config-hint">Тип отложенного эффекта</span>
     </label>
     <div class="adstock-with-preview">
@@ -603,6 +626,33 @@
   .config-hint {
     font-weight: 400;
     opacity: 0.6;
+  }
+
+  /* Adstock help icon — pilot B Phase B 2026-05-17: native title tooltip с
+     описанием Geometric/Weibull/Авто. По hover/focus отображается system
+     tooltip (native title attribute). */
+  .adstock-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--accent-primary, #6ea8fe);
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+    cursor: help;
+    user-select: none;
+    transition: background 0.15s, color 0.15s;
+    line-height: 1;
+  }
+  .adstock-help-icon:hover,
+  .adstock-help-icon:focus {
+    background: rgba(110, 168, 254, 0.2);
+    color: var(--accent-primary, #6ea8fe);
+    outline: none;
   }
 
   .config-select, .config-select-sm {
