@@ -878,9 +878,15 @@
   let _hasRunOnce = false;
 
   $effect(() => {
-    // Register minPct and maxPct as reactive dependencies.
+    // Register minPct, maxPct AND per-channel records (channelMinPct/channelMaxPct)
+    // как reactive dependencies. JSON.stringify читает все ключи $state proxy →
+    // Svelte tracks deep mutations on records (per-channel slider drag → property
+    // change → re-fire). F-015 v2 (2026-05-18): pilot Антон обнаружил что global-
+    // only watching недостаточно — customer iterate per-channel constraints в таблице.
     const _min = minPct;
     const _max = maxPct;
+    const _cMin = JSON.stringify(channelMinPct);
+    const _cMax = JSON.stringify(channelMaxPct);
 
     if (!_autoOptimizeReady) {
       // Skip the initial mount fire — only react to subsequent user changes.
