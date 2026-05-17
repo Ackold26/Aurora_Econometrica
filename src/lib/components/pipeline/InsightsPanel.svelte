@@ -187,9 +187,16 @@
     const paramCount = mediaCount + controlCount;
     const liveRatio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
 
+    // F-001 guard (pilot 2026-05-18): «2 KPI» error показывать только на
+    // sub-step «Роли колонок» (-1) и позже - не на sub-step «Целевая метрика» (-2).
+    // На -2 роли ещё не назначались пользователем; auto-detected result может
+    // иметь 2 KPI cols - это нормально до шага Roles.
+    const subStep = get(validateSubStep);
+    const rolesVisible = subStep >= -1;
+
     let errorMsg = null;
     if (kpiCount === 0) errorMsg = 'Не выбрана целевая метрика';
-    else if (kpiCount > 1) errorMsg = `Выбрано ${kpiCount} целевых метрик (нужна одна)`;
+    else if (kpiCount > 1 && rolesVisible) errorMsg = `Выбрано ${kpiCount} целевых метрик (нужна одна)`;
     else if (mediaCount === 0) errorMsg = 'Нет медиа-каналов';
     else if (liveRatio > 0 && liveRatio < 2) errorMsg = `Ratio ${liveRatio.toFixed(1)}:1 - слишком мало данных`;
 

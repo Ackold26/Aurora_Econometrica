@@ -568,7 +568,32 @@
 
   /** @param {string} colName @param {string} newRole */
   function setOverride(colName, newRole) {
-    overrides = { ...overrides, [colName]: newRole };
+    // F-002 (pilot 2026-05-18): KPI mutual exclusion — radio-like behavior.
+    // When user assigns role='kpi' to column B while column A already has
+    // role='kpi', auto-reset A to its predicted (prop) role or 'excluded'.
+    if (newRole === 'kpi') {
+      /** @type {Record<string, string>} */
+      const next = { ...overrides, [colName]: newRole };
+      for (const col of columns) {
+        if (col.name === colName) continue;
+        const currentRole = overrides[col.name] !== undefined ? overrides[col.name] : (col.role ?? 'excluded');
+        const canonicalRole = (currentRole === 'unused' || currentRole === 'unknown' || currentRole == null)
+          ? 'excluded'
+          : currentRole;
+        if (canonicalRole === 'kpi') {
+          // Reset displaced KPI column to its original predicted role or 'excluded'.
+          const predicted = (col.role === 'unused' || col.role === 'unknown' || col.role == null)
+            ? 'excluded'
+            : col.role;
+          // If predicted role is also 'kpi' (backend assigned both) → fall back to 'excluded'.
+          next[col.name] = (predicted === 'kpi') ? 'excluded' : predicted;
+          onRoleChange?.(col.name, next[col.name]);
+        }
+      }
+      overrides = next;
+    } else {
+      overrides = { ...overrides, [colName]: newRole };
+    }
     // v1.3.2: real-time sync с validateData → InsightsPanel + recommendations
     // reactively recompute. Parent (ValidateStepV13) implements onRoleChange.
     onRoleChange?.(colName, newRole);
