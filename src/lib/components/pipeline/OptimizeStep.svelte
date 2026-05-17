@@ -130,6 +130,14 @@
 
     // Channel budgets re-init к decompose currentSpend (next $effect picks up)
     channelBudgets = {};
+
+    // F-015 v2 follow-up (2026-05-18): resetStep clears channelMinPct/channelMaxPct
+    // которые watching через JSON.stringify в auto-rerun $effect (строки ~880-911).
+    // Без gate reset → mutation → 400ms → unwanted automatic re-optimize. Customer
+    // ожидает «Сбросить расчёты» = чистое состояние, требующее explicit Optimize click.
+    // Restore _hasRunOnce=false gates auto-run до первого нового explicit run.
+    _hasRunOnce = false;
+    if (_autoOptimizeTimer) { clearTimeout(_autoOptimizeTimer); _autoOptimizeTimer = null; }
   }
 
   /** v1.3.0: forward (от бюджета) vs goal-seek (от цели) per ADR-014.
