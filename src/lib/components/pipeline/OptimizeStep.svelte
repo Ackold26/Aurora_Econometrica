@@ -855,6 +855,55 @@
     if (Object.keys(maxInit).length > 0) channelMaxPct = { ...channelMaxPct, ...maxInit };
   });
 
+  // F-015 fix (2026-05-18): Auto-rerun optimizer when Min%/Max% global sliders
+  // change after a successful explicit run. Pre-fix: only the manual «Оптимизировать
+  // бюджет» button triggered backend; slider changes showed dirty-hint but numbers
+  // stayed stale. Fix: $effect watches minPct + maxPct, debounces 400ms so rapid
+  // slider drag fires only once per stable position.
+  //
+  // Design notes:
+  //   - _autoOptimizeReady: plain (non-reactive) JS var → reading it inside $effect
+  //     does NOT register it as a Svelte dep, so it silently skips the initial mount
+  //     fire without adding extra reactive edges.
+  //   - _hasRunOnce: plain var set to true inside runOptimize on success → effect
+  //     skips auto-rerun before first explicit run (stepState='idle' would be reactive
+  //     and would cause spurious re-fires when stepState changes 'optimizing'→'done').
+  //   - stepState is intentionally NOT read here (would track it as a dep and cause
+  //     a loop: 'optimizing'→'done' fires effect → schedules another run).
+  let _autoOptimizeReady = false;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let _autoOptimizeTimer = null;
+  /** Set to true on first successful runOptimize so auto-run doesn't fire before
+   *  the customer has initiated at least one explicit optimization. */
+  let _hasRunOnce = false;
+
+  $effect(() => {
+    // Register minPct and maxPct as reactive dependencies.
+    const _min = minPct;
+    const _max = maxPct;
+
+    if (!_autoOptimizeReady) {
+      // Skip the initial mount fire — only react to subsequent user changes.
+      _autoOptimizeReady = true;
+      return;
+    }
+
+    // Don't auto-run before the first explicit optimizer invocation.
+    if (!_hasRunOnce) return;
+
+    // Debounce: cancel any pending timer and schedule a fresh one.
+    if (_autoOptimizeTimer) clearTimeout(_autoOptimizeTimer);
+    _autoOptimizeTimer = setTimeout(() => {
+      _autoOptimizeTimer = null;
+      runOptimize();
+    }, 400);
+
+    // Cleanup: cancel pending timer when component unmounts or deps change again.
+    return () => {
+      if (_autoOptimizeTimer) { clearTimeout(_autoOptimizeTimer); _autoOptimizeTimer = null; }
+    };
+  });
+
   /** Применить пресет к каналу. */
   function applyPreset(/** @type {string} */ ch, /** @type {keyof typeof CHANNEL_PRESETS} */ preset) {
     const p = CHANNEL_PRESETS[preset];
@@ -1307,6 +1356,8 @@
       if (result.status === 'ok') {
         optimizeData.set(result);
         stepState = 'done';
+        // F-015: mark first successful run so auto-rerun $effect becomes active.
+        _hasRunOnce = true;
         // F1 fix: capture optimal allocation для следующего chain widening call.
         lastOptimalMoneyByChannel = (result.channels ?? []).map(
           /** @param {any} ch */ (ch) => ch.optimal_spend_money,
