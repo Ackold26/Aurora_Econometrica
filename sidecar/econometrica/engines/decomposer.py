@@ -184,6 +184,7 @@ def decompose(
     project_dir: str,
     unit_costs_override: dict | None = None,
     unit_cost_inflation_pct: dict | None = None,
+    kpi_unit_cost_override: float | None = None,
 ) -> dict[str, Any]:
     """Decompose sales into baseline + channel contributions using trained model.
 
@@ -191,6 +192,8 @@ def decompose(
         project_dir: Path to project with models/latest.pkl
         unit_costs_override: Если задан - используется вместо config.unit_costs из pickle.
             Нужно, когда user изменил CPP/CPM после тренировки модели.
+        kpi_unit_cost_override: v2.1.0 (ADR-021) override средней цены единицы count KPI
+            для money ROI conversion. None = используем snapshot из pickle.
 
     Returns:
         JSON with waterfall data, ROI, share of spend vs effect
@@ -324,6 +327,27 @@ def decompose(
         model_data.get('unit_costs_snapshot') or {}
     ) if unit_costs_applied_at_training else {}
 
+    # v2.1.0 (ADR-021): kpi_unit_cost для money ROI conversion при count KPI.
+    # Override из request > snapshot из pickle > None (legacy native units).
+    kpi_unit_cost: float | None
+    if kpi_unit_cost_override is not None and float(kpi_unit_cost_override) > 0:
+        kpi_unit_cost = float(kpi_unit_cost_override)
+    else:
+        _snap = model_data.get('kpi_unit_cost_snapshot')
+        kpi_unit_cost = float(_snap) if _snap is not None and float(_snap) > 0 else None
+    # Detect kpi_kind для условной активации money conversion. Pickles до
+    # ADR-016 могут не иметь kpi_kind в config - fallback на classify_column.
+    _kpi_kind_cfg = (config.get('kpi_kind') or '').lower()
+    if _kpi_kind_cfg in ('count', 'monetary'):
+        kpi_kind = _kpi_kind_cfg
+    else:
+        try:
+            from utils.column_detection import classify_column
+            _kpi_col_classify = classify_column(config.get('kpi_column', '') or '')
+            kpi_kind = 'count' if _kpi_col_classify == 'target_count' else 'monetary'
+        except Exception:
+            kpi_kind = 'monetary'  # safe default - legacy behaviour
+
     # ─────────────────────────────────────────────────────────────────────
     # P0-3/4/10 fix: per-channel per-period contribution = β × hill(adstock(x)/mean) × y_std
     # ─────────────────────────────────────────────────────────────────────
@@ -425,7 +449,17 @@ def decompose(
         unit_cost = float(unit_costs.get(col, 1.0) or 1.0)
         spend_money = raw_spend_total * unit_cost
 
-        roi = channel_total / spend_money if spend_money > 0 else 0
+        # v2.1.0 (ADR-021): money ROI conversion для count KPI.
+        # channel_total всегда в native KPI units (β × hill × y_std).
+        # Для count KPI с заданным kpi_unit_cost → contribution_money =
+        # channel_total × kpi_unit_cost → roi = money/money безразмерный.
+        # Для monetary KPI или count без kpi_unit_cost → legacy native ratio.
+        if kpi_kind == 'count' and kpi_unit_cost is not None:
+            contribution_money = channel_total * kpi_unit_cost
+            roi = contribution_money / spend_money if spend_money > 0 else 0
+        else:
+            contribution_money = channel_total if kpi_kind == 'monetary' else None
+            roi = channel_total / spend_money if spend_money > 0 else 0
 
         # L4 (math-fix v1.4 Section C, 2026-04-28): mroi_current at current allocation
         # via single-source-of-truth helper. Optimize UI miROASMap reads this field
@@ -459,7 +493,12 @@ def decompose(
             'spend': round(spend_money, 0),
             'raw_spend': round(raw_spend_total, 2),
             'unit_cost': unit_cost,
-            'contribution': round(channel_total, 0),
+            'contribution': round(channel_total, 0),  # native KPI units (count для count KPI)
+            # v2.1.0 (ADR-021): money equivalent contribution когда применимо.
+            # None для count KPI без kpi_unit_cost → frontend показывает native.
+            'contribution_money': (
+                round(contribution_money, 0) if contribution_money is not None else None
+            ),
             'contribution_pct': 0,  # filled after total computed below
             'roi': round(roi, 2),
             'mroi_current': round(mroi_current_pt, 4),
@@ -847,6 +886,24 @@ def decompose(
         'baseline': round(baseline_total, 0),
         'baseline_pct': round(baseline_total / total_sales * 100, 1) if total_sales else 0,
         'media_contribution': round(total_media_contribution, 0),
+        # v2.1.0 (ADR-021): money equivalent для count KPI when kpi_unit_cost задан.
+        # Frontend выбирает primary display (money если набор полный).
+        'kpi_unit_cost': kpi_unit_cost,
+        'total_sales_money': (
+            round(total_sales * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(total_sales, 0) if kpi_kind == 'monetary' else None)
+        ),
+        'baseline_money': (
+            round(baseline_total * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(baseline_total, 0) if kpi_kind == 'monetary' else None)
+        ),
+        'media_contribution_money': (
+            round(total_media_contribution * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(total_media_contribution, 0) if kpi_kind == 'monetary' else None)
+        ),
         'channels': channels,
         'insight': insight,
         'waterfall': {

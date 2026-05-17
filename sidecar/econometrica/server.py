@@ -337,6 +337,10 @@ class TrainRequest(BaseModel):
     # 'aided_awareness'/'top_of_mind'/'unaided_awareness' → reject через
     # KPI_TYPE_NOT_IMPLEMENTED (требуют Phase A1a logit-Normal likelihood).
     kpi_type: str = 'sales'
+    # v2.1.0 (ADR-021): средняя цена единицы count KPI в ₽ для money ROI
+    # conversion. None = ROI/contribution в native KPI units (legacy).
+    # Применимо только когда kpi_kind == 'count' (sales_packs/leads/etc).
+    kpi_unit_cost: float | None = None
     # Виртуальные merged каналы (например «Малые медиа» из 4 источников).
     # Frontend InsightsPanel создаёт их как metadata. Backend создаёт
     # df[merged_name] = sum(df[sources]) до column guard. См. utils/merge_rules.py.
@@ -364,6 +368,8 @@ class TrainStartRequest(BaseModel):
     unit_costs: dict[str, float] = {}
     # v2.1.0 (ADR-020): см. TrainRequest.kpi_type
     kpi_type: str = 'sales'
+    # v2.1.0 (ADR-021): см. TrainRequest.kpi_unit_cost
+    kpi_unit_cost: float | None = None
     merge_rules: dict[str, list[str]] = {}
     # Trust Level 3 (v1.1.0): channel_categories propagated в train_model config.
     channel_categories: dict[str, str] = {}
@@ -379,6 +385,10 @@ class DecomposeRequest(BaseModel):
     # year) gets adjusted к training-period weighted-average via inflation
     # rollback. None → no adjustment (legacy behavior).
     unit_cost_inflation_pct: dict[str, float] | None = None
+    # v2.1.0 (ADR-021): override kpi_unit_cost из current UI (не из pickle).
+    # Нужно когда юзер изменил «среднюю цену единицы» после тренировки и хочет
+    # видеть money ROI с новым значением. None = используем pickle snapshot.
+    kpi_unit_cost: float | None = None
 
 
 class OptimizeRequest(BaseModel):
@@ -421,6 +431,8 @@ class OptimizeRequest(BaseModel):
     forecast_period_label: str | None = None
     # Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rate.
     unit_cost_inflation_pct: dict[str, float] | None = None
+    # v2.1.0 (ADR-021): см. DecomposeRequest.kpi_unit_cost
+    kpi_unit_cost: float | None = None
 
 
 class ScenarioRequest(BaseModel):
@@ -437,6 +449,8 @@ class ScenarioRequest(BaseModel):
     unit_costs: dict[str, float] | None = None
     # Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rate.
     unit_cost_inflation_pct: dict[str, float] | None = None
+    # v2.1.0 (ADR-021): см. DecomposeRequest.kpi_unit_cost
+    kpi_unit_cost: float | None = None
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -1095,6 +1109,7 @@ def decompose_sales(req: DecomposeRequest):
         req.project_dir,
         unit_costs_override=req.unit_costs,
         unit_cost_inflation_pct=req.unit_cost_inflation_pct,
+        kpi_unit_cost_override=req.kpi_unit_cost,
     )
     if result.get('status') != 'ok':
         logger.warning(f'/compute/decompose returned error: {result.get("message")}')

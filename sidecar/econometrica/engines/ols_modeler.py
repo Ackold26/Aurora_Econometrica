@@ -384,6 +384,12 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         # v2.1.0 (ADR-020): unit_costs trail для decomposer симметрии.
         'unit_costs_applied_at_training': bool(unit_costs_snapshot),
         'unit_costs_snapshot': dict(unit_costs_snapshot),
+        # v2.1.0 (ADR-021): kpi_unit_cost snapshot для money ROI conversion.
+        'kpi_unit_cost_snapshot': (
+            float(config['kpi_unit_cost'])
+            if config.get('kpi_unit_cost') is not None
+            else None
+        ),
         'normalization': {
             'media_means': media_means,
             'control_means': dict(zip(control_cols, control_means.tolist())) if len(control_cols) > 0 else {},

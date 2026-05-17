@@ -1139,6 +1139,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # симметрии и byte-identical reproducibility (INV-23a).
             'unit_costs_applied_at_training': bool(unit_costs_snapshot),
             'unit_costs_snapshot': dict(unit_costs_snapshot),
+            # v2.1.0 (ADR-021): kpi_unit_cost snapshot для money ROI conversion
+            # в decomposer/optimizer. None = ROI в native KPI units (legacy).
+            'kpi_unit_cost_snapshot': (
+                float(config['kpi_unit_cost'])
+                if config.get('kpi_unit_cost') is not None
+                else None
+            ),
             'normalization': {
                 # P0-1/2/9 fix: spend/mean normalization, media_stds removed (not used)
                 'media_means': media_means.to_dict(),
