@@ -186,15 +186,6 @@
 
   // ─── Предупреждение по периоду ─────────────────────────────────────
   const periodWarn = $derived(nObs > 0 && nObs < 52);
-
-  // Оценочное время обучения
-  const estimatedTime = $derived.by(() => {
-    const ch = mediaColumns.length;
-    if (ch <= 3)  return '15–30 сек';
-    if (ch <= 8)  return '30–60 сек';
-    if (ch <= 15) return '60–90 сек';
-    return '1–3 мин';
-  });
 </script>
 
 <div class="preflight-summary">
@@ -408,9 +399,7 @@
          Должна быть информирующая строка без взаимодействия». Глобальная
          кнопка "Далее ▶" в footer'е делает реальный переход. -->
     <div class="next-hint" aria-live="polite">
-      <span class="next-hint-clock" aria-hidden="true">⧗</span>
-      <span class="next-hint-text">При нажатии «Далее» запустится обучение модели</span>
-      <span class="next-hint-time">~{estimatedTime}</span>
+      <span class="next-hint-text">Вы готовы переходить к обучению модели</span>
     </div>
   </footer>
 </div>
@@ -829,16 +818,8 @@
     cursor: default;
     user-select: text;
   }
-  .next-hint-clock {
-    font-size: 14px;
-    color: var(--text-muted, #64748b);
-  }
   .next-hint-text {
     color: var(--text-secondary, #94a3b8);
-  }
-  .next-hint-time {
-    color: var(--text-muted, #64748b);
-    font-variant-numeric: tabular-nums;
   }
 
   /* ─── Responsive ─────────────────────────────────── */
