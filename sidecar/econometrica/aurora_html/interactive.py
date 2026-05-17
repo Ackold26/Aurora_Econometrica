@@ -744,15 +744,26 @@ def bootstrap_js(
     var baseline = MODEL_CTX.baseline_sum || 0;
     var currentSpends = MODEL_CTX.current_spends_mln || {{}};
 
+    // v2.1.0 (пилот 2026-05-17): per-channel mean fallback. Если top-level
+    // media_means пустой / отсутствует ключ канала - fallback к channel_params[ch].mean
+    // (некоторые pickles до v1.0.16 не имели normalization.media_means top-level dict).
+    function _meanFor(ch) {{
+      var m = mediaMeans[ch];
+      if (typeof m === 'number' && isFinite(m) && m > 0) return m;
+      var p = params[ch];
+      if (p && typeof p.mean === 'number' && isFinite(p.mean) && p.mean > 0) return p.mean;
+      return null;
+    }}
+
     // Baseline KPI with current spends. Guards against div-by-zero,
     // NaN propagation, and invalid Hill params (negative/zero alpha or gamma).
     function predictKPI(spendsMln) {{
       var total_norm_contrib = 0;
       Object.keys(params).forEach(function(ch) {{
         var p = params[ch] || {{}};
-        var mean = mediaMeans[ch];
+        var mean = _meanFor(ch);
         // Skip channel if mean is missing, 0 or non-finite (can't normalize).
-        if (!mean || !isFinite(mean) || mean <= 0) return;
+        if (mean === null) return;
         // Skip if alpha/gamma invalid (Hill formula requires positive params).
         if (!p.alpha || !p.gamma || p.alpha <= 0 || p.gamma <= 0) return;
         var spend = (spendsMln[ch] || 0) * 1e6;

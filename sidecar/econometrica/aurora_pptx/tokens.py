@@ -48,6 +48,9 @@ except ImportError:
             'gold':  {'primary': '#C5A46D', 'muted': '#B8975D'},
             'bg':    {'white': '#FFFFFF', 'quiet': '#F7F7F7'},
             'rule':  '#E5E7EB',
+            # v2.1.0 (пилот 2026-05-17 audit): builder.py:169 ожидает brand.sig.lime
+            # для accent-tag. Без этого ключа PPTX export падал KeyError 'sig'.
+            'sig':   {'lime': '#CCFF00'},
         },
         'data': {
             'ocean': '#3B82F6', 'jade': '#22C55E',

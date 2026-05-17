@@ -358,8 +358,19 @@ class AuroraHTMLBuilder:
         norm = self.raw_model.get("normalization", {}) or {}
 
         # Extract media_means and media_stds per channel (scalar per channel)
-        media_means = norm.get("media_means") or {}
-        media_stds = norm.get("media_stds") or {}
+        media_means = dict(norm.get("media_means") or {})
+        media_stds = dict(norm.get("media_stds") or {})
+
+        # v2.1.0 (пилот 2026-05-17): backfill из channel_params.adstock_mean_posterior
+        # (Bayesian pickles). Это тот же mean что используется decomposer'ом для
+        # spend/mean Hill normalization. Без этого backfill what-if KPI = 0%
+        # для pickles без top-level media_means dict.
+        for ch_name, ch_p in channel_params.items():
+            if ch_name in media_means and media_means[ch_name]:
+                continue
+            mean_post = (ch_p or {}).get("adstock_mean_posterior")
+            if isinstance(mean_post, (int, float)) and mean_post > 0:
+                media_means[ch_name] = float(mean_post)
 
         # Baseline sum: from waterfall "Base" or time_series baseline
         baseline_sum = 0.0
@@ -386,6 +397,15 @@ class AuroraHTMLBuilder:
             for c in self.channels if c.get("name")
         }
 
+        # v2.1.0 (пилот 2026-05-17): enabled gate. Bug: media_means dict отсутствовал /
+        # пустой в некоторых pickle вариантах → enabled=False → what-if UI скрывался
+        # ИЛИ показывался но KPI всегда 0%. Fallback: channel_params[ch].mean per-channel.
+        per_ch_means_ok = any(
+            isinstance((p or {}).get("mean"), (int, float)) and (p or {}).get("mean") and (p or {}).get("mean") > 0
+            for p in channel_params.values()
+        )
+        means_available = bool(media_means) or per_ch_means_ok
+
         payload = {
             "channel_params":    channel_params,
             "normalization": {
@@ -396,7 +416,7 @@ class AuroraHTMLBuilder:
             },
             "baseline_sum":       float(baseline_sum),
             "current_spends_mln": current_spends,
-            "enabled": bool(channel_params and media_means and norm.get("y_std")),
+            "enabled": bool(channel_params and means_available and norm.get("y_std")),
         }
         return security.escape_js_embed(payload)
 

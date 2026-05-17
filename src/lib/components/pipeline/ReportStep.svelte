@@ -211,7 +211,13 @@
   });
 
   // ── Dynamic summary for cover email ─────────────────────────────────────────
-  const ratio    = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.ratio ?? null));
+  // v2.1.0 (пилот 2026-05-17): ratio из SSOT validationHeaderMetrics (current
+  // roles, не stale training-time). Backend pickle хранит pre-exclusion ratio
+  // (1.6:1 для Кагоцел РФ+), но frontend после изменения ролей даёт 4.4:1.
+  // Email текст должен показывать current value (как карточки Валидации).
+  const ratio    = $derived(/** @type {number|null} */ (
+    $validationHeaderMetrics?.ratio ?? mData?.diagnostics?.metrics?.ratio ?? null
+  ));
   const rHat     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_hat_max ?? null));
   const divergences = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.divergences ?? null));
   const basePct  = $derived(/** @type {number|null} */ (dData?.baseline_pct ?? null));

@@ -157,23 +157,34 @@ class AuroraPPTXBuilder:
         self.prs.slide_width = Inches(13.333)
         self.prs.slide_height = Inches(7.5)
 
+        # v2.1.0 (пилот 2026-05-17): defensive .get() chain - aurora_tokens fallback
+        # может не содержать nested ключи (brand.sig.lime, brand.bg.quiet). PPTX
+        # export ранее падал KeyError 'sig' → frontend показывал red banner.
         c = self.t["color"]
-        self.deep_100 = hex_to_rgb(c["brand"]["deep"]["100"])
-        self.deep_80 = hex_to_rgb(c["brand"]["deep"]["80"])
-        self.deep_60 = hex_to_rgb(c["brand"]["deep"]["60"])
-        self.deep_40 = hex_to_rgb(c["brand"]["deep"]["40"])
-        self.deep_20 = hex_to_rgb(c["brand"]["deep"]["20"])
-        self.gold = hex_to_rgb(c["brand"]["gold"]["primary"])
-        self.gold_muted = hex_to_rgb(c["brand"]["gold"]["muted"])
-        self.rule_color = hex_to_rgb(c["brand"]["rule"])
-        self.lime = hex_to_rgb(c["brand"]["sig"]["lime"])
-        self.white = hex_to_rgb(c["brand"]["bg"]["white"])
-        self.bg_quiet = hex_to_rgb(c["brand"]["bg"]["quiet"])
+        brand = c.get("brand", {}) if isinstance(c, dict) else {}
+        deep = brand.get("deep", {}) if isinstance(brand, dict) else {}
+        gold = brand.get("gold", {}) if isinstance(brand, dict) else {}
+        bg = brand.get("bg", {}) if isinstance(brand, dict) else {}
+        sig = brand.get("sig", {}) if isinstance(brand, dict) else {}
+        self.deep_100 = hex_to_rgb(deep.get("100", "#0A1628"))
+        self.deep_80  = hex_to_rgb(deep.get("80",  "#1E293B"))
+        self.deep_60  = hex_to_rgb(deep.get("60",  "#475569"))
+        self.deep_40  = hex_to_rgb(deep.get("40",  "#94A3B8"))
+        self.deep_20  = hex_to_rgb(deep.get("20",  "#CBD5E1"))
+        self.gold       = hex_to_rgb(gold.get("primary", "#C5A46D"))
+        self.gold_muted = hex_to_rgb(gold.get("muted",   "#B8975D"))
+        self.rule_color = hex_to_rgb(brand.get("rule", "#E5E7EB"))
+        self.lime       = hex_to_rgb(sig.get("lime", "#CCFF00"))
+        self.white      = hex_to_rgb(bg.get("white", "#FFFFFF"))
+        self.bg_quiet   = hex_to_rgb(bg.get("quiet", "#F7F7F7"))
 
-        ty = self.t["typography"]
-        self.serif = ty["fontFamily"]["serif"]
-        self.sans = ty["fontFamily"]["sans"]
-        self.mono = ty["fontFamily"]["mono"]
+        # v2.1.0 (пилот 2026-05-17): defensive access - fallback TYPOGRAPHY мог не
+        # содержать nested ключи. PPTX export ранее падал KeyError 'fontFamily'.
+        ty = self.t.get("typography") or {}
+        fam = (ty.get("fontFamily") or {}) if isinstance(ty, dict) else {}
+        self.serif = fam.get("serif", "Georgia")
+        self.sans  = fam.get("sans",  "Arial")
+        self.mono  = fam.get("mono",  "Consolas")
 
         self.safe = 0.4
         self.w = 13.333
