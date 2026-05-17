@@ -1436,22 +1436,35 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
 
 
 def render_methodology(ctx: dict) -> str:
-    """Section 11: Methodology + limitations."""
+    """Section 11: Methodology + limitations. v2.1.0 Pilot C: engine-aware."""
     strings = ctx["strings"]
     diag = ctx.get("diagnostics") or {}
     kicker = strings["sections"]["method"]["kicker"]
     meth = strings["methodology"]
 
-    formulas_text = "\n".join(meth["spec_formulas"])
+    # v2.1.0 (Pilot C): engine detection - 'ols' для small-data fallback.
+    is_ols = (diag.get("engine") == "ols") or (ctx.get("model_version") == "1.0-ols")
+
+    # Engine-aware formulas: OLS использует closed-form + bootstrap;
+    # Bayesian - posterior priors. JSON fallback к base formulas если ключ отсутствует.
+    if is_ols and "spec_formulas_ols" in meth:
+        formulas_text = "\n".join(meth["spec_formulas_ols"])
+    else:
+        formulas_text = "\n".join(meth["spec_formulas"])
     diag_items = []
     if diag.get("r_squared") is not None:
         diag_items.append(("R²", f"{float(diag['r_squared']):.3f}"))
     if diag.get("mape_pct") is not None:
         diag_items.append(("MAPE", f"{float(diag['mape_pct']):.1f}%"))
-    if diag.get("r_hat_max") is not None:
-        diag_items.append(("R-hat (max)", f"{float(diag['r_hat_max']):.3f}"))
-    if diag.get("ess_min") is not None:
-        diag_items.append(("ESS (min)", _fmt_int(diag['ess_min'])))
+    # OLS guard: hide MCMC diagnostics; show method/CI labels вместо.
+    if is_ols:
+        diag_items.append(("Метод", "closed-form OLS"))
+        diag_items.append(("CI", "bootstrap n=1000"))
+    else:
+        if diag.get("r_hat_max") is not None:
+            diag_items.append(("R-hat (max)", f"{float(diag['r_hat_max']):.3f}"))
+        if diag.get("ess_min") is not None:
+            diag_items.append(("ESS (min)", _fmt_int(diag['ess_min'])))
     diag_html = "\n".join(
         f'<li><span class="diag-label">{escape(lbl)}</span><span class="diag-value">{escape(val)}</span></li>'
         for lbl, val in diag_items
@@ -1465,8 +1478,21 @@ def render_methodology(ctx: dict) -> str:
     # Trust Level 3 (v1.1.0): auto-generated brand vs performance block.
     brand_perf_html = _render_brand_perf_split_block(ctx)
 
+    # v2.1.0 Pilot C: engine-aware action title + prior note text.
+    _ats = strings["action_titles"]
+    _action_text = (
+        _ats.get("s10_methodology_ols", _ats["s10_methodology"])
+        if is_ols
+        else _ats["s10_methodology"]
+    )
+    _prior_note = (
+        "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=1000 для CI."
+        if is_ols
+        else meth["prior_note"]
+    )
+
     body = f"""
-{_action_title(strings["action_titles"]["s10_methodology"])}
+{_action_title(_action_text)}
 <div class="methodology-grid">
   <div>
     <div class="method-col-label">{escape(meth["spec_header"])}</div>
@@ -1483,16 +1509,19 @@ def render_methodology(ctx: dict) -> str:
     </div>
   </div>
 </div>
-<p style="margin-top:24px;font-size:11px;font-style:italic;color:var(--text-muted);">{escape(meth["prior_note"])}</p>
+<p style="margin-top:24px;font-size:11px;font-style:italic;color:var(--text-muted);">{escape(_prior_note)}</p>
 {brand_perf_html}"""
     return _section("method", kicker, body)
 
 
 def render_sources(ctx: dict) -> str:
-    """Section 12: Sources + MQS card with verify badge."""
+    """Section 12: Sources + MQS card with verify badge. v2.1.0 Pilot C: engine-aware."""
     strings = ctx["strings"]
     diag = ctx.get("diagnostics") or {}
     kicker = strings["sections"]["sources"]["kicker"]
+
+    # v2.1.0 (Pilot C): engine detection.
+    is_ols = (diag.get("engine") == "ols") or (ctx.get("model_version") == "1.0-ols")
 
     mqs = diag.get("mqs_score")
     mqs_tier = diag.get("mqs_tier_label") or "-"
@@ -1502,14 +1531,35 @@ def render_sources(ctx: dict) -> str:
         mqs_display = "-"
 
     mqs_diag_html = ""
-    for lbl, key, fmt in [
-        ("R²", "r_squared", lambda v: f"{float(v):.3f}"),
-        ("MAPE", "mape_pct", lambda v: f"{float(v):.1f}%"),
-        ("R-hat", "r_hat_max", lambda v: f"{float(v):.3f}"),
-        ("ESS", "ess_min", lambda v: _fmt_int(v)),
-    ]:
+    if is_ols:
+        # OLS: показываем только R²/MAPE + frequentist метод (без MCMC).
+        _diag_rows = [
+            ("R²", "r_squared", lambda v: f"{float(v):.3f}"),
+            ("MAPE", "mape_pct", lambda v: f"{float(v):.1f}%"),
+        ]
+    else:
+        _diag_rows = [
+            ("R²", "r_squared", lambda v: f"{float(v):.3f}"),
+            ("MAPE", "mape_pct", lambda v: f"{float(v):.1f}%"),
+            ("R-hat", "r_hat_max", lambda v: f"{float(v):.3f}"),
+            ("ESS", "ess_min", lambda v: _fmt_int(v)),
+        ]
+    for lbl, key, fmt in _diag_rows:
         if diag.get(key) is not None:
             mqs_diag_html += f'<div><span class="mqs-diag-label">{lbl}</span><span>{fmt(diag[key])}</span></div>'
+
+    # Engine-aware methodology badge text + sources footer line.
+    _brand = strings["brand"]
+    _badge_text = (
+        _brand.get("methodology_badge_ols", _brand["methodology_badge"])
+        if is_ols
+        else _brand["methodology_badge"]
+    )
+    _src_line = (
+        "OLS MMM · точечные оценки · bootstrap CI 95%"
+        if is_ols
+        else "Bayesian MMM · posterior means · 95% CI"
+    )
 
     body = f"""
 {_action_title("Качество модели и источники данных")}
@@ -1519,7 +1569,7 @@ def render_sources(ctx: dict) -> str:
     <div class="mqs-score">{escape(mqs_display)}<sub>/100</sub></div>
     <div class="mqs-tier">{escape(mqs_tier)}</div>
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
-    <a class="method-badge" href="#method">{escape(strings["brand"]["methodology_badge"])}</a>
+    <a class="method-badge" href="#method">{escape(_badge_text)}</a>
   </div>
   <div>
     <div class="method-col-label">Источники данных</div>
@@ -1528,7 +1578,7 @@ def render_sources(ctx: dict) -> str:
       <li>Медиа-инвестиции: биллинг по каналам</li>
       <li>Нормирование: CPP / CPM per unit</li>
       <li>Сезонность и макро: константы в baseline</li>
-      <li>Bayesian MMM · posterior means · 95% CI</li>
+      <li>{escape(_src_line)}</li>
     </ul>
   </div>
 </div>"""

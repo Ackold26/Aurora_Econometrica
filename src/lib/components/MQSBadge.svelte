@@ -26,6 +26,9 @@
   let backendVerdict = $derived(diagnostics?.verdict || '');
   let metrics = $derived(diagnostics?.metrics || {});
   let checks = $derived(diagnostics?.checks || {});
+  // v2.1.0 (Pilot C): engine detection. OLS pickles set diagnostics.engine='ols'
+  // и не имеют MCMC diagnostics (r_hat_max=null, divergences=null).
+  let isOls = $derived(diagnostics?.engine === 'ols');
 
   // v2.1.0 (пилот 2026-05-16): подменяем backend ratio в verdict-тексте
   // и пересчитываем MQS tier если SSOT ratio >= 4 (info / success коридоры).
@@ -101,7 +104,9 @@
       <div
         class="mqs-score"
         style="--score-color: {displayMqs.color}"
-        title="MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.&#10;&#10;Формула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).&#10;&#10;Шкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."
+        title={isOls
+          ? "MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + надёжность оценок (bootstrap, 30%).\n\nШкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."
+          : "MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).\n\nШкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."}
       >
         <span class="score-title">MQS</span>
         <span class="score-value">{Math.round(displayMqs.score)}</span>
@@ -128,16 +133,20 @@
           <span class="metric-value">{metrics.mape_pct}%</span>
           <span class="metric-check">{metrics.mape_pct < 20 ? '✓' : '✗'}</span>
         </div>
-        <div class="metric-row">
-          <span class="metric-label">R-hat max<span class="help-icon" title={HELP.rHat}>?</span></span>
-          <span class="metric-value">{metrics.r_hat_max}</span>
-          <span class="metric-check">{checks.convergence ? '✓' : '✗'}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Divergences<span class="help-icon" title={HELP.divs}>?</span></span>
-          <span class="metric-value">{metrics.divergences}</span>
-          <span class="metric-check">{metrics.divergences === 0 ? '✓' : '✗'}</span>
-        </div>
+        {#if !isOls && metrics.r_hat_max != null}
+          <div class="metric-row">
+            <span class="metric-label">R-hat max<span class="help-icon" title={HELP.rHat}>?</span></span>
+            <span class="metric-value">{metrics.r_hat_max}</span>
+            <span class="metric-check">{checks.convergence ? '✓' : '✗'}</span>
+          </div>
+        {/if}
+        {#if !isOls && metrics.divergences != null}
+          <div class="metric-row">
+            <span class="metric-label">Divergences<span class="help-icon" title={HELP.divs}>?</span></span>
+            <span class="metric-value">{metrics.divergences}</span>
+            <span class="metric-check">{metrics.divergences === 0 ? '✓' : '✗'}</span>
+          </div>
+        {/if}
         <div class="metric-row">
           <span class="metric-label">Ratio<span class="help-icon" title={HELP.ratio}>?</span></span>
           <span class="metric-value">{useSsot ? ssotRatio.toFixed(1) : metrics.ratio}:1</span>

@@ -215,12 +215,24 @@
   // roles, не stale training-time). Backend pickle хранит pre-exclusion ratio
   // (1.6:1 для Кагоцел РФ+), но frontend после изменения ролей даёт 4.4:1.
   // Email текст должен показывать current value (как карточки Валидации).
+  //
+  // v2.1.0 polish round 2 (2026-05-17): убрали fallback на mData.diagnostics.metrics.ratio.
+  // Stale training-time число вводило в заблуждение если SSOT недоступен.
+  // null → отображение «—» вместо неверного числа.
   const ratio    = $derived(/** @type {number|null} */ (
-    $validationHeaderMetrics?.ratio ?? mData?.diagnostics?.metrics?.ratio ?? null
+    $validationHeaderMetrics?.ratio ?? null
   ));
   const rHat     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_hat_max ?? null));
   const divergences = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.divergences ?? null));
   const basePct  = $derived(/** @type {number|null} */ (dData?.baseline_pct ?? null));
+  // v2.1.0 (Pilot C): engine detection - 'bayesian' (default) vs 'ols' (small-data).
+  // OLS pickles set model_version='1.0-ols' и diagnostics.engine='ols'.
+  // Bayesian pickles - model_version='1.2'/'1.3' и diagnostics.engine отсутствует.
+  const engine = $derived(/** @type {string} */ (
+    mData?.diagnostics?.engine
+    ?? (dData?.model_version === '1.0-ols' ? 'ols' : 'bayesian')
+  ));
+  const isOls = $derived(engine === 'ols');
   const decChannels = $derived(/** @type {any[]} */ (dData?.channels ?? []));
   const nChannels = $derived(decChannels.length);
   const nPeriods = $derived((dData?.time_series?.dates ?? []).length);
@@ -234,12 +246,16 @@
     decChannels.filter(/** @param {any} c */ c => /убыточн/i.test(c.verdict || ''))
   );
 
-  /** Краткое описание модели (2-3 предложения). */
+  /** Краткое описание модели (2-3 предложения). v2.1.0 Pilot C: engine-aware. */
   const modelSummary = $derived.by(() => {
     if (!mData?.diagnostics) return '';
     const parts = [];
-    parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`);
-    parts.push(`Оценка через MCMC-сэмплер${rHat != null ? `, R-hat = ${rHat.toFixed(3)}` : ''}${divergences != null ? `, дивергенций ${divergences}` : ''}.`);
+    if (isOls) {
+      parts.push(`Линейная регрессия с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (Geometric) + Hill saturation. β-коэффициенты оценены closed-form OLS. Доверительные интервалы - bootstrap.`);
+    } else {
+      parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`);
+      parts.push(`Оценка через MCMC-сэмплер${rHat != null ? `, R-hat = ${rHat.toFixed(3)}` : ''}${divergences != null ? `, дивергенций ${divergences}` : ''}.`);
+    }
     if (nPeriods > 0) parts.push(`База данных: ${nPeriods} период${nPeriods > 4 ? 'ов' : nPeriods > 1 ? 'а' : ''}${ratio != null ? `, Ratio наблюдений к параметрам ${ratio.toFixed(1)}:1` : ''}.`);
     return parts.join(' ');
   });
@@ -443,8 +459,8 @@
       }
     }
 
-    // Q: R-hat / сходимость
-    if (rHat != null) {
+    // Q: R-hat / сходимость - только для Bayesian (OLS не имеет MCMC).
+    if (rHat != null && !isOls) {
       if (rHat < 1.05) {
         items.push({
           q: `Что такое R-hat = ${rHat.toFixed(3)}?`,
@@ -560,7 +576,9 @@
     if (fmt === 'pptx') {
       lines.push('Структура презентации:');
       lines.push('- Executive summary - MQS, R², MAPE, прирост от оптимизации');
-      lines.push('- Спецификация модели - Bayesian MMM, Adstock + Hill, MCMC');
+      lines.push(isOls
+        ? '- Спецификация модели - Линейная регрессия, Adstock + Hill, OLS · closed-form · bootstrap CI'
+        : '- Спецификация модели - Bayesian MMM, Adstock + Hill, MCMC');
       lines.push('- Декомпозиция продаж - baseline vs медиа по каналам');
       lines.push('- ROI-анализ - Share of Spend vs Share of Effect, Gap');
       lines.push('- Динамика по периодам - вклад каналов во времени');
@@ -587,7 +605,9 @@
       lines.push('- Один файл, открывается двойным кликом в любом браузере');
       lines.push('- Интерактивные графики (ECharts): waterfall, ROI, Spend vs Effect, timeline, оптимизация');
       lines.push('- Tooltip на каждом графике, zoom/scroll по таймлайну');
-      lines.push('- KPI-панель сверху: MQS, R², MAPE, R-hat, baseline, прирост, бюджет');
+      lines.push(isOls
+        ? '- KPI-панель сверху: MQS, R², MAPE, надёжность оценок, baseline, прирост, бюджет'
+        : '- KPI-панель сверху: MQS, R², MAPE, R-hat, baseline, прирост, бюджет');
       lines.push('- Сводная таблица по каналам с цветовой разметкой ROI/Gap');
       lines.push('- Сравнение сохранённых сценариев (если есть)');
       lines.push('');
@@ -955,7 +975,7 @@
             <div class="format-title">PPTX - для презентации</div>
           </div>
           <p class="format-desc">
-            Executive summary, спецификация модели (Bayesian MMM, Adstock, Hill), декомпозиция продаж,
+            Executive summary, спецификация модели ({isOls ? 'OLS · closed-form · bootstrap CI' : 'Bayesian MMM, Adstock, Hill'}), декомпозиция продаж,
             ROI по каналам, Share of Spend vs Effect, динамика по периодам, сравнение сценариев,
             оптимальное распределение, прогноз. С графиками и рекомендациями.
           </p>
@@ -1046,7 +1066,11 @@
                 <p><b>Структура презентации:</b></p>
                 <ul>
                   <li>Executive summary - MQS, R², MAPE, прирост от оптимизации</li>
-                  <li>Спецификация модели - Bayesian MMM, Adstock + Hill saturation, MCMC-сэмплер, priors</li>
+                  {#if isOls}
+                    <li>Спецификация модели - Линейная регрессия с Adstock (Geometric) + Hill saturation, β оценены closed-form OLS, доверительные интервалы - bootstrap</li>
+                  {:else}
+                    <li>Спецификация модели - Bayesian MMM, Adstock + Hill saturation, MCMC-сэмплер, priors</li>
+                  {/if}
                   <li>Декомпозиция продаж - вклад baseline vs медиа по каналам</li>
                   <li>ROI-анализ - Share of Spend vs Share of Effect, Gap, Efficiency</li>
                   <li>Динамика по периодам - вклад каналов во времени</li>
@@ -1058,7 +1082,11 @@
                 <p><b>Структура файла:</b></p>
                 <ul>
                   <li><b>Executive Summary</b> - ключевые метрики качества модели</li>
-                  <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), priors, методология</li>
+                  {#if isOls}
+                    <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), OLS · closed-form · bootstrap CI</li>
+                  {:else}
+                    <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), priors, методология</li>
+                  {/if}
                   <li><b>Декомпозиция</b> - вклад baseline и каждого канала в продажи</li>
                   <li><b>ROI каналов</b> - ROI, Gap, Efficiency</li>
                   <li><b>Spend vs Effect</b> - share of spend vs share of effect</li>
@@ -1075,7 +1103,7 @@
                   <li>Один HTML-файл, открывается двойным кликом в любом браузере</li>
                   <li>Интерактивные графики (ECharts): waterfall, ROI, Spend vs Effect, stacked-area timeline, оптимизация</li>
                   <li>Tooltip на каждом графике, zoom/scroll по таймлайну</li>
-                  <li>KPI-панель сверху: MQS, R², MAPE, R-hat, baseline %, прирост, бюджет</li>
+                  <li>KPI-панель сверху: MQS, R², MAPE, {isOls ? 'надёжность оценок' : 'R-hat'}, baseline %, прирост, бюджет</li>
                   <li>Сводная таблица по каналам с цветовой разметкой ROI/Gap</li>
                   <li>Сравнение сохранённых сценариев (если есть) с подсветкой лучшего ROAS</li>
                 </ul>

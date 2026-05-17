@@ -9,7 +9,8 @@
     "tagline": "Marketing Mix Modeling · Quarterly Report",
     "confidentiality": "CONFIDENTIAL",
     "copyright_template": "© {year} Aurora AI. Конфиденциально",
-    "methodology_badge": "Bayesian MMM · Tier-1 методология"
+    "methodology_badge": "Bayesian MMM · Tier-1 методология",
+    "methodology_badge_ols": "OLS MMM · closed-form · bootstrap CI"
   },
   "sections": {
     "cover":      { "label": "Обложка",             "kicker": "MARKETING MIX MODEL REPORT" },
@@ -71,6 +72,7 @@
     "s09_scale_hero":    "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
     "s09_hold_leader":   "Aurora рекомендует сохранить приоритет {leader} с учётом saturation",
     "s10_methodology":   "Bayesian MMM с adstock + saturation - NUTS NumPyro, 4 chains × 2000 iter",
+    "s10_methodology_ols": "OLS MMM с adstock + saturation - closed-form, bootstrap n=1000",
     "s13_glossary":      "Терминология, необходимая для чтения отчёта",
     "s14_closing":       "Решения, основанные на данных"
   },
@@ -84,6 +86,16 @@
       "   Hill function, half-max = γ_i",
       "β_i ~ HalfNormal(0.5) · CPP-normalized",
       "ε_t ~ Normal(0, σ)"
+    ],
+    "spec_formulas_ols": [
+      "y_t = baseline_t + Σ β_i · sat(adstock(x_i,t)) + ε_t",
+      "adstock(x, θ) = x_t + θ·x_{t-1} + θ²·x_{t-2} + …",
+      "   θ = 0.5 (fixed, geometric decay)",
+      "sat(z, α, γ) = z^α / (z^α + γ^α)",
+      "   Hill function (fixed): α=1.5, γ=0.5",
+      "β_i estimated via closed-form OLS",
+      "ε_t ~ Normal(0, σ) (frequentist)",
+      "CI на ROI/mROAS - bootstrap n=1000"
     ],
     "diag_header":  "ДИАГНОСТИКА",
     "limits_header": "ЧТО МОДЕЛЬ НЕ УЧИТЫВАЕТ",
@@ -251,7 +263,9 @@
   },
   "source_notes": {
     "data":       "Источник: данные клиента {data_window}; декомпозиция Bayesian MMM v{version}",
+    "data_ols":   "Источник: данные клиента {data_window}; декомпозиция OLS MMM v{version}",
     "posterior":  "CI 95%, posterior means reported",
+    "posterior_ols": "CI 95% bootstrap (n=1000), точечные оценки β",
     "generic":    "Модель откалибрована под FMCG-бенчмарки Aurora"
   },
   "closing": {

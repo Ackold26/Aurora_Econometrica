@@ -138,6 +138,21 @@
   };
 
   /**
+   * Unit suffix for contribution column / waterfall axis.
+   * - monetary KPI (revenue, ₽-counted) → '₽'
+   * - count KPI с заданным kpi_unit_cost → '₽' (decomposer returns money equiv in ch.contribution_money)
+   * - count KPI без kpi_unit_cost (legacy) → 'ед.' (raw count contribution)
+   * v2.1.0 pilot polish (2026-05-17): была bug «голое число» без единицы.
+   */
+  const contribUnit = $derived.by(() => {
+    if ($kpiKind === 'monetary') return ' ₽'; // NBSP + ₽
+    // count KPI: если kpi_unit_cost задан, contribution_money есть → '₽'
+    // (rendering ниже использует ch.contribution_money, suffix '₽')
+    // Если нет → 'ед.' (count units)
+    return ' ед.';
+  });
+
+  /**
    * Compute display value per channel based on displayMetric.
    * @param {any} ch
    * @returns {string}
@@ -432,6 +447,17 @@
   <!-- Results -->
   {#if stepState === 'done' && data}
 
+    <!-- v2.1.0 (Pilot C P1-1): backend model_warning surfaced при загрузке legacy
+         pickle или OLS-режима. Шаблонный «honest disclosure» с описанием
+         ограничений (фиксированные параметры adstock/Hill для OLS, отсутствие
+         posterior CI для v1.1, и т.п.) которое раньше пропадало в JSON. -->
+    {#if data.model_warning}
+      <div class="model-warning-banner" role="note">
+        <span class="mwb-icon">ℹ</span>
+        <p class="mwb-text">{data.model_warning}</p>
+      </div>
+    {/if}
+
     <!-- Trust banner (smell_flags) -->
     {#if data.smell_flags?.length}
       <TrustBanner flags={data.smell_flags} />
@@ -475,7 +501,7 @@
 
     <!-- Waterfall - full width -->
     <ExpandableCard title="Декомпозиция продаж" tourKey="decompose-waterfall">
-      <WaterfallChart waterfall={data.waterfall} />
+      <WaterfallChart waterfall={data.waterfall} unit={contribUnit.trim()} />
     </ExpandableCard>
 
     <!-- Two-column: ROI | Timeline -->
@@ -569,11 +595,18 @@
                         {ch.contribution_money.toLocaleString('ru-RU')} ₽
                         <span class="contrib-sub">{ch.contribution.toLocaleString('ru-RU')} ед.</span>
                       {:else}
-                        {ch.contribution.toLocaleString('ru-RU')}
+                        {ch.contribution.toLocaleString('ru-RU')}{contribUnit}
                       {/if}
                     </td>
                     <td class="num {metricCellClass(ch)}">
                       {formatChannelMetric(ch)}
+                      {#if displayMetric === 'roi' && ch.roi_ci_low != null && ch.roi_ci_high != null && ch.ci_method !== 'unavailable_zero_spend' && (ch.roi_ci_low !== 0 || ch.roi_ci_high !== 0)}
+                        <span
+                          class="roi-ci"
+                          title={ch.ci_method === 'frequentist_bootstrap'
+                            ? `Bootstrap CI 95% (OLS): ${ch.roi_ci_low.toFixed(2)}–${ch.roi_ci_high.toFixed(2)}×`
+                            : `CI 95%: ${ch.roi_ci_low.toFixed(2)}–${ch.roi_ci_high.toFixed(2)}×`}>{ch.roi_ci_low.toFixed(2)}–{ch.roi_ci_high.toFixed(2)}</span>
+                      {/if}
                     </td>
                     <td class="num" class:gap-pos={ch.efficiency_gap >= 5} class:gap-neg={ch.efficiency_gap <= -5}>
                       {ch.efficiency_gap > 0 ? '+' : ''}{ch.efficiency_gap}%
@@ -874,6 +907,41 @@
   .cat-warn-icon { color: var(--warning, #d97706); font-size: 18px; flex-shrink: 0; }
   .cat-warn-title { margin: 0 0 4px 0; font-weight: 600; font-size: 13px; }
   .cat-warn-list { margin: 0; padding-left: 18px; line-height: 1.5; color: var(--text-secondary, #94a3b8); }
+
+  /* v2.1.0 (Pilot C P1-1): info banner для backend model_warning (legacy
+     pickles или OLS small-data fallback). Менее тревожный тон чем warning -
+     эта диагностика контекстная, не блокирующая. */
+  .model-warning-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 22%, transparent);
+    border-radius: 10px;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .mwb-icon {
+    color: var(--accent-primary, #3b82f6);
+    font-size: 18px;
+    flex-shrink: 0;
+    line-height: 1.4;
+  }
+  .mwb-text { margin: 0; color: var(--text-secondary, #94a3b8); }
+
+  /* v2.1.0 (Pilot C P0-3): ROI CI bracket display - bootstrap (OLS) и HDI
+     (Bayesian) рисуем одинаково, tooltip differs via ci_method. */
+  .roi-ci {
+    display: block;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 400;
+    cursor: help;
+  }
 
   /* Trust Level 3 (v1.1.0): group headers и decay column */
   .group-header td {

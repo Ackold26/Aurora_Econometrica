@@ -180,6 +180,13 @@
     if (/(^|[^A-Z])(TRP|GRP)/i.test(upper)) return true;
     if (/(^|\s|_|-)(ТВ|TV|ТЕЛЕВИЗ)/i.test(upper)) return true;
     if (/(^|[^A-Z])(OLV|BANNER|БАННЕР|МЕДИЙ)/i.test(upper)) return true;
+    // v2.1.0 pilot polish (2026-05-17): расширенный список media types
+    // (sync с validator.py:MEDIA_PATTERNS - радио/пресса/OOH/print).
+    if (/(^|\s|_|-)(РАДИО|RADIO)/i.test(upper)) return true;
+    if (/(^|\s|_|-)(ПРЕССА|PRESS)/i.test(upper)) return true;
+    if (/(^|[^A-Z])(OOH|OUTDOOR)/i.test(upper)) return true;
+    if (/(^|\s|_|-)(НАРУЖН|ООН)/i.test(upper)) return true;
+    if (/(^|\s|_|-)(ПЕЧАТ|PRINT)/i.test(upper)) return true;
     return false;
   }
 

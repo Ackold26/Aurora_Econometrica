@@ -445,6 +445,14 @@ class AuroraHTMLBuilder:
 
     def build(self) -> str:
         """Assemble final HTML string."""
+        # v2.1.0 (Pilot C): model_version forwarded к sections для engine detection.
+        # OLS-режим (model_version='1.0-ols' или diagnostics.engine='ols')
+        # переключает методологический копи: closed-form/bootstrap вместо MCMC/NUTS.
+        model_version = (
+            self.raw_model.get('model_version')
+            or self.raw_decompose.get('model_version')
+            or self.data.get('model_version')
+        )
         # 1. Render sections
         ctx = {
             "meta":        self.meta,
@@ -453,6 +461,7 @@ class AuroraHTMLBuilder:
             "facts":       self.facts,
             "strings":     self.strings,
             "report_id":   self.report_id,
+            "model_version": model_version,
             "brand_mark_svg": self._brand_mark_svg(),
         }
         sections_html = "\n".join(render(ctx) for _, render in SECTION_RENDERERS)

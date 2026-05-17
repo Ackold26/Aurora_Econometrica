@@ -304,9 +304,12 @@
   /** @type {string | null} */
   let forecastSuccess = $state(null);
 
-  /** Дефолты инфляции РФ 2026 по категории. */
+  /** Дефолты инфляции РФ 2026 по категории.
+   *  SSOT alignment (2026-05-17 pilot polish): keys = canonical backend values
+   *  ('brand' / 'performance' / 'mixed'). decomposer.py эмитит 'brand_reach' как
+   *  display alias - нормализуем при lookup в defaultInflation() ниже. */
   const INFLATION_DEFAULTS = {
-    brand_reach: 12,
+    brand: 12,
     performance: 7,
     mixed: 8,
   };
@@ -982,7 +985,10 @@
   /** Дефолтный процент инфляции per-канал по его category.
    * @param {string} ch */
   function defaultInflation(ch) {
-    const cat = dData?.channels?.find(/** @param {any} c */ (c) => c.name === ch)?.category || 'mixed';
+    const rawCat = dData?.channels?.find(/** @param {any} c */ (c) => c.name === ch)?.category || 'mixed';
+    // SSOT alignment: decomposer эмитит 'brand_reach' как display alias канонического
+    // 'brand'. Нормализуем для lookup в INFLATION_DEFAULTS (использует canonical keys).
+    const cat = rawCat === 'brand_reach' ? 'brand' : rawCat;
     return INFLATION_DEFAULTS[/** @type {keyof typeof INFLATION_DEFAULTS} */ (cat)] ?? 8;
   }
 
@@ -1132,8 +1138,16 @@
       for (const c of forecastResult.channels) mediaPlan[c.name] = [c.optimal_spend ?? 0];
       const avgInfl = Math.round(channels.reduce((s, ch) => s + (channelInflation[ch] ?? 0), 0) / Math.max(channels.length, 1));
       const name = `forecast-${forecastMode}-${avgInfl}pct-${Date.now().toString().slice(-6)}`;
+      // v2.1.0 (pilot E P1-4 2026-05-17): передаём forecast_periods+kpi_unit_cost,
+      // иначе сохранённый сценарий распределяется по training horizon (re-load
+      // покажет KPI/lift по другому горизонту чем при создании).
+      const _kucFcSave = get(valuePerCountUnit);
+      const kpiUnitCostFcSave = get(kpiKind) === 'count' && typeof _kucFcSave === 'number' && _kucFcSave > 0 ? _kucFcSave : null;
       const r = /** @type {any} */ (await invoke('econ_scenario', {
         projectDir, scenarioName: name, mediaPlan,
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
+        kpiUnitCost: kpiUnitCostFcSave,
       }));
       if (r.status === 'ok') {
         forecastSuccess = '✓ Сохранено как сценарий «' + name + '»';

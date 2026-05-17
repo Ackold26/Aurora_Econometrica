@@ -87,13 +87,32 @@
   const recommendOls = $derived(nRows > 0 && nRows < 30);
 
   /** v1.0.16: автоматический выбор движка на основе объёма данных.
-   *  n<30 → OLS (small-data), n≥30 → Bayesian. Customer не управляет вручную -
-   *  система делает выбор сама, чтобы избежать неправильного соотношения engine
-   *  к данным. */
+   *  n<30 → OLS (small-data), n≥30 → Bayesian. Customer обычно не управляет
+   *  вручную - система делает выбор сама, чтобы избежать неправильного
+   *  соотношения engine к данным.
+   *  v2.1.0 pilot polish (2026-05-17): для borderline (20 ≤ n < 30) customer
+   *  может override. userOverrodeEngine флаг блокирует auto-set после ручного
+   *  выбора (localStorage persists override через session). */
+  let userOverrodeEngine = $state(
+    typeof window !== 'undefined'
+      ? localStorage.getItem('aurora.modelEngineOverride') === '1'
+      : false
+  );
   $effect(() => {
     if (nRows <= 0) return;
+    if (userOverrodeEngine) return; // user явно выбрал - не перезаписываем
     modelEngine.set(recommendOls ? 'ols' : 'bayesian');
   });
+
+  /** Записать override (вызывается из interactive engine card click). */
+  /** @param {'bayesian' | 'ols'} engine */
+  function selectEngineOverride(engine) {
+    userOverrodeEngine = true;
+    if (typeof window !== 'undefined') {
+      try { localStorage.setItem('aurora.modelEngineOverride', '1'); } catch {}
+    }
+    modelEngine.set(engine);
+  }
 
   // Restore from memory store on mount (A4: data is memory-only)
   const stored = get(importData);
@@ -405,6 +424,7 @@
 
   <!-- DataTable preview -->
   {#if previewRows.length > 0 && !loading}
+    {@const allowOverride = nRows >= 20 && nRows < 30}
     <div class="preview-section">
       <div class="preview-header">
         <h4>Предпросмотр данных</h4>
@@ -425,23 +445,45 @@
            n<30 → OLS (small-data fallback, closed-form, ~2-5 сек),
            n≥30 → Bayesian (full NUTS posterior, ~20-60 сек).
            UI: ОБА варианта показаны рядом, выбранный подсвечен accent-цветом,
-           не выбранный - muted. Без manual override - система выбирает сама. -->
+           не выбранный - muted.
+           v2.1.0 pilot polish (2026-05-17): для borderline (20 ≤ n < 30) карточки
+           interactive - user может override (auto-OLS → Bayesian) с warning'ом
+           о divergences. Для n < 20 (точно мало) или n ≥ 30 (точно много) -
+           автовыбор без override. (`allowOverride` declared at parent {#if} scope.) -->
       <div class="engine-section">
         <div class="engine-section-header">
           <span class="engine-section-title">Тип моделирования</span>
           {#if nRows > 0}
-            <span class="engine-section-meta">выбрано автоматически по {nRows} наблюдениям</span>
+            <span class="engine-section-meta">
+              {#if allowOverride}
+                выбрано автоматически по {nRows} наблюдениям - можно изменить (на свой риск)
+              {:else}
+                выбрано автоматически по {nRows} наблюдениям
+              {/if}
+            </span>
           {:else}
             <span class="engine-section-meta">ожидание данных…</span>
           {/if}
         </div>
         <div class="engine-cards">
-          <div class="engine-card" class:engine-card-active={$modelEngine === 'bayesian'} class:engine-card-muted={$modelEngine !== 'bayesian'}>
+          <button
+            type="button"
+            class="engine-card"
+            class:engine-card-active={$modelEngine === 'bayesian'}
+            class:engine-card-muted={$modelEngine !== 'bayesian'}
+            class:engine-card-interactive={allowOverride}
+            disabled={!allowOverride || $modelEngine === 'bayesian'}
+            onclick={() => { if (allowOverride) selectEngineOverride('bayesian'); }}
+            aria-pressed={$modelEngine === 'bayesian'}
+            aria-label="Выбрать Bayesian MMM"
+          >
             <div class="engine-card-head">
               <span class="engine-card-icon">🎯</span>
               <div class="engine-card-name">Полное Bayesian MMM</div>
               {#if $modelEngine === 'bayesian'}
                 <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
+              {:else if allowOverride}
+                <span class="engine-card-badge engine-card-badge-muted">Можно выбрать</span>
               {:else}
                 <span class="engine-card-badge engine-card-badge-muted">Доступно при n ≥ 30</span>
               {/if}
@@ -449,13 +491,30 @@
             <p class="engine-card-desc">
               Золотой стандарт MMM-эконометрики. NUTS-сэмплер (NumPyro) оценивает полное апостериорное распределение для параметров каждого канала: корректные доверительные интервалы ROI и mROAS, устойчивость к выбросам, калиброванная неопределённость. Для решений с финансовыми последствиями.
             </p>
-          </div>
-          <div class="engine-card" class:engine-card-active={$modelEngine === 'ols'} class:engine-card-muted={$modelEngine !== 'ols'}>
+            {#if allowOverride && $modelEngine !== 'bayesian'}
+              <p class="engine-card-warn">
+                ⚠ При n &lt; 30 Bayesian-сэмплер может расходиться (divergences &gt; 0) и давать ненадёжные posterior'ы. Рекомендуем OLS.
+              </p>
+            {/if}
+          </button>
+          <button
+            type="button"
+            class="engine-card"
+            class:engine-card-active={$modelEngine === 'ols'}
+            class:engine-card-muted={$modelEngine !== 'ols'}
+            class:engine-card-interactive={allowOverride}
+            disabled={!allowOverride || $modelEngine === 'ols'}
+            onclick={() => { if (allowOverride) selectEngineOverride('ols'); }}
+            aria-pressed={$modelEngine === 'ols'}
+            aria-label="Выбрать OLS MMM"
+          >
             <div class="engine-card-head">
               <span class="engine-card-icon">⚡</span>
               <div class="engine-card-name">Упрощённое OLS-MMM</div>
               {#if $modelEngine === 'ols'}
                 <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
+              {:else if allowOverride}
+                <span class="engine-card-badge engine-card-badge-muted">Можно выбрать</span>
               {:else}
                 <span class="engine-card-badge engine-card-badge-muted">Используется при n &lt; 30</span>
               {/if}
@@ -463,7 +522,7 @@
             <p class="engine-card-desc">
               Small-data fallback. OLS-регрессия с аналитическим решением и bootstrap-доверительными интервалами (частотный подход): численно стабильное решение ценой статистической мощности. Для пилотных проектов и предварительного анализа - рекомендации трактовать как направление, а не точное число.
             </p>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -751,11 +810,40 @@
     .engine-cards { grid-template-columns: 1fr; }
   }
   .engine-card {
+    /* v2.1.0 pilot polish: <button> в режиме card — сброс default button styles. */
     padding: 14px 16px;
     border-radius: 10px;
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
-    transition: opacity 0.15s, border-color 0.15s;
+    transition: opacity 0.15s, border-color 0.15s, transform 0.1s;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    width: 100%;
+    cursor: default;
+    appearance: none;
+  }
+  .engine-card-interactive:not(:disabled) { cursor: pointer; }
+  .engine-card-interactive:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, var(--border-subtle, rgba(255,255,255,0.08)));
+    transform: translateY(-1px);
+  }
+  .engine-card-interactive:not(:disabled):focus-visible {
+    outline: 2px solid var(--accent-primary, #3b82f6);
+    outline-offset: 2px;
+  }
+  .engine-card:disabled {
+    cursor: default;
+  }
+  .engine-card-warn {
+    margin: 8px 0 0 0;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--warning, #f59e0b) 8%, transparent);
+    border-left: 2px solid var(--warning, #f59e0b);
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--warning, #f59e0b);
   }
   .engine-card-active {
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 10%, transparent);

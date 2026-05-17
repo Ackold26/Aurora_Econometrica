@@ -64,8 +64,12 @@
   const MONEY_HINT = /НДС|VAT|(?:^|[\s\(])руб|₽|RUB/i;
 
   /** @type {Record<string, string>} */
+  // SSOT alignment (2026-05-17 pilot polish): backend pickle / optimizer constraints
+  // используют canonical 'brand' / 'performance' / 'mixed'. Frontend store
+  // (channelCategories) тоже использует 'brand'. 'brand_reach' остаётся только
+  // как display label «Brand-Reach» в UI strings, не как category value.
   const CATEGORY_HELP = {
-    brand_reach: 'Brand-Reach - охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
+    brand: 'Brand-Reach - охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
     performance: 'Performance - каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI - чистая отдача на рубль. Сравнивай с другими Performance каналами.',
   };
 
@@ -431,11 +435,11 @@
               {#if ch.category && CATEGORY_HELP[ch.category]}
                 <span
                   class="cat-chip"
-                  class:brand={ch.category === 'brand_reach'}
+                  class:brand={ch.category === 'brand'}
                   class:perf={ch.category === 'performance'}
                   title={CATEGORY_HELP[ch.category]}
                 >
-                  {ch.category === 'brand_reach' ? 'Brand-Reach' : 'Performance'}
+                  {ch.category === 'brand' ? 'Brand-Reach' : 'Performance'}
                 </span>
               {/if}
             </div>

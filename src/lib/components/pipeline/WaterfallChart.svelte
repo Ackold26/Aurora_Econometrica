@@ -18,8 +18,11 @@
   import { chartTooltipDark } from '$lib/echarts-setup.js';
   import { CHANNEL_COLORS } from '$lib/hill.js';
 
-  /** @type {{ waterfall: { labels: string[], values: number[], types: string[] } }} */
-  let { waterfall } = $props();
+  /** @type {{ waterfall: { labels: string[], values: number[], types: string[] }, unit?: string }} */
+  // v2.1.0 pilot polish (2026-05-17): unit suffix для axis labels + tooltips
+  // (KPI-aware: '₽' для monetary, 'ед.' для count без kpi_unit_cost, 'упак.' для пакетов).
+  // Передаётся из DecomposeStep на основе kpiKind + valuePerCountUnit.
+  let { waterfall, unit = '' } = $props();
 
   const option = $derived.by(() => {
     if (!waterfall?.labels?.length) return {};
@@ -87,9 +90,11 @@
           const pct = ((val / total) * 100).toFixed(1);
           const sign = val < 0 ? '−' : '';
           const absVal = Math.abs(val).toLocaleString('ru-RU');
+          const unitSuffix = unit ? ` ${unit}` : '';
           // v2.0.0: signed factors показывают «−15%» в tooltip vs «+10%»
+          // v2.1.0 (pilot polish): unit suffix («₽» / «ед.») в tooltip.
           return `<div style="color:#fff;font-weight:600;margin-bottom:4px;">${labels[idx]}</div>` +
-                 `<div style="color:#fff;">${sign}${absVal} <span style="opacity:0.7;">(${pct}%)</span></div>`;
+                 `<div style="color:#fff;">${sign}${absVal}${unitSuffix} <span style="opacity:0.7;">(${pct}%)</span></div>`;
         },
       },
       // Audit pass 14 (Антон 2026-05-03): explicit hide default ECharts legend.
@@ -119,6 +124,10 @@
       },
       yAxis: {
         type: 'value',
+        // v2.1.0 (pilot polish): axis name = unit (e.g. «₽», «ед.») чтобы читатель
+        // не гадал что за число (особенно для count KPI без kpi_unit_cost).
+        name: unit || undefined,
+        nameTextStyle: { color: '#94a3b8', fontSize: 10, padding: [0, 0, 4, 0] },
         axisLabel: {
           color: '#94a3b8', fontSize: 11,
           formatter: (/** @type {number} */ v) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v),

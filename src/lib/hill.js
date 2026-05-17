@@ -76,17 +76,35 @@ export function predictKPI(budgets, scaledParams, normalization = null) {
 
 /**
  * Build scaledParams from raw channelParams + currentSpend.
- * @param {Record<string, {alpha: number, gamma: number, beta: number}>} channelParams
+ *
+ * v2.1.0 (ADR-020 pilot A 2026-05-17): `meanForScale` параметр позволяет передать
+ * `adstock_mean_posterior` per channel - тот же mean что backend использует для
+ * Hill normalization. Без этого gammaScaled = γ × currentSpend approximation
+ * расходится с backend для mixed-units каналов (TRPs где training mean в ₽-eq).
+ *
+ * @param {Record<string, {alpha: number, gamma: number, beta: number, adstock_mean_posterior?: number}>} channelParams
  * @param {Record<string, number>} currentSpend - {channelName: totalSpend}
+ * @param {Record<string, number>} [meanForScale] - optional {channelName: adstock_mean_posterior or media_mean}.
+ *        Если задан - используется как divisor scale (matches backend training).
+ *        Если null/missing для канала - fallback к старому `γ × currentSpend`.
  * @returns {Record<string, {alpha: number, gammaScaled: number, beta: number}>}
  */
-export function buildScaledParams(channelParams, currentSpend) {
+export function buildScaledParams(channelParams, currentSpend, meanForScale = undefined) {
   /** @type {Record<string, {alpha: number, gammaScaled: number, beta: number}>} */
   const result = {};
   for (const [ch, p] of Object.entries(channelParams)) {
+    // Prefer adstock_mean_posterior (Bayesian v1.2+) from channel_params - canonical
+    // backend Hill scale. Fallback к explicit meanForScale prop. Last fallback -
+    // legacy approximation γ × currentSpend (works for monetary-only profiles).
+    const meanFromParams = (p && typeof p.adstock_mean_posterior === 'number' && p.adstock_mean_posterior > 0)
+      ? p.adstock_mean_posterior : null;
+    const meanFromProp = (meanForScale && typeof meanForScale[ch] === 'number' && meanForScale[ch] > 0)
+      ? meanForScale[ch] : null;
+    const meanCanonical = meanFromParams ?? meanFromProp;
+    const scale = meanCanonical !== null ? meanCanonical : (currentSpend[ch] ?? 0);
     result[ch] = {
       alpha: p.alpha,
-      gammaScaled: Math.max(p.gamma * (currentSpend[ch] ?? 0), 1),
+      gammaScaled: Math.max(p.gamma * scale, 1),
       beta: p.beta,
     };
   }

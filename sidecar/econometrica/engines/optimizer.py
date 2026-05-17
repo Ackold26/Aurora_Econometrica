@@ -104,6 +104,7 @@ def _compute_mroas_money(
     y_std: float,
     unit_cost: float = 1.0,
     decay: float | None = None,
+    uc_at_training: float = 1.0,
 ) -> float:
     """Marginal ROAS in money-per-money - single source of truth.
 
@@ -141,7 +142,13 @@ def _compute_mroas_money(
     if mean <= 0 or beta == 0 or n_periods < 1 or unit_cost <= 0:
         return 0.0
 
-    x_pp = current_spend_native / n_periods
+    # v2.1.0 (ADR-020): pre-multiply media через uc_at_training ДО adstock+normalize,
+    # чтобы Hill x_norm в той же scale что media_means в pickle (training-time).
+    # Без этого fix: для TRPs канала с unit_cost_train=120000 media_means scaled,
+    # но x_pp native → x_norm меньше в 120000× → optimizer думает что канал на 0
+    # уровне saturation → перераспределяет в Digital.
+    uc_train_safe = max(float(uc_at_training), 1e-10)
+    x_pp = (current_spend_native * uc_train_safe) / n_periods
     adstock_avg = _flat_alloc_adstock_avg(x_pp, n_periods, adstock_type, decay)
     x_norm = adstock_avg / max(mean, 1e-10)
 
@@ -154,9 +161,11 @@ def _compute_mroas_money(
 
     af = _adstock_factor(x_pp, n_periods, adstock_type, decay)
 
-    # Chain rule: KPI(money) per native spend
-    mroas_native = beta * hill_deriv * af * y_std / max(mean, 1e-10)
-    # Convert to per-money axis
+    # Chain rule: KPI per scaled-spend (training-equivalent). x_pp уже включает
+    # uc_at_training множитель, поэтому adstock_factor возвращает sensitivity
+    # ∂adstock/∂scaled_spend. Convert обратно: ∂KPI/∂native = ∂KPI/∂scaled × uc_train.
+    mroas_native = beta * hill_deriv * af * y_std / max(mean, 1e-10) * uc_train_safe
+    # Convert to per-money axis (∂money_spent / ∂native_spend = unit_cost current).
     return float(mroas_native / unit_cost)
 
 
@@ -172,6 +181,7 @@ def _compute_mroas_money_samples(
     y_std: float,
     unit_cost: float = 1.0,
     decay_samples: np.ndarray | None = None,
+    uc_at_training: float = 1.0,
 ) -> np.ndarray:
     """Vectorized mROAS over posterior samples (Phase 1.9 + 1.1).
 
@@ -205,7 +215,10 @@ def _compute_mroas_money_samples(
     if current_spend_native <= 0 or mean_scalar_for_guard <= 0 or n_periods < 1 or unit_cost <= 0 or n == 0:
         return np.zeros(max(n, 1), dtype=np.float64)
 
-    x_pp = current_spend_native / n_periods
+    # v2.1.0 (ADR-020): pre-multiply media через uc_at_training ДО adstock+normalize
+    # для symmetry с training (mean_arr в pickle scaled).
+    uc_train_safe = max(float(uc_at_training), 1e-10)
+    x_pp = (current_spend_native * uc_train_safe) / n_periods
 
     if decay_samples is not None and adstock_type == 'geometric':
         # Phase 1.1: vectorized per-sample adstock_avg + adstock_factor
@@ -244,9 +257,10 @@ def _compute_mroas_money_samples(
         af_arr = _adstock_factor(x_pp, n_periods, adstock_type)
         mean_arr = max(mean_scalar, 1e-10)  # Use scalar in chain rule
 
-    # Chain rule per-sample
+    # Chain rule per-sample. x_pp уже pre-multiplied на uc_train, поэтому afтор
+    # adstock_factor возвращает ∂adstock/∂scaled. Convert обратно к ∂/∂native.
     beta_arr = np.asarray(beta_samples, dtype=np.float64)
-    mroas_native = beta_arr * hill_deriv_arr * af_arr * y_std / mean_arr
+    mroas_native = beta_arr * hill_deriv_arr * af_arr * y_std / mean_arr * uc_train_safe
     return mroas_native / unit_cost
 
 
@@ -438,6 +452,19 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     total_budget_money_target = config.get('total_budget_money')
     uc_arr = [float(unit_costs.get(col, 1.0) or 1.0) for col in media_cols]
 
+    # v2.1.0 (ADR-020 hardening pilot D 2026-05-17): training-time unit_costs
+    # snapshot для Hill normalization symmetry. Если pickle обучен с pre-multiply
+    # (unit_costs_applied_at_training=True), все math paths которые делают
+    # x_norm = adstock(x) / mean ДОЛЖНЫ pre-multiply x через тот же uc_train.
+    # Без этого optimizer перераспределяет бюджет некорректно для mixed units.
+    unit_costs_applied_at_training = bool(model_data.get('unit_costs_applied_at_training'))
+    unit_costs_snapshot_train: dict[str, float] = (
+        model_data.get('unit_costs_snapshot') or {}
+    ) if unit_costs_applied_at_training else {}
+    uc_train_arr = [
+        float(unit_costs_snapshot_train.get(col, 1.0) or 1.0) for col in media_cols
+    ]
+
     # P0-11 fix (math-fix-v1.0.13) + Phase 0.1 live-test refinement:
     # Detect real unit_smell - native-unit channel (TRPs/clicks/impressions) with
     # default uc=1.0 (CPP/CPM не задан). Это арифметически некорректный mix.
@@ -576,7 +603,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
         Input: x_money[i] = spend per channel в money axis (₽).
         Inside: convert to native via x_native = x_money / unit_cost,
-        then per-period adstock + Hill saturation matches training.
+        then pre-multiply на uc_train (ADR-020 symmetry), adstock + Hill.
         Returns: negative total (for scipy minimize).
         """
         total = 0.0
@@ -587,7 +614,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             mean = float(mean_posterior) if mean_posterior is not None else (float(media_means.get(col, 1)) or 1)
             decay_pt = p.get('decay')  # Phase 1.1: None for v1.0/v1.1/v1.1.5 → default 0.5
             x_native_total = x_money[i] / max(uc_arr[i], 1e-10)
-            x_avg_raw = x_native_total / n_periods
+            # v2.1.0 (ADR-020): pre-multiply через uc_train для Hill symmetry.
+            x_scaled_total = x_native_total * max(uc_train_arr[i], 1e-10)
+            x_avg_raw = x_scaled_total / n_periods
             x_avg_adstock = _flat_alloc_adstock_avg(x_avg_raw, n_periods, _adstock_type(col), decay_pt)
             x_norm = x_avg_adstock / max(mean, 1e-10)
             sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 1e-6))
@@ -610,6 +639,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             media_means=media_means,
             adstock_config=adstock_config,
             n_periods=forecast_n_periods,
+            # v2.1.0 (ADR-020): training-time uc для Hill scale symmetry.
+            unit_costs_at_training=uc_train_arr,
         )
         return -total
 
@@ -1162,6 +1193,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         mean_ch = float(mean_post_opt) if mean_post_opt is not None else (float(media_means.get(col, 1)) or 1)
         a_type = _adstock_type(col)
         uc = float(unit_costs.get(col, 1.0) or 1.0)
+        # v2.1.0 (ADR-020): training-time uc per channel (1.0 если pickle pre-fix).
+        uc_train_ch = float(uc_train_arr[i])
 
         decay_pt = p.get('decay')  # Phase 1.1: posterior mean decay; None for legacy pickles
         # G1 fix: planning mode threads forecast_n_periods через mROAS - marginal
@@ -1177,6 +1210,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             y_std=y_std,
             unit_cost=uc,
             decay=decay_pt,
+            uc_at_training=uc_train_ch,
         )
         mroi_optimal = _compute_mroas_money(
             current_spend_native=float(opt),
@@ -1189,6 +1223,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             y_std=y_std,
             unit_cost=uc,
             decay=decay_pt,
+            uc_at_training=uc_train_ch,
         )
 
         # Phase 1.9: posterior CI on mROAS via vectorized chain rule + arviz.hdi.
@@ -1223,6 +1258,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     y_std=y_std,
                     unit_cost=uc,
                     decay_samples=decay_s,
+                    uc_at_training=uc_train_ch,
                 )
                 _, mroi_current_ci_low, mroi_current_ci_high, _m_cur = compute_ci_hdi(cur_arr)
 
@@ -1237,6 +1273,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                     y_std=y_std,
                     unit_cost=uc,
                     decay_samples=decay_s,
+                    uc_at_training=uc_train_ch,
                 )
                 _, mroi_optimal_ci_low, mroi_optimal_ci_high, _m_opt = compute_ci_hdi(opt_arr)
 

@@ -160,9 +160,12 @@
            from optData), NOT vs live channelBudgets. After L5 auto-apply
            channelBudgets = optimal → cur === opt → delta = 0% (lost info).
            Persistent backend-aligned delta_pct preserves «optimizer recommended
-           +X% relative to original current» signal even after auto-apply. -->
+           +X% relative to original current» signal even after auto-apply.
+           v2.1.0 pilot polish (2026-05-17): новый channel флаг (cur≈0, opt>0)
+           показывает «новый» badge со стилем (∞ semantics) - не «0%» misleading. -->
       {@const deltaRaw = opt != null && initRef >= 1 ? ((opt - initRef) / initRef * 100) : null}
-      {@const deltaLabel = opt == null ? null : (initRef < 1 || deltaRaw == null) ? (opt < 1 ? '-' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
+      {@const isNewChannel = opt != null && opt >= 1 && initRef < 1}
+      {@const deltaLabel = opt == null ? null : isNewChannel ? '∞' : (initRef < 1 || deltaRaw == null) ? (opt < 1 ? '-' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
       {@const initMoney = initRef * uc(ch)}
       {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
@@ -181,7 +184,13 @@
         />
         <span class="ch-value">{fmt(curMoney)} ₽</span>
         {#if deltaLabel != null}
-          <span class="delta-badge" class:positive={deltaRaw != null && deltaRaw > 0} class:negative={deltaRaw != null && deltaRaw < 0}>
+          <span
+            class="delta-badge"
+            class:positive={deltaRaw != null && deltaRaw > 0}
+            class:negative={deltaRaw != null && deltaRaw < 0}
+            class:new-channel={isNewChannel}
+            title={isNewChannel ? 'Новый канал: текущий бюджет ≈ 0, оптимизатор предлагает увеличение с нуля (delta = ∞)' : ''}
+          >
             {deltaLabel}
           </span>
         {/if}
@@ -324,6 +333,15 @@
   }
   .delta-badge.positive { background: color-mix(in srgb, var(--success) 12%, transparent); color: #22c55e; }
   .delta-badge.negative { background: color-mix(in srgb, var(--danger) 12%, transparent); color: #ef4444; }
+  /* v2.1.0 pilot polish: новый канал (cur≈0, opt>0) - distinct accent (cyan)
+     чтобы отличался от обычных positive deltas. */
+  .delta-badge.new-channel {
+    background: color-mix(in srgb, #06b6d4 18%, transparent);
+    color: #22d3ee;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
 
   .kpi-card {
     padding: 12px 14px;

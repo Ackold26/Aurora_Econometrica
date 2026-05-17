@@ -14,7 +14,10 @@
     kpiKind,
     derivedMode,
     valuePerCountUnit,
+    planningMode,
+    forecastConfig,
   } from '$lib/project-state.js';
+  import { get } from 'svelte/store';
   import CorridorSlider from './CorridorSlider.svelte';
   import GoalSeekResultCard from './GoalSeekResultCard.svelte';
   import WhyThisStep from './WhyThisStep.svelte';
@@ -56,6 +59,19 @@
   async function runGoalSeek() {
     if (!$activeProject?.path) {
       errorMessage = 'Откройте проект сначала.';
+      return;
+    }
+    // v2.1.0 (pilot E P0-1 2026-05-17): block Goal-Seek в planning mode -
+    // backend _forward_at_budget строит config без forecast_periods/inflation,
+    // поэтому target из планируемого горизонта применяется к training horizon
+    // → backend ищет budget в неверном масштабе. Honest reject с инструкцией
+    // переключиться в analyst mode для Goal-Seek.
+    if ($planningMode === 'planner') {
+      errorMessage = (
+        'Goal-Seek недоступен в режиме Планирования. ' +
+        'Переключитесь на «Анализ» (вверху страницы «Оптимизация»), либо используйте ' +
+        'Forward-оптимизацию с заданным бюджетом для прогнозного горизонта.'
+      );
       return;
     }
     busy = true;

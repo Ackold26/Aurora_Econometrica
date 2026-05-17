@@ -40,6 +40,7 @@
   "methodology": {
     "title": "Методология",
     "mmm_line": "Bayesian MMM с адstock и saturation - MCMC NUTS",
+    "mmm_line_ols": "Линейная регрессия с adstock и saturation - OLS · closed-form · bootstrap CI",
     "spec_header": "Спецификация модели:",
     "diagnostics_header": "Диагностика:"
   },

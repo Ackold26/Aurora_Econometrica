@@ -82,6 +82,7 @@ def evaluate_flat_allocation_response(
     media_means: dict[str, float],
     adstock_config: dict | None = None,
     n_periods: int,
+    unit_costs_at_training: list[float] | np.ndarray | None = None,
 ) -> float:
     """Total media response под flat allocation (Option C - sum-of-Hills).
 
@@ -116,6 +117,12 @@ def evaluate_flat_allocation_response(
 
     alloc = np.asarray(allocation_money, dtype=np.float64)
     uc_arr = np.asarray(unit_costs, dtype=np.float64)
+    # v2.1.0 (ADR-020): training-time unit_costs для Hill symmetry. None = legacy
+    # pickle без pre-multiply → uc_train=1.0 (no-op) для byte-exact backward compat.
+    if unit_costs_at_training is not None:
+        uc_train_arr = np.asarray(unit_costs_at_training, dtype=np.float64)
+    else:
+        uc_train_arr = np.ones(len(media_cols), dtype=np.float64)
     cfg = adstock_config or {}
 
     total = 0.0
@@ -137,7 +144,12 @@ def evaluate_flat_allocation_response(
             uc = 1e-10
 
         x_native_total = float(alloc[i]) / uc
-        x_avg_raw = x_native_total / n_periods
+        # v2.1.0 (ADR-020): pre-multiply на uc_train ДО adstock для Hill symmetry.
+        uc_train = float(uc_train_arr[i]) if i < len(uc_train_arr) else 1.0
+        if uc_train <= 0:
+            uc_train = 1.0
+        x_scaled_total = x_native_total * uc_train
+        x_avg_raw = x_scaled_total / n_periods
         if x_avg_raw <= 0:
             continue
 

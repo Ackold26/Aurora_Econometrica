@@ -9,7 +9,7 @@
    * @component ScenarioPlayground
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, sessionStats, unitCosts, unitCostInflation } from '$lib/project-state.js';
+  import { activeProjectId, sessionStats, unitCosts, unitCostInflation, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import DataTable from '$lib/components/DataTable.svelte';
 
@@ -60,6 +60,10 @@
       for (const ch of channels) mediaPlan[ch] = [budgets[ch] ?? 0];
 
       const uc = get(unitCosts) ?? {};
+      // v2.1.0 (pilot E P1-3 2026-05-17): передаём kpi_unit_cost в сценарий для
+      // count KPI - без него scenarios теряли money equivalents (ADR-021 incomplete).
+      const _kuc = get(valuePerCountUnit);
+      const kpiUnitCost = get(kpiKind) === 'count' && typeof _kuc === 'number' && _kuc > 0 ? _kuc : null;
       const result = /** @type {any} */ (await invoke('econ_scenario', {
         projectDir,
         scenarioName: baseName,
@@ -70,6 +74,7 @@
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
         unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
+        kpiUnitCost,
       }));
       if (result.status === 'ok') {
         scenarioName = '';

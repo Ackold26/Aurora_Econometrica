@@ -258,6 +258,13 @@ class AuroraPPTXBuilder:
         self.mape_pct = diag.get("mape_pct", 8.3)
         self.r_hat_max = diag.get("r_hat_max", 1.008)
         self.ess_min = diag.get("ess_min", 1247)
+        # v2.1.0 (Pilot C): engine detection. 'ols' для small-data fallback,
+        # 'bayesian' (default) для production v1.2/v1.3 pickles. Determines
+        # methodology labels (MCMC/NUTS vs closed-form/bootstrap).
+        self.engine = diag.get("engine") or (
+            "ols" if self.data.get("model_version") == "1.0-ols" else "bayesian"
+        )
+        self.is_ols = self.engine == "ols"
 
         # --- Channels + narrative facts (Session C - Path C parametrization) ---
         # If adapter supplied channels + facts: real client data drives slide
@@ -1227,18 +1234,32 @@ class AuroraPPTXBuilder:
 
     def s_divider_methodology(self):
         """NEW divider for section 3 'Методология'."""
-        self._render_section_divider(
-            slide_num=10,
-            takeaway=(
-                "Байесовский MMM с адстоком и Hill-насыщением - "
-                "прозрачная математическая модель с интервалами доверия"
-            ),
-            topics=[
-                "Спецификация модели и уравнение отклика",
-                "Априорные распределения и ограничения параметров",
-                "Диагностика сходимости MCMC",
-            ],
-        )
+        if self.is_ols:
+            self._render_section_divider(
+                slide_num=10,
+                takeaway=(
+                    "Линейная регрессия с adstock и Hill-насыщением - "
+                    "прозрачная математическая модель с bootstrap-интервалами"
+                ),
+                topics=[
+                    "Спецификация модели и уравнение отклика",
+                    "Параметры adstock и saturation (фиксированные)",
+                    "Диагностика OLS · closed-form · bootstrap CI",
+                ],
+            )
+        else:
+            self._render_section_divider(
+                slide_num=10,
+                takeaway=(
+                    "Байесовский MMM с адстоком и Hill-насыщением - "
+                    "прозрачная математическая модель с интервалами доверия"
+                ),
+                topics=[
+                    "Спецификация модели и уравнение отклика",
+                    "Априорные распределения и ограничения параметров",
+                    "Диагностика сходимости MCMC",
+                ],
+            )
 
     def s_divider_data(self):
         """NEW divider for section 4 'Данные и качество'."""
@@ -1386,10 +1407,11 @@ class AuroraPPTXBuilder:
         )
 
         # Source footnote at bottom
+        _engine_label = "OLS MMM" if self.is_ols else "Bayesian MMM"
         self._source(
             slide, 6.87,
             text=(
-                f"Источник: Bayesian MMM · {self.report_id}; данные {self.sources_client_label} {self.data_window_label}; "
+                f"Источник: {_engine_label} · {self.report_id}; данные {self.sources_client_label} {self.data_window_label}; "
                 "модель откалибрована под FMCG-бенчмарки."
             ),
         )
@@ -1616,10 +1638,12 @@ class AuroraPPTXBuilder:
         )
 
         # Source at bottom (unified position max low to footer hairline)
-        self._source(
-            slide, 6.87,
-            text=f"Источник: Bayesian MMM Aurora AI · {self.report_id}; медианы апостериорного распределения",
+        _src_text = (
+            f"Источник: OLS MMM Aurora AI · {self.report_id}; точечные оценки + bootstrap CI"
+            if self.is_ols
+            else f"Источник: Bayesian MMM Aurora AI · {self.report_id}; медианы апостериорного распределения"
         )
+        self._source(slide, 6.87, text=_src_text)
 
         # Right rail: commentary (42%)
         right_x = chart_x + chart_w + 0.4
@@ -1984,10 +2008,12 @@ class AuroraPPTXBuilder:
             )
             fy += line_h
         # Source at y=6.67 (max close to footer hairline 6.85)
-        self._source(
-            slide, 6.87,
-            text=f"Источник: Bayesian MMM Aurora AI · {self.report_id}; доверительный интервал 95%, медианы апостериорного распределения."
+        _src_text2 = (
+            f"Источник: OLS MMM Aurora AI · {self.report_id}; bootstrap CI 95%, точечные оценки."
+            if self.is_ols
+            else f"Источник: Bayesian MMM Aurora AI · {self.report_id}; доверительный интервал 95%, медианы апостериорного распределения."
         )
+        self._source(slide, 6.87, text=_src_text2)
 
         self._footer(slide, 7)
 
@@ -2076,9 +2102,10 @@ class AuroraPPTXBuilder:
             )
 
             # Source at bottom (unified position, real-data variant)
+            _engine_decomp = "OLS MMM" if self.is_ols else "Bayesian MMM"
             self._source(
                 slide, 6.87,
-                text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция Bayesian MMM · {self.report_id}",
+                text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция {_engine_decomp} · {self.report_id}",
             )
 
             self._footer(slide, 9)
@@ -2219,9 +2246,10 @@ class AuroraPPTXBuilder:
             )
 
         # Source at bottom (unified position)
+        _engine_decomp2 = "OLS MMM" if self.is_ols else "Bayesian MMM"
         self._source(
             slide, 6.87,
-            text=f"Источник: {self.sources_client_label}, продажи за период {self.data_window_label}; декомпозиция Bayesian MMM · {self.report_id}",
+            text=f"Источник: {self.sources_client_label}, продажи за период {self.data_window_label}; декомпозиция {_engine_decomp2} · {self.report_id}",
         )
 
         self._footer(slide, 9)
@@ -2503,9 +2531,14 @@ class AuroraPPTXBuilder:
 
         self._category(slide, self.safe, 0.60, "ПОДХОД")
 
+        _title_text = (
+            "OLS MMM с adstock + Hill-насыщением (closed-form + bootstrap CI)"
+            if self.is_ols
+            else "Байесовская MMM с adstock + Hill-насыщением"
+        )
         self._action_title(
             slide,
-            "Байесовская MMM с adstock + Hill-насыщением",
+            _title_text,
             show_lime=True, y=0.80, height=0.80,
         )
 
@@ -2522,18 +2555,33 @@ class AuroraPPTXBuilder:
         self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
 
         self._rect(slide, left_x, left_y + 0.45, left_w, 2.3, fill=self.bg_quiet)
-        formulas = [
-            "y_t = baseline_t + Σ β_i · sat(adstock(x_i,t)) + ε_t",
-            "",
-            "adstock(x, θ) = x_t + θ·x_{t-1} + θ²·x_{t-2} + …",
-            "   θ_i ∈ [0, 0.95]  (geometric decay)",
-            "",
-            "sat(z, α, γ) = z^α / (z^α + γ^α)",
-            "   Hill function, half-max = γ_i",
-            "",
-            "β_i ~ HalfNormal(0.5) · CPP-normalized",
-            "ε_t ~ Normal(0, σ)",
-        ]
+        if self.is_ols:
+            formulas = [
+                "y_t = baseline_t + Σ β_i · sat(adstock(x_i,t)) + ε_t",
+                "",
+                "adstock(x, θ) = x_t + θ·x_{t-1} + θ²·x_{t-2} + …",
+                "   θ = 0.5 (fixed, geometric decay)",
+                "",
+                "sat(z, α, γ) = z^α / (z^α + γ^α)",
+                "   Hill function (fixed): α=1.5, γ=0.5",
+                "",
+                "β_i estimated via closed-form OLS",
+                "ε_t ~ Normal(0, σ) (frequentist)",
+                "CI на ROI/mROAS - bootstrap n=1000",
+            ]
+        else:
+            formulas = [
+                "y_t = baseline_t + Σ β_i · sat(adstock(x_i,t)) + ε_t",
+                "",
+                "adstock(x, θ) = x_t + θ·x_{t-1} + θ²·x_{t-2} + …",
+                "   θ_i ∈ [0, 0.95]  (geometric decay)",
+                "",
+                "sat(z, α, γ) = z^α / (z^α + γ^α)",
+                "   Hill function, half-max = γ_i",
+                "",
+                "β_i ~ HalfNormal(0.5) · CPP-normalized",
+                "ε_t ~ Normal(0, σ)",
+            ]
         self._paragraphs(
             slide, left_x + 0.25, left_y + 0.6, left_w - 0.5, 2.1,
             [(line, {
@@ -2551,12 +2599,21 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, left_x, diag_y + 0.28, 1.0, weight=0.75, color=self.gold)
 
-        diag = [
-            ("R²",                f"{self.r_squared:.3f}"),
-            ("MAPE",              f"{self.mape_pct:.1f}%"),
-            ("R-hat (max)",       f"{self.r_hat_max:.3f}"),
-            ("ESS (min)",         f"{self.ess_min:,}".replace(",", " ")),
-        ]
+        if self.is_ols:
+            # OLS не имеет MCMC diagnostics. Показываем frequentist метрики.
+            diag = [
+                ("R²",                f"{self.r_squared:.3f}"),
+                ("MAPE",              f"{self.mape_pct:.1f}%"),
+                ("Метод",             "closed-form OLS"),
+                ("CI",                "bootstrap n=1000"),
+            ]
+        else:
+            diag = [
+                ("R²",                f"{self.r_squared:.3f}"),
+                ("MAPE",              f"{self.mape_pct:.1f}%"),
+                ("R-hat (max)",       f"{self.r_hat_max:.3f}"),
+                ("ESS (min)",         f"{self.ess_min:,}".replace(",", " ")),
+            ]
         dy = diag_y + 0.4
         for label, val in diag:
             self._text(
@@ -2623,16 +2680,20 @@ class AuroraPPTXBuilder:
             )
             self._source(slide, 6.65, text=t3_text)
             # Existing bottom note pushed чуть выше
-            self._source(
-                slide, 6.97,
-                text="Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM.",
+            _bottom_note = (
+                "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные."
+                if self.is_ols
+                else "Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM."
             )
+            self._source(slide, 6.97, text=_bottom_note)
         else:
             # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
-            self._source(
-                slide, 6.87,
-                text="Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM.",
+            _bottom_note2 = (
+                "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные."
+                if self.is_ols
+                else "Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM."
             )
+            self._source(slide, 6.87, text=_bottom_note2)
 
         self._footer(slide, 11)
 
@@ -2832,8 +2893,27 @@ class AuroraPPTXBuilder:
         content_y = 2.30
         entry_h = 0.54
 
-        columns = [
-            ("МЕТОДОЛОГИЯ MMM", [
+        if self.is_ols:
+            _methodology_terms = [
+                ("MMM", "Marketing Mix Modeling - статистическая декомпозиция вклада каналов в продажи."),
+                ("OLS", "Ordinary Least Squares - метод наименьших квадратов, closed-form оценка β-коэффициентов."),
+                ("Bootstrap", "Resampling-метод для построения доверительных интервалов (n=1000 итераций)."),
+                ("Frequentist", "Классический статистический подход: точечные оценки + CI на основе sampling distribution."),
+                ("Adstock", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
+                ("Насыщение", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
+                ("Conformal PI", "Distribution-free prediction interval с гарантией покрытия."),
+            ]
+            _quality_terms = [
+                ("R²", "Доля объяснённой моделью вариации продаж (0 до 1). Целевое > 0.7."),
+                ("MAPE", "Средняя абсолютная процентная ошибка прогноза."),
+                ("Bootstrap CI", "95% доверительный интервал на ROI/mROAS из resampling-распределения."),
+                ("β-SE", "Стандартная ошибка β-коэффициентов из (XᵀX)⁻¹."),
+                ("MQS", "Model Quality Score - композитный индекс качества Aurora (0-100)."),
+                ("VIF / Leverage", "OLS-диагностики мультиколлинеарности и влиятельности точек."),
+                ("Базовый / инкрементальный", "Органические продажи без медиа и продажи, вызванные медиа-инвестициями."),
+            ]
+        else:
+            _methodology_terms = [
                 ("MMM", "Marketing Mix Modeling - статистическая декомпозиция вклада каналов в продажи."),
                 ("Байесовский вывод", "Вероятностный подход: апостериорные распределения вместо точечных оценок."),
                 ("NUTS", "No-U-Turn Sampler - эффективный метод MCMC для многомерных распределений."),
@@ -2841,8 +2921,8 @@ class AuroraPPTXBuilder:
                 ("Априорное / апостериорное", "Исходные предположения → обновлённая оценка после данных."),
                 ("Adstock", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
                 ("Насыщение", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
-            ]),
-            ("КАЧЕСТВО МОДЕЛИ", [
+            ]
+            _quality_terms = [
                 ("R²", "Доля объяснённой моделью вариации продаж (0 до 1). Целевое > 0.7."),
                 ("MAPE", "Средняя абсолютная процентная ошибка прогноза."),
                 ("R-hat", "Диагностика сходимости MCMC-цепей; целевое значение ≤ 1.01."),
@@ -2850,7 +2930,10 @@ class AuroraPPTXBuilder:
                 ("CI (95%)", "Байесовский интервал правдоподобия - в нём истинное значение лежит с 95% вероятностью."),
                 ("MQS", "Model Quality Score - композитный индекс качества Aurora (0-100)."),
                 ("Базовый / инкрементальный", "Органические продажи без медиа и продажи, вызванные медиа-инвестициями."),
-            ]),
+            ]
+        columns = [
+            ("МЕТОДОЛОГИЯ MMM", _methodology_terms),
+            ("КАЧЕСТВО МОДЕЛИ", _quality_terms),
             ("МЕДИА-МЕТРИКИ", [
                 ("mROAS", "Marginal ROAS - возврат с последнего вложенного рубля (×-коэффициент)."),
                 ("ROI", "Return on Investment - общая возвратность вложений (инкрементальный вклад / расход)."),

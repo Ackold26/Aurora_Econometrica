@@ -54,6 +54,7 @@ def compute_roi_verdict(
     roi_ci_high: float | None = None,
     n_channels: int = 0,
     category_quantiles: dict[str, dict[str, float]] | None = None,
+    money_roi_unavailable: bool = False,
 ) -> tuple[str, str]:
     """Hybrid ROI verdict combining absolute + relative + posterior CI.
 
@@ -85,6 +86,15 @@ def compute_roi_verdict(
     Returns:
       (verdict_label, verdict_tone) where tone ∈ {good, warn, bad, neutral}.
     """
+    # v2.1.0 (pilot B P0/B-02 2026-05-17): для count KPI без kpi_unit_cost
+    # roi = contribution_count / spend_money (size 1/CPU, не money ratio).
+    # ROI thresholds в этом fn семантически = money-ratio (₽/₽), поэтому
+    # native count ROI почти всегда < 0.5 → false-positive «Глубоко убыточный»
+    # для всех каналов. Honest reject: вывод «Не определён» + tone neutral,
+    # инструкция задать ценность единицы для proper verdicts.
+    if money_roi_unavailable:
+        return ('Задайте ценность единицы для оценки', 'neutral')
+
     # Step 1 (L2 refactor): compute wide-CI flag для последующего suffix.
     # Pre-fix: this was the FIRST gate suppressing all informative labels.
     # Post-fix: descriptive verdict computed first, CI uncertainty added как
@@ -480,6 +490,7 @@ def decompose(
         # which was missing /unit_cost /mean /adstock_factor → mixed units (Kagocel
         # TRPs showed 110.93× pre-optimize vs 0.0285× post-optimize).
         from engines.optimizer import _compute_mroas_money
+        # v2.1.0 (ADR-020): pass training-time uc для Hill symmetry mROAS consistency.
         mroi_current_pt = float(_compute_mroas_money(
             current_spend_native=raw_spend_total,
             n_periods=n_periods,
@@ -491,6 +502,7 @@ def decompose(
             y_std=y_std,
             unit_cost=unit_cost,
             decay=decay_point,
+            uc_at_training=uc_train,
         ))
 
         # L11 (math-fix v1.4 Section C, 2026-04-29): display_name strips Excel
@@ -758,7 +770,11 @@ def decompose(
                 ch['category'] = 'mixed'
         ch['unit_smell'] = bool(looks_like_non_money and abs(ch['unit_cost'] - 1.0) < 1e-9)
 
-        # Hybrid verdict (absolute + relative + posterior CI) - see compute_roi_verdict docstring
+        # Hybrid verdict (absolute + relative + posterior CI) - see compute_roi_verdict docstring.
+        # v2.1.0 (B-02 pilot 2026-05-17): pass money_roi_unavailable flag для count KPI
+        # без kpi_unit_cost - предотвращает ложные «Глубоко убыточный» verdicts
+        # когда roi семантически = упак/₽ (1/CPU), не money ratio.
+        _money_roi_na = bool(kpi_kind == 'count' and kpi_unit_cost is None)
         verdict_label, verdict_tone = compute_roi_verdict(
             roi=ch['roi'],
             efficiency_gap=ch['efficiency_gap'],
@@ -768,6 +784,7 @@ def decompose(
             roi_ci_high=ch.get('roi_ci_high'),
             n_channels=n_channels,
             category_quantiles=category_quantiles,
+            money_roi_unavailable=_money_roi_na,
         )
         ch['verdict'] = verdict_label
         ch['verdict_tone'] = verdict_tone

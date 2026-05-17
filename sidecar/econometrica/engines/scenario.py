@@ -190,6 +190,30 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         try:
             forecast_n = int(forecast_periods_cfg)
             if forecast_n >= 1:
+                # v2.1.0 (pilot E P0-2 2026-05-17): enforce horizon cap symmetrically
+                # с optimizer (см. optimizer.py:398-419). Без этого scenario engine
+                # обходил FORECAST_HORIZON_TOO_LONG safety gate через ScenarioPlayground
+                # save flow и распределял media_plan по любому n_periods.
+                try:
+                    from engines.persistence import get_kpi_type
+                    from utils.forecast_validation import get_forecast_horizon_max_multiplier
+                    _kpi_type = get_kpi_type(model_data)
+                    _max_mult = get_forecast_horizon_max_multiplier(_kpi_type)
+                    _max_horizon = int(training_n_periods * _max_mult)
+                    if forecast_n > _max_horizon:
+                        return {
+                            'status': 'error',
+                            'error_code': 'FORECAST_HORIZON_TOO_LONG',
+                            'message': (
+                                f'Период сценария ({forecast_n}) превышает '
+                                f'обучающий горизонт более чем в {_max_mult:.1f}× '
+                                f'({_max_horizon}). Допущение стационарности '
+                                f'коэффициентов нарушено. Переучите модель на '
+                                f'расширенных данных или сократите горизонт.'
+                            ),
+                        }
+                except ImportError:
+                    pass  # legacy fallback - проверка disabled
                 n_periods = forecast_n
         except (TypeError, ValueError):
             pass
@@ -201,6 +225,14 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     adstock_config = config_model.get('adstock_config', {})
     adstocked_plan: dict[str, np.ndarray] = {}
     raw_plan: dict[str, np.ndarray] = {}  # Phase 1.1: keep raw for batch CI propagation
+    # v2.1.0 (ADR-020): training-time uc snapshot для pre-multiply media plan ДО
+    # adstock+hill. Иначе scenario с TRPs каналом даёт x_norm в 120000× меньше
+    # training-equivalent → wrong predicted KPI.
+    unit_costs_applied_at_training = bool(model_data.get('unit_costs_applied_at_training'))
+    unit_costs_snapshot_train: dict[str, float] = (
+        model_data.get('unit_costs_snapshot') or {}
+    ) if unit_costs_applied_at_training else {}
+
     for col in media_cols:
         raw_arr = np.array(media_plan.get(col, [0.0] * n_periods), dtype=float)
         # Pad / truncate to n_periods
@@ -209,10 +241,13 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         elif len(raw_arr) > n_periods:
             raw_arr = raw_arr[:n_periods]
         raw_plan[col] = raw_arr
+        # v2.1.0 (ADR-020): pre-multiply через uc_train для Hill symmetry.
+        uc_train_col = float(unit_costs_snapshot_train.get(col, 1.0) or 1.0)
+        scaled_arr = raw_arr * uc_train_col if uc_train_col != 1.0 else raw_arr
         a_type = adstock_config.get(col, 'geometric')
         decay_point = channel_params.get(col, {}).get('decay')
         adstock_params_override = {'alpha': float(decay_point)} if decay_point is not None else None
-        adstocked_plan[col] = apply_adstock(raw_arr, a_type, adstock_params_override)
+        adstocked_plan[col] = apply_adstock(scaled_arr, a_type, adstock_params_override)
 
     # P1-3 fix: baseline = intercept × y_std + y_mean per period (intercept-based
     # counterfactual), not y_mean × n_periods (which excluded model bias).
@@ -292,10 +327,13 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             for col in media_cols:
                 avg_per_period = current_per_period_spend.get(col, 0.0)
                 raw_arr = np.full(n_periods, avg_per_period, dtype=float)
+                # v2.1.0 (ADR-020): pre-multiply через uc_train для canonical lift symmetry.
+                uc_train_col_lift = float(unit_costs_snapshot_train.get(col, 1.0) or 1.0)
+                scaled_arr = raw_arr * uc_train_col_lift if uc_train_col_lift != 1.0 else raw_arr
                 a_type = adstock_config.get(col, 'geometric')
                 decay_point = channel_params.get(col, {}).get('decay')
                 params_override = {'alpha': float(decay_point)} if decay_point is not None else None
-                current_adstocked[col] = apply_adstock(raw_arr, a_type, params_override)
+                current_adstocked[col] = apply_adstock(scaled_arr, a_type, params_override)
             for t in range(n_periods):
                 cur_total_effect = 0.0
                 for col in media_cols:
@@ -358,7 +396,13 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             apply_merge_rules(train_df, config_model.get('merge_rules'))
             for col in media_cols:
                 if col in train_df.columns:
-                    train_raw_per_channel[col] = train_df[col].fillna(0).values.astype(float)
+                    # v2.1.0 (ADR-020): pre-multiply через uc_train для symmetry с
+                    # in-model adstock_full normalization (mean считалась в scaled scale).
+                    _arr = train_df[col].fillna(0).values.astype(float)
+                    _uc_t = float(unit_costs_snapshot_train.get(col, 1.0) or 1.0)
+                    if _uc_t != 1.0 and _uc_t > 0:
+                        _arr = _arr * _uc_t
+                    train_raw_per_channel[col] = _arr
         except Exception:
             train_raw_per_channel = {}  # graceful fallback к scalar mean
 
@@ -384,7 +428,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 decay_samples = ch_samples.get('decay')
                 if decay_samples is not None and a_type == 'geometric':
                     # Phase 1.1: per-sample adstock varies → Hill on 2D x_norm.
-                    x_adstock_2d = geometric_adstock_batch(raw_plan[col], decay_samples)
+                    # v2.1.0 (ADR-020): pre-multiply через uc_train ДО adstock_batch
+                    # для Hill symmetry с training scale.
+                    _uc_train_col = float(unit_costs_snapshot_train.get(col, 1.0) or 1.0)
+                    _raw_for_batch = raw_plan[col] * _uc_train_col if _uc_train_col != 1.0 else raw_plan[col]
+                    x_adstock_2d = geometric_adstock_batch(_raw_for_batch, decay_samples)
                     # F1 fix (audit 2026-04-27): per-sample TRAINING adstock mean
                     # (computed from training raw spend × per-sample decay) for math
                     # consistency with in-model normalization. Pre-fix used scalar
