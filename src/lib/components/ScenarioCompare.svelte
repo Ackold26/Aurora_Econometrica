@@ -9,8 +9,26 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { activeProjectId, pipelineState, isComputing, computeStatus, chartImages } from '$lib/project-state.js';
+  import { get } from 'svelte/store';
+  import {
+    activeProjectId,
+    pipelineState,
+    isComputing,
+    computeStatus,
+    chartImages,
+    valuePerCountUnit,
+    kpiKind,
+  } from '$lib/project-state.js';
   import DataTable from './DataTable.svelte';
+
+  // v2.1.0 (pilot R2 B2-02 2026-05-17): derive kpi_unit_cost для count KPI.
+  // Без него econ_scenario сохраняет сценарий без money equivalents → при
+  // загрузке lift/KPI расходится с тем, что показано на момент создания
+  // (ADR-021 incomplete coverage, обнаружено в pilot round 2).
+  function deriveKpiUnitCost() {
+    const k = get(valuePerCountUnit);
+    return get(kpiKind) === 'count' && typeof k === 'number' && k > 0 ? k : null;
+  }
 
   /** @type {{ channels?: string[], optimization?: any }} */
   let { channels = [], optimization } = $props();
@@ -54,6 +72,7 @@
         projectDir,
         scenarioName: 'slider-preview',
         mediaPlan: plan,
+        kpiUnitCost: deriveKpiUnitCost(),
       }));
       if (result.status === 'ok') {
         sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}% продаж`;
@@ -81,6 +100,7 @@
         projectDir,
         scenarioName: `mediaplan-${Date.now()}`,
         mediaPlanFile: filePath,
+        kpiUnitCost: deriveKpiUnitCost(),
       }));
 
       if (result.status === 'ok') {

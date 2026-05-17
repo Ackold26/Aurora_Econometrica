@@ -190,15 +190,62 @@ export const planningMode = createPlanningModeStore();
  *   budgetMoney: number | null,
  *   inflationPerChannel: Record<string, number> | null,
  * }} ForecastConfig
- *
- * @type {import('svelte/store').Writable<ForecastConfig>}
  */
-export const forecastConfig = writable({
-  periods: null,
-  periodLabel: null,
-  budgetMoney: null,
-  inflationPerChannel: null,
-});
+// v2.1.0 (pilot R2 E2-02 / E-H05 2026-05-17): localStorage persistence чтобы
+// planner mode переживал reload Tauri window. Раньше: forecastConfig жил
+// только в памяти → после reload пользователь оказывался в analyst mode с
+// пустым picker'ом и терял horizon + budget. Pattern: createPlanningModeStore.
+//
+// Edge case: inflationPerChannel может быть large dict. При <10 каналов
+// сериализуем полностью; иначе сохраняем только periods/periodLabel/
+// budgetMoney и сбрасываем inflation map (его восстановит block D effect
+// в OptimizeStep на defaults при первой активации forecast блока).
+const FORECAST_CONFIG_KEY = 'econ-forecast-config';
+
+/** @returns {import('svelte/store').Writable<ForecastConfig>} */
+function createForecastConfigStore() {
+  /** @type {ForecastConfig} */
+  let initial = { periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null };
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(FORECAST_CONFIG_KEY) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        initial = {
+          periods: typeof parsed.periods === 'number' && parsed.periods >= 1 ? parsed.periods : null,
+          periodLabel: typeof parsed.periodLabel === 'string' ? parsed.periodLabel : null,
+          budgetMoney: typeof parsed.budgetMoney === 'number' && parsed.budgetMoney > 0 ? parsed.budgetMoney : null,
+          inflationPerChannel:
+            parsed.inflationPerChannel && typeof parsed.inflationPerChannel === 'object'
+              ? /** @type {Record<string, number>} */ (parsed.inflationPerChannel)
+              : null,
+        };
+      }
+    }
+  } catch { /* corrupted / quota - use defaults */ }
+  const store = writable(/** @type {ForecastConfig} */ (initial));
+  if (typeof localStorage !== 'undefined') {
+    store.subscribe((v) => {
+      try {
+        // Size guard: large inflation maps (≥10 channels) дропаем, чтобы не
+        // раздувать localStorage. Восстановление inflation defaults делается
+        // в OptimizeStep $effect когда forecast блок expand'ится.
+        const infl = v?.inflationPerChannel;
+        const inflSize = infl && typeof infl === 'object' ? Object.keys(infl).length : 0;
+        const payload = {
+          periods: v?.periods ?? null,
+          periodLabel: v?.periodLabel ?? null,
+          budgetMoney: v?.budgetMoney ?? null,
+          inflationPerChannel: inflSize > 0 && inflSize < 10 ? infl : null,
+        };
+        localStorage.setItem(FORECAST_CONFIG_KEY, JSON.stringify(payload));
+      } catch { /* ignore quota / private mode */ }
+    });
+  }
+  return store;
+}
+/** @type {import('svelte/store').Writable<ForecastConfig>} */
+export const forecastConfig = createForecastConfigStore();
 
 /**
  * Cached forecast-context preview (from /compute/forecast-context endpoint).

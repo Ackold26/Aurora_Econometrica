@@ -965,8 +965,15 @@
       const inflTag = unitCostsOverride ? '-infl' : '';
       const multTag = whatIfResult ? `${Math.round(whatIfMult * 100)}pct` : 'current';
       const name = `what-if-${multTag}${inflTag}-${Date.now().toString().slice(-6)}`;
+      // v2.1.0 (pilot R2 B2-02 2026-05-17): wire kpi_unit_cost для count KPI -
+      // без него сохранённый what-if сценарий теряет money equivalents при
+      // повторной загрузке (ADR-021 incomplete coverage - patched после
+      // pilot round 2 находки).
+      const _kucWhatIf = get(valuePerCountUnit);
+      const kpiUnitCostWhatIf = get(kpiKind) === 'count' && typeof _kucWhatIf === 'number' && _kucWhatIf > 0 ? _kucWhatIf : null;
       const payload = /** @type {any} */ ({
         projectDir, scenarioName: name, mediaPlan,
+        kpiUnitCost: kpiUnitCostWhatIf,
       });
       if (unitCostsOverride) payload.unitCosts = unitCostsOverride;
       const r = /** @type {any} */ (await invoke('econ_scenario', payload));
