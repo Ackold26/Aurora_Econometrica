@@ -38,7 +38,7 @@ def _synthetic_dataset(tmp_path: Path, n: int = 40) -> tuple[Path, str]:
 
 
 def _train_ols(data_file: Path, project_dir: str, unit_costs: dict | None = None,
-               kpi_type: str = 'sales') -> dict:
+               kpi_type: str = 'sales', kpi_unit_cost: float | None = None) -> dict:
     from engines.ols_modeler import train_ols
     config = {
         'data_file': str(data_file),
@@ -49,6 +49,7 @@ def _train_ols(data_file: Path, project_dir: str, unit_costs: dict | None = None
         'adstock_config': {'tv_spend': 'geometric', 'digital_spend': 'geometric'},
         'unit_costs': unit_costs or {},
         'kpi_type': kpi_type,
+        'kpi_unit_cost': kpi_unit_cost,
         'merge_rules': {},
         'channel_categories': {},
     }
@@ -123,6 +124,78 @@ def test_kpi_type_count_passes_training(tmp_path):
     # OLS modeler не имеет KPI_TYPE_NOT_IMPLEMENTED guard вообще,
     # но проверим что Bayesian gate works similarly через config check.
     assert result['status'] == 'ok', f"count KPI rejected: {result.get('message')}"
+
+
+# ─── ADR-021: kpi_unit_cost tests ────────────────────────────────────
+
+def test_kpi_unit_cost_snapshot_persisted(tmp_path):
+    """kpi_unit_cost=80 → snapshot записан в pickle для последующего decomposer use."""
+    data_file, project_dir = _synthetic_dataset(tmp_path)
+    result = _train_ols(data_file, project_dir, kpi_type='sales_packs', kpi_unit_cost=80.0)
+    assert result['status'] == 'ok'
+    model_data = _load_pickle_safe(project_dir)
+    assert model_data.get('kpi_unit_cost_snapshot') == 80.0
+
+
+def test_kpi_unit_cost_none_persisted_as_none(tmp_path):
+    """kpi_unit_cost=None (default) → snapshot None, backward compat для старых
+    pickles без поля."""
+    data_file, project_dir = _synthetic_dataset(tmp_path)
+    result = _train_ols(data_file, project_dir, kpi_type='sales')
+    assert result['status'] == 'ok'
+    model_data = _load_pickle_safe(project_dir)
+    # Поле может отсутствовать или быть None - оба равноценные fallback
+    assert model_data.get('kpi_unit_cost_snapshot') is None
+
+
+def test_decomposer_money_roi_with_kpi_unit_cost(tmp_path):
+    """Decomposer применяет kpi_unit_cost для conversion count → money ROI.
+
+    Сценарий: count KPI обучен с unit_cost=50. Decomposer возвращает
+    contribution_money = contribution_count × 50 для каждого канала.
+    """
+    data_file, project_dir = _synthetic_dataset(tmp_path)
+    train_result = _train_ols(
+        data_file, project_dir,
+        kpi_type='sales_packs', kpi_unit_cost=50.0,
+    )
+    assert train_result['status'] == 'ok'
+
+    from engines.decomposer import decompose
+    dec_result = decompose(project_dir)
+    assert dec_result['status'] == 'ok', f"Decompose failed: {dec_result.get('message')}"
+
+    # Top-level money fields присутствуют для count KPI с unit_cost
+    assert dec_result.get('kpi_unit_cost') == 50.0
+
+    # Per-channel contribution_money = contribution × kpi_unit_cost
+    for ch in dec_result['channels']:
+        if ch.get('contribution') is None:
+            continue
+        contrib_money = ch.get('contribution_money')
+        if contrib_money is None:
+            # Channel может быть skipped (zero spend)
+            continue
+        expected = ch['contribution'] * 50.0
+        assert abs(contrib_money - expected) / max(abs(expected), 1e-6) < 0.01, (
+            f"Channel {ch['name']}: contribution_money={contrib_money}, expected={expected}"
+        )
+
+
+def test_decomposer_override_takes_precedence_over_snapshot(tmp_path):
+    """Decomposer override > pickle snapshot resolution order (ADR-021 §3)."""
+    data_file, project_dir = _synthetic_dataset(tmp_path)
+    train_result = _train_ols(
+        data_file, project_dir,
+        kpi_type='sales_packs', kpi_unit_cost=50.0,
+    )
+    assert train_result['status'] == 'ok'
+
+    from engines.decomposer import decompose
+    # Override 50 → 200
+    dec_result = decompose(project_dir, kpi_unit_cost_override=200.0)
+    assert dec_result['status'] == 'ok'
+    assert dec_result.get('kpi_unit_cost') == 200.0
 
 
 def test_awareness_kpi_still_rejected_in_bayesian():

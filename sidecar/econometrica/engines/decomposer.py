@@ -335,18 +335,31 @@ def decompose(
     else:
         _snap = model_data.get('kpi_unit_cost_snapshot')
         kpi_unit_cost = float(_snap) if _snap is not None and float(_snap) > 0 else None
-    # Detect kpi_kind для условной активации money conversion. Pickles до
-    # ADR-016 могут не иметь kpi_kind в config - fallback на classify_column.
+    # Detect kpi_kind для условной активации money conversion. Resolution chain:
+    # 1) Explicit kpi_kind в config (ADR-016+ pickles)
+    # 2) Derive из kpi_type (ADR-020+ pickles: 'sales_packs'/'leads'/... → count)
+    # 3) Fallback classify_column(kpi_column) для legacy pickles до ADR-016
     _kpi_kind_cfg = (config.get('kpi_kind') or '').lower()
     if _kpi_kind_cfg in ('count', 'monetary'):
         kpi_kind = _kpi_kind_cfg
     else:
-        try:
-            from utils.column_detection import classify_column
-            _kpi_col_classify = classify_column(config.get('kpi_column', '') or '')
-            kpi_kind = 'count' if _kpi_col_classify == 'target_count' else 'monetary'
-        except Exception:
-            kpi_kind = 'monetary'  # safe default - legacy behaviour
+        _count_types = {
+            'sales_packs', 'leads', 'registrations', 'loyalty_cards',
+            'subscriptions', 'app_installs', 'count_custom',
+        }
+        _monetary_types = {'sales', 'revenue', 'profit'}
+        _kpi_type_cfg = (config.get('kpi_type') or '').lower()
+        if _kpi_type_cfg in _count_types:
+            kpi_kind = 'count'
+        elif _kpi_type_cfg in _monetary_types:
+            kpi_kind = 'monetary'
+        else:
+            try:
+                from utils.column_detection import classify_column
+                _kpi_col_classify = classify_column(config.get('kpi_column', '') or '')
+                kpi_kind = 'count' if _kpi_col_classify == 'target_count' else 'monetary'
+            except Exception:
+                kpi_kind = 'monetary'  # safe default - legacy behaviour
 
     # ─────────────────────────────────────────────────────────────────────
     # P0-3/4/10 fix: per-channel per-period contribution = β × hill(adstock(x)/mean) × y_std
