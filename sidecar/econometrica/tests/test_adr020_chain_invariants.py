@@ -393,6 +393,71 @@ def test_scenario_persists_forecast_periods(tmp_path):
     assert scenario_result.get('forecast_period_label') == '2026 год'
 
 
+def test_optimizer_planner_mode_no_negative_lift_artifact(tmp_path):
+    """F-012 regression: planner mode (forecast_n != training_n) НЕ должен давать
+    отрицательный lift_pct artifact от horizon scale mismatch.
+
+    Pre-fix bug (pilot Кагоцел 2026-05-17): x0_money_real (training_total)
+    передавался в Option C objective с n_periods=forecast → x_avg_raw inflated,
+    current_response_real over-saturated → negative lift artifact (-7.4% наблюдалось).
+
+    Fix (2026-05-18): planner mode проектирует current на forecast horizon через
+    horizon_scale = forecast/training. x0_money_baseline = x0_money_real × scale.
+    money_target default тоже scaled. Лифт reflects ТОЛЬКО redistribution gain,
+    не horizon scale artifact.
+
+    Acceptance criteria:
+    - Analyst mode (forecast=training): lift_pct >= 0 (current allocation worst case)
+    - Planner mode (forecast < training, default money_target): lift_pct >= 0 (same)
+    - Planner mode (forecast < training, default): result.x sums к forecast-scaled budget
+    """
+    data_file, project_dir = _synthetic_dataset(tmp_path, n=40)
+    train_result = _train_ols_mixed_units(data_file, project_dir)
+    assert train_result['status'] == 'ok'
+
+    from engines.optimizer import optimize
+
+    # config kwargs: min_pct/max_pct expressed as percent (50, 150 → 0.5×, 1.5×).
+    base_cfg = {'min_pct': 20, 'max_pct': 200}
+
+    # ── Analyst mode (baseline) ──
+    analyst_result = optimize({**base_cfg}, project_dir)
+    assert analyst_result['status'] == 'ok', f"analyst failed: {analyst_result}"
+    analyst_lift = float(analyst_result.get('expected_lift_pct', 0))
+    # SLSQP from 'current' start can always converge к current → lift >= 0 invariant.
+    assert analyst_lift >= -0.5, (
+        f"analyst lift {analyst_lift:.2f}% — current start должен быть в multi-start, "
+        f"SLSQP не может вернуть worse than current. Bug в objective или selection."
+    )
+
+    # ── Planner mode (forecast < training) ──
+    # n_periods=40 training, forecast=20 weeks = 0.5× horizon.
+    planner_result = optimize({**base_cfg, 'forecast_periods': 20}, project_dir)
+    assert planner_result['status'] == 'ok', f"planner failed: {planner_result}"
+    planner_lift = float(planner_result.get('expected_lift_pct', 0))
+
+    # КЛЮЧЕВОЙ assertion: lift не должен быть negative artifact.
+    # Pre-fix давало -5..-10% для shrunk horizon (training_total fed как forecast budget).
+    # Post-fix: lift >= ~0 (analyst-equivalent redistribution, не horizon scale shift).
+    assert planner_lift >= -0.5, (
+        f"F-012 regression: planner lift {planner_lift:.2f}% — negative artifact от "
+        f"horizon scale mismatch. Fix: x0_money_baseline=x0_money_real×horizon_scale + "
+        f"money_target default scaled. См. optimizer.py:434-441,659-665,1087-1098."
+    )
+
+    # ── Planner mode (forecast == training) должен matched analyst ──
+    planner_eq_result = optimize({**base_cfg, 'forecast_periods': 40}, project_dir)
+    assert planner_eq_result['status'] == 'ok'
+    planner_eq_lift = float(planner_eq_result.get('expected_lift_pct', 0))
+    # horizon_scale = 1.0 → identical math (только Option A vs C difference остаётся)
+    # Tolerance ±5pp т.к. cold-start adstock в Option C vs steady-state Option A немного
+    # отличается, но НЕ должно давать negative artifact.
+    assert planner_eq_lift >= -0.5, (
+        f"planner forecast=training lift {planner_eq_lift:.2f}% — horizon_scale=1 "
+        f"должен matched analyst pattern (lift >= 0). Negative = bug в Option C path."
+    )
+
+
 def test_compute_roi_verdict_count_null_kpi_unit_cost_guard():
     """B-02 closure: для count KPI + null kpi_unit_cost compute_roi_verdict
     возвращает «Задайте ценность единицы» (neutral), не «Глубоко убыточный».

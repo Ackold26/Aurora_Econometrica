@@ -433,6 +433,14 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             }
         planning_mode = True
 
+    # v2.1.0 F-012 (2026-05-18): horizon scale factor для planner-mode comparisons.
+    # Analyst mode: forecast == training, scale=1.0 (no projection).
+    # Planner mode: project training-horizon current totals на forecast horizon.
+    # Used далее в: money_target default, current_response_real baseline, per-channel
+    # delta_pct + mROAS + display fields. Без этого training_total fed в Option C
+    # objective с n_periods=forecast → inflated per-period rate → negative lift artifact.
+    horizon_scale = (forecast_n_periods / max(n_periods, 1)) if planning_mode else 1.0
+
     # Phase 2 normalization (spend/mean Robyn-style)
     media_means = norm.get('media_means', {}) or {}
 
@@ -653,9 +661,15 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
     # ─ Money-axis bounds (replace native bounds + money constraint) ─
     # Constraint trivializes к sum(x_money) == money_target - uniform scale.
-    money_target = total_budget_money_target if total_budget_money_target is not None else (
-        sum(current_spend[c] * uc_arr[i] for i, c in enumerate(media_cols))
-    )
+    # v2.1.0 F-012: planner-mode default = forecast-horizon-projected current
+    # (training_total × horizon_scale). Pre-fix default was training_total which,
+    # combined с n_periods=forecast в Option C objective, давал inflated per-period
+    # rate → negative lift artifact. Customer explicit total_budget_money unaffected.
+    _training_total_money = sum(current_spend[c] * uc_arr[i] for i, c in enumerate(media_cols))
+    if total_budget_money_target is not None:
+        money_target = float(total_budget_money_target)
+    else:
+        money_target = _training_total_money * horizon_scale
     fallback_max_money = max(money_target * max_pct_global / n_ch, 1.0)
 
     def _bounds_money_for(col: str, i: int) -> tuple[float, float]:
@@ -1078,7 +1092,16 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # current_response computed at REAL current allocation (x0_money_real),
     # NOT projected (x0_money). Pre-fix using projected made lift_pct artifact
     # of scale-down/scale-up baseline shift, не measure of redistribution gain.
-    current_response_real = -_objective_fn(x0_money_real)
+    #
+    # v2.1.0 F-012 (2026-05-18): в planner mode проектировать x0_money_real на
+    # forecast horizon ДО передачи в Option C objective. Без projection
+    # evaluate_flat_allocation_response получает training_total с n_periods=forecast,
+    # вычисляет x_avg_raw = training_total/forecast_n_periods - inflated rate
+    # (e.g. Кагоцел 31→12: ×2.58 over actual rate) → super-saturated Hill →
+    # inflated current_response_real → negative lift artifact. Analyst mode
+    # horizon_scale=1.0, x0_money_baseline == x0_money_real (unchanged behavior).
+    x0_money_baseline = x0_money_real * horizon_scale
+    current_response_real = -_objective_fn(x0_money_baseline)
     optimal_response = -_objective_fn(result.x)
 
     # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04) ────────────────
@@ -1176,8 +1199,12 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     for i, col in enumerate(media_cols):
         p = channel_params[col]
         cur = current_spend[col]
+        # v2.1.0 F-012: forecast-horizon-projected current для fair comparison
+        # с optimal_spend (которое уже forecast-scale через money_target).
+        # Analyst mode horizon_scale=1.0 → cur_baseline == cur (unchanged).
+        cur_baseline = cur * horizon_scale
         opt = optimal_spend[i]
-        delta_pct = (opt - cur) / cur * 100 if cur > 0 else 0
+        delta_pct = (opt - cur_baseline) / cur_baseline * 100 if cur_baseline > 0 else 0
 
         # F0.2 (Phase 0.1 fix-session 2026-04-25): canonical mROAS chain rule
         # with adstock_factor + unit_cost normalization. See
@@ -1199,8 +1226,12 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         decay_pt = p.get('decay')  # Phase 1.1: posterior mean decay; None for legacy pickles
         # G1 fix: planning mode threads forecast_n_periods через mROAS - marginal
         # ROI estimated per planning horizon, не training (analyst mode unchanged).
+        # v2.1.0 F-012 sister: current_spend_native=cur_baseline (forecast-projected)
+        # для consistent per-period rate. cur (training_total) деленный на forecast_n
+        # давал inflated rate → wrong mROAS at current point. Optimal uses opt as-is
+        # since result.x already в forecast scale.
         mroi_current = _compute_mroas_money(
-            current_spend_native=cur,
+            current_spend_native=cur_baseline,
             n_periods=forecast_n_periods,
             mean=mean_ch,
             alpha=p['alpha'],
@@ -1253,7 +1284,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                 else:
                     mean_for_samples = mean_ch
                 cur_arr = _compute_mroas_money_samples(
-                    current_spend_native=cur,
+                    current_spend_native=cur_baseline,  # F-012: forecast-projected
                     n_periods=forecast_n_periods,
                     mean=mean_for_samples,
                     alpha_samples=ch_samples['alpha'],
@@ -1285,12 +1316,15 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # L11 (math-fix v1.4 Section C, 2026-04-29): display_name для UI consistency.
         from engines.narrative_adapter import _normalize_channel_name
         display_name = _normalize_channel_name(col) or col
+        # v2.1.0 F-012: display values используют cur_baseline (forecast-projected)
+        # для apples-to-apples comparison с optimal_spend (forecast-scale через
+        # money_target). Analyst mode: cur_baseline == cur (unchanged display).
         ch_dict = {
             'name': col,
             'display_name': display_name,
-            'current_spend': round(cur, 0),
+            'current_spend': round(cur_baseline, 0),
             'optimal_spend': round(float(opt), 0),
-            'current_spend_money': round(cur * uc, 0),
+            'current_spend_money': round(cur_baseline * uc, 0),
             'optimal_spend_money': round(float(opt) * uc, 0),
             'unit_cost': uc,
             'delta_pct': round(delta_pct, 1),
