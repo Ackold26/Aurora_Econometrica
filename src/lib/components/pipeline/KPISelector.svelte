@@ -21,7 +21,27 @@
 
   /** @typedef {'sales' | 'revenue' | 'profit' | 'sales_packs' | 'leads' | 'registrations' | 'loyalty_cards' | 'subscriptions' | 'app_installs' | 'count_custom'} KPIType */
 
-  const { onSelect, currentKPI } = $props();
+  /**
+   * @type {{
+   *   onSelect: (id: string) => void,
+   *   currentKPI: string,
+   *   availableKpiTypes?: string[] | null,
+   * }}
+   */
+  // v2.1.0 (пилот 2026-05-17): availableKpiTypes - набор типов которые
+  // соответствуют ролям колонок в данных. Frontend disable'ит cards вне
+  // этого списка - юзер не может выбрать тип leads если backend нашёл
+  // только target_monetary колонку. null = legacy backward compat (все
+  // cards enabled).
+  const { onSelect, currentKPI, availableKpiTypes = null } = $props();
+
+  /** @param {string} id */
+  function isDisabled(id) {
+    if (!Array.isArray(availableKpiTypes) || availableKpiTypes.length === 0) {
+      return false;
+    }
+    return !availableKpiTypes.includes(id);
+  }
   /** @type {string | null} */
   let hovered = $state(null);
 
@@ -63,6 +83,7 @@
 
   /** @param {string} id */
   function handleSelect(id) {
+    if (isDisabled(id)) return;
     onSelect?.(id);
   }
 
@@ -111,12 +132,15 @@
     </h3>
     <div class="cards">
       {#each monetaryOptions as opt (opt.id)}
-        <Tooltip text={TOOLTIPS[`kpi.${opt.id}`] ?? ''} position="top">
+        {@const disabled = isDisabled(opt.id)}
+        <Tooltip text={disabled ? 'В ваших данных нет колонки этого типа KPI' : TOOLTIPS[`kpi.${opt.id}`] ?? ''} position="top">
         <button
           type="button"
           class="card monetary"
           class:selected={currentKPI === opt.id}
           class:highlighted={hovered === opt.id}
+          class:disabled
+          disabled={disabled}
           onmouseenter={() => hovered = opt.id}
           onmouseleave={() => hovered = null}
           onclick={() => handleSelect(opt.id)}
@@ -145,12 +169,15 @@
     </h3>
     <div class="cards count-cards">
       {#each countOptions as opt (opt.id)}
-        <Tooltip text={TOOLTIPS[`kpi.${opt.id}`] ?? ''} position="top">
+        {@const disabled = isDisabled(opt.id)}
+        <Tooltip text={disabled ? 'В ваших данных нет колонки этого типа KPI' : TOOLTIPS[`kpi.${opt.id}`] ?? ''} position="top">
         <button
           type="button"
           class="card count"
           class:selected={currentKPI === opt.id}
           class:highlighted={hovered === opt.id}
+          class:disabled
+          disabled={disabled}
           onmouseenter={() => hovered = opt.id}
           onmouseleave={() => hovered = null}
           onclick={() => handleSelect(opt.id)}
@@ -320,6 +347,20 @@
     border-width: 2px;
     background: color-mix(in srgb, var(--accent-primary) 18%, transparent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  }
+  /* v2.1.0 (пилот 2026-05-17): disabled card когда availableKpiTypes
+     не содержит этого типа KPI. Юзер не может выбрать leads если в
+     данных только target_monetary колонка. */
+  .card.disabled,
+  .card:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .card.disabled:hover {
+    transform: none;
+    border-color: var(--border-subtle, rgba(255,255,255,0.06));
+    box-shadow: none;
   }
 
   .card-head {

@@ -474,6 +474,27 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         'ГОТОВ К МОДЕЛИРОВАНИЮ (с оговорками)' if warnings else 'ГОТОВ К МОДЕЛИРОВАНИЮ'
     )
 
+    # v2.1.0 (пилот 2026-05-17 audit): available_kpi_types - набор KPI типов
+    # которые соответствуют ролям колонок в данных. Frontend KPISelector
+    # disable'ит cards вне этого списка - юзер не может выбрать тип leads
+    # если backend нашёл только target_monetary колонку (KPI mismatch).
+    from utils.column_detection import classify_column as _classify_kpi
+    available_kpi_types: set[str] = set()
+    for c in columns:
+        nm = c.get('name') or ''
+        kind = _classify_kpi(nm)
+        if kind == 'target_count':
+            available_kpi_types.update(['sales_packs', 'leads', 'registrations', 'count_custom'])
+        elif kind == 'target_monetary':
+            available_kpi_types.update(['sales', 'revenue', 'profit'])
+    # Fallback: backend не нашёл явный target target_* → не блокируем выбор
+    # (юзер сам решит roles в Roles Mapper).
+    if not available_kpi_types:
+        available_kpi_types = {
+            'sales', 'sales_packs', 'leads', 'profit', 'revenue',
+            'registrations', 'count_custom',
+        }
+
     result: dict[str, Any] = {
         'status': status,
         'verdict': verdict,
@@ -493,6 +514,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'ratio': round(ratio, 1),
             'date_frequency': date_frequency,
         },
+        'available_kpi_types': sorted(available_kpi_types),
         'issues': issues,
         'warnings': warnings,
         'high_correlations': high_correlations,

@@ -1017,7 +1017,11 @@
       }}
     />
     <div data-tour-step="kpi-selector">
-      <KPISelector onSelect={handleKPISelect} currentKPI={currentKPI} />
+      <KPISelector
+        onSelect={handleKPISelect}
+        currentKPI={currentKPI}
+        availableKpiTypes={$validateData?.result?.available_kpi_types ?? null}
+      />
     </div>
     <!-- v2.1.0 (пилот 2026-05-16): явная кнопка «Далее» под KPISelector.
          Раньше клик на карточку сразу переключал под-шаг — пользователь
