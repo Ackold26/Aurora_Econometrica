@@ -53,33 +53,59 @@ export function marginalROI(x, alpha, gamma, beta, normalization = null) {
 }
 
 /**
+ * Adstock carryover factor для flat per-period allocation. Approximates
+ * `_flat_alloc_adstock_avg(x_pp, n) / x_pp` в `optimizer.py:42`. Для geometric
+ * decay серии sum_{t=0..n-1} d^t / n converges к `1/(1-decay)` при n →∞.
+ *
+ * Frontend `predictKPI` использует это как multiplier на per_period spend
+ * ДО Hill, чтобы input Hill match'ил backend `x_avg_adstock`. Без factor
+ * frontend Hill input в 1.5-2× меньше backend для decay≈0.5 → understate lift.
+ *
+ * @param {number} decay - geometric decay parameter в [0, 1)
+ * @param {number} n - число периодов
+ * @returns {number} carryover factor ≥ 1
+ */
+function adstockFactor(decay, n) {
+  if (!Number.isFinite(decay) || decay <= 0 || decay >= 1) return 1.0;
+  if (!Number.isFinite(n) || n < 1) return 1.0;
+  // closed-form mean of geometric adstock series:
+  // mean = (1/n) * sum_{t=0..n-1} (1 - d^(t+1))/(1-d)
+  //      = (1/(1-d)) * (1 - (d * (1 - d^n) / (n * (1-d))))
+  // Для n >= 8 практически 1/(1-d). Используем точную формулу для small n.
+  const dn = Math.pow(decay, n);
+  const oneMinusD = 1 - decay;
+  return (1 / oneMinusD) * (1 - (decay * (1 - dn)) / (n * oneMinusD));
+}
+
+/**
  * Predict total KPI from budget allocation.
+ *
+ * v2.1.0 (pilot D4 round 4 EDGE-D4-01 2026-05-17): добавлен `decays` параметр +
+ * apply adstock carryover factor в perPeriodScaled. Без этого frontend Hill input
+ * в 1.5-2× меньше backend для decay≈0.5 → currentKPI vs dData.total_sales
+ * divergence 15-35%. Factor approximates `_flat_alloc_adstock_avg(x_pp, n)/x_pp`.
  *
  * v2.1.0 (pilot A3 round 3 REGR-2 2026-05-17): добавлен `nPeriods` параметр +
  * spend → per-period scale ДО Hill (matches backend `total_response_money` в
  * `optimizer.py:601-625` где `x_avg_raw = x_native_total / n_periods` сначала,
  * затем adstock+Hill, потом total × n_periods). Без этого frontend Hill
  * получал total_period_spend против per-period mean (adstock_mean_posterior)
- * → x/gamma off на n_periods× → saturation plateau → sliders unresponsive
- * (2× budget давал ~2% lift вместо ~10-20%).
+ * → x/gamma off на n_periods× → saturation plateau → sliders unresponsive.
  *
  * v2.1.0 (pilot D2 round 2 R02 2026-05-17): добавлен `unitCostsAtTraining` -
  * pre-multiply spend ДО Hill для ADR-020 symmetry (mixed units pickles).
  *
  * @param {Record<string, number>} budgets - {channelName: spendValue в native units, TOTAL за все периоды}
  * @param {Record<string, {alpha: number, gammaScaled: number, beta: number}>} scaledParams
- * @param {{y_mean?: number, y_std?: number} | null} [normalization] - Денормализация
- *        в исходные единицы KPI (y = y_norm * y_std + y_mean). Без неё возвращается
- *        значение в normalized-шкале (≈0-2), бесполезное для отображения пользователю.
- * @param {Record<string, number> | null} [unitCostsAtTraining] - {channelName: uc_train}.
- *        Применяется как multiplier к spend ДО Hill (ADR-020 symmetry).
- *        Default 1.0 если ключ отсутствует - byte-exact backward compat для legacy.
- * @param {number} [nPeriods] - количество периодов горизонта (training или planning).
- *        Default 1 — преserves old behavior для callers без n_periods context.
- *        Backend canonical: optimizer/scenario используют x_per_period = total/n_periods.
+ * @param {{y_mean?: number, y_std?: number} | null} [normalization]
+ * @param {Record<string, number> | null} [unitCostsAtTraining]
+ * @param {number} [nPeriods] - default 1, backward compat.
+ * @param {Record<string, number> | null} [decays] - {channelName: decay} для adstock factor.
+ *        Если null - decay=0 fallback (adstock factor=1, no-op для noop adstock).
+ *        Bayesian v1.2+: passes p.decay из channel_params. OLS DEFAULT_DECAY=0.5.
  * @returns {number}
  */
-export function predictKPI(budgets, scaledParams, normalization = null, unitCostsAtTraining = null, nPeriods = 1) {
+export function predictKPI(budgets, scaledParams, normalization = null, unitCostsAtTraining = null, nPeriods = 1, decays = null) {
   let total = 0;
   const n = (typeof nPeriods === 'number' && nPeriods >= 1) ? nPeriods : 1;
   for (const [ch, spend] of Object.entries(budgets)) {
@@ -87,8 +113,10 @@ export function predictKPI(budgets, scaledParams, normalization = null, unitCost
     if (!p) continue;
     const ucTrain = (unitCostsAtTraining && typeof unitCostsAtTraining[ch] === 'number' && unitCostsAtTraining[ch] > 0)
       ? unitCostsAtTraining[ch] : 1.0;
-    // Per-period spend × uc_train → Hill (canonical с backend optimizer.py:619).
-    const perPeriodScaled = (spend * ucTrain) / n;
+    const decayCh = (decays && typeof decays[ch] === 'number' && decays[ch] > 0 && decays[ch] < 1)
+      ? decays[ch] : 0;
+    // Per-period spend × uc_train × adstock_factor → matches backend x_avg_adstock.
+    const perPeriodScaled = ((spend * ucTrain) / n) * adstockFactor(decayCh, n);
     // Hill output - per-period saturation. Total contribution = sat × n_periods.
     total += p.beta * hillFunction(perPeriodScaled, p.alpha, p.gammaScaled) * n;
   }

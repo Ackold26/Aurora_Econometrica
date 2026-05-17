@@ -676,6 +676,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 else (round(baseline_total, 0) if kpi_kind_scenario == 'monetary' else None)
             ),
         },
+        # v2.1.0 (pilot R3-E04 round 4 2026-05-17): persist planning context для
+        # re-load через compare table - frontend может surface «Прогноз на: 2027 год»
+        # badge. Без этого scenario JSON теряет horizon provenance.
+        'forecast_periods': int(forecast_periods_cfg) if forecast_periods_cfg is not None else None,
+        'forecast_period_label': config.get('forecast_period_label') or None,
         'per_channel_spend': {
             'native': {k: round(v, 2) for k, v in per_channel_native.items()},
             'money': {k: round(v, 2) for k, v in per_channel_money.items()} if units_fully_covered else None,

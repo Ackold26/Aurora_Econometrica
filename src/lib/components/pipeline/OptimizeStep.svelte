@@ -596,11 +596,34 @@
   /** @type {Record<string, {alpha: number, gammaScaled: number, beta: number}>} */
   const scaledParams = $derived.by(() => {
     if (!mData?.channelParams || !Object.keys(currentSpend).length) return {};
-    return buildScaledParams(mData.channelParams, currentSpend);
+    // v2.1.0 (pilot D4 round 4 EDGE-D4-02 2026-05-17): pass meanForScale для legacy
+    // pickle fallback. Без этого v1.0/v1.1 pickle (без adstock_mean_posterior) дает
+    // gammaScaled = γ × currentSpend (native TRP sum 22100) → Hill saturate=1 →
+    // slider plateau. media_means в normalization для всех pickle versions.
+    const meanForScale = mData?.normalization?.media_means || undefined;
+    return buildScaledParams(mData.channelParams, currentSpend, meanForScale);
   });
 
   /** Normalization из тренировки модели (y_mean, y_std) - для денормализации в реальные единицы. */
   const yNorm = $derived(mData?.normalization ?? null);
+
+  /**
+   * v2.1.0 (pilot D4 round 4 EDGE-D4-01 2026-05-17): per-channel decay для predictKPI
+   * adstock factor. Backend `_flat_alloc_adstock_avg(x_pp, n)` возвращает x × C
+   * где C ≈ 1/(1-decay). Без передачи decays frontend Hill input в 1.5-2× меньше
+   * backend для decay=0.5 → understate lift на 15-35%.
+   * @type {Record<string, number> | null}
+   */
+  const channelDecays = $derived.by(() => {
+    if (!mData?.channelParams) return null;
+    /** @type {Record<string, number>} */
+    const out = {};
+    for (const [ch, p] of Object.entries(mData.channelParams)) {
+      const d = /** @type {any} */ (p)?.decay;
+      if (typeof d === 'number' && d > 0 && d < 1) out[ch] = d;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  });
 
   /**
    * v2.1.0 (pilot D2 round 2 R02): training-time unit_costs snapshot для predictKPI
@@ -628,7 +651,7 @@
   });
 
   /** Current KPI at current_spend (baseline for lift% - per-period prediction в рублях). */
-  const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm, ucTrain, predictNPeriods));
+  const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm, ucTrain, predictNPeriods, channelDecays));
 
   /**
    * miROAS per channel - marginal ROAS следующего рубля.
@@ -768,7 +791,7 @@
    *  + L5 auto-apply animation. Used to scale displayKPI к live allocation. */
   const liveKPI = $derived(
     Object.keys(channelBudgets).length > 0 && Object.keys(scaledParams).length > 0
-      ? predictKPI(channelBudgets, scaledParams, yNorm, ucTrain, predictNPeriods)
+      ? predictKPI(channelBudgets, scaledParams, yNorm, ucTrain, predictNPeriods, channelDecays)
       : currentKPI
   );
 
@@ -930,7 +953,7 @@
         scaledMoneyMap[name] = Number(c.optimal_spend_money ?? 0) * whatIfMult;
       }
 
-      const newKPI = predictKPI(scaledNative, scaledParams, yNorm, ucTrain, predictNPeriods);
+      const newKPI = predictKPI(scaledNative, scaledParams, yNorm, ucTrain, predictNPeriods, channelDecays);
       const baselineKPI = currentKPI;
       const liftPct = baselineKPI > 0
         ? ((newKPI - baselineKPI) / baselineKPI) * 100
@@ -996,9 +1019,16 @@
       // pilot round 2 находки).
       const _kucWhatIf = get(valuePerCountUnit);
       const kpiUnitCostWhatIf = get(kpiKind) === 'count' && typeof _kucWhatIf === 'number' && _kucWhatIf > 0 ? _kucWhatIf : null;
+      // v2.1.0 (pilot B4 R3-E04 closure 2026-05-17): передаём forecast_periods+label,
+      // чтобы saved what-if сценарий в planner mode распределялся по forecast
+      // horizon (symmetry с forecast-mode save line 1180-1181 и optimize call
+      // line 1269-1270). Без этого re-load сценария показывал бы KPI по training
+      // горизонту - расходилось бы с тем что было при создании.
       const payload = /** @type {any} */ ({
         projectDir, scenarioName: name, mediaPlan,
         kpiUnitCost: kpiUnitCostWhatIf,
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
       });
       if (unitCostsOverride) payload.unitCosts = unitCostsOverride;
       const r = /** @type {any} */ (await invoke('econ_scenario', payload));
@@ -2069,6 +2099,7 @@
             unitCosts={effectiveUnitCosts}
             unitCostsAtTraining={ucTrain}
             nPeriods={predictNPeriods}
+            decays={channelDecays}
             displayBaseKPI={displayKPI}
             backendLiftPct={optData?.expected_lift_pct ?? null}
           />

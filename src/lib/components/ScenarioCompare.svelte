@@ -18,6 +18,8 @@
     chartImages,
     valuePerCountUnit,
     kpiKind,
+    planningMode,
+    forecastConfig,
   } from '$lib/project-state.js';
   import DataTable from './DataTable.svelte';
   import { formatMoney, formatCount, formatROI } from '$lib/format-numbers.js';
@@ -33,6 +35,20 @@
   function deriveKpiUnitCost() {
     const k = get(valuePerCountUnit);
     return get(kpiKind) === 'count' && typeof k === 'number' && k > 0 ? k : null;
+  }
+
+  // v2.1.0 (pilot R3-E03 / B4-E1 2026-05-17): derive planning context для econ_scenario.
+  // Без этого ScenarioCompare slider preview + uploadMediaplan distributed media_plan
+  // по training horizon, в то время как ScenarioPlayground (другой компонент в той же
+  // step Optimize) использует planning horizon → asymmetric semantics.
+  function derivePlanningContext() {
+    if (get(planningMode) !== 'planner') return { periods: null, label: null };
+    const cfg = get(forecastConfig);
+    const periods = Number(cfg?.periods);
+    return {
+      periods: Number.isFinite(periods) && periods >= 1 ? periods : null,
+      label: cfg?.periodLabel || null,
+    };
   }
 
   /** @type {{ channels?: string[], optimization?: any }} */
@@ -98,11 +114,14 @@
 
     try {
       const projectDir = await invoke('project_get_dir', { projectId });
+      const _pc = derivePlanningContext();
       const result = /** @type {any} */ (await invoke('econ_scenario', {
         projectDir,
         scenarioName: 'slider-preview',
         mediaPlan: plan,
         kpiUnitCost: deriveKpiUnitCost(),
+        forecastPeriods: _pc.periods,
+        forecastPeriodLabel: _pc.label,
       }));
       if (result.status === 'ok') {
         sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}`;
@@ -126,11 +145,14 @@
 
     try {
       const projectDir = await invoke('project_get_dir', { projectId });
+      const _pc = derivePlanningContext();
       const result = /** @type {any} */ (await invoke('econ_scenario', {
         projectDir,
         scenarioName: `mediaplan-${Date.now()}`,
         mediaPlanFile: filePath,
         kpiUnitCost: deriveKpiUnitCost(),
+        forecastPeriods: _pc.periods,
+        forecastPeriodLabel: _pc.label,
       }));
 
       if (result.status === 'ok') {

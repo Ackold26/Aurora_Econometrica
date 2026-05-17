@@ -141,19 +141,46 @@
    * Unit suffix for contribution column / waterfall axis.
    * Импл consistent с WaterfallChart - значения отображаются в native unit:
    * - monetary KPI (revenue, ₽-counted) → ' ₽' (NBSP + ₽)
-   * - count KPI → ' ед.' (NBSP + raw count contribution unit)
+   * - count KPI с kpi_unit_cost → ' ₽' (waterfall rebuilt в money)
+   * - count KPI без kpi_unit_cost → ' ед.' (NBSP + raw count contribution unit)
    *
-   * v2.1.0 pilot R2 (2026-05-17 B2-03): для count KPI с заданным kpi_unit_cost
-   * money-эквивалент показывается ОТДЕЛЬНО в DecomposeStep table cell через
-   * ch.contribution_money (см. format ниже в template). contribUnit здесь
-   * описывает только count axis - WaterfallChart рисует count units.
-   * v2.1.0 pilot polish (2026-05-17): была bug «голое число» без единицы.
+   * v2.1.0 pilot B4 (2026-05-17 B3-E3): для count+kpi_unit_cost суффикс
+   * меняется на ₽ потому что waterfallDisplay рассчитан в money (mirror
+   * табличного primary money cell - устранена mismatch axis vs cell).
    */
   const contribUnit = $derived.by(() => {
     if ($kpiKind === 'monetary') return ' ₽'; // NBSP + ₽
-    // count KPI → 'ед.' (raw count). Money equiv (если kpi_unit_cost задан)
-    // показывается отдельным cell в table - не trumpit count axis.
+    // count KPI с kpi_unit_cost → money axis ('₽') - mirror waterfallDisplay rebuild.
+    if (data?.kpi_unit_cost != null && Number(data.kpi_unit_cost) > 0) return ' ₽';
+    // count KPI без kpi_unit_cost → 'ед.' (raw count).
     return ' ед.';
+  });
+
+  /**
+   * Waterfall data for chart - rebuilt в money equivalents для count+kpi_unit_cost,
+   * mirror того что table cell показывает (ch.contribution_money). Без этого
+   * waterfall (count) расходился с table (money) - юзер видел «163K» в waterfall
+   * vs «13M ₽» в строке того же канала - читает как разные числа.
+   *
+   * v2.1.0 pilot B4 (2026-05-17 B3-E3): closes WaterfallChart axis unit mismatch.
+   * monetary KPI / count KPI без kpi_unit_cost → fallback к raw data.waterfall.
+   * @returns {{ labels: string[], values: number[], types: string[] } | undefined}
+   */
+  const waterfallDisplay = $derived.by(() => {
+    if (!data?.waterfall) return undefined;
+    const uc = Number(data.kpi_unit_cost);
+    // monetary KPI или count без uc - native values без rebuild.
+    if ($kpiKind !== 'count' || !Number.isFinite(uc) || uc <= 0) {
+      return data.waterfall;
+    }
+    // count + kpi_unit_cost: rebuild values × uc для money parity с table.
+    /** @type {number[]} */
+    const native = Array.isArray(data.waterfall.values) ? data.waterfall.values : [];
+    return {
+      labels: data.waterfall.labels,
+      values: native.map((/** @type {number} */ v) => Math.round((Number(v) || 0) * uc)),
+      types: data.waterfall.types,
+    };
   });
 
   /**
@@ -505,7 +532,7 @@
 
     <!-- Waterfall - full width -->
     <ExpandableCard title="Декомпозиция продаж" tourKey="decompose-waterfall">
-      <WaterfallChart waterfall={data.waterfall} unit={contribUnit.trim()} />
+      <WaterfallChart waterfall={waterfallDisplay ?? data.waterfall} unit={contribUnit.trim()} />
     </ExpandableCard>
 
     <!-- Two-column: ROI | Timeline -->

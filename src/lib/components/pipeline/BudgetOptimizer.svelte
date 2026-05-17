@@ -52,6 +52,10 @@
     // (matches backend optimizer x_per_period = total/n_periods ДО Hill, total × n).
     // Default 1 - backward compat для caller'ов без context.
     nPeriods = 1,
+    // v2.1.0 (pilot D4 round 4 EDGE-D4-01): per-channel decay для adstock factor
+    // в predictKPI. Без этого frontend Hill input в 1.5-2× меньше backend для
+    // decay=0.5 → understate lift. Default null - backward compat (factor=1, noop).
+    decays = null,
     // total_sales из decompose (KPI за весь период анализа, в money).
     // Если задан - Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
     // чтобы число было согласовано с блоком A (8300.6 M ₽, а не 342M per-period).
@@ -72,7 +76,8 @@
   // Predicted KPI from current sliders - frontend approximation (упрощённая Hill).
   // v2.1.0 B3-E4: pass unitCostsAtTraining для ADR-020 symmetry с backend.
   // v2.1.0 REGR-2: pass nPeriods - canonical Hill normalization matches backend.
-  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization, unitCostsAtTraining, nPeriods));
+  // v2.1.0 EDGE-D4-01: pass decays для adstock factor (closes 1.5-2× understate).
+  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization, unitCostsAtTraining, nPeriods, decays));
   const frontendLiftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
 
   // FIX 2026-05-02: detect когда current budgets ≈ optimal_budgets - тогда показываем
