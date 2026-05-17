@@ -139,16 +139,20 @@
 
   /**
    * Unit suffix for contribution column / waterfall axis.
-   * - monetary KPI (revenue, ₽-counted) → '₽'
-   * - count KPI с заданным kpi_unit_cost → '₽' (decomposer returns money equiv in ch.contribution_money)
-   * - count KPI без kpi_unit_cost (legacy) → 'ед.' (raw count contribution)
+   * Импл consistent с WaterfallChart - значения отображаются в native unit:
+   * - monetary KPI (revenue, ₽-counted) → ' ₽' (NBSP + ₽)
+   * - count KPI → ' ед.' (NBSP + raw count contribution unit)
+   *
+   * v2.1.0 pilot R2 (2026-05-17 B2-03): для count KPI с заданным kpi_unit_cost
+   * money-эквивалент показывается ОТДЕЛЬНО в DecomposeStep table cell через
+   * ch.contribution_money (см. format ниже в template). contribUnit здесь
+   * описывает только count axis - WaterfallChart рисует count units.
    * v2.1.0 pilot polish (2026-05-17): была bug «голое число» без единицы.
    */
   const contribUnit = $derived.by(() => {
     if ($kpiKind === 'monetary') return ' ₽'; // NBSP + ₽
-    // count KPI: если kpi_unit_cost задан, contribution_money есть → '₽'
-    // (rendering ниже использует ch.contribution_money, suffix '₽')
-    // Если нет → 'ед.' (count units)
+    // count KPI → 'ед.' (raw count). Money equiv (если kpi_unit_cost задан)
+    // показывается отдельным cell в table - не trumpit count axis.
     return ' ед.';
   });
 

@@ -50,7 +50,12 @@ def test_available_kpi_types_monetary_target(tmp_path):
 
 
 def test_available_kpi_types_count_target(tmp_path):
-    """KPI колонка с count keyword ('sales_packs') → доступны sales_packs/leads/..."""
+    """KPI колонка с count keyword ('sales_packs') → доступны все 7 count KPI типов.
+
+    v2.1.0 pilot R2 (2026-05-17 B2-04): whitelist расширен до 7 типов
+    (sync с decomposer.py _count_types и frontend KPISelector countOptions).
+    Раньше backend whitelist'ил только 4 типа.
+    """
     data_file = _build_dataset(tmp_path, 'sales_packs')
     result = _validate(data_file)
     avail = result.get('available_kpi_types', [])
@@ -58,14 +63,26 @@ def test_available_kpi_types_count_target(tmp_path):
     assert 'leads' in avail
     assert 'registrations' in avail
     assert 'count_custom' in avail
+    # B2-04: новые 3 count типа теперь whitelisted
+    assert 'loyalty_cards' in avail
+    assert 'subscriptions' in avail
+    assert 'app_installs' in avail
 
 
 def test_available_kpi_types_fallback_all(tmp_path):
-    """Если backend не нашёл target_* колонок (нечитаемое имя) - все типы доступны."""
+    """Если backend не нашёл target_* колонок (нечитаемое имя) - все типы доступны.
+
+    v2.1.0 pilot R2 (2026-05-17 B2-04): fallback = 7 count + 3 monetary = 10 типов.
+    """
     data_file = _build_dataset(tmp_path, 'something_obscure_target')
     result = _validate(data_file)
     avail = result.get('available_kpi_types', [])
-    # Fallback: все 7 типов доступны (backend не блокирует выбор)
-    assert len(avail) == 7
+    # Fallback: все 10 типов доступны (backend не блокирует выбор)
+    assert len(avail) == 10
     assert 'sales' in avail
+    assert 'revenue' in avail
+    assert 'profit' in avail
     assert 'leads' in avail
+    assert 'loyalty_cards' in avail
+    assert 'subscriptions' in avail
+    assert 'app_installs' in avail

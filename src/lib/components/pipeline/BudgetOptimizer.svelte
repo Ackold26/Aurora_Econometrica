@@ -167,7 +167,14 @@
       {@const isNewChannel = opt != null && opt >= 1 && initRef < 1}
       {@const deltaLabel = opt == null ? null : isNewChannel ? '∞' : (initRef < 1 || deltaRaw == null) ? (opt < 1 ? '-' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
       {@const initMoney = initRef * uc(ch)}
-      {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
+      <!-- v2.1.0 pilot R2 (2026-05-17 A2-02): для нового канала (initRef<1, opt>=1)
+           initMoney=0 и curMoney=0 → старый Math.max давал 1000 ₽ потолок,
+           слайдер не мог funded recommended optimal. Fix: используем
+           opt × uc(ch) × 1.5 как headroom для нового канала. -->
+      {@const optMoney = (opt ?? 0) * uc(ch)}
+      {@const maxMoney = isNewChannel
+        ? Math.max(optMoney * 1.5, 1000)
+        : Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
 
       <div class="slider-row">

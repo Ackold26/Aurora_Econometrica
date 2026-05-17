@@ -92,12 +92,19 @@
    *  соотношения engine к данным.
    *  v2.1.0 pilot polish (2026-05-17): для borderline (20 ≤ n < 30) customer
    *  может override. userOverrodeEngine флаг блокирует auto-set после ручного
-   *  выбора (localStorage persists override через session). */
-  let userOverrodeEngine = $state(
-    typeof window !== 'undefined'
-      ? localStorage.getItem('aurora.modelEngineOverride') === '1'
-      : false
-  );
+   *  выбора (localStorage persists override через session).
+   *  v2.1.0 pilot R2 (2026-05-17 A2-03): key scoped per activeProjectId,
+   *  иначе global key никогда не очищается → новый проект импортируется с
+   *  unwanted override от старого. При смене проекта key другой → fresh state. */
+  /** @param {string | null} projectId */
+  function overrideKey(projectId) {
+    return projectId ? `aurora.modelEngineOverride.${projectId}` : 'aurora.modelEngineOverride.__noproject__';
+  }
+  const userOverrodeEngine = $derived.by(() => {
+    if (typeof window === 'undefined') return false;
+    const pid = $activeProjectId;
+    try { return localStorage.getItem(overrideKey(pid)) === '1'; } catch { return false; }
+  });
   $effect(() => {
     if (nRows <= 0) return;
     if (userOverrodeEngine) return; // user явно выбрал - не перезаписываем
@@ -107,9 +114,8 @@
   /** Записать override (вызывается из interactive engine card click). */
   /** @param {'bayesian' | 'ols'} engine */
   function selectEngineOverride(engine) {
-    userOverrodeEngine = true;
     if (typeof window !== 'undefined') {
-      try { localStorage.setItem('aurora.modelEngineOverride', '1'); } catch {}
+      try { localStorage.setItem(overrideKey($activeProjectId), '1'); } catch {}
     }
     modelEngine.set(engine);
   }

@@ -478,22 +478,30 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # которые соответствуют ролям колонок в данных. Frontend KPISelector
     # disable'ит cards вне этого списка - юзер не может выбрать тип leads
     # если backend нашёл только target_monetary колонку (KPI mismatch).
+    #
+    # v2.1.0 pilot R2 (2026-05-17 B2-04): target_count whitelist расширен до
+    # 7 типов, sync с decomposer.py:357-358 (_count_types set) и frontend
+    # KPISelector.svelte:74-82 (countOptions list). Раньше backend
+    # whitelist'ил только 4 типа → юзер видел disabled cards для loyalty_cards
+    # / subscriptions / app_installs хотя реальный data role совпадал.
     from utils.column_detection import classify_column as _classify_kpi
+    _COUNT_KPI_TYPES = [
+        'sales_packs', 'leads', 'registrations',
+        'loyalty_cards', 'subscriptions', 'app_installs', 'count_custom',
+    ]
+    _MONETARY_KPI_TYPES = ['sales', 'revenue', 'profit']
     available_kpi_types: set[str] = set()
     for c in columns:
         nm = c.get('name') or ''
         kind = _classify_kpi(nm)
         if kind == 'target_count':
-            available_kpi_types.update(['sales_packs', 'leads', 'registrations', 'count_custom'])
+            available_kpi_types.update(_COUNT_KPI_TYPES)
         elif kind == 'target_monetary':
-            available_kpi_types.update(['sales', 'revenue', 'profit'])
+            available_kpi_types.update(_MONETARY_KPI_TYPES)
     # Fallback: backend не нашёл явный target target_* → не блокируем выбор
     # (юзер сам решит roles в Roles Mapper).
     if not available_kpi_types:
-        available_kpi_types = {
-            'sales', 'sales_packs', 'leads', 'profit', 'revenue',
-            'registrations', 'count_custom',
-        }
+        available_kpi_types = set(_COUNT_KPI_TYPES) | set(_MONETARY_KPI_TYPES)
 
     result: dict[str, Any] = {
         'status': status,
