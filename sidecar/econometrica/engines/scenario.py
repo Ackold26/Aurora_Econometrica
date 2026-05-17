@@ -233,6 +233,40 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         model_data.get('unit_costs_snapshot') or {}
     ) if unit_costs_applied_at_training else {}
 
+    # v2.1.0 (ADR-021 pilot B2/E2 round 2 R2-1 2026-05-17): kpi_unit_cost для
+    # money equivalents в scenario totals. Mirror того что optimizer.py делает.
+    # Override > pickle snapshot > None (legacy native KPI units). Без этого
+    # backend silently ignored IPC payload kpi_unit_cost - count KPI scenarios
+    # хранились native count без money conversion.
+    _kpi_uc_override = config.get('kpi_unit_cost')
+    if _kpi_uc_override is not None and float(_kpi_uc_override) > 0:
+        kpi_unit_cost = float(_kpi_uc_override)
+    else:
+        _snap = model_data.get('kpi_unit_cost_snapshot')
+        kpi_unit_cost = float(_snap) if _snap is not None and float(_snap) > 0 else None
+    # Detect kpi_kind (same resolver chain как в decomposer/optimizer).
+    _kpi_kind_cfg = (config_model.get('kpi_kind') or '').lower()
+    if _kpi_kind_cfg in ('count', 'monetary'):
+        kpi_kind_scenario = _kpi_kind_cfg
+    else:
+        _count_types = {
+            'sales_packs', 'leads', 'registrations', 'loyalty_cards',
+            'subscriptions', 'app_installs', 'count_custom',
+        }
+        _monetary_types = {'sales', 'revenue', 'profit'}
+        _kpi_type_cfg = (config_model.get('kpi_type') or '').lower()
+        if _kpi_type_cfg in _count_types:
+            kpi_kind_scenario = 'count'
+        elif _kpi_type_cfg in _monetary_types:
+            kpi_kind_scenario = 'monetary'
+        else:
+            try:
+                from utils.column_detection import classify_column
+                _kpi_col_classify = classify_column(config_model.get('kpi_column', '') or '')
+                kpi_kind_scenario = 'count' if _kpi_col_classify == 'target_count' else 'monetary'
+            except Exception:
+                kpi_kind_scenario = 'monetary'
+
     for col in media_cols:
         raw_arr = np.array(media_plan.get(col, [0.0] * n_periods), dtype=float)
         # Pad / truncate to n_periods
@@ -622,6 +656,25 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             'roas_money_ci_high': round(roas_money_ci[1], 2) if roas_money_ci else None,
             'lift_pct_ci_low': round(lift_pct_ci[0], 1) if lift_pct_ci else None,
             'lift_pct_ci_high': round(lift_pct_ci[1], 1) if lift_pct_ci else None,
+            # v2.1.0 (ADR-021 pilot round 2 R2-1 2026-05-17): money equivalents
+            # для count KPI. monetary KPI - native уже ₽. Frontend ScenarioCompare
+            # читает эти fields для UI с money primary.
+            'kpi_unit_cost': kpi_unit_cost,
+            'predicted_kpi_money': (
+                round(scenario_total * kpi_unit_cost, 0)
+                if kpi_unit_cost is not None and kpi_kind_scenario == 'count'
+                else (round(scenario_total, 0) if kpi_kind_scenario == 'monetary' else None)
+            ),
+            'incremental_kpi_money': (
+                round(incremental_total * kpi_unit_cost, 0)
+                if kpi_unit_cost is not None and kpi_kind_scenario == 'count'
+                else (round(incremental_total, 0) if kpi_kind_scenario == 'monetary' else None)
+            ),
+            'baseline_kpi_money': (
+                round(baseline_total * kpi_unit_cost, 0)
+                if kpi_unit_cost is not None and kpi_kind_scenario == 'count'
+                else (round(baseline_total, 0) if kpi_kind_scenario == 'monetary' else None)
+            ),
         },
         'per_channel_spend': {
             'native': {k: round(v, 2) for k, v in per_channel_native.items()},

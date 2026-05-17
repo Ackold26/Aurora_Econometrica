@@ -602,8 +602,20 @@
   /** Normalization из тренировки модели (y_mean, y_std) - для денормализации в реальные единицы. */
   const yNorm = $derived(mData?.normalization ?? null);
 
+  /**
+   * v2.1.0 (pilot D2 round 2 R02): training-time unit_costs snapshot для predictKPI
+   * pre-multiply симметрии. Backend exposes unit_costs_applied_at_training +
+   * unit_costs_snapshot в diagnostics. Legacy pickle (без поля) → null → ucTrain=1.0.
+   * @type {Record<string, number> | null}
+   */
+  const ucTrain = $derived.by(() => {
+    const diag = mData?.diagnostics;
+    if (!diag?.unit_costs_applied_at_training) return null;
+    return diag.unit_costs_snapshot || null;
+  });
+
   /** Current KPI at current_spend (baseline for lift% - per-period prediction в рублях). */
-  const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm));
+  const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm, ucTrain));
 
   /**
    * miROAS per channel - marginal ROAS следующего рубля.
@@ -743,7 +755,7 @@
    *  + L5 auto-apply animation. Used to scale displayKPI к live allocation. */
   const liveKPI = $derived(
     Object.keys(channelBudgets).length > 0 && Object.keys(scaledParams).length > 0
-      ? predictKPI(channelBudgets, scaledParams, yNorm)
+      ? predictKPI(channelBudgets, scaledParams, yNorm, ucTrain)
       : currentKPI
   );
 
@@ -905,7 +917,7 @@
         scaledMoneyMap[name] = Number(c.optimal_spend_money ?? 0) * whatIfMult;
       }
 
-      const newKPI = predictKPI(scaledNative, scaledParams, yNorm);
+      const newKPI = predictKPI(scaledNative, scaledParams, yNorm, ucTrain);
       const baselineKPI = currentKPI;
       const liftPct = baselineKPI > 0
         ? ((newKPI - baselineKPI) / baselineKPI) * 100

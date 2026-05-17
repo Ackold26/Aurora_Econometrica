@@ -975,6 +975,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'dates': dates_list,
         }
 
+        # v2.1.0 (pilot D2 round 2 R02 2026-05-17): expose ADR-020 training-time
+        # uc snapshot в diagnostics → frontend hill.js может pre-multiply
+        # currentSpend для what-if KPI prediction (без этого native spend
+        # делится на scaled mean → x_norm ≈ 0 для TRPs).
+        diagnostics['unit_costs_applied_at_training'] = bool(unit_costs_snapshot)
+        diagnostics['unit_costs_snapshot'] = dict(unit_costs_snapshot)
+        diagnostics['engine'] = 'bayesian'
+
         # Extract posterior means for channel contributions
         media_beta_means = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values.tolist()
         alpha_means = trace.posterior['alphas'].mean(dim=['chain', 'draw']).values.tolist()

@@ -117,7 +117,12 @@ def bootstrap_roi_ci(
             sat_per_channel[col] = np.zeros(n_periods)
             continue
         a_type = adstock_config.get(col, 'geometric')
-        adstocked = apply_adstock(raw, a_type, {'alpha': decay_default})
+        # v2.1.0 (pilot D2 round 2 R03 2026-05-17): pre-multiply raw на uc ДО adstock
+        # для ADR-020 symmetry с training. mean_ch в media_means scaled, raw был
+        # native → x_norm ≈ 0 для TRPs → bootstrap ROI CI silently degenerate.
+        uc_col = float(unit_costs.get(col, 1.0) or 1.0)
+        raw_scaled = raw * uc_col if uc_col != 1.0 and uc_col > 0 else raw
+        adstocked = apply_adstock(raw_scaled, a_type, {'alpha': decay_default})
         mean_ch = max(media_means.get(col, 1.0), 1e-10)
         x_norm = adstocked / mean_ch
         sat_per_channel[col] = hill_function(np.maximum(x_norm, 0), hill_alpha, hill_gamma)

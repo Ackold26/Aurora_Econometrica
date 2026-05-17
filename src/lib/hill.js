@@ -54,19 +54,33 @@ export function marginalROI(x, alpha, gamma, beta, normalization = null) {
 
 /**
  * Predict total KPI from budget allocation.
- * @param {Record<string, number>} budgets - {channelName: spendValue}
+ *
+ * v2.1.0 (pilot D2 round 2 R02 2026-05-17): added `unitCostsAtTraining` param.
+ * Если pickle обучался с ADR-020 pre-multiply (mixed units mode), backend
+ * scaled media_means на uc_train. Frontend spend в native units → нужно
+ * pre-multiply spend на uc_train ДО Hill (`hillFunction` уже использует
+ * gammaScaled из buildScaledParams где scale = adstock_mean_posterior).
+ * Без этого native spend / scaled gamma → x_norm ≈ 0 → KPI ≈ baseline.
+ *
+ * @param {Record<string, number>} budgets - {channelName: spendValue в native units}
  * @param {Record<string, {alpha: number, gammaScaled: number, beta: number}>} scaledParams
  * @param {{y_mean?: number, y_std?: number} | null} [normalization] - Денормализация
  *        в исходные единицы KPI (y = y_norm * y_std + y_mean). Без неё возвращается
  *        значение в normalized-шкале (≈0-2), бесполезное для отображения пользователю.
+ * @param {Record<string, number> | null} [unitCostsAtTraining] - {channelName: uc_train}.
+ *        Применяется как multiplier к spend ДО Hill (ADR-020 symmetry).
+ *        Default 1.0 если ключ отсутствует - byte-exact backward compat для legacy.
  * @returns {number}
  */
-export function predictKPI(budgets, scaledParams, normalization = null) {
+export function predictKPI(budgets, scaledParams, normalization = null, unitCostsAtTraining = null) {
   let total = 0;
   for (const [ch, spend] of Object.entries(budgets)) {
     const p = scaledParams[ch];
     if (!p) continue;
-    total += p.beta * hillFunction(spend, p.alpha, p.gammaScaled);
+    const ucTrain = (unitCostsAtTraining && typeof unitCostsAtTraining[ch] === 'number' && unitCostsAtTraining[ch] > 0)
+      ? unitCostsAtTraining[ch] : 1.0;
+    const scaledSpend = spend * ucTrain;
+    total += p.beta * hillFunction(scaledSpend, p.alpha, p.gammaScaled);
   }
   if (normalization && Number.isFinite(normalization.y_std) && Number.isFinite(normalization.y_mean)) {
     return total * (normalization.y_std ?? 1) + (normalization.y_mean ?? 0);

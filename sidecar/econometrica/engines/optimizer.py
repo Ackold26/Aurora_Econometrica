@@ -1240,8 +1240,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                 # consistency with in-model normalization. df is training data (loaded
                 # at line 302 from config_model.data_file). When decay_s is None
                 # (legacy pickles), helper returns scalar fallback = mean_ch.
+                # v2.1.0 (pilot D2 round 2 R01 2026-05-17): pre-multiply на uc_train
+                # ДО compute_train_adstock_mean_samples - mean_for_samples должен
+                # быть в той же scaled scale что training (иначе x_norm broken).
                 train_raw_for_col = df[col].fillna(0).values.astype(float) if col in df.columns else None
                 if train_raw_for_col is not None:
+                    if uc_train_ch != 1.0 and uc_train_ch > 0:
+                        train_raw_for_col = train_raw_for_col * uc_train_ch
                     mean_for_samples = compute_train_adstock_mean_samples(
                         train_raw_for_col, decay_s, a_type=a_type, fallback_scalar=mean_ch
                     )
@@ -1359,8 +1364,14 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         spend_range = np.linspace(0, upper, 50)
         # Per-period equivalent for Hill input
         per_period_avg = spend_range / forecast_n_periods
+        # v2.1.0 (pilot D2 round 2 R04 2026-05-17): pre-multiply per_period_avg
+        # на uc_train ДО adstock для symmetry с training mean_ch scale. Без этого
+        # response curves для TRPs/native каналов давали flat line (response ≈ 0)
+        # потому что native_adstock / scaled_mean ≈ 0.
+        uc_train_rc = float(uc_train_arr[i]) if i < len(uc_train_arr) else 1.0
+        per_period_for_hill = per_period_avg * uc_train_rc if uc_train_rc != 1.0 else per_period_avg
         decay_pt_rc = p.get('decay')  # Phase 1.1: posterior mean decay for response curve adstock
-        adstocked_avg = np.array([_flat_alloc_adstock_avg(float(x), forecast_n_periods, a_type, decay_pt_rc) for x in per_period_avg])
+        adstocked_avg = np.array([_flat_alloc_adstock_avg(float(x), forecast_n_periods, a_type, decay_pt_rc) for x in per_period_for_hill])
         spend_range_norm = adstocked_avg / max(mean_ch, 1e-10)
         responses_norm = response_curve(spend_range_norm, p['alpha'], max(p['gamma'], 1e-6), p['beta'])
         # Total contribution = per-period response × forecast_n_periods × y_std

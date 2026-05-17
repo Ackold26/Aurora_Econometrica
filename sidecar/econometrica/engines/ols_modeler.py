@@ -374,6 +374,10 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             f'Доверительные интервалы - frequentist на β-коэффициенты + predictive intervals на y. '
             f'НЕ posterior CI как в Bayesian-режиме.'
         ),
+        # v2.1.0 (pilot D2 round 2 R02): expose unit_costs snapshot для frontend
+        # hill.js pre-multiply symmetry (was scaled in modeler pre-multiply).
+        'unit_costs_applied_at_training': bool(unit_costs_snapshot),
+        'unit_costs_snapshot': dict(unit_costs_snapshot),
     }
 
     report('saving', pct=90)
