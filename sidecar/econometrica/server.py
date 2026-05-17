@@ -1150,6 +1150,8 @@ def optimize_budget(req: OptimizeRequest):
         'forecast_periods': req.forecast_periods,
         'forecast_period_label': req.forecast_period_label,
         'unit_cost_inflation_pct': req.unit_cost_inflation_pct,
+        # v2.1.0 (ADR-021): override kpi_unit_cost из UI для money lift conversion.
+        'kpi_unit_cost': req.kpi_unit_cost,
     }
     result = _optimize(config, req.project_dir)
     return JSONResponse(content=result)

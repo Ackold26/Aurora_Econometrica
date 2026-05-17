@@ -298,6 +298,25 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # y_std needed for KPI-scale conversions of mROI and response curves.
     y_std = float(norm.get('y_std', 1.0)) or 1.0
 
+    # v2.1.0 (ADR-021): kpi_unit_cost для money equivalents в result.
+    # Override > snapshot из pickle > None (legacy native KPI units).
+    _kpi_uc_override = config.get('kpi_unit_cost')
+    if _kpi_uc_override is not None and float(_kpi_uc_override) > 0:
+        kpi_unit_cost = float(_kpi_uc_override)
+    else:
+        _snap = model_data.get('kpi_unit_cost_snapshot')
+        kpi_unit_cost = float(_snap) if _snap is not None and float(_snap) > 0 else None
+    _kpi_kind_cfg = (config_model.get('kpi_kind') or '').lower()
+    if _kpi_kind_cfg in ('count', 'monetary'):
+        kpi_kind = _kpi_kind_cfg
+    else:
+        try:
+            from utils.column_detection import classify_column
+            _kpi_col_classify = classify_column(config_model.get('kpi_column', '') or '')
+            kpi_kind = 'count' if _kpi_col_classify == 'target_count' else 'monetary'
+        except Exception:
+            kpi_kind = 'monetary'
+
     # Phase 1.9: posterior samples for honest CI on mROAS. None for v1.0/v1.1 pickles.
     # When available, mroi_current/optimal include {mean, ci_low, ci_high} dicts.
     posterior_samples = load_posterior_samples(model_data)
@@ -1362,6 +1381,20 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         'media_only_lift_pct': round(media_only_lift_pct, 1),
         'total_current_kpi': round(total_current_kpi, 0),
         'total_optimal_kpi': round(total_optimal_kpi, 0),
+        # v2.1.0 (ADR-021): money equivalents для count KPI при kpi_unit_cost задан.
+        # Frontend OptimizeStep отображает money primary + count в скобках.
+        # None для count KPI без kpi_unit_cost - frontend показывает native count.
+        'kpi_unit_cost': kpi_unit_cost,
+        'total_current_kpi_money': (
+            round(total_current_kpi * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(total_current_kpi, 0) if kpi_kind == 'monetary' else None)
+        ),
+        'total_optimal_kpi_money': (
+            round(total_optimal_kpi * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(total_optimal_kpi, 0) if kpi_kind == 'monetary' else None)
+        ),
         'channels': channels,
         'response_curves': response_curves_data,
         'insight': insight,
