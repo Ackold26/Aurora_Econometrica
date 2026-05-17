@@ -315,6 +315,15 @@ def decompose(
 
     adstock_config = config.get('adstock_config', {}) or {}
 
+    # v2.1.0 (ADR-020): unit_costs которые modeler применил при тренировке.
+    # Нужно для симметричного pre-multiply raw media при decompose - иначе
+    # media_means (scaled) не совпадёт с X_media (raw). Pickles без флага
+    # → пустой dict → no-op (legacy backward compat).
+    unit_costs_applied_at_training = bool(model_data.get('unit_costs_applied_at_training'))
+    unit_costs_at_training: dict[str, float] = (
+        model_data.get('unit_costs_snapshot') or {}
+    ) if unit_costs_applied_at_training else {}
+
     # ─────────────────────────────────────────────────────────────────────
     # P0-3/4/10 fix: per-channel per-period contribution = β × hill(adstock(x)/mean) × y_std
     # ─────────────────────────────────────────────────────────────────────
@@ -359,8 +368,21 @@ def decompose(
         alpha = max(float(params.get('alpha', 1)), 1e-6)
         gamma = max(float(params.get('gamma', 0.5)), 1e-6)
 
-        raw_spend_series = df[col].fillna(0).values.astype(float)
-        raw_spend_total = float(raw_spend_series.sum())
+        raw_spend_series_native = df[col].fillna(0).values.astype(float)
+        raw_spend_total = float(raw_spend_series_native.sum())
+
+        # v2.1.0 (ADR-020): симметрия с training pre-multiply. Если pickle
+        # обучался с unit_costs applied — media_means в normalization тоже
+        # scaled. Без симметричного pre-multiply здесь X_norm построится
+        # на raw spend → mismatch с обученной нормализацией → broken hill.
+        # Важно: raw_spend_total (native units) сохранён ДО pre-multiply -
+        # это используется для downstream spend_money = raw × unit_cost
+        # (line ~421). Без backup получалось бы double-multiply.
+        uc_train = float(unit_costs_at_training.get(col, 1.0))
+        if uc_train > 0 and uc_train != 1.0:
+            raw_spend_series = raw_spend_series_native * uc_train
+        else:
+            raw_spend_series = raw_spend_series_native
 
         # 1. Adstock (matches training).
         # adstock_config schema: dict[channel, str] - type only ('geometric' or 'weibull').

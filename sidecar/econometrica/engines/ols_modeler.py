@@ -138,9 +138,17 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     trained_media_cols = []
     trained_features = []
 
+    # v2.1.0 (ADR-020): unit_costs apply симметрично с Bayesian modeler.
+    unit_costs_cfg = config.get('unit_costs') or {}
+    unit_costs_snapshot: dict[str, float] = {}
+
     for j, col in enumerate(media_cols):
         a_type = adstock_config.get(col, 'geometric')
         raw_x = df[col].fillna(0).values.astype(float)
+        uc = float(unit_costs_cfg.get(col, 1.0) or 1.0)
+        if uc > 0 and uc != 1.0:
+            raw_x = raw_x * uc
+            unit_costs_snapshot[col] = uc
         adstocked = apply_adstock(raw_x, a_type, {'alpha': DEFAULT_DECAY})
         mean_j = float(adstocked.mean())
         if mean_j == 0:
@@ -373,6 +381,9 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     model_data = {
         'config': config,
         'channel_params': channel_params,
+        # v2.1.0 (ADR-020): unit_costs trail для decomposer симметрии.
+        'unit_costs_applied_at_training': bool(unit_costs_snapshot),
+        'unit_costs_snapshot': dict(unit_costs_snapshot),
         'normalization': {
             'media_means': media_means,
             'control_means': dict(zip(control_cols, control_means.tolist())) if len(control_cols) > 0 else {},

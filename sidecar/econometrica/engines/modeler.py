@@ -159,6 +159,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     models_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
 
+    # v2.1.0 (ADR-020): early reject awareness types ДО чтения data_file -
+    # быстрая защита от unsupported KPI types без I/O.
+    _awareness_only = {'aided_awareness', 'unaided_awareness', 'top_of_mind'}
+    _kpi_type_early = config.get('kpi_type', 'sales')
+    if _kpi_type_early in _awareness_only:
+        return {
+            'status': 'error',
+            'error_code': 'KPI_TYPE_NOT_IMPLEMENTED',
+            'message': (
+                f"kpi_type='{_kpi_type_early}' (awareness) требует Phase A1a integration "
+                f"(logit-Normal likelihood + ceiling clipping). Пока доступны: "
+                f"sales / profit / revenue / sales_packs / leads / registrations / count_custom."
+            ),
+        }
+
     report('loading', pct=10)
 
     # Read data
@@ -189,15 +204,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # priors применятся, но likelihood останется Normal → silently broken model
     # (awareness data в [0, 100] обучатся как unbounded sales).
     # Phase A1a (PyMC integration) добавит full awareness support.
-    if kpi_type != 'sales':
+    # v2.1.0 (ADR-020): разрешаем count/monetary KPI типы через monetary
+    # Normal likelihood path. β выходит в native KPI units (count или ₽).
+    # ROI money conversion для count - backlog v2.2.0 (kpi_unit_cost flow).
+    # Awareness-only типы требуют Phase A1a logit-Normal + GaussianRandomWalk
+    # baseline drift - они rejected до тех пор.
+    awareness_only = {'aided_awareness', 'unaided_awareness', 'top_of_mind'}
+    if kpi_type in awareness_only:
         return {
             'status': 'error',
             'error_code': 'KPI_TYPE_NOT_IMPLEMENTED',
             'message': (
-                f"kpi_type='{kpi_type}' пока не поддержан в production. "
-                f"KPI_REGISTRY содержит config, но likelihood/ceiling/baseline_drift "
-                f"требуют Phase A1a integration (logit-Normal + RW baseline). "
-                f"Сейчас доступен только kpi_type='sales'."
+                f"kpi_type='{kpi_type}' (awareness) требует Phase A1a integration "
+                f"(logit-Normal likelihood + ceiling clipping + GaussianRandomWalk "
+                f"baseline drift). Пока доступны: sales / profit / revenue / "
+                f"sales_packs / leads / registrations / count_custom."
             ),
         }
 
@@ -337,9 +358,20 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     X_media = pd.DataFrame()
     adstock_params_used = {}
     raw_media = pd.DataFrame()  # Phase 1.1: keep raw spend for in-model scan-based adstock
+    # v2.1.0 (ADR-020): pre-multiply raw media на unit_cost ДО adstock для
+    # mixed mode (TRP × CPP → ₽-equivalent). Hill normalization media_means
+    # пересчитывается на scaled scale автоматически - priors остаются
+    # валидными после division by media_means. unit_costs_snapshot фиксирует
+    # применённые значения для pickle reproducibility (INV-23a).
+    unit_costs_cfg = config.get('unit_costs') or {}
+    unit_costs_snapshot: dict[str, float] = {}
     for col in media_cols:
         a_type = adstock_config.get(col, 'geometric')
         raw_arr = df[col].fillna(0).values.astype(float)
+        uc = float(unit_costs_cfg.get(col, 1.0) or 1.0)
+        if uc > 0 and uc != 1.0:
+            raw_arr = raw_arr * uc
+            unit_costs_snapshot[col] = uc
         raw_media[col] = raw_arr
         X_media[col] = apply_adstock(raw_arr, a_type)  # default decay для mean estimate
         adstock_params_used[col] = {'type': a_type}
@@ -1103,6 +1135,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         model_data = {
             'config': config,
             'channel_params': channel_params,
+            # v2.1.0 (ADR-020): unit_costs apply audit trail для decomposer
+            # симметрии и byte-identical reproducibility (INV-23a).
+            'unit_costs_applied_at_training': bool(unit_costs_snapshot),
+            'unit_costs_snapshot': dict(unit_costs_snapshot),
             'normalization': {
                 # P0-1/2/9 fix: spend/mean normalization, media_stds removed (not used)
                 'media_means': media_means.to_dict(),
@@ -1204,6 +1240,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 raw = df[col].fillna(0).values.astype(float)
                 if raw.size == 0:
                     continue
+                # v2.1.0 (ADR-020): симметрия с training pre-multiply.
+                # x_norm quantiles считаются на той же шкале что β-коэффициенты.
+                uc_q = float(unit_costs_snapshot.get(col, 1.0))
+                if uc_q > 0 and uc_q != 1.0:
+                    raw = raw * uc_q
                 decay_pt = float(adstock_decay_means[i]) if i < len(adstock_decay_means) else 0.5
                 a_type = adstock_config.get(col, 'geometric')
                 try:

@@ -331,6 +331,12 @@ class TrainRequest(BaseModel):
     # spend × unit_cost для отображения и расчёта ROI. На обучение модели не
     # влияет (Hill работает на нативных единицах канала).
     unit_costs: dict[str, float] = {}
+    # v2.1.0 (ADR-020): KPI type для smart math + future kpi_kind awareness.
+    # 'sales'/'profit'/'revenue' → monetary; 'sales_packs'/'leads'/'registrations'/
+    # 'count_custom' → count (β в этих units, без ROI money conversion).
+    # 'aided_awareness'/'top_of_mind'/'unaided_awareness' → reject через
+    # KPI_TYPE_NOT_IMPLEMENTED (требуют Phase A1a logit-Normal likelihood).
+    kpi_type: str = 'sales'
     # Виртуальные merged каналы (например «Малые медиа» из 4 источников).
     # Frontend InsightsPanel создаёт их как metadata. Backend создаёт
     # df[merged_name] = sum(df[sources]) до column guard. См. utils/merge_rules.py.
@@ -356,6 +362,8 @@ class TrainStartRequest(BaseModel):
     # Sprint 2 / A3: opt-in horseshoe priors
     use_horseshoe: bool = False
     unit_costs: dict[str, float] = {}
+    # v2.1.0 (ADR-020): см. TrainRequest.kpi_type
+    kpi_type: str = 'sales'
     merge_rules: dict[str, list[str]] = {}
     # Trust Level 3 (v1.1.0): channel_categories propagated в train_model config.
     channel_categories: dict[str, str] = {}
