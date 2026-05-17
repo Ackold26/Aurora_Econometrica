@@ -190,10 +190,51 @@
     return {
       ...chartTooltipDark({ trigger: 'axis' }),
       axisPointer: { type: 'cross', label: { backgroundColor: 'rgba(15,18,28,0.94)', color: '#fff' } },
+      extraCssText: 'max-height:420px;overflow:auto;max-width:380px',
       formatter: (/** @type {any[]} */ params) => {
         const total = params.reduce((s, p) => s + (p.value ?? 0), 0);
-        const fmt = (/** @type {number} */ v) => v.toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+        const fmt = (/** @type {number} */ v) =>
+          new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(v));
+
+        // Prefix regex для очистки seriesName в строках групп
+        const PREFIX_RE = /^(Конкуренты|Праздники|Внешние|Цена|Погода|Макро-факторы):\s*/;
+
+        /**
+         * Классифицируем каждый элемент params по одной из 5 групп:
+         *   'База' | 'Конкуренты' | 'Праздники' | 'Внешние' | 'Медиа'
+         */
+        const GROUP_ORDER = ['База', 'Медиа', 'Конкуренты', 'Праздники', 'Внешние'];
+
+        /** @type {Map<string, Array<{p: any, cleanName: string}>>} */
+        const groups = new Map(GROUP_ORDER.map(g => [g, []]));
+
+        params.forEach(p => {
+          const name = p.seriesName ?? '';
+          let group;
+          if (name === 'Базовый уровень') {
+            group = 'База';
+          } else if (name.startsWith('Конкуренты:')) {
+            group = 'Конкуренты';
+          } else if (name.startsWith('Праздники:')) {
+            group = 'Праздники';
+          } else if (
+            name.startsWith('Внешние:') ||
+            name.startsWith('Цена:') ||
+            name.startsWith('Погода:') ||
+            name.startsWith('Макро-факторы:')
+          ) {
+            group = 'Внешние';
+          } else {
+            group = 'Медиа';
+          }
+          const cleanName = name.replace(PREFIX_RE, '');
+          groups.get(group).push({ p, cleanName });
+        });
+
+        // Заголовок с датой периода
         let html = `<div style="color:#fff;font-weight:600;margin-bottom:6px;">${params[0]?.axisValue}</div>`;
+
+        // Блок активного слоя (highlight) — сохраняем поведение из v2.0
         const active = activeSeries ? params.find(p => p.seriesName === activeSeries) : null;
         if (active) {
           const aPct = total > 0 ? ((active.value / total) * 100).toFixed(1) : '0.0';
@@ -204,20 +245,35 @@
             + `<span style="color:rgba(255,255,255,0.85);font-size:12px;"><b>${fmt(active.value)}</b> &middot; ${aPct}% от периода</span>`
             + `</div></div>`;
         }
-        params.forEach(p => {
-          const pct = total > 0 ? ((p.value / total) * 100).toFixed(1) : '0.0';
-          const v = fmt(p.value);
-          const isActive = activeSeries && activeSeries === p.seriesName;
-          const dimmed = activeSeries && !isActive;
-          const opacity = dimmed ? '0.45' : '1';
-          const dot = `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${p.color};margin-right:8px;vertical-align:middle;opacity:${opacity};"></span>`;
-          const rowStyle = isActive
-            ? `color:#fff;line-height:1.5;font-weight:600;`
-            : `color:#fff;line-height:1.5;opacity:${opacity};`;
-          const marker = isActive ? '▸ ' : '';
-          html += `<div style="${rowStyle}">${dot}${marker}<span>${p.seriesName}:</span> <b>${v}</b> <span style="opacity:0.7;">(${pct}%)</span></div>`;
+
+        // Группированные строки
+        GROUP_ORDER.forEach(groupLabel => {
+          const items = groups.get(groupLabel);
+          if (!items || items.length === 0) return;
+
+          const subtotal = items.reduce((s, { p }) => s + (p.value ?? 0), 0);
+          const pct = total > 0 ? ((subtotal / total) * 100).toFixed(1) : '0.0';
+
+          // Заголовок группы
+          html += `<div style="font-weight:600;margin-top:6px;color:#94a3b8;font-size:11px">${groupLabel} · ${fmt(subtotal)} (${pct}%)</div>`;
+
+          // Строки каналов внутри группы
+          items.forEach(({ p, cleanName }) => {
+            const isActive = activeSeries && activeSeries === p.seriesName;
+            const dimmed = activeSeries && !isActive;
+            const opacity = dimmed ? '0.45' : '1';
+            html += `<div style="display:flex;justify-content:space-between;gap:10px;padding-left:8px;opacity:${opacity}${isActive ? ';font-weight:600' : ''}">`
+              + `<span><span style="color:${p.color}">&#9679;</span> ${cleanName}</span>`
+              + `<span style="font-variant-numeric:tabular-nums">${fmt(p.value)}</span>`
+              + `</div>`;
+          });
         });
-        html += `<div style="color:#fff;font-weight:600;margin-top:6px;border-top:1px solid rgba(255,255,255,0.15);padding-top:4px;">Итого: ${fmt(total)}</div>`;
+
+        // Итог
+        html += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.1);font-weight:600;display:flex;justify-content:space-between">`
+          + `<span>Итого</span><span>${fmt(total)}</span>`
+          + `</div>`;
+
         return html;
       },
     };
