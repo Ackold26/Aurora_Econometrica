@@ -157,12 +157,17 @@ pub async fn econ_decompose(
     unit_costs: Option<Value>,
     // Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rates.
     unit_cost_inflation_pct: Option<Value>,
+    // v2.1.0 (ADR-021): ценность единицы count KPI (₽/уп., ₽/лид).
+    // None = ROI в native units. Override pickle snapshot for already-trained
+    // models когда юзер задаёт value позже.
+    kpi_unit_cost: Option<f64>,
 ) -> Result<Value, String> {
     info!("econ_decompose: {project_dir}");
     let body = serde_json::json!({
         "project_dir": project_dir,
         "unit_costs": unit_costs,
         "unit_cost_inflation_pct": unit_cost_inflation_pct,
+        "kpi_unit_cost": kpi_unit_cost,
     });
     post_json("/compute/decompose", &body, quick_client()).await
 }
@@ -194,6 +199,8 @@ pub async fn econ_optimize(
     // anchor для transitive chain monotonicity (invariant I5b).
     // None = first-call OR pickle/budget changed → backend skips silently.
     prev_optimal: Option<Value>,
+    // v2.1.0 (ADR-021): money lift для count KPI.
+    kpi_unit_cost: Option<f64>,
 ) -> Result<Value, String> {
     info!("econ_optimize: {project_dir}");
     let body = serde_json::json!({
@@ -215,6 +222,7 @@ pub async fn econ_optimize(
         "forecast_period_label": forecast_period_label,
         "unit_cost_inflation_pct": unit_cost_inflation_pct,
         "prev_optimal": prev_optimal,
+        "kpi_unit_cost": kpi_unit_cost,
     });
     post_json("/compute/optimize", &body, quick_client()).await
 }
@@ -272,6 +280,8 @@ pub async fn econ_scenario(
     forecast_period_label: Option<String>,
     // Phase 2 audit pass 4 - per-channel annual CPP/CPM inflation rates.
     unit_cost_inflation_pct: Option<Value>,
+    // v2.1.0 (ADR-021): money equivalents для count KPI scenario forecast.
+    kpi_unit_cost: Option<f64>,
 ) -> Result<Value, String> {
     info!("econ_scenario: {scenario_name}");
     let body = serde_json::json!({
@@ -283,6 +293,7 @@ pub async fn econ_scenario(
         "forecast_periods": forecast_periods,
         "forecast_period_label": forecast_period_label,
         "unit_cost_inflation_pct": unit_cost_inflation_pct,
+        "kpi_unit_cost": kpi_unit_cost,
     });
     post_json("/compute/scenario", &body, quick_client()).await
 }

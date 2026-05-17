@@ -25,7 +25,7 @@
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
-  import { unitCosts, activeProject } from '$lib/project-state.js';
+  import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
 
   let showOnboarding = $state(false);
   let onboardingChecked = false;
@@ -95,10 +95,13 @@
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
       const uc = get(unitCosts) ?? {};
       const ucArg = Object.keys(uc).length > 0 ? uc : null;
+      // v2.1.0 (ADR-021): money equivalents для count KPI.
+      const _kucReport = get(valuePerCountUnit);
+      const kpiUnitCostReport = get(kpiKind) === 'count' && typeof _kucReport === 'number' && _kucReport > 0 ? _kucReport : null;
 
       // Decompose → затем Optimize (последовательно, т.к. optimize читает decompose).
       const dResult = /** @type {any} */ (await invoke('econ_decompose', {
-        projectDir, unitCosts: ucArg,
+        projectDir, unitCosts: ucArg, kpiUnitCost: kpiUnitCostReport,
       }));
       if (dResult?.status !== 'ok') throw new Error(dResult?.message || 'Ошибка декомпозиции');
       decomposeData.set(dResult);
@@ -112,6 +115,7 @@
         minPerChannel: null,
         maxPerChannel: null,
         unitCosts: ucArg,
+        kpiUnitCost: kpiUnitCostReport,
       }));
       if (oResult?.status !== 'ok') throw new Error(oResult?.message || 'Ошибка оптимизации');
       optimizeData.set(oResult);

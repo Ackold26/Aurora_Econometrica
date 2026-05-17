@@ -29,6 +29,8 @@
     planningMode,
     forecastConfig,
     forecastContext,
+    valuePerCountUnit,
+    kpiKind,
   } from '$lib/project-state.js';
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
@@ -1074,6 +1076,9 @@
       // planning budget (not training currentMoney). Inflation применяется
       // к unit_costs независимо от scale - но baseline budget = planning.
       const baseMoneyForInflation = planningBudgetMoney != null ? planningBudgetMoney : currentMoney;
+      // v2.1.0 (ADR-021): money lift для count KPI - передаём kpi_unit_cost.
+      const _kucForecast = get(valuePerCountUnit);
+      const kpiUnitCostFc = get(kpiKind) === 'count' && typeof _kucForecast === 'number' && _kucForecast > 0 ? _kucForecast : null;
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
         totalBudget: null,
@@ -1091,6 +1096,7 @@
         forecastPeriods: planningPeriods,
         forecastPeriodLabel: planningLabel,
         unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
+        kpiUnitCost: kpiUnitCostFc,
       }));
       if (result.status === 'ok') {
         forecastResult = { ...result, mode: forecastMode, ucOld: uc0, ucNew, currentMoney: baseMoneyForInflation };
@@ -1196,6 +1202,9 @@
       // для optimize / what-if / forecast inflation - не дублируем логику.
       const finalTotalBudgetMoney = effectiveBaseBudget > 0 ? effectiveBaseBudget : null;
 
+      // v2.1.0 (ADR-021): money lift для count KPI.
+      const _kucMain = get(valuePerCountUnit);
+      const kpiUnitCostMain = get(kpiKind) === 'count' && typeof _kucMain === 'number' && _kucMain > 0 ? _kucMain : null;
       const result = /** @type {any} */ (await invoke('econ_optimize', {
         projectDir,
         totalBudget: null,
@@ -1216,6 +1225,7 @@
         unitCostInflationPct: (() => { const v = get(unitCostInflation) ?? {}; return Object.keys(v).length > 0 ? v : null; })(),
         // F1 fix 2026-05-03: cumulative anchor seed для chain monotonicity (I5b).
         prevOptimal: lastOptimalMoneyByChannel,
+        kpiUnitCost: kpiUnitCostMain,
       }));
 
       if (result.status === 'ok') {

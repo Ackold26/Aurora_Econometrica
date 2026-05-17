@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
@@ -330,6 +330,12 @@
         // KPI разрешается, awareness rejected). Backend default 'sales'
         // - preserving backward compat для legacy callers без kpiType.
         kpi_type: get(kpiType) || 'sales',
+        // v2.1.0 (ADR-021): ценность единицы count KPI (₽/упак., ₽/лид).
+        // Persisted в pickle snapshot. None = ROI/lift в native units.
+        kpi_unit_cost: (() => {
+          const v = get(valuePerCountUnit);
+          return get(kpiKind) === 'count' && typeof v === 'number' && v > 0 ? v : null;
+        })(),
         merge_rules: mergeRules,
         mode: engine,
         // Trust Level 3 (v1.1.0): brand vs performance categorization.

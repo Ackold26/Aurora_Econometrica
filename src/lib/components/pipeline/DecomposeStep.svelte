@@ -250,10 +250,15 @@
       // pickle содержит старые значения - override даёт актуальные).
       // Phase 2 audit pass 4: thread per-channel inflation если customer задал.
       const inflStore = get(unitCostInflation) ?? {};
+      // v2.1.0 (ADR-021): передаём kpi_unit_cost только для count KPI.
+      // Backend resolves: override (этот param) > pickle snapshot > None.
+      const kuc = get(valuePerCountUnit);
+      const kpiUnitCost = get(kpiKind) === 'count' && typeof kuc === 'number' && kuc > 0 ? kuc : null;
       const result = /** @type {any} */ (await invoke('econ_decompose', {
         projectDir,
         unitCosts: get(unitCosts) ?? {},
         unitCostInflationPct: Object.keys(inflStore).length > 0 ? inflStore : null,
+        kpiUnitCost,
       }));
 
       if (result.status === 'ok') {
