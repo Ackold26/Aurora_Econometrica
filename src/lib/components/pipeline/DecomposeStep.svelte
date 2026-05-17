@@ -564,7 +564,14 @@
                         <span class="spend-sub">{(ch.raw_spend ?? 0).toLocaleString('ru-RU')} × {ch.unit_cost.toLocaleString('ru-RU')}₽</span>
                       {/if}
                     </td>
-                    <td class="num">{ch.contribution.toLocaleString('ru-RU')}</td>
+                    <td class="num" title={ch.contribution_money != null ? `${ch.contribution_money.toLocaleString('ru-RU')} ₽ = ${ch.contribution.toLocaleString('ru-RU')} ед. × ${(data?.kpi_unit_cost ?? 0).toLocaleString('ru-RU')} ₽/ед.` : ''}>
+                      {#if ch.contribution_money != null}
+                        {ch.contribution_money.toLocaleString('ru-RU')} ₽
+                        <span class="contrib-sub">{ch.contribution.toLocaleString('ru-RU')} ед.</span>
+                      {:else}
+                        {ch.contribution.toLocaleString('ru-RU')}
+                      {/if}
+                    </td>
                     <td class="num {metricCellClass(ch)}">
                       {formatChannelMetric(ch)}
                     </td>
@@ -817,7 +824,8 @@
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
     color: var(--accent-primary, #3b82f6);
   }
-  .spend-sub {
+  .spend-sub,
+  .contrib-sub {
     display: block;
     font-size: 10px;
     color: var(--text-muted);

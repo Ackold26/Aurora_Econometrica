@@ -1959,6 +1959,12 @@
             <div class="lift-pillar-value" class:negative={optData.expected_lift_pct < 0}>
               {optData.expected_lift_pct >= 0 ? '+' : ''}{optData.expected_lift_pct.toFixed(1)}%
             </div>
+            {#if optData.kpi_unit_cost != null && optData.total_optimal_kpi_money != null && optData.total_current_kpi_money != null}
+              {@const liftMoney = optData.total_optimal_kpi_money - optData.total_current_kpi_money}
+              <div class="lift-pillar-money" class:negative={liftMoney < 0}>
+                {liftMoney >= 0 ? '+' : ''}{Math.round(liftMoney).toLocaleString('ru-RU')} ₽
+              </div>
+            {/if}
             <div class="lift-pillar-hint">business impact с учётом органики и контрольных факторов</div>
           </div>
         </div>
@@ -3405,6 +3411,15 @@
   }
   .lift-pillar-value.negative { color: var(--danger, #ef4444); }
   .lift-pillar-total .lift-pillar-value { color: var(--accent-text-light, var(--accent-primary)); }
+  .lift-pillar-money {
+    font-size: 0.95rem;
+    font-weight: 600;
+    font-family: monospace;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    line-height: 1.2;
+  }
+  .lift-pillar-money.negative { color: var(--danger, #ef4444); }
   .lift-pillar-hint {
     font-size: 0.78rem;
     color: var(--text-secondary);
