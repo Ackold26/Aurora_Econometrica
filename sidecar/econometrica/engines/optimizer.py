@@ -1316,16 +1316,24 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # L11 (math-fix v1.4 Section C, 2026-04-29): display_name для UI consistency.
         from engines.narrative_adapter import _normalize_channel_name
         display_name = _normalize_channel_name(col) or col
-        # v2.1.0 F-012: display values используют cur_baseline (forecast-projected)
-        # для apples-to-apples comparison с optimal_spend (forecast-scale через
-        # money_target). Analyst mode: cur_baseline == cur (unchanged display).
+        # v2.1.0 F-012 (2026-05-18 follow-up): SEPARATE display fields from math
+        # baseline. current_spend/current_spend_money остаются training-scale (raw
+        # cur × uc) для consistent UI display между Decompose / Optimize «Текущий
+        # бюджет» cards + ForecastHorizonPicker auto-suggest. Forecast-scale
+        # equivalents добавлены как *_baseline fields — frontend может использовать
+        # для apples-to-apples per-channel comparison в planner mode.
+        # delta_pct + mROAS уже using cur_baseline через math chain (см. выше).
+        # Analyst mode horizon_scale=1 → baseline fields == raw fields (byte-exact).
         ch_dict = {
             'name': col,
             'display_name': display_name,
-            'current_spend': round(cur_baseline, 0),
+            'current_spend': round(cur, 0),
             'optimal_spend': round(float(opt), 0),
-            'current_spend_money': round(cur_baseline * uc, 0),
+            'current_spend_money': round(cur * uc, 0),
             'optimal_spend_money': round(float(opt) * uc, 0),
+            # Forecast-horizon-projected current (= raw в analyst, scaled в planner)
+            'current_spend_baseline': round(cur_baseline, 0),
+            'current_spend_money_baseline': round(cur_baseline * uc, 0),
             'unit_cost': uc,
             'delta_pct': round(delta_pct, 1),
             'mroi_current': round(mroi_current, 4),
