@@ -22,6 +22,8 @@
    *   optimizing?: boolean,
    *   optimalBudgets?: Record<string, number> | null,
    *   unitCosts?: Record<string, number>,
+   *   unitCostsAtTraining?: Record<string, number> | null,
+   *   nPeriods?: number,
    *   displayBaseKPI?: number,
    *   backendLiftPct?: number | null,
    * }}
@@ -40,6 +42,16 @@
     optimizing = false,
     optimalBudgets = null,
     unitCosts = {},
+    // v2.1.0 (pilot B3 round 3 R3 B3-E4): training-time uc snapshot для predictKPI
+    // pre-multiply symmetry с backend Hill normalization (ADR-020). Без этого
+    // для mixed units pickle (TRPs × CPP) slider preview KPI ≈ baseline (wrong).
+    // OptimizeStep parent passes ucTrain через diagnostics.unit_costs_snapshot.
+    // Legacy / monetary-only pickle → null → predictKPI uses 1.0 fallback (identity).
+    unitCostsAtTraining = null,
+    // v2.1.0 (pilot A3 round 3 REGR-2): n_periods для canonical Hill normalization
+    // (matches backend optimizer x_per_period = total/n_periods ДО Hill, total × n).
+    // Default 1 - backward compat для caller'ов без context.
+    nPeriods = 1,
     // total_sales из decompose (KPI за весь период анализа, в money).
     // Если задан - Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
     // чтобы число было согласовано с блоком A (8300.6 M ₽, а не 342M per-period).
@@ -58,7 +70,9 @@
   }
 
   // Predicted KPI from current sliders - frontend approximation (упрощённая Hill).
-  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization));
+  // v2.1.0 B3-E4: pass unitCostsAtTraining для ADR-020 symmetry с backend.
+  // v2.1.0 REGR-2: pass nPeriods - canonical Hill normalization matches backend.
+  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization, unitCostsAtTraining, nPeriods));
   const frontendLiftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
 
   // FIX 2026-05-02: detect когда current budgets ≈ optimal_budgets - тогда показываем

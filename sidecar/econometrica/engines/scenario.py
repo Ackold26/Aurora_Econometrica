@@ -798,28 +798,56 @@ def compare_scenarios(project_dir: str, unit_costs: dict | None = None) -> dict[
     # Mixed native+money across scenarios would be misleading.
     has_money = all(s['totals'].get('roas_money') is not None for s in scenarios)
 
+    # B3-E1 (pilot R3 2026-05-17): money primary для count+kpi_unit_cost KPI.
+    # Если ВСЕ scenarios имеют non-null predicted_kpi_money (ADR-021 R2-1) -
+    # routing через predicted_kpi_money с unit='₽'. Иначе fallback к native
+    # predicted_kpi с unit='count' (legacy / monetary без conversion).
+    kpi_money_available = all(
+        s['totals'].get('predicted_kpi_money') is not None for s in scenarios
+    )
+
     if has_money:
         budget_row = ['Бюджет (₽)'] + [s['totals']['total_spend_money'] for s in scenarios]
         roas_row = ['ROAS (₽)'] + [s['totals']['roas_money'] for s in scenarios]
         best = max(scenarios, key=lambda s: s['totals']['roas_money'])
         best_roas = best['totals']['roas_money']
         roas_label = 'ROAS'
+        budget_unit = 'money'
+        roas_unit = 'roas'
     else:
         budget_row = ['Бюджет (native)'] + [s['totals']['total_spend'] for s in scenarios]
         roas_row = ['ROAS (native, смешанные единицы)'] + [s['totals']['roas'] for s in scenarios]
         best = max(scenarios, key=lambda s: s['totals']['roas'])
         best_roas = best['totals']['roas']
         roas_label = 'ROAS (native)'
+        budget_unit = 'native'
+        roas_unit = 'roas'
+
+    # B3-E1: primary KPI row - money если все scenarios имеют predicted_kpi_money,
+    # иначе fallback к native count. lift_pct unitless ratio - неизменен.
+    if kpi_money_available:
+        kpi_row = ['Прогноз KPI (₽)'] + [
+            s['totals']['predicted_kpi_money'] for s in scenarios
+        ]
+        kpi_unit = '₽'
+    else:
+        kpi_row = ['Прогноз KPI'] + [s['totals']['predicted_kpi'] for s in scenarios]
+        kpi_unit = 'count'
 
     comparison = {
         'headers': ['Метрика'] + [s['scenario_name'] for s in scenarios],
         'rows': [
-            ['Прогноз KPI'] + [s['totals']['predicted_kpi'] for s in scenarios],
+            kpi_row,
             budget_row,
             roas_row,
             ['Лифт vs baseline'] + [f"+{s['totals']['lift_pct']}%" for s in scenarios],
         ],
+        # B3-E1: per-row unit hints для frontend formatter dispatch.
+        # 'money' / 'native' = budget, 'roas' = ROAS multiplier, '₽' = money KPI,
+        # 'count' = native count KPI, 'pct' = lift percentage.
+        'row_units': [kpi_unit, budget_unit, roas_unit, 'pct'],
         'money_mode': has_money,
+        'kpi_money_mode': kpi_money_available,
     }
 
     warn = ''

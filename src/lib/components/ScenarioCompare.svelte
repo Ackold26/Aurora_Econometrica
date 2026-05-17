@@ -20,6 +20,11 @@
     kpiKind,
   } from '$lib/project-state.js';
   import DataTable from './DataTable.svelte';
+  import { formatMoney, formatCount, formatROI } from '$lib/format-numbers.js';
+
+  // B3-E2 (pilot R3 2026-05-17): kpiKind-aware label вместо hardcoded «% продаж».
+  // monetary → «% продаж», count → «% KPI» (generic, покрывает sales_packs/leads/etc).
+  const liftLabel = $derived($kpiKind === 'count' ? '% KPI' : '% продаж');
 
   // v2.1.0 (pilot R2 B2-02 2026-05-17): derive kpi_unit_cost для count KPI.
   // Без него econ_scenario сохраняет сценарий без money equivalents → при
@@ -51,6 +56,31 @@
   let scenarios = $state([]);
   let comparison = $state(/** @type {any} */ (null));
 
+  // B3-E1 (pilot R3 2026-05-17): pre-format rows per row_units flag, чтобы
+  // DataTable получала string-cells с правильной размерностью. Money primary
+  // для count+kpi_unit_cost; native count fallback для legacy/monetary.
+  /** @param {any} comp */
+  function formatComparisonRows(comp) {
+    if (!comp || !Array.isArray(comp.rows)) return comp;
+    const units = Array.isArray(comp.row_units) ? comp.row_units : [];
+    const rows = comp.rows.map(/** @param {any[]} row @param {number} i */ (row, i) => {
+      const unit = units[i];
+      if (!unit) return row;
+      return row.map(/** @param {any} cell @param {number} j */ (cell, j) => {
+        // Label column (j=0) и non-numeric cells - оставить как есть.
+        if (j === 0 || cell == null || typeof cell !== 'number') return cell;
+        if (unit === '₽' || unit === 'money') return formatMoney(cell);
+        if (unit === 'count') return formatCount(cell, '');
+        if (unit === 'roas') return formatROI(cell);
+        // 'native' / 'pct' / unknown - DataTable fmt() handles thousand sep.
+        return cell;
+      });
+    });
+    return { ...comp, rows };
+  }
+
+  let displayComparison = $derived(formatComparisonRows(comparison));
+
   // ── Slider what-if (instant predict) ──
   /** @param {string} channel */
   async function onSliderChange(channel) {
@@ -75,7 +105,7 @@
         kpiUnitCost: deriveKpiUnitCost(),
       }));
       if (result.status === 'ok') {
-        sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}% продаж`;
+        sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}`;
       }
     } catch { /* silent */ }
   }
@@ -104,7 +134,7 @@
       }));
 
       if (result.status === 'ok') {
-        computeStatus.set(`Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}% продаж`);
+        computeStatus.set(`Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}`);
         await loadComparison();
       } else {
         computeStatus.set(`Ошибка: ${result.message}`);
@@ -199,14 +229,14 @@
   {/if}
 
   <!-- Comparison table -->
-  {#if comparison}
+  {#if displayComparison}
     <div class="section">
       <DataTable
         mode="scenario"
         title="Сравнение сценариев"
-        headers={comparison.headers}
-        rows={comparison.rows}
-        highlightColumn={comparison.headers?.[1]}
+        headers={displayComparison.headers}
+        rows={displayComparison.rows}
+        highlightColumn={displayComparison.headers?.[1]}
       />
     </div>
   {:else if scenarios.length === 0}

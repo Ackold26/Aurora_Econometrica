@@ -55,14 +55,18 @@ export function marginalROI(x, alpha, gamma, beta, normalization = null) {
 /**
  * Predict total KPI from budget allocation.
  *
- * v2.1.0 (pilot D2 round 2 R02 2026-05-17): added `unitCostsAtTraining` param.
- * Если pickle обучался с ADR-020 pre-multiply (mixed units mode), backend
- * scaled media_means на uc_train. Frontend spend в native units → нужно
- * pre-multiply spend на uc_train ДО Hill (`hillFunction` уже использует
- * gammaScaled из buildScaledParams где scale = adstock_mean_posterior).
- * Без этого native spend / scaled gamma → x_norm ≈ 0 → KPI ≈ baseline.
+ * v2.1.0 (pilot A3 round 3 REGR-2 2026-05-17): добавлен `nPeriods` параметр +
+ * spend → per-period scale ДО Hill (matches backend `total_response_money` в
+ * `optimizer.py:601-625` где `x_avg_raw = x_native_total / n_periods` сначала,
+ * затем adstock+Hill, потом total × n_periods). Без этого frontend Hill
+ * получал total_period_spend против per-period mean (adstock_mean_posterior)
+ * → x/gamma off на n_periods× → saturation plateau → sliders unresponsive
+ * (2× budget давал ~2% lift вместо ~10-20%).
  *
- * @param {Record<string, number>} budgets - {channelName: spendValue в native units}
+ * v2.1.0 (pilot D2 round 2 R02 2026-05-17): добавлен `unitCostsAtTraining` -
+ * pre-multiply spend ДО Hill для ADR-020 symmetry (mixed units pickles).
+ *
+ * @param {Record<string, number>} budgets - {channelName: spendValue в native units, TOTAL за все периоды}
  * @param {Record<string, {alpha: number, gammaScaled: number, beta: number}>} scaledParams
  * @param {{y_mean?: number, y_std?: number} | null} [normalization] - Денормализация
  *        в исходные единицы KPI (y = y_norm * y_std + y_mean). Без неё возвращается
@@ -70,17 +74,23 @@ export function marginalROI(x, alpha, gamma, beta, normalization = null) {
  * @param {Record<string, number> | null} [unitCostsAtTraining] - {channelName: uc_train}.
  *        Применяется как multiplier к spend ДО Hill (ADR-020 symmetry).
  *        Default 1.0 если ключ отсутствует - byte-exact backward compat для legacy.
+ * @param {number} [nPeriods] - количество периодов горизонта (training или planning).
+ *        Default 1 — преserves old behavior для callers без n_periods context.
+ *        Backend canonical: optimizer/scenario используют x_per_period = total/n_periods.
  * @returns {number}
  */
-export function predictKPI(budgets, scaledParams, normalization = null, unitCostsAtTraining = null) {
+export function predictKPI(budgets, scaledParams, normalization = null, unitCostsAtTraining = null, nPeriods = 1) {
   let total = 0;
+  const n = (typeof nPeriods === 'number' && nPeriods >= 1) ? nPeriods : 1;
   for (const [ch, spend] of Object.entries(budgets)) {
     const p = scaledParams[ch];
     if (!p) continue;
     const ucTrain = (unitCostsAtTraining && typeof unitCostsAtTraining[ch] === 'number' && unitCostsAtTraining[ch] > 0)
       ? unitCostsAtTraining[ch] : 1.0;
-    const scaledSpend = spend * ucTrain;
-    total += p.beta * hillFunction(scaledSpend, p.alpha, p.gammaScaled);
+    // Per-period spend × uc_train → Hill (canonical с backend optimizer.py:619).
+    const perPeriodScaled = (spend * ucTrain) / n;
+    // Hill output - per-period saturation. Total contribution = sat × n_periods.
+    total += p.beta * hillFunction(perPeriodScaled, p.alpha, p.gammaScaled) * n;
   }
   if (normalization && Number.isFinite(normalization.y_std) && Number.isFinite(normalization.y_mean)) {
     return total * (normalization.y_std ?? 1) + (normalization.y_mean ?? 0);

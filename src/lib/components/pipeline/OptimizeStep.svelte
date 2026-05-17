@@ -614,8 +614,21 @@
     return diag.unit_costs_snapshot || null;
   });
 
+  /**
+   * v2.1.0 (pilot A3 round 3 REGR-2 2026-05-17): n_periods для predictKPI
+   * canonical с backend optimizer.py (x_per_period = total/n_periods ДО Hill).
+   * Planner mode → forecast horizon. Analyst → training periods.
+   */
+  const predictNPeriods = $derived.by(() => {
+    if ($planningMode === 'planner' && Number($forecastConfig?.periods) > 0) {
+      return Number($forecastConfig.periods);
+    }
+    const trainN = dData?.time_series?.dates?.length;
+    return Number.isFinite(trainN) && trainN > 0 ? trainN : 1;
+  });
+
   /** Current KPI at current_spend (baseline for lift% - per-period prediction в рублях). */
-  const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm, ucTrain));
+  const currentKPI = $derived(predictKPI(currentSpend, scaledParams, yNorm, ucTrain, predictNPeriods));
 
   /**
    * miROAS per channel - marginal ROAS следующего рубля.
@@ -755,7 +768,7 @@
    *  + L5 auto-apply animation. Used to scale displayKPI к live allocation. */
   const liveKPI = $derived(
     Object.keys(channelBudgets).length > 0 && Object.keys(scaledParams).length > 0
-      ? predictKPI(channelBudgets, scaledParams, yNorm, ucTrain)
+      ? predictKPI(channelBudgets, scaledParams, yNorm, ucTrain, predictNPeriods)
       : currentKPI
   );
 
@@ -917,7 +930,7 @@
         scaledMoneyMap[name] = Number(c.optimal_spend_money ?? 0) * whatIfMult;
       }
 
-      const newKPI = predictKPI(scaledNative, scaledParams, yNorm, ucTrain);
+      const newKPI = predictKPI(scaledNative, scaledParams, yNorm, ucTrain, predictNPeriods);
       const baselineKPI = currentKPI;
       const liftPct = baselineKPI > 0
         ? ((newKPI - baselineKPI) / baselineKPI) * 100
@@ -2054,6 +2067,8 @@
             optimizing={stepState === 'optimizing'}
             {optimalBudgets}
             unitCosts={effectiveUnitCosts}
+            unitCostsAtTraining={ucTrain}
+            nPeriods={predictNPeriods}
             displayBaseKPI={displayKPI}
             backendLiftPct={optData?.expected_lift_pct ?? null}
           />

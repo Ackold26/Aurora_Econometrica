@@ -55,13 +55,28 @@
   const maxCustom = $derived(Math.floor(trainNPeriods * maxMult));
   const warnCustom = $derived(Math.floor(trainNPeriods * warnMult));
 
-  let selectedPreset = $state(/** @type {string|null} */ (null));
-  let customPeriods = $state(/** @type {number|null} */ (null));
-  let budgetInput = $state(/** @type {number|null} */ (null));
+  // v2.1.0 (pilot E3 round 3 R3-E01 2026-05-17): hydrate local state from
+  // persisted $forecastConfig (E-H05 localStorage). Без этого после reload
+  // picker UI отображался пустым, customer interaction triggered emitChange
+  // с null'ами → store нулифицировался → planning state lost. IIFE для
+  // одноразовой init из store (subscribers вытащат update'ы на load).
+  let selectedPreset = $state(/** @type {string|null} */ (
+    $forecastConfig?.periodLabel ?? null
+  ));
+  let customPeriods = $state(/** @type {number|null} */ (
+    typeof $forecastConfig?.periods === 'number' && $forecastConfig.periods > 0
+      ? $forecastConfig.periods : null
+  ));
+  let budgetInput = $state(/** @type {number|null} */ (
+    typeof $forecastConfig?.budgetMoney === 'number' && $forecastConfig.budgetMoney > 0
+      ? $forecastConfig.budgetMoney : null
+  ));
   // Audit pass 4: track customer manual override. Когда true - preset clicks
   // НЕ переписывают custom бюджет. Customer может ввести независимый бюджет
   // (без привязки к training horizon).
-  let budgetManuallyEdited = $state(false);
+  // E3 R3-E01: если budgetInput restored из localStorage, считаем что customer
+  // отредактировал ранее → не overwrite preset'ом до явного reset.
+  let budgetManuallyEdited = $state(budgetInput !== null);
 
   // Auto-suggest budget when periods change (proportional to training)
   /** @param {number | null} periods */
