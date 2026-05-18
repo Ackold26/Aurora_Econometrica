@@ -590,8 +590,20 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     roas_native_total = scenario_total / total_spend_native if total_spend_native > 0 else 0
 
     # Money-denominated spend - only valid if unit_costs cover all active channels
+    # F-019 fix (2026-05-18 pilot): money-каналы (per_channel_input[ch]=='monetary')
+    # уже в ₽ — implicit unit_cost=1.0. Backend требует ИЛИ explicit unit_cost > 0
+    # (для physical TRP/GRP/CPM channels) ИЛИ classification 'monetary' в pickle SSOT.
+    # Pre-fix: backend требовал explicit > 0 для всех каналов → money channels без
+    # unit_cost ломали units_fully_covered → False money_mode → warning «native единицы»
+    # при том что ROAS математически в ₽ для них корректен (1.0 fallback в per_channel_money).
+    per_channel_input = model_data.get('per_channel_input') or {}
+    def _is_money_channel(ch: str) -> bool:
+        return per_channel_input.get(ch, 'monetary') == 'monetary'
     active_channels = [c for c in media_cols if per_channel_native.get(c, 0) > 0]
-    covered = [c for c in active_channels if unit_costs.get(c, 0) > 0]
+    covered = [
+        c for c in active_channels
+        if unit_costs.get(c, 0) > 0 or _is_money_channel(c)
+    ]
     per_channel_money = {
         col: per_channel_native[col] * float(unit_costs.get(col, 1.0))
         for col in media_cols

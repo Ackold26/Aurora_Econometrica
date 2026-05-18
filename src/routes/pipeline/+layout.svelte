@@ -68,12 +68,18 @@
       if (!projectDir) return;
       const result = /** @type {any} */ (await invoke('econ_migrate_project', { projectDir }));
       if (result?.status === 'ok') {
-        migrationToast = {
-          show: true,
-          fromVersion: result.from_version || '',
-          toVersion: result.to_version || '',
-          movedCount: (result.migrated_columns || []).length,
-        };
+        const movedCount = (result.migrated_columns || []).length;
+        // 2026-05-18 pilot UX: toast только при meaningful classification change.
+        // No-op migrations (формат данных обновлён без изменения классификации)
+        // перекрывали кнопку «далее» и отвлекали пилот.
+        if (movedCount > 0) {
+          migrationToast = {
+            show: true,
+            fromVersion: result.from_version || '',
+            toVersion: result.to_version || '',
+            movedCount,
+          };
+        }
       }
     } catch (err) {
       migrationError = {
@@ -222,17 +228,22 @@
         if (!projectDir) return;
         const result = /** @type {any} */ (await invoke('econ_migrate_project', { projectDir }));
         if (result?.status === 'ok') {
+          const movedCount = (result.migrated_columns || []).length;
           console.info(
             `[migration] project ${id}: ${result.from_version} → ${result.to_version}, ` +
-            `moved ${(result.migrated_columns || []).length} cols`,
+            `moved ${movedCount} cols`,
           );
           // Phase 2.16 - surface trust-signal toast (audit P-customer-confidence).
-          migrationToast = {
-            show: true,
-            fromVersion: result.from_version || '',
-            toVersion: result.to_version || '',
-            movedCount: (result.migrated_columns || []).length,
-          };
+          // 2026-05-18 pilot UX: показываем только при meaningful classification
+          // change. No-op миграции (формат-only) перекрывали «далее» и отвлекали.
+          if (movedCount > 0) {
+            migrationToast = {
+              show: true,
+              fromVersion: result.from_version || '',
+              toVersion: result.to_version || '',
+              movedCount,
+            };
+          }
         }
       } catch (err) {
         // H-20a: surface error к UI вместо silent console.warn. Customer видит

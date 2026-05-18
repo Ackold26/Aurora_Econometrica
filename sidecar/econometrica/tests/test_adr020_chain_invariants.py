@@ -458,6 +458,56 @@ def test_optimizer_planner_mode_no_negative_lift_artifact(tmp_path):
     )
 
 
+def test_f019_money_channels_auto_covered_without_explicit_unit_cost(tmp_path):
+    """F-019 closure: money-каналы (per_channel_input=='monetary') не требуют
+    explicit unit_cost в IPC payload — backend читает classification из pickle.
+
+    Pre-fix: backend требовал unit_costs[ch] > 0 для всех active channels.
+    Money channels без unit_cost (frontend MONEY_HINT excludes их из panel)
+    → units_fully_covered=False → money_mode=False → warning «native units».
+    """
+    data_file, project_dir = _synthetic_dataset(tmp_path)
+    # Train с unit_costs для TRP only (mimics frontend пропускающий money channels)
+    from engines.ols_modeler import train_ols
+    result = train_ols({
+        'data_file': str(data_file),
+        'kpi_column': 'sales',
+        'media_columns': ['tv_trp', 'digital_rub'],
+        'control_columns': ['price'],
+        'date_column': 'Дата',
+        'adstock_config': {'tv_trp': 'geometric', 'digital_rub': 'geometric'},
+        'unit_costs': {'tv_trp': 100000.0},  # digital_rub без unit_cost (money channel)
+        'kpi_type': 'sales',
+        'kpi_unit_cost': None,
+        'merge_rules': {},
+        'channel_categories': {},
+    }, str(tmp_path))
+    assert result['status'] == 'ok'
+
+    from engines.scenario import predict_scenario
+    scenario_result = predict_scenario({
+        'scenario_name': 'f019',
+        'media_plan': {
+            'tv_trp': [22100.0],
+            'digital_rub': [1_500_000_000.0],
+        },
+        'unit_costs': {'tv_trp': 100000.0},  # IPC payload как frontend шлёт
+    }, str(tmp_path))
+    assert scenario_result['status'] == 'ok', scenario_result
+    totals = scenario_result['totals']
+    # units_fully_covered должен быть True — digital_rub classified 'monetary'
+    # в pickle (per_channel_input default), не требует explicit unit_cost.
+    assert totals.get('units_fully_covered') is True, (
+        f"units_fully_covered должен быть True — money channel auto-covered. "
+        f"Got: {totals.get('units_fully_covered')}"
+    )
+    # ROAS money populated, не None → downstream compare_scenarios сделает money_mode=True
+    assert totals.get('total_spend_money') is not None and totals['total_spend_money'] > 0
+    assert totals.get('roas_money') is not None, (
+        f"roas_money должен быть populated. Got totals: {totals}"
+    )
+
+
 def test_compute_roi_verdict_count_null_kpi_unit_cost_guard():
     """B-02 closure: для count KPI + null kpi_unit_cost compute_roi_verdict
     возвращает «Задайте ценность единицы» (neutral), не «Глубоко убыточный».
