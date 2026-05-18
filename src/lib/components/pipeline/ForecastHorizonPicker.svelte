@@ -100,6 +100,13 @@
     if (budgetManuallyEdited) return;
     if (customPeriods == null || customPeriods < 1) return;
     if (trainNPeriods < 1 || currentBudgetMoney <= 0) return;
+    // F-018 follow-up (2026-05-18): не пересчитываем auto-suggest пока
+    // forecast_context не загрузился. Без этого gate parent OptimizeStep
+    // передаёт fallback trainNPeriods=52 во время первого render после
+    // reload → suggestBudget с wrong scale → overwrite корректно
+    // восстановленного из localStorage budget. До F-018 это скрывалось
+    // багом (budgetManuallyEdited всегда был true после reload).
+    if (!granularityKnown) return;
     const fresh = suggestBudget(customPeriods);
     if (fresh != null && fresh !== budgetInput) {
       budgetInput = fresh;
