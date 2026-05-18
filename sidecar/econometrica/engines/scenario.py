@@ -596,8 +596,17 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # Pre-fix: backend требовал explicit > 0 для всех каналов → money channels без
     # unit_cost ломали units_fully_covered → False money_mode → warning «native единицы»
     # при том что ROAS математически в ₽ для них корректен (1.0 fallback в per_channel_money).
+    #
+    # F-019 hardening (audit 2026-05-18): auto-cover money channels только если
+    # юзер интенциально задал хотя бы один unit_cost. Полностью пустой
+    # unit_costs={} = legacy pickle где per_channel_input default-monetary мог
+    # быть wrong (TRP без unit_cost получил бы false-positive money_mode →
+    # silent ROAS corruption). При unit_costs={} keep strict pre-F-019 behavior.
     per_channel_input = model_data.get('per_channel_input') or {}
+    has_explicit_unit_costs = any(v > 0 for v in unit_costs.values())
     def _is_money_channel(ch: str) -> bool:
+        if not has_explicit_unit_costs:
+            return False  # legacy pickle protection
         return per_channel_input.get(ch, 'monetary') == 'monetary'
     active_channels = [c for c in media_cols if per_channel_native.get(c, 0) > 0]
     covered = [

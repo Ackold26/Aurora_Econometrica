@@ -488,11 +488,19 @@
     }
 
     // 5b. F-003 pilot (2026-05-18): KPI-like колонка (sales/выручка/leads/...)
-    // НЕ должна быть «Оставить» когда роль НЕ kpi (значит другая колонка уже
-    // выбрана KPI). Customer ошибочно мог взять её как control / media. Помечаем
+    // НЕ должна быть «Оставить» когда роль НЕ kpi И уже выбрана другая KPI.
+    // Customer ошибочно мог взять её как control / media. Помечаем
     // «Альтернативная цель» чтобы навести на мысль о role review.
+    //
+    // F-003 hardening (audit 2026-05-18): conditional on existing KPI presence.
+    // Иначе legitimate control columns с именем «Продажи конкурентов» получали
+    // ложный flag «Альтернативная цель» при том что KPI ещё не выбран.
     const kpiLikeRe = /продаж|sales|выручк|revenue|доход|profit|лид|leads|конверси|conversion|регистраций|signups|подписк|subscrib/i;
+    const hasActiveKpi = columns.some(
+      (/** @type {any} */ c) => effectiveRole(c.name) === 'kpi'
+    );
     if (
+      hasActiveKpi &&
       isNumeric &&
       role !== 'kpi' &&
       role !== 'media' &&
@@ -502,7 +510,7 @@
       return {
         status: 'review',
         label: 'Альтернативная цель',
-        reason: 'Похоже на потенциальную KPI-метрику. Если хотите моделировать её - переназначьте роль на «KPI» (одна KPI на проект). Иначе оставьте «Исключить».',
+        reason: 'Похоже на потенциальную KPI-метрику. KPI уже выбрана для другой колонки (одна KPI на проект). Если хотите моделировать эту - переназначьте роль. Иначе исключите.',
         tone: 'warn',
       };
     }

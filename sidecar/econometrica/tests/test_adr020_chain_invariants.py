@@ -508,6 +508,49 @@ def test_f019_money_channels_auto_covered_without_explicit_unit_cost(tmp_path):
     )
 
 
+def test_f019_hardening_empty_unit_costs_no_silent_money_mode(tmp_path):
+    """F-019 hardening: при unit_costs={} (полностью пустой) backend не
+    auto-cover'ит каналы как money даже если per_channel_input='monetary'.
+
+    Защита от legacy pickle case: persistence._inject_v13_defaults может
+    default'нуть TRP physical channel в 'monetary' (когда analysis_objective
+    был 'roi' но pickle создан до v1.3). Без gate F-019 silently выдал бы
+    money_mode=True + wrong ROAS (TRP × 1.0 = TRP count, не ₽).
+    """
+    data_file, project_dir = _synthetic_dataset(tmp_path)
+    from engines.ols_modeler import train_ols
+    result = train_ols({
+        'data_file': str(data_file),
+        'kpi_column': 'sales',
+        'media_columns': ['tv_trp', 'digital_rub'],
+        'control_columns': ['price'],
+        'date_column': 'Дата',
+        'adstock_config': {'tv_trp': 'geometric', 'digital_rub': 'geometric'},
+        'unit_costs': {},  # полностью пустой — simulates legacy pilot
+        'kpi_type': 'sales',
+        'kpi_unit_cost': None,
+        'merge_rules': {},
+        'channel_categories': {},
+    }, str(tmp_path))
+    assert result['status'] == 'ok'
+
+    from engines.scenario import predict_scenario
+    scenario_result = predict_scenario({
+        'scenario_name': 'f019-hardening',
+        'media_plan': {
+            'tv_trp': [22100.0],
+            'digital_rub': [1_500_000_000.0],
+        },
+        'unit_costs': {},
+    }, str(tmp_path))
+    assert scenario_result['status'] == 'ok'
+    # Strict pre-F-019 behavior preserved: unit_costs={} → no auto-cover
+    assert scenario_result['totals'].get('units_fully_covered') is False, (
+        "При unit_costs={} F-019 hardening должен NOT auto-cover. "
+        f"Got: {scenario_result['totals'].get('units_fully_covered')}"
+    )
+
+
 def test_compute_roi_verdict_count_null_kpi_unit_cost_guard():
     """B-02 closure: для count KPI + null kpi_unit_cost compute_roi_verdict
     возвращает «Задайте ценность единицы» (neutral), не «Глубоко убыточный».
