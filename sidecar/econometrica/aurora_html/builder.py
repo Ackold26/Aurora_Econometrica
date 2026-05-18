@@ -397,6 +397,16 @@ class AuroraHTMLBuilder:
             for c in self.channels if c.get("name")
         }
 
+        # F-017 fix (2026-05-18): training horizon (n_periods) для what-if Hill scaling.
+        # Pre-fix: predictKPI делил spend (total) / mean (per-period) → z в saturated
+        # zone (~31 для TRPs Кагоцел) → slider движется в плоской части Hill → KPI delta=0.
+        # Fix: пройти n_periods к JS, разделить spend на n_periods для per-period rate.
+        ts_baseline_for_n = self.raw_decompose.get("time_series", {}).get("baseline") or []
+        try:
+            n_periods_for_whatif = max(int(len(ts_baseline_for_n)), 1)
+        except (TypeError, ValueError):
+            n_periods_for_whatif = 1
+
         # v2.1.0 (пилот 2026-05-17): enabled gate. Bug: media_means dict отсутствовал /
         # пустой в некоторых pickle вариантах → enabled=False → what-if UI скрывался
         # ИЛИ показывался но KPI всегда 0%. Fallback: channel_params[ch].mean per-channel.
@@ -416,6 +426,8 @@ class AuroraHTMLBuilder:
             },
             "baseline_sum":       float(baseline_sum),
             "current_spends_mln": current_spends,
+            # F-017: training horizon для per-period Hill scaling в what-if JS.
+            "n_periods":          int(n_periods_for_whatif),
             "enabled": bool(channel_params and means_available and norm.get("y_std")),
         }
         return security.escape_js_embed(payload)

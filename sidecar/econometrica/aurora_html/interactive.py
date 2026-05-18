@@ -755,6 +755,11 @@ def bootstrap_js(
       return null;
     }}
 
+    // F-017 fix (2026-05-18): training horizon для per-period Hill scaling.
+    // Pre-fix: spend (total) / mean (per-period) → z в saturated zone → KPI delta=0%.
+    // Fix: spendPerPeriod = spend / nPer; contribution × nPer для total аккумуляции.
+    var nPer = Math.max(1, parseInt(MODEL_CTX.n_periods || 1, 10) || 1);
+
     // Baseline KPI with current spends. Guards against div-by-zero,
     // NaN propagation, and invalid Hill params (negative/zero alpha or gamma).
     function predictKPI(spendsMln) {{
@@ -768,13 +773,16 @@ def bootstrap_js(
         if (!p.alpha || !p.gamma || p.alpha <= 0 || p.gamma <= 0) return;
         var spend = (spendsMln[ch] || 0) * 1e6;
         if (spend <= 0) return;
-        var z = spend / mean;
+        // F-017: per-period spend для согласования с per-period mean (adstock_mean_posterior).
+        var spendPerPeriod = spend / nPer;
+        var z = spendPerPeriod / mean;
         // Compute Hill saturation - guard against any remaining NaN/Infinity.
         var za = Math.pow(z, p.alpha);
         var ga = Math.pow(p.gamma, p.alpha);
         var sat = za / (za + ga);
         if (!isFinite(sat)) return;
-        total_norm_contrib += (p.beta || 0) * sat;
+        // F-017: × nPer для total contribution (matches baseline_sum scaling).
+        total_norm_contrib += (p.beta || 0) * sat * nPer;
       }});
       if (!isFinite(total_norm_contrib)) total_norm_contrib = 0;
       // Denormalize: contribution is in normalized units; multiply by y_std
