@@ -189,6 +189,7 @@ export const planningMode = createPlanningModeStore();
  *   periodLabel: string | null,
  *   budgetMoney: number | null,
  *   inflationPerChannel: Record<string, number> | null,
+ *   budgetManuallyEdited: boolean,
  * }} ForecastConfig
  */
 // v2.1.0 (pilot R2 E2-02 / E-H05 2026-05-17): localStorage persistence чтобы
@@ -205,7 +206,7 @@ const FORECAST_CONFIG_KEY = 'econ-forecast-config';
 /** @returns {import('svelte/store').Writable<ForecastConfig>} */
 function createForecastConfigStore() {
   /** @type {ForecastConfig} */
-  let initial = { periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null };
+  let initial = { periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null, budgetManuallyEdited: false };
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(FORECAST_CONFIG_KEY) : null;
     if (raw) {
@@ -219,6 +220,11 @@ function createForecastConfigStore() {
             parsed.inflationPerChannel && typeof parsed.inflationPerChannel === 'object'
               ? /** @type {Record<string, number>} */ (parsed.inflationPerChannel)
               : null,
+          // F-018 (2026-05-18): persist флаг, чтобы после reload presets работали
+          // корректно. Раньше — `budgetManuallyEdited = budgetInput !== null` →
+          // любой restored budget считался manual → presets 3/6/12 давали same
+          // budget вместо суггестов. Default false для legacy payload'ов.
+          budgetManuallyEdited: typeof parsed.budgetManuallyEdited === 'boolean' ? parsed.budgetManuallyEdited : false,
         };
       }
     }
@@ -237,6 +243,7 @@ function createForecastConfigStore() {
           periodLabel: v?.periodLabel ?? null,
           budgetMoney: v?.budgetMoney ?? null,
           inflationPerChannel: inflSize > 0 && inflSize < 10 ? infl : null,
+          budgetManuallyEdited: v?.budgetManuallyEdited === true,
         };
         localStorage.setItem(FORECAST_CONFIG_KEY, JSON.stringify(payload));
       } catch { /* ignore quota / private mode */ }

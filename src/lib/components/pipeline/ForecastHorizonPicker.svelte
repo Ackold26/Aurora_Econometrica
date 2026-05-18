@@ -74,9 +74,12 @@
   // Audit pass 4: track customer manual override. Когда true - preset clicks
   // НЕ переписывают custom бюджет. Customer может ввести независимый бюджет
   // (без привязки к training horizon).
-  // E3 R3-E01: если budgetInput restored из localStorage, считаем что customer
-  // отредактировал ранее → не overwrite preset'ом до явного reset.
-  let budgetManuallyEdited = $state(budgetInput !== null);
+  // F-018 (2026-05-18): флаг персистится в forecastConfig store (см. INV-22
+  // sister rule). Раньше — `budgetInput !== null` → любой restored бюджет
+  // (включая auto-suggested) считался manual → presets 3/6/12 после reload
+  // давали same budget. Теперь read actual flag из store; default false если
+  // legacy payload без поля.
+  let budgetManuallyEdited = $state($forecastConfig?.budgetManuallyEdited === true);
 
   // Auto-suggest budget when periods change (proportional to training)
   /** @param {number | null} periods */
@@ -135,14 +138,14 @@
 
   function emitChange() {
     if (customPeriods == null || customPeriods < 1 || budgetInput == null || budgetInput <= 0) {
-      forecastConfig.update(c => ({ ...c, periods: null, periodLabel: null, budgetMoney: null }));
+      forecastConfig.update(c => ({ ...c, periods: null, periodLabel: null, budgetMoney: null, budgetManuallyEdited }));
       return;
     }
     // Audit pass 3 fix (BUG 19): force integer для Tauri Option<i64> compat.
     // step={1} on input не блокирует typed decimals в некоторых browsers.
     const periodsInt = Math.floor(Number(customPeriods));
     if (!Number.isFinite(periodsInt) || periodsInt < 1) {
-      forecastConfig.update(c => ({ ...c, periods: null, periodLabel: null, budgetMoney: null }));
+      forecastConfig.update(c => ({ ...c, periods: null, periodLabel: null, budgetMoney: null, budgetManuallyEdited }));
       return;
     }
     const cfg = {
@@ -150,7 +153,9 @@
       periodLabel: selectedPreset || `${periodsInt} periods`,
       budgetMoney: budgetInput,
     };
-    forecastConfig.update(c => ({ ...c, ...cfg }));
+    // F-018 (2026-05-18): persist budgetManuallyEdited флаг чтобы preset
+    // suggestion logic переживал reload (см. project-state.js comment).
+    forecastConfig.update(c => ({ ...c, ...cfg, budgetManuallyEdited }));
     onChange?.(cfg);
   }
 

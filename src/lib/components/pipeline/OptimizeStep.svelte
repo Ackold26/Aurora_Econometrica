@@ -125,7 +125,7 @@
 
     // Phase 2 - planning mode toggle + picker
     planningMode.set('analyst');
-    forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+    forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null, budgetManuallyEdited: false });
     hierarchicalWarning = null;
 
     // Channel budgets re-init к decompose currentSpend (next $effect picks up)
@@ -503,7 +503,7 @@
   $effect(() => {
     const projectId = $activeProjectId;
     if (_prevProjectIdForReset !== null && _prevProjectIdForReset !== projectId) {
-      forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null });
+      forecastConfig.set({ periods: null, periodLabel: null, budgetMoney: null, inflationPerChannel: null, budgetManuallyEdited: false });
       // F1: reset cumulative anchor on project change (different pickle → different channel ordering).
       lastOptimalMoneyByChannel = null;
       hierarchicalWarning = null;
