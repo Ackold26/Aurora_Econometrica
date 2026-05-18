@@ -36,7 +36,7 @@
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -261,6 +261,11 @@
           analysisMode: $analysisMode,
           perChannelInput: $perChannelInput,
           unitCosts: $unitCosts,
+          // F-007 pilot (2026-05-18): передаём mode/budget input state чтобы
+          // «Все каналы готовы» insight не давал success когда юзер в budget
+          // mode не ввёл сумму (UI status warning тогда корректно сигналит).
+          unitCostInputMode: $unitCostInputMode,
+          budgetInputs: $budgetInputs,
         };
         if (sub === -2) return validateKpiInsights(val?.result, ctx);
         if (sub === 2)  return validateMetricsInsights(val?.result, ctx);

@@ -59,6 +59,19 @@
     return String(Math.round(v));
   }
 
+  /**
+   * F-008 pilot polish (2026-05-18): compact budget label для placeholder.
+   * Превращает 11_049_820_000 в «~11.0 млрд ₽» — customer not lost в нулях.
+   * @param {number} v
+   */
+  function formatBudgetCompact(v) {
+    if (!isFinite(v) || v <= 0) return '';
+    if (v >= 1_000_000_000) return `~${(v / 1_000_000_000).toFixed(1)} млрд ₽`;
+    if (v >= 1_000_000) return `~${(v / 1_000_000).toFixed(0)} млн ₽`;
+    if (v >= 1_000) return `~${(v / 1_000).toFixed(0)} тыс ₽`;
+    return `~${Math.round(v)} ₽`;
+  }
+
   /** Confidence label для UI tooltip. */
   function confidenceLabel(/** @type {string} */ c) {
     return c === 'high' ? 'высокая точность'
@@ -217,8 +230,8 @@
           class="uc-input"
           placeholder={
             suggestion && channelSum
-              ? `например, ${(suggestion.value * channelSum).toLocaleString('ru-RU')}`
-              : 'например, 38 000 000'
+              ? `например, ${formatBudgetCompact(suggestion.value * channelSum)}`
+              : 'общий бюджет канала за весь период в ₽'
           }
           value={$budgetInputs[channel.name] ?? ''}
           oninput={(/** @type {Event} */ e) => updateBudgetDebounced(/** @type {HTMLInputElement} */ (e.target).value)}

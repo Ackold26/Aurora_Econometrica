@@ -264,6 +264,12 @@ export function validateMetricsInsights(result, context = {}) {
   const mode = context.analysisMode || 'roi';
   const perChannel = context.perChannelInput || {};
   const unitCosts = context.unitCosts || {};
+  // F-007 pilot (2026-05-18): для budget-mode channel check фактический
+  // ввод budgetInputs[ch], не только derived unitCosts (которое может быть
+  // stale из project.json). Когда юзер очистил budget input, UI status
+  // warning «нужна конвертация», но insight ранее давал success.
+  const budgetInputs = context.budgetInputs || {};
+  const inputMode = context.unitCostInputMode || {};
 
   if (mediaCols.length === 0) {
     out.push({
@@ -277,7 +283,17 @@ export function validateMetricsInsights(result, context = {}) {
   if (mode === 'roi') {
     const needsConversion = mediaCols.filter(/** @param {any} c */ c => {
       const kind = perChannel[c.name] || 'monetary';
-      return kind === 'physical' && !(Number(unitCosts[c.name]) > 0);
+      if (kind !== 'physical') return false;
+      // F-007: канал считается «готовым» только когда unit_cost > 0 И активный
+      // input mode фактически заполнен (budget mode → budgetInputs[ch] > 0,
+      // unit mode → unitCosts[ch] > 0). Иначе stale unit_cost из project.json
+      // давал false success при пустых input полях.
+      const ucReady = Number(unitCosts[c.name]) > 0;
+      const mode = inputMode[c.name] ?? 'budget';
+      const inputReady = mode === 'unit'
+        ? ucReady
+        : Number(budgetInputs[c.name]) > 0;
+      return !(ucReady && inputReady);
     });
     if (needsConversion.length > 0) {
       out.push({
@@ -588,6 +604,12 @@ export function validateInsights(result, objective = 'roi') {
   // ── Предупреждения из валидации ──
   if (result.warnings?.length > 0) {
     for (const w of result.warnings) {
+      // F-005 pilot (2026-05-18): не surfac'ить insufficient_data warning из
+      // backend/objective-engine.recomputeResultAfterObjective. Тот же panel
+      // уже эмитит fresh ratio insight (см. ratio rule с classifyRatio выше).
+      // Stale `result.warnings[insufficient_data].message` мог содержать
+      // pre-bulk-apply ratio (3.4) при том что fresh ratio 3.9 — конфликт SSOT.
+      if (typeof w === 'object' && w !== null && w.type === 'insufficient_data') continue;
       const msg = typeof w === 'string' ? w : w?.message ?? w?.text ?? String(w);
       if (msg.toLowerCase().includes('корреляц') || msg.toLowerCase().includes('correl')) {
         out.push({ severity: 'warning', text: msg, tip: 'Высокая корреляция между каналами мешает модели разделить их вклады. Исключите один из пары или объедините в группу. В режиме «Эксперт» доступна корреляционная матрица и VIF.' });
@@ -947,7 +969,10 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   if (kpiNames.length > 0 && mediaCount > 0) {
     out.push({
       severity: 'success',
-      text: `Готово к обучению: KPI «${kpiNames[0]}», ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? `, ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'} переменн${controlCount === 1 ? 'ая' : 'ых'}` : ''}.`,
+      // F-009 pilot (2026-05-18): explicit «+ 12 праздников РФ auto» чтобы
+      // counter на Model не расходился с Validation (где holidays bundle не
+      // считается). Customer видит откуда возможная разница.
+      text: `Готово к обучению: KPI «${kpiNames[0]}», ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? `, ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'} переменн${controlCount === 1 ? 'ая' : 'ых'} (+ 12 праздников РФ auto)` : ' (+ 12 праздников РФ auto)'}.`,
     });
   }
 

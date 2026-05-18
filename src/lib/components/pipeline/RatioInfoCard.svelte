@@ -157,9 +157,15 @@
       <dl class="expert-stats">
         <div><dt>Наблюдений</dt><dd>{nObs}</dd></div>
         <div><dt>Переменных в модели</dt><dd>{nPredictors}</dd></div>
-        <div><dt>Текущий ratio</dt><dd>{ratio.toFixed(2)}:1</dd></div>
-        {#if afterExcludeRatio != null}
-          <div><dt>После исключения weak</dt><dd>{afterExcludeRatio.toFixed(2)}:1</dd></div>
+        <!-- F-004 pilot (2026-05-18): single source of truth precision —
+             везде .toFixed(1), как в big visual + ratio-value. -->
+        <div><dt>Текущий ratio</dt><dd>{ratio.toFixed(1)}:1</dd></div>
+        {#if afterExcludeRatio != null && Math.abs(afterExcludeRatio - ratio) >= 0.05}
+          <!-- F-006 pilot (2026-05-18): скрываем поле когда weak уже исключены
+               (delta < 0.05). Раньше показывало то же что «Текущий ratio» —
+               вводило в заблуждение что есть улучшение.
+               F-004: precision aligned с «Текущий ratio» (toFixed(1)). -->
+          <div><dt>После исключения weak</dt><dd>{afterExcludeRatio.toFixed(1)}:1</dd></div>
         {/if}
       </dl>
       {#if weakChannelNames.length > 0}

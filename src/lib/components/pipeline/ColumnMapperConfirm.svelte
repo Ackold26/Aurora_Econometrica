@@ -487,6 +487,26 @@
       return { status: 'review', label: 'Не используется', reason: 'Колонка исключена из модели. Если это намеренно - оставьте как есть.', tone: 'neutral' };
     }
 
+    // 5b. F-003 pilot (2026-05-18): KPI-like колонка (sales/выручка/leads/...)
+    // НЕ должна быть «Оставить» когда роль НЕ kpi (значит другая колонка уже
+    // выбрана KPI). Customer ошибочно мог взять её как control / media. Помечаем
+    // «Альтернативная цель» чтобы навести на мысль о role review.
+    const kpiLikeRe = /продаж|sales|выручк|revenue|доход|profit|лид|leads|конверси|conversion|регистраций|signups|подписк|subscrib/i;
+    if (
+      isNumeric &&
+      role !== 'kpi' &&
+      role !== 'media' &&
+      role !== 'excluded' &&
+      kpiLikeRe.test(String(col.name || ''))
+    ) {
+      return {
+        status: 'review',
+        label: 'Альтернативная цель',
+        reason: 'Похоже на потенциальную KPI-метрику. Если хотите моделировать её - переназначьте роль на «KPI» (одна KPI на проект). Иначе оставьте «Исключить».',
+        tone: 'warn',
+      };
+    }
+
     // 6. Default: passes all checks.
     return { status: 'keep', label: 'Оставить', reason: 'Колонка подходит для выбранной роли. Никаких действий не требуется.', tone: 'ok' };
   }

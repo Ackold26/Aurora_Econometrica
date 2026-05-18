@@ -446,13 +446,14 @@
   <!-- Adstock (inline, minimal) + AdstockPreview -->
   <div class="config-group">
     <label class="config-label">
-      Adstock
-      <span
-        class="adstock-help-icon"
-        tabindex="0"
-        role="button"
-        aria-label="Справка о типах Adstock"
-        title={`Adstock — модель «остаточного эффекта» рекламы во времени.
+      <span class="adstock-label-group">
+        Adstock
+        <span
+          class="adstock-help-icon"
+          tabindex="0"
+          role="button"
+          aria-label="Справка о типах Adstock"
+          title={`Adstock — модель «остаточного эффекта» рекламы во времени.
 
 Geometric (быстрый спад):
 - Подходит digital каналам (Social, Search, Performance, Banners).
@@ -469,7 +470,8 @@ Weibull (плавная build-up):
 Авто:
 - Программа выбирает тип per channel на основе названия (TRP/OOH → Weibull, digital → Geometric).
 - Рекомендуемый выбор для большинства проектов.`}
-      >?</span>
+        >?</span>
+      </span>
       <span class="config-hint">Тип отложенного эффекта</span>
     </label>
     <div class="adstock-with-preview">
@@ -626,6 +628,15 @@ Weibull (плавная build-up):
   .config-hint {
     font-weight: 400;
     opacity: 0.6;
+  }
+
+  /* F-010 pilot (2026-05-18): группа «Adstock + ?» как один inline блок,
+     чтобы flex space-between в .config-label двигал hint вправо, а help
+     icon оставался рядом с термином. */
+  .adstock-label-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
   }
 
   /* Adstock help icon — pilot B Phase B 2026-05-17: native title tooltip с
