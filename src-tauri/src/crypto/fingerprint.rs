@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use crate::errors::{coded_err, ErrorCode};
 
-/// Cached fingerprint — WMI queries are expensive (~100ms each), called 6+ times per session.
+/// Cached fingerprint - WMI queries are expensive (~100ms each), called 6+ times per session.
 static FINGERPRINT_CACHE: OnceLock<String> = OnceLock::new();
 
 /// Collects machine-unique identifiers and produces a SHA-256 fingerprint.

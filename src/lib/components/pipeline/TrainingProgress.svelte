@@ -2,7 +2,7 @@
   /**
    * Async training progress display.
    * A2: sequential setTimeout polling (no setInterval overlap).
-   * C4: component stays mounted when user navigates away — polling continues.
+   * C4: component stays mounted when user navigates away - polling continues.
    *
    * @component TrainingProgress
    */
@@ -23,7 +23,7 @@
     try {
       await invoke('econ_train_cancel', { taskId });
     } catch {
-      /* ignore — user just wants UI back */
+      /* ignore - user just wants UI back */
     }
     onStop?.();
   }
@@ -52,13 +52,24 @@
 
   const phaseLabel = $derived(PHASE_LABELS[phase] || phase);
 
-  /** A2: sequential polling — next poll only after current completes */
+  /** A2: sequential polling - next poll only after current completes */
   async function poll() {
     if (!active) return;
     try {
       const p = await invoke('econ_train_progress');
 
-      if (p.status === 'done' || (p.pct >= 100 && p.status !== 'running')) {
+      // Guard: sidecar `/progress` возвращает GLOBAL last-task state.
+      // Первые poll'ы после mount (500ms) приходят до того как sidecar
+      // переключил state на новую task → terminal status предыдущей
+      // task показывается как error/done текущей. Игнорируем если task_id
+      // не совпадает. Если task_id отсутствует (старая sidecar сборка) -
+      // пропускаем только если статус terminal И pct=0 (idle предыдущей).
+      const isStaleTerminal = (
+        (p.task_id && p.task_id !== taskId) ||
+        (!p.task_id && p.pct === 0 && p.status !== 'running')
+      );
+
+      if ((p.status === 'done' || (p.pct >= 100 && p.status !== 'running')) && !isStaleTerminal) {
         // Fetch result
         try {
           const result = await invoke('econ_train_result', { taskId });
@@ -73,7 +84,7 @@
         return;
       }
 
-      if (p.status === 'error') {
+      if (p.status === 'error' && !isStaleTerminal) {
         active = false;
         try {
           const result = /** @type {any} */ (await invoke('econ_train_result', { taskId }));
@@ -84,7 +95,7 @@
         return;
       }
 
-      if (p.status === 'cancelled') {
+      if (p.status === 'cancelled' && !isStaleTerminal) {
         active = false;
         onStop?.();
         return;
@@ -109,7 +120,7 @@
         phase = newPhase;
       }
     } catch {
-      // Sidecar temporarily unavailable — retry
+      // Sidecar temporarily unavailable - retry
     }
 
     // A2: schedule next poll AFTER this one finishes
@@ -245,5 +256,15 @@
   .stop-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+  }
+
+  /* v2.1.0 п.5.6: static bar fill when motion is reduced */
+  @media (prefers-reduced-motion: reduce) {
+    .bar-fill.pulse {
+      opacity: 0.85;
+    }
+    .bar-fill {
+      transition: none;
+    }
   }
 </style>

@@ -393,4 +393,11 @@
   .cn-port:hover { background: var(--node-color); border-color: var(--node-color); transform: translateY(-50%) scale(1.3); }
 
   .minimap { position: absolute; bottom: 16px; right: 16px; background: var(--overlay-bg); backdrop-filter: var(--blur-quiet); border: 1px solid var(--border-subtle, rgba(255,255,255,0.07)); border-radius: 10px; padding: 6px; pointer-events: none; opacity: 0.8; }
+
+  /* v2.1.0 п.5.6: static running node border */
+  @media (prefers-reduced-motion: reduce) {
+    .cn-node.running {
+      box-shadow: 0 0 0 2px var(--accent-primary);
+    }
+  }
 </style>

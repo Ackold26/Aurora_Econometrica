@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Project metadata (stored as project.json).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,9 +23,41 @@ pub struct ProjectInfo {
     pub control_columns: Vec<String>,
     pub data_file: Option<String>,
     /// Trust Level 2: стоимость 1 юнита канала в валюте KPI (CPP/CPM).
-    /// Для каналов в рублях — 1.0 или отсутствие записи.
+    /// Для каналов в рублях - 1.0 или отсутствие записи.
     #[serde(default)]
     pub unit_costs: HashMap<String, f64>,
+    /// L1 (math-fix v1.4 Section C, 2026-04-29): explicit excluded columns
+    /// для cross-session restore. Pre-fix: excluded set was derived from
+    /// "not in kpi/media/control/date" - fragile когда new columns появляются
+    /// в re-validation (validator might detect them as media). Explicit list
+    /// preserves user's «не использовать» decision across project reload.
+    /// Backward compat: default empty for projects saved до v1.0.16.
+    #[serde(default)]
+    pub excluded_columns: Vec<String>,
+    /// Trust Level 3 (v1.1.0): brand vs performance categorization per channel.
+    /// Values: "brand" / "performance" / "mixed".
+    /// Empty / all-mixed → backward compat single-prior path в modeler.
+    /// ≥2 brand or ≥2 performance каналов → hierarchical priors включаются.
+    /// Backward compat: default empty for projects saved до v1.1.0.
+    #[serde(default)]
+    pub channel_categories: HashMap<String, String>,
+    /// Phase 2 audit pass 4 (2026-05-02): per-channel annual CPP/CPM inflation
+    /// rate (%/year) для multi-year training data. Customer enters cost в
+    /// последний год training; backend computes weighted-average через rollback.
+    /// Backward compat: default empty (no adjustment) for legacy projects.
+    #[serde(default)]
+    pub unit_cost_inflation_pct: HashMap<String, f64>,
+    /// H-09 (Phase 4.1 wire): industry для context-aware unit_cost suggestions.
+    /// Values matching INDUSTRY_CPP_TABLE в src/lib/services/industry-cpp-defaults.js:
+    /// pharma_otc / pharma_rx / fmcg / retail / saas / finance / b2b / unknown.
+    /// Backward compat: default "unknown" — UI shows low-confidence generic ranges.
+    /// Schema bump к v2.0.2 (project_migration.py).
+    #[serde(default = "default_industry")]
+    pub industry: String,
+}
+
+fn default_industry() -> String {
+    "unknown".to_string()
 }
 
 /// Get the projects root directory.
@@ -35,7 +68,7 @@ pub fn projects_dir() -> Result<PathBuf, String> {
         .map_err(|_| "APPDATA not set".to_string())?;
     let identifier = env!("CARGO_PKG_NAME");
 
-    // Env override — для тестов и advanced users.
+    // Env override - для тестов и advanced users.
     if let Ok(env_root) = std::env::var("AURORA_PROJECTS_ROOT") {
         if !env_root.trim().is_empty() {
             let dir = PathBuf::from(env_root.trim());
@@ -45,8 +78,8 @@ pub fn projects_dir() -> Result<PathBuf, String> {
         }
     }
 
-    // User-configured override — читаем user_config.json напрямую с диска
-    // (без AppHandle — чтобы не менять сигнатуру во всех вызовах вверх по стеку).
+    // User-configured override - читаем user_config.json напрямую с диска
+    // (без AppHandle - чтобы не менять сигнатуру во всех вызовах вверх по стеку).
     let config_dir = PathBuf::from(&appdata).join(identifier);
     let config_path = config_dir.join("user_config.json");
     if config_path.exists() {
@@ -86,12 +119,55 @@ fn read_project(dir: &Path) -> Result<ProjectInfo, String> {
         .map_err(|e| format!("Invalid project.json: {e}"))
 }
 
+/// C-04: atomic write through tmp-file + rename pattern.
+///
+/// Raw `std::fs::write` non-atomic: power loss или antivirus quarantine между
+/// write и flush → truncated project.json без recovery. Pattern (тот же что
+/// Python safe_io.atomic_write_json):
+///   1. Serialize к json string
+///   2. Open `<path>.tmp` для write
+///   3. write_all + sync_all (fsync equivalent — bytes на disk)
+///   4. Close
+///   5. fs::rename(tmp, target) — atomic on same volume
 fn write_project(dir: &Path, info: &ProjectInfo) -> Result<(), String> {
+    use std::io::Write;
     let path = dir.join("project.json");
     let json = serde_json::to_string_pretty(info)
         .map_err(|e| format!("Serialize error: {e}"))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Write error: {e}"))
+    let tmp = path.with_extension("json.tmp");
+    {
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("Open tmp: {e}"))?;
+        f.write_all(json.as_bytes())
+            .map_err(|e| format!("Write tmp: {e}"))?;
+        f.sync_all().map_err(|e| format!("Sync tmp: {e}"))?;
+    }
+    std::fs::rename(&tmp, &path)
+        .map_err(|e| format!("Rename tmp→target: {e}"))
+}
+
+/// C-04: per-project mutex registry для serialize read-modify-write pairs.
+///
+/// Raw read_project + write_project — TOCTOU race: user edits name while data
+/// upload runs concurrently → second write reads pre-mutation state, overwrites
+/// first commit. Per-project Arc<Mutex<()>> — concurrent writes на разные projects
+/// независимы; concurrent writes на same project serialize.
+static PROJECT_MUTEXES: OnceLock<RwLock<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+fn project_mutex(project_id: &str) -> Arc<Mutex<()>> {
+    let map = PROJECT_MUTEXES.get_or_init(|| RwLock::new(HashMap::new()));
+    // Fast path: read lock на existing entry.
+    {
+        let r = map.read().expect("PROJECT_MUTEXES poisoned");
+        if let Some(m) = r.get(project_id) {
+            return m.clone();
+        }
+    }
+    // Slow path: insert under write lock.
+    let mut w = map.write().expect("PROJECT_MUTEXES poisoned");
+    w.entry(project_id.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
 }
 
 fn now_iso() -> String {
@@ -118,7 +194,7 @@ pub async fn project_list() -> Result<Vec<ProjectInfo>, String> {
 }
 
 #[tauri::command]
-pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
+pub async fn project_create(name: String, industry: Option<String>) -> Result<ProjectInfo, String> {
     let id = name.to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '-' })
@@ -139,6 +215,13 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
     std::fs::create_dir_all(dir.join("exports")).map_err(|e| e.to_string())?;
 
     let now = now_iso();
+    // H-09: industry whitelist (mirrors INDUSTRY_CPP_TABLE keys в frontend).
+    let industry_validated = match industry.as_deref() {
+        Some("pharma_otc") | Some("pharma_rx") | Some("fmcg") | Some("retail")
+        | Some("saas") | Some("finance") | Some("b2b") | Some("unknown")
+            => industry.unwrap(),
+        _ => "unknown".to_string(),
+    };
     let info = ProjectInfo {
         id: id.clone(),
         name,
@@ -150,6 +233,10 @@ pub async fn project_create(name: String) -> Result<ProjectInfo, String> {
         control_columns: Vec::new(),
         data_file: None,
         unit_costs: HashMap::new(),
+        excluded_columns: Vec::new(),
+        channel_categories: HashMap::new(),
+        unit_cost_inflation_pct: HashMap::new(),
+        industry: industry_validated,
     };
     write_project(&dir, &info)?;
 
@@ -172,6 +259,9 @@ pub async fn project_get(project_id: String) -> Result<ProjectInfo, String> {
 #[tauri::command]
 pub async fn project_update(project_id: String, updates: Value) -> Result<ProjectInfo, String> {
     let dir = project_dir(&project_id)?;
+    // C-04 TOCTOU guard: serialize read+write pair с per-project mutex.
+    let mtx = project_mutex(&project_id);
+    let _guard = mtx.lock().expect("project mutex poisoned");
     let mut info = read_project(&dir)?;
 
     if let Some(name) = updates.get("name").and_then(|v| v.as_str()) {
@@ -185,6 +275,10 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     }
     if let Some(media) = updates.get("media_columns").and_then(|v| v.as_array()) {
         info.media_columns = media.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+        // Trust Level 3 (Critical Audit issue J): cleanup orphaned channel_categories
+        // entries when media columns change (rename/delete).
+        let media_set: std::collections::HashSet<&String> = info.media_columns.iter().collect();
+        info.channel_categories.retain(|k, _| media_set.contains(k));
     }
     if let Some(control) = updates.get("control_columns").and_then(|v| v.as_array()) {
         info.control_columns = control.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
@@ -196,6 +290,41 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
         info.unit_costs = uc.iter()
             .filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f)))
             .collect();
+    }
+    // Phase 2 audit pass 5 fix (BUG B5): persist unit_cost_inflation_pct map.
+    // Pre-fix: project_update silently ignored this key → values lost после
+    // save reload. Now: explicit handler + null support (clears map).
+    if let Some(infl_v) = updates.get("unit_cost_inflation_pct") {
+        if infl_v.is_null() {
+            info.unit_cost_inflation_pct.clear();
+        } else if let Some(obj) = infl_v.as_object() {
+            info.unit_cost_inflation_pct = obj.iter()
+                .filter_map(|(k, v)| v.as_f64().map(|f| (k.clone(), f)))
+                .collect();
+        }
+    }
+    // L1 persistence (math-fix v1.4 Section C): explicit excluded_columns set
+    if let Some(excluded) = updates.get("excluded_columns").and_then(|v| v.as_array()) {
+        info.excluded_columns = excluded.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+    }
+    // Trust Level 3 (v1.1.0): channel_categories persistence.
+    // Validate values на server side - only accept brand/performance/mixed.
+    if let Some(cats) = updates.get("channel_categories").and_then(|v| v.as_object()) {
+        let allowed: std::collections::HashSet<&str> = ["brand", "performance", "mixed"].iter().copied().collect();
+        info.channel_categories = cats.iter()
+            .filter_map(|(k, v)| {
+                v.as_str().and_then(|s| {
+                    if allowed.contains(s) { Some((k.clone(), s.to_string())) } else { None }
+                })
+            })
+            .collect();
+    }
+    // H-09: industry update — whitelist same как в project_create.
+    if let Some(ind) = updates.get("industry").and_then(|v| v.as_str()) {
+        let allowed = ["pharma_otc", "pharma_rx", "fmcg", "retail", "saas", "finance", "b2b", "unknown"];
+        if allowed.contains(&ind) {
+            info.industry = ind.to_string();
+        }
     }
 
     info.updated_at = now_iso();
@@ -231,7 +360,9 @@ pub async fn project_upload_data(project_id: String, file_path: String) -> Resul
     let dst = dir.join("data").join(&filename);
     std::fs::copy(&src, &dst).map_err(|e| format!("Copy failed: {e}"))?;
 
-    // Update project metadata
+    // Update project metadata — C-04 TOCTOU guard.
+    let mtx = project_mutex(&project_id);
+    let _guard = mtx.lock().expect("project mutex poisoned");
     let mut info = read_project(&dir)?;
     info.data_file = Some(dst.to_string_lossy().to_string());
     info.updated_at = now_iso();
@@ -261,11 +392,19 @@ fn active_project_path() -> Result<PathBuf, String> {
 }
 
 fn set_active_project_inner(project_id: &str) -> Result<(), String> {
+    use std::io::Write;
     let path = active_project_path()?;
     let json = serde_json::json!({ "active_project": project_id });
     let serialized = serde_json::to_string_pretty(&json)
         .map_err(|e| format!("Serialize error: {e}"))?;
-    std::fs::write(&path, serialized)
+    // C-04: atomic write via tmp + rename (тот же pattern что write_project).
+    let tmp = path.with_extension("json.tmp");
+    {
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(serialized.as_bytes()).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+    }
+    std::fs::rename(&tmp, &path)
         .map_err(|e| e.to_string())
 }
 
@@ -364,14 +503,14 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
 // new project_id, который фронтенд сразу активирует.
 
 /// Экспорт проекта в zip-архив .aurora. Возвращает путь к созданному файлу.
-/// output_path — обычно путь из dialog.save на фронте.
+/// output_path - обычно путь из dialog.save на фронте.
 ///
 /// Особые case'ы обрабатываются:
 /// - Большие файлы копируются через `std::io::copy` (streaming), не `read` в память.
 ///   Иначе pickle файлы >1GB (редкий, но возможный) съедали бы RAM.
-/// - `data_file` из project.json — абсолютный путь на этой машине. Если файл ЛЕЖИТ
-///   внутри project_dir — он попадёт в архив через walkdir и можно будет открыть
-///   на другой машине. Если СНАРУЖИ (пользователь импортировал xlsx из Downloads) —
+/// - `data_file` из project.json - абсолютный путь на этой машине. Если файл ЛЕЖИТ
+///   внутри project_dir - он попадёт в архив через walkdir и можно будет открыть
+///   на другой машине. Если СНАРУЖИ (пользователь импортировал xlsx из Downloads) -
 ///   мы его тоже добавляем в архив как `data/<original_filename>` и правим
 ///   project.json перед записью в zip.
 #[tauri::command]
@@ -405,7 +544,7 @@ pub async fn project_export_archive(
         .compression_method(zip::CompressionMethod::Deflated)
         .unix_permissions(0o644);
 
-    // Проверяем data_file в project.json — если вне project_dir, включаем в архив
+    // Проверяем data_file в project.json - если вне project_dir, включаем в архив
     // с переписыванием пути на относительный.
     let info = read_project(&src).ok();
     let external_data: Option<(PathBuf, String)> = info.as_ref().and_then(|i| {
@@ -414,7 +553,7 @@ pub async fn project_export_archive(
             if !p.is_absolute() || !p.exists() {
                 return None;
             }
-            // Уже внутри project_dir — не нужно отдельно
+            // Уже внутри project_dir - не нужно отдельно
             if p.starts_with(&src) {
                 return None;
             }
@@ -454,7 +593,7 @@ pub async fn project_export_archive(
         }
     }
 
-    // Если data_file внешний — упаковываем его в archive/data/<basename>
+    // Если data_file внешний - упаковываем его в archive/data/<basename>
     // и переписываем project.json чтобы data_file указывал туда же относительно project_dir.
     if let (Some((ext_path, basename)), Some(mut info_val)) = (external_data, info) {
         zip.add_directory("data/", options).ok();
@@ -491,10 +630,10 @@ pub async fn project_export_archive(
 ///
 /// Особые случаи:
 /// - Pre-validation: перед распаковкой проверяем что в архиве есть project.json.
-///   Если нет — early return, не засоряем файловую систему.
+///   Если нет - early return, не засоряем файловую систему.
 /// - data_file может быть `<project_dir>/data/foo.xlsx` (новый формат с внешним data)
 ///   или абсолютный путь (старые архивы). Нормализуем: заменяем маркер на dest/,
-///   если absolute — проверяем что файл есть, иначе set to None.
+///   если absolute - проверяем что файл есть, иначе set to None.
 #[tauri::command]
 pub async fn project_import_archive(archive_path: String) -> Result<Value, String> {
     let archive = PathBuf::from(&archive_path);
@@ -505,7 +644,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
 
     // ── Pre-validation ──────────────────────────────────────────────────────
     // Открываем zip и проверяем структуру ДО распаковки. Если это не проект
-    // Aurora — выбрасываем без создания destination папки.
+    // Aurora - выбрасываем без создания destination папки.
     {
         let file = std::fs::File::open(&archive).map_err(|e| format!("open archive: {e}"))?;
         let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("read zip: {e}"))?;
@@ -520,7 +659,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
             }
         }
         if !has_project_json {
-            return Err("Архив не содержит project.json — это не проект Aurora Econometrica".to_string());
+            return Err("Архив не содержит project.json - это не проект Aurora Econometrica".to_string());
         }
     }
 
@@ -597,7 +736,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
                     obj.insert("data_file".to_string(), Value::Null);
                 }
             } else if !PathBuf::from(&df_owned).exists() {
-                // Абсолютный путь с другой машины — проваливается
+                // Абсолютный путь с другой машины - проваливается
                 obj.insert("data_file".to_string(), Value::Null);
                 // Добавляем подсказку в description
                 let desc = obj.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -628,7 +767,7 @@ pub async fn project_import_archive(archive_path: String) -> Result<Value, Strin
 // ── Model comparison ────────────────────────────────────────────────────────
 //
 // Атомарное чтение снимков двух проектов для side-by-side сравнения моделей.
-// Не меняет active_project — это read-only операция. Один Rust-вызов читает
+// Не меняет active_project - это read-only операция. Один Rust-вызов читает
 // оба проекта, что исключает race если один из них переименуется/удалится
 // между двумя последовательными invoke на frontend.
 
@@ -641,7 +780,7 @@ fn load_snapshot(project_id: &str) -> Result<Value, String> {
 }
 
 /// Pure-функция чтения snapshot'а из директории проекта.
-/// Не зависит от project_id / projects_dir() — для тестируемости.
+/// Не зависит от project_id / projects_dir() - для тестируемости.
 fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
     if !dir.exists() {
         return Err(format!("Директория не найдена: {}", dir.display()));
@@ -660,7 +799,7 @@ fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
             .unwrap_or(Value::Null)
     };
 
-    // Лимит сценариев для comparison — снимок 50 последних (по mtime) чтобы
+    // Лимит сценариев для comparison - снимок 50 последних (по mtime) чтобы
     // не блокировать FastAPI handler при 100+ сценариев. Фронт показывает
     // warning если scenarios_total > scenarios.len.
     const SCENARIO_LIMIT: usize = 50;
@@ -709,7 +848,7 @@ fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
 /// Возвращаемый объект: `{ primary: Snapshot, secondary: Snapshot }`, где каждый
 /// snapshot = `{ info, modelDiagnostics, decomposition, optimization, validation,
 /// scenarios }`. Отсутствующие файлы → соответствующее поле = null (для scenarios
-/// — пустой массив).
+/// - пустой массив).
 #[tauri::command]
 pub async fn project_load_comparison(
     primary_id: String,
@@ -737,7 +876,7 @@ mod comparison_tests {
 
     /// Создаёт минимальную валидную структуру проекта в tmp dir.
     /// `scenario_count` > 0 → в results/scenarios кладутся N JSON-файлов
-    /// с убывающим mtime (последний файл — самый свежий).
+    /// с убывающим mtime (последний файл - самый свежий).
     fn make_project(dir: &Path, scenario_count: usize) {
         let info = serde_json::json!({
             "id": "test-project",
@@ -757,7 +896,7 @@ mod comparison_tests {
             let scenarios = dir.join("results").join("scenarios");
             fs::create_dir_all(&scenarios).unwrap();
             for i in 0..scenario_count {
-                // Имя кодирует индекс — поможет позже проверить порядок.
+                // Имя кодирует индекс - поможет позже проверить порядок.
                 let path = scenarios.join(format!("scenario_{i:04}.json"));
                 fs::write(&path, format!(r#"{{"idx":{i}}}"#)).unwrap();
                 // Выставляем mtime: более высокий индекс = более свежий.
@@ -794,10 +933,102 @@ mod comparison_tests {
         assert_eq!(scenarios.len(), 50, "должно быть ровно 50 сценариев");
         assert_eq!(snapshot["scenarios_total"].as_u64().unwrap(), 100);
         // Проверяем что выбраны именно 50 свежих (индексы 50-99).
-        // Порядок внутри массива — от newest (idx=99) к старейшим (idx=50).
+        // Порядок внутри массива - от newest (idx=99) к старейшим (idx=50).
         let first_idx = scenarios[0]["idx"].as_u64().unwrap();
         let last_idx = scenarios[49]["idx"].as_u64().unwrap();
         assert_eq!(first_idx, 99, "первый = самый свежий");
         assert_eq!(last_idx, 50, "50-й = граница");
+    }
+}
+
+// ── C-04 atomic write_project + mutex tests ──
+#[cfg(test)]
+mod atomic_write_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn make_info(id: &str, name: &str) -> ProjectInfo {
+        ProjectInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            description: String::new(),
+            created_at: "2026-05-15T00:00:00Z".to_string(),
+            updated_at: "2026-05-15T00:00:00Z".to_string(),
+            kpi_column: None,
+            media_columns: vec![],
+            control_columns: vec![],
+            data_file: None,
+            unit_costs: HashMap::new(),
+            excluded_columns: vec![],
+            channel_categories: HashMap::new(),
+            unit_cost_inflation_pct: HashMap::new(),
+            industry: "unknown".to_string(),
+        }
+    }
+
+    #[test]
+    fn write_project_atomic_no_tmp_leftover() {
+        let tmp = TempDir::new().unwrap();
+        let info = make_info("test", "Test");
+        write_project(tmp.path(), &info).expect("write OK");
+        assert!(tmp.path().join("project.json").exists());
+        // No `.tmp` leftover после успешной atomic write.
+        assert!(!tmp.path().join("project.json.tmp").exists());
+    }
+
+    #[test]
+    fn write_project_roundtrip_preserves_fields() {
+        let tmp = TempDir::new().unwrap();
+        let mut info = make_info("rt", "Round-trip");
+        info.media_columns = vec!["tv_spend".to_string(), "olv_impressions".to_string()];
+        info.unit_costs.insert("tv_spend".to_string(), 1.0);
+        write_project(tmp.path(), &info).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.media_columns, info.media_columns);
+        assert_eq!(loaded.unit_costs.get("tv_spend"), Some(&1.0));
+    }
+
+    #[test]
+    fn project_mutex_returns_same_arc_for_same_id() {
+        let m1 = project_mutex("p1");
+        let m2 = project_mutex("p1");
+        assert!(Arc::ptr_eq(&m1, &m2), "same project_id → same mutex Arc");
+    }
+
+    #[test]
+    fn project_mutex_returns_different_arc_for_different_ids() {
+        let m1 = project_mutex("alpha");
+        let m2 = project_mutex("beta");
+        assert!(!Arc::ptr_eq(&m1, &m2), "different ids → independent mutexes");
+    }
+
+    #[test]
+    fn project_mutex_serializes_concurrent_locks_same_id() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::thread;
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let max_concurrent = Arc::new(AtomicU32::new(0));
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let counter = counter.clone();
+                let max_concurrent = max_concurrent.clone();
+                thread::spawn(move || {
+                    let mtx = project_mutex("shared");
+                    let _g = mtx.lock().unwrap();
+                    let cur = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_concurrent.fetch_max(cur, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    counter.fetch_sub(1, Ordering::SeqCst);
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        // Только один thread должен держать lock в любой момент.
+        assert_eq!(max_concurrent.load(Ordering::SeqCst), 1,
+            "concurrent count must never exceed 1 (mutex serialization)");
     }
 }

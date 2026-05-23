@@ -64,7 +64,7 @@ pub fn verify_manifest(manifest_dir: &Path) -> Result<ContentManifest> {
     verify_manifest_impl(manifest_dir, &content_public_key_bytes())
 }
 
-/// Internal implementation that accepts an arbitrary public key — enables unit tests
+/// Internal implementation that accepts an arbitrary public key - enables unit tests
 /// to use a test keypair without needing the production private key.
 fn verify_manifest_impl(manifest_dir: &Path, public_key_bytes: &[u8; 32]) -> Result<ContentManifest> {
     let manifest_path = manifest_dir.join("manifest.json");
@@ -87,7 +87,7 @@ fn verify_manifest_impl(manifest_dir: &Path, public_key_bytes: &[u8; 32]) -> Res
     let signature = Signature::from_bytes(&sig_array);
 
     if public_key.verify(&manifest_bytes, &signature).is_err() {
-        anyhow::bail!("Content manifest signature verification FAILED — possible tampering");
+        anyhow::bail!("Content manifest signature verification FAILED - possible tampering");
     }
 
     let manifest: ContentManifest = serde_json::from_slice(&manifest_bytes)?;
@@ -121,7 +121,7 @@ fn verify_manifest_impl(manifest_dir: &Path, public_key_bytes: &[u8; 32]) -> Res
         let actual_hash = format!("sha256:{}", sha256_file(&file_path)?);
         if &actual_hash != expected_hash {
             anyhow::bail!(
-                "Checksum mismatch for {} — expected {}, got {}",
+                "Checksum mismatch for {} - expected {}, got {}",
                 rel_path,
                 expected_hash,
                 actual_hash

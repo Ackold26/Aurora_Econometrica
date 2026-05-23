@@ -12,10 +12,17 @@
   import Toast from '$lib/components/Toast.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import NavRail from '$lib/components/NavRail.svelte';
+  import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
+  import IntroTutorial from '$lib/components/IntroTutorial.svelte';
+  import { showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
   import { filterCabinetsByProduct, initCommandMeta } from '$lib/command-meta.js';
   import { initPsyData } from '$lib/psy.js';
   import { initClassifierData } from '$lib/chat-classifier.js';
   import { initOnboardingData } from '$lib/onboarding-config.js';
+  // v2.0.1-rc2: i18n infrastructure bootstrap. Side-effect import - triggers
+  // register() для locale dictionaries + init() с persisted locale.
+  // Реальная migration существующих strings → к v2.2.0.
+  import '$lib/i18n/index.js';
   let { children } = $props();
 
   let paletteOpen = $state(false);
@@ -68,7 +75,7 @@
   }
 
   const HEARTBEAT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
-  const APP_VERSION = '1.0.7';
+  const APP_VERSION = '1.2.0';
 
   /** Compare semver strings: returns true if remote > current
    * @param {string} remote
@@ -85,12 +92,27 @@
   }
 
   onMount(() => {
-    // Command Palette: Ctrl+K / Cmd+K
+    // v1.3.0: Show Intro Tutorial on first run.
+    if (typeof localStorage !== 'undefined') {
+      const introCompleted = localStorage.getItem('aurora-intro-completed');
+      if (!introCompleted) {
+        showIntroTutorial.set(true);
+      }
+    }
+
+    // Command Palette: Ctrl+K / Cmd+K. v1.3.0 + Ctrl+G - glossary panel.
     /** @param {KeyboardEvent} e */
     function handleGlobalKey(e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         paletteOpen = !paletteOpen;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        // Audit fix v1.3.0: guard против modal stacking - не показывать
+        // glossary если CommandPalette открыт (избегаем z-index overlap).
+        if (paletteOpen) return;
+        e.preventDefault();
+        showGlossaryPanel.update((v) => !v);
       }
     }
     window.addEventListener('keydown', handleGlobalKey);
@@ -121,7 +143,7 @@
       } catch { /* update check failed, non-critical */ }
     }
 
-    // Heartbeat timer — periodic server ping
+    // Heartbeat timer - periodic server ping
     async function heartbeat() {
       try {
         const resp = /** @type {{status: string, content_version: string|null, app_min_version: string}} */ (await invoke('send_heartbeat'));
@@ -161,13 +183,13 @@
         console.warn('Content packs not available, using defaults:', e);
       }
 
-      // 2. NOW load cabinets — product type and _products are ready for filtering
+      // 2. NOW load cabinets - product type and _products are ready for filtering
       try {
         const cabs = /** @type {any[]} */ (await invoke('get_cabinets'));
         layoutCabinets.set(cabs);
 
         // 2.1. Clean start: clear inbox + exports for all cabinets ONCE on app launch
-        // (not on every cabinet open — user may navigate between cabinets and settings)
+        // (not on every cabinet open - user may navigate between cabinets and settings)
         for (const cab of cabs) {
           invoke('clear_workspace_files', { cabinetId: cab.id }).catch(() => {});
         }
@@ -175,7 +197,7 @@
         licenseError.set(String(e));
       }
 
-      // 3. Heartbeat AFTER auth — activation record must exist first
+      // 3. Heartbeat AFTER auth - activation record must exist first
       heartbeat();
     })();
 
@@ -193,6 +215,32 @@
 
 <UpdateBlockingOverlay />
 <CommandPalette open={paletteOpen} onClose={() => paletteOpen = false} />
+
+{#if $showGlossaryPanel}
+  <GlossaryPanel onClose={() => showGlossaryPanel.set(false)} />
+{/if}
+
+<!-- v1.3.2 audit: floating glossary FAB removed - выбивался из премиум-стилистики.
+     Glossary остаётся доступен через (1) Ctrl+G keyboard shortcut, (2) Settings →
+     «Открыть глоссарий» кнопка, (3) tooltip ?-icon рядом с каждым specialized
+     термином в pipeline (in-context, не глобальный pictograph). -->
+
+{#if $showIntroTutorial}
+  <IntroTutorial
+    onComplete={() => {
+      showIntroTutorial.set(false);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('aurora-intro-completed', '1');
+      }
+    }}
+    onSkip={() => {
+      showIntroTutorial.set(false);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('aurora-intro-completed', '1');
+      }
+    }}
+  />
+{/if}
 
 <div class="app-shell" style="flex-direction: {shellDirection}">
   <!-- NavRail: показывать только внутри кабинета (не на Home, Settings и т.п.) -->
@@ -223,6 +271,8 @@
 {/if}
 
 <style>
+  /* v1.3.2 audit: .glossary-fab removed (см. template comment). */
+
   .toast-container {
     position: fixed;
     bottom: 20px;
@@ -256,5 +306,13 @@
   @keyframes pageFadeIn {
     from { opacity: 0.6; }
     to { opacity: 1; }
+  }
+
+  /* v2.1.0 п.5.6: skip fade-in page transition */
+  @media (prefers-reduced-motion: reduce) {
+    .page-transition {
+      animation: none;
+      opacity: 1;
+    }
   }
 </style>

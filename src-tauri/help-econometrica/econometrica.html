@@ -383,13 +383,24 @@ tr:hover td { background: var(--bg3); }
     <div class="step-sub">Hill function · SLSQP · сценарное моделирование</div></div>
   </div>
 
-  <p>Введите <strong>общий бюджет</strong> и нажмите «Оптимизировать» — система найдёт распределение, максимизирующее отдачу.</p>
+  <p>Введите <strong>общий бюджет</strong> и нажмите «Оптимизировать» — система найдёт распределение, максимизирующее отдачу. После оптимизации слайдеры автоматически переходят на оптимальные позиции (animation 800ms), Прогноз KPI и Response Curves маркеры синхронно обновляются.</p>
 
-  <h3>Как работает оптимизация</h3>
+  <h3>Как работает оптимизация (v1.0.16)</h3>
   <ul>
-    <li><strong>Кривые насыщения</strong> — Hill function: <code>f(x) = α · x^γ / (β^γ + x^γ)</code>. Каждый канал имеет свою точку насыщения.</li>
-    <li><strong>Оптимизатор SLSQP</strong> (scipy) — перераспределяет бюджет с учётом ограничений: min/max по каждому каналу, общий бюджет.</li>
-    <li><strong>Прирост от оптимизации</strong> — сравнение текущего распределения vs оптимального: % прироста KPI при том же бюджете.</li>
+    <li><strong>Кривые насыщения</strong> — Hill function: <code>f(x) = β · x^α / (γ^α + x^α)</code>. Каждый канал имеет свою точку половинной насыщенности γ.</li>
+    <li><strong>Оптимизатор SLSQP с multi-start</strong> (scipy) — для асимметричных портфелей (один канал с очень высоким бюджетом vs мелкие каналы) запускается серия инициализаций (channel-pivot multi-start) чтобы выйти из локальных ловушек. Math-fix v1.4 Section A.</li>
+    <li><strong>Money-axis mROAS</strong> — все каналы (TRPs/clicks + рубли) сравниваются в единой денежной шкале через <code>_compute_mroas_money</code>: <code>mROAS = β · hill'(x) · adstock_factor · y_std / mean / unit_cost</code>. Customer не видит «mixed units» (TRPs 110× vs рубли 0.03×).</li>
+    <li><strong>Constraint state UI</strong> — три banner'а honestly disclose почему optimizer не нашёл lift: <em>baseline_zero</em> (медиа-вклад=0), <em>binding_constraints</em> (все каналы упёрлись в Min/Max), <em>converged_at_current</em> (текущая аллокация уже близка к оптимуму).</li>
+    <li><strong>Action labels</strong> — каждый канал получает структурированную метку (Scale/Hold/Watch/Reduce/Cut/Uncertain) — см. Глоссарий в methodology.</li>
+  </ul>
+
+  <h3>Что нового в v1.0.16</h3>
+  <ul>
+    <li><strong>Three-way alignment</strong> — Декомпозиция, Оптимизация и финальный отчёт используют одинаковые mROAS values + action labels (single source of truth).</li>
+    <li><strong>Auto-apply optimal</strong> — после расчёта слайдеры автоматически переходят на оптимальные позиции с animation 800ms. KPI прогноз обновляется live (через JS Hill prediction).</li>
+    <li><strong>Response Curves markers</strong> — на каждой кривой отмечены текущая точка (○ серый) и оптимальная цель (★ цвет канала).</li>
+    <li><strong>Per-channel override warning</strong> — если у каналов есть индивидуальные Мин/Макс настройки, банер предлагает «Сбросить» при изменении глобальных границ.</li>
+    <li><strong>«Фиксировать бюджет»</strong> — checkbox временно отключён (free-budget mode запланирован в v1.1). Оптимизатор всегда сохраняет общий бюджет.</li>
   </ul>
 
   <div class="tip"><strong>Сценарное моделирование</strong> — через кабинет эконометриста: <code>/scenario</code> или <code>/optimize</code> с произвольными параметрами.</div>
@@ -404,30 +415,40 @@ tr:hover td { background: var(--bg3); }
     <div class="step-sub">Markdown + XLSX · 4 листа · уровни уверенности</div></div>
   </div>
 
-  <p>Финальный шаг — нажмите <strong>Сгенерировать отчёт</strong>. Система собирает данные из всех шагов pipeline и создаёт готовый аналитический документ.</p>
+  <p>Финальный шаг — выберите <strong>тип отчёта</strong> (PPTX / XLSX / HTML) и нажмите <strong>«Создать отчёт»</strong>. Система собирает данные из всех шагов pipeline и создаёт готовый аналитический документ выбранного формата.</p>
 
-  <h3>Что входит в отчёт</h3>
+  <div class="tip"><strong>Новое в v1.0.16:</strong> единая кнопка «Создать отчёт» с выбором формата заменила три отдельные кнопки. Это позволяет сгенерировать только тот формат, который нужен прямо сейчас (экономия CPU/времени), вместо «выпуска про запас» всех типов сразу. Каждое нажатие = один файл выбранного формата. Зелёная галочка ✓ рядом с форматом показывает что файл уже создан в текущей сессии — вы можете нажать «Пересоздать» для обновления.</div>
+
+  <h3>Доступные форматы</h3>
   <div class="action-box">
-    <div class="icon">📝</div>
+    <div class="icon">📽</div>
     <div class="content">
-      <h4>Markdown-отчёт (AI-интерпретация)</h4>
-      <p>Executive Summary · Декомпозиция продаж с интерпретацией · ROI каналов с бенчмарками · Рекомендации по перераспределению бюджета. Каждая рекомендация сопровождается уровнем уверенности: <strong>[ВЫСОКАЯ]</strong>, <strong>[СРЕДНЯЯ]</strong>, <strong>[НИЗКАЯ]</strong>.</p>
+      <h4>PPTX — для презентации руководству</h4>
+      <p>Executive summary, спецификация модели (Bayesian MMM, Adstock, Hill), декомпозиция продаж, ROI по каналам, Share of Spend vs Effect, динамика по периодам, сравнение сценариев, оптимальное распределение, прогноз. С графиками и рекомендациями. ~14 слайдов tier-1 standard.</p>
     </div>
   </div>
   <div class="action-box">
     <div class="icon">📊</div>
     <div class="content">
-      <h4>XLSX-экспорт (4 листа)</h4>
+      <h4>XLSX — для самостоятельной работы с данными</h4>
       <ul>
         <li><strong>Executive Summary</strong> — MQS Score, R², общий бюджет, прирост от оптимизации</li>
         <li><strong>Декомпозиция</strong> — вклады каналов по периодам</li>
         <li><strong>ROI каналов</strong> — эффективность каждого канала</li>
         <li><strong>Оптимизация</strong> — текущее vs оптимальное распределение</li>
+        <li><strong>Сырые time-series</strong> — для построения собственных графиков</li>
       </ul>
     </div>
   </div>
+  <div class="action-box">
+    <div class="icon">🌐</div>
+    <div class="content">
+      <h4>HTML — интерактивный отчёт</h4>
+      <p>Standalone-файл с живыми графиками (ECharts): waterfall, ROI, Spend vs Effect, динамика по периодам, оптимизация, сценарии, what-if слайдер бюджета. Открывается в любом браузере без установки приложения — можно отправлять клиентам как ссылку или вложение.</p>
+    </div>
+  </div>
 
-  <p>Summary-карточки в интерфейсе: MQS Score, R², прирост от оптимизации, общий бюджет. Кнопка <strong>«Открыть папку»</strong> — мгновенный доступ к экспортированным файлам.</p>
+  <p>Summary-карточки в интерфейсе: MQS Score, R², прирост от оптимизации, общий бюджет. Кнопка <strong>«Открыть папку»</strong> — мгновенный доступ ко всем сгенерированным файлам.</p>
 
   <div class="good"><strong>Pipeline завершён</strong> — все 6 шагов пройдены. Файлы сохранены в папке проекта (Настройки → Папки проектов).</div>
 </div>

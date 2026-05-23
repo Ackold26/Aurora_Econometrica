@@ -1,7 +1,7 @@
 <script>
   /**
    * Inline SVG preview of adstock decay curve.
-   * Zero dependencies — pure SVG math.
+   * Zero dependencies - pure SVG math.
    *
    * @component AdstockPreview
    */

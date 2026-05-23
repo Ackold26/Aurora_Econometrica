@@ -1,6 +1,6 @@
 <script>
   /**
-   * Step 5: Report — Markdown & XLSX export from MMM pipeline data.
+   * Step 5: Report - Markdown & XLSX export from MMM pipeline data.
    * R1: Summary cards from modelData / decomposeData / optimizeData.
    * R2: econ_generate_report → Markdown file with Executive Summary preview.
    * R3: econ_export_xlsx → multi-sheet XLSX (5 sheets).
@@ -9,6 +9,8 @@
    * @component ReportStep
    */
   import { invoke } from '@tauri-apps/api/core';
+  import { openPath } from '@tauri-apps/plugin-opener';
+  import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import {
     activeProjectId,
@@ -18,16 +20,17 @@
     completeStep,
     setStepError,
     triggerCompletion,
+    validationHeaderMetrics,
   } from '$lib/project-state.js';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
-  import { unitCosts, activeProject } from '$lib/project-state.js';
+  import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
 
   let showOnboarding = $state(false);
   let onboardingChecked = false;
 
-  // Recompute decompose + optimize прямо с Report — когда stores обнулились
+  // Recompute decompose + optimize прямо с Report - когда stores обнулились
   // после смены unit_costs, но модель и файлы на диске есть.
   let recomputing = $state(false);
   /** @type {string|null} */
@@ -59,6 +62,30 @@
     }
   }
 
+  // Auto-reload at mount: если stores пустые (cold start сессии), но на disk
+  // есть results - подтянуть их молча. Avoids ложный banner "Данные не
+  // загружены в память" когда pipelineStepMeta уже говорит complete по disk flags.
+  // Если какие-то результаты отсутствуют и на диске - автоматически пересчитать.
+  onMount(async () => {
+    if (!get(activeProjectId)) return;
+    const needReload = () => {
+      const m = get(modelData);
+      const d = get(decomposeData);
+      const o = get(optimizeData);
+      return !m?.diagnostics || !d || !o;
+    };
+    if (!needReload()) return;
+    await reloadFromDisk();
+    // Tier-2 fallback: после reload stores всё ещё неполные (например disk
+    // содержит только decompose, optimization.json отсутствует) - запускаем
+    // автоматический пересчёт downstream (decompose + optimize) из модели.
+    // Модель на диске должна быть - иначе пользователь не дошёл бы до Report.
+    if (needReload() && get(modelData)?.diagnostics) {
+      recomputeError = null;
+      await recomputeDownstream();
+    }
+  });
+
   async function recomputeDownstream() {
     const pid = get(activeProjectId);
     if (!pid) return;
@@ -68,10 +95,13 @@
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
       const uc = get(unitCosts) ?? {};
       const ucArg = Object.keys(uc).length > 0 ? uc : null;
+      // v2.1.0 (ADR-021): money equivalents для count KPI.
+      const _kucReport = get(valuePerCountUnit);
+      const kpiUnitCostReport = get(kpiKind) === 'count' && typeof _kucReport === 'number' && _kucReport > 0 ? _kucReport : null;
 
       // Decompose → затем Optimize (последовательно, т.к. optimize читает decompose).
       const dResult = /** @type {any} */ (await invoke('econ_decompose', {
-        projectDir, unitCosts: ucArg,
+        projectDir, unitCosts: ucArg, kpiUnitCost: kpiUnitCostReport,
       }));
       if (dResult?.status !== 'ok') throw new Error(dResult?.message || 'Ошибка декомпозиции');
       decomposeData.set(dResult);
@@ -85,6 +115,7 @@
         minPerChannel: null,
         maxPerChannel: null,
         unitCosts: ucArg,
+        kpiUnitCost: kpiUnitCostReport,
       }));
       if (oResult?.status !== 'ok') throw new Error(oResult?.message || 'Ошибка оптимизации');
       optimizeData.set(oResult);
@@ -95,8 +126,8 @@
     }
   }
 
-  /** @type {'idle' | 'generating-report' | 'generating-xlsx' | 'done' | 'error'} */
-  let stepState = $state('idle');
+  /** @typedef {'idle' | 'generating-report' | 'generating-xlsx' | 'done' | 'error'} StepState */
+  let stepState = $state(/** @type {StepState} */ ('idle'));
   /** @type {string | null} */
   let errorMessage = $state(null);
   /** @type {string | null} */
@@ -110,22 +141,70 @@
   /** @type {string | null} */
   let executiveSummary = $state(null);
 
+  /** v1.0.16: unified «Создать отчёт» - selector chooses one format per click,
+   *  prevents simultaneous generation of all formats (token/CPU economy).
+   *  @type {'pptx' | 'xlsx' | 'html'} */
+  let selectedFormat = $state('pptx');
+
+  /** Dispatch к exporter according к selectedFormat. */
+  async function generateSelected() {
+    if (selectedFormat === 'pptx') return exportPptx();
+    if (selectedFormat === 'xlsx') return exportXlsx();
+    if (selectedFormat === 'html') return exportHtml();
+  }
+
+  /** True when generation в progress (any format). Derived to bypass svelte-check
+   *  type-narrowing quirk on `stepState` literal comparisons in template. */
+  const isGenerating = $derived(
+    String(stepState) === 'generating-xlsx' || String(stepState) === 'generating-report'
+  );
+
   // Reactive store reads
   const mData = $derived($modelData);
   const dData = $derived($decomposeData);
   const oData = $derived($optimizeData);
 
   // Summary card values
-  const mqs      = $derived(/** @type {number|null} */ (mData?.diagnostics?.mqs?.score ?? null));
-  const mqsLabel = $derived(/** @type {string} */ (mData?.diagnostics?.mqs?.tier_label ?? '—'));
+  // v2.1.0 (пилот 2026-05-17, #49 finish): SSOT MQS override. Frontend ratio
+  // >= 4 → используем raw_score без backend thinness_cap. Согласовано с
+  // MQSBadge / Экспертный режим / Success-banner / Modal-инсайтами.
+  const mqs = $derived.by(() => {
+    const m = mData?.diagnostics?.mqs;
+    if (!m) return null;
+    const backendScore = Number(m.score ?? 0);
+    const rawScore = Number(m.raw_score ?? backendScore);
+    const ssotRatio = $validationHeaderMetrics?.ratio;
+    if (typeof ssotRatio !== 'number' || ssotRatio < 4 || rawScore <= backendScore) {
+      return backendScore;
+    }
+    return Math.round(rawScore * 10) / 10;
+  });
+  const mqsLabel = $derived.by(() => {
+    const m = mData?.diagnostics?.mqs;
+    if (!m) return '-';
+    const score = mqs;
+    if (score == null) return m.tier_label ?? '-';
+    // Если SSOT override изменил score - пересчитать label.
+    if (score === m.score) return m.tier_label ?? '-';
+    if (score >= 85) return 'Отличное';
+    if (score >= 70) return 'Хорошее';
+    if (score >= 55) return 'Приемлемое';
+    if (score >= 40) return 'Слабое';
+    return 'Ненадёжное';
+  });
   const rSq      = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_squared ?? mData?.diagnostics?.r_squared ?? null));
   const mape     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.mape_pct ?? mData?.diagnostics?.mape ?? null));
   const lift     = $derived(/** @type {number|null} */ (oData?.expected_lift_pct ?? null));
-  const budget   = $derived(/** @type {number|null} */ (oData?.total_budget ?? null));
+  // 5c followup (2026-05-24): money-axis budget, matches XLSX Executive Summary
+  // и markdown report fix. `total_budget` = native mixed-units sum (TRPs + ₽ =
+  // arithmetic garbage on mixed-channel projects). Use total_current_money chain.
+  const budget   = $derived(/** @type {number|null} */ (
+    oData?.total_current_money ?? oData?.total_budget_money ?? oData?.total_budget ?? null
+  ));
 
   const hasData  = $derived(!!mData?.diagnostics && !!dData && !!oData);
 
-  // Обучающий тур — запускается когда все данные подгружены (есть что показывать).
+  // Обучающий тур - запускается когда все данные подгружены (есть что показывать).
   $effect(() => {
     if (typeof window === 'undefined') return;
     if (onboardingChecked) return;
@@ -137,10 +216,28 @@
   });
 
   // ── Dynamic summary for cover email ─────────────────────────────────────────
-  const ratio    = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.ratio ?? null));
+  // v2.1.0 (пилот 2026-05-17): ratio из SSOT validationHeaderMetrics (current
+  // roles, не stale training-time). Backend pickle хранит pre-exclusion ratio
+  // (1.6:1 для Кагоцел РФ+), но frontend после изменения ролей даёт 4.4:1.
+  // Email текст должен показывать current value (как карточки Валидации).
+  //
+  // v2.1.0 polish round 2 (2026-05-17): убрали fallback на mData.diagnostics.metrics.ratio.
+  // Stale training-time число вводило в заблуждение если SSOT недоступен.
+  // null → отображение «—» вместо неверного числа.
+  const ratio    = $derived(/** @type {number|null} */ (
+    $validationHeaderMetrics?.ratio ?? null
+  ));
   const rHat     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_hat_max ?? null));
   const divergences = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.divergences ?? null));
   const basePct  = $derived(/** @type {number|null} */ (dData?.baseline_pct ?? null));
+  // v2.1.0 (Pilot C): engine detection - 'bayesian' (default) vs 'ols' (small-data).
+  // OLS pickles set model_version='1.0-ols' и diagnostics.engine='ols'.
+  // Bayesian pickles - model_version='1.2'/'1.3' и diagnostics.engine отсутствует.
+  const engine = $derived(/** @type {string} */ (
+    mData?.diagnostics?.engine
+    ?? (dData?.model_version === '1.0-ols' ? 'ols' : 'bayesian')
+  ));
+  const isOls = $derived(engine === 'ols');
   const decChannels = $derived(/** @type {any[]} */ (dData?.channels ?? []));
   const nChannels = $derived(decChannels.length);
   const nPeriods = $derived((dData?.time_series?.dates ?? []).length);
@@ -154,12 +251,16 @@
     decChannels.filter(/** @param {any} c */ c => /убыточн/i.test(c.verdict || ''))
   );
 
-  /** Краткое описание модели (2-3 предложения). */
+  /** Краткое описание модели (2-3 предложения). v2.1.0 Pilot C: engine-aware. */
   const modelSummary = $derived.by(() => {
     if (!mData?.diagnostics) return '';
     const parts = [];
-    parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`);
-    parts.push(`Оценка через MCMC-сэмплер${rHat != null ? `, R-hat = ${rHat.toFixed(3)}` : ''}${divergences != null ? `, дивергенций ${divergences}` : ''}.`);
+    if (isOls) {
+      parts.push(`Линейная регрессия с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (Geometric) + Hill saturation. β-коэффициенты оценены closed-form OLS. Доверительные интервалы - bootstrap.`);
+    } else {
+      parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`);
+      parts.push(`Оценка через MCMC-сэмплер${rHat != null ? `, R-hat = ${rHat.toFixed(3)}` : ''}${divergences != null ? `, дивергенций ${divergences}` : ''}.`);
+    }
     if (nPeriods > 0) parts.push(`База данных: ${nPeriods} период${nPeriods > 4 ? 'ов' : nPeriods > 1 ? 'а' : ''}${ratio != null ? `, Ratio наблюдений к параметрам ${ratio.toFixed(1)}:1` : ''}.`);
     return parts.join(' ');
   });
@@ -170,11 +271,11 @@
     const parts = [];
     if (mqs != null) parts.push(`Качество модели: MQS ${mqs.toFixed(0)} (${mqsLabel})${rSq != null ? `, R² ${rSq.toFixed(3)}` : ''}${mape != null ? `, MAPE ${mape.toFixed(1)}%` : ''}.`);
     if (basePct != null) parts.push(`Декомпозиция продаж: baseline ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
-    if (topDriver) parts.push(`Главный драйвер — ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '—'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '—'}×).`);
+    if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
     if (lift != null) {
       if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
-      else if (lift > 0.5) parts.push(`Оптимизация: +${lift.toFixed(1)}% — план близок к оптимальному.`);
-      else parts.push(`Оптимизация: прирост ≈0% — план уже оптимален в заданных ограничениях.`);
+      else if (lift > 0.5) parts.push(`Оптимизация: +${lift.toFixed(1)}% - план близок к оптимальному.`);
+      else parts.push(`Оптимизация: прирост ≈0% - план уже оптимален в заданных ограничениях.`);
     }
     return parts.join(' ');
   });
@@ -184,25 +285,25 @@
     if (!mData?.diagnostics) return '';
     const items = [];
     if (ratio != null && ratio < 2) {
-      items.push(`Данных критически мало (Ratio ${ratio.toFixed(1)}:1 < 2:1) — высокий риск переобучения. ROI и декомпозицию рассматривайте как ориентир, не истину.`);
+      items.push(`Данных критически мало (Ratio ${ratio.toFixed(1)}:1 < 2:1) - высокий риск переобучения. ROI и декомпозицию рассматривайте как ориентир, не истину.`);
     } else if (ratio != null && ratio < 4) {
       items.push(`Данных мало (Ratio ${ratio.toFixed(1)}:1 < 4:1 рекомендуемых). Доверительные интервалы широкие, CI для отдельных каналов могут включать 0.`);
     }
     if (suspiciousChannels.length > 0) {
       const names = suspiciousChannels.map(/** @param {any} c */ c => c.name).join(', ');
-      items.push(`Каналы с подозрительно высоким ROI (${names}) — скорее всего артефакт переобучения или смешанных единиц измерения; не используйте их абсолютные значения.`);
+      items.push(`Каналы с подозрительно высоким ROI (${names}) - скорее всего артефакт переобучения или смешанных единиц измерения; не используйте их абсолютные значения.`);
     }
     if (lossChannels.length > 0) {
       const names = lossChannels.map(/** @param {any} c */ c => c.name).join(', ');
       items.push(`Убыточные/перенасыщенные каналы: ${names}. Перед решениями о перераспределении проверьте корректность unit_costs.`);
     }
-    items.push('Модель описывает историю — прогнозы чувствительны к изменению креатива, новым кампаниям и структурным сдвигам рынка.');
-    items.push('Перед принятием решений — пилот 4-6 недель на части бюджета (20-30%) для валидации на практике.');
+    items.push('Модель описывает историю - прогнозы чувствительны к изменению креатива, новым кампаниям и структурным сдвигам рынка.');
+    items.push('Перед принятием решений - пилот 4-6 недель на части бюджета (20-30%) для валидации на практике.');
     return items;
   });
 
   // ── Interpretation blocks (для маркетолога/руководителя) ───────────────────
-  /** HTML-escape для user-controlled строк (имена каналов из xlsx) —
+  /** HTML-escape для user-controlled строк (имена каналов из xlsx) -
    * защита от XSS перед вставкой в {@html} интерпретации.
    * @param {unknown} s
    * @returns {string}
@@ -225,76 +326,96 @@
     [...decChannels].filter(/** @param {any} c */ c => c.roi != null)
       .sort((a, b) => (a.roi || 0) - (b.roi || 0))[0] ?? null
   );
-  /** Недоинвестированные каналы (Gap > 15%) — много эффекта, мало бюджета. */
+  /** Недоинвестированные каналы (Gap > 15%) - много эффекта, мало бюджета. */
   const underfundedChannels = $derived(
     decChannels.filter(/** @param {any} c */ c => (c.efficiency_gap ?? 0) >= 15)
   );
-  /** Перенасыщенные каналы (Gap < -15%) — много бюджета, мало эффекта. */
+  /** Перенасыщенные каналы (Gap < -15%) - много бюджета, мало эффекта. */
   const oversaturatedChannels = $derived(
     decChannels.filter(/** @param {any} c */ c => (c.efficiency_gap ?? 0) <= -15)
   );
 
-  /** Текст «Что такое MMM простыми словами» — адаптирован под эту модель. */
+  /** L13 (math-fix v1.4 Section C, 2026-04-29): Russian plural form для слова
+   *  «период» с правильным склонением. Pre-fix: `nPeriods > 4 ? 'ов' : 'а'`
+   *  ломалось на 1, 21, 31 (даёт «31 периодов», нужно «31 период»).
+   *  @param {number} n */
+  function ruPeriodForm(n) {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${n} период`;
+    if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return `${n} периода`;
+    return `${n} периодов`;
+  }
+
+  /** Текст «Что такое MMM простыми словами» - адаптирован под эту модель. */
   const interpretationMMM = $derived.by(() => {
     if (!mData?.diagnostics) return '';
-    return `Marketing Mix Modeling (MMM) — это статистический способ разложить продажи на вклад каждого канала медиа и «органический» фон (base). Модель смотрит на вашу историю ${nPeriods > 0 ? `за ${nPeriods} период${nPeriods > 4 ? 'ов' : 'а'}` : ''} и ищет закономерности: «когда я добавлял бюджет в TV — продажи через 2-3 недели росли», «когда Performance выключали — падали сразу». На основе найденных закономерностей модель говорит сколько инкремента даёт каждый рубль в каждом канале.`;
+    return `Marketing Mix Modeling (MMM) - это статистический способ разложить продажи на вклад каждого канала медиа и «органический» фон (base). Модель смотрит на вашу историю ${nPeriods > 0 ? `за ${ruPeriodForm(nPeriods)}` : ''} и ищет закономерности: «когда я добавлял бюджет в TV - продажи через 2-3 недели росли», «когда Performance выключали - падали сразу». На основе найденных закономерностей модель говорит сколько инкремента даёт каждый рубль в каждом канале.`;
   });
 
   /** Интерпретация качества модели. */
   const interpretationQuality = $derived.by(() => {
     if (!mData?.diagnostics || mqs == null) return '';
     const parts = [];
-    if (mqs >= 80) parts.push(`**Качество модели — отличное (MQS ${mqs.toFixed(0)}).** Можно уверенно использовать результаты для принятия решений, включая перераспределение бюджета.`);
-    else if (mqs >= 60) parts.push(`**Качество модели — хорошее (MQS ${mqs.toFixed(0)}).** Результаты надёжны для стратегических решений, но крайние значения ROI по отдельным каналам перепроверяйте.`);
-    else parts.push(`**Качество модели — требует доработки (MQS ${mqs.toFixed(0)}).** Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.`);
+    if (mqs >= 80) parts.push(`**Качество модели - отличное (MQS ${mqs.toFixed(0)}).** Можно уверенно использовать результаты для принятия решений, включая перераспределение бюджета.`);
+    else if (mqs >= 60) parts.push(`**Качество модели - хорошее (MQS ${mqs.toFixed(0)}).** Результаты надёжны для стратегических решений, но крайние значения ROI по отдельным каналам перепроверяйте.`);
+    else parts.push(`**Качество модели - требует доработки (MQS ${mqs.toFixed(0)}).** Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.`);
     if (rSq != null) {
-      if (rSq >= 0.9) parts.push(`R² = ${rSq.toFixed(3)} означает что модель объясняет ${(rSq * 100).toFixed(0)}% колебаний продаж — почти всю динамику.`);
-      else if (rSq >= 0.7) parts.push(`R² = ${rSq.toFixed(3)} — модель объясняет ${(rSq * 100).toFixed(0)}% динамики продаж. Оставшиеся ${((1 - rSq) * 100).toFixed(0)}% — шум, внешние факторы или каналы которых нет в данных.`);
-      else parts.push(`R² = ${rSq.toFixed(3)} — модель объясняет только ${(rSq * 100).toFixed(0)}% динамики. Возможно, не хватает данных по каналам или есть сильное внешнее влияние.`);
+      if (rSq >= 0.9) parts.push(`R² = ${rSq.toFixed(3)} означает что модель объясняет ${(rSq * 100).toFixed(0)}% колебаний продаж - почти всю динамику.`);
+      else if (rSq >= 0.7) parts.push(`R² = ${rSq.toFixed(3)} - модель объясняет ${(rSq * 100).toFixed(0)}% динамики продаж. Оставшиеся ${((1 - rSq) * 100).toFixed(0)}% - шум, внешние факторы или каналы которых нет в данных.`);
+      else parts.push(`R² = ${rSq.toFixed(3)} - модель объясняет только ${(rSq * 100).toFixed(0)}% динамики. Возможно, не хватает данных по каналам или есть сильное внешнее влияние.`);
     }
     if (mape != null) {
-      if (mape <= 10) parts.push(`MAPE ${mape.toFixed(1)}% — в среднем прогноз отклоняется от факта меньше чем на десятую часть. Это очень точно.`);
-      else if (mape <= 20) parts.push(`MAPE ${mape.toFixed(1)}% — приемлемая точность для стратегических решений.`);
-      else parts.push(`MAPE ${mape.toFixed(1)}% — ошибка прогноза высокая, результаты используйте как ориентир.`);
+      if (mape <= 10) parts.push(`MAPE ${mape.toFixed(1)}% - прогноз модели отклоняется от факта менее чем на 10%. Это очень точно.`);
+      else if (mape <= 20) parts.push(`MAPE ${mape.toFixed(1)}% - приемлемая точность для стратегических решений.`);
+      else parts.push(`MAPE ${mape.toFixed(1)}% - ошибка прогноза высокая, результаты используйте как ориентир.`);
     }
     return parts.join(' ');
   });
+
+  /** L11 (math-fix v1.4 Section C, 2026-04-29): use display_name from backend
+   *  (decomposer.py + optimizer.py call _normalize_channel_name). Pre-fix: raw
+   *  column names («Performance Бюджет до НДС до АК») leaked в interpretation
+   *  text. Fallback к c.name when display_name missing (legacy data).
+   *  @param {any} c */
+  const dispName = (c) => c?.display_name || c?.name || '-';
 
   /** Интерпретация декомпозиции (бренд vs перформанс). */
   const interpretationDecomposition = $derived.by(() => {
     if (!dData || basePct == null) return '';
     const parts = [];
-    if (basePct >= 70) parts.push(`**У вас сильный бренд.** Базовые продажи = ${basePct.toFixed(0)}% — это клиенты которые купили бы и без рекламы. Медиа добавляет ${(100 - basePct).toFixed(0)}%.`);
+    if (basePct >= 70) parts.push(`**У вас сильный бренд.** Базовые продажи = ${basePct.toFixed(0)}% - это клиенты которые купили бы и без рекламы. Медиа добавляет ${(100 - basePct).toFixed(0)}%.`);
     else if (basePct >= 40) parts.push(`**Бренд и медиа работают вместе.** База = ${basePct.toFixed(0)}%, медиа-вклад = ${(100 - basePct).toFixed(0)}%.`);
-    else parts.push(`**Продажи держатся на рекламе.** База всего ${basePct.toFixed(0)}% — если остановить медиа, продажи упадут на ${(100 - basePct).toFixed(0)}%. Это характерно для молодых брендов или категорий с короткой лояльностью.`);
+    else parts.push(`**Продажи держатся на рекламе.** База всего ${basePct.toFixed(0)}% - если остановить медиа, продажи упадут на ${(100 - basePct).toFixed(0)}%. Это характерно для молодых брендов или категорий с короткой лояльностью.`);
     if (topDriver) {
-      parts.push(`**Главный медиа-драйвер — «${escapeHtml(topDriver.name)}»** (${topDriver.contribution_pct?.toFixed(0) ?? '—'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
+      parts.push(`**Главный медиа-драйвер - «${escapeHtml(dispName(topDriver))}»** (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
     }
     return parts.join(' ');
   });
 
-  /** Интерпретация возможностей оптимизации. */
+  /** Интерпретация возможностей оптимизации. L12 (math-fix v1.4): underfundedChannels
+   *  и oversaturatedChannels lists теперь полные (раньше hardcoded top-2). */
   const interpretationOptimization = $derived.by(() => {
     if (!oData) return '';
     const parts = [];
     if (lift != null) {
-      if (lift > 10) parts.push(`**Оптимизация даст значительный прирост: +${lift.toFixed(1)}% KPI.** Это говорит что текущее распределение далеко от оптимального — есть реальная возможность увеличить продажи без дополнительного бюджета.`);
+      if (lift > 10) parts.push(`**Оптимизация даст значительный прирост: +${lift.toFixed(1)}% KPI.** Это говорит что текущее распределение далеко от оптимального - есть реальная возможность увеличить продажи без дополнительного бюджета.`);
       else if (lift > 3) parts.push(`**Оптимизация даст умеренный прирост: +${lift.toFixed(1)}% KPI.** Текущий план в целом адекватный, но можно выжать ещё.`);
-      else if (lift > 0.5) parts.push(`**Прирост +${lift.toFixed(1)}%** — план близок к оптимальному. Крупных неэффективностей нет.`);
-      else parts.push(`**Прирост ≈0%** — план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
+      else if (lift > 0.5) parts.push(`**Прирост +${lift.toFixed(1)}%** - план близок к оптимальному. Крупных неэффективностей нет.`);
+      else parts.push(`**Прирост ≈0%** - план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
     }
     if (underfundedChannels.length > 0) {
-      const names = underfundedChannels.map(/** @param {any} c */ c => `«${escapeHtml(c.name)}»`).join(', ');
-      parts.push(`**Недоинвестированные каналы** (дают непропорционально много эффекта): ${names}. Логика: если вложить больше денег — прирост KPI будет выше среднего.`);
+      const names = underfundedChannels.map(/** @param {any} c */ c => `«${escapeHtml(dispName(c))}»`).join(', ');
+      parts.push(`**Недоинвестированные каналы** (дают непропорционально много эффекта): ${names}. Логика: если вложить больше денег - прирост KPI будет выше среднего.`);
     }
     if (oversaturatedChannels.length > 0) {
-      const names = oversaturatedChannels.map(/** @param {any} c */ c => `«${escapeHtml(c.name)}»`).join(', ');
-      parts.push(`**Перенасыщенные каналы** (денег много, а эффекта относительно мало): ${names}. Если убрать часть бюджета — потеряете меньше чем получите в альтернативных каналах.`);
+      const names = oversaturatedChannels.map(/** @param {any} c */ c => `«${escapeHtml(dispName(c))}»`).join(', ');
+      parts.push(`**Перенасыщенные каналы** (денег много, а эффекта относительно мало): ${names}. Если убрать часть бюджета - потеряете меньше чем получите в альтернативных каналах.`);
     }
     return parts.join(' ');
   });
 
-  /** Практические рекомендации — что делать дальше. */
+  /** Практические рекомендации - что делать дальше. */
   const interpretationActions = $derived.by(() => {
     if (!mData?.diagnostics) return [];
     const actions = [];
@@ -302,22 +423,22 @@
       actions.push(`Провести **пилот перераспределения** на 20-30% бюджета по рекомендациям оптимизации. Замерить фактический lift через 4-6 недель и сравнить с прогнозом.`);
     }
     if (underfundedChannels.length > 0) {
-      actions.push(`Подумать об **увеличении инвестиций в недоинвестированные каналы** — ROI там сейчас выше среднего по портфелю.`);
+      actions.push(`Подумать об **увеличении инвестиций в недоинвестированные каналы** - ROI там сейчас выше среднего по портфелю.`);
     }
     if (oversaturatedChannels.length > 0) {
-      actions.push(`**Не заливать дальше** перенасыщенные каналы — дополнительные рубли там дают всё меньший возврат (Hill saturation).`);
+      actions.push(`**Не заливать дальше** перенасыщенные каналы - дополнительные рубли там дают всё меньший возврат (Hill saturation).`);
     }
     if (lossChannels.length > 0) {
-      actions.push(`Проверить **unit_costs и чистоту данных** для убыточных каналов (${lossChannels.map(/** @param {any} c */ c => escapeHtml(c.name)).join(', ')}) — часто причина в неправильных единицах измерения, а не в самом канале.`);
+      actions.push(`Проверить **unit_costs и чистоту данных** для убыточных каналов (${lossChannels.map(/** @param {any} c */ c => escapeHtml(dispName(c))).join(', ')}) - часто причина в неправильных единицах измерения, а не в самом канале.`);
     }
     if (ratio != null && ratio < 4) {
-      actions.push(`**Накопить больше данных.** Сейчас Ratio ${ratio.toFixed(1)}:1 — мало для узких доверительных интервалов. ≥ 4:1 = ROI уверенные.`);
+      actions.push(`**Накопить больше данных.** Сейчас Ratio ${ratio.toFixed(1)}:1 - мало для узких доверительных интервалов. ≥ 4:1 = ROI уверенные.`);
     }
     actions.push(`**Обновлять модель каждые 3-6 месяцев** по мере накопления новых данных и смены медиа-микса.`);
     return actions;
   });
 
-  // ── FAQ — автогенерация Q&A на данных проекта ──────────────────────────────
+  // ── FAQ - автогенерация Q&A на данных проекта ──────────────────────────────
   /** @type {Array<{q: string, a: string}>} */
   const faqItems = $derived.by(() => {
     if (!mData?.diagnostics) return [];
@@ -327,33 +448,33 @@
     if (mqs != null) {
       if (mqs >= 80) {
         items.push({
-          q: `Модель показывает MQS ${mqs.toFixed(0)} — это хорошо?`,
+          q: `Модель показывает MQS ${mqs.toFixed(0)} - это хорошо?`,
           a: `Да, отличный результат. MQS ≥ 80 означает что прогнозы точны, доверительные интервалы узкие, модель сошлась. Можно уверенно использовать для принятия бюджетных решений.`,
         });
       } else if (mqs >= 60) {
         items.push({
-          q: `MQS ${mqs.toFixed(0)} — насколько надёжны выводы?`,
-          a: `Хороший уровень для стратегических решений. Ключевые тренды (сильные/слабые каналы, необходимость перераспределения) — точны. Но крайние значения ROI по отдельным каналам (очень высокие или отрицательные) перепроверяйте через пилот.`,
+          q: `MQS ${mqs.toFixed(0)} - насколько надёжны выводы?`,
+          a: `Хороший уровень для стратегических решений. Ключевые тренды (сильные/слабые каналы, необходимость перераспределения) - точны. Но крайние значения ROI по отдельным каналам (очень высокие или отрицательные) перепроверяйте через пилот.`,
         });
       } else {
         items.push({
           q: `Почему такой низкий MQS (${mqs.toFixed(0)})?`,
-          a: `Скорее всего — мало данных или высокий шум. Модель работает, но её выводы ещё «шатаются». Используйте как первичный ориентир, без крупных перекладов бюджета. Накопите ещё 3-6 месяцев данных и переобучите.`,
+          a: `Скорее всего - мало данных или высокий шум. Модель работает, но её выводы ещё «шатаются». Используйте как первичный ориентир, без крупных перекладов бюджета. Накопите ещё 3-6 месяцев данных и переобучите.`,
         });
       }
     }
 
-    // Q: R-hat / сходимость
-    if (rHat != null) {
+    // Q: R-hat / сходимость - только для Bayesian (OLS не имеет MCMC).
+    if (rHat != null && !isOls) {
       if (rHat < 1.05) {
         items.push({
           q: `Что такое R-hat = ${rHat.toFixed(3)}?`,
-          a: `Это индикатор сходимости MCMC-сэмплера (движка модели). R-hat должен быть < 1.05 — у вас ${rHat.toFixed(3)}, значит все цепи Маркова сошлись к одному решению. Модели можно доверять.`,
+          a: `Это индикатор сходимости MCMC-сэмплера (движка модели). R-hat должен быть < 1.05 - у вас ${rHat.toFixed(3)}, значит все цепи Маркова сошлись к одному решению. Модели можно доверять.`,
         });
       } else {
         items.push({
-          q: `R-hat = ${rHat.toFixed(3)} — это проблема?`,
-          a: `Да — идеально должен быть < 1.05. У вас ${rHat.toFixed(3)} — значит MCMC-цепи разошлись к разным решениям. Результаты ненадёжны, модель нужно переобучить с большим числом draws/tune, либо проверить на мультиколлинеарность каналов.`,
+          q: `R-hat = ${rHat.toFixed(3)} - это проблема?`,
+          a: `Да - идеально должен быть < 1.05. У вас ${rHat.toFixed(3)} - значит MCMC-цепи разошлись к разным решениям. Результаты ненадёжны, модель нужно переобучить с большим числом draws/tune, либо проверить на мультиколлинеарность каналов.`,
         });
       }
     }
@@ -362,15 +483,15 @@
     if (topDriver) {
       items.push({
         q: `Почему «${topDriver.name}» показал самый большой вклад?`,
-        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '—'}×). Он даёт ${topDriver.contribution_pct?.toFixed(0) ?? '—'}% всего медиа-вклада в продажи. Это не значит «лучший» — просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
+        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '-'}×). Он даёт ${topDriver.contribution_pct?.toFixed(0) ?? '-'}% всего медиа-вклада в продажи. Это не значит «лучший» - просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
       });
     }
 
     // Q: про лучший ROI
     if (bestRoiChannel && bestRoiChannel.roi > 1.5) {
       items.push({
-        q: `«${bestRoiChannel.name}» — ROI ${bestRoiChannel.roi.toFixed(2)}×. Означает ли это что надо залить туда весь бюджет?`,
-        a: `Нет. Высокий ROI означает что следующий рубль в этом канале работает эффективно — но каналы имеют saturation (насыщение): по мере роста инвестиций ROI падает. Оптимизатор на шаге 5 учитывает это и находит сбалансированную точку, где предельный ROI во всех каналах выравнивается.`,
+        q: `«${bestRoiChannel.name}» - ROI ${bestRoiChannel.roi.toFixed(2)}×. Означает ли это что надо залить туда весь бюджет?`,
+        a: `Нет. Высокий ROI означает что следующий рубль в этом канале работает эффективно - но каналы имеют saturation (насыщение): по мере роста инвестиций ROI падает. Оптимизатор на шаге 5 учитывает это и находит сбалансированную точку, где предельный ROI во всех каналах выравнивается.`,
       });
     }
 
@@ -378,8 +499,8 @@
     if (lossChannels.length > 0) {
       const names = lossChannels.map(/** @param {any} c */ c => c.name).join(', ');
       items.push({
-        q: `Каналы ${names} показаны как убыточные — закрывать?`,
-        a: `Сначала проверьте корректность данных: правильные ли unit_costs (CPP/CPM), не смешаны ли единицы, нет ли нулевых периодов. Часто «убыточность» — артефакт данных, не канала. Если данные чистые — действительно стоит пересмотреть канал или креатив в нём.`,
+        q: `Каналы ${names} показаны как убыточные - закрывать?`,
+        a: `Сначала проверьте корректность данных: правильные ли unit_costs (CPP/CPM), не смешаны ли единицы, нет ли нулевых периодов. Часто «убыточность» - артефакт данных, не канала. Если данные чистые - действительно стоит пересмотреть канал или креатив в нём.`,
       });
     }
 
@@ -387,13 +508,13 @@
     if (lift != null) {
       if (lift > 5) {
         items.push({
-          q: `Оптимизация даёт +${lift.toFixed(1)}% KPI — можно просто взять и переложить бюджет?`,
-          a: `Теоретически да, но на практике — через пилот. Возьмите 20-30% бюджета, переложите по рекомендациям оптимизатора, замерьте факт через 4-6 недель. Если прогноз сошёлся (±3%) — масштабируйте. Если нет — модель нужно дообучить.`,
+          q: `Оптимизация даёт +${lift.toFixed(1)}% KPI - можно просто взять и переложить бюджет?`,
+          a: `Теоретически да, но на практике - через пилот. Возьмите 20-30% бюджета, переложите по рекомендациям оптимизатора, замерьте факт через 4-6 недель. Если прогноз сошёлся (±3%) - масштабируйте. Если нет - модель нужно дообучить.`,
         });
       } else if (lift <= 0.5) {
         items.push({
-          q: `Lift ≈0% — модель не нашла как улучшить план?`,
-          a: `В рамках заданных ограничений (min/max % по каналам) — не нашла. Это значит план уже близок к оптимальному. Чтобы увеличить прирост: 1) снять ограничения (min=0, max=300%), 2) рассмотреть изменение общего бюджета (блок C — «Другой бюджет»), 3) добавить новый канал в медиа-микс.`,
+          q: `Lift ≈0% - модель не нашла как улучшить план?`,
+          a: `В рамках заданных ограничений (min/max % по каналам) - не нашла. Это значит план уже близок к оптимальному. Чтобы увеличить прирост: 1) снять ограничения (min=0, max=300%), 2) рассмотреть изменение общего бюджета (блок C - «Другой бюджет»), 3) добавить новый канал в медиа-микс.`,
         });
       }
     }
@@ -402,13 +523,13 @@
     if (basePct != null) {
       if (basePct > 60) {
         items.push({
-          q: `${basePct.toFixed(0)}% baseline — это нормально?`,
-          a: `Это показывает силу бренда. Высокая база (>60%) типична для зрелых брендов с лояльной аудиторией. Означает что даже без рекламы продажи не упадут до нуля — есть постоянный спрос. Фокус медиа — защищать долю и расти сверх базы.`,
+          q: `${basePct.toFixed(0)}% baseline - это нормально?`,
+          a: `Это показывает силу бренда. Высокая база (>60%) типична для зрелых брендов с лояльной аудиторией. Означает что даже без рекламы продажи не упадут до нуля - есть постоянный спрос. Фокус медиа - защищать долю и расти сверх базы.`,
         });
       } else if (basePct < 30) {
         items.push({
-          q: `Baseline ${basePct.toFixed(0)}% — почему так мало?`,
-          a: `Характерно для молодых брендов или категорий с импульсным спросом. Большая часть продаж идёт «в моменте» — от активной рекламы. Риск: при сокращении медиа-бюджета продажи упадут быстро. Долгосрочно — инвестируйте в brand-building чтобы растить базу.`,
+          q: `Baseline ${basePct.toFixed(0)}% - почему так мало?`,
+          a: `Характерно для молодых брендов или категорий с импульсным спросом. Большая часть продаж идёт «в моменте» - от активной рекламы. Риск: при сокращении медиа-бюджета продажи упадут быстро. Долгосрочно - инвестируйте в brand-building чтобы растить базу.`,
         });
       }
     }
@@ -416,14 +537,14 @@
     // Q: прогноз
     items.push({
       q: `Насколько надёжен прогноз модели для планирования?`,
-      a: `Прогноз хорошо работает в пределах исторического опыта — при сходном медиа-миксе и бюджете. При резком изменении (новые каналы, смена позиционирования, экономический шок) модель будет менее точной. Хорошая практика — каждые 3-6 месяцев обновлять модель на свежих данных.`,
+      a: `Прогноз хорошо работает в пределах исторического опыта - при сходном медиа-миксе и бюджете. При резком изменении (новые каналы, смена позиционирования, экономический шок) модель будет менее точной. Хорошая практика - каждые 3-6 месяцев обновлять модель на свежих данных.`,
     });
 
     // Q: данных мало
     if (ratio != null && ratio < 4) {
       items.push({
-        q: `Ratio ${ratio.toFixed(1)}:1 — что это значит для интерпретации?`,
-        a: `Ratio показывает сколько периодов данных приходится на каждый параметр модели. < 4:1 означает мало. Выводы работают для крупных решений (у какого канала ROI выше) но не для мелких сравнений (точное значение ROI с узкими CI). Накопите ещё 1-2 квартала — интервалы сузятся.`,
+        q: `Ratio ${ratio.toFixed(1)}:1 - что это значит для интерпретации?`,
+        a: `Ratio показывает сколько периодов данных приходится на каждый параметр модели. < 4:1 означает мало. Выводы работают для крупных решений (у какого канала ROI выше) но не для мелких сравнений (точное значение ROI с узкими CI). Накопите ещё 1-2 квартала - интервалы сузятся.`,
       });
     }
 
@@ -445,9 +566,9 @@
     if (fmt === 'pptx') {
       lines.push('Коллеги, прикладываю презентацию с результатами Marketing Mix Modeling.');
     } else if (fmt === 'xlsx') {
-      lines.push('Во вложении — полные данные MMM-анализа для самостоятельной работы.');
+      lines.push('Во вложении - полные данные MMM-анализа для самостоятельной работы.');
     } else {
-      lines.push('Направляю интерактивный отчёт MMM — откроется в любом браузере, ничего устанавливать не нужно.');
+      lines.push('Направляю интерактивный отчёт MMM - откроется в любом браузере, ничего устанавливать не нужно.');
     }
     lines.push('');
     if (modelSummary) lines.push(`Модель. ${modelSummary}`, '');
@@ -459,27 +580,29 @@
     }
     if (fmt === 'pptx') {
       lines.push('Структура презентации:');
-      lines.push('- Executive summary — MQS, R², MAPE, прирост от оптимизации');
-      lines.push('- Спецификация модели — Bayesian MMM, Adstock + Hill, MCMC');
-      lines.push('- Декомпозиция продаж — baseline vs медиа по каналам');
-      lines.push('- ROI-анализ — Share of Spend vs Share of Effect, Gap');
-      lines.push('- Динамика по периодам — вклад каналов во времени');
+      lines.push('- Executive summary - MQS, R², MAPE, прирост от оптимизации');
+      lines.push(isOls
+        ? '- Спецификация модели - Линейная регрессия, Adstock + Hill, OLS · closed-form · bootstrap CI'
+        : '- Спецификация модели - Bayesian MMM, Adstock + Hill, MCMC');
+      lines.push('- Декомпозиция продаж - baseline vs медиа по каналам');
+      lines.push('- ROI-анализ - Share of Spend vs Share of Effect, Gap');
+      lines.push('- Динамика по периодам - вклад каналов во времени');
       lines.push('- Сравнение сценариев (если сохранены)');
       lines.push('- Оптимальное распределение бюджета с ожидаемым lift');
       lines.push('');
       lines.push('Готов обсудить детали и план пилота.');
     } else if (fmt === 'xlsx') {
       lines.push('Структура файла (листы XLSX):');
-      lines.push('- Executive Summary — ключевые метрики качества');
-      lines.push('- Спецификация — параметры модели, priors, методология');
-      lines.push('- Декомпозиция — вклад baseline и каналов');
-      lines.push('- ROI каналов — ROI, Gap, Efficiency');
+      lines.push('- Executive Summary - ключевые метрики качества');
+      lines.push('- Спецификация - параметры модели, priors, методология');
+      lines.push('- Декомпозиция - вклад baseline и каналов');
+      lines.push('- ROI каналов - ROI, Gap, Efficiency');
       lines.push('- Spend vs Effect');
-      lines.push('- Динамика — таблица + stacked-area chart');
-      lines.push('- Сценарии — сравнение сохранённых');
-      lines.push('- Оптимизация — текущее vs оптимальное');
-      lines.push('- Данные — сырые time-series для своих графиков');
-      lines.push('- Глоссарий — определения MMM-терминов');
+      lines.push('- Динамика - таблица + stacked-area chart');
+      lines.push('- Сценарии - сравнение сохранённых');
+      lines.push('- Оптимизация - текущее vs оптимальное');
+      lines.push('- Данные - сырые time-series для своих графиков');
+      lines.push('- Глоссарий - определения MMM-терминов');
       lines.push('');
       lines.push('Лист «Данные» особенно полезен: выделите колонки → Вставка → Диаграмма.');
     } else {
@@ -487,11 +610,13 @@
       lines.push('- Один файл, открывается двойным кликом в любом браузере');
       lines.push('- Интерактивные графики (ECharts): waterfall, ROI, Spend vs Effect, timeline, оптимизация');
       lines.push('- Tooltip на каждом графике, zoom/scroll по таймлайну');
-      lines.push('- KPI-панель сверху: MQS, R², MAPE, R-hat, baseline, прирост, бюджет');
+      lines.push(isOls
+        ? '- KPI-панель сверху: MQS, R², MAPE, надёжность оценок, baseline, прирост, бюджет'
+        : '- KPI-панель сверху: MQS, R², MAPE, R-hat, baseline, прирост, бюджет');
       lines.push('- Сводная таблица по каналам с цветовой разметкой ROI/Gap');
       lines.push('- Сравнение сохранённых сценариев (если есть)');
       lines.push('');
-      lines.push('Не нужно устанавливать приложение — достаточно браузера.');
+      lines.push('Не нужно устанавливать приложение - достаточно браузера.');
     }
     const text = lines.join('\n');
     try {
@@ -511,13 +636,13 @@
    * @param {number} [dec]
    */
   function fmt(n, dec = 1) {
-    if (n == null) return '—';
+    if (n == null) return '-';
     return n.toFixed(dec);
   }
 
   /** @param {number | null} n */
   function fmtBudget(n) {
-    if (!n) return '—';
+    if (!n) return '-';
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + ' М';
     if (n >= 1_000)     return (n / 1_000).toFixed(0) + ' К';
     return n.toFixed(0);
@@ -652,6 +777,20 @@
     }
   }
 
+  /**
+   * M5a: открыть сгенерированный PPTX через OS default handler.
+   * Клиент делает File → Save As → PDF/XPS для публикации (v1.0.11 MVP;
+   * автоконвертация через LibreOffice headless запланирована на v1.0.12).
+   */
+  async function openPptxFile() {
+    if (!pptxPath) return;
+    try {
+      await openPath(pptxPath);
+    } catch (/** @type {any} */ e) {
+      console.error('Open PPTX error:', e);
+    }
+  }
+
   function finishAnalysis() {
     completeStep(5);
     triggerCompletion();
@@ -693,7 +832,7 @@
       <div class="card-metric">
         <div class="metric-label">MAPE</div>
         <div class="metric-value" class:good={mape != null && mape < 10} class:warn={mape != null && mape >= 20}>
-          {mape != null ? fmt(mape, 1) + '%' : '—'}
+          {mape != null ? fmt(mape, 1) + '%' : '-'}
         </div>
         <div class="metric-sub">средняя ошибка прогноза</div>
       </div>
@@ -705,7 +844,7 @@
           class:positive={lift != null && lift > 0}
           class:negative={lift != null && lift < 0}
         >
-          {lift != null ? (lift >= 0 ? '+' : '') + fmt(lift) + '%' : '—'}
+          {lift != null ? (lift >= 0 ? '+' : '') + fmt(lift) + '%' : '-'}
         </div>
         <div class="metric-sub">при перераспределении</div>
       </div>
@@ -722,8 +861,8 @@
       <div class="stale-header">⚠ Данные не загружены в память</div>
       <p class="stale-body">
         В этой сессии отсутствуют: {missing || 'результаты шагов'}.
-        Если вы уже прошли пайплайн в другой сессии — результаты лежат на диске,
-        и их можно подтянуть одним кликом. Если результатов нет — нужен пересчёт.
+        Если вы уже прошли пайплайн в другой сессии - результаты лежат на диске,
+        и их можно подтянуть одним кликом. Если результатов нет - нужен пересчёт.
       </p>
       <div class="stale-actions">
         <button class="btn-recompute" onclick={reloadFromDisk} disabled={recomputing}>
@@ -762,6 +901,11 @@
             <div class="file-row">
               <span class="file-icon">📽</span>
               <span class="file-path">{pptxPath}</span>
+              <button
+                class="btn-open-file"
+                onclick={openPptxFile}
+                title="Для экспорта в PDF откройте файл → File → Save As → PDF/XPS"
+              >Открыть</button>
             </div>
           {/if}
           {#if htmlPath}
@@ -782,31 +926,50 @@
         </div>
       {/if}
 
-      <div class="export-buttons" data-tour="report-exports">
+      <!-- v1.0.16: единая кнопка «Создать отчёт» с выбором формата.
+           Pre-fix: 3 кнопки одновременно располагались - customer мог нажать
+           все три подряд, генерируя избыточные форматы (CPU/disk waste).
+           Post-fix: 1 button + selector - один файл per click. Радио-кнопки
+           делают выбор visible, format cards ниже подсказывают разницу. -->
+      <div class="export-unified" data-tour="report-exports">
+        <div class="format-selector" role="radiogroup" aria-label="Тип отчёта">
+          <label class="format-radio" class:active={selectedFormat === 'pptx'}>
+            <input type="radio" name="report-format" value="pptx" bind:group={selectedFormat} />
+            <span class="format-icon-sm">📽</span>
+            <span class="format-radio-label">PPTX
+              {#if pptxPath}<span class="format-radio-status">✓</span>{/if}
+            </span>
+          </label>
+          <label class="format-radio" class:active={selectedFormat === 'xlsx'}>
+            <input type="radio" name="report-format" value="xlsx" bind:group={selectedFormat} />
+            <span class="format-icon-sm">📊</span>
+            <span class="format-radio-label">XLSX
+              {#if xlsxPath}<span class="format-radio-status">✓</span>{/if}
+            </span>
+          </label>
+          <label class="format-radio" class:active={selectedFormat === 'html'}>
+            <input type="radio" name="report-format" value="html" bind:group={selectedFormat} />
+            <span class="format-icon-sm">🌐</span>
+            <span class="format-radio-label">HTML
+              {#if htmlPath}<span class="format-radio-status">✓</span>{/if}
+            </span>
+          </label>
+        </div>
         <button
-          class="btn-export pptx"
-          onclick={exportPptx}
-          disabled={!hasData}
+          class="btn-export-unified"
+          onclick={generateSelected}
+          disabled={!hasData || isGenerating}
         >
-          <span class="btn-icon">📽</span>
-          {pptxPath ? 'PPTX — пересоздать' : 'Презентация (PPTX)'}
-        </button>
-        <button
-          class="btn-export secondary"
-          onclick={exportXlsx}
-          disabled={!hasData}
-        >
-          <span class="btn-icon">📊</span>
-          {xlsxPath ? 'XLSX — пересоздать' : 'Данные (XLSX)'}
-        </button>
-        <button
-          class="btn-export html"
-          onclick={exportHtml}
-          disabled={!hasData}
-          title="Интерактивный HTML-отчёт — открывается в браузере без установки приложения"
-        >
-          <span class="btn-icon">🌐</span>
-          {htmlPath ? 'HTML — пересоздать' : 'Интерактивный (HTML)'}
+          {#if isGenerating}
+            <span class="btn-spinner"></span>
+            Генерирую...
+          {:else}
+            {#if (selectedFormat === 'pptx' && pptxPath) || (selectedFormat === 'xlsx' && xlsxPath) || (selectedFormat === 'html' && htmlPath)}
+              ⟲ Пересоздать {selectedFormat.toUpperCase()}
+            {:else}
+              ✨ Создать отчёт ({selectedFormat.toUpperCase()})
+            {/if}
+          {/if}
         </button>
       </div>
 
@@ -814,10 +977,10 @@
         <div class="format-card">
           <div class="format-card-header">
             <span class="format-icon">📽</span>
-            <div class="format-title">PPTX — для презентации</div>
+            <div class="format-title">PPTX - для презентации</div>
           </div>
           <p class="format-desc">
-            Executive summary, спецификация модели (Bayesian MMM, Adstock, Hill), декомпозиция продаж,
+            Executive summary, спецификация модели ({isOls ? 'OLS · closed-form · bootstrap CI' : 'Bayesian MMM, Adstock, Hill'}), декомпозиция продаж,
             ROI по каналам, Share of Spend vs Effect, динамика по периодам, сравнение сценариев,
             оптимальное распределение, прогноз. С графиками и рекомендациями.
           </p>
@@ -826,7 +989,7 @@
         <div class="format-card">
           <div class="format-card-header">
             <span class="format-icon">📊</span>
-            <div class="format-title">XLSX — для самостоятельной работы с данными</div>
+            <div class="format-title">XLSX - для самостоятельной работы с данными</div>
           </div>
           <p class="format-desc">
             Executive Summary, спецификация, декомпозиция, ROI, Spend vs Effect, динамика,
@@ -837,12 +1000,12 @@
         <div class="format-card">
           <div class="format-card-header">
             <span class="format-icon">🌐</span>
-            <div class="format-title">HTML — интерактивный отчёт</div>
+            <div class="format-title">HTML - интерактивный отчёт</div>
           </div>
           <p class="format-desc">
             Standalone-файл с живыми графиками (ECharts): waterfall, ROI, Spend vs Effect,
             динамика по периодам, оптимизация, сценарии. Открывается в любом браузере без
-            установки приложения — можно отправлять клиентам как ссылку или вложение.
+            установки приложения - можно отправлять клиентам как ссылку или вложение.
           </p>
         </div>
       </div>
@@ -858,7 +1021,7 @@
           <span class="info-arrow" class:open={coverExpanded}>▸</span>
           <span class="info-icon">✉️</span>
           <span class="info-title">Сопроводительный текст для письма</span>
-          <span class="info-hint">— скопируйте и вставьте в тело email</span>
+          <span class="info-hint">- скопируйте и вставьте в тело email</span>
         </button>
         {#if coverExpanded}
           <div class="info-body">
@@ -886,9 +1049,9 @@
               {#if coverFormat === 'pptx'}
                 <p>Коллеги, прикладываю презентацию с результатами Marketing Mix Modeling.</p>
               {:else if coverFormat === 'xlsx'}
-                <p>Во вложении — полные данные MMM-анализа для самостоятельной работы.</p>
+                <p>Во вложении - полные данные MMM-анализа для самостоятельной работы.</p>
               {:else}
-                <p>Направляю интерактивный отчёт MMM — откроется в любом браузере, ничего устанавливать не нужно.</p>
+                <p>Направляю интерактивный отчёт MMM - откроется в любом браузере, ничего устанавливать не нужно.</p>
               {/if}
               {#if modelSummary}
                 <p><b>Модель.</b> {modelSummary}</p>
@@ -907,11 +1070,15 @@
               {#if coverFormat === 'pptx'}
                 <p><b>Структура презентации:</b></p>
                 <ul>
-                  <li>Executive summary — MQS, R², MAPE, прирост от оптимизации</li>
-                  <li>Спецификация модели — Bayesian MMM, Adstock + Hill saturation, MCMC-сэмплер, priors</li>
-                  <li>Декомпозиция продаж — вклад baseline vs медиа по каналам</li>
-                  <li>ROI-анализ — Share of Spend vs Share of Effect, Gap, Efficiency</li>
-                  <li>Динамика по периодам — вклад каналов во времени</li>
+                  <li>Executive summary - MQS, R², MAPE, прирост от оптимизации</li>
+                  {#if isOls}
+                    <li>Спецификация модели - Линейная регрессия с Adstock (Geometric) + Hill saturation, β оценены closed-form OLS, доверительные интервалы - bootstrap</li>
+                  {:else}
+                    <li>Спецификация модели - Bayesian MMM, Adstock + Hill saturation, MCMC-сэмплер, priors</li>
+                  {/if}
+                  <li>Декомпозиция продаж - вклад baseline vs медиа по каналам</li>
+                  <li>ROI-анализ - Share of Spend vs Share of Effect, Gap, Efficiency</li>
+                  <li>Динамика по периодам - вклад каналов во времени</li>
                   <li>Сравнение сохранённых сценариев (если есть)</li>
                   <li>Оптимальное распределение бюджета с ожидаемым lift</li>
                 </ul>
@@ -919,16 +1086,20 @@
               {:else if coverFormat === 'xlsx'}
                 <p><b>Структура файла:</b></p>
                 <ul>
-                  <li><b>Executive Summary</b> — ключевые метрики качества модели</li>
-                  <li><b>Спецификация</b> — параметры модели (alpha, gamma, beta), priors, методология</li>
-                  <li><b>Декомпозиция</b> — вклад baseline и каждого канала в продажи</li>
-                  <li><b>ROI каналов</b> — ROI, Gap, Efficiency</li>
-                  <li><b>Spend vs Effect</b> — share of spend vs share of effect</li>
-                  <li><b>Динамика</b> — таблица по периодам + stacked-area chart</li>
-                  <li><b>Сценарии</b> — сравнение сохранённых (если есть)</li>
-                  <li><b>Оптимизация</b> — текущее vs оптимальное распределение</li>
-                  <li><b>Данные</b> — сырые time-series для собственных графиков</li>
-                  <li><b>Глоссарий</b> — определения MMM-терминов</li>
+                  <li><b>Executive Summary</b> - ключевые метрики качества модели</li>
+                  {#if isOls}
+                    <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), OLS · closed-form · bootstrap CI</li>
+                  {:else}
+                    <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), priors, методология</li>
+                  {/if}
+                  <li><b>Декомпозиция</b> - вклад baseline и каждого канала в продажи</li>
+                  <li><b>ROI каналов</b> - ROI, Gap, Efficiency</li>
+                  <li><b>Spend vs Effect</b> - share of spend vs share of effect</li>
+                  <li><b>Динамика</b> - таблица по периодам + stacked-area chart</li>
+                  <li><b>Сценарии</b> - сравнение сохранённых (если есть)</li>
+                  <li><b>Оптимизация</b> - текущее vs оптимальное распределение</li>
+                  <li><b>Данные</b> - сырые time-series для собственных графиков</li>
+                  <li><b>Глоссарий</b> - определения MMM-терминов</li>
                 </ul>
                 <p>Лист «Данные» особенно полезен: выделите нужные колонки → Вставка → Диаграмма.</p>
               {:else}
@@ -937,11 +1108,11 @@
                   <li>Один HTML-файл, открывается двойным кликом в любом браузере</li>
                   <li>Интерактивные графики (ECharts): waterfall, ROI, Spend vs Effect, stacked-area timeline, оптимизация</li>
                   <li>Tooltip на каждом графике, zoom/scroll по таймлайну</li>
-                  <li>KPI-панель сверху: MQS, R², MAPE, R-hat, baseline %, прирост, бюджет</li>
+                  <li>KPI-панель сверху: MQS, R², MAPE, {isOls ? 'надёжность оценок' : 'R-hat'}, baseline %, прирост, бюджет</li>
                   <li>Сводная таблица по каналам с цветовой разметкой ROI/Gap</li>
                   <li>Сравнение сохранённых сценариев (если есть) с подсветкой лучшего ROAS</li>
                 </ul>
-                <p>Не нужно устанавливать приложение — достаточно браузера. Подходит для отправки клиентам и руководству.</p>
+                <p>Не нужно устанавливать приложение - достаточно браузера. Подходит для отправки клиентам и руководству.</p>
               {/if}
             </div>
             <div class="cover-actions">
@@ -969,7 +1140,7 @@
           <span class="info-arrow" class:open={interpretationExpanded}>▸</span>
           <span class="info-icon">🧭</span>
           <span class="info-title">Как интерпретировать модель и результаты</span>
-          <span class="info-hint">— простыми словами для маркетолога/руководителя</span>
+          <span class="info-hint">- простыми словами для маркетолога/руководителя</span>
         </button>
         {#if interpretationExpanded}
           <div class="info-body">
@@ -979,24 +1150,24 @@
             {/if}
             {#if interpretationQuality}
               <h4 class="interp-h">Качество модели и доверие к выводам</h4>
-              <!-- aurora-fix:safe V40 — upstream escapeHtml на user-sourced именах каналов (topDriver.name), ** → <b> контролируемая замена -->
+              <!-- aurora-fix:safe V40 - upstream escapeHtml на user-sourced именах каналов (topDriver.name), ** → <b> контролируемая замена -->
               <p>{@html interpretationQuality.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>
             {/if}
             {#if interpretationDecomposition}
               <h4 class="interp-h">Структура ваших продаж</h4>
-              <!-- aurora-fix:safe V40 — upstream escapeHtml на topDriver.name, ** → <b> контролируемая замена -->
+              <!-- aurora-fix:safe V40 - upstream escapeHtml на topDriver.name, ** → <b> контролируемая замена -->
               <p>{@html interpretationDecomposition.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>
             {/if}
             {#if interpretationOptimization}
               <h4 class="interp-h">Что можно улучшить</h4>
-              <!-- aurora-fix:safe V40 — upstream escapeHtml на именах каналов (underfunded/oversaturated), ** → <b> контролируемая замена -->
+              <!-- aurora-fix:safe V40 - upstream escapeHtml на именах каналов (underfunded/oversaturated), ** → <b> контролируемая замена -->
               <p>{@html interpretationOptimization.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>
             {/if}
             {#if interpretationActions.length > 0}
-              <h4 class="interp-h">Что делать дальше — практические шаги</h4>
+              <h4 class="interp-h">Что делать дальше - практические шаги</h4>
               <ol class="actions-list">
                 {#each interpretationActions as action}
-                  <!-- aurora-fix:safe V40 — actions — статические строки из derived, без user input; ** → <b> контролируемая замена -->
+                  <!-- aurora-fix:safe V40 - actions - статические строки из derived, без user input; ** → <b> контролируемая замена -->
                   <li>{@html action.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</li>
                 {/each}
               </ol>
@@ -1017,7 +1188,7 @@
             <span class="info-arrow" class:open={faqExpanded}>▸</span>
             <span class="info-icon">❓</span>
             <span class="info-title">Часто задаваемые вопросы по этой модели</span>
-            <span class="info-hint">— {faqItems.length} вопрос{faqItems.length > 4 ? 'ов' : faqItems.length > 1 ? 'а' : ''} с ответами на ваших данных</span>
+            <span class="info-hint">- {faqItems.length} вопрос{faqItems.length > 4 ? 'ов' : faqItems.length > 1 ? 'а' : ''} с ответами на ваших данных</span>
           </button>
           {#if faqExpanded}
             <div class="info-body faq-body">
@@ -1247,6 +1418,113 @@
   .btn-export:disabled { opacity: 0.4; cursor: not-allowed; }
   .btn-icon { font-size: 16px; }
 
+  /* v1.0.16: unified Create Report selector */
+  .export-unified {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 12px;
+    margin-top: 8px;
+  }
+  .format-selector {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .format-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary, #94a3b8);
+    transition: all 0.15s ease;
+  }
+  .format-radio:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.16);
+  }
+  .format-radio.active {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, transparent);
+    color: var(--text-primary, #e2e8f0);
+  }
+  .format-radio input[type="radio"] {
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.3);
+    margin: 0;
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .format-radio.active input[type="radio"] {
+    border-color: var(--accent-primary, #3b82f6);
+  }
+  .format-radio.active input[type="radio"]::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent-primary, #3b82f6);
+  }
+  .format-icon-sm { font-size: 14px; }
+  .format-radio-label {
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .format-radio-status {
+    color: #22c55e;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .btn-export-unified {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 20px;
+    background: var(--accent-primary, #3b82f6);
+    border: 1px solid var(--accent-primary, #3b82f6);
+    border-radius: 8px;
+    color: white;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .btn-export-unified:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 90%, white);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-primary, #3b82f6) 40%, transparent);
+  }
+  .btn-export-unified:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
   .export-hint {
     font-size: 12px;
     color: var(--text-muted);
@@ -1347,6 +1625,23 @@
     font-family: monospace;
     color: var(--text-secondary, #94a3b8);
     word-break: break-all;
+    flex: 1;
+  }
+
+  .btn-open-file {
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 6px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+  .btn-open-file:hover {
+    border-color: rgba(255,255,255,0.3);
+    color: var(--text-primary, #e2e8f0);
   }
 
   .more-exports {
@@ -1421,7 +1716,11 @@
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 12px;
     overflow: hidden;
+    margin-top: 12px;
   }
+  /* v1.0.16: also gap для format-cards row vs info-blocks below - раньше
+     блоки слипались плотно. */
+  .format-cards { margin-bottom: 4px; }
   .info-toggle {
     display: flex;
     align-items: center;
@@ -1436,6 +1735,10 @@
     text-align: left;
     cursor: pointer;
     transition: background 0.15s;
+    /* FIX 2026-05-02: позволить hint спуститься на следующую строку
+       если title не помещается на одной (узкие экраны / длинные подсказки). */
+    flex-wrap: wrap;
+    row-gap: 4px;
   }
   .info-toggle:hover {
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 5%, transparent);
@@ -1446,15 +1749,24 @@
     font-size: 11px;
     transition: transform 0.2s;
     width: 12px;
+    flex-shrink: 0;
   }
   .info-arrow.open { transform: rotate(90deg); }
   .info-icon { font-size: 18px; flex-shrink: 0; }
-  .info-title { font-weight: 600; }
+  .info-title {
+    font-weight: 600;
+    flex-shrink: 0;
+    /* normal wrap внутри title если очень длинный */
+    overflow-wrap: break-word;
+  }
   .info-hint {
     color: var(--text-secondary, #94a3b8);
     font-size: 13px;
     font-weight: 400;
     margin-left: auto;
+    /* На узких экранах hint опускается ниже title (flex-wrap),
+       тогда margin-left:auto не работает - выравниваем по началу title. */
+    min-width: 0;
   }
   .info-body {
     padding: 4px 20px 20px 40px;
@@ -1567,5 +1879,13 @@
     color: var(--text-secondary, #cbd5e1);
     font-size: 13px;
     line-height: 1.6;
+  }
+
+  /* v2.1.0 п.5.6: static spinner rings */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner,
+    .spinner-sm {
+      border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    }
   }
 </style>

@@ -148,6 +148,26 @@
     </ul>
   </div>
 
+  <div class="tips">
+    <h2>Изменения v1.0.16 (math-fix v1.4 Section C, 2026-04-29)</h2>
+    <ul>
+      <li><strong>Three-way alignment</strong> декомпозиции, оптимизации и финального отчёта — единый источник правды для mROAS, action labels, channel-level рекомендаций. Customer не видит противоречий между tab'ами.</li>
+      <li><strong>Money-axis mROAS</strong> — все каналы (TRPs/clicks + рубли) сравниваются в единой денежной шкале. Закрыт mixed-units bug (TRPs показывал 110×, money — 0.03×).</li>
+      <li><strong>Auto-apply optimal</strong> — после расчёта оптимизации слайдеры автоматически переходят на оптимальные позиции с animation 800ms. KPI прогноз обновляется live.</li>
+      <li><strong>Response Curves markers</strong> — текущая (○ серый) и оптимальная (★ цвет канала) точки на каждой кривой.</li>
+      <li><strong>Edge-case banners</strong> на странице Оптимизации: baseline_zero (медиа-вклад=0), binding_constraints (все каналы упёрлись в Min/Max), converged_at_current (близко к оптимуму). Customer понимает почему +0%.</li>
+      <li><strong>Per-channel override warning</strong> — банер при changes к global Min/Max если есть индивидуальные overrides.</li>
+      <li><strong>Унифицированные action labels</strong> — Scale / Hold / Watch / Reduce / Cut / Uncertain (см. Methodology, глоссарий).</li>
+      <li><strong>SCQAR honest narrative</strong> — budget_dominator отделён от leader: «{TRPs} занимает 92% бюджета, но даёт 10% эффекта». Reallocation использует cut_source / scale_destination от optimizer signal.</li>
+      <li><strong>Validate state sync (L1)</strong> — единый source of truth для excluded columns, persistence к project.json для cross-session restore.</li>
+      <li><strong>Settings cleanup</strong> — упрощённый блок Лицензии, удалены legacy блоки.</li>
+      <li><strong>Grammar fixes</strong> — правильное склонение «1 период / 2-4 периода / 5+ периодов».</li>
+      <li><strong>MQS labels alignment</strong> — единая 5-tier шкала между frontend и backend (Отличное / Хорошее / Приемлемое / Слабое / Ненадёжное).</li>
+      <li><strong>Verdict CI suffix</strong> — wide-CI каналы получают «(низкая уверенность)» suffix вместо подавления informative verdict.</li>
+      <li><strong>Единая кнопка «Создать отчёт»</strong> — выбор формата (PPTX / XLSX / HTML) через radio + одна кнопка генерации. Один файл за нажатие — экономия CPU/времени по сравнению с «выпуском всех форматов про запас».</li>
+    </ul>
+  </div>
+
 </div>
 
 <div class="footer">

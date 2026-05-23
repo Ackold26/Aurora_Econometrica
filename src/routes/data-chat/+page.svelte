@@ -87,7 +87,7 @@
         search: 'Для поиска по данным бренда активируйте Creative Hub с RAG-сервером.',
         history: 'История работы кабинетов сохраняется автоматически. Каждый результат доступен в exports соответствующего кабинета.',
         comparison: 'Для сравнения с конкурентами используйте кабинет Коммуникационный аналитик → `/competitors`.',
-        analysis: 'Для глубокого анализа откройте подходящий кабинет и задайте вопрос напрямую. Рекомендую:\n\n- **Медиа-аналитик** — для анализа данных и отчётов\n- **Коммуникационный аналитик** — для анализа медиаполя\n- **Эконометрист** — для моделирования и оптимизации',
+        analysis: 'Для глубокого анализа откройте подходящий кабинет и задайте вопрос напрямую. Рекомендую:\n\n- **Медиа-аналитик** - для анализа данных и отчётов\n- **Коммуникационный аналитик** - для анализа медиаполя\n- **Эконометрист** - для моделирования и оптимизации',
       };
 
       const answer = intentDescriptions[intent] || `Хороший вопрос! Для ответа используйте подходящий кабинет:\n\n- **Ctrl+K** → найдите нужный кабинет или команду\n- Перетащите файлы в inbox кабинета для анализа`;
@@ -137,7 +137,7 @@
           contextParts.push(`## Релевантные данные из базы знаний\n${snippets}`);
         }
       } catch {
-        // RAG search failed — might have gone down mid-session
+        // RAG search failed - might have gone down mid-session
       }
 
       // History search
@@ -185,7 +185,7 @@
 
       suggestions = [];
     } catch (err) {
-      // RAG might have gone down — fallback to Lite
+      // RAG might have gone down - fallback to Lite
       const errStr = String(err);
       if (errStr.includes('RAG') || errStr.includes('unavailable')) {
         ragAvailable.set(false);
@@ -236,7 +236,7 @@
         <div class="welcome">
           <div class="welcome-icon">💬</div>
           <h2 class="welcome-title">Спросите о чём угодно</h2>
-          <p class="welcome-desc">Data Chat Lite отвечает на вопросы и направляет к нужным кабинетам. Полный анализ данных бренда — в v0.5.0.</p>
+          <p class="welcome-desc">Data Chat Lite отвечает на вопросы и направляет к нужным кабинетам. Полный анализ данных бренда - в v0.5.0.</p>
 
           <div class="suggestions">
             {#each suggestions as s}

@@ -1,0 +1,24 @@
+{
+  "project_dir": "D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica/test_payloads/projects/kagocel",
+  "file_path": "D:/Docs/Aurora_Ai/TestData/Econometrica/Kagocel_RF_MMM_dataset.xlsx",
+  "media_columns": [
+    "OLV Бюджет до НДС до АК",
+    "Banners Бюджет \nДО НДС до АК",
+    "Social Бюджет \nДО НДС до АК",
+    "Performance Бюджет \nДо НДС до АК",
+    "Статьи Бюджет \nДО НДС до АК",
+    "TRPs бренд (W 25-54)"
+  ],
+  "control_columns": [],
+  "kpi_column": "Продажи в руб. бренд",
+  "date_column": "Date",
+  "adstock_config": {
+    "OLV Бюджет до НДС до АК": "geometric",
+    "Banners Бюджет \nДО НДС до АК": "geometric",
+    "Social Бюджет \nДО НДС до АК": "geometric",
+    "Performance Бюджет \nДо НДС до АК": "geometric",
+    "Статьи Бюджет \nДО НДС до АК": "geometric",
+    "TRPs бренд (W 25-54)": "geometric"
+  },
+  "skip_prior_predictive": true
+}

@@ -1,11 +1,11 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
     "productName": "Aurora AI Econometrica",
-    "version": "1.0.10",
+    "version": "2.1.0-rc1",
     "identifier": "com.aurora.econometrica",
     "build": {
         "beforeDevCommand": "npm run dev",
-        "devUrl": "http://localhost:1420",
+        "devUrl": "http://127.0.0.1:5173",
         "beforeBuildCommand": "npm run build",
         "frontendDist": "../build"
     },

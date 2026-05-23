@@ -5,23 +5,23 @@
 
   const steps = [
     {
-      title: 'Aurora AI Econometrica',
-      desc: 'Marketing Mix Modeling без программирования. Байесовское моделирование медиаканалов, декомпозиция продаж и оптимизация бюджета — всё в одном интерфейсе.',
+      title: 'Aurora AI Econometrica\nMMM Optimizer',
+      desc: 'Marketing Mix Modeling без программирования. Байесовское моделирование медиаканалов, декомпозиция продаж и оптимизация бюджета.\nВсе в одном интерфейсе.',
       icon: 'M3 3v18h18 M7 16l4-5 4 3 4-7',
     },
     {
       title: 'Модели и методы',
-      desc: 'PyMC + NUTS sampler для байесовского вывода. Hill function для saturation curves, adstock-преобразования (geometric/Weibull) для моделирования запаздывающего эффекта. Поддержка линейных и нелинейных моделей.',
+      desc: 'NumPyro + JAX для быстрого байесовского вывода (MCMC за секунды). Hill function для saturation curves, adstock-преобразования (geometric/Weibull) для моделирования запаздывающего эффекта. Автоматический подбор гиперпараметров.',
       icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
     },
     {
       title: 'Как начать',
-      desc: 'Загрузите Excel с данными через «Входящие» и запустите команду /mmm-full для полного цикла MMM. Или используйте Visual Pipeline для пошагового анализа: Import → Validate → Model → Decompose → Optimize → Report.',
+      desc: 'Создайте проект, загрузите Excel с недельными данными и пройдите 6 шагов пайплайна: Import → Validate → Model → Decompose → Optimize → Report. Каждый шаг с встроенным онбордингом и живыми подсказками.',
       icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
     },
     {
-      title: 'Уникальные возможности',
-      desc: 'Drag-to-adjust response curves для интерактивной оптимизации бюджета. Автоматическая валидация данных со светофором качества. XLSX-отчёты с уровнями уверенности для каждого канала.',
+      title: 'Клиент-ready отчёты',
+      desc: 'Интерактивный HTML, PPTX и XLSX - отчеты. MQS-светофор показывает качество модели, живые what-if сценарии - эффект перераспределения бюджета.',
       icon: 'M12 20V10 M18 20V4 M6 20v-4',
     },
   ];
@@ -150,6 +150,7 @@
     font-weight: 700;
     margin-bottom: 10px;
     letter-spacing: -0.02em;
+    white-space: pre-line;
   }
 
   .step-desc {
@@ -157,6 +158,7 @@
     line-height: 1.6;
     color: var(--text-secondary);
     margin-bottom: 24px;
+    white-space: pre-line;
   }
 
   .dots {
@@ -239,5 +241,17 @@
   @keyframes icon-appear {
     from { transform: scale(0.8); opacity: 0; }
     to { transform: scale(1); opacity: 0.85; }
+  }
+
+  /* v2.1.0 п.5.6: instant overlay appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .modal,
+    .step-content,
+    .step-icon {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    .step-icon { opacity: 0.85; }
   }
 </style>

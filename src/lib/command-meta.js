@@ -1,7 +1,7 @@
 /**
  * Command metadata and cabinet categorization for Aurora AI.
- * Provides descriptions, examples, and grouping — all frontend-side.
- * CabinetCommand in Rust has only {command, label, group} — no descriptions.
+ * Provides descriptions, examples, and grouping - all frontend-side.
+ * CabinetCommand in Rust has only {command, label, group} - no descriptions.
  *
  * @module command-meta
  */

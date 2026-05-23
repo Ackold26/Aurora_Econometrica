@@ -87,7 +87,7 @@
   /** @type {Record<string, boolean>} */
   let collapsedState = $state({});
 
-  // Loading timeout — show empty state after 5 seconds of skeleton
+  // Loading timeout - show empty state after 5 seconds of skeleton
   let loadingTooLong = $state(false);
   $effect(() => {
     if (commands.length === 0 && !loadError && cabinetId) {
@@ -150,7 +150,7 @@
   {:else}
     <!-- Cabinet orientation -->
     {#if $activeCabinet?.description}
-      <p class="grid-intro">{$activeCabinet.description} — выберите команду или введите запрос.</p>
+      <p class="grid-intro">{$activeCabinet.description} - выберите команду или введите запрос.</p>
     {/if}
 
     <!-- Quick Access (pinned favorites) -->
@@ -398,5 +398,12 @@
     border-color: var(--accent-glow-strong);
     color: var(--accent-primary, #2E5BFF);
     background: var(--hover-bg);
+  }
+
+  /* v2.1.0 п.5.6: static skeleton background */
+  @media (prefers-reduced-motion: reduce) {
+    .grid-skeleton {
+      background: var(--bg-card-hover);
+    }
   }
 </style>

@@ -42,5 +42,5 @@ pub fn decrypt(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>> {
     cipher
         .decrypt(nonce, ciphertext)
         .map_err(|e| coded_err(ErrorCode::VT002, &format!("AES decryption failed (wrong key or corrupted data): {e}")))
-        .context(coded(ErrorCode::VT002, "Vault decryption failed — possibly wrong machine or corrupted vault"))
+        .context(coded(ErrorCode::VT002, "Vault decryption failed - possibly wrong machine or corrupted vault"))
 }

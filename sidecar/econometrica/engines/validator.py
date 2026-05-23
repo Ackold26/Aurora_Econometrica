@@ -22,18 +22,33 @@ MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'vie
                   'радио', 'пресса', 'digital', 'programmatic',
                   # Out-of-Home: English (OOH, outdoor) + Russian (ООН, наружная)
                   'ooh', 'outdoor', 'оон', 'наружн',
-                  # OTS (Opportunity To See) — impression-like metric for OOH/TV
+                  # OTS (Opportunity To See) - impression-like metric for OOH/TV
                   'ots',
-                  # TV (television) — English + Russian
+                  # TV (television) - English + Russian
                   'tv', 'television', 'тв ', 'тв_', 'тв-',
-                  'price', 'promo', 'цен', 'промо']
+                  'promo', 'промо']
+# NOTE v2.0.0: 'price' removed from MEDIA_PATTERNS — moved to CONTROL_PATTERNS
+# (signed control factor per ADR-019, may be positive OR negative coefficient).
+# 'цен' also moved.
 DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
 CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
                     'seasonality', 'temperature', 'weather', 'holiday',
                     'som', 'sov', 'sos', 'share_of', 'share of',
                     'конкурент', 'конк.', 'конк ',
                     'сезон', 'дистрибуц', 'погод', 'праздни',
-                    'запрос', 'кол-во запрос']
+                    'запрос', 'кол-во запрос',
+                    # NEW v2.0.0 — signed control factors (ADR-019 §4)
+                    'price', 'цен', 'индекс_цен', 'price_index',
+                    'avg_price', 'unit_price', 'mean_price',
+                    'cpi', 'consumer_price', 'inflation', 'ипц', 'инфляция',
+                    'gdp', 'ввп', 'gdp_growth',
+                    'fx_rate', 'exchange_rate', 'usd_rub', 'eur_rub',
+                    'курс_рубля', 'курс_доллара', 'курс_евро',
+                    'rain', 'snow', 'precipitation', 'осадк',
+                    'temp', 'температур',
+                    'svok',  # ROSST industry: share_of_voice_konkurentov
+                    'event',  # additional holiday/event markers
+                    ]
 
 
 def detect_column_role(col_name: str) -> str:
@@ -48,6 +63,11 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     Returns:
         (role, confidence) where role is 'kpi'|'media'|'control'|'date'|'unknown'
     """
+    # Defensive guard (audit H-19). pandas header parsing на merged cells /
+    # blank Excel columns может вернуть NaN (float) или None — без guard'a
+    # .lower() raises AttributeError → весь /validate endpoint крашится 500.
+    if not isinstance(col_name, str):
+        return 'unknown', 0.0
     lower = col_name.lower()
 
     # Date: high confidence for exact names
@@ -61,6 +81,23 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     COMPETITOR_KEYS = ['конкурент', 'конк.', 'конк ', 'competitor']
     if any(k in lower for k in COMPETITOR_KEYS):
         return 'control', 0.90
+
+    # BUG #3 fix (v2.0.1): derived metrics (SOM / SOV / market_share) — это
+    # ratio computed from KPI (brand_sales / total_market). Использование как
+    # predictor → endogeneity (predictor зависит от outcome). По умолчанию
+    # исключаем из модели. Юзер может explicitly включить через Roles UI.
+    # Включён trailing space / suffix чтобы не ловить 'svok'/'mosgorsovet'.
+    DERIVED_KEYS = [
+        'som в', 'som (', 'som_',
+        'sov ', 'sov (', 'sov_',
+        'share_of_market', 'share of market', 'market_share', 'market share',
+        'share_of_voice', 'share of voice',
+        'доля_рынка', 'доля рынка', 'доля_голоса', 'доля голоса',
+    ]
+    if (any(k in lower for k in DERIVED_KEYS)
+            or lower in ('som', 'sov')
+            or lower.endswith(' som') or lower.endswith(' sov')):
+        return 'unused', 0.85
 
     # Count pattern matches per category
     kpi_matches = sum(1 for p in KPI_PATTERNS if p in lower)
@@ -79,6 +116,54 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
         return 'media', round(conf, 2)
     conf = min(0.50 + control_matches * 0.15, 0.90)
     return 'control', round(conf, 2)
+
+
+def validate_role_compatibility(
+    unit_costs: dict,
+    media_columns: list,
+    classifier_fn=None,
+) -> tuple[bool, str, str]:
+    """Cross-field validation для KPI settings save (Phase 1.2).
+
+    Checks:
+      1. Each channel in unit_costs существует в media_columns.
+      2. Channel name doesn't match target/control patterns (would indicate
+         user accidentally set unit_cost for non-media role).
+
+    Args:
+        unit_costs: {channel: ₽_per_unit} from frontend save request
+        media_columns: list of column names classified as media in project state
+        classifier_fn: optional callable(name) -> kind для unit-test substitution
+
+    Returns:
+        (is_valid: bool, error_code: str, message: str)
+        error_code в {'OK', 'UNIT_COST_CHANNEL_NOT_MEDIA', 'UNIT_COST_LIKELY_TARGET'}
+    """
+    if not unit_costs:
+        return True, 'OK', ''
+    if not isinstance(media_columns, (list, tuple)):
+        media_columns = list(media_columns or [])
+    media_set = {str(c) for c in media_columns}
+
+    for channel in unit_costs.keys():
+        if channel in media_set:
+            continue  # OK
+        # Channel not in media list → likely user error (e.g., set unit_cost
+        # для column которая помечена как target / control).
+        # Optional: use classifier_fn для better диагностики
+        kind_hint = ''
+        if classifier_fn is not None:
+            try:
+                kind_hint = f' (classified as {classifier_fn(channel)!r})'
+            except Exception:  # noqa: BLE001 — defensive против user input
+                kind_hint = ''
+        return (
+            False,
+            'UNIT_COST_CHANNEL_NOT_MEDIA',
+            f'unit_cost задан для канала {channel!r}, который не в списке media{kind_hint}. '
+            f'Удалите запись или измените role канала в шаге «Роли колонок».',
+        )
+    return True, 'OK', ''
 
 
 def detect_adstock_type(col_name: str) -> str:
@@ -223,6 +308,22 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
         if role == 'date':
             date_col = col
+            # Phase 2 audit pass 5: per-column year span detection - позволяет
+            # frontend (UnitCostsPanel) показать %/год input БЕЗ зависимости от
+            # обученного pickle (econ_forecast_context требует model.latest.pkl).
+            try:
+                _dates = pd.to_datetime(df[col], errors='coerce').dropna()
+                if not _dates.empty:
+                    _years = _dates.dt.year
+                    _unique_years = sorted(set(int(y) for y in _years.unique()))
+                    col_info['date_stats'] = {
+                        'min_date': _dates.min().strftime('%Y-%m-%d'),
+                        'max_date': _dates.max().strftime('%Y-%m-%d'),
+                        'unique_years': _unique_years,
+                        'n_years': len(_unique_years),
+                    }
+            except Exception:
+                pass  # Non-fatal - date detection still works без stats
         elif role == 'kpi':
             kpi_cols.append(col)
         elif role == 'media':
@@ -251,7 +352,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 warnings.append({
                     'column': col,
                     'type': 'high_zeros',
-                    'message': f'{col} — {zeros_pct}% нулей. Рекомендуем объединить с другим каналом',
+                    'message': f'{col} - {zeros_pct}% нулей. Рекомендуем объединить с другим каналом',
                     'severity': 'warning',
                     'action': 'merge',
                 })
@@ -259,7 +360,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 warnings.append({
                     'column': col,
                     'type': 'low_variance',
-                    'message': f'{col} — вариативность <5%. Канал не информативен для модели',
+                    'message': f'{col} - вариативность <5%. Канал не информативен для модели',
                     'severity': 'warning',
                     'action': 'exclude',
                 })
@@ -289,18 +390,33 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         })
 
     # ── Data volume check ──
+    # v2.1.0 (пилот 2026-05-17, #37): SSOT ratio thresholds + texts с
+    # frontend ratio-classifier.js. 5 коридоров:
+    #   < 2:1 - error/critical: «Критически мало»
+    #   2-3:1 - warning-high: «Ниже минимума»
+    #   3-4:1 - warning: «Ниже рекомендуемого»
+    #   4-6:1 - info: «Рекомендуемый уровень» (no warning)
+    #   ≥ 6:1 - success: «Идеально» (no warning)
+    # Labels одинаковые с frontend - юзер видит согласованный текст
+    # в Validation, инсайтах и Контроле качества.
     n_predictors = len(media_cols) + len(control_cols)
     ratio = n_rows / max(n_predictors, 1)
-    if ratio < 3:
+    if ratio < 2:
         issues.append({
             'type': 'insufficient_data',
-            'message': f'Ratio данных {ratio:.1f}:1 — критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных',
+            'message': f'Ratio данных {ratio:.1f}:1 - критически мало. Модель почти наверняка переобучится - β-коэффициенты будут случайными',
             'severity': 'critical',
+        })
+    elif ratio < 3:
+        warnings.append({
+            'type': 'low_data',
+            'message': f'Ratio {ratio:.1f}:1 - ниже минимума. Модель сойдётся, но доверительные интервалы будут очень широкими - используйте результаты как ориентир',
+            'severity': 'warning',
         })
     elif ratio < 4:
         warnings.append({
             'type': 'borderline_data',
-            'message': f'Ratio {ratio:.1f}:1 — пограничное (рекомендуем ≥10:1). Модель построится с расширенными доверительными интервалами',
+            'message': f'Ratio {ratio:.1f}:1 - ниже рекомендуемого. Модель работает, но с широкими доверительными интервалами - результаты как качественные ориентиры',
             'severity': 'warning',
         })
 
@@ -321,7 +437,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     if period_weeks < 52:
         warnings.append({
             'type': 'short_period',
-            'message': f'{period_weeks} наблюдений — менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
+            'message': f'{period_weeks} наблюдений - менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
             'severity': 'warning',
         })
 
@@ -348,7 +464,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                         high_correlations.append({
                             'col1': c1, 'col2': c2,
                             'correlation': round(float(corr_df.loc[c1, c2]), 3),
-                            'risk': 'Мультиколлинеарность — один из столбцов может быть избыточен',
+                            'risk': 'Мультиколлинеарность - один из столбцов может быть избыточен',
                         })
 
     # ── Traffic Light verdict ──
@@ -357,6 +473,35 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     verdict = 'ТРЕБУЕТ ДОРАБОТКИ' if has_critical else (
         'ГОТОВ К МОДЕЛИРОВАНИЮ (с оговорками)' if warnings else 'ГОТОВ К МОДЕЛИРОВАНИЮ'
     )
+
+    # v2.1.0 (пилот 2026-05-17 audit): available_kpi_types - набор KPI типов
+    # которые соответствуют ролям колонок в данных. Frontend KPISelector
+    # disable'ит cards вне этого списка - юзер не может выбрать тип leads
+    # если backend нашёл только target_monetary колонку (KPI mismatch).
+    #
+    # v2.1.0 pilot R2 (2026-05-17 B2-04): target_count whitelist расширен до
+    # 7 типов, sync с decomposer.py:357-358 (_count_types set) и frontend
+    # KPISelector.svelte:74-82 (countOptions list). Раньше backend
+    # whitelist'ил только 4 типа → юзер видел disabled cards для loyalty_cards
+    # / subscriptions / app_installs хотя реальный data role совпадал.
+    from utils.column_detection import classify_column as _classify_kpi
+    _COUNT_KPI_TYPES = [
+        'sales_packs', 'leads', 'registrations',
+        'loyalty_cards', 'subscriptions', 'app_installs', 'count_custom',
+    ]
+    _MONETARY_KPI_TYPES = ['sales', 'revenue', 'profit']
+    available_kpi_types: set[str] = set()
+    for c in columns:
+        nm = c.get('name') or ''
+        kind = _classify_kpi(nm)
+        if kind == 'target_count':
+            available_kpi_types.update(_COUNT_KPI_TYPES)
+        elif kind == 'target_monetary':
+            available_kpi_types.update(_MONETARY_KPI_TYPES)
+    # Fallback: backend не нашёл явный target target_* → не блокируем выбор
+    # (юзер сам решит roles в Roles Mapper).
+    if not available_kpi_types:
+        available_kpi_types = set(_COUNT_KPI_TYPES) | set(_MONETARY_KPI_TYPES)
 
     result: dict[str, Any] = {
         'status': status,
@@ -377,6 +522,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'ratio': round(ratio, 1),
             'date_frequency': date_frequency,
         },
+        'available_kpi_types': sorted(available_kpi_types),
         'issues': issues,
         'warnings': warnings,
         'high_correlations': high_correlations,
@@ -385,7 +531,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     # Save to project dir if provided.
     # Под RemoteApp/roaming profile запись может упасть с PermissionError /
-    # OSError / invalid path — GUI всё равно получает result через return.
+    # OSError / invalid path - GUI всё равно получает result через return.
     # default=str страхует numpy-типы, которые json не умеет сериализовать.
     if project_dir:
         try:

@@ -83,7 +83,7 @@
       <div class="wizard-card">
         {#if step === 1}
           <h2>Создание бренда</h2>
-          <p class="wizard-subtitle">Шаг 1 из 2 — Основная информация</p>
+          <p class="wizard-subtitle">Шаг 1 из 2 - Основная информация</p>
 
           <label class="field">
             <span>Название <span class="required">*</span></span>

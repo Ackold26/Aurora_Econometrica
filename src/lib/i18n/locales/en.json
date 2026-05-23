@@ -1,0 +1,70 @@
+{
+  "$schema": "Aurora MMM Optimizer i18n dictionary (EN). Placeholders — реальный перевод запланирован к v2.2.0+ после native reviewer pass. Pharma/MMM terminology требует expert validation (confounding / endogeneity / saturation / adstock — exact translations matter).",
+
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "continue": "Continue",
+    "back": "Back",
+    "next": "Next",
+    "retry": "Retry",
+    "close": "Close",
+    "delete": "Delete",
+    "edit": "Edit",
+    "loading": "Loading...",
+    "saving": "Saving...",
+    "yes": "Yes",
+    "no": "No",
+    "ok": "OK",
+    "remove": "Remove",
+    "restore": "Restore",
+    "apply": "Apply",
+    "more": "Details"
+  },
+
+  "errors": {
+    "generic": "An error occurred",
+    "network": "Server connection error",
+    "save_failed": "Failed to save",
+    "load_failed": "Failed to load",
+    "migration_failed": "Failed to upgrade project format",
+    "migration_failed_detail": "A backup of project.json has been saved. Please try again — if the error repeats, close other tabs and verify there is free disk space.",
+    "lock_timeout": "Project is being used by another session. Please wait and retry."
+  },
+
+  "industry": {
+    "label": "Industry",
+    "placeholder": "— Industry —",
+    "pharma_otc": "Pharma OTC",
+    "pharma_rx": "Pharma Rx",
+    "fmcg": "FMCG",
+    "retail": "Retail",
+    "saas": "SaaS / Digital",
+    "finance": "Finance",
+    "b2b": "B2B",
+    "unknown": "Not set"
+  },
+
+  "pipeline": {
+    "import": "Import",
+    "validate": "Validate",
+    "model": "Model",
+    "decomposition": "Decomposition",
+    "optimization": "Optimization",
+    "report": "Report"
+  },
+
+  "validate": {
+    "substep": {
+      "kpi": "Target KPI",
+      "roles": "Column roles",
+      "value_per_count": "Value per unit",
+      "channels": "Channel metrics",
+      "confirmation": "Confirmation"
+    },
+    "reset_step": "Reset step",
+    "back_to_kpi": "← Change target KPI",
+    "back_to_roles": "← Change column roles"
+  }
+}

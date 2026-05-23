@@ -10,6 +10,7 @@
   getVersion().then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
   import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
   import { onboardingEnabled } from '$lib/onboarding-state.js';
+  import { hideEducationalHints, showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
 
   let audioEnabled = $state(isAudioEnabled());
 
@@ -343,7 +344,7 @@
       <h2 class="section-title">Обучающий режим</h2>
       <p class="section-desc">
         Краткие подсказки по каждому шагу пайплайна (Импорт → Валидация → Модель → Декомпозиция → Оптимизация → Отчёт).
-        Показываются каждый раз пока включены — отключаются здесь или прямо из тура кнопкой «Отключить обучение».
+        Показываются каждый раз пока включены - отключаются здесь или прямо из тура кнопкой «Отключить обучение».
       </p>
       <div class="theme-toggle-row">
         <span class="theme-label">Показывать туры</span>
@@ -370,11 +371,64 @@
     </section>
 
     <section class="section">
+      <h2 class="section-title">Подсказки и обучение (v1.3)</h2>
+      <p class="section-desc">
+        Inline tooltips, «Зачем этот шаг?» панели и подсказки по терминам. По умолчанию включены для новых пользователей.
+        Опытные эконометристы могут скрыть для чистого UI.
+      </p>
+      <div class="theme-toggle-row">
+        <span class="theme-label">Скрыть подсказки</span>
+        <button
+          class="theme-toggle"
+          onclick={() => hideEducationalHints.set(!$hideEducationalHints)}
+          aria-label="Toggle educational hints"
+        >
+          {#if $hideEducationalHints}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Скрыты (Expert)</span>
+          {:else}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/>
+              <line x1="15" y1="9" x2="9" y2="15"/>
+              <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+            <span>Показаны (Novice)</span>
+          {/if}
+        </button>
+      </div>
+
+      <div class="theme-toggle-row" style="margin-top: 12px;">
+        <span class="theme-label">Открыть глоссарий</span>
+        <button
+          class="theme-toggle"
+          onclick={() => showGlossaryPanel.set(true)}
+          aria-label="Open glossary"
+          title="Также Ctrl+G"
+        >
+          <span>📖 20 терминов · Ctrl+G</span>
+        </button>
+      </div>
+
+      <div class="theme-toggle-row" style="margin-top: 12px;">
+        <span class="theme-label">Показать вступительный тур</span>
+        <button
+          class="theme-toggle"
+          onclick={() => showIntroTutorial.set(true)}
+          aria-label="Show intro tutorial"
+        >
+          <span>🎓 Что такое MMM (5 мин)</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="section">
       <h2 class="section-title">Папка для проектов Econometrica</h2>
       <p class="section-desc">
         Где хранятся данные, модели, результаты и экспорты всех MMM-проектов.
-        По умолчанию — в скрытой системной папке. Можно задать свою (например,
-        на облачном диске или внешнем накопителе) — но существующие проекты автоматически не переносятся.
+        По умолчанию - в скрытой системной папке. Можно задать свою (например,
+        на облачном диске или внешнем накопителе) - но существующие проекты автоматически не переносятся.
       </p>
       {#if econRoot}
         <div class="theme-toggle-row" style="align-items: flex-start;">
@@ -513,64 +567,30 @@
       </button>
     </section>
 
+    <!-- L18-L20 (math-fix v1.4 Section C, 2026-04-29): Settings cleanup.
+         Removed: file-based «Лицензия» block (legacy [LI-001] error pattern),
+         «Версия контента: c1» (unclear notation). Renamed: «Подключение к
+         серверу» → «Лицензия» (online auth = primary licensing path).
+         Backend code preserved (SA15) - Ed25519 + license.rs остаются для
+         legacy fallback в online_auth.rs flow. -->
     <section class="section">
       <h2 class="section-title">Лицензия</h2>
-      {#if licenseError}
-        <div class="status-card status-error">
-          <span class="status-dot error"></span>
-          <div>
-            <p class="status-label">Лицензия не найдена</p>
-            <p class="status-detail">{licenseError}</p>
-          </div>
-        </div>
-      {:else if licenseStatus}
-        <div class="status-card" class:status-ok={licenseStatus.valid} class:status-error={!licenseStatus.valid}>
-          <span class="status-dot" class:ok={licenseStatus.valid} class:error={!licenseStatus.valid}></span>
-          <div>
-            <p class="status-label">
-              {licenseStatus.valid ? 'Лицензия активна' : 'Лицензия невалидна'}
-            </p>
-            {#if licenseStatus.error}
-              <p class="status-detail">{licenseStatus.error}</p>
-            {/if}
-            <p class="status-detail">Компания: {licenseStatus.issued_to}</p>
-            <p class="status-detail">Истекает: {licenseStatus.expires_at}</p>
-            {#if licenseStatus.cabinets.length > 0}
-              <p class="status-detail">Кабинеты: {licenseStatus.cabinets.join(', ')}</p>
-            {/if}
-          </div>
-        </div>
-      {/if}
-
-      <button class="btn btn-accent" onclick={importLicense}>
-        Импортировать лицензию
-      </button>
-      {#if importStatus}
-        <p class="import-status">{importStatus}</p>
-      {/if}
-    </section>
-
-    <section class="section">
-      <h2 class="section-title">Подключение к серверу</h2>
       <div class="connection-status">
         {#if onlineStatus}
           <div class="status-row">
             <span class="status-dot" class:dot-ok={onlineStatus.status === 'ok'} class:dot-cached={onlineStatus.status === 'cached'} class:dot-offline={onlineStatus.status === 'offline' || onlineStatus.status === 'blocked'}></span>
             <span class="status-text-label">
               {#if onlineStatus.status === 'ok'}
-                Подключён к серверу
+                Лицензия активна
               {:else if onlineStatus.status === 'cached'}
-                Работа по кэшу
+                Работа по кэшу (соединение временно недоступно)
               {:else}
-                Офлайн
+                Лицензия не подтверждена
               {/if}
             </span>
           </div>
           {#if onlineStatus.expires_at}
-            <p class="connection-detail">Лицензия до: {new Date(onlineStatus.expires_at).toLocaleDateString('ru-RU')}</p>
-          {/if}
-          {#if contentVersion}
-            <p class="connection-detail">Версия контента: {contentVersion}</p>
+            <p class="connection-detail">Действует до: {new Date(onlineStatus.expires_at).toLocaleDateString('ru-RU')}</p>
           {/if}
           {#if onlineStatus.machine_id}
             <p class="connection-detail">Instance: {onlineStatus.machine_id}</p>
@@ -584,57 +604,8 @@
       </div>
     </section>
 
-    <section class="section">
-      <h2 class="section-title">Статистика использования</h2>
-      {#if usageMetrics}
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.total_sessions}</span>
-            <span class="metric-label">Сессий</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.total_messages}</span>
-            <span class="metric-label">Сообщений</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.total_exports}</span>
-            <span class="metric-label">Экспортов</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-value">{usageMetrics.avg_response_time_secs > 0 ? usageMetrics.avg_response_time_secs.toFixed(0) + 'с' : '—'}</span>
-            <span class="metric-label">Ср. время ответа</span>
-          </div>
-        </div>
-        {#if usageMetrics.first_use}
-          <p class="metric-detail">Используется с {usageMetrics.first_use.split('T')[0]}</p>
-        {/if}
-        {#if usageMetrics.command_counts && Object.keys(usageMetrics.command_counts).length > 0}
-          {@const allowedCmds = ['analytics', 'check', 'action-title', 'executive-summary', 'bridges', 'batch-analytics', 'data-analysis', 'benchmark', 'aurora-index']}
-          {@const entries = Object.entries(usageMetrics.command_counts).filter(([cmd]) => allowedCmds.includes(cmd)).sort((a, b) => b[1] - a[1]).slice(0, 10)}
-          {@const maxCount = entries.length > 0 ? Math.max(...entries.map(e => e[1])) : 1}
-          <div class="chart-section">
-            <h3 class="chart-title">Использование команд</h3>
-            <div class="chart-bars">
-              {#each entries as [cmd, count]}
-                <div class="chart-row">
-                  <span class="chart-label">/{cmd}</span>
-                  <div class="chart-bar-track">
-                    <div
-                      class="chart-bar-fill"
-                      style="width: {(count / maxCount) * 100}%"
-                    ></div>
-                  </div>
-                  <span class="chart-value">{count}</span>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-        <button class="reset-metrics-btn" onclick={resetMetrics}>Сбросить статистику</button>
-      {:else}
-        <p class="section-desc">Данных пока нет — начните работу с кабинетами</p>
-      {/if}
-    </section>
+    <!-- L18-L20: «Статистика использования» block removed entirely (irrelevant
+         для Econometrica build, leaked Aurora Agency commands в UI). -->
 
     {#if vaultStatus.length > 0}
       <section class="section">
@@ -653,7 +624,7 @@
 
     <section class="section">
       <h2 class="section-title">Логи и диагностика</h2>
-      <p class="section-desc">Журнал работы приложения. При проблемах — экспортируйте отчёт и отправьте в поддержку.</p>
+      <p class="section-desc">Журнал работы приложения. При проблемах - экспортируйте отчёт и отправьте в поддержку.</p>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <button class="btn-logs" onclick={async () => { try { await invoke('open_logs_folder'); } catch(e) { console.error(e); } }}>
           Открыть папку логов
@@ -1395,5 +1366,12 @@
 
   .btn-path-reset {
     color: var(--text-muted);
+  }
+
+  /* v2.1.0 п.5.6: static status dot - no pulse glow */
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot.dot-ok {
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 40%, transparent);
+    }
   }
 </style>

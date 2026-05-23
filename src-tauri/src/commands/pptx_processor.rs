@@ -138,7 +138,7 @@ fn find_pipeline() -> Result<(String, Vec<String>)> {
     }
 }
 
-/// Pipeline timeout — kill process if it takes longer than this.
+/// Pipeline timeout - kill process if it takes longer than this.
 const PIPELINE_TIMEOUT_SECS: u64 = 60;
 
 /// Run the pipeline with given mode and args. Returns stdout as String.
@@ -178,7 +178,7 @@ fn run_pipeline(mode: &str, args: &[&str]) -> Result<String> {
             .context("Failed to spawn pptx_pipeline")?
     };
 
-    // Wait with timeout — prevent hanging process from blocking the app
+    // Wait with timeout - prevent hanging process from blocking the app
     let pid = child.id();
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -452,7 +452,7 @@ pub fn generate_overview(slides: &[serde_json::Value]) -> String {
 
     for slide in slides {
         let num = slide["slide_num"].as_u64().unwrap_or(0);
-        let title = slide["title"].as_str().unwrap_or("—");
+        let title = slide["title"].as_str().unwrap_or("-");
         let stype = slide["type"].as_str().unwrap_or("unknown");
         let source = slide.get("source").and_then(|v| v.as_str());
 
@@ -1021,10 +1021,10 @@ fn trend_direction(values: &[Option<f64>]) -> &'static str {
 
 pub fn format_analytics_context(analytics: &PresentationAnalytics) -> String {
     let mut out = String::with_capacity(2048);
-    out.push_str("[AURORA INDEX — ВСПОМОГАТЕЛЬНЫЕ ДАННЫЕ (НЕ основное задание)]\n\
-        Ниже — автоматический предварительный анализ числовых данных из графиков. \
+    out.push_str("[AURORA INDEX - ВСПОМОГАТЕЛЬНЫЕ ДАННЫЕ (НЕ основное задание)]\n\
+        Ниже - автоматический предварительный анализ числовых данных из графиков. \
         Используй как ДОПОЛНИТЕЛЬНЫЙ контекст при выполнении ОСНОВНОГО задания. \
-        НЕ меняй формат ответа — выполняй задание из команды.\n\n");
+        НЕ меняй формат ответа - выполняй задание из команды.\n\n");
     out.push_str(&format!(
         "{} блоков, {} аномалий ({} критических), {} межслайдовых связей\n\n",
         analytics.health.block_count,
@@ -1111,7 +1111,7 @@ pub fn format_analytics_context(analytics: &PresentationAnalytics) -> String {
     }
 
     out.push_str(
-        "Эти данные — вспомогательные. Выполняй ОСНОВНОЕ задание из команды (послайдовые комментарии, check, executive summary и т.п.). Упоминай аномалии и тренды в комментариях где релевантно.\n",
+        "Эти данные - вспомогательные. Выполняй ОСНОВНОЕ задание из команды (послайдовые комментарии, check, executive summary и т.п.). Упоминай аномалии и тренды в комментариях где релевантно.\n",
     );
     out
 }
@@ -1346,7 +1346,7 @@ ACTION TITLE: Digital лидирует
 1. Рынок растёт
 2. Digital лидирует
 
-## БЛОК: Инвестиции — слайды 4-5
+## БЛОК: Инвестиции - слайды 4-5
 Бюджеты выросли на 34%.
 
 ## МОСТЫ

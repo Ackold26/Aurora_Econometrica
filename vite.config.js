@@ -32,9 +32,14 @@ export default defineConfig(async ({ mode }) => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 1420,
+    port: 5173,
     strictPort: true,
-    host: host || false,
+    // Phase 0.1 live-test fix: WebView2 на Windows резолвит "localhost" в IPv6 (::1).
+    // Vite default (host: false) слушает только на IPv4 127.0.0.1 → ERR_CONNECTION_TIMED_OUT.
+    // Явный 127.0.0.1 синхронизирует резолв с tauri.conf.json devUrl.
+    // Port 1420 на машине Антона зависал в SYN_RECEIVED (Hyper-V/HNS dynamic claim);
+    // 5173 (Vite default) — clean.
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

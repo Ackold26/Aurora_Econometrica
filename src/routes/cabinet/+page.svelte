@@ -23,7 +23,7 @@
   }
 
   // C4: Cabinet Mastery Badge (Self-Determination Theory)
-  // $milestones читается для реактивности — пересчитывается при каждом запросе
+  // $milestones читается для реактивности - пересчитывается при каждом запросе
   const masteryBadge = $derived.by(() => {
     if (!$activeCabinet) return null;
     void $milestones; // подписка для реактивного пересчёта
@@ -70,7 +70,7 @@
 
   /**
    * Check if command requires files and inbox is empty.
-   * @param {string} command — slash command (e.g. "/analytics")
+   * @param {string} command - slash command (e.g. "/analytics")
    * @returns {boolean} true if OK to proceed
    */
   function checkInboxRequired(command) {
@@ -247,7 +247,7 @@
 
   // Update window title to match cabinet name
   $effect(() => {
-    document.title = $activeCabinet ? `${getProductName($productType)} — ${$activeCabinet.name}` : getProductName($productType);
+    document.title = $activeCabinet ? `${getProductName($productType)} - ${$activeCabinet.name}` : getProductName($productType);
   });
 
   async function openHelp() {
@@ -263,7 +263,7 @@
   async function goBack() {
     const cabinetId = $activeCabinet?.id;
     if (cabinetId) lastCabinetId.set(cabinetId);
-    // PSY-8: Session Arc — показать summary при уходе
+    // PSY-8: Session Arc - показать summary при уходе
     const session = endSession();
     if (session && session.requests > 0) {
       const reqWord = pluralRu(session.requests, 'запрос', 'запроса', 'запросов');
@@ -290,7 +290,7 @@
     <!-- ── Cabinet Header ── -->
     {#if !zenMode}
       <header class="header" style="--cabinet-color: {$activeCabinet.color}">
-        <!-- Логотип + название продукта — тот же layout что в главном меню (src/routes/+page.svelte) -->
+        <!-- Логотип + название продукта - тот же layout что в главном меню (src/routes/+page.svelte) -->
         <div class="topbar-left">
           <img src="/logo-wordmark.png" alt="Aurora AI" class="topbar-logo" />
           <div class="brand">
@@ -298,7 +298,7 @@
           </div>
         </div>
         {#if $activeProject}
-          <span class="breadcrumb-project" title="Активный проект — переключение в pipeline">
+          <span class="breadcrumb-project" title="Активный проект - переключение в pipeline">
             📊 {$activeProject.name}
           </span>
         {/if}
@@ -362,7 +362,7 @@
 
     {#key $activeCabinet?.id}
       <div class="content">
-        <!-- SlidePanel — LEFT side (like PowerPoint), visible alongside FileList -->
+        <!-- SlidePanel - LEFT side (like PowerPoint), visible alongside FileList -->
         {#if slidePanelVisible && activeSlideData && workspaceMode === 'execution'}
           <SlidePanel
             sections={activeSlideData.slides}
@@ -506,7 +506,7 @@
     text-transform: uppercase;
   }
 
-  /* Логотип+бренд — идентично главному меню (/+page.svelte) */
+  /* Логотип+бренд - идентично главному меню (/+page.svelte) */
   .topbar-left {
     display: flex;
     align-items: center;
@@ -532,7 +532,7 @@
     text-transform: uppercase;
   }
 
-  /* Активный проект — chip рядом с логотипом, как в pipeline */
+  /* Активный проект - chip рядом с логотипом, как в pipeline */
   .breadcrumb-project {
     display: inline-flex;
     align-items: center;
@@ -625,7 +625,7 @@
   /* ── Selection / Execution panels ── */
   .selection-panel,
   .execution-panel {
-    flex: 1 1 0;        /* basis: 0 — height from flex container, not content */
+    flex: 1 1 0;        /* basis: 0 - height from flex container, not content */
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -633,7 +633,7 @@
     transition: opacity 200ms ease-out;
   }
 
-  /* Visibility + height: 0 вместо display:none — сохраняет CSS transitions */
+  /* Visibility + height: 0 вместо display:none - сохраняет CSS transitions */
   .selection-panel.hidden,
   .execution-panel.hidden {
     opacity: 0;
@@ -644,7 +644,7 @@
     visibility: hidden;
   }
 
-  /* Nav-back в footer — слева от поля ввода команды (симметрия с pipeline footer). */
+  /* Nav-back в footer - слева от поля ввода команды (симметрия с pipeline footer). */
   .footer-back-btn {
     display: inline-flex;
     align-items: center;

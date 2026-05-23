@@ -76,4 +76,13 @@
     from { opacity: 0; transform: translateY(8px) scale(0.96); }
     to { opacity: 1; transform: translateY(0) scale(1); }
   }
+
+  /* v2.1.0 п.5.6: instant toast appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .toast {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 </style>

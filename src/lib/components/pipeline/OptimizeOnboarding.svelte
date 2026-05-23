@@ -1,13 +1,13 @@
 <script>
   /**
-   * OptimizeOnboarding — 5-шаговый тур по блокам A→E шага «Оптимизация».
+   * OptimizeOnboarding - 5-шаговый тур по блокам A→E шага «Оптимизация».
    *
    * Подсвечивает блок через box-shadow-mask (без clip-path), показывает info-карточку
    * рядом с элементом. Позиция карточки адаптивная: снизу если сверху места мало,
-   * иначе — сверху. Dismiss-flag в localStorage: aurora-econ-optimize-onboarded.
+   * иначе - сверху. Dismiss-flag в localStorage: aurora-econ-optimize-onboarded.
    *
    * Запускается из OptimizeStep через {@link ensureOnboarding} при mount, только
-   * если флаг не установлен. Пользователь может закрыть на любом шаге — флаг всё
+   * если флаг не установлен. Пользователь может закрыть на любом шаге - флаг всё
    * равно ставится.
    *
    * @component OptimizeOnboarding
@@ -22,31 +22,31 @@
     {
       selector: null,
       title: 'Короткий тур по оптимизации',
-      body: '5 блоков за минуту. Покажу где что делать — потом сразу к работе.',
+      body: '5 блоков за минуту. Покажу где что делать - потом сразу к работе.',
     },
     {
       selector: '.block-status',
-      title: 'Блок A — Текущий бюджет',
+      title: 'Блок A - Текущий бюджет',
       body: 'Твоя стартовая точка. Бюджет, прогноз KPI, средний ROI и светофор насыщения каналов. Чисто статус, без действий.',
     },
     {
       selector: '.block-optimize',
-      title: 'Блок B — Оптимизация',
-      body: 'Находит лучшее распределение в рамках текущего бюджета. Мин/Макс % ограничивают ход каждого канала. Слайдеры — для what-if внутри блока.',
+      title: 'Блок B - Оптимизация',
+      body: 'Находит лучшее распределение в рамках текущего бюджета. Мин/Макс % ограничивают ход каждого канала. Слайдеры - для what-if внутри блока.',
     },
     {
       selector: '.block-whatif',
-      title: 'Блок C — Другой бюджет',
+      title: 'Блок C - Другой бюджет',
       body: 'Что будет если бюджет станет больше или меньше. Отвечает на вопрос «куда уйдут дополнительные деньги» и «какой канал уйдёт первым при сокращении».',
     },
     {
       selector: '.block-forecast',
-      title: 'Блок D — Прогноз на период',
+      title: 'Блок D - Прогноз на период',
       body: 'Медиаинфляция по каналам. Два режима: «Сохранить объём» (нужно больше денег) и «Сохранить бюджет» (меньше физического объёма).',
     },
     {
       selector: '.block-scenarios',
-      title: 'Блок E — Сценарии',
+      title: 'Блок E - Сценарии',
       body: 'Сохраняй варианты распределения как сценарии, сравнивай ROAS в таблице. Две кнопки: «текущее» (слайдеры) или «оптимум» (результат блока B).',
     },
   ];
@@ -97,7 +97,7 @@
       return;
     }
 
-    // Если элемент УЖЕ в viewport (частично), не делаем smooth-scroll — замеряем
+    // Если элемент УЖЕ в viewport (частично), не делаем smooth-scroll - замеряем
     // моментально, избегаем scroll race.
     const vh = window.innerHeight;
     const preRect = el.getBoundingClientRect();
@@ -109,7 +109,7 @@
     }
 
     // Smooth scroll к центру, потом ждём пока rect станет стабильным (два
-    // одинаковых замера подряд = scroll завершён). Fallback — 500мс cap.
+    // одинаковых замера подряд = scroll завершён). Fallback - 500мс cap.
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
     if (scrollSettleRAF !== null) cancelAnimationFrame(scrollSettleRAF);
@@ -126,7 +126,7 @@
       }
       prevTop = r.top;
 
-      // 2 стабильных кадра подряд ИЛИ >500мс — фиксируем
+      // 2 стабильных кадра подряд ИЛИ >500мс - фиксируем
       if (stableFrames >= 2 || performance.now() - startMs > 500) {
         targetRect = r;
         scrollSettleRAF = null;
@@ -179,7 +179,7 @@
     let top;
     if (below >= 220) top = r.bottom + margin;
     else if (above >= 220) top = Math.max(margin, r.top - 220 - margin);
-    else top = margin; // fallback — сверху экрана
+    else top = margin; // fallback - сверху экрана
 
     // По горизонтали: пробуем центрировать относительно блока, кламп в viewport
     let left = r.left + r.width / 2 - cardW / 2;
@@ -188,7 +188,7 @@
     return `position: fixed; top: ${top}px; left: ${left}px; width: ${cardW}px;`;
   });
 
-  // Box-shadow spotlight — затемняет всё кроме прямоугольника блока
+  // Box-shadow spotlight - затемняет всё кроме прямоугольника блока
   let spotlightStyle = $derived.by(() => {
     if (!targetRect) return '';
     const r = targetRect;
@@ -197,7 +197,7 @@
   });
 </script>
 
-<!-- Общий затенитель (при intro/finale — закрывает всё) -->
+<!-- Общий затенитель (при intro/finale - закрывает всё) -->
 <button
   type="button"
   class="onboarding-backdrop"
@@ -206,7 +206,7 @@
   aria-label="Закрыть подсказку"
 ></button>
 
-<!-- Spotlight — вырез вокруг блока через box-shadow -->
+<!-- Spotlight - вырез вокруг блока через box-shadow -->
 {#if targetRect}
   <div class="onboarding-spotlight" style={spotlightStyle}></div>
 {/if}

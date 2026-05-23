@@ -138,7 +138,7 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
 /// Verify SHA256 checksum of a downloaded file.
 pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()> {
     if expected.is_empty() {
-        anyhow::bail!("Update checksum is missing — refusing to install unverified update");
+        anyhow::bail!("Update checksum is missing - refusing to install unverified update");
     }
 
     // Strip "sha256:" prefix if present
@@ -161,6 +161,21 @@ pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()
 }
 
 /// Launch the installer silently and exit the current process.
+///
+/// Phase 3.1 (2026-05-23): stop sidecar before launching installer.
+/// Without this, `econometrica-sidecar.exe` holds `.pyd` file locks → NSIS
+/// "Error opening file for writing" → installer skips locked files silently →
+/// frontend new + sidecar old → silent functional gaps (memory: install-lock-issue).
+/// NSIS PREINSTALL hook (installer_hooks.nsh) is the safety net for cases where
+/// this Rust path is bypassed (manual installer run, watchdog respawn race).
+///
+/// Phase 3.1 audit fix (2026-05-23): launch ordering changed to launch-then-shutdown.
+/// Previous order (shutdown-then-launch с .spawn()) had UAC-denial regression — если
+/// user clicks UAC «No», PowerShell .spawn() returns Ok (PS process started OK),
+/// installer never elevated, но sidecar already killed → app в dead state. Fix:
+/// PowerShell .status() blocking с -ErrorAction Stop catches UAC denial → return Err
+/// → app stays functional → NSIS PREINSTALL hook fires later для actual sidecar kill
+/// когда installer actually extracts.
 pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
     if !installer_path.exists() {
         return Err(coded_err(ErrorCode::UP004, &format!("Installer not found: {}", installer_path.display())));
@@ -168,18 +183,36 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
 
     info!("Applying update: {}", installer_path.display());
 
-    // Launch installer with elevation via PowerShell Start-Process -Verb RunAs
+    // Launch installer with elevation. Block until PowerShell confirms UAC granted +
+    // installer process actually spawned. PS exits 1 если UAC denied OR Start-Process
+    // fails for any other reason → we return Err, sidecar stays alive, app functional.
     let installer_str = installer_path.display().to_string().replace('\'', "''");
-    std::process::Command::new("powershell")
+    let ps_status = std::process::Command::new("powershell")
         .args([
             "-NoProfile", "-Command",
             &format!(
-                "Start-Process -FilePath '{}' -ArgumentList '/S' -Verb RunAs",
+                "try {{ Start-Process -FilePath '{}' -ArgumentList '/S' -Verb RunAs -ErrorAction Stop }} catch {{ exit 1 }}",
                 installer_str
             ),
         ])
-        .spawn()
-        .map_err(|e| coded_err(ErrorCode::UP004, &format!("Failed to launch installer: {e}")))?;
+        .status()
+        .map_err(|e| coded_err(ErrorCode::UP004, &format!("Failed to launch PowerShell: {e}")))?;
+
+    if !ps_status.success() {
+        return Err(coded_err(
+            ErrorCode::UP004,
+            "Installer launch failed (UAC denied or PowerShell error). App remains functional — please retry update.",
+        ));
+    }
+
+    info!("Installer elevated successfully; stopping sidecar to release file locks");
+
+    // PS confirmed: installer process spawned with elevation, actively extracting in background.
+    // NSIS PREINSTALL hook will kill sidecar via taskkill when extraction begins — этот
+    // Rust call редundant но defense-in-depth: closes race window между installer process
+    // creation и NSIS PREINSTALL execution, particularly если watchdog respawn happens.
+    // stop_sidecar idempotent — no-op if NSIS already killed it.
+    crate::econ_sidecar::stop_sidecar();
 
     // Brief pause so UI can show "Installing..." state before exit
     std::thread::sleep(std::time::Duration::from_secs(2));

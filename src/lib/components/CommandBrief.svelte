@@ -1,6 +1,6 @@
 <script>
   /**
-   * CommandBrief — UI-панель параметров команды.
+   * CommandBrief - UI-панель параметров команды.
    * Показывается вместо CommandGrid при клике на команду с briefFields.
    * Собирает параметры и формирует текстовый бриф для отправки в Claude.
    *
@@ -515,5 +515,14 @@
   .run-btn:disabled {
     opacity: 0.35;
     cursor: default;
+  }
+
+  /* v2.1.0 п.5.6: instant panel appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .brief-panel {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
   }
 </style>

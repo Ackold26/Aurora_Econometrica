@@ -388,4 +388,14 @@
     border-color: var(--border);
     background: var(--hover-bg);
   }
+
+  /* v2.1.0 п.5.6: instant appearance, no slide-in */
+  @media (prefers-reduced-motion: reduce) {
+    .onboarding-card,
+    .step-content {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 </style>

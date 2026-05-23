@@ -9,7 +9,10 @@
    * @component ConvergenceDashboard
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   /** @type {{ diagnostics: any }} */
   let { diagnostics } = $props();
@@ -82,6 +85,16 @@
     };
   });
 
+  // R²/MAPE для overlay-HTML (theme-contrastable вместо hardcoded ECharts graphic)
+  const avpMetrics = $derived.by(() => {
+    const r2 = diagnostics?.metrics?.r_squared;
+    const mape = diagnostics?.metrics?.mape_pct;
+    return {
+      r2: r2 != null ? Number(r2).toFixed(4) : null,
+      mape: mape != null ? Number(mape).toFixed(2) : null,
+    };
+  });
+
   /** ECharts option for Actual vs Predicted (Panel B) */
   const avpOption = $derived.by(() => {
     const avp = diagnostics?.actual_vs_predicted;
@@ -91,13 +104,6 @@
       ? avp.dates
       : avp.actual.map((/** @type {any} */ _, /** @type {number} */ i) => `#${i + 1}`);
 
-    // Метрики качества — показываем в правом верхнем углу вместо сухой легенды.
-    const r2 = diagnostics?.metrics?.r_squared;
-    const mape = diagnostics?.metrics?.mape_pct;
-    const r2Str = r2 != null ? `R² = ${Number(r2).toFixed(4)}` : '';
-    const mapeStr = mape != null ? `MAPE = ${Number(mape).toFixed(2)}%` : '';
-    const metricsLine = [r2Str, mapeStr].filter(Boolean).join('   ·   ');
-
     return {
       backgroundColor: 'transparent',
       grid: { left: '60px', right: '20px', top: '38px', bottom: '40px' },
@@ -106,19 +112,6 @@
         left: 'center',
         textStyle: { color: '#94a3b8', fontSize: 11 },
       },
-      graphic: metricsLine ? [{
-        type: 'text',
-        right: 14,
-        top: 6,
-        style: {
-          text: metricsLine,
-          fill: '#e2e8f0',
-          fontFamily: 'Consolas, monospace',
-          fontSize: 11,
-          fontWeight: 600,
-        },
-        z: 10,
-      }] : [],
       xAxis: {
         type: 'category',
         data: xData,
@@ -133,7 +126,18 @@
         type: 'value',
         axisLabel: {
           color: '#94a3b8', fontSize: 10,
-          formatter: (/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU'),
+          // Audit pass 10 (Антон 2026-05-03): compact formatter - full numbers
+          // «100 000 000» (11 chars × ~7px = 77px) обрезались в grid.left=60px
+          // → customer видел «00 000 000» (clipped). Compact «100M» (4 chars)
+          // fits comfortably + читается лучше.
+          formatter: (/** @type {number} */ v) => {
+            if (!Number.isFinite(v)) return '';
+            const abs = Math.abs(v);
+            if (abs >= 1e9) return (v / 1e9).toFixed(1) + 'B';
+            if (abs >= 1e6) return (v / 1e6).toFixed(0) + 'M';
+            if (abs >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+            return String(Math.round(v));
+          },
         },
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
       },
@@ -169,20 +173,33 @@
   const rhatFailed = $derived(
     Object.values(diagnostics?.per_param_rhat || {}).filter(v => v >= 1.05).length
   );
+  /** MCMC config used in this run - drives context-aware divergence advice. */
+  const mcmcTune = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.tune ?? 2000));
+  const mcmcDraws = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.draws ?? 2000));
+  const mcmcChains = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.chains ?? 4));
+  const mcmcTargetAccept = $derived(/** @type {number} */ (diagnostics?.metrics?.mcmc?.target_accept ?? 0.95));
+  /** Total posterior samples = chains × draws. Used для divergence percentage display. */
+  const totalDraws = $derived(mcmcChains * mcmcDraws);
+  const divergencesPct = $derived(totalDraws > 0 ? (divergences / totalDraws * 100) : 0);
 
-  /** Chart height — scale with number of params */
+  /** Chart height - scale with number of params */
   const rhatHeight = $derived(`${Math.max(180, rhatCount * 28 + 60)}px`);
 
   // Подсказки для ?-иконок
   const HELP = {
-    rhatChart: 'R-hat по параметрам — проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона — R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
-    avpChart:  'Факт vs Прогноз — визуальная проверка качества модели.\n\nЧто это: синяя линия — реальные продажи, зелёная пунктирная — предсказание модели. В правом верхнем углу — R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
+    rhatChart: 'R-hat по параметрам - проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона - R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
+    avpChart:  'Факт vs Прогноз - визуальная проверка качества модели.\n\nЧто это: синяя линия - реальные продажи, зелёная пунктирная - предсказание модели. В правом верхнем углу - R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
   };
 </script>
 
 {#if diagnostics}
-  <!-- Warning banners -->
-  {#if !convergenceOk}
+  <!-- Warning banners.
+       UI bug fix (Phase 0.1 live-test): show "не сошлась" ONLY when R-hat > 1.05
+       для хотя бы одного параметра. Backend's `checks.convergence` смешивает
+       R-hat и divergences в один флаг - это сбивало пользователя ("не сошлась:
+       0 параметров"). Дивергенции - отдельный signal об эффективности NUTS,
+       не о сходимости. -->
+  {#if rhatFailed > 0}
     <div class="warn-banner warn">
       ⚠ Модель не сошлась: {rhatFailed} параметров с R-hat &gt; 1.05.
       Рекомендуется увеличить draws/tune в расширенных настройках.
@@ -190,27 +207,85 @@
   {/if}
   {#if divergences > 0}
     <div class="warn-banner warn">
-      ⚠ {divergences} дивергенций обнаружено. Возможна слишком сложная модель.
+      ⚠ {divergences} дивергенций обнаружено <span class="muted">({divergencesPct.toFixed(2)}% от {totalDraws} draws)</span>
+      <span class="muted">(Tune={mcmcTune}, Draws={mcmcDraws}, target_accept={mcmcTargetAccept}).</span>
+      {#if rhatFailed === 0}
+        Параметры сошлись (R-hat &lt; 1.05) - модель готова к использованию.
+        {#if divergences <= 10}
+          {#if mcmcTune < 4000}
+            <strong>Можно продолжать.</strong> Для академической чистоты - увеличьте Tune до 4000-6000 в Эксперт-режиме.
+          {:else if mcmcTargetAccept < 0.99}
+            <strong>Можно продолжать.</strong> Tune уже {mcmcTune} - дальнейшее увеличение не поможет. 1-3 дивергенции практически безвредны для 95% CI; альтернативно - повысьте target_accept до 0.99 (медленнее, но устранит остатки).
+          {:else}
+            <strong>Можно продолжать.</strong> Tune={mcmcTune}, target_accept={mcmcTargetAccept} - настройки максимальные. Остаточные дивергенции говорят о геометрии posterior'а, а не о NUTS adaptation. Безопасно для 95% CI.
+          {/if}
+        {:else if divergences <= 50}
+          {#if mcmcTune < 6000}
+            <strong>Продолжать можно с осторожностью.</strong> Увеличьте Tune до 6000 и Draws до 4000 - обычно уменьшает дивергенции в 5-10 раз.
+          {:else}
+            <strong>Продолжать можно с осторожностью.</strong> Tune={mcmcTune} не помогает уменьшить дивергенции. Альтернативы: target_accept=0.99, упростить модель (исключить коллинеарные каналы - см. VIF в Эксперт-режиме Валидации), или ужесточить приоры.
+          {/if}
+        {:else}
+          {#if mcmcTune < 6000}
+            <strong>Результаты использовать с осторожностью.</strong> Увеличьте Tune до 6000+, Draws до 6000, и/или исключите сильно коллинеарные каналы (см. VIF в Эксперт-режиме Валидации).
+          {:else}
+            <strong>Результаты использовать с осторожностью.</strong> Tune={mcmcTune} максимален - дальнейшее увеличение не поможет. Проблема в геометрии posterior'а: упростите модель (уберите коллинеарные каналы по VIF), сократите количество параметров, или сузьте приоры.
+          {/if}
+        {/if}
+      {:else}
+        Параметры не сошлись (R-hat &gt; 1.05).
+        {#if mcmcTune < 6000}
+          Увеличьте Tune до 6000 и Draws до 4000; если не помогло - упростите модель (исключите коллинеарные каналы).
+        {:else}
+          Tune={mcmcTune} не помогает достичь сходимости. Упростите модель (уберите коллинеарные каналы по VIF) или пересмотрите приоры в Эксперт-режиме.
+        {/if}
+      {/if}
     </div>
   {/if}
 
   <!-- Panel A: R-hat per parameter -->
   {#if rhatCount > 0}
-    <div class="chart-panel">
-      <h4 class="chart-title">R-hat по параметрам<span class="help-icon" title={HELP.rhatChart}>?</span></h4>
-      <EChartBase option={rhatOption} height={rhatHeight} />
-      <p class="chart-hint">
-        {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
-      </p>
-    </div>
+    <ExpandableCard title="R-hat по параметрам">
+      <div class="chart-panel-body">
+        <span class="chart-title-help" title={HELP.rhatChart}>?</span>
+        <EChartBase option={rhatOption} height={rhatHeight} />
+        <p class="chart-hint">
+          {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
+        </p>
+      </div>
+    </ExpandableCard>
   {/if}
 
-  <!-- Panel B: Actual vs Predicted -->
+  <!-- Panel B: Actual vs Predicted - wrapped в ExpandableCard для fullscreen.
+       Метрики R²/MAPE - HTML overlay через CSS tokens (theme-contrastable). -->
   {#if diagnostics.actual_vs_predicted}
-    <div class="chart-panel">
-      <h4 class="chart-title">Факт vs Прогноз<span class="help-icon" title={HELP.avpChart}>?</span></h4>
-      <EChartBase option={avpOption} height="260px" />
-    </div>
+    <ExpandableCard title="Факт vs Прогноз">
+      <div class="chart-panel-body avp-panel">
+        <span class="chart-title-help" title={HELP.avpChart}>?</span>
+        {#if avpMetrics.r2 != null || avpMetrics.mape != null}
+          <div class="avp-metrics">
+            {#if avpMetrics.r2 != null}
+              <span class="metric-item">
+                <Tooltip text={TOOLTIPS['metric.r2']} position="top">
+                  <span class="metric-label metric-label-tip">R²</span>
+                </Tooltip>
+                <span class="metric-sep">=</span><b>{avpMetrics.r2}</b>
+              </span>
+            {/if}
+            {#if avpMetrics.r2 != null && avpMetrics.mape != null}<span class="metric-dot">·</span>{/if}
+            {#if avpMetrics.mape != null}
+              <span class="metric-item">
+                <Tooltip text={TOOLTIPS['metric.mape']} position="top">
+                  <span class="metric-label metric-label-tip">MAPE</span>
+                </Tooltip>
+                <span class="metric-sep">=</span><b>{avpMetrics.mape}%</b>
+              </span>
+            {/if}
+          </div>
+        {/if}
+        <EChartBase option={avpOption} height="260px" />
+      </div>
+    </ExpandableCard>
   {/if}
 {/if}
 
@@ -243,6 +318,76 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--text-primary, #e2e8f0);
+  }
+
+  /* Phase 2 audit pass 5 cont (Антон 2026-05-03): chart panel body inside
+     ExpandableCard. Position relative - overlay R²/MAPE metrics absolutely. */
+  .chart-panel-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .chart-title-help {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 5;
+    width: 16px;
+    height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--text-secondary, #94a3b8) 18%, transparent);
+    color: var(--text-secondary, #94a3b8);
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: help;
+    user-select: none;
+  }
+  /* R²/MAPE overlay - theme-contrastable через CSS tokens. */
+  .avp-metrics {
+    position: absolute;
+    top: 0;
+    right: 4px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+    border: 1px solid var(--border-subtle);
+    font-family: Consolas, 'SF Mono', Menlo, monospace;
+    font-size: 11px;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .avp-metrics .metric-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+  .avp-metrics .metric-label {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .avp-metrics .metric-label-tip {
+    cursor: help;
+    border-bottom: 1px dashed var(--text-muted, #64748b);
+    text-decoration: none;
+  }
+  .avp-metrics .metric-sep {
+    color: var(--text-muted);
+  }
+  .avp-metrics b {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+  .avp-metrics .metric-dot {
+    color: var(--text-muted);
+    font-weight: 700;
   }
 
   .chart-hint {

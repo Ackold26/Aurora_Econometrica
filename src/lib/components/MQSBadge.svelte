@@ -1,47 +1,131 @@
 <script>
   /**
-   * Model Quality Score badge — visual indicator with tier label.
+   * Model Quality Score badge - visual indicator with tier label.
    * Shows human-readable verdict + collapsible tech metrics.
    *
    * @component MQSBadge
    */
 
-  /** @type {{ diagnostics: any }} */
-  let { diagnostics } = $props();
+  /**
+   * @type {{
+   *   diagnostics: any,
+   *   ssotRatio?: number
+   * }}
+   *
+   * ssotRatio - v2.1.0 (пилот 2026-05-16) frontend SSOT ratio из
+   * validationHeaderMetrics. Если передан и расходится с backend
+   * diagnostics.metrics.ratio - используется он, чтобы юзер не видел
+   * разные цифры в Валидации (3.9:1) и Модели (1.5:1).
+   */
+  let { diagnostics, ssotRatio = undefined } = $props();
 
   let showDetails = $state(false);
 
   /** @type {any} */
   let mqs = $derived(diagnostics?.mqs || null);
-  let verdict = $derived(diagnostics?.verdict || '');
+  let backendVerdict = $derived(diagnostics?.verdict || '');
   let metrics = $derived(diagnostics?.metrics || {});
   let checks = $derived(diagnostics?.checks || {});
+  // v2.1.0 (Pilot C): engine detection. OLS pickles set diagnostics.engine='ols'
+  // и не имеют MCMC diagnostics (r_hat_max=null, divergences=null).
+  let isOls = $derived(diagnostics?.engine === 'ols');
 
-  // Общая подсказочная база — синхронизирована с ExpertModelPanel.svelte.
+  // v2.1.0 (пилот 2026-05-16): подменяем backend ratio в verdict-тексте
+  // и пересчитываем MQS tier если SSOT ratio >= 4 (info / success коридоры).
+  // Backend thinness_cap=50 при backend ratio<2 ставит «Слабое», что
+  // несовместимо с frontend SSOT «Ниже рекомендуемого» (4.4:1) или
+  // «Рекомендуемый уровень». Дотягиваем UI consistency без переписи backend.
+  const useSsot = $derived(
+    typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0
+  );
+
+  const displayVerdict = $derived.by(() => {
+    if (!useSsot) return backendVerdict;
+    // Заменяем числовое значение ratio в верндикте. Patterns которые
+    // встречаются в backend `generate_diagnostics_summary`:
+    //   «Ratio 1.5:1»
+    //   «Ratio 1.5:1 < 4:1»
+    // Также заменяем тестовую часть «Данных критически мало / Данных мало»
+    // когда SSOT даёт другой коридор.
+    let v = backendVerdict;
+    // 1) Подменить число в "Ratio X.X:1"
+    v = v.replace(/Ratio\s+\d+(?:\.\d+)?:1/g, `Ratio ${ssotRatio.toFixed(1)}:1`);
+    // 2) Если SSOT ratio >= 4 - убрать «критически мало» / «мало (Ratio < 4:1)»
+    if (ssotRatio >= 4) {
+      v = v.replace(
+        /⚠\s*Данных (критически\s*)?мало[^.]*\.\s*/g,
+        ''
+      );
+      v = v.replace(
+        /\s*-\s*высокий риск переобучения[^.]*\.\s*/g,
+        '. '
+      );
+      // F-011 pilot (2026-05-18): backend verdict для thin-data случая включает
+      // «Результаты ненадёжны - нужно больше данных или другая спецификация»
+      // и «объясняет только N%». При SSOT ratio>=4 + good MQS этот тон
+      // противоречит «Отличное» badge. Убираем pessimistic clauses.
+      v = v.replace(
+        /Результаты ненадёжны\s*[—–-]?\s*нужно больше данных[^.]*\.\s*/g,
+        ''
+      );
+      v = v.replace(
+        /объясняет\s+только\s+/g,
+        'объясняет '
+      );
+    }
+    return v.trim();
+  });
+
+  const displayMqs = $derived.by(() => {
+    if (!mqs || !useSsot) return mqs;
+    // Backend применил thinness_cap (50 / 70) на основе backend ratio.
+    // Если SSOT ratio в info / success коридоре - используем raw_score и
+    // пересчитаем tier_label.
+    if (ssotRatio < 4) return mqs;  // оставляем backend cap
+    const rawScore = Number(mqs.raw_score ?? mqs.score ?? 0);
+    if (!Number.isFinite(rawScore) || rawScore <= mqs.score) return mqs;
+    let tier, tier_label, color;
+    if (rawScore >= 85) {
+      tier = 'excellent'; tier_label = 'Отличное'; color = '#22c55e';
+    } else if (rawScore >= 70) {
+      tier = 'good'; tier_label = 'Хорошее'; color = '#3b82f6';
+    } else if (rawScore >= 55) {
+      tier = 'acceptable'; tier_label = 'Приемлемое'; color = '#f59e0b';
+    } else if (rawScore >= 40) {
+      tier = 'weak'; tier_label = 'Слабое'; color = '#f97316';
+    } else {
+      tier = 'poor'; tier_label = 'Ненадёжное'; color = '#ef4444';
+    }
+    return { ...mqs, score: Math.round(rawScore * 10) / 10, tier, tier_label, color };
+  });
+
+  // Общая подсказочная база - синхронизирована с ExpertModelPanel.svelte.
   const HELP = {
-    rSq:    'R² (коэффициент детерминации) — доля вариации KPI, объяснённая моделью.\n\nЧто это: 0 = модель не лучше среднего, 1 = идеальный fit. ≥ 0.7 — хорошо, ≥ 0.9 — отлично.\n\nПочему важно: показывает насколько модель захватывает динамику продаж. Низкий R² = вы что-то упустили (промо, сезонность, конкуренты).',
-    mape:   'MAPE (Mean Absolute Percentage Error) — средняя абсолютная ошибка прогноза в процентах.\n\nЧто это: на сколько процентов в среднем прогноз отличается от факта. < 10% — отлично, 10-20% — приемлемо, > 20% — плохо.\n\nПочему важно: дополняет R². Можно иметь высокий R² и большие отклонения в отдельных периодах — MAPE это ловит.',
-    rHat:   'R-hat max (Gelman-Rubin) — максимальное значение меры сходимости по всем параметрам модели.\n\nЧто это: насколько разные цепи MCMC пришли к одному распределению (1.0 = идеально, ≤ 1.05 — сошлись, > 1.1 — нет).\n\nПочему важно: если цепи не сошлись — оценки ROI и доверительные интервалы ненадёжны, результаты случайны.',
-    divs:   'Дивергенции (divergences) — количество шагов сэмплера NUTS, которые «соскочили» с траектории.\n\nЧто это: индикатор сложной геометрии posterior — модель плохо параметризована или priors слишком широкие.\n\nПочему важно: при divergences > 0 часть пространства параметров не исследована — оценки могут быть смещены. Цель = 0.',
-    ratio:  'Ratio — отношение числа наблюдений к числу предикторов (каналов + controls).\n\nЧто это: «хватает ли данных модели, чтобы оценить все параметры». ≥ 4:1 — норма, ≥ 6:1 — идеал, < 2:1 — критически мало.\n\nПочему важно: при низком Ratio модель переобучается — R² получается высокий искусственно, а настоящий прогноз будет плохим. Aurora автоматически ограничивает MQS на тонких данных (cap 70 при Ratio<4, 50 при <2).',
-    block:  'Техническая диагностика — детализация метрик, из которых считается MQS.\n\nЗелёная галочка — метрика в норме. Красный крестик или ⚠ — требует внимания.\n\nПолный гайд: кнопка «?» в шапке шага → раздел «Методология MMM».',
+    rSq:    'R² (коэффициент детерминации) - доля вариации KPI, объяснённая моделью.\n\nЧто это: 0 = модель не лучше среднего, 1 = идеальный fit. ≥ 0.7 - хорошо, ≥ 0.9 - отлично.\n\nПочему важно: показывает насколько модель захватывает динамику продаж. Низкий R² = вы что-то упустили (промо, сезонность, конкуренты).',
+    mape:   'MAPE (Mean Absolute Percentage Error) - средняя абсолютная ошибка прогноза в процентах.\n\nЧто это: на сколько процентов в среднем прогноз отличается от факта. < 10% - отлично, 10-20% - приемлемо, > 20% - плохо.\n\nПочему важно: дополняет R². Можно иметь высокий R² и большие отклонения в отдельных периодах - MAPE это ловит.',
+    rHat:   'R-hat max (Gelman-Rubin) - максимальное значение меры сходимости по всем параметрам модели.\n\nЧто это: насколько разные цепи MCMC пришли к одному распределению (1.0 = идеально, ≤ 1.05 - сошлись, > 1.1 - нет).\n\nПочему важно: если цепи не сошлись - оценки ROI и доверительные интервалы ненадёжны, результаты случайны.',
+    divs:   'Дивергенции (divergences) - количество шагов сэмплера NUTS, которые «соскочили» с траектории.\n\nЧто это: индикатор сложной геометрии posterior - модель плохо параметризована или priors слишком широкие.\n\nПочему важно: при divergences > 0 часть пространства параметров не исследована - оценки могут быть смещены. Цель = 0.',
+    ratio:  'Ratio - отношение числа наблюдений к числу предикторов (каналов + controls).\n\nЧто это: «хватает ли данных модели, чтобы оценить все параметры». ≥ 4:1 - норма, ≥ 6:1 - идеал, < 2:1 - критически мало.\n\nПочему важно: при низком Ratio модель переобучается - R² получается высокий искусственно, а настоящий прогноз будет плохим. Aurora автоматически ограничивает MQS на тонких данных (cap 70 при Ratio<4, 50 при <2).',
+    block:  'Техническая диагностика - детализация метрик, из которых считается MQS.\n\nЗелёная галочка - метрика в норме. Красный крестик или ⚠ - требует внимания.\n\nПолный гайд: кнопка «?» в шапке шага → раздел «Методология MMM».',
   };
 </script>
 
-{#if mqs}
+{#if displayMqs}
   <div class="mqs-badge">
     <div class="mqs-header">
       <div
         class="mqs-score"
-        style="--score-color: {mqs.color}"
-        title="MQS (Model Quality Score) — общая агрегированная оценка качества модели от 0 до 100.&#10;&#10;Формула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).&#10;&#10;Шкала: ≥ 80 — отлично, 60-80 — хорошо, 40-60 — приемлемо, < 40 — требует доработки."
+        style="--score-color: {displayMqs.color}"
+        title={isOls
+          ? "MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + надёжность оценок (bootstrap, 30%).\n\nШкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."
+          : "MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).\n\nШкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."}
       >
         <span class="score-title">MQS</span>
-        <span class="score-value">{Math.round(mqs.score)}</span>
-        <span class="score-label">{mqs.tier_label}</span>
+        <span class="score-value">{Math.round(displayMqs.score)}</span>
+        <span class="score-label">{displayMqs.tier_label}</span>
       </div>
       <div class="mqs-verdict">
-        <p>{verdict}</p>
+        <p>{displayVerdict}</p>
       </div>
     </div>
 
@@ -61,19 +145,23 @@
           <span class="metric-value">{metrics.mape_pct}%</span>
           <span class="metric-check">{metrics.mape_pct < 20 ? '✓' : '✗'}</span>
         </div>
-        <div class="metric-row">
-          <span class="metric-label">R-hat max<span class="help-icon" title={HELP.rHat}>?</span></span>
-          <span class="metric-value">{metrics.r_hat_max}</span>
-          <span class="metric-check">{checks.convergence ? '✓' : '✗'}</span>
-        </div>
-        <div class="metric-row">
-          <span class="metric-label">Divergences<span class="help-icon" title={HELP.divs}>?</span></span>
-          <span class="metric-value">{metrics.divergences}</span>
-          <span class="metric-check">{metrics.divergences === 0 ? '✓' : '✗'}</span>
-        </div>
+        {#if !isOls && metrics.r_hat_max != null}
+          <div class="metric-row">
+            <span class="metric-label">R-hat max<span class="help-icon" title={HELP.rHat}>?</span></span>
+            <span class="metric-value">{metrics.r_hat_max}</span>
+            <span class="metric-check">{checks.convergence ? '✓' : '✗'}</span>
+          </div>
+        {/if}
+        {#if !isOls && metrics.divergences != null}
+          <div class="metric-row">
+            <span class="metric-label">Divergences<span class="help-icon" title={HELP.divs}>?</span></span>
+            <span class="metric-value">{metrics.divergences}</span>
+            <span class="metric-check">{metrics.divergences === 0 ? '✓' : '✗'}</span>
+          </div>
+        {/if}
         <div class="metric-row">
           <span class="metric-label">Ratio<span class="help-icon" title={HELP.ratio}>?</span></span>
-          <span class="metric-value">{metrics.ratio}:1</span>
+          <span class="metric-value">{useSsot ? ssotRatio.toFixed(1) : metrics.ratio}:1</span>
           <span class="metric-check">{checks.ratio ? '✓' : '⚠'}</span>
         </div>
       </div>
@@ -188,7 +276,7 @@
     font-size: 14px;
   }
 
-  /* Inline tooltip-triggers — совпадает по стилю с ExpertModelPanel */
+  /* Inline tooltip-triggers - совпадает по стилю с ExpertModelPanel */
   .help-icon {
     display: inline-flex;
     align-items: center;

@@ -22,7 +22,10 @@
    *   optimizing?: boolean,
    *   optimalBudgets?: Record<string, number> | null,
    *   unitCosts?: Record<string, number>,
+   *   unitCostsAtTraining?: Record<string, number> | null,
+   *   nPeriods?: number,
    *   displayBaseKPI?: number,
+   *   backendLiftPct?: number | null,
    * }}
    */
   let {
@@ -39,38 +42,80 @@
     optimizing = false,
     optimalBudgets = null,
     unitCosts = {},
+    // v2.1.0 (pilot B3 round 3 R3 B3-E4): training-time uc snapshot для predictKPI
+    // pre-multiply symmetry с backend Hill normalization (ADR-020). Без этого
+    // для mixed units pickle (TRPs × CPP) slider preview KPI ≈ baseline (wrong).
+    // OptimizeStep parent passes ucTrain через diagnostics.unit_costs_snapshot.
+    // Legacy / monetary-only pickle → null → predictKPI uses 1.0 fallback (identity).
+    unitCostsAtTraining = null,
+    // v2.1.0 (pilot A3 round 3 REGR-2): n_periods для canonical Hill normalization
+    // (matches backend optimizer x_per_period = total/n_periods ДО Hill, total × n).
+    // Default 1 - backward compat для caller'ов без context.
+    nPeriods = 1,
+    // v2.1.0 (pilot D4 round 4 EDGE-D4-01): per-channel decay для adstock factor
+    // в predictKPI. Без этого frontend Hill input в 1.5-2× меньше backend для
+    // decay=0.5 → understate lift. Default null - backward compat (factor=1, noop).
+    decays = null,
     // total_sales из decompose (KPI за весь период анализа, в money).
-    // Если задан — Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
+    // Если задан - Прогноз KPI показываем как displayBaseKPI × (1 + lift%),
     // чтобы число было согласовано с блоком A (8300.6 M ₽, а не 342M per-period).
     displayBaseKPI = 0,
+    // Backend optimizer's expected_lift_pct - single source of truth когда
+    // budgets ≈ optimal_budgets. Frontend predictKPI - fallback approximation
+    // для slider real-time preview (упрощённая Hill без adstock factor).
+    backendLiftPct = null,
   } = $props();
 
-  /** Стоимость 1 юнита в ₽ для канала (1.0 — канал уже в рублях). */
+  /** Стоимость 1 юнита в ₽ для канала (1.0 - канал уже в рублях). */
   /** @param {string} ch */
   function uc(ch) {
     const v = unitCosts?.[ch];
     return (typeof v === 'number' && v > 0) ? v : 1.0;
   }
 
-  // Predicted KPI from current sliders — денормализован в исходные единицы.
-  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization));
-  const liftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
+  // Predicted KPI from current sliders - frontend approximation (упрощённая Hill).
+  // v2.1.0 B3-E4: pass unitCostsAtTraining для ADR-020 symmetry с backend.
+  // v2.1.0 REGR-2: pass nPeriods - canonical Hill normalization matches backend.
+  // v2.1.0 EDGE-D4-01: pass decays для adstock factor (closes 1.5-2× understate).
+  const predictedKPI = $derived(predictKPI(channelBudgets, scaledParams, normalization, unitCostsAtTraining, nPeriods, decays));
+  const frontendLiftPct = $derived(currentKPI > 0 ? ((predictedKPI - currentKPI) / currentKPI * 100) : 0);
+
+  // FIX 2026-05-02: detect когда current budgets ≈ optimal_budgets - тогда показываем
+  // backend authoritative lift вместо frontend approximation.
+  // Tolerance 1% per канал (учитывает float jitter после applyOptimal animation).
+  const atOptimum = $derived.by(() => {
+    if (!optimalBudgets || backendLiftPct == null) return false;
+    for (const ch of channels) {
+      const cur = channelBudgets[ch] ?? 0;
+      const opt = optimalBudgets[ch] ?? 0;
+      if (opt === 0 && cur === 0) continue;
+      const denom = Math.max(Math.abs(opt), Math.abs(cur), 1);
+      if (Math.abs(cur - opt) / denom > 0.01) return false;
+    }
+    return true;
+  });
+
+  // Авторитативный lift: backend (точный, full MMM) когда atOptimum, иначе frontend approx.
+  const liftPct = $derived(atOptimum && backendLiftPct != null ? backendLiftPct : frontendLiftPct);
+  // True если показываем frontend approximation (для UX-пометки «приблизительно»).
+  const liftIsApprox = $derived(!atOptimum && Math.abs(frontendLiftPct) > 0.01);
+
   // Scaled KPI для display: применяем lift% к total KPI за весь период анализа.
   // liftPct scale-invariant (отношение), поэтому умножение на baseKPI корректно.
   const displayKPI = $derived(displayBaseKPI > 0 ? displayBaseKPI * (1 + liftPct / 100) : predictedKPI);
-  // totalBudget (money): sum(native × unit_cost) — согласован с блоком A.
+  // totalBudget (money): sum(native × unit_cost) - согласован с блоком A.
   const totalBudget = $derived(Object.entries(channelBudgets).reduce((s, [ch, v]) => s + v * uc(ch), 0));
 
-  // Базовый текущий бюджет в money — для расчёта delta общего бюджета.
+  // Базовый текущий бюджет в money - для расчёта delta общего бюджета.
   const initialTotal = $derived(Object.entries(initialSpend).reduce((s, [ch, v]) => s + /** @type {number} */ (v) * uc(ch), 0));
   const budgetDeltaPct = $derived(initialTotal > 0 ? ((totalBudget - initialTotal) / initialTotal * 100) : 0);
   const budgetDeltaAbs = $derived(totalBudget - initialTotal);
 
   /**
    * Handle slider input. Слайдер оперирует в MONEY (рублях), а onBudgetChange
-   * и Hill — в NATIVE (raw юниты канала). Конвертация через uc(ch).
+   * и Hill - в NATIVE (raw юниты канала). Конвертация через uc(ch).
    * @param {string} ch
-   * @param {number} newMoney — новое значение слайдера в рублях
+   * @param {number} newMoney - новое значение слайдера в рублях
    */
   function handleSlider(ch, newMoney) {
     const newNative = newMoney / uc(ch);
@@ -118,7 +163,7 @@
         <span class="budget-delta-abs">({budgetDeltaAbs > 0 ? '+' : ''}{fmt(Math.abs(budgetDeltaAbs))} ₽)</span>
       </span>
     {/if}
-    <span class="lock-badge" class:locked title={locked ? 'Бюджет заблокирован — перераспределение' : 'Свободное изменение'}>
+    <span class="lock-badge" class:locked title={locked ? 'Бюджет заблокирован - перераспределение' : 'Свободное изменение'}>
       {locked ? '🔒' : '🔓'}
     </span>
   </div>
@@ -129,10 +174,26 @@
       {@const cur = channelBudgets[ch] ?? 0}
       {@const curMoney = cur * uc(ch)}
       {@const opt = optimalBudgets?.[ch]}
-      {@const deltaRaw = opt != null && cur >= 1 ? ((opt - cur) / cur * 100) : null}
-      {@const deltaLabel = opt == null ? null : cur < 1 ? (opt < 1 ? '—' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
-      {@const initMoney = (initialSpend[ch] ?? cur) * uc(ch)}
-      {@const maxMoney = Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
+      {@const initRef = initialSpend[ch] ?? cur}
+      <!-- Audit fix (2026-04-29): delta computed vs initialSpend (real current
+           from optData), NOT vs live channelBudgets. After L5 auto-apply
+           channelBudgets = optimal → cur === opt → delta = 0% (lost info).
+           Persistent backend-aligned delta_pct preserves «optimizer recommended
+           +X% relative to original current» signal even after auto-apply.
+           v2.1.0 pilot polish (2026-05-17): новый channel флаг (cur≈0, opt>0)
+           показывает «новый» badge со стилем (∞ semantics) - не «0%» misleading. -->
+      {@const deltaRaw = opt != null && initRef >= 1 ? ((opt - initRef) / initRef * 100) : null}
+      {@const isNewChannel = opt != null && opt >= 1 && initRef < 1}
+      {@const deltaLabel = opt == null ? null : isNewChannel ? '∞' : (initRef < 1 || deltaRaw == null) ? (opt < 1 ? '-' : 'новый') : `${deltaRaw >= 0 ? '+' : ''}${deltaRaw.toFixed(0)}%`}
+      {@const initMoney = initRef * uc(ch)}
+      <!-- v2.1.0 pilot R2 (2026-05-17 A2-02): для нового канала (initRef<1, opt>=1)
+           initMoney=0 и curMoney=0 → старый Math.max давал 1000 ₽ потолок,
+           слайдер не мог funded recommended optimal. Fix: используем
+           opt × uc(ch) × 1.5 как headroom для нового канала. -->
+      {@const optMoney = (opt ?? 0) * uc(ch)}
+      {@const maxMoney = isNewChannel
+        ? Math.max(optMoney * 1.5, 1000)
+        : Math.max(initMoney * 2.5, curMoney * 1.2, 1000)}
       {@const color = CHANNEL_COLORS[idx % CHANNEL_COLORS.length]}
 
       <div class="slider-row">
@@ -149,7 +210,13 @@
         />
         <span class="ch-value">{fmt(curMoney)} ₽</span>
         {#if deltaLabel != null}
-          <span class="delta-badge" class:positive={deltaRaw != null && deltaRaw > 0} class:negative={deltaRaw != null && deltaRaw < 0}>
+          <span
+            class="delta-badge"
+            class:positive={deltaRaw != null && deltaRaw > 0}
+            class:negative={deltaRaw != null && deltaRaw < 0}
+            class:new-channel={isNewChannel}
+            title={isNewChannel ? 'Новый канал: текущий бюджет ≈ 0, оптимизатор предлагает увеличение с нуля (delta = ∞)' : ''}
+          >
             {deltaLabel}
           </span>
         {/if}
@@ -168,13 +235,21 @@
         <span class="lift" class:positive={liftPct > 0} class:negative={liftPct < 0}>
           {liftPct > 0 ? '+' : ''}{liftPct.toFixed(1)}% к текущему
         </span>
+        {#if liftIsApprox}
+          <span
+            class="lift-approx"
+            title="Приблизительная оценка (упрощённая Hill для real-time preview слайдеров). Точный lift показывается в баннере «Оптимальное перераспределение» после нажатия «Оптимизировать бюджет»."
+          >
+            ≈ приблизительно
+          </span>
+        {/if}
       </div>
     {/if}
   </div>
 
   <!-- Action buttons.
        Основная CTA «Оптимизировать бюджет» живёт в блоке B наверху (OptimizeStep);
-       здесь — только «Сбросить» для возврата слайдеров к текущему бюджету. -->
+       здесь - только «Сбросить» для возврата слайдеров к текущему бюджету. -->
   <div class="actions">
     <button class="btn-reset" onclick={onReset}>Сбросить</button>
   </div>
@@ -284,6 +359,15 @@
   }
   .delta-badge.positive { background: color-mix(in srgb, var(--success) 12%, transparent); color: #22c55e; }
   .delta-badge.negative { background: color-mix(in srgb, var(--danger) 12%, transparent); color: #ef4444; }
+  /* v2.1.0 pilot polish: новый канал (cur≈0, opt>0) - distinct accent (cyan)
+     чтобы отличался от обычных positive deltas. */
+  .delta-badge.new-channel {
+    background: color-mix(in srgb, #06b6d4 18%, transparent);
+    color: #22d3ee;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
 
   .kpi-card {
     padding: 12px 14px;
@@ -298,8 +382,17 @@
   }
   .kpi-label { font-size: 12px; color: var(--text-secondary, #94a3b8); }
   .kpi-value { font-size: 18px; font-weight: 700; color: var(--text-primary, #e2e8f0); font-family: monospace; }
-  .lift-row { margin-top: 4px; }
+  .lift-row { margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .lift { font-size: 12px; font-weight: 600; }
+  .lift-approx {
+    font-size: 10.5px;
+    font-style: italic;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--text-secondary, rgba(255, 255, 255, 0.55));
+    background: color-mix(in srgb, var(--text-primary, #fff) 6%, transparent);
+    cursor: help;
+  }
   .lift.positive { color: #22c55e; }
   .lift.negative { color: #ef4444; }
 

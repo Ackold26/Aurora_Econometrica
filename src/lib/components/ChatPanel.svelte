@@ -9,6 +9,7 @@
   import { playSendSound, playCompleteSound, playAchievementSound } from '$lib/audio.js';
   import { parseResponseSections, shouldRenderStructured, isSlideDeckResponse, splitSlideSections, cleanSlideTitle, extractCompletionStats } from '$lib/response-parser.js';
   import { fade } from 'svelte/transition';
+  import { prefersReducedMotion } from '$lib/stores/a11y.js';
   import ResponseSection from '$lib/components/ResponseSection.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -34,18 +35,18 @@
     return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   }
 
-  /** Tips for the empty state — usage advice for the user */
+  /** Tips for the empty state - usage advice for the user */
   const tips = [
-    'Вы можете задавать уточняющие вопросы после получения ответа — без команды, обычным текстом. Ассистент помнит контекст диалога.',
+    'Вы можете задавать уточняющие вопросы после получения ответа - без команды, обычным текстом. Ассистент помнит контекст диалога.',
     'Для экономии контекстного окна начинайте новый диалог (кнопка очистки), когда переключаетесь на другую тему.',
-    'Загрузите файлы во «Входящие» перед отправкой задания — ассистент автоматически их прочитает и учтёт.',
-    'Длинные диалоги (10+ сообщений) могут замедляться. Если ответы стали хуже — очистите чат и начните заново.',
-    'Кнопки команд справа — быстрый старт. Но вы можете описать задачу своими словами, без команды.',
+    'Загрузите файлы во «Входящие» перед отправкой задания - ассистент автоматически их прочитает и учтёт.',
+    'Длинные диалоги (10+ сообщений) могут замедляться. Если ответы стали хуже - очистите чат и начните заново.',
+    'Кнопки команд справа - быстрый старт. Но вы можете описать задачу своими словами, без команды.',
     'Результаты работы автоматически сохраняются в папку «Экспорт» на рабочем столе.',
     'Используйте Ctrl+K для быстрого поиска по истории сообщений.',
     'Чем точнее сформулировано задание, тем лучше результат. Указывайте формат, объём и цель.',
-    'После получения ответа можно попросить: «переделай в формате таблицы», «сократи вдвое», «добавь примеры» — всё в свободной форме.',
-    'Один диалог — одна тема. Так ассистент глубже погружается в задачу и даёт лучшие результаты.',
+    'После получения ответа можно попросить: «переделай в формате таблицы», «сократи вдвое», «добавь примеры» - всё в свободной форме.',
+    'Один диалог - одна тема. Так ассистент глубже погружается в задачу и даёт лучшие результаты.',
   ];
 
   /** Pick a random tip (stable per mount, changes on page revisit) */
@@ -67,7 +68,7 @@
   let autoContinueCount = $state(0);
   const MAX_AUTO_CONTINUES = 8;
 
-  /** Markers that indicate workflow is fully complete — stop auto-continuing */
+  /** Markers that indicate workflow is fully complete - stop auto-continuing */
   const COMPLETION_MARKERS = [
     'все задачи выполнены',
     'все этапы выполнены',
@@ -81,7 +82,7 @@
     'все готово',
   ];
 
-  /** Markers that indicate Claude is asking a question or hit an error — don't auto-continue */
+  /** Markers that indicate Claude is asking a question or hit an error - don't auto-continue */
   const STOP_MARKERS = [
     'ошибка', 'error', 'не удалось', 'failed', 'os error',
     'не найден', 'не существует', 'permission denied',
@@ -101,24 +102,24 @@
 
   /**
    * Check if the last response needs auto-continuation.
-   * @param {string} content — last assistant message
+   * @param {string} content - last assistant message
    * @returns {boolean}
    */
   function needsAutoContinue(content) {
     if (!lastCommand || !AUTO_CONTINUE_COMMANDS.includes(lastCommand)) return false;
     if (autoContinueCount >= MAX_AUTO_CONTINUES) return false;
     const lower = content.toLowerCase().replace(/ё/g, 'е');
-    // If any completion marker is found — workflow is done
+    // If any completion marker is found - workflow is done
     if (COMPLETION_MARKERS.some(m => lower.includes(m))) return false;
-    // If response is very short (< 200 chars) — likely an error, question, or status
+    // If response is very short (< 200 chars) - likely an error, question, or status
     if (content.length < 200) return false;
-    // If response ends with error markers — don't continue (check tail only, Python warnings mid-response are OK)
+    // If response ends with error markers - don't continue (check tail only, Python warnings mid-response are OK)
     const errorTail = lower.slice(-300);
     if (STOP_MARKERS.some(m => errorTail.includes(m))) return false;
-    // If response ends with a question — Claude is asking for input, let user answer
+    // If response ends with a question - Claude is asking for input, let user answer
     const trimmed = content.trimEnd();
     if (trimmed.endsWith('?') || trimmed.endsWith('?\n')) return false;
-    // Check last 300 chars for multiple question marks — likely a questionnaire
+    // Check last 300 chars for multiple question marks - likely a questionnaire
     const tail = lower.slice(-300);
     if ((tail.match(/\?/g) || []).length >= 2) return false;
     return true;
@@ -153,9 +154,9 @@
   let progressTotal = $state(0);
   /** @type {ReturnType<typeof setInterval>|undefined} */
   let progressInterval;
-  // D3: флаг — pipeline_phase event получен, timer-based обновление отключено
+  // D3: флаг - pipeline_phase event получен, timer-based обновление отключено
   let pipelinePhaseReceived = false;
-  /** @type {ReturnType<typeof setTimeout>|undefined} Safety timeout — гарантия ответа */
+  /** @type {ReturnType<typeof setTimeout>|undefined} Safety timeout - гарантия ответа */
   let safetyTimer;
   /** Phase 4.2: micro-celebration pulse на последнем ответе */
   let lastResponseComplete = $state(false);
@@ -192,7 +193,7 @@
     return getNextSteps(cabId);
   });
 
-  // PSY-10: Sticky Context — подхватить контекст при переключении кабинета
+  // PSY-10: Sticky Context - подхватить контекст при переключении кабинета
   $effect(() => {
     const ctx = $stickyContext;
     if (!ctx || !$activeCabinet) return;
@@ -208,7 +209,7 @@
     inputText = ctx;
   });
 
-  // C2: Endowed Progress Effect — сообщение при загрузке первого файла
+  // C2: Endowed Progress Effect - сообщение при загрузке первого файла
   let prevInboxCount = $state(0);
   $effect(() => {
     const files = $inboxFilesStore;
@@ -219,7 +220,7 @@
     prevInboxCount = files.length;
   });
 
-  // ── Phase 5.1: Smart autoscroll — скролл при новых сообщениях / смене loading ──
+  // ── Phase 5.1: Smart autoscroll - скролл при новых сообщениях / смене loading ──
   function isNearBottom() {
     if (!chatContainer) return true;
     return chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight < 150;
@@ -242,7 +243,7 @@
   );
 
   /**
-   * Svelte action: highlights search matches at DOM level (safe — no HTML injection).
+   * Svelte action: highlights search matches at DOM level (safe - no HTML injection).
    * @param {HTMLElement} node
    * @param {string} query
    */
@@ -403,7 +404,7 @@
     // Clean start moved to +layout.svelte (once on app launch, not on every cabinet open)
 
     // Phase 2.2: загрузка топ-команд для classifier
-    // Используем cabinetCommands store (заполняется CommandGrid) — без дублирующего IPC
+    // Используем cabinetCommands store (заполняется CommandGrid) - без дублирующего IPC
     const unsubCmds = cabinetCommands.subscribe(cmds => {
       if (cmds.length > 0) {
         quickStartCommands = cmds.slice(0, 3).map(c => ({ label: c.label, command: c.command }));
@@ -452,8 +453,8 @@
           });
         } else if (data.type === 'system' && data.subtype === 'init') {
           // Phase 1.1: прогресс уже запущен в sendMessage().
-          // НЕ сбрасываем startTime — иначе прогресс-бар прыгает назад.
-          // Только снимаем safety timeout (Claude ответил — значит жив).
+          // НЕ сбрасываем startTime - иначе прогресс-бар прыгает назад.
+          // Только снимаем safety timeout (Claude ответил - значит жив).
           clearTimeout(safetyTimer);
           statusText = '';
         } else if (data.type === 'system' && data.subtype === 'resume_fallback') {
@@ -477,7 +478,7 @@
                 }
                 return [...msgs, { role: 'assistant', content: block.text, ts: Date.now() }];
               });
-              // C1: Slide counter — Goal Gradient Effect
+              // C1: Slide counter - Goal Gradient Effect
               const lastMsg = $messages[$messages.length - 1];
               if (lastMsg?.role === 'assistant') {
                 const slideMatches = lastMsg.content.match(/^##\s+(?:(?:Слайд|Slide)\s*№?\s*\d+|\d+\.\s)/gim);
@@ -485,7 +486,7 @@
               }
             } else if (block.type === 'tool_use') {
               statusText = toolUseToStatus(block);
-              // PSY-3: tool status более информативен — скрываем progress bar
+              // PSY-3: tool status более информативен - скрываем progress bar
               progressPhase = '';
             }
           }
@@ -500,7 +501,7 @@
             // Phase 4.2: pulse animation
             lastResponseComplete = true;
             setTimeout(() => { lastResponseComplete = false; }, 600);
-            // C3: Completion Summary Card — Peak-End Rule
+            // C3: Completion Summary Card - Peak-End Rule
             const msgs = $messages;
             const lastMsg = msgs[msgs.length - 1];
             if (lastMsg?.role === 'assistant' && $activeCabinet?.id === 'media-analyst') {
@@ -576,7 +577,7 @@
           if (msgs[i].role === 'assistant') { prevAssistant = msgs[i]; break; }
         }
         if (prevAssistant && last.content.trim() === prevAssistant.content.trim()) {
-          // Duplicate — remove messages from the auto-continue user msg up to (not including) prevAssistant
+          // Duplicate - remove messages from the auto-continue user msg up to (not including) prevAssistant
           messages.update(m => {
             let cutFrom = m.length - 1;
             for (let i = m.length - 2; i >= 0; i--) {
@@ -608,7 +609,7 @@
           }, safetyMs);
           // Add auto-continue message (marked for compact rendering)
           const contTs = Date.now();
-          const contMsg = 'Продолжай. Не пересказывай сделанное — сразу к следующему шагу.';
+          const contMsg = 'Продолжай. Не пересказывай сделанное - сразу к следующему шагу.';
           messages.update(m => [...m, { role: 'user', content: contMsg, ts: contTs, isAutoContinue: true }]);
           saveMsg('user', contMsg, contTs);
           invoke('send_message', { cabinetId, message: contMsg, suppressExport: true }).catch(() => {
@@ -618,7 +619,7 @@
           return; // Skip normal completion flow
         }
 
-        // Normal completion — no auto-continue needed
+        // Normal completion - no auto-continue needed
         isLoading.set(false);
         playCompleteSound();
         // PSY-5: milestone tracking
@@ -626,7 +627,7 @@
         if (cabId) {
           const achievement = trackRequest(cabId);
           if (achievement) {
-            toast(`${achievement.title} — ${achievement.description}`, 'success', 4000);
+            toast(`${achievement.title} - ${achievement.description}`, 'success', 4000);
             playAchievementSound();
           }
         }
@@ -660,7 +661,7 @@
       await invoke('cancel_claude', { cabinetId });
       messages.update(msgs => [...msgs, { role: 'system', content: 'Выполнение остановлено.', ts: Date.now() }]);
     } catch {
-      // process may have already finished — ignore
+      // process may have already finished - ignore
     }
     cancelled = true;
     clearTimeout(statusTimeout);
@@ -678,7 +679,7 @@
 
     const ts = Date.now();
 
-    // ── Phase 2.2: Classifier — перехват small talk ДО добавления user message ──
+    // ── Phase 2.2: Classifier - перехват small talk ДО добавления user message ──
     // Важно: classifyMessage получает $messages ДО добавления нового сообщения,
     // чтобы follow-up protection корректно проверяла последнее сообщение ассистента.
     const quick = classifyMessage(text, $activeCabinet, quickStartCommands.map(c => c.label), $messages);
@@ -706,7 +707,7 @@
       return; // НЕ отправлять в Claude, НЕ ставить isLoading
     }
 
-    // ── Phase 1.1: Instant feedback — прогресс сразу, не ждём system.init ──
+    // ── Phase 1.1: Instant feedback - прогресс сразу, не ждём system.init ──
     playSendSound();
     slideProgress = { current: 0, total: 0 }; // C1: reset slide counter
     isLoading.set(true);
@@ -727,7 +728,7 @@
       progressIndex = phase.phaseIndex;
     }, 1000);
 
-    // ── Phase 1.2: Safety timeout — configurable per cabinet ──
+    // ── Phase 1.2: Safety timeout - configurable per cabinet ──
     const safetyMs = getSafetyTimeout(cabinetId);
     clearTimeout(safetyTimer);
     safetyTimer = setTimeout(async () => {
@@ -826,7 +827,7 @@
       const target = cabinets.find(c => c.id === step.id);
       if (!target) { toast('Кабинет недоступен', 'error'); return; }
 
-      // Собираем контекст из последнего ответа (без confirm — передаём всегда)
+      // Собираем контекст из последнего ответа (без confirm - передаём всегда)
       const msgs = $messages;
       const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
       if (lastAssistant) {
@@ -1061,7 +1062,7 @@
                 <div class="rating-done">Спасибо!</div>
               {/if}
             {/if}
-            <!-- Response actions (Уточнить/Глубже/Рекомендации) — отключены, не функциональны -->
+            <!-- Response actions (Уточнить/Глубже/Рекомендации) - отключены, не функциональны -->
 
           {:else}
             {#if msg.isAutoContinue}
@@ -1114,7 +1115,7 @@
         </div>
       {/if}
       {#if completionStats}
-        <div class="completion-card" transition:fade={{ duration: 300 }}>
+        <div class="completion-card" transition:fade={{ duration: $prefersReducedMotion ? 0 : 300 }}>
           <span class="cc-time">Готово за {completionStats.elapsed}с</span>
           <div class="cc-stats">
             <span>{completionStats.slides} {pluralRu(completionStats.slides, 'слайд', 'слайда', 'слайдов')}</span>
@@ -1127,7 +1128,7 @@
           {/if}
         </div>
       {/if}
-      <!-- PSY-1: Next Steps — отключены (предлагали другие кабинеты, а не команды текущего) -->
+      <!-- PSY-1: Next Steps - отключены (предлагали другие кабинеты, а не команды текущего) -->
       <!-- TODO: заменить на in-cabinet next commands (следующие шаги внутри текущего кабинета) -->
       {#if false && nextSteps.length > 0 && !$isLoading}
         <div class="next-steps">
@@ -1210,7 +1211,7 @@
 </div>
 
 <style>
-  /* Phase 2.2: quick-reply animation (CSS вместо setTimeout — BUG-3 fix) */
+  /* Phase 2.2: quick-reply animation (CSS вместо setTimeout - BUG-3 fix) */
   @keyframes fadeSlideIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
@@ -2072,7 +2073,7 @@
     color: var(--warning-text) !important;
   }
 
-  /* C6: Context-aware insight — занимает всю строку (flex-wrap новая строка) */
+  /* C6: Context-aware insight - занимает всю строку (flex-wrap новая строка) */
   .cc-insight {
     flex-basis: 100%;
     font-size: 12px;

@@ -52,9 +52,9 @@ export function getBaseChartOption() {
 
 /**
  * Universal dark tooltip option for ECharts.
- * Темный полупрозрачный фон + белый текст — читается одинаково в light/dark/fun темах.
+ * Темный полупрозрачный фон + белый текст - читается одинаково в light/dark/fun темах.
  * Использует кастомный formatter, чтобы заголовок и подписи серий тоже были белыми
- * (без него ECharts красит их цветом серии — плохой контраст на тёмном фоне).
+ * (без него ECharts красит их цветом серии - плохой контраст на тёмном фоне).
  *
  * @param {{
  *   trigger?: 'axis' | 'item',
@@ -72,7 +72,7 @@ export function chartTooltipDark(opts = {}) {
    * @returns {string}
    */
   const renderValue = (v) => {
-    if (v == null || v === '') return '—';
+    if (v == null || v === '') return '-';
     if (Array.isArray(v)) return v.map(renderValue).join(', ');
     const n = typeof v === 'number' ? v : Number(v);
     if (!Number.isFinite(n)) return String(v);

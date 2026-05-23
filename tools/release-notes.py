@@ -6,7 +6,7 @@ Usage:
   python tools/release-notes.py 1.0.11-rc2 --prev v1.0.10-rc1 --exe path --prerelease
 
 Вычисляет SHA256 installer'а, размер в MB, git log между тегами,
-подставляет в шаблон. Output идёт в stdout — redirect в /tmp/notes.md
+подставляет в шаблон. Output идёт в stdout - redirect в /tmp/notes.md
 или используй `--out /path/to/notes.md`.
 """
 import argparse
@@ -73,7 +73,7 @@ def git_log_between(prev_tag: str) -> tuple[str, int]:
         return "(git unavailable)", 0
     if out.returncode != 0:
         sys.stderr.write(
-            f"warn: git log failed — tag '{prev_tag}' not found locally?\n"
+            f"warn: git log failed - tag '{prev_tag}' not found locally?\n"
             f"      {out.stderr.strip()}\n"
         )
         return "(git log unavailable)", 0

@@ -9,8 +9,47 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { activeProjectId, pipelineState, isComputing, computeStatus, chartImages } from '$lib/project-state.js';
+  import { get } from 'svelte/store';
+  import {
+    activeProjectId,
+    pipelineState,
+    isComputing,
+    computeStatus,
+    chartImages,
+    valuePerCountUnit,
+    kpiKind,
+    planningMode,
+    forecastConfig,
+  } from '$lib/project-state.js';
   import DataTable from './DataTable.svelte';
+  import { formatMoney, formatCount, formatROI } from '$lib/format-numbers.js';
+
+  // B3-E2 (pilot R3 2026-05-17): kpiKind-aware label вместо hardcoded «% продаж».
+  // monetary → «% продаж», count → «% KPI» (generic, покрывает sales_packs/leads/etc).
+  const liftLabel = $derived($kpiKind === 'count' ? '% KPI' : '% продаж');
+
+  // v2.1.0 (pilot R2 B2-02 2026-05-17): derive kpi_unit_cost для count KPI.
+  // Без него econ_scenario сохраняет сценарий без money equivalents → при
+  // загрузке lift/KPI расходится с тем, что показано на момент создания
+  // (ADR-021 incomplete coverage, обнаружено в pilot round 2).
+  function deriveKpiUnitCost() {
+    const k = get(valuePerCountUnit);
+    return get(kpiKind) === 'count' && typeof k === 'number' && k > 0 ? k : null;
+  }
+
+  // v2.1.0 (pilot R3-E03 / B4-E1 2026-05-17): derive planning context для econ_scenario.
+  // Без этого ScenarioCompare slider preview + uploadMediaplan distributed media_plan
+  // по training horizon, в то время как ScenarioPlayground (другой компонент в той же
+  // step Optimize) использует planning horizon → asymmetric semantics.
+  function derivePlanningContext() {
+    if (get(planningMode) !== 'planner') return { periods: null, label: null };
+    const cfg = get(forecastConfig);
+    const periods = Number(cfg?.periods);
+    return {
+      periods: Number.isFinite(periods) && periods >= 1 ? periods : null,
+      label: cfg?.periodLabel || null,
+    };
+  }
 
   /** @type {{ channels?: string[], optimization?: any }} */
   let { channels = [], optimization } = $props();
@@ -33,6 +72,31 @@
   let scenarios = $state([]);
   let comparison = $state(/** @type {any} */ (null));
 
+  // B3-E1 (pilot R3 2026-05-17): pre-format rows per row_units flag, чтобы
+  // DataTable получала string-cells с правильной размерностью. Money primary
+  // для count+kpi_unit_cost; native count fallback для legacy/monetary.
+  /** @param {any} comp */
+  function formatComparisonRows(comp) {
+    if (!comp || !Array.isArray(comp.rows)) return comp;
+    const units = Array.isArray(comp.row_units) ? comp.row_units : [];
+    const rows = comp.rows.map(/** @param {any[]} row @param {number} i */ (row, i) => {
+      const unit = units[i];
+      if (!unit) return row;
+      return row.map(/** @param {any} cell @param {number} j */ (cell, j) => {
+        // Label column (j=0) и non-numeric cells - оставить как есть.
+        if (j === 0 || cell == null || typeof cell !== 'number') return cell;
+        if (unit === '₽' || unit === 'money') return formatMoney(cell);
+        if (unit === 'count') return formatCount(cell, '');
+        if (unit === 'roas') return formatROI(cell);
+        // 'native' / 'pct' / unknown - DataTable fmt() handles thousand sep.
+        return cell;
+      });
+    });
+    return { ...comp, rows };
+  }
+
+  let displayComparison = $derived(formatComparisonRows(comparison));
+
   // ── Slider what-if (instant predict) ──
   /** @param {string} channel */
   async function onSliderChange(channel) {
@@ -50,13 +114,17 @@
 
     try {
       const projectDir = await invoke('project_get_dir', { projectId });
+      const _pc = derivePlanningContext();
       const result = /** @type {any} */ (await invoke('econ_scenario', {
         projectDir,
         scenarioName: 'slider-preview',
         mediaPlan: plan,
+        kpiUnitCost: deriveKpiUnitCost(),
+        forecastPeriods: _pc.periods,
+        forecastPeriodLabel: _pc.label,
       }));
       if (result.status === 'ok') {
-        sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}% продаж`;
+        sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}`;
       }
     } catch { /* silent */ }
   }
@@ -77,14 +145,18 @@
 
     try {
       const projectDir = await invoke('project_get_dir', { projectId });
+      const _pc = derivePlanningContext();
       const result = /** @type {any} */ (await invoke('econ_scenario', {
         projectDir,
         scenarioName: `mediaplan-${Date.now()}`,
         mediaPlanFile: filePath,
+        kpiUnitCost: deriveKpiUnitCost(),
+        forecastPeriods: _pc.periods,
+        forecastPeriodLabel: _pc.label,
       }));
 
       if (result.status === 'ok') {
-        computeStatus.set(`Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}% продаж`);
+        computeStatus.set(`Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}`);
         await loadComparison();
       } else {
         computeStatus.set(`Ошибка: ${result.message}`);
@@ -130,7 +202,7 @@
   <!-- Sliders section -->
   <div class="section">
     <h4 class="section-title">Бюджетные сценарии</h4>
-    <p class="section-hint">Перетащите ползунок — прогноз обновится мгновенно</p>
+    <p class="section-hint">Перетащите ползунок - прогноз обновится мгновенно</p>
 
     <div class="sliders">
       {#each channels as ch}
@@ -179,14 +251,14 @@
   {/if}
 
   <!-- Comparison table -->
-  {#if comparison}
+  {#if displayComparison}
     <div class="section">
       <DataTable
         mode="scenario"
         title="Сравнение сценариев"
-        headers={comparison.headers}
-        rows={comparison.rows}
-        highlightColumn={comparison.headers?.[1]}
+        headers={displayComparison.headers}
+        rows={displayComparison.rows}
+        highlightColumn={displayComparison.headers?.[1]}
       />
     </div>
   {:else if scenarios.length === 0}

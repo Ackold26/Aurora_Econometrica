@@ -79,7 +79,7 @@
 
   /** @type {string|null} */
   let openError = $state(null);
-  // Plain let (NOT $state) — invisible to Svelte reactivity, prevents $effect re-trigger
+  // Plain let (NOT $state) - invisible to Svelte reactivity, prevents $effect re-trigger
   let autoRedirectInProgress = false;
   /** @type {Array<[string, string, string]>} */
   let recentExports = $state([]);
@@ -188,7 +188,7 @@
   <div class="home">
     <div style="display: flex; align-items: center; justify-content: center; height: 100vh;">
       <div class="spinner"></div>
-      <p style="margin-left: 12px; opacity: 0.6; font-size: 13px;">Открытие кабинета...</p>
+      <p style="margin-left: 12px; opacity: 0.6; font-size: 13px;">Открытие рабочей области...</p>
     </div>
   </div>
 {:else}
@@ -290,7 +290,7 @@
       <div class="state-panel">
         <div class="spinner"></div>
         {#if vaultProgress}
-          <p class="state-text">Загрузка кабинетов... ({vaultProgress.current}/{vaultProgress.total})</p>
+          <p class="state-text">Загрузка данных... ({vaultProgress.current}/{vaultProgress.total})</p>
           <p class="state-subtext">{vaultProgress.file}</p>
         {:else}
           <p class="state-text">Проверка лицензии...</p>
@@ -308,8 +308,8 @@
     {:else if cabinets.length === 0}
       <div class="state-panel glass-panel">
         <div class="state-icon">📦</div>
-        <h2 class="state-title">Нет доступных кабинетов</h2>
-        <p class="state-desc">В вашей лицензии нет активных кабинетов</p>
+        <h2 class="state-title">Рабочая область недоступна</h2>
+        <p class="state-desc">В вашей лицензии не активирована Econometrica. Обратитесь в поддержку.</p>
       </div>
 
     {:else}
@@ -347,6 +347,15 @@
             >
               Новый проект
             </button>
+            {#if $activeProject}
+              <button
+                class="pipeline-promo-btn pipeline-promo-secondary"
+                onclick={() => goto('/causal')}
+                title="Sprint 3 Pharma Causal - DiD / SCM / Causal Forest"
+              >
+                Причинность →
+              </button>
+            {/if}
           </div>
         </div>
       </div>
@@ -399,7 +408,7 @@
     flex-direction: column;
     gap: 0px;
     line-height: 1;
-    /* Выравнивание с AURORA baseline — у картинки logo-wordmark.png
+    /* Выравнивание с AURORA baseline - у картинки logo-wordmark.png
        "AI"-superscript смещает визуальный центр выше baseline текста AURORA. */
     margin-top: 8px;
   }
@@ -989,7 +998,7 @@
     font-weight: 500;
   }
   .pipeline-promo-actions { display: flex; gap: 12px; margin-top: 8px; }
-  /* Action buttons — same size, shape, font-weight; differ only by color */
+  /* Action buttons - same size, shape, font-weight; differ only by color */
   .pipeline-promo-btn {
     padding: 7px 16px;
     font-size: 12px;
@@ -1003,7 +1012,7 @@
     white-space: nowrap;
   }
 
-  /* Primary — solid accent */
+  /* Primary - solid accent */
   .pipeline-promo-btn {
     background: var(--accent, #3b82f6);
     color: white;
@@ -1012,7 +1021,7 @@
     background: #2563eb;
   }
 
-  /* Secondary — outline accent (for "Новый проект" when active project exists) */
+  /* Secondary - outline accent (for "Новый проект" when active project exists) */
   .pipeline-promo-btn.pipeline-promo-secondary {
     background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
     color: var(--accent-primary);
@@ -1021,5 +1030,17 @@
   .pipeline-promo-btn.pipeline-promo-secondary:hover {
     background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
     border-color: var(--accent-primary);
+  }
+
+  /* v2.1.0 п.5.6: static spinner and skip card-appear entrance */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: var(--accent-primary);
+    }
+    .cabinet-card {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
   }
 </style>

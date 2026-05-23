@@ -19,9 +19,18 @@
     computeStatus,
     expertMode,
     unitCosts,
+    unitCostInflation,
+    // v1.3.0 stores (per ADR-015, ADR-016)
+    kpiKind,
+    derivedMode,
+    valuePerCountUnit,
+    modelStaleStatus,
   } from '$lib/project-state.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
-  import ROIComparison from '$lib/components/pipeline/ROIComparison.svelte';
+  import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
+  import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
+  import { pipelineCurrentStep } from '$lib/project-state.js';
+  import { formatMoney, formatCount } from '$lib/format-numbers.js';
   import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
@@ -53,9 +62,9 @@
 
   /** @type {Record<string, string>} */
   const CATEGORY_HELP = {
-    brand_reach: 'Brand-Reach — охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
-    performance: 'Performance — каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI — чистая отдача на рубль. Сравнивай с другими Performance каналами.',
-    mixed: 'Mixed — канал не однозначно классифицирован (нет явных маркеров brand/performance в имени).\n\nКак читать: смотри на тип контента и цель размещения — он может работать и на охват, и на отклик.',
+    brand_reach: 'Brand-Reach - охватные каналы (TV/TRPs/OOH/радио), работают на долгосрочный brand-эффект.\n\nЧто это: строят знание и доверие к бренду, влияние раскрывается месяцами.\n\nКак читать: ROI интерпретируй как «вклад в базу + короткий эффект», не чистый инкремент. Сравнивай только с другими Brand-Reach каналами.',
+    performance: 'Performance - каналы прямого отклика (Digital/Search/Social/контекст), работают на короткий инкремент.\n\nЧто это: закрывают спрос здесь и сейчас, эффект виден в пределах недель.\n\nКак читать: ROI - чистая отдача на рубль. Сравнивай с другими Performance каналами.',
+    mixed: 'Mixed - канал не однозначно классифицирован (нет явных маркеров brand/performance в имени).\n\nКак читать: смотри на тип контента и цель размещения - он может работать и на охват, и на отклик.',
   };
 
   /** @type {'idle' | 'loading' | 'done' | 'error'} */
@@ -65,13 +74,181 @@
 
   const data = $derived($decomposeData);
 
+  // v1.3.1 hotfix: primary recommendation - главная actionable рекомендация для главной карточки.
+  // Находит overspending канал (efficiency_gap < -10%) + underspending (gap > 10%) →
+  // pair "переложить из X в Y".
+  const primaryRecommendation = $derived.by(() => {
+    if (!data?.channels?.length) return null;
+    const channels = data.channels;
+    /** @type {any[]} */
+    const overspending = channels
+      .filter((/** @type {any} */ c) => c.efficiency_gap < -10 && c.spend > 0)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => a.efficiency_gap - b.efficiency_gap);
+    /** @type {any[]} */
+    const underspending = channels
+      .filter((/** @type {any} */ c) => c.efficiency_gap > 10 && c.spend > 0)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => b.efficiency_gap - a.efficiency_gap);
+    if (overspending.length === 0 || underspending.length === 0) {
+      // Edge case: все каналы balanced → recommend looking at top driver.
+      const top = [...channels].sort((/** @type {any} */ a, /** @type {any} */ b) =>
+        (b.contribution_pct ?? 0) - (a.contribution_pct ?? 0))[0];
+      if (top && top.contribution_pct > 30) {
+        return {
+          icon: '💡',
+          title: 'Что мы видим',
+          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(0)}% медиа-вклада в продажи.`,
+          detail: 'Все каналы сбалансированы по эффективности (gap в пределах ±10%). Проверьте оптимизацию для прироста при тех же ресурсах.',
+          tone: 'info',
+        };
+      }
+      return null;
+    }
+    const from = overspending[0];
+    const to = underspending[0];
+    // Estimate prирост: shift 10% бюджета from → to, expected lift ≈ (to.efficiency_gap - from.efficiency_gap) × shift × totalSpend / 100.
+    const totalSpend = channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.spend || 0), 0);
+    const shiftAmount = from.spend * 0.20;  // shift 20% от канала-донора
+    return {
+      icon: '🎯',
+      title: 'Главная рекомендация',
+      text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен, gap ${from.efficiency_gap.toFixed(0)}%) в «${to.name}» (недонасыщен, gap +${to.efficiency_gap.toFixed(0)}%).`,
+      detail: 'Точный расчёт прироста - на шаге «Оптимизация» через Forward solver. Goal-Seek позволит задать целевое значение продаж.',
+      tone: 'success',
+    };
+  });
+
+  function goToOptimize() {
+    pipelineCurrentStep.set(4);
+  }
+
+  // v1.3.0: derived metric display per (kpi_kind, derived_mode) (per ADR-014 matrix).
+  // 'roi'   → monetary ROI column (v1.2 behavior).
+  // 'cpu'   → count CPU vs value column (₽/единицу).
+  // 'share' → sales contribution share % (Эффективность mode).
+  const displayMetric = $derived(
+    $derivedMode === 'effectiveness' ? 'share' :
+    $kpiKind === 'count' ? 'cpu' :
+    'roi'
+  );
+  /** @type {Record<'roi' | 'cpu' | 'share', string>} */
+  const metricLabel = {
+    roi: 'ROI',
+    cpu: 'CPU, ₽/ед.',
+    share: 'Доля %',
+  };
+
+  /**
+   * Unit suffix for contribution column / waterfall axis.
+   * Импл consistent с WaterfallChart - значения отображаются в native unit:
+   * - monetary KPI (revenue, ₽-counted) → ' ₽' (NBSP + ₽)
+   * - count KPI с kpi_unit_cost → ' ₽' (waterfall rebuilt в money)
+   * - count KPI без kpi_unit_cost → ' ед.' (NBSP + raw count contribution unit)
+   *
+   * v2.1.0 pilot B4 (2026-05-17 B3-E3): для count+kpi_unit_cost суффикс
+   * меняется на ₽ потому что waterfallDisplay рассчитан в money (mirror
+   * табличного primary money cell - устранена mismatch axis vs cell).
+   */
+  const contribUnit = $derived.by(() => {
+    if ($kpiKind === 'monetary') return ' ₽'; // NBSP + ₽
+    // count KPI с kpi_unit_cost → money axis ('₽') - mirror waterfallDisplay rebuild.
+    if (data?.kpi_unit_cost != null && Number(data.kpi_unit_cost) > 0) return ' ₽';
+    // count KPI без kpi_unit_cost → 'ед.' (raw count).
+    return ' ед.';
+  });
+
+  /**
+   * Waterfall data for chart - rebuilt в money equivalents для count+kpi_unit_cost,
+   * mirror того что table cell показывает (ch.contribution_money). Без этого
+   * waterfall (count) расходился с table (money) - юзер видел «163K» в waterfall
+   * vs «13M ₽» в строке того же канала - читает как разные числа.
+   *
+   * v2.1.0 pilot B4 (2026-05-17 B3-E3): closes WaterfallChart axis unit mismatch.
+   * monetary KPI / count KPI без kpi_unit_cost → fallback к raw data.waterfall.
+   * @returns {{ labels: string[], values: number[], types: string[] } | undefined}
+   */
+  const waterfallDisplay = $derived.by(() => {
+    if (!data?.waterfall) return undefined;
+    const uc = Number(data.kpi_unit_cost);
+    // monetary KPI или count без uc - native values без rebuild.
+    if ($kpiKind !== 'count' || !Number.isFinite(uc) || uc <= 0) {
+      return data.waterfall;
+    }
+    // count + kpi_unit_cost: rebuild values × uc для money parity с table.
+    /** @type {number[]} */
+    const native = Array.isArray(data.waterfall.values) ? data.waterfall.values : [];
+    return {
+      labels: data.waterfall.labels,
+      values: native.map((/** @type {number} */ v) => Math.round((Number(v) || 0) * uc)),
+      types: data.waterfall.types,
+    };
+  });
+
+  /**
+   * Compute display value per channel based on displayMetric.
+   * @param {any} ch
+   * @returns {string}
+   */
+  function formatChannelMetric(ch) {
+    if (displayMetric === 'roi') {
+      return ch.roi != null ? `${ch.roi.toFixed(2)}×` : '-';
+    }
+    if (displayMetric === 'cpu') {
+      // CPU = spend / contribution_count_units.
+      // MVP: используем roi как proxy если contribution в count units,
+      // backend pipe count contributions через ch.contribution.
+      // Если ch.contribution > 0 и ch.spend > 0 → CPU = spend / contribution (count units).
+      if (ch.spend > 0 && ch.contribution > 0) {
+        const cpu = ch.spend / ch.contribution;
+        return `${cpu.toFixed(2)} ₽`;
+      }
+      return '-';
+    }
+    if (displayMetric === 'share') {
+      // Share % = ch.share_of_effect (если есть) или ch.contribution / total.
+      const share = ch.share_of_effect ?? (ch.contribution / (data?.total_contribution || 1));
+      return share != null ? `${(share * 100).toFixed(1)}%` : '-';
+    }
+    return '-';
+  }
+
+  /**
+   * Determine cell color class based on metric value vs thresholds.
+   * @param {any} ch
+   * @returns {string}
+   */
+  function metricCellClass(ch) {
+    if (displayMetric === 'roi') {
+      if (ch.roi == null) return '';
+      if (ch.roi > 50) return 'roi-warn';
+      if (ch.roi > 2) return 'roi-good';
+      if (ch.roi >= 0.8) return 'roi-mid';
+      return 'roi-bad';
+    }
+    if (displayMetric === 'cpu' && ch.spend > 0 && ch.contribution > 0) {
+      const cpu = ch.spend / ch.contribution;
+      const value = $valuePerCountUnit;
+      if (value && value > 0) {
+        if (cpu > value * 2) return 'roi-bad';
+        if (cpu > value) return 'roi-mid';
+        return 'roi-good';
+      }
+    }
+    if (displayMetric === 'share') {
+      const share = ch.share_of_effect ?? 0;
+      if (share > 0.20) return 'roi-good';
+      if (share > 0.05) return 'roi-mid';
+      return 'roi-bad';
+    }
+    return '';
+  }
+
   // Help-tooltips для основной таблицы «Детализация по каналам».
   const CH_HELP = {
-    spend:   'Расходы — суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) — ROI будет искажён.',
-    contrib: 'Вклад — оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
-    roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× — отлично. 1-2× — окупается. < 1× — убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) — нужна нормализация.',
-    gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета — кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен — каждый дополнительный рубль даёт меньше отдачи.',
-    verdict: 'Вердикт — комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» — приносит больше своей доли бюджета.\n«Сбалансирован» — окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» — приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» — ROI ≤ 1×.\n«ROI завышен (не рубли?)» — данные канала не в денежных единицах.',
+    spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
+    contrib: 'Вклад - оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
+    roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× - отлично. 1-2× - окупается. < 1× - убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) - нужна нормализация.',
+    gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета - кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен - каждый дополнительный рубль даёт меньше отдачи.',
+    verdict: 'Вердикт - комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» - приносит больше своей доли бюджета.\n«Сбалансирован» - окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» - приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» - ROI ≤ 1×.\n«ROI завышен (не рубли?)» - данные канала не в денежных единицах.\n\n«(широкий ROI-интервал)» - для канала Bayesian-CI шире точечного ROI: читать как диапазон, не точное число. Качество модели в целом оценивается отдельно через R² / MAPE / R-hat. Типичные причины: мало наблюдений, низкая частота канала, корреляции с другими каналами.',
   };
 
   /** Дожидаемся, пока projectId станет валидным (макс. 2с), потом отдаём. */
@@ -116,10 +293,18 @@
     try {
       const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
       // Trust Level 2: override unit_costs из store (если user менял CPP после train,
-      // pickle содержит старые значения — override даёт актуальные).
+      // pickle содержит старые значения - override даёт актуальные).
+      // Phase 2 audit pass 4: thread per-channel inflation если customer задал.
+      const inflStore = get(unitCostInflation) ?? {};
+      // v2.1.0 (ADR-021): передаём kpi_unit_cost только для count KPI.
+      // Backend resolves: override (этот param) > pickle snapshot > None.
+      const kuc = get(valuePerCountUnit);
+      const kpiUnitCost = get(kpiKind) === 'count' && typeof kuc === 'number' && kuc > 0 ? kuc : null;
       const result = /** @type {any} */ (await invoke('econ_decompose', {
         projectDir,
         unitCosts: get(unitCosts) ?? {},
+        unitCostInflationPct: Object.keys(inflStore).length > 0 ? inflStore : null,
+        kpiUnitCost,
       }));
 
       if (result.status === 'ok') {
@@ -128,7 +313,7 @@
         completeStep(3);
       } else {
         const msg = result.message || 'Ошибка декомпозиции';
-        // Авто-retry на race «Модель не найдена» — pickle ещё пишется async.
+        // Авто-retry на race «Модель не найдена» - pickle ещё пишется async.
         const isModelMissing = /модель не найдена|model not found|не найден|not found|pickle|latest\.pkl/i.test(msg);
         if (attemptsLeft > 1 && isModelMissing) {
           const delay = [1500, 2000, 3000][4 - attemptsLeft] || 3000;
@@ -158,14 +343,14 @@
   }
 
   // Bug 2: activeProjectId гидрируется асинхронно из localStorage/IPC после mount.
-  // Если запустить runDecompose синхронно в onMount — projectId === null,
+  // Если запустить runDecompose синхронно в onMount - projectId === null,
   // показывается «Проект не выбран». Подписываемся и ждём первого валидного значения.
-  // (Bug 1 со scroll-позицией решается в +layout.svelte — сбрасывается .pipeline-main.scrollTop при смене шага.)
+  // (Bug 1 со scroll-позицией решается в +layout.svelte - сбрасывается .pipeline-main.scrollTop при смене шага.)
   //
-  // Также: если data уже есть в memory (вернулись на шаг через stepper) —
+  // Также: если data уже есть в memory (вернулись на шаг через stepper) -
   // просто показываем done и не запускаем ничего, fallback тоже не нужен.
   onMount(() => {
-    // Сбрасываем устаревший errorMessage в локальном state и в pipelineMeta —
+    // Сбрасываем устаревший errorMessage в локальном state и в pipelineMeta -
     // иначе старая ошибка от прошлой попытки видна до того как retry отработает.
     errorMessage = null;
     if (get(decomposeData)) {
@@ -175,7 +360,7 @@
 
     // ВАЖНО: все 6 step компонентов mount'ятся одновременно (см. +page.svelte
     // rule "visibility switching"). DecomposeStep mount'ится даже когда user
-    // на Validate/Model. Guard — не запускать runDecompose пока нет обученной
+    // на Validate/Model. Guard - не запускать runDecompose пока нет обученной
     // модели. $effect(modelData) автоматически запустит когда train завершится.
     if (!get(modelData)?.channelParams) {
       stepState = 'idle';
@@ -188,7 +373,7 @@
       if (!pid) return; // ждём пока projectId станет валидным
       started = true;
       (async () => {
-        // повторная проверка — за время ожидания pid могли подгрузиться данные
+        // повторная проверка - за время ожидания pid могли подгрузиться данные
         if (!get(decomposeData)) {
           await runDecompose();
         } else {
@@ -197,8 +382,8 @@
       })();
     });
 
-    // Fallback: если projectId так и не появился за 3с И данных нет И модель ЕСТЬ —
-    // показываем ошибку. Если модели нет — просто idle, ждём train.
+    // Fallback: если projectId так и не появился за 3с И данных нет И модель ЕСТЬ -
+    // показываем ошибку. Если модели нет - просто idle, ждём train.
     const fallback = setTimeout(() => {
       if (started) return;
       if (get(decomposeData)) {
@@ -223,7 +408,7 @@
   });
 
   // Авто-ретрай когда прилетела новая тренировка (pickle всегда latest.pkl,
-  // поэтому сравниваем по object-reference modelData — каждый set() даёт
+  // поэтому сравниваем по object-reference modelData - каждый set() даёт
   // новый object). Срабатывает:
   //   • при error «Модель не найдена» (исправляется автоматом)
   //   • при idle без данных (первое открытие после train)
@@ -244,16 +429,34 @@
     // Race, исправленный в rc1.5: раньше firstFire всегда skipping привело к пустой decompose
     // если DecomposeStep mount'ился до завершения train (типичный pipeline-first flow).
     if (firstFire && stepState !== 'idle' && stepState !== 'error') return;
-    // Защита от race: если уже идёт runDecompose — не запускаем второй параллельно.
+    // Защита от race: если уже идёт runDecompose - не запускаем второй параллельно.
     if (stepState === 'loading') return;
     errorMessage = null;
-    // Сбросим decomposeData — старая модель → старые результаты.
+    // Сбросим decomposeData - старая модель → старые результаты.
     if (stepState === 'done') decomposeData.set(null);
     runDecompose();
   });
 </script>
 
 <div class="decompose-step">
+
+  <!-- v2.1.0 (пилот 2026-05-17): stale model banner. Декомпозиция читает
+       pickle от прошлого обучения - если юзер изменил роли в Валидации,
+       лишние factors могут появиться в результатах. -->
+  {#if $modelStaleStatus?.stale}
+    <div class="stale-banner" role="alert">
+      <span class="stale-icon" aria-hidden="true">⚠</span>
+      <div class="stale-text">
+        <strong>Декомпозиция устарела.</strong>
+        {$modelStaleStatus.reason} Текущие графики могут содержать факторы, которых уже нет в текущих ролях.
+        {#if $modelStaleStatus.diff?.length}
+          <ul class="stale-diff">
+            {#each $modelStaleStatus.diff as line}<li>{line}</li>{/each}
+          </ul>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <!-- Loading state -->
   {#if stepState === 'loading'}
@@ -275,9 +478,35 @@
   <!-- Results -->
   {#if stepState === 'done' && data}
 
+    <!-- v2.1.0 (Pilot C P1-1): backend model_warning surfaced при загрузке legacy
+         pickle или OLS-режима. Шаблонный «honest disclosure» с описанием
+         ограничений (фиксированные параметры adstock/Hill для OLS, отсутствие
+         posterior CI для v1.1, и т.п.) которое раньше пропадало в JSON. -->
+    {#if data.model_warning}
+      <div class="model-warning-banner" role="note">
+        <span class="mwb-icon">ℹ</span>
+        <p class="mwb-text">{data.model_warning}</p>
+      </div>
+    {/if}
+
     <!-- Trust banner (smell_flags) -->
     {#if data.smell_flags?.length}
       <TrustBanner flags={data.smell_flags} />
+    {/if}
+
+    <!-- Trust Level 3 (v1.1.0): identifiability warnings (single-N group demoted) -->
+    {#if data.hierarchical?.categorization_warnings?.length}
+      <div class="categorization-warning-banner">
+        <span class="cat-warn-icon">⚠</span>
+        <div>
+          <p class="cat-warn-title">Категоризация скорректирована при обучении</p>
+          <ul class="cat-warn-list">
+            {#each data.hierarchical.categorization_warnings as w}
+              <li>{w}</li>
+            {/each}
+          </ul>
+        </div>
+      </div>
     {/if}
 
     <!-- Insight banner -->
@@ -289,19 +518,38 @@
       </div>
     {/if}
 
-    <!-- Waterfall — full width -->
+    <!-- v1.3.1 hotfix: Primary recommendation card - actionable «главная рекомендация» в primary visual. -->
+    {#if primaryRecommendation}
+      <RecommendationCard
+        icon={primaryRecommendation.icon}
+        title={primaryRecommendation.title}
+        text={primaryRecommendation.text}
+        detail={primaryRecommendation.detail}
+        tone={primaryRecommendation.tone}
+        primaryAction={{ label: 'Перейти в Оптимизацию', onClick: goToOptimize }}
+      />
+    {/if}
+
+    <!-- Waterfall - full width -->
     <ExpandableCard title="Декомпозиция продаж" tourKey="decompose-waterfall">
-      <WaterfallChart waterfall={data.waterfall} />
+      <WaterfallChart waterfall={waterfallDisplay ?? data.waterfall} unit={contribUnit.trim()} />
     </ExpandableCard>
 
     <!-- Two-column: ROI | Timeline -->
     <div class="charts-grid">
       <ExpandableCard title="Расходы vs Эффект" tourKey="decompose-roi">
-        <ROIComparison channels={data.channels} />
+        <ChannelComparisonChart channels={data.channels} />
       </ExpandableCard>
       <ExpandableCard title="Динамика по периодам" tourKey="decompose-timeline">
         {#if data.time_series?.dates?.length}
-          <ChannelTimeline timeSeries={data.time_series} />
+          <!-- v2.1.0 (пилот 2026-05-16): прокидываем signed factors,
+               чтобы negative controls (конкуренты, цены) показывались
+               ниже нулевой линии отдельной полосой - юзер видит сколько
+               продаж «отъели» внешние факторы. -->
+          <ChannelTimeline
+            timeSeries={data.time_series}
+            signedFactors={data.signed_factor_contributions}
+          />
         {:else}
           <div class="no-data">Нет данных для временного ряда</div>
         {/if}
@@ -313,56 +561,103 @@
       <div class="card-title">Детализация по каналам</div>
       <div class="channel-table">
         <table>
+          <!-- Audit pass 11 (Антон 2026-05-03): colgroup имел 6 col-widths
+               для 7 столбцов (Канал/Расходы/Вклад/ROI/Gap/Decay/Вердикт) -
+               Decay column отсутствовала → table-layout:fixed cracked, Вердикт
+               получал residual 0% width, обрезался до 1-2 букв per row. Также
+               redistributed widths под typical content (Канал shorter, Вердикт
+               wider - текст «На грани окупаемости (широкий ROI-интервал)» ~40
+               chars не fit'ился). Σ = 100%. -->
           <colgroup>
-            <col style="width: 28%" />
-            <col style="width: 16%" />
-            <col style="width: 18%" />
-            <col style="width: 11%" />
-            <col style="width: 10%" />
-            <col style="width: 17%" />
+            <col style="width: 24%" />  <!-- Канал - name + category chip -->
+            <col style="width: 11%" />  <!-- Расходы - «4 338 835 636» -->
+            <col style="width: 11%" />  <!-- Вклад - «163 912 487» -->
+            <col style="width: 7%"  />  <!-- ROI - «31.47×» -->
+            <col style="width: 7%"  />  <!-- Gap - «+22.1%» -->
+            <col style="width: 11%" />  <!-- Decay - «0.65» + 50% CI -->
+            <col style="width: 29%" />  <!-- Вердикт - long text + CI flag -->
           </colgroup>
           <thead>
             <tr>
               <th>Канал</th>
               <th class="num">Расходы<span class="help-icon" title={CH_HELP.spend}>?</span></th>
               <th class="num">Вклад<span class="help-icon" title={CH_HELP.contrib}>?</span></th>
-              <th class="num">ROI<span class="help-icon" title={CH_HELP.roi}>?</span></th>
+              <th class="num">
+                {metricLabel[displayMetric]}<span class="help-icon" title={CH_HELP.roi}>?</span>
+              </th>
               <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
+              <th class="num">Decay<span class="help-icon" title="Adstock decay - доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50% CI показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
               <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
             </tr>
           </thead>
           <tbody>
-            {#each data.channels as ch}
-              <tr>
-                <td class="ch-name">
-                  {ch.name}
-                  {#if ch.category}
-                    <span
-                      class="ch-cat"
-                      class:cat-brand={ch.category === 'brand_reach'}
-                      class:cat-perf={ch.category === 'performance'}
-                      class:cat-mixed={ch.category === 'mixed'}
-                      title={CATEGORY_HELP[ch.category]}
-                    >{CATEGORY_LABEL[ch.category]}</span>
-                  {/if}
-                </td>
-                <td class="num" title={ch.unit_cost && ch.unit_cost !== 1 ? `${(ch.raw_spend ?? 0).toLocaleString('ru-RU')} юнитов × ${ch.unit_cost.toLocaleString('ru-RU')}₽ = ${ch.spend.toLocaleString('ru-RU')}₽` : ''}>
-                  {ch.spend.toLocaleString('ru-RU')}
-                  {#if ch.unit_cost && ch.unit_cost !== 1}
-                    <span class="spend-sub">{(ch.raw_spend ?? 0).toLocaleString('ru-RU')} × {ch.unit_cost.toLocaleString('ru-RU')}₽</span>
-                  {/if}
-                </td>
-                <td class="num">{ch.contribution.toLocaleString('ru-RU')}</td>
-                <td class="num" class:roi-good={ch.roi > 2 && ch.roi <= 50} class:roi-mid={ch.roi >= 0.8 && ch.roi <= 2} class:roi-bad={ch.roi < 0.8} class:roi-warn={ch.roi > 50}>
-                  {ch.roi.toFixed(2)}×
-                </td>
-                <td class="num" class:gap-pos={ch.efficiency_gap >= 5} class:gap-neg={ch.efficiency_gap <= -5}>
-                  {ch.efficiency_gap > 0 ? '+' : ''}{ch.efficiency_gap}%
-                </td>
-                <td class:verdict-good={ch.verdict_tone === 'good'} class:verdict-warn={ch.verdict_tone === 'warn'} class:verdict-bad={ch.verdict_tone === 'bad'}>
-                  {ch.verdict}
-                </td>
-              </tr>
+            {#each ['brand_reach', 'performance', 'mixed'] as groupKey}
+              {@const groupChannels = data.channels.filter(/** @param {any} c */ c => (c.category || 'mixed') === groupKey)}
+              {#if groupChannels.length > 0}
+                <!-- Trust Level 3 (v1.1.0): visual grouping per category -->
+                <tr class="group-header" class:gh-brand={groupKey === 'brand_reach'} class:gh-perf={groupKey === 'performance'} class:gh-mixed={groupKey === 'mixed'}>
+                  <td colspan="7">
+                    {#if groupKey === 'brand_reach'}🎯 Brand-каналы - long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}📊 Performance-каналы - short-decay (Search/Social){:else}⚪ Смешанные (single-prior){/if}
+                    <span class="group-count">{groupChannels.length}</span>
+                  </td>
+                </tr>
+                {#each groupChannels as ch}
+                  <tr>
+                    <td class="ch-name">
+                      {ch.name}
+                      {#if ch.category}
+                        <span
+                          class="ch-cat"
+                          class:cat-brand={ch.category === 'brand_reach'}
+                          class:cat-perf={ch.category === 'performance'}
+                          class:cat-mixed={ch.category === 'mixed'}
+                          title={CATEGORY_HELP[ch.category]}
+                        >{CATEGORY_LABEL[ch.category]}</span>
+                      {/if}
+                    </td>
+                    <td class="num" title={ch.unit_cost && ch.unit_cost !== 1 ? `${(ch.raw_spend ?? 0).toLocaleString('ru-RU')} юнитов × ${ch.unit_cost.toLocaleString('ru-RU')}₽ = ${ch.spend.toLocaleString('ru-RU')}₽` : ''}>
+                      {ch.spend.toLocaleString('ru-RU')}
+                      {#if ch.unit_cost && ch.unit_cost !== 1}
+                        <span class="spend-sub">{(ch.raw_spend ?? 0).toLocaleString('ru-RU')} × {ch.unit_cost.toLocaleString('ru-RU')}₽</span>
+                      {/if}
+                    </td>
+                    <td class="num" title={ch.contribution_money != null ? `${ch.contribution_money.toLocaleString('ru-RU')} ₽ = ${ch.contribution.toLocaleString('ru-RU')} ед. × ${(data?.kpi_unit_cost ?? 0).toLocaleString('ru-RU')} ₽/ед.` : ''}>
+                      {#if ch.contribution_money != null}
+                        {ch.contribution_money.toLocaleString('ru-RU')} ₽
+                        <span class="contrib-sub">{ch.contribution.toLocaleString('ru-RU')} ед.</span>
+                      {:else}
+                        {ch.contribution.toLocaleString('ru-RU')}{contribUnit}
+                      {/if}
+                    </td>
+                    <td class="num {metricCellClass(ch)}">
+                      {formatChannelMetric(ch)}
+                      {#if displayMetric === 'roi' && ch.roi_ci_low != null && ch.roi_ci_high != null && ch.ci_method !== 'unavailable_zero_spend' && (ch.roi_ci_low !== 0 || ch.roi_ci_high !== 0)}
+                        <span
+                          class="roi-ci"
+                          title={ch.ci_method === 'frequentist_bootstrap'
+                            ? `Bootstrap CI 95% (OLS): ${ch.roi_ci_low.toFixed(2)}–${ch.roi_ci_high.toFixed(2)}×`
+                            : `CI 95%: ${ch.roi_ci_low.toFixed(2)}–${ch.roi_ci_high.toFixed(2)}×`}>{ch.roi_ci_low.toFixed(2)}–{ch.roi_ci_high.toFixed(2)}</span>
+                      {/if}
+                    </td>
+                    <td class="num" class:gap-pos={ch.efficiency_gap >= 5} class:gap-neg={ch.efficiency_gap <= -5}>
+                      {ch.efficiency_gap > 0 ? '+' : ''}{ch.efficiency_gap}%
+                    </td>
+                    <td class="num decay-cell">
+                      {#if ch.adstock_decay_mean != null}
+                        {ch.adstock_decay_mean.toFixed(2)}
+                        {#if ch.adstock_decay_ci_low != null && ch.adstock_decay_ci_high != null}
+                          <span class="decay-ci">{ch.adstock_decay_ci_low.toFixed(2)}–{ch.adstock_decay_ci_high.toFixed(2)}</span>
+                        {/if}
+                      {:else}
+                        -
+                      {/if}
+                    </td>
+                    <td class:verdict-good={ch.verdict_tone === 'good'} class:verdict-warn={ch.verdict_tone === 'warn'} class:verdict-bad={ch.verdict_tone === 'bad'}>
+                      {ch.verdict}
+                    </td>
+                  </tr>
+                {/each}
+              {/if}
             {/each}
           </tbody>
         </table>
@@ -387,7 +682,7 @@
 
 <style>
   .decompose-step {
-    /* Скрол владеет .pipeline-main (см. +page.svelte). Здесь — никаких
+    /* Скрол владеет .pipeline-main (см. +page.svelte). Здесь - никаких
        overflow-y / height: 100%, иначе двойной скрол + фантомное пустое
        пространство снизу (баг найден 2026-04-19). */
     display: flex;
@@ -429,6 +724,38 @@
     border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
     border-radius: 10px;
     flex-wrap: wrap;
+  }
+  .stale-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 35%, transparent);
+    border-radius: 10px;
+  }
+  .stale-icon {
+    font-size: 18px;
+    line-height: 1.3;
+    color: var(--gold, #c9a449);
+    flex-shrink: 0;
+  }
+  .stale-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .stale-text strong {
+    color: var(--gold, #c9a449);
+    margin-right: 4px;
+  }
+  .stale-diff {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
   .error-text { flex: 1; font-size: 13px; color: #ef4444; }
@@ -500,7 +827,15 @@
   }
 
   .channel-table {
+    /* Audit pass 11: removed overflow-x:auto - proper colgroup widths
+       обеспечивают fit на одном экране. Save as fallback на small viewports. */
     overflow-x: auto;
+    /* v1.3.2 (audit M5): sticky thead для длинных таблиц. max-height ограничивает
+       вертикаль; overflow-y: auto не показывает scrollbar пока content fits
+       (browser default behavior). Для table < 480px high - нет scrollbar.
+       Для 10+ channels - scroll с фиксированным thead. */
+    max-height: 480px;
+    overflow-y: auto;
   }
   table {
     width: 100%;
@@ -510,15 +845,27 @@
   }
   th {
     text-align: left;
-    padding: 6px 10px;
+    padding: 6px 8px;
     color: var(--text-muted);
     font-weight: 500;
     border-bottom: 1px solid rgba(255,255,255,0.06);
+    white-space: nowrap;
+    /* v1.3.2: sticky header - фиксируется при скролле длинных списков
+       каналов. Background match'ит card background чтобы не светить
+       сквозь scrolling content. */
+    position: sticky;
+    top: 0;
+    background: var(--bg-card, #1e293b);
+    z-index: 1;
   }
   td {
-    padding: 7px 10px;
+    padding: 7px 8px;
     color: var(--text-primary, #e2e8f0);
     border-bottom: 1px solid rgba(255,255,255,0.04);
+    /* Audit pass 11: word-wrap для Вердикт column (long text «На грани
+       окупаемости (широкий ROI-интервал)» нужно wrap, не truncate) */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
   }
   th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
   th .help-icon { margin-left: 4px; vertical-align: middle; }
@@ -541,7 +888,8 @@
     background: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
     color: var(--accent-primary, #3b82f6);
   }
-  .spend-sub {
+  .spend-sub,
+  .contrib-sub {
     display: block;
     font-size: 10px;
     color: var(--text-muted);
@@ -576,6 +924,84 @@
     background: color-mix(in srgb, var(--text-muted, #64748b) 14%, transparent);
     color: var(--text-muted, #64748b);
   }
+  /* Trust Level 3 (v1.1.0): categorization warning banner */
+  .categorization-warning-banner {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #d97706) 22%, transparent);
+    border-radius: 10px;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 13px;
+  }
+  .cat-warn-icon { color: var(--warning, #d97706); font-size: 18px; flex-shrink: 0; }
+  .cat-warn-title { margin: 0 0 4px 0; font-weight: 600; font-size: 13px; }
+  .cat-warn-list { margin: 0; padding-left: 18px; line-height: 1.5; color: var(--text-secondary, #94a3b8); }
+
+  /* v2.1.0 (Pilot C P1-1): info banner для backend model_warning (legacy
+     pickles или OLS small-data fallback). Менее тревожный тон чем warning -
+     эта диагностика контекстная, не блокирующая. */
+  .model-warning-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 10px 14px;
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #3b82f6) 22%, transparent);
+    border-radius: 10px;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .mwb-icon {
+    color: var(--accent-primary, #3b82f6);
+    font-size: 18px;
+    flex-shrink: 0;
+    line-height: 1.4;
+  }
+  .mwb-text { margin: 0; color: var(--text-secondary, #94a3b8); }
+
+  /* v2.1.0 (Pilot C P0-3): ROI CI bracket display - bootstrap (OLS) и HDI
+     (Bayesian) рисуем одинаково, tooltip differs via ci_method. */
+  .roi-ci {
+    display: block;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-weight: 400;
+    cursor: help;
+  }
+
+  /* Trust Level 3 (v1.1.0): group headers и decay column */
+  .group-header td {
+    padding: 8px 10px !important;
+    font-weight: 600;
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary, #94a3b8);
+  }
+  .group-header.gh-brand td { border-left: 3px solid rgba(110, 168, 254, 0.7); }
+  .group-header.gh-perf td { border-left: 3px solid rgba(110, 220, 158, 0.7); }
+  .group-header.gh-mixed td { border-left: 3px solid rgba(200, 200, 200, 0.4); }
+  .group-count {
+    margin-left: 8px;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .decay-cell { font-variant-numeric: tabular-nums; }
+  .decay-ci {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted, #64748b);
+    margin-top: 2px;
+  }
   .roi-good { color: var(--success); font-weight: 600; }
   .roi-mid { color: var(--warning); }
   .roi-bad { color: var(--danger); }
@@ -585,4 +1011,11 @@
   .verdict-good { color: var(--success); font-weight: 500; }
   .verdict-warn { color: var(--warning); font-weight: 500; }
   .verdict-bad  { color: var(--danger);  font-weight: 500; }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    }
+  }
 </style>

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Aurora AI — PPTX Pipeline
+Aurora AI - PPTX Pipeline
 Preprocessing, notes injection, and DOCX generation for media-analyst cabinet.
 
 Modes:
@@ -50,7 +50,13 @@ except ImportError:
 # ─── PREPROCESS ────────────────────────────────────────────────────────
 
 def extract_text_from_shape(shape):
-    """Extract text from a shape, handling text frames and tables."""
+    """Extract text from a shape, handling text frames and tables.
+
+    Note: Connector shapes (e.g. Aurora Hybrid signature-lime added by
+    `_add_signature_lime`) have neither text_frame nor table, so they're
+    silently skipped - intentional. If future work adds connector labels
+    or line text, update this function to avoid emitting empty strings.
+    """
     parts = []
 
     if shape.has_text_frame:
@@ -299,7 +305,7 @@ def inject_notes(input_path, notes_path, output_path):
     if not notes_data:
         print(json.dumps({
             "status": "warning",
-            "warning": "notes_data is empty — no slides will be updated",
+            "warning": "notes_data is empty - no slides will be updated",
             "slides_updated": 0,
             "output": str(output_path),
         }, ensure_ascii=False))
@@ -368,7 +374,7 @@ def inject_notes(input_path, notes_path, output_path):
 
         tf = ns.notes_text_frame
         if tf is None:
-            # Still None after recreation — skip this slide
+            # Still None after recreation - skip this slide
             continue
 
         # Clear existing notes: clear all runs from existing paragraphs,
@@ -516,6 +522,7 @@ def generate_docx(input_path, notes_path, styles_path, output_path):
                 run.bold = True
                 run.font.size = DocxPt(12)
                 run.font.color.rgb = RGBColor(0x1E, 0x40, 0xAF)  # blue
+                _add_signature_lime_docx(para)
             elif line.startswith("[CEO]"):
                 run_marker = para.add_run("[CEO] ")
                 run_marker.bold = True
@@ -731,6 +738,7 @@ def generate_docx_with_synthesis(input_path, notes_path, styles_path, synthesis_
                 run.font.name = primary_font
                 run.font.size = DocxPt(body_size + 1)
                 run.font.color.rgb = RGBColor(0x1E, 0x40, 0xAF)
+                _add_signature_lime_docx(para)
             elif line.startswith("[CEO]"):
                 run_marker = para.add_run("[CEO] ")
                 run_marker.bold = True
@@ -795,6 +803,98 @@ def parse_synthesis_sections(text):
     return sections
 
 
+# ── Aurora Hybrid · bridge signature ─────────────────────────────────
+# This file generates PPTX for the MEDIA-ANALYST cabinet (inject_summary_slides).
+# The ECONOMETRICA cabinet has its own generator at
+# sidecar/econometrica/engines/pptx_export.py - both locations must carry the
+# signature-lime for consistent branding across Aurora products.
+#
+# TODO(P0.2): source from Standards/tokens.json after SSOT pipeline is in place.
+# brand.signature.lime - 2pt line under every action-title.
+# See Standards/BRAND_DECISION.md § DECISION for context.
+SIGNATURE_LIME_HEX = (0xCC, 0xFF, 0x00)
+
+
+def _add_signature_lime(slide, title_box):
+    """Aurora Hybrid signature: 2pt lime line under action-title.
+
+    Uses actual rendered title_box.height for adaptive positioning -
+    works for both Key Message slides (24pt title, ~0.8" box) and
+    Detail slides (16pt title, ~0.5" box). Safe to call on any title_box
+    produced by slide.shapes.add_textbox().
+
+    Defensively returns None if title_box is malformed (missing top/height);
+    callers never rely on the return value, so skipped signatures are harmless.
+
+    Args:
+        slide: python-pptx Slide object.
+        title_box: python-pptx shape (textbox) containing action-title.
+
+    Returns:
+        The created connector shape, or None if title_box is malformed.
+    """
+    from pptx.util import Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_CONNECTOR
+
+    # Defensive: if caller hands us a partially-constructed shape, skip.
+    if (title_box is None
+            or title_box.top is None
+            or title_box.left is None
+            or title_box.height is None
+            or title_box.width is None):
+        return None
+
+    line_y = title_box.top + title_box.height + Pt(6)
+    line = slide.shapes.add_connector(
+        MSO_CONNECTOR.STRAIGHT,
+        title_box.left,
+        line_y,
+        title_box.left + title_box.width,
+        line_y,
+    )
+    line.line.color.rgb = RGBColor(*SIGNATURE_LIME_HEX)
+    line.line.width = Pt(2)
+    return line
+
+
+def _add_signature_lime_docx(para):
+    """Aurora Hybrid signature in DOCX: 2pt lime bottom border on action-title paragraph.
+
+    Mirrors the PPTX 2pt lime line under action-titles so DOCX commentary
+    deliverables carry the same brand marker (Standards P0.5b, plan
+    proud-purring-deer § M4 Done criteria).
+
+    python-docx has no paragraph-border API, so we inject
+    `<w:pPr><w:pBdr><w:bottom .../></w:pBdr></w:pPr>` directly via
+    the underlying OOXML element tree. Safe to call on any paragraph.
+
+    Args:
+        para: python-docx Paragraph object whose bottom border should carry
+              the signature-lime marker.
+
+    Returns:
+        None (mutates paragraph in place).
+    """
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    pPr = para._p.get_or_add_pPr()
+    # Strip any pre-existing pBdr so repeated calls don't stack borders.
+    for existing in pPr.findall(qn("w:pBdr")):
+        pPr.remove(existing)
+
+    pBdr = OxmlElement("w:pBdr")
+    bottom = OxmlElement("w:bottom")
+    bottom.set(qn("w:val"), "single")
+    # w:sz in eighths of a point → 2pt = 16. w:space in points.
+    bottom.set(qn("w:sz"), "16")
+    bottom.set(qn("w:space"), "4")
+    bottom.set(qn("w:color"), "CCFF00")
+    pBdr.append(bottom)
+    pPr.append(pBdr)
+
+
 def inject_summary_slides(input_pptx, synthesis_md_path, styles_json_path, slides_json_path, output_pptx):
     """Добавить summary-слайды в PPTX из synthesis markdown."""
     from pptx.util import Inches, Pt
@@ -844,6 +944,10 @@ def inject_summary_slides(input_pptx, synthesis_md_path, styles_json_path, slide
         p.font.bold = True
         p.font.name = font_name
         p.font.color.rgb = RGBColor(0x1E, 0x3A, 0x5F)
+
+        # Aurora Hybrid signature - 2pt lime line under action-title (P0.5).
+        # See Standards/BRAND_DECISION.md § DECISION.
+        _add_signature_lime(slide, title_box)
 
         body_box = slide.shapes.add_textbox(left, Inches(1.3), width, slide_height - Inches(1.8))
         tf = body_box.text_frame

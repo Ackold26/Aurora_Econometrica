@@ -1,0 +1,43 @@
+{
+  "summary": {
+    "channel_params": {
+      "Mixed_X": {
+        "alpha": 1.4465,
+        "beta": 0.4977,
+        "decay": 0.3032,
+        "gamma": 0.5067
+      },
+      "OOH": {
+        "alpha": 1.4863,
+        "beta": 0.5041,
+        "decay": 0.32,
+        "gamma": 0.5057
+      },
+      "Search": {
+        "alpha": 1.4705,
+        "beta": 0.4873,
+        "decay": 0.3035,
+        "gamma": 0.5122
+      },
+      "Social": {
+        "alpha": 1.4713,
+        "beta": 0.4928,
+        "decay": 0.2812,
+        "gamma": 0.5001
+      },
+      "TV_TRPs": {
+        "alpha": 1.5033,
+        "beta": 0.4939,
+        "decay": 0.2911,
+        "gamma": 0.5004
+      }
+    },
+    "model_version": "1.2",
+    "normalization": {
+      "y_mean": 1000.0,
+      "y_std": 250.0
+    },
+    "use_hierarchical": 0.0
+  },
+  "hash": "5660ba89cb3ca87dc00ef7bc76b7206468a830bfd312c303cf4577321e891eb1"
+}

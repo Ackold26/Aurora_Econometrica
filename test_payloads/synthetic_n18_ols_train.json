@@ -1,0 +1,15 @@
+{
+  "project_dir": "D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica/test_payloads/projects/synthetic_n18",
+  "data_file": "D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica/test_payloads/synthetic_n18.xlsx",
+  "kpi_column": "sales_rub",
+  "media_columns": ["ch_olv", "ch_search", "ch_social"],
+  "control_columns": [],
+  "date_column": "date",
+  "adstock_config": {
+    "ch_olv": "geometric",
+    "ch_search": "geometric",
+    "ch_social": "geometric"
+  },
+  "mode": "ols",
+  "unit_costs": {}
+}

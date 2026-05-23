@@ -1,22 +1,209 @@
 """
 Sales decomposition engine.
 Breaks down total sales into baseline + channel contributions.
+
+P0-3/4/10 fix (math-fix-v1.0.13, Phase 3):
+Pre-fix: contribution = |β|/Σ|β| × (total - baseline) → ignored adstock,
+saturation, time. Baseline = sum(actual - predicted) + 0.3 × predicted.mean × n.
+Post-fix: contribution_per_period = β × hill(adstock(x)/mean) × y_std.
+Baseline = intercept × y_std + y_mean × n + control_effect × y_std.
 """
 import json
+import logging
 import pickle
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from typing import Any
 
+# AUD-01 fix (rc2): logger ранее использовался в exception handlers без объявления
+# на уровне модуля → NameError при срабатывании except path. Объявляем явно.
+logger = logging.getLogger('econometrica')
 
-def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict[str, Any]:
+from utils.adstock import apply_adstock, geometric_adstock_batch
+from utils.saturation import hill_function, hill_function_batch, hill_function_batch_2d
+from utils.posterior_propagation import (
+    compute_ci_hdi,
+    load_posterior_samples,
+    per_channel_samples,
+)
+
+
+# Hybrid ROI thresholds (Phase 0.2 - plan immutable-bouncing-noodle §0.2, L4).
+# Calibration sources documented в docs/ROI_THRESHOLDS.md.
+ROI_DEEP_LOSS = 0.5         # < 0.5× = глубоко убыточный
+ROI_LOSS = 0.8              # < 0.8× = убыточный
+ROI_BREAKEVEN = 1.0         # < 1.0× = на грани окупаемости
+ROI_HIGH_ABS = 5.0          # > 5× = высокоэффективен (small-N absolute fallback)
+ROI_UNIT_SMELL_FLOOR = 50.0 # > 50× при unit_smell = "не рубли?" (preserved)
+ROI_ARTIFACT = 100.0        # > 100× = artifact warning (regardless of unit_smell)
+GAP_OVERSAT = -10.0         # пп - перенасыщен
+GAP_UNDER = -5.0            # пп - слабее своей доли
+GAP_HIGH = 10.0             # пп - высокоэффективен по share
+GAP_GOOD = 5.0              # пп - эффективен по share
+QUANTILE_MIN_N = 20         # ниже - relative quantile mode disabled
+
+
+def compute_roi_verdict(
+    roi: float,
+    efficiency_gap: float,
+    *,
+    category: str = 'mixed',
+    unit_smell: bool = False,
+    roi_ci_low: float | None = None,
+    roi_ci_high: float | None = None,
+    n_channels: int = 0,
+    category_quantiles: dict[str, dict[str, float]] | None = None,
+    money_roi_unavailable: bool = False,
+) -> tuple[str, str]:
+    """Hybrid ROI verdict combining absolute + relative + posterior CI.
+
+    Per plan immutable-bouncing-noodle §0.2 (L4 fix), and L2 (math-fix v1.4
+    Section C, 2026-04-29) re-ordering:
+
+      Pre-fix (L4): Step 1 - wide CI → 'Высокая неопределённость' (suppressed
+        ALL informative labels на small-N data - customer never saw «Перенасыщен»
+        / «Высокоэффективен» when CI was wide regardless of point estimate).
+      Post-fix (L2): wide CI → suffix « (низкая уверенность)» appended к
+        existing label. Keeps informative descriptive verdict (mROAS-derived)
+        while honestly disclosing CI uncertainty. Customer sees full picture.
+
+    Order:
+      Step 1 - posterior uncertainty flag (computed, applied at end as suffix)
+      Step 2 - absolute hard caps (artifact/glubokaya-ubitochnost regardless of category)
+      Step 3 - relative quantile (only if N ≥ 20 portfolio data + category mapping)
+      Step 4 - efficiency gap fallback (small-N safe per-channel)
+
+    Args:
+      roi: канальный ROI (contribution_money / spend_money), unitless.
+      efficiency_gap: share_of_effect - share_of_spend (пп).
+      category: 'brand_reach' / 'performance' / 'mixed' (для quantile lookup).
+      unit_smell: True если канал в TRP/clicks/impressions (не деньги) и unit_cost=1.
+      roi_ci_low, roi_ci_high: posterior 90% CI bounds (Phase 1.9 - пока None).
+      n_channels: total channels в выборке (для quantile-mode gating).
+      category_quantiles: {category: {p10, p25, p75, p90}} portfolio benchmarks.
+
+    Returns:
+      (verdict_label, verdict_tone) where tone ∈ {good, warn, bad, neutral}.
+    """
+    # v2.1.0 (pilot B P0/B-02 2026-05-17): для count KPI без kpi_unit_cost
+    # roi = contribution_count / spend_money (size 1/CPU, не money ratio).
+    # ROI thresholds в этом fn семантически = money-ratio (₽/₽), поэтому
+    # native count ROI почти всегда < 0.5 → false-positive «Глубоко убыточный»
+    # для всех каналов. Honest reject: вывод «Не определён» + tone neutral,
+    # инструкция задать ценность единицы для proper verdicts.
+    if money_roi_unavailable:
+        return ('Задайте ценность единицы для оценки', 'neutral')
+
+    # Step 1 (L2 refactor): compute wide-CI flag для последующего suffix.
+    # Pre-fix: this was the FIRST gate suppressing all informative labels.
+    # Post-fix: descriptive verdict computed first, CI uncertainty added как
+    # honest disclosure suffix (customer sees what AND how confident).
+    wide_ci = (
+        roi_ci_low is not None
+        and roi_ci_high is not None
+        and roi > 0
+        and (roi_ci_high - roi_ci_low) > roi
+    )
+
+    def _apply_ci_suffix(label, tone):
+        # Подпись смягчена 2026-05-02: было "(низкая уверенность)" - эмоционально
+        # воспринималось как недоверие модели целиком (особенно когда R²/MAPE отличные).
+        # Стало "(широкий ROI-интервал)" - нейтральное техническое описание:
+        # ROI следует трактовать как диапазон, не как точное число. Качество модели
+        # оценивается отдельно через R² / MAPE / R-hat (см. Эксперт-панель Train).
+        if wide_ci:
+            return (f"{label} (широкий ROI-интервал)", 'warn' if tone == 'good' else tone)
+        return (label, tone)
+
+    # Step 2 - absolute hard caps (regardless of category)
+    if roi > ROI_UNIT_SMELL_FLOOR and unit_smell:
+        return _apply_ci_suffix('ROI завышен (не рубли?)', 'warn')
+    if roi > ROI_ARTIFACT:
+        return _apply_ci_suffix('ROI нереалистичен (артефакт)', 'warn')
+    if roi < ROI_DEEP_LOSS:
+        return _apply_ci_suffix('Глубоко убыточный', 'bad')
+    if roi < ROI_LOSS:
+        return _apply_ci_suffix('Убыточный', 'bad')
+    if roi < ROI_BREAKEVEN:
+        return _apply_ci_suffix('На грани окупаемости', 'warn')
+
+    # Step 3 - category-relative quantile (gated by min N)
+    if (
+        n_channels >= QUANTILE_MIN_N
+        and category_quantiles
+        and category in category_quantiles
+    ):
+        q = category_quantiles[category]
+        p10 = q.get('p10')
+        p25 = q.get('p25')
+        p75 = q.get('p75')
+        p90 = q.get('p90')
+        if p10 is not None and roi < p10:
+            return _apply_ci_suffix('Bottom-10% по категории', 'bad')
+        if p90 is not None and roi >= p90:
+            return _apply_ci_suffix('Top-10% по категории', 'good')
+        if p75 is not None and roi >= p75:
+            return _apply_ci_suffix('Top-25% по категории', 'good')
+        if p25 is not None and roi < p25:
+            return _apply_ci_suffix('Bottom-25% по категории', 'warn')
+        return _apply_ci_suffix('Средний по категории', 'neutral')
+
+    # Step 4 - efficiency gap fallback (per-channel small-N safe)
+    if roi > ROI_HIGH_ABS and not unit_smell:
+        return _apply_ci_suffix('Высокоэффективен', 'good')
+    if efficiency_gap <= GAP_OVERSAT:
+        return _apply_ci_suffix('Перенасыщен', 'warn')
+    if efficiency_gap <= GAP_UNDER:
+        return _apply_ci_suffix('Слабее своей доли', 'warn')
+    if efficiency_gap >= GAP_HIGH:
+        return _apply_ci_suffix('Высокоэффективен', 'good')
+    if efficiency_gap >= GAP_GOOD:
+        return _apply_ci_suffix('Эффективен', 'good')
+    return _apply_ci_suffix('Сбалансирован', 'neutral')
+
+
+def _load_v13_kpi_settings(project_path) -> dict:
+    """v1.3.0 (ADR-017): load KPI settings from project state file.
+
+    Looks для settings/v13_kpi.json в проекте. Returns empty dict если file
+    отсутствует (legacy v1.2 проект). Backward compat: defaults injected
+    в memory при дальнейшей dispatch.
+
+    Audit fix v1.3.0 (red-team review): explicit logging при corrupted JSON
+    - silent swallow прятал data corruption.
+    """
+    settings_file = project_path / 'settings' / 'v13_kpi.json'
+    if not settings_file.exists():
+        return {}
+    try:
+        import json as _json
+        with open(settings_file, 'r', encoding='utf-8') as f:
+            return _json.load(f)
+    except (OSError, ValueError) as e:
+        # JSON corrupted / read error - log + fallback to defaults.
+        import logging as _logging
+        _logging.getLogger('econometrica').warning(
+            f"v1.3 KPI settings file {settings_file} corrupted "
+            f"({type(e).__name__}: {e}). Falling back to monetary defaults."
+        )
+        return {}
+
+
+def decompose(
+    project_dir: str,
+    unit_costs_override: dict | None = None,
+    unit_cost_inflation_pct: dict | None = None,
+    kpi_unit_cost_override: float | None = None,
+) -> dict[str, Any]:
     """Decompose sales into baseline + channel contributions using trained model.
 
     Args:
         project_dir: Path to project with models/latest.pkl
-        unit_costs_override: Если задан — используется вместо config.unit_costs из pickle.
+        unit_costs_override: Если задан - используется вместо config.unit_costs из pickle.
             Нужно, когда user изменил CPP/CPM после тренировки модели.
+        kpi_unit_cost_override: v2.1.0 (ADR-021) override средней цены единицы count KPI
+            для money ROI conversion. None = используем snapshot из pickle.
 
     Returns:
         JSON with waterfall data, ROI, share of spend vs effect
@@ -25,175 +212,639 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
     model_path = project_path / 'models' / 'latest.pkl'
 
     if not model_path.exists():
-        return {'status': 'error', 'message': 'Модель не найдена. Сначала обучите модель в кабинете "Данные и Модель"'}
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_NOT_FOUND',
+            'message': 'Модель не найдена. Сначала обучите модель в кабинете «Данные и Модель».',
+        }
 
-    with open(model_path, 'rb') as f:
-        model_data = pickle.load(f)
+    # Trust Level 3: централизованный pickle compat helper.
+    # Auto-injects channel_categories={} для pre-v1.3 pickles.
+    from engines.persistence import load_model_with_compat
+    model_data = load_model_with_compat(model_path)
+
+    # P0-1/2/9 fix: pickle compat detection.
+    # Sprint 2: '1.0-ols' accepted as small-data fallback path (treats как v1.1
+    # downstream - point estimates only, no posterior CI, frequentist β CI на channel level).
+    model_version = model_data.get('model_version', '1.0')
+    if model_version == '1.0':
+        return {
+            'status': 'error',
+            'error_code': 'MODEL_OUTDATED',
+            'message': 'Модель обучена до v1.0.13. Нормализация изменилась - переобучите модель в кабинете "Модель".',
+        }
 
     config = model_data['config']
     channel_params = model_data['channel_params']
+    norm = model_data['normalization']
+    # Phase 1.9: posterior samples for honest CI on contribution/ROI per channel.
+    # None for v1.0/v1.1 pickles → ch dict skips ci_low/ci_high → compute_roi_verdict
+    # Step 1 silently falls through (point-estimate verdict path preserved).
+    posterior_samples = load_posterior_samples(model_data)
     y_actual = np.array(model_data['y_actual'])
-    y_predicted = np.array(model_data['y_predicted'])
+    y_predicted_saved = np.array(model_data.get('y_predicted', []) or [])
     media_cols = config['media_columns']
-    # Override > config. Передан ли override (даже {}) — клиент управляет явно.
-    # None → fallback на pickle (для старых pkl или sessions без знания current state).
+    control_cols = config.get('control_columns', []) or []
+    # A1 fix (post-audit v1.2): for decomposition we still report untrained channels
+    # but their contribution will be ~0 (training data was constant → β·sat·y_std≈0).
+    # No need to filter - they self-zero in the per-period contribution math.
+    untrained_channels = set(model_data.get('normalization', {}).get('untrained_channels', []) or [])
+    # Override > config. Передан ли override (даже {}) - клиент управляет явно.
     unit_costs = unit_costs_override if unit_costs_override is not None else (config.get('unit_costs', {}) or {})
 
-    # Read original data for spend totals
+    # Read original data for spend totals + adstock + control effects
     data_file = config['data_file']
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
     # Материализация виртуальных каналов (если были merge_rules при train)
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config.get('merge_rules'))
 
-    total_sales = float(y_actual.sum())
-    baseline = float(y_actual.sum() - y_predicted.sum()) + float(y_predicted.mean() * len(y_actual) * 0.3)
+    # v2.1.0 (pilot 2026-05-16 fix B-01): re-inject holiday dummies для матча
+    # с обученной моделью. modeler.py инжектирует 12 РФ holiday колонок в df
+    # при тренировке (ADR-019 §5), они попадают в control_cols, но в исходном
+    # Excel/CSV их нет — поэтому df[control_cols] на стр.521 падал с
+    # `['holiday_newyear_preshop', ...] not in index`. Список injected
+    # колонок сохранён в normalization.holiday_cols_injected (v2.0.0 ADR).
+    holiday_cols_to_inject = (
+        model_data.get('normalization', {}).get('holiday_cols_injected') or []
+    )
+    if holiday_cols_to_inject:
+        date_col = config.get('date_column', 'Дата')
+        if date_col in df.columns:
+            try:
+                from utils.holiday_calendar_ru import generate_holiday_dummies
+                holiday_df = generate_holiday_dummies(df[date_col])
+                for hcol in holiday_cols_to_inject:
+                    if hcol not in df.columns and hcol in holiday_df.columns:
+                        df[hcol] = holiday_df[hcol].values
+            except Exception as exc:
+                # Graceful degradation: если re-inject failed - пытаемся декомпозицию
+                # без holiday dummies (β-коэффициенты для них останутся - но соответствующие
+                # X-значения будут нулевыми → контроль NaN-protect ниже).
+                logger.warning(
+                    'Decomposer: re-injection holiday dummies failed (%s). '
+                    'Will proceed with df, controls без holidays may be 0.', exc,
+                )
+                # Защитная мера: убираем holiday cols из control_cols чтобы
+                # df[control_cols] не падал. β для них останется в model_data
+                # но без X-данных вклад будет 0.
+                control_cols = [c for c in control_cols if c not in holiday_cols_to_inject]
+        else:
+            # AUD-02 fix (rc2): если date_col отсутствует в df (пользователь
+            # переименовал колонку даты после тренировки), невозможно
+            # re-injectit holidays - убираем их из control_cols, чтобы
+            # df[control_cols] на стр.548 не упал с KeyError.
+            logger.warning(
+                'Decomposer: date_col %r отсутствует в df.columns - re-injection '
+                'holidays невозможна. Убираем %d holiday колонок из control_cols '
+                '(β для них останутся в model_data, но без X-данных вклад будет 0).',
+                date_col, len(holiday_cols_to_inject),
+            )
+            control_cols = [c for c in control_cols if c not in holiday_cols_to_inject]
 
-    # Channel contributions (proportional to beta × saturated effect)
+    # Phase 2 audit pass 4 - per-channel inflation: customer entered current
+    # cost (latest training year) + annual_inflation_pct → adjust к training-
+    # period weighted average. ROI/mROAS теперь reflect actual training prices.
+    if unit_cost_inflation_pct:
+        from utils.unit_cost_inflation import apply_inflation_to_unit_costs
+        unit_costs = apply_inflation_to_unit_costs(
+            unit_costs=unit_costs,
+            inflation_pct_per_channel=unit_cost_inflation_pct,
+            df=df,
+            date_column=config.get('date_column', 'date'),
+        )
+
+    n_periods = len(df)
+    total_sales = float(y_actual.sum())
+
+    # Normalization params
+    y_mean = float(norm.get('y_mean', 0))
+    y_std = float(norm.get('y_std', 1)) or 1
+    intercept_mean = float(norm.get('intercept_mean', 0))
+    control_betas_mean = norm.get('control_betas_mean', []) or []
+    media_means = norm.get('media_means', {}) or {}
+    control_means = norm.get('control_means', {}) or {}
+    control_stds = norm.get('control_stds', {}) or {}
+
+    adstock_config = config.get('adstock_config', {}) or {}
+
+    # v2.1.0 (ADR-020): unit_costs которые modeler применил при тренировке.
+    # Нужно для симметричного pre-multiply raw media при decompose - иначе
+    # media_means (scaled) не совпадёт с X_media (raw). Pickles без флага
+    # → пустой dict → no-op (legacy backward compat).
+    unit_costs_applied_at_training = bool(model_data.get('unit_costs_applied_at_training'))
+    unit_costs_at_training: dict[str, float] = (
+        model_data.get('unit_costs_snapshot') or {}
+    ) if unit_costs_applied_at_training else {}
+
+    # v2.1.0 (ADR-021): kpi_unit_cost для money ROI conversion при count KPI.
+    # Override из request > snapshot из pickle > None (legacy native units).
+    kpi_unit_cost: float | None
+    if kpi_unit_cost_override is not None and float(kpi_unit_cost_override) > 0:
+        kpi_unit_cost = float(kpi_unit_cost_override)
+    else:
+        _snap = model_data.get('kpi_unit_cost_snapshot')
+        kpi_unit_cost = float(_snap) if _snap is not None and float(_snap) > 0 else None
+    # Detect kpi_kind для условной активации money conversion. Resolution chain:
+    # 1) Explicit kpi_kind в config (ADR-016+ pickles)
+    # 2) Derive из kpi_type (ADR-020+ pickles: 'sales_packs'/'leads'/... → count)
+    # 3) Fallback classify_column(kpi_column) для legacy pickles до ADR-016
+    _kpi_kind_cfg = (config.get('kpi_kind') or '').lower()
+    if _kpi_kind_cfg in ('count', 'monetary'):
+        kpi_kind = _kpi_kind_cfg
+    else:
+        _count_types = {
+            'sales_packs', 'leads', 'registrations', 'loyalty_cards',
+            'subscriptions', 'app_installs', 'count_custom',
+        }
+        _monetary_types = {'sales', 'revenue', 'profit'}
+        _kpi_type_cfg = (config.get('kpi_type') or '').lower()
+        if _kpi_type_cfg in _count_types:
+            kpi_kind = 'count'
+        elif _kpi_type_cfg in _monetary_types:
+            kpi_kind = 'monetary'
+        else:
+            try:
+                from utils.column_detection import classify_column
+                _kpi_col_classify = classify_column(config.get('kpi_column', '') or '')
+                kpi_kind = 'count' if _kpi_col_classify == 'target_count' else 'monetary'
+            except Exception:
+                kpi_kind = 'monetary'  # safe default - legacy behaviour
+
+    # ─────────────────────────────────────────────────────────────────────
+    # P0-3/4/10 fix: per-channel per-period contribution = β × hill(adstock(x)/mean) × y_std
+    # ─────────────────────────────────────────────────────────────────────
     channels = []
-    total_media_contribution = 0
+    time_series_channels: dict[str, list[float]] = {}
+    total_media_contribution = 0.0
+
     for col in media_cols:
         params = channel_params[col]
-        raw_spend = float(df[col].fillna(0).sum())
-        # Native-unit spend (TRPs, показы) → денежный эквивалент через CPP/CPM.
-        # Для каналов в рублях unit_cost = 1.0 (default) → spend без изменений.
-        unit_cost = float(unit_costs.get(col, 1.0) or 1.0)
-        spend = raw_spend * unit_cost
-        # Contribution proportional to beta (simplified)
-        total_beta = sum(abs(channel_params[c]['beta']) for c in media_cols)
-        contribution_pct = abs(params['beta']) / total_beta if total_beta > 1e-10 else 0
-        contribution = (total_sales - baseline) * contribution_pct
-        roi = contribution / spend if spend > 0 else 0
-        total_media_contribution += contribution
+        # H-OLS-2 (audit 2026-04-27): explicit guard для untrained channels.
+        # OLS engine marks channels with zero training variance via 'untrained': True flag.
+        # Pre-fix: such channels могли silently get spurious contribution когда production
+        # spend non-zero (mean fallback к 1.0 → x_norm = adstocked/1.0 = full raw → Hill saturation).
+        # Post-fix: explicit zero contribution + skip CI computation.
+        #
+        # Phase 5 follow-up audit (2026-05-03): Bayesian engine marks untrained channels
+        # only через `normalization.untrained_channels` list (not channel_params.untrained).
+        # OLS marks both. Без поддержки norm-list path, Bayesian-trained pickles с zero-
+        # variance channels gave spurious contributions (decomposer не skipped). Fix:
+        # secondary check - col в untrained_channels list.
+        if params.get('untrained') or col in untrained_channels:
+            from engines.narrative_adapter import _normalize_channel_name as _norm
+            ch_dict_untr = {
+                'name': col,
+                'display_name': _norm(col) or col,
+                'spend': 0.0,
+                'raw_spend': 0.0,
+                'unit_cost': float(unit_costs.get(col, 1.0) or 1.0),
+                'contribution': 0.0,
+                'contribution_pct': 0,
+                'roi': 0.0,
+                'beta': 0.0,
+                'verdict': 'Не обучен',
+                'verdict_tone': 'neutral',
+                'untrained': True,
+                'ci_skip_reason': 'untrained_channel',
+                'mroi_current': 0.0,
+            }
+            channels.append(ch_dict_untr)
+            continue
+        beta = float(params.get('beta', 0))
+        alpha = max(float(params.get('alpha', 1)), 1e-6)
+        gamma = max(float(params.get('gamma', 0.5)), 1e-6)
 
-        channels.append({
+        raw_spend_series_native = df[col].fillna(0).values.astype(float)
+        raw_spend_total = float(raw_spend_series_native.sum())
+
+        # v2.1.0 (ADR-020): симметрия с training pre-multiply. Если pickle
+        # обучался с unit_costs applied — media_means в normalization тоже
+        # scaled. Без симметричного pre-multiply здесь X_norm построится
+        # на raw spend → mismatch с обученной нормализацией → broken hill.
+        # Важно: raw_spend_total (native units) сохранён ДО pre-multiply -
+        # это используется для downstream spend_money = raw × unit_cost
+        # (line ~421). Без backup получалось бы double-multiply.
+        uc_train = float(unit_costs_at_training.get(col, 1.0))
+        if uc_train > 0 and uc_train != 1.0:
+            raw_spend_series = raw_spend_series_native * uc_train
+        else:
+            raw_spend_series = raw_spend_series_native
+
+        # 1. Adstock (matches training).
+        # adstock_config schema: dict[channel, str] - type only ('geometric' or 'weibull').
+        # Defensive read: tolerate dict-with-'type' format from older pickles or
+        # rare configs, but standardize on str. Hyperparameters use library defaults
+        # (matching modeler.py training-time apply_adstock signature).
+        raw_at = adstock_config.get(col)
+        if isinstance(raw_at, dict):
+            a_type = raw_at.get('type', 'geometric')
+        elif isinstance(raw_at, str):
+            a_type = raw_at
+        else:
+            a_type = 'geometric'
+
+        # Phase 1.1: when v1.2 pickle, use posterior mean decay from channel_params.
+        # Falls back to library default (0.5/2.0/3.0) для v1.0/v1.1/v1.1.5 pickles.
+        decay_point = params.get('decay')  # None for legacy pickles
+        adstock_params_override = {'alpha': float(decay_point)} if decay_point is not None else None
+        x_adstock = apply_adstock(raw_spend_series, a_type, adstock_params_override)
+
+        # 2. Normalize spend/mean (matches Phase 2 fix).
+        # C1 fix (audit 2026-04-26): prefer in-model adstock_mean_posterior (Phase 1.1+ v1.2 pickles)
+        # for math consistency with training. Fallback to pre-computed media_means для legacy
+        # pickles (v1.0-ols, v1.1, v1.1.5) where this field absent.
+        mean_posterior = params.get('adstock_mean_posterior')
+        mean = float(mean_posterior) if mean_posterior is not None else float(media_means.get(col, 1)) or 1
+        x_norm = x_adstock / max(mean, 1e-10)
+
+        # 3. Hill saturation
+        sat = hill_function(np.maximum(x_norm, 0), alpha=alpha, gamma=gamma)
+
+        # 4. Per-period contribution in original KPI units
+        contrib_per_period = beta * sat * y_std
+        channel_total = float(contrib_per_period.sum())
+        total_media_contribution += channel_total
+
+        time_series_channels[col] = [round(float(v), 1) for v in contrib_per_period]
+
+        # Money & ROI
+        unit_cost = float(unit_costs.get(col, 1.0) or 1.0)
+        spend_money = raw_spend_total * unit_cost
+
+        # v2.1.0 (ADR-021): money ROI conversion для count KPI.
+        # channel_total всегда в native KPI units (β × hill × y_std).
+        # Для count KPI с заданным kpi_unit_cost → contribution_money =
+        # channel_total × kpi_unit_cost → roi = money/money безразмерный.
+        # Для monetary KPI или count без kpi_unit_cost → legacy native ratio.
+        if kpi_kind == 'count' and kpi_unit_cost is not None:
+            contribution_money = channel_total * kpi_unit_cost
+            roi = contribution_money / spend_money if spend_money > 0 else 0
+        else:
+            contribution_money = channel_total if kpi_kind == 'monetary' else None
+            roi = channel_total / spend_money if spend_money > 0 else 0
+
+        # L4 (math-fix v1.4 Section C, 2026-04-28): mroi_current at current allocation
+        # via single-source-of-truth helper. Optimize UI miROASMap reads this field
+        # in idle state (pre-optimize) instead of broken JS fallback `marginalROI`
+        # which was missing /unit_cost /mean /adstock_factor → mixed units (Kagocel
+        # TRPs showed 110.93× pre-optimize vs 0.0285× post-optimize).
+        from engines.optimizer import _compute_mroas_money
+        # v2.1.0 (ADR-020): pass training-time uc для Hill symmetry mROAS consistency.
+        mroi_current_pt = float(_compute_mroas_money(
+            current_spend_native=raw_spend_total,
+            n_periods=n_periods,
+            mean=mean,
+            alpha=alpha,
+            gamma=gamma,
+            beta=beta,
+            adstock_type=a_type,
+            y_std=y_std,
+            unit_cost=unit_cost,
+            decay=decay_point,
+            uc_at_training=uc_train,
+        ))
+
+        # L11 (math-fix v1.4 Section C, 2026-04-29): display_name strips Excel
+        # column-header noise («Performance Бюджет до НДС до АК» → «Performance»).
+        # `name` field preserved for data lookups; `display_name` для UI rendering
+        # consistency (interpretation block, charts, narrative tooltips).
+        from engines.narrative_adapter import _normalize_channel_name
+        display_name = _normalize_channel_name(col) or col
+
+        ch_dict = {
             'name': col,
-            'spend': round(spend, 0),
-            'raw_spend': round(raw_spend, 2),
+            'display_name': display_name,
+            'spend': round(spend_money, 0),
+            'raw_spend': round(raw_spend_total, 2),
             'unit_cost': unit_cost,
-            'contribution': round(contribution, 0),
-            'contribution_pct': round(contribution_pct * 100, 1),
+            'contribution': round(channel_total, 0),  # native KPI units (count для count KPI)
+            # v2.1.0 (ADR-021): money equivalent contribution когда применимо.
+            # None для count KPI без kpi_unit_cost → frontend показывает native.
+            'contribution_money': (
+                round(contribution_money, 0) if contribution_money is not None else None
+            ),
+            'contribution_pct': 0,  # filled after total computed below
             'roi': round(roi, 2),
-            'beta': params['beta'],
-            # verdict пересчитывается ниже после efficiency_gap.
+            'mroi_current': round(mroi_current_pt, 4),
+            'beta': beta,
             'verdict': '',
             'verdict_tone': 'neutral',
-        })
+            # Trust Level 3 (v1.1.0): adstock decay posterior summary для UI display.
+            # Decompose grouping panel показывает effective half-life per channel.
+            'adstock_decay_mean': float(decay_point) if decay_point is not None else None,
+        }
+
+        # F1 fix (audit 2026-04-27): per-sample training adstock mean for math
+        # consistency with in-model `adstock_full[s,:].mean()` normalization.
+        # Pre-fix used scalar `adstock_mean_posterior` for all samples → CI
+        # distribution shape distorted when decay varies across draws (which is
+        # the whole point of hierarchical learnable adstock - Phase 1.1).
+        # Same class-of-bug as C1 (audit 2026-04-26), but missed by C1 fix
+        # which closed only the POINT estimate path.
+        # Phase 1.9 + 1.1: posterior CI on contribution and ROI via vectorized chain.
+        # C3 fix (audit 2026-04-26): explicit CI semantics для spend=0 channels.
+        # Pre-fix: spend=0 channels skipped from CI (asymmetric - point estimate populated
+        # как roi=0 но без ci_low/ci_high → UI shows "ROI 0× (no CI)" without explanation).
+        # Post-fix: explicit ci_low=ci_high=0 with marker 'ci_skip_reason' = 'zero_spend'
+        # so UI can render "Канал без бюджета - ROI = 0 (CI неприменим)".
+        if posterior_samples is not None and spend_money <= 0:
+            ch_dict['contribution_ci_low'] = 0.0
+            ch_dict['contribution_ci_high'] = 0.0
+            ch_dict['roi_ci_low'] = 0.0
+            ch_dict['roi_ci_high'] = 0.0
+            ch_dict['ci_skip_reason'] = 'zero_spend'
+            ch_dict['ci_method'] = 'unavailable_zero_spend'
+
+        # Sprint 2 extension (small-data path): for '1.0-ols' pickles, populate
+        # roi_ci_low/high from stored bootstrap CI (no posterior_samples available).
+        # This gives OLS path same UI semantics as Bayesian - UI renders brackets
+        # uniformly without engine-specific code paths.
+        if posterior_samples is None and spend_money > 0:
+            roi_ci_low_boot = params.get('roi_ci_low_bootstrap')
+            roi_ci_high_boot = params.get('roi_ci_high_bootstrap')
+            if roi_ci_low_boot is not None and roi_ci_high_boot is not None:
+                ch_dict['roi_ci_low'] = round(float(roi_ci_low_boot), 4)
+                ch_dict['roi_ci_high'] = round(float(roi_ci_high_boot), 4)
+                ch_dict['ci_method'] = 'frequentist_bootstrap'
+        # Phase 1.1 path: when ch_samples has 'decay', x_norm varies per sample
+        # via geometric_adstock_batch - use hill_function_batch_2d.
+        # Phase 1.9 path (v1.1.5 pickles): decay constant, use hill_function_batch (1D x_norm).
+        if posterior_samples is not None and spend_money > 0:
+            ch_samples = per_channel_samples(posterior_samples, col)
+            if ch_samples is not None:
+                decay_samples = ch_samples.get('decay')
+                if decay_samples is not None and a_type == 'geometric':
+                    # Phase 1.1: per-sample adstock + Hill, joint correlation preserved.
+                    x_adstock_2d = geometric_adstock_batch(raw_spend_series, decay_samples)
+                    # F1 fix: in decomposer, raw_spend_series IS training data (df reloaded
+                    # from config.data_file at line 180), so x_adstock_2d.mean(axis=1) is
+                    # the per-sample training adstock mean - exactly what model used during
+                    # training. Use as per-sample divisor to restore math consistency.
+                    mean_per_sample = np.maximum(
+                        x_adstock_2d.mean(axis=1, keepdims=True), 1e-10
+                    )
+                    x_norm_2d = x_adstock_2d / mean_per_sample
+                    sat_samples = hill_function_batch_2d(
+                        x_norm_2d, ch_samples['alpha'], ch_samples['gamma']
+                    )
+                else:
+                    # Phase 1.9 fallback (v1.1.5 pickles or weibull channels) - decay
+                    # constant across samples, so scalar `mean` is consistent with training.
+                    sat_samples = hill_function_batch(
+                        x_norm, ch_samples['alpha'], ch_samples['gamma']
+                    )
+                # contribution per period × sample, summed over time → (n_samples,)
+                contrib_total_samples = (
+                    ch_samples['beta'].reshape(-1, 1).astype(np.float64)
+                    * sat_samples
+                    * y_std
+                ).sum(axis=1)
+                _, contrib_ci_low, contrib_ci_high, _method_c = compute_ci_hdi(contrib_total_samples)
+                ch_dict['contribution_ci_low'] = round(float(contrib_ci_low), 0)
+                ch_dict['contribution_ci_high'] = round(float(contrib_ci_high), 0)
+
+                # ROI distribution: contribution / spend_money (constant denominator)
+                roi_samples = contrib_total_samples / spend_money
+                _, roi_ci_low, roi_ci_high, _method_r = compute_ci_hdi(roi_samples)
+                ch_dict['roi_ci_low'] = round(float(roi_ci_low), 4)
+                ch_dict['roi_ci_high'] = round(float(roi_ci_high), 4)
+                # F5 fix: ci_method reflects ACTUAL HDI computation (not silent fallback).
+                # A2 audit-of-audit (2026-04-27): conservative OR semantic - flag '_pct'
+                # if EITHER contrib OR roi fell back к percentile (in case arviz fails on
+                # one but not the other due to numerical edge cases).
+                _is_pct = (_method_c == 'percentile_fallback') or (_method_r == 'percentile_fallback')
+                if decay_samples is not None:
+                    base = 'bayesian_hdi_phase11_pct' if _is_pct else 'bayesian_hdi_phase11'
+                    # Trust Level 3: 50% CI для decay (Critical Audit issue M).
+                    # 95% would показывать decay 0.30-0.95 → uninterpretable. 50% (q25/q75) tighter.
+                    try:
+                        import numpy as _np2
+                        ds = _np2.asarray(decay_samples, dtype=float)
+                        ch_dict['adstock_decay_mean'] = float(_np2.mean(ds))
+                        ch_dict['adstock_decay_ci_low'] = float(_np2.quantile(ds, 0.25))
+                        ch_dict['adstock_decay_ci_high'] = float(_np2.quantile(ds, 0.75))
+                    except Exception:
+                        pass
+                else:
+                    base = 'bayesian_hdi_pct' if _is_pct else 'bayesian_hdi'
+                ch_dict['ci_method'] = base
+
+        channels.append(ch_dict)
+
+    # Fill contribution_pct relative to total media contribution
+    for ch in channels:
+        ch['contribution_pct'] = round(
+            ch['contribution'] / total_media_contribution * 100, 1
+        ) if total_media_contribution > 0 else 0
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Baseline = intercept_mean × y_std + y_mean (per period) + control effect
+    # ─────────────────────────────────────────────────────────────────────
+    intercept_per_period = np.full(n_periods, intercept_mean * y_std + y_mean, dtype=float)
+
+    control_effect_per_period = np.zeros(n_periods, dtype=float)
+    # v2.0.0 (ADR-019 §4): signed factor contributions output для UI WaterfallChart
+    # с поддержкой negative bars (signed factors могут уменьшать продажи —
+    # competitor activity, price effects).
+    signed_factor_contributions: dict = {}
+    if control_cols and control_betas_mean and len(control_betas_mean) == len(control_cols):
+        # Reconstruct control normalization (z-score retained for controls - non-Hill linear)
+        c_means = np.array([float(control_means.get(c, 0)) for c in control_cols])
+        c_stds = np.array([float(control_stds.get(c, 1)) or 1 for c in control_cols])
+        X_control_raw = df[control_cols].fillna(0).astype(float).values
+        X_control_norm = (X_control_raw - c_means) / c_stds
+        beta_c = np.array(control_betas_mean, dtype=float)
+        # control_effect normalised → multiply by y_std for original-unit
+        control_effect_per_period = (X_control_norm @ beta_c) * y_std
+
+        # v2.0.0: per-factor contribution breakdown using column_detection classifier
+        try:
+            from utils.column_detection import classify_column
+            for i, col in enumerate(control_cols):
+                col_effect = (X_control_norm[:, i] * beta_c[i]) * y_std
+                col_total = float(col_effect.sum())
+                col_kind = classify_column(col)
+                # Map kind → factor_type для UI rendering
+                factor_type_map = {
+                    'signed_competitor': 'signed_competitor',
+                    'signed_price': 'signed_price',
+                    'signed_weather': 'signed_weather',
+                    'signed_macro': 'signed_macro',
+                    'holiday': 'holiday',
+                    'control': 'positive_control',
+                    'unknown': 'positive_control',  # legacy fallback
+                }
+                factor_type = factor_type_map.get(col_kind, 'positive_control')
+                # Use y_actual.sum() для % normalization
+                _y_total = float(y_actual.sum()) if len(y_actual) else 0.0
+                signed_factor_contributions[col] = {
+                    'value': round(col_total, 1),
+                    'pct': round(col_total / (_y_total + 1e-10) * 100, 1) if _y_total > 0 else 0.0,
+                    'type': factor_type,
+                    'beta_mean': float(beta_c[i]),
+                    'per_period': [round(float(v), 1) for v in col_effect],
+                }
+        except Exception as e:
+            logger.warning('signed_factor_contributions computation failed: %s', e)
+            signed_factor_contributions = {}
+
+    # Energy conservation (post-audit fix): baseline absorbs residual variance
+    # so that sum(baseline) + sum(channels) == sum(y_actual) exactly.
+    # Standard MMM convention (Robyn, LightweightMMM, Meridian): residual goes
+    # into baseline since by construction it's "unexplained by media".
+    # Compute model-predicted per period (sum of intercept + media + controls):
+    media_contrib_per_period = np.zeros(n_periods, dtype=float)
+    for col in media_cols:
+        ts = time_series_channels.get(col, [])
+        for t, v in enumerate(ts):
+            if t < n_periods:
+                media_contrib_per_period[t] += float(v)
+    raw_baseline = intercept_per_period + control_effect_per_period
+    model_predicted_per_period = raw_baseline + media_contrib_per_period
+    # Residual = actual - model_predicted; absorbed into baseline
+    if len(y_actual) >= n_periods:
+        residual_per_period = y_actual[:n_periods] - model_predicted_per_period
+    else:
+        residual_per_period = np.zeros(n_periods, dtype=float)
+    baseline_per_period = raw_baseline + residual_per_period
+    baseline_total = float(baseline_per_period.sum())
+    baseline_ts = [round(float(v), 1) for v in baseline_per_period]
 
     # Sort by ROI descending
     channels.sort(key=lambda x: x['roi'], reverse=True)
 
-    # Share of Spend vs Share of Effect (нужно ДО verdict, т.к. verdict учитывает gap)
+    # Share of Spend vs Share of Effect
     total_spend = sum(c['spend'] for c in channels) or 1
     for ch in channels:
         ch['share_of_spend'] = round(ch['spend'] / total_spend * 100, 1)
         ch['share_of_effect'] = ch['contribution_pct']
         ch['efficiency_gap'] = round(ch['share_of_effect'] - ch['share_of_spend'], 1)
 
-    # Verdict — комбинирует ROI И efficiency_gap. Раньше использовался только ROI,
-    # поэтому каналы с ROI=10× но gap=-23% (перенасыщенные) помечались «Эффективен».
-    # Также детектируем подозрительно высокий ROI (>50×) — типично для смешанных
-    # единиц (TRPs vs рубли) и помечаем отдельно, чтобы пользователь не доверял слепо.
+    # Category + unit_smell detection (used by hybrid verdict)
+    # Trust Level 3: prefer explicit channel_categories из pickle (training-time
+    # decision); fallback к heuristic для pre-v1.3 pickles.
+    from engines.persistence import get_channel_categories
+    explicit_categories = get_channel_categories(model_data, fallback_heuristic=False)
+
     UNIT_HINTS = ('TRP', 'GRP', 'OTS', 'IMPRESSION', 'CLICK', 'ПОКАЗ', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ', 'ПУНКТ', 'ОХВАТ', 'РЕЙТИНГ')
-    BRAND_HINTS = ('TRP', 'GRP', 'OTS', 'ОХВАТ', 'РЕЙТИНГ', 'TV', 'ТВ', 'OOH', 'НАРУЖК', 'РАДИО', 'RADIO', 'БРЕНД', 'BRAND')
-    PERF_HINTS = ('DIGITAL', 'SEARCH', 'ПОИСК', 'CONTEXT', 'КОНТЕКСТ', 'SOCIAL', 'СОЦ', 'CTR', 'CPC', 'CPA', 'PERFORMANCE', 'ПЕРФ', 'ЯНДЕКС', 'GOOGLE', 'VK', 'ВК', 'TELEGRAM', 'ТЕЛЕГРАМ', 'МЕТА', 'META', 'КЛИК', 'ПРОСМОТР', 'ВИЗИТ')
+    # Heuristic fallback hints - single source of truth = utils/channel_categorization.py.
+    from utils.channel_categorization import auto_suggest_category
+
+    # Optional portfolio quantiles (Phase 1+ groundwork - None until aggregator ships).
+    category_quantiles = config.get('category_quantiles') if isinstance(config, dict) else None
+    n_channels = len(channels)
+
     for ch in channels:
-        roi = ch['roi']
-        gap = ch['efficiency_gap']
-        name_upper = (ch['name'] or '').upper()
+        # Phase 5 follow-up audit (2026-05-03): untrained channels preserve their
+        # honest 'Не обучен' verdict - without skip, downstream compute_roi_verdict
+        # overwrote с 'Глубоко убыточный' (roi=0 < 0.5 threshold), which is wrong
+        # diagnostic (no data ≠ deep loss).
+        if ch.get('untrained'):
+            ch.setdefault('category', 'mixed')
+            ch.setdefault('unit_smell', False)
+            ch.setdefault('share_of_spend', 0.0)
+            ch.setdefault('share_of_effect', 0.0)
+            ch.setdefault('efficiency_gap', 0.0)
+            continue
+        name = ch['name'] or ''
+        name_upper = name.upper()
         looks_like_non_money = any(hint in name_upper for hint in UNIT_HINTS)
-        is_brand = any(hint in name_upper for hint in BRAND_HINTS)
-        is_perf = any(hint in name_upper for hint in PERF_HINTS)
-        if is_brand and not is_perf:
-            ch['category'] = 'brand_reach'
-        elif is_perf and not is_brand:
-            ch['category'] = 'performance'
+        # Trust Level 3 mapping: 'brand' → 'brand_reach' (preserves verdict thresholds API).
+        if name in explicit_categories:
+            cat_v3 = explicit_categories[name]
+            if cat_v3 == 'brand':
+                ch['category'] = 'brand_reach'
+            elif cat_v3 == 'performance':
+                ch['category'] = 'performance'
+            else:
+                ch['category'] = 'mixed'
         else:
-            ch['category'] = 'mixed'
-        # unit_smell = «имя подозрительное» ∧ «CPP не задан» (unit_cost == 1.0).
-        # Если user настроил CPP — канал уже в money-эквиваленте, smell снимается.
+            # Heuristic fallback for pre-v1.3 pickles (single source = utils/channel_categorization).
+            sug = auto_suggest_category(name)
+            if sug['category'] == 'brand' and sug['confidence'] >= 0.7:
+                ch['category'] = 'brand_reach'
+            elif sug['category'] == 'performance' and sug['confidence'] >= 0.7:
+                ch['category'] = 'performance'
+            else:
+                ch['category'] = 'mixed'
         ch['unit_smell'] = bool(looks_like_non_money and abs(ch['unit_cost'] - 1.0) < 1e-9)
 
-        # «Не рубли?» только когда CPP не задан (unit_cost=1.0). Если CPP задан —
-        # канал уже в money, завышенный ROI — про другое (модель сомневается или мало данных).
-        if roi > 50 and ch['unit_smell']:
-            ch['verdict'] = 'ROI завышен (не рубли?)'
-            ch['verdict_tone'] = 'warn'
-        elif roi > 50:
-            ch['verdict'] = 'ROI подозрительно высок'
-            ch['verdict_tone'] = 'warn'
-        elif roi < 0.8:
-            ch['verdict'] = 'Убыточный'
-            ch['verdict_tone'] = 'bad'
-        elif roi < 1.0:
-            ch['verdict'] = 'На грани окупаемости'
-            ch['verdict_tone'] = 'warn'
-        elif gap <= -10:
-            ch['verdict'] = 'Перенасыщен'
-            ch['verdict_tone'] = 'warn'
-        elif gap <= -5:
-            ch['verdict'] = 'Слабее своей доли'
-            ch['verdict_tone'] = 'warn'
-        elif gap >= 10:
-            ch['verdict'] = 'Высокоэффективен'
-            ch['verdict_tone'] = 'good'
-        elif gap >= 5:
-            ch['verdict'] = 'Эффективен'
-            ch['verdict_tone'] = 'good'
-        else:
-            ch['verdict'] = 'Сбалансирован'
-            ch['verdict_tone'] = 'neutral'
+        # Hybrid verdict (absolute + relative + posterior CI) - see compute_roi_verdict docstring.
+        # v2.1.0 (B-02 pilot 2026-05-17): pass money_roi_unavailable flag для count KPI
+        # без kpi_unit_cost - предотвращает ложные «Глубоко убыточный» verdicts
+        # когда roi семантически = упак/₽ (1/CPU), не money ratio.
+        _money_roi_na = bool(kpi_kind == 'count' and kpi_unit_cost is None)
+        verdict_label, verdict_tone = compute_roi_verdict(
+            roi=ch['roi'],
+            efficiency_gap=ch['efficiency_gap'],
+            category=ch['category'],
+            unit_smell=ch['unit_smell'],
+            roi_ci_low=ch.get('roi_ci_low'),
+            roi_ci_high=ch.get('roi_ci_high'),
+            n_channels=n_channels,
+            category_quantiles=category_quantiles,
+            money_roi_unavailable=_money_roi_na,
+        )
+        ch['verdict'] = verdict_label
+        ch['verdict_tone'] = verdict_tone
 
-    # Insight generation (template, 0 tokens)
+    # L4 (math-fix v1.4 Section C, 2026-04-28): decorate каждый channel с
+    # prescriptive action fields через single-source-of-truth helper. Same
+    # compute_channel_action used в optimizer.py + narrative_adapter.py →
+    # three-way alignment (decompose UI ↔ optimize UI ↔ HTML/PPTX commentary).
+    # При idle state (pre-optimize) optimal_spend отсутствует → action falls back
+    # к mROAS-only heuristic. После optimize backend overrides с optimizer signal.
+    from engines.channel_action import compute_channel_action
+    for ch in channels:
+        # Phase 5 follow-up audit: untrained channels - fixed action vocabulary
+        # вместо compute_channel_action которая инфер из mROAS=0 (low confidence).
+        if ch.get('untrained'):
+            ch.setdefault('action', 'Uncertain')
+            ch.setdefault('action_label', 'Не обучен')
+            ch.setdefault('action_tone', 'neutral')
+            ch.setdefault('action_reasoning', 'Канал имел нулевую вариативность в обучающих данных - модель не обучилась на нём.')
+            ch.setdefault('action_priority', 0)
+            ch.setdefault('action_confidence', 'high')
+            continue
+        # alias mroi_current → mroas для compute_channel_action API contract
+        action_input = {**ch, 'mroas': ch.get('mroi_current')}
+        action = compute_channel_action(action_input)
+        ch['action'] = action.key
+        ch['action_label'] = action.label_ru
+        ch['action_tone'] = action.tone
+        ch['action_reasoning'] = action.reasoning
+        ch['action_priority'] = action.priority
+        ch['action_confidence'] = action.confidence
+
+    # Insight generation (template, 0 tokens).
+    # B3 fix (post-audit v1.2): removed magic-0.5 lift estimate. Pre-fix code computed
+    # `lift = |efficiency_gap| × 0.5` then claimed "ожидаемый прирост +X% продаж" -
+    # without basis in model. Replaced with descriptive text only; for actual lift
+    # estimate user should run scenario or optimize step (which DO compute against model).
     top = channels[0] if channels else None
     worst = channels[-1] if channels else None
     insight = ''
     if top and worst:
-        insight = (f"{top['name']} — самый эффективный канал (ROI {top['roi']:.1f}×). "
-                   f"{worst['name']} — наименее эффективный (ROI {worst['roi']:.1f}×).")
-        if top['efficiency_gap'] > 5:
-            lift = abs(worst['efficiency_gap']) * 0.5
-            insight += f" Перераспределение {abs(worst['efficiency_gap']):.0f}% бюджета из {worst['name']} в {top['name']} даст ожидаемый прирост +{lift:.1f}% продаж."
+        insight = (
+            f"{top['name']} - самый эффективный канал (ROI {top['roi']:.1f}×). "
+            f"{worst['name']} - наименее эффективный (ROI {worst['roi']:.1f}×)."
+        )
+        if top['efficiency_gap'] > 5 and worst['efficiency_gap'] < -5:
+            insight += (
+                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+            )
 
-    # Per-period time series contributions
+    # Per-period dates
     date_col = config.get('date_column', 'date')
     if date_col in df.columns:
         dates = [str(d)[:10] for d in df[date_col].tolist()]
     else:
-        dates = [str(i + 1) for i in range(len(df))]
+        dates = [str(i + 1) for i in range(n_periods)]
 
-    n_periods = len(df)
-    y_arr = y_actual[:n_periods] if len(y_actual) >= n_periods else y_actual
-
-    # Per-period channel contributions (proportional to spend in each period).
-    # ВАЖНО: ratio берётся по RAW spend (df[col]), т.к. unit_cost постоянен для канала
-    # во всех периодах → разницы между использованием raw vs money нет математически,
-    # но raw — безопаснее (никаких шансов деления money на raw из-за опечатки).
-    time_series_channels = {}
-    for ch in channels:
-        col = ch['name']
-        total_raw = float(ch['raw_spend'])
-        ch_contribution = ch['contribution']
-        if total_raw > 0:
-            spend_per_period = df[col].fillna(0).values[:n_periods]
-            ts_contrib = [(float(s) / total_raw * ch_contribution) for s in spend_per_period]
-        else:
-            ts_contrib = [0.0] * n_periods
-        time_series_channels[col] = [round(v, 1) for v in ts_contrib]
-
-    # Baseline per period: residual = actual - sum(channel contributions per period)
-    baseline_ts = []
-    for t in range(n_periods):
-        ch_total_t = sum(time_series_channels[ch['name']][t] for ch in channels)
-        b_t = float(y_arr[t]) - ch_total_t if t < len(y_arr) else 0.0
-        baseline_ts.append(round(b_t, 1))
-
-    # Smell-детектор для banner доверия (Trust Level 1).
-    # Модель должна сама предупреждать о своих пределах — это USP vs Robyn/LightweightMMM.
-    #
-    # Порог ROI > 50 применяется только если есть хоть один канал в не-денежных единицах
-    # БЕЗ CPP (unit_smell). Если все каналы в money (unit_cost≠1.0 задан везде где нужно),
-    # высокий ROI — честный результат модели, не артефакт единиц → banner не нужен.
+    # Smell-детектор для banner доверия
     smell_flags = []
     positive_rois = [c['roi'] for c in channels if c['roi'] > 0]
     any_unit_smell = any(c.get('unit_smell') for c in channels)
@@ -222,18 +873,72 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'severity': 'medium',
         })
 
+    # Phase 1.1: model_version warning - flag legacy pickles for re-training.
+    # v1.1.5 pickles use hardcoded adstock decay (0.5) - CI not honest about
+    # carryover uncertainty. UI can render banner suggesting re-train for v1.2.
+    # Sprint 2: '1.0-ols' = small-data fallback, frequentist semantics (no posterior CI).
+    model_warning = None
+    if model_version == '1.0-ols':
+        n_obs_ols = len(y_actual) if isinstance(y_actual, (list, np.ndarray)) else 0
+        model_warning = (
+            f'OLS-режим (small data fallback): n={n_obs_ols} наблюдений. '
+            f'Hill α=1.5, γ=0.5, decay=0.5 - фиксированы (не обучаются). '
+            f'Доверительные интервалы - frequentist на β-коэффициенты + predictive '
+            f'intervals на y. Posterior CI на ROI/mROAS недоступны (нужен n≥30 для '
+            f'Bayesian). Соберите больше данных для премиум-модели.'
+        )
+    elif model_version == '1.1.5':
+        model_warning = (
+            'Эта модель обучена с фиксированным adstock-затуханием (0.5). '
+            'Доверительные интервалы не учитывают неопределённость carryover. '
+            'Переобучите модель для получения honest CI на adstock (Phase 1.1, v1.2).'
+        )
+    elif model_version == '1.1':
+        model_warning = (
+            'Эта модель обучена до Phase 1.9 - посterior samples отсутствуют. '
+            'Доверительные интервалы недоступны. Переобучите модель для CI поддержки.'
+        )
+
+    # v1.3.0: load KPI settings from project state (per ADR-016, ADR-017).
+    v13_kpi = _load_v13_kpi_settings(project_path)
+
     result = {
         'status': 'ok',
+        'model_version': model_version,
+        'model_warning': model_warning,  # None for v1.2 (current production), banner string for legacy
         'smell_flags': smell_flags,
+        # v1.3.0 KPI metadata for downstream UI / reports (per ADR-016).
+        'kpi_kind': v13_kpi.get('kpi_kind', 'monetary'),
+        'derived_mode': v13_kpi.get('derived_mode', 'roi'),
+        'value_per_count_unit': v13_kpi.get('value_per_count_unit'),
+        'value_per_count_unit_label': v13_kpi.get('value_per_count_unit_label', ''),
         'total_sales': round(total_sales, 0),
-        'baseline': round(baseline, 0),
-        'baseline_pct': round(baseline / total_sales * 100, 1) if total_sales else 0,
+        'baseline': round(baseline_total, 0),
+        'baseline_pct': round(baseline_total / total_sales * 100, 1) if total_sales else 0,
         'media_contribution': round(total_media_contribution, 0),
+        # v2.1.0 (ADR-021): money equivalent для count KPI when kpi_unit_cost задан.
+        # Frontend выбирает primary display (money если набор полный).
+        'kpi_unit_cost': kpi_unit_cost,
+        'total_sales_money': (
+            round(total_sales * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(total_sales, 0) if kpi_kind == 'monetary' else None)
+        ),
+        'baseline_money': (
+            round(baseline_total * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(baseline_total, 0) if kpi_kind == 'monetary' else None)
+        ),
+        'media_contribution_money': (
+            round(total_media_contribution * kpi_unit_cost, 0)
+            if kpi_unit_cost is not None and kpi_kind == 'count'
+            else (round(total_media_contribution, 0) if kpi_kind == 'monetary' else None)
+        ),
         'channels': channels,
         'insight': insight,
         'waterfall': {
             'labels': ['Baseline'] + [c['name'] for c in channels] + ['Итого'],
-            'values': [round(baseline, 0)] + [round(c['contribution'], 0) for c in channels] + [round(total_sales, 0)],
+            'values': [round(baseline_total, 0)] + [round(c['contribution'], 0) for c in channels] + [round(total_sales, 0)],
             'types': ['baseline'] + ['channel'] * len(channels) + ['total'],
         },
         'time_series': {
@@ -241,6 +946,20 @@ def decompose(project_dir: str, unit_costs_override: dict | None = None) -> dict
             'baseline': baseline_ts,
             'channels': time_series_channels,
         },
+        # Trust Level 3 (v1.1.0): hierarchical metadata для UI banner.
+        # Empty / use_hierarchical=False для legacy + non-hierarchical models.
+        'hierarchical': {
+            'enabled': bool(model_data.get('use_hierarchical')),
+            'channel_categories': dict(model_data.get('channel_categories') or {}),
+            'categorization_warnings': list(model_data.get('categorization_warnings') or []),
+            'priors_summary': dict(model_data.get('hierarchical_priors') or {}),
+        },
+        # v2.0.0 (ADR-019 §4): signed factor contributions для UI WaterfallChart
+        # с negative bars + Report narrative.
+        # Schema: { factor_col_name: { value, pct, type, beta_mean, per_period[] } }
+        # type ∈ {'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro',
+        #         'holiday', 'positive_control'}
+        'signed_factor_contributions': signed_factor_contributions,
     }
 
     # Save

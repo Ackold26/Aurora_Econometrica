@@ -1,8 +1,20 @@
 <script>
   /**
-   * ROI comparison: grouped bar — Share of Spend vs Share of Effect per channel.
-   * Green = effect > spend (efficient), Red = spend > effect (inefficient).
-   * @component ROIComparison
+   * Channel comparison chart: grouped bar - Share of Spend vs Share of Effect.
+   *
+   * Compares каждый канал по двум долям (всегда в %), независимо от KPI mode:
+   * - monetary ROI: «доля бюджета vs доля выручки»
+   * - count: «доля бюджета vs доля проданных единиц»
+   * - effectiveness: «доля бюджета vs доля эффекта в портфеле»
+   *
+   * Зелёный = эффект > расходов (недонасыщен), красный = расходы > эффекта
+   * (перенасыщен). Y-axis всегда percentage - KPI-agnostic.
+   *
+   * v1.3.2: renamed из ROIComparison.svelte. Chart показывает shares of total
+   * в процентах; не путать с ROI×/CPU/Доля метриками (которые показываются
+   * на других чартах: WaterfallChart, action-table).
+   *
+   * @component ChannelComparisonChart
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
@@ -14,10 +26,10 @@
    */
   let { channels } = $props();
 
-  // Палитра — hex/rgba (ECharts не понимает color-mix()).
-  const COLOR_SPEND = '#64748b';   // нейтральный slate — «фоновая» метрика для сравнения
-  const COLOR_EFFICIENT = '#22c55e'; // зелёный — эффект > расходов
-  const COLOR_INEFFICIENT = '#ef4444'; // красный — расходы > эффекта
+  // Палитра - hex/rgba (ECharts не понимает color-mix()).
+  const COLOR_SPEND = '#64748b';   // нейтральный slate - «фоновая» метрика для сравнения
+  const COLOR_EFFICIENT = '#22c55e'; // зелёный - эффект > расходов
+  const COLOR_INEFFICIENT = '#ef4444'; // красный - расходы > эффекта
   const COLOR_NEUTRAL = '#3b82f6'; // синий для дефолта/нулевого gap
 
   const option = $derived.by(() => {
@@ -43,7 +55,7 @@
                  `<div style="color:${gapColor};font-weight:600;">Разрыв: ${sign}${gap}%</div>`;
         },
       },
-      // Custom legend rows — явно задаём цвет и иконку, чтобы соответствие
+      // Custom legend rows - явно задаём цвет и иконку, чтобы соответствие
       // легенды и реальной раскраски было 1:1 (а не дефолтная палитра ECharts).
       legend: {
         data: [
@@ -59,7 +71,14 @@
       xAxis: {
         type: 'category',
         data: names,
-        axisLabel: { color: '#94a3b8', fontSize: 11, rotate: names.length > 3 ? 25 : 0, overflow: 'truncate', width: 80 },
+        // v1.3.2 UX polish: graduated rotation per channel count (mirror
+        // WaterfallChart). Cyrillic glyphs wider, нужно постепенное наклонение.
+        axisLabel: {
+          color: '#94a3b8', fontSize: 11,
+          rotate: names.length <= 3 ? 0 : names.length <= 6 ? 20 : names.length <= 9 ? 35 : 45,
+          overflow: 'truncate',
+          width: names.length > 9 ? 72 : names.length > 6 ? 88 : 100,
+        },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
         axisTick: { show: false },
       },
@@ -80,7 +99,7 @@
           label: { show: true, position: 'top', color: '#94a3b8', fontSize: 10, formatter: '{c}%' },
         },
         // Две серии для зелёных/красных, чтобы легенда корректно подсвечивала их.
-        // ECharts не позволяет per-bar легенду в одной серии — поэтому split.
+        // ECharts не позволяет per-bar легенду в одной серии - поэтому split.
         {
           name: 'Эффект (эффективен)',
           type: 'bar',

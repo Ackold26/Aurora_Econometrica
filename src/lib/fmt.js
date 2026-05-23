@@ -1,5 +1,5 @@
 /**
- * Number formatting utilities — Russian locale, Excel-style thousand separators.
+ * Number formatting utilities - Russian locale, Excel-style thousand separators.
  */
 
 const RU_FULL = new Intl.NumberFormat('ru-RU', {
@@ -21,8 +21,8 @@ const RU_COMPACT = new Intl.NumberFormat('ru-RU', {
  * @returns {string}
  */
 export function fmtNum(n, opts = {}) {
-  const { decimals, placeholder = '—' } = opts;
-  if (n == null || n === '' || n === '—') return placeholder;
+  const { decimals, placeholder = '-' } = opts;
+  if (n == null || n === '' || n === '-') return placeholder;
   const num = typeof n === 'string' ? parseFloat(n.replace(',', '.')) : n;
   if (!Number.isFinite(num)) return placeholder;
 
@@ -46,8 +46,8 @@ export function fmtNum(n, opts = {}) {
  * @returns {string}
  */
 export function fmtPct(n) {
-  if (n == null || n === '') return '—';
+  if (n == null || n === '') return '-';
   const num = typeof n === 'string' ? parseFloat(n.replace(',', '.')) : n;
-  if (!Number.isFinite(num)) return '—';
+  if (!Number.isFinite(num)) return '-';
   return `${num.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%`;
 }

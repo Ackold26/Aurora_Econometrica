@@ -1,7 +1,7 @@
 <script>
   /**
    * Side-by-side сравнение двух проектов. Overlay модалка, не роут.
-   * Не меняет activeProject — чисто read-only view.
+   * Не меняет activeProject - чисто read-only view.
    * Esc / backdrop click → закрыть.
    *
    * @component ModelComparisonView
@@ -24,7 +24,7 @@
 
   onMount(() => {
     loadPayload();
-    // Открываем modal после mount — dialogEl уже bound
+    // Открываем modal после mount - dialogEl уже bound
     queueMicrotask(() => dialogEl?.showModal());
   });
 
@@ -81,7 +81,7 @@
   /** @param {any} snap */
   const mqsScore = (snap) => diagnostics(snap)?.mqs?.score ?? null;
   /** @param {any} snap */
-  const mqsLabel = (snap) => diagnostics(snap)?.mqs?.tier_label ?? '—';
+  const mqsLabel = (snap) => diagnostics(snap)?.mqs?.tier_label ?? '-';
 
   /** @param {number | null} a @param {number | null} b @param {'higher' | 'lower'} better */
   function highlight(a, b, better) {
@@ -93,20 +93,20 @@
 
   /** @param {number | null | undefined} v @param {number} [dec] */
   function fmt(v, dec = 2) {
-    if (v == null || !Number.isFinite(Number(v))) return '—';
+    if (v == null || !Number.isFinite(Number(v))) return '-';
     const n = Number(v);
     return n.toLocaleString('ru-RU', { minimumFractionDigits: dec, maximumFractionDigits: dec });
   }
 
   /** @param {number | null | undefined} v */
   function fmtInt(v) {
-    if (v == null || !Number.isFinite(Number(v))) return '—';
+    if (v == null || !Number.isFinite(Number(v))) return '-';
     return Math.round(Number(v)).toLocaleString('ru-RU');
   }
 
   /** @param {number | null | undefined} v */
   function fmtPct(v) {
-    if (v == null || !Number.isFinite(Number(v))) return '—';
+    if (v == null || !Number.isFinite(Number(v))) return '-';
     return `${Number(v).toFixed(1)}%`;
   }
 
@@ -231,7 +231,13 @@
   /** @param {any} snap */
   const optLift = (snap) => snap?.optimization?.expected_lift_pct ?? null;
   /** @param {any} snap */
-  const optBudget = (snap) => snap?.optimization?.total_budget ?? null;
+  // 5c followup (2026-05-24): money-axis budget, matches XLSX/markdown/ReportStep.
+  // `total_budget` = native mixed-units sum (TRPs+₽ garbage). Use money axis chain.
+  const optBudget = (snap) =>
+    snap?.optimization?.total_current_money
+      ?? snap?.optimization?.total_budget_money
+      ?? snap?.optimization?.total_budget
+      ?? null;
 
   const hasOptimize = $derived(
     (A?.optimization?.channels?.length ?? 0) > 0 || (B?.optimization?.channels?.length ?? 0) > 0
@@ -270,7 +276,7 @@
       const topB = [...chB].sort((x, y) => (y?.roi ?? 0) - (x?.roi ?? 0))[0];
       if (topA && topB) {
         lines.push(
-          `Топ-драйвер у **${A.info.name}** — ${topA.name} (ROI ${fmt(topA.roi)}×), у **${B.info.name}** — ${topB.name} (ROI ${fmt(topB.roi)}×).`
+          `Топ-драйвер у **${A.info.name}** - ${topA.name} (ROI ${fmt(topA.roi)}×), у **${B.info.name}** - ${topB.name} (ROI ${fmt(topB.roi)}×).`
         );
       }
     }
@@ -278,19 +284,19 @@
     const baseB = B?.decomposition?.baseline_pct ?? B?.decomposition?.base_pct;
     if (baseA != null && baseB != null) {
       lines.push(
-        `Органическая база: **${A.info.name}** — ${fmtPct(baseA)}, **${B.info.name}** — ${fmtPct(baseB)}. ${baseA > baseB ? 'У A сильнее органика' : baseB > baseA ? 'У B сильнее органика' : 'Органика сопоставима'}.`
+        `Органическая база: **${A.info.name}** - ${fmtPct(baseA)}, **${B.info.name}** - ${fmtPct(baseB)}. ${baseA > baseB ? 'У A сильнее органика' : baseB > baseA ? 'У B сильнее органика' : 'Органика сопоставима'}.`
       );
     }
     const liftA = optLift(A), liftB = optLift(B);
     if (liftA != null && liftB != null) {
       lines.push(
-        `Потенциал оптимизации: **${A.info.name}** — +${fmtPct(liftA).replace('%', '')}%, **${B.info.name}** — +${fmtPct(liftB).replace('%', '')}%.`
+        `Потенциал оптимизации: **${A.info.name}** - +${fmtPct(liftA).replace('%', '')}%, **${B.info.name}** - +${fmtPct(liftB).replace('%', '')}%.`
       );
     }
     const mqsA = mqsScore(A), mqsB = mqsScore(B);
     if (mqsA != null && mqsB != null && Math.abs(mqsA - mqsB) > 10) {
       lines.push(
-        `⚠ Разница в MQS — ${fmt(Math.abs(mqsA - mqsB), 0)} баллов. Модели разного качества, сравнение ROI стоит смотреть осторожно.`
+        `⚠ Разница в MQS - ${fmt(Math.abs(mqsA - mqsB), 0)} баллов. Модели разного качества, сравнение ROI стоит смотреть осторожно.`
       );
     }
     return lines;
@@ -298,7 +304,7 @@
 
   /** HTML escape для защиты от XSS при подстановке user-sourced значений
    *  (имена проектов / каналов из xlsx могут содержать `<`, `>`, `<script>` etc).
-   *  Правило aurora-fix V40 — все `{@html}` с user-controlled строками должны
+   *  Правило aurora-fix V40 - все `{@html}` с user-controlled строками должны
    *  пройти escape. */
   /** @param {string} s */
   function escapeHtml(s) {
@@ -310,7 +316,7 @@
       .replace(/'/g, '&#039;');
   }
 
-  /** @param {string} md — escape HTML + simple **bold** replace */
+  /** @param {string} md - escape HTML + simple **bold** replace */
   function renderMd(md) {
     return escapeHtml(md).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   }
@@ -356,12 +362,12 @@
               <div class="kpi-pair">
                 <div class="kpi-card" class:win={hl.a}>
                   <div class="kpi-label">{k.label}</div>
-                  <div class="kpi-val">{k.a != null ? k.format(k.a) : '—'}</div>
+                  <div class="kpi-val">{k.a != null ? k.format(k.a) : '-'}</div>
                   <div class="kpi-sub">{k.subA}</div>
                 </div>
                 <div class="kpi-card" class:win={hl.b}>
                   <div class="kpi-label">{k.label}</div>
-                  <div class="kpi-val">{k.b != null ? k.format(k.b) : '—'}</div>
+                  <div class="kpi-val">{k.b != null ? k.format(k.b) : '-'}</div>
                   <div class="kpi-sub">{k.subB}</div>
                 </div>
               </div>
@@ -370,7 +376,7 @@
           <p class="legend">
             <span class="dot dot-a"></span> {A.info.name}
             <span class="dot dot-b"></span> {B.info.name}
-            <span class="note">· зелёная рамка — лучшее значение</span>
+            <span class="note">· зелёная рамка - лучшее значение</span>
           </p>
         </section>
 
@@ -396,10 +402,10 @@
                       <td>{r.name}</td>
                       <td class="num">{fmtInt(r.spendA)}</td>
                       <td class="num">{fmtInt(r.spendB)}</td>
-                      <td class="num" class:win={r.highlight.a}>{r.roiA != null ? `${fmt(r.roiA)}×` : '—'}</td>
-                      <td class="num" class:win={r.highlight.b}>{r.roiB != null ? `${fmt(r.roiB)}×` : '—'}</td>
+                      <td class="num" class:win={r.highlight.a}>{r.roiA != null ? `${fmt(r.roiA)}×` : '-'}</td>
+                      <td class="num" class:win={r.highlight.b}>{r.roiB != null ? `${fmt(r.roiB)}×` : '-'}</td>
                       <td class="num" class:pos={r.delta != null && r.delta > 0} class:neg={r.delta != null && r.delta < 0}>
-                        {r.delta != null ? `${r.delta > 0 ? '+' : ''}${fmt(r.delta)}` : '—'}
+                        {r.delta != null ? `${r.delta > 0 ? '+' : ''}${fmt(r.delta)}` : '-'}
                       </td>
                     </tr>
                   {/each}
@@ -450,12 +456,12 @@
               <div class="kpi-pair">
                 <div class="kpi-card">
                   <div class="kpi-label">Ожидаемый лифт</div>
-                  <div class="kpi-val">{optLift(A) != null ? `+${fmtPct(optLift(A)).replace('%','')}%` : '—'}</div>
+                  <div class="kpi-val">{optLift(A) != null ? `+${fmtPct(optLift(A)).replace('%','')}%` : '-'}</div>
                   <div class="kpi-sub">{A.info.name}</div>
                 </div>
                 <div class="kpi-card">
                   <div class="kpi-label">Ожидаемый лифт</div>
-                  <div class="kpi-val">{optLift(B) != null ? `+${fmtPct(optLift(B)).replace('%','')}%` : '—'}</div>
+                  <div class="kpi-val">{optLift(B) != null ? `+${fmtPct(optLift(B)).replace('%','')}%` : '-'}</div>
                   <div class="kpi-sub">{B.info.name}</div>
                 </div>
               </div>
@@ -479,10 +485,10 @@
                   headers={['Канал', 'Текущ. A', 'Оптим. A', 'Текущ. B', 'Оптим. B']}
                   rows={optRows.map((r) => [
                     r.name,
-                    r.curA != null ? Math.round(Number(r.curA)) : '—',
-                    r.optA != null ? Math.round(Number(r.optA)) : '—',
-                    r.curB != null ? Math.round(Number(r.curB)) : '—',
-                    r.optB != null ? Math.round(Number(r.optB)) : '—',
+                    r.curA != null ? Math.round(Number(r.curA)) : '-',
+                    r.optA != null ? Math.round(Number(r.optA)) : '-',
+                    r.curB != null ? Math.round(Number(r.curB)) : '-',
+                    r.optB != null ? Math.round(Number(r.optB)) : '-',
                   ])}
                 />
               </div>
@@ -745,5 +751,18 @@
   .block-insights :global(strong) {
     color: var(--accent-primary, #3b82f6);
     font-weight: 600;
+  }
+
+  /* v2.1.0 п.5.6: instant dialog appearance */
+  @media (prefers-reduced-motion: reduce) {
+    dialog.cmp-dialog[open] {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    dialog.cmp-dialog::backdrop {
+      animation: none;
+      opacity: 1;
+    }
   }
 </style>

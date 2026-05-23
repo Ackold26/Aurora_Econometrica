@@ -39,11 +39,11 @@
     mode === 'preview' && columns.length
       ? columns.map(/** @param {any} c */ (c) => [
           c.name,
-          c.role === 'kpi' ? '📈 KPI' : c.role === 'media' ? '📺 Медиа' : c.role === 'control' ? '🎛 Контроль' : c.role === 'date' ? '📅 Дата' : '—',
-          c.stats?.min ?? '—',
-          c.stats?.max ?? '—',
-          c.stats?.mean ?? '—',
-          c.stats?.zeros_pct != null ? `${c.stats.zeros_pct}%` : '—',
+          c.role === 'kpi' ? '📈 KPI' : c.role === 'media' ? '📺 Медиа' : c.role === 'control' ? '🎛 Контроль' : c.role === 'date' ? '📅 Дата' : '-',
+          c.stats?.min ?? '-',
+          c.stats?.max ?? '-',
+          c.stats?.mean ?? '-',
+          c.stats?.zeros_pct != null ? `${c.stats.zeros_pct}%` : '-',
         ])
       : rows
   );
@@ -57,7 +57,7 @@
    * @returns {string}
    */
   function fmt(val) {
-    if (val === null || val === undefined || val === '—') return '—';
+    if (val === null || val === undefined || val === '-') return '-';
     const n = typeof val === 'number' ? val : Number(val);
     if (!isNaN(n) && String(val).trim() !== '') {
       // Integer: no decimals; float: up to 2 decimals, trim trailing zeros

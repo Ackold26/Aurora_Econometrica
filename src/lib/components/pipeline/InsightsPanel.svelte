@@ -1,27 +1,48 @@
 <script>
   /**
-   * InsightsPanel — Rule-based insights sidebar for the pipeline.
+   * InsightsPanel - Rule-based insights sidebar for the pipeline.
    * Tier 1: offline insights from insights-rules.js (always works).
-   * Tier 2: Claude AI (online, optional) — Phase 10.
+   * Tier 2: Claude AI (online, optional) - Phase 10.
    * C4: width clamp(240px, 22%, 360px), auto-collapse below 1100px.
    */
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { get } from 'svelte/store';
   import {
-    pipelineCurrentStep,
+    pipelineCurrentStep, activeProjectId,
     importData, validateData, modelData, decomposeData, optimizeData, optimizeLiveState,
     analysisObjective, completeStep, setStepError,
+    kpiKind, derivedMode, valuePerCountUnit,
   } from '$lib/project-state.js';
+  import { kpiView as buildKpiView } from '$lib/kpi-aware-formatting.js';
   import { recomputeResultAfterObjective } from '$lib/objective-engine.js';
+  import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
+
+  /** Persist column-role state к project.json (best-effort, non-blocking).
+   *  L1 (math-fix v1.4 Section C, 2026-04-29): unified persistence - same call
+   *  used by InsightsPanel.applyAction, ValidateStep.excludeColumnByName,
+   *  ValidateStep.onMappingChange. Adds explicit excluded_columns list для
+   *  cross-session restore.
+   *  @param {any[]} columns */
+  function persistColumnRoles(columns) {
+    const projectId = get(activeProjectId);
+    if (!projectId || !columns) return;
+    const updates = buildProjectUpdates(columns);
+    invoke('project_update', { projectId, updates }).catch(() => { /* best-effort */ });
+  }
   import {
     importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, reportInsights,
+    // v2.1.0 (rc2 U-05): функции по под-шагам Валидации.
+    validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
+  // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
 
   /**
-   * Snapshot of what was done — enables undo.
+   * Snapshot of what was done - enables undo.
    * Keyed by insight index; stores roles prior to apply + merge metadata.
    * @type {Map<number, { previousRoles: Record<string, string>, mergedName?: string }>}
    */
@@ -35,68 +56,73 @@
     const val = $validateData;
     if (!val?.result?.columns) return;
 
-    const updated = { ...val, result: { ...val.result, columns: val.result.columns.map(/** @param {any} c */ c => ({ ...c })) } };
+    // L1 (math-fix v1.4 Section C, 2026-04-29): use shared setColumnRolesBulk
+    // helper для consistent vocabulary с ColumnMapper drag-drop and
+    // ValidateStep.excludeColumnByName. Single source of truth → no drift
+    // между mutator paths (vocabulary, persistence, undo capture).
     /** @type {Record<string, string>} */
     const previousRoles = {};
     /** @type {string | undefined} */
     let mergedName;
 
+    // Capture previous roles for undo BEFORE mutation
+    const captureNames = action.type === 'keep_only' ? (action.exclude ?? []) : (action.columns ?? []);
+    for (const col of val.result.columns) {
+      if (captureNames.includes(col.name)) {
+        previousRoles[col.name] = col.role || 'unknown';
+      }
+    }
+
+    let nextColumns = val.result.columns;
+
     if (action.type === 'exclude') {
-      for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'unused';
-        }
-      }
+      nextColumns = setColumnRolesBulk(nextColumns, action.columns, 'unused');
     } else if (action.type === 'keep_only') {
-      const toExclude = action.exclude ?? [];
-      for (const col of updated.result.columns) {
-        if (toExclude.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'unused';
-        }
-      }
+      nextColumns = setColumnRolesBulk(nextColumns, action.exclude ?? [], 'unused');
     } else if (action.type === 'set_role') {
-      for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'kpi';
-        }
-      }
+      nextColumns = setColumnRolesBulk(nextColumns, action.columns, 'kpi');
     } else if (action.type === 'merge') {
-      mergedName = action.mergedName || 'Объединённый канал';
-      const mergedCols = updated.result.columns.filter(/** @param {any} c */ c => action.columns.includes(c.name));
-
-      const totalMean = mergedCols.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.stats?.mean ?? 0), 0);
-      const minZeros = Math.min(...mergedCols.map(/** @param {any} c */ c => c.stats?.zeros_pct ?? 100));
-
-      for (const col of updated.result.columns) {
-        if (action.columns.includes(col.name)) {
-          previousRoles[col.name] = col.role || 'unknown';
-          col.role = 'unused';
-        }
+      // Audit fix (2026-04-29): detect name collision when customer creates
+      // multiple merge actions с одинаковым default name «Объединённый канал».
+      // Pre-fix: silent duplicate column entries → downstream lookups by name
+      // hit first match, second merge effectively orphaned. Post-fix: auto-suffix
+      // (Объединённый канал, Объединённый канал 2, Объединённый канал 3, ...).
+      const baseName = action.mergedName || 'Объединённый канал';
+      let candidateName = baseName;
+      let suffix = 2;
+      const existingNames = new Set(nextColumns.map(/** @param {any} c */ (c) => c.name));
+      while (existingNames.has(candidateName)) {
+        candidateName = `${baseName} ${suffix}`;
+        suffix += 1;
       }
-
-      updated.result.columns.push({
+      mergedName = candidateName;
+      const mergedCols = nextColumns.filter(/** @param {any} c */ (c) => action.columns.includes(c.name));
+      const totalMean = mergedCols.reduce(/** @param {number} s @param {any} c */ (s, c) => s + (c.stats?.mean ?? 0), 0);
+      const minZeros = Math.min(...mergedCols.map(/** @param {any} c */ (c) => c.stats?.zeros_pct ?? 100));
+      nextColumns = setColumnRolesBulk(nextColumns, action.columns, 'unused');
+      nextColumns = [...nextColumns, {
         name: mergedName,
         role: 'media',
         dtype: 'float64',
         confidence: 0.9,
         merged_from: [...action.columns],
         stats: { mean: totalMean, zeros_pct: minZeros, missing_pct: 0, min: 0, max: 0 },
-      });
+      }];
     }
 
+    const updated = { ...val, result: { ...val.result, columns: nextColumns } };
     recomputeResultAfterObjective(updated.result);
     syncStepLockAfterValidate(updated.result);
     validateData.set(updated);
+    persistColumnRoles(updated.result.columns);
+
     const nextMap = new Map(appliedActions);
     nextMap.set(idx, { previousRoles, mergedName });
     appliedActions = nextMap;
   }
 
   /**
-   * Undo an applied action — restore roles, remove merged column.
+   * Undo an applied action - restore roles, remove merged column.
    * @param {number} idx
    */
   function revertAction(idx) {
@@ -122,10 +148,22 @@
     recomputeResultAfterObjective(updated.result);
     syncStepLockAfterValidate(updated.result);
     validateData.set(updated);
+    persistColumnRoles(updated.result.columns);
     const nextMap = new Map(appliedActions);
     nextMap.delete(idx);
     appliedActions = nextMap;
   }
+
+  // v2.1.0 (rc2 retry): реактивный sync step-lock при ЛЮБОМ изменении
+  // validateData (не только через insight actions). Раньше status menue
+  // через UI-таблицу ColumnMapperConfirm не триггерил sync → header
+  // показывал stale «Критические проблемы».
+  $effect(() => {
+    const result = $validateData?.result;
+    if (!result) return;
+    if ($pipelineCurrentStep !== 1) return;
+    syncStepLockAfterValidate(result);
+  });
 
   /**
    * Sync pipeline step-lock state with current validation result.
@@ -139,8 +177,31 @@
     // Only sync if we're actually ON the validation step
     const step = $pipelineCurrentStep;
     if (step !== 1) return;
-    if (result.status === 'error') {
-      setStepError(1, 'Критические проблемы с данными');
+    // v2.1.0 (rc2 retry): пересчитываем effective status из current ролей
+    // колонок (не stale result.status). Согласовано с validateInsights.
+    const cols = Array.isArray(result.columns) ? result.columns : [];
+    const kpiCount = cols.filter(/** @param {any} c */ c => c?.role === 'kpi').length;
+    const mediaCount = cols.filter(/** @param {any} c */ c => c?.role === 'media').length;
+    const controlCount = cols.filter(/** @param {any} c */ c => c?.role === 'control').length;
+    const rows = result.file?.rows ?? result.detected?.rows ?? 0;
+    const paramCount = mediaCount + controlCount;
+    const liveRatio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
+
+    // F-001 guard (pilot 2026-05-18): «2 KPI» error показывать только на
+    // sub-step «Роли колонок» (-1) и позже - не на sub-step «Целевая метрика» (-2).
+    // На -2 роли ещё не назначались пользователем; auto-detected result может
+    // иметь 2 KPI cols - это нормально до шага Roles.
+    const subStep = get(validateSubStep);
+    const rolesVisible = subStep >= -1;
+
+    let errorMsg = null;
+    if (kpiCount === 0) errorMsg = 'Не выбрана целевая метрика';
+    else if (kpiCount > 1 && rolesVisible) errorMsg = `Выбрано ${kpiCount} целевых метрик (нужна одна)`;
+    else if (mediaCount === 0) errorMsg = 'Нет медиа-каналов';
+    else if (liveRatio > 0 && liveRatio < 2) errorMsg = `Ratio ${liveRatio.toFixed(1)}:1 - слишком мало данных`;
+
+    if (errorMsg) {
+      setStepError(1, errorMsg);
     } else {
       completeStep(1);
     }
@@ -164,6 +225,13 @@
     const opt = $optimizeData;
     const live = $optimizeLiveState;
     const objective = $analysisObjective; // ensure reactive subscription
+    // v1.3.2: KPI/mode view derived from project-state stores → passed to
+    // insights functions для CPU/Доля labels вместо ROI/mROAS.
+    const kpi = buildKpiView({
+      kpiKind: $kpiKind,
+      derivedMode: $derivedMode,
+      valuePerCountUnit: $valuePerCountUnit,
+    });
 
     switch (step) {
       case 0: {
@@ -182,13 +250,45 @@
           fileName: imp.fileName ?? '',
         });
       }
-      case 1: return validateInsights(val?.result, objective);
-      case 2: {
-        // If training hasn't produced diagnostics yet → educational/context insights
-        if (!mod?.diagnostics) return modelPreTrainingInsights(val?.result);
-        return modelInsights(mod);
+      case 1: {
+        // v2.1.0 (rc2 U-05): контекстные инсайты по под-шагу Валидации.
+        // На «1 Целевая метрика» инсайты про выбор режима/KPI (не про каналы),
+        // на «2 Роли колонок» - текущая (общая) логика про каналы,
+        // на «3 Метрики каналов» - подсказки конверсии для текущего режима,
+        // на «4 Подтверждение» - готовность к обучению.
+        const sub = $validateSubStep;
+        const ctx = {
+          analysisMode: $analysisMode,
+          perChannelInput: $perChannelInput,
+          unitCosts: $unitCosts,
+          // F-007 pilot (2026-05-18): передаём mode/budget input state чтобы
+          // «Все каналы готовы» insight не давал success когда юзер в budget
+          // mode не ввёл сумму (UI status warning тогда корректно сигналит).
+          unitCostInputMode: $unitCostInputMode,
+          budgetInputs: $budgetInputs,
+        };
+        if (sub === -2) return validateKpiInsights(val?.result, ctx);
+        if (sub === 2)  return validateMetricsInsights(val?.result, ctx);
+        if (sub === 3)  return validateConfirmInsights(val?.result, ctx);
+        // -1 (Роли колонок) и 0 / 1 (legacy) - общая validateInsights logic
+        return validateRolesInsights(val?.result, objective);
       }
-      case 3: return decomposeInsights(dec);
+      case 2: {
+        // If training hasn't produced diagnostics yet → educational/context insights.
+        // v2.1.0 (пилот 2026-05-16): передаём active media каналы из ConfigPanel,
+        // чтобы счётчик «10 медиаканалов» отражал реальные галочки (7), не все
+        // media-роли. modelEnabledMediaNames пустой до Init шага Модель.
+        if (!mod?.diagnostics) {
+          const activeMedia = $modelEnabledMediaNames;
+          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined);
+        }
+        // v2.1.0 (пилот 2026-05-16): передаём frontend SSOT ratio - Антон:
+        // «ratio в расчёте было 3.9, на модели опять неверные ratio».
+        // Backend m.ratio иногда расходится с тем что юзер видел на Валидации.
+        const ssotRatio = $validationHeaderMetrics?.ratio;
+        return modelInsights(mod, ssotRatio);
+      }
+      case 3: return decomposeInsights(dec, kpi);
       case 4: return optimizeInsights(opt, {
         dec, mod,
         channelBudgets: live.channelBudgets,
@@ -196,8 +296,14 @@
         channelMaxPct: live.channelMaxPct,
         globalMinPct: live.globalMinPct,
         globalMaxPct: live.globalMaxPct,
+        kpi,
       });
-      case 5: return reportInsights({ mod, dec, opt });
+      case 5: {
+        // v2.1.0 (пилот 2026-05-17 audit C-3): передаём SSOT ratio чтобы
+        // правая панель Отчёта показывала те же MQS/Ratio что плитка.
+        const ssotRatio = $validationHeaderMetrics?.ratio;
+        return reportInsights({ mod, dec, opt, kpi, ssotRatio });
+      }
       default: return [];
     }
   });
@@ -279,7 +385,7 @@
                   {#if insight.action && !appliedActions.has(i)}
                     <button
                       class="action-btn"
-                      onclick={() => applyAction(insight.action, i)}
+                      onclick={() => insight.action && applyAction(insight.action, i)}
                     >
                       {insight.action.label || 'Применить'}
                     </button>

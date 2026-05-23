@@ -279,7 +279,7 @@ async fn download_vault_file(
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
-        anyhow::bail!("Download failed for {}: HTTP {} — {}", filename, status, body);
+        anyhow::bail!("Download failed for {}: HTTP {} - {}", filename, status, body);
     }
 
     let bytes = res.bytes().await?;
@@ -429,7 +429,7 @@ pub async fn download_content_pack(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Content pack download failed: HTTP {} — {}", status, body);
+        anyhow::bail!("Content pack download failed: HTTP {} - {}", status, body);
     }
 
     let bytes = resp.bytes().await?;
@@ -526,7 +526,7 @@ pub async fn download_frontend_bundle(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Frontend bundle download failed: HTTP {} — {}", status, body);
+        anyhow::bail!("Frontend bundle download failed: HTTP {} - {}", status, body);
     }
 
     let bytes = resp.bytes().await?;
@@ -565,7 +565,7 @@ pub async fn download_frontend_bundle(
     crate::crypto::content_sig::verify_manifest(&staging_dir)
         .context("Frontend bundle manifest verification failed")?;
 
-    info!("Frontend staging verified — installing as {}", next_version);
+    info!("Frontend staging verified - installing as {}", next_version);
 
     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
         "stage": "installing",
@@ -611,7 +611,7 @@ pub async fn download_frontend_bundle_from_url(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Frontend bundle download failed: HTTP {} — {}", status, body);
+        anyhow::bail!("Frontend bundle download failed: HTTP {} - {}", status, body);
     }
 
     let bytes = resp.bytes().await?;
@@ -654,7 +654,7 @@ pub async fn download_frontend_bundle_from_url(
     crate::crypto::content_sig::verify_manifest(&staging_dir)
         .context("Frontend bundle manifest verification failed")?;
 
-    info!("Frontend staging verified — installing as {}", next_version);
+    info!("Frontend staging verified - installing as {}", next_version);
     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
         "stage": "installing",
         "version": &next_version,
@@ -771,7 +771,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         // Pre-create vault-versions.json
         std::fs::write(dir.path().join("vault-versions.json"), r#"{"media-analyst":3}"#).unwrap();
-        // Should be a no-op — file should not be modified
+        // Should be a no-op - file should not be modified
         migrate_from_legacy(dir.path(), dir.path()).unwrap();
         let versions = get_vault_versions(dir.path());
         assert_eq!(versions.get("media-analyst"), Some(&3));

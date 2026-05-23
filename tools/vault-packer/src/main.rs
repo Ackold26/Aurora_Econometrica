@@ -11,7 +11,7 @@ use sha2::Sha256;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "vault-pack", about = "AI Agency vault packer — encrypt/decrypt skill vaults")]
+#[command(name = "vault-pack", about = "AI Agency vault packer - encrypt/decrypt skill vaults")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -28,7 +28,7 @@ enum Commands {
         #[arg(short, long)]
         cabinet_id: String,
         /// Machine fingerprint (output of `wmic csproduct get UUID` etc.)
-        /// For dev/testing, pass any string — it just needs to match at decryption time.
+        /// For dev/testing, pass any string - it just needs to match at decryption time.
         #[arg(short, long)]
         fingerprint: String,
         /// Path to license.json (salt is read from it)

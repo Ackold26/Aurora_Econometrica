@@ -1,5 +1,5 @@
 /**
- * Aurora AI — Unified Help Navigation
+ * Aurora AI - Unified Help Navigation
  * Инжектирует навбар + поиск во все HTML-справки
  */
 (function () {
@@ -25,9 +25,9 @@
     { id: 'art-director',             title: 'Арт-директор',           group: 'creative', keywords: 'визуал дизайн макет логотип айдентика промпт midjourney' },
     { id: 'focus-groups',             title: 'Фокус-группы',           group: 'creative', keywords: 'тестирование фокус респонденты синтетические' },
 
-    { id: 'lawyer-contracts',    title: 'Юрист — Контракты',    group: 'legal', keywords: 'договор контракт риски анализ условия' },
-    { id: 'lawyer-claims',       title: 'Юрист — NDA',          group: 'legal', keywords: 'претензии NDA конфиденциальность' },
-    { id: 'lawyer-advertising',  title: 'Юрист — Реклама',      group: 'legal', keywords: 'комплаенс реклама ФАС 38-ФЗ закон' },
+    { id: 'lawyer-contracts',    title: 'Юрист - Контракты',    group: 'legal', keywords: 'договор контракт риски анализ условия' },
+    { id: 'lawyer-claims',       title: 'Юрист - NDA',          group: 'legal', keywords: 'претензии NDA конфиденциальность' },
+    { id: 'lawyer-advertising',  title: 'Юрист - Реклама',      group: 'legal', keywords: 'комплаенс реклама ФАС 38-ФЗ закон' },
 
     { id: 'doc-master',    title: 'Доку-мастер',     group: 'docmaster', keywords: 'документ медиаплан приложение договор генерация шаблон акт реквизиты' },
 

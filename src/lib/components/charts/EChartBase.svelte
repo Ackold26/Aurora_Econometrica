@@ -1,9 +1,9 @@
 <script>
   /**
    * Minimal ECharts wrapper.
-   * D1: lazy-loads ECharts via dynamic import — 0 extra bytes until charts needed.
+   * D1: lazy-loads ECharts via dynamic import - 0 extra bytes until charts needed.
    * F2: theme-reactive via CSS vars (no hardcoded 'dark').
-   * P4: step-aware — init only when visible step, dispose when leaving.
+   * P4: step-aware - init only when visible step, dispose when leaving.
    * Rule 2: onMount is sync, async work in IIFE.
    *
    * @component EChartBase

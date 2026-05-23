@@ -1,6 +1,6 @@
 <script>
   /**
-   * Confirm dialog через native HTML5 <dialog> — встроенный focus trap,
+   * Confirm dialog через native HTML5 <dialog> - встроенный focus trap,
    * Escape-handling, ::backdrop pseudo, a11y правильный.
    *
    * @component ConfirmDialog
@@ -31,7 +31,7 @@
     onCancel?.();
   }
 
-  /** Backdrop click → cancel. Dialog сам по клику вне не закрывается — ловим вручную. */
+  /** Backdrop click → cancel. Dialog сам по клику вне не закрывается - ловим вручную. */
   /** @param {MouseEvent} e */
   function onDialogClick(e) {
     if (e.target === dialogEl) {
@@ -128,5 +128,18 @@
   }
   .cd-btn--danger:hover {
     background: var(--danger-hover, color-mix(in srgb, var(--danger) 85%, white));
+  }
+
+  /* v2.1.0 п.5.6: instant dialog appearance */
+  @media (prefers-reduced-motion: reduce) {
+    dialog.cd-dialog[open] {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+    dialog.cd-dialog::backdrop {
+      animation: none;
+      opacity: 1;
+    }
   }
 </style>

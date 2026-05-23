@@ -1,7 +1,7 @@
 //! Filesystem-first Brand Layer for Aurora AI Creative Hub.
 //!
 //! Brands are stored as JSON files on disk. RAG server is an optional
-//! enhancement for vector search — all CRUD operations work without Python.
+//! enhancement for vector search - all CRUD operations work without Python.
 
 use log::info;
 use serde::{Deserialize, Serialize};
@@ -648,16 +648,16 @@ pub async fn data_chat_deep(
 
     // Write CLAUDE.md (system prompt for data analyst)
     let claude_md = format!(
-        r#"# Data Chat — Аналитик Brand Hub
+        r#"# Data Chat - Аналитик Brand Hub
 
-Ты — аналитик данных Brand Hub для бренда "{brand_id}". Отвечай на русском языке.
+Ты - аналитик данных Brand Hub для бренда "{brand_id}". Отвечай на русском языке.
 
 ## Контекст
 В файле `context.md` содержатся данные бренда из Brand Hub: профиль, результаты поиска, история кабинетов.
 
 ## Правила
 - Отвечай конкретно, с цифрами и фактами из контекста
-- Если данных недостаточно — скажи об этом честно
+- Если данных недостаточно - скажи об этом честно
 - Используй markdown для форматирования
 - Не выдумывай данные, которых нет в контексте
 - Давай практические рекомендации на основе данных
@@ -680,10 +680,10 @@ pub async fn data_chat_deep(
         &question,
         app_handle,
         cabinet_id,
-        None, // no resume — fresh session each time
+        None, // no resume - fresh session each time
         state.active_pids.clone(),
         false,
-        None, // model — use default
+        None, // model - use default
     )
     .await;
 

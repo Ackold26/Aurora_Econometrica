@@ -58,7 +58,7 @@
           items.push({
             id: `cmd-${cab.id}-${cmd.command}`,
             label: `${cmd.command}`,
-            description: `${cmd.label} — ${cab.name}`,
+            description: `${cmd.label} - ${cab.name}`,
             type: 'command',
             cabinetId: cab.id,
             action: async () => {
@@ -357,5 +357,15 @@
     border-radius: 3px;
     border: 1px solid var(--border);
     margin-right: 3px;
+  }
+
+  /* v2.1.0 п.5.6: instant command palette appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .overlay,
+    .palette {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
   }
 </style>

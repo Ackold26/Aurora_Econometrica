@@ -18,3 +18,14 @@ pre-commit:
       # Ловит accidental removal at commit time.
       glob: "src/lib/components/pipeline/DecomposeStep.svelte"
       run: grep -q channelParams {staged_files} || (echo ERROR DecomposeStep channelParams guard missing; exit 1)
+
+    sync-help-lists:
+      # Sprint 5: auto-rebuild help docs auto-sections когда BRAND_HINTS/PERF_HINTS
+      # changed. Pattern: НЕ fail on drift (annoying UX), а auto-fix + git add.
+      # CI separately verifies через --check mode (catches push-without-build).
+      glob:
+        - "sidecar/econometrica/utils/channel_categorization.py"
+        - "src-tauri/help-econometrica/*.html"
+      run: |
+        python tools/sync_help_lists.py
+        git add src-tauri/help-econometrica/

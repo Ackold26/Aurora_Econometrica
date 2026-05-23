@@ -1,23 +1,23 @@
-//! Sidecar runtime — shared foundation для port discovery, version handshake,
+//! Sidecar runtime - shared foundation для port discovery, version handshake,
 //! per-user process isolation, state file management.
 //!
 //! **Canonical файл** для всех 10 Aurora-продуктов. Sync через sync_variants.py.
 //!
 //! # Архитектура
 //!
-//! На multi-user RDP-серверах TCP-порты — глобальный ресурс ОС. Захардкоженный
+//! На multi-user RDP-серверах TCP-порты - глобальный ресурс ОС. Захардкоженный
 //! `:7430` → конфликт между пользователями: первый занимает, остальные переиспользуют
 //! чужой sidecar → 404/500, смешивание контекстов.
 //!
 //! Решение:
 //! 1. **Deterministic port** по хешу SID пользователя (stable, race-free).
 //! 2. **Fallback на `bind(0)`** если preferred port занят (zombie от той же сессии).
-//! 3. **State file** `%LOCALAPPDATA%\<identifier>\sidecar.json` — per-user gauranteed
-//!    (НЕ `%APPDATA%` — тот роумит в AD-доменах).
-//! 4. **Handshake `/health`** — {product, version, session_id} проверяется перед
+//! 3. **State file** `%LOCALAPPDATA%\<identifier>\sidecar.json` - per-user gauranteed
+//!    (НЕ `%APPDATA%` - тот роумит в AD-доменах).
+//! 4. **Handshake `/health`** - {product, version, session_id} проверяется перед
 //!    использованием. Mismatch → force kill + respawn.
 //! 5. **Process owner detection** через WinAPI (OpenProcessToken + LookupAccountSidW),
-//!    не `tasklist /V` — encoding hell на локализованной Windows.
+//!    не `tasklist /V` - encoding hell на локализованной Windows.
 //! 6. **Kill-switch** env `AURORA_SIDECAR_LEGACY_PORT=1` → bypass discovery,
 //!    fallback на hardcoded port. Safety valve для прод-отката без rebuild.
 //!
@@ -76,7 +76,7 @@ pub struct SidecarConfig {
 
 /// Содержимое state file `%LOCALAPPDATA%\<identifier>\sidecar.json`.
 /// Записывается Rust после успешного handshake на cold start.
-/// Читается Rust при reconnect — если handshake подтверждает session_id,
+/// Читается Rust при reconnect - если handshake подтверждает session_id,
 /// переиспользуется; иначе считается stale → respawn.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SidecarState {
@@ -109,7 +109,7 @@ pub struct HealthInfo {
 // ── User identity (Windows-specific via WinAPI) ──────────────────────────────
 
 /// Возвращает SID текущего пользователя как строку S-1-5-21-... или None.
-/// На не-Windows — возвращает USER/USERNAME env как fallback (не для продакшна).
+/// На не-Windows - возвращает USER/USERNAME env как fallback (не для продакшна).
 pub fn current_user_sid() -> Option<String> {
     #[cfg(windows)]
     {
@@ -122,7 +122,7 @@ pub fn current_user_sid() -> Option<String> {
 }
 
 /// Возвращает имя текущего пользователя (без домена).
-/// На Windows — `GetUserNameW`; на других — $USER/%USERNAME%.
+/// На Windows - `GetUserNameW`; на других - $USER/%USERNAME%.
 pub fn current_user_name() -> String {
     #[cfg(windows)]
     {
@@ -140,8 +140,8 @@ pub fn current_user_name() -> String {
 
 /// Deterministic per-user порт: `base + (xxhash(SID) % 100)`.
 /// Возвращает тот же порт для того же юзера при каждом вызове.
-/// Если SID недоступен — fallback на hash имени пользователя.
-/// Если и это fail — возвращает `base` (legacy-режим).
+/// Если SID недоступен - fallback на hash имени пользователя.
+/// Если и это fail - возвращает `base` (legacy-режим).
 pub fn user_scoped_port(base: u16) -> u16 {
     use xxhash_rust::xxh3::xxh3_64;
 
@@ -163,7 +163,7 @@ pub fn port_is_free(port: u16) -> bool {
 /// Находит порт для этого юзера. Strategy:
 /// 1. Если kill-switch `AURORA_SIDECAR_LEGACY_PORT=1` → вернуть `cfg.legacy_port`.
 /// 2. Deterministic port по SID → если свободен, вернуть.
-/// 3. Иначе — `bind(0)` OS-assigned ephemeral.
+/// 3. Иначе - `bind(0)` OS-assigned ephemeral.
 pub fn allocate_port(cfg: &SidecarConfig) -> std::io::Result<u16> {
     if is_kill_switch_enabled() {
         info!(
@@ -180,7 +180,7 @@ pub fn allocate_port(cfg: &SidecarConfig) -> std::io::Result<u16> {
         return Ok(preferred);
     }
 
-    // Preferred занят — возможно, zombie от нашей сессии. Пробуем OS-assigned.
+    // Preferred занят - возможно, zombie от нашей сессии. Пробуем OS-assigned.
     warn!(
         "allocate_port: preferred port {preferred} busy (zombie?), \
          falling back to OS-assigned ephemeral"
@@ -193,7 +193,7 @@ pub fn allocate_port(cfg: &SidecarConfig) -> std::io::Result<u16> {
 
 // ── Kill-switch ──────────────────────────────────────────────────────────────
 
-/// Env var `AURORA_SIDECAR_LEGACY_PORT=1` — bypass port discovery,
+/// Env var `AURORA_SIDECAR_LEGACY_PORT=1` - bypass port discovery,
 /// использовать hardcoded port. Safety valve для прод-отката без rebuild.
 pub fn is_kill_switch_enabled() -> bool {
     matches!(
@@ -204,7 +204,7 @@ pub fn is_kill_switch_enabled() -> bool {
     )
 }
 
-/// Env var `AURORA_SKIP_HANDSHAKE=1` — пропускать version/product check в handshake.
+/// Env var `AURORA_SKIP_HANDSHAKE=1` - пропускать version/product check в handshake.
 /// Оставляет только базовый HTTP health. Safety valve при thrashing'е.
 pub fn is_handshake_disabled() -> bool {
     matches!(
@@ -218,7 +218,7 @@ pub fn is_handshake_disabled() -> bool {
 // ── State file I/O ───────────────────────────────────────────────────────────
 
 /// Путь к sidecar.json в `%LOCALAPPDATA%\<identifier_dir>\sidecar.json`.
-/// Используется `%LOCALAPPDATA%` а не `%APPDATA%` — AppData\Local гарантированно
+/// Используется `%LOCALAPPDATA%` а не `%APPDATA%` - AppData\Local гарантированно
 /// не роумит между RDP-серверами в AD-доменах.
 pub fn state_file_path(cfg: &SidecarConfig) -> PathBuf {
     let base = if cfg!(windows) {
@@ -231,7 +231,7 @@ pub fn state_file_path(cfg: &SidecarConfig) -> PathBuf {
                 PathBuf::from(home).join("AppData").join("Local")
             })
     } else {
-        // На Unix — ~/.local/share (XDG). Для тестов/CI.
+        // На Unix - ~/.local/share (XDG). Для тестов/CI.
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".local").join("share")
     };
@@ -240,7 +240,7 @@ pub fn state_file_path(cfg: &SidecarConfig) -> PathBuf {
 }
 
 /// Atomic write: tmp + rename. На Windows используется MoveFileEx с
-/// MOVEFILE_REPLACE_EXISTING (через std::fs::rename — корректно работает на NTFS).
+/// MOVEFILE_REPLACE_EXISTING (через std::fs::rename - корректно работает на NTFS).
 pub fn write_state_file(cfg: &SidecarConfig, state: &SidecarState) -> std::io::Result<()> {
     let path = state_file_path(cfg);
     if let Some(parent) = path.parent() {
@@ -265,7 +265,7 @@ pub fn read_state_file(cfg: &SidecarConfig) -> Option<SidecarState> {
         Ok(s) => Some(s),
         Err(e) => {
             warn!(
-                "read_state_file: corrupt sidecar.json at {} ({e}) — ignoring",
+                "read_state_file: corrupt sidecar.json at {} ({e}) - ignoring",
                 path.display()
             );
             None
@@ -285,7 +285,7 @@ pub fn delete_state_file(cfg: &SidecarConfig) {
 
 // ── Session ID ───────────────────────────────────────────────────────────────
 
-/// Генерирует новый session_id — короткий UUID v4 hex.
+/// Генерирует новый session_id - короткий UUID v4 hex.
 pub fn generate_session_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()
 }
@@ -298,7 +298,7 @@ pub fn generate_session_id() -> String {
 /// - `product` совпадает с `cfg.product_id`
 /// - `version` присутствует (строгость check'а решает caller)
 ///
-/// Если `AURORA_SKIP_HANDSHAKE=1` — возвращает минимальный HealthInfo без проверок.
+/// Если `AURORA_SKIP_HANDSHAKE=1` - возвращает минимальный HealthInfo без проверок.
 pub async fn verify_handshake(
     port: u16,
     cfg: &SidecarConfig,
@@ -319,7 +319,7 @@ pub async fn verify_handshake(
 
     if !info.product.is_empty() && info.product != cfg.product_id {
         warn!(
-            "verify_handshake: product mismatch on port {port} — expected {}, got '{}'. \
+            "verify_handshake: product mismatch on port {port} - expected {}, got '{}'. \
              Foreign sidecar, will respawn.",
             cfg.product_id, info.product
         );
@@ -340,7 +340,7 @@ pub fn handshake_client() -> reqwest::Client {
 // ── Process owner detection ──────────────────────────────────────────────────
 
 /// Получает owner процесса (formatted как `DOMAIN\user` или `user`) через WinAPI.
-/// Fallback: None — caller должен трактовать как "неизвестно, не убиваем".
+/// Fallback: None - caller должен трактовать как "неизвестно, не убиваем".
 pub fn get_process_owner(pid: u32) -> Option<String> {
     #[cfg(windows)]
     {
@@ -357,7 +357,7 @@ pub fn get_process_owner(pid: u32) -> Option<String> {
 /// 1. Принадлежит текущему OS-пользователю (multi-tenant safety)
 /// 2. Image name совпадает с `cfg.process_exe_hint` или содержит `python`/`pythonw`
 ///
-/// Никогда не возвращает true для процесса другого пользователя —
+/// Никогда не возвращает true для процесса другого пользователя -
 /// security invariant для RDP.
 pub fn is_our_process_and_user(pid: u32, cfg: &SidecarConfig) -> bool {
     #[cfg(windows)]
@@ -377,7 +377,7 @@ pub fn is_our_process_and_user(pid: u32, cfg: &SidecarConfig) -> bool {
             return false;
         }
 
-        // Owner матчит — теперь проверяем image name через tasklist (позитивная проверка, без риска)
+        // Owner матчит - теперь проверяем image name через tasklist (позитивная проверка, без риска)
         win_impl::process_image_contains(pid, cfg.process_exe_hint)
     }
     #[cfg(not(windows))]
@@ -421,7 +421,7 @@ mod win_impl {
 
     /// Возвращает имя текущего пользователя (без домена).
     pub fn current_user_name_impl() -> Option<String> {
-        // Простой путь через %USERNAME% — задаётся ОС корректно
+        // Простой путь через %USERNAME% - задаётся ОС корректно
         std::env::var("USERNAME").ok().filter(|s| !s.is_empty())
     }
 
@@ -527,7 +527,7 @@ mod win_impl {
             return None;
         }
 
-        // First pass — get required buffer sizes
+        // First pass - get required buffer sizes
         let mut name_len: u32 = 0;
         let mut domain_len: u32 = 0;
         let mut sid_use: SID_NAME_USE = 0;
@@ -674,7 +674,7 @@ mod tests {
             ..TEST_CFG
         };
         let port = allocate_port(&cfg).expect("allocate");
-        assert!(port >= 1024); // sanity — не privileged range
+        assert!(port >= 1024); // sanity - не privileged range
     }
 
     #[test]

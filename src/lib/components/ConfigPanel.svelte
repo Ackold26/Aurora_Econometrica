@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
 
@@ -32,13 +32,13 @@
 
   let showAdvanced = $state(false);
 
-  // Auto-expand advanced when Expert mode is turned on (но не если модель уже обучена —
+  // Auto-expand advanced when Expert mode is turned on (но не если модель уже обучена -
   // после тренировки сворачиваем чтобы пользователь видел результаты ниже).
   $effect(() => {
     if ($expertMode && !modelTrained) showAdvanced = true;
   });
 
-  // После завершения обучения свернуть Расширенные настройки — освобождаем место
+  // После завершения обучения свернуть Расширенные настройки - освобождаем место
   // для блока с результатами (auto-scroll прокручивает вниз к диагностике).
   let prevTrained = false;
   $effect(() => {
@@ -88,7 +88,17 @@
   $effect(() => {
     if (validation?.columns) {
       const kpis = validation.columns.filter(/** @param {any} c */ (c) => c.role === 'kpi');
-      if (kpis.length && !selectedKpi) selectedKpi = kpis[0].name;
+      // v2.1.0 (пилот 2026-05-17): отдаём приоритет $chosenKpiColumn (что
+      // юзер выбрал на Валидации), потом fallback на kpis[0].
+      if (kpis.length) {
+        const chosen = $chosenKpiColumn;
+        const fromChosen = chosen && kpis.some(/** @param {any} k */ (k) => k.name === chosen)
+          ? chosen
+          : null;
+        if (!selectedKpi || (fromChosen && fromChosen !== selectedKpi)) {
+          selectedKpi = fromChosen || kpis[0].name;
+        }
+      }
 
       const media = validation.columns.filter(/** @param {any} c */ (c) => c.role === 'media');
       /** @type {Record<string, boolean>} */
@@ -101,18 +111,42 @@
       }
       channelEnabled = enabled;
       channelAdstock = adstock;
+      // v2.1.0 (пилот 2026-05-16): синхронизация active-каналов в global
+      // store, чтобы InsightsPanel и оценка времени читали ту же истину.
+      modelChannelEnabled.set(enabled);
     }
   });
 
+  // v2.1.0 (пилот 2026-05-16): toggle чекбокса → sync в global store.
+  // Раньше InsightsPanel читал validation.columns.filter(role='media')
+  // (все), показывал «10 медиаканалов» когда юзер оставил только 7.
+  $effect(() => {
+    modelChannelEnabled.set({ ...channelEnabled });
+  });
+
   // ── Adstock auto-select (marketer mode) ──
-  let adstockAutoSelected = $state(false);
   let adstockAutoLabel = $state('');
+  // v2.1.0 (пилот 2026-05-16): ключ active set для re-fetch detection.
+  // Раньше adstockAutoSelected=true гарантировал только один запуск -
+  // когда юзер снимал галочку с канала, label оставался прежним и
+  // показывал adstock назначения по уже исключённым каналам.
+  let lastAdstockKey = $state('');
 
   $effect(() => {
     // In marketer mode: auto-select adstock via BIC when KPI + channels ready
-    if ($expertMode || adstockAutoSelected || !selectedKpi) return;
+    if ($expertMode || !selectedKpi) return;
     const enabledChannels = Object.entries(channelEnabled).filter(([, v]) => v).map(([k]) => k);
-    if (enabledChannels.length === 0) return;
+    if (enabledChannels.length === 0) {
+      adstockAutoLabel = '';
+      lastAdstockKey = '';
+      return;
+    }
+    // Re-fetch только когда состав каналов или KPI изменились. Toggle одной
+    // галочки = новый key → backend пересчитает adstock на актуальном наборе.
+    const key = `${selectedKpi}|${enabledChannels.sort().join(',')}`;
+    if (key === lastAdstockKey) return;
+    lastAdstockKey = key;
+
     const filePath = $importData?.file || $pipelineState?.data?.file;
     if (!filePath) return;
 
@@ -126,15 +160,17 @@
           const updated = { ...channelAdstock };
           const labels = [];
           for (const [ch, sel] of Object.entries(result.selections)) {
+            // v2.1.0: фильтрация - backend может вернуть данные по каналам,
+            // которые с тех пор юзер выключил. Показываем только active.
+            if (!channelEnabled[ch]) continue;
             const s = /** @type {any} */ (sel);
             updated[ch] = s.type;
             labels.push(`${ch}: ${s.type === 'weibull' ? 'Weibull' : 'Geometric'}`);
           }
           channelAdstock = updated;
-          adstockAutoSelected = true;
           adstockAutoLabel = labels.join(', ');
         }
-      } catch { /* sidecar not ready yet — use defaults */ }
+      } catch { /* sidecar not ready yet - use defaults */ }
     })();
   });
 
@@ -164,7 +200,7 @@
   // Backend: JAX 0.7.2 + NumPyro 0.20.1 NUTS, скомпилированный XLA на CPU.
   // Реальные замеры (S8 Кагоцел, 31 точка, 6 каналов, 4×2000+2000 = 16 000 samples):
   //   ~5-10 мс / sample + ~15-30 сек JIT compile при первом запуске.
-  // Старая формула (0.3 с × max(channels/4,1)) давала 160 мин для того же прогона — оверкилл.
+  // Старая формула (0.3 с × max(channels/4,1)) давала 160 мин для того же прогона - оверкилл.
   const enabledCount = $derived(Object.values(channelEnabled).filter(Boolean).length);
   const estimateMinutes = $derived.by(() => {
     const chains = showAdvanced ? mcmcChains : 4;
@@ -179,11 +215,20 @@
   });
 
   // Auto-warning when defaults may be slow for the current project shape.
-  // Triggers for big models (>10 channels) — fewer draws/chains могут сильно ускорить.
+  // Triggers for big models (>10 channels) - fewer draws/chains могут сильно ускорить.
   const heavyModelWarn = $derived(enabledCount > 10);
 
   // ── Actions ──
+  // v2.1.0 (пилот 2026-05-17 audit C-2): guard от двойного клика. Ранее
+  // между нажатием кнопки и `isComputing.set(true)` выполнялось 4 await
+  // (project_get_dir, project_update, get(modelEngine), econ_train_start).
+  // Кнопка оставалась enabled - юзер мог отправить 2 POST /compute/train,
+  // создавалось 2 task_id, оба бежали MCMC параллельно, гонка pickle write.
+  let trainInFlight = $state(false);
+
   async function trainModel() {
+    if (trainInFlight || $isComputing) return;
+    trainInFlight = true;
     const projectId = $activeProjectId;
     if (!projectId) {
       computeStatus.set('Ошибка: проект не выбран. Создайте проект на шаге Импорт.');
@@ -262,6 +307,11 @@
         }
       }
 
+      // v1.0.16: read model engine choice от Import шага. 'bayesian' (default
+       // NUTS) | 'ols' (closed-form fallback для small data n<30). Backend Pydantic
+       // OptimizeRequest.mode accepts both. mcmc_override irrelevant для OLS path.
+      const engine = get(modelEngine);
+
       const config = {
         project_dir: projectDir,
         data_file: dataFile,
@@ -272,21 +322,46 @@
         adstock_config: Object.fromEntries(
           enabledChannels.map(ch => [ch, channelAdstock[ch] || 'geometric'])
         ),
-        mcmc_override: showAdvanced ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune } : null,
+        mcmc_override: (engine === 'bayesian' && showAdvanced)
+          ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune }
+          : null,
         unit_costs: get(unitCosts) || {},
+        // v2.1.0 (ADR-020): kpi_type для smart math (mixed mode count
+        // KPI разрешается, awareness rejected). Backend default 'sales'
+        // - preserving backward compat для legacy callers без kpiType.
+        kpi_type: get(kpiType) || 'sales',
+        // v2.1.0 (ADR-021): ценность единицы count KPI (₽/упак., ₽/лид).
+        // Persisted в pickle snapshot. None = ROI/lift в native units.
+        kpi_unit_cost: (() => {
+          const v = get(valuePerCountUnit);
+          return get(kpiKind) === 'count' && typeof v === 'number' && v > 0 ? v : null;
+        })(),
         merge_rules: mergeRules,
+        mode: engine,
+        // Trust Level 3 (v1.1.0): brand vs performance categorization.
+        // Backend modeler decides hierarchical vs single-prior на основе ≥2 в группе.
+        channel_categories: get(channelCategories) || {},
       };
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)
+      // v2.1.0 (пилот 2026-05-17): сохраняем snapshot конфигурации в SSOT
+      // store для последующей детекции stale model (когда юзер меняет роли
+      // в Валидации после обучения - banner предлагает переобучить).
+      lastTrainedConfig.set({
+        kpi: selectedKpi,
+        media: [...enabledChannels],
+        control: [...controlColumns],
+      });
+
       if (useAsyncTraining) {
         lastConfig = config;
         const start = await invoke('econ_train_start', { config });
         onTrainingStarted?.(start.task_id);
-        // isComputing stays true — TrainingProgress component takes over
+        // isComputing stays true - TrainingProgress component takes over
         return;
       }
 
-      // ── Original sync flow (chat-first cabinet) — UNTOUCHED ──
+      // ── Original sync flow (chat-first cabinet) - UNTOUCHED ──
       computeStatus.set('Обучаю модель (Markov Chain Monte Carlo сэмплирование)...');
 
       const result = await invoke('econ_train', { config });
@@ -308,6 +383,8 @@
       }
     } catch (e) {
       computeStatus.set(`Ошибка: ${e}`);
+    } finally {
+      trainInFlight = false;
     }
 
     setTimeout(() => {
@@ -331,7 +408,7 @@
       bind:this={kpiAnchor}
       onclick={(e) => openDropdown('kpi', e.currentTarget)}
     >
-      <span>{selectedKpi || '— выберите KPI —'}</span>
+      <span>{selectedKpi || '- выберите KPI -'}</span>
       <span class="dropdown-arrow" class:open={kpiOpen}>▾</span>
     </button>
     {#if kpiOpen}
@@ -369,7 +446,32 @@
   <!-- Adstock (inline, minimal) + AdstockPreview -->
   <div class="config-group">
     <label class="config-label">
-      Adstock
+      <span class="adstock-label-group">
+        Adstock
+        <span
+          class="adstock-help-icon"
+          tabindex="0"
+          role="button"
+          aria-label="Справка о типах Adstock"
+          title={`Adstock — модель «остаточного эффекта» рекламы во времени.
+
+Geometric (быстрый спад):
+- Подходит digital каналам (Social, Search, Performance, Banners).
+- Формула: x_t' = x_t + d·x_{t-1} + d²·x_{t-2} + ...
+- Эффект убывает экспоненциально (1-2 недели).
+- Параметр decay d ∈ (0,1). Bayesian модель обучает d.
+
+Weibull (плавная build-up):
+- Подходит охватным каналам с долгосрочным эффектом (TV/TRPs, OOH, Радио).
+- Параметры: shape (форма кривой) + scale (длительность).
+- Эффект сначала растёт, потом убывает (peak через 2-4 недели, длится 8-12).
+- Лучше моделирует brand-building.
+
+Авто:
+- Программа выбирает тип per channel на основе названия (TRP/OOH → Weibull, digital → Geometric).
+- Рекомендуемый выбор для большинства проектов.`}
+        >?</span>
+      </span>
       <span class="config-hint">Тип отложенного эффекта</span>
     </label>
     <div class="adstock-with-preview">
@@ -401,7 +503,7 @@
     </div>
   </div>
 
-  <!-- Advanced (collapsible) — only in Expert mode -->
+  <!-- Advanced (collapsible) - only in Expert mode -->
   {#if $expertMode}
     <button class="advanced-toggle" onclick={() => showAdvanced = !showAdvanced}>
       {showAdvanced ? '▾' : '▸'} Расширенные настройки
@@ -430,21 +532,21 @@
             <label>
               <span class="mcmc-label-row">
                 Chains
-                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Дефолт 4 — надёжная диагностика сходимости (R-hat). На JAX/NUTS параллелятся в один вызов, почти не замедляют обучение. Минимум 2 — для R-hat нужны хотя бы 2 независимые цепи.">?</span>
+                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Дефолт 4 - надёжная диагностика сходимости (R-hat). На JAX/NUTS параллелятся в один вызов, почти не замедляют обучение. Минимум 2 - для R-hat нужны хотя бы 2 независимые цепи.">?</span>
               </span>
               <input type="number" bind:value={mcmcChains} min="1" max="8" />
             </label>
             <label>
               <span class="mcmc-label-row">
                 Draws
-                <span class="help-icon" title="Число основных выборок на каждую цепь (после разогрева). 2000 — стандарт. 500 — быстрый прогон для проверки. 5000+ — для публикации. Чем больше — тем точнее ROI-оценки и уже доверительные интервалы.">?</span>
+                <span class="help-icon" title="Число основных выборок на каждую цепь (после разогрева). 2000 - стандарт. 500 - быстрый прогон для проверки. 5000+ - для публикации. Чем больше - тем точнее ROI-оценки и уже доверительные интервалы.">?</span>
               </span>
               <input type="number" bind:value={mcmcDraws} min="500" max="10000" step="500" />
             </label>
             <label>
               <span class="mcmc-label-row">
                 Tune
-                <span class="help-icon" title="Warmup: число выборок для настройки step-size сэмплера. 1000 — стандарт. При низком ratio (меньше 4:1) увеличьте до 2000. Эти выборки отбрасываются и не влияют на финальный результат.">?</span>
+                <span class="help-icon" title="Warmup: число выборок для настройки step-size сэмплера. 1000 - стандарт. При низком ratio (меньше 4:1) увеличьте до 2000. Эти выборки отбрасываются и не влияют на финальный результат.">?</span>
               </span>
               <input type="number" bind:value={mcmcTune} min="200" max="5000" step="100" />
             </label>
@@ -454,7 +556,7 @@
     {/if}
   {/if}
 
-  <!-- PSY: Commitment summary — user sees what THEY configured (IKEA Effect + Commitment) -->
+  <!-- PSY: Commitment summary - user sees what THEY configured (IKEA Effect + Commitment) -->
   {#if selectedKpi && Object.values(channelEnabled).filter(Boolean).length > 0}
     <div class="config-summary">
       <span class="summary-label">Конфигурация:</span>
@@ -467,7 +569,7 @@
     class="run-btn"
     class:trained={modelTrained && !$isComputing}
     onclick={trainModel}
-    disabled={$isComputing || !selectedKpi || Object.values(channelEnabled).filter(Boolean).length === 0}
+    disabled={$isComputing || trainInFlight || !selectedKpi || Object.values(channelEnabled).filter(Boolean).length === 0}
   >
     {#if $isComputing}
       <span class="spinner"></span> {$computeStatus || 'Обучаю модель...'}
@@ -483,10 +585,10 @@
   {#if heavyModelWarn && !showAdvanced}
     <p class="heavy-warn">
       Большая модель (&gt;10 каналов). Дефолт 4 цепи × 2000 draws точный, но может занять минуту.
-      Можно снизить в «Расширенных» до 2 цепей × 1000 draws — будет в разы быстрее.
+      Можно снизить в «Расширенных» до 2 цепей × 1000 draws - будет в разы быстрее.
     </p>
   {/if}
-  {#if adstockAutoSelected && !$expertMode}
+  {#if adstockAutoLabel && !$expertMode}
     <p class="adstock-auto-label">Adstock: {adstockAutoLabel} (авто по BIC)</p>
   {/if}
 </div>
@@ -526,6 +628,42 @@
   .config-hint {
     font-weight: 400;
     opacity: 0.6;
+  }
+
+  /* F-010 pilot (2026-05-18): группа «Adstock + ?» как один inline блок,
+     чтобы flex space-between в .config-label двигал hint вправо, а help
+     icon оставался рядом с термином. */
+  .adstock-label-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* Adstock help icon — pilot B Phase B 2026-05-17: native title tooltip с
+     описанием Geometric/Weibull/Авто. По hover/focus отображается system
+     tooltip (native title attribute). */
+  .adstock-help-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--accent-primary, #6ea8fe);
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+    cursor: help;
+    user-select: none;
+    transition: background 0.15s, color 0.15s;
+    line-height: 1;
+  }
+  .adstock-help-icon:hover,
+  .adstock-help-icon:focus {
+    background: rgba(110, 168, 254, 0.2);
+    color: var(--accent-primary, #6ea8fe);
+    outline: none;
   }
 
   .config-select, .config-select-sm {
@@ -752,7 +890,7 @@
     gap: 8px;
     transition: background 0.2s, color 0.2s, border 0.2s;
   }
-  /* После тренировки: меняем стиль чтобы пользователь сразу понял — действие изменилось. */
+  /* После тренировки: меняем стиль чтобы пользователь сразу понял - действие изменилось. */
   .run-btn.trained {
     background: transparent;
     border: 1px solid var(--success);
@@ -799,4 +937,11 @@
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: rgba(255,255,255,0.6);
+    }
+  }
 </style>

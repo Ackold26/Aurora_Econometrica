@@ -1,0 +1,323 @@
+{
+  "l1_kernel_matrix": [
+    {
+      "forecast_n": 26,
+      "budget_mult": 0.5,
+      "kpi_a": 283.15,
+      "kpi_b": 252.87,
+      "kpi_gt": 254.15,
+      "err_a_pct": 11.41,
+      "err_b_pct": 0.503
+    },
+    {
+      "forecast_n": 26,
+      "budget_mult": 1.0,
+      "kpi_a": 478.48,
+      "kpi_b": 453.29,
+      "kpi_gt": 442.42,
+      "err_a_pct": 8.15,
+      "err_b_pct": 2.456
+    },
+    {
+      "forecast_n": 26,
+      "budget_mult": 1.5,
+      "kpi_a": 541.96,
+      "kpi_b": 528.49,
+      "kpi_gt": 514.21,
+      "err_a_pct": 5.396,
+      "err_b_pct": 2.776
+    },
+    {
+      "forecast_n": 26,
+      "budget_mult": 3.0,
+      "kpi_a": 584.33,
+      "kpi_b": 581.22,
+      "kpi_gt": 572.28,
+      "err_a_pct": 2.105,
+      "err_b_pct": 1.561
+    },
+    {
+      "forecast_n": 26,
+      "budget_mult": 5.0,
+      "kpi_a": 593.26,
+      "kpi_b": 592.3,
+      "kpi_gt": 588.16,
+      "err_a_pct": 0.867,
+      "err_b_pct": 0.704
+    },
+    {
+      "forecast_n": 52,
+      "budget_mult": 0.5,
+      "kpi_a": 566.3,
+      "kpi_b": 542.02,
+      "kpi_gt": 542.85,
+      "err_a_pct": 4.32,
+      "err_b_pct": 0.152
+    },
+    {
+      "forecast_n": 52,
+      "budget_mult": 1.0,
+      "kpi_a": 956.96,
+      "kpi_b": 938.82,
+      "kpi_gt": 924.68,
+      "err_a_pct": 3.492,
+      "err_b_pct": 1.53
+    },
+    {
+      "forecast_n": 52,
+      "budget_mult": 1.5,
+      "kpi_a": 1083.92,
+      "kpi_b": 1074.6,
+      "kpi_gt": 1058.06,
+      "err_a_pct": 2.444,
+      "err_b_pct": 1.563
+    },
+    {
+      "forecast_n": 52,
+      "budget_mult": 3.0,
+      "kpi_a": 1168.66,
+      "kpi_b": 1166.54,
+      "kpi_gt": 1157.04,
+      "err_a_pct": 1.004,
+      "err_b_pct": 0.821
+    },
+    {
+      "forecast_n": 52,
+      "budget_mult": 5.0,
+      "kpi_a": 1186.51,
+      "kpi_b": 1185.86,
+      "kpi_gt": 1181.55,
+      "err_a_pct": 0.42,
+      "err_b_pct": 0.365
+    },
+    {
+      "forecast_n": 104,
+      "budget_mult": 0.5,
+      "kpi_a": 1132.6,
+      "kpi_b": 1120.57,
+      "kpi_gt": 1121.03,
+      "err_a_pct": 1.032,
+      "err_b_pct": 0.041
+    },
+    {
+      "forecast_n": 104,
+      "budget_mult": 1.0,
+      "kpi_a": 1913.93,
+      "kpi_b": 1905.38,
+      "kpi_gt": 1889.71,
+      "err_a_pct": 1.281,
+      "err_b_pct": 0.829
+    },
+    {
+      "forecast_n": 104,
+      "budget_mult": 1.5,
+      "kpi_a": 2167.84,
+      "kpi_b": 2163.51,
+      "kpi_gt": 2146.01,
+      "err_a_pct": 1.017,
+      "err_b_pct": 0.816
+    },
+    {
+      "forecast_n": 104,
+      "budget_mult": 3.0,
+      "kpi_a": 2337.31,
+      "kpi_b": 2336.34,
+      "kpi_gt": 2326.6,
+      "err_a_pct": 0.46,
+      "err_b_pct": 0.418
+    },
+    {
+      "forecast_n": 104,
+      "budget_mult": 5.0,
+      "kpi_a": 2373.02,
+      "kpi_b": 2372.72,
+      "kpi_gt": 2368.34,
+      "err_a_pct": 0.198,
+      "err_b_pct": 0.185
+    },
+    {
+      "forecast_n": 156,
+      "budget_mult": 0.5,
+      "kpi_a": 1698.9,
+      "kpi_b": 1698.9,
+      "kpi_gt": 1699.22,
+      "err_a_pct": 0.019,
+      "err_b_pct": 0.019
+    },
+    {
+      "forecast_n": 156,
+      "budget_mult": 1.0,
+      "kpi_a": 2870.89,
+      "kpi_b": 2870.89,
+      "kpi_gt": 2854.76,
+      "err_a_pct": 0.565,
+      "err_b_pct": 0.565
+    },
+    {
+      "forecast_n": 156,
+      "budget_mult": 1.5,
+      "kpi_a": 3251.75,
+      "kpi_b": 3251.75,
+      "kpi_gt": 3233.96,
+      "err_a_pct": 0.55,
+      "err_b_pct": 0.55
+    },
+    {
+      "forecast_n": 156,
+      "budget_mult": 3.0,
+      "kpi_a": 3505.97,
+      "kpi_b": 3505.97,
+      "kpi_gt": 3496.16,
+      "err_a_pct": 0.28,
+      "err_b_pct": 0.28
+    },
+    {
+      "forecast_n": 156,
+      "budget_mult": 5.0,
+      "kpi_a": 3559.53,
+      "kpi_b": 3559.53,
+      "kpi_gt": 3555.13,
+      "err_a_pct": 0.124,
+      "err_b_pct": 0.124
+    },
+    {
+      "forecast_n": 312,
+      "budget_mult": 0.5,
+      "kpi_a": 3397.79,
+      "kpi_b": 3433.61,
+      "kpi_gt": 3433.78,
+      "err_a_pct": 1.048,
+      "err_b_pct": 0.005
+    },
+    {
+      "forecast_n": 312,
+      "budget_mult": 1.0,
+      "kpi_a": 5741.78,
+      "kpi_b": 5766.47,
+      "kpi_gt": 5749.88,
+      "err_a_pct": 0.141,
+      "err_b_pct": 0.289
+    },
+    {
+      "forecast_n": 312,
+      "budget_mult": 1.5,
+      "kpi_a": 6503.51,
+      "kpi_b": 6515.88,
+      "kpi_gt": 6497.81,
+      "err_a_pct": 0.088,
+      "err_b_pct": 0.278
+    },
+    {
+      "forecast_n": 312,
+      "budget_mult": 3.0,
+      "kpi_a": 7011.94,
+      "kpi_b": 7014.73,
+      "kpi_gt": 7004.85,
+      "err_a_pct": 0.101,
+      "err_b_pct": 0.141
+    },
+    {
+      "forecast_n": 312,
+      "budget_mult": 5.0,
+      "kpi_a": 7119.07,
+      "kpi_b": 7119.93,
+      "kpi_gt": 7115.52,
+      "err_a_pct": 0.05,
+      "err_b_pct": 0.062
+    }
+  ],
+  "l2_cap_sensitivity": [
+    {
+      "horizon_mult": 1.0,
+      "forecast_n": 156,
+      "err_pct": 0.565
+    },
+    {
+      "horizon_mult": 1.5,
+      "forecast_n": 234,
+      "err_pct": 0.093
+    },
+    {
+      "horizon_mult": 2.0,
+      "forecast_n": 312,
+      "err_pct": 0.141
+    },
+    {
+      "horizon_mult": 3.0,
+      "forecast_n": 468,
+      "err_pct": 0.374
+    },
+    {
+      "horizon_mult": 5.0,
+      "forecast_n": 780,
+      "err_pct": 0.56
+    }
+  ],
+  "l3_seasonality": [
+    {
+      "start": "Q1",
+      "start_t": 0,
+      "kpi_uniform": 185.19,
+      "kpi_realized": 197.11,
+      "divergence_pct": 6.44
+    },
+    {
+      "start": "Q2",
+      "start_t": 13,
+      "kpi_uniform": 185.19,
+      "kpi_realized": 207.25,
+      "divergence_pct": 11.913
+    },
+    {
+      "start": "Q3",
+      "start_t": 26,
+      "kpi_uniform": 185.19,
+      "kpi_realized": 167.8,
+      "divergence_pct": 9.39
+    },
+    {
+      "start": "Q4",
+      "start_t": 39,
+      "kpi_uniform": 185.19,
+      "kpi_realized": 153.06,
+      "divergence_pct": 17.35
+    }
+  ],
+  "true_params": {
+    "TV": {
+      "decay": 0.85,
+      "alpha": 2.5,
+      "gamma": 0.6,
+      "beta": 0.08,
+      "unit_cost": 1.0
+    },
+    "OLV": {
+      "decay": 0.65,
+      "alpha": 2.0,
+      "gamma": 0.5,
+      "beta": 0.06,
+      "unit_cost": 1.0
+    },
+    "Search": {
+      "decay": 0.3,
+      "alpha": 1.8,
+      "gamma": 0.4,
+      "beta": 0.05,
+      "unit_cost": 1.0
+    },
+    "Programmatic": {
+      "decay": 0.4,
+      "alpha": 2.2,
+      "gamma": 0.55,
+      "beta": 0.04,
+      "unit_cost": 1.0
+    }
+  },
+  "train_n": 156,
+  "mean_train": {
+    "TV": 6424.501424503786,
+    "OLV": 1411.5646258503402,
+    "Search": 284.9293563579279,
+    "Programmatic": 497.8632478632479
+  }
+}

@@ -1,14 +1,14 @@
 //! Diagnostic report generator for Aurora AI IT support.
 //!
 //! Collects system info, license status, vault state, logs into a single .txt file.
-//! Each section is independently error-safe — a failure in one section does not affect others.
+//! Each section is independently error-safe - a failure in one section does not affect others.
 //! SECURITY: No secrets, full fingerprints, tokens, or encryption keys in output.
 
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-/// App start time — set once on first diagnostic call or app init.
+/// App start time - set once on first diagnostic call or app init.
 static APP_START: OnceLock<Instant> = OnceLock::new();
 
 /// Call at app startup to record start time.
@@ -116,10 +116,10 @@ fn find_and_read_log(app_config_dir: &Path) -> Option<(std::path::PathBuf, Strin
 
 // ── Sections ───────────────────────────────────────────────
 
-/// Errors Summary — grep ERROR/WARN/PANIC from log, shown at top for IT managers.
+/// Errors Summary - grep ERROR/WARN/PANIC from log, shown at top for IT managers.
 fn section_errors_summary(log: &Option<(std::path::PathBuf, String)>) -> String {
     let Some((_, content)) = log else {
-        return "(no log file found — cannot extract errors)".into();
+        return "(no log file found - cannot extract errors)".into();
     };
     let error_lines: Vec<&str> = content.lines()
         .filter(|l| {
@@ -174,7 +174,7 @@ fn section_system() -> String {
     let winver = cmd_output("cmd", &["/C", "ver"]);
     let hostname = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "(unknown)".into());
 
-    // Disk free space — use fsutil for reliable output
+    // Disk free space - use fsutil for reliable output
     let disk_free = std::env::var("APPDATA")
         .ok()
         .and_then(|p| p.chars().next())
@@ -240,7 +240,7 @@ fn section_license(config_dir: &Path) -> String {
                 status.expires_at,
                 status.days_remaining,
                 status.cabinets.join(", "),
-                if status.error.is_none() { "yes" } else { "NO — license bound to different machine" }
+                if status.error.is_none() { "yes" } else { "NO - license bound to different machine" }
             ),
             Err(e) => format!("[ERROR] Validation: {e}"),
         },

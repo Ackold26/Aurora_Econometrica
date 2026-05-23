@@ -1,5 +1,5 @@
 /**
- * Aurora AI Econometrica — Help Navigation
+ * Aurora AI Econometrica - Help Navigation
  * Инжектирует навбар + поиск в HTML-справки Econometrica
  */
 (function () {

@@ -1,7 +1,7 @@
 <script>
   /**
    * Pipeline shell layout.
-   * C1: Guard — only accessible for econometrica product type.
+   * C1: Guard - only accessible for econometrica product type.
    * C4: InsightsPanel width clamp(240px, 22%, 360px), auto-collapse < 1100px.
    * C5: Sidecar status indicator in footer.
    */
@@ -24,14 +24,21 @@
     loadPipelineForProject,
     validateData,
     importData,
+    validateSubStep,
   } from '$lib/project-state.js';
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
   import ProjectSelector from '$lib/components/ProjectSelector.svelte';
+  // Phase 1.1: kick off SSOT classifier patterns fetch на startup
+  // (cache-with-fallback - UI usable immediately even если backend slow).
+  import { ensurePatternsLoaded } from '$lib/services/classifier-patterns.js';
+  // Phase 2.16: trust-signal toast после successful migration.
+  import MigrationCompletedToast from '$lib/components/MigrationCompletedToast.svelte';
+  import ErrorState from '$lib/components/pipeline/ErrorState.svelte';
 
   let { children } = $props();
 
-  // C1: Pipeline guard — econometrica only
+  // C1: Pipeline guard - econometrica only
   const isEconometrica = $derived($productType === 'econometrica');
 
   let userCollapsed = $state(false); // явное намерение пользователя
@@ -39,7 +46,51 @@
   /** @type {HTMLElement | undefined} Главный скрол-контейнер шагов */
   let mainEl = $state();
 
-  // C4: Auto-collapse on small screens; on large — уважаем userCollapsed
+  // Phase 2.16 - migration-completed toast state.
+  let migrationToast = $state({
+    show: false,
+    fromVersion: '',
+    toVersion: '',
+    movedCount: 0,
+  });
+
+  // H-20a - migration error surface (audit). Раньше ошибки уходили в
+  // console.warn - customer not notified. Теперь banner с retry button.
+  /** @type {{ show: boolean, message: string, projectId: string | null }} */
+  let migrationError = $state({ show: false, message: '', projectId: null });
+
+  async function retryMigration() {
+    if (!migrationError.projectId) return;
+    const id = migrationError.projectId;
+    migrationError = { show: false, message: '', projectId: null };
+    try {
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: id }));
+      if (!projectDir) return;
+      const result = /** @type {any} */ (await invoke('econ_migrate_project', { projectDir }));
+      if (result?.status === 'ok') {
+        const movedCount = (result.migrated_columns || []).length;
+        // 2026-05-18 pilot UX: toast только при meaningful classification change.
+        // No-op migrations (формат данных обновлён без изменения классификации)
+        // перекрывали кнопку «далее» и отвлекали пилот.
+        if (movedCount > 0) {
+          migrationToast = {
+            show: true,
+            fromVersion: result.from_version || '',
+            toVersion: result.to_version || '',
+            movedCount,
+          };
+        }
+      }
+    } catch (err) {
+      migrationError = {
+        show: true,
+        message: String(err),
+        projectId: id,
+      };
+    }
+  }
+
+  // C4: Auto-collapse on small screens; on large - уважаем userCollapsed
   const insightsCollapsed = $derived(windowWidth < 1100 ? true : userCollapsed);
 
   function toggleInsights() {
@@ -93,12 +144,12 @@
     if (prev >= 0) {
       pipelineCurrentStep.set(prev);
     } else {
-      // Шаг 0 — возвращаем пользователя в главное меню
+      // Шаг 0 - возвращаем пользователя в главное меню
       goto('/');
     }
   }
 
-  // Справка — одна кнопка в header, контент зависит от текущего шага pipeline.
+  // Справка - одна кнопка в header, контент зависит от текущего шага pipeline.
   // Index в массиве соответствует PIPELINE_STEPS. См. src-tauri/help-econometrica/*.html.
   const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline'];
   async function openStepHelp() {
@@ -117,10 +168,10 @@
     }
   }
 
-  // При смене шага сбрасываем scroll наверх — иначе scroll-позиция от прошлого шага
+  // При смене шага сбрасываем scroll наверх - иначе scroll-позиция от прошлого шага
   // оставляет пользователя в середине/внизу нового, и кажется, что страница пустая.
   $effect(() => {
-    // Подписка на pipelineCurrentStep — при изменении прокручиваем main в начало.
+    // Подписка на pipelineCurrentStep - при изменении прокручиваем main в начало.
     const _step = $pipelineCurrentStep;
     if (mainEl) mainEl.scrollTop = 0;
   });
@@ -143,7 +194,7 @@
       try {
         const progress = /** @type {any} */ (await invoke('econ_train_progress'));
         if (progress.status !== 'running') {
-          // Sidecar lost state — clean up stale task
+          // Sidecar lost state - clean up stale task
           localStorage.removeItem('econ-training-task');
         }
       } catch {
@@ -163,7 +214,51 @@
     function onResize() { windowWidth = window.innerWidth; }
     window.addEventListener('resize', onResize, { passive: true });
 
-    // Check for ?new=1 — user clicked "Новый проект в Pipeline" on home
+    // Phase 1.1: load SSOT classifier patterns (non-blocking). Result cached
+    // в localStorage с TTL 1h; embedded fallback engages если backend slow/down.
+    ensurePatternsLoaded().catch(() => { /* fallback handled internally */ });
+
+    // Phase 1.4: opportunistic project.json schema migration на activeProject
+    // load. Idempotent - backend returns no_migration_needed если schema_version
+    // current. Errors silenced (sync version; async modal UI defer к v2.0.2).
+    activeProjectId.subscribe(async (id) => {
+      if (!id) return;
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: id }));
+        if (!projectDir) return;
+        const result = /** @type {any} */ (await invoke('econ_migrate_project', { projectDir }));
+        if (result?.status === 'ok') {
+          const movedCount = (result.migrated_columns || []).length;
+          console.info(
+            `[migration] project ${id}: ${result.from_version} → ${result.to_version}, ` +
+            `moved ${movedCount} cols`,
+          );
+          // Phase 2.16 - surface trust-signal toast (audit P-customer-confidence).
+          // 2026-05-18 pilot UX: показываем только при meaningful classification
+          // change. No-op миграции (формат-only) перекрывали «далее» и отвлекали.
+          if (movedCount > 0) {
+            migrationToast = {
+              show: true,
+              fromVersion: result.from_version || '',
+              toVersion: result.to_version || '',
+              movedCount,
+            };
+          }
+        }
+      } catch (err) {
+        // H-20a: surface error к UI вместо silent console.warn. Customer видит
+        // banner + retry button. Без этого corruption / lock timeout уходили
+        // в DevTools console - никто не видел.
+        console.warn('[migration] failed:', err);
+        migrationError = {
+          show: true,
+          message: String(err),
+          projectId: id,
+        };
+      }
+    });
+
+    // Check for ?new=1 - user clicked "Новый проект в Pipeline" on home
     const forceNew = typeof window !== 'undefined'
       && new URLSearchParams(window.location.search).get('new') === '1';
 
@@ -196,8 +291,24 @@
     return () => window.removeEventListener('resize', onResize);
   });
 
+  // v2.1.0 (пилот 2026-05-16): на под-шаге «Роли колонок» (subStep === -1)
+  // главная кнопка «Далее» блокируется до нажатия «Подтвердить роли»
+  // внутри ColumnMapperConfirm. После confirm subStep меняется → «Далее»
+  // снова активна. Защищает от пропуска явного подтверждения ролей.
+  const rolesNotConfirmed = $derived(
+    $pipelineCurrentStep === 1 && $validateSubStep === -1
+  );
+
   const canGoNext = $derived(
-    $pipelineCurrentStep < 5 && $pipelineStepMeta[$pipelineCurrentStep + 1]?.status !== 'locked'
+    $pipelineCurrentStep < 5
+    && $pipelineStepMeta[$pipelineCurrentStep + 1]?.status !== 'locked'
+    && !rolesNotConfirmed
+  );
+
+  const nextBtnTitle = $derived(
+    rolesNotConfirmed
+      ? 'Сначала нажмите «Подтвердить роли» ниже'
+      : ''
   );
 
   // Objective overlay is open: step 1 (validate) with no validation result yet
@@ -225,7 +336,7 @@
         <!-- Keep header layout stable but show a read-only chip after import -->
         <div class="project-area">
           {#if $activeProject}
-            <span class="project-chip" title="Активный проект — переключение доступно на шаге «Импорт»">
+            <span class="project-chip" title="Активный проект - переключение доступно на шаге «Импорт»">
               📊 {$activeProject.name}
             </span>
             <button
@@ -316,6 +427,7 @@
         class="nav-btn primary"
         disabled={!canGoNext}
         onclick={goNext}
+        title={nextBtnTitle}
       >
         Далее ▶
       </button>
@@ -332,9 +444,42 @@
       </div>
     </div>
   </div>
+
+  <!-- Phase 2.16 - migration trust-signal toast (visible after schema upgrade) -->
+  <MigrationCompletedToast
+    show={migrationToast.show}
+    fromVersion={migrationToast.fromVersion}
+    toVersion={migrationToast.toVersion}
+    movedCount={migrationToast.movedCount}
+    onDismiss={() => { migrationToast = { ...migrationToast, show: false }; }}
+  />
+
+  <!-- H-20a - migration error banner с retry. Раньше ошибки уходили в console.warn -->
+  {#if migrationError.show}
+    <div class="migration-error-wrap" data-testid="migration-error-banner">
+      <ErrorState
+        title="Не удалось обновить формат проекта"
+        message="Резервная копия project.json сохранена. Попробуйте ещё раз - если ошибка повторится, закройте остальные вкладки и проверьте свободное место на диске."
+        severity="error"
+        errorCode="MIGRATION_FAILED"
+        retryText="Повторить"
+        onRetry={retryMigration}
+        detailText={migrationError.message}
+      />
+    </div>
+  {/if}
 {/if}
 
 <style>
+  .migration-error-wrap {
+    position: fixed;
+    top: 80px;
+    right: 24px;
+    z-index: 9999;
+    max-width: 480px;
+    box-shadow: var(--shadow, 0 4px 32px rgba(0,0,0,0.55));
+  }
+
   .pipeline-shell {
     display: flex;
     flex-direction: column;
@@ -499,11 +644,19 @@
   .computing-indicator {
     font-size: 12px;
     color: var(--accent-primary, #3b82f6);
-    animation: pulse 1.5s ease-in-out infinite;
   }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.45; }
+  /* H-13: pulse-анимация только при no-preference (INV-12).
+     Reduced-motion users видят static indicator без визуального мерцания.
+     Training может занимать 20-60s - без guard'a вестибулярные нарушения
+     получают непрерывную раздражающую анимацию. */
+  @media (prefers-reduced-motion: no-preference) {
+    .computing-indicator {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
   }
 
   .nav-btn {

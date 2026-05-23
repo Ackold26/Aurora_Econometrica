@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════
-   AETHER MESH — Design System
+   AETHER MESH - Design System
    Tauri v2 + SvelteKit 5, dark cyber-minimalism
    ═══════════════════════════════════════════════════ */
 
@@ -30,8 +30,8 @@
   --accent-primary-rgb:  46, 91, 255;
 
   /* ── Functional Colors ── */
-  --color-info:       #22D3EE;    /* cyan — информационные элементы */
-  --color-completion: #34D399;    /* warm green — момент завершения */
+  --color-info:       #22D3EE;    /* cyan - информационные элементы */
+  --color-completion: #34D399;    /* warm green - момент завершения */
 
   /* ── Backward-compat Aliases (used throughout components) ── */
   --accent:       var(--accent-primary);  /* alias, не удалять */
@@ -40,7 +40,10 @@
   /* ── Text ── */
   --text-primary:   #EAEAF0;
   --text-secondary: #A8A8B8;
-  --text-muted:     #7A7A90;
+  /* H-15: --text-muted bumped с #7A7A90 (3.8:1 на #181824, ниже WCAG AA 4.5:1)
+     к #9090A8 (~4.7:1). Используется в field labels, hints, mute spans —
+     functional text, не decorative. Light + fun themes — separate audit pass. */
+  --text-muted:     #9090A8;
 
   /* ── Borders ── */
   --border:        rgba(255, 255, 255, 0.16);
@@ -84,6 +87,15 @@
   --shadow:      0 4px 32px rgba(0, 0, 0, 0.55);
   --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.4);
   --shadow-glow: 0 0 24px var(--accent-glow);
+
+  /* ── Icons (Lucide) ── */
+  --icon-xs:     12px;
+  --icon-sm:     14px;
+  --icon-md:     18px;
+  --icon-lg:     24px;
+  --icon-xl:     32px;
+  --icon-stroke: 1.5;
+  --icon-color:  var(--text-secondary);
 
   /* ── Typography ── */
   --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -144,7 +156,7 @@
   /* Per-theme: typography weight */
   --font-weight-heading: 500;
 
-  /* ── Per-card accents (Fun theme variety) — default = neutral card bg ── */
+  /* ── Per-card accents (Fun theme variety) - default = neutral card bg ── */
   --card-accent-lemon:    var(--accent-primary);
   --card-accent-lavender: var(--accent-primary);
   --card-accent-sage:     var(--success);
@@ -157,7 +169,7 @@
   --card-bg-peach:    var(--bg-card);
   --card-bg-coral:    var(--bg-card);
 
-  /* ── Insight card backgrounds (per-severity) — default: subtle translucent ── */
+  /* ── Insight card backgrounds (per-severity) - default: subtle translucent ── */
   --bg-insight-base:    color-mix(in srgb, var(--text-primary) 3%, transparent);
   --bg-insight-info:    var(--bg-insight-base);
   --bg-insight-success: var(--bg-insight-base);
@@ -199,11 +211,19 @@
 
   --text-primary:   #1A1A1E;
   --text-secondary: #4A4A58;
-  --text-muted:     #74748A;
+  /* WCAG AA fix v2.1.0 п.5.4: #74748A failed on bg-primary (4.19:1) and bg-secondary (3.93:1).
+     New #6A6A7E: bg-primary=4.85:1, bg-secondary=4.56:1, bg-card=4.99:1. */
+  --text-muted:     #6A6A7E;
 
-  --success: #16a34a;
-  --warning: #d97706;
-  --danger:  #dc2626;
+  /* WCAG AA fix v2.1.0 п.5.4: success #16a34a failed on bg-card (3.30:1) and bg-primary (3.03:1).
+     New #11813B: bg-card=4.97:1, bg-primary=4.56:1. */
+  --success: #11813B;
+  /* WCAG AA fix v2.1.0 п.5.4: warning #d97706 failed on bg-card (3.19:1) and bg-primary (2.93:1).
+     New #AA5D05: bg-card=4.91:1, bg-primary=4.51:1. */
+  --warning: #AA5D05;
+  /* WCAG AA fix v2.1.0 п.5.4: danger #dc2626 failed on bg-primary (4.44:1 < 4.5).
+     New #D92323: bg-card=5.27:1, bg-primary=4.58:1. */
+  --danger:  #D92323;
 
   --border:        rgba(0, 0, 0, 0.14);
   --border-subtle: rgba(0, 0, 0, 0.08);
@@ -241,7 +261,26 @@
   --disabled-opacity: 0.5;
 }
 
-/* ── Fun Theme — pastel, warm, playful ── */
+/* ── A11y: visible keyboard focus ring (H-14, v2.1.0 п.5.7) ──
+   Global :focus-visible rule — WCAG 2.1 SC 2.4.7 (focus visible).
+   Covers: button, a, input, textarea, select, [tabindex], [role="button"],
+   any custom interactive element with keyboard focus.
+   Components могут override через class-specific :focus-visible если
+   нужен другой visual treatment. `outline: none` без :focus-visible
+   replacement — accessibility violation.
+   Contrast: --accent-primary (#2E5BFF) on --bg-primary (#0C0C12) = ~5.8:1 ✓ WCAG AA */
+*:focus-visible {
+  outline: 2px solid var(--accent-primary, #2E5BFF);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm, 8px);
+}
+
+/* Suppress default outline на mouse focus — keyboard focus only. */
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Fun Theme - pastel, warm, playful ── */
 [data-theme="fun"] {
   --bg-primary:     #F5F0D0;
   --bg-secondary:   #EDE8C8;
@@ -256,24 +295,32 @@
   --blur-quiet: blur(8px);
   --blur-focus: blur(20px) saturate(1.1);
 
-  --accent-primary:      #7C6BC4;
+  /* WCAG AA fix v2.1.0 п.5.5: #7C6BC4 button text (#FFFEF5) was 4.36:1 < 4.5.
+     New #7967C3: bg-card ratio=4.57:1. Hue/saturation preserved, L 59.4%->58.4%. */
+  --accent-primary:      #7967C3;
   --accent-secondary:    #90C67C;
-  --accent:              #7C6BC4;
+  --accent:              #7967C3;
   --accent-hover:        #9585D0;
-  --accent-glow:         rgba(124, 107, 196, 0.15);
-  --accent-glow-strong:  rgba(124, 107, 196, 0.28);
+  --accent-glow:         rgba(121, 103, 195, 0.15);
+  --accent-glow-strong:  rgba(121, 103, 195, 0.28);
   --accent-green-glow:   rgba(144, 198, 124, 0.15);
-  --accent-primary-rgb:  124, 107, 196;
-  --color-info:       #5B9BD5;
-  --color-completion: #5DAA5D;
+  --accent-primary-rgb:  121, 103, 195;
+  /* WCAG AA fix v2.1.0 п.5.5: #5B9BD5 on bg-card was 2.92:1 < 3.0 (UI component).
+     New #5799D4: 3.00:1. */
+  --color-info:       #5799D4;
+  /* WCAG AA fix v2.1.0 п.5.5: #5DAA5D on bg-card was 2.81:1 < 3.0 (UI component).
+     New #56A456: 3.03:1. Text usage (status): separate fix via --success below. */
+  --color-completion: #56A456;
 
   --text-primary:   #2D2D1F;
   --text-secondary: #5A5A42;
-  --text-muted:     #8A8A6E;
+  /* WCAG AA fix v2.1.0 п.5.5: #8A8A6E failed on all warm bgs (3.49/3.07/2.86:1).
+     New #696954: bg-card=5.53:1, bg-primary=4.87:1, bg-secondary=4.53:1. L 48.6%->37.1%. */
+  --text-muted:     #696954;
 
   --border:        rgba(90, 80, 40, 0.16);
   --border-subtle: rgba(90, 80, 40, 0.10);
-  --border-active: rgba(124, 107, 196, 0.45);
+  --border-active: rgba(121, 103, 195, 0.45);
 
   --glass-border: 1px solid rgba(90, 80, 40, 0.12);
 
@@ -281,9 +328,15 @@
   --shadow-card: 0 2px 12px rgba(80, 70, 30, 0.07);
   --shadow-glow: 0 0 20px var(--accent-glow);
 
-  --danger:  #D94E4E;
-  --success: #5DAA5D;
-  --warning: #D4A844;
+  /* WCAG AA fix v2.1.0 п.5.5: danger #D94E4E on bg-card was 4.03:1 < 4.5.
+     New #D53D3D: bg-card=4.55:1. L 57.8%->53.8%. */
+  --danger:  #D53D3D;
+  /* WCAG AA fix v2.1.0 п.5.5: success #5DAA5D on bg-card was 2.81:1 < 4.5.
+     New #448244: bg-card=4.59:1. L 51.6%->39.0%. */
+  --success: #448244;
+  /* WCAG AA fix v2.1.0 п.5.5: warning #D4A844 on bg-card was 2.19:1 < 4.5.
+     New #937022: bg-card=4.53:1. L 54.9%->35.4%. */
+  --warning: #937022;
 
   --clock-color:      #5A5A42;
 
@@ -310,11 +363,16 @@
   --hover-timing: 300ms cubic-bezier(0.68, -0.55, 0.27, 1.55);
   --font-weight-heading: 700;
 
-  /* ── Per-card accents — playful variety inspired by pastel dashboards ── */
-  --card-accent-lemon:    #D4C93A;
+  /* ── Per-card accents - playful variety inspired by pastel dashboards ── */
+  /* WCAG AA fix v2.1.0 п.5.5 (UI component border 3:1 min):
+     lemon: #D4C93A->1.70:1 FAIL -> #948C20: bg-card=3.44:1, bg-primary=3.03:1
+     sage:  #7FA868->2.69:1 FAIL -> #739E5B: bg-card=3.06:1
+     peach: #D49A5E->2.42:1 FAIL -> #CA833A: bg-card=3.04:1
+     lavender and coral already pass (3.55 and 3.02) -- unchanged. */
+  --card-accent-lemon:    #948C20;
   --card-accent-lavender: #8A7DC7;
-  --card-accent-sage:     #7FA868;
-  --card-accent-peach:    #D49A5E;
+  --card-accent-sage:     #739E5B;
+  --card-accent-peach:    #CA833A;
   --card-accent-coral:    #D47A7A;
 
   --card-bg-lemon:    rgba(245, 232, 74, 0.22);
@@ -394,13 +452,6 @@ input, textarea {
   background: rgba(46, 91, 255, 0.5);
 }
 
-/* ─── Focus ─── */
-:focus-visible {
-  outline: 1.5px solid var(--accent-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
 /* ═══════════════════════════════════════════════════
    Keyframe Animations
    ═══════════════════════════════════════════════════ */
@@ -463,10 +514,26 @@ input, textarea {
   }
 }
 
+/* ── A11y: anti-pulse protection (v2.1.0 п.5.6) ──
+   Global catch-all: stops ALL CSS animations and transitions.
+   • animation: none stops infinite spinners/pulses immediately
+   • transition: none prevents layout-shift animations
+   • CSS motion variables zeroed for components using var(--transition-*)
+   • scroll-behavior: auto prevents smooth scroll vestibular issues
+   Individual component reduce-blocks below provide fine-grained fallbacks
+   for components that want to show a static alternative instead of nothing. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  :root {
+    --transition:        0ms;
+    --transition-fast:   0ms;
+    --transition-smooth: 0ms;
   }
 }

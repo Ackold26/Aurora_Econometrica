@@ -1,7 +1,7 @@
 <script>
   /**
    * Step 2: Model Training.
-   * B1: vertical stack — ConfigPanel → TrainingProgress → MQSBadge + ConvergenceDashboard.
+   * B1: vertical stack - ConfigPanel → TrainingProgress → MQSBadge + ConvergenceDashboard.
    * B2: no channel params table (Phase 4).
    * C5: error recovery with "Повторить" + "Изменить настройки".
    *
@@ -13,6 +13,7 @@
   import {
     validateData, modelData, isComputing, computeStatus,
     completeStep, setStepError, resetDownstream, expertMode,
+    validationHeaderMetrics, modelStaleStatus,
   } from '$lib/project-state.js';
   import ExpertModelPanel from '$lib/components/pipeline/ExpertModelPanel.svelte';
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
@@ -23,8 +24,8 @@
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
 
-  // Обучающий тур — запускается после обучения модели (stepState='trained'),
-  // когда на экране и config, и результаты — все spotlight'ы находят свою цель.
+  // Обучающий тур - запускается после обучения модели (stepState='trained'),
+  // когда на экране и config, и результаты - все spotlight'ы находят свою цель.
   let showOnboarding = $state(false);
   let onboardingChecked = false;
 
@@ -38,14 +39,33 @@
   /** @type {any | null} */
   let lastConfig = $state(null);
 
-  // Current validation result (from Step 1) — реактивно через $validateData
+  // Current validation result (from Step 1) - реактивно через $validateData
   const validation = $derived($validateData?.result || null);
 
   // Current model diagnostics (if trained)
   const diagnostics = $derived($modelData?.diagnostics || null);
-  const mqs = $derived(diagnostics?.mqs || null);
+  const mqsRaw = $derived(diagnostics?.mqs || null);
 
-  // Онбординг — запуск когда модель обучена (есть и config, и результаты на экране).
+  // v2.1.0 (пилот 2026-05-16): SSOT MQS - когда frontend ratio >= 4 (info /
+  // success коридоры), backend thinness_cap=50 ставит «Слабое» при reality
+  // «Отличное» (R-hat=1.0, divs=0, R²=0.88). Используем raw_score без cap.
+  // Согласовано с MQSBadge.displayMqs и modelInsights MQS override.
+  const mqs = $derived.by(() => {
+    if (!mqsRaw) return null;
+    const ssotRatio = $validationHeaderMetrics?.ratio;
+    if (typeof ssotRatio !== 'number' || ssotRatio < 4) return mqsRaw;
+    const rawScore = Number(mqsRaw.raw_score ?? mqsRaw.score ?? 0);
+    if (!Number.isFinite(rawScore) || rawScore <= mqsRaw.score) return mqsRaw;
+    let tier, tier_label, color;
+    if (rawScore >= 85) { tier = 'excellent'; tier_label = 'Отличное'; color = '#22c55e'; }
+    else if (rawScore >= 70) { tier = 'good'; tier_label = 'Хорошее'; color = '#3b82f6'; }
+    else if (rawScore >= 55) { tier = 'acceptable'; tier_label = 'Приемлемое'; color = '#f59e0b'; }
+    else if (rawScore >= 40) { tier = 'weak'; tier_label = 'Слабое'; color = '#f97316'; }
+    else { tier = 'poor'; tier_label = 'Ненадёжное'; color = '#ef4444'; }
+    return { ...mqsRaw, score: Math.round(rawScore * 10) / 10, tier, tier_label, color };
+  });
+
+  // Онбординг - запуск когда модель обучена (есть и config, и результаты на экране).
   $effect(() => {
     if (typeof window === 'undefined') return;
     if (onboardingChecked) return;
@@ -56,7 +76,7 @@
     }
   });
 
-  /** Estimate training duration in seconds from config — used for smooth progress interpolation */
+  /** Estimate training duration in seconds from config - used for smooth progress interpolation */
   const estimatedSec = $derived.by(() => {
     if (!lastConfig) return 600;
     const mc = lastConfig.mcmc_override || { chains: 2, draws: 1000, tune: 500 };
@@ -87,7 +107,7 @@
             handleComplete(result);
           } else {
             localStorage.removeItem(TASK_KEY);
-            // Stale task in storage but not running — reset compute flag
+            // Stale task in storage but not running - reset compute flag
             isComputing.set(false);
             computeStatus.set('');
           }
@@ -98,7 +118,7 @@
         }
       })();
     } else if (stepState === 'idle') {
-      // No saved task — ensure compute flag is clean when entering the step
+      // No saved task - ensure compute flag is clean when entering the step
       isComputing.set(false);
       computeStatus.set('');
     }
@@ -168,7 +188,7 @@
     setStepError(2, msg);
   }
 
-  /** User clicked Stop during training — reset to idle, allow reconfigure */
+  /** User clicked Stop during training - reset to idle, allow reconfigure */
   function handleStop() {
     isComputing.set(false);
     computeStatus.set('');
@@ -177,7 +197,7 @@
     stepState = 'idle';
   }
 
-  /** Retry with same config — auto-starts training without manual Run click */
+  /** Retry with same config - auto-starts training without manual Run click */
   async function retryTraining() {
     if (!lastConfig) {
       stepState = 'idle';
@@ -202,7 +222,25 @@
 
 <div class="model-training-step">
 
-  <!-- Success banner (после тренировки) — заметная подсказка что результаты ниже. -->
+  <!-- v2.1.0 (пилот 2026-05-17): stale model banner. Если юзер изменил
+       роли колонок в Валидации ПОСЛЕ обучения - текущие diagnostics и
+       pickle содержат старую конфигурацию. -->
+  {#if stepState === 'trained' && $modelStaleStatus?.stale}
+    <div class="stale-banner" role="alert">
+      <span class="stale-icon" aria-hidden="true">⚠</span>
+      <div class="stale-text">
+        <strong>Конфигурация изменилась после обучения.</strong>
+        {$modelStaleStatus.reason}
+        {#if $modelStaleStatus.diff?.length}
+          <ul class="stale-diff">
+            {#each $modelStaleStatus.diff as line}<li>{line}</li>{/each}
+          </ul>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Success banner (после тренировки) - заметная подсказка что результаты ниже. -->
   {#if stepState === 'trained' && diagnostics}
     {@const m = diagnostics.metrics ?? diagnostics}
     {@const rSq = m.r_squared ?? diagnostics.r_squared}
@@ -221,10 +259,11 @@
     </div>
   {/if}
 
-  <!-- ConfigPanel — always rendered (visibility) — A3: async flow via useAsyncTraining prop -->
+  <!-- ConfigPanel - always rendered (visibility) - A3: async flow via useAsyncTraining prop -->
   <div
     class="config-area"
     data-tour="model-config"
+    data-tour-step="run-model"
     class:disabled={stepState === 'training'}
     style={stepState === 'training' ? 'pointer-events:none;opacity:0.5' : ''}
   >
@@ -260,18 +299,18 @@
     </div>
   {/if}
 
-  <!-- Results (after training) — anchor для auto-scroll. -->
+  <!-- Results (after training) - anchor для auto-scroll. -->
   {#if stepState === 'trained' && diagnostics}
     <div id="model-results-anchor"></div>
     <!-- MQS Badge -->
     {#if mqs}
       <div data-tour="model-mqs">
-        <MQSBadge diagnostics={diagnostics} />
+        <MQSBadge diagnostics={diagnostics} ssotRatio={$validationHeaderMetrics?.ratio} />
       </div>
     {/if}
 
     <!-- Convergence charts -->
-    <div data-tour="model-convergence">
+    <div data-tour="model-convergence" data-tour-step="results-section">
       <ConvergenceDashboard {diagnostics} />
     </div>
 
@@ -297,7 +336,7 @@
     gap: 16px;
     padding: 20px;
     box-sizing: border-box;
-    /* Scroll handled by parent .pipeline-main — no nested overflow to avoid empty scroll area */
+    /* Scroll handled by parent .pipeline-main - no nested overflow to avoid empty scroll area */
   }
 
   .config-area {
@@ -313,6 +352,40 @@
     border: 1px solid color-mix(in srgb, var(--success) 35%, transparent);
     border-radius: 10px;
     animation: success-slide-in 0.4s ease-out;
+  }
+
+  /* v2.1.0 (пилот 2026-05-17): stale model warning banner. */
+  .stale-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 35%, transparent);
+    border-radius: 10px;
+  }
+  .stale-icon {
+    font-size: 18px;
+    line-height: 1.3;
+    color: var(--gold, #c9a449);
+    flex-shrink: 0;
+  }
+  .stale-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .stale-text strong {
+    color: var(--gold, #c9a449);
+    margin-right: 4px;
+  }
+  .stale-diff {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
   }
   @keyframes success-slide-in {
     from { opacity: 0; transform: translateY(-8px); }
@@ -390,4 +463,13 @@
 
   .btn-retry:hover { opacity: 0.85; }
   .btn-edit:hover { border-color: rgba(255,255,255,0.3); color: var(--text-primary, #e2e8f0); }
+
+  /* v2.1.0 п.5.6: instant success banner appearance */
+  @media (prefers-reduced-motion: reduce) {
+    .success-banner {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+  }
 </style>

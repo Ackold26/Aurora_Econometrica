@@ -1,1 +1,1 @@
-# Aurora AI Econometrica — Python Sidecar
+# Aurora AI Econometrica - Python Sidecar

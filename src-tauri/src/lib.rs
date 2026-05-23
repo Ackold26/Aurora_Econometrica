@@ -73,11 +73,11 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
                     if !path.exists() {
                         return true; // missing
                     }
-                    // Vault exists — verify it's decryptable with local key
+                    // Vault exists - verify it's decryptable with local key
                     if let Some(ref key) = local_key {
                         if let Ok(data) = std::fs::read(&path) {
                             if crypto::aes::decrypt(key, &data).is_err() {
-                                warn!("Vault {} exists but cannot be decrypted — will re-download", fname);
+                                warn!("Vault {} exists but cannot be decrypted - will re-download", fname);
                                 return true; // corrupt or wrong key → re-download
                             }
                         }
@@ -110,7 +110,7 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
     }
 
     if online.available && online.status == "blocked" {
-        // Server explicitly denied — do NOT fallback to offline
+        // Server explicitly denied - do NOT fallback to offline
         let msg = online.message.unwrap_or("Доступ заблокирован".to_string());
         metrics::audit::log_event("online_auth", &msg, false);
         warn!("Online auth blocked: {msg}");
@@ -401,7 +401,7 @@ async fn open_cabinet(
             match crypto::aes::decrypt(&local_key, &vault_data) {
                 Ok(_) => local_key,
                 Err(_) => {
-                    // Local key didn't work — try offline license key
+                    // Local key didn't work - try offline license key
                     let fp = crypto::fingerprint::get_machine_fingerprint().map_err(|e| e.to_string())?;
                     match license::License::load(&config_dir) {
                         Ok(lic) => match lic.salt_bytes() {
@@ -414,7 +414,7 @@ async fn open_cabinet(
             }
         }
         Err(_) => {
-            // No local salt — use offline license key
+            // No local salt - use offline license key
             let fp = crypto::fingerprint::get_machine_fingerprint().map_err(|e| e.to_string())?;
             let lic = license::License::load(&config_dir).map_err(|e| e.to_string())?;
             let salt = lic.salt_bytes().map_err(|e| e.to_string())?;
@@ -528,7 +528,7 @@ async fn run_analytics_pipeline(
     // Build parameters block for injection into phase prompts
     let params_block = brief_params.map(|p| {
         format!(
-            "\n\n[ПАРАМЕТРЫ ЗАПУСКА ИЗ UI — ПРИОРИТЕТ НАД ДЕФОЛТАМИ]\n{}\n\
+            "\n\n[ПАРАМЕТРЫ ЗАПУСКА ИЗ UI - ПРИОРИТЕТ НАД ДЕФОЛТАМИ]\n{}\n\
              Применяй эти параметры строго:\n\
              - Аудитория: писать ТОЛЬКО указанные уровни ([CEO]/[CMO]/[BM])\n\
              - Дополнительно: учесть как фокус во всех комментариях\n",
@@ -555,11 +555,11 @@ async fn run_analytics_pipeline(
         .map(|ctx| format!("\n\n{}", ctx))
         .unwrap_or_default();
     let phase0_prompt = format!(
-        "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН — ФАЗА 0: КАРТА]\n\n{}{}{}\n\n\
+        "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН - ФАЗА 0: КАРТА]\n\n{}{}{}\n\n\
          Задача: определи тематические блоки презентации. Для каждого блока укажи:\n\
          - Название блока\n- Диапазон слайдов\n- Краткое описание\n\n\
          Затем сформулируй 3-5 гипотез для проверки при детальном анализе.\n\n\
-         Формат:\n## СТРУКТУРА ПРЕЗЕНТАЦИИ\n## БЛОК: Название — слайды X-Y\n## ГИПОТЕЗЫ ДЛЯ ПРОВЕРКИ",
+         Формат:\n## СТРУКТУРА ПРЕЗЕНТАЦИИ\n## БЛОК: Название - слайды X-Y\n## ГИПОТЕЗЫ ДЛЯ ПРОВЕРКИ",
         overview,
         analytics_block,
         params_block
@@ -584,11 +584,11 @@ async fn run_analytics_pipeline(
         // Read chunk data and inject directly into prompt (avoids file-read issues)
         let chunk_data = std::fs::read_to_string(chunk_path).unwrap_or_default();
         let phase1_prompt = format!(
-            "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН — ФАЗА 1: ДЕТАЛЬНЫЙ АНАЛИЗ]\n\
+            "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН - ФАЗА 1: ДЕТАЛЬНЫЙ АНАЛИЗ]\n\
              Чанк {}/{}. Вот данные слайдов:\n\n{}{}\n\n\
              Для каждого слайда напиши на русском языке:\n\
              ## Слайд N: Заголовок\nЗАГОЛОВОК: ...\n\n[CEO] ...\n\n[CMO] ...\n\n[BM] ...\n\n\
-             В конце — краткие итоги для слайдов этого чанка.",
+             В конце - краткие итоги для слайдов этого чанка.",
             i + 1, chunk_split.chunk_count, chunk_data,
             params_block
         );
@@ -622,7 +622,7 @@ async fn run_analytics_pipeline(
 
     let recap = commands::pptx_processor::generate_recap(&chunk_markdowns);
     let phase2_prompt = format!(
-        "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН — ФАЗА 2: СИНТЕЗ]\n\n\
+        "[АНАЛИТИЧЕСКИЙ ПАЙПЛАЙН - ФАЗА 2: СИНТЕЗ]\n\n\
          Ты проанализировал все {} слайдов с данными ({} чанков). \
          Вот краткий обзор:\n\n{}{}\n\n\
          Теперь напиши на русском языке:\n\
@@ -756,7 +756,7 @@ async fn send_message(
                     }
                 }
             }
-            // Sort by size descending — preprocess the largest one
+            // Sort by size descending - preprocess the largest one
             pptx_files.sort_by(|a, b| {
                 let sa = a.metadata().map(|m| m.len()).unwrap_or(0);
                 let sb = b.metadata().map(|m| m.len()).unwrap_or(0);
@@ -802,7 +802,7 @@ async fn send_message(
                             &format!("claude-stream-{cabinet_id}"),
                             serde_json::json!({
                                 "type": "status",
-                                "message": "Предобработка PPTX не удалась — анализ продолжится без структурированных данных из графиков"
+                                "message": "Предобработка PPTX не удалась - анализ продолжится без структурированных данных из графиков"
                             }).to_string(),
                         );
                     }
@@ -848,7 +848,7 @@ async fn send_message(
                         info!("Large PPTX detected: {data_count} data slides → multi-phase pipeline");
                         let overview = commands::pptx_processor::generate_overview(&slides);
                         let preprocessed_dir = work_dir.join("preprocessed");
-                        // 80KB per chunk — prompt piped via temp file, no cmd line limit
+                        // 80KB per chunk - prompt piped via temp file, no cmd line limit
                                 match commands::pptx_processor::split_into_chunks(&slides, &preprocessed_dir, 80_000, selected_slides.as_deref()) {
                             Ok(chunk_split) => {
                                 let pipeline_result = run_analytics_pipeline(
@@ -991,7 +991,7 @@ async fn send_message(
             if let Ok(content) = std::fs::read_to_string(&slides_json_path) {
                 info!("Injecting slides.json ({} bytes) into aurora-index message", content.len());
                 parts.push(format!(
-                    "[СЛАЙДЫ ПРЕЗЕНТАЦИИ — preprocessed/slides.json]\n{}\n[/СЛАЙДЫ ПРЕЗЕНТАЦИИ]\n\nДанные уже предоставлены выше. НЕ читать PPTX файлы из inbox напрямую.",
+                    "[СЛАЙДЫ ПРЕЗЕНТАЦИИ - preprocessed/slides.json]\n{}\n[/СЛАЙДЫ ПРЕЗЕНТАЦИИ]\n\nДанные уже предоставлены выше. НЕ читать PPTX файлы из inbox напрямую.",
                     content
                 ));
             }
@@ -1010,7 +1010,7 @@ async fn send_message(
             if let Ok(content) = std::fs::read_to_string(&slides_json_path) {
                 info!("Injecting slides.json ({} bytes) into message for {}", content.len(), cabinet_id);
                 format!(
-                    "[СЛАЙДЫ ПРЕЗЕНТАЦИИ — preprocessed/slides.json]\n{}\n[/СЛАЙДЫ ПРЕЗЕНТАЦИИ]\n\nДанные уже предоставлены выше. НЕ читать PPTX файлы из inbox напрямую.\n\n{}",
+                    "[СЛАЙДЫ ПРЕЗЕНТАЦИИ - preprocessed/slides.json]\n{}\n[/СЛАЙДЫ ПРЕЗЕНТАЦИИ]\n\nДанные уже предоставлены выше. НЕ читать PPTX файлы из inbox напрямую.\n\n{}",
                     content,
                     resolved_message
                 )
@@ -1135,7 +1135,7 @@ async fn send_message(
                         Ok(_) => info!("Auto-postprocess: created {}", commented_pptx.display()),
                         Err(e) => warn!("Auto-postprocess inject_notes failed: {e}"),
                     }
-                    // Generate DOCX — with synthesis prefix if present
+                    // Generate DOCX - with synthesis prefix if present
                     if synthesis_md.trim().is_empty() {
                         match commands::pptx_processor::generate_docx(&pptx_path, &notes_json_path, &styles_json, &commentary_docx) {
                             Ok(_) => info!("Auto-postprocess: created {} (no synthesis)", commentary_docx.display()),
@@ -1472,7 +1472,7 @@ fn clear_chat_history(cabinet_id: String) -> Result<(), String> {
 }
 
 /// Clear inbox and exports files in the persistent workspace (clean start).
-/// Files on Desktop are removed from the UI — user can re-add them.
+/// Files on Desktop are removed from the UI - user can re-add them.
 #[tauri::command]
 fn clear_workspace_files(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     cabinet::validate_cabinet_id(&cabinet_id)?;
@@ -1600,7 +1600,7 @@ fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), Str
         }
     }
 
-    // 2. Bundled resource (prod) — проверяем обе папки
+    // 2. Bundled resource (prod) - проверяем обе папки
     let filename = format!("{}.html", cabinet_id);
     if let Ok(res_dir) = app_handle.path().resource_dir() {
         if let Some(path) = ["help-econometrica", "help"]
@@ -1613,7 +1613,7 @@ fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), Str
         }
     }
 
-    // 3. Dev fallback — resource_dir в dev-режиме указывает на target/debug,
+    // 3. Dev fallback - resource_dir в dev-режиме указывает на target/debug,
     // где help-econometrica/ может не быть. Читаем напрямую из src-tauri/.
     let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("help-econometrica")
@@ -1799,7 +1799,7 @@ fn copy_export_to_inbox(
 async fn list_recent_exports(app_handle: tauri::AppHandle) -> Result<Vec<(String, String, String)>, String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
 
-    // Filter cabinets by license (in dev mode — show all)
+    // Filter cabinets by license (in dev mode - show all)
     let allowed_cabinets = get_allowed_cabinets(&config_dir).await;
     let all_cabinets = cabinet::get_cabinet_definitions();
 
@@ -1872,7 +1872,7 @@ async fn get_allowed_cabinets(config_dir: &std::path::Path) -> Vec<String> {
         }
     }
 
-    // No valid license — return empty (show nothing)
+    // No valid license - return empty (show nothing)
     vec![]
 }
 
@@ -1950,7 +1950,7 @@ fn get_econometrica_projects_root(app_handle: tauri::AppHandle) -> Result<serde_
 }
 
 /// Задать кастомную директорию для Econometrica-проектов.
-/// Пустая строка = сбросить на дефолт. Существующие проекты НЕ переносятся —
+/// Пустая строка = сбросить на дефолт. Существующие проекты НЕ переносятся -
 /// они остаются в старой папке. Новый `projects_dir()` начнёт указывать на новую папку.
 #[tauri::command]
 fn set_econometrica_projects_root(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
@@ -3037,11 +3037,11 @@ fn build_app() -> Result<(), String> {
                 }
             }
 
-            // Content pack verification — result stored in AppState for dynamic loaders
+            // Content pack verification - result stored in AppState for dynamic loaders
             if let Some(ref ldd) = local_data_dir {
                 let packs_ok = match commands::content_pack::verify_content_packs(ldd) {
                     Ok(true) => { info!("Content packs verified at startup"); true }
-                    Ok(false) => { info!("No content packs at startup — using hardcoded fallback"); false }
+                    Ok(false) => { info!("No content packs at startup - using hardcoded fallback"); false }
                     Err(e) => { warn!("Content pack integrity check FAILED at startup: {e}"); false }
                 };
                 // Propagate to AppState so dynamic loaders can check without re-verifying
@@ -3068,20 +3068,20 @@ fn build_app() -> Result<(), String> {
             };
 
             tauri::WebviewWindowBuilder::new(app, "main", url)
-                .title("Aurora AI Econometrica")
+                .title("Aurora AI Econometrica - MMM Optimizer")
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(900.0, 600.0)
                 .center()
                 .build()?;
 
             // v1.0.9: quarantine legacy AIAgency license files (contamination from
-            // старых Aurora Agency installations). Не использует их — просто
+            // старых Aurora Agency installations). Не использует их - просто
             // переименовывает в .bak чтобы убрать из будущих диагностик.
             license::quarantine_legacy_files();
 
-            // Start Econometrica Python sidecar (FastAPI — dynamic per-user port)
+            // Start Econometrica Python sidecar (FastAPI - dynamic per-user port)
             econ_sidecar::start_sidecar(app.handle());
-            // Proactive watchdog — respawns sidecar on freeze/crash during runtime
+            // Proactive watchdog - respawns sidecar on freeze/crash during runtime
             econ_sidecar::spawn_watchdog();
 
             Ok(())
@@ -3143,7 +3143,7 @@ fn build_app() -> Result<(), String> {
             get_model_settings,
             set_model_settings,
             list_vault_status,
-            // export_logs removed — now internal helper, open_logs_folder uses it
+            // export_logs removed - now internal helper, open_logs_folder uses it
             open_logs_folder,
             export_diagnostics,
             check_update,
@@ -3201,6 +3201,8 @@ fn build_app() -> Result<(), String> {
             econ_sidecar_wait_ready,
             econ_sidecar_restart,
             commands::econometrica::econ_health,
+            commands::econometrica::econ_classifier_patterns,
+            commands::econometrica::econ_migrate_project,
             commands::econometrica::econ_validate,
             commands::econometrica::econ_train,
             commands::econometrica::econ_train_start,
@@ -3209,6 +3211,14 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_train_cancel,
             commands::econometrica::econ_decompose,
             commands::econometrica::econ_optimize,
+            // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
+            commands::econometrica::econ_safe_corridor,
+            commands::econometrica::econ_optimize_inverse,
+            commands::econometrica::econ_auto_detect_price,
+            commands::econometrica::econ_save_kpi_settings,
+            commands::econometrica::econ_forecast_context,
+            commands::econometrica::econ_forecast_scaling,
+            commands::econometrica::econ_hierarchical_warning,
             commands::econometrica::econ_scenario,
             commands::econometrica::econ_compare,
             commands::econometrica::econ_scenario_delete,
@@ -3219,6 +3229,15 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_export_pptx,
             commands::econometrica::econ_export_html,
             commands::econometrica::econ_adstock_select,
+            // Trust Level 3 (v1.1.0) - channel categorization
+            commands::econometrica::econ_categorize_channels,
+            // Sprint 3 Pharma Causal - 6 endpoints pass-through
+            commands::econometrica::econ_causal_preflight,
+            commands::econometrica::econ_causal_list,
+            commands::econometrica::econ_causal_consistency,
+            commands::econometrica::econ_causal_did,
+            commands::econometrica::econ_causal_scm,
+            commands::econometrica::econ_causal_forest,
             // Project management commands
             commands::project::project_list,
             commands::project::project_create,
@@ -3243,7 +3262,7 @@ fn build_app() -> Result<(), String> {
             if let tauri::WindowEvent::Destroyed = event {
                 let state = window.state::<Arc<AppState>>();
                 let _ = state.session_manager.close_all();
-                // Idempotent shutdown — safe to call even if never started
+                // Idempotent shutdown - safe to call even if never started
                 stop_rag_server();
                 stop_parser_server();
                 econ_sidecar::stop_sidecar();
@@ -3276,7 +3295,7 @@ pub fn run() {
         Err(e) => {
             let err_str = e.to_string();
 
-            // WebView2 initialization failure — auto-clean cache and retry
+            // WebView2 initialization failure - auto-clean cache and retry
             if err_str.contains("WebView2") || err_str.contains("0x8007139F") {
                 clear_webview_cache();
 
@@ -3293,7 +3312,7 @@ pub fn run() {
                              3. Обратиться в техподдержку",
                             retry_err
                         );
-                        show_error_dialog("Aurora AI Econometrica — Ошибка запуска", &msg);
+                        show_error_dialog("Aurora AI Econometrica - Ошибка запуска", &msg);
                     }
                 }
             } else {
@@ -3306,7 +3325,7 @@ pub fn run() {
                      3. Обратиться в техподдержку",
                     err_str
                 );
-                show_error_dialog("Aurora AI Econometrica — Ошибка запуска", &msg);
+                show_error_dialog("Aurora AI Econometrica - Ошибка запуска", &msg);
             }
         }
     }

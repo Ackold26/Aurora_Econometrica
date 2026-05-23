@@ -1,6 +1,6 @@
 <script>
   /**
-   * ColumnMapper — HTML5 drag-drop column role assignment.
+   * ColumnMapper - HTML5 drag-drop column role assignment.
    * Shows all columns on the left, 4 drop zones on the right (KPI/Media/Control/Date).
    * Auto-populated from validator's detected roles.
    * Emits {onmappingchange} when user reassigns a column.
@@ -22,11 +22,12 @@
   } = $props();
 
   // ── Zones ──────────────────────────────────────────
+  // v2.1.0 (rc2 retry): унифицированные термины с ColumnMapperConfirm (Nielsen MMM).
   const ZONES = [
-    { id: 'kpi',     label: 'KPI',                              icon: '📈', desc: 'Целевой показатель (продажи, конверсии)' },
-    { id: 'media',   label: 'Медиа и управляемые факторы',      icon: '📺', desc: 'Расходы, контакты, показы, цены, промо' },
-    { id: 'control', label: 'Неуправляемые внешние факторы',    icon: '🎛', desc: 'Сезонность, погода, конкуренты, SOV' },
-    { id: 'date',    label: 'Дата',          icon: '📅', desc: 'Столбец с датой/периодом' },
+    { id: 'kpi',     label: 'Целевая метрика',  icon: '📈', desc: 'Целевой показатель (продажи, конверсии)' },
+    { id: 'media',   label: 'Медиа-канал',      icon: '📺', desc: 'Расходы, контакты, показы, цены, промо' },
+    { id: 'control', label: 'Контрольная',      icon: '🎛', desc: 'Сезонность, погода, конкуренты, SOV' },
+    { id: 'date',    label: 'Дата',             icon: '📅', desc: 'Столбец с датой / периодом' },
   ];
 
   // ── Mapping state ──────────────────────────────────
@@ -39,18 +40,70 @@
     unknown: [],
   });
 
-  // Init from detected props
+  // Init from detected props + columns[i].role (source of truth когда задано).
+  //
+  // BUGFIX 2026-04-27 (Validate→Model state desync): init только когда columns SET
+  // изменился (новый file uploaded), не на каждый prop change. Pre-fix: $effect
+  // re-ran on каждой mutation validation prop → сбрасывал mapping к initial detected
+  // roles → user reassignments терялись на ConfigPanel/Model шаге.
+  //
+  // BUGFIX 2026-05-01 (Insights ↔ Mapper sync): hash key теперь включает roles
+  // (не только names). Pre-fix: InsightsPanel «Оставить бюджет» меняла
+  // columns[i].role='unused', но column SET тот же → mapping не re-init →
+  // mapper продолжал показывать excluded columns в media zone. Симптом:
+  // SOCIAL «Оставить бюджет» сработал, RETAIL/PERFOR/СТАТЬИ той же кнопкой
+  // визуально не убирали парные метрики из левой матрицы.
+  // Fix: ключ включает (name, role) пары. Init использует columns[i].role
+  // как priority source, fallback к detected. role='unused' → не попадает
+  // ни в одну зону (исключено).
+  let lastColumnsKey = $state('');
   $effect(() => {
     if (!columns.length) return;
+    // Hash now includes (name, role) pair - roles changes (incl. external
+    // mutations from InsightsPanel) trigger re-init.
+    const key = columns
+      .map(/** @param {any} c */ (c) => `${c.name}:${c.role ?? ''}`)
+      .slice().sort().join('|');
+    if (lastColumnsKey === key) return;
+    lastColumnsKey = key;
 
-    const kpi   = /** @type {string[]} */ ([...(detected?.kpi ?? [])]);
-    const media  = /** @type {string[]} */ ([...(detected?.media ?? [])]);
-    const ctrl   = /** @type {string[]} */ ([...(detected?.control ?? [])]);
-    const date   = detected?.date ?? null;
-    const assigned = new Set([...kpi, ...media, ...ctrl, ...(date ? [date] : [])]);
-    const unknown = columns
-      .map(c => c.name)
-      .filter(n => !assigned.has(n));
+    /** @type {string[]} */
+    const kpi = [];
+    /** @type {string[]} */
+    const media = [];
+    /** @type {string[]} */
+    const ctrl = [];
+    /** @type {string|null} */
+    let date = null;
+    /** @type {string[]} */
+    const unknown = [];
+
+    const detectedKpi = new Set(detected?.kpi ?? []);
+    const detectedMedia = new Set(detected?.media ?? []);
+    const detectedCtrl = new Set(detected?.control ?? []);
+    const detectedDate = detected?.date ?? null;
+
+    for (const c of columns) {
+      const role = c.role;
+      // Priority: explicit column.role (user/insights mutation) → detected (server) → unknown.
+      if (role === 'kpi') kpi.push(c.name);
+      else if (role === 'media') media.push(c.name);
+      else if (role === 'control') ctrl.push(c.name);
+      else if (role === 'date') date = c.name;
+      else if (role === 'unused') {
+        // Excluded - не попадает ни в одну zone (УЖЕ исключён, не показываем как unknown).
+        continue;
+      } else if (role === 'unknown') {
+        unknown.push(c.name);
+      } else {
+        // role не задана → fallback к detected.
+        if (detectedKpi.has(c.name)) kpi.push(c.name);
+        else if (detectedMedia.has(c.name)) media.push(c.name);
+        else if (detectedCtrl.has(c.name)) ctrl.push(c.name);
+        else if (detectedDate === c.name) date = c.name;
+        else unknown.push(c.name);
+      }
+    }
 
     mapping = { kpi, media, control: ctrl, date, unknown };
   });
@@ -152,7 +205,7 @@
     else if (targetZone === 'media')   m.media.push(colName);
     else if (targetZone === 'control') m.control.push(colName);
     else if (targetZone === 'date') {
-      // date is single — push old date to unknown if exists
+      // date is single - push old date to unknown if exists
       if (m.date && m.date !== colName) m.unknown.push(m.date);
       m.date = colName;
     } else {
@@ -193,6 +246,22 @@
     return 'conf-low';
   }
 
+  /** @param {any} col */
+  function zerosPct(col) {
+    const z = col?.stats?.zeros_pct;
+    if (z == null) return null;
+    // Backend (validator.py) уже возвращает значение в процентах (e.g. 25.8).
+    // Округляем до целого; 0 показываем тоже - для табличного выравнивания.
+    return Math.round(z);
+  }
+
+  /** @param {number} pct */
+  function zerosClass(pct) {
+    if (pct < 30) return 'zeros-low';
+    if (pct < 70) return 'zeros-mid';
+    return 'zeros-high';
+  }
+
   // Zone items derived
   let zoneItems = $derived({
     kpi:     mapping.kpi,
@@ -213,8 +282,8 @@
   <header class="mapper-heading">
     <h3 class="mapper-title">Назначение ролей столбцов</h3>
     <p class="mapper-subtitle">
-      Распределите столбцы по четырём ролям: <strong>KPI</strong> · <strong>Медиа</strong> · <strong>Внешние</strong> · <strong>Дата</strong>.
-      Нажмите на столбец — выберите одну из ролей. Двойной клик по назначенному чипу возвращает его в неназначенные.
+      Распределите столбцы по четырём ролям: <strong>Целевая метрика</strong> · <strong>Медиа-канал</strong> · <strong>Контрольная</strong> · <strong>Дата</strong>.
+      Нажмите на столбец - выберите одну из ролей. Двойной клик по назначенному чипу возвращает его в неназначенные.
     </p>
   </header>
 
@@ -222,7 +291,7 @@
   <div class="unassigned-section">
     <div class="section-header">
       <span class="section-title">Столбцы</span>
-      <span class="section-hint">{selectedColumn ? `Выбрано: ${selectedColumn} — нажмите на зону ниже` : 'Нажмите на столбец, затем на нужную зону'}</span>
+      <span class="section-hint">{selectedColumn ? `Выбрано: ${selectedColumn} - нажмите на зону ниже` : 'Нажмите на столбец, затем на нужную зону'}</span>
     </div>
     <div class="columns-list">
       {#each columns as col (col.name)}
@@ -253,7 +322,7 @@
             </div>
           {/if}
         {:else}
-          <!-- Assigned — shown in zone, greyed out here -->
+          <!-- Assigned - shown in zone, greyed out here -->
           <div class="col-chip assigned" title="Назначен: {zone}">
             <span class="chip-name">{col.name}</span>
             <span class="chip-zone-badge zone-{zone}">{ZONES.find(z => z.id === zone)?.icon}</span>
@@ -292,21 +361,26 @@
         <div class="zone-items">
           {#each items as name (name)}
             {@const meta = colMeta(name)}
+            {@const zp = zerosPct(meta)}
             <div
               class="zone-chip"
               role="button"
               tabindex="0"
-              title="Двойной клик — вернуть в неназначенные"
+              title="Двойной клик - вернуть в неназначенные"
               ondblclick={() => returnToUnassigned(name)}
               onkeydown={(e) => { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); returnToUnassigned(name); } }}
             >
               <span class="chip-name">{name}</span>
-              {#if meta.confidence}
+              <div class="chip-stats">
                 <span
-                  class="conf-badge {confidenceClass(meta)}"
-                  title="Уверенность автодетекции: {confidenceLabel(meta)}. Программа распознаёт роль по имени столбца (например, «бюджет», «показы», «продажи»). Чем выше %, тем точнее определение."
-                >{confidenceLabel(meta)}</span>
-              {/if}
+                  class="conf-badge {meta.confidence ? confidenceClass(meta) : 'conf-empty'}"
+                  title={meta.confidence ? `Уверенность автодетекции: ${confidenceLabel(meta)}. Программа распознаёт роль по имени столбца (например, «бюджет», «показы», «продажи»). Чем выше %, тем точнее определение.` : 'Автодетекция не определила роль'}
+                >{meta.confidence ? confidenceLabel(meta) : '-'}</span>
+                <span
+                  class="zeros-badge {zp != null ? zerosClass(zp) : 'zeros-empty'}"
+                  title={zp != null ? `Доля строк с нулевым значением - ${zp}% от общего количества. <30% - канал работает регулярно. 30-70% - пульсирующая активность (всплески). >70% - разреженный канал, рекламные импульсы редки; модель плохо разделит его эффект, но отказываться не обязательно.` : 'Статистика нулей недоступна'}
+                >{zp != null ? `${zp}%` : '-'}</span>
+              </div>
               <button
                 class="remove-btn"
                 aria-label="Убрать {name}"
@@ -642,5 +716,60 @@
 
   .conf-unknown {
     display: none;
+  }
+
+  /* Stats grid: два фиксированных столбца (confidence + zeros) для табличного
+     выравнивания. Каждый столбец - same width, оба badges всегда присутствуют
+     (placeholder "-" если данных нет). */
+  .chip-stats {
+    display: grid;
+    grid-template-columns: 44px 44px;
+    gap: 4px;
+    flex-shrink: 0;
+    align-items: center;
+  }
+  .chip-stats .conf-badge,
+  .chip-stats .zeros-badge {
+    margin: 0;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Zeros% badge - стиль аналогичен conf-badge. */
+  .zeros-badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 10px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .zeros-low {
+    background: color-mix(in srgb, var(--success) 12%, transparent);
+    color: #86efac;
+    border: 1px solid color-mix(in srgb, var(--success) 22%, transparent);
+  }
+  .zeros-mid {
+    background: rgba(251, 191, 36, 0.10);
+    color: #fcd34d;
+    border: 1px solid rgba(251, 191, 36, 0.18);
+  }
+  .zeros-high {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    color: #fca5a5;
+    border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
+  }
+  /* Placeholder для отсутствующих данных - убирает визуальный «провал» */
+  .conf-empty,
+  .zeros-empty {
+    background: transparent;
+    color: var(--text-muted, rgba(148,163,184,0.5));
+    border: 1px dashed color-mix(in srgb, var(--text-muted) 25%, transparent);
+  }
+
+  /* v2.1.0 п.5.6: static zone-pulse click target border */
+  @media (prefers-reduced-motion: reduce) {
+    .zone.click-target {
+      border-color: color-mix(in srgb, var(--success) 70%, transparent);
+    }
   }
 </style>

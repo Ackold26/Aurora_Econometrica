@@ -58,3 +58,13 @@ sidecar/econometrica/*/project.json
 sidecar/econometrica/1test/
 sidecar/econometrica/венарус-ммх-*/
 sidecar/econometrica/mmx-*/
+
+# Diagnostic PPTX artifacts from tools/ (verify_signature_lime.py, pseudo_dogfood_kagocel.py)
+tools/*.pptx
+
+# Generated tokens from Standards/tokens/build.py — regenerate on build, do not edit
+src/tokens.generated.css
+sidecar/econometrica/aurora_tokens.py
+# HTML tier-1 generated artifacts (Standards/tokens/build.py --target html-css/html-js)
+sidecar/econometrica/aurora_html/templates/aurora_html.css
+sidecar/econometrica/aurora_html/templates/aurora_html_tokens.js

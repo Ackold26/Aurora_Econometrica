@@ -67,4 +67,17 @@
   .sk-line--short {
     width: 40%;
   }
+
+  /* v2.1.0 п.5.6: static skeleton when motion is reduced */
+  @media (prefers-reduced-motion: reduce) {
+    .sk-card {
+      opacity: 0.7;
+    }
+    .sk-accent {
+      background: var(--border);
+    }
+    .sk-line {
+      background: var(--bg-tertiary);
+    }
+  }
 </style>

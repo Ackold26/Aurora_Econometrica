@@ -258,4 +258,11 @@
     border: 1px solid color-mix(in srgb, var(--danger) 15%, transparent);
     word-break: break-word;
   }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: var(--accent-primary);
+    }
+  }
 </style>

@@ -177,7 +177,7 @@ def awareness_to_sales(config: dict, project_dir: str) -> dict[str, Any]:
             'actual_y': y.tolist(),
         },
         'insight': f"Эластичность awareness→sales = {elasticity:.2f}. "
-                   f"{'Awareness выше порога насыщения — наращивание даст убывающий эффект.' if current_awareness > x0 else 'Потенциал роста через awareness ещё не исчерпан.'}",
+                   f"{'Awareness выше порога насыщения - наращивание даст убывающий эффект.' if current_awareness > x0 else 'Потенциал роста через awareness ещё не исчерпан.'}",
     }
 
     # Save

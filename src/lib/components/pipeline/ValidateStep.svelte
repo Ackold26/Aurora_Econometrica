@@ -1,6 +1,6 @@
 <script>
   /**
-   * ValidateStep — Step 1 of the pipeline.
+   * ValidateStep - Step 1 of the pipeline.
    * Runs econ_validate on the imported file, then shows:
    *   - TrafficLight for validation status / issues
    *   - ColumnMapper for role assignment (drag-drop)
@@ -20,16 +20,20 @@
   import {
     importData, validateData, completeStep, setStepError,
     activeProjectId, expertMode, analysisObjective,
+    analysisObjectiveLegacyShim,
+    syncChannelCategoriesToMedia,
   } from '$lib/project-state.js';
   import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
+  import { setColumnRole, applyMapping, buildProjectUpdates, restoreExcludedColumns, isExcluded } from '$lib/column-roles.js';
   import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
   import UnitCostsPanel from '$lib/components/pipeline/UnitCostsPanel.svelte';
+  import ChannelCategoriesPanel from '$lib/components/pipeline/ChannelCategoriesPanel.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { get } from 'svelte/store';
 
-  // Обучающий тур — запускается при первом визите на шаг, если
+  // Обучающий тур - запускается при первом визите на шаг, если
   // результат валидации отрендерен и тур не пройден ранее.
   let showOnboarding = $state(false);
   let onboardingChecked = false;
@@ -44,7 +48,7 @@
   let showRecs = $state(true);
   let showMapper = $state(true);
 
-  // Reactively read from store — updates when InsightsPanel modifies column roles
+  // Reactively read from store - updates when InsightsPanel modifies column roles
   const result = $derived($validateData?.result ?? null);
 
   // ── Reactive store reads (Svelte 5 auto-subscribe) ─
@@ -54,7 +58,7 @@
   const activeMediaCount = $derived(result?.columns?.filter(/** @param {any} c */ c => c.role === 'media').length ?? 0);
   const excludedCount = $derived(result?.columns?.filter(/** @param {any} c */ c => c.role === 'unused').length ?? 0);
 
-  // Columns currently excluded (role=unused) — for filtering warnings
+  // Columns currently excluded (role=unused) - for filtering warnings
   const excludedColumns = $derived(
     new Set((result?.columns ?? []).filter(/** @param {any} c */ c => c.role === 'unused').map(/** @param {any} c */ c => c.name))
   );
@@ -74,9 +78,13 @@
     return `Готово с предупреждениями (${activeWarnings.length})`;
   });
 
-  // Онбординг — запускается на mount даже без result: первый шаг тура
+  // Key validation metrics - теперь в StepWrapper sticky header
+  // (через derived store validationHeaderMetrics в project-state.js).
+  // Здесь больше не дублируем расчёт.
+
+  // Онбординг - запускается на mount даже без result: первый шаг тура
   // (selector=null) объясняет что ждёт на шаге; последующие шаги
-  // querySelector'ят DOM — если target не найден, карточка центрируется.
+  // querySelector'ят DOM - если target не найден, карточка центрируется.
   onMount(() => {
     if (typeof window === 'undefined') return;
     if (onboardingChecked) return;
@@ -128,6 +136,21 @@
         recomputeResultAfterObjective(res);
       }
 
+      // L1 (math-fix v1.4 Section C, 2026-04-29): restore explicit excluded set
+      // from project.json - preserves user's «не использовать» decision across
+      // re-validation. Auto-detected roles (validator) могут вернуть «media»
+      // для канала который user explicitly excluded; explicit set is authoritative.
+      if (projectId) {
+        try {
+          /** @type {any} */
+          const project = await invoke('project_get', { projectId });
+          if (project?.excluded_columns && Array.isArray(project.excluded_columns) && project.excluded_columns.length > 0) {
+            res.columns = restoreExcludedColumns(res.columns ?? [], project.excluded_columns);
+            recomputeResultAfterObjective(res);
+          }
+        } catch { /* best-effort - fresh project may not exist yet */ }
+      }
+
       validateData.set({
         result: res,
         correlationMatrix: res.full_correlation_matrix ?? null,
@@ -151,43 +174,88 @@
    * @param {'roi' | 'effectiveness' | 'manual'} obj
    */
   function onObjectiveChosen(obj) {
-    analysisObjective.set(obj);
+    analysisObjectiveLegacyShim.set(obj);  // v2.0.0: routes к analysisMode store
     runValidate();
   }
 
   /**
-   * Segmented control click — switch objective AFTER validation has run.
+   * Segmented control click - switch objective AFTER validation has run.
    * Re-runs validation from scratch so that columns excluded by the previous
    * objective are restored before the new objective is applied.
    * (Re-applying in-place didn't work because applyObjectiveToColumns only
-   * sees columns with role='media' — after ROI, only budgets remain as media,
+   * sees columns with role='media' - after ROI, only budgets remain as media,
    * so a switch to 'effectiveness' would find no pairs to rearrange.)
    * @param {'roi' | 'effectiveness' | 'manual'} obj
    */
   function switchObjective(obj) {
     if (get(analysisObjective) === obj) return;
-    analysisObjective.set(obj);
+    analysisObjectiveLegacyShim.set(obj);  // v2.0.0: routes к analysisMode store
     runValidate();  // re-invoke Python validator → fresh columns → apply new objective
   }
 
-  /** @param {any} mapping */
-  function onMappingChange(mapping) {
+  /** L1 (math-fix v1.4 Section C, 2026-04-29): unified persistence helper.
+   *  Same call site как InsightsPanel.persistColumnRoles - single source of
+   *  truth для what's saved к project.json (включая explicit excluded_columns).
+   *  @param {any[]} columns */
+  function persistColumnRoles(columns) {
     const projectId = get(activeProjectId);
-    if (!projectId || !mapping) return;
-    invoke('project_update', {
-      projectId,
-      updates: {
-        kpi_column: mapping.kpi?.[0] ?? null,
-        media_columns: mapping.media ?? [],
-        control_columns: mapping.control ?? [],
-      },
-    }).catch(() => { /* best-effort persist */ });
+    if (!projectId || !columns) return;
+    const updates = buildProjectUpdates(columns);
+    // Trust Level 3 (v1.1.0): cleanup orphaned channel_categories store entries.
+    // Backend project.rs cleanup'ит project.json, но UI store должен sync immediately
+    // чтобы ChannelCategoriesPanel badges не показывали удалённые каналы.
+    syncChannelCategoriesToMedia(updates.media_columns);
+    invoke('project_update', { projectId, updates }).catch(() => { /* best-effort */ });
+  }
+
+  /**
+   * Перевести колонку в роль 'unused' (исключить из матрицы) на основе action
+   * из warning. L1 refactor: использует setColumnRole shared helper для
+   * vocabulary consistency с другими mutator paths.
+   * @param {string} columnName
+   */
+  function excludeColumnByName(columnName) {
+    const data = get(validateData);
+    if (!data?.result?.columns || !columnName) return;
+    const updatedCols = setColumnRole(data.result.columns, columnName, 'unused');
+    const updatedResult = { ...data.result, columns: updatedCols };
+    recomputeResultAfterObjective(updatedResult);
+    validateData.set({ ...data, result: updatedResult });
+    persistColumnRoles(updatedCols);
+  }
+
+  /** L1 refactor: ColumnMapper drag-drop / click → applyMapping shared helper.
+   *  Pre-fix: inline duplication of mapping-to-role conversion logic.
+   *  @param {any} mapping */
+  function onMappingChange(mapping) {
+    if (!mapping) return;
+    const data = get(validateData);
+    if (!data?.result?.columns || !Array.isArray(data.result.columns)) {
+      // Persist mapping anyway (legacy path - no validation snapshot loaded yet)
+      persistColumnRoles([
+        ...(mapping.kpi ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'kpi' })),
+        ...(mapping.media ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'media' })),
+        ...(mapping.control ?? []).map((/** @type {string} */ n) => ({ name: n, role: 'control' })),
+        ...(mapping.date ? [{ name: mapping.date, role: 'date' }] : []),
+      ]);
+      return;
+    }
+    // BUGFIX 2026-04-27 (preserved): ОБНОВЛЯЕМ validateData.columns[i].role
+    // согласно user mapping. Безопасно благодаря парному fix в ColumnMapper:
+    // $effect init использует "columns SET key" - re-init только при смене
+    // column set (новый file), не при mutation roles.
+    const updatedCols = applyMapping(data.result.columns, mapping);
+    validateData.update(/** @param {any} d */ (d) => {
+      if (!d?.result) return d;
+      return { ...d, result: { ...d.result, columns: updatedCols } };
+    });
+    persistColumnRoles(updatedCols);
   }
 </script>
 
 <div class="validate-step">
 
-  <!-- Objective selector overlay — shown before first validation -->
+  <!-- Objective selector overlay - shown before first validation -->
   {#if hasFile && !result && !loading}
     <ObjectiveSelector onSelect={onObjectiveChosen} />
   {:else if !hasFile}
@@ -232,7 +300,7 @@
           role="radio"
           aria-checked={$analysisObjective === 'roi'}
           onclick={() => switchObjective('roi')}
-          title="Измеряем возврат инвестиций — оставляем бюджеты"
+          title="Измеряем возврат инвестиций - оставляем бюджеты"
         >
           💰 ROI
           <span class="objective-sub">бюджеты</span>
@@ -243,7 +311,7 @@
           role="radio"
           aria-checked={$analysisObjective === 'effectiveness'}
           onclick={() => switchObjective('effectiveness')}
-          title="Измеряем эффективность медиа — оставляем показы/клики/визиты"
+          title="Измеряем эффективность медиа - оставляем показы/клики/визиты"
         >
           📊 Эффективность
           <span class="objective-sub">показы/клики</span>
@@ -271,7 +339,7 @@
     <div class="results-stack">
 
       <!-- TrafficLight -->
-      <section class="section-full" data-tour="validation-result">
+      <section class="section-full" data-tour="validation-result" data-tour-step="auto-detect">
         <button class="section-toggle" onclick={() => showValidation = !showValidation}>
           <span>{showValidation ? '▼' : '▶'}</span>
           <h4 class="section-title">Результат валидации</h4>
@@ -305,14 +373,15 @@
               {#if !appliedFixes.has((warn.column ?? '') + warn.type)}
                 <div class="fix-item fix-{warn.severity}">
                   <span class="fix-text">{warn.message}</span>
-                  {#if warn.action === 'exclude'}
+                  {#if warn.action === 'exclude' && warn.column}
                     <button class="fix-btn" onclick={() => {
+                      excludeColumnByName(warn.column);
                       appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
-                    }}>Понятно</button>
+                    }}>Исключить</button>
                   {:else if warn.action === 'merge'}
                     <button class="fix-btn" onclick={() => {
                       appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
-                    }}>Понятно</button>
+                    }} title="Объединение каналов вручную через ColumnMapper">Понятно</button>
                   {:else}
                     <button class="fix-btn" onclick={() => {
                       appliedFixes = new Set([...appliedFixes, (warn.column ?? '') + warn.type]);
@@ -329,6 +398,11 @@
       <!-- Trust Level 2: unit_costs для не-денежных каналов -->
       <section class="section-full" data-tour="unit-costs">
         <UnitCostsPanel columns={result.columns ?? []} />
+      </section>
+
+      <!-- Trust Level 3 (v1.1.0): brand vs performance categorization -->
+      <section class="section-full" data-tour="channel-categories">
+        <ChannelCategoriesPanel columns={result.columns ?? []} />
       </section>
 
       <!-- ColumnMapper -->
@@ -384,9 +458,8 @@
     flex-direction: column;
     gap: 20px;
     padding: 24px;
-    height: 100%;
     box-sizing: border-box;
-    overflow-y: auto;
+    /* v2.1.0 (пилот 2026-05-16): overflow-y убран - .pipeline-main владеет scroll. */
   }
 
   /* ── Action bar ── */
@@ -509,6 +582,8 @@
     padding: 4px 12px;
     border-radius: 20px;
   }
+
+  /* Key metrics переехали в StepWrapper.svelte sticky header */
 
   .excluded-badge {
     margin-top: 8px;
@@ -649,5 +724,12 @@
     margin: 0;
     max-width: 380px;
     line-height: 1.6;
+  }
+
+  /* v2.1.0 п.5.6: static spinner ring */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      border-color: color-mix(in srgb, var(--accent-primary) 70%, transparent);
+    }
   }
 </style>

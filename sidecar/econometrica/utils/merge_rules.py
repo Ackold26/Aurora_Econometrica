@@ -1,4 +1,4 @@
-"""Apply merge_rules to a dataframe — материализация виртуальных каналов.
+"""Apply merge_rules to a dataframe - материализация виртуальных каналов.
 
 Frontend InsightsPanel позволяет объединить слабые каналы в один
 («Малые медиа» из 4 источников). Merge сохраняется как metadata
@@ -20,7 +20,7 @@ def apply_merge_rules(df: pd.DataFrame, merge_rules: dict | None) -> pd.DataFram
     Args:
         df: dataframe после read_excel/read_csv.
         merge_rules: `{merged_name: [source_col1, source_col2, ...]}`.
-            None или {} — no-op.
+            None или {} - no-op.
 
     Returns:
         Тот же df (mutated in place). Для удобства chaining.
@@ -34,6 +34,6 @@ def apply_merge_rules(df: pd.DataFrame, merge_rules: dict | None) -> pd.DataFram
             continue
         available = [c for c in source_cols if c in df.columns]
         if not available:
-            continue  # все sources отсутствуют — caller (column guard) обработает
+            continue  # все sources отсутствуют - caller (column guard) обработает
         df[merged_name] = df[available].fillna(0).sum(axis=1)
     return df
