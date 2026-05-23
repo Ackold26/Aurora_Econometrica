@@ -321,21 +321,26 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     scenario_total = sum(predictions)
     incremental_total = scenario_total - baseline_total
 
-    # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04) ────────────────
+    # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04 / SSOT 2026-05-24) ─
     # Pre-fix: lift = incremental / baseline_only - denominator excluded current
     # media contribution → ratio inflated when media >> baseline.
     # Frontend predictKPI uses (scenario_total - current_total) / current_total
     # → расхождение с UI scenarios block. Optimizer also misaligned (5a fix).
     # Now: canonical formula across optimizer + scenario + frontend = total KPI ratio.
     # Compute current_total_kpi = baseline + media_at_current_spend (same Hill).
-    # Legacy `lift_pct_baseline_only` preserved for backward compat / expert mode.
-    import os as _os_lift
+    # Selection logic (y_std degeneracy, AURORA_LEGACY_LIFT_FORMULA env, baseline_zero
+    # fallback) живёт в engines/lift.py SSOT — identical semantics к optimizer.py call.
+    # Legacy `lift_pct_baseline_only` preserved as result field + fallback path.
+    from engines.lift import (
+        select_lift_pct as _select_lift_pct,
+        is_y_std_degenerate as _is_y_std_degenerate,
+        is_legacy_env_active as _is_legacy_env_active,
+    )
     import logging as _scn_logging
     _scn_logger = _scn_logging.getLogger(__name__)
     legacy_lift_pct = (incremental_total / baseline_total * 100) if baseline_total else 0
 
-    # AUDIT 2026-05-04: y_std degenerate guard (analogous к optimizer.py).
-    y_std_degenerate = (not isinstance(y_std, (int, float))) or (abs(float(y_std)) < 1e-10)
+    y_std_degenerate = _is_y_std_degenerate(y_std)
     if y_std_degenerate:
         _scn_logger.warning(
             "scenario lift: y_std degenerate (%s) - canonical formula falls back к legacy ratio.",
@@ -396,15 +401,22 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             "using legacy formula. Common in v1.0/v1.1 legacy pickles."
         )
 
-    if canonical_reconstruction_ok and current_total_kpi > 1e-9:
-        canonical_lift_pct = (scenario_total - current_total_kpi) / current_total_kpi * 100
+    # SSOT formula application — engines/lift.py.
+    # When reconstruction succeeded → canonical formula on (scenario_total, current_total) ratio.
+    # When failed/skipped (or y_std degenerate, or AURORA_LEGACY_LIFT_FORMULA=1)
+    # → SSOT helper resolves к legacy ratio (incremental / baseline_only).
+    if canonical_reconstruction_ok:
+        lift_pct, _lift_diag = _select_lift_pct(
+            total_optimal_kpi=scenario_total,
+            total_current_kpi=current_total_kpi,
+            legacy_fallback_pct=legacy_lift_pct,
+            y_std=y_std,
+        )
     else:
-        canonical_lift_pct = legacy_lift_pct
-
-    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1' or y_std_degenerate:
+        # Reconstruction failed/skipped — canonical undefined без current_total_kpi.
+        # Legacy formula = lift_pct unconditionally (env override would только swap
+        # legacy↔canonical, и canonical здесь не computable).
         lift_pct = legacy_lift_pct
-    else:
-        lift_pct = canonical_lift_pct
 
     # Phase 1.9: posterior CI on totals via vectorized per-sample reconstruction.
     # baseline_per_period uses intercept_mean (point) - Phase 1.9 also propagates
@@ -545,7 +557,7 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                     lift_samples = incremental_total_samples / baseline_total_samples * 100
                     _, l_lo, l_hi, _m_l = compute_ci_hdi(lift_samples)
                     lift_pct_ci = (l_lo, l_hi)
-            elif _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1':
+            elif _is_legacy_env_active():
                 if baseline_total > 0:
                     lift_samples = incremental_total_samples / baseline_total_samples * 100
                     _, l_lo, l_hi, _m_l = compute_ci_hdi(lift_samples)

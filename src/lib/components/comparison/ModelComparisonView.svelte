@@ -231,7 +231,13 @@
   /** @param {any} snap */
   const optLift = (snap) => snap?.optimization?.expected_lift_pct ?? null;
   /** @param {any} snap */
-  const optBudget = (snap) => snap?.optimization?.total_budget ?? null;
+  // 5c followup (2026-05-24): money-axis budget, matches XLSX/markdown/ReportStep.
+  // `total_budget` = native mixed-units sum (TRPs+₽ garbage). Use money axis chain.
+  const optBudget = (snap) =>
+    snap?.optimization?.total_current_money
+      ?? snap?.optimization?.total_budget_money
+      ?? snap?.optimization?.total_budget
+      ?? null;
 
   const hasOptimize = $derived(
     (A?.optimization?.channels?.length ?? 0) > 0 || (B?.optimization?.channels?.length ?? 0) > 0

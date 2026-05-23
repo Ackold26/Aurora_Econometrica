@@ -2498,10 +2498,13 @@ class AuroraPPTXBuilder:
             font=self.sans, size=8, bold=True, color=self.gold,
         )
         self._hairline(slide, impact_x, impact_y + 0.27, 1.2, weight=0.75, color=self.gold)
+        # 2026-05-24 fix: do not fabricate `+12 пп` placeholder when optimize result
+        # missing — это customer-facing slide, любое hardcoded numerical claim — INV-50
+        # violation candidate + customer confusion. Render neutral em-dash вместо.
         if self.facts and self.facts.get("expected_lift_pct") is not None:
             impact_num = f"+{self.facts['expected_lift_pct']:.0f} пп"
         else:
-            impact_num = "+12 пп"
+            impact_num = "—"
         self._text(
             slide, impact_x, impact_y + 0.35, 2.5, 0.7, impact_num,
             font=self.serif, size=42, color=self.deep_100,

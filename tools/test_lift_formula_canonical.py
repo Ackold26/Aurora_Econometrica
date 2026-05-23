@@ -205,6 +205,49 @@ def test_optimizer_handles_zero_y_std(tmp_path):
     assert _math.isfinite(legacy), f"legacy lift not finite: {legacy}"
 
 
+@pytest.mark.parametrize('seed', [0])
+def test_optimizer_persists_lift_diagnostics_field(tmp_path, seed):
+    """Phase 2.7 followup (2026-05-24): optimization.json includes `lift_diagnostics`.
+
+    INV-37 SSOT override comprehensive coverage — operator может flip env override,
+    diagnostic field в saved JSON tracks selection branch at compute time. Без этого
+    teсtа field может drift / silently disabled при future refactor."""
+    proj = tmp_path / f'diag_{seed}'
+    build_synthetic_pickle(proj, seed=seed, n_channels=3, n_periods=24, n_posterior_samples=0)
+
+    r = _run_optimize(proj)
+    assert _is_ok(r)
+    assert 'lift_diagnostics' in r, "lift_diagnostics field missing from optimizer result"
+    diag = r['lift_diagnostics']
+    assert isinstance(diag, dict)
+    # Required keys per LiftDiagnostics dataclass
+    expected_keys = {
+        'formula_used', 'canonical_lift_pct', 'baseline_zero',
+        'y_std_degenerate', 'legacy_env_active',
+    }
+    assert expected_keys.issubset(diag.keys()), (
+        f"lift_diagnostics missing keys: {expected_keys - diag.keys()}"
+    )
+    # Healthy synthetic pickle → canonical path
+    assert diag['formula_used'] == 'canonical'
+    assert diag['baseline_zero'] is False
+    assert diag['y_std_degenerate'] is False
+    assert diag['legacy_env_active'] is False
+
+
+def test_optimizer_lift_diagnostics_env_override(tmp_path, monkeypatch):
+    """Env override → lift_diagnostics.formula_used == 'legacy_env'."""
+    monkeypatch.setenv('AURORA_LEGACY_LIFT_FORMULA', '1')
+    proj = tmp_path / 'diag_env'
+    build_synthetic_pickle(proj, seed=0, n_channels=3, n_periods=24, n_posterior_samples=0)
+
+    r = _run_optimize(proj)
+    assert _is_ok(r)
+    diag = r.get('lift_diagnostics', {})
+    assert diag.get('formula_used') == 'legacy_env'
+    assert diag.get('legacy_env_active') is True
+
+
 @pytest.mark.parametrize('seed', [0, 1])
 def test_lift_consistency_across_engines(tmp_path, seed):
     """Triangulate canonical lift across optimizer + scenario.

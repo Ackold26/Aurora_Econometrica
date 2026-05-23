@@ -274,7 +274,17 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         .as_f64()
         .or_else(|| model["diagnostics"]["r_hat"].as_f64());
     let lift       = optimize["expected_lift_pct"].as_f64().unwrap_or(0.0);
-    let budget     = optimize["total_budget"].as_f64().unwrap_or(0.0);
+    // 5c followup (2026-05-24): same money-axis fix as XLSX Executive Summary
+    // (line 803). `total_budget` is native-sum (mixed TRPs + ₽ = arithmetic
+    // garbage). Use money-axis aggregates → matches UI Block A semantics.
+    let budget = optimize["total_current_money"].as_f64()
+        .or_else(|| optimize["total_budget_money"].as_f64())
+        .or_else(|| {
+            decompose["channels"].as_array().map(|chs| {
+                chs.iter().map(|c| c["spend"].as_f64().unwrap_or(0.0)).sum()
+            })
+        })
+        .unwrap_or(0.0);
 
     // Top ROI channel (by decompose channels)
     let top_ch = decompose["channels"].as_array()
@@ -386,15 +396,21 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     }
 
     if let Some(opt_chs) = optimize["channels"].as_array() {
-        md.push_str("### Текущее vs Оптимальное распределение\n\n");
-        md.push_str("| Канал | Текущий | Оптимальный | Δ | Δ% |\n");
-        md.push_str("|-------|--------:|------------:|--:|---:|\n");
+        // 5c followup (2026-05-24): same money-axis fix as XLSX «Оптимизация»
+        // (line 1251). Native `current_spend`/`optimal_spend` mix TRPs+₽ под
+        // column header "₽" = lying. Read money-axis с fallback к native (legacy
+        // pickles без _money suffix variants).
+        md.push_str("### Текущее vs Оптимальное распределение (₽)\n\n");
+        md.push_str("| Канал | Текущий, ₽ | Оптимальный, ₽ | Δ, ₽ | Δ% |\n");
+        md.push_str("|-------|-----------:|---------------:|-----:|---:|\n");
         for ch in opt_chs {
             let name  = ch["name"].as_str().unwrap_or("-");
-            let curr  = ch["current_spend"].as_f64().unwrap_or(0.0);
-            let opt   = ch["optimal_spend"].as_f64().unwrap_or(0.0);
+            let curr  = ch["current_spend_money"].as_f64()
+                .unwrap_or_else(|| ch["current_spend"].as_f64().unwrap_or(0.0));
+            let opt   = ch["optimal_spend_money"].as_f64()
+                .unwrap_or_else(|| ch["optimal_spend"].as_f64().unwrap_or(0.0));
             let delta = opt - curr;
-            let dpct  = if curr > 0.0 { delta / curr * 100.0 } else { 0.0 };
+            let dpct  = if curr.abs() > 1e-9 { delta / curr * 100.0 } else { 0.0 };
             let sign  = if delta >= 0.0 { "+" } else { "" };
             md.push_str(&format!("| {name} | {curr:.0} | {opt:.0} | {sign}{delta:.0} | {sign}{dpct:.1}% |\n"));
         }

@@ -522,11 +522,19 @@ def _derive_narrative_facts(
     underperformers = [c for c in channels if c.get("verdict") in ("Cut", "Watch")]
 
     # Reallocation = net shift between current and optimal (half of absolute sum
-    # to avoid double-counting the same dollar leaving X entering Y)
+    # to avoid double-counting the same dollar leaving X entering Y).
+    # 5c followup (2026-05-24): prefer money-axis fields (current_spend_money /
+    # optimal_spend_money). Pre-fix sumеt native (TRPs + ₽) → "млн руб" в PPTX/HTML
+    # narrative dimensionally wrong на mixed-unit projects. Fallback к native когда
+    # money-suffix отсутствует (legacy pickles pre-money-axis schema).
     reallocation = 0.0
     for c in channels:
-        curr = c.get("current_spend")
-        opt = c.get("optimal_spend")
+        curr = c.get("current_spend_money")
+        if curr is None:
+            curr = c.get("current_spend")
+        opt = c.get("optimal_spend_money")
+        if opt is None:
+            opt = c.get("optimal_spend")
         if curr is None or opt is None:
             continue
         try:

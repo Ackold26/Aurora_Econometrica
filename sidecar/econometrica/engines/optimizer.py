@@ -1104,14 +1104,15 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     current_response_real = -_objective_fn(x0_money_baseline)
     optimal_response = -_objective_fn(result.x)
 
-    # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04) ────────────────
+    # ─── Phase 2.7 (5a): Canonical lift% formula (2026-05-04 / SSOT 2026-05-24) ─
     # Pre-fix: lift = (optimal_media - current_media) / current_media (media-only ratio).
     # Это давало misleading high values (+4.7% Кагоцел) когда baseline >> media.
     # Three engines (optimizer, scenario, frontend) had three different formulas.
     # Now: canonical formula = (total_optimal - total_current) / total_current
     # где total_kpi = baseline_total + media_total (both в money axis).
-    # Legacy media-only ratio preserved as `media_only_lift_pct` для expert mode
-    # + AURORA_LEGACY_LIFT_FORMULA=1 emergency rollback flag.
+    # Selection logic (y_std degeneracy, AURORA_LEGACY_LIFT_FORMULA env, baseline_zero
+    # fallback) живёт в engines/lift.py SSOT — identical semantics к scenario.py call.
+    # Legacy media-only ratio preserved as `media_only_lift_pct` result field + fallback.
     #
     # CRITICAL SCALE NOTE (2026-05-04 follow-up): `_objective_fn` returns sum
     # `Σ β·hill(...)·n_periods` in NORMALIZED scale (β is normalized coefficient).
@@ -1120,20 +1121,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # → media drowns in float arithmetic, lift_pct = 0.0% даже когда media-only
     # changes на 17.7%. Customer reproduced на Кагоцел project (9): legacy
     # lift_pct=17.7% but canonical=0.0% pre-fix.
-    import os as _os_lift  # localized import - avoid module-level pollution
+    from engines.lift import select_lift_pct as _select_lift_pct
     y_mean_lift = float(norm.get('y_mean', 0.0))
     intercept_mean_lift = float(norm.get('intercept_mean', 0.0))
-
-    # AUDIT 2026-05-04: y_std degenerate guard. Если pickle имеет y_std=0 (or close)
-    # - все KPI scales collapse к 0 → canonical formula divide-by-zero / silent
-    # 0% lift. Treat как degenerate baseline → fall back к media-only formula
-    # (legacy semantics, not great but better than misleading 0%).
-    y_std_degenerate = (not isinstance(y_std, (int, float))) or (abs(float(y_std)) < 1e-10)
-    if y_std_degenerate:
-        _logger.warning(
-            "y_std degenerate (%s) - canonical lift formula falls back к media-only ratio.",
-            y_std,
-        )
 
     baseline_per_period_lift = intercept_mean_lift * y_std + y_mean_lift
     non_media_baseline_total = baseline_per_period_lift * forecast_n_periods
@@ -1142,7 +1132,7 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     current_media_money = float(current_response_real) * y_std
     optimal_media_money = float(optimal_response) * y_std
 
-    # Legacy media-only ratio (for backward compat + debug).
+    # Legacy media-only ratio (engine-specific fallback + result field).
     if current_response_real > 1e-9:
         media_only_lift_pct = (optimal_response - current_response_real) / current_response_real * 100
     else:
@@ -1154,24 +1144,26 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # Canonical: total business KPI ratio (both terms in money axis).
     total_current_kpi = non_media_baseline_total + current_media_money
     total_optimal_kpi = non_media_baseline_total + optimal_media_money
-    if total_current_kpi > 1e-9:
-        canonical_lift_pct = (total_optimal_kpi - total_current_kpi) / total_current_kpi * 100
-        baseline_zero = False
-    else:
-        canonical_lift_pct = 0.0
-        baseline_zero = True
-        _logger.warning(
-            "total_current_kpi ≤ 0 - degenerate baseline. canonical lift_pct undefined."
-        )
 
-    # Active formula dispatch - legacy flag для emergency revert without re-ship.
-    # Также fallback к legacy если y_std degenerate (canonical math undefined).
-    if _os_lift.environ.get('AURORA_LEGACY_LIFT_FORMULA') == '1' or y_std_degenerate:
-        lift_pct = media_only_lift_pct
-        if not y_std_degenerate:
-            _logger.info("AURORA_LEGACY_LIFT_FORMULA=1 - using legacy media-only lift_pct.")
-    else:
-        lift_pct = canonical_lift_pct
+    # SSOT formula application — engines/lift.py.
+    # Encapsulates: canonical formula, y_std degeneracy, AURORA_LEGACY_LIFT_FORMULA env,
+    # baseline_zero fallback. Diagnostics expose internal state для insight messaging.
+    lift_pct, _lift_diag = _select_lift_pct(
+        total_optimal_kpi=total_optimal_kpi,
+        total_current_kpi=total_current_kpi,
+        legacy_fallback_pct=media_only_lift_pct,
+        y_std=y_std,
+    )
+    # baseline_zero + y_std_degenerate consumed downstream (insight messaging line
+    # ~1437, result_data flag line ~1505). canonical_lift_pct sole value live в
+    # lift_diagnostics['canonical_lift_pct'] field (operator observability).
+    baseline_zero = _lift_diag.baseline_zero
+    y_std_degenerate = _lift_diag.y_std_degenerate
+    # Persist diagnostic trace для downstream observability (env override visibility,
+    # selection branch debugging). INV-37: SSOT override comprehensive coverage —
+    # operator may flip AURORA_LEGACY_LIFT_FORMULA, optimization.json snapshot tracks
+    # which formula path был active при compute.
+    lift_diagnostics = _lift_diag.as_dict()
 
     # math-fix v1.0.14.1 + v1.0.16 - false convergence detector.
     # SLSQP может вернуть success=True at iter=1 если стартовая точка локально
@@ -1469,6 +1461,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # 5a (2026-05-04): legacy media-only ratio preserved для expert mode UI
         # + AURORA_LEGACY_LIFT_FORMULA rollback. Canonical formula = total KPI ratio.
         'media_only_lift_pct': round(media_only_lift_pct, 1),
+        # SSOT trace (2026-05-24): which formula path was active at compute time.
+        # Operator visibility into env override + degeneracy fallback paths.
+        'lift_diagnostics': lift_diagnostics,
         'total_current_kpi': round(total_current_kpi, 0),
         'total_optimal_kpi': round(total_optimal_kpi, 0),
         # v2.1.0 (ADR-021): money equivalents для count KPI при kpi_unit_cost задан.

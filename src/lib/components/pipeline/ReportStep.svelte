@@ -195,7 +195,12 @@
   const rSq      = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_squared ?? mData?.diagnostics?.r_squared ?? null));
   const mape     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.mape_pct ?? mData?.diagnostics?.mape ?? null));
   const lift     = $derived(/** @type {number|null} */ (oData?.expected_lift_pct ?? null));
-  const budget   = $derived(/** @type {number|null} */ (oData?.total_budget ?? null));
+  // 5c followup (2026-05-24): money-axis budget, matches XLSX Executive Summary
+  // и markdown report fix. `total_budget` = native mixed-units sum (TRPs + ₽ =
+  // arithmetic garbage on mixed-channel projects). Use total_current_money chain.
+  const budget   = $derived(/** @type {number|null} */ (
+    oData?.total_current_money ?? oData?.total_budget_money ?? oData?.total_budget ?? null
+  ));
 
   const hasData  = $derived(!!mData?.diagnostics && !!dData && !!oData);
 

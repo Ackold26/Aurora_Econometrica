@@ -125,6 +125,14 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
         with open(p, 'rb') as f:
             model_data = pickle.load(f)
 
+        # Phase 2.7 followup audit fix (2026-05-24): repair y_actual ДО migration,
+        # чтобы saved aurora-model имел repaired full series. Без этого ordering
+        # migration сохраняла truncated y_actual → каждый subsequent load
+        # re-triggered repair → data_file re-read perpetually (~100ms per endpoint
+        # hit для legacy projects). Repair idempotent — function-end call (для
+        # aurora-model branch) автоматически no-op после persistence.
+        _repair_y_actual_against_data_file(model_data)
+
         # Lazy migration: переписываем legacy pickle в aurora-model сразу при load.
         # Это устраняет окно атаки — следующий load уже идёт через безопасный путь.
         # Errors при миграции не должны мешать загрузке (read-only FS, EACCES и т.д.).
@@ -172,7 +180,108 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     # All default to None/empty for v1.3.x backward compat — never crash on absent field.
     _inject_v20_defaults(model_data)
 
+    # Phase 2.7 followup (2026-05-24): repair truncated y_actual in legacy pickles.
+    # No-op для current pickles + для cases where data_file inaccessible / shorter.
+    _repair_y_actual_against_data_file(model_data)
+
     return model_data
+
+
+def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
+    """Phase 2.7 followup — repair truncated y_actual in legacy pickles by reading data_file.
+
+    Aurora Econometrica < v1.0.16 (некоторые training paths) saved truncated `y_actual`
+    к pickle — last full year only (52 weeks вместо 156 за 3 года для Кагоцел и т.п.).
+    `/compute/forecast-context` endpoint reads `train_n = len(model_data['y_actual'])`,
+    из-за чего customer-facing planning budget suggestions использовали wrong horizon
+    coefficient (52/52 = 1.0 при customer expectation 52/156 = 0.333).
+
+    Frontend OptimizeStep.svelte:1311 уже имеет workaround через
+    `dData.time_series.dates.length`, но root fix живёт здесь — он эликвидирует
+    discrepancy для всех downstream consumers (planning preview, scenario CI,
+    seasonality detection при load).
+
+    Repair policy:
+    - `len(y_actual) < data_file row count` → repair (legacy truncation suspected).
+    - `len(y_actual) == data_file row count` → no-op (current pickle correct).
+    - `len(y_actual) > data_file row count` → no-op (user trimmed data_file
+      post-training; pickle = canonical training state, не повреждать).
+    - `data_file` отсутствует/перемещён/корректно нечитаем → no-op (preserve pickle).
+
+    Idempotent: повторный вызов на repaired pickle = no-op (length matches data_file).
+
+    Side effects:
+        Logs warning при repair applied (operator visibility).
+        Mutates `model_data['y_actual']` in place (in-memory only — pickle на диске
+        не перезаписывается helper'ом; следующий `save_model_safe` зафиксирует).
+
+    Sister к INV-17 (SSOT для UI-displayed metrics): forecast_context endpoint
+    train_n_periods derived от единственного pickle field, repair обеспечивает
+    consistent semantics с frontend workaround.
+
+    Reference: `project_econometrica_y_actual_truncation_investigation.md` (2026-05-04).
+    """
+    y_actual = model_data.get('y_actual')
+    # Defensive: legacy pickles могут saved y_actual как list / numpy array / tuple.
+    # `not np.ndarray` raises ValueError (not bool truthy), `not list[0.0]` is False
+    # (truthy non-empty). Explicit length check survives all container types.
+    try:
+        y_actual_len = len(y_actual) if y_actual is not None else 0
+    except TypeError:
+        return  # not sized (scalar / generator) — different bug.
+    if y_actual_len == 0:
+        return  # truly empty pickle — different bug, не Phase 2.7 scope.
+
+    config = model_data.get('config') or {}
+    data_file = config.get('data_file')
+    kpi_col = config.get('kpi_column') or config.get('kpi_col')
+    if not data_file or not kpi_col:
+        return  # cannot verify без data_file metadata.
+
+    try:
+        data_path = Path(data_file)
+        if not data_path.exists():
+            return  # file deleted/moved post-training → preserve pickle state.
+        import pandas as _pd
+        if str(data_file).lower().endswith(('.xlsx', '.xls')):
+            df = _pd.read_excel(data_file)
+        else:
+            df = _pd.read_csv(data_file)
+        if kpi_col not in df.columns:
+            return  # column renamed/dropped → preserve pickle.
+        # Apply merge_rules для consistency с modeler.py path (merge_rules затрагивают
+        # media columns, не KPI, но порядок строк не меняется → row count safe).
+        try:
+            from utils.merge_rules import apply_merge_rules as _apply_merge
+            _apply_merge(df, config.get('merge_rules'))
+        except Exception:
+            pass  # merge_rules optional — fallback к raw df row count.
+        kpi_series = df[kpi_col]
+        # NaN values в data_file KPI column → silently corrupt y_actual + downstream
+        # variance/mean computations. Skip repair если data_file has NaN(s) в KPI
+        # rather than introducing NaN'ы. Original pickle y_actual was finite (modeler
+        # validation passed at training time) — preserve canonical training snapshot.
+        try:
+            if kpi_series.isna().any():
+                logger.warning(
+                    'y_actual repair skipped: data_file column %r contains %d NaN values. '
+                    'Preserving pickle y_actual (length=%d) as canonical training state.',
+                    kpi_col, int(kpi_series.isna().sum()), y_actual_len,
+                )
+                return
+        except AttributeError:
+            pass  # non-Series fallback — defensive, не блокирует
+        full_y = kpi_series.astype(float).tolist()
+        if len(full_y) <= y_actual_len:
+            return  # data_file equal/shorter — no truncation suspected.
+        logger.warning(
+            'y_actual repair: legacy pickle has y_actual length=%d, data_file has %d rows. '
+            'Replacing с full series для consistent train_n_periods (Phase 2.7 followup).',
+            y_actual_len, len(full_y),
+        )
+        model_data['y_actual'] = full_y
+    except Exception as exc:
+        logger.warning('y_actual repair skipped (data_file read error): %s', exc)
 
 
 def _lazy_migrate_to_safe(legacy_path: Path, model_data: dict[str, Any]) -> bool:
