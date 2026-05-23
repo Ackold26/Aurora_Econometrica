@@ -28,12 +28,22 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Setup Python
-      if: inputs.install-python == 'true'
+    # Two variants of setup-python: с pip cache (когда есть deps to install)
+    # и без cache (Help Docs Sync — install-test-deps='false', /home/runner/.cache/pip
+    # пустой → Post Run cleanup fails). Composite action `if:` на step gating работает,
+    # но cache: 'pip' attribute не conditional — поэтому две step'ы с разными условиями.
+    - name: Setup Python (with pip cache)
+      if: inputs.install-python == 'true' && (inputs.install-test-deps == 'true' || inputs.install-mcmc-deps == 'true')
       uses: actions/setup-python@v5
       with:
         python-version: ${{ inputs.python-version }}
         cache: 'pip'
+
+    - name: Setup Python (no pip cache)
+      if: inputs.install-python == 'true' && inputs.install-test-deps == 'false' && inputs.install-mcmc-deps == 'false'
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
 
     - name: Install pytest deps (lightweight + medium)
       if: inputs.install-python == 'true' && inputs.install-test-deps == 'true' && inputs.install-mcmc-deps == 'false'
