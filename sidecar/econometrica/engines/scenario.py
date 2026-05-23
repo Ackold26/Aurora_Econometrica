@@ -338,7 +338,22 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     )
     import logging as _scn_logging
     _scn_logger = _scn_logging.getLogger(__name__)
-    legacy_lift_pct = (incremental_total / baseline_total * 100) if baseline_total else 0
+    # Sprint Buffer #45 (2026-05-23): distinguish baseline_total==0 (pure-media-model edge
+    # case — modeller обнулил intercept или brand baseline degenerate) от positive baseline.
+    # Pre-fix: silent fallback к 0 maskировал bug class где модель тренировалась на dataset
+    # где KPI почти полностью объясняется media variables — диагностически important для
+    # operator (signal к пересмотру model spec / control variables).
+    if not baseline_total:
+        _scn_logger.warning(
+            'scenario legacy_lift_pct: baseline_total=%s (incremental_total=%s) → degenerate '
+            'pure-media-model edge case, legacy_lift_pct forced к 0. Canonical formula продолжит '
+            'работать через current_total_kpi reconstruction. Operator: проверить intercept prior + '
+            'control variables в model spec.',
+            baseline_total, round(float(incremental_total), 2),
+        )
+        legacy_lift_pct = 0
+    else:
+        legacy_lift_pct = incremental_total / baseline_total * 100
 
     y_std_degenerate = _is_y_std_degenerate(y_std)
     if y_std_degenerate:

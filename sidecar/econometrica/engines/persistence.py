@@ -52,6 +52,36 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Sprint Buffer #43 (2026-05-23): observable counter for y_actual repair operations.
+# INV-27 — operator observability. Counter incremented в _repair_y_actual_against_data_file
+# per terminal state. Exposed via get_repair_stats() / reset_repair_stats() для unit tests
+# + future /metrics endpoint. Module-level state acceptable: sidecar single-process, repair
+# не реентрабелен (called sequentially из load_model_with_compat).
+_REPAIR_COUNTERS: dict[str, int] = {
+    'repaired': 0,           # successful repair applied (y_actual mutated)
+    'skipped_current': 0,    # pickle length == data_file rows (no-op, expected steady state)
+    'skipped_missing_meta': 0,  # data_file / kpi_column absent в config
+    'skipped_file_gone': 0,  # data_file path не существует на диске
+    'skipped_col_missing': 0,  # kpi_column отсутствует в data_file columns
+    'skipped_nan_values': 0,   # data_file KPI col contains NaN — preserve pickle
+    'skipped_shorter_file': 0,  # data_file rows ≤ pickle y_actual (user trimmed)
+    'skipped_empty_pickle': 0,  # y_actual length 0 — different bug
+    'skipped_read_error': 0,   # exception при pandas read_excel/read_csv
+    'skipped_unsized': 0,      # y_actual neither sized nor None (scalar/generator)
+}
+
+
+def get_repair_stats() -> dict[str, int]:
+    """Return snapshot of y_actual repair counters since process start (или last reset)."""
+    return dict(_REPAIR_COUNTERS)
+
+
+def reset_repair_stats() -> None:
+    """Reset all repair counters к 0. Test helper — production не вызывает."""
+    for k in _REPAIR_COUNTERS:
+        _REPAIR_COUNTERS[k] = 0
+
+
 # Semantic version comparison helper (avoids stdlib `packaging` dep)
 _VERSION_RE = re.compile(r'(\d+)\.(\d+)(?:\.(\d+))?')
 
@@ -228,19 +258,23 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
     try:
         y_actual_len = len(y_actual) if y_actual is not None else 0
     except TypeError:
+        _REPAIR_COUNTERS['skipped_unsized'] += 1
         return  # not sized (scalar / generator) — different bug.
     if y_actual_len == 0:
+        _REPAIR_COUNTERS['skipped_empty_pickle'] += 1
         return  # truly empty pickle — different bug, не Phase 2.7 scope.
 
     config = model_data.get('config') or {}
     data_file = config.get('data_file')
     kpi_col = config.get('kpi_column') or config.get('kpi_col')
     if not data_file or not kpi_col:
+        _REPAIR_COUNTERS['skipped_missing_meta'] += 1
         return  # cannot verify без data_file metadata.
 
     try:
         data_path = Path(data_file)
         if not data_path.exists():
+            _REPAIR_COUNTERS['skipped_file_gone'] += 1
             return  # file deleted/moved post-training → preserve pickle state.
         import pandas as _pd
         if str(data_file).lower().endswith(('.xlsx', '.xls')):
@@ -248,6 +282,7 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         else:
             df = _pd.read_csv(data_file)
         if kpi_col not in df.columns:
+            _REPAIR_COUNTERS['skipped_col_missing'] += 1
             return  # column renamed/dropped → preserve pickle.
         # Apply merge_rules для consistency с modeler.py path (merge_rules затрагивают
         # media columns, не KPI, но порядок строк не меняется → row count safe).
@@ -263,6 +298,7 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         # validation passed at training time) — preserve canonical training snapshot.
         try:
             if kpi_series.isna().any():
+                _REPAIR_COUNTERS['skipped_nan_values'] += 1
                 logger.warning(
                     'y_actual repair skipped: data_file column %r contains %d NaN values. '
                     'Preserving pickle y_actual (length=%d) as canonical training state.',
@@ -272,8 +308,13 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         except AttributeError:
             pass  # non-Series fallback — defensive, не блокирует
         full_y = kpi_series.astype(float).tolist()
-        if len(full_y) <= y_actual_len:
-            return  # data_file equal/shorter — no truncation suspected.
+        if len(full_y) == y_actual_len:
+            _REPAIR_COUNTERS['skipped_current'] += 1
+            return  # current pickle — lengths match.
+        if len(full_y) < y_actual_len:
+            _REPAIR_COUNTERS['skipped_shorter_file'] += 1
+            return  # data_file shorter — user trimmed post-training; preserve pickle.
+        _REPAIR_COUNTERS['repaired'] += 1
         logger.warning(
             'y_actual repair: legacy pickle has y_actual length=%d, data_file has %d rows. '
             'Replacing с full series для consistent train_n_periods (Phase 2.7 followup).',
@@ -281,6 +322,7 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         )
         model_data['y_actual'] = full_y
     except Exception as exc:
+        _REPAIR_COUNTERS['skipped_read_error'] += 1
         logger.warning('y_actual repair skipped (data_file read error): %s', exc)
 
 

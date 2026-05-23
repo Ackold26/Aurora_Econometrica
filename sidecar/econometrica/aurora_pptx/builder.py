@@ -2500,14 +2500,19 @@ class AuroraPPTXBuilder:
         self._hairline(slide, impact_x, impact_y + 0.27, 1.2, weight=0.75, color=self.gold)
         # 2026-05-24 fix: do not fabricate `+12 пп` placeholder when optimize result
         # missing — это customer-facing slide, любое hardcoded numerical claim — INV-50
-        # violation candidate + customer confusion. Render neutral em-dash вместо.
+        # violation candidate + customer confusion. Sprint Buffer #44 (2026-05-23):
+        # semantic «Не определён» вместо em-dash для consultant context — em-dash
+        # читается как «забыли заполнить», текст явно signals «не посчитано / нет данных».
+        # Font size scaled down (42→22pt) чтобы фраза влезла в 2.5" box без переноса.
         if self.facts and self.facts.get("expected_lift_pct") is not None:
             impact_num = f"+{self.facts['expected_lift_pct']:.0f} пп"
+            impact_size = 42
         else:
-            impact_num = "—"
+            impact_num = "Не определён"
+            impact_size = 22
         self._text(
             slide, impact_x, impact_y + 0.35, 2.5, 0.7, impact_num,
-            font=self.serif, size=42, color=self.deep_100,
+            font=self.serif, size=impact_size, color=self.deep_100,
         )
         # v1.3.2: KPI-aware impact label.
         if self.kpi["mode"] == "effectiveness":

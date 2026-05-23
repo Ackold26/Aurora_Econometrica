@@ -298,3 +298,157 @@ def test_y_actual_repair_handles_tuple_y_actual(tmp_path):
     }
     _repair_y_actual_against_data_file(model_data)
     assert len(model_data['y_actual']) == 50
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Sprint Buffer #43 — observable counter tests (INV-27)
+# ─────────────────────────────────────────────────────────────────────────
+
+from engines.persistence import get_repair_stats, reset_repair_stats
+
+
+def test_repair_counter_repaired_increments(tmp_path):
+    """Successful repair → counter 'repaired' incremented."""
+    reset_repair_stats()
+    data_file = tmp_path / 'data.csv'
+    _write_data_file(data_file, n_rows=156)
+    model_data = {
+        'config': {'data_file': str(data_file), 'kpi_column': 'sales'},
+        'y_actual': [1.0] * 52,
+    }
+    _repair_y_actual_against_data_file(model_data)
+    stats = get_repair_stats()
+    assert stats['repaired'] == 1
+    assert sum(v for k, v in stats.items() if k != 'repaired') == 0
+
+
+def test_repair_counter_skipped_current(tmp_path):
+    """Pickle length == data_file rows → 'skipped_current' incremented."""
+    reset_repair_stats()
+    data_file = tmp_path / 'data.csv'
+    _write_data_file(data_file, n_rows=52)
+    model_data = {
+        'config': {'data_file': str(data_file), 'kpi_column': 'sales'},
+        'y_actual': [1.0] * 52,
+    }
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_current'] == 1
+
+
+def test_repair_counter_skipped_missing_meta():
+    """data_file отсутствует в config → 'skipped_missing_meta'."""
+    reset_repair_stats()
+    model_data = {'config': {}, 'y_actual': [1.0] * 10}
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_missing_meta'] == 1
+
+
+def test_repair_counter_skipped_file_gone(tmp_path):
+    """data_file path не существует → 'skipped_file_gone'."""
+    reset_repair_stats()
+    model_data = {
+        'config': {'data_file': str(tmp_path / 'nonexistent.csv'), 'kpi_column': 'sales'},
+        'y_actual': [1.0] * 10,
+    }
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_file_gone'] == 1
+
+
+def test_repair_counter_skipped_col_missing(tmp_path):
+    """kpi_column отсутствует в data_file → 'skipped_col_missing'."""
+    reset_repair_stats()
+    data_file = tmp_path / 'data.csv'
+    _write_data_file(data_file, n_rows=50, kpi_col='other_col')
+    model_data = {
+        'config': {'data_file': str(data_file), 'kpi_column': 'sales'},
+        'y_actual': [1.0] * 10,
+    }
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_col_missing'] == 1
+
+
+def test_repair_counter_skipped_nan_values(tmp_path):
+    """NaN в data_file KPI col → 'skipped_nan_values'."""
+    reset_repair_stats()
+    data_file = tmp_path / 'data.csv'
+    df = pd.DataFrame({
+        'date': pd.date_range('2024-01-01', periods=156, freq='W'),
+        'sales': [np.nan if i == 50 else float(i) for i in range(156)],
+    })
+    df.to_csv(data_file, index=False)
+    model_data = {
+        'config': {'data_file': str(data_file), 'kpi_column': 'sales'},
+        'y_actual': [1.0] * 52,
+    }
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_nan_values'] == 1
+
+
+def test_repair_counter_skipped_shorter_file(tmp_path):
+    """data_file < pickle → 'skipped_shorter_file'."""
+    reset_repair_stats()
+    data_file = tmp_path / 'data.csv'
+    _write_data_file(data_file, n_rows=30)
+    model_data = {
+        'config': {'data_file': str(data_file), 'kpi_column': 'sales'},
+        'y_actual': [1.0] * 52,
+    }
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_shorter_file'] == 1
+
+
+def test_repair_counter_skipped_empty_pickle():
+    """y_actual length 0 → 'skipped_empty_pickle'."""
+    reset_repair_stats()
+    model_data = {'config': {'data_file': '/x', 'kpi_column': 'sales'}, 'y_actual': []}
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_empty_pickle'] == 1
+
+
+def test_repair_counter_skipped_unsized():
+    """Scalar y_actual → 'skipped_unsized' (TypeError on len())."""
+    reset_repair_stats()
+    model_data = {'config': {'data_file': '/x', 'kpi_column': 'sales'}, 'y_actual': 42}
+    _repair_y_actual_against_data_file(model_data)
+    assert get_repair_stats()['skipped_unsized'] == 1
+
+
+def test_repair_counter_independence(tmp_path):
+    """Counters не пересекаются — 3 consecutive разных pathways → 3 distinct increments."""
+    reset_repair_stats()
+    # Path 1: skipped_missing_meta
+    _repair_y_actual_against_data_file({'config': {}, 'y_actual': [1.0]})
+    # Path 2: skipped_empty_pickle
+    _repair_y_actual_against_data_file({'config': {'data_file': '/x', 'kpi_column': 's'},
+                                         'y_actual': []})
+    # Path 3: repaired
+    data_file = tmp_path / 'data.csv'
+    _write_data_file(data_file, n_rows=100)
+    md3 = {'config': {'data_file': str(data_file), 'kpi_column': 'sales'},
+           'y_actual': [1.0] * 30}
+    _repair_y_actual_against_data_file(md3)
+    stats = get_repair_stats()
+    assert stats['skipped_missing_meta'] == 1
+    assert stats['skipped_empty_pickle'] == 1
+    assert stats['repaired'] == 1
+    assert stats['skipped_current'] == 0
+
+
+def test_reset_repair_stats_zeros_all():
+    """reset_repair_stats() обнуляет ВСЕ ключи."""
+    reset_repair_stats()
+    _repair_y_actual_against_data_file({'config': {}, 'y_actual': [1.0]})
+    assert get_repair_stats()['skipped_missing_meta'] == 1
+    reset_repair_stats()
+    stats = get_repair_stats()
+    assert all(v == 0 for v in stats.values())
+
+
+def test_repair_stats_snapshot_isolation():
+    """get_repair_stats() returns снимок, не reference — mutation не влияет."""
+    reset_repair_stats()
+    _repair_y_actual_against_data_file({'config': {}, 'y_actual': [1.0]})
+    snap = get_repair_stats()
+    snap['skipped_missing_meta'] = 999
+    # Original counter не задет
+    assert get_repair_stats()['skipped_missing_meta'] == 1
