@@ -30,6 +30,7 @@
   // отдельным stack-group'ом - красно-оранжевая палитра, читается как
   // «отъедают продажи». Положительные controls (holiday + positive_control)
   // добавляются в общий positive stack.
+  /** @type {Record<string, string>} */
   const FACTOR_COLORS = {
     signed_competitor: '#dc2626', // red-600
     signed_price:      '#ea580c', // orange-600
@@ -38,6 +39,7 @@
     holiday:           '#84cc16', // lime-500
     positive_control:  '#06b6d4', // cyan-500
   };
+  /** @type {Record<string, string>} */
   const FACTOR_LABELS = {
     signed_competitor: 'Конкуренты',
     signed_price:      'Цена',
@@ -228,7 +230,7 @@
             group = 'Медиа';
           }
           const cleanName = name.replace(PREFIX_RE, '');
-          groups.get(group).push({ p, cleanName });
+          groups.get(group)?.push({ p, cleanName });
         });
 
         // Заголовок с датой периода

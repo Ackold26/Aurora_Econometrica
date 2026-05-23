@@ -179,8 +179,8 @@ export function validateKpiInsights(result, context = {}) {
   const colsUpper = cols.map(/** @param {any} c */ c => String(c.name ?? '').toUpperCase());
   const moneySignals = ['БЮДЖЕТ', 'BUDGET', 'SPEND', 'РУБ', '₽', 'COST'];
   const physicalSignals = ['TRP', 'GRP', 'ПОКАЗ', 'IMPRESS', 'КЛИК', 'CLICK', 'VISIT', 'ВИЗИТ', 'OTS', 'CPM', 'CPC'];
-  const moneyCount = colsUpper.filter(n => moneySignals.some(s => n.includes(s))).length;
-  const physCount = colsUpper.filter(n => physicalSignals.some(s => n.includes(s))).length;
+  const moneyCount = colsUpper.filter(/** @param {string} n */ n => moneySignals.some(s => n.includes(s))).length;
+  const physCount = colsUpper.filter(/** @param {string} n */ n => physicalSignals.some(s => n.includes(s))).length;
 
   if (moneyCount > 0 && physCount === 0) {
     out.push({
@@ -251,7 +251,7 @@ export function validateRolesInsights(result, objective = 'roi') {
  * корректно настроить единицы / конверсии.
  *
  * @param {any} result
- * @param {{ analysisMode?: string, perChannelInput?: Record<string, string>, unitCosts?: Record<string, number> }} [context]
+ * @param {{ analysisMode?: string, perChannelInput?: Record<string, string>, unitCosts?: Record<string, number>, budgetInputs?: Record<string, number>, unitCostInputMode?: Record<string, string> }} [context]
  * @returns {Insight[]}
  */
 export function validateMetricsInsights(result, context = {}) {
@@ -1283,7 +1283,7 @@ export function modelInsights(data, ratioOverride = undefined) {
 // ── Decompose Step ──────────────────────────────────────
 
 /**
- * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string }> }} data
+ * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }> }} data
  * @param {import('./kpi-aware-formatting.js').KpiViewInput|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi.
  * @returns {Insight[]}
  */
@@ -1333,7 +1333,7 @@ export function decomposeInsights(data, kpiInput = null) {
   for (const [name, fact] of Object.entries(signedFactors)) {
     if (!fact || typeof fact !== 'object') continue;
     const value = Number(fact.value ?? 0);
-    if (value < 0 && factorGroupLabel[fact.type]) {
+    if (value < 0 && fact.type && factorGroupLabel[fact.type]) {
       negativeFactors.push({ name, value, pct: Number(fact.pct ?? 0), type: String(fact.type) });
     }
   }
@@ -1965,7 +1965,7 @@ export function optimizeInsights(data, ctx = {}) {
  * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь
  * увидел итоговую картину одним взглядом.
  *
- * @param {{ mod?: any, dec?: any, opt?: any, scenarioCount?: number, kpi?: import('./kpi-aware-formatting.js').KpiViewInput|null }} ctx
+ * @param {{ mod?: any, dec?: any, opt?: any, scenarioCount?: number, kpi?: import('./kpi-aware-formatting.js').KpiViewInput|null, ssotRatio?: number|null }} ctx
  * @returns {Insight[]}
  */
 export function reportInsights(ctx = {}) {

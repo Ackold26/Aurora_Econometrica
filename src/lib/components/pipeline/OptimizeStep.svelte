@@ -608,7 +608,7 @@
     // pickle fallback. Без этого v1.0/v1.1 pickle (без adstock_mean_posterior) дает
     // gammaScaled = γ × currentSpend (native TRP sum 22100) → Hill saturate=1 →
     // slider plateau. media_means в normalization для всех pickle versions.
-    const meanForScale = mData?.normalization?.media_means || undefined;
+    const meanForScale = /** @type {any} */ (mData?.normalization)?.media_means || undefined;
     return buildScaledParams(mData.channelParams, currentSpend, meanForScale);
   });
 

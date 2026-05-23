@@ -71,6 +71,7 @@ describe('detectUnitType', () => {
   });
 
   it('handles null safely', () => {
+    // @ts-expect-error testing runtime null safety (signature is string)
     expect(detectUnitType(null)).toBe(null);
   });
 });
@@ -83,7 +84,7 @@ describe('suggestUnitCostDefault', () => {
 
   it('suggests TRP cost for pharma OTC', () => {
     const result = suggestUnitCostDefault('TRPs бренд', 'pharma_otc');
-    expect(result).not.toBe(null);
+    if (!result) throw new Error('expected non-null result');
     expect(result.value).toBe(800_000);
     expect(result.range.min).toBe(400_000);
     expect(result.range.max).toBe(1_500_000);
@@ -92,6 +93,7 @@ describe('suggestUnitCostDefault', () => {
 
   it('suggests CPM for FMCG', () => {
     const result = suggestUnitCostDefault('Banners Показы', 'fmcg');
+    if (!result) throw new Error('expected non-null result');
     expect(result.value).toBe(280);
     expect(result.confidence).toBe('high');
   });
@@ -99,18 +101,19 @@ describe('suggestUnitCostDefault', () => {
   it('falls back на unknown industry если specific missing', () => {
     // pharma_rx не имеет 'trp' entry → falls back на unknown.trp
     const result = suggestUnitCostDefault('TRPs', 'pharma_rx');
-    expect(result).not.toBe(null);
+    if (!result) throw new Error('expected non-null result');
     expect(result.confidence).toBe('low');  // generic fallback marker
   });
 
   it('uses unknown industry as default', () => {
     const result = suggestUnitCostDefault('TRPs бренд');  // no industry arg
-    expect(result).not.toBe(null);
+    if (!result) throw new Error('expected non-null result');
     expect(result.confidence).toBe('low');
   });
 
   it('includes source attribution когда available', () => {
     const result = suggestUnitCostDefault('TRPs', 'pharma_otc');
+    if (!result) throw new Error('expected non-null result');
     expect(result.source).toMatch(/Mediascope/);
   });
 });

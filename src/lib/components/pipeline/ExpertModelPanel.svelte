@@ -175,10 +175,10 @@
       </div>
       <div class="diag-item">
         <span class="diag-label">MQS<span class="help-icon" title={HELP.mqs}>?</span></span>
-        <span class="diag-value" class:good={mqsScore >= 80} class:warn={mqsScore >= 60 && mqsScore < 80} class:bad={mqsScore < 60}>
+        <span class="diag-value" class:good={(mqsScore ?? 0) >= 80} class:warn={(mqsScore ?? 0) >= 60 && (mqsScore ?? 0) < 80} class:bad={(mqsScore ?? 0) < 60}>
           {mqsScore?.toFixed(0) ?? '-'}
         </span>
-        <span class="diag-tier" class:good={mqsScore >= 80} class:warn={mqsScore >= 60 && mqsScore < 80} class:bad={mqsScore < 60}>
+        <span class="diag-tier" class:good={(mqsScore ?? 0) >= 80} class:warn={(mqsScore ?? 0) >= 60 && (mqsScore ?? 0) < 80} class:bad={(mqsScore ?? 0) < 60}>
           {mqsTier}
         </span>
       </div>

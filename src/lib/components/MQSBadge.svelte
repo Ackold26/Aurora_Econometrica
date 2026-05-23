@@ -49,9 +49,9 @@
     // когда SSOT даёт другой коридор.
     let v = backendVerdict;
     // 1) Подменить число в "Ratio X.X:1"
-    v = v.replace(/Ratio\s+\d+(?:\.\d+)?:1/g, `Ratio ${ssotRatio.toFixed(1)}:1`);
+    v = v.replace(/Ratio\s+\d+(?:\.\d+)?:1/g, `Ratio ${(ssotRatio ?? 0).toFixed(1)}:1`);
     // 2) Если SSOT ratio >= 4 - убрать «критически мало» / «мало (Ratio < 4:1)»
-    if (ssotRatio >= 4) {
+    if ((ssotRatio ?? 0) >= 4) {
       v = v.replace(
         /⚠\s*Данных (критически\s*)?мало[^.]*\.\s*/g,
         ''
@@ -81,7 +81,7 @@
     // Backend применил thinness_cap (50 / 70) на основе backend ratio.
     // Если SSOT ratio в info / success коридоре - используем raw_score и
     // пересчитаем tier_label.
-    if (ssotRatio < 4) return mqs;  // оставляем backend cap
+    if ((ssotRatio ?? 0) < 4) return mqs;  // оставляем backend cap
     const rawScore = Number(mqs.raw_score ?? mqs.score ?? 0);
     if (!Number.isFinite(rawScore) || rawScore <= mqs.score) return mqs;
     let tier, tier_label, color;
@@ -161,7 +161,7 @@
         {/if}
         <div class="metric-row">
           <span class="metric-label">Ratio<span class="help-icon" title={HELP.ratio}>?</span></span>
-          <span class="metric-value">{useSsot ? ssotRatio.toFixed(1) : metrics.ratio}:1</span>
+          <span class="metric-value">{useSsot ? (ssotRatio ?? 0).toFixed(1) : metrics.ratio}:1</span>
           <span class="metric-check">{checks.ratio ? '✓' : '⚠'}</span>
         </div>
       </div>

@@ -50,7 +50,7 @@
    * H-09: industry-aware suggestion для текущего канала. null если pattern
    * не определён (channel name не matches TRP/GRP/CPM/CPC/etc.).
    */
-  const suggestion = $derived(suggestUnitCostDefault(channel.name, industry));
+  const suggestion = $derived(suggestUnitCostDefault(channel.name, /** @type {import('$lib/services/industry-cpp-defaults.js').IndustryCode} */ (industry)));
 
   /** Format suggestion value к compact human-readable string. */
   function formatSuggestion(/** @type {number} */ v) {

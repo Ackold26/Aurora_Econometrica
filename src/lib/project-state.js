@@ -746,15 +746,10 @@ export const modelData = writable({ diagnostics: null, channelParams: null, pick
  * лишние факторы. Сравнение с current validateData даёт banner
  * «модель устарела».
  *
- * @type {import('svelte/store').Writable<{
- *   kpi: string,
- *   media: string[],
- *   control: string[]
- * } | null>}
+ * v2.1.0 (пилот 2026-05-17 audit H-2): localStorage persistence чтобы
+ * stale-banner работал после reload Tauri окна (раньше lastTrainedConfig
+ * был null после reload → modelStaleStatus всегда stale=false → банера нет).
  */
-// v2.1.0 (пилот 2026-05-17 audit H-2): localStorage persistence чтобы
-// stale-banner работал после reload Tauri окна (раньше lastTrainedConfig
-// был null после reload → modelStaleStatus всегда stale=false → банера нет).
 const LAST_TRAINED_KEY = 'aurora-last-trained-config';
 const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[]} | null} */ ((() => {
   if (typeof localStorage === 'undefined') return null;

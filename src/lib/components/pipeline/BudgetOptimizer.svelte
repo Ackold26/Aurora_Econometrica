@@ -26,6 +26,7 @@
    *   nPeriods?: number,
    *   displayBaseKPI?: number,
    *   backendLiftPct?: number | null,
+   *   decays?: Record<string, number> | null,
    * }}
    */
   let {
