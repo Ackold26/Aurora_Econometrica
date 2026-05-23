@@ -35,15 +35,23 @@ runs:
         python-version: ${{ inputs.python-version }}
         cache: 'pip'
 
-    - name: Install pytest deps (lightweight)
+    - name: Install pytest deps (lightweight + medium)
       if: inputs.install-python == 'true' && inputs.install-test-deps == 'true' && inputs.install-mcmc-deps == 'false'
       shell: bash
       run: |
         python -m pip install --upgrade pip
         # numpy + pandas нужны conftest fixtures (synthetic + kagocel pathology pickles).
-        # Without them: integration tests fail with ImportError at fixture init.
-        # PyMC/JAX/arviz heavy stack remains gated через install-mcmc-deps='true'.
-        pip install pytest pytest-xdist 'numpy>=1.24.0,<3.0' 'pandas>=2.0.0'
+        # 2026-05-23 CI infrastructure fix sprint: добавлены medium-weight deps что нужны
+        # для pytest *discovery* (не только execution) на test files что import их at
+        # module level: sklearn (test_priors_calibration / test_priors_real_data),
+        # openpyxl (audit_v2 brand/perf constraint tests + test_lift_formula_canonical),
+        # fastapi/httpx/pytest-asyncio (forecast_context endpoint tests). Без них
+        # pytest collection падает с ImportError ДО -m marker фильтра, делая weighted
+        # test selection бесполезным. Heavy PyMC/JAX/arviz stack остаётся gated за
+        # install-mcmc-deps='true' для local + occasional integration runs.
+        pip install pytest pytest-xdist pytest-asyncio httpx \
+          'numpy>=1.24.0,<3.0' 'pandas>=2.0.0' \
+          scikit-learn openpyxl fastapi
 
     - name: Install full sidecar deps (PyMC + NumPyro)
       if: inputs.install-python == 'true' && inputs.install-mcmc-deps == 'true'
