@@ -161,12 +161,25 @@ pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()
 }
 
 /// Launch the installer silently and exit the current process.
+///
+/// Phase 3.1 (2026-05-23): stop sidecar before launching installer.
+/// Without this, `econometrica-sidecar.exe` holds `.pyd` file locks → NSIS
+/// "Error opening file for writing" → installer skips locked files silently →
+/// frontend new + sidecar old → silent functional gaps (memory: install-lock-issue).
+/// NSIS PREINSTALL hook (installer_hooks.nsh) is the safety net for cases where
+/// this Rust path is bypassed (manual installer run, watchdog respawn race).
 pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
     if !installer_path.exists() {
         return Err(coded_err(ErrorCode::UP004, &format!("Installer not found: {}", installer_path.display())));
     }
 
     info!("Applying update: {}", installer_path.display());
+
+    // Stop sidecar BEFORE launching installer so .pyd locks are released.
+    // stop_sidecar is idempotent: no-op if sidecar never started or already exited.
+    // Internally does graceful POST /shutdown → wait up to 5s → taskkill /T /F fallback.
+    info!("Pre-update: stopping sidecar to release file locks");
+    crate::econ_sidecar::stop_sidecar();
 
     // Launch installer with elevation via PowerShell Start-Process -Verb RunAs
     let installer_str = installer_path.display().to_string().replace('\'', "''");
