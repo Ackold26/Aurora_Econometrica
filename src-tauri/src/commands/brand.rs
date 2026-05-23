@@ -588,7 +588,7 @@ pub fn brand_list_docs(
         }
     }
 
-    docs.sort_by_key(|b| std::cmp::Reverse(b.modified_at.clone()));
+    docs.sort_by_key(|b| std::cmp::Reverse(b.modified_at));
     Ok(docs)
 }
 
