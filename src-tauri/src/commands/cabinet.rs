@@ -325,16 +325,13 @@ struct CabinetsPack {
 
 /// Load cabinet definitions from content pack with hardcoded fallback.
 pub fn get_cabinet_definitions_dynamic(app_local_data_dir: &Path) -> Vec<CabinetInfo> {
-    match super::content_pack::load_pack_file(app_local_data_dir, "cabinets.json") {
-        Ok(json_str) => match serde_json::from_str::<CabinetsPack>(&json_str) {
-            Ok(pack) => {
-                info!("Loaded {} cabinets from content pack", pack.cabinets.len());
-                return pack.cabinets.into_iter().map(|c| c.info).collect();
-            }
-            Err(e) => warn!("Failed to parse cabinets.json: {e}, using hardcoded fallback"),
-        },
-        Err(_) => {}
-    }
+    if let Ok(json_str) = super::content_pack::load_pack_file(app_local_data_dir, "cabinets.json") { match serde_json::from_str::<CabinetsPack>(&json_str) {
+        Ok(pack) => {
+            info!("Loaded {} cabinets from content pack", pack.cabinets.len());
+            return pack.cabinets.into_iter().map(|c| c.info).collect();
+        }
+        Err(e) => warn!("Failed to parse cabinets.json: {e}, using hardcoded fallback"),
+    } }
     get_cabinet_definitions()
 }
 

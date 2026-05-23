@@ -78,7 +78,7 @@ fn collect_hw_ids_inner() -> Result<Vec<String>> {
             info!("  disk[{}]: Index={}, serial={:?}", i, d.index, d.serial_number);
         }
         if let Some(item) = results.iter().find(|d| {
-            d.serial_number.as_ref().map_or(false, |s| !s.trim().is_empty())
+            d.serial_number.as_ref().is_some_and(|s| !s.trim().is_empty())
         }) {
             let serial = item.serial_number.as_ref().unwrap().trim();
             ids.push(format!("disk-serial:{serial}"));

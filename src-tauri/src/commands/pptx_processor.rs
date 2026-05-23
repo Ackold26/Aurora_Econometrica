@@ -399,6 +399,14 @@ pub fn split_response_notes_and_synthesis(response: &str) -> (String, String) {
     let mut synthesis_lines: Vec<&str> = Vec::new();
     let mut in_synthesis = false;
 
+    // Lift OnceLock-cached slide-header regex outside loop — clippy
+    // (regex_creation_in_loops) не recognize OnceLock pattern intra-block.
+    use std::sync::OnceLock;
+    static SLIDE_HEADER_RE: OnceLock<regex::Regex> = OnceLock::new();
+    let slide_header_re = SLIDE_HEADER_RE.get_or_init(|| {
+        regex::Regex::new(r"(?i)^#{2,3}\s*(?:(?:slide|слайд)\s*№?\s*\d+|\d+\.\s)").unwrap()
+    });
+
     for line in response.lines() {
         let trimmed = line.trim();
 
@@ -408,14 +416,7 @@ pub fn split_response_notes_and_synthesis(response: &str) -> (String, String) {
         });
 
         // Check if this line starts a slide section
-        let is_slide_header = {
-            use std::sync::OnceLock;
-            static RE: OnceLock<regex::Regex> = OnceLock::new();
-            let re = RE.get_or_init(|| {
-                regex::Regex::new(r"(?i)^#{2,3}\s*(?:(?:slide|слайд)\s*№?\s*\d+|\d+\.\s)").unwrap()
-            });
-            re.is_match(trimmed)
-        };
+        let is_slide_header = slide_header_re.is_match(trimmed);
 
         if is_synthesis_header {
             in_synthesis = true;

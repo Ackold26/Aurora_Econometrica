@@ -150,10 +150,7 @@ pub fn check_update(
     };
 
     // If versions match, check individual file checksums
-    let needs_update = match &local_ver {
-        Some(lv) if lv == sv => false,
-        _ => true,
-    };
+    let needs_update = !matches!(&local_ver, Some(lv) if lv == sv);
 
     let mut files_to_update = Vec::new();
 

@@ -35,7 +35,7 @@ async fn check_supabase(product: &str) -> Result<VersionInfo> {
         .build()?;
 
     let resp = client
-        .post(&supabase_update_url())
+        .post(supabase_update_url())
         .json(&serde_json::json!({ "product": product }))
         .send()
         .await?;

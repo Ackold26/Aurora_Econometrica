@@ -510,6 +510,7 @@ fn parse_slide_selection(params: &str) -> Option<Vec<u32>> {
 /// Multi-phase analytics pipeline for large PPTX presentations.
 /// Chains Phase 0 (map) → Phase 1 (detail chunks) → Phase 2 (synthesis) via --resume.
 /// Returns (phase1_markdowns, synthesis_markdown, final_session_id).
+#[allow(clippy::too_many_arguments)]
 async fn run_analytics_pipeline(
     work_dir: &std::path::Path,
     overview: &str,
@@ -751,7 +752,7 @@ async fn send_message(
             if let Ok(entries) = std::fs::read_dir(&inbox_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().map_or(false, |e| e.eq_ignore_ascii_case("pptx")) {
+                    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pptx")) {
                         pptx_files.push(path);
                     }
                 }
@@ -1106,7 +1107,8 @@ async fn send_message(
 
     // ─── Auto-postprocess: generate _commented.pptx + _commentary.docx ───
     // For media-analyst: parse Claude's response → split into slide notes + synthesis → create output files
-    if cabinet_id == "media-analyst" && pptx_filename.is_some() && is_analytics {
+    if cabinet_id == "media-analyst" && is_analytics {
+        if let Some(fname) = pptx_filename.as_ref() {
         let exports_dir = work_dir.join("exports");
         let preprocessed_dir = work_dir.join("preprocessed");
         let response_md = last_response_text.clone();
@@ -1115,7 +1117,6 @@ async fn send_message(
             let (notes_md, synthesis_md) = commands::pptx_processor::split_response_notes_and_synthesis(&response_md);
             let notes = commands::pptx_processor::parse_response_to_notes(&notes_md);
             if !notes.is_empty() {
-                let fname = pptx_filename.as_ref().unwrap();
                 let pptx_path = work_dir.join("inbox").join(fname);
                 let stem = std::path::Path::new(fname).file_stem()
                     .map(|s| s.to_string_lossy().to_string())
@@ -1161,6 +1162,7 @@ async fn send_message(
             } else {
                 info!("Auto-postprocess: no slide sections found in response, skipping PPTX/DOCX generation");
             }
+        }
         }
     }
 
@@ -1608,7 +1610,7 @@ fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), Str
             .map(|d| res_dir.join(d).join(&filename))
             .find(|p| p.exists())
         {
-            return tauri_plugin_opener::open_path(&path.to_string_lossy().to_string(), None::<&str>)
+            return tauri_plugin_opener::open_path(path.to_string_lossy().to_string(), None::<&str>)
                 .map_err(|e| e.to_string());
         }
     }
@@ -1619,7 +1621,7 @@ fn open_help(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), Str
         .join("help-econometrica")
         .join(&filename);
     if dev_path.exists() {
-        return tauri_plugin_opener::open_path(&dev_path.to_string_lossy().to_string(), None::<&str>)
+        return tauri_plugin_opener::open_path(dev_path.to_string_lossy().to_string(), None::<&str>)
             .map_err(|e| e.to_string());
     }
 
@@ -2572,7 +2574,7 @@ fn execute_workflow_steps(
                             let dev_root = std::env::var("AIAGENCY_DEV_CABINETS")
                                 .unwrap_or_else(|_| "New_AI_Agency".to_string());
                             let folder = commands::cabinet::cabinet_folder_name(cabinet_id);
-                            let source = std::path::PathBuf::from(&dev_root).join(&folder);
+                            let source = std::path::PathBuf::from(&dev_root).join(folder);
                             let workspace =
                                 user_config::default_cabinet_workspace(cabinet_id)
                                     .map_err(|e| e.to_string())?;
@@ -3301,7 +3303,7 @@ pub fn run() {
 
                 // Retry once after cache cleanup
                 match build_app() {
-                    Ok(()) => return,
+                    Ok(()) => (),
                     Err(retry_err) => {
                         let msg = format!(
                             "Приложение не смогло запуститься после очистки кэша WebView2.\n\n\

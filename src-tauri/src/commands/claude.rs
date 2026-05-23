@@ -77,6 +77,7 @@ pub fn user_message(err: &ClaudeError) -> String {
 
 /// Spawn Claude Code CLI and stream output via Tauri events.
 /// Returns (session_id, response_text) - session ID for --resume and full response text.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_claude(
     work_dir: &Path,
     prompt: &str,
@@ -105,6 +106,7 @@ pub async fn run_claude_pipeline(
     Ok((sid, response_text))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_claude_inner(
     work_dir: &Path,
     prompt: &str,
@@ -511,7 +513,7 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
                     );
                 } else {
                     // Try to write as number first
-                    let cleaned = cell.replace(',', ".").replace('%', "").replace(' ', "").replace('\u{a0}', "");
+                    let cleaned = cell.replace(',', ".").replace(['%', ' ', '\u{a0}'], "");
                     if let Ok(num) = cleaned.parse::<f64>() {
                         let _ = worksheet.write_number(row_idx as u32, col_idx as u16, num);
                         if col_idx < numeric_cols.len() {
@@ -538,7 +540,7 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
                 .map(|row| row.get(col).map_or(0, |c| c.len()))
                 .max()
                 .unwrap_or(8);
-            let width = (max_len as f64 * 1.2).max(8.0).min(50.0);
+            let width = (max_len as f64 * 1.2).clamp(8.0, 50.0);
             let _ = worksheet.set_column_width(col as u16, width);
         }
 
@@ -549,8 +551,8 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
                 .set_bold()
                 .set_border_top(rust_xlsxwriter::FormatBorder::Double);
 
-            for col in 0..num_cols {
-                if numeric_cols[col] {
+            for (col, &is_numeric) in numeric_cols.iter().enumerate().take(num_cols) {
+                if is_numeric {
                     let col_letter = col_to_letter(col);
                     let formula_str = format!("=SUM({}2:{}{})", col_letter, col_letter, table.len());
                     let formula = rust_xlsxwriter::Formula::new(&formula_str);
@@ -564,8 +566,8 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
         }
 
         // --- Conditional formatting: color scale on numeric columns ---
-        for col in 0..num_cols {
-            if numeric_cols[col] && num_data_rows >= 2 {
+        for (col, &is_numeric) in numeric_cols.iter().enumerate().take(num_cols) {
+            if is_numeric && num_data_rows >= 2 {
                 let cf = rust_xlsxwriter::ConditionalFormat3ColorScale::new()
                     .set_minimum_color(rust_xlsxwriter::Color::RGB(0xF8696B))  // red (low)
                     .set_midpoint_color(rust_xlsxwriter::Color::RGB(0xFFEB84)) // yellow (mid)

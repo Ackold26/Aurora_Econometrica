@@ -182,7 +182,7 @@ pub async fn project_list() -> Result<Vec<ProjectInfo>, String> {
     let mut projects = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&root) {
         for entry in entries.flatten() {
-            if entry.file_type().map_or(false, |t| t.is_dir()) {
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
                 if let Ok(info) = read_project(&entry.path()) {
                     projects.push(info);
                 }
@@ -434,7 +434,7 @@ pub async fn project_get_active() -> Result<Option<String>, String> {
 pub async fn project_stats(project_id: String) -> Result<Value, String> {
     let dir = project_dir(&project_id)?;
     if !dir.exists() {
-        return Err(format!("Проект не найден"));
+        return Err("Проект не найден".to_string());
     }
 
     let has_data = dir.join("data").read_dir()
@@ -445,7 +445,7 @@ pub async fn project_stats(project_id: String) -> Result<Value, String> {
     let has_optimization = dir.join("results").join("optimization.json").exists();
     let n_scenarios = dir.join("results").join("scenarios")
         .read_dir()
-        .map(|d| d.flatten().filter(|e| e.path().extension().map_or(false, |ext| ext == "json")).count())
+        .map(|d| d.flatten().filter(|e| e.path().extension().is_some_and(|ext| ext == "json")).count())
         .unwrap_or(0);
 
     Ok(serde_json::json!({

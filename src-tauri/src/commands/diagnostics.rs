@@ -38,20 +38,20 @@ pub fn collect_report(
     let log_content = find_and_read_log(app_config_dir);
 
     report.push_str(&section("Errors Summary", || section_errors_summary(&log_content)));
-    report.push_str(&section("Application", || section_app()));
-    report.push_str(&section("System", || section_system()));
-    report.push_str(&section("Machine ID", || section_machine_id()));
+    report.push_str(&section("Application", section_app));
+    report.push_str(&section("System", section_system));
+    report.push_str(&section("Machine ID", section_machine_id));
     report.push_str(&section("License", || section_license(app_config_dir)));
     report.push_str(&section("Online Auth", || section_auth(app_config_dir)));
     report.push_str(&section("Vaults", || section_vaults(app_data_dir)));
     report.push_str(&section("Content Packs", || section_content_packs(app_local_data_dir)));
-    report.push_str(&section("Claude CLI", || section_claude_cli()));
+    report.push_str(&section("Claude CLI", section_claude_cli));
     let product = crate::commands::online_auth::detect_product();
     if !matches!(product, "legal" | "docmaster") {
-        report.push_str(&section("Python / PPTX", || section_python()));
+        report.push_str(&section("Python / PPTX", section_python));
     }
     report.push_str(&section("App Log (last 200 lines)", || section_app_log_from(&log_content)));
-    report.push_str(&section("Audit Log (last 20 entries)", || section_audit_log()));
+    report.push_str(&section("Audit Log (last 20 entries)", section_audit_log));
 
     report
 }
@@ -183,7 +183,7 @@ fn section_system() -> String {
             // Parse "Total free bytes" line
             out.lines()
                 .find(|l| l.contains("free bytes") && !l.contains("caller"))
-                .and_then(|l| l.split(':').last())
+                .and_then(|l| l.split(':').next_back())
                 .map(|v| {
                     let bytes: u64 = v.trim().replace([',', ' ', '.'], "").parse().unwrap_or(0);
                     format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)

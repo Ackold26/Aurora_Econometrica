@@ -173,6 +173,7 @@ pub async fn econ_decompose(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn econ_optimize(
     project_dir: String,
     total_budget: Option<f64>,
@@ -267,6 +268,7 @@ pub async fn econ_hierarchical_warning(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn econ_scenario(
     project_dir: String,
     scenario_name: String,
