@@ -820,7 +820,7 @@ fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
                 })
                 .collect();
             // Sort newest first (mtime desc)
-            entries_with_mtime.sort_by(|a, b| b.1.cmp(&a.1));
+            entries_with_mtime.sort_by_key(|b| std::cmp::Reverse(b.1));
             total_scenarios_count = entries_with_mtime.len();
             entries_with_mtime.truncate(SCENARIO_LIMIT);
             for (p, _) in entries_with_mtime {

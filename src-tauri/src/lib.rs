@@ -1842,7 +1842,7 @@ async fn list_recent_exports(app_handle: tauri::AppHandle) -> Result<Vec<(String
             Some((mtime, cab_id, fname, cab_name, path))
         })
         .collect();
-    with_mtime.sort_by(|a, b| b.0.cmp(&a.0));
+    with_mtime.sort_by_key(|b| std::cmp::Reverse(b.0));
     with_mtime.truncate(20);
     let exports: Vec<(String, String, String)> = with_mtime.into_iter().map(|(_, id, f, n, _)| (id, f, n)).collect();
 
