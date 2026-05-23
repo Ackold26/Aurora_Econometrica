@@ -1,5 +1,9 @@
 # Phase 3.1 Install-Lock Fix — Smoke Test Plan
 
+> **STATUS: ✅ VERIFIED 2026-05-23 на EVO-X1.** GUI v1.2.0 → 2.1.0-rc1 + sidecar PID 62096→75192 + version 1.2.0→2.1.0-rc1 updated cleanly через manual NSIS installer launch с running v1.2.0. NSIS PREINSTALL hook visible в progress text. Tauri 2's default «App is running, click OK» dialog also appeared (defense-in-depth redundancy). License Ed25519 + Vault HKDF+AES-256-GCM работают post-update. **НИ ОДНОГО** «Error opening file for writing» dialog за весь install — main goal achieved. INV-49 promoted к `accepted`. Bug v1.2.0 silent install-skip — closed.
+
+
+
 **Дата создания плана:** 2026-05-23
 **Branch:** `fix/install-lock-3.1`
 **HEAD:** `2dadd3a` (включает install-lock fix + audit hardening + cabinet sync)
