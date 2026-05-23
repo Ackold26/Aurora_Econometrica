@@ -18,13 +18,24 @@
   ; taskkill /IM matches by image name (idempotent — no-op если процесс уже мёртв).
   ; /T убивает дерево, /F форсирует. ExecWait блокирует до завершения.
   ; Игнорируем exit code: 128 = "process not found" — это OK, цель достигнута.
-  DetailPrint "Подготовка к обновлению: останавливаем фоновые процессы..."
-  ExecWait 'taskkill /IM "econometrica-sidecar.exe" /T /F' $0
+  ;
+  ; ASCII-only DetailPrint (audit 2026-05-23): Cyrillic в Tauri 2 NSIS template
+  ; не verified в production-tested Aurora products. Safer fallback на English
+  ; чтобы избежать garbled text на customer screen при first NSIS build.
+  ;
+  ; USERNAME filter (audit 2026-05-23): на multi-user RDP server taskkill /IM
+  ; без USERNAME filter может убить процесс другого пользователя с похожим
+  ; именем. /FI "USERNAME eq %USERNAME%" scope kill только к current installer
+  ; user context (даже если elevated — installer runs as invoking user).
+  DetailPrint "Preparing for update: stopping background processes..."
+  ExecWait 'taskkill /IM "econometrica-sidecar.exe" /FI "USERNAME eq %USERNAME%" /T /F' $0
   Sleep 1500
-  ExecWait 'taskkill /IM "aurora-econometrica-gui.exe" /T /F' $0
+  ExecWait 'taskkill /IM "aurora-econometrica-gui.exe" /FI "USERNAME eq %USERNAME%" /T /F' $0
   Sleep 1000
-  ; Доп. страховка для PyInstaller-bundle процессов (multiprocessing workers)
-  ExecWait 'taskkill /IM "python.exe" /FI "WINDOWTITLE eq econometrica*" /T /F' $0
+  ; Доп. страховка для PyInstaller-bundle процессов (multiprocessing workers).
+  ; Sidecar python.exe spawned с CREATE_NO_WINDOW → WINDOWTITLE filter likely no-op
+  ; в normal case, но USERNAME filter дополнительно scope'ит для RDP safety.
+  ExecWait 'taskkill /IM "python.exe" /FI "USERNAME eq %USERNAME%" /FI "WINDOWTITLE eq econometrica*" /T /F' $0
   Sleep 500
 !macroend
 
