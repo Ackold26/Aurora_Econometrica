@@ -51,7 +51,7 @@ runs:
         # install-mcmc-deps='true' для local + occasional integration runs.
         pip install pytest pytest-xdist pytest-asyncio httpx \
           'numpy>=1.24.0,<3.0' 'pandas>=2.0.0' \
-          scikit-learn openpyxl fastapi
+          scikit-learn openpyxl fastapi python-pptx
 
     - name: Install full sidecar deps (PyMC + NumPyro)
       if: inputs.install-python == 'true' && inputs.install-mcmc-deps == 'true'

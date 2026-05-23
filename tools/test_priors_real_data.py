@@ -50,6 +50,13 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import LinearRegression
 
+# Module-level marker: все tests требуют real NDA-protected XLSX files на Антоновском
+# Desktop. CI runner doesn't have these files → tests fail с FileNotFoundError.
+# CI filter `-m "not requires_real_data and not slow"` filters this entire module.
+# Local runs (AURORA_TESTDATA_DIR set + files present) execute normally.
+# Sprint Buffer CI fix 2026-05-23: marker added explicitly (previously missing).
+pytestmark = pytest.mark.requires_real_data
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 ROOT = Path(__file__).parent.parent
