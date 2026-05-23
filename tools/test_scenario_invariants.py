@@ -457,14 +457,23 @@ def test_S12_forecast_horizon_length(tmp_path, forecast_n):
 
 
 def test_S13_money_mode_flag_when_partial_coverage(tmp_path):
-    """unit_costs missing one channel → units_fully_covered=False, total_spend_money=None."""
+    """unit_costs missing PHYSICAL channel → units_fully_covered=False, total_spend_money=None.
+
+    CI fix 2026-05-24: mixed_units=True fixture puts ONLY channel 0 (tv_trps_brand) as
+    physical (uc=150000); ch_1/ch_2/ch_3 are money channels (uc=1.0, classified
+    'monetary' by persistence default). F-019 hardening (2026-05-18 pilot) интенционально
+    auto-covers money channels (per_channel_input='monetary') когда user provides ANY
+    unit_costs — для partial coverage detection нужно drop PHYSICAL channel, который
+    не имеет classification='monetary' fallback.
+    """
     proj = tmp_path / 'S13'
     md = build_synthetic_pickle(proj, seed=3, n_channels=4, mixed_units=True)
     plan = make_media_plan_from_current(proj, per_period=True)
     media_cols = md['config']['media_columns']
 
-    # Drop one channel from unit_costs (partial coverage)
-    incomplete_uc = {c: 1.0 for c in media_cols[:-1]}  # last channel not covered
+    # CI fix: drop PHYSICAL channel (tv_trps_brand at index 0), not last money channel.
+    # Auto-cover для money channels intended per F-019 — physical drop = real partial coverage.
+    incomplete_uc = {c: 1.0 for c in media_cols if c != 'tv_trps_brand'}
 
     from engines.scenario import predict_scenario
     r = predict_scenario({

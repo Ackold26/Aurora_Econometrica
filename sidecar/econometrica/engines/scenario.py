@@ -19,6 +19,18 @@ from utils.posterior_propagation import (
 )
 
 
+def _safe_int_or_none(v: Any) -> int | None:
+    """Coerce v к int если possible, иначе None. Used для frontend-provided
+    optional integer fields (forecast_periods) where invalid input должен
+    gracefully degrade instead of crashing scenario.json serialization."""
+    if v is None:
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     """Predict KPI for a given media plan scenario.
 
@@ -71,6 +83,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     posterior_samples = load_posterior_samples(model_data)
     # Sanitize: отрицательные / NaN unit_costs → отфильтровываются (канал без
     # валидной цены считается не покрытым деньгами, money-mode не включится).
+    # CI fix 2026-05-24 (D3): tracking original raw keys (user-attempted unit_costs)
+    # для exclusion из _is_money_channel default-monetary fallback. Если user provided
+    # invalid unit_cost (negative/NaN), это explicit signal что channel физический и
+    # требует валидный unit_cost — не должен auto-cover'иться как default-monetary.
+    _raw_unit_costs_attempted = set((config.get('unit_costs') or {}).keys())
     unit_costs = _sanitize_unit_costs(config.get('unit_costs'))
 
     # Phase 2 audit pass 4 - per-channel inflation. Если customer задал годовой
@@ -634,6 +651,12 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     def _is_money_channel(ch: str) -> bool:
         if not has_explicit_unit_costs:
             return False  # legacy pickle protection
+        # CI fix 2026-05-24 (D3): channel что user attempted unit_cost для (но был
+        # filtered как invalid negative/NaN) НЕ должен auto-cover'иться через default
+        # 'monetary' fallback — user intent сигнализирует physical channel needing
+        # explicit unit_cost.
+        if ch in _raw_unit_costs_attempted and ch not in unit_costs:
+            return False
         return per_channel_input.get(ch, 'monetary') == 'monetary'
     active_channels = [c for c in media_cols if per_channel_native.get(c, 0) > 0]
     covered = [
@@ -727,7 +750,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         # v2.1.0 (pilot R3-E04 round 4 2026-05-17): persist planning context для
         # re-load через compare table - frontend может surface «Прогноз на: 2027 год»
         # badge. Без этого scenario JSON теряет horizon provenance.
-        'forecast_periods': int(forecast_periods_cfg) if forecast_periods_cfg is not None else None,
+        # CI fix 2026-05-24: graceful int() с fallback к None при invalid input
+        # (matches result dict с upstream try/except branch line 190-218 что parses
+        # forecast_periods_cfg для actual computation. Without this guard, scenario.json
+        # serialization crashed на invalid frontend input).
+        'forecast_periods': _safe_int_or_none(forecast_periods_cfg),
         'forecast_period_label': config.get('forecast_period_label') or None,
         'per_channel_spend': {
             'native': {k: round(v, 2) for k, v in per_channel_native.items()},

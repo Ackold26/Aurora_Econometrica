@@ -159,6 +159,19 @@ def build_synthetic_pickle(
         for col in media_cols
     }
 
+    # CI fix 2026-05-24: explicitly inject per_channel_input classification
+    # на основе mixed_units flag. Без этого persistence._inject_v20_defaults() blanket-
+    # defaults all channels к 'monetary', что блокирует partial coverage detection
+    # (S13 test). При mixed_units=True — tv_trps_brand classified 'physical' (требует
+    # explicit unit_cost), остальные 'monetary' (auto-cover per F-019). При
+    # mixed_units=False — все 'monetary' (legacy ROI mode default).
+    per_channel_input = {}
+    for col in media_cols:
+        if mixed_units and col == 'tv_trps_brand':
+            per_channel_input[col] = 'physical'
+        else:
+            per_channel_input[col] = 'monetary'
+
     model_data = {
         'config': {
             'data_file': str(data_path),
@@ -171,6 +184,7 @@ def build_synthetic_pickle(
             'merge_rules': {},
             'kpi_type': 'awareness' if awareness else 'sales',
         },
+        'per_channel_input': per_channel_input,
         'channel_params': channel_params,
         'normalization': {
             'media_means': media_means,
