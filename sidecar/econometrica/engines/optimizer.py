@@ -506,7 +506,13 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         ratio = float(total_budget_money_target) / max(total_current_money, 1e-9)
         total_budget = total_current * ratio
     else:
-        total_budget = config.get('total_budget') or total_current
+        # Bug fix 2026-05-25 (Goal-Seek): `config.get('total_budget') or total_current`
+        # treats 0 как falsy → возвращает total_current когда total_budget=0.
+        # Это ломает inverse Goal-Seek bisection: _forward_at_budget(0) actually
+        # returns forward(current_spend), bisection thinks budget=0 suffices для
+        # любой target ≤ current_sales. Explicit None check сохраняет 0 как valid.
+        _cfg_budget = config.get('total_budget')
+        total_budget = float(_cfg_budget) if _cfg_budget is not None else total_current
 
     min_pct_global = config.get('min_pct', 50) / 100
     max_pct_global = config.get('max_pct', 150) / 100
