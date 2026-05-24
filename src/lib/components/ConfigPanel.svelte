@@ -569,7 +569,7 @@ Weibull (плавная build-up):
               <input type="radio" name="mcmcPreset" value="custom" bind:group={mcmcPreset} />
               <span class="preset-body">
                 <span class="preset-label">Эксперт-режим</span>
-                <span class="preset-hint">Ручная настройка параметров для аналитиков</span>
+                <span class="preset-hint">Ручная настройка параметров</span>
               </span>
             </label>
           </div>
