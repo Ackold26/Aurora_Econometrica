@@ -2,6 +2,65 @@
 
 ---
 
+## v2.1.0-rc5 — Help-system Phase 3 Day 1 (Task 1 + Task 2) (2026-05-24)
+
+Продолжение help-system audit от v2.1.0-rc4. Закрыты **2 из 4 Phase 3 задач** (Trajectory C — split, Day 1). Структурная UI работа: переприоритизация диагностического layout'а под менеджера + замена raw MCMC params на preset radio.
+
+Архитектурная модель — **layered defense для двух аудиторий**: менеджер читает primary line (короткий verdict на простом языке), эконометрист раскрывает technical detail одним кликом и видит полный original текст. Никто не теряет (per Антоновское «избегаем излишнего упрощения»).
+
+### Task 1A — `DiagnosticsPanel.svelte` layout reorganization
+
+Раньше: 4 traffic-light rows в grid `14px / 1fr / auto / auto` — hint строки с business-language («Модель сошлась», «Точность прогноза высокая») были в column 4 мелким текстом справа от raw chips. Менеджер сначала видел чипы (R-hat 1.02, ESS 1500) и только потом — справа маленьким — интерпретацию.
+
+Теперь: внутри каждой row двухстрочная структура:
+- **Primary line (top):** label + business-language hint с цветным status icon (✓ зелёный / ! жёлтый / × красный / i серый для info-only sensitivity row). Font 13px, primary text color.
+- **Secondary line (bottom):** raw metric chips (R-hat, ESS, MAPE, R², DW, ±%) с opacity 0.75. Font 11px, secondary text color.
+
+Эконометрист видит чипы как и раньше (просто демоут визуальный приоритет). Менеджер читает primary line как первый поток внимания. Renames per «no jargon in user-facing copy»: «Сходимость (MCMC)» → «Сходимость», «Posterior predictive» → «Качество подгонки». Удалён `@media (max-width: 600px)` block — новый layout уже single-column адаптивен.
+
+### Task 1B — `ConvergenceDashboard.svelte` banner двухуровневая structure
+
+Раньше: два warning banners (`rhatFailed > 0` + `divergences > 0`) с **сложной nested logic tree** на 8 веток (divergences ≤10 / 10-50 / 50+ × Tune budget). Полный текст содержал жаргон («target_accept», «posterior geometry», «NUTS adaptation») и instructions ссылающиеся на UI control'ы (`target_accept=0.99`) которых **нет в интерфейсе** (RF-3 из recon — `target_accept` отображается в banner но не редактируется).
+
+Теперь:
+- **Primary line (всегда видна):** короткий manager-friendly verdict + конкретное действие на простом языке для каждой из 8 веток. Без жаргона. Без ссылок на non-existent UI control'ы. Маркеры ✓/⚠ перед текстом для быстрого visual scan.
+- **Технические детали (collapsible через `<details>` / `<summary>`):** original verbatim текст со всеми terminology preserved для эконометриста. Tune/Draws/target_accept ссылки остаются (они корректны как diagnostic display values).
+
+Reasoning: 8-сценарийная differentiation полезна для эконометриста (cosmetic divergence vs posterior geometry problem требуют разных действий). Plain replacement banner стёр бы эту nuance. Двухуровневая структура сохраняет полную semantic depth + presents short verdict первым потоком.
+
+### Task 2 — MCMC params → preset radio в `ConfigPanel.svelte`
+
+Раньше: три bare number inputs (`<input type="number" bind:value={mcmcChains}>` + Draws + Tune) внутри `showAdvanced` (Эксперт-режим) gate. Менеджер, открывший «Расширенные настройки», видел raw поля без объяснения что такое Tune/Draws/Chains.
+
+Теперь — **two-tier nested gate**:
+- `showAdvanced=true` (как раньше) → разворачивает MCMC section с **3 preset radio**:
+  - «Стандартный» (Tune 2000 · Draws 2000 · Chains 4) — для большинства задач
+  - «Высокая точность» (Tune 4000 · Draws 4000 · Chains 4) — для финальных моделей
+  - «Эксперт-режим» (custom) — раскрывает оригинальные 3 number inputs
+- Preset выбор **persisted в localStorage** key `econ-mcmc-preset` (читается на mount, пишется через `$effect`).
+- `$effect` автоматически синхронизирует `mcmcTune`/`mcmcDraws`/`mcmcChains` с выбранным preset (кроме `custom` — там user controls raw values напрямую).
+
+Manager-friendly path: не нужно знать что такое «Tune/Draws/Chains» — выбираешь категорию задачи и preset закрепляет проверенные defaults. Эконометрист: один дополнительный radio click → custom values available.
+
+### Phase 3 closures (этим релизом)
+
+- ✅ **Task 1A** DiagnosticsPanel layout reorg
+- ✅ **Task 1B** ConvergenceDashboard banner двухуровневая structure
+- ✅ **Task 2** MCMC preset radio в ConfigPanel
+
+### Phase 3 remaining (Day 2)
+
+- ⏸ **Task 3** Insights без жаргона — rewrite `insights-rules.js` (~25 user-facing strings с `R-hat`, `Markov Chain Monte Carlo`, `β-коэффициент`, `доверительные интервалы`, `posterior`, `omitted variable bias`, `priors`, `Adstock`, `Hill saturation` — Sonnet recon карта в Section 6)
+- ⏸ **Task 4** Inline glossary popup pattern — новый component `GlossaryTerm.svelte` + sessionStorage-tracked first-appearance pattern в 5-10 ключевых местах
+
+### Verification
+
+- `npm run check` — **0 errors, 173 warnings** (identical to v2.1.0-rc4 baseline, no regression).
+- Audit pass (Opus): обе Sonnet implementations spot-checked per `feedback_verify_external_repo_state_before_acting` Reference 4 — корректно. Минор known limitation: при перезагрузке custom MCMC values revert к defaults (pre-existing behaviour локальных `$state` vars, не ухудшено Phase 3).
+- Recon отловил **3 stale claims** в audit doc до spawn'а Sonnet implementers: DiagnosticsPanel hint уже had business-language (gap был в layout приоритете, не в тексте); ConvergenceDashboard banner = 8 веток (не одна фраза); MCMC controls в ConfigPanel:528-554, не StepPlanInputs:539-555. Recon-first approach сэкономил ~30-60 min rework. **RF-3** flag (target_accept без UI input) предотвратил dead-end UX в banner copy.
+
+---
+
 ## v2.1.0-rc4 — Improvements справочной системы под двойную аудиторию (2026-05-24)
 
 Доработки after внутреннего help-system audit (Маша маленькая Opus 4.7 + 3× параллельных Sonnet recon). Цель: усилить позиционирование «топовый эконометрист руками менеджера» — справка должна одинаково работать для менеджера по рекламе/аналитика без эконометрического образования (90% аудитории) и для эконометриста (10%).

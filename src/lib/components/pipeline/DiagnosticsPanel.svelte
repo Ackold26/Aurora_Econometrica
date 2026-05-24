@@ -176,56 +176,78 @@
     <!-- Row 1: MCMC Convergence -->
     <div class="diag-row" role="listitem">
       <span class="tl-dot tl-{mcmc.status}" aria-label="Сходимость: {mcmc.status === 'ok' ? 'хорошо' : mcmc.status === 'warn' ? 'предупреждение' : 'ошибка'}"></span>
-      <span class="row-label">Сходимость (MCMC)</span>
-      <span class="row-values">
-        <span class="metric-chip">R-hat {mcmc.rhat}</span>
-        <span class="metric-chip">ESS {mcmc.ess}</span>
-      </span>
-      <span class="row-hint">
-        {#if mcmc.status === 'ok'}Модель сошлась
-        {:else if mcmc.status === 'warn'}Частичная сходимость
-        {:else}Не сошлась - нужно больше итераций{/if}
-      </span>
+      <div class="row-body">
+        <div class="row-top">
+          <span class="row-label">Сходимость</span>
+          <span class="row-hint-primary status-{mcmc.status}">
+            <span class="status-icon" aria-hidden="true"></span>
+            {#if mcmc.status === 'ok'}Модель сошлась
+            {:else if mcmc.status === 'warn'}Частичная сходимость
+            {:else}Не сошлась — нужно больше итераций{/if}
+          </span>
+        </div>
+        <div class="row-chips">
+          <span class="metric-chip">R-hat {mcmc.rhat}</span>
+          <span class="metric-chip">ESS {mcmc.ess}</span>
+        </div>
+      </div>
     </div>
 
     <!-- Row 2: Backtest -->
     <div class="diag-row" role="listitem">
       <span class="tl-dot tl-{backtest.status}" aria-label="Бэктест: {backtest.status === 'ok' ? 'хорошо' : backtest.status === 'warn' ? 'предупреждение' : 'ошибка'}"></span>
-      <span class="row-label">Бэктест</span>
-      <span class="row-values">
-        <span class="metric-chip">MAPE {backtest.mape}%</span>
-        <span class="metric-chip">R² {backtest.r2}</span>
-      </span>
-      <span class="row-hint">
-        {#if backtest.status === 'ok'}Точность прогноза высокая
-        {:else if backtest.status === 'warn'}Умеренная точность
-        {:else}Ошибка прогноза высокая{/if}
-      </span>
+      <div class="row-body">
+        <div class="row-top">
+          <span class="row-label">Бэктест</span>
+          <span class="row-hint-primary status-{backtest.status}">
+            <span class="status-icon" aria-hidden="true"></span>
+            {#if backtest.status === 'ok'}Точность прогноза высокая
+            {:else if backtest.status === 'warn'}Умеренная точность
+            {:else}Ошибка прогноза высокая{/if}
+          </span>
+        </div>
+        <div class="row-chips">
+          <span class="metric-chip">MAPE {backtest.mape}%</span>
+          <span class="metric-chip">R² {backtest.r2}</span>
+        </div>
+      </div>
     </div>
 
-    <!-- Row 3: Posterior Predictive Check -->
+    <!-- Row 3: Quality of fit -->
     <div class="diag-row" role="listitem">
-      <span class="tl-dot tl-{ppc.status}" aria-label="Posterior predictive: {ppc.status === 'ok' ? 'хорошо' : ppc.status === 'warn' ? 'предупреждение' : 'ошибка'}"></span>
-      <span class="row-label">Posterior predictive</span>
-      <span class="row-values">
-        <span class="metric-chip">R² {ppc.r2}</span>
-        <span class="metric-chip">DW {ppc.dw}</span>
-      </span>
-      <span class="row-hint">
-        {#if ppc.status === 'ok'}Остатки без паттернов
-        {:else if ppc.status === 'warn'}Умеренное качество подгонки
-        {:else}Систематическая ошибка{/if}
-      </span>
+      <span class="tl-dot tl-{ppc.status}" aria-label="Качество подгонки: {ppc.status === 'ok' ? 'хорошо' : ppc.status === 'warn' ? 'предупреждение' : 'ошибка'}"></span>
+      <div class="row-body">
+        <div class="row-top">
+          <span class="row-label">Качество подгонки</span>
+          <span class="row-hint-primary status-{ppc.status}">
+            <span class="status-icon" aria-hidden="true"></span>
+            {#if ppc.status === 'ok'}Остатки без паттернов
+            {:else if ppc.status === 'warn'}Умеренное качество подгонки
+            {:else}Систематическая ошибка{/if}
+          </span>
+        </div>
+        <div class="row-chips">
+          <span class="metric-chip">R² {ppc.r2}</span>
+          <span class="metric-chip">DW {ppc.dw}</span>
+        </div>
+      </div>
     </div>
 
     <!-- Row 4: Sensitivity -->
     <div class="diag-row" role="listitem">
       <span class="tl-dot tl-ok" aria-label="Чувствительность: информация"></span>
-      <span class="row-label">Чувствительность - {sensitivity.label}</span>
-      <span class="row-values">
-        <span class="metric-chip chip-info">±{sensitivity.pct}%</span>
-      </span>
-      <span class="row-hint">Влияние параметра на ROI</span>
+      <div class="row-body">
+        <div class="row-top">
+          <span class="row-label">Чувствительность · {sensitivity.label}</span>
+          <span class="row-hint-info">
+            <span class="status-icon" aria-hidden="true"></span>
+            Влияние параметра на ROI
+          </span>
+        </div>
+        <div class="row-chips">
+          <span class="metric-chip chip-info">±{sensitivity.pct}%</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -362,22 +384,13 @@
 
   .diag-row {
     display: grid;
-    grid-template-columns: 14px minmax(140px, 1fr) auto auto;
-    align-items: center;
+    grid-template-columns: 14px 1fr;
+    align-items: start;
     gap: 8px 10px;
-    padding: 7px 8px;
+    padding: 8px 10px;
     background: color-mix(in srgb, var(--text-primary) 3%, transparent);
     border-radius: 6px;
-    min-height: 32px;
-  }
-
-  @media (max-width: 600px) {
-    .diag-row {
-      grid-template-columns: 14px 1fr;
-      grid-template-rows: auto auto;
-    }
-    .row-values { grid-column: 2; }
-    .row-hint { grid-column: 1 / -1; padding-left: 22px; }
+    min-height: 40px;
   }
 
   /* ─── Traffic-light CSS dots (accessibility: not emoji) ─────────────────── */
@@ -387,24 +400,113 @@
     border-radius: 50%;
     flex-shrink: 0;
     display: block;
+    margin-top: 4px;
   }
   .tl-ok   { background: var(--success,  #10B981); box-shadow: 0 0 6px color-mix(in srgb, var(--success,  #10B981) 60%, transparent); }
   .tl-warn { background: var(--warning, #F59E0B); box-shadow: 0 0 6px color-mix(in srgb, var(--warning, #F59E0B) 60%, transparent); }
   .tl-bad  { background: var(--danger,  #EF4444); box-shadow: 0 0 6px color-mix(in srgb, var(--danger,  #EF4444) 60%, transparent); }
 
-  .row-label {
-    font-size: 12px;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .row-body {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
   }
 
-  .row-values {
+  .row-top {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .row-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .row-hint-primary {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .row-hint-info {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Status icon as CSS pseudo-element circle with inner glyph */
+  .status-icon {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+  }
+  .row-hint-primary.status-ok .status-icon {
+    background: color-mix(in srgb, var(--success, #10B981) 18%, transparent);
+  }
+  .row-hint-primary.status-ok .status-icon::after {
+    content: '✓';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--success, #10B981);
+    font-size: 10px; font-weight: 700; line-height: 1;
+  }
+  .row-hint-primary.status-warn .status-icon {
+    background: color-mix(in srgb, var(--warning, #F59E0B) 18%, transparent);
+  }
+  .row-hint-primary.status-warn .status-icon::after {
+    content: '!';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--warning, #F59E0B);
+    font-size: 11px; font-weight: 700; line-height: 1;
+  }
+  .row-hint-primary.status-bad .status-icon {
+    background: color-mix(in srgb, var(--danger, #EF4444) 18%, transparent);
+  }
+  .row-hint-primary.status-bad .status-icon::after {
+    content: '×';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--danger, #EF4444);
+    font-size: 13px; font-weight: 700; line-height: 1;
+  }
+  .row-hint-info .status-icon {
+    background: color-mix(in srgb, var(--text-secondary) 15%, transparent);
+  }
+  .row-hint-info .status-icon::after {
+    content: 'i';
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary);
+    font-size: 10px; font-weight: 600; line-height: 1;
+    font-family: serif;
+    font-style: italic;
+  }
+
+  .row-chips {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    opacity: 0.75;
   }
 
   .metric-chip {
@@ -422,15 +524,6 @@
     background: color-mix(in srgb, var(--warning, #F59E0B) 10%, transparent);
     border-color: color-mix(in srgb, var(--warning, #F59E0B) 25%, transparent);
     color: var(--warning-text, #FBBF24);
-  }
-
-  .row-hint {
-    font-size: 11px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    grid-column: 4;
   }
 
   /* ─── Expert section ──────────────────────────────────────────────────────── */

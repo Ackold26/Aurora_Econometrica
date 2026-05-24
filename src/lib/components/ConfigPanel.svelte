@@ -196,6 +196,26 @@
   let mcmcDraws = $state(2000);
   let mcmcTune = $state(2000);
 
+  // ── MCMC preset radio (Phase 3 help-system) ──
+  const MCMC_PRESETS = {
+    standard: { tune: 2000, draws: 2000, chains: 4, label: 'Стандартный' },
+    precise:  { tune: 4000, draws: 4000, chains: 4, label: 'Высокая точность' },
+    custom:   null,  // signal: use raw values from mcmcTune/mcmcDraws/mcmcChains directly
+  };
+  let mcmcPreset = $state(/** @type {'standard' | 'precise' | 'custom'} */ (
+    (typeof localStorage !== 'undefined' && localStorage.getItem('econ-mcmc-preset')) || 'standard'
+  ));
+  $effect(() => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('econ-mcmc-preset', mcmcPreset);
+    }
+    if (mcmcPreset !== 'custom' && MCMC_PRESETS[mcmcPreset]) {
+      mcmcTune = MCMC_PRESETS[mcmcPreset].tune;
+      mcmcDraws = MCMC_PRESETS[mcmcPreset].draws;
+      mcmcChains = MCMC_PRESETS[mcmcPreset].chains;
+    }
+  });
+
   // ── Time estimate ──
   // Backend: JAX 0.7.2 + NumPyro 0.20.1 NUTS, скомпилированный XLA на CPU.
   // Реальные замеры (S8 Кагоцел, 31 точка, 6 каналов, 4×2000+2000 = 16 000 samples):
@@ -525,32 +545,65 @@ Weibull (плавная build-up):
           {/each}
         </div>
 
-        <!-- MCMC params -->
+        <!-- MCMC params (presets + expert mode opt-in) -->
         <div class="config-group">
-          <label class="config-label">Параметры Markov Chain Monte Carlo</label>
-          <div class="mcmc-grid">
-            <label>
-              <span class="mcmc-label-row">
-                Chains
-                <span class="help-icon" title="Количество параллельных цепей Markov Chain Monte Carlo. Дефолт 4 - надёжная диагностика сходимости (R-hat). На JAX/NUTS параллелятся в один вызов, почти не замедляют обучение. Минимум 2 - для R-hat нужны хотя бы 2 независимые цепи.">?</span>
+          <label class="config-label">Настройки выборки</label>
+
+          <div class="preset-radio-group" role="radiogroup" aria-label="Настройки расчёта">
+            <label class="preset-radio">
+              <input type="radio" name="mcmcPreset" value="standard" bind:group={mcmcPreset} />
+              <span class="preset-body">
+                <span class="preset-label">Стандартный</span>
+                <span class="preset-hint">Tune 2000 · Draws 2000 · Chains 4 — подходит для большинства задач</span>
               </span>
-              <input type="number" bind:value={mcmcChains} min="1" max="8" />
             </label>
-            <label>
-              <span class="mcmc-label-row">
-                Draws
-                <span class="help-icon" title="Число основных выборок на каждую цепь (после разогрева). 2000 - стандарт. 500 - быстрый прогон для проверки. 5000+ - для публикации. Чем больше - тем точнее ROI-оценки и уже доверительные интервалы.">?</span>
+            <label class="preset-radio">
+              <input type="radio" name="mcmcPreset" value="precise" bind:group={mcmcPreset} />
+              <span class="preset-body">
+                <span class="preset-label">Высокая точность</span>
+                <span class="preset-hint">Tune 4000 · Draws 4000 · Chains 4 — медленнее, для финальных моделей</span>
               </span>
-              <input type="number" bind:value={mcmcDraws} min="500" max="10000" step="500" />
             </label>
-            <label>
-              <span class="mcmc-label-row">
-                Tune
-                <span class="help-icon" title="Warmup: число выборок для настройки step-size сэмплера. 1000 - стандарт. При низком ratio (меньше 4:1) увеличьте до 2000. Эти выборки отбрасываются и не влияют на финальный результат.">?</span>
+            <label class="preset-radio">
+              <input type="radio" name="mcmcPreset" value="custom" bind:group={mcmcPreset} />
+              <span class="preset-body">
+                <span class="preset-label">Эксперт-режим</span>
+                <span class="preset-hint">Ручная настройка параметров для аналитиков</span>
               </span>
-              <input type="number" bind:value={mcmcTune} min="200" max="5000" step="100" />
             </label>
           </div>
+
+          {#if mcmcPreset === 'custom'}
+            <div class="custom-mcmc-grid">
+              <!-- Chains -->
+              <label class="custom-mcmc-field-label" for="mcmc-chains">Chains</label>
+              <input
+                id="mcmc-chains"
+                class="mcmc-num"
+                type="number"
+                min="1" max="8" step="1"
+                bind:value={mcmcChains}
+              />
+              <!-- Draws -->
+              <label class="custom-mcmc-field-label" for="mcmc-draws">Draws</label>
+              <input
+                id="mcmc-draws"
+                class="mcmc-num"
+                type="number"
+                min="500" max="10000" step="500"
+                bind:value={mcmcDraws}
+              />
+              <!-- Tune -->
+              <label class="custom-mcmc-field-label" for="mcmc-tune">Tune</label>
+              <input
+                id="mcmc-tune"
+                class="mcmc-num"
+                type="number"
+                min="200" max="5000" step="100"
+                bind:value={mcmcTune}
+              />
+            </div>
+          {/if}
         </div>
       </div>
     {/if}
@@ -815,28 +868,6 @@ Weibull (плавная build-up):
     border-radius: 4px;
   }
 
-  /* Tooltip icon for MCMC params */
-  .help-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--accent-primary) 20%, transparent);
-    color: var(--accent-primary);
-    font-size: 10px;
-    font-weight: 700;
-    margin-left: 6px;
-    cursor: help;
-    vertical-align: middle;
-    line-height: 1;
-  }
-  .help-icon:hover {
-    background: var(--accent-primary);
-    color: #fff;
-  }
-
   .adstock-row {
     display: flex;
     justify-content: space-between;
@@ -845,35 +876,6 @@ Weibull (плавная build-up):
   }
 
   .adstock-name { font-size: 12px; color: var(--text-primary, #e2e8f0); }
-
-  .mcmc-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px;
-  }
-
-  .mcmc-grid label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--text-secondary, #94a3b8);
-  }
-  .mcmc-label-row {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-  }
-
-  .mcmc-grid input {
-    padding: 6px 8px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 4px;
-    color: var(--text-primary, #e2e8f0);
-    font-size: 12px;
-    width: 100%;
-  }
 
   .run-btn {
     padding: 12px;
@@ -943,5 +945,81 @@ Weibull (плавная build-up):
     .spinner {
       border-color: rgba(255,255,255,0.6);
     }
+  }
+
+  /* ── MCMC preset radio (Phase 3 help-system) ── */
+  .preset-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .preset-radio {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text-primary, #e2e8f0) 3%, transparent);
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .preset-radio:hover {
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 30%, transparent);
+  }
+  .preset-radio input[type="radio"] {
+    margin-top: 2px;
+    flex-shrink: 0;
+  }
+  .preset-radio input[type="radio"]:checked + .preset-body .preset-label {
+    color: var(--accent-primary, #3b82f6);
+  }
+  .preset-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .preset-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .preset-hint {
+    font-size: 11px;
+    color: var(--text-secondary, #94a3b8);
+    line-height: 1.4;
+  }
+  .custom-mcmc-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px dashed color-mix(in srgb, var(--border-subtle, rgba(255,255,255,0.08)) 80%, transparent);
+    border-radius: 6px;
+    align-items: center;
+  }
+  .custom-mcmc-field-label {
+    font-size: 11px;
+    color: var(--text-secondary, #94a3b8);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .mcmc-num {
+    padding: 6px 8px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 4px;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    width: 100%;
+    max-width: 160px;
+  }
+  .mcmc-num:focus {
+    border-color: var(--accent-primary, #3b82f6);
+    outline: none;
   }
 </style>

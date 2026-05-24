@@ -201,45 +201,98 @@
        не о сходимости. -->
   {#if rhatFailed > 0}
     <div class="warn-banner warn">
-      ⚠ Модель не сошлась: {rhatFailed} параметров с R-hat &gt; 1.05.
-      Рекомендуется увеличить draws/tune в расширенных настройках.
+      <p class="banner-primary">
+        ⚠ Модель не завершила расчёт корректно: {rhatFailed} параметров показывают
+        нестабильность. Откройте расширенные настройки и увеличьте число итераций.
+      </p>
+      <details class="banner-details">
+        <summary>Технические детали</summary>
+        <div class="banner-secondary">
+          Модель не сошлась: {rhatFailed} параметров с R-hat &gt; 1.05.
+          Рекомендуется увеличить draws/tune в расширенных настройках.
+        </div>
+      </details>
     </div>
   {/if}
   {#if divergences > 0}
     <div class="warn-banner warn">
-      ⚠ {divergences} дивергенций обнаружено <span class="muted">({divergencesPct.toFixed(2)}% от {totalDraws} draws)</span>
-      <span class="muted">(Tune={mcmcTune}, Draws={mcmcDraws}, target_accept={mcmcTargetAccept}).</span>
-      {#if rhatFailed === 0}
-        Параметры сошлись (R-hat &lt; 1.05) - модель готова к использованию.
-        {#if divergences <= 10}
-          {#if mcmcTune < 4000}
-            <strong>Можно продолжать.</strong> Для академической чистоты - увеличьте Tune до 4000-6000 в Эксперт-режиме.
-          {:else if mcmcTargetAccept < 0.99}
-            <strong>Можно продолжать.</strong> Tune уже {mcmcTune} - дальнейшее увеличение не поможет. 1-3 дивергенции практически безвредны для 95% CI; альтернативно - повысьте target_accept до 0.99 (медленнее, но устранит остатки).
+      <p class="banner-primary">
+        {#if rhatFailed === 0}
+          {#if divergences <= 10}
+            {#if mcmcTune < 4000}
+              ✓ Модель рассчитана надёжно. Для максимальной точности можно улучшить
+              выборку в Эксперт-режиме.
+            {:else}
+              ✓ Модель рассчитана надёжно. Единичные нестабильности не влияют на
+              качество результата — можно использовать выводы.
+            {/if}
+          {:else if divergences <= 50}
+            {#if mcmcTune < 6000}
+              ⚠ Результаты можно использовать ориентировочно. Для улучшения точности
+              повторите расчёт с расширенными настройками.
+            {:else}
+              ⚠ Результаты требуют проверки. Попробуйте упростить модель — уберите
+              каналы, которые дублируют друг друга (см. отчёт по мультиколлинеарности
+              в Валидации).
+            {/if}
           {:else}
-            <strong>Можно продолжать.</strong> Tune={mcmcTune}, target_accept={mcmcTargetAccept} - настройки максимальные. Остаточные дивергенции говорят о геометрии posterior'а, а не о NUTS adaptation. Безопасно для 95% CI.
-          {/if}
-        {:else if divergences <= 50}
-          {#if mcmcTune < 6000}
-            <strong>Продолжать можно с осторожностью.</strong> Увеличьте Tune до 6000 и Draws до 4000 - обычно уменьшает дивергенции в 5-10 раз.
-          {:else}
-            <strong>Продолжать можно с осторожностью.</strong> Tune={mcmcTune} не помогает уменьшить дивергенции. Альтернативы: target_accept=0.99, упростить модель (исключить коллинеарные каналы - см. VIF в Эксперт-режиме Валидации), или ужесточить приоры.
+            {#if mcmcTune < 6000}
+              ⚠ Расчёт нестабилен. Повторите с более мощными настройками или упростите
+              состав каналов перед принятием решений.
+            {:else}
+              ⚠ Расчёт нестабилен при текущем наборе каналов. Уберите каналы с похожими
+              данными — это обычно решает проблему. Результаты пока не рекомендуется
+              использовать для планирования.
+            {/if}
           {/if}
         {:else}
           {#if mcmcTune < 6000}
-            <strong>Результаты использовать с осторожностью.</strong> Увеличьте Tune до 6000+, Draws до 6000, и/или исключите сильно коллинеарные каналы (см. VIF в Эксперт-режиме Валидации).
+            ⚠ Модель не завершила расчёт. Увеличьте число итераций или сократите
+            количество каналов — особенно тех, чьи данные похожи друг на друга.
           {:else}
-            <strong>Результаты использовать с осторожностью.</strong> Tune={mcmcTune} максимален - дальнейшее увеличение не поможет. Проблема в геометрии posterior'а: упростите модель (уберите коллинеарные каналы по VIF), сократите количество параметров, или сузьте приоры.
+            ⚠ Модель не завершила расчёт. Упростите модель — уберите каналы с похожими
+            данными (см. мультиколлинеарность в Эксперт-режиме Валидации).
           {/if}
         {/if}
-      {:else}
-        Параметры не сошлись (R-hat &gt; 1.05).
-        {#if mcmcTune < 6000}
-          Увеличьте Tune до 6000 и Draws до 4000; если не помогло - упростите модель (исключите коллинеарные каналы).
-        {:else}
-          Tune={mcmcTune} не помогает достичь сходимости. Упростите модель (уберите коллинеарные каналы по VIF) или пересмотрите приоры в Эксперт-режиме.
-        {/if}
-      {/if}
+      </p>
+      <details class="banner-details">
+        <summary>Технические детали</summary>
+        <div class="banner-secondary">
+          {divergences} дивергенций обнаружено <span class="muted">({divergencesPct.toFixed(2)}% от {totalDraws} draws)</span>
+          <span class="muted">(Tune={mcmcTune}, Draws={mcmcDraws}, target_accept={mcmcTargetAccept}).</span>
+          {#if rhatFailed === 0}
+            Параметры сошлись (R-hat &lt; 1.05) - модель готова к использованию.
+            {#if divergences <= 10}
+              {#if mcmcTune < 4000}
+                <strong>Можно продолжать.</strong> Для академической чистоты - увеличьте Tune до 4000-6000 в Эксперт-режиме.
+              {:else if mcmcTargetAccept < 0.99}
+                <strong>Можно продолжать.</strong> Tune уже {mcmcTune} - дальнейшее увеличение не поможет. 1-3 дивергенции практически безвредны для 95% CI; альтернативно - повысьте target_accept до 0.99 (медленнее, но устранит остатки).
+              {:else}
+                <strong>Можно продолжать.</strong> Tune={mcmcTune}, target_accept={mcmcTargetAccept} - настройки максимальные. Остаточные дивергенции говорят о геометрии posterior'а, а не о NUTS adaptation. Безопасно для 95% CI.
+              {/if}
+            {:else if divergences <= 50}
+              {#if mcmcTune < 6000}
+                <strong>Продолжать можно с осторожностью.</strong> Увеличьте Tune до 6000 и Draws до 4000 - обычно уменьшает дивергенции в 5-10 раз.
+              {:else}
+                <strong>Продолжать можно с осторожностью.</strong> Tune={mcmcTune} не помогает уменьшить дивергенции. Альтернативы: target_accept=0.99, упростить модель (исключить коллинеарные каналы - см. VIF в Эксперт-режиме Валидации), или ужесточить приоры.
+              {/if}
+            {:else}
+              {#if mcmcTune < 6000}
+                <strong>Результаты использовать с осторожностью.</strong> Увеличьте Tune до 6000+, Draws до 6000, и/или исключите сильно коллинеарные каналы (см. VIF в Эксперт-режиме Валидации).
+              {:else}
+                <strong>Результаты использовать с осторожностью.</strong> Tune={mcmcTune} максимален - дальнейшее увеличение не поможет. Проблема в геометрии posterior'а: упростите модель (уберите коллинеарные каналы по VIF), сократите количество параметров, или сузьте приоры.
+              {/if}
+            {/if}
+          {:else}
+            Параметры не сошлись (R-hat &gt; 1.05).
+            {#if mcmcTune < 6000}
+              Увеличьте Tune до 6000 и Draws до 4000; если не помогло - упростите модель (исключите коллинеарные каналы).
+            {:else}
+              Tune={mcmcTune} не помогает достичь сходимости. Упростите модель (уберите коллинеарные каналы по VIF) или пересмотрите приоры в Эксперт-режиме.
+            {/if}
+          {/if}
+        </div>
+      </details>
     </div>
   {/if}
 
@@ -301,6 +354,72 @@
     background: color-mix(in srgb, var(--warning) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
     color: #f59e0b;
+  }
+
+  .banner-primary {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
+    font-weight: 500;
+    color: var(--text-primary, #e2e8f0);
+  }
+
+  .banner-details {
+    margin-top: 8px;
+  }
+
+  .banner-details > summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: color-mix(in srgb, var(--text-secondary, #94a3b8) 90%, transparent);
+    padding: 3px 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.15s;
+  }
+
+  .banner-details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .banner-details > summary::before {
+    content: '▸';
+    font-size: 10px;
+    transition: transform 0.15s;
+    display: inline-block;
+  }
+
+  .banner-details[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .banner-details > summary:hover {
+    color: var(--text-primary, #e2e8f0);
+  }
+
+  .banner-secondary {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text-primary, #e2e8f0) 4%, transparent);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-secondary, #94a3b8);
+  }
+
+  .banner-secondary strong {
+    color: var(--text-primary, #e2e8f0);
+    font-weight: 600;
+  }
+
+  .banner-secondary .muted {
+    color: color-mix(in srgb, var(--text-secondary, #94a3b8) 70%, transparent);
+    font-size: 11px;
   }
 
   .chart-panel {
