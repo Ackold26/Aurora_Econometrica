@@ -78,6 +78,7 @@
     </section>
 
     {#if result.distribution && Object.keys(result.distribution).length > 0}
+      {@const _totalDist = Object.values(result.distribution).reduce((s, b) => s + Number(b || 0), 0)}
       <section class="distribution">
         <h4>Рекомендуемое распределение:</h4>
         <table>
@@ -93,7 +94,7 @@
               <tr>
                 <td>{channel}</td>
                 <td class="num">{formatRub(budget)}</td>
-                <td class="num">{((budget / result.total_budget.p50) * 100).toFixed(1)}%</td>
+                <td class="num">{_totalDist > 0 ? `${((Number(budget) / _totalDist) * 100).toFixed(1)}%` : '—'}</td>
               </tr>
             {/each}
           </tbody>
