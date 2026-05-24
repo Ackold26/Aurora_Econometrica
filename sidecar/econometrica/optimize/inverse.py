@@ -64,15 +64,18 @@ def _forward_at_budget(project_dir: str, total_budget: float) -> Dict[str, Any]:
         }
 
     # Extract expected sales и распределение из raw_result.
-    # Структура `optimize()` returns:
-    # {
-    #   'optimal': {'sales': float, 'allocation': {channel: spend}, ...},
-    #   ...
-    # }
-    optimal = raw_result.get('optimal', {})
+    # Bug fix 2026-05-25 (Phase 3 smoke): optimize() возвращает FLAT schema
+    # с keys total_optimal_kpi / channels[], не вложенный {optimal: {sales, allocation}}.
+    # Wrapper писался на основе предполагаемой schema, никогда не testен против
+    # real optimizer output → forward_hi.expected_sales всегда =0.0 → Goal-Seek
+    # всегда reported «недостижима» независимо от target_sales.
+    channels = raw_result.get('channels', []) or []
     return {
-        'expected_sales': float(optimal.get('sales', 0.0)),
-        'distribution': dict(optimal.get('allocation', {})),
+        'expected_sales': float(raw_result.get('total_optimal_kpi', 0.0) or 0.0),
+        'distribution': {
+            (ch.get('name') or ch.get('display_name', '')): float(ch.get('optimal_spend_money', 0.0) or 0.0)
+            for ch in channels
+        },
         'status': 'ok',
     }
 
