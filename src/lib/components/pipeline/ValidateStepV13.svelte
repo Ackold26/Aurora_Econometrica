@@ -393,7 +393,7 @@
 
   /** @param {string} kpiTypeId */
   async function tryAutoDetectValue(kpiTypeId) {
-    if (!$activeProject?.path) {
+    if (!$activeProjectId) {
       autoSuggestedValue = null;
       return;
     }
@@ -407,8 +407,9 @@
     try {
       const countColumnHint = kpiTypeId === 'count_custom' ? kpiTypeId : kpiTypeId;
 
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: $activeProjectId }));
       const result = await invoke('econ_auto_detect_price', {
-        projectDir: $activeProject.path,
+        projectDir,
         monetaryColumn: monetaryCol,
         countColumn: countColumnHint,
       });
@@ -454,12 +455,13 @@
     busy = true;
     try {
       // Persist KPI settings to backend.
-      if ($activeProject?.path) {
+      if ($activeProjectId) {
         // H-16 (audit): Phase 1.3 store persistence - earlier версия не
         // передавала unit_costs / inflation / mode_for / budget_inputs к
         // backend. Reload терял состояние. Теперь полный snapshot.
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: $activeProjectId }));
         await invoke('econ_save_kpi_settings', {
-          projectDir: $activeProject.path,
+          projectDir,
           valuePerCountUnit: currentValuePerUnit,
           valuePerCountUnitLabel: valueLabel,
           valuePerCountUnitSource: $valuePerCountUnitSource,

@@ -10,7 +10,7 @@
 
   import { invoke } from '@tauri-apps/api/core';
   import {
-    activeProject,
+    activeProjectId,
     kpiKind,
     derivedMode,
     valuePerCountUnit,
@@ -57,7 +57,7 @@
   }
 
   async function runGoalSeek() {
-    if (!$activeProject?.path) {
+    if (!$activeProjectId) {
       errorMessage = 'Откройте проект сначала.';
       return;
     }
@@ -78,8 +78,9 @@
     errorMessage = null;
     result = null;
     try {
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: $activeProjectId }));
       const res = await invoke('econ_optimize_inverse', {
-        projectDir: $activeProject.path,
+        projectDir,
         targetSales: targetSales,
         kpiKind: $kpiKind,
         mode: $derivedMode,
