@@ -132,9 +132,13 @@
       <label for="target-direct">Или введите точно:</label>
       <input
         id="target-direct"
-        type="number"
-        min="0"
-        bind:value={targetSales}
+        type="text"
+        inputmode="numeric"
+        value={Math.round(Number(targetSales) || 0).toLocaleString('ru-RU')}
+        oninput={(e) => {
+          const raw = /** @type {HTMLInputElement} */ (e.target).value.replace(/\D/g, '');
+          targetSales = parseInt(raw, 10) || 0;
+        }}
       />
       <span class="unit">{$kpiKind === 'monetary' ? '₽' : 'ед.'}</span>
     </div>
