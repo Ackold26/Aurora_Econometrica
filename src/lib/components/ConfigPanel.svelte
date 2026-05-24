@@ -383,7 +383,7 @@
       }
 
       // ── Original sync flow (chat-first cabinet) - UNTOUCHED ──
-      computeStatus.set('Обучаю модель (Markov Chain Monte Carlo сэмплирование)...');
+      computeStatus.set('Обучаю модель (сэмплирование байесовских цепей)...');
 
       const result = await invoke('econ_train', { config });
 

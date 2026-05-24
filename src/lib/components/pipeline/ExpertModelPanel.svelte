@@ -133,7 +133,7 @@
     {@const dv = divsLabel(divs, totalDraws)}
     {@const rsq = rSqLabel(rSq)}
     {@const mp = mapeLabel(mape)}
-    <div class="section-title">Диагностика Markov Chain Monte Carlo</div>
+    <div class="section-title">Диагностика модели</div>
     <div class="diag-grid">
       <div class="diag-item">
         <span class="diag-label">R-hat (max)<span class="help-icon" title={HELP.rHat}>?</span></span>

@@ -37,7 +37,7 @@
   const PHASE_LABELS = {
     loading: 'Загрузка данных',
     compiling: 'Компиляция модели',
-    sampling: 'Markov Chain Monte Carlo сэмплирование',
+    sampling: 'Сэмплирование байесовских цепей',
     diagnostics: 'Диагностика',
     saving: 'Сохранение результатов',
     complete: 'Готово',
