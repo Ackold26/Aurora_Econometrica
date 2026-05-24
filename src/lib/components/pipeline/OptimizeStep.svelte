@@ -1593,7 +1593,7 @@
         class:active={$planningMode === 'analyst'}
         onclick={() => planningMode.set('analyst')}
       >
-        <span class="mode-label">Аналитик</span>
+        <span class="mode-label">Анализ</span>
         <span class="mode-desc">обучающий период</span>
       </button>
       <button
@@ -1603,7 +1603,7 @@
         class:active={$planningMode === 'planner'}
         onclick={() => planningMode.set('planner')}
       >
-        <span class="mode-label">Планнер</span>
+        <span class="mode-label">Планирование</span>
         <span class="mode-desc">будущий период</span>
       </button>
     </div>
