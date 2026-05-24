@@ -25,11 +25,34 @@
   const currentStepId = $derived(stepIdMap[$pipelineCurrentStep] ?? 'validate');
   const currentHelp = $derived(/** @type {any} */ (contextualHelp)[currentStepId]);
 
-  // v1.3.2 audit: «Зачем шаг» panel collapsed по умолчанию на всех шагах.
-  // Pre-fix: Import/Validate имели defaultOpen=true (UX v1.3.0 - novice-friendly).
-  // Но в премиум-стилистике панель занимает много места и отвлекает от main
-  // content. Юзер открывает её explicit кликом, когда нужен контекст.
-  const shouldOpenByDefault = false;
+  // v2.1+ first-visit auto-open: панель «Зачем шаг» автоматически раскрыта
+  // при первом посещении каждого шага в данной инсталляции (per-step
+  // localStorage flag). После первого открытия — collapsed по умолчанию
+  // (юзер уже видел content, дальше открывает explicit кликом, когда нужно).
+  //
+  // Rationale: WhyThisStep — самый ценный обучающий контент (3-4 структурных
+  // блока: что делаем / зачем / на что обратить внимание / что дальше).
+  // До v2.1 был collapsed=false на ВСЕХ шагах (включая первое посещение) —
+  // новый менеджер просто не знал что content существует. Auto-open per
+  // first-visit решает discovery без раздражения опытного пользователя
+  // (повторно не открывается).
+  //
+  // Master switch остаётся через `hideEducationalHints` (Settings → Скрыть
+  // подсказки / Эксперт-режим) — если on, панель вообще не рендерится,
+  // auto-open irrelevant.
+
+  let shouldOpenByDefault = $state(false);
+
+  $effect(() => {
+    if (typeof localStorage === 'undefined') return; // SSR safety
+    const visitedKey = `aurora.whyThisStep.visited.${currentStepId}`;
+    if (!localStorage.getItem(visitedKey)) {
+      shouldOpenByDefault = true;
+      localStorage.setItem(visitedKey, '1');
+    } else {
+      shouldOpenByDefault = false;
+    }
+  });
 </script>
 
 {#if !$hideEducationalHints && currentHelp}

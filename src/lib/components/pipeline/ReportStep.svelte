@@ -26,6 +26,8 @@
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   let showOnboarding = $state(false);
   let onboardingChecked = false;
@@ -814,7 +816,9 @@
   {#if hasData}
     <div class="summary-cards">
       <div class="card-metric">
-        <div class="metric-label">MQS Score</div>
+        <Tooltip text={TOOLTIPS['metric.mqs']} position="top">
+          <div class="metric-label" style="cursor:help;">MQS Score</div>
+        </Tooltip>
         <div class="metric-value" class:good={mqs != null && mqs >= 60} class:warn={mqs != null && mqs < 60}>
           {fmt(mqs)}
         </div>
@@ -822,7 +826,9 @@
       </div>
 
       <div class="card-metric">
-        <div class="metric-label">R²</div>
+        <Tooltip text={TOOLTIPS['metric.r2']} position="top">
+          <div class="metric-label" style="cursor:help;">R²</div>
+        </Tooltip>
         <div class="metric-value" class:good={rSq != null && rSq >= 0.7} class:warn={rSq != null && rSq < 0.7}>
           {fmt(rSq, 3)}
         </div>
@@ -830,7 +836,9 @@
       </div>
 
       <div class="card-metric">
-        <div class="metric-label">MAPE</div>
+        <Tooltip text={TOOLTIPS['metric.mape']} position="top">
+          <div class="metric-label" style="cursor:help;">MAPE</div>
+        </Tooltip>
         <div class="metric-value" class:good={mape != null && mape < 10} class:warn={mape != null && mape >= 20}>
           {mape != null ? fmt(mape, 1) + '%' : '-'}
         </div>
@@ -838,7 +846,9 @@
       </div>
 
       <div class="card-metric">
-        <div class="metric-label">Прирост от оптимизации</div>
+        <Tooltip text={TOOLTIPS['report.lift']} position="top">
+          <div class="metric-label" style="cursor:help;">Прирост от оптимизации</div>
+        </Tooltip>
         <div
           class="metric-value lift"
           class:positive={lift != null && lift > 0}

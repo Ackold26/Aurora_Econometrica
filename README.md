@@ -1,6 +1,18 @@
-# AI Agency Desktop
+# Aurora AI — Monorepo (одна кодовая база, 5 product variants)
 
-Десктопное приложение для работы с AI-кабинетами. Каждый кабинет — изолированная среда с системным промптом, входящими файлами, историей диалога и экспортами.
+Этот репозиторий содержит общую кодовую базу для пяти продуктов Aurora AI (Tauri v2 + SvelteKit 5 + Rust). Каждый вариант отличается только `tauri.conf.json` (productName / identifier), `Cargo.toml` (name) и `main.rs` (lib name) — основной код, кабинеты, дизайн-система общие.
+
+## Варианты сборки
+
+| Продукт | Tauri identifier | Кабинеты / pipeline |
+|---|---|---|
+| **Aurora AI Agency** | `com.aiagency.desktop` | Все 13 кабинетов (117+ команд) |
+| **Aurora AI Legal Center** | `com.rosst.legal` | lawyer-contracts, lawyer-claims, lawyer-advertising |
+| **Aurora AI Creative Hub** | `com.aurora.creative-hub` | Все 13 кабинетов + Brand Hub (RAG, Parser, Canvas) |
+| **Aurora AI Insights Hub** | `com.rosst.media` | media-analyst, communication-analyst, social-listening, econometrist |
+| **Aurora AI Econometrica — MMM Optimizer** | `com.aurora.econometrica` | Полный pipeline эконометрического моделирования маркетинг-микса (Import → Validate → Model → Decompose → Optimize → Report) |
+
+> **Aurora AI Econometrica — MMM Optimizer** — флагманский вариант для эконометрического моделирования. Полная справка по продукту: `src-tauri/help-econometrica/`. Документация для пользователя: `docs/USER_GUIDE_v2_1_0.md`. Глоссарий: `docs/GLOSSARY_v2_1_0.md`.
 
 **Стек:** Tauri v2 + SvelteKit 5 + Rust
 

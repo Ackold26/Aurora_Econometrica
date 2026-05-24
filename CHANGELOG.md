@@ -2,6 +2,54 @@
 
 ---
 
+## v2.1.0-rc4 — Improvements справочной системы под двойную аудиторию (2026-05-24)
+
+Доработки after внутреннего help-system audit (Маша маленькая Opus 4.7 + 3× параллельных Sonnet recon). Цель: усилить позиционирование «топовый эконометрист руками менеджера» — справка должна одинаково работать для менеджера по рекламе/аналитика без эконометрического образования (90% аудитории) и для эконометриста (10%).
+
+Полный отчёт: `Aurora_Dev/AURORA_MMM_HELP_SYSTEM_AUDIT_2026-05-24.md` (на EVO-X1).
+
+### Позиционирование (visible пользователю)
+
+- **`about.html` полный rewrite** — новое имя продукта «Aurora AI Econometrica — MMM Optimizer», новый tagline «Результат месячной работы топового эконометриста — силами менеджера за один день», обновлённая «Что это» секция с явной формулировкой «эконометрика уровня enterprise — доступна команде без эконометриста в штате». Удалены brand mentions Meta (Robyn) и Google (Meridian / LightweightMMM) — заменены на «иерархические приоры (по Hanssens), Hill-saturation, adstock decay, NUTS-сэмплер в NumPyro».
+- **`README.md` reorganization** — заголовок теперь «Aurora AI — Monorepo (одна кодовая база, 5 product variants)» с таблицей 5 вариантов сборки (AI Agency / Legal Center / Creative Hub / Insights Hub / Econometrica MMM Optimizer). Это устраняет путаницу при первом знакомстве с репозиторием — раньше top-level README идентифицировал репо как «AI Agency Desktop», что не отражало flagship Econometrica variant.
+- **`sidecar/econometrica/README.md`** — раньше 1 строка (только заголовок), теперь полное описание Python sidecar архитектуры, модулей, dev/production запуска, dependencies.
+
+### Discovery educational content
+
+- **`PipelineWhyThisStep` auto-open per first-visit** — самый ценный обучающий контент («Что мы делаем» + «Зачем нужно» + «На что обратить внимание» + «Что дальше», 4 блока на каждый из 6 шагов) теперь автоматически раскрыт при первом посещении каждого шага в данной инсталляции. После первого открытия — collapsed по умолчанию (опытный пользователь не раздражается повторами). Tracking через localStorage flag `aurora.whyThisStep.visited.<stepId>`. Master switch `hideEducationalHints` (Settings → Эксперт-режим) остаётся primary — если on, панель вообще не рендерится.
+- **Sample data flow в Import шаге** — новая карточка «📥 Попробовать на примере» между drop-zone и .aurora archive загрузкой. 4 кнопки по верткалям (FMCG бренд / OTC фарма / Недвижимость / Ритейл-сеть) скачивают синтетические xlsx (~7-8 KB каждый). Структура файлов соответствует реальным проектам и проходит полный pipeline без правок. Снимает onboarding барьер «у меня нет данных под рукой».
+  - Файлы: `static/sample-data/synth_fmcg_brand.xlsx`, `synth_otc_pharma.xlsx`, `synth_real_estate.xlsx`, `synth_retail_chain.xlsx` (исходники — `tools/synthetic_pilots/`).
+
+### Tooltips на 3 пропущенных шагах (Import / Optimize / Report)
+
+До этого релиза Tooltip-система покрывала только 2 из 6 шагов pipeline (Validate / Model). Sonnet sub-agent добавил **10 новых Tooltip wrap'ов** распределённых по Import/Optimize/Report (3 + 3 + 4) — strategic restraint, не везде, только где терминология может потребовать пояснения для менеджера.
+
+- **Import:** «Тип моделирования», «Полное Bayesian MMM», «Упрощённое OLS-MMM» (3 wrap'а)
+- **Optimize:** «От бюджета» (Forward), «От цели» (Goal-Seek), «What-if: изменённый бюджет» (3 wrap'а)
+- **Report:** «MQS Score», «R²», «MAPE», «Прирост от оптимизации» (4 wrap'а, первые 3 переиспользуют existing tooltip ключи)
+
+Новые tooltip ключи в `src/lib/data/tooltip-texts.js` (7): `import.modeling_type`, `import.bayesian`, `import.ols`, `optimize.forward`, `optimize.goal_seek`, `optimize.what_if`, `report.lift`.
+
+### Hard bugs
+
+- **Glossary shortcut documentation fix** — комментарии в `glossary.js:5` и `project-state.js:723` writting «Ctrl+K» — корректный shortcut «Ctrl+G» (Settings UI всегда показывал правильно, расхождение было только в внутренней документации).
+
+### Не закрыто, отложено
+
+- **5 P2 audit findings** (DiagnosticsPanel / ConvergenceDashboard Manager view rewrite, MCMC params → preset radio, insights без жаргона, inline glossary popup pattern, MCMC params explanation) — отложены отдельным sprint'ом (~1-2 дня). Требуют structural UI rewrite, не fit в текущий polish-релиз.
+- **Видео-демо** — скрипт готов (`docs/VIDEO_DEMO_5MIN_SCRIPT.md`, 295 строк, расписан по тайм-кодам и voice-over), запись делается Антоном отдельно (не разработческая зона).
+
+### Verification
+
+- `npm run check` — **0 errors, 173 warnings** (все pre-existing, no new warnings introduced).
+- Sonnet sub-agent tooltip work verified через spot-check (`feedback_verify_external_repo_state_before_acting` Reference 4 — sub-agent claims тоже требуют проверки).
+
+### Полный audit doc
+
+`Aurora_Dev/AURORA_MMM_HELP_SYSTEM_AUDIT_2026-05-24.md` (16 КБ): inventory справочной системы (10 strong points + ranked gaps), 4-фазный план улучшений (Phase 1-2 закрыты этим релизом, Phase 3 — следующий sprint, Phase 4 — strategic positioning), 5 risks с mitigation patterns.
+
+---
+
 ## v1.3.0 — Next-gen MMM Optimizer: KPI semantics + Goal-Seek + safe corridor + educational system (2026-05-12)
 
 Major UX upgrade — продукт следующего поколения, доступный не-эконометристам через

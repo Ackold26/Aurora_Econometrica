@@ -720,7 +720,7 @@ export const hideEducationalHints = writable(false);
 export const showIntroTutorial = writable(false);
 
 /**
- * v1.3.0: глобальный glossary panel toggle (Ctrl+K).
+ * v1.3.0: глобальный glossary panel toggle (Ctrl+G).
  * @type {import('svelte/store').Writable<boolean>}
  */
 export const showGlossaryPanel = writable(false);

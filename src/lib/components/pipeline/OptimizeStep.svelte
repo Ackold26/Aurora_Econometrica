@@ -47,6 +47,8 @@
   import { formatMoney } from '$lib/format-numbers.js';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding, markOnboardingDone } from '$lib/onboarding-state.js';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   // Onboarding - показываем первый визит на Optimize ТОЛЬКО когда блоки A-E
   // действительно отрендерены (channels.length > 0, то есть после успешного train).
@@ -1547,10 +1549,12 @@
         onclick={() => { taskMode = 'forward'; }}
       >
         <span class="pill-icon"><BarChart2 size={28} strokeWidth={1.5} /></span>
-        <div class="pill-text">
-          <strong>От бюджета</strong>
-          <span class="pill-sub">Forward - куда вложить</span>
-        </div>
+        <Tooltip text={TOOLTIPS['optimize.forward']} position="top">
+          <div class="pill-text">
+            <strong>От бюджета</strong>
+            <span class="pill-sub">Forward - куда вложить</span>
+          </div>
+        </Tooltip>
       </button>
       <button
         type="button"
@@ -1561,10 +1565,12 @@
         onclick={() => { taskMode = 'goal-seek'; }}
       >
         <span class="pill-icon"><Target size={28} strokeWidth={1.5} /></span>
-        <div class="pill-text">
-          <strong>От цели</strong>
-          <span class="pill-sub">Goal-Seek - сколько потратить</span>
-        </div>
+        <Tooltip text={TOOLTIPS['optimize.goal_seek']} position="top">
+          <div class="pill-text">
+            <strong>От цели</strong>
+            <span class="pill-sub">Goal-Seek - сколько потратить</span>
+          </div>
+        </Tooltip>
       </button>
     </div>
   </section>
@@ -2258,7 +2264,9 @@
     <section class="block block-whatif">
       <div class="block-header">
         <span class="block-letter">C</span>
-        <h3 class="block-title">What-if: изменённый бюджет</h3>
+        <Tooltip text={TOOLTIPS['optimize.what_if']} position="top">
+          <h3 class="block-title" style="cursor:help;">What-if: изменённый бюджет</h3>
+        </Tooltip>
         <span class="block-subtitle">- а если бюджет станет другим?</span>
       </div>
 

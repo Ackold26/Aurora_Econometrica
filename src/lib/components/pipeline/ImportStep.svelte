@@ -12,6 +12,8 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
+  import Tooltip from '$lib/components/Tooltip.svelte';
+  import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
@@ -364,7 +366,43 @@
         </div>
       </div>
 
-      <!-- 3. Карточка «Загрузить сохранённый проект» -->
+      <!-- 3. Карточка «Попробовать на примере» - для пользователя без своих данных -->
+      <div class="intro-card">
+        <div class="intro-card-header">
+          <div class="intro-card-icon">📥</div>
+          <div class="intro-card-title">Попробовать на примере</div>
+        </div>
+        <div class="intro-card-body">
+          Нет своих данных под рукой? Скачайте синтетический набор
+          для одной из четырёх отраслей, затем перетащите его в зону загрузки
+          выше. Структура файлов соответствует реальным проектам и проходит
+          полный pipeline без правок.
+        </div>
+        <div class="sample-grid">
+          <a class="sample-btn" href="/sample-data/synth_fmcg_brand.xlsx" download="synth_fmcg_brand.xlsx">
+            <span class="sample-icon">🛒</span>
+            <span class="sample-label">FMCG бренд</span>
+            <span class="sample-hint">Продажи, ТВ, OLV, контекст</span>
+          </a>
+          <a class="sample-btn" href="/sample-data/synth_otc_pharma.xlsx" download="synth_otc_pharma.xlsx">
+            <span class="sample-icon">💊</span>
+            <span class="sample-label">OTC фарма</span>
+            <span class="sample-hint">Упаковки, ТВ, OLV, аптеки</span>
+          </a>
+          <a class="sample-btn" href="/sample-data/synth_real_estate.xlsx" download="synth_real_estate.xlsx">
+            <span class="sample-icon">🏠</span>
+            <span class="sample-label">Недвижимость</span>
+            <span class="sample-hint">Сделки, наружка, контекст</span>
+          </a>
+          <a class="sample-btn" href="/sample-data/synth_retail_chain.xlsx" download="synth_retail_chain.xlsx">
+            <span class="sample-icon">🏪</span>
+            <span class="sample-label">Ритейл-сеть</span>
+            <span class="sample-hint">Чеки, радио, ТВ, цифра</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- 4. Карточка «Загрузить сохранённый проект» -->
       <div class="intro-card">
         <div class="intro-card-header">
           <div class="intro-card-icon">📦</div>
@@ -458,7 +496,9 @@
            автовыбор без override. (`allowOverride` declared at parent {#if} scope.) -->
       <div class="engine-section">
         <div class="engine-section-header">
-          <span class="engine-section-title">Тип моделирования</span>
+          <Tooltip text={TOOLTIPS['import.modeling_type']} position="top">
+            <span class="engine-section-title" style="cursor:help; border-bottom: 1px dotted currentColor;">Тип моделирования</span>
+          </Tooltip>
           {#if nRows > 0}
             <span class="engine-section-meta">
               {#if allowOverride}
@@ -485,7 +525,9 @@
           >
             <div class="engine-card-head">
               <span class="engine-card-icon">🎯</span>
-              <div class="engine-card-name">Полное Bayesian MMM</div>
+              <Tooltip text={TOOLTIPS['import.bayesian']} position="top">
+                <div class="engine-card-name" style="cursor:help;">Полное Bayesian MMM</div>
+              </Tooltip>
               {#if $modelEngine === 'bayesian'}
                 <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
               {:else if allowOverride}
@@ -516,7 +558,9 @@
           >
             <div class="engine-card-head">
               <span class="engine-card-icon">⚡</span>
-              <div class="engine-card-name">Упрощённое OLS-MMM</div>
+              <Tooltip text={TOOLTIPS['import.ols']} position="top">
+                <div class="engine-card-name" style="cursor:help;">Упрощённое OLS-MMM</div>
+              </Tooltip>
               {#if $modelEngine === 'ols'}
                 <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
               {:else if allowOverride}
@@ -1101,6 +1145,47 @@
     font-size: 11px;
     color: var(--text-muted);
     font-style: italic;
+  }
+  .sample-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .sample-btn {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: center;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .sample-btn:hover, .sample-btn:focus-visible {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.18);
+    outline: none;
+  }
+  .sample-icon {
+    grid-row: 1 / span 2;
+    font-size: 20px;
+    line-height: 1;
+  }
+  .sample-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .sample-hint {
+    font-size: 11px;
+    color: var(--text-muted);
   }
   .archive-msg {
     margin: 14px 0 0 0;

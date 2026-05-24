@@ -2,7 +2,7 @@
  * Aurora Econometrica - Glossary v1.3.0 (skeleton).
  *
  * 20 critical терминов MVP per docs/GLOSSARY_TERMS.md.
- * Stage 4 educational: full content + GlossaryPanel UI + Ctrl+K shortcut.
+ * Stage 4 educational: full content + GlossaryPanel UI + Ctrl+G shortcut.
  *
  * Structure:
  *   term: { id, term, short, long, example, related: [] }
