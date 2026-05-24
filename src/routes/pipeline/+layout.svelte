@@ -6,6 +6,7 @@
    * C5: Sidecar status indicator in footer.
    */
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { goto } from '$app/navigation';
   import { invoke } from '@tauri-apps/api/core';
   import { save as saveDialog } from '@tauri-apps/plugin-dialog';
@@ -283,6 +284,18 @@
     } else {
       // Load pipeline metadata for current project (A4: data never persisted)
       loadPipelineForProject($activeProjectId);
+      // Fix 2026-05-24: post-reload state desync — activeProjectId восстановлен
+      // (header показывает slug) но activeProject store null. Guards в OptimizeGoalSeek
+      // / других местах проверяют $activeProject?.path → ошибка «Откройте проект сначала».
+      // Восстановить info parallel к pipeline meta.
+      if (!get(activeProject)) {
+        (async () => {
+          try {
+            const info = await invoke('project_get', { projectId: $activeProjectId });
+            if (info) activeProject.set(info);
+          } catch { /* ignore */ }
+        })();
+      }
     }
 
     // C5: initialise sidecar
