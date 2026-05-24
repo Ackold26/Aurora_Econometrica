@@ -10,6 +10,7 @@
   import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
+  import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
 
   /**
    * @type {{
@@ -533,7 +534,7 @@ Weibull (плавная build-up):
       <div class="advanced-section">
         <!-- Per-channel adstock -->
         <div class="config-group">
-          <label class="config-label">Adstock по каналам</label>
+          <label class="config-label"><GlossaryTerm termId="adstock">Adstock</GlossaryTerm> по каналам</label>
           {#each Object.entries(channelEnabled).filter(([,v]) => v) as [ch]}
             <div class="adstock-row">
               <span class="adstock-name">{ch}</span>

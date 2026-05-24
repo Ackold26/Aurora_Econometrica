@@ -726,6 +726,13 @@ export const showIntroTutorial = writable(false);
 export const showGlossaryPanel = writable(false);
 
 /**
+ * v1.3.1: optional term pre-selected when GlossaryPanel открывается через
+ * GlossaryTerm «Полное определение» кнопку.
+ * @type {import('svelte/store').Writable<string | null>}
+ */
+export const glossaryInitialTerm = writable(/** @type {string | null} */ (null));
+
+/**
  * v1.0.16: модель-движок selector (Import шаг).
  * 'bayesian' (default, NUTS NumPyro) - полный posterior, CI, ~20-60 сек train.
  * 'ols' (Sprint 2 small-data fallback) - closed-form OLS, frequentist β CI,

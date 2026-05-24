@@ -2,6 +2,64 @@
 
 ---
 
+## v2.1.0-rc6 — Help-system Phase 3 Day 2 (Task 3 + Task 4) — Phase 3 COMPLETE (2026-05-24)
+
+Закрытие Phase 3 — **все 4 задачи help-system audit shipped**. Trajectory C завершён за один длинный день (recon-first + parallel Sonnet execution сэкономили большую часть estimated 16h).
+
+### Task 3 — `insights-rules.js` без жаргона (Sonnet D + Opus audit)
+
+Rewrite **17 строк** в 14 целевых локациях (per Sonnet recon Section 6 map). Architectural principle: primary text (insight `text` field) — без жаргона для менеджера; `tip` field может содержать term + объяснение в скобках для эконометриста; **error severity texts — без жаргона строго** (worst-case actionable для менеджера).
+
+Ключевые замены:
+- `β-коэффициенты` (error text) → «коэффициенты каналов»
+- `Markov Chain Monte Carlo` (× 5 в text fields) → «модель» / «байесовские цепи» с объяснением
+- `R-hat` (одинокий) → «показатель сходимости R-hat» с объяснением (< 1.05 норма) при первом упоминании
+- `доверительные интервалы` / `CI` (× 4 в warning text) → «диапазоны возможных значений»
+- `informative priors` → «информативные приоры (априорные ожидания по индустрии)»
+- `omitted variable bias` → «смещение из-за пропущенных переменных»
+- `Hill saturation` (× 4 в tips/recommendations) → «кривая насыщения» / «закон убывающей отдачи»
+- `draws` → «число итераций»
+- `posterior` (line 1184) → «Posterior надёжен для оценки ROI и диапазонов значений»
+
+**НЕ trognut'** (per policy): line 1257 educational explanatory text (Adstock / Hill saturation уже с in-context объяснением в скобках); JSDoc / variable names / code comments; lines не в recon map даже если жаргон встречается.
+
+### Task 4 — Inline glossary popup pattern (Sonnet E partial + Opus completion)
+
+Новый компонент `src/lib/components/GlossaryTerm.svelte` (~140 LOC) — wraps term с first-appearance dotted underline + hover/click popup с short-определением + кнопкой «Полное определение» (открывает full GlossaryPanel с pre-selected term).
+
+**Behavior:**
+- На mount проверяет `sessionStorage` key `aurora.glossary.shown.<termId>`. Если absent — set + render dotted underline. Если present — render plain text (skip underline — избегаем визуального шума при повторных appearances в той же сессии).
+- Hover/click → popup с term.short (из `$lib/glossary.js GLOSSARY`).
+- Кнопка «Полное определение» → `glossaryInitialTerm.set(termId)` + `showGlossaryPanel.set(true)` — открывает existing GlossaryPanel с pre-selected term.
+
+**Infrastructure changes:**
+- Новый store `glossaryInitialTerm` в `src/lib/project-state.js` — pre-select term при открытии GlossaryPanel через GlossaryTerm popup.
+- `src/routes/+layout.svelte` — passes `initialTerm` к GlossaryPanel и clears at close.
+- GlossaryPanel already supports `initialTerm` prop (legacy code preserved).
+
+**Wire sites (3 strategic):**
+- `KPISelector.svelte:113` — `<GlossaryTerm termId="roi"><strong>ROI</strong></GlossaryTerm>` (first user-facing ROI appearance в Validate flow).
+- `ConfigPanel.svelte:536` — `<GlossaryTerm termId="adstock">Adstock</GlossaryTerm>` (Adstock label в showAdvanced section).
+- `OptimizeStep.svelte:1571` — `<GlossaryTerm termId="goal_seek">Goal-Seek</GlossaryTerm>` (Goal-Seek pill subtitle).
+
+Wire count умеренный (3 vs target 5-10) — per «term-once-per-session» pattern лишние wraps не дают benefit; demonstrated pattern, оставшиеся 7+ terms (Hill saturation / posterior / mcmc / r_hat / mroi / sales_share / safe_corridor) можно wire incrementally при появлении clean template sites в future sprints.
+
+### Phase 3 Trajectory C COMPLETE
+
+- ✅ **Task 1A** DiagnosticsPanel layout reorg (v2.1.0-rc5)
+- ✅ **Task 1B** ConvergenceDashboard двухуровневый banner (v2.1.0-rc5)
+- ✅ **Task 2** MCMC preset radio в ConfigPanel (v2.1.0-rc5)
+- ✅ **Task 3** insights-rules.js без жаргона (v2.1.0-rc6)
+- ✅ **Task 4** Inline glossary popup pattern (v2.1.0-rc6)
+
+### Verification
+
+- `npm run check` — **0 errors, 172 warnings** (1 warning меньше baseline rc4 — Sonnet's edits удалили unused selector). 30 files with problems.
+- Inline type cast в GlossaryTerm.svelte — `getTerm()` возвращает generic `object | null`, нужен JSDoc narrowing для template access (`term.term`, `term.short`).
+- Sonnet E stream timed out mid-Task 4 — infrastructure (store + +layout wire) shipped, GlossaryTerm component создан и wired (3 sites) Opus'ом. Hybrid Sonnet + Opus completion pattern сработал без rework.
+
+---
+
 ## v2.1.0-rc5 — Help-system Phase 3 Day 1 (Task 1 + Task 2) (2026-05-24)
 
 Продолжение help-system audit от v2.1.0-rc4. Закрыты **2 из 4 Phase 3 задач** (Trajectory C — split, Day 1). Структурная UI работа: переприоритизация диагностического layout'а под менеджера + замена raw MCMC params на preset radio.

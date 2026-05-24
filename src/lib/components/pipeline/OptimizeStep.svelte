@@ -37,6 +37,7 @@
   import OptimizeGoalSeek from '$lib/components/pipeline/OptimizeGoalSeek.svelte';
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
+  import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
   import ForecastHorizonPicker from '$lib/components/pipeline/ForecastHorizonPicker.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
@@ -1568,7 +1569,7 @@
         <Tooltip text={TOOLTIPS['optimize.goal_seek']} position="top">
           <div class="pill-text">
             <strong>От цели</strong>
-            <span class="pill-sub">Goal-Seek - сколько потратить</span>
+            <span class="pill-sub"><GlossaryTerm termId="goal_seek">Goal-Seek</GlossaryTerm> - сколько потратить</span>
           </div>
         </Tooltip>
       </button>

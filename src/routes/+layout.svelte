@@ -14,7 +14,7 @@
   import NavRail from '$lib/components/NavRail.svelte';
   import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
   import IntroTutorial from '$lib/components/IntroTutorial.svelte';
-  import { showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
+  import { showGlossaryPanel, glossaryInitialTerm, showIntroTutorial } from '$lib/project-state.js';
   import { filterCabinetsByProduct, initCommandMeta } from '$lib/command-meta.js';
   import { initPsyData } from '$lib/psy.js';
   import { initClassifierData } from '$lib/chat-classifier.js';
@@ -217,7 +217,10 @@
 <CommandPalette open={paletteOpen} onClose={() => paletteOpen = false} />
 
 {#if $showGlossaryPanel}
-  <GlossaryPanel onClose={() => showGlossaryPanel.set(false)} />
+  <GlossaryPanel
+    initialTerm={$glossaryInitialTerm}
+    onClose={() => { showGlossaryPanel.set(false); glossaryInitialTerm.set(null); }}
+  />
 {/if}
 
 <!-- v1.3.2 audit: floating glossary FAB removed - выбивался из премиум-стилистики.

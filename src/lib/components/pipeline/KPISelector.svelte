@@ -17,6 +17,7 @@
     Info,
   } from 'lucide-svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   /** @typedef {'sales' | 'revenue' | 'profit' | 'sales_packs' | 'leads' | 'registrations' | 'loyalty_cards' | 'subscriptions' | 'app_installs' | 'count_custom'} KPIType */
@@ -109,7 +110,7 @@
         <p><strong>Целевая метрика - это итог, на который влияют каналы рекламы.</strong> Выбор определяет, что модель будет считать «успехом», и в каких единицах оценит каждый канал:</p>
         <ul>
           <li>
-            <strong>Деньги (₽):</strong> выручка или прибыль. Модель посчитает <strong>ROI</strong> - сколько рублей вернул каждый рубль, вложенный в канал. Подходит когда вы отвечаете перед руководством за финансовый результат.
+            <strong>Деньги (₽):</strong> выручка или прибыль. Модель посчитает <GlossaryTerm termId="roi"><strong>ROI</strong></GlossaryTerm> - сколько рублей вернул каждый рубль, вложенный в канал. Подходит когда вы отвечаете перед руководством за финансовый результат.
           </li>
           <li>
             <strong>Штуки:</strong> упаковки, лиды, регистрации, подписки, установки. Модель посчитает <strong>стоимость одной единицы</strong> - сколько рублей нужно потратить, чтобы привести одну продажу / заявку. Подходит для фармы, FMCG, B2B - где известна маржа на единицу.
