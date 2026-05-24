@@ -675,7 +675,20 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     if total_budget_money_target is not None:
         money_target = float(total_budget_money_target)
     else:
-        money_target = _training_total_money * horizon_scale
+        # Bug fix 2026-05-25 (Goal-Seek): когда total_budget (native) задан явно,
+        # money_target должен derivative из него, не fallback к training budget.
+        # Без этого SLSQP optimizes к одному и тому же training_total независимо
+        # от bisection's argument → forward(any X) returns same value → bisection
+        # never finds positive budget.
+        _cfg_native_budget = config.get('total_budget')
+        if _cfg_native_budget is not None and total_current > 0:
+            # Scale money proportionally от native ratio.
+            money_target = float(_cfg_native_budget) * (_training_total_money / total_current)
+        elif _cfg_native_budget is not None:
+            # Edge case: no current spend — fallback к native value as money.
+            money_target = float(_cfg_native_budget)
+        else:
+            money_target = _training_total_money * horizon_scale
     fallback_max_money = max(money_target * max_pct_global / n_ch, 1.0)
 
     def _bounds_money_for(col: str, i: int) -> tuple[float, float]:
