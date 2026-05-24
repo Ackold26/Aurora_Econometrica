@@ -181,7 +181,7 @@
 
   {#if errorMessage}
     <div class="error">
-      <strong>Ошибка:</strong> {errorMessage}
+      {errorMessage}
     </div>
   {/if}
 
