@@ -72,6 +72,10 @@ PYINSTALLER_ARGS = [
     '--collect-data=filelock',
     '--hidden-import=sklearn',
     '--hidden-import=fastapi',
+    # FastAPI's OpenAPI models use Pydantic EmailStr → pydantic/networks.py calls
+    # import_email_validator() which returns None if not bundled → AttributeError crash.
+    # email_validator must be collected (not just hidden-import) so its data files ship too.
+    '--collect-all=email_validator',
     '--hidden-import=uvicorn',
     '--hidden-import=uvicorn.logging',
     '--hidden-import=uvicorn.loops',
