@@ -1784,27 +1784,35 @@ export function optimizeInsights(data, ctx = {}) {
   const suspicious = decChannels
     .filter((/** @type {any} */ c) => /подозрительно/i.test(c.verdict || ''))
     .map((/** @type {any} */ c) => ({ name: c.name, roi: c.roi ?? 0 }));
+  // REC-1 (2026-06-02): unit_smell-каналы (артефактный ROI/mROAS из не-денежных
+  // единиц, напр. TRP с unit_cost=1.0) НЕ должны попадать в рекомендации
+  // «наращивать» — раньше защитная пометка (секция 5) не доходила до светофора
+  // и mROAS-лидеров → продукт советовал вкладывать в канал с ROI 12186× (ROI-1/2).
+  const suspiciousNames = new Set(suspicious.map((/** @type {{name: string}} */ c) => c.name));
+  const effectiveClean = effective.filter((/** @type {any} */ s) => !suspiciousNames.has(s.name));
 
   // Всегда показываем расклад по saturation (4 категории) - стабильное количество инсайтов.
   if (satList.length > 0) {
     const rows = [];
     // v1.3.2: KPI-aware metric label в светофоре.
     const metric = kpi.metricShort;
-    if (effective.length > 0) rows.push(`🟢 Недонасыщены: ${effective.length} - ${effective.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
+    if (effective.length > 0) rows.push(`🟢 Недонасыщены: ${effective.length} - ${effective.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})${suspiciousNames.has(c.name) ? ' ⚠ не-денежные единицы, оценка ненадёжна' : ''}`).join(', ')}`);
     if (stable.length > 0) rows.push(`🟡 Стабильны: ${stable.length} - ${stable.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
     if (saturated.length > 0) rows.push(`🔴 Перенасыщены: ${saturated.length} - ${saturated.map(c => `${c.name} (${metric} ${_fmtMetric(c.mroas, kpi)})`).join(', ')}`);
     if (unused.length > 0) rows.push(`⚪ Не используются: ${unused.length} - ${unused.map(c => c.name).join(', ')}`);
 
+    // REC-1: «зона роста / есть куда вкладывать» считается по effectiveClean
+    // (без unit_smell-каналов) — иначе артефактный канал раздувал бы счётчик роста.
     const headline =
       saturated.length >= Math.ceil(satList.length / 2)
         ? `${saturated.length} из ${satList.length} каналов перенасыщены - оптимизатор упирается в плато.`
-        : effective.length >= 1 && saturated.length === 0
-          ? `${effective.length} канал${effective.length > 1 ? 'а' : ''} в зоне роста - есть куда вкладывать.`
+        : effectiveClean.length >= 1 && saturated.length === 0
+          ? `${effectiveClean.length} канал${effectiveClean.length > 1 ? 'а' : ''} в зоне роста - есть куда вкладывать.`
           : `Расклад: 🟢${effective.length} 🟡${stable.length} 🔴${saturated.length}${unused.length > 0 ? ` ⚪${unused.length}` : ''} из ${satList.length}.`;
 
     const sev = saturated.length >= Math.ceil(satList.length / 2)
       ? /** @type {'warning'} */ ('warning')
-      : effective.length >= 1 && saturated.length === 0
+      : effectiveClean.length >= 1 && saturated.length === 0
         ? /** @type {'success'} */ ('success')
         : /** @type {'info'} */ ('info');
 
@@ -1827,7 +1835,9 @@ export function optimizeInsights(data, ctx = {}) {
   }
 
   // ── 4. miROAS leaders (стабильный инсайт - всегда виден) ──
-  const activeSat = satList.filter(s => s.status !== 'unused' && s.mroas > 0);
+  // REC-1: исключаем unit_smell-каналы из ранжирования «лучший/худший по mROAS» —
+  // их предельная отдача артефактна (TRP в не-денежных единицах), нельзя кронить «лучшим».
+  const activeSat = satList.filter(s => s.status !== 'unused' && s.mroas > 0 && !suspiciousNames.has(s.name));
   if (activeSat.length >= 2) {
     const sorted = [...activeSat].sort((a, b) => b.mroas - a.mroas);
     const best = sorted[0];
