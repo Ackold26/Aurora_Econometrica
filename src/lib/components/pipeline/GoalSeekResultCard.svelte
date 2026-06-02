@@ -108,7 +108,10 @@
     {#if result.distribution && Object.keys(result.distribution).length > 0}
       {@const _totalDist = Object.values(result.distribution).reduce((s, b) => s + Number(b || 0), 0)}
       <section class="distribution">
-        <h4>Рекомендуемое распределение:</h4>
+        <h4>Распределение бюджета:</h4>
+        {#if result.allocation_mode === 'proportional'}
+          <p class="dist-note">Бюджет масштабирован при текущих пропорциях каналов (Goal-Seek отвечает «сколько нужно при нынешнем миксе»). Чтобы перераспределить между каналами, используйте прямой расчёт оптимизации.</p>
+        {/if}
         <table>
           <thead>
             <tr>
@@ -138,14 +141,14 @@
   {:else}
     <header class="card-header warn">
       <span class="icon">⚠️</span>
-      <h3>Цель недостижима в безопасном коридоре</h3>
+      <h3>Цель недостижима в доступном диапазоне бюджета</h3>
     </header>
 
     <section class="fallback">
       <p>{result.message ?? 'Цель за пределами math-валидного диапазона модели.'}</p>
       {#if result.fallback_max_sales}
         <p class="fallback-detail">
-          Максимум при полной верхней границе коридора:
+          Максимум достижимых продаж при текущем миксе каналов:
           <strong>{formatTarget(result.fallback_max_sales)}</strong>
           (бюджет {formatRub(result.fallback_budget)}).
         </p>
@@ -248,6 +251,12 @@
     letter-spacing: 0.05em;
     color: var(--text-muted);
     font-weight: 700;
+  }
+  .dist-note {
+    margin: 0 0 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-secondary);
   }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   th, td { padding: 6px 8px; border-bottom: 1px solid var(--border-subtle); }

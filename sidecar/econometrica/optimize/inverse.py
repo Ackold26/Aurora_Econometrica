@@ -80,7 +80,94 @@ def _forward_at_budget(project_dir: str, total_budget: float) -> Dict[str, Any]:
     }
 
 
-def _verify_monotonicity(project_dir: str, budget_lo: float, budget_hi: float, n_probes: int = 5) -> Dict[str, Any]:
+def build_proportional_forward(project_dir: str):
+    """GS-1 (2026-06-02): монотонный forward для Goal-Seek через фиксацию текущих
+    пропорций каналов + скейл общего бюджета.
+
+    Корень GS-1 (STEP0 probe на Кагоцел): старый `_forward_at_budget` зовёт
+    `optimize()` с НАТИВНЫМ бюджетом → guard UNIT_SMELL (не-денежный канал без CPP) →
+    error на каждом B → `_verify_monotonicity` маскирует под non_monotonic_forward →
+    юзер видит ложное «Forward не монотонна / non-convex Hill». Здесь forward =
+    Σ β·Hill(prop_i·B) - сумма индивидуально-монотонных откликов, монотонна по
+    построению (эмпирически подтверждено probe), а `evaluate_flat_allocation_response`
+    обрабатывает unit_costs напрямую (без smell-guard).
+
+    Семантика goal-seek: «сколько бюджета при ТЕКУЩЕМ миксе каналов нужно для цели»
+    (а не при оптимальном перераспределении - это смешивало бы goal-seek с
+    оптимизацией и давало немонотонность из-за SLSQP-реаллокации на каждом B).
+
+    Returns:
+        (forward_fn, meta), где forward_fn(total_budget_money) -> {expected_sales,
+        distribution, status}; meta = {'current_total_money', 'baseline_total'}.
+    """
+    import numpy as _np
+    import pandas as _pd
+    from engines.persistence import load_model_with_compat
+    from utils.forecasting import evaluate_flat_allocation_response
+    from utils.merge_rules import apply_merge_rules
+
+    model_data = load_model_with_compat(Path(project_dir) / 'models' / 'latest.pkl')
+    cfg = model_data['config']
+    norm = model_data['normalization']
+    channel_params = model_data['channel_params']
+    media_cols = [c for c in cfg['media_columns']
+                  if c not in set(norm.get('untrained_channels', []) or [])]
+    y_std = float(norm.get('y_std', 1.0)) or 1.0
+    media_means = norm.get('media_means', {}) or {}
+    adstock_config = cfg.get('adstock_config', {}) or {}
+    unit_costs = cfg.get('unit_costs', {}) or {}
+
+    data_file = cfg['data_file']
+    df = _pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else _pd.read_csv(data_file)
+    apply_merge_rules(df, cfg.get('merge_rules'))
+    n_periods = max(len(df), 1)
+
+    # baseline (non-media) в KPI scale - константа, не зависит от B
+    # (matches optimizer.py:1147-1148 non_media_baseline_total).
+    y_mean = float(norm.get('y_mean', 0.0))
+    intercept_mean = float(norm.get('intercept_mean', 0.0))
+    baseline_total = (intercept_mean * y_std + y_mean) * n_periods
+
+    uc_applied = bool(model_data.get('unit_costs_applied_at_training'))
+    uc_snap = (model_data.get('unit_costs_snapshot') or {}) if uc_applied else {}
+    uc_arr = [float(unit_costs.get(c, 1.0) or 1.0) for c in media_cols]
+    uc_train_arr = [float(uc_snap.get(c, 1.0) or 1.0) for c in media_cols]
+
+    current_native = {c: float(df[c].fillna(0).sum()) for c in media_cols}
+    current_money = {c: current_native[c] * float(unit_costs.get(c, 1.0) or 1.0) for c in media_cols}
+    total_cur_money = sum(current_money.values())
+    if total_cur_money > 0:
+        prop = {c: current_money[c] / total_cur_money for c in media_cols}
+    else:
+        n = len(media_cols)
+        prop = {c: (1.0 / n if n else 0.0) for c in media_cols}
+
+    def forward(total_budget_money: float) -> Dict[str, Any]:
+        try:
+            alloc = _np.array([prop[c] * float(total_budget_money) for c in media_cols], dtype=float)
+            resp = evaluate_flat_allocation_response(
+                media_cols=media_cols,
+                channel_params=channel_params,
+                allocation_money=alloc,
+                unit_costs=uc_arr,
+                media_means=media_means,
+                adstock_config=adstock_config,
+                n_periods=n_periods,
+                unit_costs_at_training=(uc_train_arr if uc_applied else None),
+            )
+            return {
+                'expected_sales': baseline_total + resp * y_std,
+                'distribution': {c: prop[c] * float(total_budget_money) for c in media_cols},
+                'status': 'ok',
+            }
+        except Exception as exc:  # noqa: BLE001 - forward не должен ронять bisection
+            return {'expected_sales': 0.0, 'distribution': {}, 'status': 'error',
+                    'error_message': str(exc)}
+
+    return forward, {'current_total_money': total_cur_money, 'baseline_total': baseline_total}
+
+
+def _verify_monotonicity(forward_fn, budget_lo: float, budget_hi: float, n_probes: int = 5) -> Dict[str, Any]:
     """v1.3.1 hotfix: verify forward(B) монотонна в [lo, hi].
 
     Probes forward function на n_probes equally-spaced points + checks
@@ -88,6 +175,9 @@ def _verify_monotonicity(project_dir: str, budget_lo: float, budget_hi: float, n
     (bisection assumes monotonicity).
 
     Per red-team audit finding B6.
+
+    GS-1 (2026-06-02): принимает forward_fn (callable B->result) вместо project_dir,
+    чтобы caller мог подставить proportional forward (монотонный по построению).
 
     Returns:
         {'monotonic': bool, 'probes': [{B, S}], 'violation_at': int | None}
@@ -100,7 +190,7 @@ def _verify_monotonicity(project_dir: str, budget_lo: float, budget_hi: float, n
     violation_at = None
     for i in range(n_probes):
         B = budget_lo + step * i
-        forward = _forward_at_budget(project_dir, B)
+        forward = forward_fn(B)
         if forward.get('status') == 'error':
             return {'monotonic': False, 'probes': probes, 'violation_at': i, 'error': True}
         S = forward['expected_sales']
@@ -123,6 +213,7 @@ def bisect_for_target(
     rel_tol: float = 1e-3,
     max_iters: int = 30,
     verify_monotonic: bool = True,
+    forward_fn=None,
 ) -> Dict[str, Any]:
     """Bisection: find minimum total_budget B such that expected_sales(B) ≥ target_sales.
 
@@ -147,10 +238,14 @@ def bisect_for_target(
           'monotonicity_check': dict | None,  # v1.3.1 audit trail
         }
     """
+    # GS-1 (2026-06-02): forward_fn по умолчанию = legacy re-optimize per budget
+    # (back-compat). optimize_inverse подставляет proportional forward.
+    fwd = forward_fn if forward_fn is not None else (lambda B: _forward_at_budget(project_dir, B))
+
     # v1.3.1: verify monotonicity guard (per red-team audit B6).
     monotonicity_check = None
     if verify_monotonic:
-        monotonicity_check = _verify_monotonicity(project_dir, budget_lo, budget_hi)
+        monotonicity_check = _verify_monotonicity(fwd, budget_lo, budget_hi)
         if not monotonicity_check['monotonic']:
             return {
                 'achievable': False,
@@ -166,7 +261,7 @@ def bisect_for_target(
             }
 
     # Sanity check: forward at hi должен достичь target.
-    forward_hi = _forward_at_budget(project_dir, budget_hi)
+    forward_hi = fwd(budget_hi)
     if forward_hi['status'] == 'error':
         return {
             'achievable': False,
@@ -183,8 +278,9 @@ def bisect_for_target(
             'iterations': 1,
             'monotonicity_check': monotonicity_check,
             'message': (
-                f'Цель {target_sales:.0f} недостижима в безопасном коридоре. '
-                f'Максимум при upper corridor: {forward_hi["expected_sales"]:.0f}'
+                f'Цель {target_sales:.0f} недостижима в доступном диапазоне бюджета. '
+                f'Максимум достижимых продаж при текущем миксе каналов: '
+                f'{forward_hi["expected_sales"]:.0f}'
             ),
         }
 
@@ -198,7 +294,7 @@ def bisect_for_target(
 
     while (hi - lo) > rel_tol * max(hi, 1.0) and iters < max_iters:
         mid = 0.5 * (lo + hi)
-        forward_mid = _forward_at_budget(project_dir, mid)
+        forward_mid = fwd(mid)
         iters += 1
 
         if forward_mid['status'] == 'error':
@@ -230,6 +326,7 @@ def estimate_budget_ci(
     budget_optimum: float,
     target_sales: float,
     delta_pct: float = 0.05,
+    forward_fn=None,
 ) -> Dict[str, float]:
     """Estimate posterior CI на budget через Delta method (linearization).
 
@@ -243,10 +340,11 @@ def estimate_budget_ci(
     Returns:
         {'p10': float, 'p50': budget_optimum, 'p90': float, 'method': 'delta'}
     """
+    fwd = forward_fn if forward_fn is not None else (lambda B: _forward_at_budget(project_dir, B))
     delta = max(delta_pct * budget_optimum, 1.0)
 
-    f_minus = _forward_at_budget(project_dir, budget_optimum - delta)
-    f_plus = _forward_at_budget(project_dir, budget_optimum + delta)
+    f_minus = fwd(budget_optimum - delta)
+    f_plus = fwd(budget_optimum + delta)
 
     if f_minus['status'] == 'error' or f_plus['status'] == 'error':
         # Fallback: return point estimate as full CI (no width).
@@ -347,10 +445,6 @@ def optimize_inverse(
           'message': str,
         }
     """
-    # Compute safe corridor для определения bisection bounds.
-    from engines.persistence import load_model_with_compat
-    from optimize.bounds import compute_safe_corridor
-
     model_path = Path(project_dir) / 'models' / 'latest.pkl'
     if not model_path.exists():
         return {
@@ -359,24 +453,37 @@ def optimize_inverse(
             'message': 'Модель не найдена. Сначала обучите модель.',
         }
 
-    model_data = load_model_with_compat(model_path)
-    corridor = compute_safe_corridor(model_data)
+    # GS-1 (2026-06-02): proportional forward (фикс. текущий микс каналов) -
+    # монотонен по построению, обрабатывает unit_costs напрямую (без UNIT_SMELL
+    # guard, который ронял re-optimize forward на не-денежных каналах).
+    forward_fn, fwd_meta = build_proportional_forward(project_dir)
+    current_total = fwd_meta['current_total_money']
 
     budget_lo = 0.0
-    budget_hi = corridor['aggregate_budget']['hi']
-    current_total = corridor['aggregate_budget']['current']
+    # Диапазон bisection от текущего ДЕНЕЖНОГО бюджета (×5), а не из safe corridor:
+    # на не-денежных каналах corridor смешивает единицы (STEP0 probe: current 279M
+    # vs corridor hi 17.6M - несопоставимо), goal-seek упирался бы в ложный потолок.
+    if current_total > 0:
+        budget_hi = current_total * 5.0
+    else:
+        from engines.persistence import load_model_with_compat
+        from optimize.bounds import compute_safe_corridor
+        budget_hi = float(compute_safe_corridor(
+            load_model_with_compat(model_path))['aggregate_budget']['hi'])
 
     # Apply external budget constraints (если заданы юзером).
     if budget_constraints:
-        budget_hi = min(budget_hi, budget_constraints.get('max_budget', budget_hi))
+        if budget_constraints.get('max_budget') is not None:
+            budget_hi = float(budget_constraints['max_budget'])
         budget_lo = max(budget_lo, budget_constraints.get('min_budget', budget_lo))
 
-    # Bisection.
+    # Bisection через proportional forward.
     bisect_result = bisect_for_target(
         project_dir=project_dir,
         target_sales=target_sales,
         budget_lo=budget_lo,
         budget_hi=budget_hi,
+        forward_fn=forward_fn,
     )
 
     if not bisect_result.get('achievable'):
@@ -394,9 +501,9 @@ def optimize_inverse(
             'iterations': bisect_result.get('iterations', 0),
         }
 
-    # Posterior CI via Delta method.
+    # Posterior CI via Delta method (тот же proportional forward для согласованного градиента).
     budget_optimum = bisect_result['budget']
-    ci = estimate_budget_ci(project_dir, budget_optimum, target_sales)
+    ci = estimate_budget_ci(project_dir, budget_optimum, target_sales, forward_fn=forward_fn)
     # #59 (2026-06-02): явный булев маркер насыщения для UI-баннера.
     # estimate_budget_ci ставит method='flat_response_fallback', когда локальный
     # градиент ∂S/∂B ≈ 0 (плоская кривая) — Goal-Seek нашёл бюджет, но маргинальная
@@ -427,4 +534,7 @@ def optimize_inverse(
         'expected_sales': bisect_result['expected_sales'],
         'current_total_budget': current_total,
         'flat_response_fallback': flat_response_fallback,
+        # GS-1: распределение получено масштабированием ТЕКУЩЕГО микса (фикс. пропорции),
+        # а не оптимальным перераспределением. UI поясняет это пользователю.
+        'allocation_mode': 'proportional',
     }
