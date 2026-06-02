@@ -24,8 +24,9 @@
 
   const { currentSales = 0, salesCorridor } = $props();
 
-  // Target slider state.
-  let targetSales = $state(currentSales);
+  // Target slider state. GS-2: стартовая цель задаётся в $effect ниже
+  // (рекомендуемый умеренный рост в пределах коридора), 0 = «ещё не задана».
+  let targetSales = $state(0);
   /** @type {number | null} */
   let maxBudgetCap = $state(null);
   /** @type {any | null} */
@@ -39,10 +40,14 @@
   const corridorLo = $derived(salesCorridor?.lo ?? Math.max(0, currentSales * 0.7));
   const corridorHi = $derived(salesCorridor?.hi ?? currentSales * 1.5);
 
-  // Auto-reset target into corridor if outside.
+  // GS-2 (2026-06-02): рекомендуемый стартовый ориентир - умеренный рост +10%,
+  // но не выше безопасного коридора (×0.95 от верхней границы). Раньше дефолт =
+  // currentSales (цель = текущим, +0% - бессмысленный старт). Срабатывает один раз,
+  // когда currentSales известен; дальше пользователь правит слайдером/полем.
   $effect(() => {
     if (currentSales > 0 && targetSales === 0) {
-      targetSales = currentSales;
+      const recommended = Math.min(currentSales * 1.1, corridorHi * 0.95);
+      targetSales = recommended > 0 ? recommended : currentSales;
     }
   });
 
@@ -135,6 +140,7 @@
         type="text"
         inputmode="numeric"
         value={Math.round(Number(targetSales) || 0).toLocaleString('ru-RU')}
+        onfocus={(e) => /** @type {HTMLInputElement} */ (e.target).select()}
         oninput={(e) => {
           const raw = /** @type {HTMLInputElement} */ (e.target).value.replace(/\D/g, '');
           targetSales = parseInt(raw, 10) || 0;
