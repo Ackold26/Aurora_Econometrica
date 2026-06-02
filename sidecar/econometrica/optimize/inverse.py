@@ -385,6 +385,9 @@ def optimize_inverse(
             'kpi_kind': kpi_kind,
             'mode': mode,
             'target_sales': target_sales,
+            # #59 (2026-06-02): пробрасываем error code (напр. non_monotonic_forward),
+            # чтобы UI различал «недостижима» vs «non-convex Hill» и показывал точный hint.
+            'error': bisect_result.get('error'),
             'fallback_max_sales': bisect_result.get('fallback_max_sales'),
             'fallback_budget': bisect_result.get('fallback_budget'),
             'message': bisect_result.get('message', 'Goal not achievable'),
@@ -394,6 +397,11 @@ def optimize_inverse(
     # Posterior CI via Delta method.
     budget_optimum = bisect_result['budget']
     ci = estimate_budget_ci(project_dir, budget_optimum, target_sales)
+    # #59 (2026-06-02): явный булев маркер насыщения для UI-баннера.
+    # estimate_budget_ci ставит method='flat_response_fallback', когда локальный
+    # градиент ∂S/∂B ≈ 0 (плоская кривая) — Goal-Seek нашёл бюджет, но маргинальная
+    # отдача ≈ 0 и CI грубый (±10%). UI показывает баннер вместо сырого жаргона.
+    flat_response_fallback = ci.get('method') == 'flat_response_fallback'
 
     # P(hit target): MVP - на основе expected_sales spread.
     p_hit = estimate_p_hit_target(
@@ -418,4 +426,5 @@ def optimize_inverse(
         'iterations': bisect_result['iterations'],
         'expected_sales': bisect_result['expected_sales'],
         'current_total_budget': current_total,
+        'flat_response_fallback': flat_response_fallback,
     }

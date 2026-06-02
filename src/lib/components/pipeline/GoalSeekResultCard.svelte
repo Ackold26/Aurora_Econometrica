@@ -36,6 +36,16 @@
     if (kpiKind === 'monetary') return formatRub(n);
     return formatCount(n);
   }
+
+  // #59 (2026-06-02): человекочитаемая метка метода CI вместо сырого backend-кода
+  // (help-system принцип — без жаргона в user-facing тексте).
+  /** @param {string | undefined} m */
+  function methodLabel(m) {
+    if (m === 'flat_response_fallback') return 'оценка при насыщении';
+    if (m === 'point') return 'точечная оценка';
+    if (m === 'delta') return 'дельта-метод';
+    return 'бисекция';
+  }
 </script>
 
 <div class="goal-seek-card" class:not-achievable={!result.achievable}>
@@ -61,6 +71,24 @@
         </div>
       {/if}
     </section>
+
+    {#if result.flat_response_fallback}
+      <section class="saturation-note">
+        <span class="note-icon">⚙️</span>
+        <div class="note-body">
+          <strong>Модель близка к насыщению</strong>
+          <p>
+            Бюджет найден, но каждый следующий рубль почти не увеличивает результат —
+            отдача вышла на плато. Поэтому интервал требуемого бюджета широкий (±10%),
+            а точное значение менее надёжно.
+          </p>
+          <p class="note-hint">
+            💡 Прирост вероятнее получить перераспределением между каналами или
+            подключением новых, чем увеличением общего бюджета.
+          </p>
+        </div>
+      </section>
+    {/if}
 
     <section class="metrics-row">
       <div class="metric">
@@ -104,7 +132,7 @@
 
     {#if result.iterations}
       <footer class="card-footer">
-        <span class="meta">Сошлось за {result.iterations} итераций · Метод: {result.total_budget.method ?? 'bisection'}</span>
+        <span class="meta">Сошлось за {result.iterations} итераций · Метод: {methodLabel(result.total_budget.method)}</span>
       </footer>
     {/if}
   {:else}
@@ -169,6 +197,21 @@
     letter-spacing: -0.02em;
   }
   .figure-ci { font-size: 11px; color: var(--text-secondary); }
+
+  /* #59 (2026-06-02): баннер насыщения (flat response) — warning tier. */
+  .saturation-note {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 30%, transparent);
+    border-radius: var(--radius-sm, 8px);
+  }
+  .saturation-note .note-icon { font-size: 18px; line-height: 1.3; }
+  .saturation-note .note-body { display: flex; flex-direction: column; gap: 4px; }
+  .saturation-note strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .saturation-note p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+  .saturation-note .note-hint { color: var(--text-primary); }
 
   .metrics-row {
     display: grid;
