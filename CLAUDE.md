@@ -84,6 +84,13 @@ cd <repo_root>
 AIAGENCY_DEV=1 AIAGENCY_DEV_CABINETS="<repo>/New_AI_Agency" npm run tauri dev
 ```
 
+**DOM-driven визуальный аудит (MCP-мост):** для `driver_session`/`webview_*` запускать
+`npm run tauri:dev` (НЕ `npm run tauri dev`) — он подмешивает `tauri.dev.conf.json`
+(`withGlobalTauri:true`) через `--config`. Иначе `window.__TAURI__` отсутствует и мост
+вернёт `hasTauri:false`. `withGlobalTauri` намеренно вынесен в dev-overlay, НЕ в базовый
+`tauri.conf.json` (release-гигиена, INV-52: иначе `window.__TAURI__` течёт в production).
+Мост = `tauri-plugin-mcp-bridge` под `#[cfg(debug_assertions)]`, bind 127.0.0.1:9223.
+
 ### 8. Online auth — НЕ удалять Ed25519 код
 Две системы лицензирования работают параллельно. `online_auth.rs` — приоритетная, `license.rs` — fallback. Не удалять Ed25519 код до полной миграции всех клиентов.
 
