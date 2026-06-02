@@ -198,7 +198,12 @@
     if (kpiCount === 0) errorMsg = 'Не выбрана целевая метрика';
     else if (kpiCount > 1 && rolesVisible) errorMsg = `Выбрано ${kpiCount} целевых метрик (нужна одна)`;
     else if (mediaCount === 0) errorMsg = 'Нет медиа-каналов';
-    else if (liveRatio > 0 && liveRatio < 2) errorMsg = `Ratio ${liveRatio.toFixed(1)}:1 - слишком мало данных`;
+    // SEV-1 (2026-06-02, поймано live-GUI): error/«Ошибка» шага только при ratio < 1
+    // (df ≤ 0, модель не определяется - переменных ≥ наблюдений). При 1 ≤ ratio < 2
+    // модель идентифицируема (директивно, приемлемо для пилота) - не «Ошибка»;
+    // предупреждение «Критически мало» показывает RatioInfoCard. Согласовано с
+    // ratio-classifier.js + insights-rules.js (порог DEGENERATE=1).
+    else if (liveRatio > 0 && liveRatio < 1) errorMsg = `Ratio ${liveRatio.toFixed(1)}:1 - модель не определяется (переменных больше, чем точек данных)`;
 
     if (errorMsg) {
       setStepError(1, errorMsg);
