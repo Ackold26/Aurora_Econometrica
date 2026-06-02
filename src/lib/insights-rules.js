@@ -22,6 +22,7 @@ import {
 // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
 // меток с RatioInfoCard / sticky header / Контроль качества.
 import { classifyRatio } from './ratio-classifier.js';
+import { pluralizeRu } from './utils/i18n.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -72,18 +73,23 @@ export function importInsights(data) {
     return out;
   }
 
-  // Гранулярность: < 60 строк скорее всего месячные данные
-  const granularity = rows <= 60 ? 'месячных' : rows <= 260 ? 'недельных' : 'дневных';
-  const period = rows <= 60 ? `~${rows} месяц${rows > 1 ? (rows < 5 ? 'а' : 'ев') : ''}` :
-                 rows <= 260 ? `~${Math.round(rows / 52)} год${Math.round(rows/52) > 1 ? 'а' : ''}` :
-                 `~${Math.round(rows / 365)} год${Math.round(rows/365) > 1 ? 'а' : ''}`;
+  // Гранулярность: < 60 строк скорее всего месячные данные.
+  // NUM-1 (2026-06-02): для месячных period уже в месяцах ("~31 месяц"), слово
+  // "месячных" дублирует единицу → тавтология. Опускаем granularity-слово для месячных.
+  const granularityWord = rows <= 60 ? '' : rows <= 260 ? 'недельных' : 'дневных';
+  const obsLabel = granularityWord ? `${granularityWord} наблюдений` : 'наблюдений';
+  // Корректное склонение (pluralizeRu вместо крудового n>1): "31 месяц", "5 лет".
+  const years = rows <= 260 ? Math.round(rows / 52) : Math.round(rows / 365);
+  const period = rows <= 60
+    ? `~${rows} ${pluralizeRu(rows, ['месяц', 'месяца', 'месяцев'])}`
+    : `~${years} ${pluralizeRu(years, ['год', 'года', 'лет'])}`;
 
   if (rows < 24) {
     out.push({ severity: 'warning', text: `Мало данных: ${rows} наблюдений (${period}). MMM требует минимум 2 года истории.`, tip: 'Байесовская модель работает с малыми выборками, но доверительные интервалы будут широкими.' });
   } else if (rows >= 104) {
-    out.push({ severity: 'success', text: `${rows} ${granularity} наблюдений (${period}) - отличный объём для MMM.` });
+    out.push({ severity: 'success', text: `${rows} ${obsLabel} (${period}) - отличный объём для MMM.` });
   } else {
-    out.push({ severity: 'info', text: `${rows} ${granularity} наблюдений (${period}), ${cols} столбцов.` });
+    out.push({ severity: 'info', text: `${rows} ${obsLabel} (${period}), ${cols} столбцов.` });
   }
 
   // ── Автодетект медиаканалов по именам колонок ──

@@ -8,7 +8,7 @@
   import CabinetCard from '$lib/components/CabinetCard.svelte';
   import BrandSelector from '$lib/components/BrandSelector.svelte';
   import AetherLogo from '$lib/components/AetherLogo.svelte';
-  import { activeProject, resetForNewAnalysis } from '$lib/project-state.js';
+  import { activeProject, resetForNewAnalysis, PIPELINE_STEPS } from '$lib/project-state.js';
   import SkeletonCard from '$lib/components/SkeletonCard.svelte';
   import { milestones } from '$lib/psy.js';
 
@@ -325,10 +325,10 @@
               <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
             </svg>
           </div>
-          <h2 class="pipeline-promo-title">Visual Pipeline</h2>
+          <h2 class="pipeline-promo-title">Визуальный пайплайн</h2>
           <p class="pipeline-promo-desc">
             6-шаговый MMM-анализ с интерактивными графиками:<br>
-            <span class="pipeline-steps-line">Import → Validate → Model → Decompose → Optimize → Report</span>
+            <span class="pipeline-steps-line">{PIPELINE_STEPS.map(s => s.labelRu).join(' → ')}</span>
           </p>
           <div class="pipeline-promo-actions">
             {#if $activeProject}

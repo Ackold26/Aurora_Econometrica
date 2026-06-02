@@ -13,6 +13,7 @@
   import { chartTooltipDark } from '$lib/echarts-setup.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
+  import { pluralizeRu } from '$lib/utils/i18n.js';
 
   /** @type {{ diagnostics: any }} */
   let { diagnostics } = $props();
@@ -220,11 +221,11 @@
         {#if rhatFailed === 0}
           {#if divergences <= 10}
             {#if mcmcTune < 4000}
-              ✓ Модель рассчитана надёжно. Для максимальной точности можно улучшить
-              выборку в Эксперт-режиме.
+              ✓ Сходимость достигнута (R-hat &lt; 1.05). Для максимальной точности можно
+              улучшить выборку в Эксперт-режиме.
             {:else}
-              ✓ Модель рассчитана надёжно. Единичные нестабильности не влияют на
-              качество результата — можно использовать выводы.
+              ✓ Сходимость достигнута (R-hat &lt; 1.05). Единичные нестабильности не влияют
+              на сходимость — надёжность выводов оценивайте по баллу качества модели (MQS).
             {/if}
           {:else if divergences <= 50}
             {#if mcmcTune < 6000}
@@ -258,7 +259,7 @@
       <details class="banner-details">
         <summary>Технические детали</summary>
         <div class="banner-secondary">
-          {divergences} дивергенций обнаружено <span class="muted">({divergencesPct.toFixed(2)}% от {totalDraws} draws)</span>
+          Обнаружено: {divergences} {pluralizeRu(divergences, ['дивергенция', 'дивергенции', 'дивергенций'])} <span class="muted">({divergencesPct.toFixed(2)}% от {totalDraws} draws)</span>
           <span class="muted">(Tune={mcmcTune}, Draws={mcmcDraws}, target_accept={mcmcTargetAccept}).</span>
           {#if rhatFailed === 0}
             Параметры сошлись (R-hat &lt; 1.05) - модель готова к использованию.
