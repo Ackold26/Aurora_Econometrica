@@ -3013,7 +3013,7 @@ fn build_app() -> Result<(), String> {
         content_packs_verified: Arc::new(AtomicBool::new(false)),
     });
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -3023,7 +3023,19 @@ fn build_app() -> Result<(), String> {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_notification::init());
+
+    // MCP Bridge — DOM-driven визуальный аудит (visual-audit skill).
+    // ТОЛЬКО dev (#[cfg(debug_assertions)]) → сервер не стартует в release.
+    // bind 127.0.0.1 (НЕ дефолтный 0.0.0.0:9223) — порт не открывается в сеть.
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(
+        tauri_plugin_mcp_bridge::Builder::new()
+            .bind_address("127.0.0.1")
+            .build(),
+    );
+
+    builder
         // Phase 3: Custom protocol for external frontend
         .register_uri_scheme_protocol("aurora", |ctx, req| handle_aurora_protocol(ctx.app_handle(), req))
         .setup(|app| {
