@@ -601,7 +601,7 @@
             <span class="status-dot dot-ok"></span>
             <span class="status-text-label">Лицензия активна (офлайн)</span>
           </div>
-          {#if licenseStatus.expires_at}
+          {#if licenseStatus?.expires_at}
             <p class="connection-detail">Действует до: {new Date(licenseStatus.expires_at).toLocaleDateString('ru-RU')}</p>
           {/if}
         {:else if licenseTier === 'cached'}
