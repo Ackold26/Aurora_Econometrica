@@ -16,6 +16,10 @@ import { writable } from 'svelte/store';
 
 const ENABLED_KEY = 'aurora-econ-onboarding-enabled';
 const LEGACY_STEP_PREFIX = 'aurora-econ-onboarded:';
+// ONBOARD-1 (2026-06-02): ключ завершения FirstRunTour. На первом прогоне (тур ещё
+// не пройден) per-step коуч-марки приглушаются - тур только что всё показал. После
+// тура always-on (решение 2026-04-22) для возвращающихся юзеров.
+const FIRST_RUN_TOUR_KEY = 'aurora.firstRunTourCompleted';
 
 /** @type {string[]} Канонические имена шагов с турами (используется для диагностики). */
 export const TOUR_STEP_KEYS = ['import', 'validate', 'model', 'decompose', 'optimize', 'report'];
@@ -62,6 +66,9 @@ onboardingEnabled.subscribe((v) => {
 export function shouldShowOnboarding(_stepKey) {
   if (typeof window === 'undefined') return false;
   try {
+    // ONBOARD-1: на первом прогоне (FirstRunTour ещё не пройден/не пропущен)
+    // коуч-марки приглушаем - иначе дублируют только что показанный тур.
+    if (window.localStorage.getItem(FIRST_RUN_TOUR_KEY) === null) return false;
     const v = window.localStorage.getItem(ENABLED_KEY);
     if (v === null) return true; // default on
     return v === '1';

@@ -92,13 +92,10 @@
   }
 
   onMount(() => {
-    // v1.3.0: Show Intro Tutorial on first run.
-    if (typeof localStorage !== 'undefined') {
-      const introCompleted = localStorage.getItem('aurora-intro-completed');
-      if (!introCompleted) {
-        showIntroTutorial.set(true);
-      }
-    }
+    // ONBOARD-1 (2026-06-02): IntroTutorial (теория MMM) больше НЕ авто-стартует
+    // на first-run - это справочный материал, не блокер. Первый прогон ведёт
+    // практический FirstRunTour (pipeline); теорию юзер открывает по желанию
+    // кнопкой «Что такое MMM?» на главной. Решение Антона 2026-06-02.
 
     // Command Palette: Ctrl+K / Cmd+K. v1.3.0 + Ctrl+G - glossary panel.
     /** @param {KeyboardEvent} e */

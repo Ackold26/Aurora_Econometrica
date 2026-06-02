@@ -8,7 +8,7 @@
   import CabinetCard from '$lib/components/CabinetCard.svelte';
   import BrandSelector from '$lib/components/BrandSelector.svelte';
   import AetherLogo from '$lib/components/AetherLogo.svelte';
-  import { activeProject, resetForNewAnalysis, PIPELINE_STEPS } from '$lib/project-state.js';
+  import { activeProject, resetForNewAnalysis, PIPELINE_STEPS, showIntroTutorial } from '$lib/project-state.js';
   import SkeletonCard from '$lib/components/SkeletonCard.svelte';
   import { milestones } from '$lib/psy.js';
 
@@ -357,6 +357,10 @@
               </button>
             {/if}
           </div>
+          <!-- ONBOARD-1: теория MMM теперь по желанию (opt-in), не авто-старт. -->
+          <button type="button" class="pipeline-promo-learn" onclick={() => showIntroTutorial.set(true)}>
+            Что такое MMM? — короткий разбор за 5 минут
+          </button>
         </div>
       </div>
     {/if}
@@ -998,6 +1002,19 @@
     font-weight: 500;
   }
   .pipeline-promo-actions { display: flex; gap: 12px; margin-top: 8px; }
+  .pipeline-promo-learn {
+    margin-top: 12px;
+    padding: 0;
+    background: none;
+    border: none;
+    font-size: 12px;
+    color: var(--text-muted, #94a3b8);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.15s ease;
+  }
+  .pipeline-promo-learn:hover { color: var(--accent, #3b82f6); }
   /* Action buttons - same size, shape, font-weight; differ only by color */
   .pipeline-promo-btn {
     padding: 7px 16px;
