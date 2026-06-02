@@ -1553,7 +1553,7 @@
         <Tooltip text={TOOLTIPS['optimize.forward']} position="top">
           <div class="pill-text">
             <strong>От бюджета</strong>
-            <span class="pill-sub">Forward - куда вложить</span>
+            <span class="pill-sub">Прямой расчёт - куда вложить</span>
           </div>
         </Tooltip>
       </button>
@@ -1569,7 +1569,7 @@
         <Tooltip text={TOOLTIPS['optimize.goal_seek']} position="top">
           <div class="pill-text">
             <strong>От цели</strong>
-            <span class="pill-sub"><GlossaryTerm termId="goal_seek">Goal-Seek</GlossaryTerm> - сколько потратить</span>
+            <span class="pill-sub"><GlossaryTerm termId="goal_seek">Подбор под цель</GlossaryTerm> - сколько потратить</span>
           </div>
         </Tooltip>
       </button>
@@ -2266,7 +2266,7 @@
       <div class="block-header">
         <span class="block-letter">C</span>
         <Tooltip text={TOOLTIPS['optimize.what_if']} position="top">
-          <h3 class="block-title" style="cursor:help;">What-if: изменённый бюджет</h3>
+          <h3 class="block-title" style="cursor:help;">Что-если: изменённый бюджет</h3>
         </Tooltip>
         <span class="block-subtitle">- а если бюджет станет другим?</span>
       </div>

@@ -929,7 +929,7 @@
           </div>
           {#if executiveSummary}
             <div class="summary-preview">
-              <div class="preview-title">Executive Summary</div>
+              <div class="preview-title">Резюме</div>
               <pre class="preview-text">{executiveSummary}</pre>
             </div>
           {/if}
@@ -1080,32 +1080,32 @@
               {#if coverFormat === 'pptx'}
                 <p><b>Структура презентации:</b></p>
                 <ul>
-                  <li>Executive summary - MQS, R², MAPE, прирост от оптимизации</li>
+                  <li>Резюме - MQS, R², MAPE, прирост от оптимизации</li>
                   {#if isOls}
                     <li>Спецификация модели - Линейная регрессия с Adstock (Geometric) + Hill saturation, β оценены closed-form OLS, доверительные интервалы - bootstrap</li>
                   {:else}
                     <li>Спецификация модели - Bayesian MMM, Adstock + Hill saturation, MCMC-сэмплер, priors</li>
                   {/if}
-                  <li>Декомпозиция продаж - вклад baseline vs медиа по каналам</li>
-                  <li>ROI-анализ - Share of Spend vs Share of Effect, Gap, Efficiency</li>
+                  <li>Декомпозиция продаж - вклад базы и медиа по каналам</li>
+                  <li>ROI-анализ - доля затрат и доля эффекта, разрыв, эффективность</li>
                   <li>Динамика по периодам - вклад каналов во времени</li>
                   <li>Сравнение сохранённых сценариев (если есть)</li>
-                  <li>Оптимальное распределение бюджета с ожидаемым lift</li>
+                  <li>Оптимальное распределение бюджета с ожидаемым приростом</li>
                 </ul>
                 <p>Готов обсудить детали и план пилота.</p>
               {:else if coverFormat === 'xlsx'}
                 <p><b>Структура файла:</b></p>
                 <ul>
-                  <li><b>Executive Summary</b> - ключевые метрики качества модели</li>
+                  <li><b>Резюме</b> - ключевые метрики качества модели</li>
                   {#if isOls}
                     <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), OLS · closed-form · bootstrap CI</li>
                   {:else}
                     <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), priors, методология</li>
                   {/if}
-                  <li><b>Декомпозиция</b> - вклад baseline и каждого канала в продажи</li>
-                  <li><b>ROI каналов</b> - ROI, Gap, Efficiency</li>
-                  <li><b>Spend vs Effect</b> - share of spend vs share of effect</li>
-                  <li><b>Динамика</b> - таблица по периодам + stacked-area chart</li>
+                  <li><b>Декомпозиция</b> - вклад базы и каждого канала в продажи</li>
+                  <li><b>ROI каналов</b> - ROI, разрыв, эффективность</li>
+                  <li><b>Затраты и эффект</b> - доля затрат и доля эффекта</li>
+                  <li><b>Динамика</b> - таблица по периодам + диаграмма с накоплением</li>
                   <li><b>Сценарии</b> - сравнение сохранённых (если есть)</li>
                   <li><b>Оптимизация</b> - текущее vs оптимальное распределение</li>
                   <li><b>Данные</b> - сырые time-series для собственных графиков</li>
@@ -1116,9 +1116,9 @@
                 <p><b>Что внутри:</b></p>
                 <ul>
                   <li>Один HTML-файл, открывается двойным кликом в любом браузере</li>
-                  <li>Интерактивные графики (ECharts): waterfall, ROI, Spend vs Effect, stacked-area timeline, оптимизация</li>
-                  <li>Tooltip на каждом графике, zoom/scroll по таймлайну</li>
-                  <li>KPI-панель сверху: MQS, R², MAPE, {isOls ? 'надёжность оценок' : 'R-hat'}, baseline %, прирост, бюджет</li>
+                  <li>Интерактивные графики: водопад, ROI, затраты и эффект, динамика с накоплением, оптимизация</li>
+                  <li>Подсказки на каждом графике, масштабирование и прокрутка по оси времени</li>
+                  <li>KPI-панель сверху: MQS, R², MAPE, {isOls ? 'надёжность оценок' : 'R-hat'}, база %, прирост, бюджет</li>
                   <li>Сводная таблица по каналам с цветовой разметкой ROI/Gap</li>
                   <li>Сравнение сохранённых сценариев (если есть) с подсветкой лучшего ROAS</li>
                 </ul>
