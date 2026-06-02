@@ -11,6 +11,7 @@
   import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
   import { onboardingEnabled } from '$lib/onboarding-state.js';
   import { hideEducationalHints, showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
+  import { resolveLicenseTier } from '$lib/license-display.js';
 
   let audioEnabled = $state(isAudioEnabled());
 
@@ -85,6 +86,9 @@
   /** @type {{status: string, content_version: string|null, expires_at: string|null, machine_id: string}|null} */
   let onlineStatus = $state(null);
   let contentVersion = $state('');
+
+  // #61 (2026-06-02) [LI-001]: единый приоритет источников лицензии (см. license-display.js).
+  let licenseTier = $derived(resolveLicenseTier(onlineStatus, licenseStatus));
 
   async function copyAllFingerprints() {
     try {
@@ -576,29 +580,42 @@
     <section class="section">
       <h2 class="section-title">Лицензия</h2>
       <div class="connection-status">
-        {#if onlineStatus}
+        <!-- #61 (2026-06-02) [LI-001 fix]: приоритет источников статуса.
+             Раньше учитывался только onlineStatus → при offline (exception или
+             status='offline') показывалось «не подтверждена / неизвестно», даже
+             при валидной офлайн Ed25519-лицензии. Теперь: online-ok → офлайн-valid
+             → cached → нет лицензии. Приоритет — в resolveLicenseTier (license-display.js). -->
+        {#if licenseTier === 'online-ok'}
           <div class="status-row">
-            <span class="status-dot" class:dot-ok={onlineStatus.status === 'ok'} class:dot-cached={onlineStatus.status === 'cached'} class:dot-offline={onlineStatus.status === 'offline' || onlineStatus.status === 'blocked'}></span>
-            <span class="status-text-label">
-              {#if onlineStatus.status === 'ok'}
-                Лицензия активна
-              {:else if onlineStatus.status === 'cached'}
-                Работа по кэшу (соединение временно недоступно)
-              {:else}
-                Лицензия не подтверждена
-              {/if}
-            </span>
+            <span class="status-dot dot-ok"></span>
+            <span class="status-text-label">Лицензия активна</span>
           </div>
-          {#if onlineStatus.expires_at}
+          {#if onlineStatus && onlineStatus.expires_at}
             <p class="connection-detail">Действует до: {new Date(onlineStatus.expires_at).toLocaleDateString('ru-RU')}</p>
           {/if}
-          {#if onlineStatus.machine_id}
+          {#if onlineStatus && onlineStatus.machine_id}
             <p class="connection-detail">Instance: {onlineStatus.machine_id}</p>
+          {/if}
+        {:else if licenseTier === 'offline-valid'}
+          <div class="status-row">
+            <span class="status-dot dot-ok"></span>
+            <span class="status-text-label">Лицензия активна (офлайн)</span>
+          </div>
+          {#if licenseStatus.expires_at}
+            <p class="connection-detail">Действует до: {new Date(licenseStatus.expires_at).toLocaleDateString('ru-RU')}</p>
+          {/if}
+        {:else if licenseTier === 'cached'}
+          <div class="status-row">
+            <span class="status-dot dot-cached"></span>
+            <span class="status-text-label">Работа по кэшу (соединение временно недоступно)</span>
+          </div>
+          {#if onlineStatus && onlineStatus.expires_at}
+            <p class="connection-detail">Действует до: {new Date(onlineStatus.expires_at).toLocaleDateString('ru-RU')}</p>
           {/if}
         {:else}
           <div class="status-row">
             <span class="status-dot dot-offline"></span>
-            <span class="status-text-label">Статус неизвестен</span>
+            <span class="status-text-label">Лицензия не подтверждена</span>
           </div>
         {/if}
       </div>
