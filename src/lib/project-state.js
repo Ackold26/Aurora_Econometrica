@@ -787,20 +787,31 @@ if (typeof localStorage !== 'undefined') {
  * }>}
  */
 export const modelStaleStatus = derived(
-  [modelData, validateData, lastTrainedConfig],
-  ([$m, $v, $tc]) => {
+  [modelData, validateData, lastTrainedConfig, modelChannelEnabled],
+  ([$m, $v, $tc, $en]) => {
     if (!$m?.diagnostics || !$tc) return { stale: false, reason: '', diff: [] };
     const cur = /** @type {any[]} */ ($v?.result?.columns || []);
-    const curMedia = cur.filter(c => c?.role === 'media').map(c => c.name).sort();
     const curControl = cur.filter(c => c?.role === 'control').map(c => c.name).sort();
     const curKpi = cur.find(c => c?.role === 'kpi')?.name ?? '';
     const tm = [...($tc.media || [])].sort();
     const tc = [...($tc.control || [])].sort();
+    // STATE-1 (2026-06-02): сравниваем с ОБУЧЕННЫМ ПОДМНОЖЕСТВОМ каналов
+    // (enabled-for-training), а не со всеми media-ролями. lastTrainedConfig.media =
+    // enabledChannels (напр. 7 из 10) — раньше curMedia брал ВСЕ media-роли (10),
+    // и сразу после обучения показывал ложный «было 7, стало 10». Теперь curMedia =
+    // текущие включённые media. Guard: если enabled-инфо ещё нет (пустой map после
+    // reload, до монтирования ConfigPanel) — пропускаем media-diff, чтобы не давать
+    // ложного срабатывания (KPI/контрольные всё равно проверяются).
+    const enMap = $en || {};
+    const hasEnabledInfo = Object.keys(enMap).length > 0;
+    const curMediaEnabled = hasEnabledInfo
+      ? cur.filter(c => c?.role === 'media' && enMap[c.name] !== false).map(c => c.name).sort()
+      : null;
     /** @type {string[]} */
     const diff = [];
     if (curKpi !== $tc.kpi) diff.push(`KPI: «${$tc.kpi}» → «${curKpi}»`);
-    if (curMedia.length !== tm.length || curMedia.some((x, i) => x !== tm[i])) {
-      diff.push(`Медиа-каналы: было ${tm.length}, стало ${curMedia.length}`);
+    if (curMediaEnabled && (curMediaEnabled.length !== tm.length || curMediaEnabled.some((x, i) => x !== tm[i]))) {
+      diff.push(`Медиа-каналы: было ${tm.length}, стало ${curMediaEnabled.length}`);
     }
     if (curControl.length !== tc.length || curControl.some((x, i) => x !== tc[i])) {
       diff.push(`Контрольные: было ${tc.length}, стало ${curControl.length}`);
