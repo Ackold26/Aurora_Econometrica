@@ -949,10 +949,21 @@
         (stageIdx === -1 && rolesConfirmed) ||
         (stageIdx >= 0 && rolesConfirmed && stageIdx < subStep)
       )}
-      <div class="substep-dot" class:active={isActive} class:done={isDone}>
+      <!-- NAV-2 (2026-06-02): клик по ПРОЙДЕННОМу (done) подшагу возвращает к нему.
+           Вперёд (не-done) - только через контентную «Далее» с гейтами валидации. -->
+      <button
+        type="button"
+        class="substep-dot"
+        class:active={isActive}
+        class:done={isDone}
+        class:clickable={isDone && !isActive}
+        disabled={!isDone || isActive}
+        title={isDone && !isActive ? 'Вернуться к этому подшагу' : ''}
+        onclick={() => { if (isDone && !isActive) subStep = /** @type {-2 | -1 | 0 | 1 | 2 | 3} */ (stageIdx); }}
+      >
         <span class="dot-number">{displayIdx + 1}</span>
         <span class="dot-label">{stage.label}</span>
-      </div>
+      </button>
     {/each}
     <!-- v1.3.2: «Сбросить шаг» - кнопка справа от substep nav, возвращает к
          состоянию загрузки проекта (re-runs validate, clears all overrides). -->
@@ -1268,7 +1279,17 @@
     color: var(--text-muted);
     border-radius: 999px;
     position: relative;
+    /* NAV-2: точка теперь button - сбрасываем дефолты, чтобы выглядеть как был div. */
+    background: none;
+    border: none;
+    font-family: inherit;
+    cursor: default;
   }
+  .substep-dot.clickable { cursor: pointer; }
+  .substep-dot.clickable:hover {
+    background: color-mix(in srgb, var(--success, #4ade80) 12%, transparent);
+  }
+  .substep-dot:disabled { cursor: default; }
   .substep-dot:not(:last-child)::after {
     content: '';
     position: absolute;

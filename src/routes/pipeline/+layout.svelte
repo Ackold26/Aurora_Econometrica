@@ -318,10 +318,25 @@
     && !rolesNotConfirmed
   );
 
+  // NAV-2 (2026-06-02): на подшагах Валидации футерная «Далее» заблокирована
+  // (следующий шаг Модель locked, пока валидация не завершена). Раньше это
+  // выглядело «кнопка не работает» без объяснения. Теперь tooltip ведёт к
+  // рабочей контентной кнопке «Далее ▶» в секции. Полный контекстный проброс
+  // (футер двигает подшаг) требует подъёма confirm-контрактов из дочерних
+  // компонентов подшагов - отдельная задача с GUI-прогоном.
+  const validateIncomplete = $derived(
+    $pipelineCurrentStep === 1
+    && !!$validateData?.result
+    && $pipelineStepMeta[2]?.status === 'locked'
+    && !rolesNotConfirmed
+  );
+
   const nextBtnTitle = $derived(
     rolesNotConfirmed
       ? 'Сначала нажмите «Подтвердить роли» ниже'
-      : ''
+      : validateIncomplete
+        ? 'Завершите подшаги валидации - кнопка «Далее ▶» в секции ниже'
+        : ''
   );
 
   // Objective overlay is open: step 1 (validate) with no validation result yet
