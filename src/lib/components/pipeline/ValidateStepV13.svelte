@@ -440,11 +440,30 @@
     subStep = 2;
   }
 
+  // 3A (verified live 2026-06-03): флаг «physical-канал без CPP в Expert-режиме».
+  let expertCppMissing = $state(false);
+
   /** @param {Record<string, string>} selection */
   function handlePerChannelConfirm(selection) {
     const typed = /** @type {Record<string, 'monetary' | 'physical'>} */ (selection);
     currentPerChannel = typed;
     perChannelInput.set(typed);
+    // 3A (verified live 2026-06-03 desktop-control): Expert-путь должен соблюдать
+    // тот же CPP-гейт, что Manager (allChannelsConfigured). Раньше handlePerChannelConfirm
+    // НЕ проверял → physical-канал без CPP в ROI-режиме обучался с unit_cost=1.0 →
+    // артефакт ROI (12186×). Блокируем продвижение, пока CPP/бюджет не задан.
+    if (get(analysisMode) === 'roi') {
+      const costs = get(unitCosts) ?? {};
+      const missing = Object.keys(typed).some(
+        (name) => typed[name] === 'physical'
+          && !(typeof costs[name] === 'number' && /** @type {number} */ (costs[name]) > 0)
+      );
+      if (missing) {
+        expertCppMissing = true;
+        return; // не продвигаем; выбор сохранён, баннер просит задать CPP
+      }
+    }
+    expertCppMissing = false;
     // Derive mode locally + sync to store.
     const m = deriveModeWithExplanation(typed);
     derivedMode.set(/** @type {'roi' | 'effectiveness' | 'manual'} */ (m.mode));
@@ -1140,6 +1159,13 @@
         </button>
       </div>
     {/if}
+    {#if expertCppMissing}
+      <div class="expert-cpp-banner" role="alert">
+        ⚠ Для физических каналов (TRP / показы / клики) в ROI-режиме укажите стоимость
+        единицы (CPP/CPM) или общий бюджет ₽ выше - без этого ROI канала некорректен
+        (точки трактуются как рубли). Либо переключите канал на «₽-бюджет» или исключите.
+      </div>
+    {/if}
     <PerChannelInputSelector
       channels={channels}
       availableMetricsByChannel={availableMetricsByChannel}
@@ -1212,6 +1238,17 @@
     display: flex;
     justify-content: flex-end;
     padding: 16px 24px 8px;
+  }
+  /* 3A (2026-06-03): баннер про незаданный CPP в Expert-режиме (ROI). */
+  .expert-cpp-banner {
+    margin: 0 0 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--gold, #d4a843);
+    background: color-mix(in srgb, var(--gold, #d4a843) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #d4a843) 35%, transparent);
   }
   .substep-next-btn {
     padding: 10px 20px;
