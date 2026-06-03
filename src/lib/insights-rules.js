@@ -1438,7 +1438,7 @@ export function decomposeInsights(data, kpiInput = null) {
     ).join('\n');
     out.push({
       severity: 'success',
-      text: `${efficient.length} канал${efficient.length > 1 ? 'а' : ''} работает эффективнее своей доли бюджета:`,
+      text: `${efficient.length} ${pluralizeRu(efficient.length, ['канал', 'канала', 'каналов'])} ${efficient.length === 1 ? 'работает' : 'работают'} эффективнее своей доли бюджета:`,
       tip: lines + '\n\nТакие каналы - кандидаты на докрутку бюджета на шаге Оптимизация.',
     });
   }
@@ -1449,7 +1449,7 @@ export function decomposeInsights(data, kpiInput = null) {
     ).join('\n');
     out.push({
       severity: 'warning',
-      text: `${inefficient.length} канал${inefficient.length > 1 ? 'а' : ''} перенасыщен${inefficient.length > 1 ? 'ы' : ''} или работает${inefficient.length > 1 ? 'ют' : ''} ниже среднего:`,
+      text: `${inefficient.length} ${pluralizeRu(inefficient.length, ['канал', 'канала', 'каналов'])} ${inefficient.length === 1 ? 'перенасыщен' : 'перенасыщены'} или ${inefficient.length === 1 ? 'работает' : 'работают'} ниже среднего:`,
       tip: lines + '\n\nВарианты: (1) сократить бюджет - проверить через Оптимизатор; (2) пересмотреть креатив/таргетинг; (3) проверить нет ли проблем с трекингом.',
     });
   }
@@ -1794,9 +1794,14 @@ export function optimizeInsights(data, ctx = {}) {
   const unused = satList.filter(s => s.status === 'unused');
 
   // Unit-smell из decompose (отдельный сигнал - не связан с mROAS)
+  // REC-1-GAP (2026-06-03): детект ПО ФЛАГУ unit_smell (авторитетный сигнал
+  // decomposer для не-денежных каналов с unit_cost=1.0), а не только по тексту
+  // verdict. Реальный verdict движка = «ROI завышен (не рубли?)» (decomposer.py:121),
+  // подстроки «подозрительно» он НЕ содержит → старый фильтр /подозрительно/ был
+  // мёртв на реальных данных (TRPs снова коронован «лучшим по mROAS», ROI-1/2).
   /** @type {Array<{name: string, roi: number}>} */
   const suspicious = decChannels
-    .filter((/** @type {any} */ c) => /подозрительно/i.test(c.verdict || ''))
+    .filter((/** @type {any} */ c) => c.unit_smell === true || /подозрительно/i.test(c.verdict || ''))
     .map((/** @type {any} */ c) => ({ name: c.name, roi: c.roi ?? 0 }));
   // REC-1 (2026-06-02): unit_smell-каналы (артефактный ROI/mROAS из не-денежных
   // единиц, напр. TRP с unit_cost=1.0) НЕ должны попадать в рекомендации
@@ -1821,7 +1826,7 @@ export function optimizeInsights(data, ctx = {}) {
       saturated.length >= Math.ceil(satList.length / 2)
         ? `${saturated.length} из ${satList.length} каналов перенасыщены - оптимизатор упирается в плато.`
         : effectiveClean.length >= 1 && saturated.length === 0
-          ? `${effectiveClean.length} канал${effectiveClean.length > 1 ? 'а' : ''} в зоне роста - есть куда вкладывать.`
+          ? `${effectiveClean.length} ${pluralizeRu(effectiveClean.length, ['канал', 'канала', 'каналов'])} в зоне роста - есть куда вкладывать.`
           : `Расклад: 🟢${effective.length} 🟡${stable.length} 🔴${saturated.length}${unused.length > 0 ? ` ⚪${unused.length}` : ''} из ${satList.length}.`;
 
     const sev = saturated.length >= Math.ceil(satList.length / 2)
@@ -2075,7 +2080,8 @@ export function reportInsights(ctx = {}) {
   if (basePct != null || decChannels.length > 0) {
     const sortedByContrib = [...decChannels].sort(/** @param {any} a @param {any} b */ (a, b) => (b.contribution_pct || 0) - (a.contribution_pct || 0));
     const top = sortedByContrib[0];
-    const suspicious = decChannels.filter(/** @param {any} c */ c => /подозрительно/i.test(c.verdict || ''));
+    // REC-1-GAP (2026-06-03): см. ЭТАП 1 — детект по флагу unit_smell, не только текст verdict.
+    const suspicious = decChannels.filter(/** @param {any} c */ c => c.unit_smell === true || /подозрительно/i.test(c.verdict || ''));
 
     /** @type {'success' | 'warning' | 'info'} */
     let sev = 'info';

@@ -25,10 +25,14 @@ function buildData() {
 function buildCtx() {
   return {
     dec: {
+      // REC-1-GAP (2026-06-03): фикстура использует РЕАЛЬНЫЙ verdict движка
+      // (`engines/decomposer.py:121` = «ROI завышен (не рубли?)») + флаг unit_smell:true.
+      // Старая фикстура подавала «подозрительно высокий ROI» — строку, которую движок
+      // НЕ эмитит → тест был зелёным, а фильтр /подозрительно/ мёртв на реальных данных.
       channels: [
-        { name: 'TRPs', verdict: 'подозрительно высокий ROI - не-денежные единицы', roi: 12186, spend: 100, contribution: 1_200_000 },
-        { name: 'Social', verdict: '', roi: 26, spend: 1000, contribution: 26_000 },
-        { name: 'OLV', verdict: '', roi: 15, spend: 2000, contribution: 30_000 },
+        { name: 'TRPs', verdict: 'ROI завышен (не рубли?) (широкий ROI-интервал)', unit_smell: true, roi: 12186, spend: 100, contribution: 1_200_000 },
+        { name: 'Social', verdict: 'Высокоэффективен (широкий ROI-интервал)', unit_smell: false, roi: 26, spend: 1000, contribution: 26_000 },
+        { name: 'OLV', verdict: '', unit_smell: false, roi: 15, spend: 2000, contribution: 30_000 },
       ],
     },
   };
