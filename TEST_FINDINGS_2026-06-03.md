@@ -154,3 +154,45 @@ per-channel min-max live), multi-client (Венарус/MMX) live, ONBOARD-1 (ч
 → отдельная desktop-control сессия ИЛИ после фикса LOAD-1 (тогда loaded-проекты верифицируемы DOM-driven).
 
 **Гейты на конец:** svelte **0E**/171W · pytest **320** · vitest **604**. Все на baseline, 0 регрессий.
+
+---
+
+## LOAD-1 ИСПРАВЛЕН (2026-06-03, code-proof по плану precious-orbiting-kahan)
+
+**Метод:** LOAD-1 доказан code-proof'ом (юнит-тесты на РЕАЛЬНЫХ project.json+decomposition.json Кагоцела),
+GUI оставлен на одну финальную сверку. Корень подтверждён (2 слоя), не переоткрывался.
+
+**✅ A+C (`499c2fc`, тег `v-fix-load1-roles-hydration-stale-guard`):** реконструкция ролей из project.json
+когда нет validation.json (обученные проекты `data_file:null`).
+- `applyProjectRolesToColumns` (column-roles.js) — инверсия buildProjectUpdates, precedence
+  kpi>media>control>excluded, round-trip lossless по ролевым полям.
+- `hydrateRolesFromProjectIfEmpty` (project-state.js) — врезка в `restoreProjectResults` (else-ветка
+  `hasValidation`), race-safe (fallback `project_get`; не затирает реальный validateData), nObs из
+  decomposition.dates → корректные RATIO/MQS (не 0).
+- Guard C в `modelStaleStatus`: пустые роли / флаг `reconstructed_from_project_json` → stale=false
+  (реконструированные роли = сам сохранённый конфиг → ложное «устарела» погашено).
+- Тесты: `project-roles-hydration.test.js` (9, РЕАЛЬНЫЕ фикстуры: 7 media+4 control+1 kpi+16 excluded→unused,
+  nObs=31, round-trip, race guard) · `model-stale-status.test.js` (+3).
+
+**✅ B2 (`d07ce23`, тег `v-fix-load1-b-validation-persist`):** validation.json больше не теряется (будущие
+проекты). Слой 1 корня: econ_validate форвардил bare project_id как project_dir → sidecar писал в
+относительный CWD. Фикс: `resolve_project_dir_arg` (Rust) — None→None, абс→passthrough (backward-compat),
+bare-id→`project_dir(id)` под path-traversal guard. Python harden: не пишет при неабсолютном пути (видимый
+лог вместо молчаливой записи-не-туда). Тесты: cargo (5) + `test_validation_persist.py` (3).
+
+**Адверсариальный ревью диффа (независимый агент) — верифицировано против кода:**
+- date-колонка не реконструируется → **не регрессия**: `date_column` НЕ хранится в схеме project.json
+  (нет поля ни в файле, ни в ProjectInfo) → реконструировать неоткуда; nObs из decomposition.dates, date-инсайты
+  после переимпорта (graceful, как VIF). JSDoc уточнён для честности (INV-50).
+- `project_get`→null → **не баг**: возвращает Err (не Ok(null)) → invoke бросает → ловится внешним try/catch
+  в restoreProjectResults → graceful (как до фикса).
+- Python logging `%s` → **ложная тревога**: корректная стандартная ленивая идиома.
+
+**Wiring code-proof:** `project_load_results` отдаёт `validation`(null для Кагоцела→hasValidation=false→else) +
+`decomposition`(31 дата). End-to-end путь реконструкции доказан без окна.
+
+**Гейты:** cargo **145** (140+5) · pytest **323** (320+3) · vitest **617** (605+12) · svelte **0E**/171W. 0 регрессий.
+
+**⏳ Осталось (live, мост 9223):** одна финальная GUI-сверка LOAD-1 (переключить проект → роли восстановлены,
+нет «устарела», RATIO/MQS≠0) + Часть 2 плана (MQS-1/SEV-1/REC-1-F1 live, NAV-2, ONBOARD-1, Эксперт) + Часть 3
+(multi-client Венарус/MMX через desktop-control-импорт).

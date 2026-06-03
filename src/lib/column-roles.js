@@ -149,8 +149,13 @@ export function buildProjectUpdates(columns) {
  *  колонка не должна попасть в две роли, но если project.json рассинхронен,
  *  precedence детерминирован). null / нет ролей → [].
  *
- *  Round-trip lossless: `buildProjectUpdates(applyProjectRolesToColumns(info))`
- *  возвращает те же kpi_column/media_columns/control_columns/excluded_columns.
+ *  Round-trip lossless по РОЛЕВЫМ полям project.json:
+ *  `buildProjectUpdates(applyProjectRolesToColumns(info))` возвращает те же
+ *  kpi_column/media_columns/control_columns/excluded_columns. NB: дата-колонка в
+ *  project.json НЕ хранится (нет поля date_column в схеме) → роль 'date' в
+ *  реконструкцию не входит. На загруженном проекте это graceful: nObs берётся из
+ *  decomposition.dates (не из date-колонки), а date-инсайты доступны после
+ *  переимпорта исходных данных (как VIF/per-column stats).
  *
  *  @param {{kpi_column?: string|null, media_columns?: string[], control_columns?: string[], excluded_columns?: string[]}|null|undefined} projectInfo
  *  @returns {Array<{name:string, role:string}>} */
