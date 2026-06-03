@@ -550,8 +550,10 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 out_path = Path(project_dir) / 'results' / 'validation.json'
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 import json
+                # NaN-safe (2026-06-04 аудит): NaN→null, иначе Rust serde_json роняет файл.
+                from utils.safe_io import sanitize_nonfinite
                 with open(out_path, 'w', encoding='utf-8') as f:
-                    json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+                    json.dump(sanitize_nonfinite(result), f, ensure_ascii=False, indent=2, default=str)
             except Exception:
                 logger.warning(
                     'validation.json write failed, result still returned to GUI',

@@ -452,9 +452,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             'engine': 'ols',
         }, f, ensure_ascii=False, indent=2)
 
+    # NaN-safe (2026-06-04 аудит): NaN→null, иначе Rust serde_json не парсит файл.
+    from utils.safe_io import sanitize_nonfinite
     result_path = results_dir / 'model-diagnostics.json'
     with open(result_path, 'w', encoding='utf-8') as f:
-        json.dump(diagnostics, f, ensure_ascii=False, indent=2)
+        json.dump(sanitize_nonfinite(diagnostics), f, ensure_ascii=False, indent=2)
 
     report('complete', pct=100)
 

@@ -30,6 +30,34 @@ class IntegrityError(Exception):
     """Raised когда disk content не matches expected hash."""
 
 
+def sanitize_nonfinite(obj: Any) -> Any:
+    """Рекурсивно заменяет NaN / Inf / -Inf на None (валидный JSON).
+
+    Bug (2026-06-04 fresh-train аудит): result-JSON'ы (model-diagnostics.json и др.)
+    писались голым `json.dump` (allow_nan=True по умолчанию) → при вырожденной модели
+    (r_hat_max=NaN, intercept=NaN, sigma=NaN) в файл попадали литералы `NaN`. Это
+    нарушение RFC 8259: Python json их читает, но Rust `serde_json` (strict) ПАДАЕТ →
+    `project_load_results.read_json` молча возвращает null → Отчёт «модель не загружена»,
+    хотя обучение прошло. Применять перед записью любого result-JSON, читаемого Rust.
+
+    numbers.Real покрывает Python float И numpy float32/float64/int*. bool исключён.
+    """
+    import math
+    import numbers
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, numbers.Real):
+        try:
+            return obj if math.isfinite(float(obj)) else None
+        except (ValueError, OverflowError, TypeError):
+            return None
+    if isinstance(obj, dict):
+        return {k: sanitize_nonfinite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_nonfinite(v) for v in obj]
+    return obj
+
+
 def _compute_sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 

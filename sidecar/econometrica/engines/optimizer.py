@@ -1531,10 +1531,11 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         },
     }
 
-    # Save
+    # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
+    from utils.safe_io import sanitize_nonfinite
     results_dir = project_path / 'results'
     results_dir.mkdir(parents=True, exist_ok=True)
     with open(results_dir / 'optimization.json', 'w', encoding='utf-8') as f:
-        json.dump(result_data, f, ensure_ascii=False, indent=2)
+        json.dump(sanitize_nonfinite(result_data), f, ensure_ascii=False, indent=2)
 
     return result_data

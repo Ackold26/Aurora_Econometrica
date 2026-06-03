@@ -3,7 +3,7 @@
 //! One project = one client/dataset + trained models + results + scenarios.
 //! Stored in %APPDATA%/<identifier>/projects/ (filesystem-first, no RAG).
 
-use log::info;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -478,10 +478,23 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
         if !path.exists() {
             return Value::Null;
         }
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .unwrap_or(Value::Null)
+        // Defense-in-depth (2026-06-04 fresh-train аудит): НЕ молчать при ошибке
+        // парса. Раньше `.ok()...unwrap_or(Null)` молча терял данные, если Python
+        // писал NaN/Inf (невалидный JSON) → Отчёт «модель не загружена» без следа.
+        // Python-сторона теперь NaN-safe (sanitize_nonfinite); этот лог ловит рецидив.
+        match std::fs::read_to_string(&path) {
+            Ok(s) => match serde_json::from_str::<Value>(&s) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("project_load_results: '{name}' parse failed → null ({e}). Возможно NaN/Inf в JSON.");
+                    Value::Null
+                }
+            },
+            Err(e) => {
+                warn!("project_load_results: '{name}' read failed → null ({e}).");
+                Value::Null
+            }
+        }
     };
 
     Ok(serde_json::json!({
@@ -793,10 +806,23 @@ fn load_snapshot_from_dir(dir: &Path) -> Result<Value, String> {
         if !path.exists() {
             return Value::Null;
         }
-        std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .unwrap_or(Value::Null)
+        // Defense-in-depth (2026-06-04 fresh-train аудит): НЕ молчать при ошибке
+        // парса. Раньше `.ok()...unwrap_or(Null)` молча терял данные, если Python
+        // писал NaN/Inf (невалидный JSON) → Отчёт «модель не загружена» без следа.
+        // Python-сторона теперь NaN-safe (sanitize_nonfinite); этот лог ловит рецидив.
+        match std::fs::read_to_string(&path) {
+            Ok(s) => match serde_json::from_str::<Value>(&s) {
+                Ok(v) => v,
+                Err(e) => {
+                    warn!("project_load_results: '{name}' parse failed → null ({e}). Возможно NaN/Inf в JSON.");
+                    Value::Null
+                }
+            },
+            Err(e) => {
+                warn!("project_load_results: '{name}' read failed → null ({e}).");
+                Value::Null
+            }
+        }
     };
 
     // Лимит сценариев для comparison - снимок 50 последних (по mtime) чтобы

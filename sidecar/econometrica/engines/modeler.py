@@ -1318,21 +1318,26 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             save_model_safe(model_data, model_path)
             write_pkl_sha256_sidecar(model_path)
 
+        # NaN-safe запись (2026-06-04 fresh-train аудит): вырожденная модель даёт
+        # r_hat_max/intercept/sigma=NaN. Голый json.dump писал литерал `NaN` (RFC 8259
+        # violation) → Rust serde_json не парсит → project_load_results молча отдаёт null
+        # → Отчёт «модель не загружена», хотя обучение прошло. Санитайзим NaN→null.
+        from utils.safe_io import sanitize_nonfinite
         # Save params as JSON (for UI without loading pickle)
         params_path = models_dir / 'latest-params.json'
         with open(params_path, 'w', encoding='utf-8') as f:
-            json.dump({
+            json.dump(sanitize_nonfinite({
                 'channel_params': channel_params,
                 'diagnostics': diagnostics,
                 'config': {k: v for k, v in config.items() if k != 'data_file'},
                 'mcmc': mcmc,
                 'has_compiler': has_compiler,
-            }, f, ensure_ascii=False, indent=2)
+            }), f, ensure_ascii=False, indent=2)
 
         # Save diagnostics as result
         result_path = results_dir / 'model-diagnostics.json'
         with open(result_path, 'w', encoding='utf-8') as f:
-            json.dump(diagnostics, f, ensure_ascii=False, indent=2)
+            json.dump(sanitize_nonfinite(diagnostics), f, ensure_ascii=False, indent=2)
 
         report('complete', pct=100)
 
