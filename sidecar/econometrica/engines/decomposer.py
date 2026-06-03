@@ -44,6 +44,63 @@ GAP_GOOD = 5.0              # пп - эффективен по share
 QUANTILE_MIN_N = 20         # ниже - relative quantile mode disabled
 
 
+def _fmt_roi(r) -> str:
+    """ROI с честной точностью: |ROI|<1 → 2 знака (0.04× не «0.0×»), иначе 1 знак.
+    Иначе 0.04× и 0.02× оба печатались «0.0×» → инсайт выглядел противоречиво."""
+    try:
+        r = float(r or 0)
+    except (TypeError, ValueError):
+        return '0×'
+    return f"{r:.2f}×" if abs(r) < 1 else f"{r:.1f}×"
+
+
+def _build_channel_insight(channels) -> str:
+    """SSOT инсайта «лучший/худший канал» (template, 0 токенов).
+
+    REC-1-GAP (2026-06-03): channels отсортированы по ROI убыв.; channels[0] —
+    не-денежный unit_smell-канал (TRP/clicks, ROI-артефакт), если есть. НЕ
+    короновать его. Берём лучший среди денежных (clean); fallback если все unit_smell.
+
+    INV-50 (2026-06-03 synthetic-truth аудит): если ЛУЧШИЙ денежный канал сам
+    убыточен (ROI < ROI_BREAKEVEN), НЕ называть его «самым эффективным» — это
+    прямо противоречит его же вердикту «убыточный/глубоко убыточный» и проецирует
+    ложную уверенность (на синтетике с медиа-сигналом ~5% движок честно даёт ROI
+    ~0.04× при широких интервалах, но инсайт короновал «самый эффективный (ROI 0.0×)»).
+    Также НЕ советовать перераспределять бюджет в убыточный top (та же ROI-1/2 проблема).
+
+    @param channels: list dict с name/roi/efficiency_gap/unit_smell, sorted by ROI desc.
+    @returns insight-строка (или '' если нет каналов).
+    """
+    if not channels:
+        return ''
+    clean = [c for c in channels if not c.get('unit_smell')]
+    top = clean[0] if clean else channels[0]
+    worst = channels[-1]
+    if not (top and worst):
+        return ''
+    top_roi = float(top.get('roi') or 0)
+    if top_roi >= ROI_BREAKEVEN:
+        insight = (
+            f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
+            f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+        )
+        if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
+            insight += (
+                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+            )
+    else:
+        # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
+        insight = (
+            f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
+            f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
+            f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
+            f"перераспределения см. в шаге «Оптимизация»."
+        )
+    return insight
+
+
 def compute_roi_verdict(
     roi: float,
     efficiency_gap: float,
@@ -826,21 +883,7 @@ def decompose(
     # channels[0] — не-денежный unit_smell-канал (TRP/clicks, ROI-артефакт 12186×), если он
     # есть. НЕ короновать его «самым эффективным» и НЕ советовать перераспределять в него
     # (та же ROI-1/2 проблема). Берём лучший среди денежных; fallback если все unit_smell.
-    _clean = [c for c in channels if not c.get('unit_smell')]
-    top = (_clean[0] if _clean else channels[0]) if channels else None
-    worst = channels[-1] if channels else None
-    insight = ''
-    if top and worst:
-        insight = (
-            f"{top['name']} - самый эффективный канал (ROI {top['roi']:.1f}×). "
-            f"{worst['name']} - наименее эффективный (ROI {worst['roi']:.1f}×)."
-        )
-        if top['efficiency_gap'] > 5 and worst['efficiency_gap'] < -5:
-            insight += (
-                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
-                f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
-                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
-            )
+    insight = _build_channel_insight(channels)
 
     # Per-period dates
     date_col = config.get('date_column', 'date')
