@@ -237,3 +237,39 @@ LOAD-1 разблокировал роль-зависимые экраны на 
 - ONBOARD-1 (чистый first-run), NAV-2 (подшаги), MQS-1 diagnostics live.
 
 **Гейты на момент:** svelte 0E/171W · pytest 323 · vitest 617 · cargo 145. 0 регрессий.
+
+---
+
+## Multi-dataset блок (2026-06-03, DOM-driven, без desktop-control)
+
+LOAD-1 разблокировал загрузку обученных проектов; импорт реплицирован DOM-driven
+(`econ_data_preview`+`importData`+`project_create` — нативный диалог даёт лишь путь).
+
+**✅ LOAD-1 реконструкция — ВТОРОЙ датасет (Венарус `венарус-ммх-0205-26--2`, 7 медиа+7 контролей):**
+загружен через selectProject-путь (resetPipeline). vd 29 cols {media:7, control:7, kpi:1, unused:14},
+reconstructed=true, **stale=false**, ratio=2.21, MQS=75, nObs=31. Декомпозиция: нет «устарела», нет ошибок,
+«Лучший ROI: Social 7.35×» (разумный), главный драйвер TRPs по вкладу 33%, «95% базовые / 5% реклама».
+Оптимизация рендерится. Реконструкция обобщается на ДРУГОЙ состав ролей. ✓
+
+**✅✅✅ B2 (persist validation.json) — ВЕРИФИЦИРОВАН ВЖИВУЮ (ТРЕТИЙ датасет, MMX):**
+свежий импорт `MMX 2021-2025 исходник.xlsx` [43×31] DOM-driven → создан проект `mmx-audit-43x31` →
+autoRunValidate вызвал РЕАЛЬНЫЙ `econ_validate(projectId=bare-id)` → B2 резолвил bare-id→абс.путь →
+Python записал **validation.json (54KB) в `projects/mmx-audit-43x31/results/`** (правильная папка, не CWD
+сайдкара). Это ровно probe плана «Glob validation.json ≥1». **Цикл LOAD-1 замкнут:** существующие проекты
+без validation.json → реконструкция (A); новые → validation.json персистится (B2) → реоткрытие через
+hasValidation=true (без реконструкции). Аудит-проект удалён после теста.
+
+**✅ SEV-1 (ratio severity) — ВЖИВУЮ на MMX (raw import, 22 авто-медиа):** ratio 1.65 (43 набл/26 предикторов),
+label «Критически мало», severity «warning-high», issue «Ratio данных 1.7:1 — критически мало, модель почти
+наверняка переобучится, β случайны» (severity critical). Честное предупреждение (INV-50) — валидация делает
+работу. Пользователь уточнил бы роли (исключить Показы/Клики/Визиты, оставить Бюджет).
+
+**📋 Мелкое наблюдение (низкий приоритет):** issue-сообщение «1.7:1» vs метрика 1.65 — косметический
+рассинхрон округления (`round(ratio,1)` в тексте vs raw в badge).
+
+**Покрытие датасетов:** Кагоцел (4 контроля) ✓, Венарус (7 контролей) ✓, MMX (22 raw-медиа, ratio-fail) ✓.
+LOAD-1 A+C+wiring + B2 + guard C + SEV-1 + REC-1-GAP — все верифицированы вживую через мост 9223.
+
+**Осталось (heavy, отдельный заход):** полный fresh train (MCMC) синтетики FMCG/OTC/недвижимость/ритейл +
+MMX до Декомпозиции (flat-response Goal-Seek #59 на длинном ряду); Эксперт глубоко (custom priors/per-channel);
+ONBOARD-1/NAV-2.
