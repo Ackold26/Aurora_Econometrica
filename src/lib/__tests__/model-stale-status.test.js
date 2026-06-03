@@ -71,3 +71,43 @@ describe('STATE-1 modelStaleStatus сравнивает с обученным п
     expect(st.diff.join(' ')).toMatch(/Контрольные/);
   });
 });
+
+describe('LOAD-1 (C) guard: пустые/реконструированные роли НЕ stale', () => {
+  it('validation.result === null → stale=false (не «конфиг изменён»)', () => {
+    validateData.set(/** @type {any} */ ({ result: null }));
+    modelChannelEnabled.set({ A: true, B: true, C: true });
+    const st = get(modelStaleStatus);
+    expect(st.stale).toBe(false);
+    expect(st.diff).toEqual([]);
+  });
+
+  it('пустой columns[] (loaded до гидрации) → stale=false, не ложный «Контрольные было 1 стало 0»', () => {
+    validateData.set(/** @type {any} */ ({ result: { columns: [] } }));
+    modelChannelEnabled.set({});
+    const st = get(modelStaleStatus);
+    expect(st.stale).toBe(false);
+    expect(st.diff).toEqual([]);
+  });
+
+  it('reconstructed_from_project_json:true → stale=false даже при рассинхроне с lastTrainedConfig', () => {
+    // Роли реконструированы из project.json (= САМ сохранённый конфиг). Даже если
+    // они расходятся с lastTrainedConfig (напр. контрольных стало больше), это не
+    // «устарело» — это и есть «как обучали». Флаг гасит сравнение.
+    validateData.set(/** @type {any} */ ({
+      result: {
+        reconstructed_from_project_json: true,
+        columns: [
+          { name: 'A', role: 'media' },
+          { name: 'B', role: 'media' },
+          { name: 'X', role: 'control' },
+          { name: 'Y', role: 'control' }, // лишний контрольный vs lastTrainedConfig.control=['X']
+          { name: 'Revenue', role: 'kpi' }, // другой KPI vs lastTrainedConfig.kpi='Sales'
+        ],
+      },
+    }));
+    modelChannelEnabled.set({ A: true, B: true });
+    const st = get(modelStaleStatus);
+    expect(st.stale).toBe(false);
+    expect(st.diff).toEqual([]);
+  });
+});

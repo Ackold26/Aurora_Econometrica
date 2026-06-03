@@ -11,6 +11,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { classifyRatio, severityTo3Tier } from './ratio-classifier.js';
+import { applyProjectRolesToColumns } from './column-roles.js';
 
 /** @type {import('svelte/store').Writable<string|null>} Active project ID */
 export const activeProjectId = writable(null);
@@ -791,6 +792,15 @@ export const modelStaleStatus = derived(
   ([$m, $v, $tc, $en]) => {
     if (!$m?.diagnostics || !$tc) return { stale: false, reason: '', diff: [] };
     const cur = /** @type {any[]} */ ($v?.result?.columns || []);
+    // LOAD-1 (C): defensive-net для краёв (нет ролей в project.json / окно до
+    // гидрации A / частичная реконструкция). (1) пустые роли = «не
+    // перевалидировано», не «конфиг изменён»; (2) реконструированные из
+    // project.json роли = САМ сохранённый конфиг → сравнивать с lastTrainedConfig
+    // и звать «устарело» бессмысленно (они и есть «как обучали»). Флаг
+    // `reconstructed_from_project_json` ставит hydrateRolesFromProjectIfEmpty.
+    if (!$v?.result || cur.length === 0 || $v.result.reconstructed_from_project_json) {
+      return { stale: false, reason: '', diff: [] };
+    }
     const curControl = cur.filter(c => c?.role === 'control').map(c => c.name).sort();
     const curKpi = cur.find(c => c?.role === 'kpi')?.name ?? '';
     const tm = [...($tc.media || [])].sort();
@@ -843,9 +853,58 @@ export const optimizeData = writable(null);
  * Ограничения: channelParams / normalization лежат в pickle (не JSON), поэтому
  * re-train модели требуется для повторной оптимизации. Для Report + Insights
  * хватает diagnostics (из model-diagnostics.json) + decompose + optimize.
- *
- * @param {string | null} pid - project id; при null - ничего не делает.
+ * Реконструкция ролей при отсутствии validation.json — hydrateRolesFromProjectIfEmpty.
  */
+/**
+ * LOAD-1 (A): реконструировать роли колонок из project.json, когда validation.json
+ * отсутствует. Делает loaded-проект (обученный, `data_file:null`) роль-полным —
+ * Валидация показывает KPI/медиа/контроль вместо «Целевая метрика не определена /
+ * Медиа-каналы не обнаружены», Декомпозиция перестаёт ложно считаться «устаревшей».
+ *
+ * Idempotent + race-safe:
+ *  - читает роли из `activeProject` (уже гидрирован при активации проекта); если
+ *    он ещё не догнал pid (cold-start гонка: activeProject async) — fallback
+ *    `project_get` обязателен, иначе реконструкция пустая;
+ *  - НЕ затирает реальный непустой validateData (если настоящий econ_validate
+ *    уже отработал — race guard).
+ *
+ * Помечает result флагом `reconstructed_from_project_json` (in-memory, НЕ
+ * персистится — `buildProjectUpdates` читает только `.role`), который гасит
+ * ложный stale-banner (см. modelStaleStatus guard, Часть C). nObs берётся из
+ * decomposition.time_series.dates → корректные RATIO/MQS на загруженном проекте
+ * (иначе validationHeaderMetrics дала бы ratio=0, MQS низкий — анти-премиально).
+ *
+ * @param {string} pid - project id
+ * @param {any} [decomposition] - r.decomposition (для nObs из time_series.dates)
+ * @returns {Promise<boolean>} true если реконструкция применена
+ */
+export async function hydrateRolesFromProjectIfEmpty(pid, decomposition) {
+  let info = /** @type {any} */ (get(activeProject));
+  if (info?.id !== pid) {
+    // cold-start гонка: activeProject ещё не догнал активированный pid.
+    info = /** @type {any} */ (await invoke('project_get', { projectId: pid }));
+  }
+  const cols = applyProjectRolesToColumns(info);
+  if (!cols.length) return false; // пустые роли project.json → нет реконструкции
+  const curCols = get(validateData)?.result?.columns;
+  if (Array.isArray(curCols) && curCols.length) return false; // race guard: реальный validate уже есть
+  const nObs = decomposition?.time_series?.dates?.length ?? 0;
+  validateData.set({
+    result: {
+      reconstructed_from_project_json: true,
+      status: 'ok',
+      columns: cols,
+      file: nObs ? { rows: nObs } : null,
+      detected: nObs ? { n_rows: nObs } : null,
+    },
+    correlationMatrix: null,
+    columnHistograms: null,
+  });
+  if (info?.kpi_column) chosenKpiColumn.set(info.kpi_column);
+  return true;
+}
+
+/** @param {string | null} pid - project id; при null - ничего не делает. */
 async function restoreProjectResults(pid) {
   if (!pid) return;
   try {
@@ -870,6 +929,11 @@ async function restoreProjectResults(pid) {
         correlationMatrix: r.validation?.full_correlation_matrix ?? null,
         columnHistograms: null, // histograms не сохраняются отдельно
       });
+    } else {
+      // LOAD-1 (A): validation.json нет (обученный проект с data_file:null) —
+      // реконструировать роли из project.json, чтобы Валидация была роль-полной
+      // (KPI/медиа/контроль видны), а не пустой («Целевая метрика не определена»).
+      await hydrateRolesFromProjectIfEmpty(pid, r.decomposition);
     }
 
     // Синхронизировать stepMeta с реальным наличием данных на диске.

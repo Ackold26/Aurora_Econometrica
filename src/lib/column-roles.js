@@ -138,3 +138,39 @@ export function buildProjectUpdates(columns) {
     excluded_columns: deriveExcludedColumns(columns),
   };
 }
+
+/** LOAD-1 (A): реконструкция columns[] из ролей project.json — инверсия
+ *  `buildProjectUpdates`. Нужна когда `validation.json` отсутствует (обученные
+ *  проекты с `data_file:null`): делает loaded-проект роль-полным без сырых данных.
+ *
+ *  Universe = union kpi ∪ media ∪ control ∪ excluded. `excluded_columns` → role
+ *  'unused' (тот же канонический словарь, что и `restoreExcludedColumns`). De-dup
+ *  по precedence kpi > media > control > excluded (первая роль выигрывает —
+ *  колонка не должна попасть в две роли, но если project.json рассинхронен,
+ *  precedence детерминирован). null / нет ролей → [].
+ *
+ *  Round-trip lossless: `buildProjectUpdates(applyProjectRolesToColumns(info))`
+ *  возвращает те же kpi_column/media_columns/control_columns/excluded_columns.
+ *
+ *  @param {{kpi_column?: string|null, media_columns?: string[], control_columns?: string[], excluded_columns?: string[]}|null|undefined} projectInfo
+ *  @returns {Array<{name:string, role:string}>} */
+export function applyProjectRolesToColumns(projectInfo) {
+  if (!projectInfo) return [];
+  const media = Array.isArray(projectInfo.media_columns) ? projectInfo.media_columns : [];
+  const control = Array.isArray(projectInfo.control_columns) ? projectInfo.control_columns : [];
+  const excluded = Array.isArray(projectInfo.excluded_columns) ? projectInfo.excluded_columns : [];
+  /** @type {Array<{name:string, role:string}>} */
+  const cols = [];
+  const seen = new Set();
+  /** @param {string|null|undefined} name @param {string} role */
+  const add = (name, role) => {
+    if (!name || seen.has(name)) return; // precedence: первая роль выигрывает
+    seen.add(name);
+    cols.push({ name, role });
+  };
+  add(projectInfo.kpi_column, 'kpi');
+  for (const m of media) add(m, 'media');
+  for (const c of control) add(c, 'control');
+  for (const e of excluded) add(e, 'unused');
+  return cols;
+}
