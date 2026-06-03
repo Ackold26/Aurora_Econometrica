@@ -107,6 +107,31 @@ GS-1 proportional (`3b59a6e`), GS-2+INPUT-1 (`f462418`), ONBOARD-1 (`1aa7424`), 
 - a11y-дерево главного/пайплайна — чистое: интерактивные элементы названы, степпер с `/description`,
   disabled-состояния корректны. Без button-без-name/дублей roles.
 
+## Само-аудит сделанной работы (по запросу Антона) — ЗАВЕРШЁН
+Метод: само-аудит + **независимый адверсариальный ревью-агент** (verify каждую находку против кода).
+Агент **подтвердил ядро REC-1-GAP фикса корректным и протестированным** (детект-проводка end-to-end через
+Rust, тест эмпирически ловит регрессию, 604/604) и вскрыл **completeness-пробел**: один корень
+(коронование unit_smell-артефакта «лучшим») имел **5 мест манифестации**, мой фикс `84767e5` закрыл 2.
+
+**✅ Закрыты остальные 3 (коммит `20e7ddb` тег `v-fix-rec1-gap-crosslayer`):**
+- **F1 (фронт `decomposeInsights`, insights-rules.js)** — соседняя ф-я экрана Декомпозиции коронует
+  «Лучший ROI: TRPs 12186× … можно увеличить инвестиции» (все 3 ветки legacy/count/effectiveness), без
+  оговорки. Агент воспроизвёл эмпирически. Фикс: фильтр `c.unit_smell!==true` из лидеров + typedef. +vitest.
+- **decomposer.py:825 (backend insight Декомпозиции)** — `top=channels[0]`=артефакт (сорт ROI убыв. :715).
+  Фикс: `top` среди не-unit_smell. **Probe Кагоцел: insight → «Статьи самый эффективный (77.5×)», TRPs
+  исключён** (crowns_smell=false, recommends_into_smell=false). ✓
+- **F2 (narrative_adapter.py:508, экспорт PPTX/HTML)** — `hero=by_mroas[0]`=артефакт → клиентский «перераспределить
+  N млн в {hero}». Фикс: hero среди не-unit_smell, fallback.
+
+**✅ GRAM follow-up (в `20e7ddb`):** F3 — мой verb-agreement врал для 21/101 («21 канал работаЮТ») → `pluralizeRu`;
+F4 — 3 соседних наивных плюрализации (вкл. unit_smell-warnings) → pluralizeRu.
+
+**✅ F5 (`6a4f7ea` тег `v-fix-title-canonical`):** TITLE «Aurora Econometrica»→канон «Aurora **AI** Econometrica».
+
+**Подтверждено агентом и OK (не трогал):** детект-проводка ядра, optimizeInsights post-state, name-match
+dec↔opt, graceful degradation на legacy pickle, отсутствие over-trigger, валидность теста (revert→3 asserts FAIL).
+**Гейты:** svelte 0E/171W · pytest 320 · vitest 605. Этот пробел — живая иллюстрация нового skill-урока «кросс-слой».
+
 ## Сводка (Phase 5, 2026-06-03 DOM-driven)
 **Объект:** dev master `c21079b`→(фиксы сессии). Метод: DOM-driven мост 9223 + probe-first. Машина —
 мой инстанс, без параллельной Aurora-сессии.
