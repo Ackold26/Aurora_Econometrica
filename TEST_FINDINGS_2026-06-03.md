@@ -317,3 +317,34 @@ X, ROI 0.04×); продажи в основном базовый спрос» �
 тот же баг). Фикс: breakeven-гейт РАСЦЕПЛЁН от honest (`if hero_m < 1.0 and mode != 'effectiveness'` →
 «лучший среди медиа, но под breakeven»), зеркалит decomposer. effectiveness-mode исключён (метрика=доля,
 breakeven неприменим, прецедент all_below_breakeven). Все 3 слоя инсайта консистентны. pytest 331, импорт OK.
+
+---
+
+## Fresh-train end-to-end аудит (2026-06-04) — 2 реальных бага, невидимых на loaded-фикстурах
+
+Свежий train→decompose→optimize реальной MMX (43 мес, money-каналы) через движок (мост 9223).
+
+**🔴 БАГ-1 (HIGH) — NaN в result-JSON → Rust молча роняет → «модель не загружена».**
+Корень: вырожденная/слабая модель даёт `r_hat_max/intercept/sigma=NaN`. `model-diagnostics.json`
+писался голым `json.dump` (allow_nan=True) → литерал `NaN` (RFC 8259 violation). Python читает, но Rust
+`serde_json` (strict) ПАДАЕТ → `project_load_results.read_json` (`.ok()...unwrap_or(Null)`) **молча**
+отдаёт null → Отчёт «⚠ Данные не загружены: модель», хотя обучение прошло и файл валиден для Python.
+Невидим на Кагоцел/Венарус (их diagnostics без NaN). `atomic_write_json` УЖЕ имел `allow_nan=False`
+(аудит H-02 знал!), но result-JSON писались мимо него.
+Фикс: `sanitize_nonfinite` (utils/safe_io, NaN/Inf→null, numbers.Real покрывает numpy) применён ко ВСЕМ 5
+Rust-читаемым result-JSON (validator/modeler/ols_modeler/decomposer/optimizer). + defense-in-depth: Rust
+`read_json` теперь логирует ошибку парса, не молчит. Тест `test_sanitize_nonfinite.py` (7). Live: 9 NaN→null
+→ Rust грузит модель → Отчёт работает.
+
+**🟠 БАГ-2 (INV-50, кросс-слой) — «ПРИРОСТ ОТ ОПТИМИЗАЦИИ +0.0% / план уже оптимален».**
+OptimizeStep уже честен (dual-pillar media/KPI, фикс 2026-05-04), но ReportStep брал только canonical
+`expected_lift_pct` (тонет в органической базе 90-95%) → при lift≤0.5 писал «**план уже оптимален**», хотя
+`media_only_lift_pct=+4.4%` (переаллокация реально улучшает медиа-отдачу). Фикс не пропагирован в Отчёт.
+Фикс: ReportStep — `liftDrownsInBase` (lift<3 & media>2 & разрыв>2) → метрика «+0.7% · эффективность медиа
++4.4% (база доминирует)» + интерпретация «не потому что план оптимален, а потому что база доминирует».
+Зеркалит OptimizeStep. Live-подтверждено на MMX (canonical 0.7% / media 4.4%).
+
+**Наблюдение:** MMX money-модель R²=−1.73 (хуже среднего) — слабый сигнал на месячных данных с летними
+пропусками; не баг, ожидаемо. Подтверждает: «+0.0% прирост» = эффект доминирующей базы, не дефект оптимизатора.
+
+**Гейты:** pytest 338 (331+7) · cargo 145 · svelte 0E/171W. Тест-проект удалён.

@@ -197,6 +197,14 @@
   const rSq      = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_squared ?? mData?.diagnostics?.r_squared ?? null));
   const mape     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.mape_pct ?? mData?.diagnostics?.mape ?? null));
   const lift     = $derived(/** @type {number|null} */ (oData?.expected_lift_pct ?? null));
+  // INV-50 (2026-06-04 fresh-train аудит): media_only lift — прирост МЕДИА-вклада от
+  // перераспределения. Когда органическая база доминирует (90-95%), итоговый KPI-lift
+  // тонет (≈0%), а media_only может быть заметным (+4-5%). Показ обоих — как в
+  // OptimizeStep dual-pillar — чтобы Отчёт не утверждал ложно «план уже оптимален».
+  const mediaLift = $derived(/** @type {number|null} */ (oData?.media_only_lift_pct ?? null));
+  const liftDrownsInBase = $derived(
+    lift != null && mediaLift != null && lift < 3 && mediaLift > 2 && (mediaLift - lift) > 2
+  );
   // 5c followup (2026-05-24): money-axis budget, matches XLSX Executive Summary
   // и markdown report fix. `total_budget` = native mixed-units sum (TRPs + ₽ =
   // arithmetic garbage on mixed-channel projects). Use total_current_money chain.
@@ -403,7 +411,11 @@
     if (lift != null) {
       if (lift > 10) parts.push(`**Оптимизация даст значительный прирост: +${lift.toFixed(1)}% KPI.** Это говорит что текущее распределение далеко от оптимального - есть реальная возможность увеличить продажи без дополнительного бюджета.`);
       else if (lift > 3) parts.push(`**Оптимизация даст умеренный прирост: +${lift.toFixed(1)}% KPI.** Текущий план в целом адекватный, но можно выжать ещё.`);
-      else if (lift > 0.5) parts.push(`**Прирост +${lift.toFixed(1)}%** - план близок к оптимальному. Крупных неэффективностей нет.`);
+      else if (lift > 0.5 && !liftDrownsInBase) parts.push(`**Прирост +${lift.toFixed(1)}%** - план близок к оптимальному. Крупных неэффективностей нет.`);
+      else if (liftDrownsInBase) {
+        const share = Math.max(lift / /** @type {number} */ (mediaLift) * 100, 1);
+        parts.push(`**Итоговый прирост KPI ≈${lift.toFixed(1)}%, но эффективность медиа растёт на +${/** @type {number} */ (mediaLift).toFixed(1)}%** при перераспределении бюджета. Низкий итоговый процент — потому что органическая база доминирует (медиа даёт лишь ~${share.toFixed(0)}% продаж), а **не** потому что план уже оптимален. Действенный рычаг — структура медиа-сплита; перераспределение каналов реально улучшает медиа-отдачу.`);
+      }
       else parts.push(`**Прирост ≈0%** - план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
     }
     if (underfundedChannels.length > 0) {
@@ -851,12 +863,14 @@
         </Tooltip>
         <div
           class="metric-value lift"
-          class:positive={lift != null && lift > 0}
+          class:positive={lift != null && (lift > 0 || liftDrownsInBase)}
           class:negative={lift != null && lift < 0}
         >
           {lift != null ? (lift >= 0 ? '+' : '') + fmt(lift) + '%' : '-'}
         </div>
-        <div class="metric-sub">при перераспределении</div>
+        <div class="metric-sub">
+          {#if liftDrownsInBase}эффективность медиа +{/** @type {number} */ (mediaLift).toFixed(1)}% (база доминирует){:else}при перераспределении{/if}
+        </div>
       </div>
 
       <div class="card-metric">
