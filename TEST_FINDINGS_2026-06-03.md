@@ -348,3 +348,21 @@ OptimizeStep уже честен (dual-pillar media/KPI, фикс 2026-05-04), �
 пропусками; не баг, ожидаемо. Подтверждает: «+0.0% прирост» = эффект доминирующей базы, не дефект оптимизатора.
 
 **Гейты:** pytest 338 (331+7) · cargo 145 · svelte 0E/171W. Тест-проект удалён.
+
+## Эксперт-режим вглубь (2026-06-04) — render-clean, gate-bypass уже закрыт
+
+Венарус загружен в Эксперт-режиме (мост 9223). Проверено:
+- **Валидация (ExpertValidatePanel):** RATIO 2.8:1, VIF MAX «н/д» (graceful — реконструкция LOAD-1 без
+  per-column VIF stats, честное «н/д» не 0), MQS 75. Рендер чистый, без ошибок.
+- **Модель (ConfigPanel Expert):** KPI + 7 медиа + MCMC-настройки рендерятся; custom priors под
+  «Расширенные настройки». Без краша.
+- **Оптимизация Expert:** per-channel min/max + Analyst↔Planner режимы рендерятся, без ошибок.
+- **CPP gate-bypass (концерн «Manager блокирует / Expert байпасит») — УЖЕ ЗАКРЫТ (3A):**
+  `ValidateStepV13.handlePerChannelConfirm:461-463` — Expert-путь делает early-return (`expertCppMissing=true`)
+  при physical-канале без CPP в ROI-режиме, как Manager (`allChannelsConfigured` disable, :1153). Код +
+  комментарий «verified live 2026-06-03 desktop-control» подтверждают. Раньше Expert байпасил → unit_cost=1.0
+  → ROI-артефакт 12186×; закрыто.
+
+**Вывод:** новых багов в Эксперт-режиме не найдено — панели render-clean, историческая gate-bypass дыра
+закрыта. Глубокие интерактивные правки (живое редактирование custom priors, per-channel слайдеры, триггер
+гейта вживую) требуют свежего импорта с сырыми данными — отдельный заход.
