@@ -310,3 +310,10 @@ X, ROI 0.04×); продажи в основном базовый спрос» �
 отдельная, нужен свой анализ профитабельности/unit_smell-гейта. GUI-первичный (decomposer) закрыт.
 
 **Артефакты теста удалены** (probe + проект fmcg-truth-test). Гейты: pytest 331 · svelte 0E · vitest 617 · cargo 145.
+
+### КРОСС-СЛОЙ INV-50 ЗАКРЫТ (HTML + PPTX hero)
+`aurora_html/sections.py:623` + `aurora_pptx/builder.py:740`: «самый эффективный канал» гейтился только при
+`honest_narrative` (media<10%) → при media≥10% И hero<breakeven (honest=False) убыточный hero корон(
+тот же баг). Фикс: breakeven-гейт РАСЦЕПЛЁН от honest (`if hero_m < 1.0 and mode != 'effectiveness'` →
+«лучший среди медиа, но под breakeven»), зеркалит decomposer. effectiveness-mode исключён (метрика=доля,
+breakeven неприменим, прецедент all_below_breakeven). Все 3 слоя инсайта консистентны. pytest 331, импорт OK.

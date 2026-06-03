@@ -737,7 +737,11 @@ class AuroraPPTXBuilder:
             f"{hero_mroas:.1f}×" if self.kpi["is_legacy"]
             else _fmt_metric_pptx(hero_mroas, self.kpi)
         )
-        if honest and hero_mroas < 1.0:
+        # INV-50 (2026-06-03 synthetic-truth аудит): sub-breakeven hero НИКОГДА не
+        # «самый эффективный» (противоречит вердикту «убыточный»). Гейт расцеплён
+        # от honest_narrative (media<10%). effectiveness-mode исключён (метрика —
+        # доля, breakeven неприменим). Зеркалит decomposer + HTML-hero.
+        if hero_mroas < 1.0 and self.kpi["mode"] != "effectiveness":
             f2 = f"{hero} - лучший среди медиа, но под breakeven ({hero_metric_short} {hero_metric_fmt})"
             s2 = f"{_under_breakeven_phrase_pptx(self.kpi)} означает что канал тратит больше чем приносит"
         elif hero_mroas > 0:

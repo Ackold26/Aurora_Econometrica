@@ -620,7 +620,13 @@ def render_at_a_glance(ctx: dict) -> str:
                 break
 
         hero_m_fmt = _fmt_metric(hero_m, kpi) if not kpi["is_legacy"] else f"{hero_m:.1f}×"
-        if honest and hero_m < 1.0:
+        # INV-50 (2026-06-03 synthetic-truth аудит): sub-breakeven hero НИКОГДА не
+        # «самый эффективный» — это противоречит его вердикту «убыточный». Гейт
+        # расцеплён от honest_narrative (media<10%): даже при media≥10% (honest=False)
+        # канал с ROI<1 не коронуется. Зеркалит decomposer._build_channel_insight.
+        # effectiveness-mode исключён: там метрика — доля, breakeven неприменим (как
+        # all_below_breakeven ниже).
+        if hero_m < 1.0 and kpi["mode"] != "effectiveness":
             f2 = f"{hero} - лучший среди медиа, но всё ещё под breakeven ({kpi['metric_short']} {hero_m_fmt})"
             f2_sup = f"{_under_breakeven_phrase(kpi)} означает что канал тратит больше чем приносит инкрементала"
         elif honest:
