@@ -505,7 +505,11 @@ def _derive_narrative_facts(
     by_mroas = sorted(channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
 
     leader = by_contrib[0] if by_contrib else {}
-    hero = by_mroas[0] if by_mroas else {}
+    # REC-1-GAP (2026-06-03 audit): hero = канал с макс. mROAS → попадает в клиентский
+    # PPTX/HTML «перераспределить N млн в {hero}». unit_smell-канал (TRP, ROI-артефакт) НЕ
+    # должен быть hero (та же ROI-1/2). Лучший по mROAS среди денежных; fallback если все unit_smell.
+    _by_mroas_clean = [c for c in by_mroas if not c.get("unit_smell")]
+    hero = (_by_mroas_clean[0] if _by_mroas_clean else (by_mroas[0] if by_mroas else {}))
 
     total_spend = sum(float(c.get("spend") or 0) for c in channels)
     total_contrib = sum(float(c.get("contribution") or 0) for c in channels)

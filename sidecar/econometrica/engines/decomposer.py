@@ -822,7 +822,12 @@ def decompose(
     # `lift = |efficiency_gap| × 0.5` then claimed "ожидаемый прирост +X% продаж" -
     # without basis in model. Replaced with descriptive text only; for actual lift
     # estimate user should run scenario or optimize step (which DO compute against model).
-    top = channels[0] if channels else None
+    # REC-1-GAP (2026-06-03 audit): channels отсортированы по ROI убыв. (:715), поэтому
+    # channels[0] — не-денежный unit_smell-канал (TRP/clicks, ROI-артефакт 12186×), если он
+    # есть. НЕ короновать его «самым эффективным» и НЕ советовать перераспределять в него
+    # (та же ROI-1/2 проблема). Берём лучший среди денежных; fallback если все unit_smell.
+    _clean = [c for c in channels if not c.get('unit_smell')]
+    top = (_clean[0] if _clean else channels[0]) if channels else None
     worst = channels[-1] if channels else None
     insight = ''
     if top and worst:

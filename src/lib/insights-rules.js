@@ -1303,7 +1303,7 @@ export function modelInsights(data, ratioOverride = undefined) {
 // ── Decompose Step ──────────────────────────────────────
 
 /**
- * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }> }} data
+ * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }> }} data
  * @param {import('./kpi-aware-formatting.js').KpiViewInput|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi.
  * @returns {Insight[]}
  */
@@ -1438,7 +1438,7 @@ export function decomposeInsights(data, kpiInput = null) {
     ).join('\n');
     out.push({
       severity: 'success',
-      text: `${efficient.length} ${pluralizeRu(efficient.length, ['канал', 'канала', 'каналов'])} ${efficient.length === 1 ? 'работает' : 'работают'} эффективнее своей доли бюджета:`,
+      text: `${efficient.length} ${pluralizeRu(efficient.length, ['канал', 'канала', 'каналов'])} ${pluralizeRu(efficient.length, ['работает', 'работают', 'работают'])} эффективнее своей доли бюджета:`,
       tip: lines + '\n\nТакие каналы - кандидаты на докрутку бюджета на шаге Оптимизация.',
     });
   }
@@ -1449,7 +1449,7 @@ export function decomposeInsights(data, kpiInput = null) {
     ).join('\n');
     out.push({
       severity: 'warning',
-      text: `${inefficient.length} ${pluralizeRu(inefficient.length, ['канал', 'канала', 'каналов'])} ${inefficient.length === 1 ? 'перенасыщен' : 'перенасыщены'} или ${inefficient.length === 1 ? 'работает' : 'работают'} ниже среднего:`,
+      text: `${inefficient.length} ${pluralizeRu(inefficient.length, ['канал', 'канала', 'каналов'])} ${pluralizeRu(inefficient.length, ['перенасыщен', 'перенасыщены', 'перенасыщены'])} или ${pluralizeRu(inefficient.length, ['работает', 'работают', 'работают'])} ниже среднего:`,
       tip: lines + '\n\nВарианты: (1) сократить бюджет - проверить через Оптимизатор; (2) пересмотреть креатив/таргетинг; (3) проверить нет ли проблем с трекингом.',
     });
   }
@@ -1462,7 +1462,12 @@ export function decomposeInsights(data, kpiInput = null) {
   // Universal: sort descending raw → best first.
   /** @type {(a: any, b: any) => number} */
   const sortBest = (a, b) => (b.roi || 0) - (a.roi || 0);
-  const sortedByRoi = [...channels].filter(c => c.roi != null).sort(sortBest);
+  // REC-1-GAP (2026-06-03 audit): unit_smell-каналы (артефактный ROI из не-денежных
+  // единиц, напр. TRP с unit_cost=1.0, ROI 12186×) НЕ должны короноваться «Лучший ROI/
+  // CPU … можно увеличить инвестиции» — это та же ROI-1/2 проблема, что в optimizeInsights,
+  // в соседней функции экрана Декомпозиции (рендер InsightsPanel case 3). Канал и так
+  // помечен в таблице (verdict «ROI завышен (не рубли?)») и в шапке («не-денежные единицы»).
+  const sortedByRoi = [...channels].filter(c => c.roi != null && c.unit_smell !== true).sort(sortBest);
   if (sortedByRoi.length >= 2) {
     const topRoi = sortedByRoi[0];
     const bottomRoi = sortedByRoi[sortedByRoi.length - 1];
@@ -1625,7 +1630,7 @@ export function optimizeInsights(data, ctx = {}) {
       : _weightedPhrase(avgROI, kpi).toLowerCase();
     out.push({
       severity: 'success',
-      text: `Готово к оптимизации: ${dec.channels.length} канал${dec.channels.length > 4 ? 'ов' : dec.channels.length > 1 ? 'а' : ''}, бюджет ${totalSpend.toLocaleString('ru-RU')}₽, ${portfolioPhrase}.`,
+      text: `Готово к оптимизации: ${dec.channels.length} ${pluralizeRu(dec.channels.length, ['канал', 'канала', 'каналов'])}, бюджет ${totalSpend.toLocaleString('ru-RU')}₽, ${portfolioPhrase}.`,
       tip: 'Нажмите «🎯 Оптимизировать бюджет» - модель найдёт распределение, максимизирующее KPI при заданных Мин/Макс ограничениях.',
     });
 
@@ -1895,7 +1900,7 @@ export function optimizeInsights(data, ctx = {}) {
   if (suspicious.length > 0) {
     out.push({
       severity: 'warning',
-      text: `⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ROI - не используйте их оценки для бюджетных решений.`,
+      text: `⚠ ${suspicious.length} ${pluralizeRu(suspicious.length, ['канал', 'канала', 'каналов'])} с подозрительно высоким ROI - не используйте их оценки для бюджетных решений.`,
       tip: suspicious.map(c => `⚠ ${c.name} - ROI ${c.roi.toFixed(1)}×`).join('\n') +
         '\n\nПричины завышенного ROI обычно две: (1) переобучение модели на коротких данных (Ratio < 4:1), (2) смешанные единицы измерения (TRP + рубли в одной модели). Оптимизатор учитывает эти цифры как есть - вручную скорректируйте рекомендации.',
     });
@@ -2114,7 +2119,7 @@ export function reportInsights(ctx = {}) {
     }
     if (suspicious.length > 0) {
       const susMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;
-      reco += `\n\n⚠ ${suspicious.length} канал${suspicious.length > 4 ? 'ов' : suspicious.length > 1 ? 'а' : ''} с подозрительно высоким ${susMetric} (${suspicious.map(/** @param {any} s */ s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные - только относительно.`;
+      reco += `\n\n⚠ ${suspicious.length} ${pluralizeRu(suspicious.length, ['канал', 'канала', 'каналов'])} с подозрительно высоким ${susMetric} (${suspicious.map(/** @param {any} s */ s => s.name).join(', ')}). Оценки этих каналов не используйте как абсолютные - только относительно.`;
     }
 
     out.push({

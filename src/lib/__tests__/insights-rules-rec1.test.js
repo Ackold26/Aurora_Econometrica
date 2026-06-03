@@ -5,7 +5,7 @@
  * mROAS-лидеры её игнорировали → продукт советовал вкладывать в TRP с ROI 12186×.
  */
 import { describe, it, expect } from 'vitest';
-import { optimizeInsights } from '../insights-rules.js';
+import { optimizeInsights, decomposeInsights } from '../insights-rules.js';
 
 /** Кагоцел-подобный вход: TRPs — артефактный высокий mROAS + unit_smell. */
 function buildData() {
@@ -69,5 +69,34 @@ describe('REC-1 unit_smell не рекомендуется наращивать'
       // effectiveClean = только Social (TRPs исключён) → «1 канал», не «2 канала»
       expect(growth.text).toMatch(/^1 канал/);
     }
+  });
+});
+
+/**
+ * REC-1-GAP (2026-06-03 audit): тот же корень жил в СОСЕДНЕЙ функции decomposeInsights
+ * (экран Декомпозиции, рендер InsightsPanel case 3) — она коронует unit_smell-артефакт
+ * «Лучший ROI: TRPs 12186× … можно увеличить инвестиции», без оговорки. Найдено
+ * адверсариальным ревью; кросс-слой манифестация одного корня.
+ */
+describe('REC-1-GAP decomposeInsights не коронует unit_smell «Лучшим ROI»', () => {
+  /** Кагоцел-подобная декомпозиция: TRPs unit_smell ROI 12186×, денежные каналы ниже. */
+  function decData() {
+    return {
+      baseline_pct: 80,
+      channels: [
+        { name: 'TRPs', roi: 12186, unit_smell: true, verdict: 'ROI завышен (не рубли?)', spend: 100, contribution: 1_200_000, contribution_pct: 12, efficiency_gap: 12 },
+        { name: 'Статьи', roi: 77, unit_smell: false, verdict: 'Высокоэффективен', spend: 3_800_000, contribution: 300_000_000, contribution_pct: 14, efficiency_gap: 12 },
+        { name: 'Banners', roi: 2.3, unit_smell: false, verdict: 'Перенасыщен', spend: 113_000_000, contribution: 258_000_000, contribution_pct: 12, efficiency_gap: -29 },
+      ],
+    };
+  }
+  it('«Лучший ROI» = денежный канал (Статьи), не unit_smell TRPs', () => {
+    const insights = decomposeInsights(decData(), null);
+    const text = insights.map((/** @type {any} */ i) => `${i.text}\n${i.tip || ''}`).join('\n');
+    // unit_smell TRPs (ROI 12186×) НЕ должен быть коронован «Лучший ROI … можно увеличить инвестиции»
+    expect(text).not.toMatch(/Лучший ROI: TRPs/);
+    expect(text).not.toMatch(/TRPs = 12186/);
+    // лидер ROI = Статьи (лучший среди денежных)
+    expect(text).toMatch(/Лучший ROI: Статьи/);
   });
 });
