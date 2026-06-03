@@ -534,16 +534,28 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # OSError / invalid path - GUI всё равно получает result через return.
     # default=str страхует numpy-типы, которые json не умеет сериализовать.
     if project_dir:
-        try:
-            out_path = Path(project_dir) / 'results' / 'validation.json'
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            import json
-            with open(out_path, 'w', encoding='utf-8') as f:
-                json.dump(result, f, ensure_ascii=False, indent=2, default=str)
-        except Exception:
+        # LOAD-1 (B2) harden: относительный project_dir → запись ушла бы в CWD
+        # сайдкара, а не в папку проекта (validation.json «терялся» молча, что
+        # ломало реоткрытие проекта). Резолв в абсолютный путь делает Rust
+        # (resolve_project_dir_arg); сюда относительный путь приходить не должен.
+        # Не пишем в относительный путь — превращаем молчаливую запись-не-туда в
+        # видимый лог (result всё равно возвращается в GUI).
+        if not Path(project_dir).is_absolute():
             logger.warning(
-                'validation.json write failed, result still returned to GUI',
-                exc_info=True,
+                'validation.json NOT saved: project_dir is not absolute (%s) — '
+                'expected resolved abs path from Rust', project_dir,
             )
+        else:
+            try:
+                out_path = Path(project_dir) / 'results' / 'validation.json'
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                import json
+                with open(out_path, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, ensure_ascii=False, indent=2, default=str)
+            except Exception:
+                logger.warning(
+                    'validation.json write failed, result still returned to GUI',
+                    exc_info=True,
+                )
 
     return result

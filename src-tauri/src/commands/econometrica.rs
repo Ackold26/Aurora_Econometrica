@@ -138,10 +138,40 @@ pub async fn econ_classifier_patterns() -> Result<Value, String> {
 
 // ── Compute ──────────────────────────────────────────
 
+/// LOAD-1 (B2): резолв аргумента `project_dir` команды econ_validate в абсолютный
+/// путь, чтобы sidecar сохранял `results/validation.json` в папку проекта.
+///
+/// Корень бага: фронт (ValidateStepV13 / legacy ValidateStep) шлёт **bare
+/// project_id** как `project_dir`. Sidecar делал `Path(project_dir)/results/...`
+/// → относительный CWD сайдкара → запись «успешна», но не в `%APPDATA%/.../projects/<id>/`.
+/// `find` validation.json = 0 файлов → реоткрытие проекта показывало пустую Валидацию.
+/// Decompose/Optimize не страдали, т.к. фронт резолвит путь через `project_get_dir`
+/// ПЕРЕД вызовом. B2 — один SSOT-резолв в Rust: чинит обоих вызывающих и все
+/// будущие econ_validate без дрейфа (vs B1 — резолв в 2 местах фронта).
+///
+/// - `None` / пусто → `None` (валидация без сохранения — допустимо).
+/// - Уже абсолютный путь → passthrough (backward-compat: .aurora импорт, старый код).
+/// - Относительный (bare project_id) → `project_dir(id)` (как econ_export_pptx:438),
+///   под `validate_project_dir` guard (path-traversal `..`).
+fn resolve_project_dir_arg(project_dir: Option<String>) -> Result<Option<String>, String> {
+    match project_dir {
+        None => Ok(None),
+        Some(pd) if pd.trim().is_empty() => Ok(None),
+        Some(pd) if std::path::Path::new(&pd).is_absolute() => Ok(Some(pd)),
+        Some(pd) => {
+            validate_project_dir(&pd)?; // guard ДО резолва (defense-in-depth)
+            let abs = crate::commands::project::project_dir(&pd)
+                .map(|p| p.to_string_lossy().to_string())?;
+            Ok(Some(abs))
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn econ_validate(file_path: String, project_dir: Option<String>) -> Result<Value, String> {
     info!("econ_validate: {file_path}");
-    let body = serde_json::json!({ "file_path": file_path, "project_dir": project_dir });
+    let resolved_dir = resolve_project_dir_arg(project_dir)?;
+    let body = serde_json::json!({ "file_path": file_path, "project_dir": resolved_dir });
     post_json("/compute/validate", &body, quick_client()).await
 }
 
@@ -681,5 +711,55 @@ async fn parse_resp(resp: reqwest::Response, path: &str) -> Result<Value, String
                 &text[..text.len().min(200)]
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod resolve_project_dir_tests {
+    use super::resolve_project_dir_arg;
+
+    #[test]
+    fn none_stays_none() {
+        assert_eq!(resolve_project_dir_arg(None).unwrap(), None);
+    }
+
+    #[test]
+    fn empty_becomes_none() {
+        assert_eq!(resolve_project_dir_arg(Some("".into())).unwrap(), None);
+        assert_eq!(resolve_project_dir_arg(Some("   ".into())).unwrap(), None);
+    }
+
+    #[test]
+    fn absolute_path_passthrough_backward_compat() {
+        // .aurora импорт / старый код шлёт уже абсолютный путь — не трогаем.
+        #[cfg(windows)]
+        let abs = r"C:\Users\x\AppData\Roaming\app\projects\proj-1";
+        #[cfg(not(windows))]
+        let abs = "/home/x/.local/share/app/projects/proj-1";
+        assert_eq!(
+            resolve_project_dir_arg(Some(abs.into())).unwrap(),
+            Some(abs.to_string())
+        );
+    }
+
+    #[test]
+    fn traversal_blocked() {
+        let err = resolve_project_dir_arg(Some("../../etc/passwd".into())).unwrap_err();
+        assert!(err.contains("traversal"), "ожидали traversal guard, got: {err}");
+    }
+
+    #[test]
+    fn bare_id_resolves_to_absolute_ending_with_id() {
+        // bare project_id → абсолютный путь, оканчивающийся на id (как econ_export_pptx).
+        let id = "кагоцел-load1-test-проект";
+        let resolved = resolve_project_dir_arg(Some(id.into())).unwrap().unwrap();
+        let path = std::path::Path::new(&resolved);
+        assert!(path.is_absolute(), "ожидали абсолютный путь, got: {resolved}");
+        assert_eq!(
+            path.file_name().and_then(|s| s.to_str()),
+            Some(id),
+            "путь должен оканчиваться на project_id"
+        );
+        assert!(path.to_string_lossy().contains("projects"));
     }
 }
