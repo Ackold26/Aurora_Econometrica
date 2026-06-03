@@ -22,7 +22,7 @@
     sidecarStatus,
     isComputing,
     computeStatus,
-    loadPipelineForProject,
+    resetPipeline,
     validateData,
     importData,
     validateSubStep,
@@ -274,16 +274,24 @@
         try {
           const id = /** @type {string|null} */ (await invoke('project_get_active'));
           if (id) {
-            activeProjectId.set(id);
             const info = await invoke('project_get', { projectId: id });
-            activeProject.set(info);
-            loadPipelineForProject(id);
+            activeProject.set(info);   // LOAD-1: set ДО restore, чтобы hydrate видел роли без fallback
+            activeProjectId.set(id);
+            // LOAD-1 fix: resetPipeline = loadPipelineForProject (сброс data-сторов)
+            // + restoreProjectResults в ПРАВИЛЬНОМ порядке (restore/hydrate последним).
+            // Раньше голый loadPipelineForProject обнулял validateData, а restore
+            // (через subscribe) гонился с ним → роли терялись на загруженном проекте.
+            resetPipeline(id);
           }
         } catch { /* no active project yet */ }
       })();
     } else {
-      // Load pipeline metadata for current project (A4: data never persisted)
-      loadPipelineForProject($activeProjectId);
+      // Load pipeline metadata for current project (A4: data never persisted).
+      // LOAD-1 fix: resetPipeline (не голый loadPipelineForProject) — гарантирует
+      // restoreProjectResults после сброса. Иначе на re-entry в уже-активный
+      // проект (activeProjectId уже set → subscribe-guard пропускает restore)
+      // validateData оставался null → пустая Валидация + ложное «устарела».
+      resetPipeline($activeProjectId);
       // Fix 2026-05-24: post-reload state desync — activeProjectId восстановлен
       // (header показывает slug) но activeProject store null. Guards в OptimizeGoalSeek
       // / других местах проверяют $activeProject?.path → ошибка «Откройте проект сначала».
