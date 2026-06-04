@@ -9,6 +9,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { get } from 'svelte/store';
+  import { buildTrainConfig } from '$lib/train-config.js';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
 
@@ -333,36 +334,29 @@
        // OptimizeRequest.mode accepts both. mcmc_override irrelevant для OLS path.
       const engine = get(modelEngine);
 
-      const config = {
-        project_dir: projectDir,
-        data_file: dataFile,
-        kpi_column: selectedKpi,
-        media_columns: enabledChannels,
-        control_columns: controlColumns,
-        date_column: validation?.detected?.date || 'date',
-        adstock_config: Object.fromEntries(
-          enabledChannels.map(ch => [ch, channelAdstock[ch] || 'geometric'])
-        ),
-        mcmc_override: (engine === 'bayesian' && showAdvanced)
-          ? { chains: mcmcChains, draws: mcmcDraws, tune: mcmcTune }
-          : null,
-        unit_costs: get(unitCosts) || {},
-        // v2.1.0 (ADR-020): kpi_type для smart math (mixed mode count
-        // KPI разрешается, awareness rejected). Backend default 'sales'
-        // - preserving backward compat для legacy callers без kpiType.
-        kpi_type: get(kpiType) || 'sales',
-        // v2.1.0 (ADR-021): ценность единицы count KPI (₽/упак., ₽/лид).
-        // Persisted в pickle snapshot. None = ROI/lift в native units.
-        kpi_unit_cost: (() => {
-          const v = get(valuePerCountUnit);
-          return get(kpiKind) === 'count' && typeof v === 'number' && v > 0 ? v : null;
-        })(),
-        merge_rules: mergeRules,
-        mode: engine,
-        // Trust Level 3 (v1.1.0): brand vs performance categorization.
-        // Backend modeler decides hierarchical vs single-prior на основе ≥2 в группе.
-        channel_categories: get(channelCategories) || {},
-      };
+      // v0.7.x (2026-06-06): сборка train-конфига вынесена в чистую buildTrainConfig
+      // (train-config.js) — verbatim-порт, все входы явны. Сторы читаются здесь через
+      // get() и передаются значениями (функция чистая, не лезет в сторы).
+      const config = buildTrainConfig({
+        projectDir,
+        dataFile,
+        kpiColumn: selectedKpi,
+        mediaColumns: enabledChannels,
+        controlColumns,
+        dateColumn: validation?.detected?.date,
+        channelAdstock,
+        engine,
+        showAdvanced,
+        mcmcChains,
+        mcmcDraws,
+        mcmcTune,
+        unitCosts: get(unitCosts),
+        kpiType: get(kpiType),
+        valuePerCountUnit: get(valuePerCountUnit),
+        kpiKind: get(kpiKind),
+        mergeRules,
+        channelCategories: get(channelCategories),
+      });
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)
       // v2.1.0 (пилот 2026-05-17): сохраняем snapshot конфигурации в SSOT
