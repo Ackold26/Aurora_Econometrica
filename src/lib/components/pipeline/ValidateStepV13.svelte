@@ -25,6 +25,8 @@
     valuePerCountUnit, valuePerCountUnitSource,
     activeProject, activeProjectId, validateData, importData,
     completeStep, setStepError, lockStep, pipelineStepMeta, pipelineCurrentStep,
+    // NAV-2/3A Minimal-plus (2026-06-05): чистые предикаты вместо inline-логики.
+    cppSatisfied, shouldRelockModel,
     // v2.1.0 (rc2 U-05): sync subStep в store для InsightsPanel routing.
     validateSubStep,
     // v2.1.0 (пилот 2026-05-17): persist KPI выбор → ConfigPanel.
@@ -783,21 +785,16 @@
    *   - monetary-каналы всегда готовы (бюджет в ₽ уже есть)
    * Mirrors логику AppliedModeSummary.incompatibleCount.
    */
-  const allChannelsConfigured = $derived.by(() => {
-    if (channels.length === 0) return true;  // пустой список → разрешаем продолжить
-    const mode = $analysisMode;
-    const costs = $unitCosts ?? {};
-    for (const name of channels) {
-      const detectedType = $perChannelInput?.[name] ?? detectChannelType(name);
-      if (detectedType === 'physical' && mode === 'roi') {
-        // physical в ROI mode: нужен unit_cost > 0
-        const uc = costs[name];
-        if (typeof uc !== 'number' || uc <= 0) return false;
-      }
-      // monetary → всегда OK; physical + effectiveness → OK без конверсии
-    }
-    return true;
-  });
+  // NAV-2/3A Minimal-plus (2026-06-05): делегат к SSOT-предикату cppSatisfied
+  // (project-state.js). Единственное определение CPP-гейта; тот же предикат
+  // защищает chokepoint completeStep(1). channels = prop (media из validateData,
+  // +page.svelte:39-45). Поведение байт-в-байт с прежним inline $derived.by.
+  const allChannelsConfigured = $derived(cppSatisfied({
+    channels,
+    perChannelInput: $perChannelInput,
+    unitCosts: $unitCosts,
+    analysisMode: $analysisMode,
+  }));
 
   // NAV-2/3A-FOOTER-BYPASS guard (2026-06-04): completeStep(1) — one-way latch (никогда не
   // ре-локает). Если Модель ('ready') разлочена, но пользователь НЕ на финальном подшаге
@@ -808,9 +805,8 @@
   // перескочит CPP-гейт → physical+ROI без unit_cost → ROI-артефакт (TRPs 12186×). Легитимный
   // разлок — ТОЛЬКО handlePerChannelConfirm (за CPP-гейтом). 'complete' (обучена) не трогаем.
   $effect(() => {
-    if ($pipelineCurrentStep !== 1) return;
-    if ($pipelineStepMeta[2]?.status !== 'ready') return;
-    if (subStep < 3 || !allChannelsConfigured) {
+    if ($pipelineCurrentStep !== 1) return;  // контекстный скоуп — guard живёт только на шаге Валидация
+    if (shouldRelockModel({ subStep, cppSatisfied: allChannelsConfigured, status: $pipelineStepMeta[2]?.status })) {
       lockStep(2);
     }
   });

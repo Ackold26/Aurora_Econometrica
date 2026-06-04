@@ -12,6 +12,7 @@ import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { classifyRatio, severityTo3Tier } from './ratio-classifier.js';
 import { applyProjectRolesToColumns } from './column-roles.js';
+import { detectChannelUnitType } from './services/classifier-patterns.js';
 
 /** @type {import('svelte/store').Writable<string|null>} Active project ID */
 export const activeProjectId = writable(null);
@@ -1045,11 +1046,112 @@ export function resetDownstream(fromStep) {
 }
 
 /**
+ * CPP-гейт (NAV-2/3A Minimal-plus 2026-06-05) — чистый порт `allChannelsConfigured`
+ * из ValidateStepV13:786-800, вынесенный в SSOT-предикат над сторами. Для ROI-режима
+ * каждый physical media-канал ОБЯЗАН иметь `unit_cost > 0`, иначе обучение даёт
+ * ROI-артефакт (класс 12186×, физ.единицы без конверсии в ₽). Пустой список каналов
+ * → true (нечего проверять). Тип канала: `perChannelInput[name] ?? detectChannelUnitType(name)`
+ * (детектор синхронный, консервативный дефолт 'monetary'). effectiveness/mixed:
+ * physical-ветка не кусает (физ.единицы валидны без конверсии). Байт-в-байт с
+ * компонентным `allChannelsConfigured`; `channels` принимается как готовый массив
+ * имён (prop из +page.svelte) ИЛИ выводится из `columns` (role==='media') — оба
+ * источника тождественны (+page.svelte:39-45 = тот же фильтр).
+ *
+ * @param {{
+ *   channels?: string[]|null,
+ *   columns?: any[]|null,
+ *   perChannelInput?: Record<string, string>|null,
+ *   unitCosts?: Record<string, number>|null,
+ *   analysisMode?: string
+ * }} snapshot
+ * @returns {boolean}
+ */
+export function cppSatisfied(snapshot) {
+  const channels = Array.isArray(snapshot?.channels)
+    ? snapshot.channels
+    : (Array.isArray(snapshot?.columns)
+        ? snapshot.columns.filter(c => c?.role === 'media').map(c => c?.name)
+        : []);
+  if (channels.length === 0) return true;  // пустой список → разрешаем (mirror :787)
+  const mode = snapshot?.analysisMode;
+  const costs = snapshot?.unitCosts ?? {};
+  const pci = snapshot?.perChannelInput ?? {};
+  for (const name of channels) {
+    const detectedType = pci?.[name] ?? detectChannelUnitType(name);
+    if (detectedType === 'physical' && mode === 'roi') {
+      // physical в ROI mode: нужен unit_cost > 0 (иначе ROI-артефакт)
+      const uc = costs[name];
+      if (typeof uc !== 'number' || uc <= 0) return false;
+    }
+    // monetary → всегда OK; physical + effectiveness/mixed → OK без конверсии
+  }
+  return true;
+}
+
+/**
+ * Снимок сторов для `cppSatisfied` в императивном контексте (guard внутри
+ * `completeStep`, где нет реактивного `$`-доступа). Собирается через `get()`.
+ * @returns {{columns: any[], perChannelInput: Record<string, string>, unitCosts: Record<string, number>, analysisMode: string}}
+ */
+export function currentGateSnapshot() {
+  return {
+    columns: get(validateData)?.result?.columns ?? [],
+    perChannelInput: /** @type {Record<string, string>} */ (get(perChannelInput) ?? {}),
+    unitCosts: get(unitCosts) ?? {},
+    analysisMode: get(analysisMode),
+  };
+}
+
+/**
+ * Чистый предикат «нужно ли ре-локнуть Модель» (NAV-2/3A HOLE-1, экстракция
+ * guard-условия ValidateStepV13:813 в тестируемую функцию). Модель ('ready')
+ * ре-локается, если пользователь НЕ на финальном подшаге «Подтверждение»
+ * (`subStep < 3`) ИЛИ CPP-гейт перестал быть удовлетворён (goBack 3→2, убрал
+ * unit_cost, reload посреди валидации). НЕ трогает 'complete' (обучена) /
+ * 'error' / 'locked' — любой `status !== 'ready'` → false. Скоуп
+ * `pipelineCurrentStep === 1` остаётся в вызывающем `$effect` (контекстный, не
+ * относится к чистой логике goBack/reload).
+ *
+ * @param {{subStep: number, cppSatisfied: boolean, status: string|undefined}} args
+ * @returns {boolean}
+ */
+export function shouldRelockModel({ subStep, cppSatisfied, status }) {
+  if (status !== 'ready') return false;
+  return subStep < 3 || !cppSatisfied;
+}
+
+/**
  * Mark a step complete and unlock the next step.
  * Does NOT auto-advance - user clicks "Далее" manually to review results.
  * @param {number} step - step index (0-5)
  */
 export function completeStep(step) {
+  // NAV-2/3A chokepoint-guard (Minimal-plus 2026-06-05): completeStep(1) —
+  // единственный писатель, разлочивающий Модель (stepMeta[2]). Блокируем разлок,
+  // если CPP-гейт не удовлетворён. Это превращает «4-й преждевременный источник»
+  // (вкл. дремлющий flag-gated ValidateStep.svelte:162, !useDerivedModeUX) из
+  // policed-by-test в policed-by-mechanism: физически нельзя разлочить Модель в
+  // обход CPP.
+  //
+  // ПОЧЕМУ guard НЕ блокирует легит-путь (точный гарант, не relock-транзитивность):
+  //  1. handlePerChannelConfirm делает perChannelInput.set(typed) СИНХРОННО (:456)
+  //     ДО completeStep(1) (:483); get() синхронен → snapshot видит typed.
+  //  2. Перед completeStep(1) стоит CPP early-return (:461-471): в roi-режиме он
+  //     уже вернулся бы, если physical-канал без unit_cost (тот же стор unitCosts).
+  //  3. `typed` перечисляет ВСЕ media-каналы (confirmMetricsAndProceed /
+  //     PerChannelInputSelector итерируют `channels`) = тот же домен, что
+  //     currentGateSnapshot выводит из validateData.result.columns(role=media).
+  //  ⇒ Когда guard блокировал бы — early-return уже сделал completeStep(1)
+  //     недостижимым. На легит-пути guard избыточен (defense-in-depth).
+  // NB (footgun): guard СТРОЖЕ early-return по домену каналов (media из
+  // validateData, не Object.keys(typed)). Сегодня домены тождественны; но если
+  // будущий вызыватель передаст ЧАСТИЧНЫЙ selection, guard заблокирует
+  // недонастроенный канал (намеренно — но требует, чтобы вызыватели
+  // handlePerChannelConfirm перечисляли все media). Только step===1.
+  if (step === 1 && !cppSatisfied(currentGateSnapshot())) {
+    console.warn('[gate] completeStep(1) заблокирован: CPP-гейт не удовлетворён (physical+ROI канал без unit_cost) — защита от ROI-артефакта');
+    return;
+  }
   pipelineStepMeta.update(steps => {
     const copy = steps.map(s => ({ ...s }));
     copy[step] = { ...copy[step], status: 'complete', errorMessage: null };
