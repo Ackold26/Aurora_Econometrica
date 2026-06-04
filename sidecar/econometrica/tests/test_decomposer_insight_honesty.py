@@ -69,3 +69,33 @@ class TestInsightHonesty:
 
     def test_empty_channels(self):
         assert _build_channel_insight([]) == ''
+
+
+class TestMoneyRoiUnavailableGate:
+    """F-C (synthetic-truth retail probe 2026-06-06): count-KPI без kpi_unit_cost →
+    per-channel ROI = нативное отношение (упак/₽), НЕсопоставимо. Особо ловит non-money
+    каналы, чей unit_smell НЕ детектится по имени (binary promo_indicator, spend=9,
+    unit_cost=1 → ROI-артефакт 50976× проходил name-based clean-фильтр и коронован)."""
+
+    def test_money_roi_unavailable_no_crowning_of_artifact(self):
+        channels = [
+            _ch('promo_indicator', 50976.8, gap=33, unit_smell=False),  # имя без unit-hint
+            _ch('tv_spend', 0.0, gap=-36),
+            _ch('ooh_ots', 0.0, gap=-2, unit_smell=True),
+        ]
+        ins = _build_channel_insight(channels, money_roi_unavailable=True)
+        assert 'самый эффективный' not in ins
+        assert '50976' not in ins                 # артефактное число не печатается
+        assert 'перераспределение' not in ins
+        assert 'ценность единицы' in ins          # честная формулировка, согл. с вердиктами
+
+    def test_money_roi_available_still_crowns_profitable_top(self):
+        # backward compat: money ROI доступен → прежнее поведение
+        channels = [_ch('TV', 3.5, gap=12), _ch('OOH', 0.6, gap=-8)]
+        ins = _build_channel_insight(channels, money_roi_unavailable=False)
+        assert 'TV - самый эффективный канал' in ins
+
+    def test_default_param_is_backward_compat(self):
+        # вызов без нового параметра = прежнее поведение (money ROI доступен)
+        channels = [_ch('TV', 3.5, gap=12), _ch('OOH', 0.6, gap=-8)]
+        assert 'TV - самый эффективный канал' in _build_channel_insight(channels)

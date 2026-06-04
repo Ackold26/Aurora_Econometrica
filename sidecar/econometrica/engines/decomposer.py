@@ -54,7 +54,7 @@ def _fmt_roi(r) -> str:
     return f"{r:.2f}×" if abs(r) < 1 else f"{r:.1f}×"
 
 
-def _build_channel_insight(channels) -> str:
+def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str:
     """SSOT инсайта «лучший/худший канал» (template, 0 токенов).
 
     REC-1-GAP (2026-06-03): channels отсортированы по ROI убыв.; channels[0] —
@@ -68,11 +68,30 @@ def _build_channel_insight(channels) -> str:
     ~0.04× при широких интервалах, но инсайт короновал «самый эффективный (ROI 0.0×)»).
     Также НЕ советовать перераспределять бюджет в убыточный top (та же ROI-1/2 проблема).
 
+    INV-50 (2026-06-06 synthetic-truth retail probe): когда money ROI недоступен
+    (`money_roi_unavailable` — count-KPI без kpi_unit_cost), per-channel ROI =
+    нативное отношение (упак/₽, визиты/шт) — НЕсопоставимо между каналами разных
+    единиц и НЕ является money-«×». Короновать «самый эффективный (ROI X×)» здесь =
+    ложная уверенность, противоречащая вердиктам каналов «Задайте ценность единицы».
+    REC-1-GAP clean-фильтр детектит unit_smell ПО ИМЕНИ (UNIT_HINTS) и пропускает
+    non-money каналы без unit-keyword (binary promo_indicator: spend=9, unit_cost=1 →
+    ROI-артефакт 50976× проходил clean и короновался, хотя движок САМ флагнул roi_max
+    high-severity). Гейт на money_roi_unavailable закрывает обход независимо от имени.
+
     @param channels: list dict с name/roi/efficiency_gap/unit_smell, sorted by ROI desc.
+    @param money_roi_unavailable: True если ROI семантически нативное отношение (count
+        KPI без kpi_unit_cost) — тогда ранжирование/коронование по ROI невалидно.
     @returns insight-строка (или '' если нет каналов).
     """
     if not channels:
         return ''
+    if money_roi_unavailable:
+        return (
+            'Денежный ROI каналов недоступен: задайте «ценность единицы» KPI для '
+            'money-оценки эффективности. Продажи определяются в основном базовым '
+            'спросом, прямой медиа-вклад невелик. Сценарии перераспределения '
+            'см. в шаге «Оптимизация».'
+        )
     clean = [c for c in channels if not c.get('unit_smell')]
     top = clean[0] if clean else channels[0]
     worst = channels[-1]
@@ -883,7 +902,10 @@ def decompose(
     # channels[0] — не-денежный unit_smell-канал (TRP/clicks, ROI-артефакт 12186×), если он
     # есть. НЕ короновать его «самым эффективным» и НЕ советовать перераспределять в него
     # (та же ROI-1/2 проблема). Берём лучший среди денежных; fallback если все unit_smell.
-    insight = _build_channel_insight(channels)
+    # _money_roi_na (count-KPI без kpi_unit_cost) вычислен в per-channel loop выше;
+    # пересчитываем явно для надёжности (loop мог не выполниться при 0 каналах).
+    _insight_money_roi_na = bool(kpi_kind == 'count' and kpi_unit_cost is None)
+    insight = _build_channel_insight(channels, money_roi_unavailable=_insight_money_roi_na)
 
     # Per-period dates
     date_col = config.get('date_column', 'date')

@@ -218,12 +218,22 @@ def analyze(name):
         sn = '+' if bn > 0 else '-'
         sd = '+' if bd > 0 else '-'
         print(f'  {c:<26} {fmt(naive, c):<32} {fmt(dgpx, c):<34}')
-        # Робастно, если аналитика и dgp-xform СОГЛАСНЫ по знаку И dgp-xform значим (|t|>2)
+        # СТРОГО (директива #2 «две независимые истины»): робастно ТОЛЬКО если ОБА OLS
+        # (naive БЕЗ трансформов И dgp-xform с oracle-трансформами) согласны со знаком
+        # аналитики И ОБА значимы (|t|>2). Транзформ-зависимые (только oracle-OLS) НЕ
+        # робастны: движок ОЦЕНИВАЕТ adstock/hill (не знает истинных) → держать его к
+        # знаку, восстановимому лишь с истинными трансформами = ложное обвинение.
         agree_dgp = (analytic_sign[c] == sd) and (abs(td) > 2.0)
         agree_naive = (analytic_sign[c] == sn) and (abs(tn) > 2.0)
-        if agree_dgp:
+        if agree_dgp and agree_naive:
             robust[c] = analytic_sign[c]
-        verdict = 'РОБАСТНО (движок ОБЯЗАН)' if agree_dgp else ('частично (naive согл.)' if agree_naive else 'НЕ восстановимо (не обвинять)')
+            verdict = 'РОБАСТНО (оба OLS согл. → движок ОБЯЗАН)'
+        elif agree_dgp:
+            verdict = 'transform-dependent (только oracle-OLS значим; движок НЕ обязан)'
+        elif agree_naive:
+            verdict = 'naive-only (хрупко; движок НЕ обязан)'
+        else:
+            verdict = 'НЕ восстановимо (не обвинять)'
         print(f'      → аналитика={analytic_sign[c]} naive={sn}(t={tn:+.1f}) dgp={sd}(t={td:+.1f})  ВЕРДИКТ: {verdict}')
 
     print('\n[РОБАСТНАЯ ИСТИНА — держим движок ТОЛЬКО к этому]:')
