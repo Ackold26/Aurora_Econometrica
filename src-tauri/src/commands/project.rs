@@ -54,6 +54,18 @@ pub struct ProjectInfo {
     /// Schema bump к v2.0.2 (project_migration.py).
     #[serde(default = "default_industry")]
     pub industry: String,
+    /// LOAD-1 (2026-06-06): count-KPI train-входы, влияющие на posterior. Не
+    /// персистились → reset при reload → re-train count-KPI давал иной posterior
+    /// (re-train артефакт). `kpi_type` → competitor prior 0.0↔−0.3 (modeler.py:461);
+    /// `kpi_kind`+`value_per_count_unit` → kpi_unit_cost (ROI money conversion).
+    /// Persist здесь + ре-гидрация в activeProject.subscribe закрывают артефакт.
+    /// Backward compat: None для legacy проектов (до этого фикса).
+    #[serde(default)]
+    pub kpi_type: Option<String>,
+    #[serde(default)]
+    pub kpi_kind: Option<String>,
+    #[serde(default)]
+    pub value_per_count_unit: Option<f64>,
 }
 
 fn default_industry() -> String {
@@ -237,6 +249,9 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         channel_categories: HashMap::new(),
         unit_cost_inflation_pct: HashMap::new(),
         industry: industry_validated,
+        kpi_type: None,
+        kpi_kind: None,
+        value_per_count_unit: None,
     };
     write_project(&dir, &info)?;
 
@@ -324,6 +339,22 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
         let allowed = ["pharma_otc", "pharma_rx", "fmcg", "retail", "saas", "finance", "b2b", "unknown"];
         if allowed.contains(&ind) {
             info.industry = ind.to_string();
+        }
+    }
+    // LOAD-1 (2026-06-06): persist count-KPI train-входы (kpi_type→prior, kpi_kind+
+    // value_per_count_unit→kpi_unit_cost). Без них re-train после reload давал иной
+    // posterior. value_per_count_unit: null очищает (переключение с count на monetary).
+    if let Some(kt) = updates.get("kpi_type").and_then(|v| v.as_str()) {
+        info.kpi_type = Some(kt.to_string());
+    }
+    if let Some(kk) = updates.get("kpi_kind").and_then(|v| v.as_str()) {
+        info.kpi_kind = Some(kk.to_string());
+    }
+    if let Some(vpcu) = updates.get("value_per_count_unit") {
+        if vpcu.is_null() {
+            info.value_per_count_unit = None;
+        } else if let Some(f) = vpcu.as_f64() {
+            info.value_per_count_unit = Some(f);
         }
     }
 
@@ -989,6 +1020,9 @@ mod atomic_write_tests {
             channel_categories: HashMap::new(),
             unit_cost_inflation_pct: HashMap::new(),
             industry: "unknown".to_string(),
+            kpi_type: None,
+            kpi_kind: None,
+            value_per_count_unit: None,
         }
     }
 
@@ -1012,6 +1046,40 @@ mod atomic_write_tests {
         let loaded = read_project(tmp.path()).unwrap();
         assert_eq!(loaded.media_columns, info.media_columns);
         assert_eq!(loaded.unit_costs.get("tv_spend"), Some(&1.0));
+    }
+
+    #[test]
+    fn write_project_roundtrip_preserves_count_kpi_train_inputs() {
+        // LOAD-1 (2026-06-06): count-KPI train-входы должны переживать save/reload.
+        let tmp = TempDir::new().unwrap();
+        let mut info = make_info("ck", "Count KPI");
+        info.kpi_type = Some("sales_packs".to_string());
+        info.kpi_kind = Some("count".to_string());
+        info.value_per_count_unit = Some(150.0);
+        write_project(tmp.path(), &info).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.kpi_type.as_deref(), Some("sales_packs"));
+        assert_eq!(loaded.kpi_kind.as_deref(), Some("count"));
+        assert_eq!(loaded.value_per_count_unit, Some(150.0));
+    }
+
+    #[test]
+    fn read_project_legacy_json_without_count_kpi_fields_defaults_none() {
+        // Backward compat: legacy project.json (до фикса) не имеет новых полей →
+        // serde(default) → None (не падение десериализации).
+        let tmp = TempDir::new().unwrap();
+        let legacy = r#"{
+            "id": "legacy", "name": "Legacy", "description": "",
+            "created_at": "2026-05-01T00:00:00Z", "updated_at": "2026-05-01T00:00:00Z",
+            "kpi_column": "sales", "media_columns": ["tv"], "control_columns": [],
+            "data_file": null
+        }"#;
+        std::fs::write(tmp.path().join("project.json"), legacy).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.kpi_type, None);
+        assert_eq!(loaded.kpi_kind, None);
+        assert_eq!(loaded.value_per_count_unit, None);
+        assert_eq!(loaded.kpi_column.as_deref(), Some("sales"));
     }
 
     #[test]

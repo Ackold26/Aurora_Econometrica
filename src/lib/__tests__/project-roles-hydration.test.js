@@ -25,6 +25,9 @@ import {
   modelChannelEnabled,
   modelStaleStatus,
   hydrateRolesFromProjectIfEmpty,
+  kpiType,
+  kpiKind,
+  valuePerCountUnit,
 } from '../project-state.js';
 
 beforeEach(() => {
@@ -153,5 +156,44 @@ describe('LOAD-1 config-rehydration (аудит 2026-06-05): chosenKpiColumn и�
   it('проект без kpi_column → chosenKpiColumn null (не падает)', () => {
     activeProject.set(/** @type {any} */ ({ id: 'no-kpi', media_columns: [], control_columns: [], excluded_columns: [] }));
     expect(get(chosenKpiColumn)).toBeNull();
+  });
+});
+
+describe('LOAD-1 count-KPI train-входы (2026-06-06): kpiType/kpiKind/valuePerCountUnit из durable project.json', () => {
+  it('activeProject.set с kpi_type/kpi_kind/value_per_count_unit → сторы ре-гидрированы (фикс re-train артефакта)', () => {
+    activeProject.set(/** @type {any} */ ({
+      id: 'otc', kpi_column: 'sales_packs', media_columns: [], control_columns: [], excluded_columns: [],
+      kpi_type: 'sales_packs', kpi_kind: 'count', value_per_count_unit: 150,
+    }));
+    expect(get(kpiType)).toBe('sales_packs');     // competitor prior → симметричный (не флип)
+    expect(get(kpiKind)).toBe('count');
+    expect(get(valuePerCountUnit)).toBe(150);     // kpi_unit_cost восстановлен
+  });
+
+  it('activeProject.set(null) → сброс к дефолтам (no leakage между проектами)', () => {
+    activeProject.set(/** @type {any} */ ({ id: 'x', kpi_type: 'leads', kpi_kind: 'count', value_per_count_unit: 99 }));
+    expect(get(kpiType)).toBe('leads');
+    activeProject.set(null);
+    expect(get(kpiType)).toBe('sales');
+    expect(get(kpiKind)).toBe('monetary');
+    expect(get(valuePerCountUnit)).toBeNull();
+  });
+
+  it('SET-IF-PRESENT: проект без kpi_type НЕ затирает выбор wizard (клоббер-guard)', () => {
+    // wizard выставил count ДО первого train (persist ещё не было) → промежуточный
+    // activeProject.set (напр. UnitCostsPanel) с project без kpi_type не должен сбросить.
+    kpiType.set('count_custom');
+    kpiKind.set('count');
+    valuePerCountUnit.set(42);
+    activeProject.set(/** @type {any} */ ({ id: 'fresh', kpi_column: 'x', media_columns: [], control_columns: [] }));
+    expect(get(kpiType)).toBe('count_custom');   // НЕ сброшен в 'sales'
+    expect(get(kpiKind)).toBe('count');
+    expect(get(valuePerCountUnit)).toBe(42);
+  });
+
+  it('value_per_count_unit отсутствует/не число → не затирает (set-if-present)', () => {
+    valuePerCountUnit.set(77);
+    activeProject.set(/** @type {any} */ ({ id: 'p', kpi_type: 'sales', kpi_kind: 'monetary' }));
+    expect(get(valuePerCountUnit)).toBe(77);     // не было числа в project → сохранён
   });
 });

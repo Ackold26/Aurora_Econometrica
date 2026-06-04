@@ -709,6 +709,33 @@ export const valuePerCountUnit = writable(null);
  */
 export const valuePerCountUnitSource = writable(null);
 
+// LOAD-1 (2026-06-06): ре-гидрация count-KPI train-входов из DURABLE project.json
+// (ProjectInfo.kpi_type/kpi_kind/value_per_count_unit — добавлены в project.rs +
+// персистятся в ConfigPanel.trainModel). Раньше не персистились → reset при reload →
+// re-train count-KPI флипал competitor prior (0.0↔−0.3, modeler.py:461) + терял
+// kpi_unit_cost = re-train артефакт (project_econometrica_config_rehydration_class).
+//
+// SET-IF-PRESENT (НЕ «always default»): kpiType/kpiKind ставятся wizard'ом ДО первого
+// train и НЕ персистятся до train → «always default» затёр бы выбор мастера на
+// промежуточном activeProject.set (UnitCostsPanel и т.п. — тот же клоббер-класс, что
+// audit-of-audit проверял у chosenKpiColumn, но здесь persist не синхронен set'у).
+// Отдельный subscribe (не в блоке :514) — kpiType/valuePerCountUnit определены ПОСЛЕ
+// него → ссылка в :514 = TDZ ReferenceError при синхронном первом вызове.
+// Сброс к дефолтам только при деселекте (!p). Известный лимит: switch A(count,
+// персист)→B(legacy без kpi_type) НЕ сбрасывает (set-if-present) → транзитный UI-leak;
+// wizard B корректирует, train B персистит B-значения. Не train-артефакт.
+activeProject.subscribe((p) => {
+  if (!p) {
+    kpiType.set('sales');
+    kpiKind.set('monetary');
+    valuePerCountUnit.set(null);
+    return;
+  }
+  if (typeof p.kpi_type === 'string' && p.kpi_type) kpiType.set(p.kpi_type);
+  if (typeof p.kpi_kind === 'string' && p.kpi_kind) kpiKind.set(p.kpi_kind);
+  if (typeof p.value_per_count_unit === 'number') valuePerCountUnit.set(p.value_per_count_unit);
+});
+
 /**
  * v1.3.0: feature flag для нового derived-mode UX.
  * true → новый KPISelector + PerChannelInputSelector flow.

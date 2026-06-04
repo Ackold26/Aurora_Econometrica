@@ -74,14 +74,26 @@ kpiType/modelChannelEnabled — durable train-входы с неверным rel
 → после reload `ConfigPanel:100` брал `kpis[0].name` (первый алфавитно) вместо выбранного юзером KPI = воскрешение
 бага, ради которого стор создан. Тест `project-roles-hydration.test.js` (+3). Гейты svelte 0E/171W · vitest 644.
 
-## Отложено (коэрентный backend-таск, согласовано с Антоном — как perChannelInput)
-Закрыть **dead-save группу** (perChannelInput/kpiKind/kpiType/valuePerCountUnit/inputMode/budgetInputs) + analysisMode
-+ modelChannelEnabled требует: (a) добавить поля в backend `ProjectInfo` + persist в project.json (ИЛИ оживить sidecar
-save-path вместо мёртвого handleContinue); (b) frontend ре-гидрация в activeProject.subscribe. **Приоритет внутри
-(ИСПРАВЛЕНО):** 🔴 `kpiType`+`valuePerCountUnit` (re-train артефакт — флип prior count-KPI) + 🟠 `modelChannelEnabled`
-(re-train иной media set) — ВЫШЕ остальных; затем analysisMode (effectiveness-reload UI). Доп. защита: добавить
-cpp-гейт в `ConfigPanel.handleTrain` (сейчас его там нет → re-train минует chokepoint-guard). Это отдельная сессия;
-карта делает её исполнением, не расследованием.
+## 🔴 ЗАКРЫТО 2026-06-06 — `kpiType`/`kpiKind`/`valuePerCountUnit` persist+rehydrate
+Re-train артефакт (флип competitor prior 0.0↔−0.3 count-KPI + потеря kpi_unit_cost) закрыт:
+- **Rust** `ProjectInfo` +3 поля (`kpi_type`/`kpi_kind`/`value_per_count_unit`, `#[serde(default)]`) + handlers
+  в `project_update` (+2 cargo-теста: roundtrip + legacy-backward-compat; cargo 147).
+- **Frontend persist** в `ConfigPanel.trainModel` (project_update шлёт kpi_type/kpi_kind/value_per_count_unit).
+- **Frontend rehydrate** отдельный `activeProject.subscribe` (после kpiType-def — TDZ) **SET-IF-PRESENT** (не
+  «always default» — иначе клоббер wizard-выбора до первого train; persist не синхронен set'у) + сброс к дефолтам
+  при деселекте (`!p`). +4 vitest (662). Адверсариально проверено: wiring (load-путь несёт полный ProjectInfo),
+  JCS/schema (Rust write дропает unknown поля и так — established pattern), clobber-guard, backward-compat.
+  **Известный лимит:** switch A(count)→B(legacy без kpi_type) транзит. UI-leak (set-if-present), не train-артефакт.
+  Live-verify (train→reload→retrain) — опц. follow-up (как chosenKpiColumn: unit+composition-proof принят).
+
+## Отложено (остаток backend-таска)
+- 🟠 **`modelChannelEnabled`** (re-train иной media set): на reload ConfigPanel ре-init из media (zeros>80% default) →
+  ручной disabled low-zeros канал ре-включается. Требует persist toggle-состояния (НЕ media_columns — это роль).
+- 🟠 **`analysisMode`** (effectiveness-reload → 'roi' default → Модель re-locks; safe-direction).
+- **cpp-гейт в `ConfigPanel.trainModel`** — СВЯЗАН с analysisMode: без персиста analysisMode гейт ложно блокировал бы
+  валидное count-KPI native-обучение (analysisMode='roi' default + physical-канал без unit_cost → cppSatisfied=false).
+  Делать ВМЕСТЕ с analysisMode persist (адверсариальная находка — гейт нельзя добавлять в изоляции).
+- perChannelInput/kpiKind(wizard)/inputMode/budgetInputs — UI-fidelity (dead-save), низкий приоритет.
 
 ## Audit-of-audit (2026-06-05, independent agent) — что исправлено в этой доке
 - **CRITICAL:** headline «весь класс UI-fidelity» был неверен — `kpiType`+`modelChannelEnabled` = durable train-входы

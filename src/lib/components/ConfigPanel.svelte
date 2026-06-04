@@ -309,13 +309,20 @@
     try {
       const projectDir = await invoke('project_get_dir', { projectId });
 
-      // Update project config
+      // Update project config. LOAD-1 (2026-06-06): персистим count-KPI train-входы
+      // (kpi_type→competitor prior, kpi_kind+value_per_count_unit→kpi_unit_cost) в
+      // project.json → ре-гидрация в activeProject.subscribe на reload предотвращает
+      // re-train артефакт (иной posterior). Сырое value_per_count_unit (не kpi_unit_cost):
+      // buildTrainConfig пересчитает kpi_unit_cost из kpiKind+vpcu.
       await invoke('project_update', {
         projectId,
         updates: {
           kpi_column: selectedKpi,
           media_columns: enabledChannels,
           control_columns: controlColumns,
+          kpi_type: get(kpiType),
+          kpi_kind: get(kpiKind),
+          value_per_count_unit: get(valuePerCountUnit),
         },
       });
 
