@@ -266,6 +266,31 @@ def _load_v13_kpi_settings(project_path) -> dict:
         return {}
 
 
+def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost) -> dict:
+    """Выходные kpi-метаданные decompose (kpi_kind/derived_mode/value_per_count_unit).
+
+    F-A (synthetic-truth аудит 2026-06-06): `v13_kpi.json` НЕ создаётся (dead-save path,
+    handleContinue мёртв — см. LOAD-1) → раньше эти поля дефолтили в monetary/roi/None
+    ВНЕ ЗАВИСИМОСТИ от обученного kpi_type. narrative_adapter:818 читает их из decompose
+    result → PPTX/HTML мислейблили count-KPI экспорт как monetary/₽/ROI. Источник истины =
+    pickle config: `kpi_kind` уже резолвится из train-конфига kpi_type (decompose:405-429),
+    `value_per_count_unit` = kpi_unit_cost (train/override). v13_kpi сохраняет ПРИОРИТЕТ-
+    override на случай, если save-path когда-то оживёт (forward-compat). `derived_mode` —
+    чисто frontend-концепт (analysis_mode НЕ в train-конфиге) → дефолт 'roi' остаётся; но
+    при корректном kpi_kind='count' downstream is_legacy/labels уже считают count-форму.
+
+    @param v13_kpi: содержимое v13_kpi.json (обычно {} — dead path).
+    @param kpi_kind: внутренне разрешённый kind ('count'|'monetary') из pickle kpi_type.
+    @param kpi_unit_cost: разрешённая ₽-ценность единицы (pickle/override) или None.
+    """
+    return {
+        'kpi_kind': v13_kpi.get('kpi_kind', kpi_kind),
+        'derived_mode': v13_kpi.get('derived_mode', 'roi'),
+        'value_per_count_unit': v13_kpi.get('value_per_count_unit', kpi_unit_cost),
+        'value_per_count_unit_label': v13_kpi.get('value_per_count_unit_label', ''),
+    }
+
+
 def decompose(
     project_dir: str,
     unit_costs_override: dict | None = None,
@@ -971,17 +996,21 @@ def decompose(
 
     # v1.3.0: load KPI settings from project state (per ADR-016, ADR-017).
     v13_kpi = _load_v13_kpi_settings(project_path)
+    # F-A (2026-06-06): источник kpi-метаданных = pickle (v13_kpi.json мёртв, LOAD-1),
+    # иначе count-KPI экспорт мислейблится monetary (narrative_adapter→PPTX/HTML).
+    _kpi_meta = _resolve_output_kpi_meta(v13_kpi, kpi_kind, kpi_unit_cost)
 
     result = {
         'status': 'ok',
         'model_version': model_version,
         'model_warning': model_warning,  # None for v1.2 (current production), banner string for legacy
         'smell_flags': smell_flags,
-        # v1.3.0 KPI metadata for downstream UI / reports (per ADR-016).
-        'kpi_kind': v13_kpi.get('kpi_kind', 'monetary'),
-        'derived_mode': v13_kpi.get('derived_mode', 'roi'),
-        'value_per_count_unit': v13_kpi.get('value_per_count_unit'),
-        'value_per_count_unit_label': v13_kpi.get('value_per_count_unit_label', ''),
+        # v1.3.0 KPI metadata for downstream UI / reports (per ADR-016). Источник —
+        # pickle config (F-A fix), не мёртвый v13_kpi.json.
+        'kpi_kind': _kpi_meta['kpi_kind'],
+        'derived_mode': _kpi_meta['derived_mode'],
+        'value_per_count_unit': _kpi_meta['value_per_count_unit'],
+        'value_per_count_unit_label': _kpi_meta['value_per_count_unit_label'],
         'total_sales': round(total_sales, 0),
         'baseline': round(baseline_total, 0),
         'baseline_pct': round(baseline_total / total_sales * 100, 1) if total_sales else 0,

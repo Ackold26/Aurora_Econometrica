@@ -86,14 +86,21 @@ REC-1-GAP `clean`-фильтр детектит unit_smell ПО ИМЕНИ (UNIT
 (`TestMoneyRoiUnavailableGate`). Верифицировано end-to-end (RETAIL+OTC инсайт исправлен) + monetary-путь
 (FMCG) не затронут (INV-50 else-branch работает). pytest decomposer 15 passed.
 
-### F-A (латентно, DEFER к LOAD-1 backend-таску)
-Выход decompose `kpi_kind`/`derived_mode`/`value_per_count_unit` читается из НИКОГДА не создаваемого
-`v13_kpi.json` (`decomposer.py:959` `_load_v13_kpi_settings` → дефолт monetary/roi/None) ВНЕ зависимости от
-обученного `kpi_type` (в pickle). Самопротиворечие: `kpi_kind='monetary'` но `total_sales_money=None` (count).
-**Потребители:** `DecomposeStep.svelte` НЕ читает (свои сторы — безвреден); PPTX/HTML экспорт `kpi_view` читает
-`data['kpi']` через narrative_adapter — **цепочка narrative_adapter→kpi не верифицирована** (не объявляю
-export-баг без проверки). Корень = LOAD-1 dead-save (v13_kpi.json). Фикс: выходные kpi-поля из pickle config
-(kpi_type→kpi_kind), не из v13_kpi. Делать в backend kpi-persistence таске (п.4), не сейчас (scope).
+### F-A (ПОДТВЕРЖДЁН export-баг) — ИСПРАВЛЕНО ✅
+Выход decompose `kpi_kind`/`derived_mode`/`value_per_count_unit` читался из НИКОГДА не создаваемого
+`v13_kpi.json` (`_load_v13_kpi_settings` → дефолт monetary/roi/None) ВНЕ зависимости от обученного `kpi_type`
+(в pickle). Самопротиворечие: `kpi_kind='monetary'` но `total_sales_money=None` (count-ветка).
+**Цепочка потребителя ПРОВЕРЕНА (директива «каждый consumer»):** `DecomposeStep.svelte` НЕ читает (свои сторы —
+безвреден), НО `narrative_adapter.py:818` читает `decompose_data.get('kpi_kind','monetary')` → `data['kpi']` →
+`aurora_pptx/aurora_html` builder → **count-KPI PPTX/HTML экспорт мислейблился monetary/₽/ROI** (реальный
+user-facing баг, не латентный). Корень = LOAD-1 dead-save (v13_kpi.json).
+**Фикс:** `_resolve_output_kpi_meta(v13_kpi, kpi_kind, kpi_unit_cost)` — выход берёт kpi_kind/value_per_count_unit
+из pickle-резолва (внутренний kpi_kind корректен из kpi_type, decompose:405-429), v13_kpi = приоритет-override
+(forward-compat если save-path оживёт); derived_mode остаётся 'roi' (frontend-концепт, нет pickle-источника, но
+при kpi_kind='count' downstream is_legacy/labels уже count-форма). +4 теста (`TestResolveOutputKpiMeta`).
+Верифицировано end-to-end: OTC decompose output `kpi_kind='count'` (был 'monetary'). pytest decomposer 160.
+**Остаток в LOAD-1 backend-таске (п.4):** персист `kpiType`/`valuePerCountUnit`/`modelChannelEnabled` в ProjectInfo
++ ре-гидрация + cpp-гейт в `ConfigPanel.handleTrain` (re-train артефакт на reload — это frontend/Rust, отдельно).
 
 ### Артефакты пробы
 `tools/_synthprobe/` (ephemeral: configs от buildTrainConfig + train/decompose JSON; НЕ коммитится).
