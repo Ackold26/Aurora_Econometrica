@@ -39,3 +39,20 @@ class TestResolveOutputKpiMeta:
         assert m['derived_mode'] == 'effectiveness'
         assert m['value_per_count_unit'] == 99.0
         assert m['value_per_count_unit_label'] == '₽/шт'
+
+    def test_derived_mode_from_model_data_default(self):
+        # F-A-extended (аудит 2026-06-06): derived_mode из pickle model_data, не хардкод 'roi'.
+        # count+effectiveness → labels «Доля %», не «CPU ₽/ед.».
+        m = _resolve_output_kpi_meta({}, kpi_kind='count', kpi_unit_cost=None,
+                                     derived_mode_default='effectiveness')
+        assert m['derived_mode'] == 'effectiveness'
+        assert m['kpi_kind'] == 'count'
+
+    def test_derived_mode_default_roi_when_absent(self):
+        # model_data без derived_mode → fallback 'roi' (call-site шлёт `... or 'roi'`)
+        m = _resolve_output_kpi_meta({}, kpi_kind='monetary', kpi_unit_cost=None,
+                                     derived_mode_default='roi')
+        assert m['derived_mode'] == 'roi'
+        # пустой/None default → тоже 'roi' (guard `derived_mode_default or 'roi'`)
+        m2 = _resolve_output_kpi_meta({}, kpi_kind='count', kpi_unit_cost=None, derived_mode_default='')
+        assert m2['derived_mode'] == 'roi'

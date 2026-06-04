@@ -99,3 +99,33 @@ class TestMoneyRoiUnavailableGate:
         # вызов без нового параметра = прежнее поведение (money ROI доступен)
         channels = [_ch('TV', 3.5, gap=12), _ch('OOH', 0.6, gap=-8)]
         assert 'TV - самый эффективный канал' in _build_channel_insight(channels)
+
+
+class TestRoiArtifactGate:
+    """F-C-extended (адверсариальный аудит 2026-06-06): артефактный ROI (>= ROI_ARTIFACT
+    100×) НЕ коронуется даже на МОНЕТАРНОМ пути (money_roi_unavailable=False), где гейт
+    money_roi_unavailable молчит, а name-based unit_smell промахивается мимо binary/
+    индикаторных каналов без unit-keyword (promo_flag, distribution_flag)."""
+
+    def test_artifact_roi_not_crowned_monetary_path(self):
+        channels = [
+            _ch('promo_flag', 50000.0, gap=33, unit_smell=False),  # артефакт, имя без hint
+            _ch('tv_spend', 2.5, gap=10),
+            _ch('ooh', 0.3, gap=-20),
+        ]
+        ins = _build_channel_insight(channels, money_roi_unavailable=False)
+        assert 'promo_flag - самый эффективный' not in ins
+        assert '50000' not in ins
+        assert 'tv_spend - самый эффективный канал' in ins  # коронуем лучший ЛЕГИТ канал
+
+    def test_all_channels_artifact_or_smell_no_crowning(self):
+        channels = [_ch('flag_a', 9000.0, unit_smell=False), _ch('trp', 5000.0, unit_smell=True)]
+        ins = _build_channel_insight(channels, money_roi_unavailable=False)
+        assert 'самый эффективный' not in ins
+        assert '9000' not in ins
+        assert 'базовым спросом' in ins
+
+    def test_legit_channels_unaffected_by_artifact_gate(self):
+        # ROI < 100 → коронуется как раньше (порог не задевает нормальные ROI)
+        channels = [_ch('TV', 8.0, gap=12), _ch('OOH', 0.6, gap=-8)]
+        assert 'TV - самый эффективный канал' in _build_channel_insight(channels, money_roi_unavailable=False)

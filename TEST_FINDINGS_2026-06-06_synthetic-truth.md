@@ -104,4 +104,31 @@ user-facing баг, не латентный). Корень = LOAD-1 dead-save (v
 
 ### Артефакты пробы
 `tools/_synthprobe/` (ephemeral: configs от buildTrainConfig + train/decompose JSON; НЕ коммитится).
-Харнес `tools/synthetic_truth_reference.py` (durable). Движок гонялся `python server.py 7531` из исходника.
+Харнес `tools/synthetic_truth_reference.py` (durable). Движок гонялся `python server.py` из исходника.
+
+## Адверсариальный аудит ранее-не-аудированного (2026-06-06, 3 параллельных агента + моя верификация)
+Запрос: глубокий аудит частей, получивших МЕНЬШЕ всего адверсариального внимания. Принцип «аудитор —
+вероятный лжец» → агенты нашли кандидатов, я верифицировал КАЖДЫЙ probe/чтением (не доверял слепо).
+
+- **Харнес `synthetic_truth_reference.py` — SOUND по 7 осям** (агент-1, probe-доказано): OLS-математика ≡
+  normal-equations (np.allclose), `_normalize` ≡ генератор, dgp-xform ≡ DGP (adstock+hill+γ0.6), робаст-критерий
+  структурно не допускает ни ложного обвинения, ни ложного оправдания на 4 датасетах, OVB по competitor (опущенный
+  seasonal_lift, corr +0.44) смещает оценку КОНСЕРВАТИВНО (против негатива) → вердикт «движок честен» **достоверен**.
+- **FIX-1 [MEDIUM→HIGH] SET-IF-PRESENT клоббер (моя п.4 дыра) — ИСПРАВЛЕНО:** re-конфигур обученного monetary→count +
+  `UnitCostsPanel/ChannelCategoriesPanel.save` (project_update БЕЗ kpi_type → ProjectInfo со СТАРЫМ disk kpi_type →
+  `activeProject.set` того же id) затирал свежий выбор wizard обратно в 'sales' → re-train prior −0.3 вместо 0.0 =
+  ровно prior-flip артефакт. Премиса верифицирована (`buildProjectUpdates` column-roles.js:134-139 БЕЗ kpi_type).
+  Фикс: **id-guard** в rehydrate-subscribe (ре-гидрация только при смене `p.id`, не на mid-session set). +2 vitest (664).
+- **FIX-2 [HIGH] F-C неполон на МОНЕТАРНОМ пути — ИСПРАВЛЕНО:** probe подтвердил — monetary-проект, artifact-канал
+  (`promo_flag` roi 50000×, unit_smell=False, имя без unit-hint) короновался «самый эффективный» + переток в него
+  (гейт money_roi_unavailable=False молчит, name-based unit_smell промахивается). Фикс: `_build_channel_insight`
+  исключает из коронования roi >= `ROI_ARTIFACT` (100×) НЕЗАВИСИМО от kpi_kind; all-artifact → честный fallback.
+  +3 pytest. Закрывает artifact-коронование на ОБОИХ путях (count + monetary).
+- **FIX-3 [LOW→MED] F-A `derived_mode` хардкод 'roi' — ИСПРАВЛЕНО:** реальный derived_mode лежит в pickle
+  `model_data` (persistence.py:417-423), а `_resolve_output_kpi_meta` хардкодил 'roi' → count+effectiveness экспорт
+  показал бы «CPU ₽/ед.» вместо «Доля %». Фикс: call-site шлёт `model_data.get('derived_mode') or 'roi'`. +2 pytest.
+- **Прочее (NOTE, не фикс):** awareness kpi_kind='proportional' (JS) → Python decompose фолбэчит monetary →
+  awareness-экспорт мислейбл (смежный класс, вне F-A/F-C; проверить достигает ли awareness decompose). kpi_type/
+  kpi_kind теоретич. рассинхрон (источник — сеттеры, латентно, не этот фикс). Wiring buildTrainConfig→ConfigPanel —
+  агент подтвердил **побайтово** против оригинального inline (`git show 2f18f27~1`).
+Гейты после фиксов: pytest decomposer **165** · svelte 0E/171W · vitest **664**.

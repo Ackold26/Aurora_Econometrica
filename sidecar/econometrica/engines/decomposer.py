@@ -92,11 +92,21 @@ def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str
             'спросом, прямой медиа-вклад невелик. Сценарии перераспределения '
             'см. в шаге «Оптимизация».'
         )
-    clean = [c for c in channels if not c.get('unit_smell')]
-    top = clean[0] if clean else channels[0]
+    # REC-1-GAP + F-C-extended (аудит 2026-06-06): из коронования исключаем И unit_smell-
+    # каналы (name-based, TRP/clicks), И ROI-артефакты (roi >= ROI_ARTIFACT 100×) —
+    # НЕЗАВИСИМО от kpi_kind. Артефактный «ROI 50000×» (binary/индикаторный канал
+    # unit_cost=1 без unit-hint в имени) коронoвался на МОНЕТАРНОМ пути, где гейт
+    # money_roi_unavailable выше молчит (False) и name-based unit_smell промахивается —
+    # та же контрадикция «инсайт коронует / движок флагнул roi_max-артефакт», что F-C.
+    clean = [c for c in channels if not c.get('unit_smell') and float(c.get('roi') or 0) < ROI_ARTIFACT]
+    top = clean[0] if clean else None
     worst = channels[-1]
-    if not (top and worst):
-        return ''
+    if top is None:
+        # Все каналы — unit_smell / ROI-артефакты → нет сопоставимого «самого эффективного».
+        return (
+            'Прямой медиа-вклад невелик: продажи определяются в основном базовым спросом. '
+            'Точную оценку отдачи и сценарии перераспределения см. в шаге «Оптимизация».'
+        )
     top_roi = float(top.get('roi') or 0)
     if top_roi >= ROI_BREAKEVEN:
         insight = (
@@ -266,26 +276,28 @@ def _load_v13_kpi_settings(project_path) -> dict:
         return {}
 
 
-def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost) -> dict:
+def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derived_mode_default: str = 'roi') -> dict:
     """Выходные kpi-метаданные decompose (kpi_kind/derived_mode/value_per_count_unit).
 
     F-A (synthetic-truth аудит 2026-06-06): `v13_kpi.json` НЕ создаётся (dead-save path,
     handleContinue мёртв — см. LOAD-1) → раньше эти поля дефолтили в monetary/roi/None
-    ВНЕ ЗАВИСИМОСТИ от обученного kpi_type. narrative_adapter:818 читает их из decompose
+    ВНЕ ЗАВИСИМОСТИ от обученной модели. narrative_adapter:818 читает их из decompose
     result → PPTX/HTML мислейблили count-KPI экспорт как monetary/₽/ROI. Источник истины =
-    pickle config: `kpi_kind` уже резолвится из train-конфига kpi_type (decompose:405-429),
-    `value_per_count_unit` = kpi_unit_cost (train/override). v13_kpi сохраняет ПРИОРИТЕТ-
-    override на случай, если save-path когда-то оживёт (forward-compat). `derived_mode` —
-    чисто frontend-концепт (analysis_mode НЕ в train-конфиге) → дефолт 'roi' остаётся; но
-    при корректном kpi_kind='count' downstream is_legacy/labels уже считают count-форму.
+    pickle: `kpi_kind` резолвится из train-конфига kpi_type (decompose:405-429),
+    `value_per_count_unit` = kpi_unit_cost (train/override), `derived_mode` берётся из
+    `model_data['derived_mode']` (persistence вычисляет из per_channel_input; для count-KPI
+    в effectiveness-режиме = 'effectiveness' — иначе labels врут «CPU ₽/ед.» вместо «Доля %»).
+    v13_kpi сохраняет ПРИОРИТЕТ-override на случай, если save-path когда-то оживёт.
 
     @param v13_kpi: содержимое v13_kpi.json (обычно {} — dead path).
     @param kpi_kind: внутренне разрешённый kind ('count'|'monetary') из pickle kpi_type.
     @param kpi_unit_cost: разрешённая ₽-ценность единицы (pickle/override) или None.
+    @param derived_mode_default: реальный derived_mode из pickle model_data ('roi'|
+        'effectiveness'|'manual'); fallback 'roi' если отсутствует.
     """
     return {
         'kpi_kind': v13_kpi.get('kpi_kind', kpi_kind),
-        'derived_mode': v13_kpi.get('derived_mode', 'roi'),
+        'derived_mode': v13_kpi.get('derived_mode', derived_mode_default or 'roi'),
         'value_per_count_unit': v13_kpi.get('value_per_count_unit', kpi_unit_cost),
         'value_per_count_unit_label': v13_kpi.get('value_per_count_unit_label', ''),
     }
@@ -998,7 +1010,12 @@ def decompose(
     v13_kpi = _load_v13_kpi_settings(project_path)
     # F-A (2026-06-06): источник kpi-метаданных = pickle (v13_kpi.json мёртв, LOAD-1),
     # иначе count-KPI экспорт мислейблится monetary (narrative_adapter→PPTX/HTML).
-    _kpi_meta = _resolve_output_kpi_meta(v13_kpi, kpi_kind, kpi_unit_cost)
+    # derived_mode — реальный из model_data (а не хардкод 'roi'): иначе count+effectiveness
+    # экспорт показал бы «CPU ₽/ед.» вместо «Доля %» (аудит 2026-06-06).
+    _kpi_meta = _resolve_output_kpi_meta(
+        v13_kpi, kpi_kind, kpi_unit_cost,
+        derived_mode_default=model_data.get('derived_mode') or 'roi',
+    )
 
     result = {
         'status': 'ok',

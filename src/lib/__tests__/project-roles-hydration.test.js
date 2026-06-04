@@ -196,4 +196,28 @@ describe('LOAD-1 count-KPI train-входы (2026-06-06): kpiType/kpiKind/valueP
     activeProject.set(/** @type {any} */ ({ id: 'p', kpi_type: 'sales', kpi_kind: 'monetary' }));
     expect(get(valuePerCountUnit)).toBe(77);     // не было числа в project → сохранён
   });
+
+  it('ID-GUARD: re-конфигур monetary→count (same-id set со СТАРЫМ disk kpi_type) НЕ затирает выбор wizard', () => {
+    // Адверсариальный аудит 2026-06-06: без id-guard SET-IF-PRESENT воспроизводил prior-flip
+    // артефакт. Сценарий: обученный monetary-проект (disk kpi_type='sales'), reload, юзер
+    // переключает на count, UnitCostsPanel.save шлёт project_update БЕЗ kpi_type → получает
+    // ProjectInfo со СТАРЫМ disk kpi_type='sales' → activeProject.set(тот же id).
+    activeProject.set(/** @type {any} */ ({ id: 'reconf', kpi_type: 'sales', kpi_kind: 'monetary' }));
+    expect(get(kpiType)).toBe('sales');          // загрузка обученного monetary
+    // wizard переключает на count (стор; НЕ персистится до train — buildProjectUpdates без kpi_type)
+    kpiType.set('leads');
+    kpiKind.set('count');
+    // UnitCostsPanel.save → ProjectInfo со СТАРЫМ disk kpi_type='sales', ТОТ ЖЕ id
+    activeProject.set(/** @type {any} */ ({ id: 'reconf', kpi_type: 'sales', kpi_kind: 'monetary', unit_costs: { tv: 100 } }));
+    expect(get(kpiType)).toBe('leads');          // id-guard: тот же проект → НЕ ре-гидрирует → не затёрто
+    expect(get(kpiKind)).toBe('count');
+  });
+
+  it('ID-GUARD: СМЕНА проекта (другой id) ре-гидрирует из disk', () => {
+    activeProject.set(/** @type {any} */ ({ id: 'A', kpi_type: 'sales', kpi_kind: 'monetary' }));
+    expect(get(kpiType)).toBe('sales');
+    activeProject.set(/** @type {any} */ ({ id: 'B', kpi_type: 'leads', kpi_kind: 'count', value_per_count_unit: 30 }));
+    expect(get(kpiType)).toBe('leads');          // другой id → ре-гидрация
+    expect(get(valuePerCountUnit)).toBe(30);
+  });
 });

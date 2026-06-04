@@ -715,22 +715,28 @@ export const valuePerCountUnitSource = writable(null);
 // re-train count-KPI флипал competitor prior (0.0↔−0.3, modeler.py:461) + терял
 // kpi_unit_cost = re-train артефакт (project_econometrica_config_rehydration_class).
 //
-// SET-IF-PRESENT (НЕ «always default»): kpiType/kpiKind ставятся wizard'ом ДО первого
-// train и НЕ персистятся до train → «always default» затёр бы выбор мастера на
-// промежуточном activeProject.set (UnitCostsPanel и т.п. — тот же клоббер-класс, что
-// audit-of-audit проверял у chosenKpiColumn, но здесь persist не синхронен set'у).
-// Отдельный subscribe (не в блоке :514) — kpiType/valuePerCountUnit определены ПОСЛЕ
-// него → ссылка в :514 = TDZ ReferenceError при синхронном первом вызове.
-// Сброс к дефолтам только при деселекте (!p). Известный лимит: switch A(count,
-// персист)→B(legacy без kpi_type) НЕ сбрасывает (set-if-present) → транзитный UI-leak;
-// wizard B корректирует, train B персистит B-значения. Не train-артефакт.
+// ON-PROJECT-CHANGE-ONLY (адверсариальный аудит 2026-06-06): ре-гидрируем kpiType/kpiKind/
+// valuePerCountUnit ТОЛЬКО при СМЕНЕ проекта (изменился `p.id`), НЕ на каждый
+// activeProject.set. kpi_type НЕ персистится wizard'ом (buildProjectUpdates без него,
+// column-roles.js) — только trainModel → весь Validate→Config-этап disk-значение ОТСТАЁТ
+// от стора. Без id-guard: re-конфигур обученного monetary-проекта на count (wizard ставит
+// стор='leads') + UnitCostsPanel/ChannelCategoriesPanel.save (шлёт project_update БЕЗ
+// kpi_type → получает ProjectInfo со СТАРЫМ disk kpi_type='sales' → activeProject.set) →
+// затёр бы свежий выбор обратно в 'sales' → re-train с prior −0.3 вместо 0.0 = ровно тот
+// prior-flip артефакт, против которого фикс. id-guard: mid-session set того же проекта не
+// ре-гидрирует. Отдельный subscribe (не в блоке :514) — kpiType/valuePerCountUnit
+// определены ПОСЛЕ него → ссылка в :514 = TDZ. Сброс к дефолтам при деселекте (!p).
+let _lastCountKpiProjectId = /** @type {string|null} */ (null);
 activeProject.subscribe((p) => {
   if (!p) {
+    _lastCountKpiProjectId = null;
     kpiType.set('sales');
     kpiKind.set('monetary');
     valuePerCountUnit.set(null);
     return;
   }
+  if (p.id === _lastCountKpiProjectId) return;  // тот же проект (mid-session set) → не клоббить
+  _lastCountKpiProjectId = p.id;
   if (typeof p.kpi_type === 'string' && p.kpi_type) kpiType.set(p.kpi_type);
   if (typeof p.kpi_kind === 'string' && p.kpi_kind) kpiKind.set(p.kpi_kind);
   if (typeof p.value_per_count_unit === 'number') valuePerCountUnit.set(p.value_per_count_unit);

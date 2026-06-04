@@ -79,9 +79,10 @@ Re-train артефакт (флип competitor prior 0.0↔−0.3 count-KPI + п
 - **Rust** `ProjectInfo` +3 поля (`kpi_type`/`kpi_kind`/`value_per_count_unit`, `#[serde(default)]`) + handlers
   в `project_update` (+2 cargo-теста: roundtrip + legacy-backward-compat; cargo 147).
 - **Frontend persist** в `ConfigPanel.trainModel` (project_update шлёт kpi_type/kpi_kind/value_per_count_unit).
-- **Frontend rehydrate** отдельный `activeProject.subscribe` (после kpiType-def — TDZ) **SET-IF-PRESENT** (не
-  «always default» — иначе клоббер wizard-выбора до первого train; persist не синхронен set'у) + сброс к дефолтам
-  при деселекте (`!p`). +4 vitest (662). Адверсариально проверено: wiring (load-путь несёт полный ProjectInfo),
+- **Frontend rehydrate** отдельный `activeProject.subscribe` (после kpiType-def — TDZ) **SET-IF-PRESENT + ID-GUARD**
+  (ре-гидрация ТОЛЬКО при смене `p.id`, не на mid-session set — адверс.аудит 2026-06-06 вскрыл клоббер: re-конфигур
+  monetary→count + UnitCostsPanel.save затирал выбор обратно = prior-flip; id-guard закрыл) + сброс при деселекте.
+  +6 vitest (664). Адверсариально проверено: wiring (load-путь несёт полный ProjectInfo),
   JCS/schema (Rust write дропает unknown поля и так — established pattern), clobber-guard, backward-compat.
   **Известный лимит:** switch A(count)→B(legacy без kpi_type) транзит. UI-leak (set-if-present), не train-артефакт.
   Live-verify (train→reload→retrain) — опц. follow-up (как chosenKpiColumn: unit+composition-proof принят).
