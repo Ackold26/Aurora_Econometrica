@@ -7,15 +7,20 @@
  * stepMeta[next] !== 'locked' → перескакивала подшаг «Метрики каналов» и 3A CPP-гейт
  * (physical+ROI канал без unit_cost → ROI-артефакт класса TRPs 12186×).
  *
- * Фикс (Вариант B): completeStep(1) перенесён из autoRunValidate в handleContinue
- * (финал подшага 3 «Подтверждение»). Инвариант, который охраняет этот тест:
+ * Фикс (Вариант B): completeStep(1) убран из ТРЁХ преждевременных источников
+ * (autoRunValidate + InsightsPanel syncStepLockAfterValidate $effect) и оставлен ЕДИНСТВЕННЫМ
+ * в ValidateStepV13.handlePerChannelConfirm — после прохождения CPP-гейта, на единственной
+ * точке перехода на подшаг 3 «Подтверждение» (контентная кнопка handleContinue убрана —
+ * ModeDerivedExplanation стал инфо-строкой, переход подшаг 3 → Модель делает футер goNext).
+ * Инвариант, который охраняет этот тест:
  *   - завершение Импорта (completeStep(0)) НЕ разлочивает Модель — только Валидацию;
  *   - Модель (stepMeta[2]) разлочивается ИСКЛЮЧИТЕЛЬНО явным completeStep(1)
- *     (который теперь живёт только в handleContinue, за CPP-гейтом).
+ *     (который теперь живёт только в handlePerChannelConfirm, за CPP-гейтом).
  *
  * Это lightweight guard на pipeline-state контракт (не render E2E — проект их избегает,
- * см. save-kpi-persistence.test.js). Полное wiring (autoRunValidate НЕ зовёт
- * completeStep(1); handleContinue зовёт) верифицировано live через MCP-мост 9223.
+ * см. save-kpi-persistence.test.js). Полное wiring (3 источника НЕ зовут completeStep(1);
+ * handlePerChannelConfirm зовёт после CPP-гейта; Модель locked на подшагах -2/-1/2, ready
+ * на 3, футер disabled/enabled соответственно) верифицировано live e2e через MCP-мост 9223.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
@@ -51,9 +56,9 @@ describe('NAV-2/3A-FOOTER-BYPASS: Модель не разлочивается �
     expect(get(pipelineStepMeta)[2].status).toBe('locked');
   });
 
-  it('completeStep(1) (финал подшага 3 «Подтверждение») разлочивает Модель', () => {
+  it('completeStep(1) (handlePerChannelConfirm, за CPP-гейтом) разлочивает Модель', () => {
     completeStep(0);
-    completeStep(1); // вызывается из handleContinue, за CPP-гейтом
+    completeStep(1); // вызывается из handlePerChannelConfirm после прохождения CPP-гейта
     const meta = get(pipelineStepMeta).map((s) => s.status);
     expect(meta[1]).toBe('complete'); // Валидация завершена
     expect(meta[2]).toBe('ready');    // Модель теперь разлочена — легитимный путь

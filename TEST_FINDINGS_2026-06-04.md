@@ -126,9 +126,29 @@ complete, Модель ready.
 - **Тесты:** новый `src/tests/nav2-footer-gate.test.js` (3, regression-guard инварианта: Импорт-complete
   не разлочивает Модель; Модель locked после только-валидации; completeStep(1) разлочивает). Гейты:
   **svelte-check 0E/171W · vitest 8/8** (nav2-footer-gate 3 + save-kpi 5) · check 4091 files 0 errors.
-- **⏳ Pending live (хрупкость webview-репликации, не фикса):** полный аутентичный проход подшаги→3→
-  handleContinue→Модель=ready (доказать отсутствие блокера end-to-end). Код-пруф + regression-guard +
-  надёжность (completeStep до persist) покрывают; финальный e2e-проход — следующий заход через файл-диалог.
+- **🔧 ИСПРАВЛЕНИЕ ДОПОЛНЕНО — e2e вскрыл НЕПОЛНОТУ первого фикса (2026-06-04, коммит 2):**
+  Первый фикс (перенос completeStep(1) autoRunValidate→handleContinue) был НЕПРАВИЛЬНЫМ по двум причинам,
+  пойманным ТОЛЬКО полным e2e-проходом (классика «один корень — N мест» + «live ловит, что код пропустил»):
+  1. **ВТОРОЙ источник разлока — `InsightsPanel.svelte:161-211`** `syncStepLockAfterValidate` ($effect при
+     любой чистой валидации на шаге 1) вызывал `completeStep(1)` → Модель разлочивалась сразу после
+     подтверждения ролей (subStep→2), до CPP-гейта. Это ОСНОВНОЙ преждевременный источник, параллельный
+     autoRunValidate. Фикс: `setStepError(1, null)` (только снять ошибку), без разлока Модели.
+  3. **handleContinue МЁРТВ:** контентная кнопка подшага 3 убрана (`ModeDerivedExplanation:398-403` — стала
+     инфо-строкой «готовы к обучению», `_onContinue` unused; переход подшаг 3→Модель делает футер goNext).
+     → completeStep(1) в handleContinue НИКОГДА не вызвался бы → Модель не разлочилась бы = **БЛОКЕР**
+     (футер disabled т.к. Модель locked, разлочить нечем). Фикс: completeStep(1) убран из handleContinue,
+     перенесён в **`handlePerChannelConfirm`** (перед `subStep=3`) — единственная точка перехода на подшаг 3,
+     ПОСЛЕ CPP-гейта (physical+ROI без unit_cost → early-return выше).
+  Итог: 3 преждевременных источника закрыты (autoRunValidate + InsightsPanel), 1 легитимный оставлен
+  (handlePerChannelConfirm за CPP-гейтом).
+- **✅✅✅ ПОЛНЫЙ e2e ВЕРИФИЦИРОВАН (мост 9223, FMCG, аутентичный проход кликами):**
+  - Подшаги -2/-1/2: Модель=**locked**, футер «Далее»=**disabled** (bypass закрыт; после ролей Модель
+    осталась locked — part2 InsightsPanel).
+  - «Подтвердить выбор» (handlePerChannelConfirm, CPP заполнен) → подшаг 3: Модель=**ready**,
+    футер=**enabled** (нет блокера/тупика).
+  - Футер «Далее» на подшаге 3 → pipelineCurrentStep 1→2 (**дошёл до Модели** легитимным путём).
+  - CPP-гейт обязателен: без unit_cost физ.каналов handlePerChannelConfirm делает early-return (не подшаг 3).
+  Гейты: svelte 0E/171W · vitest nav2-footer-gate 3/3 · check 4091 files 0 errors.
 
 ---
 

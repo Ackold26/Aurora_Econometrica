@@ -471,20 +471,20 @@
     // Derive mode locally + sync to store.
     const m = deriveModeWithExplanation(typed);
     derivedMode.set(/** @type {'roi' | 'effectiveness' | 'manual'} */ (m.mode));
+    // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): разлочиваем Модель ЗДЕСЬ —
+    // после прохождения CPP-гейта (выше: physical+ROI без unit_cost → early-return) и
+    // только на ЕДИНСТВЕННОЙ точке перехода на подшаг 3 «Подтверждение». До этого Модель
+    // (stepMeta[2]) locked → футер «Далее» (pipeline/+layout goNext) disabled, перескок
+    // подшагов/CPP-гейта невозможен. Финальный переход подшаг 3 → Модель делает футерная
+    // «Далее» (контентная кнопка в ModeDerivedExplanation убрана — инфо-строка), поэтому
+    // completeStep здесь, а НЕ в handleContinue (он не привязан к кнопке = мёртв).
+    completeStep(1);
     subStep = 3;
   }
 
   async function handleContinue() {
     busy = true;
     try {
-      // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): разлочиваем Модель ТОЛЬКО
-      // здесь — на финале подшага 3 «Подтверждение». До этого Модель (stepMeta[2])
-      // locked → футерная «Далее» (pipeline/+layout goNext) disabled (validateIncomplete/
-      // canGoNext), перескок подшагов и CPP-гейта невозможен (дойти сюда можно лишь пройдя
-      // подшаг 2, где handlePerChannelConfirm требует unit_cost для physical+ROI, иначе
-      // early-return). Ставим ДО persist — разлок не должен зависеть от econ_save_kpi_settings
-      // (settings живут в store; persist лишь для reload). Перенесён из autoRunValidate.
-      completeStep(1);
       // Persist KPI settings to backend.
       if ($activeProjectId) {
         // H-16 (audit): Phase 1.3 store persistence - earlier версия не
