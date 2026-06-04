@@ -45,6 +45,14 @@
 
   $effect(() => {
     if (typeof localStorage === 'undefined') return; // SSR safety
+    // ONBOARD-1 (2026-06-04): не авто-раскрывать пока FirstRunTour не пройден/пропущен —
+    // иначе WhyThisStep наслаивается на тур на pipeline-входе (тур поверх backdrop, панель
+    // под ним). Зеркало coach-marks guard (onboarding-state.shouldShowOnboarding). После
+    // тура — обычный auto-open per-first-visit. Master switch hideEducationalHints выше.
+    if (localStorage.getItem('aurora.firstRunTourCompleted') === null) {
+      shouldOpenByDefault = false;
+      return;
+    }
     const visitedKey = `aurora.whyThisStep.visited.${currentStepId}`;
     if (!localStorage.getItem(visitedKey)) {
       shouldOpenByDefault = true;

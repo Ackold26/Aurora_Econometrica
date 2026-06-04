@@ -2,7 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { activeCabinet, messages, errorMessage, hasCompletedOnboarding, theme, toggleTheme, updateRequired, layoutCabinets, lastCabinetId, licenseError as licenseErrorStore } from '$lib/store.js';
+  import { activeCabinet, messages, errorMessage, theme, toggleTheme, updateRequired, layoutCabinets, lastCabinetId, licenseError as licenseErrorStore } from '$lib/store.js';
   import { isCreativeHub, activeBrand, brands, refreshBrands, setActiveBrand, productType } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
   import CabinetCard from '$lib/components/CabinetCard.svelte';
@@ -43,7 +43,6 @@
     }
   }
   import DigitalClock from '$lib/components/DigitalClock.svelte';
-  import OnboardingOverlay from '$lib/components/OnboardingOverlay.svelte';
 
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
   // Cabinets filtered by product type (Legal=3, Creative=5, Agency=all)
@@ -180,9 +179,10 @@
   // Mandatory update checks are centralized in +layout.svelte (heartbeat + check_update)
 </script>
 
-{#if !$hasCompletedOnboarding}
-  <OnboardingOverlay />
-{/if}
+<!-- ONBOARD-1 (2026-06-04): авто-старт OnboardingOverlay убран — дублировал welcome
+     FirstRunTour (pipeline, практический тур) + теорию IntroTutorial (opt-in). FirstRunTour
+     покрывает первый запуск, WhyThisStep — контекст шагов. Компонент OnboardingOverlay.svelte
+     сохранён в кодовой базе для возможного ручного вызова. См. TEST_FINDINGS_2026-06-04 ONBOARD-1. -->
 
 {#if enteringCabinet}
   <div class="home">
