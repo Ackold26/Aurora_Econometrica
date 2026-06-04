@@ -132,3 +132,26 @@ describe('hydrateRolesFromProjectIfEmpty — реальные данные Ка�
     expect(get(validateData).result).toBeNull();
   });
 });
+
+describe('LOAD-1 config-rehydration (аудит 2026-06-05): chosenKpiColumn из durable kpi_column', () => {
+  it('activeProject.set с kpi_column → chosenKpiColumn ре-гидрирован (норм. load-путь, не только reconstruction)', () => {
+    // Раньше chosenKpiColumn ставился ТОЛЬКО в hydrateRolesFromProjectIfEmpty
+    // (validation.json отсутствует). При validation.json present оставался null →
+    // ConfigPanel брал kpis[0] (первый алфавитно). Теперь activeProject.subscribe
+    // ре-гидрирует из durable kpi_column на любом load.
+    activeProject.set(/** @type {any} */ (kagocelProject));
+    expect(get(chosenKpiColumn)).toBe('Продажи в руб. бренд');
+  });
+
+  it('activeProject.set(null) → chosenKpiColumn сброшен в null (no leakage между проектами)', () => {
+    activeProject.set(/** @type {any} */ (kagocelProject));
+    expect(get(chosenKpiColumn)).toBe('Продажи в руб. бренд');
+    activeProject.set(null);
+    expect(get(chosenKpiColumn)).toBeNull();
+  });
+
+  it('проект без kpi_column → chosenKpiColumn null (не падает)', () => {
+    activeProject.set(/** @type {any} */ ({ id: 'no-kpi', media_columns: [], control_columns: [], excluded_columns: [] }));
+    expect(get(chosenKpiColumn)).toBeNull();
+  });
+});

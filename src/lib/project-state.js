@@ -517,6 +517,7 @@ activeProject.subscribe((p) => {
     unitCostInflation.set({});
     unitCostInputMode.set({});
     budgetInputs.set({});
+    chosenKpiColumn.set(null);
     return;
   }
   if (p.unit_costs && typeof p.unit_costs === 'object') {
@@ -529,10 +530,14 @@ activeProject.subscribe((p) => {
   } else {
     unitCostInflation.set({});  // ← always reset when project switches
   }
-  // Phase 1.3 (v2.0.1): hydrate UI mode preference + budget input restore.
-  // Source: project.json `unit_cost_input_mode` + `budget_inputs` (Phase 1.2
-  // extended save_kpi_settings persists в settings/v13_kpi.json - но
-  // activeProject loader merges flat). Reset на project switch (avoid leakage).
+  // LOAD-1 config-rehydration (аудит 2026-06-05): `unit_cost_input_mode` и
+  // `budget_inputs` НЕ входят в backend `ProjectInfo` (project.rs struct) и не
+  // пишутся в project.json (persist только через econ_save_kpi_settings из
+  // МЁРТВОГО handleContinue → sidecar). → эти чтения сейчас ИНЕРТНЫ (p.* всегда
+  // undefined → else-ветка → {}). Сохранены как контракт: ре-гидрируют, КОГДА
+  // backend добавит поля + оживит save-path (отложенный класс LOAD-1, см. память
+  // project_econometrica_config_rehydration_class). НЕ артефакт обучения — train
+  // берёт durable unit_costs; это UI-fidelity (input-mode/budget UI после reload).
   if (p.unit_cost_input_mode && typeof p.unit_cost_input_mode === 'object') {
     unitCostInputMode.set(/** @type {Record<string, 'budget' | 'unit'>} */ (p.unit_cost_input_mode));
   } else {
@@ -543,6 +548,14 @@ activeProject.subscribe((p) => {
   } else {
     budgetInputs.set({});
   }
+  // LOAD-1 config-rehydration (аудит 2026-06-05): ре-гидрировать выбранный KPI
+  // из DURABLE `kpi_column` (project.json/ProjectInfo). Раньше chosenKpiColumn
+  // ставился только в reconstruction-пути (hydrateRolesFromProjectIfEmpty), а в
+  // нормальном restore (validation.json есть) оставался null → после reload
+  // ConfigPanel брал kpis[0].name (первый алфавитно) вместо выбранного юзером
+  // KPI — ровно баг, ради которого стор создан (resurfaced on reload). kpi_column
+  // durable, derivable без backend-работы → закрываем член класса сейчас.
+  chosenKpiColumn.set(p.kpi_column ?? null);
 });
 
 /**
