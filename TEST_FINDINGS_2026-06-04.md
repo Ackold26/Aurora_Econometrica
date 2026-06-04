@@ -16,6 +16,56 @@ session: ONBOARD-1 / NAV-2 / synthetic-truth (OTC/retail/real-estate) / Эксп
 
 ---
 
+## ДЕТАЛЬНЫЙ САМО-АУДИТ (3 независимых адверсариальных агента, 2026-06-04) — ещё дыра в NAV-2 фиксе
+
+По запросу Антона — критический аудит проделанной работы. 3 параллельных агента (NAV-2 completeness /
+ONBOARD+InsightsPanel регрессии / skill+методология), каждая находка верифицирована против кода. Само-аудит
+поймал то, что forward-e2e пропустил (он шёл только ВПЕРЁД) — третья итерация неполноты фикса.
+
+**🔴🔵 HOLE-1 (goBack/reload) — ПОДТВЕРЖДЁН Agent 1 + Agent 2, ИСПРАВЛЕН:**
+- `completeStep(1)` — **one-way latch** (никогда не ре-локает), а футер «Далее» (`+layout goNext`/`canGoNext`)
+  проверяет только `stepMeta[2] !== 'locked'`, НЕ `allChannelsConfigured` (CPP-гейт). Контентная кнопка
+  gated (`:1165 disabled={!allChannelsConfigured}`), футер — НЕТ.
+- **Repro goBack:** дошёл до подшага 3 (Модель ready) → goBack на 2 (`goBack`/done-dot nav, не ре-локают
+  stepMeta) → убрал CPP физ.канала → футер «Далее» активен → перескок на Модель без unit_cost = ROI-артефакт.
+- **Repro reload:** reload посреди валидации → `reconcileStepMetaFromDisk` ставит Модель 'ready' (validation.json
+  на диске), но `unit_costs` НЕ персистированы (персист в handleContinue ПОСЛЕ CPP) → футер → Модель без CPP.
+  Backstop на шаге Модель отсутствует (`ModelTrainingStep` грепнут на CPP/unit_cost = 0 совпадений).
+- **Фикс:** `lockStep(step)` (project-state.js, ре-лок 'ready'→'locked', не трогает 'complete'/'error') +
+  reactive guard в ValidateStepV13: `$effect` ре-локает Модель пока `subStep<3 || !allChannelsConfigured`
+  (покрывает И goBack И reload-с-subStep=-2). Легитимный разлок — только handlePerChannelConfirm. Guard idle
+  на forward-flow (subStep=3 + CPP заполнен → условие false → forward e2e не затронут).
+- **Тесты:** +3 в `nav2-footer-gate.test.js` (lockStep: ready→locked, не трогает complete, идемпотентен).
+  Гейты: vitest 6/6 · svelte 0E/171W. guard в bundle (fetch-verified). **goBack-live-verify: pending** —
+  блокирован хрупкостью webview-репликации (UI рассинхрон: Валидация не монтируется активной через
+  программный stepMeta-setup; та же грабля); рекомендация — driver_session WebDriver регрессия (аутентичные
+  клики goBack) след.заход. Логика guard верифицирована (forward idle / goBack срабатывает) + unit + bundle.
+
+**🟡 Документационный дрейф (Agent 2 B1) — ИСПРАВЛЕН:** комментарии «completeStep(1) перенесён в handleContinue»
+(ValidateStepV13 autoRunValidate :232-236, InsightsPanel :217) устарели — реальное место handlePerChannelConfirm.
+
+**🟡 Мёртвый код (Agent 2 A1) — ИСПРАВЛЕН:** `hasCompletedOnboarding` импорт в `+layout.svelte:7` стал unused
+после удаления авто-OnboardingOverlay (грепнут — только импорт, не используется) → убран. OnboardingOverlay —
+компонент-сирота (by-design ONBOARD-1, сохранён в кодовой базе).
+
+**✓ Проверено OK (Agent 1+2, by-design):** Expert (тот же handlePerChannelConfirm за CPP-гейтом), legacy
+ValidateStep (мёртв — `useDerivedModeUX=writable(true)`, нет .set(false)), count-KPI (через value-step→
+handlePerChannelConfirm), loaded-проекты (reconcileStepMetaFromDisk независим, не затронут), effectiveness/manual
+(CPP неприменим by-design), subStep=3 единственный путь (handlePerChannelConfirm), setStepError(1,null)
+семантически безопасен, степпер монотонен (PipelineStepper i<curStep→complete, не зависит от Валидация='complete').
+
+**💡 Методология (Agent 3 C) — step-unlock SSOT (предложение Антону, НЕ реализовано):** корень того, что фикс
+был неполным 3×, — один gate (разблокировка Модели) реализован N императивными `completeStep(1)` в N
+компонентах + футер проверяет только `locked`. Предложение: декларативный `STEP_PRECONDITIONS[N]` (чистый
+предикат «можно ли разлочить шаг N» на основе явных store-условий, включая CPP-гейт ОДНОЙ clause) +
+`recomputeStepGates()` на derived-подписке; компоненты перестают звать `completeStep`, только мутируют data-сторы.
+Убивает класс «N рассинхронизированных источников» + LOAD-1-класс. Миграция: validate→model boundary первым
+(под nav2-footer-gate.test). Решение за Антоном (средняя миграция, корневой фикс).
+
+---
+
+---
+
 ## ONBOARD-1 — чистый first-run (localStorage), DOM-driven ✅ ИЗМЕРЕНО
 
 **Метод:** удалены 11 онбординг-ключей (НЕ трогая 11 проектных) → `location.reload()` → подсчёт

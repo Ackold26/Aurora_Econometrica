@@ -214,7 +214,7 @@
       // ролей (subStep→2), до CPP-гейта и подшага «Подтверждение» → футер goNext перескакивал
       // на Модель с физ.каналами без unit_cost (ROI-артефакт). Параллельный источник к
       // autoRunValidate (закрыт там же). Теперь: только СНЯТЬ ошибку (если была) — разлок
-      // Модели исключительно в ValidateStepV13.handleContinue (финал подшага 3, за CPP-гейтом).
+      // Модели исключительно в ValidateStepV13.handlePerChannelConfirm (за CPP-гейтом).
       setStepError(1, null);
     }
   }

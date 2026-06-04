@@ -24,7 +24,7 @@
     kpiType, kpiKind, perChannelInput, derivedMode,
     valuePerCountUnit, valuePerCountUnitSource,
     activeProject, activeProjectId, validateData, importData,
-    completeStep, setStepError,
+    completeStep, setStepError, lockStep, pipelineStepMeta, pipelineCurrentStep,
     // v2.1.0 (rc2 U-05): sync subStep в store для InsightsPanel routing.
     validateSubStep,
     // v2.1.0 (пилот 2026-05-17): persist KPI выбор → ConfigPanel.
@@ -229,11 +229,11 @@
       });
       // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): НЕ разлочиваем Модель
       // здесь. Авто-валидация показывает результаты (validateData), но Модель
-      // (stepMeta[2]) остаётся locked до финала подшага «Подтверждение» (subStep 3
-      // → handleContinue). Иначе футерная «Далее» (pipeline/+layout goNext) обходила
+      // (stepMeta[2]) остаётся locked до прохождения CPP-гейта на подшаге «Метрики каналов»
+      // (handlePerChannelConfirm). Иначе футерная «Далее» (pipeline/+layout goNext) обходила
       // CPP-гейт: Модель='ready' сразу после автовалидации → goNext перескакивал
       // подшаги «Метрики каналов» (physical+ROI без unit_cost → ROI-артефакт класса
-      // TRPs 12186×). completeStep(1) перенесён в handleContinue (единая точка финала).
+      // TRPs 12186×). completeStep(1) перенесён в handlePerChannelConfirm (за CPP-гейтом).
     } catch (e) {
       validateError = `Ошибка валидации: ${e}`;
       setStepError(1, String(e));
@@ -797,6 +797,22 @@
       // monetary → всегда OK; physical + effectiveness → OK без конверсии
     }
     return true;
+  });
+
+  // NAV-2/3A-FOOTER-BYPASS guard (2026-06-04): completeStep(1) — one-way latch (никогда не
+  // ре-локает). Если Модель ('ready') разлочена, но пользователь НЕ на финальном подшаге
+  // «Подтверждение» (subStep < 3) ИЛИ CPP-гейт перестал быть удовлетворён (goBack 3→2,
+  // изменил канал на physical, убрал unit_cost, ИЛИ reload посреди валидации с subStep=-2 и
+  // Модель='ready' от reconcileStepMetaFromDisk) — ре-локаем Модель. Иначе футер «Далее»
+  // (pipeline/+layout goNext проверяет только status !== 'locked', НЕ allChannelsConfigured)
+  // перескочит CPP-гейт → physical+ROI без unit_cost → ROI-артефакт (TRPs 12186×). Легитимный
+  // разлок — ТОЛЬКО handlePerChannelConfirm (за CPP-гейтом). 'complete' (обучена) не трогаем.
+  $effect(() => {
+    if ($pipelineCurrentStep !== 1) return;
+    if ($pipelineStepMeta[2]?.status !== 'ready') return;
+    if (subStep < 3 || !allChannelsConfigured) {
+      lockStep(2);
+    }
   });
 
   /**

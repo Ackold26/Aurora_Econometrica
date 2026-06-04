@@ -1062,6 +1062,27 @@ export function completeStep(step) {
 }
 
 /**
+ * NAV-2/3A-FOOTER-BYPASS regression guard (2026-06-04): ре-локает шаг (status 'ready'→'locked'),
+ * если пользователь вернулся к его предусловиям ПОСЛЕ разлока. completeStep — one-way latch
+ * (никогда не ре-локает), а футер «Далее» (pipeline/+layout goNext) проверяет только
+ * `status !== 'locked'` — НЕ live CPP-гейт. Без этого: дошёл до подшага 3 (Модель ready) →
+ * goBack на 2 / reload посреди валидации → футер перескакивает CPP-гейт (physical+ROI без
+ * unit_cost → ROI-артефакт). Не трогает 'complete' (шаг уже пройден/обучен) и 'error'.
+ * @param {number} step
+ */
+export function lockStep(step) {
+  pipelineStepMeta.update(steps => {
+    const copy = steps.map(s => ({ ...s }));
+    if (copy[step] && copy[step].status === 'ready') {
+      copy[step] = { status: 'locked', errorMessage: null };
+    }
+    return copy;
+  });
+  const pid = get(activeProjectId);
+  savePipelineMeta(pid, { currentStep: get(pipelineCurrentStep), steps: get(pipelineStepMeta) });
+}
+
+/**
  * Mark a step as errored.
  * @param {number} step
  * @param {string|null} [message]

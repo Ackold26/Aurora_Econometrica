@@ -24,7 +24,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
-import { pipelineStepMeta, completeStep } from '$lib/project-state.js';
+import { pipelineStepMeta, completeStep, lockStep } from '$lib/project-state.js';
 
 beforeEach(() => {
   // defaultStepMeta: [ready, locked, locked, locked, locked, locked]
@@ -62,5 +62,36 @@ describe('NAV-2/3A-FOOTER-BYPASS: Модель не разлочивается �
     const meta = get(pipelineStepMeta).map((s) => s.status);
     expect(meta[1]).toBe('complete'); // Валидация завершена
     expect(meta[2]).toBe('ready');    // Модель теперь разлочена — легитимный путь
+  });
+});
+
+/**
+ * HOLE-1 (goBack/reload) guard: completeStep(1) — one-way latch; футер «Далее» проверяет
+ * только !locked (не allChannelsConfigured). Если пользователь вернулся на подшаг <3 или
+ * убрал CPP (goBack 3→2) / reload посреди валидации — Модель остаётся 'ready' и футер
+ * перескакивает CPP-гейт. ValidateStepV13 $effect зовёт lockStep(2) для ре-лока. Вскрыто
+ * адверсариальным само-аудитом (Agent), невидимо первому e2e-проходу (он шёл только вперёд).
+ */
+describe('NAV-2/3A guard: lockStep ре-локает преждевременный ready (HOLE-1 goBack/reload)', () => {
+  it('lockStep: ready → locked (вернулся на подшаг <3 / убрал CPP)', () => {
+    completeStep(0);
+    completeStep(1); // Модель 'ready' (one-way latch)
+    expect(get(pipelineStepMeta)[2].status).toBe('ready');
+    lockStep(2);     // guard-условие: subStep<3 ИЛИ !allChannelsConfigured
+    expect(get(pipelineStepMeta)[2].status).toBe('locked');
+  });
+
+  it('lockStep НЕ трогает complete (обученная модель = retrain-flow, не HOLE-1)', () => {
+    completeStep(0);
+    completeStep(1);
+    completeStep(2); // Модель обучена → 'complete'
+    lockStep(2);
+    expect(get(pipelineStepMeta)[2].status).toBe('complete'); // сохраняется
+  });
+
+  it('lockStep идемпотентен на locked (не плодит мутаций)', () => {
+    completeStep(0); // [complete, ready, locked, ...]
+    lockStep(2);     // уже locked
+    expect(get(pipelineStepMeta)[2].status).toBe('locked');
   });
 });

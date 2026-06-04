@@ -4,7 +4,7 @@
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { theme, updateRequired, layoutCabinets, activeCabinet, messages, navCollapsed, hasCompletedOnboarding, licenseError } from '$lib/store.js';
+  import { theme, updateRequired, layoutCabinets, activeCabinet, messages, navCollapsed, licenseError } from '$lib/store.js';
   import { initCreativeStore, productType } from '$lib/creative-store.js';
   import { toasts, dismiss } from '$lib/toast.js';
   import { onMount } from 'svelte';
