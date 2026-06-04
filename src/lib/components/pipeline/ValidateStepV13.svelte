@@ -227,9 +227,13 @@
         correlationMatrix: res.full_correlation_matrix ?? null,
         columnHistograms: null,
       });
-      if (res?.status !== 'error') {
-        completeStep(1);
-      }
+      // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): НЕ разлочиваем Модель
+      // здесь. Авто-валидация показывает результаты (validateData), но Модель
+      // (stepMeta[2]) остаётся locked до финала подшага «Подтверждение» (subStep 3
+      // → handleContinue). Иначе футерная «Далее» (pipeline/+layout goNext) обходила
+      // CPP-гейт: Модель='ready' сразу после автовалидации → goNext перескакивал
+      // подшаги «Метрики каналов» (physical+ROI без unit_cost → ROI-артефакт класса
+      // TRPs 12186×). completeStep(1) перенесён в handleContinue (единая точка финала).
     } catch (e) {
       validateError = `Ошибка валидации: ${e}`;
       setStepError(1, String(e));
@@ -473,6 +477,14 @@
   async function handleContinue() {
     busy = true;
     try {
+      // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): разлочиваем Модель ТОЛЬКО
+      // здесь — на финале подшага 3 «Подтверждение». До этого Модель (stepMeta[2])
+      // locked → футерная «Далее» (pipeline/+layout goNext) disabled (validateIncomplete/
+      // canGoNext), перескок подшагов и CPP-гейта невозможен (дойти сюда можно лишь пройдя
+      // подшаг 2, где handlePerChannelConfirm требует unit_cost для physical+ROI, иначе
+      // early-return). Ставим ДО persist — разлок не должен зависеть от econ_save_kpi_settings
+      // (settings живут в store; persist лишь для reload). Перенесён из autoRunValidate.
+      completeStep(1);
       // Persist KPI settings to backend.
       if ($activeProjectId) {
         // H-16 (audit): Phase 1.3 store persistence - earlier версия не
