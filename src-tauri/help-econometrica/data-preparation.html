@@ -18,8 +18,9 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); co
 .container { max-width: 900px; margin: 0 auto; padding: 40px 32px 80px; }
 
 h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.02em; }
-.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 32px; }
-h2 { font-size: 20px; font-weight: 700; margin: 48px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 24px; }
+h2 { font-size: 20px; font-weight: 700; margin: 48px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); scroll-margin-top: 20px; }
+h2 .h2-num { color: var(--accent); font-size: 15px; font-weight: 700; margin-right: 8px; }
 h3 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; color: var(--text); }
 p  { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
 p strong { color: var(--text); }
@@ -30,6 +31,13 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Cascadia Code', 'Consolas', monospace; border: 1px solid var(--border); }
 
+/* TOC */
+.toc { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; margin: 24px 0 8px; }
+.toc h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin-bottom: 10px; }
+.toc ol { columns: 2; column-gap: 28px; padding-left: 18px; margin: 0; }
+.toc li { font-size: 13px; margin-bottom: 5px; }
+@media (max-width: 720px) { .toc ol { columns: 1; } }
+
 /* Tables */
 .table-wrap { overflow-x: auto; margin: 14px 0 18px; border-radius: 8px; border: 1px solid var(--border); }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -37,7 +45,7 @@ th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align
 td { padding: 9px 12px; border-top: 1px solid var(--border); color: var(--text2); vertical-align: top; }
 td:first-child { color: var(--text); font-weight: 500; }
 td code { font-size: 12px; }
-.tag { display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 10px; font-weight: 600; }
+.tag { display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
 .tag-req { background: rgba(248,81,73,0.12); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
 .tag-rec { background: rgba(88,166,255,0.12); color: var(--accent); border: 1px solid rgba(88,166,255,0.3); }
 .tag-opt { background: rgba(110,118,129,0.15); color: var(--text3); border: 1px solid var(--border); }
@@ -55,6 +63,44 @@ td code { font-size: 12px; }
 .c-ok .c-title { color: var(--green); }
 .c-danger { background: rgba(248,81,73,0.06); border-color: rgba(248,81,73,0.3); }
 .c-danger .c-title { color: var(--red); }
+
+/* Expert / canon disclosure */
+details.expert { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 6px; padding: 12px 16px; margin: 14px 0; }
+details.expert summary { font-size: 13px; font-weight: 600; color: var(--purple); cursor: pointer; list-style: none; position: relative; padding-right: 22px; }
+details.expert summary::-webkit-details-marker { display: none; }
+details.expert summary::after { content: '+'; position: absolute; right: 0; top: -1px; font-size: 17px; color: var(--text3); }
+details.expert[open] summary::after { content: '−'; }
+details.expert .body { margin-top: 10px; }
+details.expert p { font-size: 13px; margin-bottom: 8px; }
+details.expert li { font-size: 13px; }
+
+/* Task split (ROI vs Effectiveness) */
+.task-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
+.task-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; border-top: 3px solid; }
+.task-card.roi { border-top-color: var(--green); }
+.task-card.eff { border-top-color: var(--accent); }
+.task-card h3 { margin: 0 0 4px; font-size: 15px; }
+.task-card .tc-q { font-size: 12.5px; color: var(--text3); font-style: italic; margin-bottom: 10px; }
+.task-card .tc-row { font-size: 12.5px; color: var(--text2); margin-bottom: 6px; }
+.task-card .tc-row b { color: var(--text); }
+@media (max-width: 720px) { .task-grid { grid-template-columns: 1fr; } }
+
+/* Taxonomy 4 categories */
+.tax { display: flex; flex-direction: column; gap: 12px; margin: 18px 0; }
+.tax-card { background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid; border-radius: 8px; padding: 14px 18px; }
+.tax-card h3 { margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+.tax-card .pill { font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
+.tax-card .tx-desc { font-size: 13px; color: var(--text2); margin: 4px 0 8px; }
+.tax-card .tx-ex { font-size: 12.5px; color: var(--text3); }
+.tax-card .tx-ex code { font-size: 11.5px; }
+.tax-kpi { border-left-color: var(--green); }
+.tax-kpi .pill { background: rgba(63,185,80,0.15); color: var(--green); }
+.tax-managed { border-left-color: var(--accent); }
+.tax-managed .pill { background: rgba(88,166,255,0.15); color: var(--accent); }
+.tax-bg { border-left-color: var(--amber); }
+.tax-bg .pill { background: rgba(210,153,34,0.15); color: var(--amber); }
+.tax-comp { border-left-color: var(--red); }
+.tax-comp .pill { background: rgba(248,81,73,0.15); color: var(--red); }
 
 /* Ratio bars */
 .ratio-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0; }
@@ -88,6 +134,11 @@ td code { font-size: 12px; }
 .role-control { border-color: var(--amber); }
 .role-control h4 { color: var(--amber); }
 
+/* good/bad chips */
+.gb { display: inline-block; font-weight: 700; font-size: 12px; }
+.gb.g { color: var(--green); }
+.gb.b { color: var(--red); }
+
 @media (max-width: 720px) { .ratio-grid, .roles { grid-template-columns: 1fr; } }
 
 .footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
@@ -98,171 +149,498 @@ td code { font-size: 12px; }
 
 <div class="container">
 
-<h1>Подготовка данных</h1>
-<p class="sub">Какие столбцы нужны, сколько строк и как не получить переобученную модель.</p>
-
-<h2>Формат файла</h2>
-<p>Принимаются <code>.xlsx</code>, <code>.xls</code> и <code>.csv</code>. Первая строка — заголовки, дальше данные. Один лист; если в XLSX несколько — читается первый.</p>
+<h1>Подготовка данных для эконометрики</h1>
+<p class="sub">Мини-энциклопедия: какие данные нужны, сколько и как собрать их в Excel так, чтобы модель дала правдивый ответ. Написано для маркетолога — без лишнего жаргона, термины поясняются по ходу.</p>
 
 <div class="callout c-info">
-  <div class="c-title">Дискретизация</div>
-  <p><strong>По умолчанию — помесячные данные.</strong> Недельные тоже полностью работают — система автоматически распознаёт частоту по разнице дат (7 дней → weekly, ~30 дней → monthly, ~90 → quarterly). Дневные и квартальные поддерживаются технически, но MMM на дневных редко даёт стабильный результат: слишком много шума.</p>
+  <div class="c-title">Главный принцип</div>
+  <p><strong>Сначала реши, какую задачу решаешь — потом собирай данные.</strong> Эконометрика отвечает на разные вопросы (сколько денег вернул канал ИЛИ какой канал сильнее двигает результат), и для каждого вопроса нужны <strong>разные данные</strong>. Если собрать «вообще данные», не определив цель, модель либо не запустит нужный режим, либо ответит не на тот вопрос.</p>
 </div>
 
-<h2>Роли столбцов</h2>
-<p>Система автоопределяет роль каждого столбца по имени (RU + EN), но на шаге Валидации ты можешь исправить вручную через drag-and-drop.</p>
+<div class="toc">
+  <h4>Содержание</h4>
+  <ol>
+    <li><a href="#step0">Шаг 0. Определи задачу и KPI</a></li>
+    <li><a href="#why">Почему правильные данные решают всё</a></li>
+    <li><a href="#language">Язык эконометрики простыми словами</a></li>
+    <li><a href="#taxonomy">4 типа данных по управляемости</a></li>
+    <li><a href="#methodology">Методология подбора: собрать всё и не подсунуть зеркало</a></li>
+    <li><a href="#native">Чем измерять каждый медиаканал</a></li>
+    <li><a href="#units">Единицы: деньги или медиа</a></li>
+    <li><a href="#howmuch">Сколько данных нужно</a></li>
+    <li><a href="#excel">Как собрать файл в Excel</a></li>
+    <li><a href="#sources">Где брать каждый тип данных</a></li>
+    <li><a href="#examples">Образцы по индустриям</a></li>
+    <li><a href="#templates">Готовые шаблоны</a></li>
+    <li><a href="#quality">Качество данных</a></li>
+    <li><a href="#antipatterns">Чего класть нельзя (антипаттерны)</a></li>
+    <li><a href="#checklist">Чеклист и частые ошибки</a></li>
+  </ol>
+</div>
 
-<div class="roles">
-  <div class="role-card role-date">
-    <h4>Date</h4>
-    <div class="r-desc">1 столбец, обязательно. Дата начала периода. Имена: <code>date</code>, <code>week</code>, <code>month</code>, <code>period</code>, <code>дата</code>, <code>неделя</code>, <code>месяц</code>.</div>
+<!-- ============ ШАГ 0 ============ -->
+<h2 id="step0"><span class="h2-num">0</span>Определи задачу и KPI</h2>
+
+<p>Это самый важный шаг, и он происходит <strong>до</strong> Excel. От него зависит, какие столбцы вообще собирать.</p>
+
+<h3>Две задачи эконометрики — два набора данных</h3>
+<div class="task-grid">
+  <div class="task-card roi">
+    <h3>Задача ROI · окупаемость</h3>
+    <div class="tc-q">«Сколько рублей продаж принёс каждый рубль, вложенный в канал?»</div>
+    <div class="tc-row"><b>Нужны:</b> деньги — расходы по каждому каналу в ₽ (или объём + стоимость юнита, чтобы перевести в ₽).</div>
+    <div class="tc-row"><b>KPI:</b> лучше денежный (выручка, прибыль), либо количественный + ценность одной единицы.</div>
+    <div class="tc-row"><b>Ответ:</b> ROI / окупаемость, оптимизация бюджета в рублях.</div>
+    <div class="tc-row"><b>В приложении:</b> режим «<strong>ROI режим (₽)</strong>».</div>
   </div>
-  <div class="role-card role-kpi">
-    <h4>KPI</h4>
-    <div class="r-desc">Минимум 1 (обычно 1). Целевая метрика: продажи, доля рынка, конверсии, упаковки. Имена: <code>sales</code>, <code>revenue</code>, <code>market_share</code>, <code>продажи</code>, <code>выручка</code>, <code>конверсии</code>.</div>
-  </div>
-  <div class="role-card role-media">
-    <h4>Media</h4>
-    <div class="r-desc">2+ каналов (обязательно). Инвестиции или объём: ₽ бюджета, TRP, impressions, clicks. Имена: <code>TV_TRP</code>, <code>OLV_spend</code>, <code>Digital_impressions</code>, <code>Social_rub</code>.</div>
-  </div>
-  <div class="role-card role-control">
-    <h4>Control</h4>
-    <div class="r-desc">Опционально. Внешние факторы: цена, дистрибуция, сезонность, погода, праздники, SOV конкурентов. Имена: <code>price</code>, <code>distribution</code>, <code>seasonality</code>, <code>holiday</code>, <code>competitor_SOV</code>.</div>
+  <div class="task-card eff">
+    <h3>Задача Эффективность · медийная отдача</h3>
+    <div class="tc-q">«Какой канал сильнее двигает результат на единицу медиадавления?»</div>
+    <div class="tc-row"><b>Нужны:</b> медийные метрики — TRP, показы, клики, просмотры, контакты.</div>
+    <div class="tc-row"><b>KPI:</b> может быть количественным (упаковки, узнаваемость, лиды).</div>
+    <div class="tc-row"><b>Ответ:</b> вклад каждого канала в %, кривые отдачи в медиаединицах.</div>
+    <div class="tc-row"><b>В приложении:</b> режим «<strong>Эффективность режим (физика)</strong>».</div>
   </div>
 </div>
 
-<h2>Обязательные и опциональные столбцы</h2>
+<div class="callout c-info">
+  <div class="c-title">Простое правило выбора</div>
+  <p>• Нужен <strong>ROI и план бюджета в ₽</strong> → собери <strong>деньги</strong> по каждому каналу (или объём + стоимость юнита).<br>
+     • Нужно сравнить <strong>эффективность каналов</strong> / спрогнозировать охваты → собери <strong>медийные объёмы</strong>.<br>
+     • Нужно <strong>и то, и другое</strong> → собери <strong>и объём, и стоимость юнита</strong>: объём моделирует отдачу, стоимость переводит её в деньги.</p>
+</div>
+
+<p>Приложение <strong>само определит режим</strong> по тому, какие данные ты дал. Не дашь денег — режим ROI будет недоступен, и ты получишь только эффективность. Поэтому задачу выбирают заранее.</p>
+
+<div class="callout c-danger">
+  <div class="c-title">Модель учат под один конкретный KPI</div>
+  <p><strong>Одна модель = один KPI.</strong> Сначала реши, <em>что именно</em> ты прогнозируешь: продажи в рублях? упаковки? долю рынка? узнаваемость? лиды? регистрации? От этого зависит тип KPI (денежный или количественный), какие режимы доступны и какие факторы вообще нужно собирать.</p>
+  <p>Хочешь объяснить <strong>и продажи, и узнаваемость</strong> — это <strong>две отдельные модели</strong> на двух файлах (или на одном файле, но обучаемые по очереди под разный KPI), а не одна модель с двумя целями.</p>
+</div>
+
+<details class="expert">
+  <summary>Для эконометриста: типы KPI в приложении</summary>
+  <div class="body">
+    <p>KPI делятся на два класса, и от класса зависит, какую метрику считает модель:</p>
+    <ul>
+      <li><strong>Денежные (monetary):</strong> <code>выручка</code>, <code>прибыль</code> → модель считает ROI (₽ результата / ₽ затрат).</li>
+      <li><strong>Количественные (count):</strong> <code>упаковки</code>, <code>лиды</code>, <code>регистрации</code>, <code>подписки</code>, <code>установки</code>, <code>выданные карты</code>, своя метрика → модель считает CPU (стоимость одной единицы) или долю вклада.</li>
+    </ul>
+    <p>Для количественного KPI можно задать <strong>ценность одной единицы</strong> (маржа на упаковку и т.п.) — тогда количественная модель тоже выводится в деньги, и становится доступен ROI-взгляд.</p>
+  </div>
+</details>
+
+<!-- ============ ПОЧЕМУ ============ -->
+<h2 id="why"><span class="h2-num">1</span>Почему правильные данные решают всё</h2>
+
+<p>Эконометрическая модель не «умнее» своих данных. Она находит закономерности ровно в том, что ты ей дал. Кривые данные дают красивые, но ложные выводы — и снаружи это почти не видно: модель всё равно покажет графики и числа.</p>
+
+<div class="callout c-warn">
+  <div class="c-title">Мусор на входе — мусор на выходе</div>
+  <p>Если в данных пропущен важный фактор продаж или подставлена «зеркальная» переменная (см. <a href="#methodology">раздел 4</a>), модель припишет чужой эффект рекламе. ROI будет завышен, рекомендации по бюджету — ошибочны. И никто за тебя это не поймает: программа работает локально, без внешней проверки.</p>
+</div>
+
+<p>Поэтому 80% качества результата создаётся <strong>здесь</strong>, на этапе сбора данных, а не в настройках модели. Этот раздел — про то, как собрать данные правильно с первого раза.</p>
+
+<!-- ============ ЯЗЫК ============ -->
+<h2 id="language"><span class="h2-num">2</span>Язык эконометрики простыми словами</h2>
+
 <div class="table-wrap"><table>
-<tr><th>Столбец</th><th>Тип</th><th>Описание</th><th>Статус</th></tr>
-<tr><td><code>date</code></td><td>дата</td><td>Начало периода. Формат <code>YYYY-MM-DD</code> или Excel-date.</td><td><span class="tag tag-req">обязательно</span></td></tr>
-<tr><td><code>sales</code> (или аналог)</td><td>число</td><td>KPI модели — то, что прогнозируем.</td><td><span class="tag tag-req">обязательно</span></td></tr>
-<tr><td>медиа-каналы, 2+</td><td>число ≥ 0</td><td>Бюджет в ₽ или объём в TRP/impressions. Нули допустимы (канал не работал).</td><td><span class="tag tag-req">обязательно</span></td></tr>
-<tr><td><code>price</code></td><td>число &gt; 0</td><td>Цена пачки/услуги. Сильно влияет на спрос, снижает путаницу в отделении media-эффекта.</td><td><span class="tag tag-rec">рекомендуется</span></td></tr>
-<tr><td><code>distribution</code></td><td>0–100</td><td>Нумерическая дистрибуция (% магазинов). Без неё media-эффект может переоцениваться.</td><td><span class="tag tag-rec">рекомендуется</span></td></tr>
-<tr><td><code>seasonality</code></td><td>число</td><td>Индекс сезонности или temperature/holiday flag. Убирает сезон из media-эффекта.</td><td><span class="tag tag-rec">рекомендуется</span></td></tr>
-<tr><td><code>competitor_SOV</code></td><td>0–100</td><td>Share of Voice конкурентов. Объясняет провалы продаж без наших расходов.</td><td><span class="tag tag-opt">опционально</span></td></tr>
-<tr><td><code>promo_flag</code></td><td>0/1</td><td>Была ли акция/скидка. Одна из самых влияющих переменных в FMCG.</td><td><span class="tag tag-opt">опционально</span></td></tr>
+<tr><th>Термин</th><th>Что это простыми словами</th></tr>
+<tr><td>Наблюдение (строка)</td><td>Один период времени: одна неделя или один месяц. В файле — одна строка.</td></tr>
+<tr><td>Переменная (столбец)</td><td>Один измеряемый показатель: продажи, бюджет ТВ, цена, погода. В файле — один столбец.</td></tr>
+<tr><td>Целевая переменная (KPI)</td><td>То, что мы объясняем и прогнозируем (продажи). Зависит от остальных.</td></tr>
+<tr><td>Объясняющие переменные (драйверы и факторы)</td><td>Всё, что влияет на KPI: реклама, цена, сезон, конкуренты.</td></tr>
+<tr><td>Адсток (adstock)</td><td>Эффект рекламы не исчезает в тот же период — он «дотягивает» несколько недель. Реклама в марте ещё работает в апреле.</td></tr>
+<tr><td>Насыщение (кривая отдачи)</td><td>Закон убывающей отдачи: первые рубли в канал работают сильно, каждый следующий — слабее.</td></tr>
+<tr><td>База (baseline)</td><td>Продажи, которые были бы и без рекламы: привычка, дистрибуция, бренд. Обычно это большая часть продаж.</td></tr>
 </table></div>
 
-<h2>Минимум, рекомендация, идеал</h2>
-<p>Ключевое соотношение — <strong>Ratio = количество строк / количество каналов и control-переменных</strong>. От него зависит качество и достоверность MMM-модели.</p>
+<!-- ============ ТАКСОНОМИЯ ============ -->
+<h2 id="taxonomy"><span class="h2-num">3</span>4 типа данных по управляемости</h2>
+
+<p>Все столбцы в твоём файле делятся на 4 категории по простому признаку: <strong>можем ли мы на это влиять</strong>. Это главная карта, по которой собирают данные.</p>
+
+<div class="tax">
+  <div class="tax-card tax-kpi">
+    <h3>1. Целевая — то, что объясняем <span class="pill">результат</span></h3>
+    <div class="tx-desc">Один KPI, который прогнозирует модель. Это итог всех остальных факторов.</div>
+    <div class="tx-ex">Примеры: <code>продажи</code>, <code>выручка</code>, <code>упаковки</code>, <code>доля рынка</code>, <code>лиды</code>, <code>узнаваемость</code></div>
+  </div>
+  <div class="tax-card tax-managed">
+    <h3>2. Управляемые драйверы — на что мы влияем <span class="pill">✅ воздействуем</span></h3>
+    <div class="tx-desc">Наши рычаги: медиаинвестиции и другие маркетинговые решения. Именно их эффект мы хотим измерить и оптимизировать.</div>
+    <div class="tx-ex">Медиа: <code>ТВ</code>, <code>видео</code>, <code>наружка</code>, <code>соцсети</code>, <code>контекст</code> · Не-медиа: наша <code>цена</code>, наши <code>промо</code>, <code>дистрибуция</code>, <code>трейд-маркетинг</code></div>
+  </div>
+  <div class="tax-card tax-bg">
+    <h3>3. Фоновые неуправляемые — внешняя среда <span class="pill">❌ не влияем</span></h3>
+    <div class="tx-desc">Условия, которые двигают продажи независимо от нас. Их нужно дать модели, чтобы она не приписала их эффект рекламе.</div>
+    <div class="tx-ex">Примеры: <code>сезонность</code>, <code>погода</code>, <code>праздники</code>, <code>макроэкономика (доходы, инфляция)</code>, <code>тренд категории</code>, <code>заболеваемость</code> (для фармы)</div>
+  </div>
+  <div class="tax-card tax-comp">
+    <h3>4. Конкурентные — действия конкурентов <span class="pill">❌ не влияем</span></h3>
+    <div class="tx-desc">Чужая активность, которая отнимает или добавляет нам продажи. Объясняет провалы, не связанные с нашими расходами.</div>
+    <div class="tx-ex">Примеры: <code>SOV конкурентов</code>, их <code>промо</code>, их <code>цены</code>, их <code>дистрибуция</code>, их <code>новые запуски</code></div>
+  </div>
+</div>
+
+<div class="callout c-info">
+  <div class="c-title">Как 4 категории ложатся на 2 роли в приложении</div>
+  <p>В самой программе при загрузке файла роли всего <strong>две</strong>: «<strong>Медиа и управляемые факторы</strong>» и «<strong>Неуправляемые внешние факторы</strong>». Категории сводятся так:</p>
+  <p>• Категория 2 (управляемые) → «Медиа и управляемые факторы».<br>
+     • Категории 3 и 4 (фоновые + конкуренты) → «Неуправляемые внешние факторы».<br>
+     • Любой столбец со словом «конкурент» в названии всегда трактуется как внешний фактор.</p>
+  <p>4 категории нужны, чтобы <em>ничего не забыть</em> при сборе. 2 роли — это как данные видит модель.</p>
+</div>
+
+<details class="expert">
+  <summary>Для эконометриста: почему деление по управляемости, а не «media / control»</summary>
+  <div class="body">
+    <p>Классическое деление MMM — <em>marketing variables</em> и <em>control variables</em>. Деление по управляемости — это надстройка над ним для удобства сбора: оно подсказывает, <strong>где искать данные</strong> (управляемые — у себя в медиаплане и прайсе; фоновые — в открытых источниках; конкурентные — в медиамониторинге) и <strong>какой ждать знак эффекта</strong>. При моделировании цена/промо/дистрибуция и контроли всё равно разделяются на драйверы базы и медиа-отклик — это решается на этапе декомпозиции, а не сбора.</p>
+  </div>
+</details>
+
+<!-- ============ МЕТОДОЛОГИЯ ============ -->
+<h2 id="methodology"><span class="h2-num">4</span>Методология подбора: собрать всё и не подсунуть зеркало</h2>
+
+<p>Это сердцевина правильного сбора данных. Две ошибки здесь дороже всех остальных вместе взятых, и обе невидимы снаружи.</p>
+
+<div class="callout c-danger">
+  <div class="c-title">Ошибка 1 — пропущенный драйвер (эффект уйдёт в рекламу)</div>
+  <p>Если значимый фактор продаж <strong>не включён</strong> в файл, модель не выкинет его эффект — она <strong>припишет его рекламе</strong>. Классика: в FMCG не дали столбец промо → весь всплеск продаж в дни акций модель засчитает медиаканалам → ROI ТВ завышен вдвое.</p>
+  <p><strong>Правило:</strong> собери <em>все</em> заметные причины изменения продаж — наши рычаги, фон и конкурентов. Лучше включить лишнее (модель отсеет), чем забыть важное.</p>
+</div>
+
+<div class="callout c-danger">
+  <div class="c-title">Ошибка 2 — «зеркало» KPI (обратная причинность)</div>
+  <p>Не включай переменные, которые <strong>сами порождены продажами</strong>. Примеры зеркал:</p>
+  <ul>
+    <li>Бюджет, выставленный как <strong>% от фактических продаж</strong> (чем больше продали — тем больше потратили; модель решит, что это реклама толкает продажи, а на деле наоборот).</li>
+    <li>«Органический» трафик или запросы, которые <strong>растут вслед за продажами</strong>, а не наоборот.</li>
+    <li>Складские остатки, выставленные по факту отгрузок.</li>
+  </ul>
+  <p>Модель не отличает причину от следствия — она ловит совпадение. Зеркало даёт ложно сильную «связь» и портит все оценки.</p>
+</div>
+
+<h3>Остальные принципы подбора (короткий чеклист методолога)</h3>
+<div class="table-wrap"><table>
+<tr><th>Принцип</th><th>Что значит на практике</th></tr>
+<tr><td>Полнота драйверов</td><td>Включи все значимые причины продаж (см. ошибку 1).</td></tr>
+<tr><td>Без зеркал</td><td>Не включай следствия продаж (см. ошибку 2).</td></tr>
+<tr><td>Не дублировать каналы</td><td>Один канал — одна метрика давления (см. <a href="#native">раздел 5</a>). Показы и клики одного инструмента вместе — нельзя.</td></tr>
+<tr><td>Достаточная вариативность</td><td>Если столбец почти не меняется во времени — модель не сможет оценить его эффект. Ровный поток это не реклама, а часть базы.</td></tr>
+<tr><td>Сезон и тренд — отдельным фактором</td><td>Дай модели сезонность/тренд явным столбцом, иначе совпадение двух растущих рядов даст ложную связь.</td></tr>
+<tr><td>Один шаг времени</td><td>Все ряды — в одной частоте (всё недельное или всё месячное) и по одному календарю.</td></tr>
+<tr><td>Чистые единицы</td><td>Деньги и медиа не смешивать в одном столбце; для каждого канала — своя нативная метрика (см. разделы 5–6).</td></tr>
+</table></div>
+
+<!-- ============ НАТИВНЫЕ МЕТРИКИ ============ -->
+<h2 id="native"><span class="h2-num">5</span>Чем измерять каждый медиаканал</h2>
+
+<p>Каждый медиаформат входит в модель <strong>своей основной метрикой воздействия</strong> — той, что отражает его суть. Видео живёт просмотрами, перформанс-баннер — кликами, охватная медийка — контактами. Это не вкус, а защита от двух ошибок: дублирования и подмены смысла.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Медиаформат</th><th>Основная метрика</th><th>Столбец в Excel</th><th>Почему именно она</th></tr>
+<tr><td>ТВ (нац./спот)</td><td>TRP (GRP)</td><td><code>TV_TRP</code></td><td>давление по целевой аудитории</td></tr>
+<tr><td>Радио</td><td>TRP / охват</td><td><code>Radio_TRP</code></td><td>аудиоаналог ТВ</td></tr>
+<tr><td>Наружка (большие форматы)</td><td>контакты (OTS)</td><td><code>OOH_contacts</code></td><td>охватный инструмент, меряется возможностью увидеть</td></tr>
+<tr><td>Видео (OLV, pre-roll, YouTube)</td><td><strong>просмотры</strong></td><td><code>OLV_views</code></td><td>нативный KPI видеоформата</td></tr>
+<tr><td>Баннеры большого формата (охватная медийка)</td><td><strong>контакты / показы</strong></td><td><code>Display_impr</code></td><td>работает на охват, не на отклик</td></tr>
+<tr><td>Баннеры малого формата, высокий таргетинг</td><td><strong>клики</strong></td><td><code>Perf_clicks</code></td><td>инструмент отклика, а не охвата</td></tr>
+<tr><td>Performance / контекст / поиск</td><td>клики / конверсии</td><td><code>Search_clicks</code></td><td>прямой отклик</td></tr>
+<tr><td>Статьи / нативная реклама / спецпроекты</td><td><strong>прочтения</strong></td><td><code>Native_reads</code></td><td>вовлечённое потребление контента</td></tr>
+<tr><td>Соцсети (таргет)</td><td>охват / показы / клики — по цели</td><td><code>Social_reach</code></td><td>зависит от формата размещения</td></tr>
+<tr><td>Email / CRM</td><td>открытия / клики</td><td><code>Email_clicks</code></td><td>отклик базы</td></tr>
+</table></div>
+
+<div class="callout c-danger">
+  <div class="c-title">Главное правило: один канал = одна метрика давления</div>
+  <p>Не клади в модель <strong>и показы, и клики одного инструмента</strong> — это дубль, модель не сможет их разделить (см. мультиколлинеарность в разделе 12).</p>
+  <p>И не подменяй метрику: таргетированный перформанс-баннер оценивают по <strong>кликам</strong> (его суть — отклик), а охватный медийный баннер — по <strong>контактам</strong> (его суть — охват). Перепутаешь — исказишь эффект канала, его кривую отдачи и ROI.</p>
+</div>
+
+<div class="callout c-info">
+  <div class="c-title">Связь с задачей</div>
+  <p>Нативная метрика — это всегда <strong>объёмное (медийное)</strong> выражение. Для задачи <strong>Эффективность</strong> её достаточно. Для задачи <strong>ROI</strong> к каждой метрике нужна своя <strong>стоимость юнита в ₽</strong> (₽/просмотр, ₽/клик, ₽/контакт, ₽/прочтение, ₽/TRP) — чтобы перевести разные единицы в общие деньги и честно сравнить каналы. Подробнее — раздел 6.</p>
+</div>
+
+<!-- ============ ЕДИНИЦЫ ============ -->
+<h2 id="units"><span class="h2-num">6</span>Единицы: деньги или медиа</h2>
+
+<p>У каждого медиаканала данные можно дать в одном из двух видов:</p>
+<ul>
+  <li><strong>Деньги (₽):</strong> сколько потрачено на канал в рублях. Прямо подходит для задачи ROI.</li>
+  <li><strong>Медиаобъём:</strong> нативная метрика из раздела 5 (TRP, просмотры, клики, контакты). Подходит для задачи Эффективность.</li>
+</ul>
+
+<div class="callout c-warn">
+  <div class="c-title">Смешивать единицы можно — но укажи стоимость юнита</div>
+  <p>Если часть каналов в рублях, а часть в TRP/показах/кликах — это нормально. <strong>Но</strong> для денежного сравнения (ROI) обязательно укажи стоимость одного юнита в ₽ на шаге «Проверка». Без этого 1 TRP, 1 показ и 1 рубль модель будет считать сравнимыми — и ROI станет бессмысленным (TV покажет «115×», digital — «0.03×»).</p>
+</div>
+
+<h3>Типичная стоимость юнита (РФ, ориентир — калибруй под свои закупки)</h3>
+<div class="table-wrap"><table>
+<tr><th>Канал</th><th>Единица</th><th>Ориентир ₽/юнит</th></tr>
+<tr><td>ТВ (бренд, W25-54)</td><td>TRP</td><td>~250 000 (200 000 – 300 000)</td></tr>
+<tr><td>ТВ (W18-44)</td><td>TRP</td><td>~180 000</td></tr>
+<tr><td>ТВ (перформанс)</td><td>TRP</td><td>~120 000</td></tr>
+<tr><td>Радио</td><td>GRP</td><td>~30 000 (40 000 – 80 000 за TRP)</td></tr>
+<tr><td>Наружка</td><td>контакты (OTS)</td><td>~80 ₽ за 1000 контактов</td></tr>
+<tr><td>Digital (показы)</td><td>impressions</td><td>~200 ₽ за 1000 показов (CPM)</td></tr>
+<tr><td>Видео / Performance</td><td>просмотры / клики</td><td>от CPV / CPC своего размещения</td></tr>
+<tr><td>Рубли напрямую</td><td>₽</td><td>1.0 (или оставить пустым)</td></tr>
+</table></div>
+
+<div class="callout c-info">
+  <div class="c-title">Подсказка приложения</div>
+  <p>Для «чистых» медиаединиц (TRP, GRP, OTS) программа подставит дефолтную стоимость автоматически. Для нестандартных каналов (статьи, спецпроекты) стоимость задают вручную. Эти цифры — рыночный ориентир 2026 года, а не закон: подставь свои реальные закупочные ставки.</p>
+</div>
+
+<!-- ============ СКОЛЬКО ============ -->
+<h2 id="howmuch"><span class="h2-num">7</span>Сколько данных нужно</h2>
+
+<p>Ключевое соотношение — <strong>Ratio = количество строк / количество каналов и факторов</strong>. Чем больше периодов на каждую переменную, тем устойчивее модель.</p>
 
 <div class="ratio-grid">
   <div class="ratio-card critical">
     <div class="rc-label">Минимум</div>
     <div class="rc-value" style="color: var(--red);">Ratio ≥ 2</div>
-    <div class="rc-desc">Модель запустится, но <strong>MQS ограничен 50/100</strong>, все выводы с пометкой «thin data». Риск переобучения высокий.</div>
+    <div class="rc-desc">Модель запустится, но <strong>оценка качества ограничена 50/100</strong>, выводы помечаются «мало данных». Риск переобучения высокий.</div>
   </div>
   <div class="ratio-card borderline">
     <div class="rc-label">Рекомендация</div>
     <div class="rc-value" style="color: var(--amber);">Ratio ≥ 4</div>
-    <div class="rc-desc">MQS capped на 70 при Ratio &lt; 4. Выше — cap снимается. Доверительные интервалы адекватные.</div>
+    <div class="rc-desc">Качество перестаёт ограничиваться искусственно. Диапазоны оценок адекватные.</div>
   </div>
   <div class="ratio-card good">
     <div class="rc-label">Идеально</div>
     <div class="rc-value" style="color: var(--green);">Ratio ≥ 6</div>
-    <div class="rc-desc">Модель устойчива, ROI каналов близок к индустриальным бенчмаркам, прогноз надёжен для бюджетных решений.</div>
+    <div class="rc-desc">Модель устойчива, ROI близок к индустриальным бенчмаркам, прогноз надёжен для бюджетных решений.</div>
   </div>
 </div>
 
 <h3>В абсолютных цифрах</h3>
 <div class="table-wrap"><table>
-<tr><th>Каналов</th><th>Минимум строк</th><th>Рекомендация</th><th>Идеально</th></tr>
-<tr><td>3</td><td>6</td><td>12 (~3 мес недельных / 1 год помесячных)</td><td>18+</td></tr>
-<tr><td>5</td><td>10</td><td>20 (~5 мес нед / 1.5 года мес)</td><td>30+</td></tr>
-<tr><td>7</td><td>14</td><td>28 (~7 мес нед / 2 года мес)</td><td>42+</td></tr>
-<tr><td>10</td><td>20</td><td>40 (~10 мес нед / 3 года мес)</td><td>60+</td></tr>
+<tr><th>Каналов + факторов</th><th>Минимум строк</th><th>Рекомендация</th><th>Идеально</th></tr>
+<tr><td>3</td><td>6</td><td>12 (~1 год помесячных)</td><td>18+</td></tr>
+<tr><td>5</td><td>10</td><td>20 (~1.5 года помесячных)</td><td>30+</td></tr>
+<tr><td>8</td><td>16</td><td>32 (~2 года помесячных)</td><td>48+</td></tr>
+<tr><td>10</td><td>20</td><td>40 (~3 года помесячных)</td><td>60+</td></tr>
 </table></div>
+
+<div class="callout c-info">
+  <div class="c-title">Дискретизация: помесячные или недельные</div>
+  <p><strong>По умолчанию — помесячные данные.</strong> Недельные тоже полностью работают: программа сама распознаёт частоту по разнице дат. Недельные дают больше точек на тот же период (2 года = 24 точки помесячно против 104 недельно) и лучше ловят короткие кампании и промо. Дневные обычно слишком шумные для MMM.</p>
+</div>
+
+<details class="expert">
+  <summary>Каноническая норма: чего ждёт классическая эконометрика</summary>
+  <div class="body">
+    <p>Индустриальный ориентир «полноценного» MMM — <strong>2+ года недельных данных (100+ точек)</strong>, и недельный шаг считается стандартом (на месячном шаге эффект рекламы частично смазывается внутри периода). Градации выше (Ratio 2/4/6) — прагматичные пороги <em>запуска</em> в приложении: они позволяют начать на коротких данных, но честно ограничивают оценку качества и помечают выводы как индикативные. <strong>Ratio считает каналы, а не параметры</strong> — а у каждого канала их несколько (коэффициент + затухание + насыщение), поэтому реальные требования к объёму выше, чем подсказывает Ratio. Ниже рабочего порога относись к числам как к ориентиру, а не как к точному ответу.</p>
+  </div>
+</details>
 
 <div class="callout c-warn">
   <div class="c-title">Если данных мало</div>
-  <p>1) Сократи число каналов (объедини мелкие: OLV+Banners+Programmatic → «Digital»). 2) Убери control-переменные с низкой вариативностью. 3) Перейди на более мелкую дискретизацию (помесячные → недельные) — если такие данные есть.</p>
+  <p>1) Сократи число каналов — объедини мелкие (<code>OLV + Banners + Programmatic → «Digital»</code>). 2) Убери факторы, которые почти не меняются. 3) Перейди на недельный шаг, если такие данные есть.</p>
 </div>
 
-<h2>Пример 1 — FMCG (пиво, помесячные данные)</h2>
-<p>Национальный бренд, 24 месяца, 5 медиа-каналов + 3 control.</p>
+<!-- ============ EXCEL ============ -->
+<h2 id="excel"><span class="h2-num">8</span>Как собрать файл в Excel</h2>
 
-<div class="file-preview">
-<div class="file-header"><span class="fn">beer_brand_2024.xlsx</span><span>24 строк × 10 столбцов</span></div>
-<div class="table-wrap"><table>
-<tr><th>date</th><th>sales</th><th>TV_TRP</th><th>OLV_rub</th><th>OOH_rub</th><th>Social_rub</th><th>Radio_TRP</th><th>price</th><th>distribution</th><th>promo_flag</th></tr>
-<tr><td>2024-01-01</td><td>18 420 000</td><td>0</td><td>1 200 000</td><td>0</td><td>850 000</td><td>0</td><td>89.50</td><td>82.1</td><td>0</td></tr>
-<tr><td>2024-02-01</td><td>19 100 000</td><td>250</td><td>1 500 000</td><td>0</td><td>900 000</td><td>180</td><td>89.50</td><td>83.0</td><td>0</td></tr>
-<tr><td>2024-03-01</td><td>22 800 000</td><td>420</td><td>2 100 000</td><td>3 500 000</td><td>1 200 000</td><td>220</td><td>85.00</td><td>85.4</td><td>1</td></tr>
-<tr><td>2024-04-01</td><td>24 500 000</td><td>480</td><td>2 300 000</td><td>3 800 000</td><td>1 300 000</td><td>260</td><td>85.00</td><td>86.1</td><td>0</td></tr>
-<tr><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td></tr>
-</table></div>
+<p>Формат: <code>.xlsx</code>, <code>.xls</code> или <code>.csv</code>. Один лист (если листов несколько — читается первый). Структура простая и строгая.</p>
+
+<ol>
+  <li><strong>Первая строка — заголовки</strong> столбцов. Дальше — данные, по одной строке на период.</li>
+  <li><strong>Один столбец — дата</strong> начала периода. Формат <code>ГГГГ-ММ-ДД</code> (например <code>2024-03-01</code>) или Excel-дата. Не текст вида «Март 2024».</li>
+  <li><strong>Один столбец — KPI</strong> (тот, что выбрал в Шаге 0).</li>
+  <li><strong>Минимум 2 столбца — медиаканалы</strong>, каждый своей нативной метрикой (раздел 5). Нули допустимы — значит канал в этот период не работал.</li>
+  <li><strong>Столбцы факторов</strong>: цена, промо, сезон, конкуренты (категории 3–4). Чем полнее — тем правдивее модель.</li>
+  <li><strong>Одна строка = один период.</strong> Без пропусков посередине, без дубликатов дат.</li>
+</ol>
+
+<div class="callout c-danger">
+  <div class="c-title">Не клади строки и столбцы-итоги</div>
+  <p>Никаких строк «Итого / Сумма / Total» и столбцов-итогов. Сумма столбцов идеально коррелирует со слагаемыми и ломает модель. Файл — это только периоды и переменные, без сводок.</p>
 </div>
 
-<ul>
-  <li><strong>Ratio = 24 / (5+3) = 3.0</strong> — ниже рекомендации, MQS будет ограничен 70. Для живого результата стоит добавить ещё год данных или убрать слабый канал (например, Radio).</li>
-  <li>TV и Radio в <strong>TRP</strong>, Digital/OOH/Social — в <strong>рублях</strong>. <strong>Обязательно</strong> на шаге «Стоимость юнита» указать ₽/TRP (например, 250 000 для TV brand W25-54).</li>
-  <li><code>promo_flag</code> критичен в FMCG — без него модель припишет эффект промо медиа-каналам.</li>
-</ul>
-
-<h2>Пример 2 — Pharma (Rx-препарат, понедельные данные)</h2>
-<p>Этичный препарат в категории OTC, 18 месяцев недельных данных, 4 медиа-канала + 2 control. KPI — упаковки в аптеках.</p>
-
+<h3>Как выглядит правильный файл</h3>
 <div class="file-preview">
-<div class="file-header"><span class="fn">pharma_otc_weekly.csv</span><span>78 строк × 8 столбцов</span></div>
+<div class="file-header"><span class="fn">пример_структуры.xlsx</span><span>строки = периоды, столбцы = переменные</span></div>
 <div class="table-wrap"><table>
-<tr><th>week</th><th>packs</th><th>TV_TRP</th><th>Digital_impressions</th><th>DoctorVisits_rub</th><th>Print_rub</th><th>season_idx</th><th>competitor_sov</th></tr>
-<tr><td>2024-01-01</td><td>42 800</td><td>0</td><td>1 200 000</td><td>380 000</td><td>0</td><td>0.95</td><td>28.5</td></tr>
-<tr><td>2024-01-08</td><td>44 100</td><td>85</td><td>1 400 000</td><td>420 000</td><td>180 000</td><td>0.98</td><td>27.2</td></tr>
-<tr><td>2024-01-15</td><td>48 900</td><td>120</td><td>1 800 000</td><td>450 000</td><td>180 000</td><td>1.12</td><td>26.8</td></tr>
-<tr><td>2024-01-22</td><td>51 200</td><td>145</td><td>2 100 000</td><td>520 000</td><td>250 000</td><td>1.18</td><td>25.4</td></tr>
+<tr><th>date</th><th>sales</th><th>TV_TRP</th><th>OLV_views</th><th>Perf_clicks</th><th>price</th><th>promo_flag</th><th>competitor_sov</th></tr>
+<tr><td>2024-01-01</td><td>18 420 000</td><td>0</td><td>1 200 000</td><td>45 000</td><td>89.50</td><td>0</td><td>28.5</td></tr>
+<tr><td>2024-02-01</td><td>19 100 000</td><td>250</td><td>1 500 000</td><td>52 000</td><td>89.50</td><td>0</td><td>27.2</td></tr>
+<tr><td>2024-03-01</td><td>22 800 000</td><td>420</td><td>2 100 000</td><td>61 000</td><td>85.00</td><td>1</td><td>26.8</td></tr>
 <tr><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td><td>...</td></tr>
 </table></div>
 </div>
+<p>Здесь: дата · KPI (<code>sales</code>) · 3 медиаканала своими метриками (TRP / просмотры / клики — <span class="gb g">не дублируются</span>) · цена и промо (управляемые) · SOV конкурентов (внешний фактор).</p>
 
+<!-- ============ ИСТОЧНИКИ ============ -->
+<h2 id="sources"><span class="h2-num">9</span>Где брать каждый тип данных</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Тип данных</th><th>Где обычно берут (РФ)</th></tr>
+<tr><td>Продажи / KPI</td><td>Внутренние данные продаж, ERP, sell-out от дистрибьюторов; ритейл-аудит для долей рынка.</td></tr>
+<tr><td>Медиа (управляемые)</td><td>Медиапланы и пост-кампейн отчёты агентства; рекламные кабинеты и адсерверы (показы/клики/просмотры); ТВ-замеры по панели.</td></tr>
+<tr><td>Цена, промо, дистрибуция</td><td>Свой прайс и календарь акций; ритейл-аудит (нумерическая/взвешенная дистрибуция, средняя цена полки).</td></tr>
+<tr><td>Сезонность / тренд</td><td>Исторические продажи категории; индекс сезонности; запросы в поиске как прокси спроса.</td></tr>
+<tr><td>Погода</td><td>Открытые метеоданные по региону (средняя температура, осадки) — для погодозависимых категорий.</td></tr>
+<tr><td>Праздники / календарь</td><td>Производственный календарь РФ: флаг праздничных периодов, длинных выходных.</td></tr>
+<tr><td>Макроэкономика</td><td>Открытая статистика: реальные доходы, инфляция, курс — для дорогих и отложенных покупок.</td></tr>
+<tr><td>Конкуренты</td><td>Медиамониторинг (SOV конкурентов); ритейл-аудит (их цены/промо/дистрибуция); открытые новости о запусках.</td></tr>
+<tr><td>Заболеваемость (фарма)</td><td>Открытая статистика заболеваемости / эпидпороги — для сезонных препаратов.</td></tr>
+</table></div>
+
+<!-- ============ ОБРАЗЦЫ ============ -->
+<h2 id="examples"><span class="h2-num">10</span>Образцы по индустриям</h2>
+
+<h3>FMCG — напитки (помесячные)</h3>
+<p>Национальный бренд, 24 месяца, 4 медиаканала + цена/промо/конкурент. Задача: <strong>ROI</strong> (данные в ₽ + ТВ в TRP со стоимостью юнита).</p>
+<div class="file-preview">
+<div class="file-header"><span class="fn">fmcg_drink_2024.xlsx</span><span>24 строк · Ratio 24/7 ≈ 3.4</span></div>
+<div class="table-wrap"><table>
+<tr><th>date</th><th>sales_rub</th><th>TV_TRP</th><th>OLV_views</th><th>OOH_contacts</th><th>Perf_clicks</th><th>price</th><th>promo_flag</th><th>comp_sov</th></tr>
+<tr><td>2024-01-01</td><td>18 420 000</td><td>0</td><td>1 200 000</td><td>0</td><td>45 000</td><td>89.50</td><td>0</td><td>28.5</td></tr>
+<tr><td>2024-02-01</td><td>19 100 000</td><td>250</td><td>1 500 000</td><td>0</td><td>52 000</td><td>89.50</td><td>0</td><td>27.2</td></tr>
+<tr><td>2024-03-01</td><td>22 800 000</td><td>420</td><td>2 100 000</td><td>3 500 000</td><td>61 000</td><td>85.00</td><td>1</td><td>26.8</td></tr>
+</table></div>
+</div>
 <ul>
-  <li><strong>Ratio = 78 / (4+2) = 13.0</strong> — идеально, MQS без cap'а.</li>
-  <li>В Pharma <strong>сезонность критична</strong> (простуды, аллергии, сезонные категории) — используем индекс сезонности, не sin/cos-гармоники.</li>
-  <li><code>DoctorVisits_rub</code> — специфический pharma-канал: визиты медпредставителей. Моделируется как media-канал с более длинным adstock (4–8 недель vs 2 для digital).</li>
-  <li>Smешанные единицы (TRP + impressions + ₽) — <strong>обязательно</strong> unit_costs для всех.</li>
+  <li><code>promo_flag</code> критичен в FMCG: без него всплески продаж в акции уйдут в медиа (ошибка 1 из раздела 4).</li>
+  <li>ТВ в TRP, остальное в нативных метриках → для ROI задай стоимость ₽/TRP на шаге «Проверка».</li>
 </ul>
 
-<h2>Стоимость юнита (unit_costs) — когда обязательно</h2>
-<div class="callout c-danger">
-  <div class="c-title">Не пропускай этот шаг при смешанных единицах</div>
-  <p>Если хотя бы один канал измеряется не в рублях (TRP, impressions, clicks) — <strong>обязательно</strong> укажи стоимость юнита в ₽ на шаге «Проверка». Без этого ROAS и бюджетные сравнения становятся бессмысленными: 1 TRP ≠ 1 рубль ≠ 1 показ.</p>
+<h3>Pharma OTC — безрецептурный препарат (недельные)</h3>
+<p>Сезонная категория (простуда), 78 недель, медпредставители как канал, сезонность критична. Задача: <strong>ROI</strong>.</p>
+<div class="file-preview">
+<div class="file-header"><span class="fn">pharma_otc_weekly.csv</span><span>78 строк · Ratio 78/6 = 13</span></div>
+<div class="table-wrap"><table>
+<tr><th>week</th><th>packs</th><th>TV_TRP</th><th>Digital_impr</th><th>RepVisits</th><th>season_idx</th><th>comp_sov</th></tr>
+<tr><td>2024-01-01</td><td>42 800</td><td>0</td><td>1 200 000</td><td>380</td><td>0.95</td><td>28.5</td></tr>
+<tr><td>2024-01-08</td><td>44 100</td><td>85</td><td>1 400 000</td><td>420</td><td>0.98</td><td>27.2</td></tr>
+<tr><td>2024-01-15</td><td>48 900</td><td>120</td><td>1 800 000</td><td>450</td><td>1.12</td><td>26.8</td></tr>
+</table></div>
 </div>
+<ul>
+  <li>KPI — <strong>упаковки</strong> (количественный). Для ROI задай ценность одной упаковки (маржу) на шаге «Проверка».</li>
+  <li><code>season_idx</code> (индекс сезонности) обязателен: иначе зимний рост спроса припишется рекламе.</li>
+  <li><code>RepVisits</code> (визиты медпредставителей) — управляемый канал с длинным «послевкусием» (несколько недель).</li>
+</ul>
+
+<h3>Pharma Rx — рецептурный препарат (помесячные)</h3>
+<p>Реклама ограничена законом: основной драйвер — работа с врачами, не масс-медиа. Задача: <strong>Эффективность</strong> (бюджеты по визитам непрозрачны).</p>
+<div class="file-preview">
+<div class="file-header"><span class="fn">pharma_rx_monthly.xlsx</span><span>36 строк · Ratio 36/5 ≈ 7</span></div>
+<div class="table-wrap"><table>
+<tr><th>date</th><th>packs</th><th>RepVisits</th><th>Conferences</th><th>Prof_reads</th><th>season_idx</th><th>comp_rep_activity</th></tr>
+<tr><td>2023-01-01</td><td>12 400</td><td>320</td><td>2</td><td>4 100</td><td>1.05</td><td>0.42</td></tr>
+<tr><td>2023-02-01</td><td>12 950</td><td>365</td><td>1</td><td>4 600</td><td>1.02</td><td>0.40</td></tr>
+<tr><td>2023-03-01</td><td>14 200</td><td>410</td><td>3</td><td>5 200</td><td>0.98</td><td>0.38</td></tr>
+</table></div>
+</div>
+<ul>
+  <li>Каналы в нативных единицах (визиты, конференции, прочтения профматериалов) — режим Эффективность: модель даст вклад каждого в %, без рублёвого ROI.</li>
+  <li><code>comp_rep_activity</code> — активность конкурентов у врачей (категория 4).</li>
+</ul>
+
+<h3>Retail / E-commerce — онлайн-магазин (недельные)</h3>
+<p>Перформанс-тяжёлый микс, длинный набор каналов. Задача: <strong>ROI</strong>. KPI — заказы или выручка.</p>
+<div class="file-preview">
+<div class="file-header"><span class="fn">ecom_weekly.xlsx</span><span>104 строк · Ratio 104/7 ≈ 15</span></div>
+<div class="table-wrap"><table>
+<tr><th>week</th><th>revenue</th><th>Search_clicks</th><th>Social_clicks</th><th>OLV_views</th><th>Display_impr</th><th>Email_clicks</th><th>promo_depth</th></tr>
+<tr><td>2024-01-01</td><td>8 200 000</td><td>120 000</td><td>54 000</td><td>900 000</td><td>3 100 000</td><td>22 000</td><td>0.15</td></tr>
+<tr><td>2024-01-08</td><td>7 900 000</td><td>115 000</td><td>50 000</td><td>850 000</td><td>2 900 000</td><td>19 000</td><td>0.10</td></tr>
+<tr><td>2024-01-15</td><td>9 400 000</td><td>138 000</td><td>61 000</td><td>1 050 000</td><td>3 400 000</td><td>25 000</td><td>0.22</td></tr>
+</table></div>
+</div>
+<ul>
+  <li>Перформанс — по <strong>кликам</strong>, охватная медийка (Display) — по <strong>показам/контактам</strong>, видео — по <strong>просмотрам</strong>. Метрики не перепутаны (раздел 5).</li>
+  <li><code>promo_depth</code> — глубина скидки долей (0.22 = −22%): в e-com промо двигает заказы сильнее всего.</li>
+</ul>
+
+<h3>Недвижимость / B2B / Авто — длинный цикл покупки (помесячные)</h3>
+<p>Решение зреет месяцами, KPI — <strong>лиды</strong> (заявки), а не мгновенные продажи. Задача: ROI по стоимости лида.</p>
+<div class="file-preview">
+<div class="file-header"><span class="fn">realestate_leads.xlsx</span><span>30 строк · Ratio 30/6 = 5</span></div>
+<div class="table-wrap"><table>
+<tr><th>date</th><th>leads</th><th>TV_TRP</th><th>OOH_contacts</th><th>Search_clicks</th><th>price_m2</th><th>mortgage_rate</th></tr>
+<tr><td>2023-01-01</td><td>340</td><td>0</td><td>2 400 000</td><td>18 000</td><td>198 000</td><td>11.5</td></tr>
+<tr><td>2023-02-01</td><td>410</td><td>180</td><td>2 800 000</td><td>21 000</td><td>199 500</td><td>11.0</td></tr>
+<tr><td>2023-03-01</td><td>520</td><td>260</td><td>3 200 000</td><td>26 000</td><td>201 000</td><td>9.5</td></tr>
+</table></div>
+</div>
+<ul>
+  <li>KPI — <strong>лиды</strong> (количественный). Для ROI задай ценность лида (средняя маржа сделки × конверсия в продажу).</li>
+  <li><code>mortgage_rate</code> (ставка ипотеки) — мощный фоновый фактор: без него падение спроса при росте ставки уйдёт в рекламу (ошибка 1).</li>
+  <li>Длинный цикл → эффект каналов растянут на месяцы (длинный адсток).</li>
+</ul>
+
+<!-- ============ ШАБЛОНЫ ============ -->
+<h2 id="templates"><span class="h2-num">11</span>Готовые шаблоны</h2>
+
+<p>Чтобы не собирать структуру с нуля, используй готовые файлы:</p>
+<ul>
+  <li><strong>Заполненные примеры</strong> — встроены в приложение. На шаге «Импорт» нажми «📥 Попробовать на примере»: FMCG, OTC фарма, недвижимость, ритейл-сеть. Они проходят весь pipeline без правок — удобно посмотреть, как всё работает, до загрузки своих данных.</li>
+  <li><strong>Пустые шаблоны-болванки</strong> по индустриям (правильные заголовки, одна строка-образец, лист с пояснением каждого столбца) — скачай, удали образец, впиши свои периоды. <em>(Готовятся; будут доступны в приложении рядом с примерами.)</em></li>
+</ul>
+
+<!-- ============ КАЧЕСТВО ============ -->
+<h2 id="quality"><span class="h2-num">12</span>Качество данных</h2>
 
 <div class="table-wrap"><table>
-<tr><th>Канал</th><th>Единица</th><th>Типичная стоимость ₽/юнит (2026, РФ)</th></tr>
-<tr><td>TV (brand W25-54)</td><td>TRP</td><td>200 000 – 300 000 (дефолт 250 000)</td></tr>
-<tr><td>Radio</td><td>TRP</td><td>40 000 – 80 000</td></tr>
-<tr><td>OOH</td><td>OTS / impressions</td><td>от CPM рынка</td></tr>
-<tr><td>Digital OLV</td><td>impressions или ₽</td><td>при CPM 300–500 ₽ → 0.3–0.5 ₽/имп</td></tr>
-<tr><td>Performance</td><td>clicks или ₽</td><td>от CPC сегмента</td></tr>
-<tr><td>Рубли напрямую</td><td>₽</td><td>1.0 (или оставить пустым)</td></tr>
+<tr><th>Проблема</th><th>Чем грозит</th><th>Что делать</th></tr>
+<tr><td>Пропуски в KPI или дате</td><td>Модель не построит ряд.</td><td>Заполни период (даже нулём, если канал не работал) или удали строку целиком.</td></tr>
+<tr><td>Выбросы (резкий скачок без причины)</td><td>Тянут оценку на себя.</td><td>Проверь, не ошибка ли ввода. Если реальное событие (разовая отгрузка) — добавь флаг-столбец этого события.</td></tr>
+<tr><td>Дубликаты дат</td><td>Двойной счёт периода.</td><td>Один период — одна строка. Сверни дубликаты.</td></tr>
+<tr><td>Мультиколлинеарность (r &gt; 0.8)</td><td>Модель не разделит два почти одинаковых столбца.</td><td>Оставь один. Частый случай — объём и деньги одного канала, или показы + клики одного инструмента.</td></tr>
+<tr><td>Низкая вариативность (столбец почти ровный)</td><td>Эффект не оценить.</td><td>Если это не реклама, а постоянный фон — убери, это часть базы.</td></tr>
+<tr><td>Канал «78% нулей»</td><td>Работал эпизодически, сигнала мало.</td><td>Объедини со смежным каналом или исключи.</td></tr>
 </table></div>
 
-<h2>Частые ошибки валидации</h2>
-<div class="table-wrap"><table>
-<tr><th>Что говорит система</th><th>В чём причина</th><th>Как исправить</th></tr>
-<tr><td><code>Не найден столбец с датами</code></td><td>Столбец даты назван неожиданно (например <code>период</code>) или дата как число.</td><td>Переименуй в <code>date</code> / <code>week</code> / <code>month</code> либо исправь роль вручную на шаге Валидации.</td></tr>
-<tr><td><code>Не найдены медиа-столбцы</code></td><td>Медиа-каналы названы без узнаваемых слов (<code>ch1</code>, <code>A</code>, <code>source</code>).</td><td>Переименуй в стиле <code>TV_TRP</code>, <code>OLV_rub</code>, <code>Social_spend</code> или назначь роли вручную.</td></tr>
-<tr><td><code>Ratio 1.8:1 — критически мало</code></td><td>Много каналов + мало строк.</td><td>Объедини каналы или добавь период. 5 каналов × 10 строк = ratio 2; лучше 5 × 20 = ratio 4.</td></tr>
-<tr><td><code>{канал} — 78% нулей</code></td><td>Канал работал эпизодически, большую часть периода 0 бюджета.</td><td>Либо объедини со смежным каналом, либо исключи — модель не сможет оценить его вклад.</td></tr>
-<tr><td><code>Мультиколлинеарность: TV_TRP ↔ TV_spend (r=0.98)</code></td><td>Ты загрузил и объём и деньги того же канала.</td><td>Оставь что-то одно. Обычно объём (TRP) точнее отражает эффект на аудиторию.</td></tr>
-<tr><td><code>Низкая вариативность (CV &lt; 5%)</code></td><td>Канал тратится почти ровным потоком — модель не может разделить его эффект.</td><td>Подумай, действительно ли это медиа-активность. Если всегда ровно — это <strong>не media</strong>, это baseline.</td></tr>
-<tr><td><code>Не удалось распознать формат дат</code></td><td>Даты как текст в формате <code>01.04.2024</code> или <code>Апрель 2024</code>.</td><td>Сохрани как <code>YYYY-MM-DD</code> или Excel-date (ячейка с иконкой календаря).</td></tr>
-</table></div>
+<p>Программа сама подсветит большинство этих проблем на шаге «Проверка» (светофор и предупреждения). Но лучше отловить их в Excel заранее.</p>
 
-<h2>Чеклист перед запуском</h2>
+<!-- ============ АНТИПАТТЕРНЫ ============ -->
+<h2 id="antipatterns"><span class="h2-num">13</span>Чего класть нельзя (антипаттерны)</h2>
+
+<ul>
+  <li><span class="gb b">✗</span> <strong>Строки и столбцы-итогов</strong> (Total / Сумма) — идеальная корреляция ломает модель.</li>
+  <li><span class="gb b">✗</span> <strong>Зеркала KPI</strong> — бюджет как % от продаж, органика вслед за продажами (раздел 4, ошибка 2).</li>
+  <li><span class="gb b">✗</span> <strong>Два выражения одного канала</strong> — и показы, и клики, и деньги одновременно (раздел 5).</li>
+  <li><span class="gb b">✗</span> <strong>ID и служебные поля</strong> — номера строк, коды кампаний, текстовые комментарии в данных.</li>
+  <li><span class="gb b">✗</span> <strong>Будущие данные (утечка)</strong> — значения, которых не было известно в момент периода (итоговая годовая цифра, проставленная задним числом во все строки).</li>
+  <li><span class="gb b">✗</span> <strong>Смесь частот</strong> — часть строк недельные, часть месячные. Один шаг на весь файл.</li>
+</ul>
+
+<!-- ============ ЧЕКЛИСТ ============ -->
+<h2 id="checklist"><span class="h2-num">14</span>Чеклист и частые ошибки</h2>
+
 <div class="callout c-ok">
-  <div class="c-title">Готов к Валидации?</div>
-  <p>✓ файл <code>.xlsx</code>/<code>.csv</code>, первая строка — заголовки<br>
-     ✓ есть столбец даты, читаемый формат (<code>YYYY-MM-DD</code> предпочтительнее)<br>
-     ✓ есть KPI-столбец (продажи / упаковки / SOM)<br>
-     ✓ минимум 2 медиа-канала, <strong>Ratio периоды/переменные ≥ 2</strong> (лучше ≥ 4)<br>
-     ✓ если есть TRP или impressions — знаешь стоимость юнита в ₽<br>
-     ✓ <strong>нет</strong> дубликатов дат и пустых строк посередине<br>
-     ✓ <strong>нет</strong> столбцов-итогов (<code>Total</code>, <code>Сумма</code>) — они ломают модель</p>
+  <div class="c-title">Готов к загрузке?</div>
+  <p>✓ Решил задачу: <strong>ROI (деньги)</strong> или <strong>Эффективность (медиа)</strong> — и выбрал один KPI<br>
+     ✓ Файл <code>.xlsx</code>/<code>.csv</code>, первая строка — заголовки<br>
+     ✓ Есть столбец даты в формате <code>ГГГГ-ММ-ДД</code><br>
+     ✓ Есть столбец KPI<br>
+     ✓ Минимум 2 медиаканала, каждый своей нативной метрикой (один канал = одна метрика)<br>
+     ✓ Собраны фоновые и конкурентные факторы (полнота драйверов)<br>
+     ✓ Нет зеркал KPI (бюджет ≠ % от продаж)<br>
+     ✓ Если есть TRP/показы/клики и нужен ROI — знаешь стоимость юнита в ₽<br>
+     ✓ Ratio периоды/переменные ≥ 2 (лучше ≥ 4)<br>
+     ✓ Нет дубликатов дат, пустых строк посередине и столбцов-итогов</p>
 </div>
 
-<p>Дальше — открой Aurora AI Econometrica, нажми «Импорт» и перетащи файл. Светофор покажет готовность. <a href="pipeline.html">Переход к шагам pipeline →</a></p>
+<div class="table-wrap"><table>
+<tr><th>Что говорит программа</th><th>Причина</th><th>Как исправить</th></tr>
+<tr><td><code>Не найден столбец с датами</code></td><td>Дата названа неожиданно или хранится как текст.</td><td>Переименуй в <code>date</code>/<code>week</code>/<code>month</code> или задай роль вручную; формат <code>ГГГГ-ММ-ДД</code>.</td></tr>
+<tr><td><code>Не найдены медиа-столбцы</code></td><td>Каналы названы без узнаваемых слов (<code>ch1</code>, <code>A</code>).</td><td>Переименуй в стиле <code>TV_TRP</code>, <code>OLV_views</code>, <code>Perf_clicks</code> или назначь роли вручную.</td></tr>
+<tr><td><code>Ratio критически мало</code></td><td>Много каналов, мало строк.</td><td>Объедини каналы или добавь периоды.</td></tr>
+<tr><td><code>Мультиколлинеарность r=0.98</code></td><td>Два выражения одного канала.</td><td>Оставь одно — обычно нативную метрику давления.</td></tr>
+<tr><td><code>Низкая вариативность</code></td><td>Столбец почти не меняется.</td><td>Если это не медиа-активность — это база, убери из факторов.</td></tr>
+</table></div>
+
+<p>Готов — открой приложение, нажми «Импорт» и перетащи файл. Светофор покажет готовность. <a href="pipeline.html">Перейти к шагам работы →</a> · <a href="faq.html">Частые вопросы →</a></p>
 
 </div>
 
