@@ -232,13 +232,13 @@
   /** @type {'sonnet'|'opus'} */
   let modelChoice = $state('sonnet');
   /** @type {'medium'|'high'|'max'} */
-  let effortChoice = $state('high');
+  let effortChoice = $state('medium');
 
   async function loadModelSettings() {
     try {
       const s = /** @type {{model: string, effort: string}} */ (await invoke('get_model_settings'));
       modelChoice = /** @type {'sonnet'|'opus'} */ (s.model || 'sonnet');
-      effortChoice = /** @type {'medium'|'high'|'max'} */ (s.effort || 'high');
+      effortChoice = /** @type {'medium'|'high'|'max'} */ (s.effort || 'medium');
     } catch (err) {
       console.error('Failed to load model settings:', err);
     }

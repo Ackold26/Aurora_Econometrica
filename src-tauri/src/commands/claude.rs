@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -142,14 +142,30 @@ async fn run_claude_inner(
     // Model selection from user config
     let model_id_owned: String;
     if let Some(ref m) = model {
+        // Передаём CLI-алиас, а не pinned snapshot-id: alias резолвится в АКТУАЛЬНУЮ
+        // версию модели в момент запуска → продукт авто-подхватывает новые поколения
+        // (opus/sonnet/haiku) без правки кода. Принцип: всегда latest любой модели.
         model_id_owned = match m.as_str() {
-            "opus" => "claude-opus-4-6".to_string(),
-            "haiku" => "claude-haiku-4-5-20251001".to_string(),
-            _ => "claude-sonnet-4-6".to_string(),
+            "opus" => "opus".to_string(),
+            "haiku" => "haiku".to_string(),
+            _ => "sonnet".to_string(),
         };
         args.push("--model");
         args.push(&model_id_owned);
     }
+    // Нажим (effort): из user_config (low|medium|high|xhigh|max), дефолт medium.
+    // Применяется ко ВСЕМ вызовам модели. Раньше выпадашка в Настройках сохранялась,
+    // но --effort не доходил до CLI (мёртвый контрол) — теперь дотянут. Whitelist
+    // защищает от мусора в конфиге.
+    let effort_owned: String = app_handle
+        .path()
+        .app_config_dir()
+        .ok()
+        .and_then(|d| crate::commands::user_config::load(&d).model_effort)
+        .filter(|e| matches!(e.as_str(), "low" | "medium" | "high" | "xhigh" | "max"))
+        .unwrap_or_else(|| "medium".to_string());
+    args.push("--effort");
+    args.push(&effort_owned);
     // Always write prompt to temp file and pipe via stdin.
     // Reasons: (1) Windows cmd line limit = 32767 chars, slides.json can be 100KB+
     // (2) cmd /C with Cyrillic args corrupts on cp1251 Windows

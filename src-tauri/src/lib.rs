@@ -1917,7 +1917,7 @@ fn get_model_settings(app_handle: tauri::AppHandle) -> Result<serde_json::Value,
     let config = user_config::load(&config_dir);
     Ok(serde_json::json!({
         "model": config.model.unwrap_or_else(|| "sonnet".to_string()),
-        "effort": config.model_effort.unwrap_or_else(|| "high".to_string()),
+        "effort": config.model_effort.unwrap_or_else(|| "medium".to_string()),
     }))
 }
 
@@ -1926,7 +1926,7 @@ fn set_model_settings(model: String, effort: String, app_handle: tauri::AppHandl
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let mut config = user_config::load(&config_dir);
     config.model = if model == "sonnet" { None } else { Some(model) };
-    config.model_effort = if effort == "high" { None } else { Some(effort) };
+    config.model_effort = if effort == "medium" { None } else { Some(effort) };
     user_config::save(&config_dir, &config)
 }
 
