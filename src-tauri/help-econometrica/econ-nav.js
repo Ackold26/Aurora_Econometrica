@@ -14,7 +14,7 @@
     { id: 'error-codes',       title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
 
     { id: 'data-preparation',  title: 'Подготовка данных',       group: 'data',     keywords: 'данные подготовка структура столбцы kpi media control date формат недельные помесячные FMCG pharma фарма объём ratio csv xlsx' },
-    { id: 'pipeline',          title: 'Pipeline: 5 шагов',       group: 'data',     keywords: 'pipeline validate train decompose optimize report шаги процесс' },
+    { id: 'pipeline',          title: 'Pipeline: 6 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize report импорт валидация шаги процесс' },
     { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
 
     { id: 'econometrica',      title: 'Visual Pipeline (UI)',    group: 'pipeline', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица KPI медиа adstock обучение модель декомпозиция оптимизация отчёт xlsx' },

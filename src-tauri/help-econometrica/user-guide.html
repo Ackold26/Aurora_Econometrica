@@ -49,7 +49,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
     <span class="lc-desc">Структура файла, примеры FMCG/Pharma, минимум/рекомендация, частые ошибки валидации</span>
   </a>
   <a class="link-card" href="pipeline.html">
-    <span class="lc-title">🔄 Pipeline — 5 шагов</span>
+    <span class="lc-title">🔄 Pipeline — 6 шагов</span>
     <span class="lc-desc">Validate → Train → Decompose → Optimize → Report, с указанием времени и outputs</span>
   </a>
   <a class="link-card" href="methodology.html">
@@ -101,7 +101,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 <p>Если слияемые каналы содержат валютный маркер («до НДС» / «₽» / «руб»), merged name наследует его автоматически — «Малые медиа до НДС».</p>
 
 <h2 id="html-export">HTML-экспорт отчёта</h2>
-<p>Помимо PPTX и XLSX, шаг «Отчёт» генерирует самодостаточный <strong>HTML-файл</strong> (15-30 KB) с интерактивными графиками через ECharts CDN. Открывается в любом браузере без установки Aurora AI.</p>
+<p>Помимо PPTX и XLSX, шаг «Отчёт» генерирует самодостаточный <strong>HTML-файл</strong> (~0,7 МБ) с интерактивными графиками — библиотека ECharts встроена прямо в файл, поэтому отчёт работает полностью офлайн. Открывается в любом браузере без установки Aurora AI.</p>
 <p>Удобно для передачи клиентам по email или публикации на внутреннем портале — данные модели embed'ятся в HTML, CDN подгружает только движок рендера.</p>
 
 <h2>Стоимость юнита — где настраивать</h2>
@@ -113,7 +113,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 <ul>
   <li><strong>PPTX</strong> — презентация для руководства: обложка, Executive Summary с MQS-badge, методология, результаты декомпозиции, оптимизация, рекомендации. Все графики — native PPTX, редактируемые.</li>
   <li><strong>XLSX</strong> — детальные данные: модель, декомпозиция, ROI per channel, оптимизация, сценарии, лист «Данные» (time-series для собственных диаграмм).</li>
-  <li><strong>HTML</strong> — самодостаточный отчёт с интерактивными графиками (ECharts через CDN, 15-30 KB). Открывается в любом браузере.</li>
+  <li><strong>HTML</strong> — самодостаточный отчёт с интерактивными графиками (ECharts встроен в файл, ~0,7 МБ, работает офлайн). Открывается в любом браузере.</li>
 </ul>
 <p>В карточках перед генерацией — email-текст с живой выжимкой (модель / результаты / ограничения). Копируй в письмо руководству.</p>
 

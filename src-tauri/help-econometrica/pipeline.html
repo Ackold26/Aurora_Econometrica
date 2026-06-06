@@ -39,42 +39,52 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 <body>
 
 <div class="container">
-<h1>Pipeline — 5 шагов</h1>
+<h1>Pipeline — 6 шагов</h1>
 <p class="sub">Путь от XLSX-файла к готовому PPTX/XLSX-отчёту. Каждый шаг можно переделать без потери предыдущих.</p>
 
 <div class="step-card">
-  <h3><span class="step-num">1</span> Импорт и валидация <span class="time-tag">~30 сек</span></h3>
-  <p>Загрузка файла, автоопределение ролей столбцов, проверка готовности к MMM. Показывает светофор (красный/жёлтый/зелёный), считает Ratio, находит подозрительно коррелированные столбцы.</p>
+  <h3><span class="step-num">1</span> Импорт <span class="time-tag">~10 сек</span></h3>
+  <p>Загрузка файла данных и автоопределение ролей столбцов (дата, целевой KPI, медиа-каналы, внешние факторы). Можно загрузить новый XLSX/CSV или открыть ранее сохранённый проект.</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">XLSX или CSV с <code>date</code> + KPI + медиа (см. <a href="data-preparation.html">Подготовка данных</a>)</div></div>
-    <div class="io-box"><div class="lbl">Output</div><div class="val">Статус «готов / требует доработки», автороли, matrix корреляций, гистограммы</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">Загруженный датасет с автоопределёнными ролями столбцов</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Проверка» в pipeline. Добавь стоимость юнита в ₽ если есть TRP/impressions.</div>
-  <div class="ui-ref" style="margin-top: 8px;"><strong>v1.0.10:</strong> если у тебя 3+ слабых каналов — появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
+  <div class="ui-ref">UI: шаг «Импорт». Можно скачать синтетический пример для одной из 4 отраслей и пройти весь pipeline.</div>
 </div>
 
 <div class="step-card">
-  <h3><span class="step-num">2</span> Обучение модели (MCMC) <span class="time-tag">3–15 мин</span></h3>
+  <h3><span class="step-num">2</span> Валидация <span class="time-tag">~20 сек</span></h3>
+  <p>Проверка готовности данных к MMM. Светофор (красный/жёлтый/зелёный), Ratio (точек на параметр), поиск подозрительно коррелированных столбцов, выбор режима анализа (ROI / Эффективность) и типа KPI.</p>
+  <div class="io-grid">
+    <div class="io-box"><div class="lbl">Input</div><div class="val">импортированный датасет, при необходимости — стоимость юнита в ₽ для TRP/impressions</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">Статус «готов / требует доработки», уточнённые роли, matrix корреляций, гистограммы</div></div>
+  </div>
+  <div class="ui-ref">UI: шаг «Валидация». Добавь стоимость юнита в ₽ если есть физические метрики (TRP/impressions) и нужен ROI.</div>
+  <div class="ui-ref" style="margin-top: 8px;">Если у тебя 3+ слабых каналов — появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
+</div>
+
+<div class="step-card">
+  <h3><span class="step-num">3</span> Модель — обучение (MCMC) <span class="time-tag">3–15 мин</span></h3>
   <p>Bayesian MMM через NumPyro / NUTS. По умолчанию 4 цепи × 2000 warmup + 2000 sampling. Каждый канал трансформируется Adstock → Hill (насыщение) → линейная регрессия.</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">валидированный датасет, adstock-тип per канал, опциональные экспертные priors</div></div>
     <div class="io-box"><div class="lbl">Output</div><div class="val">MQS (0–100), R², MAPE, R-hat, декомпозиция продаж base + channels</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Моделирование». Экспертные priors — кнопка «Экспертный режим» раскрывает настройки adstock/saturation/seasonality.</div>
+  <div class="ui-ref">UI: шаг «Модель». Экспертные priors — кнопка «Экспертный режим» раскрывает настройки adstock/saturation/seasonality.</div>
 </div>
 
 <div class="step-card">
-  <h3><span class="step-num">3</span> Декомпозиция <span class="time-tag">~5 сек</span></h3>
+  <h3><span class="step-num">4</span> Декомпозиция <span class="time-tag">~5 сек</span></h3>
   <p>Разложение продаж: baseline (всё, что не объясняется media) + вклад каждого канала. Waterfall, ROI, Spend vs Effect. Smell-flags ловят аномалии (unit mixing, ROI &gt;100×).</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">обученная модель + unit_costs из проекта</div></div>
     <div class="io-box"><div class="lbl">Output</div><div class="val">baseline_pct, channel_contributions, ROI per channel, traffic-light smell flags</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Результаты». Заметил unit_smell badge? Проверь unit_costs — скорее всего пропустил канал.</div>
+  <div class="ui-ref">UI: шаг «Декомпозиция». Заметил unit_smell badge? Проверь unit_costs — скорее всего пропустил канал.</div>
 </div>
 
 <div class="step-card">
-  <h3><span class="step-num">4</span> Оптимизация <span class="time-tag">~10 сек</span></h3>
+  <h3><span class="step-num">5</span> Оптимизация <span class="time-tag">~10 сек</span></h3>
   <p>5 блоков: (A) текущий бюджет, (B) оптимум в рамках текущего, (C) what-if при другом бюджете, (D) прогноз на будущий период с медиаинфляцией, (E) сценарный анализ с сохранением пресетов.</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">модель + декомпозиция + unit_costs</div></div>
@@ -84,13 +94,13 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 </div>
 
 <div class="step-card">
-  <h3><span class="step-num">5</span> Отчёт <span class="time-tag">~20 сек</span></h3>
+  <h3><span class="step-num">6</span> Отчёт <span class="time-tag">~20 сек</span></h3>
   <p>Генерация PPTX (презентация руководству: executive summary, методология, результаты, рекомендации), XLSX (сырые данные + графики + лист «Данные» для своих диаграмм) и HTML (самодостаточный отчёт для отправки клиентам).</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">все предыдущие шаги</div></div>
     <div class="io-box"><div class="lbl">Output</div><div class="val">PPTX + XLSX + HTML в папке <code>exports</code> активного проекта. «Открыть папку» в UI открывает её в проводнике.</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Отчёт». Email-текст на карточках — динамический, берётся из твоих реальных результатов. HTML (v1.0.10) — 15-30 KB standalone через ECharts CDN, открывается в браузере без установки Aurora.</div>
+  <div class="ui-ref">UI: шаг «Отчёт». Email-текст на карточках — динамический, берётся из твоих реальных результатов. HTML — самодостаточный файл (графики ECharts встроены прямо в файл, ~0,7 МБ) — открывается в любом браузере без установки Aurora и <strong>работает полностью офлайн, без интернета</strong>.</div>
 </div>
 
 <h2>Повторные запуски</h2>
