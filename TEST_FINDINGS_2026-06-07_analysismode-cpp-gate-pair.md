@@ -71,8 +71,17 @@ id-guard/флаг (флаг после early-return) · expertMode реентр�
 !p-reset старое не ломает (migrateV13ToV20 мёртв в проде). 2 опц. правки сделаны (trainInFlight latch
 + транзиция-тест).
 
-## Остаток LOAD-1 (после этой пары)
-- 🟠 **`modelChannelEnabled` persist** (п.2) — re-train иной media set: на reload ConfigPanel re-init
-  из media (zeros>80% default) → ручной disabled low-zeros канал ре-включается. persist toggle-состояния
-  (НЕ media_columns роль) + правка re-init.
+## 🟠 ЗАКРЫТО 2026-06-07 — `modelChannelEnabled` persist (п.2, отдельный коммит)
+Re-train иной media set: на reload ConfigPanel $effect re-init из `zeros_pct>80` default → ручной
+disabled low-zeros канал РЕ-ВКЛЮЧАЛСЯ. Закрыто:
+- **Rust** `ProjectInfo += model_channel_enabled: HashMap<String,bool>` (serde default) + handler
+  (replace целиком) + 2 cargo (roundtrip + legacy→empty). cargo project **14**.
+- **`resolveChannelEnabled(mediaColumns, persistedToggle)`** — чистая фн: persisted приоритет над
+  zeros-default. ConfigPanel $effect зовёт с `get(activeProject)?.model_channel_enabled`; persist
+  `model_channel_enabled` в trainModel. +9 vitest (incl. round-trip контракт seed-source).
+- modelChannelEnabled ≠ media_columns (роль): toggle персистится отдельно. Синергия с cpp-гейтом п.1:
+  disabled physical-no-cost канал не в enabledChannels → гейт не блокирует.
+- Адверс. верификация реализации: **SOUND**, закрыт LOW-gap (round-trip тест seed-source).
+
+## Остаток LOAD-1
 - D-1 (perChannelInput persist) + D-3 (analysisMode persist-on-change) — known-limits, follow-up.

@@ -340,6 +340,31 @@ export const chosenKpiColumn = writable(/** @type {string | null} */ (null));
 export const modelChannelEnabled = writable(/** @type {Record<string, boolean>} */ ({}));
 
 /**
+ * LOAD-1 (2026-06-07): вычислить ВКЛ/ВЫКЛ-состояние медиа-каналов для ConfigPanel init.
+ * Persisted toggle (project.json `model_channel_enabled`) имеет ПРИОРИТЕТ над
+ * auto-default (`zeros_pct>80` → выкл). Без приоритета ручной disabled low-zeros канал
+ * ре-включался бы на reload → re-train с иным media-набором = иная модель. Legacy/fresh
+ * проект (persisted пуст) → каждый канал падает на zeros-default (pre-fix поведение).
+ * Чистая фн (testable без рендера ConfigPanel) — $effect в ConfigPanel зовёт её с
+ * `get(activeProject)?.model_channel_enabled` (durable truth).
+ * @param {Array<{name?: string, stats?: {zeros_pct?: number}}>|null|undefined} mediaColumns
+ * @param {Record<string, boolean>|null|undefined} persistedToggle
+ * @returns {Record<string, boolean>}
+ */
+export function resolveChannelEnabled(mediaColumns, persistedToggle) {
+  const persisted = persistedToggle ?? {};
+  /** @type {Record<string, boolean>} */
+  const enabled = {};
+  for (const ch of mediaColumns ?? []) {
+    if (!ch?.name) continue;
+    enabled[ch.name] = typeof persisted[ch.name] === 'boolean'
+      ? persisted[ch.name]
+      : !((ch.stats?.zeros_pct ?? 0) > 80);
+  }
+  return enabled;
+}
+
+/**
  * Derived: names of active media channels on шаге Модель (filter по
  * modelChannelEnabled === true). Источник правды для insights / adstock /
  * time estimate.

@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted } from '$lib/project-state.js';
+  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { buildTrainConfig } from '$lib/train-config.js';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
@@ -103,12 +103,13 @@
       }
 
       const media = validation.columns.filter(/** @param {any} c */ (c) => c.role === 'media');
-      /** @type {Record<string, boolean>} */
-      const enabled = {};
+      // LOAD-1 (2026-06-07): seed ВКЛ/ВЫКЛ из DURABLE persisted toggle (приоритет над
+      // zeros>80% default) → ручной disabled low-zeros канал не ре-включается на reload.
+      // persisted truth = activeProject.model_channel_enabled (persist в trainModel ниже).
+      const enabled = resolveChannelEnabled(media, get(activeProject)?.model_channel_enabled);
       /** @type {Record<string, string>} */
       const adstock = {};
       for (const ch of media) {
-        enabled[ch.name] = !(ch.stats?.zeros_pct > 80);
         adstock[ch.name] = 'auto';
       }
       channelEnabled = enabled;
@@ -352,6 +353,8 @@
           value_per_count_unit: get(valuePerCountUnit),
           // LOAD-1 пара (2026-06-07): persist режим → cpp-гейт переживает reload.
           analysis_mode: get(analysisMode),
+          // LOAD-1 (2026-06-07): persist toggle каналов → reload не ре-включает disabled.
+          model_channel_enabled: get(modelChannelEnabled),
         },
       });
 

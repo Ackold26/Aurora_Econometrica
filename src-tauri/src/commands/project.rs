@@ -76,6 +76,14 @@ pub struct ProjectInfo {
     /// Backward compat: None для legacy проектов (до этого фикса).
     #[serde(default)]
     pub analysis_mode: Option<String>,
+    /// LOAD-1 (2026-06-07): per-channel toggle ВКЛ/ВЫКЛ из ConfigPanel (НЕ роль —
+    /// media_columns это роль). Не персистился → reload ре-init из `zeros_pct>80`
+    /// default → ручной disabled low-zeros канал РЕ-ВКЛЮЧАЛСЯ → re-train с иным
+    /// набором media_columns = иная модель. Persist здесь + seed `resolveChannelEnabled`
+    /// (persisted имеет приоритет над zeros-default) закрывают это.
+    /// Backward compat: пустой для legacy → seed падает на zeros-default (pre-fix).
+    #[serde(default)]
+    pub model_channel_enabled: HashMap<String, bool>,
 }
 
 fn default_industry() -> String {
@@ -263,6 +271,7 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         kpi_kind: None,
         value_per_count_unit: None,
         analysis_mode: None,
+        model_channel_enabled: HashMap::new(),
     };
     write_project(&dir, &info)?;
 
@@ -372,6 +381,13 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     // обучения переживает reload. Без него effectiveness-проект reset в roi → ложный блок.
     if let Some(am) = updates.get("analysis_mode").and_then(|v| v.as_str()) {
         info.analysis_mode = Some(am.to_string());
+    }
+    // LOAD-1 (2026-06-07): persist per-channel toggle (ВКЛ/ВЫКЛ) → reload не ре-включает
+    // ручной disabled канал. Замена целиком (карта тоглов из ConfigPanel — полная).
+    if let Some(mce) = updates.get("model_channel_enabled").and_then(|v| v.as_object()) {
+        info.model_channel_enabled = mce.iter()
+            .filter_map(|(k, v)| v.as_bool().map(|b| (k.clone(), b)))
+            .collect();
     }
 
     info.updated_at = now_iso();
@@ -1040,6 +1056,7 @@ mod atomic_write_tests {
             kpi_kind: None,
             value_per_count_unit: None,
             analysis_mode: None,
+            model_channel_enabled: HashMap::new(),
         }
     }
 
@@ -1108,6 +1125,35 @@ mod atomic_write_tests {
         write_project(tmp.path(), &info).unwrap();
         let loaded = read_project(tmp.path()).unwrap();
         assert_eq!(loaded.analysis_mode.as_deref(), Some("effectiveness"));
+    }
+
+    #[test]
+    fn write_project_roundtrip_preserves_model_channel_enabled() {
+        // LOAD-1 (2026-06-07): toggle-карта каналов должна переживать save/reload.
+        let tmp = TempDir::new().unwrap();
+        let mut info = make_info("mce", "Channel Toggle");
+        info.model_channel_enabled.insert("tv_trp".to_string(), false);
+        info.model_channel_enabled.insert("digital_spend".to_string(), true);
+        write_project(tmp.path(), &info).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.model_channel_enabled.get("tv_trp"), Some(&false));
+        assert_eq!(loaded.model_channel_enabled.get("digital_spend"), Some(&true));
+    }
+
+    #[test]
+    fn read_project_legacy_json_without_model_channel_enabled_defaults_empty() {
+        // Backward compat: legacy без поля → serde(default) → пустая карта →
+        // seed resolveChannelEnabled падает на zeros-default (pre-fix поведение).
+        let tmp = TempDir::new().unwrap();
+        let legacy = r#"{
+            "id": "legacy", "name": "Legacy", "description": "",
+            "created_at": "2026-05-01T00:00:00Z", "updated_at": "2026-05-01T00:00:00Z",
+            "kpi_column": "sales", "media_columns": ["tv"], "control_columns": [],
+            "data_file": null
+        }"#;
+        std::fs::write(tmp.path().join("project.json"), legacy).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert!(loaded.model_channel_enabled.is_empty());
     }
 
     #[test]
