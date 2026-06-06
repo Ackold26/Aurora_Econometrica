@@ -109,6 +109,21 @@ OLS-конфиги через `buildTrainConfig`, синтетический RET
   file-import (нативный диалог). Покрыто unit-уровнем + код-путь ReportStep.svelte:298 / MQSBadge существует.
   Для полного «MQS-1 на свежеобученной» нужен интерактивный импорт+train (отдельная сессия).
 
-## Остаток LOAD-1
-- D-1 (perChannelInput persist) + D-3 (analysisMode persist-on-change) — known-limits, follow-up.
+## ✅ ЗАКРЫТО 2026-06-07 — D-1 perChannelInput persist + D-3 analysisMode persist-on-change
+Бывшие known-limits закрыты тем же паттерном:
+- **D-1**: Rust `ProjectInfo += per_channel_input: HashMap<String,String>` (serde default) + handler +
+  persist в trainModel + ре-гидрация id-guard'ом (count-KPI subscribe, SET-IF-PRESENT). Закрывает
+  ложный over-block cpp-гейта на reload: physical-имя + override='monetary' + no-cost + roi больше
+  НЕ блокируется (гейт судит по реальному выбору юзера, не детектору имени). +2 cargo, +3 vitest
+  (override снимает блок / legacy детектор-fallback контраст / деселект сброс).
+- **D-3**: persist-on-change subscribe в project-state.js (`invoke` доступен) — explicit смена режима
+  (AnalysisModeSelector/StepMediaConfirm) сразу пишется в project.json → A→B→A не теряет выбор.
+  Координация `_amLastWritten`: persister пропускает disk→disk на ре-гидрации (нет дрейфа/wrong-project
+  write при selectProject order activeProject.set ДО activeProjectId.set). +3 vitest (persist / no-pid
+  skip / disk→disk skip). Гейт активируется на reload (D-2 self-heal timing).
+
+**Класс LOAD-1 ПОЛНОСТЬЮ ЗАКРЫТ** (chosenKpiColumn → count-KPI → analysisMode+cpp-гейт → modelChannelEnabled
+→ perChannelInput → analysisMode persist-on-change). Гейты: cargo project **16** · vitest **692**.
+
+## Остаток
 - MQS-бейдж «переобучение» wording — live-наблюдение требует интерактивного fresh-train (file-import барьер).

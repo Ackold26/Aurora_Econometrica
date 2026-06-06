@@ -355,6 +355,9 @@
           analysis_mode: get(analysisMode),
           // LOAD-1 (2026-06-07): persist toggle каналов → reload не ре-включает disabled.
           model_channel_enabled: get(modelChannelEnabled),
+          // LOAD-1 D-1 (2026-06-07): persist per-channel метрику → cpp-гейт на reload
+          // судит по выбору юзера, не по детектору имени (закрывает ложный over-block).
+          per_channel_input: get(perChannelInput),
         },
       });
 

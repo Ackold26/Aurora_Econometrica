@@ -758,6 +758,7 @@ activeProject.subscribe((p) => {
     kpiType.set('sales');
     kpiKind.set('monetary');
     valuePerCountUnit.set(null);
+    perChannelInput.set({});  // D-1: сброс per-channel метрик при деселекте
     return;
   }
   if (p.id === _lastCountKpiProjectId) return;  // тот же проект (mid-session set) → не клоббить
@@ -765,6 +766,13 @@ activeProject.subscribe((p) => {
   if (typeof p.kpi_type === 'string' && p.kpi_type) kpiType.set(p.kpi_type);
   if (typeof p.kpi_kind === 'string' && p.kpi_kind) kpiKind.set(p.kpi_kind);
   if (typeof p.value_per_count_unit === 'number') valuePerCountUnit.set(p.value_per_count_unit);
+  // LOAD-1 D-1 (2026-06-07): ре-гидрация per-channel метрики из DURABLE project.json →
+  // cpp-гейт на reload судит по реальному выбору юзера, не по детектору имени (закрывает
+  // ложный over-block physical-имя+override='monetary'+no-cost). SET-IF-PRESENT: пустая
+  // карта legacy не клоббит (детектор-fallback сохраняется). Тот же id-guard.
+  if (p.per_channel_input && typeof p.per_channel_input === 'object' && Object.keys(p.per_channel_input).length) {
+    perChannelInput.set(/** @type {Record<string, 'monetary'|'physical'>} */ (p.per_channel_input));
+  }
 });
 
 // LOAD-1 (2026-06-07): ре-гидрация analysis_mode из DURABLE project.json. Парный фикс
@@ -785,10 +793,14 @@ activeProject.subscribe((p) => {
 // ре-гидрации, иначе mixed-проект в Manager-UI рассинхронит INV-30 (нет mixed-карточки).
 let _lastAnalysisModeProjectId = /** @type {string|null} */ (null);
 let _activeProjectHasPersistedMode = false;
+// D-3 (2026-06-07): последнее значение режима, синхронное с диском (из ре-гидрации ИЛИ
+// persist-on-change). Persister пропускает запись, если стор == диск (нет дрейфа disk→disk).
+let _amLastWritten = /** @type {string|null} */ (null);
 activeProject.subscribe((p) => {
   if (!p) {
     _lastAnalysisModeProjectId = null;
     _activeProjectHasPersistedMode = false;
+    _amLastWritten = null;
     analysisMode.set('roi');
     return;
   }
@@ -796,13 +808,29 @@ activeProject.subscribe((p) => {
   _lastAnalysisModeProjectId = p.id;
   if (typeof p.analysis_mode === 'string' && p.analysis_mode) {
     _activeProjectHasPersistedMode = true;
+    _amLastWritten = p.analysis_mode;  // синхрон с диском ДО set → persister не перезапишет
     analysisMode.set(/** @type {'roi'|'effectiveness'|'mixed'} */ (p.analysis_mode));
     if (p.analysis_mode === 'mixed') expertMode.set(true);  // D-5: mixed виден только в Expert
   } else {
     // Legacy без analysis_mode: НЕ клоббим стор (mode-defaults/импорт мог уже выставить);
-    // флаг false → cpp-гейт fail-open для этого проекта.
+    // флаг false → cpp-гейт fail-open. _amLastWritten=null → первый explicit-выбор юзера персистится.
     _activeProjectHasPersistedMode = false;
+    _amLastWritten = null;
   }
+});
+
+// D-3 (2026-06-07): persist analysisMode ПРИ ИЗМЕНЕНИИ (не только в trainModel). Без этого
+// A→B→A терял несохранённый выбор режима (id-guard ре-гидрировал stale disk). Теперь explicit
+// смена режима (AnalysisModeSelector/StepMediaConfirm) сразу пишется в project.json → возврат
+// к проекту восстанавливает выбор. Гейт активируется на следующем reload (D-2 self-heal timing).
+// Идемпотентность: пропуск если стор == диск (_amLastWritten) → нет дрейфа disk→disk на ре-гидрации.
+analysisMode.subscribe((mode) => {
+  const pid = get(activeProjectId);
+  if (!pid) return;                 // нет активного проекта → некуда персистить
+  if (mode === _amLastWritten) return;  // совпадает с диском (ре-гидрация/no-op) → не писать
+  _amLastWritten = mode;
+  invoke('project_update', { projectId: pid, updates: { analysis_mode: mode } })
+    .catch(() => { /* persist best-effort; trainModel persC тоже пишет */ });
 });
 
 /**

@@ -84,6 +84,14 @@ pub struct ProjectInfo {
     /// Backward compat: пустой для legacy → seed падает на zeros-default (pre-fix).
     #[serde(default)]
     pub model_channel_enabled: HashMap<String, bool>,
+    /// LOAD-1 D-1 (2026-06-07): per-channel выбор метрики `monetary`/`physical`
+    /// (ValidateStepV13 override детектора). Стал ВХОДОМ cpp-гейта обучения (тип канала =
+    /// `per_channel_input[name] ?? detectChannelUnitType(name)`). Не персистился → reset на
+    /// reload → гейт падал на детектор по имени → physical-имя+override='monetary'+no-cost+roi
+    /// = ложный over-block валидного обучения. Persist здесь + ре-гидрация id-guard'ом дают
+    /// гейту реальный выбор юзера, не эвристику имени. Backward compat: пустой для legacy.
+    #[serde(default)]
+    pub per_channel_input: HashMap<String, String>,
 }
 
 fn default_industry() -> String {
@@ -272,6 +280,7 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         value_per_count_unit: None,
         analysis_mode: None,
         model_channel_enabled: HashMap::new(),
+        per_channel_input: HashMap::new(),
     };
     write_project(&dir, &info)?;
 
@@ -387,6 +396,13 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     if let Some(mce) = updates.get("model_channel_enabled").and_then(|v| v.as_object()) {
         info.model_channel_enabled = mce.iter()
             .filter_map(|(k, v)| v.as_bool().map(|b| (k.clone(), b)))
+            .collect();
+    }
+    // LOAD-1 D-1 (2026-06-07): persist per-channel метрику → cpp-гейт на reload судит
+    // по реальному выбору юзера, не по детектору имени. Замена целиком (карта из ValidateStep).
+    if let Some(pci) = updates.get("per_channel_input").and_then(|v| v.as_object()) {
+        info.per_channel_input = pci.iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
             .collect();
     }
 
@@ -1057,6 +1073,7 @@ mod atomic_write_tests {
             value_per_count_unit: None,
             analysis_mode: None,
             model_channel_enabled: HashMap::new(),
+            per_channel_input: HashMap::new(),
         }
     }
 
@@ -1138,6 +1155,36 @@ mod atomic_write_tests {
         let loaded = read_project(tmp.path()).unwrap();
         assert_eq!(loaded.model_channel_enabled.get("tv_trp"), Some(&false));
         assert_eq!(loaded.model_channel_enabled.get("digital_spend"), Some(&true));
+    }
+
+    #[test]
+    fn write_project_roundtrip_preserves_per_channel_input() {
+        // LOAD-1 D-1 (2026-06-07): per-channel метрика должна переживать save/reload (cpp-гейт).
+        let tmp = TempDir::new().unwrap();
+        let mut info = make_info("pci", "Per Channel Input");
+        info.per_channel_input.insert("tv_trp".to_string(), "monetary".to_string());
+        info.per_channel_input.insert("digital".to_string(), "physical".to_string());
+        write_project(tmp.path(), &info).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.per_channel_input.get("tv_trp").map(|s| s.as_str()), Some("monetary"));
+        assert_eq!(loaded.per_channel_input.get("digital").map(|s| s.as_str()), Some("physical"));
+    }
+
+    #[test]
+    fn read_project_legacy_json_without_per_channel_input_defaults_empty() {
+        // Backward compat: legacy без поля → serde(default) → пустая карта → гейт падает
+        // на detectChannelUnitType (pre-D-1 поведение). NB: гейт enforce только при
+        // analysis_mode persisted (D-2 fail-open), legacy → ungated.
+        let tmp = TempDir::new().unwrap();
+        let legacy = r#"{
+            "id": "legacy", "name": "Legacy", "description": "",
+            "created_at": "2026-05-01T00:00:00Z", "updated_at": "2026-05-01T00:00:00Z",
+            "kpi_column": "sales", "media_columns": ["tv"], "control_columns": [],
+            "data_file": null
+        }"#;
+        std::fs::write(tmp.path().join("project.json"), legacy).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert!(loaded.per_channel_input.is_empty());
     }
 
     #[test]

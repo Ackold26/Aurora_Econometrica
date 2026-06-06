@@ -15,10 +15,11 @@
  *   D-5 (persisted 'mixed' → expertMode.set(true), иначе INV-30 рассинхрон в Manager-UI)
  *   id-guard (mid-session set того же проекта НЕ клоббит несохранённый выбор режима)
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
+import { invoke } from '@tauri-apps/api/core';
 import {
-  activeProject, analysisMode, expertMode,
+  activeProject, activeProjectId, analysisMode, expertMode, perChannelInput,
   analysisModeIsPersisted, cppSatisfied,
 } from '$lib/project-state.js';
 
@@ -142,5 +143,67 @@ describe('LOAD-1: cpp-гейт обучения (флаг && !cppSatisfied) — 
     // без unit_cost не обучается → не блокирует. Передаём только включённый monetary.
     activeProject.set(/** @type {any} */ ({ id: 'r4', analysis_mode: 'roi' }));
     expect(trainGateBlocks({ channels: ['digital_spend'], unitCosts: {} })).toBe(false);
+  });
+});
+
+describe('LOAD-1 D-1: ре-гидрация perChannelInput закрывает ложный over-block', () => {
+  // Гейт читает get(perChannelInput); проверяем что rehydrated override снимает блок.
+  function gateBlocksFromStore(channels, unitCosts) {
+    return analysisModeIsPersisted() && !cppSatisfied({
+      channels, perChannelInput: get(perChannelInput),
+      unitCosts: unitCosts ?? {}, analysisMode: get(analysisMode),
+    });
+  }
+
+  it('persisted pci override physical-имени на monetary → roi+no-cost НЕ блокирует', () => {
+    // tv_trp детектится physical; юзер пометил monetary (колонка уже в ₽). До D-1 reload
+    // терял override → детектор→physical→roi+no-cost→ложный блок. Теперь pci ре-гидрирован.
+    activeProject.set(/** @type {any} */ ({ id: 'd1a', analysis_mode: 'roi', per_channel_input: { tv_trp: 'monetary' } }));
+    expect(get(perChannelInput)).toEqual({ tv_trp: 'monetary' });
+    expect(gateBlocksFromStore(['tv_trp'], {})).toBe(false); // override снял блок
+  });
+
+  it('БЕЗ pci (legacy/пусто) physical-имя + roi + no-cost → детектор→блок (контраст)', () => {
+    activeProject.set(/** @type {any} */ ({ id: 'd1b', analysis_mode: 'roi' })); // pci не ре-гидрирован
+    expect(get(perChannelInput)).toEqual({}); // сброшен, детектор-fallback
+    expect(gateBlocksFromStore(['tv_trp'], {})).toBe(true); // детектор tv_trp→physical→блок
+  });
+
+  it('деселект сбрасывает perChannelInput', () => {
+    activeProject.set(/** @type {any} */ ({ id: 'd1c', per_channel_input: { x: 'physical' } }));
+    activeProject.set(null);
+    expect(get(perChannelInput)).toEqual({});
+  });
+});
+
+describe('LOAD-1 D-3: persist analysisMode on-change', () => {
+  const amUpdates = () => /** @type {any} */ (invoke).mock.calls.filter(
+    (c) => c[0] === 'project_update' && c[1]?.updates && 'analysis_mode' in c[1].updates);
+
+  beforeEach(() => { activeProject.set(null); activeProjectId.set(null); /** @type {any} */ (invoke).mockClear(); });
+
+  it('explicit смена режима при активном проекте → project_update с analysis_mode', async () => {
+    activeProjectId.set('proj-1');
+    /** @type {any} */ (invoke).mockClear();
+    analysisMode.set('effectiveness');
+    await Promise.resolve();
+    const calls = amUpdates();
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(calls[calls.length - 1][1]).toEqual({ projectId: 'proj-1', updates: { analysis_mode: 'effectiveness' } });
+  });
+
+  it('нет активного проекта → НЕ персистит', () => {
+    activeProjectId.set(null);
+    /** @type {any} */ (invoke).mockClear();
+    analysisMode.set('mixed');
+    expect(amUpdates().length).toBe(0);
+  });
+
+  it('ре-гидрация (disk→disk) НЕ перезаписывает: persisted mode не триггерит project_update', () => {
+    activeProjectId.set('proj-2');
+    /** @type {any} */ (invoke).mockClear();
+    // activeProject с тем же режимом, что прилетает с диска → _amLastWritten синхрон → skip.
+    activeProject.set(/** @type {any} */ ({ id: 'proj-2-load', analysis_mode: 'roi' }));
+    expect(amUpdates().length).toBe(0); // ре-гидрация roi не пишется обратно
   });
 });
