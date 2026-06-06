@@ -83,5 +83,32 @@ disabled low-zeros канал РЕ-ВКЛЮЧАЛСЯ. Закрыто:
   disabled physical-no-cost канал не в enabledChannels → гейт не блокирует.
 - Адверс. верификация реализации: **SOUND**, закрыт LOW-gap (round-trip тест seed-source).
 
+## ✅ ЗАКРЫТО 2026-06-07 — п.3a ребилд sidecar.exe + re-probe honesty-фиксов (Антон: ДА)
+`build_sidecar.py` (PyInstaller --onedir, 969 МБ) → синхронизирован в `sidecar/econometrica/`
+(Tauri resource path; exe gitignored). **«Freshness verified (exe newer than all .py sources)»** —
+гарантия, что exe собран из фикс-кода (decomposer.py с F-C/F-A/FIX-2). Re-probe (новый exe на :8899,
+OLS-конфиги через `buildTrainConfig`, синтетический RETAIL с binary `promo_indicator`):
+- **F-A**: count-KPI (kpi_type=count_custom) → output `kpi_kind='count'` ✓
+- **F-C**: count без unit_cost → insight «Денежный ROI недоступен...» (money_roi_unavailable, promo НЕ коронован) ✓
+- **FIX-2**: monetary → promo_indicator roi=**215054×** (артефакт ≥100×) исключён из clean → НЕ коронован; insight честно про digital (INV-50) ✓
+- monetary `kpi_kind='monetary'` ✓ — все PASS, ребилд донёс honesty-фиксы до продукта.
+
+## ✅ п.3b live Эксперт/MQS через MCP-мост 9223 (Антон: ДА) — LIVE-верифицировано
+`npm run tauri:dev` + bridge 9223 (`__TAURI__` есть, withGlobalTauri). Параллельной сессии нет (recon 5173/7529/9223 чисто).
+- **Backward-compat LIVE**: `project_list` на **116 реальных проектах** → новые поля `analysis_mode`/`model_channel_enabled`
+  десериализуются (serde default) без ошибок; все legacy → am=null, mce=0 → cpp-гейт fail-open (**D-2 на реальных данных**).
+- **п.1/п.2 config-ре-гидрация LIVE** (restore обученного Кагоцел): 6 шагов разлочены корректно (gating цел), Config-панель
+  рендерит 7 каналов через `resolveChannelEnabled` (legacy zeros-default, физ. TRPs present, без краша), KPI ре-гидрирован,
+  Expert-режим (MCMC-пресеты/per-channel adstock) present.
+- **cpp-гейт fail-open LIVE поведенчески**: клик «Запустить модель» на legacy-проекте НЕ заблокирован (нет «остановлено/ROI-артефакт»).
+- **decomposer honesty-фиксы LIVE** (decompose через свежий sidecar на реальных данных Кагоцел): waterfall показывает
+  **TRPs бренд ROI 12186.08× → вердикт «ROI завышен (не рубли?)»**, НЕ коронован; остальные каналы с суффиксом
+  «(широкий ROI-интервал)» = INV-50 CI-честность. `hasTRPcrown=false` подтверждён.
+- **Не наблюдалось напрямую**: свежий MCMC-train → MQS-бейдж «переобучение» wording — train на ВОССТАНОВЛЕННОМ проекте
+  требует re-import исходного xlsx (importData.file не входит в restore старого проекта) → упирается в барьер автоматизации
+  file-import (нативный диалог). Покрыто unit-уровнем + код-путь ReportStep.svelte:298 / MQSBadge существует.
+  Для полного «MQS-1 на свежеобученной» нужен интерактивный импорт+train (отдельная сессия).
+
 ## Остаток LOAD-1
 - D-1 (perChannelInput persist) + D-3 (analysisMode persist-on-change) — known-limits, follow-up.
+- MQS-бейдж «переобучение» wording — live-наблюдение требует интерактивного fresh-train (file-import барьер).
