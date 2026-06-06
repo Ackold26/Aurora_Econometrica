@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
+  import { activeProjectId, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { buildTrainConfig } from '$lib/train-config.js';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
@@ -255,11 +255,13 @@
     if (!projectId) {
       computeStatus.set('Ошибка: проект не выбран. Создайте проект на шаге Импорт.');
       setTimeout(() => computeStatus.set(''), 5000);
+      trainInFlight = false;  // сброс latch (иначе trainModel залипает до reload)
       return;
     }
     if (!selectedKpi) {
       computeStatus.set('Ошибка: не выбран целевой KPI.');
       setTimeout(() => computeStatus.set(''), 4000);
+      trainInFlight = false;
       return;
     }
 
@@ -293,6 +295,7 @@
           : 'Ошибка: не выбрано ни одного медиа-канала.'
       );
       setTimeout(() => computeStatus.set(''), 6000);
+      trainInFlight = false;
       return;
     }
 
@@ -300,6 +303,30 @@
     if (!dataFile) {
       computeStatus.set('Ошибка: файл данных не найден. Вернитесь на шаг Импорт и загрузите файл заново.');
       setTimeout(() => computeStatus.set(''), 6000);
+      trainInFlight = false;
+      return;
+    }
+
+    // CPP-гейт на пути обучения (LOAD-1 пара, 2026-06-07). chokepoint completeStep(1)
+    // защищает разлок Модели на шаге Валидация, но после RELOAD статус Модели уже
+    // 'complete'/'ready' (персистится) → completeStep(1) НЕ перезапускается → re-train
+    // минует гейт → ROI-артефакт (physical+roi без unit_cost, класс 12186×). Этот гейт
+    // закрывает reload→re-train путь. Снимок по ENABLED-каналам (не все media, как
+    // currentGateSnapshot) — точнее: отключённый physical-канал не обучается → не блокирует.
+    // analysisMode уже ре-гидрирован с диска (activeProject.subscribe) → effectiveness
+    // не путается с roi. D-2 fail-open: применяем ТОЛЬКО к проектам с persisted analysis_mode
+    // (legacy без поля → ungated, иначе гейт = регрессия на сущ. effectiveness-проектах).
+    if (analysisModeIsPersisted() && !cppSatisfied({
+      channels: enabledChannels,
+      perChannelInput: get(perChannelInput),
+      unitCosts: get(unitCosts),
+      analysisMode: get(analysisMode),
+    })) {
+      computeStatus.set(
+        'Обучение остановлено: есть канал в физических единицах (TRP/показы) в режиме ROI без указанной стоимости единицы — это даёт завышенный ROI. Укажите стоимость на шаге «Валидация» или выберите режим «Эффективность».'
+      );
+      setTimeout(() => computeStatus.set(''), 10000);
+      trainInFlight = false;
       return;
     }
 
@@ -323,6 +350,8 @@
           kpi_type: get(kpiType),
           kpi_kind: get(kpiKind),
           value_per_count_unit: get(valuePerCountUnit),
+          // LOAD-1 пара (2026-06-07): persist режим → cpp-гейт переживает reload.
+          analysis_mode: get(analysisMode),
         },
       });
 

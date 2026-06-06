@@ -66,6 +66,16 @@ pub struct ProjectInfo {
     pub kpi_kind: Option<String>,
     #[serde(default)]
     pub value_per_count_unit: Option<f64>,
+    /// LOAD-1 (2026-06-07): режим анализа (`roi`/`effectiveness`/`mixed`). Влияет
+    /// на cpp-гейт обучения: physical-канал в `roi`-режиме без unit_cost = ROI-артефакт.
+    /// Не персистился → reset в `roi` на reload → effectiveness-проект (валидный с
+    /// physical-метриками без ₽) ложно блокировался бы cpp-гейтом в trainModel.
+    /// Persist здесь + ре-гидрация id-guard'ом закрывают это. Legacy без поля → None:
+    /// front-енд НЕ применяет cpp-гейт к legacy-проектам (fail-open к pre-fix поведению,
+    /// иначе гейт = регрессия на всех существующих effectiveness-проектах).
+    /// Backward compat: None для legacy проектов (до этого фикса).
+    #[serde(default)]
+    pub analysis_mode: Option<String>,
 }
 
 fn default_industry() -> String {
@@ -252,6 +262,7 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         kpi_type: None,
         kpi_kind: None,
         value_per_count_unit: None,
+        analysis_mode: None,
     };
     write_project(&dir, &info)?;
 
@@ -356,6 +367,11 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
         } else if let Some(f) = vpcu.as_f64() {
             info.value_per_count_unit = Some(f);
         }
+    }
+    // LOAD-1 (2026-06-07): persist analysis_mode (roi/effectiveness/mixed) → cpp-гейт
+    // обучения переживает reload. Без него effectiveness-проект reset в roi → ложный блок.
+    if let Some(am) = updates.get("analysis_mode").and_then(|v| v.as_str()) {
+        info.analysis_mode = Some(am.to_string());
     }
 
     info.updated_at = now_iso();
@@ -1023,6 +1039,7 @@ mod atomic_write_tests {
             kpi_type: None,
             kpi_kind: None,
             value_per_count_unit: None,
+            analysis_mode: None,
         }
     }
 
@@ -1080,6 +1097,34 @@ mod atomic_write_tests {
         assert_eq!(loaded.kpi_kind, None);
         assert_eq!(loaded.value_per_count_unit, None);
         assert_eq!(loaded.kpi_column.as_deref(), Some("sales"));
+    }
+
+    #[test]
+    fn write_project_roundtrip_preserves_analysis_mode() {
+        // LOAD-1 (2026-06-07): analysis_mode должен переживать save/reload (cpp-гейт).
+        let tmp = TempDir::new().unwrap();
+        let mut info = make_info("am", "Analysis Mode");
+        info.analysis_mode = Some("effectiveness".to_string());
+        write_project(tmp.path(), &info).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.analysis_mode.as_deref(), Some("effectiveness"));
+    }
+
+    #[test]
+    fn read_project_legacy_json_without_analysis_mode_defaults_none() {
+        // D-2 (адверс. дизайн-аудит 2026-06-07): legacy project.json без analysis_mode →
+        // serde(default) → None. Фронт-енд по None НЕ применяет cpp-гейт (fail-open),
+        // иначе гейт = регрессия на существующих effectiveness-проектах.
+        let tmp = TempDir::new().unwrap();
+        let legacy = r#"{
+            "id": "legacy", "name": "Legacy", "description": "",
+            "created_at": "2026-05-01T00:00:00Z", "updated_at": "2026-05-01T00:00:00Z",
+            "kpi_column": "sales", "media_columns": ["tv"], "control_columns": [],
+            "data_file": null
+        }"#;
+        std::fs::write(tmp.path().join("project.json"), legacy).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.analysis_mode, None);
     }
 
     #[test]

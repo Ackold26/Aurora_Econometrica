@@ -742,6 +742,56 @@ activeProject.subscribe((p) => {
   if (typeof p.value_per_count_unit === 'number') valuePerCountUnit.set(p.value_per_count_unit);
 });
 
+// LOAD-1 (2026-06-07): ре-гидрация analysis_mode из DURABLE project.json. Парный фикс
+// к cpp-гейту в trainModel — без персиста analysisMode reset в 'roi' на reload →
+// effectiveness-проект (physical-метрики валидны без unit_cost) ложно блокировался бы
+// cpp-гейтом. Тот же id-guard + TDZ-паттерн, что count-KPI subscribe выше (analysisMode
+// определён на :620 → этот subscribe ОБЯЗАН быть ПОСЛЕ; блоки :514/:572 — до → TDZ).
+//
+// `_activeProjectHasPersistedMode` (D-2 legacy-fallback, адверс. дизайн-аудит 2026-06-07):
+// legacy-проекты (созданы до этого фикса) не имеют analysis_mode → reset в default 'roi'.
+// Если cpp-гейт в trainModel применять к ним безусловно — effectiveness-legacy-проект
+// ложно заблокируется = регрессия. Поэтому гейт спрашивает analysisModeIsPersisted():
+// fail-open для legacy (pre-fix поведение: trainModel без гейта), enforce только когда
+// режим достоверно ре-гидрирован с диска. Первый train post-fix персистит режим →
+// следующий reload → гейт активен (self-healing). См. feedback_key_migration_needs_legacy_fallback_and_test.
+//
+// D-5: persisted 'mixed' доступен только в Expert → форсим expertMode.set(true) при
+// ре-гидрации, иначе mixed-проект в Manager-UI рассинхронит INV-30 (нет mixed-карточки).
+let _lastAnalysisModeProjectId = /** @type {string|null} */ (null);
+let _activeProjectHasPersistedMode = false;
+activeProject.subscribe((p) => {
+  if (!p) {
+    _lastAnalysisModeProjectId = null;
+    _activeProjectHasPersistedMode = false;
+    analysisMode.set('roi');
+    return;
+  }
+  if (p.id === _lastAnalysisModeProjectId) return;  // тот же проект (mid-session set) → не клоббить
+  _lastAnalysisModeProjectId = p.id;
+  if (typeof p.analysis_mode === 'string' && p.analysis_mode) {
+    _activeProjectHasPersistedMode = true;
+    analysisMode.set(/** @type {'roi'|'effectiveness'|'mixed'} */ (p.analysis_mode));
+    if (p.analysis_mode === 'mixed') expertMode.set(true);  // D-5: mixed виден только в Expert
+  } else {
+    // Legacy без analysis_mode: НЕ клоббим стор (mode-defaults/импорт мог уже выставить);
+    // флаг false → cpp-гейт fail-open для этого проекта.
+    _activeProjectHasPersistedMode = false;
+  }
+});
+
+/**
+ * LOAD-1 D-2 (2026-06-07): был ли режим анализа активного проекта достоверно
+ * ре-гидрирован с диска (project.json содержал analysis_mode). cpp-гейт в trainModel
+ * применяется ТОЛЬКО когда true — legacy-проекты без поля остаются ungated (fail-open
+ * к pre-fix поведению, чтобы добавление гейта не стало регрессией на существующих
+ * effectiveness-проектах). Сбрасывается в false на деселекте проекта.
+ * @returns {boolean}
+ */
+export function analysisModeIsPersisted() {
+  return _activeProjectHasPersistedMode;
+}
+
 /**
  * v1.3.0: feature flag для нового derived-mode UX.
  * true → новый KPISelector + PerChannelInputSelector flow.
