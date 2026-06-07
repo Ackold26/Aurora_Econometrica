@@ -21,6 +21,7 @@ sys.path.insert(0, SID)
 from engines.persistence import load_model_with_compat
 from utils.diagnostics import (
     prior_sds_for_bayesian, effective_params_contraction, generate_diagnostics_summary,
+    per_control_contraction,
 )
 
 PROJECTS_ROOT = os.path.join(os.environ.get('APPDATA', ''), 'aurora-econometrica-gui', 'projects')
@@ -94,11 +95,20 @@ def recompute_project(proj_dir: str, dry_run: bool = False) -> dict:
     diag.setdefault('metrics', {}).update(new_diag['metrics'])
     diag['checks'] = new_diag['checks']
 
+    # #6 OVB-guardrail (2026-06-07): per-control contraction (SSOT-формула в diagnostics).
+    pcc = per_control_contraction(
+        post_sd.get('control_betas'), prior_sd.get('control_betas'),
+        cfg.get('control_columns') or [])
+    if pcc:
+        diag['per_control_contraction'] = pcc
+
     result = {
         'project': os.path.basename(proj_dir), 'status': 'ok',
         'effective_params': round(eff, 2), 'nominal_params': n_params,
         'old_score': old_score, 'new_score': new_diag['mqs']['score'],
         'new_tier': new_diag['mqs']['tier_label'],
+        'controls_uninformative': sum(1 for v in pcc.values() if v < 0.1),
+        'controls_total': len(pcc),
     }
     if not dry_run:
         with open(diag_path, 'w', encoding='utf-8') as f:

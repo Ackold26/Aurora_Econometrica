@@ -951,10 +951,15 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # штрафуется как OLS. Только non-hierarchical Bayesian; иначе None →
         # diagnostics fallback на номинал. (2026-06-07, INV-50.)
         effective_params = None
+        # #6 OVB-guardrail (2026-06-07): per-control contraction {name: 0..1}.
+        per_control_contraction: dict[str, float] = {}
         if not use_hierarchical:
             try:
                 import numpy as _np
-                from utils.diagnostics import prior_sds_for_bayesian, effective_params_contraction
+                from utils.diagnostics import (
+                    prior_sds_for_bayesian, effective_params_contraction,
+                    per_control_contraction as _pcc,
+                )
                 _post = trace.posterior
                 _prior_sd = prior_sds_for_bayesian(
                     gammas_alpha=float(getattr(kpi_config, 'gammas_alpha', 3)),
@@ -970,6 +975,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     else:                            # (chain, draw, n)
                         _post_sd[_name] = _arr.reshape(-1, _arr.shape[-1]).std(axis=0)
                 effective_params = effective_params_contraction(_post_sd, _prior_sd)
+                # #6 OVB-guardrail: per-control contraction (SSOT-формула в diagnostics).
+                per_control_contraction = _pcc(
+                    _post_sd.get('control_betas'), _prior_sd.get('control_betas'), control_cols)
                 if effective_params:
                     logger.info(
                         f"effective_params (contraction) = {effective_params:.2f} "
@@ -988,6 +996,8 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         )
         # Enrich diagnostics with per-param R-hat and actual_vs_predicted
         diagnostics['per_param_rhat'] = per_param_rhat
+        # #6 OVB-guardrail: per-control contraction для UI-подсказок (убрать неинформативные)
+        diagnostics['per_control_contraction'] = per_control_contraction
         # Trust Level 3: hierarchical metadata for UI display.
         if use_hierarchical:
             diagnostics['hierarchical'] = {

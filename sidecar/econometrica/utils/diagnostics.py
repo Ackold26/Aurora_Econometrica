@@ -70,6 +70,30 @@ def effective_params_contraction(posterior_sd: dict, prior_sd: dict) -> float:
     return total if counted > 0 else None
 
 
+def per_control_contraction(control_betas_post_sd, prior_control_sd, control_cols) -> dict:
+    """Per-control posterior contraction {name: clip(1−Var_post/Var_prior, 0, 1)}.
+
+    #6 OVB-guardrail (2026-06-07): contraction<0.1 → контроль неинформативен
+    (posterior≈prior, данные его не определили) → можно убрать БЕЗ omitted-variable
+    bias и без нечестного роста MQS; ≥0.3 → информативен (удаление = смещение media-ROI
+    (OVB) + нечестный рост MQS-cap). SSOT-формула — используют modeler (train) и
+    recompute_mqs (миграция). prior_control_sd = prior_sds_for_bayesian()['control_betas'].
+    """
+    import numpy as np
+    out: dict[str, float] = {}
+    try:
+        psd = float(prior_control_sd or 0.0)
+    except (TypeError, ValueError):
+        psd = 0.0
+    if control_betas_post_sd is None or not control_cols or psd <= 0:
+        return out
+    sd = np.atleast_1d(np.asarray(control_betas_post_sd, dtype=float)).ravel()
+    for i, name in enumerate(control_cols):
+        if i < sd.size:
+            out[name] = round(float(np.clip(1.0 - (sd[i] ** 2) / (psd ** 2), 0.0, 1.0)), 3)
+    return out
+
+
 def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
                         divergences: int = 0, ratio: float | None = None) -> dict:
     """Compute Model Quality Score (MQS) with tier classification.
