@@ -80,7 +80,40 @@ def _forward_at_budget(project_dir: str, total_budget: float) -> Dict[str, Any]:
     }
 
 
-def build_proportional_forward(project_dir: str):
+def _resolve_current_unit_costs(project_dir: str, cfg: Dict[str, Any],
+                                override: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    """SSOT для CURRENT CPP (бюджет/деньги): override (request) > project.json.unit_costs >
+    pickle cfg.unit_costs (training fallback для legacy).
+
+    INV-50 (CPP SSOT, 2026-06-07): goal-seek раньше читал training CPP из pickle
+    `cfg.unit_costs` (заморожен при обучении) для ТЕКУЩЕГО бюджета, тогда как forward/
+    decompose берут current CPP из `unitCosts` store (= project.json). Расхождение давало
+    разный «текущий бюджет» между вкладками «От бюджета» и «От цели» (Кагоцел: 2.34 vs 2.91 млрд).
+    Канон current CPP = project.json.unit_costs. НЕ путать с training snapshot
+    (`unit_costs_snapshot`), который остаётся для Hill-нормализации (uc_train).
+    """
+    if override:
+        cleaned = {k: float(v) for k, v in override.items()
+                   if isinstance(v, (int, float)) and float(v) > 0}
+        if cleaned:
+            return cleaned
+    import json as _json
+    pj = Path(project_dir) / 'project.json'
+    try:
+        if pj.exists():
+            data = _json.loads(pj.read_text(encoding='utf-8'))
+            uc = data.get('unit_costs')
+            if isinstance(uc, dict) and any(
+                    isinstance(v, (int, float)) and float(v or 0) > 0 for v in uc.values()):
+                return {k: float(v) for k, v in uc.items()
+                        if isinstance(v, (int, float)) and float(v) > 0}
+    except Exception:  # noqa: BLE001 - SSOT read не должен ронять goal-seek
+        pass
+    return {k: float(v) for k, v in (cfg.get('unit_costs', {}) or {}).items()
+            if isinstance(v, (int, float)) and float(v) > 0}
+
+
+def build_proportional_forward(project_dir: str, unit_costs_override: Optional[Dict[str, Any]] = None):
     """GS-1 (2026-06-02): монотонный forward для Goal-Seek через фиксацию текущих
     пропорций каналов + скейл общего бюджета.
 
@@ -115,7 +148,10 @@ def build_proportional_forward(project_dir: str):
     y_std = float(norm.get('y_std', 1.0)) or 1.0
     media_means = norm.get('media_means', {}) or {}
     adstock_config = cfg.get('adstock_config', {}) or {}
-    unit_costs = cfg.get('unit_costs', {}) or {}
+    # INV-50 (CPP SSOT, 2026-06-07): current CPP для бюджета = project.json (SSOT) >
+    # pickle cfg fallback, НЕ training-frozen cfg напрямую. uc_snap (ниже) остаётся
+    # training snapshot для Hill. Делает «текущий бюджет» goal-seek = forward.
+    unit_costs = _resolve_current_unit_costs(project_dir, cfg, unit_costs_override)
 
     data_file = cfg['data_file']
     df = _pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else _pd.read_csv(data_file)
@@ -410,6 +446,7 @@ def optimize_inverse(
     kpi_kind: str = 'monetary',
     mode: str = 'roi',
     budget_constraints: Optional[Dict[str, Any]] = None,
+    unit_costs: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """High-level inverse / goal-seek optimization.
 
@@ -456,7 +493,7 @@ def optimize_inverse(
     # GS-1 (2026-06-02): proportional forward (фикс. текущий микс каналов) -
     # монотонен по построению, обрабатывает unit_costs напрямую (без UNIT_SMELL
     # guard, который ронял re-optimize forward на не-денежных каналах).
-    forward_fn, fwd_meta = build_proportional_forward(project_dir)
+    forward_fn, fwd_meta = build_proportional_forward(project_dir, unit_costs_override=unit_costs)
     current_total = fwd_meta['current_total_money']
 
     budget_lo = 0.0

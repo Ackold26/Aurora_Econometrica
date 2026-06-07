@@ -43,7 +43,7 @@ def _patch_achievable(monkeypatch, ci_method: str) -> None:
     # Изолируем логику маркеров - мокаем forward (bisect_for_target всё равно мокнут).
     monkeypatch.setattr(
         'optimize.inverse.build_proportional_forward',
-        lambda pd: (
+        lambda pd, unit_costs_override=None: (
             lambda B: {'expected_sales': 0.0, 'distribution': {}, 'status': 'ok'},
             {'current_total_money': 5.0e7, 'baseline_total': 0.0},
         ),
@@ -91,7 +91,7 @@ def test_non_monotonic_error_propagated(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(
         'optimize.inverse.build_proportional_forward',
-        lambda pd: (
+        lambda pd, unit_costs_override=None: (
             lambda B: {'expected_sales': 0.0, 'distribution': {}, 'status': 'ok'},
             {'current_total_money': 5.0e7, 'baseline_total': 0.0},
         ),
