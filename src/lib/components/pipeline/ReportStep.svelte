@@ -1398,7 +1398,11 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
-  .generate-card { flex: 1; min-height: 0; }
+  /* Аудит #12 (#9): flex:1 (=1 1 0%) + min-height:0 ужимало карточку ниже её
+     контента → фон/рамка обрывались выше блока FAQ (он внутри generate-card).
+     flex:1 0 auto = растёт и заполняет свободное место, но НЕ ужимается ниже
+     контента, поэтому фон покрывает весь блок включая FAQ. */
+  .generate-card { flex: 1 0 auto; }
 
   .export-buttons {
     display: flex;

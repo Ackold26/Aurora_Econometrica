@@ -148,19 +148,34 @@
 
       // Y-coord курсора в data space (через convertFromPixel - snap не нужен).
       const yData = chart.convertFromPixel({ seriesIndex: 0 }, [lastMouse.px, lastMouse.py])[1];
-      let cum = 0;
+      // Аудит #12 (#10): держим ДВА аккумулятора — положительный стек растёт от 0
+      // вверх, отрицательный (конкуренты/цены ниже нуля, stack='negative') — от 0
+      // вниз. Раньше был один cum от 0 вверх → полосы под нулём не подсвечивались.
+      let cumPos = 0;
+      let cumNeg = 0;
       let foundIdx = -1;
       let foundName = '';
       for (let i = 0; i < allSeries.length; i++) {
         const s = allSeries[i];
         const v = Number(s.data?.[dataIndex] ?? 0);
-        const next = cum + (Number.isFinite(v) ? v : 0);
-        if (yData >= cum && yData <= next) {
-          foundIdx = i;
-          foundName = s.name ?? '';
-          break;
+        const isNeg = s.stack === 'negative';
+        if (isNeg) {
+          const next = cumNeg + (Number.isFinite(v) ? v : 0); // v ≤ 0 → next ≤ cumNeg
+          if (yData <= cumNeg && yData >= next) {
+            foundIdx = i;
+            foundName = s.name ?? '';
+            break;
+          }
+          cumNeg = next;
+        } else {
+          const next = cumPos + (Number.isFinite(v) ? v : 0);
+          if (yData >= cumPos && yData <= next) {
+            foundIdx = i;
+            foundName = s.name ?? '';
+            break;
+          }
+          cumPos = next;
         }
-        cum = next;
       }
       if (foundName) {
         if (foundName !== activeSeries) applyActive(foundName, foundIdx);
