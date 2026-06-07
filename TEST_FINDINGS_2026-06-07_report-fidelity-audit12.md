@@ -43,7 +43,11 @@ ChannelTimeline highlight (стр.146-159) аккумулирует `cum` от 0
 
 ## Скорректированный staged-план (audit+commit после каждого)
 - [x] Этап 0 — probe + этот документ.
-- [ ] Этап 1 — fidelity-diff harness (`tools/fidelity_diff.py`): expected-набор из decomposition.json ↔ фактический набор каждого билдера (HTML CHART_DATA parse, PPTX python-pptx parse, backend decomposition_series correctness; XLSX — static+rust unit). RED до фикса. Commit+tag.
+- [x] Этап 1 — fidelity-diff harness (`tools/fidelity_diff.py`). **RED подтверждён:** backend нет decomposition_series; HTML 5 серий, нет 8 факторов (конкуренты+7 праздников); PPTX 7 серий, нет факторов + нет канала OLV. Тождество per-period проверяется. Commit+tag.
+
+### Side-findings (вне аудита #12, записать/решить позже)
+- **SF-1 (HTML офлайн):** `Asset integrity failure: echarts.common.5.5.1.min.js expected sha256 66f1700… got a42cc53…` при build_html. Возможна деградация офлайн-инлайна echarts (память утверждала «инлайнится ~0.7МБ»). Проверить builder._echarts_js() / shell.html — hash в коде vs реальный asset. Кандидат на отдельный фикс.
+- **SF-2 (PPTX медиа):** PPTX timeline недосчитывает канал OLV (7 серий, expected 5 медиа + факторы). Проверить при фиксе Этапа 3.
 - [ ] Этап 2 — backend `decomposition_series` + pytest (тождество, набор, no-double-count). Commit+tag.
 - [ ] Этап 3 — потребители (ChannelTimeline + HTML + PPTX + XLSX) читают decomposition_series. Harness GREEN. npm check 0E. Commit+tag.
 - [ ] Этап 4 — #9 CSS + #10 negative-stack highlight. Commit+tag.
