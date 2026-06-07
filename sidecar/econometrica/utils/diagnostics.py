@@ -90,10 +90,23 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
 
 def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
                                   r_hat_max: float, divergences: int,
-                                  n_obs: int, n_params: int) -> dict:
-    """Full diagnostics summary for UI display."""
+                                  n_obs: int, n_params: int,
+                                  effective_params: float | None = None) -> dict:
+    """Full diagnostics summary for UI display.
+
+    effective_params (2026-06-07): эффективное число параметров (posterior
+    contraction, 1−Var_post/Var_prior). Для байес-моделей << номинального
+    n_params (приоры «сжимают» слабо-идентифицируемые параметры — adstock/
+    saturation/редкие праздники). Data-thinness cap МQS считается по
+    ЭФФЕКТИВНОМУ ratio (честные степени свободы), а не по номинальному —
+    иначе байес-модель штрафуется как OLS. Если None (OLS / иерарх. путь) —
+    fallback на номинальный ratio (прежнее поведение).
+    Номинальные значения сохраняются в metrics для прозрачности.
+    """
     from utils.model_spec import bayesian_mmm_spec
-    ratio = n_obs / max(n_params, 1)
+    nominal_ratio = n_obs / max(n_params, 1)
+    eff_p = effective_params if (effective_params is not None and effective_params > 0) else n_params
+    ratio = n_obs / max(eff_p, 1)  # ЭФФЕКТИВНЫЙ ratio → cap (степени свободы)
     mqs = model_quality_score(r_squared, mape, r_hat_max, divergences, ratio=ratio)
 
     # Human-readable verdict.
@@ -134,12 +147,14 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
             'divergences': divergences,
             'n_observations': n_obs,
             'n_parameters': n_params,
-            'ratio': round(n_obs / max(n_params, 1), 1),
+            'effective_parameters': round(eff_p, 1),
+            'ratio': round(ratio, 1),            # эффективный (степени свободы) — драйвит cap
+            'ratio_nominal': round(nominal_ratio, 1),
         },
         'checks': {
             'convergence': r_hat_max < 1.05 and divergences == 0,
             'fit': r_squared > 0.5,
-            'ratio': n_obs / max(n_params, 1) >= 4,
+            'ratio': ratio >= 4,                 # по эффективному ratio
         },
         'model_spec': bayesian_mmm_spec(),
     }

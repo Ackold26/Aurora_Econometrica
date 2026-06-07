@@ -943,10 +943,57 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         mape = compute_mape(y, y_pred)
         rmse = compute_rmse(y, y_pred)
 
+        # Эффективное число параметров через posterior contraction
+        # (1−Var_post/Var_prior). Байес-приоры «сжимают» слабо-идентифицируемые
+        # параметры (adstock/saturation/редкие праздники → posterior≈prior →
+        # ~0 эфф.), поэтому effective_params << номинального n_params. MQS-cap
+        # считается по ЭФФЕКТИВНОМУ ratio (честные степени свободы), иначе байес
+        # штрафуется как OLS. Только non-hierarchical Bayesian; иначе None →
+        # diagnostics fallback на номинал. (2026-06-07, INV-50.)
+        effective_params = None
+        if not use_hierarchical:
+            try:
+                import math as _math
+                import numpy as _np
+                _post = trace.posterior
+                _hn = lambda s: s * _math.sqrt(1 - 2 / _math.pi)  # HalfNormal SD
+                _ga = float(getattr(kpi_config, 'gammas_alpha', 3))
+                _gb = float(getattr(kpi_config, 'gammas_beta', 3))
+                _gamma_sd = _math.sqrt(_ga * _gb / ((_ga + _gb) ** 2 * (_ga + _gb + 1)))
+                _prior_sd = {
+                    'intercept': 0.5,                # Normal(0, 0.5)
+                    'media_betas': _hn(0.3),         # HalfNormal(0.3)
+                    'control_betas': 0.3,            # Normal(mu, 0.3)
+                    'alphas': _math.sqrt(5) / 3,     # Gamma(5, 3)
+                    'gammas': _gamma_sd,             # Beta(a, b)
+                }
+                _eff = 0.0
+                for _name, _psd in _prior_sd.items():
+                    if _name not in _post:
+                        continue
+                    _arr = _np.asarray(_post[_name].values, dtype=float)
+                    if _arr.ndim <= 2:               # (chain, draw) scalar param
+                        _sd = _np.array([_arr.std()])
+                    else:                            # (chain, draw, n)
+                        _sd = _arr.reshape(-1, _arr.shape[-1]).std(axis=0)
+                    _contraction = _np.clip(1.0 - (_sd ** 2) / (_psd ** 2), 0.0, 1.0)
+                    _eff += float(_contraction.sum())
+                effective_params = _eff if _eff > 0 else None
+                logger.info(
+                    f"effective_params (contraction) = {effective_params:.2f} "
+                    f"vs nominal n_params = {n_params} → eff_ratio "
+                    f"{n_obs / max(effective_params, 1e-9):.2f}"
+                    if effective_params else "effective_params: skipped (eff=0)"
+                )
+            except Exception as _e:
+                logger.warning(f"effective_params contraction failed: {_e}")
+                effective_params = None
+
         diagnostics = generate_diagnostics_summary(
             r_squared=r_squared, mape=mape, rmse=rmse,
             r_hat_max=r_hat_max, divergences=divergences,
             n_obs=n_obs, n_params=n_params,
+            effective_params=effective_params,
         )
         # Enrich diagnostics with per-param R-hat and actual_vs_predicted
         diagnostics['per_param_rhat'] = per_param_rhat

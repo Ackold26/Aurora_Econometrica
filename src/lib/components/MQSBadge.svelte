@@ -36,74 +36,17 @@
   // и не имеют MCMC diagnostics (r_hat_max=null, divergences=null).
   let isOls = $derived(diagnostics?.engine === 'ols');
 
-  // v2.1.0 (пилот 2026-05-16): подменяем backend ratio в verdict-тексте
-  // и пересчитываем MQS tier если SSOT ratio >= 4 (info / success коридоры).
-  // Backend thinness_cap=50 при backend ratio<2 ставит «Слабое», что
-  // несовместимо с frontend SSOT «Ниже рекомендуемого» (4.4:1) или
-  // «Рекомендуемый уровень». Дотягиваем UI consistency без переписи backend.
-  const useSsot = $derived(
-    typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0
-  );
-
-  const displayVerdict = $derived.by(() => {
-    if (!useSsot) return backendVerdict;
-    // Заменяем числовое значение ratio в верндикте. Patterns которые
-    // встречаются в backend `generate_diagnostics_summary`:
-    //   «Ratio 1.5:1»
-    //   «Ratio 1.5:1 < 4:1»
-    // Также заменяем тестовую часть «Данных критически мало / Данных мало»
-    // когда SSOT даёт другой коридор.
-    let v = backendVerdict;
-    // 1) Подменить число в "Ratio X.X:1"
-    v = v.replace(/Ratio\s+\d+(?:\.\d+)?:1/g, `Ratio ${(ssotRatio ?? 0).toFixed(1)}:1`);
-    // 2) Если SSOT ratio >= 4 - убрать «критически мало» / «мало (Ratio < 4:1)»
-    if ((ssotRatio ?? 0) >= 4) {
-      v = v.replace(
-        /⚠\s*Данных (критически\s*)?мало[^.]*\.\s*/g,
-        ''
-      );
-      v = v.replace(
-        /\s*-\s*высокий риск переобучения[^.]*\.\s*/g,
-        '. '
-      );
-      // F-011 pilot (2026-05-18): backend verdict для thin-data случая включает
-      // «Результаты ненадёжны - нужно больше данных или другая спецификация»
-      // и «объясняет только N%». При SSOT ratio>=4 + good MQS этот тон
-      // противоречит «Отличное» badge. Убираем pessimistic clauses.
-      v = v.replace(
-        /Результаты ненадёжны\s*[—–-]?\s*нужно больше данных[^.]*\.\s*/g,
-        ''
-      );
-      v = v.replace(
-        /объясняет\s+только\s+/g,
-        'объясняет '
-      );
-    }
-    return v.trim();
-  });
-
-  const displayMqs = $derived.by(() => {
-    if (!mqs || !useSsot) return mqs;
-    // Backend применил thinness_cap (50 / 70) на основе backend ratio.
-    // Если SSOT ratio в info / success коридоре - используем raw_score и
-    // пересчитаем tier_label.
-    if ((ssotRatio ?? 0) < 4) return mqs;  // оставляем backend cap
-    const rawScore = Number(mqs.raw_score ?? mqs.score ?? 0);
-    if (!Number.isFinite(rawScore) || rawScore <= mqs.score) return mqs;
-    let tier, tier_label, color;
-    if (rawScore >= 85) {
-      tier = 'excellent'; tier_label = 'Отличное'; color = '#22c55e';
-    } else if (rawScore >= 70) {
-      tier = 'good'; tier_label = 'Хорошее'; color = '#3b82f6';
-    } else if (rawScore >= 55) {
-      tier = 'acceptable'; tier_label = 'Приемлемое'; color = '#f59e0b';
-    } else if (rawScore >= 40) {
-      tier = 'weak'; tier_label = 'Слабое'; color = '#f97316';
-    } else {
-      tier = 'poor'; tier_label = 'Ненадёжное'; color = '#ef4444';
-    }
-    return { ...mqs, score: Math.round(rawScore * 10) / 10, tier, tier_label, color };
-  });
+  // 2026-06-07 (INV-50): MQS теперь честный НА BACKEND — data-thinness cap
+  // считается по ЭФФЕКТИВНОМУ ratio (posterior contraction = реальные степени
+  // свободы; байес-приоры сжимают слабо-идентифицируемые параметры). Frontend
+  // БОЛЬШЕ НЕ раскапывает score по media-only SSOT ratio: прежний override
+  // выдавал переобучённую на тонких данных модель за «Отличное» 86, тогда как
+  // честная оценка — «Хорошее» 70. Программа и ВСЕ отчёты (XLSX/PPTX/HTML)
+  // показывают ОДИН источник истины: diagnostics.mqs. ssotRatio (наблюдений
+  // на медиа-канал) остаётся отдельным data-sufficiency индикатором, но НЕ
+  // влияет на MQS. См. memory: отчёты ≠ программа ревизия.
+  const displayVerdict = $derived(backendVerdict);
+  const displayMqs = $derived(mqs);
 
 </script>
 
