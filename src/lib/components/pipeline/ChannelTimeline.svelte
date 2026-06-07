@@ -21,9 +21,14 @@
    *     value: number, pct: number, type: string,
    *     beta_mean: number, per_period: number[]
    *   }>,
+   *   decompositionSeries?: {
+   *     dates: string[],
+   *     series: Array<{ name: string, role: 'baseline'|'media'|'factor',
+   *       type: string, group: string, side: 'positive'|'negative', data: number[] }>,
+   *   },
    * }}
    */
-  let { timeSeries, signedFactors = undefined } = $props();
+  let { timeSeries, signedFactors = undefined, decompositionSeries = undefined } = $props();
 
   // v2.1.0 (пилот 2026-05-16): отрицательные signed factors (конкуренты,
   // цены, погода с отрицательным эффектом) показываем ниже нулевой линии
@@ -281,7 +286,89 @@
     };
   }
 
+  /**
+   * Аудит #12 (2026-06-07, INV-50): построить option из канонического
+   * decomposition_series — ТОГО ЖЕ источника, что у всех отчётов. baseline здесь
+   * уже уменьшен на вынесенные факторы → нет double-count положительных праздников
+   * (он был в legacy-ветке: положительные factors добавлялись поверх полного
+   * baseline). Имена серий держим в формате «{Группа}: {имя}» / «Базовый уровень»,
+   * чтобы tooltip-группировка и highlight работали как прежде.
+   * @param {{dates: string[], series: any[]}} ds
+   */
+  function buildCanonicalOption(ds) {
+    const dates = ds.dates;
+    /** @type {any[]} */
+    const allSeries = [];
+    let mediaIdx = 0;
+    for (const s of ds.series) {
+      let color;
+      let name = s.name;
+      const stack = s.side === 'negative' ? 'negative' : 'positive';
+      if (s.role === 'baseline') {
+        color = '#3b82f6';
+        name = 'Базовый уровень';
+      } else if (s.role === 'media') {
+        color = CHANNEL_COLORS[(mediaIdx + 1) % CHANNEL_COLORS.length];
+        mediaIdx++;
+      } else {
+        color = FACTOR_COLORS[s.type] ?? '#94a3b8';
+        const groupLabel = FACTOR_LABELS[s.type] ?? s.group ?? 'Внешние';
+        name = `${groupLabel}: ${s.name}`;
+      }
+      allSeries.push({
+        name,
+        type: 'line',
+        stack,
+        areaStyle: { opacity: s.role === 'media' ? 0.65 : 0.6, color },
+        lineStyle: { width: 0 },
+        symbol: 'none',
+        data: s.data,
+        itemStyle: { color },
+        emphasis: { focus: 'series' },
+      });
+    }
+    return {
+      backgroundColor: 'transparent',
+      tooltip: buildTooltipOption(),
+      legend: buildLegendOption(activeSeries),
+      grid: { left: 16, right: 16, top: 44, bottom: 56, containLabel: true },
+      xAxis: {
+        type: 'category',
+        data: dates,
+        boundaryGap: false,
+        axisLabel: { color: '#94a3b8', fontSize: 10, rotate: 25 },
+        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: {
+          color: '#94a3b8', fontSize: 11,
+          formatter: (/** @type {number} */ v) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v),
+        },
+        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+      },
+      dataZoom: [
+        {
+          type: 'slider', bottom: 4, height: 20,
+          borderColor: 'rgba(255,255,255,0.1)',
+          backgroundColor: 'rgba(255,255,255,0.04)',
+          fillerColor: 'color-mix(in srgb, var(--accent-primary) 15%, transparent)',
+          handleStyle: { color: '#3b82f6' },
+          textStyle: { color: '#94a3b8', fontSize: 10 },
+          start: 0, end: 100,
+        },
+        { type: 'inside' },
+      ],
+      series: allSeries,
+    };
+  }
+
   const option = $derived.by(() => {
+    // Аудит #12: предпочитаем канонический decomposition_series (SSOT с отчётами).
+    if (decompositionSeries?.series?.length && decompositionSeries?.dates?.length) {
+      return buildCanonicalOption(decompositionSeries);
+    }
     if (!timeSeries?.dates?.length) return {};
 
     const { dates, baseline, channels } = timeSeries;

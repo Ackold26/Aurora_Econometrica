@@ -355,6 +355,23 @@ def bootstrap_js(
         areaStyle: {{ color: color, opacity: 0.85 }},
       }});
     }});
+    // Аудит #12: вынесенные signed/holiday факторы — те же полосы, что в программе.
+    // Положительные стекаются с baseline+media, отрицательные (конкуренты и т.п.)
+    // уходят в отдельный стек ниже нуля.
+    var FACTOR_COLORS = {{ signed_competitor: '#dc2626', signed_price: '#ea580c',
+      signed_weather: '#f59e0b', signed_macro: '#d97706', holiday: '#84cc16',
+      positive_control: '#06b6d4' }};
+    (data.factors || []).forEach(function(f) {{
+      if (!f || !f.data || !f.data.length) return;
+      var fcolor = FACTOR_COLORS[f.type] || pal.mutedColor;
+      var label = (f.group ? f.group + ': ' : '') + f.name;
+      series.push({{
+        name: label, type: 'line', stack: (f.side === 'negative' ? 'neg' : 'total'),
+        smooth: 0.3, showSymbol: false, data: f.data, lineStyle: {{ width: 0 }},
+        itemStyle: {{ color: fcolor }},
+        areaStyle: {{ color: fcolor, opacity: 0.7 }},
+      }});
+    }});
     return {{
       animation: !PREFERS_REDUCED_MOTION,
       animationDuration: 800,

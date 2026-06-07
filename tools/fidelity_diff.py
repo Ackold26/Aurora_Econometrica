@@ -62,8 +62,18 @@ def expected_factor_set(decomp: dict) -> tuple[set, set, dict]:
 
 def contains_any(name_norm: str, haystack_norms: list[str]) -> bool:
     """factor присутствует если его имя — подстрока какого-то имени серии (renderer
-    может префиксовать «Праздники: ...»)."""
-    return any(name_norm in h or h in name_norm for h in haystack_norms if h)
+    может префиксовать «Праздники: ...» или обрезать длинное имя в легенде «…»)."""
+    for h in haystack_norms:
+        if not h:
+            continue
+        if name_norm in h or h in name_norm:
+            return True
+        # Обрезанная подпись легенды (заканчивается на …/...): префиксное совпадение.
+        if h.endswith('…') or h.endswith('...'):
+            stem = h.rstrip('….').rstrip()
+            if stem and name_norm.startswith(stem):
+                return True
+    return False
 
 
 # ── загрузка артефактов проекта ───────────────────────────────────────────

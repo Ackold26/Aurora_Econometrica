@@ -274,6 +274,10 @@ class AuroraPPTXBuilder:
         self.channels = self.data.get("channels") or []
         self.facts = self.data.get("narrative_facts")
         self.time_series = self.data.get("time_series") or None
+        # Аудит #12 (2026-06-07): канонический набор серий timeline-декомпозиции
+        # (baseline_reduced + media + вынесенные signed/holiday) — тот же, что в
+        # программе и остальных отчётах.
+        self.decomposition_series = self.data.get("decomposition_series") or None
 
         # v1.3.2: KPI metadata (kpi_kind, derived_mode, labels) per ADR-016.
         # narrative_adapter populates data['kpi']; legacy callers (v1.2) get
@@ -2078,7 +2082,8 @@ class AuroraPPTXBuilder:
         # AREA_STACKED chart (real data, real categorical x-axis). Otherwise
         # fall back to legacy preview/wireframe mode that paints stylized
         # rectangles week-by-week (Kagocel pilot bands).
-        if ts and ts.get("dates") and ts.get("baseline"):
+        ds = self.decomposition_series
+        if (ds and ds.get("series")) or (ts and ts.get("dates") and ts.get("baseline")):
             from .charts import make_timeline_area
 
             chart_inner_x = chart_x
@@ -2086,23 +2091,39 @@ class AuroraPPTXBuilder:
             chart_inner_w = chart_w
             chart_inner_h = 2.8
 
-            channel_series = ts.get("channels") or {}
-            # Trim to top-5 channels by total contribution to keep legend
-            # readable; small contributors aggregate into baseline visually
-            # (approximation - true total would re-add their per-period sums).
-            ranked = sorted(
-                channel_series.items(),
-                key=lambda kv: sum(float(v) for v in kv[1] or []),
-                reverse=True,
-            )[:5]
-            channel_dict = {name: list(values) for name, values in ranked}
+            factor_series = None
+            if ds and ds.get("series"):
+                # Аудит #12: тот же набор, что в программе — baseline_reduced +
+                # все медиа + вынесенные signed/holiday факторы (без double-count).
+                ser = ds["series"]
+                _base = next((s for s in ser if s.get("role") == "baseline"), None)
+                tl_dates = list(ds.get("dates") or (ts or {}).get("dates") or [])
+                tl_baseline = list(_base["data"]) if _base else list((ts or {}).get("baseline") or [])
+                channel_dict = {s["name"]: list(s["data"]) for s in ser if s.get("role") == "media"}
+                factor_series = [
+                    {"name": s.get("name"), "type": s.get("type"),
+                     "side": s.get("side"), "data": list(s.get("data") or [])}
+                    for s in ser if s.get("role") == "factor"
+                ]
+            else:
+                # Legacy fallback (нет decomposition_series): медиа-only как раньше.
+                tl_dates = list(ts["dates"])
+                tl_baseline = list(ts["baseline"])
+                channel_series = ts.get("channels") or {}
+                ranked = sorted(
+                    channel_series.items(),
+                    key=lambda kv: sum(float(v) for v in kv[1] or []),
+                    reverse=True,
+                )[:6]
+                channel_dict = {name: list(values) for name, values in ranked}
 
             make_timeline_area(
                 slide,
                 chart_inner_x, chart_inner_y, chart_inner_w, chart_inner_h,
-                dates=list(ts["dates"]),
-                baseline=list(ts["baseline"]),
+                dates=tl_dates,
+                baseline=tl_baseline,
                 channel_series=channel_dict,
+                factor_series=factor_series,
             )
 
             # Source at bottom (unified position, real-data variant)

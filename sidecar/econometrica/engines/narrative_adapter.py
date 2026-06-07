@@ -814,6 +814,23 @@ def _map_pipeline_to_builder_data(
             },
         }
 
+    # Аудит #12 (2026-06-07, INV-50): канонический набор серий timeline-
+    # декомпозиции (baseline_reduced + media + вынесенные signed/holiday) —
+    # ЕДИНЫЙ источник для всех отчётов. Legacy (нет поля) — считаем той же
+    # функцией на лету (SSOT, без дублирования логики).
+    ds = decompose_data.get("decomposition_series")
+    if not (isinstance(ds, dict) and ds.get("series")) and isinstance(ts, dict) and ts.get("dates"):
+        try:
+            from engines.decomposer import build_decomposition_series
+            ds = build_decomposition_series(
+                ts.get("dates"), ts.get("baseline") or [], ts.get("channels") or {},
+                decompose_data.get("signed_factor_contributions"),
+            )
+        except Exception:
+            ds = None
+    if isinstance(ds, dict) and ds.get("series"):
+        data["decomposition_series"] = ds
+
     # v1.3.0: KPI metadata for downstream report builders (per ADR-016).
     # Reads from decompose_data (which loads project settings/v13_kpi.json).
     # Defaults preserve v1.2 behavior (monetary ROI).

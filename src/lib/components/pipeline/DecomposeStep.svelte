@@ -549,6 +549,7 @@
           <ChannelTimeline
             timeSeries={data.time_series}
             signedFactors={data.signed_factor_contributions}
+            decompositionSeries={data.decomposition_series}
           />
         {:else}
           <div class="no-data">Нет данных для временного ряда</div>

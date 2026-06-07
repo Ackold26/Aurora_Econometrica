@@ -110,9 +110,25 @@ def make_decomposition_stacked(slide, x_in, y_in, w_in, h_in, *, categories, ser
     return graphic_frame
 
 
-def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline, channel_series):
+# Аудит #12 (2026-06-07): цвета вынесенных факторов по типу — зеркало палитры
+# программы (ChannelTimeline.svelte FACTOR_COLORS).
+_FACTOR_RGB = {
+    'signed_competitor': 'DC2626',
+    'signed_price': 'EA580C',
+    'signed_weather': 'F59E0B',
+    'signed_macro': 'D97706',
+    'holiday': '84CC16',
+    'positive_control': '06B6D4',
+}
+
+
+def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
+                       channel_series, factor_series=None):
     """Stacked area: KPI over time with baseline + channel contributions.
     channel_series: dict {channel_name: [values]}.
+    factor_series: optional list [{name, type, side, data}] — вынесенные
+        signed/holiday факторы (аудит #12); рендерятся теми же полосами, что в
+        программе, чтобы отчёт показывал ТОТ ЖЕ набор факторов.
 
     Chart formatting:
       - Date labels compact "MM.YY" (e.g. "10.21" instead of "2021-10-01")
@@ -132,16 +148,26 @@ def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline, channe
         return str(s)
     short_dates = [_short_date(d) for d in dates]
 
+    def _short(name):
+        # Truncate long names to keep legend readable. Soft trim at first
+        # newline for multi-line names like "Performance Бюджет\nДО НДС".
+        s = str(name).split("\n")[0].rstrip()
+        return (s[:21].rstrip() + "…") if len(s) > 22 else s
+
+    from pptx.dml.color import RGBColor
+
     data = CategoryChartData()
     data.categories = short_dates
     data.add_series("Baseline", baseline)
     for name, values in channel_series.items():
-        # Truncate long channel names to keep legend readable. Soft trim
-        # at first newline for multi-line names like "Performance Бюджет\nДО НДС".
-        short_name = str(name).split("\n")[0].rstrip()
-        if len(short_name) > 22:
-            short_name = short_name[:21].rstrip() + "…"
-        data.add_series(short_name, values)
+        data.add_series(_short(name), values)
+    # Вынесенные факторы — теми же полосами, что в программе (тип несёт цвет).
+    factor_types = []
+    for f in (factor_series or []):
+        if not f or not f.get("data"):
+            continue
+        data.add_series(_short(f.get("name")), f["data"])
+        factor_types.append(f.get("type"))
     graphic_frame = slide.shapes.add_chart(
         XL_CHART_TYPE.AREA_STACKED,
         Inches(x_in), Inches(y_in), Inches(w_in), Inches(h_in),
@@ -151,14 +177,20 @@ def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline, channe
     chart.has_legend = True
     chart.legend.position = XL_LEGEND_POSITION.BOTTOM
     _style_chart_text(chart)
-    # Baseline = muted grey, channels = palette
+    # Baseline = muted grey, channels = palette, факторы = цвет по типу.
     series_list = list(chart.plots[0].series)
+    n_ch = len(channel_series)
     if series_list:
         series_list[0].format.fill.solid()
         series_list[0].format.fill.fore_color.rgb = COLOR.brand.deep_40
-        for i, series in enumerate(series_list[1:]):
+        for i, series in enumerate(series_list[1:], start=0):
             series.format.fill.solid()
-            series.format.fill.fore_color.rgb = COLOR.data.channel_colors[i % len(COLOR.data.channel_colors)]
+            if i < n_ch:
+                series.format.fill.fore_color.rgb = COLOR.data.channel_colors[i % len(COLOR.data.channel_colors)]
+            else:
+                ftype = factor_types[i - n_ch] if (i - n_ch) < len(factor_types) else None
+                series.format.fill.fore_color.rgb = RGBColor.from_string(
+                    _FACTOR_RGB.get(ftype, '94A3B8'))
 
     # Y-axis: format in millions. Excel format string "0,," collapses 25000000 → "25"
     # (each comma divides by 1000), suffix " М" appended for "25 М" display.

@@ -256,18 +256,42 @@ class AuroraHTMLBuilder:
             wf_values = [float(w.get("value", 0) or 0) for w in waterfall]
 
         # ─── Timeline stacked area ─────────────────────────────────────
+        # Аудит #12 (2026-06-07, INV-50): timeline берётся из канонического
+        # decomposition_series — ТОТ ЖЕ источник, что у программы (ChannelTimeline)
+        # и остальных отчётов. baseline здесь УЖЕ уменьшен на вынесенные факторы
+        # (без double-count); signed/holiday факторы идут отдельными полосами.
         ts = self.raw_decompose.get("time_series") or {}
         ts_weeks = ts.get("dates") or ts.get("weeks") or []
-        ts_baseline = ts.get("baseline") or []
-        # Normalize channel keys to match self.channels names (which went
-        # through _normalize_channel_name). Without this, JS lookup
-        # data.channels[channel_order[i]] returns undefined → only Baseline
-        # renders. PPTX/XLSX use raw decompose data, so they're unaffected.
-        raw_channels = ts.get("channels") or {}
+        ds = self.raw_decompose.get("decomposition_series")
+        if not (isinstance(ds, dict) and ds.get("series")):
+            # legacy fallback (проект декомпозирован старым кодом): считаем ту же
+            # каноническую разбивку на лету той же функцией — SSOT без дублирования.
+            try:
+                from engines.decomposer import build_decomposition_series
+                ds = build_decomposition_series(
+                    ts_weeks, ts.get("baseline") or [], ts.get("channels") or {},
+                    self.raw_decompose.get("signed_factor_contributions"),
+                )
+            except Exception:
+                ds = {"series": []}
+        _ds_series = ds.get("series") or []
+        _base = next((s for s in _ds_series if s.get("role") == "baseline"), None)
+        ts_baseline = _base.get("data") if _base else (ts.get("baseline") or [])
+        # Normalize channel keys to match self.channels names (JS lookup
+        # data.channels[channel_order[i]]).
         ts_channels: dict[str, list] = {}
-        for raw_name, series in raw_channels.items():
-            norm = _normalize_channel_name(raw_name) or raw_name
-            ts_channels[norm] = series
+        ts_channel_order: list[str] = []
+        for s in _ds_series:
+            if s.get("role") != "media":
+                continue
+            norm = _normalize_channel_name(s.get("name")) or s.get("name")
+            ts_channels[norm] = s.get("data") or []
+            ts_channel_order.append(norm)
+        ts_factors = [
+            {"name": s.get("name"), "type": s.get("type"), "group": s.get("group"),
+             "side": s.get("side"), "data": [float(v) for v in (s.get("data") or [])]}
+            for s in _ds_series if s.get("role") == "factor"
+        ]
 
         # ─── Optimize comparison ───────────────────────────────────────
         opt_chs = self.raw_optimize.get("channels") or []
@@ -321,7 +345,8 @@ class AuroraHTMLBuilder:
                     name: [float(v) for v in series]
                     for name, series in ts_channels.items()
                 },
-                "channel_order": [c.get("name") for c in self.channels],
+                "channel_order": ts_channel_order,
+                "factors": ts_factors,
             },
             "optimize": {
                 "names":   opt_names,

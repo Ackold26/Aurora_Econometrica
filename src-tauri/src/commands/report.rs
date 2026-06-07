@@ -598,6 +598,60 @@ pub fn reveal_path(path: String) -> Result<(), String> {
 
 // ── XLSX builder ──────────────────────────────────────────────────────────────
 
+/// Колонки листа «Динамика по периодам» (аудит #12, INV-50).
+///
+/// Источник — канонический `decomposition_series` (baseline_reduced + media +
+/// вынесенные signed/holiday факторы), ТОТ ЖЕ набор, что в программе и остальных
+/// отчётах. Fallback на `time_series` (baseline + media) для legacy-проектов без
+/// поля. Возвращает (даты, [(заголовок, значения по периодам)]).
+fn decomposition_timeline_columns(decompose: &Value) -> (Vec<String>, Vec<(String, Vec<f64>)>) {
+    let dates: Vec<String> = decompose
+        .get("decomposition_series").and_then(|d| d.get("dates")).and_then(|d| d.as_array())
+        .or_else(|| decompose.get("time_series").and_then(|ts| ts.get("dates")).and_then(|d| d.as_array()))
+        .map(|arr| arr.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect())
+        .unwrap_or_default();
+
+    let columns: Vec<(String, Vec<f64>)> = if let Some(series) = decompose
+        .get("decomposition_series").and_then(|d| d.get("series")).and_then(|s| s.as_array())
+    {
+        series.iter().filter_map(|s| {
+            let role = s.get("role").and_then(|r| r.as_str()).unwrap_or("");
+            let header = if role == "baseline" {
+                "Baseline".to_string()
+            } else {
+                s.get("name").and_then(|n| n.as_str())?.to_string()
+            };
+            let data = s.get("data").and_then(|d| d.as_array())
+                .map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect::<Vec<f64>>())
+                .unwrap_or_default();
+            Some((header, data))
+        }).collect()
+    } else if let Some(ts) = decompose.get("time_series") {
+        // Legacy: baseline + media channels (старое поведение).
+        let mut cols: Vec<(String, Vec<f64>)> = Vec::new();
+        if let Some(bl) = ts.get("baseline").and_then(|b| b.as_array()) {
+            cols.push(("Baseline".to_string(),
+                bl.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect()));
+        }
+        let channel_order: Vec<String> = decompose["channels"].as_array()
+            .map(|arr| arr.iter().filter_map(|c| c["name"].as_str().map(|s| s.to_string())).collect())
+            .unwrap_or_default();
+        if let Some(ch_map) = ts.get("channels").and_then(|c| c.as_object()) {
+            for name in &channel_order {
+                let data = ch_map.get(name).and_then(|a| a.as_array())
+                    .map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect::<Vec<f64>>())
+                    .unwrap_or_default();
+                cols.push((name.clone(), data));
+            }
+        }
+        cols
+    } else {
+        Vec::new()
+    };
+
+    (dates, columns)
+}
+
 fn build_xlsx(
     model: &Value,
     decompose: &Value,
@@ -1182,88 +1236,66 @@ fn build_xlsx(
     }
 
     // ── Sheet 4.5: Динамика по периодам (stacked area) ──────
-    // Cols: A=date, B=Base, C..=channels[]. Порядок каналов = decompose.channels[].name
-    // (так же как на UI и в PPTX), чтобы цвета/легенда были выдержаны единообразно.
-    if let Some(time_series) = decompose.get("time_series") {
-        let dates = time_series["dates"].as_array();
-        let baseline = time_series["baseline"].as_array();
-        let channels_map = time_series["channels"].as_object();
-        let channel_order: Vec<String> = decompose["channels"].as_array()
-            .map(|arr| arr.iter().filter_map(|c| c["name"].as_str().map(|s| s.to_string())).collect())
-            .unwrap_or_default();
+    // Аудит #12 (2026-06-07, INV-50): колонки = канонический decomposition_series
+    // (baseline_reduced + media + вынесенные signed/holiday факторы), ТОТ ЖЕ набор,
+    // что в программе (ChannelTimeline) и остальных отчётах. Fallback на
+    // time_series (baseline + media) для legacy-проектов без поля.
+    {
+        let (dates, columns) = decomposition_timeline_columns(decompose);
 
-        if let (Some(dates), Some(channels_map)) = (dates, channels_map) {
-            if !dates.is_empty() && (!channel_order.is_empty() || baseline.is_some()) {
-                let ws = wb.add_worksheet();
-                ws.set_name("Динамика").map_err(|e| format!("{e}"))?;
-                ws.set_tab_color(Color::RGB(DEEP_80));
-                apply_base_cols(ws, &base_fmt)?;
-                apply_print_setup(ws, "Динамика")?;
-                write_brand_header(ws, "Динамика по периодам", 6)?;
+        if !dates.is_empty() && !columns.is_empty() {
+            let ws = wb.add_worksheet();
+            ws.set_name("Динамика").map_err(|e| format!("{e}"))?;
+            ws.set_tab_color(Color::RGB(DEEP_80));
+            apply_base_cols(ws, &base_fmt)?;
+            apply_print_setup(ws, "Динамика")?;
+            write_brand_header(ws, "Динамика по периодам", 6)?;
 
-                // Header row at row 2
-                ws.write_with_format(2, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
-                let mut col_idx: u16 = 1;
-                if baseline.is_some() {
-                    ws.write_with_format(2, col_idx, "Baseline", &header_fmt).map_err(|e| format!("{e}"))?;
-                    col_idx += 1;
-                }
-                for name in &channel_order {
-                    ws.write_with_format(2, col_idx, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
-                    col_idx += 1;
-                }
-                let last_col = col_idx.saturating_sub(1);
+            // Header row at row 2
+            ws.write_with_format(2, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
+            for (j, (header, _)) in columns.iter().enumerate() {
+                ws.write_with_format(2, (j + 1) as u16, header.as_str(), &header_fmt)
+                    .map_err(|e| format!("{e}"))?;
+            }
+            let last_col = columns.len() as u16; // индекс последней колонки данных
 
-                // Data rows starting at row 3
-                let first_data_row = 3u32;
-                let n_periods = dates.len() as u32;
-                let last_data_row = first_data_row + n_periods - 1;
-                for (i, d) in dates.iter().enumerate() {
-                    let row = first_data_row + i as u32;
-                    ws.write(row, 0, d.as_str().unwrap_or("")).map_err(|e| format!("{e}"))?;
-                    let mut c: u16 = 1;
-                    if let Some(bl) = baseline {
-                        let v = bl.get(i).and_then(|x| x.as_f64()).unwrap_or(0.0);
-                        ws.write_with_format(row, c, v, &num_fmt).map_err(|e| format!("{e}"))?;
-                        c += 1;
-                    }
-                    for name in &channel_order {
-                        let v = channels_map
-                            .get(name)
-                            .and_then(|a| a.as_array())
-                            .and_then(|a| a.get(i))
-                            .and_then(|x| x.as_f64())
-                            .unwrap_or(0.0);
-                        ws.write_with_format(row, c, v, &num_fmt).map_err(|e| format!("{e}"))?;
-                        c += 1;
-                    }
+            // Data rows starting at row 3
+            let first_data_row = 3u32;
+            let n_periods = dates.len() as u32;
+            let last_data_row = first_data_row + n_periods - 1;
+            for (i, d) in dates.iter().enumerate() {
+                let row = first_data_row + i as u32;
+                ws.write(row, 0, d.as_str()).map_err(|e| format!("{e}"))?;
+                for (j, (_, data)) in columns.iter().enumerate() {
+                    let v = data.get(i).copied().unwrap_or(0.0);
+                    ws.write_with_format(row, (j + 1) as u16, v, &num_fmt).map_err(|e| format!("{e}"))?;
                 }
+            }
 
-                // Stacked area chart
-                let mut chart = Chart::new(ChartType::AreaStacked);
-                for c in 1..=last_col {
-                    chart.add_series()
-                        .set_categories(("Динамика", first_data_row, 0, last_data_row, 0))
-                        .set_values(("Динамика", first_data_row, c, last_data_row, c))
-                        .set_name(("Динамика", 2, c));
-                }
-                chart.set_style(12);
-                chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-                chart.title().set_name("Декомпозиция продаж по периодам");
-                let chart_anchor_row = last_data_row + 2;
-                ws.insert_chart(chart_anchor_row, 0, &chart).map_err(|e| format!("{e}"))?;
+            // Stacked area chart
+            let mut chart = Chart::new(ChartType::AreaStacked);
+            for c in 1..=last_col {
+                chart.add_series()
+                    .set_categories(("Динамика", first_data_row, 0, last_data_row, 0))
+                    .set_values(("Динамика", first_data_row, c, last_data_row, c))
+                    .set_name(("Динамика", 2, c));
+            }
+            chart.set_style(12);
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("Декомпозиция продаж по периодам");
+            let chart_anchor_row = last_data_row + 2;
+            ws.insert_chart(chart_anchor_row, 0, &chart).map_err(|e| format!("{e}"))?;
 
-                // Widths - Динамика (A = 2.5; B = 2.68; C = 2.44 cm, per Антон)
-                ws.set_column_width(0, 13.5).map_err(|e| format!("{e}"))?;
-                if last_col >= 1 {
-                    ws.set_column_width(1, 14.47).map_err(|e| format!("{e}"))?;
-                }
-                if last_col >= 2 {
-                    ws.set_column_width(2, 13.18).map_err(|e| format!("{e}"))?;
-                }
-                for c in 3..=last_col {
-                    ws.set_column_width(c, 39.29).map_err(|e| format!("{e}"))?;
-                }
+            // Widths - Динамика (A = 2.5; B = 2.68; C = 2.44 cm, per Антон)
+            ws.set_column_width(0, 13.5).map_err(|e| format!("{e}"))?;
+            if last_col >= 1 {
+                ws.set_column_width(1, 14.47).map_err(|e| format!("{e}"))?;
+            }
+            if last_col >= 2 {
+                ws.set_column_width(2, 13.18).map_err(|e| format!("{e}"))?;
+            }
+            for c in 3..=last_col {
+                ws.set_column_width(c, 39.29).map_err(|e| format!("{e}"))?;
             }
         }
     }
@@ -1681,4 +1713,61 @@ fn fix_sheetpr_element_order(xlsx_path: &Path) -> Result<(), String> {
         format!("post-process rename {tmp_path:?} → {xlsx_path:?}: {e}")
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Аудит #12: лист «Динамика» XLSX берёт ПОЛНЫЙ набор факторов из
+    /// canonical decomposition_series (baseline + media + вынесенные factors),
+    /// тот же, что в программе и HTML/PPTX отчётах.
+    #[test]
+    fn timeline_columns_from_decomposition_series() {
+        let decompose = json!({
+            "channels": [{"name": "TV"}, {"name": "Digital"}],
+            "time_series": {
+                "dates": ["w1", "w2"],
+                "baseline": [100.0, 100.0],
+                "channels": {"TV": [10.0, 12.0], "Digital": [5.0, 6.0]},
+            },
+            "decomposition_series": {
+                "dates": ["w1", "w2"],
+                "series": [
+                    {"name": "Базовый уровень", "role": "baseline", "type": "baseline", "data": [80.0, 78.0]},
+                    {"name": "TV", "role": "media", "type": "media", "data": [10.0, 12.0]},
+                    {"name": "Digital", "role": "media", "type": "media", "data": [5.0, 6.0]},
+                    {"name": "Продажи в уп. конкуренты", "role": "factor", "type": "signed_competitor", "side": "negative", "data": [-8.0, -3.0]},
+                    {"name": "holiday_valentine", "role": "factor", "type": "holiday", "side": "positive", "data": [13.0, 7.0]},
+                ],
+            },
+        });
+        let (dates, cols) = decomposition_timeline_columns(&decompose);
+        assert_eq!(dates, vec!["w1", "w2"]);
+        let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
+        // baseline переименован в "Baseline", факторы присутствуют как колонки.
+        assert_eq!(headers[0], "Baseline");
+        assert!(headers.contains(&"TV") && headers.contains(&"Digital"));
+        assert!(headers.contains(&"Продажи в уп. конкуренты"));
+        assert!(headers.contains(&"holiday_valentine"));
+        assert_eq!(cols.len(), 5);
+    }
+
+    /// Legacy-проект без decomposition_series → fallback baseline + media.
+    #[test]
+    fn timeline_columns_legacy_fallback() {
+        let decompose = json!({
+            "channels": [{"name": "TV"}],
+            "time_series": {
+                "dates": ["w1", "w2"],
+                "baseline": [100.0, 100.0],
+                "channels": {"TV": [10.0, 12.0]},
+            },
+        });
+        let (dates, cols) = decomposition_timeline_columns(&decompose);
+        assert_eq!(dates.len(), 2);
+        let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
+        assert_eq!(headers, vec!["Baseline", "TV"]);
+    }
 }
