@@ -18,6 +18,7 @@
     { id: 'data-preparation',  title: 'Подготовка данных',       group: 'data',     keywords: 'данные подготовка структура столбцы kpi media control date формат недельные помесячные FMCG pharma фарма объём ratio csv xlsx' },
     { id: 'pipeline',          title: 'Pipeline: 6 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize report импорт валидация шаги процесс' },
     { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
+    { id: 'glossary',          title: 'Глоссарий терминов',      group: 'data',     keywords: 'глоссарий термины словарь определения ROAS ROI adstock насыщение MCMC R-hat ESS CPU CPP GRP TRP охват частота эластичность декомпозиция база lift backtest' },
 
     { id: 'interpretation',    title: 'Интерпретация результатов', group: 'results', keywords: 'интерпретация результаты как читать отчёт MQS ROI CPU вердикт переобучение overfitting доверительный интервал CI R-hat ratio waterfall декомпозиция baseline база spend effect доля бюджета эффект action label scale hold cut' },
 
