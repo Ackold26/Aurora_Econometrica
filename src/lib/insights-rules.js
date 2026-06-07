@@ -1099,11 +1099,19 @@ export function modelInsights(data, ratioOverride = undefined) {
   const mape = m.mape_pct ?? d.mape ?? 0;
   const rHat = m.r_hat_max ?? d.r_hat ?? 0;
   const divergences = m.divergences ?? d.divergences ?? 0;
-  // v2.1.0 (пилот 2026-05-16): ratio из frontend SSOT (что юзер видел в
-  // Валидации). Fallback - backend m.ratio для backward compat / тестов.
-  const ratio = typeof ratioOverride === 'number' && Number.isFinite(ratioOverride) && ratioOverride > 0
-    ? ratioOverride
-    : (m.ratio ?? 0);
+  // INV-50 (live-audit 2026-06-07): оценка КАЧЕСТВА модели (ratio для отображения
+  // И для isThin/варнинга переобучения) берёт честный backend effective ratio
+  // (m.ratio = obs/effective_params, posterior contraction) — тот же источник, что
+  // MQS-cap и вердикт. Прежде брался ratioOverride (ssotRatio = obs/назначенные
+  // колонки ≈ 4.4): оптимистичен, противоречил вердикту «2.4:1 < 4:1» и ГЛУШИЛ
+  // варнинг переобучения (isThin=false при 4.4 → classifyRatio='info'). Это «второй
+  // слой» того же un-cap, что сняли с MQS-score 2026-06-07 (один корень, N слоёв).
+  // ssotRatio (ratioOverride) оставлен лишь как fallback, если backend не дал ratio
+  // (defensive; здесь diagnostics всегда есть, т.к. !data.diagnostics → return выше).
+  const backendRatio = typeof m.ratio === 'number' && Number.isFinite(m.ratio) && m.ratio > 0 ? m.ratio : null;
+  const ratio = backendRatio != null
+    ? backendRatio
+    : (typeof ratioOverride === 'number' && Number.isFinite(ratioOverride) && ratioOverride > 0 ? ratioOverride : 0);
 
   // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND (cap по эффективным
   // параметрам, posterior contraction). Frontend больше НЕ раскапывает score по
@@ -2002,13 +2010,19 @@ export function reportInsights(ctx = {}) {
   const kpi = resolveKpi(kpiInput);
   const rSq = mod?.diagnostics?.metrics?.r_squared ?? null;
   const mape = mod?.diagnostics?.metrics?.mape_pct ?? null;
-  // v2.1.0 (пилот 2026-05-17 audit C-3): SSOT ratio + MQS override.
-  // Раньше шапка Отчёта читала backend metrics напрямую - MQS=50 Слабое
-  // при реальном 87 Отличное (frontend SSOT когда ratio>=4).
+  // INV-50 (live-audit 2026-06-07): отображаемый ratio в блоке КАЧЕСТВА модели =
+  // честный backend effective ratio (obs/effective_params), тот же источник, что
+  // MQS-cap и вердикт. Прежде предпочитался ssotRatio (obs/назначенные колонки ≈
+  // 4.4) — оптимистичный media-ratio, который противоречил вердикту «2.4:1 < 4:1»
+  // и глушил варнинг переобучения (isThin=false при 4.4). Это «второй слой» того
+  // же un-cap, что сняли с MQS-score 2026-06-07. ssotRatio оставлен лишь fallback
+  // при отсутствии backend-ratio. (Замечание: шаг «Валидация» показывает свой
+  // pre-train obs/колонки ≈ 4.4 как индикатор структуры данных — это ДРУГАЯ метрика,
+  // см. validationHeaderMetrics; расхождение pre-train 4.4 vs post-train 2.4 честно.)
   const backendRatio = mod?.diagnostics?.metrics?.ratio ?? null;
-  const ratio = typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0
-    ? ssotRatio
-    : backendRatio;
+  const ratio = typeof backendRatio === 'number' && Number.isFinite(backendRatio) && backendRatio > 0
+    ? backendRatio
+    : (typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0 ? ssotRatio : null);
   // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND — единый источник
   // diagnostics.mqs, без фронт-un-cap по media-ratio (см. MQSBadge/ReportStep).
   const backendMqsScore = Number(mod?.diagnostics?.mqs?.score ?? 0);
