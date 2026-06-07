@@ -1373,6 +1373,20 @@
       if (result.status === 'ok') {
         optimizeData.set(result);
         stepState = 'done';
+        // INV-50 (CPP SSOT, 2026-06-07): персистим current CPP, использованный optimize,
+        // в project.json (SSOT) через project_update (он пересчитывает _jcs_sha256).
+        // Закрывает гэп: CPP, выведенный в UnitCostEditor (Mode A: бюджет→CPP), но не
+        // сохранённый панелью, раньше жил только в сессионном store → forward(store) ≠
+        // goal-seek(pickle cfg) ≠ перезагрузка(пустой project.json). Теперь goal-seek
+        // (_resolve_current_unit_costs читает project.json) + decompose + reload видят
+        // один источник. Best-effort: не должно ронять успешный optimize; activeProject
+        // НЕ трогаем (избегаем reactive re-sync стора).
+        try {
+          const _ucUsed = get(unitCosts) ?? {};
+          if (_ucUsed && Object.keys(_ucUsed).length > 0) {
+            await invoke('project_update', { projectId, updates: { unit_costs: _ucUsed } });
+          }
+        } catch (_e) { /* persistence best-effort */ }
         // F-015: mark first successful run so auto-rerun $effect becomes active.
         _hasRunOnce = true;
         // F1 fix: capture optimal allocation для следующего chain widening call.
