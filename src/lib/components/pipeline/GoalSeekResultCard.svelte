@@ -145,7 +145,15 @@
     </header>
 
     <section class="fallback">
-      <p>{result.message ?? 'Цель за пределами math-валидного диапазона модели.'}</p>
+      <!-- 2026-06-07: число цели форматируем через formatTarget (как остальной UI:
+           «12.7 млрд ₽»), а не сырой backend-message с «12730349434». Для случая
+           budget-недостижимости компонуем текст из структурных полей; для прочих
+           (non-convex Hill и т.п. — без чисел) показываем backend-message. -->
+      {#if result.fallback_max_sales != null}
+        <p>Цель <strong>{formatTarget(result.target_sales ?? targetSales)}</strong> недостижима в доступном диапазоне бюджета.</p>
+      {:else}
+        <p>{result.message ?? 'Цель за пределами math-валидного диапазона модели.'}</p>
+      {/if}
       {#if result.fallback_max_sales}
         <p class="fallback-detail">
           Максимум достижимых продаж при текущем миксе каналов:

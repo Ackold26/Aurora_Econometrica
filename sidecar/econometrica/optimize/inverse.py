@@ -278,10 +278,10 @@ def bisect_for_target(
             'iterations': 1,
             'monotonicity_check': monotonicity_check,
             'message': (
-                f'Цель {target_sales:.0f} недостижима в доступном диапазоне бюджета. '
+                f'Цель {target_sales:,.0f} недостижима в доступном диапазоне бюджета. '
                 f'Максимум достижимых продаж при текущем миксе каналов: '
-                f'{forward_hi["expected_sales"]:.0f}'
-            ),
+                f'{forward_hi["expected_sales"]:,.0f}'
+            ).replace(',', ' '),  # 2026-06-07: разделители разрядов (пробел) вместо сырого числа
         }
 
     # Bisection loop.

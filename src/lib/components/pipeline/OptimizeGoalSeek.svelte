@@ -37,8 +37,45 @@
   /** @type {'green' | 'yellow' | 'red'} */
   let currentZone = $state('green');
 
+  // 2026-06-07: АДАПТИВНАЯ шкала цели под РЕЗУЛЬТАТ модели. Раньше верх слайдера =
+  // currentSales×1.5×1.15 (чистая эвристика, не связана с тем, что модель реально
+  // может достичь при насыщении) → большая «недостижимая» зона. Теперь зондируем
+  // достижимый потолок (forward при макс. бюджете) один раз: заведомо-недостижимая
+  // цель в econ_optimize_inverse возвращает fallback_max_sales = этот потолок.
+  // Слайдер ограничивается им → «Цель недостижима» только у самого края.
+  /** @type {number | null} */
+  let achievableCeiling = $state(null);
+  let probingCeiling = $state(false);
+
+  $effect(() => {
+    if (!$activeProjectId || currentSales <= 0) return;
+    if (achievableCeiling !== null || probingCeiling) return;
+    if ($planningMode === 'planner') return; // goal-seek недоступен в planner
+    probingCeiling = true;
+    (async () => {
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: get(activeProjectId) }));
+        const probe = /** @type {any} */ (await invoke('econ_optimize_inverse', {
+          projectDir,
+          targetSales: currentSales * 1000, // заведомо недостижимо → вернёт потолок
+          kpiKind: get(kpiKind),
+          mode: get(derivedMode),
+          maxBudget: null,
+          minBudget: null,
+        }));
+        const c = Number(probe?.fallback_max_sales ?? probe?.expected_sales ?? 0);
+        if (Number.isFinite(c) && c > currentSales) achievableCeiling = c;
+      } catch (e) {
+        /* мягко: оставляем эвристический коридор */
+      } finally {
+        probingCeiling = false;
+      }
+    })();
+  });
+
   const corridorLo = $derived(salesCorridor?.lo ?? Math.max(0, currentSales * 0.7));
-  const corridorHi = $derived(salesCorridor?.hi ?? currentSales * 1.5);
+  // Верх = достижимый потолок (если зондирован), иначе прежняя эвристика.
+  const corridorHi = $derived(achievableCeiling ?? salesCorridor?.hi ?? currentSales * 1.5);
 
   // GS-2 (2026-06-02): рекомендуемый стартовый ориентир - умеренный рост +10%,
   // но не выше безопасного коридора (×0.95 от верхней границы). Раньше дефолт =
@@ -122,7 +159,7 @@
     <CorridorSlider
       value={targetSales}
       min={corridorLo * 0.5}
-      max={corridorHi * 1.15}
+      max={corridorHi}
       corridorLo={corridorLo}
       corridorHi={corridorHi}
       yellowZonePct={0.10}
