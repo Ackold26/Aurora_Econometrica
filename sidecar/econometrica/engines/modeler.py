@@ -953,38 +953,29 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         effective_params = None
         if not use_hierarchical:
             try:
-                import math as _math
                 import numpy as _np
+                from utils.diagnostics import prior_sds_for_bayesian, effective_params_contraction
                 _post = trace.posterior
-                _hn = lambda s: s * _math.sqrt(1 - 2 / _math.pi)  # HalfNormal SD
-                _ga = float(getattr(kpi_config, 'gammas_alpha', 3))
-                _gb = float(getattr(kpi_config, 'gammas_beta', 3))
-                _gamma_sd = _math.sqrt(_ga * _gb / ((_ga + _gb) ** 2 * (_ga + _gb + 1)))
-                _prior_sd = {
-                    'intercept': 0.5,                # Normal(0, 0.5)
-                    'media_betas': _hn(0.3),         # HalfNormal(0.3)
-                    'control_betas': 0.3,            # Normal(mu, 0.3)
-                    'alphas': _math.sqrt(5) / 3,     # Gamma(5, 3)
-                    'gammas': _gamma_sd,             # Beta(a, b)
-                }
-                _eff = 0.0
-                for _name, _psd in _prior_sd.items():
+                _prior_sd = prior_sds_for_bayesian(
+                    gammas_alpha=float(getattr(kpi_config, 'gammas_alpha', 3)),
+                    gammas_beta=float(getattr(kpi_config, 'gammas_beta', 3)),
+                )
+                _post_sd = {}
+                for _name in _prior_sd:
                     if _name not in _post:
                         continue
                     _arr = _np.asarray(_post[_name].values, dtype=float)
                     if _arr.ndim <= 2:               # (chain, draw) scalar param
-                        _sd = _np.array([_arr.std()])
+                        _post_sd[_name] = [float(_arr.std())]
                     else:                            # (chain, draw, n)
-                        _sd = _arr.reshape(-1, _arr.shape[-1]).std(axis=0)
-                    _contraction = _np.clip(1.0 - (_sd ** 2) / (_psd ** 2), 0.0, 1.0)
-                    _eff += float(_contraction.sum())
-                effective_params = _eff if _eff > 0 else None
-                logger.info(
-                    f"effective_params (contraction) = {effective_params:.2f} "
-                    f"vs nominal n_params = {n_params} → eff_ratio "
-                    f"{n_obs / max(effective_params, 1e-9):.2f}"
-                    if effective_params else "effective_params: skipped (eff=0)"
-                )
+                        _post_sd[_name] = _arr.reshape(-1, _arr.shape[-1]).std(axis=0)
+                effective_params = effective_params_contraction(_post_sd, _prior_sd)
+                if effective_params:
+                    logger.info(
+                        f"effective_params (contraction) = {effective_params:.2f} "
+                        f"vs nominal n_params = {n_params} → eff_ratio "
+                        f"{n_obs / max(effective_params, 1e-9):.2f}"
+                    )
             except Exception as _e:
                 logger.warning(f"effective_params contraction failed: {_e}")
                 effective_params = None

@@ -26,6 +26,50 @@ def compute_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
+def prior_sds_for_bayesian(gammas_alpha: float = 3.0, gammas_beta: float = 3.0) -> dict:
+    """Аналитические prior SD параметров non-hierarchical Bayesian MMM
+    (синхронно с modeler.py: intercept~N(0,0.5), media_betas~HalfNormal(0.3),
+    control_betas~N(mu,0.3), alphas~Gamma(5,3), gammas~Beta(a,b)).
+    SSOT для contraction — используют и modeler (train), и recompute_mqs (миграция)."""
+    import math
+    hn = lambda s: s * math.sqrt(1 - 2 / math.pi)  # HalfNormal SD
+    return {
+        'intercept': 0.5,
+        'media_betas': hn(0.3),
+        'control_betas': 0.3,
+        'alphas': math.sqrt(5) / 3,
+        'gammas': math.sqrt(gammas_alpha * gammas_beta /
+                            ((gammas_alpha + gammas_beta) ** 2 * (gammas_alpha + gammas_beta + 1))),
+    }
+
+
+def effective_params_contraction(posterior_sd: dict, prior_sd: dict) -> float:
+    """Эффективное число параметров через posterior contraction.
+
+    Для каждого параметра: contraction = clip(1 − Var_post/Var_prior, 0, 1).
+    ≈1 → данные полностью определяют параметр (1 эфф.); ≈0 → posterior=prior,
+    данные неинформативны (0 эфф.). Сумма по всем = эффективные степени свободы.
+
+    posterior_sd / prior_sd: dict group_name → SD. posterior_sd[g] может быть
+    скаляром или списком/массивом (по элементам параметра-вектора); prior_sd[g]
+    — скаляр (общий prior на группу). Возвращает сумму (float) или None если
+    ничего не посчиталось.
+    """
+    import numpy as np
+    total = 0.0
+    counted = 0
+    for g, psd in prior_sd.items():
+        if g not in posterior_sd or psd is None or psd <= 0:
+            continue
+        sd = np.atleast_1d(np.asarray(posterior_sd[g], dtype=float)).ravel()
+        if sd.size == 0:
+            continue
+        contraction = np.clip(1.0 - (sd ** 2) / (float(psd) ** 2), 0.0, 1.0)
+        total += float(contraction.sum())
+        counted += sd.size
+    return total if counted > 0 else None
+
+
 def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
                         divergences: int = 0, ratio: float | None = None) -> dict:
     """Compute Model Quality Score (MQS) with tier classification.
