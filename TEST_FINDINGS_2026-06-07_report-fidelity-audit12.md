@@ -79,6 +79,13 @@ vs мой `timeline_factors` в `utils/`). Коммиты чередовалис
   в старые проекты (тоже под подтверждение).
 - **#7 rc10** сборка/публикация — гейт Антона (наружу).
 
+## 🔬 Live visual-audit (через MCP-мост 9223) + миграции — 2026-06-07
+- **Миграции применены** (по команде Антона): `recompute_mqs --all` 35 written (MQS честный), `backfill_decomposition_series --all` 61 written (новое поле в старые проекты), 0 ошибок.
+- **Режимы оптимизатора (live-probe):** forward (`optimize()`) монотонна; goal-seek (`inverse.bisect_for_target`) +5% → achievable budget 4.56B (+1.65B, логично при сатурации), ×100 → achievable=False. Числа оптимизации в HTML-отчёте == optimization.json (паритет ДА).
+- **🔧 НАХОДКА+ФИКС (HIGH, INV-50) `1d4ffc4`:** программа показывала MQS **86.2 «Отличное»**, честный (диск+MQSBadge) — **70 «Хорошее»**. Корень: фронт-un-cap `ratio≥4→raw_score` ДУБЛИРОВАН в 5 местах (ReportStep, ExpertModelPanel, ModelTrainingStep, insights-rules.js ×2); прошлая сессия убрала его только из MQSBadge. Все 5 → канон `diagnostics.mqs.score`. Подтверждено вживую: Отчёт 86.2→**70.0**. (Отчёты HTML/PPTX уже честны — narrative_adapter брал `.score`; врала только программа.)
+- **#9 (высота панели) / #10 (highlight полос)** — код-верифицированы (svelte 0E), live-пиксельно не сняты: in-app графики canvas (серии не интроспектируются), а decomposeData гидрируется только через «Продолжить проект» (LOAD-friction). Рендер полос факторов #12 — probe-доказан harness'ом.
+- **Финальные гейты:** harness ВСЕ PASS · pytest 355 · cargo 155 · vitest 692 · svelte 0E · MQS live 70.
+
 ## Скорректированный staged-план (audit+commit после каждого)
 - [x] Этап 0 — probe + этот документ.
 - [x] Этап 1 — fidelity-diff harness (`tools/fidelity_diff.py`). **RED подтверждён:** backend нет decomposition_series; HTML 5 серий, нет 8 факторов (конкуренты+7 праздников); PPTX 7 серий, нет факторов + нет канала OLV. Тождество per-period проверяется. Commit+tag.
