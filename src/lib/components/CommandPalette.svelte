@@ -3,6 +3,24 @@
   import { goto } from '$app/navigation';
   import { activeCabinet, messages, pendingCommand } from '$lib/store.js';
   import { isCreativeHub } from '$lib/creative-store.js';
+  import { getAllTerms } from '$lib/glossary.js';
+  import { showGlossaryPanel, glossaryInitialTerm } from '$lib/project-state.js';
+
+  // v2.1 (Ctrl+K-рычаг): страницы справки Econometrica для поиска в палитре.
+  // Открываются во внешнем браузере через Rust `open_help` (id = имя html без
+  // расширения). Показываются ТОЛЬКО когда присутствует кабинет «econometrist»
+  // (gating: в Legal/Creative-вариантах MMM-справки не нужны).
+  const HELP_PAGES = [
+    { id: 'index', label: 'Справка: быстрый старт', keywords: 'старт начало обзор' },
+    { id: 'features', label: 'Справка: каталог функций', keywords: 'функции возможности что умеет' },
+    { id: 'whats-new', label: 'Справка: что нового в 2.1', keywords: 'новое изменения changelog версия' },
+    { id: 'data-preparation', label: 'Справка: подготовка данных', keywords: 'данные столбцы kpi медиа формат xlsx шаблоны' },
+    { id: 'pipeline', label: 'Справка: пайплайн (6 шагов)', keywords: 'шаги процесс импорт валидация модель декомпозиция оптимизация отчёт' },
+    { id: 'interpretation', label: 'Справка: интерпретация результатов', keywords: 'как читать отчёт mqs roi вердикт переобучение доверительный интервал ratio' },
+    { id: 'methodology', label: 'Справка: методология MMM', keywords: 'mmm байес mcmc adstock hill насыщение' },
+    { id: 'glossary', label: 'Справка: глоссарий (страница)', keywords: 'термины словарь определения' },
+    { id: 'faq', label: 'Справка: FAQ и troubleshooting', keywords: 'вопросы проблемы ошибки' },
+  ];
 
   /** @type {{open: boolean, onClose: () => void}} */
   let { open, onClose } = $props();
@@ -12,7 +30,7 @@
   /** @type {HTMLInputElement|undefined} */
   let inputEl = $state(undefined);
 
-  /** @type {Array<{id: string, label: string, description: string, type: 'nav'|'command'|'cabinet', cabinetId?: string, action: () => void}>} */
+  /** @type {Array<{id: string, label: string, description: string, type: 'nav'|'command'|'cabinet'|'help'|'glossary', cabinetId?: string, action: () => void}>} */
   let allItems = $state([]);
 
   const baseNavItems = [
@@ -75,6 +93,39 @@
         }
       }
 
+      // v2.1 (Ctrl+K-рычаг): справка + глоссарий в палитре.
+      // Gating: только если есть кабинет «econometrist» (MMM-продукт).
+      const hasEconometrist = Array.isArray(cabinets) && cabinets.some((c) => c.id === 'econometrist');
+      if (hasEconometrist) {
+        for (const pg of HELP_PAGES) {
+          items.push({
+            id: `help-${pg.id}`,
+            label: pg.label,
+            description: `Открыть справку · ${pg.keywords}`,
+            type: 'help',
+            action: () => {
+              invoke('open_help', { cabinetId: pg.id }).catch((err) => console.error(err));
+              onClose();
+            },
+          });
+        }
+        // Термины глоссария → открыть in-app панель (Ctrl+G) на нужном термине.
+        const terms = /** @type {Array<{id: string, term: string, short: string}>} */ (getAllTerms());
+        for (const t of terms) {
+          items.push({
+            id: `gloss-${t.id}`,
+            label: t.term,
+            description: t.short,
+            type: 'glossary',
+            action: () => {
+              glossaryInitialTerm.set(t.id);
+              showGlossaryPanel.set(true);
+              onClose();
+            },
+          });
+        }
+      }
+
       allItems = items;
     } catch {
       allItems = [...navItems];
@@ -128,12 +179,16 @@
     nav: '→',
     cabinet: '◆',
     command: '/',
+    help: '?',
+    glossary: '§',
   };
 
   const typeLabel = {
     nav: 'Навигация',
     cabinet: 'Кабинет',
     command: 'Команда',
+    help: 'Справка',
+    glossary: 'Глоссарий',
   };
 </script>
 

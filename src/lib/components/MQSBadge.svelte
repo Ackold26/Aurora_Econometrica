@@ -5,6 +5,7 @@
    *
    * @component MQSBadge
    */
+  import { invoke } from '@tauri-apps/api/core';
 
   /**
    * @type {{
@@ -18,6 +19,13 @@
    * разные цифры в Валидации (3.9:1) и Модели (1.5:1).
    */
   let { diagnostics, ssotRatio = undefined } = $props();
+
+  // v2.1 (микро-справка-рычаг): «?» открывает страницу «Интерпретация
+  // результатов» во внешнем браузере (полный разбор MQS, ROI, вердиктов,
+  // переобучения). Тихо логируем ошибку, если open_help недоступен.
+  function openInterpretationHelp() {
+    invoke('open_help', { cabinetId: 'interpretation' }).catch((err) => console.error(err));
+  }
 
   /** @type {any} */
   let mqs = $derived(diagnostics?.mqs || null);
@@ -115,6 +123,12 @@
       </div>
       <div class="mqs-verdict">
         <p>{displayVerdict}</p>
+        <button
+          type="button"
+          class="mqs-help"
+          onclick={openInterpretationHelp}
+          title="Как читать MQS, ROI и вердикты — открыть «Интерпретацию результатов»"
+        >? Как читать результаты</button>
       </div>
     </div>
 
@@ -180,6 +194,30 @@
     font-size: 14px;
     line-height: 1.5;
     margin: 0;
+  }
+
+  .mqs-help {
+    margin-top: 8px;
+    background: transparent;
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.12));
+    color: var(--text-secondary, #94a3b8);
+    font-size: 11.5px;
+    font-family: inherit;
+    padding: 3px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .mqs-help:hover {
+    color: var(--text-primary, #e2e8f0);
+    border-color: var(--accent-primary, #58a6ff);
+    background: var(--accent-glow, rgba(88,166,255,0.1));
+  }
+
+  .mqs-help:focus-visible {
+    outline: 2px solid var(--accent-primary, #58a6ff);
+    outline-offset: 1px;
   }
 
 </style>
