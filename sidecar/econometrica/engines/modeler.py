@@ -272,14 +272,19 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     # ── v2.0.0 (ADR-019 §5): РФ holiday auto-injection ──
     # 12 hardcoded holidays auto-добавляются как control columns.
-    # Customer customization (opt-out) откладывается в v2.2.0.
+    # #6 Tier-3/OVB (2026-06-07): opt-out реализован — config.disabled_holidays
+    # (список имён авто-праздников) пропускается при инъекции. Позволяет убрать
+    # неинформативные праздники (contraction<0.1) без OVB и переобучить чище.
     # Existing user-supplied holidays preserved (no overwrite).
+    disabled_holidays = set(config.get('disabled_holidays', []) or [])
     holiday_cols_injected = []
     if date_col in df.columns:
         try:
             from utils.holiday_calendar_ru import generate_holiday_dummies, list_holiday_names
             holiday_df = generate_holiday_dummies(df[date_col])
             for hcol in holiday_df.columns:
+                if hcol in disabled_holidays:
+                    continue  # #6 opt-out: пользователь отключил этот авто-праздник
                 if hcol not in df.columns:  # preserve user-supplied
                     df[hcol] = holiday_df[hcol].values
                     holiday_cols_injected.append(hcol)
