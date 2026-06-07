@@ -213,11 +213,17 @@
   // (1.6:1 для Кагоцел РФ+), но frontend после изменения ролей даёт 4.4:1.
   // Email текст должен показывать current value (как карточки Валидации).
   //
-  // v2.1.0 polish round 2 (2026-05-17): убрали fallback на mData.diagnostics.metrics.ratio.
-  // Stale training-time число вводило в заблуждение если SSOT недоступен.
-  // null → отображение «—» вместо неверного числа.
+  // INV-50 (live-audit 2026-06-07): сопроводительное письмо/отчёт клиенту = ЧЕСТНЫЙ
+  // effective ratio (diagnostics.metrics.ratio = obs/effective_params, posterior
+  // contraction) — тот же источник, что MQS-cap, вердикт и in-app InsightsPanel.
+  // Прежде (2026-05-17) брался validationHeaderMetrics.ratio (obs/назначенные колонки
+  // ≈ 4.4) — оптимистичный pre-train индикатор, из-за которого письмо показывало
+  // «Ratio 4.4:1» БЕЗ оговорки переобучения, противореча MQS-капу «2.4:1 < 4:1» →
+  // нечестное число в КЛИЕНТСКОМ deliverable (PPTX/HTML/XLSX/email). Тот «stale 1.6»,
+  // что тогда убрали, теперь = effective 2.4 (свежий, из обученной модели на финальном
+  // наборе каналов). validationHeaderMetrics — только последний fallback (нет diagnostics).
   const ratio    = $derived(/** @type {number|null} */ (
-    $validationHeaderMetrics?.ratio ?? null
+    mData?.diagnostics?.metrics?.ratio ?? $validationHeaderMetrics?.ratio ?? null
   ));
   const rHat     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_hat_max ?? null));
   const divergences = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.divergences ?? null));

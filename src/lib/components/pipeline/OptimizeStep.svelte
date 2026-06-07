@@ -887,6 +887,9 @@
   /** Set to true on first successful runOptimize so auto-run doesn't fire before
    *  the customer has initiated at least one explicit optimization. */
   let _hasRunOnce = false;
+  /** Аудит F-JS4 (2026-06-07): последний персистнутый CPP-key (guard против churn —
+   *  optimize авто-перезапускается на каждый сдвиг слайдера). null → персистить. */
+  let _lastPersistedUC = /** @type {string | null} */ (null);
 
   $effect(() => {
     // Register minPct, maxPct AND per-channel records (channelMinPct/channelMaxPct)
@@ -1381,12 +1384,21 @@
         // (_resolve_current_unit_costs читает project.json) + decompose + reload видят
         // один источник. Best-effort: не должно ронять успешный optimize; activeProject
         // НЕ трогаем (избегаем reactive re-sync стора).
+        // Аудит F-JS4 (2026-06-07): персистим ТОЛЬКО при изменении CPP (guard против churn —
+        // optimize авто-перезапускается на каждый сдвиг слайдера 400ms) + fire-and-forget
+        // (не блокируем bookkeeping) + лог ошибки (не немой catch, иначе stale project.json молча).
         try {
           const _ucUsed = get(unitCosts) ?? {};
-          if (_ucUsed && Object.keys(_ucUsed).length > 0) {
-            await invoke('project_update', { projectId, updates: { unit_costs: _ucUsed } });
+          const _ucKey = JSON.stringify(_ucUsed);
+          if (Object.keys(_ucUsed).length > 0 && _ucKey !== _lastPersistedUC) {
+            _lastPersistedUC = _ucKey;
+            invoke('project_update', { projectId, updates: { unit_costs: _ucUsed } })
+              .catch((/** @type {any} */ e) => {
+                _lastPersistedUC = null;  // дать ретрай при следующем optimize
+                console.warn('[cpp-persist] project_update failed:', e);
+              });
           }
-        } catch (_e) { /* persistence best-effort */ }
+        } catch (_e) { console.warn('[cpp-persist] skipped:', _e); }
         // F-015: mark first successful run so auto-rerun $effect becomes active.
         _hasRunOnce = true;
         // F1 fix: capture optimal allocation для следующего chain widening call.

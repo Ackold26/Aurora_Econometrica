@@ -1177,11 +1177,26 @@ export function modelInsights(data, ratioOverride = undefined) {
     const uninform = pccEntries.filter(/** @param {[string, number]} e */ (e) => e[1] < 0.1).map((e) => e[0]);
     const informCount = pccEntries.length - uninform.length;
     if (pccEntries.length > 0 && uninform.length > 0) {
-      const shown = uninform.slice(0, 6).join(', ') + (uninform.length > 6 ? ` и ещё ${uninform.length - 6}` : '');
+      // Авто-праздники РФ (holiday_*) — синтетические контроли, у которых ПОКА нет
+      // UI-удаления (toggle отложен), поэтому НЕ обещаем по ним действие (over-promise);
+      // data-колонки-контроли убираются ролью «не использовать» на Валидации. Сырые
+      // машинные имена праздников (holiday_newyear_preshop) клиенту не показываем.
+      const dataCtrls = uninform.filter((/** @type {string} */ n) => !/^holiday_/i.test(n));
+      const holidayCtrls = uninform.filter((/** @type {string} */ n) => /^holiday_/i.test(n));
+      /** @type {string[]} */
+      const tipParts = [];
+      if (dataCtrls.length > 0) {
+        const shown = dataCtrls.slice(0, 6).join(', ') + (dataCtrls.length > 6 ? ` и ещё ${dataCtrls.length - 6}` : '');
+        tipParts.push(`Контроли-колонки данных (${shown}) можно отключить на шаге «Валидация» (роль → «не использовать») для простоты — это НЕ изменит ROI каналов или честный MQS, они и так почти не влияли.`);
+      }
+      if (holidayCtrls.length > 0) {
+        tipParts.push(`${holidayCtrls.length} редких праздник(ов) РФ внесли ≈0 (даты почти не попали в период данных) — это нормально, отдельного действия не требуют.`);
+      }
+      tipParts.push(`Информативные контроли (${informCount}: сезонность/праздники/конкуренты, реально влияющие на продажи) убирать НЕ нужно — удаление сместит ROI медиа (omitted variable bias) и нечестно поднимет MQS. Цель — чистота модели, а не накрутка балла.`);
       out.push({
         severity: 'info',
-        text: `🧹 Контроли: ${uninform.length} из ${pccEntries.length} неинформативны — модель их не определила (вклад ≈ ноль).`,
-        tip: `Неинформативные контроли (${shown}) можно убрать на шаге «Валидация»: это упростит модель и НЕ изменит ROI каналов или честный MQS — они и так почти не влияли. Остальные ${informCount} контролей информативны (сезонность/праздники/конкуренты) — убирать их НЕ нужно: удаление сместит ROI медиа (omitted variable bias) и нечестно поднимет MQS. Цель — чистота модели, а не накрутка балла.`,
+        text: `🧹 Контроли: ${uninform.length} из ${pccEntries.length} внесли почти ноль — модель их не определила.`,
+        tip: tipParts.join(' '),
       });
     }
   }

@@ -23,6 +23,7 @@ from utils.diagnostics import (
     prior_sds_for_bayesian, effective_params_contraction, generate_diagnostics_summary,
     per_control_contraction,
 )
+from utils.safe_io import sanitize_nonfinite
 
 PROJECTS_ROOT = os.path.join(os.environ.get('APPDATA', ''), 'aurora-econometrica-gui', 'projects')
 
@@ -111,8 +112,12 @@ def recompute_project(proj_dir: str, dry_run: bool = False) -> dict:
         'controls_total': len(pcc),
     }
     if not dry_run:
+        # Аудит 2026-06-07 (F-PY1): sanitize_nonfinite ОБЯЗАТЕЛЬНА — голый json.dump
+        # пишет литерал NaN/Infinity (нарушение RFC 8259) → Rust serde_json (strict)
+        # падает → project_load_results молча null → «Отчёт: модель не загружена».
+        # modeler.py/ols_modeler.py санируют; recompute_mqs (3-й писатель) — теперь тоже.
         with open(diag_path, 'w', encoding='utf-8') as f:
-            json.dump(diag, f, ensure_ascii=False, indent=2)
+            json.dump(sanitize_nonfinite(diag), f, ensure_ascii=False, indent=2)
         result['written'] = True
     return result
 

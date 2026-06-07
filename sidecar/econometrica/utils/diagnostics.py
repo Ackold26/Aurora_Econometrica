@@ -62,6 +62,7 @@ def effective_params_contraction(posterior_sd: dict, prior_sd: dict) -> float:
         if g not in posterior_sd or psd is None or psd <= 0:
             continue
         sd = np.atleast_1d(np.asarray(posterior_sd[g], dtype=float)).ravel()
+        sd = sd[np.isfinite(sd)]  # F-PY2 (аудит): NaN/Inf draws не должны давать NaN eff_params
         if sd.size == 0:
             continue
         contraction = np.clip(1.0 - (sd ** 2) / (float(psd) ** 2), 0.0, 1.0)
@@ -89,7 +90,7 @@ def per_control_contraction(control_betas_post_sd, prior_control_sd, control_col
         return out
     sd = np.atleast_1d(np.asarray(control_betas_post_sd, dtype=float)).ravel()
     for i, name in enumerate(control_cols):
-        if i < sd.size:
+        if i < sd.size and np.isfinite(sd[i]):  # F-PY2 (аудит): не эмитить NaN/Inf
             out[name] = round(float(np.clip(1.0 - (sd[i] ** 2) / (psd ** 2), 0.0, 1.0)), 3)
     return out
 

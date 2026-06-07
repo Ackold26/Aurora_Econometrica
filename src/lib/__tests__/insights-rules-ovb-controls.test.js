@@ -54,4 +54,25 @@ describe('#6 OVB-guardrail insight', () => {
     };
     expect(modelInsights(data, 2.4).find((/** @type {any} */ i) => /Контроли:/.test(i.text))).toBeFalsy();
   });
+
+  // F-JS3 (аудит 2026-06-07): авто-праздники holiday_* без UI-удаления → не over-promise'ить
+  // действие + не показывать сырые машинные имена клиенту.
+  it('авто-праздники (holiday_*): без сырых имён, информационно, без over-promise', () => {
+    const ins = modelInsights(
+      diagWithControls({ holiday_russia_day: 0.005, holiday_unity_day: 0.03, queries: 0.93 }), 2.4);
+    const hint = /** @type {any} */ (ins.find((/** @type {any} */ i) => /Контроли:/.test(i.text)));
+    expect(hint).toBeTruthy();
+    expect(hint.tip).not.toMatch(/holiday_russia_day/);   // сырое машинное имя не показываем
+    expect(hint.tip).toMatch(/праздник.*РФ|нормально/);    // информационно
+    expect(hint.tip).not.toMatch(/Контроли-колонки данных/); // нет data-контролей → нет «убрать»
+  });
+
+  it('смешанные: data-контроль → действие, праздник → информационно (count)', () => {
+    const ins = modelInsights(
+      diagWithControls({ weak_macro: 0.05, holiday_russia_day: 0.005, queries: 0.93 }), 2.4);
+    const hint = /** @type {any} */ (ins.find((/** @type {any} */ i) => /Контроли:/.test(i.text)));
+    expect(hint.tip).toMatch(/Контроли-колонки данных \(weak_macro/); // data → конкретное действие
+    expect(hint.tip).toMatch(/1 редк/);                                // holiday → count
+    expect(hint.tip).not.toMatch(/holiday_russia_day/);                // без сырого имени
+  });
 });
