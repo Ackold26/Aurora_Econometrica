@@ -3271,6 +3271,8 @@ fn build_app() -> Result<(), String> {
             commands::report::econ_generate_report,
             commands::report::econ_export_xlsx,
             commands::report::econ_open_exports,
+            commands::report::save_sample_file,
+            commands::report::reveal_path,
         ])
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::Destroyed = event {

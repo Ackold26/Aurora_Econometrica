@@ -8,7 +8,7 @@
    * @component ImportStep
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { open } from '@tauri-apps/plugin-dialog';
+  import { open, save } from '@tauri-apps/plugin-dialog';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
@@ -63,6 +63,49 @@
     } finally {
       importingArchive = false;
     }
+  }
+
+  // ── Скачивание синтетического примера ──────────────
+  // Фикс 2026-06-07: `<a download>` не работает в WebView2 (нет браузерного
+  // «Сохранить как» → клик = no-op). Заменено на нативный save-dialog + запись
+  // через Rust (save_sample_file). Байты берём fetch'ем своего же bundled-asset.
+  /** @type {string} */
+  let sampleMsg = $state('');
+  /** @type {string} */
+  let savedSamplePath = $state('');
+  let savingSample = $state(false);
+
+  /** @param {string} filename @param {string} label */
+  async function downloadSample(filename, label) {
+    if (savingSample) return;
+    savingSample = true;
+    sampleMsg = '';
+    savedSamplePath = '';
+    try {
+      const resp = await fetch(`/sample-data/${filename}`);
+      if (!resp.ok) throw new Error('файл не найден в сборке');
+      const bytes = Array.from(new Uint8Array(await resp.arrayBuffer()));
+      const outputPath = await save({
+        defaultPath: filename,
+        filters: [{ name: 'Excel', extensions: ['xlsx'] }],
+        title: `Сохранить пример: ${label}`,
+      });
+      if (!outputPath) { savingSample = false; return; } // отмена
+      const finalPath = /** @type {string} */ (await invoke('save_sample_file', { outputPath, contents: bytes }));
+      savedSamplePath = finalPath;
+      sampleMsg = `✓ Сохранено: ${finalPath}`;
+    } catch (e) {
+      sampleMsg = `Ошибка сохранения: ${e}`;
+      savedSamplePath = '';
+      setTimeout(() => { sampleMsg = ''; }, 9000);
+    } finally {
+      savingSample = false;
+    }
+  }
+
+  async function revealSample() {
+    if (!savedSamplePath) return;
+    try { await invoke('reveal_path', { path: savedSamplePath }); } catch { /* no-op */ }
   }
 
   // ── State ──────────────────────────────────────────
@@ -373,33 +416,48 @@
           <div class="intro-card-title">Попробовать на примере</div>
         </div>
         <div class="intro-card-body">
-          Нет своих данных под рукой? Скачайте синтетический набор
-          для одной из четырёх отраслей, затем перетащите его в зону загрузки
-          выше. Структура файлов соответствует реальным проектам и проходит
-          полный pipeline без правок.
+          Скачайте готовый файл для одной из четырёх отраслей. Он работает
+          <strong>двояко</strong>:
+          <br>• <strong>как пример</strong> — перетащите в зону загрузки выше и
+          пройдите весь pipeline без правок (данные синтетические, но реалистичные);
+          <br>• <strong>как образец-шаблон</strong> — откройте в Excel, замените
+          значения своими реальными данными, сохранив структуру (те же колонки,
+          роли и единицы измерения, что нужны модели).
         </div>
         <div class="sample-grid">
-          <a class="sample-btn" href="/sample-data/synth_fmcg_brand.xlsx" download="synth_fmcg_brand.xlsx">
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG бренд')}>
             <span class="sample-icon">🛒</span>
             <span class="sample-label">FMCG бренд</span>
             <span class="sample-hint">Продажи, ТВ, OLV, контекст</span>
-          </a>
-          <a class="sample-btn" href="/sample-data/synth_otc_pharma.xlsx" download="synth_otc_pharma.xlsx">
+          </button>
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма')}>
             <span class="sample-icon">💊</span>
             <span class="sample-label">OTC фарма</span>
             <span class="sample-hint">Упаковки, ТВ, OLV, аптеки</span>
-          </a>
-          <a class="sample-btn" href="/sample-data/synth_real_estate.xlsx" download="synth_real_estate.xlsx">
+          </button>
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_real_estate.xlsx', 'Недвижимость')}>
             <span class="sample-icon">🏠</span>
             <span class="sample-label">Недвижимость</span>
             <span class="sample-hint">Сделки, наружка, контекст</span>
-          </a>
-          <a class="sample-btn" href="/sample-data/synth_retail_chain.xlsx" download="synth_retail_chain.xlsx">
+          </button>
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_retail_chain.xlsx', 'Ритейл-сеть')}>
             <span class="sample-icon">🏪</span>
             <span class="sample-label">Ритейл-сеть</span>
             <span class="sample-hint">Чеки, радио, ТВ, цифра</span>
-          </a>
+          </button>
         </div>
+        {#if sampleMsg}
+          <div class="sample-msg" class:err={!savedSamplePath}>
+            <span>{sampleMsg}</span>
+            {#if savedSamplePath}
+              <button class="sample-reveal" type="button" onclick={revealSample}>📂 Открыть папку</button>
+            {/if}
+          </div>
+        {/if}
       </div>
 
       <!-- 4. Карточка «Загрузить сохранённый проект» -->
@@ -1167,7 +1225,36 @@
     color: var(--text-primary);
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease;
+    /* button-reset (раньше был <a>): шрифт/выравнивание/нативная хромировка */
+    font: inherit;
+    text-align: left;
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
   }
+  .sample-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .sample-msg {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .sample-msg.err { color: #ff6b6b; }
+  .sample-reveal {
+    font: inherit;
+    font-size: 12px;
+    padding: 4px 10px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .sample-reveal:hover { background: rgba(255,255,255,0.1); }
   .sample-btn:hover, .sample-btn:focus-visible {
     background: rgba(255,255,255,0.07);
     border-color: rgba(255,255,255,0.18);

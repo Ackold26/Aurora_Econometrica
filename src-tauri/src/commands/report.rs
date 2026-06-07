@@ -547,6 +547,55 @@ pub async fn econ_open_exports(project_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Сохранить байты (напр. синтетический пример xlsx, переданный фронтом через
+/// fetch+arrayBuffer) в выбранный пользователем путь. Атомарная запись: tmp+rename,
+/// прерванная запись не оставит битый файл. Возвращает финальный путь.
+/// Фикс 2026-06-07: `<a download>` не работает в WebView2 → нативный save-dialog
+/// на фронте даёт output_path, эта команда пишет файл.
+#[tauri::command]
+pub fn save_sample_file(output_path: String, contents: Vec<u8>) -> Result<String, String> {
+    let out = PathBuf::from(&output_path);
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("создать папку: {e}"))?;
+    }
+    let tmp = out.with_extension("xlsx.tmp");
+    if tmp.exists() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    std::fs::write(&tmp, &contents).map_err(|e| format!("запись: {e}"))?;
+    std::fs::rename(&tmp, &out).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("переименование: {e}")
+    })?;
+    Ok(output_path)
+}
+
+/// Открыть проводник с выделением файла (кнопка «Открыть папку» после сохранения).
+#[tauri::command]
+pub fn reveal_path(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() {
+        return Err("Файл не найден".to_string());
+    }
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Не удалось открыть папку: {e}"))?;
+    }
+    #[cfg(not(windows))]
+    {
+        let dir = p.parent().unwrap_or(&p);
+        std::process::Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("Не удалось открыть папку: {e}"))?;
+    }
+    Ok(())
+}
+
 // ── XLSX builder ──────────────────────────────────────────────────────────────
 
 fn build_xlsx(
