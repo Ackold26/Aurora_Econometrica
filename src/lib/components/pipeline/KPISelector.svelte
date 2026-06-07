@@ -131,7 +131,7 @@
       <span class="group-icon"><CircleDollarSign size={16} strokeWidth={1.5} /></span>
       В рублях
     </h3>
-    <div class="cards">
+    <div class="cards monetary-cards">
       {#each monetaryOptions as opt (opt.id)}
         {@const disabled = isDisabled(opt.id)}
         <Tooltip text={disabled ? 'В ваших данных нет колонки этого типа KPI' : TOOLTIPS[`kpi.${opt.id}`] ?? ''} position="top">
@@ -299,6 +299,10 @@
   .count-cards {
     grid-template-columns: repeat(auto-fill, 235px);
   }
+  /* Выручка/Прибыль — на всю активную ширину, как панели режимов выше. */
+  .monetary-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
 
   /* v2.1.0 (пилот 2026-05-16): Tooltip wrapper по умолчанию inline-flex -
      не растягивается на ширину grid-колонки. Override чтобы каждая обёртка
@@ -315,6 +319,7 @@
   }
   @media (max-width: 700px) {
     .cards { grid-template-columns: 1fr; }
+    .monetary-cards { grid-template-columns: 1fr; }
     .count-cards { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
   }
 
