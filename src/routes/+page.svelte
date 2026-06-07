@@ -196,7 +196,7 @@
   <!-- ── Top Bar ── -->
   <header class="topbar">
     <div class="topbar-left">
-      <img src="/logo-wordmark.png" alt="Aurora AI" class="topbar-logo" />
+      <img src="/logo-horizon.png" alt="Aurora AI" class="topbar-logo" />
       <div class="brand">
         <span class="brand-product">ECONOMETRICA</span>
       </div>
@@ -412,15 +412,11 @@
     flex-direction: column;
     gap: 0px;
     line-height: 1;
-    /* Выравнивание с AURORA baseline - у картинки logo-wordmark.png
-       "AI"-superscript смещает визуальный центр выше baseline текста AURORA. */
-    margin-top: 8px;
   }
 
   .topbar-logo {
-    height: 26px;
+    height: 44px;
     width: auto;
-    opacity: 0.9;
   }
 
   .brand-product {

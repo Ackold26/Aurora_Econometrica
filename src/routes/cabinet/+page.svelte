@@ -292,7 +292,7 @@
       <header class="header" style="--cabinet-color: {$activeCabinet.color}">
         <!-- Логотип + название продукта - тот же layout что в главном меню (src/routes/+page.svelte) -->
         <div class="topbar-left">
-          <img src="/logo-wordmark.png" alt="Aurora AI" class="topbar-logo" />
+          <img src="/logo-horizon.png" alt="Aurora AI" class="topbar-logo" />
           <div class="brand">
             <span class="brand-product">ECONOMETRICA</span>
           </div>
@@ -513,16 +513,14 @@
     gap: 10px;
   }
   .topbar-logo {
-    height: 26px;
+    height: 44px;
     width: auto;
-    opacity: 0.9;
   }
   .brand {
     display: flex;
     flex-direction: column;
     gap: 0px;
     line-height: 1;
-    margin-top: 8px;
   }
   .brand-product {
     font-size: 15px;
