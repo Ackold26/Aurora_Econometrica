@@ -297,7 +297,7 @@
     justify-content: start;
   }
   .count-cards {
-    grid-template-columns: repeat(auto-fill, 235px);
+    grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
   }
   /* Выручка/Прибыль — на всю активную ширину, как панели режимов выше. */
   .monetary-cards {
