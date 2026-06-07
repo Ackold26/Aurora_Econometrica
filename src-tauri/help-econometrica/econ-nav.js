@@ -36,7 +36,7 @@
     nav.innerHTML = `
       <div class="anav-inner">
         <a href="index.html" class="anav-logo" title="Aurora AI Econometrica - справочный центр">
-          <img src="logo-wordmark.png" alt="Aurora AI" class="anav-logo-img" />
+          <img src="logo-horizon.png" alt="Aurora AI" class="anav-logo-img" />
           <span class="anav-logo-text">Econometrica</span>
         </a>
         <div class="anav-groups">
@@ -80,7 +80,7 @@
         text-decoration: none; white-space: nowrap; margin-right: 14px;
       }
       .anav-logo-img {
-        height: 22px; width: auto; opacity: 0.92;
+        height: 69px; width: auto; opacity: 0.92;
       }
       .anav-logo-text {
         font-size: 12px; font-weight: 700; letter-spacing: 0.08em;
