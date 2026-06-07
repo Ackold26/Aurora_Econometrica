@@ -41,6 +41,44 @@ ChannelTimeline highlight (стр.146-159) аккумулирует `cum` от 0
 
 ## 6. #9 (панель «Экспорт») — CSS высота, ReportStep.svelte:~908 .generate-card.
 
+## ⚠️ Коллизия двух сессий (зафиксировано 2026-06-07)
+Параллельно сессия **oracle** делала ТУ ЖЕ задачу #12 в этом же master другим
+дизайном (`decomposition_series` в `engines.decomposer.build_decomposition_series`
+vs мой `timeline_factors` в `utils/`). Коммиты чередовались. **Разрешено:**
+принят канонический `decomposition_series` (честнее — вычитает из baseline ВСЕ
+вынесенные факторы, без double-count положительных праздников; мой `timeline_factors`
+дословно портировал ChannelTimeline и протащил бы этот баг). Дубль убран (revert
+`07a47ee`). По решению Антона oracle уведён, дальше Econometrica веду только я.
+
+## ИТОГ (что сделано, всё зелёное)
+- **Core #12 (задачи 1–3) ВЫПОЛНЕН:** программа + HTML + PPTX + XLSX читают единый
+  `decomposition_series`. Гэп закрыт (было: HTML/PPTX теряли 10 факторов).
+- Гейты: fidelity harness backend/HTML/PPTX = **ВСЕ PASS**; pytest **355**;
+  cargo `timeline_columns` 2/2; svelte **0E/171W**.
+- **#9** высота панели «Экспорт» (flex:1 0 auto) + **#10** highlight отрицательных
+  полос — починены.
+- **SF-1** echarts integrity pin — починен (ложный warning убран).
+- **SF-2** PPTX недосчёт OLV — устранён (убран top-5 trim в s08_action_timeline).
+
+## ОСТАЁТСЯ (honest handoff — НЕ начато/гейтнуто)
+- **#4 корректность режимов оптимизатора** (forward `econ_optimize` / goal-seek
+  `optimize_inverse` / «от задачи» + planner/analyst). Глубокий сенситивный
+  эконометрический аудит (есть ongoing CC-Session `2026-06-02-optimizer-test-plan-audit`).
+  Probe: режимы = `taskMode` forward/goal-seek (OptimizeStep.svelte:146) +
+  `planningMode` planner/analyst; forward→optimizer.py `optimize()`, goal-seek→inverse
+  модуль (OptimizeGoalSeek.svelte). **Report-fidelity для оптимизации НЕ имеет
+  скрытых-факторов проблемы** (все билдеры читают одни per-channel spends из
+  optimization.json → консистентны by construction). Делать modes-correctness
+  отдельной сессией, не наспех (риск INV-50 для lift-чисел).
+- **#6 Tier-3**: контроли опциональны на валидации + OVB-guardrails (предупреждение +
+  Δ ROI медиа при удалении контроля; авто-подсказка убрать контроли с contraction<0.1).
+  НЕ «выключить контроль → поднять MQS» как накрутку (OVB: эффект переедет на медиа).
+  Фича среднего размера — не начато.
+- **#5 `recompute_mqs --all`** (116 реальных проектов) — гейт Антона (мутирует артефакты).
+  Также есть `tools/backfill_decomposition_series.py --all` для бэкфилла нового поля
+  в старые проекты (тоже под подтверждение).
+- **#7 rc10** сборка/публикация — гейт Антона (наружу).
+
 ## Скорректированный staged-план (audit+commit после каждого)
 - [x] Этап 0 — probe + этот документ.
 - [x] Этап 1 — fidelity-diff harness (`tools/fidelity_diff.py`). **RED подтверждён:** backend нет decomposition_series; HTML 5 серий, нет 8 факторов (конкуренты+7 праздников); PPTX 7 серий, нет факторов + нет канала OLV. Тождество per-period проверяется. Commit+tag.
