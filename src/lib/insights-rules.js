@@ -1165,6 +1165,27 @@ export function modelInsights(data, ratioOverride = undefined) {
     }
   }
 
+  // ── 0b. OVB-guardrail (#6, 2026-06-07): per-control contraction подсказка ──
+  // Неинформативные контроли (contraction<0.1, posterior≈prior — данные их не
+  // определили) можно убрать без omitted-variable bias и без нечестного роста MQS;
+  // информативные убирать нельзя (сместит media-ROI + накрутит MQS-cap). Цель —
+  // чистота модели, НЕ накрутка балла. Источник: diagnostics.per_control_contraction.
+  const pcc = d.per_control_contraction;
+  if (pcc && typeof pcc === 'object') {
+    const pccEntries = Object.entries(pcc).filter(
+      /** @param {[string, any]} e */ (e) => typeof e[1] === 'number');
+    const uninform = pccEntries.filter(/** @param {[string, number]} e */ (e) => e[1] < 0.1).map((e) => e[0]);
+    const informCount = pccEntries.length - uninform.length;
+    if (pccEntries.length > 0 && uninform.length > 0) {
+      const shown = uninform.slice(0, 6).join(', ') + (uninform.length > 6 ? ` и ещё ${uninform.length - 6}` : '');
+      out.push({
+        severity: 'info',
+        text: `🧹 Контроли: ${uninform.length} из ${pccEntries.length} неинформативны — модель их не определила (вклад ≈ ноль).`,
+        tip: `Неинформативные контроли (${shown}) можно убрать на шаге «Валидация»: это упростит модель и НЕ изменит ROI каналов или честный MQS — они и так почти не влияли. Остальные ${informCount} контролей информативны (сезонность/праздники/конкуренты) — убирать их НЕ нужно: удаление сместит ROI медиа (omitted variable bias) и нечестно поднимет MQS. Цель — чистота модели, а не накрутка балла.`,
+      });
+    }
+  }
+
   // ── 1. Headline verdict (MQS-based) ──
   const thinSuffix = isThin ? ' Учитывайте, что данных мало - CI широкие.' : '';
   if (mqs >= 80) {
