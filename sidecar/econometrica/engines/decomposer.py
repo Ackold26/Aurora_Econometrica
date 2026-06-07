@@ -303,6 +303,92 @@ def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derive
     }
 
 
+# Типы signed-факторов, которые выносятся ОТДЕЛЬНЫМИ полосами в timeline-
+# декомпозиции (и в программе, и во ВСЕХ отчётах). positive_control
+# (запросы/дистрибуция) остаётся внутри baseline (noise-like, не интересен
+# отдельно — поведение зеркалит ChannelTimeline.svelte).
+_BREAKOUT_TYPES = frozenset({
+    'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro', 'holiday',
+})
+_FACTOR_GROUP_LABELS = {
+    'signed_competitor': 'Конкуренты',
+    'signed_price': 'Цена',
+    'signed_weather': 'Погода',
+    'signed_macro': 'Макро-факторы',
+    'holiday': 'Праздники',
+}
+
+
+def build_decomposition_series(
+    dates: list,
+    baseline_ts: list,
+    time_series_channels: dict,
+    signed_factor_contributions: dict | None,
+    *,
+    eps: float = 1e-6,
+) -> dict:
+    """Канонический набор серий timeline-декомпозиции — ЕДИНЫЙ источник истины
+    для программы (ChannelTimeline) и всех отчётов (HTML/PPTX/XLSX).
+
+    Аудит #12 (2026-06-07, INV-50): раньше каждый потребитель сам решал, какие
+    факторы показывать. Программа выносила signed/holiday полосами, отчёты — нет
+    (показывали меньше факторов). Хуже: программа вычитала из baseline только
+    отрицательные факторы, а положительные праздники добавляла сверху НЕ вычитая
+    → double-count. Здесь это считается ОДИН раз и честно.
+
+    Честность тождества: `baseline` уже включает все control_effect. Каждый
+    выносимый фактор (любого знака) ВЫЧИТАЕТСЯ из baseline и показывается своей
+    полосой, поэтому per-period:
+        baseline_reduced + Σ(вынесенные факторы) + Σ(медиа) == исходный total.
+    positive_control не выносится (остаётся в baseline). all-zero per_period
+    пропускаются (нет эффекта — нет полосы; применяется ко ВСЕМ потребителям,
+    значит наборы остаются согласованными).
+
+    Returns:
+        {"dates": [...], "series": [{name, role, type, group, side, data[]}]}
+        role ∈ {baseline, media, factor}; side ∈ {positive, negative}.
+    """
+    n = len(baseline_ts or [])
+    baseline_reduced = [float(v or 0) for v in (baseline_ts or [])]
+    bands = []
+    for name, fact in (signed_factor_contributions or {}).items():
+        if not isinstance(fact, dict):
+            continue
+        ftype = fact.get('type')
+        if ftype not in _BREAKOUT_TYPES:
+            continue
+        pp = fact.get('per_period') or []
+        if not any(abs(float(v or 0)) > eps for v in pp):
+            continue  # нулевой фактор — без полосы
+        for t in range(min(n, len(pp))):
+            baseline_reduced[t] -= float(pp[t] or 0)  # тождество: вычитаем любой знак
+        mean = (sum(float(v or 0) for v in pp) / len(pp)) if pp else 0.0
+        bands.append({
+            'name': name,
+            'role': 'factor',
+            'type': ftype,
+            'group': _FACTOR_GROUP_LABELS.get(ftype, 'Внешние'),
+            'side': 'negative' if mean < 0 else 'positive',
+            'data': [round(float(v or 0), 1) for v in pp],
+        })
+
+    series = [{
+        'name': 'Базовый уровень', 'role': 'baseline', 'type': 'baseline',
+        'group': 'База', 'side': 'positive',
+        'data': [round(v, 1) for v in baseline_reduced],
+    }]
+    for nm, ts in (time_series_channels or {}).items():
+        series.append({
+            'name': nm, 'role': 'media', 'type': 'media', 'group': 'Медиа',
+            'side': 'positive',
+            'data': [round(float(v or 0), 1) for v in (ts or [])],
+        })
+    # Порядок стека зеркалит ChannelTimeline: media → positive bands → negative bands.
+    series.extend(b for b in bands if b['side'] == 'positive')
+    series.extend(b for b in bands if b['side'] == 'negative')
+    return {'dates': list(dates or []), 'series': series}
+
+
 def decompose(
     project_dir: str,
     unit_costs_override: dict | None = None,
@@ -1076,7 +1162,27 @@ def decompose(
         # type ∈ {'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro',
         #         'holiday', 'positive_control'}
         'signed_factor_contributions': signed_factor_contributions,
+        # Аудит #12 (2026-06-07, INV-50): канонический набор серий timeline-
+        # декомпозиции — ЕДИНЫЙ источник для программы (ChannelTimeline) и всех
+        # отчётов (HTML/PPTX/XLSX). baseline_reduced + Σфакторы + Σмедиа == total.
+        'decomposition_series': build_decomposition_series(
+            dates, baseline_ts, time_series_channels, signed_factor_contributions,
+        ),
     }
+
+    # SSOT набора факторов timeline (аудит #12, INV-50): считаем ОДИН раз тут,
+    # чтобы программа (ChannelTimeline) и все отчёты (HTML/PPTX/XLSX) показывали
+    # одинаковый набор — медиа + signed/holiday (positive_control свёрнут в
+    # baseline). Несёт только производное (baseline_adjusted + метаданные); сами
+    # per_period рендереры берут из time_series/signed_factor_contributions.
+    try:
+        from utils.timeline_factors import build_timeline_factors
+        result['timeline_factors'] = build_timeline_factors(
+            baseline_ts, time_series_channels, signed_factor_contributions,
+        )
+    except Exception as e:  # никогда не роняем декомпозицию из-за вспомогательного поля
+        logger.warning('timeline_factors computation failed: %s', e)
+        result['timeline_factors'] = {'baseline_adjusted': [], 'media_order': [], 'factors': []}
 
     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
     from utils.safe_io import sanitize_nonfinite
