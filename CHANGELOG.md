@@ -2,6 +2,18 @@
 
 ---
 
+## v2.1.0-rc9 — Help-redesign + honesty engine + LOAD-1 + UI polish + публикация (2026-06-07)
+
+Релиз вбирает rc7→rc9 (rc8 не публиковался). Опубликован клиентам через app_versions (`aurora-econometrica-gui` + `econometrica`) + GitHub Release `aurora-releases` + fallback-манифест. Unsigned (ООО нет), mandatory=false.
+
+- **Справочная система (редизайн):** единый SSOT-глоссарий (47 терминов, генератор `tools/build_glossary.py`), новая страница «Интерпретация результатов» (MQS/ROI/CI/переобучение), каталог функций 2.x + «Что нового в 2.1», поиск Ctrl+K по справке+глоссарию (gated на кабинет econometrist), микро-справка MQS, xlsx-шаблоны по 5 индустриям, «Подготовка данных» (мини-энциклопедия).
+- **Честный движок декомпозиции:** synthetic-truth, INV-50 CI-суффиксы, sidecar honesty-фиксы.
+- **LOAD-1:** закрыт класс ре-гидрации конфигурации проекта при загрузке (D-1/D-3 persist, cpp-гейт, modelChannelEnabled).
+- **UI:** горизонтальный логотип (эмблема + AURORA AI) + подпись «OPTIMIZER MMM» в топбарах; KPI-карточки (Выручка/Прибыль + В штуках) на всю активную ширину; Ctrl+F для поиска в чате (Ctrl+K освобождён под палитру команд).
+- **Установщик:** деинсталлятор корректно завершает `econometrica-sidecar.exe` (PREUNINSTALL taskkill) — больше не зависает при удалении/переустановке.
+
+---
+
 ## v2.1.0-rc6 — Help-system Phase 3 Day 2 (Task 3 + Task 4) — Phase 3 COMPLETE (2026-05-24)
 
 Закрытие Phase 3 — **все 4 задачи help-system audit shipped**. Trajectory C завершён за один длинный день (recon-first + parallel Sonnet execution сэкономили большую часть estimated 16h).

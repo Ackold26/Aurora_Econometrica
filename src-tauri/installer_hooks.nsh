@@ -53,6 +53,18 @@ program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; Phase: освободить .pyd / .dll ДО удаления файлов. Без этого
+  ; econometrica-sidecar.exe (или его python-воркеры) держит локи → uninstall
+  ; зависает / оставляет файлы → «танцы с бубном» при установке новой версии.
+  ; Тот же kill-блок, что в PREINSTALL (idempotent: exit 128 = "not found" = OK).
+  ; USERNAME filter — RDP multi-user safety (не убить чужой процесс).
+  DetailPrint "Stopping background processes before uninstall..."
+  ExecWait 'taskkill /IM "econometrica-sidecar.exe" /FI "USERNAME eq %USERNAME%" /T /F' $0
+  Sleep 1500
+  ExecWait 'taskkill /IM "aurora-econometrica-gui.exe" /FI "USERNAME eq %USERNAME%" /T /F' $0
+  Sleep 1000
+  ExecWait 'taskkill /IM "python.exe" /FI "USERNAME eq %USERNAME%" /FI "WINDOWTITLE eq econometrica*" /T /F' $0
+  Sleep 500
   ExecWait 'netsh advfirewall firewall delete rule \
 name="Aurora AI Econometrica (loopback)"'
   ExecWait 'netsh advfirewall firewall delete rule \
