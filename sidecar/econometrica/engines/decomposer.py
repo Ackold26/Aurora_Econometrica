@@ -1170,20 +1170,6 @@ def decompose(
         ),
     }
 
-    # SSOT набора факторов timeline (аудит #12, INV-50): считаем ОДИН раз тут,
-    # чтобы программа (ChannelTimeline) и все отчёты (HTML/PPTX/XLSX) показывали
-    # одинаковый набор — медиа + signed/holiday (positive_control свёрнут в
-    # baseline). Несёт только производное (baseline_adjusted + метаданные); сами
-    # per_period рендереры берут из time_series/signed_factor_contributions.
-    try:
-        from utils.timeline_factors import build_timeline_factors
-        result['timeline_factors'] = build_timeline_factors(
-            baseline_ts, time_series_channels, signed_factor_contributions,
-        )
-    except Exception as e:  # никогда не роняем декомпозицию из-за вспомогательного поля
-        logger.warning('timeline_factors computation failed: %s', e)
-        result['timeline_factors'] = {'baseline_adjusted': [], 'media_order': [], 'factors': []}
-
     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
     from utils.safe_io import sanitize_nonfinite
     results_dir = project_path / 'results'
