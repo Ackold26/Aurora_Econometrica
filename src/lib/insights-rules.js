@@ -1105,28 +1105,15 @@ export function modelInsights(data, ratioOverride = undefined) {
     ? ratioOverride
     : (m.ratio ?? 0);
 
-  // v2.1.0 (пилот 2026-05-16): MQS override. Backend thinness_cap=50 при
-  // backend ratio<2 ставил «Слабое» когда модель реально сошлась
-  // (R-hat=1.0, 0 divergences, R²=0.88). При frontend SSOT ratio >= 4
-  // используем raw_score (без cap) и пересчитываем tier - так MQSBadge
-  // плитка показывает 86 «Отличное», а инсайт здесь - то же самое.
-  const rawScore = Number(d.mqs?.raw_score ?? d.mqs?.score ?? 0);
+  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND (cap по эффективным
+  // параметрам, posterior contraction). Frontend больше НЕ раскапывает score по
+  // media-ratio — инсайт берёт единый источник d.mqs (как MQSBadge/диск/отчёты).
+  // Прежний raw_score override писал «Отличное 86» вместо честного «Хорошее 70».
   const backendScore = Number(d.mqs?.score ?? 0);
   /** @type {number} */
-  let mqs;
+  const mqs = backendScore;
   /** @type {string} */
-  let label;
-  if (ratio >= 4 && rawScore > backendScore) {
-    mqs = Math.round(rawScore * 10) / 10;
-    if (mqs >= 85) label = 'Отличное';
-    else if (mqs >= 70) label = 'Хорошее';
-    else if (mqs >= 55) label = 'Приемлемое';
-    else if (mqs >= 40) label = 'Слабое';
-    else label = 'Ненадёжное';
-  } else {
-    mqs = backendScore;
-    label = d.mqs?.tier_label ?? '';
-  }
+  const label = d.mqs?.tier_label ?? '';
   const thinnessCap = d.mqs?.thinness_cap ?? null;
   const isThin = ratio > 0 && ratio < 4;
   const isVeryThin = ratio > 0 && ratio < 2;
@@ -2022,19 +2009,13 @@ export function reportInsights(ctx = {}) {
   const ratio = typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0
     ? ssotRatio
     : backendRatio;
+  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND — единый источник
+  // diagnostics.mqs, без фронт-un-cap по media-ratio (см. MQSBadge/ReportStep).
   const backendMqsScore = Number(mod?.diagnostics?.mqs?.score ?? 0);
-  const rawScore = Number(mod?.diagnostics?.mqs?.raw_score ?? backendMqsScore);
   let mqs, tierLabel;
   if (mod?.diagnostics?.mqs == null) {
     mqs = null;
     tierLabel = '';
-  } else if (ratio != null && ratio >= 4 && rawScore > backendMqsScore) {
-    mqs = Math.round(rawScore * 10) / 10;
-    if (mqs >= 85) tierLabel = 'Отличное';
-    else if (mqs >= 70) tierLabel = 'Хорошее';
-    else if (mqs >= 55) tierLabel = 'Приемлемое';
-    else if (mqs >= 40) tierLabel = 'Слабое';
-    else tierLabel = 'Ненадёжное';
   } else {
     mqs = backendMqsScore;
     tierLabel = mod?.diagnostics?.mqs?.tier_label ?? '';

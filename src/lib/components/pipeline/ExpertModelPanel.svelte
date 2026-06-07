@@ -9,27 +9,16 @@
   const diagnostics = $derived($modelData?.diagnostics);
   const channelParams = $derived($modelData?.channelParams);
 
-  // v2.1.0 (пилот 2026-05-17, #49 finish): SSOT MQS override. Backend
-  // thinness_cap=50 при backend ratio<2 ставил «Слабое» когда модель
-  // реально сошлась (R-hat=1.0, divs=0, R²=0.98). При frontend SSOT
-  // ratio >= 4 используем raw_score без cap - согласовано с MQSBadge
-  // плиткой и success-banner'ом. Раньше Экспертный режим показывал
-  // backend MQS=50, юзер видел рассогласование с верхним блоком 87.
+  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND (cap по эффективным
+  // параметрам). Frontend больше НЕ раскапывает score по media-ratio — единый
+  // источник diagnostics.mqs (как MQSBadge/диск/отчёты). Прежний raw_score
+  // override показывал «Отличное» 86 вместо честного «Хорошее» 70.
   const ssotMqs = $derived.by(() => {
     if (!diagnostics?.mqs) return { score: null, label: '' };
-    const backendScore = Number(diagnostics.mqs.score ?? 0);
-    const rawScore = Number(diagnostics.mqs.raw_score ?? backendScore);
-    const ssotRatio = $validationHeaderMetrics?.ratio;
-    if (typeof ssotRatio !== 'number' || ssotRatio < 4 || rawScore <= backendScore) {
-      return { score: backendScore, label: diagnostics.mqs.tier_label ?? '' };
-    }
-    let label = '';
-    if (rawScore >= 85) label = 'Отличное';
-    else if (rawScore >= 70) label = 'Хорошее';
-    else if (rawScore >= 55) label = 'Приемлемое';
-    else if (rawScore >= 40) label = 'Слабое';
-    else label = 'Ненадёжное';
-    return { score: Math.round(rawScore * 10) / 10, label };
+    return {
+      score: Number(diagnostics.mqs.score ?? 0),
+      label: diagnostics.mqs.tier_label ?? '',
+    };
   });
 
   const paramRows = $derived.by(() => {
