@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Интерпретация результатов — Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128;
+  --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --accent: #58a6ff; --accent2: #3fb950; --border: #30363d;
+  --green: #3fb950; --amber: #d29922; --red: #f85149;
+  --purple: #bc8cff; --teal: #39d0d8;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+.container { max-width: 900px; margin: 0 auto; padding: 40px 32px 80px; }
+
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.02em; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 24px; }
+h2 { font-size: 20px; font-weight: 700; margin: 48px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); scroll-margin-top: 20px; }
+h2 .h2-num { color: var(--accent); font-size: 15px; font-weight: 700; margin-right: 8px; }
+h3 { font-size: 15px; font-weight: 600; margin: 22px 0 8px; color: var(--text); }
+p  { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Cascadia Code', 'Consolas', monospace; border: 1px solid var(--border); }
+
+/* TOC */
+.toc { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; margin: 24px 0 8px; }
+.toc h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin-bottom: 10px; }
+.toc ol { columns: 2; column-gap: 28px; padding-left: 18px; margin: 0; }
+.toc li { font-size: 13px; margin-bottom: 5px; }
+@media (max-width: 720px) { .toc ol { columns: 1; } }
+
+/* Tables */
+.table-wrap { overflow-x: auto; margin: 14px 0 18px; border-radius: 8px; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+td { padding: 9px 12px; border-top: 1px solid var(--border); color: var(--text2); vertical-align: top; }
+td:first-child { color: var(--text); font-weight: 500; }
+td code { font-size: 12px; }
+.tag { display: inline-block; font-size: 10.5px; padding: 1px 7px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
+.tag-good { background: rgba(63,185,80,0.12); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+.tag-warn { background: rgba(210,153,34,0.12); color: var(--amber); border: 1px solid rgba(210,153,34,0.3); }
+.tag-bad  { background: rgba(248,81,73,0.12); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+.tag-neu  { background: rgba(110,118,129,0.15); color: var(--text3); border: 1px solid var(--border); }
+
+/* Callouts */
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.callout p { font-size: 13.5px; margin: 0; line-height: 1.55; }
+.callout p + p { margin-top: 6px; }
+.c-info { background: rgba(88,166,255,0.06); border-color: rgba(88,166,255,0.25); }
+.c-info .c-title { color: var(--accent); }
+.c-warn { background: rgba(210,153,34,0.06); border-color: rgba(210,153,34,0.3); }
+.c-warn .c-title { color: var(--amber); }
+.c-ok { background: rgba(63,185,80,0.06); border-color: rgba(63,185,80,0.3); }
+.c-ok .c-title { color: var(--green); }
+.c-danger { background: rgba(248,81,73,0.06); border-color: rgba(248,81,73,0.3); }
+.c-danger .c-title { color: var(--red); }
+
+/* Expert / canon disclosure */
+details.expert { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 6px; padding: 12px 16px; margin: 14px 0; }
+details.expert summary { font-size: 13px; font-weight: 600; color: var(--purple); cursor: pointer; list-style: none; position: relative; padding-right: 22px; }
+details.expert summary::-webkit-details-marker { display: none; }
+details.expert summary::after { content: '+'; position: absolute; right: 0; top: -1px; font-size: 17px; color: var(--text3); }
+details.expert[open] summary::after { content: '−'; }
+details.expert .body { margin-top: 10px; }
+details.expert p { font-size: 13px; margin-bottom: 8px; }
+details.expert li { font-size: 13px; }
+
+/* MQS tier scale */
+.tiers { display: flex; flex-direction: column; gap: 8px; margin: 18px 0; }
+.tier-row { display: grid; grid-template-columns: 96px 110px 1fr; gap: 14px; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-left: 4px solid; border-radius: 8px; padding: 10px 16px; }
+.tier-row .t-score { font-size: 18px; font-weight: 700; }
+.tier-row .t-label { font-size: 13px; font-weight: 600; color: var(--text); }
+.tier-row .t-desc { font-size: 12.5px; color: var(--text2); }
+.tier-excellent { border-left-color: #22c55e; } .tier-excellent .t-score { color: #22c55e; }
+.tier-good      { border-left-color: #3b82f6; } .tier-good .t-score { color: #3b82f6; }
+.tier-acc       { border-left-color: #f59e0b; } .tier-acc .t-score { color: #f59e0b; }
+.tier-weak      { border-left-color: #f97316; } .tier-weak .t-score { color: #f97316; }
+.tier-poor      { border-left-color: #ef4444; } .tier-poor .t-score { color: #ef4444; }
+@media (max-width: 720px) { .tier-row { grid-template-columns: 70px 1fr; } .tier-row .t-desc { grid-column: 1 / -1; } }
+
+/* Ratio cards */
+.ratio-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 20px 0; }
+.ratio-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px; border-top: 3px solid; }
+.ratio-card.critical { border-top-color: var(--red); }
+.ratio-card.borderline { border-top-color: var(--amber); }
+.ratio-card.good { border-top-color: var(--green); }
+.ratio-card .rc-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+.ratio-card .rc-value { font-size: 22px; font-weight: 700; margin: 6px 0; }
+.ratio-card.critical .rc-value { color: var(--red); }
+.ratio-card.borderline .rc-value { color: var(--amber); }
+.ratio-card.good .rc-value { color: var(--green); }
+.ratio-card .rc-desc { font-size: 12.5px; color: var(--text2); line-height: 1.55; }
+
+/* Step map (how to read the report) */
+.flow { display: flex; flex-direction: column; gap: 10px; margin: 18px 0; }
+.flow-step { display: grid; grid-template-columns: 34px 1fr; gap: 14px; align-items: start; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; }
+.flow-step .fs-num { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: rgba(88,166,255,0.15); color: var(--accent); font-size: 13px; font-weight: 700; border-radius: 7px; }
+.flow-step h3 { margin: 0 0 3px; font-size: 14.5px; }
+.flow-step p { font-size: 13px; margin: 0; }
+
+/* good/bad chips */
+.gb { display: inline-block; font-weight: 700; font-size: 12px; }
+.gb.g { color: var(--green); }
+.gb.b { color: var(--red); }
+
+@media (max-width: 720px) { .ratio-grid { grid-template-columns: 1fr; } }
+
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<h1>Интерпретация результатов</h1>
+<p class="sub">Как читать отчёт модели и не сделать ошибочных выводов: что значат MQS, ROI, вердикты каналов, доверительные интервалы и переобучение. Написано для маркетолога — термины поясняются по ходу, под спойлерами «Для эконометриста» — технические детали.</p>
+
+<div class="callout c-info">
+  <div class="c-title">Главный принцип чтения</div>
+  <p><strong>Сначала посмотри, можно ли модели доверять — потом читай её цифры.</strong> Эконометрика всегда нарисует графики и числа, даже на плохих данных. Поэтому порядок чтения отчёта: качество модели (MQS, R-hat, Ratio) → декомпозиция → вклады каналов → оптимизация. Если качество низкое — числа остаются <strong>ориентиром, а не истиной</strong>.</p>
+</div>
+
+<div class="toc">
+  <h4>Содержание</h4>
+  <ol>
+    <li><a href="#map">Карта отчёта: что в каком порядке читать</a></li>
+    <li><a href="#mqs">MQS — единый балл качества модели</a></li>
+    <li><a href="#overfit">Высокий fit ≠ хорошая модель (переобучение)</a></li>
+    <li><a href="#ratio">Ratio и сколько данных нужно</a></li>
+    <li><a href="#ci">Доверительные интервалы (CI)</a></li>
+    <li><a href="#rhat">Сходимость MCMC (R-hat)</a></li>
+    <li><a href="#decomp">Декомпозиция и waterfall</a></li>
+    <li><a href="#spendeffect">Доля бюджета против доли эффекта</a></li>
+    <li><a href="#verdicts">Вердикты каналов</a></li>
+    <li><a href="#actions">Рекомендации к действию</a></li>
+    <li><a href="#trust">Чеклист доверия модели</a></li>
+  </ol>
+</div>
+
+<!-- ============ КАРТА ============ -->
+<h2 id="map"><span class="h2-num">1</span>Карта отчёта: что в каком порядке читать</h2>
+
+<p>Отчёт собирается из шага <strong>Декомпозиция</strong> и шага <strong>Отчёт</strong>. Читай его сверху вниз — каждый блок отвечает на свой вопрос:</p>
+
+<div class="flow">
+  <div class="flow-step">
+    <span class="fs-num">1</span>
+    <div><h3>Качество модели</h3><p>MQS, R², MAPE, R-hat, Ratio. Отвечает на вопрос «можно ли вообще доверять выводам?». Если красные флаги — дальше читаем с поправкой.</p></div>
+  </div>
+  <div class="flow-step">
+    <span class="fs-num">2</span>
+    <div><h3>Декомпозиция продаж</h3><p>Сколько KPI создала <strong>база</strong> (продажи без рекламы), сколько — <strong>медиа</strong>. Waterfall и столбики по каналам.</p></div>
+  </div>
+  <div class="flow-step">
+    <span class="fs-num">3</span>
+    <div><h3>Вклады и эффективность каналов</h3><p>Доля каждого канала в медиа-вкладе, ROI / CPU, вердикт и доверительный интервал. Главный драйвер.</p></div>
+  </div>
+  <div class="flow-step">
+    <span class="fs-num">4</span>
+    <div><h3>Оптимизация и прогноз</h3><p>Куда переложить бюджет, ожидаемый прирост KPI, рекомендации к действию по каналам.</p></div>
+  </div>
+  <div class="flow-step">
+    <span class="fs-num">5</span>
+    <div><h3>Ограничения</h3><p>Честный список оговорок: мало данных, подозрительные каналы, чувствительность прогноза. Читать обязательно.</p></div>
+  </div>
+</div>
+
+<!-- ============ MQS ============ -->
+<h2 id="mqs"><span class="h2-num">2</span>MQS — единый балл качества модели</h2>
+
+<p><strong>MQS (Model Quality Score)</strong> — агрегированная оценка качества модели от 0 до 100. Один балл, чтобы быстро понять, насколько модель надёжна, не разбираясь в отдельных метриках.</p>
+
+<div class="callout c-info">
+  <div class="c-title">Из чего складывается MQS</div>
+  <p>R² (точность подгонки, <strong>40%</strong>) + MAPE (ошибка прогноза, <strong>30%</strong>) + сходимость MCMC / надёжность оценок (<strong>30%</strong>). Для OLS-моделей третья часть — надёжность оценок по bootstrap вместо сходимости MCMC.</p>
+</div>
+
+<p>Балл переводится в один из пяти уровней — эта же шкала используется и в бейдже модели, и в отчёте:</p>
+
+<div class="tiers">
+  <div class="tier-row tier-excellent"><span class="t-score">≥ 85</span><span class="t-label">Отличное</span><span class="t-desc">Модель хорошо описывает данные и устойчива. Выводам можно доверять.</span></div>
+  <div class="tier-row tier-good"><span class="t-score">70–84</span><span class="t-label">Хорошее</span><span class="t-desc">Надёжная рабочая модель. Небольшие оговорки возможны, но решения принимать можно.</span></div>
+  <div class="tier-row tier-acc"><span class="t-score">55–69</span><span class="t-label">Приемлемое</span><span class="t-desc">Пригодна как ориентир. Крупные перекладки бюджета — с осторожностью и пилотом.</span></div>
+  <div class="tier-row tier-weak"><span class="t-score">40–54</span><span class="t-label">Слабое</span><span class="t-desc">Выводы «шатаются». Используйте как первичный ориентир, накопите больше данных.</span></div>
+  <div class="tier-row tier-poor"><span class="t-score">&lt; 40</span><span class="t-label">Ненадёжное</span><span class="t-desc">Доверять числам нельзя. Нужно больше данных или другая спецификация модели.</span></div>
+</div>
+
+<div class="callout c-warn">
+  <div class="c-title">MQS ограничивается при нехватке данных</div>
+  <p>Если данных критически мало (<a href="#ratio">Ratio</a> &lt; 2:1), балл искусственно ограничивается сверху, даже когда R² отличный. Это защита: на коротких рядах высокий R² почти всегда означает <a href="#overfit">переобучение</a>, а не качество.</p>
+</div>
+
+<details class="expert">
+  <summary>Для эконометриста: метрики под MQS</summary>
+  <div class="body">
+    <ul>
+      <li><strong>R²</strong> — доля дисперсии KPI, объяснённая моделью. На малых рядах легко завышается, поэтому в одиночку не показатель.</li>
+      <li><strong>MAPE</strong> — средняя абсолютная процентная ошибка прогноза. Чувствительна к out-of-sample качеству.</li>
+      <li><strong>Сходимость MCMC</strong> — насколько цепи сошлись к одному решению (см. <a href="#rhat">R-hat</a>, дивергенции).</li>
+      <li><strong>thinness cap</strong> — верхний предел балла при низком Ratio (≈50 при Ratio&lt;2). Не даёт «красивому» R² замаскировать тонкие данные.</li>
+    </ul>
+  </div>
+</details>
+
+<!-- ============ ПЕРЕОБУЧЕНИЕ ============ -->
+<h2 id="overfit"><span class="h2-num">3</span>Высокий fit ≠ хорошая модель</h2>
+
+<p>Главная ловушка эконометрики: <strong>высокий R² (почти идеальная подгонка) сам по себе не означает, что модель хорошая.</strong> Модель с большим числом каналов на коротком ряду данных может «выучить» исторический шум наизусть — это и есть <strong>переобучение</strong>.</p>
+
+<div class="callout c-danger">
+  <div class="c-title">Симптомы переобучения</div>
+  <p>• <strong>ROI 500×</strong> и подобные нереалистичные значения — модель приписала каналу чужой эффект.<br>
+     • Очень высокий R² при <strong>Ratio &lt; 2:1</strong> (мало периодов на много каналов).<br>
+     • Широкие доверительные интервалы, включающие 0, — точная цифра не подтверждается данными.</p>
+</div>
+
+<p>Приложение защищает от этого: ограничивает MQS на тонких данных, помечает каналы с подозрительно высоким ROI как артефакт и добавляет к вердиктам пометку о неопределённости. В блоке «Ограничения» отчёта такие каналы перечислены прямо: <em>«не используйте их абсолютные значения»</em>.</p>
+
+<!-- ============ RATIO ============ -->
+<h2 id="ratio"><span class="h2-num">4</span>Ratio и сколько данных нужно</h2>
+
+<p><strong>Ratio</strong> — отношение числа наблюдений (строк-периодов) к числу оцениваемых параметров (грубо — каналов и факторов). Чем выше, тем меньше риск переобучения. Это первое, на что стоит смотреть после MQS.</p>
+
+<div class="ratio-grid">
+  <div class="ratio-card critical">
+    <div class="rc-label">Критически мало</div>
+    <div class="rc-value">&lt; 2:1</div>
+    <div class="rc-desc">Высокий риск переобучения. ROI и декомпозицию рассматривайте как ориентир, не истину. MQS ограничен сверху.</div>
+  </div>
+  <div class="ratio-card borderline">
+    <div class="rc-label">Мало</div>
+    <div class="rc-value">2:1 – 4:1</div>
+    <div class="rc-desc">Доверительные интервалы широкие, CI отдельных каналов могут включать 0. Рабочий минимум, но без резких решений.</div>
+  </div>
+  <div class="ratio-card good">
+    <div class="rc-label">Рекомендуемый</div>
+    <div class="rc-value">≥ 4:1</div>
+    <div class="rc-desc">Достаточно данных, чтобы разделить эффекты каналов. Здоровая зона для бюджетных решений.</div>
+  </div>
+</div>
+
+<p>Как поднять Ratio: добавить периоды (длиннее история), перейти с месячных данных на недельные, или <strong>объединить слабые каналы</strong> (меньше параметров). См. <a href="data-preparation.html#howmuch">Подготовка данных → сколько нужно</a>.</p>
+
+<!-- ============ CI ============ -->
+<h2 id="ci"><span class="h2-num">5</span>Доверительные интервалы (CI)</h2>
+
+<p>Байесовская модель выдаёт не одно число, а <strong>диапазон</strong> — доверительный интервал. Например, ROI канала «1.8× (от 1.2× до 2.5×)». Интервал говорит о том, <strong>насколько модель уверена</strong>.</p>
+
+<ul>
+  <li><strong>Узкий интервал</strong> → модель уверена, цифру можно использовать как оценку.</li>
+  <li><strong>Широкий интервал</strong> → уверенности мало; трактуйте ROI как диапазон, а не точное число.</li>
+  <li><strong>Интервал включает 0</strong> → эффект канала статистически не подтверждён: возможно, его реальный вклад близок к нулю.</li>
+</ul>
+
+<div class="callout c-info">
+  <div class="c-title">Пометка «(широкий ROI-интервал)»</div>
+  <p>Когда интервал шире самой оценки, к вердикту канала автоматически добавляется пометка — например <code>Эффективен (широкий ROI-интервал)</code>. Это <strong>не</strong> недоверие к модели целиком: качество модели оценивается отдельно через R² / MAPE / R-hat. Пометка лишь напоминает читать ROI этого канала как диапазон. Для количественных KPI пометка звучит как <code>(широкий интервал CPU)</code>, в режиме Эффективность — <code>(широкий интервал вклада)</code>.</p>
+</div>
+
+<!-- ============ R-HAT ============ -->
+<h2 id="rhat"><span class="h2-num">6</span>Сходимость MCMC (R-hat)</h2>
+
+<p>Байесовская модель оценивается сэмплером MCMC — несколько «цепей» независимо ищут решение. <strong>R-hat</strong> показывает, сошлись ли они к одному ответу.</p>
+
+<div class="table-wrap"><table>
+<tr><th>R-hat</th><th>Что значит</th><th>Действие</th></tr>
+<tr><td>&lt; 1.05</td><td>Цепи сошлись. Идеальная зона.</td><td>Всё хорошо.</td></tr>
+<tr><td>1.05 – 1.10</td><td>Сходимость пограничная.</td><td>Допустимо, но лучше перепроверить ключевые выводы.</td></tr>
+<tr><td>&gt; 1.10</td><td>Цепи разошлись к разным решениям — результаты ненадёжны.</td><td>Переобучить с большим числом draws/tune или проверить мультиколлинеарность каналов.</td></tr>
+</table></div>
+
+<details class="expert">
+  <summary>Для эконометриста: дивергенции и draws</summary>
+  <div class="body">
+    <p><strong>Дивергенции</strong> (divergences) — сэмплер «соскочил» в зонах сложной геометрии апостериорного распределения. Несколько штук на тысячи draws обычно терпимы; десятки-сотни — сигнал плохой параметризации или мультиколлинеарности.</p>
+    <p>Если R-hat высокий или дивергенций много: увеличьте <code>warmup/tune</code> и <code>draws</code>, сократите число каналов (объедините слабые), проверьте корреляционную матрицу на пары r&gt;0.8.</p>
+  </div>
+</details>
+
+<!-- ============ ДЕКОМПОЗИЦИЯ ============ -->
+<h2 id="decomp"><span class="h2-num">7</span>Декомпозиция и waterfall</h2>
+
+<p>Декомпозиция разбивает весь KPI на источники. Главное деление — <strong>база против медиа</strong>:</p>
+
+<ul>
+  <li><strong>База (baseline)</strong> — продажи, которые были бы и без рекламы: привычка, дистрибуция, сила бренда, сезон. Обычно это <strong>большая часть</strong> KPI (нередко 60–90%). Большая база — это нормально, не ошибка.</li>
+  <li><strong>Медиа-вклад</strong> — то, что добавила реклама поверх базы. Именно его делят между каналами и оптимизируют.</li>
+</ul>
+
+<p><strong>Waterfall (каскад)</strong> читается слева направо: стартовая база, затем каждый канал добавляет свой «кирпич» вклада, в сумме — итоговый KPI. Высота кирпича = абсолютный вклад канала.</p>
+
+<div class="callout c-warn">
+  <div class="c-title">Частая ошибка чтения</div>
+  <p>Не сравнивайте вклад канала с его бюджетом «на глаз» по waterfall. Для этого есть отдельный взгляд — <a href="#spendeffect">доля бюджета против доли эффекта</a>. Канал может давать большой абсолютный вклад просто потому, что в него вложено много денег.</p>
+</div>
+
+<!-- ============ SPEND VS EFFECT ============ -->
+<h2 id="spendeffect"><span class="h2-num">8</span>Доля бюджета против доли эффекта</h2>
+
+<p>Самый практичный взгляд для перераспределения бюджета. Для каждого канала сравниваются две доли:</p>
+
+<ul>
+  <li><strong>Доля бюджета</strong> — сколько процентов всех медиа-денег ушло в канал.</li>
+  <li><strong>Доля эффекта</strong> — сколько процентов медиа-вклада он создал.</li>
+</ul>
+
+<p>Разница между ними (<strong>efficiency gap</strong>) — это и есть сигнал к действию:</p>
+
+<div class="table-wrap"><table>
+<tr><th>Картина</th><th>Что значит</th><th>Направление</th></tr>
+<tr><td>Доля эффекта &gt; доли бюджета</td><td>Канал «отрабатывает» больше, чем стоит.</td><td>Кандидат на <strong>усиление</strong>.</td></tr>
+<tr><td>Доли примерно равны</td><td>Канал сбалансирован.</td><td>Держать.</td></tr>
+<tr><td>Доля эффекта &lt; доли бюджета</td><td>Канал «съедает» бюджет непропорционально вкладу.</td><td>Кандидат на <strong>сокращение</strong> / перераспределение.</td></tr>
+</table></div>
+
+<div class="callout c-danger">
+  <div class="c-title">Доминатор бюджета</div>
+  <p>Типичная находка: один канал занимает большую часть бюджета, но даёт малую долю эффекта (например «занимает 92% бюджета, но даёт 10% эффекта»). Отчёт выделяет такие каналы отдельно — это первый источник для перекладки денег.</p>
+</div>
+
+<!-- ============ ВЕРДИКТЫ ============ -->
+<h2 id="verdicts"><span class="h2-num">9</span>Вердикты каналов</h2>
+
+<p>Каждому каналу модель выдаёт короткий <strong>вердикт</strong> с цветом-тоном. Какой именно — зависит от режима (<a href="data-preparation.html#step0">ROI / Эффективность</a>) и типа KPI (денежный / количественный). Ниже — полный словарь вердиктов.</p>
+
+<h3>Режим ROI · денежный KPI</h3>
+<div class="table-wrap"><table>
+<tr><th>Вердикт</th><th>Когда</th><th>Тон</th></tr>
+<tr><td>Высокоэффективен</td><td>ROI заметно выше типичного (или &gt; 5×)</td><td><span class="tag tag-good">хорошо</span></td></tr>
+<tr><td>Эффективен</td><td>Вклад выше доли бюджета (gap ≥ 5 пп)</td><td><span class="tag tag-good">хорошо</span></td></tr>
+<tr><td>Сбалансирован</td><td>Вклад ≈ доле бюджета</td><td><span class="tag tag-neu">нейтрально</span></td></tr>
+<tr><td>Слабее своей доли</td><td>Вклад ниже доли бюджета (gap ≤ −5 пп)</td><td><span class="tag tag-warn">внимание</span></td></tr>
+<tr><td>Перенасыщен</td><td>Сильно недоотрабатывает бюджет (gap ≤ −10 пп)</td><td><span class="tag tag-warn">внимание</span></td></tr>
+<tr><td>На грани окупаемости</td><td>ROI &lt; 1.0× (рубль не возвращается)</td><td><span class="tag tag-warn">внимание</span></td></tr>
+<tr><td>Убыточный</td><td>ROI &lt; 0.8×</td><td><span class="tag tag-bad">плохо</span></td></tr>
+<tr><td>Глубоко убыточный</td><td>ROI &lt; 0.5×</td><td><span class="tag tag-bad">плохо</span></td></tr>
+<tr><td>ROI завышен (не рубли?)</td><td>ROI &gt; 50× на медиа-метрике — вероятно перепутаны единицы</td><td><span class="tag tag-warn">внимание</span></td></tr>
+<tr><td>ROI нереалистичен (артефакт)</td><td>ROI &gt; 100× — артефакт переобучения</td><td><span class="tag tag-warn">внимание</span></td></tr>
+</table></div>
+
+<div class="callout c-info">
+  <div class="c-title">Bottom-10% / Top-25% по категории</div>
+  <p>Если в выборке ≥ 20 каналов и есть отраслевые бенчмарки, вердикт может звучать как <strong>«Top-10% по категории»</strong>, <strong>«Bottom-25% по категории»</strong> и т.п. — это сравнение ROI канала с типичными значениями для его типа (бренд-охват / performance), а не абсолютная оценка.</p>
+</div>
+
+<h3>Режим ROI · количественный KPI (CPU)</h3>
+<p>Для количественного KPI (упаковки, лиды) вместо ROI считается <strong>CPU</strong> — стоимость одной единицы, и сравнивается с <strong>ценностью единицы</strong> (если задана):</p>
+<div class="table-wrap"><table>
+<tr><th>Вердикт</th><th>Когда</th><th>Тон</th></tr>
+<tr><td>Высокоэффективен / Эффективен / Окупаемый</td><td>CPU ниже ценности единицы</td><td><span class="tag tag-good">хорошо</span></td></tr>
+<tr><td>На грани окупаемости</td><td>CPU близок к ценности (≥ 0.9×)</td><td><span class="tag tag-warn">внимание</span></td></tr>
+<tr><td>Убыточный</td><td>CPU выше ценности единицы</td><td><span class="tag tag-bad">плохо</span></td></tr>
+<tr><td>Глубоко убыточный</td><td>CPU &gt; 2× ценности единицы</td><td><span class="tag tag-bad">плохо</span></td></tr>
+<tr><td>Задайте ценность единицы для оценки</td><td>Ценность единицы не задана — окупаемость посчитать нельзя</td><td><span class="tag tag-neu">нейтрально</span></td></tr>
+</table></div>
+
+<h3>Режим Эффективность · по доле вклада</h3>
+<p>Когда денег нет (только медиа-метрики), каналы сравниваются по <strong>доле в общем вкладе</strong>:</p>
+<div class="table-wrap"><table>
+<tr><th>Вердикт</th><th>Когда</th><th>Тон</th></tr>
+<tr><td>Топ-драйвер вклада</td><td>Доля выше 75-го перцентиля каналов</td><td><span class="tag tag-good">хорошо</span></td></tr>
+<tr><td>Значимый вклад</td><td>Доля выше медианы</td><td><span class="tag tag-good">хорошо</span></td></tr>
+<tr><td>Средний вклад</td><td>Доля около медианы</td><td><span class="tag tag-neu">нейтрально</span></td></tr>
+<tr><td>Слабый вклад</td><td>Доля ниже 25-го перцентиля</td><td><span class="tag tag-warn">внимание</span></td></tr>
+<tr><td>Пренебрежимо малый вклад</td><td>Доля &lt; 0.5%</td><td><span class="tag tag-warn">внимание</span></td></tr>
+</table></div>
+
+<p>К любому вердикту может добавиться пометка о <a href="#ci">широком доверительном интервале</a> — она напоминает трактовать оценку как диапазон.</p>
+
+<!-- ============ ДЕЙСТВИЯ ============ -->
+<h2 id="actions"><span class="h2-num">10</span>Рекомендации к действию</h2>
+
+<p>В оптимизации и отчёте каналы помечаются унифицированными метками действия — короткой инструкцией, что делать с бюджетом:</p>
+
+<div class="table-wrap"><table>
+<tr><th>Метка</th><th>Смысл</th></tr>
+<tr><td>Scale (наращивать)</td><td>Канал недогружен и эффективен — увеличить бюджет.</td></tr>
+<tr><td>Hold (держать)</td><td>Канал близок к оптимуму — оставить как есть.</td></tr>
+<tr><td>Watch (наблюдать)</td><td>Сигнал неоднозначный — следить, не менять резко.</td></tr>
+<tr><td>Reduce (сократить)</td><td>Канал переинвестирован — уменьшить долю.</td></tr>
+<tr><td>Cut (срезать)</td><td>Канал убыточен/насыщен — кандидат на сильное сокращение.</td></tr>
+<tr><td>Uncertain (неопределённо)</td><td>Данных мало для уверенной рекомендации — нужен пилот.</td></tr>
+</table></div>
+
+<div class="callout c-warn">
+  <div class="c-title">Перед крупной перекладкой бюджета</div>
+  <p>Любую рекомендацию проверяйте <strong>пилотом 4–6 недель</strong> на части бюджета (20–30%). Модель описывает историю — прогнозы чувствительны к смене креатива, новым кампаниям и структурным сдвигам рынка.</p>
+</div>
+
+<!-- ============ ЧЕКЛИСТ ============ -->
+<h2 id="trust"><span class="h2-num">11</span>Чеклист доверия модели</h2>
+
+<div class="callout c-ok">
+  <div class="c-title">Модели можно доверять, если…</div>
+  <p>✓ MQS <strong>≥ 70</strong> (Хорошее или Отличное)<br>
+     ✓ R-hat <strong>&lt; 1.05</strong>, дивергенций мало<br>
+     ✓ Ratio <strong>≥ 4:1</strong> (минимум ≥ 2:1)<br>
+     ✓ Нет каналов с ROI 500× и пометок «артефакт»<br>
+     ✓ Доверительные интервалы ключевых каналов не «от нуля до бесконечности»<br>
+     ✓ Декомпозиция правдоподобна: база — большая часть, медиа-вклад реалистичен<br>
+     ✓ Выводы прошли проверку здравым смыслом и согласуются с тем, что вы знаете о рынке</p>
+</div>
+
+<div class="callout c-danger">
+  <div class="c-title">Красные флаги — выводы под вопросом</div>
+  <p>✗ MQS &lt; 40 (Ненадёжное) · ✗ R-hat &gt; 1.1 · ✗ Ratio &lt; 2:1 · ✗ ROI каналов в сотни раз · ✗ почти все CI включают 0 · ✗ медиа объясняет «слишком красиво» весь рост продаж.</p>
+</div>
+
+<p>Дальше: <a href="methodology.html">как устроена модель (методология) →</a> · <a href="faq.html">частые вопросы →</a> · <a href="data-preparation.html">подготовка данных →</a></p>
+
+</div>
+
+<div class="footer">
+  <p>Aurora AI Econometrica · © 2026 А. Сипович</p>
+</div>
+
+</body>
+</html>

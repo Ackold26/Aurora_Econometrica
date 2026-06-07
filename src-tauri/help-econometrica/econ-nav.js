@@ -17,12 +17,15 @@
     { id: 'pipeline',          title: 'Pipeline: 6 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize report импорт валидация шаги процесс' },
     { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
 
+    { id: 'interpretation',    title: 'Интерпретация результатов', group: 'results', keywords: 'интерпретация результаты как читать отчёт MQS ROI CPU вердикт переобучение overfitting доверительный интервал CI R-hat ratio waterfall декомпозиция baseline база spend effect доля бюджета эффект action label scale hold cut' },
+
     { id: 'econometrica',      title: 'Visual Pipeline (UI)',    group: 'pipeline', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица KPI медиа adstock обучение модель декомпозиция оптимизация отчёт xlsx' },
   ];
 
   const GROUPS = {
     start:    { label: 'Начало',    color: '#2E5BFF' },
     data:     { label: 'Данные и MMM', color: '#3fb950' },
+    results:  { label: 'Результаты',  color: '#39d0d8' },
     pipeline: { label: 'Интерфейс',  color: '#58a6ff' },
   };
 
