@@ -43,7 +43,7 @@
     'Длинные диалоги (10+ сообщений) могут замедляться. Если ответы стали хуже - очистите чат и начните заново.',
     'Кнопки команд справа - быстрый старт. Но вы можете описать задачу своими словами, без команды.',
     'Результаты работы автоматически сохраняются в папку «Экспорт» на рабочем столе.',
-    'Используйте Ctrl+K для быстрого поиска по истории сообщений.',
+    'Используйте Ctrl+F для быстрого поиска по истории сообщений.',
     'Чем точнее сформулировано задание, тем лучше результат. Указывайте формат, объём и цель.',
     'После получения ответа можно попросить: «переделай в формате таблицы», «сократи вдвое», «добавь примеры» - всё в свободной форме.',
     'Один диалог - одна тема. Так ассистент глубже погружается в задачу и даёт лучшие результаты.',
@@ -364,8 +364,8 @@
 
   /** @param {KeyboardEvent} e */
   function handleGlobalKeydown(e) {
-    // Ctrl+K → toggle search
-    if (e.ctrlKey && e.key === 'k') {
+    // Ctrl+F → toggle search (Ctrl+K зарезервирован под глобальную палитру команд в +layout.svelte)
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault();
       toggleSearch();
     }
@@ -1152,7 +1152,7 @@
 
   <div class="input-area">
     {#if $messages.length > 0 && !$isLoading}
-      <button class="search-toggle-btn" onclick={toggleSearch} title="Поиск (Ctrl+K)" class:active={searchOpen}>
+      <button class="search-toggle-btn" onclick={toggleSearch} title="Поиск (Ctrl+F)" class:active={searchOpen}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
