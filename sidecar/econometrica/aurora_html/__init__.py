@@ -35,8 +35,12 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 # or accidental edit; we log but do NOT raise - letting production continue
 # with a warning is safer than crashing the sidecar.
 ASSET_SHA256 = {
+    # 2026-06-07 (SF-1): pin обновлён под фактический бандл echarts 5.5.1
+    # (662 КБ, Apache-заголовок, маркер 5.5.1 — легитимный). Старый pin
+    # 66f1700… дрейфанул (файл пере-минифицировали без обновления константы),
+    # из-за чего на КАЖДОМ HTML-экспорте сыпался «Asset integrity failure».
     "echarts.common.5.5.1.min.js":
-        "66f17003724d5b6c4c2348b907290afe98363c6e7beb4a594fdb616f00496d55",
+        "a42cc5318d97270442c39a0693fd9418c1f403d406faa108355d12c0bf0c97a9",
     "fonts/lora-400-latin.woff2":
         "ddb8c66035104e233fc024669183aad3738b6daa16deee2ebb1241bd0f98ace1",
     "fonts/lora-400-cyrillic.woff2":
