@@ -295,6 +295,7 @@
           <img src="/logo-horizon.png" alt="Aurora AI" class="topbar-logo" />
           <div class="brand">
             <span class="brand-product">ECONOMETRICA</span>
+            <span class="brand-sub">OPTIMIZER MMM</span>
           </div>
         </div>
         {#if $activeProject}
@@ -461,7 +462,7 @@
     align-items: center;
     gap: 10px;
     padding: 0 20px;
-    height: 48px;
+    height: 100px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-glass);
     backdrop-filter: var(--blur-quiet);
@@ -513,7 +514,7 @@
     gap: 10px;
   }
   .topbar-logo {
-    height: 44px;
+    height: 87px;
     width: auto;
   }
   .brand {
@@ -528,6 +529,15 @@
     letter-spacing: 0.08em;
     color: var(--text-primary);
     text-transform: uppercase;
+  }
+
+  .brand-sub {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-top: 2px;
   }
 
   /* Активный проект - chip рядом с логотипом, как в pipeline */

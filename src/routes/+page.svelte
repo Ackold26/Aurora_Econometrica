@@ -199,6 +199,7 @@
       <img src="/logo-horizon.png" alt="Aurora AI" class="topbar-logo" />
       <div class="brand">
         <span class="brand-product">ECONOMETRICA</span>
+        <span class="brand-sub">OPTIMIZER MMM</span>
       </div>
     </div>
     <div class="topbar-center">
@@ -380,7 +381,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 52px;
+    height: 100px;
     padding: 0 28px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-glass);
@@ -415,7 +416,7 @@
   }
 
   .topbar-logo {
-    height: 44px;
+    height: 87px;
     width: auto;
   }
 
@@ -425,6 +426,15 @@
     letter-spacing: 0.08em;
     color: var(--text-primary);
     text-transform: uppercase;
+  }
+
+  .brand-sub {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin-top: 2px;
   }
 
 
