@@ -429,25 +429,25 @@
             onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG бренд')}>
             <span class="sample-icon">🛒</span>
             <span class="sample-label">FMCG бренд</span>
-            <span class="sample-hint">Продажи, ТВ, OLV, контекст</span>
+            <span class="sample-hint">Выручка ₽, ТВ, цифра, наружка, performance</span>
           </button>
           <button class="sample-btn" type="button" disabled={savingSample}
             onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма')}>
             <span class="sample-icon">💊</span>
             <span class="sample-label">OTC фарма</span>
-            <span class="sample-hint">Упаковки, ТВ, OLV, аптеки</span>
+            <span class="sample-hint">Упаковки, ТВ TRP, аптеки, цифра</span>
           </button>
           <button class="sample-btn" type="button" disabled={savingSample}
             onclick={() => downloadSample('synth_real_estate.xlsx', 'Недвижимость')}>
             <span class="sample-icon">🏠</span>
             <span class="sample-label">Недвижимость</span>
-            <span class="sample-hint">Сделки, наружка, контекст</span>
+            <span class="sample-hint">Лиды, ТВ, наружка, цифра, performance</span>
           </button>
           <button class="sample-btn" type="button" disabled={savingSample}
-            onclick={() => downloadSample('synth_retail_chain.xlsx', 'Ритейл-сеть')}>
+            onclick={() => downloadSample('synth_retail_ecom.xlsx', 'Ритейл / e-com')}>
             <span class="sample-icon">🏪</span>
-            <span class="sample-label">Ритейл-сеть</span>
-            <span class="sample-hint">Чеки, радио, ТВ, цифра</span>
+            <span class="sample-label">Ритейл / e-com</span>
+            <span class="sample-hint">Выручка ₽, ТВ, цифра, наружка, retail media</span>
           </button>
         </div>
         {#if sampleMsg}

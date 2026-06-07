@@ -43,16 +43,16 @@ DATASETS = {
         'target': 'sales_packs',
         'media': {
             'tv_trp': ('tv_decay', 'tv_alpha'),
-            'apteka_ooh_ots': ('apteka_ooh_decay', 'apteka_ooh_alpha'),
+            'apteka_ooh_contacts': ('apteka_ooh_decay', 'apteka_ooh_alpha'),
             'digital_spend': ('digital_decay', 'digital_alpha'),
             'performance_clicks': ('performance_decay', 'performance_alpha'),
         },
         'controls': {
             'competitor_trp': ('competitor_coef', 'signed_competitor'),
             'weather_temp_low': ('weather_temp_low_coef', 'signed_weather'),
-            'holiday_newyear_preshop': ('holiday_newyear_coef', 'holiday'),
+            'holiday_newyear': ('holiday_newyear_coef', 'holiday'),
         },
-        'note': 'competitor сезонно коррелирует с нашим TV (+0.93 в OTC) + опущен seasonal_lift → знак competitor может быть НЕвосстановим.',
+        'note': 'SSOT 2026-06-07: независимые каналы (старый competitor↔TV +0.93 устранён); seasonal_lift снижен до 0.15.',
     },
     'fmcg': {
         'file': 'synth_fmcg_brand.xlsx',
@@ -68,27 +68,28 @@ DATASETS = {
         'controls': {
             'competitor_trp': ('competitor_coef', 'signed_competitor'),
             'price_index': ('price_coef', 'signed_price'),
-            'holiday_newyear_preshop': ('holiday_newyear_coef', 'holiday'),
+            'holiday_newyear': ('holiday_newyear_coef', 'holiday'),
         },
         'note': 'monetary KPI → движок стартует с competitor prior -0.3.',
     },
     'retail': {
-        'file': 'synth_retail_chain.xlsx',
-        'generator': 'generate_retail_chain',
-        'gt': 'GROUND_TRUTH_RETAIL',
-        'target': 'traffic_visits',
+        'file': 'synth_retail_ecom.xlsx',
+        'generator': 'generate_retail_ecom',
+        'gt': 'GROUND_TRUTH_RETAIL_ECOM',
+        'target': 'sales_rub',
         'media': {
             'tv_spend': ('tv_decay', 'tv_alpha'),
             'digital_spend': ('digital_decay', 'digital_alpha'),
-            'ooh_ots': ('ooh_decay', 'ooh_alpha'),
-            'promo_indicator': ('promo_decay', 'promo_alpha'),
+            'ooh_contacts': ('ooh_decay', 'ooh_alpha'),
+            'retail_media_spend': ('retail_media_decay', 'retail_media_alpha'),
         },
         'controls': {
-            'competitor_trp': ('competitor_coef', 'signed_competitor'),
+            'promo_indicator': ('promo_coef', 'control'),
+            'competitor_promo': ('competitor_promo_coef', 'signed_competitor'),
             'holiday_blackfriday': ('holiday_blackfriday_coef', 'holiday'),
             'holiday_newyear': ('holiday_newyear_coef', 'holiday'),
         },
-        'note': 'n=24 (мало) → широкие SE, ranky-сигнал слаб.',
+        'note': 'SSOT 2026-06-07: retail_ecom (KPI ₽ + retail_media), N=36, независимые каналы.',
     },
     'real_estate': {
         'file': 'synth_real_estate.xlsx',
@@ -97,17 +98,16 @@ DATASETS = {
         'target': 'leads',
         'media': {
             'tv_spend': ('tv_decay', 'tv_alpha'),
-            'ooh_ots': ('ooh_decay', 'ooh_alpha'),
+            'ooh_contacts': ('ooh_decay', 'ooh_alpha'),
             'digital_spend': ('digital_decay', 'digital_alpha'),
             'performance_clicks': ('performance_decay', 'performance_alpha'),
         },
         'controls': {
-            'competitor_trp': ('competitor_coef', 'signed_competitor'),
-            'macro_cpi_cumulative': ('macro_cpi_coef', 'signed_macro'),
-            'seasonality_q1': ('seasonality_q1_coef', 'holiday'),
-            'seasonality_q4': ('seasonality_q4_coef', 'holiday'),
+            'competitor_activity': ('competitor_coef', 'signed_competitor'),
+            'macro_cpi': ('macro_cpi_coef', 'signed_macro'),
+            'holiday_newyear': ('holiday_newyear_coef', 'holiday'),
         },
-        'note': 'double macro_cpi (monthly+cumulative) + Q1/Q4 dummies.',
+        'note': 'SSOT 2026-06-07: single macro_cpi (без cumulative-дубля); Q1/Q4 baked; holiday_newyear — модель. dummy.',
     },
 }
 
@@ -239,7 +239,7 @@ def analyze(name):
     print('\n[РОБАСТНАЯ ИСТИНА — держим движок ТОЛЬКО к этому]:')
     print(f'  знаки контролей: {robust if robust else "(нет однозначно восстановимых)"}')
     print(f'  база доминирует: {base_share > 0.5} (~{base_share:.0%})')
-    print(f'  физ.единицы (unit_smell ожидается): {[m for m in media_cols if any(k in m for k in ("trp","ots","clicks","indicator"))]}')
+    print(f'  физ.единицы (unit_smell ожидается): {[m for m in media_cols if any(k in m for k in ("trp","contacts","clicks","indicator"))]}')
     return robust, base_share
 
 
