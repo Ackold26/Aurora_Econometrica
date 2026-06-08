@@ -6,19 +6,16 @@
    * @component MQSBadge
    */
   import { invoke } from '@tauri-apps/api/core';
+  import { mqsView } from '$lib/metric-views.js';
 
   /**
-   * @type {{
-   *   diagnostics: any,
-   *   ssotRatio?: number
-   * }}
+   * @type {{ diagnostics: any }}
    *
-   * ssotRatio - v2.1.0 (пилот 2026-05-16) frontend SSOT ratio из
-   * validationHeaderMetrics. Если передан и расходится с backend
-   * diagnostics.metrics.ratio - используется он, чтобы юзер не видел
-   * разные цифры в Валидации (3.9:1) и Модели (1.5:1).
+   * MQS читается через единый пост-train селектор mqsView (INV-50 анти-рецидив).
+   * Прежний prop ssotRatio (pre-train media-ratio) удалён — он не влиял на
+   * отображаемый MQS (честный backend cap) и был вестигиальным источником путаницы.
    */
-  let { diagnostics, ssotRatio = undefined } = $props();
+  let { diagnostics } = $props();
 
   // v2.1 (микро-справка-рычаг): «?» открывает страницу «Интерпретация
   // результатов» во внешнем браузере (полный разбор MQS, ROI, вердиктов,
@@ -27,8 +24,6 @@
     invoke('open_help', { cabinetId: 'interpretation' }).catch((err) => console.error(err));
   }
 
-  /** @type {any} */
-  let mqs = $derived(diagnostics?.mqs || null);
   let backendVerdict = $derived(diagnostics?.verdict || '');
   let metrics = $derived(diagnostics?.metrics || {});
   let checks = $derived(diagnostics?.checks || {});
@@ -36,17 +31,11 @@
   // и не имеют MCMC diagnostics (r_hat_max=null, divergences=null).
   let isOls = $derived(diagnostics?.engine === 'ols');
 
-  // 2026-06-07 (INV-50): MQS теперь честный НА BACKEND — data-thinness cap
-  // считается по ЭФФЕКТИВНОМУ ratio (posterior contraction = реальные степени
-  // свободы; байес-приоры сжимают слабо-идентифицируемые параметры). Frontend
-  // БОЛЬШЕ НЕ раскапывает score по media-only SSOT ratio: прежний override
-  // выдавал переобучённую на тонких данных модель за «Отличное» 86, тогда как
-  // честная оценка — «Хорошее» 70. Программа и ВСЕ отчёты (XLSX/PPTX/HTML)
-  // показывают ОДИН источник истины: diagnostics.mqs. ssotRatio (наблюдений
-  // на медиа-канал) остаётся отдельным data-sufficiency индикатором, но НЕ
-  // влияет на MQS. См. memory: отчёты ≠ программа ревизия.
+  // INV-50 анти-рецидив: MQS через единый пост-train селектор mqsView (честный
+  // backend cap по эффективным параметрам). Программа и ВСЕ отчёты (XLSX/PPTX/HTML)
+  // читают один источник diagnostics.mqs → mqsView; фронт его НЕ раскапывает.
   const displayVerdict = $derived(backendVerdict);
-  const displayMqs = $derived(mqs);
+  const displayMqs = $derived(mqsView(diagnostics));
 
 </script>
 
@@ -62,7 +51,7 @@
       >
         <span class="score-title">MQS</span>
         <span class="score-value">{Math.round(displayMqs.score)}</span>
-        <span class="score-label">{displayMqs.tier_label}</span>
+        <span class="score-label">{displayMqs.tierLabel}</span>
       </div>
       <div class="mqs-verdict">
         <p>{displayVerdict}</p>

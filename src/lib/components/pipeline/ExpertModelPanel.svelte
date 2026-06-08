@@ -4,21 +4,18 @@
    * Shows: per-channel adstock details, MCMC diagnostics, convergence stats.
    * @component ExpertModelPanel
    */
-  import { modelData, validationHeaderMetrics } from '$lib/project-state.js';
+  import { modelData } from '$lib/project-state.js';
+  import { mqsView } from '$lib/metric-views.js';
 
   const diagnostics = $derived($modelData?.diagnostics);
   const channelParams = $derived($modelData?.channelParams);
 
-  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND (cap по эффективным
-  // параметрам). Frontend больше НЕ раскапывает score по media-ratio — единый
-  // источник diagnostics.mqs (как MQSBadge/диск/отчёты). Прежний raw_score
-  // override показывал «Отличное» 86 вместо честного «Хорошее» 70.
+  // INV-50 анти-рецидив (2026-06-07): MQS через единый пост-train селектор
+  // mqsView (честный backend cap, как MQSBadge/диск/отчёты). Фронт НЕ раскапывает.
   const ssotMqs = $derived.by(() => {
-    if (!diagnostics?.mqs) return { score: null, label: '' };
-    return {
-      score: Number(diagnostics.mqs.score ?? 0),
-      label: diagnostics.mqs.tier_label ?? '',
-    };
+    const v = mqsView(diagnostics);
+    if (!v) return { score: null, label: '' };
+    return { score: v.score, label: v.tierLabel };
   });
 
   const paramRows = $derived.by(() => {

@@ -23,6 +23,10 @@ import {
 // меток с RatioInfoCard / sticky header / Контроль качества.
 import { classifyRatio } from './ratio-classifier.js';
 import { pluralizeRu } from './utils/i18n.js';
+// INV-50 анти-рецидив (2026-06-07): единый пост-train селектор MQS / effective
+// ratio. Инсайты больше НЕ читают эти производные из diagnostics напрямую —
+// только через mqsView/ratioView, чтобы honesty-баг не вернулся N+1-м слоем.
+import { mqsView, ratioView } from './metric-views.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -1099,32 +1103,22 @@ export function modelInsights(data, ratioOverride = undefined) {
   const mape = m.mape_pct ?? d.mape ?? 0;
   const rHat = m.r_hat_max ?? d.r_hat ?? 0;
   const divergences = m.divergences ?? d.divergences ?? 0;
-  // INV-50 (live-audit 2026-06-07): оценка КАЧЕСТВА модели (ratio для отображения
-  // И для isThin/варнинга переобучения) берёт честный backend effective ratio
-  // (m.ratio = obs/effective_params, posterior contraction) — тот же источник, что
-  // MQS-cap и вердикт. Прежде брался ratioOverride (ssotRatio = obs/назначенные
-  // колонки ≈ 4.4): оптимистичен, противоречил вердикту «2.4:1 < 4:1» и ГЛУШИЛ
-  // варнинг переобучения (isThin=false при 4.4 → classifyRatio='info'). Это «второй
-  // слой» того же un-cap, что сняли с MQS-score 2026-06-07 (один корень, N слоёв).
-  // ssotRatio (ratioOverride) оставлен лишь как fallback, если backend не дал ratio
-  // (defensive; здесь diagnostics всегда есть, т.к. !data.diagnostics → return выше).
-  const backendRatio = typeof m.ratio === 'number' && Number.isFinite(m.ratio) && m.ratio > 0 ? m.ratio : null;
-  const ratio = backendRatio != null
-    ? backendRatio
-    : (typeof ratioOverride === 'number' && Number.isFinite(ratioOverride) && ratioOverride > 0 ? ratioOverride : 0);
-
-  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND (cap по эффективным
-  // параметрам, posterior contraction). Frontend больше НЕ раскапывает score по
-  // media-ratio — инсайт берёт единый источник d.mqs (как MQSBadge/диск/отчёты).
-  // Прежний raw_score override писал «Отличное 86» вместо честного «Хорошее 70».
-  const backendScore = Number(d.mqs?.score ?? 0);
+  // INV-50 анти-рецидив (2026-06-07): MQS и effective ratio — ТОЛЬКО через единый
+  // селектор metric-views. ratioView отдаёт честный backend effective ratio
+  // (obs/effective_params); ratioOverride (pre-train media-ratio ≈ 4.4) допустим
+  // лишь как fallback. mqsView отдаёт честный backend score (cap по эффективным
+  // параметрам). Это закрывает «N слоёв» honesty-бага одним источником: media-ratio
+  // больше не вытеснит effective, score не раскопается. См. metric-views.js.
+  const _mqsV = mqsView(d);
+  const _ratioV = ratioView(d, ratioOverride ?? null);
+  const ratio = _ratioV?.ratio ?? 0;
   /** @type {number} */
-  const mqs = backendScore;
+  const mqs = _mqsV?.score ?? 0;
   /** @type {string} */
-  const label = d.mqs?.tier_label ?? '';
-  const thinnessCap = d.mqs?.thinness_cap ?? null;
-  const isThin = ratio > 0 && ratio < 4;
-  const isVeryThin = ratio > 0 && ratio < 2;
+  const label = _mqsV?.tierLabel ?? '';
+  const thinnessCap = _mqsV?.thinnessCap ?? null;
+  const isThin = _ratioV?.isThin ?? false;
+  const isVeryThin = _ratioV?.isVeryThin ?? false;
   const channels = data.channelParams ? Object.keys(data.channelParams) : [];
   const nChannels = channels.length;
 
@@ -2055,20 +2049,22 @@ export function reportInsights(ctx = {}) {
   // при отсутствии backend-ratio. (Замечание: шаг «Валидация» показывает свой
   // pre-train obs/колонки ≈ 4.4 как индикатор структуры данных — это ДРУГАЯ метрика,
   // см. validationHeaderMetrics; расхождение pre-train 4.4 vs post-train 2.4 честно.)
-  const backendRatio = mod?.diagnostics?.metrics?.ratio ?? null;
-  const ratio = typeof backendRatio === 'number' && Number.isFinite(backendRatio) && backendRatio > 0
-    ? backendRatio
-    : (typeof ssotRatio === 'number' && Number.isFinite(ssotRatio) && ssotRatio > 0 ? ssotRatio : null);
-  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND — единый источник
-  // diagnostics.mqs, без фронт-un-cap по media-ratio (см. MQSBadge/ReportStep).
-  const backendMqsScore = Number(mod?.diagnostics?.mqs?.score ?? 0);
-  let mqs, tierLabel;
-  if (mod?.diagnostics?.mqs == null) {
+  // INV-50 анти-рецидив (2026-06-07): MQS и effective ratio — через единый
+  // селектор metric-views. ssotRatio (pre-train media-ratio) — только fallback.
+  const _diag = mod?.diagnostics;
+  const _ratioV = ratioView(_diag, ssotRatio ?? null);
+  const _mqsV = mqsView(_diag);
+  const ratio = _ratioV?.ratio ?? null;
+  /** @type {number|null} */
+  let mqs;
+  /** @type {string} */
+  let tierLabel;
+  if (_mqsV == null) {
     mqs = null;
     tierLabel = '';
   } else {
-    mqs = backendMqsScore;
-    tierLabel = mod?.diagnostics?.mqs?.tier_label ?? '';
+    mqs = _mqsV.score;
+    tierLabel = _mqsV.tierLabel;
   }
   const lift = opt?.expected_lift_pct ?? null;
   const budget = opt?.total_budget_money ?? null;
@@ -2084,7 +2080,7 @@ export function reportInsights(ctx = {}) {
   }
 
   // ════════════════ ЭТАП 1: Качество модели ════════════════
-  const isThin = ratio != null && ratio < 4;
+  const isThin = _ratioV?.isThin ?? false;
   const mqsParts = [`MQS ${mqs.toFixed(0)} (${tierLabel})`];
   if (rSq != null) mqsParts.push(`R² ${rSq.toFixed(3)}`);
   if (mape != null) mqsParts.push(`MAPE ${mape.toFixed(1)}%`);

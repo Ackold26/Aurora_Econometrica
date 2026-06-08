@@ -26,6 +26,7 @@
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
+  import { mqsView, ratioView } from '$lib/metric-views.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
@@ -167,15 +168,12 @@
   const oData = $derived($optimizeData);
 
   // Summary card values
-  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND (cap по ЭФФЕКТИВНЫМ
-  // параметрам, posterior contraction). Frontend БОЛЬШЕ НЕ раскапывает score по
-  // media-only ratio — показываем единый источник diagnostics.mqs (как MQSBadge,
-  // диск и все отчёты). Прежний raw_score override выдавал переобучённую на тонких
-  // данных модель за «Отличное» 86 вместо честного «Хорошее» 70 (программа≠отчёт).
-  const mqs = $derived(/** @type {number|null} */ (
-    mData?.diagnostics?.mqs ? Number(mData.diagnostics.mqs.score ?? 0) : null
-  ));
-  const mqsLabel = $derived(mData?.diagnostics?.mqs?.tier_label ?? '-');
+  // INV-50 анти-рецидив (2026-06-07): MQS через единый пост-train селектор mqsView
+  // (честный backend cap по эффективным параметрам, как MQSBadge/диск/все отчёты).
+  // Фронт НЕ раскапывает score по media-ratio (давало «Отличное 86» вместо «70»).
+  const _mqsV = $derived(mqsView(mData?.diagnostics));
+  const mqs = $derived(/** @type {number|null} */ (_mqsV?.score ?? null));
+  const mqsLabel = $derived(_mqsV?.tierLabel ?? '-');
   const rSq      = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_squared ?? mData?.diagnostics?.r_squared ?? null));
   const mape     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.mape_pct ?? mData?.diagnostics?.mape ?? null));
   const lift     = $derived(/** @type {number|null} */ (oData?.expected_lift_pct ?? null));
@@ -213,17 +211,13 @@
   // (1.6:1 для Кагоцел РФ+), но frontend после изменения ролей даёт 4.4:1.
   // Email текст должен показывать current value (как карточки Валидации).
   //
-  // INV-50 (live-audit 2026-06-07): сопроводительное письмо/отчёт клиенту = ЧЕСТНЫЙ
-  // effective ratio (diagnostics.metrics.ratio = obs/effective_params, posterior
-  // contraction) — тот же источник, что MQS-cap, вердикт и in-app InsightsPanel.
-  // Прежде (2026-05-17) брался validationHeaderMetrics.ratio (obs/назначенные колонки
-  // ≈ 4.4) — оптимистичный pre-train индикатор, из-за которого письмо показывало
-  // «Ratio 4.4:1» БЕЗ оговорки переобучения, противореча MQS-капу «2.4:1 < 4:1» →
-  // нечестное число в КЛИЕНТСКОМ deliverable (PPTX/HTML/XLSX/email). Тот «stale 1.6»,
-  // что тогда убрали, теперь = effective 2.4 (свежий, из обученной модели на финальном
-  // наборе каналов). validationHeaderMetrics — только последний fallback (нет diagnostics).
+  // INV-50 анти-рецидив (2026-06-07): письмо/отчёт клиенту = ЧЕСТНЫЙ effective ratio
+  // через единый пост-train селектор ratioView (obs/effective_params) — тот же
+  // источник, что MQS-cap, вердикт и InsightsPanel. validationHeaderMetrics.ratio
+  // (pre-train media-ratio ≈ 4.4) передаётся лишь как fallback (source='fallback'),
+  // поэтому нечестное число физически не вытеснит честное в клиентском deliverable.
   const ratio    = $derived(/** @type {number|null} */ (
-    mData?.diagnostics?.metrics?.ratio ?? $validationHeaderMetrics?.ratio ?? null
+    ratioView(mData?.diagnostics, $validationHeaderMetrics?.ratio ?? null)?.ratio ?? null
   ));
   const rHat     = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.r_hat_max ?? null));
   const divergences = $derived(/** @type {number|null} */ (mData?.diagnostics?.metrics?.divergences ?? null));

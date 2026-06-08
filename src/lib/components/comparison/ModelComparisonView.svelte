@@ -10,6 +10,7 @@
   import { onMount } from 'svelte';
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import DataTable from '$lib/components/DataTable.svelte';
+  import { mqsView } from '$lib/metric-views.js';
 
   /** @type {{ primaryId: string, secondaryId: string, onClose: () => void }} */
   let { primaryId, secondaryId, onClose } = $props();
@@ -78,10 +79,11 @@
     return d?.metrics?.[key] ?? d?.[key] ?? null;
   }
 
+  // INV-50 анти-рецидив: MQS через единый пост-train селектор mqsView.
   /** @param {any} snap */
-  const mqsScore = (snap) => diagnostics(snap)?.mqs?.score ?? null;
+  const mqsScore = (snap) => mqsView(diagnostics(snap))?.score ?? null;
   /** @param {any} snap */
-  const mqsLabel = (snap) => diagnostics(snap)?.mqs?.tier_label ?? '-';
+  const mqsLabel = (snap) => mqsView(diagnostics(snap))?.tierLabel ?? '-';
 
   /** @param {number | null} a @param {number | null} b @param {'higher' | 'lower'} better */
   function highlight(a, b, better) {

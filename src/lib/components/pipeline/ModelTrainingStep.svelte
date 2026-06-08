@@ -13,8 +13,9 @@
   import {
     validateData, modelData, isComputing, computeStatus,
     completeStep, setStepError, resetDownstream, expertMode,
-    validationHeaderMetrics, modelStaleStatus,
+    modelStaleStatus,
   } from '$lib/project-state.js';
+  import { mqsView } from '$lib/metric-views.js';
   import ExpertModelPanel from '$lib/components/pipeline/ExpertModelPanel.svelte';
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
   import TrainingProgress from '$lib/components/pipeline/TrainingProgress.svelte';
@@ -44,13 +45,11 @@
 
   // Current model diagnostics (if trained)
   const diagnostics = $derived($modelData?.diagnostics || null);
-  const mqsRaw = $derived(diagnostics?.mqs || null);
 
-  // INV-50 (аудит #12, 2026-06-07): MQS честный НА BACKEND (cap по эффективным
-  // параметрам). Frontend больше НЕ раскапывает score по media-ratio — единый
-  // источник diagnostics.mqs (как MQSBadge/диск/отчёты). Прежний raw_score
-  // override показывал «Отличное» 86 вместо честного «Хорошее» 70.
-  const mqs = $derived(mqsRaw);
+  // INV-50 анти-рецидив (2026-06-07): MQS через единый пост-train селектор
+  // mqsView (честный backend cap по эффективным параметрам, как MQSBadge/диск/
+  // отчёты). Фронт НЕ раскапывает score по media-ratio.
+  const mqs = $derived(mqsView(diagnostics));
 
   // Онбординг - запуск когда модель обучена (есть и config, и результаты на экране).
   $effect(() => {
@@ -232,7 +231,7 @@
     {@const m = diagnostics.metrics ?? diagnostics}
     {@const rSq = m.r_squared ?? diagnostics.r_squared}
     {@const mScore = mqs?.score}
-    {@const mLabel = mqs?.tier_label ?? ''}
+    {@const mLabel = mqs?.tierLabel ?? ''}
     <div class="success-banner">
       <span class="success-icon">✅</span>
       <div class="success-text">
@@ -292,7 +291,7 @@
     <!-- MQS Badge -->
     {#if mqs}
       <div data-tour="model-mqs">
-        <MQSBadge diagnostics={diagnostics} ssotRatio={$validationHeaderMetrics?.ratio} />
+        <MQSBadge diagnostics={diagnostics} />
       </div>
     {/if}
 
