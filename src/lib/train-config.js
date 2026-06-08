@@ -33,6 +33,7 @@
  *   kpiKind: string,
  *   mergeRules: Record<string, string[]>,
  *   channelCategories: Record<string, string>|null|undefined,
+ *   disabledHolidays: string[]|null|undefined,
  * }} state
  * @returns {Record<string, any>} TrainStartRequest-shaped config
  */
@@ -56,6 +57,7 @@ export function buildTrainConfig(state) {
     kpiKind,
     mergeRules,
     channelCategories,
+    disabledHolidays,
   } = state;
 
   return {
@@ -86,5 +88,9 @@ export function buildTrainConfig(state) {
     // Trust Level 3 (v1.1.0): brand vs performance categorization.
     // Backend modeler decides hierarchical vs single-prior на основе ≥2 в группе.
     channel_categories: channelCategories || {},
+    // #6 Tier-3/OVB (2026-06-07): имена авто-праздников, отключённых юзером.
+    // modeler.py пропускает их при holiday-инъекции (modeler.py:279). НЕ путать
+    // с control_columns: holiday_* генерятся из даты, этот список их подмножество.
+    disabled_holidays: disabledHolidays || [],
   };
 }

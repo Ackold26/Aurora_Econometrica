@@ -11,6 +11,7 @@ import {
   validateData,
   lastTrainedConfig,
   modelChannelEnabled,
+  disabledHolidays,
   modelStaleStatus,
 } from '../project-state.js';
 
@@ -28,6 +29,7 @@ beforeEach(() => {
   modelData.set(/** @type {any} */ ({ diagnostics: { r2: 0.9 }, channelParams: {}, picklePath: 'x', normalization: null }));
   lastTrainedConfig.set({ kpi: 'Sales', media: ['A', 'B', 'C'], control: ['X'] });
   modelChannelEnabled.set({});
+  disabledHolidays.set([]);
 });
 
 describe('STATE-1 modelStaleStatus сравнивает с обученным подмножеством', () => {
@@ -69,6 +71,37 @@ describe('STATE-1 modelStaleStatus сравнивает с обученным п
     const st = get(modelStaleStatus);
     expect(st.stale).toBe(true);
     expect(st.diff.join(' ')).toMatch(/Контрольные/);
+  });
+});
+
+describe('#6 Tier-3/OVB modelStaleStatus реагирует на disabled_holidays', () => {
+  it('изменение отключённых праздников после обучения → stale', () => {
+    setValidation(['A', 'B', 'C'], ['X'], 'Sales'); // роли не менялись
+    modelChannelEnabled.set({ A: true, B: true, C: true });
+    lastTrainedConfig.set({ kpi: 'Sales', media: ['A', 'B', 'C'], control: ['X'], disabled: ['holiday_defender_day'] });
+    disabledHolidays.set([]); // юзер вернул праздник после обучения
+    const st = get(modelStaleStatus);
+    expect(st.stale).toBe(true);
+    expect(st.diff.join(' ')).toMatch(/Отключённые праздники/);
+  });
+
+  it('те же отключённые праздники → НЕ stale (порядок не важен)', () => {
+    setValidation(['A', 'B', 'C'], ['X'], 'Sales');
+    modelChannelEnabled.set({ A: true, B: true, C: true });
+    lastTrainedConfig.set({ kpi: 'Sales', media: ['A', 'B', 'C'], control: ['X'], disabled: ['holiday_a', 'holiday_b'] });
+    disabledHolidays.set(['holiday_b', 'holiday_a']); // тот же набор, иной порядок
+    const st = get(modelStaleStatus);
+    expect(st.stale).toBe(false);
+    expect(st.diff).toEqual([]);
+  });
+
+  it('legacy snapshot без disabled + ничего не отключено сейчас → НЕ stale', () => {
+    setValidation(['A', 'B', 'C'], ['X'], 'Sales');
+    modelChannelEnabled.set({ A: true, B: true, C: true });
+    lastTrainedConfig.set({ kpi: 'Sales', media: ['A', 'B', 'C'], control: ['X'] }); // без disabled (модель до фичи)
+    disabledHolidays.set([]);
+    const st = get(modelStaleStatus);
+    expect(st.stale).toBe(false);
   });
 });
 

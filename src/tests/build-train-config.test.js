@@ -37,6 +37,7 @@ function baseState(overrides = {}) {
     kpiKind: 'count',
     mergeRules: { tv: ['tv_fed', 'tv_reg'] },
     channelCategories: { tv: 'brand', digital: 'performance' },
+    disabledHolidays: ['holiday_defender_day', 'holiday_russia_day'],
     ...overrides,
   };
 }
@@ -60,6 +61,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       merge_rules: { tv: ['tv_fed', 'tv_reg'] },
       mode: 'bayesian',
       channel_categories: { tv: 'brand', digital: 'performance' },
+      disabled_holidays: ['holiday_defender_day', 'holiday_russia_day'],
     });
   });
 
@@ -80,6 +82,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       'merge_rules',
       'mode',
       'channel_categories',
+      'disabled_holidays',
     ]);
   });
 
@@ -103,6 +106,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       kpiKind: 'monetary',
       mergeRules: {},
       channelCategories: undefined,
+      disabledHolidays: undefined,
     });
     expect(config).toEqual({
       project_dir: 'p',
@@ -119,6 +123,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       merge_rules: {},
       mode: 'bayesian',
       channel_categories: {}, // undefined → {}
+      disabled_holidays: [], // undefined → []
     });
   });
 });

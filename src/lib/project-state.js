@@ -603,6 +603,24 @@ activeProject.subscribe((p) => {
 });
 
 /**
+ * #6 Tier-3/OVB (2026-06-07): имена авто-праздников (holiday_*), отключённых юзером
+ * в ControlsPanel. Праздники с posterior contraction<0.1 неинформативны (данные их
+ * не определили) → удаление БЕЗ omitted-variable bias. Персистится в project.json
+ * через project_update; buildTrainConfig шлёт как `disabled_holidays` → modeler.py
+ * пропускает их при инъекции (modeler.py:279). Гидрируется из activeProject на reload.
+ * @type {import('svelte/store').Writable<string[]>}
+ */
+export const disabledHolidays = writable(/** @type {string[]} */ ([]));
+
+activeProject.subscribe((p) => {
+  if (p && Array.isArray(p.disabled_holidays)) {
+    disabledHolidays.set(/** @type {string[]} */ (p.disabled_holidays));
+  } else if (!p) {
+    disabledHolidays.set([]);
+  }
+});
+
+/**
  * Reactive cleanup orphaned channel_categories entries при изменении media_columns
  * на frontend (post-audit fix 2026-04-27): backend project.rs уже cleanup'ит при
  * project_update, но UI store должен sync immediately для consistent badge display.
@@ -909,7 +927,7 @@ export const modelData = writable({ diagnostics: null, channelParams: null, pick
  * был null после reload → modelStaleStatus всегда stale=false → банера нет).
  */
 const LAST_TRAINED_KEY = 'aurora-last-trained-config';
-const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[]} | null} */ ((() => {
+const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[]} | null} */ ((() => {
   if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(LAST_TRAINED_KEY);
@@ -938,8 +956,8 @@ if (typeof localStorage !== 'undefined') {
  * }>}
  */
 export const modelStaleStatus = derived(
-  [modelData, validateData, lastTrainedConfig, modelChannelEnabled],
-  ([$m, $v, $tc, $en]) => {
+  [modelData, validateData, lastTrainedConfig, modelChannelEnabled, disabledHolidays],
+  ([$m, $v, $tc, $en, $dh]) => {
     if (!$m?.diagnostics || !$tc) return { stale: false, reason: '', diff: [] };
     const cur = /** @type {any[]} */ ($v?.result?.columns || []);
     // LOAD-1 (C): defensive-net для краёв (нет ролей в project.json / окно до
@@ -975,6 +993,15 @@ export const modelStaleStatus = derived(
     }
     if (curControl.length !== tc.length || curControl.some((x, i) => x !== tc[i])) {
       diff.push(`Контрольные: было ${tc.length}, стало ${curControl.length}`);
+    }
+    // #6 Tier-3/OVB (2026-06-07): disabled_holidays — часть train-config (влияет на
+    // состав модели). Изменение после обучения = модель устарела (INV-50: декомпозиция
+    // должна соответствовать конфигу). Legacy snapshot без `disabled` → tdis=[] (модели
+    // до фичи не отключали праздники, сравнение с пустым корректно).
+    const curDisabled = [...($dh || [])].sort();
+    const tdis = [...($tc.disabled || [])].sort();
+    if (curDisabled.length !== tdis.length || curDisabled.some((x, i) => x !== tdis[i])) {
+      diff.push(`Отключённые праздники: было ${tdis.length}, стало ${curDisabled.length}`);
     }
     if (diff.length === 0) return { stale: false, reason: '', diff: [] };
     return {

@@ -92,6 +92,15 @@ pub struct ProjectInfo {
     /// гейту реальный выбор юзера, не эвристику имени. Backward compat: пустой для legacy.
     #[serde(default)]
     pub per_channel_input: HashMap<String, String>,
+    /// #6 Tier-3/OVB (2026-06-07): имена авто-праздников (holiday_*), которые юзер
+    /// отключил в ControlsPanel. Праздники с posterior contraction<0.1 неинформативны
+    /// (данные их не определили) → удаление БЕЗ omitted-variable bias и нечестного
+    /// роста MQS. modeler.py читает config.disabled_holidays и пропускает их при
+    /// инъекции (modeler.py:279). ВАЖНО: holiday_* НЕ входят в control_columns —
+    /// они генерятся из даты в рантайме; этот список лишь исключает часть из них.
+    /// Backward compat: пустой для legacy проектов (до этого фикса).
+    #[serde(default)]
+    pub disabled_holidays: Vec<String>,
 }
 
 fn default_industry() -> String {
@@ -281,6 +290,7 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         analysis_mode: None,
         model_channel_enabled: HashMap::new(),
         per_channel_input: HashMap::new(),
+        disabled_holidays: Vec::new(),
     };
     write_project(&dir, &info)?;
 
@@ -326,6 +336,15 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     }
     if let Some(control) = updates.get("control_columns").and_then(|v| v.as_array()) {
         info.control_columns = control.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+    }
+    // #6 Tier-3/OVB (2026-06-07): disabled_holidays persistence (имена авто-праздников,
+    // отключённых юзером). null → очистить. Хранятся отдельно от control_columns.
+    if let Some(dh_v) = updates.get("disabled_holidays") {
+        if dh_v.is_null() {
+            info.disabled_holidays.clear();
+        } else if let Some(arr) = dh_v.as_array() {
+            info.disabled_holidays = arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+        }
     }
     if let Some(file) = updates.get("data_file").and_then(|v| v.as_str()) {
         info.data_file = Some(file.to_string());
@@ -1074,6 +1093,7 @@ mod atomic_write_tests {
             analysis_mode: None,
             model_channel_enabled: HashMap::new(),
             per_channel_input: HashMap::new(),
+            disabled_holidays: Vec::new(),
         }
     }
 
