@@ -258,6 +258,12 @@ class AuroraPPTXBuilder:
         self.mape_pct = diag.get("mape_pct", 8.3)
         self.r_hat_max = diag.get("r_hat_max", 1.008)
         self.ess_min = diag.get("ess_min", 1247)
+        # INV-50 F-DELIVERABLE-1 (2026-06-07): data-thinness disclosure.
+        # Default None → preview/wireframe (Кагоцел fallback) НЕ фабрикует
+        # оговорку о переобучении; она появляется только когда backend реально
+        # применил cap (thinness_cap=50/70). ratio_eff — эффективный (драйвит cap).
+        self.thinness_cap = diag.get("thinness_cap")
+        self.ratio_eff = diag.get("ratio")
         # v2.1.0 (Pilot C): engine detection. 'ols' для small-data fallback,
         # 'bayesian' (default) для production v1.2/v1.3 pickles. Determines
         # methodology labels (MCMC/NUTS vs closed-form/bootstrap).
@@ -2842,6 +2848,18 @@ class AuroraPPTXBuilder:
             )
             self._hairline(slide, right_x, dy + 0.32, right_w, weight=0.25)
             dy += 0.34
+
+        # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
+        # переобучении — та же формулировка, что в вердикте программы и письме
+        # (utils.diagnostics.format_thinness_caveat — SSOT). Прежде роняла на
+        # report-шве: клиентский PPTX показывал «MQS 70 Хорошее» без предупреждения.
+        from utils.diagnostics import format_thinness_caveat
+        _caveat = format_thinness_caveat(self.ratio_eff, self.thinness_cap, leading_space=False)
+        if _caveat:
+            self._text(
+                slide, right_x, dy + 0.15, right_w, 0.9, _caveat,
+                font=self.sans, size=10, italic=True, color=self.gold,
+            )
 
         # Sources list bottom
         src_y = 6.0

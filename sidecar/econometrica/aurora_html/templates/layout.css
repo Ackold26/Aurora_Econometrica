@@ -939,6 +939,15 @@ sup.fn-marker {
   color: var(--text-muted);
   font-weight: 600;
 }
+/* INV-50 F-DELIVERABLE-1: честная оговорка о тонких данных / переобучении */
+.mqs-caveat {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gold, #c9a449);
+  font-style: italic;
+  text-align: left;
+}
 .mqs-diag {
   margin-top: 16px;
   padding-top: 16px;

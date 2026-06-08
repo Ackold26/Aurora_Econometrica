@@ -157,6 +157,31 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
     }
 
 
+def format_thinness_caveat(ratio: float | None, thinness_cap: int | None,
+                           *, leading_space: bool = True) -> str:
+    """SSOT-формулировка оговорки о тонких данных / переобучении.
+
+    INV-50 F-DELIVERABLE-1 (2026-06-07): эта оговорка должна звучать ОДИНАКОВО
+    везде — в вердикте программы, в сопроводительном письме И в клиентских
+    отчётах (PPTX/HTML/XLSX). Прежде текст жил inline в `generate_diagnostics_
+    summary` и доходил только до программы; отчёты его роняли на report-шве.
+    Теперь и вердикт, и билдеры зовут эту функцию → формулировка едина, новый
+    N+1-й слой расхождения физически невозможен (Rust XLSX зеркалит дословно,
+    см. report.rs — пометка SSOT там же).
+
+    Возвращает '' когда cap не применён (данных достаточно).
+    """
+    if thinness_cap is None or ratio is None:
+        return ""
+    if ratio < 2:
+        body = (f"⚠ Данных критически мало (Ratio {ratio:.1f}:1) - высокий риск "
+                f"переобучения, результаты ненадёжны.")
+    else:
+        body = (f"⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) - высокий R² может "
+                f"быть артефактом переобучения. Доверительные интервалы будут широкими.")
+    return (" " + body) if leading_space else body
+
+
 def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
                                   r_hat_max: float, divergences: int,
                                   n_obs: int, n_params: int,
@@ -182,12 +207,8 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
     # ВАЖНО: MQS-бейдж (слева от текста) - агрегированный score 0-100 из R²+MAPE+convergence.
     # R² - отдельная метрика (fit), явно маркируем её в тексте чтобы не путать с MQS.
     r2_pct = round(r_squared * 100)
-    thin_note = ""
-    if mqs.get('thinness_cap') is not None:
-        if ratio < 2:
-            thin_note = f" ⚠ Данных критически мало (Ratio {ratio:.1f}:1) - высокий риск переобучения, результаты ненадёжны."
-        else:
-            thin_note = f" ⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) - высокий R² может быть артефактом переобучения. Доверительные интервалы будут широкими."
+    # INV-50 F-DELIVERABLE-1: единая формулировка (та же, что в отчётах).
+    thin_note = format_thinness_caveat(ratio, mqs.get('thinness_cap'))
 
     if mqs['tier'] in ('excellent', 'good'):
         verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Надёжный результат для принятия бюджетных решений.{thin_note}"

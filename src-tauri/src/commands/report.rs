@@ -951,6 +951,21 @@ fn build_xlsx(
         if let Some(rh) = r_hat {
             ws.write(10, 0, format!("R-hat (сходимость): {rh:.4}")).map_err(|e| format!("{e}"))?;
         }
+        // INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
+        // переобучении. Прежде клиентский XLSX показывал «MQS 70 Хорошо» без
+        // предупреждения, хотя backend применил data-thinness cap. Формулировка
+        // ЗЕРКАЛИТ utils/diagnostics.py::format_thinness_caveat (Python SSOT) —
+        // Rust не импортирует Python, синхрон держим вручную (тест сверяет).
+        let thinness_cap = model["diagnostics"]["mqs"]["thinness_cap"].as_f64();
+        let ratio_eff = model["diagnostics"]["metrics"]["ratio"].as_f64();
+        if let (Some(_cap), Some(ratio)) = (thinness_cap, ratio_eff) {
+            let caveat = if ratio < 2.0 {
+                format!("⚠ Данных критически мало (Ratio {ratio:.1}:1) - высокий риск переобучения, результаты ненадёжны.")
+            } else {
+                format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1) - высокий R² может быть артефактом переобучения. Доверительные интервалы будут широкими.")
+            };
+            ws.write(11, 0, caveat).map_err(|e| format!("{e}"))?;
+        }
 
         // Widths from XLSX_reference.xlsx - A:C = 26.43
         ws.set_column_width(0, 26.43).map_err(|e| format!("{e}"))?;

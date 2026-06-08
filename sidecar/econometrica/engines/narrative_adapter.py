@@ -710,6 +710,15 @@ def _map_pipeline_to_builder_data(
             "mape_pct": float,
             "r_hat_max": float,
             "ess_min": int,
+            # INV-50 F-DELIVERABLE-1 (2026-06-07): data-thinness disclosure.
+            # Эти поля прежде ронялись на этом шве → честная оговорка о
+            # переобучении («Данных мало, Ratio 2.4:1») доходила до программы и
+            # сопроводительного письма, но НЕ до PPTX/HTML/XLSX. Теперь
+            # билдеры получают структуру и сами компонуют локализованную оговорку.
+            "thinness_cap": "int|None",     # 50/70 если cap применён, иначе None
+            "ratio": float,                 # эффективный (obs/effective_params) — драйвит cap
+            "ratio_nominal": float,         # номинальный (obs/n_params) — прозрачность
+            "effective_parameters": float,
           },
           "channels": [...],               # merged + verdicts (optional)
           "narrative_facts": {...}          # derived business logic (optional)
@@ -749,6 +758,13 @@ def _map_pipeline_to_builder_data(
     mape_pct = _first(metrics.get("mape_pct"), diag_src.get("mape"), default=None)
     r_hat_max = _first(metrics.get("r_hat_max"), metrics.get("r_hat"), diag_src.get("r_hat"), default=None)
     ess_min = _first(metrics.get("ess_min"), metrics.get("ess"), diag_src.get("ess"), default=None)
+    # INV-50 F-DELIVERABLE-1: data-thinness disclosure fields (прежде дропались).
+    # thinness_cap читаем из mqs (там его кладёт model_quality_score), ratio —
+    # из metrics (эффективный, драйвит cap). None — когда cap не применён.
+    thinness_cap = mqs.get("thinness_cap")
+    ratio_eff = _first(metrics.get("ratio"), default=None)
+    ratio_nom = _first(metrics.get("ratio_nominal"), default=None)
+    eff_params = _first(metrics.get("effective_parameters"), default=None)
 
     diagnostics: dict[str, Any] = {}
     if mqs_score is not None:
@@ -764,6 +780,26 @@ def _map_pipeline_to_builder_data(
     if ess_min is not None:
         try:
             diagnostics["ess_min"] = int(ess_min)
+        except (TypeError, ValueError):
+            pass
+    # thinness_cap намеренно может быть None (cap не сработал) — кладём всегда,
+    # когда поле присутствует в источнике, чтобы билдер мог отличить «нет cap»
+    # от «не знаем». ratio кладём, когда есть, для прозрачности.
+    if "thinness_cap" in mqs:
+        diagnostics["thinness_cap"] = thinness_cap
+    if ratio_eff is not None:
+        try:
+            diagnostics["ratio"] = float(ratio_eff)
+        except (TypeError, ValueError):
+            pass
+    if ratio_nom is not None:
+        try:
+            diagnostics["ratio_nominal"] = float(ratio_nom)
+        except (TypeError, ValueError):
+            pass
+    if eff_params is not None:
+        try:
+            diagnostics["effective_parameters"] = float(eff_params)
         except (TypeError, ValueError):
             pass
 

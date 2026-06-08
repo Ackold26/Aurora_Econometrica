@@ -1536,6 +1536,14 @@ def render_sources(ctx: dict) -> str:
     except (TypeError, ValueError):
         mqs_display = "-"
 
+    # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
+    # переобучении — та же формулировка, что в вердикте программы и письме
+    # (utils.diagnostics.format_thinness_caveat — SSOT). Прежде роняла на
+    # report-шве: клиентский HTML показывал «MQS 70 Хорошее» без предупреждения.
+    from utils.diagnostics import format_thinness_caveat
+    mqs_caveat = format_thinness_caveat(diag.get("ratio"), diag.get("thinness_cap"),
+                                        leading_space=False)
+
     mqs_diag_html = ""
     if is_ols:
         # OLS: показываем только R²/MAPE + frequentist метод (без MCMC).
@@ -1574,6 +1582,7 @@ def render_sources(ctx: dict) -> str:
     <div class="mqs-label">Model Quality Score</div>
     <div class="mqs-score">{escape(mqs_display)}<sub>/100</sub></div>
     <div class="mqs-tier">{escape(mqs_tier)}</div>
+    {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
     <a class="method-badge" href="#method">{escape(_badge_text)}</a>
   </div>
