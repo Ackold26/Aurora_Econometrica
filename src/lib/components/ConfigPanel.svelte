@@ -10,6 +10,7 @@
   import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { buildTrainConfig } from '$lib/train-config.js';
+  import HolidayControlsPanel from '$lib/components/pipeline/HolidayControlsPanel.svelte';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
 
@@ -648,6 +649,15 @@ Weibull (плавная build-up):
     {/if}
   {/if}
 
+  <!-- #6 Tier-3/OVB (2026-06-07): авто-праздники РФ — отключение неинформативных.
+       Здесь (шаг Модель), а НЕ на Валидации: доступно всегда (не subStep-gated) и
+       после обучения показывает per_control_contraction badges (modelData). -->
+  {#if selectedKpi}
+    <div class="holiday-controls-wrapper">
+      <HolidayControlsPanel />
+    </div>
+  {/if}
+
   <!-- PSY: Commitment summary - user sees what THEY configured (IKEA Effect + Commitment) -->
   {#if selectedKpi && Object.values(channelEnabled).filter(Boolean).length > 0}
     <div class="config-summary">
@@ -823,6 +833,11 @@ Weibull (плавная build-up):
     padding: 9px 12px;
     font-size: 12px;
     color: var(--text-muted, #64748b);
+  }
+
+  /* #6 (2026-06-07): обёртка панели авто-праздников перед config-summary. */
+  .holiday-controls-wrapper {
+    margin: 4px 0;
   }
 
   .config-summary {
