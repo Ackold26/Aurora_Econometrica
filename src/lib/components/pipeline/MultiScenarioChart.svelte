@@ -16,7 +16,9 @@
    */
 
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
+  import { compactNum, buildForecastTooltip, forecastLegendLabel } from '$lib/forecast-chart-format.js';
   import { Info } from 'lucide-svelte';
 
   /**
@@ -98,15 +100,8 @@
     return combined;
   });
 
-  /** Compact number formatter (K/M) */
-  function compactNum(/** @type {number} */ v) {
-    if (!Number.isFinite(v)) return '';
-    const abs = Math.abs(v);
-    if (abs >= 1e9) return (v / 1e9).toFixed(1) + 'B';
-    if (abs >= 1e6) return (v / 1e6).toFixed(0) + 'M';
-    if (abs >= 1e3) return (v / 1e3).toFixed(0) + 'K';
-    return Math.round(v).toLocaleString('ru-RU');
-  }
+  /** Заголовок карточки (текст важен для тестов: «{kpiLabel} - Сравнение сценариев»). */
+  const chartTitle = $derived(`${kpiLabel} - Сравнение сценариев`);
 
   /**
    * Align a series' own dates to the global allDates index, filling gaps with null.
@@ -268,10 +263,15 @@
         top: 4,
         left: 'left',
         icon: 'roundRect',
-        itemWidth: 16,
+        itemWidth: 18,
         itemHeight: 4,
-        textStyle: { color: '#94a3b8', fontSize: 10 },
+        itemGap: 16,
+        textStyle: { color: '#cbd5e1', fontSize: 11 },
+        inactiveColor: 'rgba(255,255,255,0.25)',
         data: legendData,
+        // Легенда показывает итоговый прогноз каждого сценария (endpoint) — быстрый ранг.
+        formatter: (/** @type {string} */ name) =>
+          forecastLegendLabel(name, { baseline, visibleScenarios }),
       },
       xAxis: {
         type: 'category',
@@ -297,7 +297,17 @@
         splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
         axisLine: { show: false },
       },
-      tooltip: chartTooltipDark({ trigger: 'axis' }),
+      tooltip: {
+        ...chartTooltipDark({ trigger: 'axis' }),
+        axisPointer: { type: 'line', lineStyle: { color: 'rgba(255,255,255,0.22)', type: 'dashed' } },
+        extraCssText: 'max-width:320px;',
+        // Богатый тултип (forecast-chart-format.js): дата + метка история/прогноз +
+        // строка на серию (маркер, значение, ДИ 90% веера). Helper-серии CI — только источник границ.
+        formatter: (/** @type {any} */ rawParams) => buildForecastTooltip(rawParams, {
+          baseline, visibleScenarios, allDates, cutoffIndex,
+          baselineColor: BASELINE_COLOR, scenarioColors: SCENARIO_COLORS,
+        }),
+      },
       series,
       _chartHeight: chartHeight, // stored for height reactive binding below
     };
@@ -307,51 +317,34 @@
   const chartHeight = $derived(allDates.length > 40 ? '360px' : '300px');
 </script>
 
-<div class="multi-scenario-chart">
-  <div class="chart-header">
-    <h3 class="chart-title">{kpiLabel} - Сравнение сценариев</h3>
-    {#if hiddenCount > 0}
-      <div class="overflow-warn" role="alert">
-        <Info size={12} />
-        <span>На графике первые {maxVisible} из {scenarios.length} - остальные только в таблице</span>
-      </div>
-    {/if}
-  </div>
-
-  {#if allDates.length === 0 || (scenarios.length === 0 && !baseline)}
-    <div class="empty-state">
-      <p>Нет данных для отображения</p>
+<div class="ms-chart-root">
+  {#if hiddenCount > 0}
+    <div class="overflow-warn" role="alert">
+      <Info size={12} />
+      <span>На графике первые {maxVisible} из {scenarios.length} - остальные только в таблице</span>
     </div>
-  {:else}
-    <EChartBase option={option} height={chartHeight} />
   {/if}
+
+  <!-- ExpandableCard: кнопка «развернуть на весь экран» (как в других графиках проекта).
+       EChartBase — единственный потомок children → overlay-content 70vh подхватывается
+       ResizeObserver'ом ECharts, график растягивается в fullscreen. -->
+  <ExpandableCard title={chartTitle}>
+    {#if allDates.length === 0 || (scenarios.length === 0 && !baseline)}
+      <div class="empty-state">
+        <p>Нет данных для отображения</p>
+      </div>
+    {:else}
+      <EChartBase option={option} height={chartHeight} />
+    {/if}
+  </ExpandableCard>
 </div>
 
 <style>
-  .multi-scenario-chart {
-    background: var(--bg-card, #181824);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    border-radius: var(--radius-card, 12px);
-    padding: 16px 18px 12px;
+  .ms-chart-root {
     display: flex;
     flex-direction: column;
     gap: 10px;
-  }
-
-  .chart-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .chart-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-    flex: 1;
-    letter-spacing: 0.01em;
+    min-width: 0;
   }
 
   .overflow-warn {
