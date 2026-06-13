@@ -10,7 +10,7 @@
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
-  import { chartTooltipDark } from '$lib/echarts-setup.js';
+  import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
   import { pluralizeRu } from '$lib/utils/i18n.js';
@@ -80,7 +80,7 @@
           const p = params[0];
           const color = p.value < RHAT_GOOD ? '#22c55e' : p.value < RHAT_WARN ? '#f59e0b' : '#ef4444';
           const verdict = p.value < RHAT_WARN ? 'Сошёлся' : 'Не сошёлся';
-          return `<b>${p.name}</b><br/>R-hat: <span style="color:${color}">${p.value.toFixed(4)}</span> (${verdict})`;
+          return `<b>${escapeHtml(p.name)}</b><br/>R-hat: <span style="color:${color}">${p.value.toFixed(4)}</span> (${verdict})`;
         },
       },
     };

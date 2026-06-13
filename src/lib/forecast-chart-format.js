@@ -5,6 +5,7 @@
  * (ECharts axis-tooltip не триггерится синтетическими событиями в headless). Образец
  * богатого тултипа — ChannelTimeline (дата-заголовок, цветные маркеры, значения).
  */
+import { escapeHtml } from './html-escape.js';
 
 /** Компактное число K/M/B (для осей и границ ДИ). */
 export function compactNum(/** @type {number} */ v) {
@@ -40,7 +41,7 @@ function tooltipRow(
 ) {
   let s = '<div style="display:flex;align-items:baseline;gap:8px;margin:3px 0;">'
     + `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${color};flex-shrink:0;position:relative;top:1px;"></span>`
-    + `<span style="color:rgba(255,255,255,0.82);font-size:12px;flex:1;">${name}</span>`
+    + `<span style="color:rgba(255,255,255,0.82);font-size:12px;flex:1;">${escapeHtml(name)}</span>`
     + `<b style="color:#fff;font-size:12px;white-space:nowrap;">${fmtFull(v)}</b></div>`;
   if (Number.isFinite(lo) && Number.isFinite(hi)) {
     s += '<div style="margin:-2px 0 5px 17px;color:rgba(255,255,255,0.5);font-size:11px;">'
@@ -71,7 +72,7 @@ export function buildForecastTooltip(rawParams, ctx) {
   params.forEach((/** @type {any} */ p) => { if (p && p.seriesName != null) val[p.seriesName] = p.value; });
 
   let html = '<div style="display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:5px;">'
-    + `<span style="color:#fff;font-weight:600;">${date}</span>`
+    + `<span style="color:#fff;font-weight:600;">${escapeHtml(date)}</span>`
     + '<span style="color:rgba(255,255,255,0.45);font-size:11px;text-transform:uppercase;letter-spacing:0.04em;">'
     + `${isForecast ? 'прогноз' : 'история'}</span></div>`;
 
@@ -102,6 +103,11 @@ export function forecastLegendLabel(name, ctx) {
   if (ctx.baseline && name === ctx.baseline.name) return name;
   const sc = ctx.visibleScenarios.find((s) => s.name === name);
   if (!sc) return name;
-  const last = [...(sc.predictions ?? [])].reverse().find((v) => Number.isFinite(v));
+  // Последнее конечное значение без копии/reverse массива (горячий путь рендера легенды).
+  const preds = sc.predictions ?? [];
+  let last = null;
+  for (let i = preds.length - 1; i >= 0; i--) {
+    if (Number.isFinite(preds[i])) { last = preds[i]; break; }
+  }
   return last != null ? `${name}  ·  ${compactNum(last)}` : name;
 }

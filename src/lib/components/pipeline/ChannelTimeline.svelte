@@ -7,7 +7,7 @@
    */
   import { onDestroy } from 'svelte';
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
-  import { chartTooltipDark } from '$lib/echarts-setup.js';
+  import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
   import { CHANNEL_COLORS } from '$lib/hill.js';
 
   /**
@@ -254,7 +254,7 @@
         });
 
         // Заголовок с датой периода
-        let html = `<div style="color:#fff;font-weight:600;margin-bottom:6px;">${params[0]?.axisValue}</div>`;
+        let html = `<div style="color:#fff;font-weight:600;margin-bottom:6px;">${escapeHtml(params[0]?.axisValue)}</div>`;
 
         // Блок активного слоя (highlight) — сохраняем поведение из v2.0
         const active = activeSeries ? params.find(p => p.seriesName === activeSeries) : null;
@@ -263,7 +263,7 @@
           html += `<div style="display:flex;align-items:center;gap:8px;background:linear-gradient(90deg,${active.color}33,transparent);border-left:3px solid ${active.color};padding:6px 8px;margin:0 -6px 6px -6px;border-radius:3px;">`
             + `<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${active.color};box-shadow:0 0 8px ${active.color};"></span>`
             + `<div style="display:flex;flex-direction:column;line-height:1.25;">`
-            + `<span style="color:#fff;font-weight:700;font-size:13px;">${active.seriesName}</span>`
+            + `<span style="color:#fff;font-weight:700;font-size:13px;">${escapeHtml(active.seriesName)}</span>`
             + `<span style="color:rgba(255,255,255,0.85);font-size:12px;"><b>${fmt(active.value)}</b> &middot; ${aPct}% от периода</span>`
             + `</div></div>`;
         }
@@ -285,7 +285,7 @@
             const dimmed = activeSeries && !isActive;
             const opacity = dimmed ? '0.45' : '1';
             html += `<div style="display:flex;justify-content:space-between;gap:10px;padding-left:8px;opacity:${opacity}${isActive ? ';font-weight:600' : ''}">`
-              + `<span><span style="color:${p.color}">&#9679;</span> ${cleanName}</span>`
+              + `<span><span style="color:${p.color}">&#9679;</span> ${escapeHtml(cleanName)}</span>`
               + `<span style="font-variant-numeric:tabular-nums">${fmt(p.value)}</span>`
               + `</div>`;
           });

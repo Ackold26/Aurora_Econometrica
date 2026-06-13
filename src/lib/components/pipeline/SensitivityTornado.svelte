@@ -13,7 +13,7 @@
    * @component SensitivityTornado
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
-  import { chartTooltipDark } from '$lib/echarts-setup.js';
+  import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
   import { TrendingUp } from 'lucide-svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
@@ -132,7 +132,7 @@
           const low = lowValues[pIdx];
           const high = highValues[pIdx];
           return `
-            <div style="font-weight:600;margin-bottom:6px;color:#fff;">${pd.name}</div>
+            <div style="font-weight:600;margin-bottom:6px;color:#fff;">${escapeHtml(pd.name)}</div>
             <div style="color:#fff;line-height:1.6;">
               <span style="color:#f87171;">↓ Снижение: ${low.toFixed(2)}%</span><br/>
               <span style="color:#60a5fa;">↑ Рост: +${high.toFixed(2)}%</span><br/>

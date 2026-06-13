@@ -82,6 +82,22 @@ describe('buildForecastTooltip', () => {
     expect(() => buildForecastTooltip(single, { ...CTX, baseline: null })).not.toThrow();
     expect(buildForecastTooltip(single, { ...CTX, baseline: null })).toContain('A базовый');
   });
+
+  it('XSS: имя сценария (user-typed) экранируется, не исполняется в innerHTML', () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const ctx = { ...CTX, visibleScenarios: [{ name: evil, predictions: [1] }] };
+    const params = [{ axisValue: '2025-08-01', seriesName: evil, value: 320_000_000 }];
+    const html = buildForecastTooltip(params, ctx);
+    expect(html).not.toContain('<img src=x onerror=alert(1)>'); // сырой тег НЕ просочился
+    expect(html).toContain('&lt;img'); // экранирован
+  });
+
+  it('XSS: дата экранируется', () => {
+    const params = [{ axisValue: '<svg/onload=alert(1)>', seriesName: 'A базовый', value: 1 }];
+    const html = buildForecastTooltip(params, CTX);
+    expect(html).not.toContain('<svg/onload');
+    expect(html).toContain('&lt;svg');
+  });
 });
 
 describe('forecastLegendLabel', () => {

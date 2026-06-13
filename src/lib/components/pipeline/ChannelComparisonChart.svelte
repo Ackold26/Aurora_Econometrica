@@ -17,7 +17,7 @@
    * @component ChannelComparisonChart
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
-  import { chartTooltipDark } from '$lib/echarts-setup.js';
+  import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
 
   /**
    * @type {{
@@ -49,7 +49,7 @@
           const gap = ch.efficiency_gap;
           const sign = gap > 0 ? '+' : '';
           const gapColor = gap > 0 ? '#4ade80' : '#fb7185';
-          return `<div style="color:#fff;font-weight:600;margin-bottom:4px;">${ch.name}</div>` +
+          return `<div style="color:#fff;font-weight:600;margin-bottom:4px;">${escapeHtml(ch.name)}</div>` +
                  `<div style="color:#fff;">Доля расходов: <b>${ch.share_of_spend}%</b></div>` +
                  `<div style="color:#fff;">Доля эффекта: <b>${ch.share_of_effect}%</b></div>` +
                  `<div style="color:${gapColor};font-weight:600;">Разрыв: ${sign}${gap}%</div>`;

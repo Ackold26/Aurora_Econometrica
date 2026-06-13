@@ -15,6 +15,8 @@ import {
   DataZoomComponent,
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
+import { escapeHtml } from './html-escape.js';
+export { escapeHtml }; // re-export для chart-компонентов (общий util tooltip-экранирования)
 
 echarts.use([
   BarChart, LineChart, ScatterChart,
@@ -98,13 +100,13 @@ export function chartTooltipDark(opts = {}) {
       const arr = Array.isArray(params) ? params : [params];
       if (arr.length === 0) return '';
       const head = trigger === 'axis' && arr[0]?.axisValue != null
-        ? `<div style="color:#fff;font-weight:600;margin-bottom:6px;">${arr[0].axisValue}</div>`
+        ? `<div style="color:#fff;font-weight:600;margin-bottom:6px;">${escapeHtml(arr[0].axisValue)}</div>`
         : '';
       const rows = arr.map((p) => {
         const dot = `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${p.color};margin-right:8px;vertical-align:middle;"></span>`;
         const name = p.seriesName ?? p.name ?? '';
         const val = renderValue(p.value);
-        return `<div style="color:#fff;line-height:1.5;">${dot}<span style="color:#fff;opacity:0.9;">${name}</span>&nbsp;&nbsp;<b style="color:#fff;">${val}</b></div>`;
+        return `<div style="color:#fff;line-height:1.5;">${dot}<span style="color:#fff;opacity:0.9;">${escapeHtml(name)}</span>&nbsp;&nbsp;<b style="color:#fff;">${val}</b></div>`;
       }).join('');
       return head + rows;
     },
