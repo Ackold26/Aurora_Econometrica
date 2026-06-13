@@ -787,11 +787,14 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         'model_version': model_version,  # for downstream UI badge
     }
 
-    # Save
+    # Save. NaN-safe (как decomposer.py:1174, rc10-урок 2026-06-04): NaN→null, иначе
+    # Rust serde_json (read_scenarios) роняет файл. Особенно важно для per-period CI band
+    # (predictions_ci_low/high) — CI-вычисления чувствительнее к численным edge-case'ам.
+    from utils.safe_io import sanitize_nonfinite
     results_dir = project_path / 'results' / 'scenarios'
     results_dir.mkdir(parents=True, exist_ok=True)
     with open(results_dir / f'{scenario_name}.json', 'w', encoding='utf-8') as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
+        json.dump(sanitize_nonfinite(result), f, ensure_ascii=False, indent=2)
 
     return result
 

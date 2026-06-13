@@ -26,6 +26,11 @@ describe('nextMonths', () => {
     expect(nextMonths('2025-12', 2)).toEqual(['2026-01', '2026-02']);
   });
 
+  it('сохраняет день месяца ≠01 (формат-консистентность шва с историей)', () => {
+    expect(nextMonths('2025-07-15', 2)).toEqual(['2025-08-15', '2025-09-15']);
+    expect(nextMonths('2024-11-30', 2)).toEqual(['2024-12-30', '2025-01-30']);
+  });
+
   it('возвращает [] на пустой/невалидный вход или n<=0', () => {
     expect(nextMonths('', 5)).toEqual([]);
     expect(nextMonths('not-a-date', 5)).toEqual([]);

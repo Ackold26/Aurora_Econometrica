@@ -21,10 +21,8 @@
   import { activeProjectId, unitCosts, modelData } from '$lib/project-state.js';
   import { assembleScenarioTimeline } from '$lib/forecast-timeline.js';
 
-  /** @type {any[]} */
-  let scenarios = $state([]);
-  /** @type {any} */
-  let baseline = $state(null);
+  /** @type {any} сырой результат econ_compare (null = пустое состояние) */
+  let compareResult = $state(null);
   let loading = $state(true);
   /** @type {string | null} */
   let loadError = $state(null);
@@ -33,8 +31,23 @@
   // это штуки, не ₽) — money-конверсия применяется только к табличным полям внутри сборки.
   const kpiLabel = 'Прогноз продаж';
 
+  // РЕАКТИВНАЯ сборка: пере-собирается когда compareResult ИЛИ modelData.diagnostics
+  // меняются. Фиксит гонку — restoreProjectResults (layout) гидрирует diagnostics
+  // АСИНХРОННО и может не успеть к onMount страницы; раньше baseline молча оставался
+  // null. `$modelData` авто-подписка → baseline появляется как только diagnostics готовы.
+  const assembled = $derived.by(() => {
+    if (!compareResult || compareResult.status !== 'ok') {
+      return /** @type {{ scenarios: any[], baseline: any }} */ ({ scenarios: [], baseline: null });
+    }
+    return assembleScenarioTimeline(compareResult, $modelData?.diagnostics ?? null);
+  });
+  /** @type {any[]} */
+  const scenarios = $derived(assembled.scenarios);
+  /** @type {any} */
+  const baseline = $derived(assembled.baseline);
+
   /**
-   * Загрузить сохранённые сценарии + baseline-историю и собрать единый таймлайн.
+   * Загрузить сохранённые сценарии (econ_compare) в compareResult. Сборка — реактивно выше.
    * Переиспользуется при mount и после удаления сценария.
    */
   async function loadScenarios() {
@@ -44,8 +57,7 @@
       const projectId = get(activeProjectId);
       if (!projectId) {
         loadError = 'Проект не выбран — откройте проект на шаге «Данные».';
-        scenarios = [];
-        baseline = null;
+        compareResult = null;
         return;
       }
       const projectDir = await invoke('project_get_dir', { projectId });
@@ -54,22 +66,11 @@
         projectDir,
         unitCosts: Object.keys(uc).length > 0 ? uc : null,
       }));
-
-      if (result?.status !== 'ok') {
-        // Нет сохранённых сценариев — это НЕ ошибка, а пустое состояние с CTA.
-        scenarios = [];
-        baseline = null;
-        return;
-      }
-
-      const diag = get(modelData)?.diagnostics ?? null;
-      const assembled = assembleScenarioTimeline(result, diag);
-      scenarios = assembled.scenarios;
-      baseline = assembled.baseline;
+      // status !== 'ok' (нет сохранённых сценариев) = пустое состояние с CTA, не ошибка.
+      compareResult = result?.status === 'ok' ? result : null;
     } catch (/** @type {any} */ e) {
       loadError = String(e);
-      scenarios = [];
-      baseline = null;
+      compareResult = null;
     } finally {
       loading = false;
     }

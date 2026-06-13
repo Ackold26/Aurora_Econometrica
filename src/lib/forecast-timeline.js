@@ -26,11 +26,11 @@
  */
 export function nextMonths(lastDate, n) {
   const s = String(lastDate ?? '');
-  const m = s.match(/^(\d{4})-(\d{2})/);
+  const m = s.match(/^(\d{4})-(\d{2})(?:-(\d{2}))?/);
   if (!m || !Number.isFinite(n) || n <= 0) return [];
   let year = Number(m[1]);
   let month = Number(m[2]); // 1..12
-  const isYearMonth = s.length === 7; // 'YYYY-MM'
+  const day = m[3] ?? null; // сохраняем день истории для формат-консистентности оси
   /** @type {string[]} */
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -40,7 +40,7 @@ export function nextMonths(lastDate, n) {
       year += 1;
     }
     const mm = String(month).padStart(2, '0');
-    out.push(isYearMonth ? `${year}-${mm}` : `${year}-${mm}-01`);
+    out.push(day ? `${year}-${mm}-${day}` : `${year}-${mm}`);
   }
   return out;
 }
@@ -98,6 +98,14 @@ export function buildScenarioTails(compareResult, lastHistDate) {
     const rawHigh = sc?.predictions_ci_high;
     const bandOk = Array.isArray(rawLow) && Array.isArray(rawHigh)
       && rawLow.length === horizon && rawHigh.length === horizon;
+    // Band-массивы есть, но длина не совпала с кривой → лента дропается (graceful), но это
+    // СИГНАЛ бага движка (band должен строиться по тем же n_periods) — не прятать молча.
+    if (!bandOk && (Array.isArray(rawLow) || Array.isArray(rawHigh))) {
+      console.warn(
+        `[forecast-timeline] CI-веер «${sc?.scenario_name}» отброшен: длина band `
+        + `(${rawLow?.length}/${rawHigh?.length}) != кривой (${horizon}). Проверь scenario.py.`,
+      );
+    }
     const perChannel = sc?.per_channel_spend?.money ?? sc?.per_channel_spend?.native ?? {};
     return {
       id: `sc-${idx}-${sc?.scenario_name ?? idx}`,
