@@ -31,6 +31,12 @@ PROJECT = Path(os.environ["APPDATA"]) / "aurora-econometrica-gui" / "projects" /
 N = 5
 
 
+def _next_months(last: str, n: int) -> list[str]:
+    """Продолжить помесячный таймлайн вперёд от last на n точек ('YYYY-MM')."""
+    p = pd.Period(str(last), freq="M")
+    return [str(p + i + 1) for i in range(n)]
+
+
 def main() -> int:
     from engines.persistence import load_model_with_compat
     from engines.scenario import predict_scenario
@@ -92,6 +98,13 @@ def main() -> int:
         print(f"  total predicted: {tot.get('predicted_kpi'):,.0f}"
               + (f"  CI[{ci_lo:,.0f}..{ci_hi:,.0f}]" if ci_lo is not None else "  CI: n/a")
               + f"  baseline_total: {tot.get('baseline_kpi'):,.0f}  lift: {tot.get('lift_pct')}%")
+        band_lo = r.get("predictions_ci_low")
+        band_hi = r.get("predictions_ci_high")
+        if band_lo and band_hi:
+            print(f"  CI-веер low:  {[f'{v:,.0f}' for v in band_lo]}")
+            print(f"  CI-веер high: {[f'{v:,.0f}' for v in band_hi]}")
+        else:
+            print("  CI-веер per-period: n/a (posterior недоступен)")
         print()
 
     # ── Проверки осмысленности ──
@@ -131,6 +144,96 @@ def main() -> int:
         ta = A["totals"]["predicted_kpi"]; tb = B["totals"]["predicted_kpi"]; tc = C["totals"]["predicted_kpi"]
         print(f"(г) монотонность: C(ноль)={tc:,.0f} < A(база)={ta:,.0f} < B(пик)={tb:,.0f} "
               f"{'✓ больше медиа → больше продаж' if tc < ta < tb else '⚠ порядок нарушен'}")
+
+    # ── (д) per-period CI-веер: low ≤ pred ≤ high по каждому месяцу, ширина осмысленна ──
+    print()
+    print("ВЕЕР (per-period CI band — питает MultiScenarioChart):")
+    for name, r in results.items():
+        if r.get("status") != "ok":
+            continue
+        lo = r.get("predictions_ci_low"); hi = r.get("predictions_ci_high"); pr = r.get("predictions")
+        if not (lo and hi and pr):
+            print(f"  [{name}] band отсутствует — chart покажет линию без ленты (graceful)")
+            continue
+        bad_order = [t for t in range(len(pr)) if not (lo[t] - 1 <= pr[t] <= hi[t] + 1)]
+        widths = [(hi[t] - lo[t]) / max(1.0, abs(pr[t])) for t in range(len(pr))]
+        w_avg = sum(widths) / len(widths)
+        widens = widths[-1] >= widths[0] - 1e-9
+        print(f"  [{name.split()[0]}] low≤pred≤high: "
+              f"{'✓ все ' + str(len(pr)) if not bad_order else '✗ нарушено на ' + str(bad_order)}"
+              f" · ширина ~{w_avg*100:.0f}% от прогноза"
+              f" · {'расширяется к концу ✓' if widens else 'сужается (проверить)'}"
+              f" · положит.: {'✓' if all(l >= 0 for l in lo) else '⚠ есть отрицат. нижняя'}")
+
+    # ── (е) сборка baseline-история + хвост + непрерывность шва/дат (data-path chart) ──
+    print()
+    print("СБОРКА ТАЙМЛАЙНА (decompose-история + прогнозный хвост):")
+    from engines.decomposer import decompose as _decompose
+    dec = _decompose(str(PROJECT))
+    if dec.get("status") != "ok":
+        print(f"  decompose ERROR: {dec.get('message')}")
+        return 0
+    ts = dec.get("time_series", {}) or {}
+    hist_dates = list(ts.get("dates", []) or [])
+    base_ts = list(ts.get("baseline", []) or [])
+    chans = ts.get("channels", {}) or {}
+    # Проверка утверждения агента: ключ 'kpi_values' в time_series?
+    print(f"  ключи time_series: {sorted(ts.keys())} "
+          f"(агент заявлял 'kpi_values' — {'ЕСТЬ' if 'kpi_values' in ts else 'НЕТ, реконструируем fit=baseline+Σканалы'})")
+    # fit-история = baseline + Σ медиа (in-sample prediction; гладкая линия для шва, не сырой факт)
+    fit_hist = []
+    for t in range(len(hist_dates)):
+        v = float(base_ts[t]) if t < len(base_ts) else 0.0
+        for arr in chans.values():
+            if t < len(arr):
+                v += float(arr[t])
+        fit_hist.append(round(v, 0))
+    print(f"  история: {len(hist_dates)} мес, dates[0]={hist_dates[0] if hist_dates else '—'} "
+          f"… dates[-1]={hist_dates[-1] if hist_dates else '—'}")
+    yp = list(md.get("y_predicted", []) or [])
+    if yp and len(yp) == len(fit_hist):
+        dev = float(np.max(np.abs(np.array(yp) - np.array(fit_hist))) / max(1.0, float(np.mean(np.abs(yp)))))
+        print(f"  fit(baseline+Σканалы) == y_predicted(pickle): макс.откл {dev*100:.2f}% "
+              f"{'✓ совпало' if dev < 0.02 else '⚠ расходится — для baseline брать y_predicted напрямую'}")
+    else:
+        print(f"  y_predicted(pickle): len={len(yp)} vs fit len={len(fit_hist)} "
+              f"{'(несовпадение длин — использовать fit-реконструкцию)' if yp else '(нет в pickle — использовать fit-реконструкцию)'}")
+
+    # Источник baseline ДЛЯ ФРОНТА (у него нет pickle, но есть decomposition_series).
+    # Код decomposer.py:1165 утверждает baseline_reduced+Σфакторы+Σмедиа==total.
+    ds = dec.get("decomposition_series", {}) or {}
+    ds_series = ds.get("series", []) or []
+    ds_dates = list(ds.get("dates", []) or [])
+    if ds_series:
+        n = len(ds_dates)
+        ds_total = [0.0] * n
+        for s in ds_series:
+            d = s.get("data", []) or []
+            for t in range(min(n, len(d))):
+                ds_total[t] += float(d[t])
+        roles = [s.get("role") for s in ds_series]
+        print(f"  decomposition_series: {len(ds_series)} серий, роли={roles}")
+        if yp and len(yp) == n:
+            dev2 = float(np.max(np.abs(np.array(yp) - np.array(ds_total))) / max(1.0, float(np.mean(np.abs(yp)))))
+            print(f"  Σ decomposition_series == y_predicted(pickle): макс.откл {dev2*100:.2f}% "
+                  f"{'✓ — фронт baseline = Σ decomposition_series.data' if dev2 < 0.02 else '⚠ расходится, иной источник'}")
+
+    # Хвост сценария на УРОВНЕ последних 3 мес (УРОК: гладкий дефолт-шов)
+    last3 = df[media_cols].tail(3).mean()
+    level_plan = {c: [float(last3[c])] * N for c in active}
+    rl = predict_scenario({"scenario_name": "level", "media_plan": level_plan, "unit_costs": unit_costs}, str(PROJECT))
+    fc = list(rl.get("predictions") or [])
+    if fc and hist_dates:
+        fc_dates = _next_months(hist_dates[-1], N)
+        combined = hist_dates + fc_dates
+        seam = abs(fc[0] - fit_hist[-1]) / max(1.0, abs(fit_hist[-1]))
+        dup = len(combined) != len(set(combined))
+        mono = all(str(combined[i]) < str(combined[i + 1]) for i in range(len(combined) - 1))
+        print(f"  хвост (план=уровень посл.3 мес): fc={[f'{v:,.0f}' for v in fc]}")
+        print(f"  ШОВ fit↔прогноз: fit[-1]={fit_hist[-1]:,.0f} → fc[0]={fc[0]:,.0f} "
+              f"(разрыв {seam*100:.1f}% {'✓ непрерывно' if seam < 0.25 else '⚠ скачок'})")
+        print(f"  ДАТЫ: {len(combined)} точек ({hist_dates[-1]} → {fc_dates[0]}…{fc_dates[-1]}), "
+              f"дублей нет: {'✓' if not dup else '✗'}, строго возр.: {'✓' if mono else '✗'}")
     return 0
 
 

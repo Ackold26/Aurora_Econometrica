@@ -322,6 +322,45 @@ def test_S8_posterior_ci_ordering(tmp_path, seed):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# S8b - Per-period CI band (forecast fan): длина == predictions, low ≤ pred ≤ high
+# ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize('seed', list(range(10)))
+def test_S8b_per_period_ci_band(tmp_path, seed):
+    """predictions_ci_low/high (CI-веер прогноза): длина совпадает с predictions,
+    low ≤ pred ≤ high по КАЖДОМУ периоду. Питает MultiScenarioChart ribbon.
+    Тот же HDI-источник, что и скалярный predicted_kpi_ci (INV-50)."""
+    proj = tmp_path / f'S8b_{seed}'
+    build_synthetic_pickle(
+        proj, seed=seed, n_channels=4, n_periods=24,
+        n_posterior_samples=200,
+    )
+    plan = make_media_plan_from_current(proj, per_period=True)
+
+    from engines.scenario import predict_scenario
+    r = predict_scenario({'scenario_name': 'S8b', 'media_plan': plan}, str(proj))
+    assert is_ok(r)
+
+    band_lo = r.get('predictions_ci_low')
+    band_hi = r.get('predictions_ci_high')
+    preds = r.get('predictions')
+    if band_lo is None or band_hi is None:
+        pytest.skip(f'S8b (seed={seed}): no posterior band')
+
+    assert len(band_lo) == len(preds), f'S8b: band_lo len {len(band_lo)} != predictions {len(preds)}'
+    assert len(band_hi) == len(preds), f'S8b: band_hi len {len(band_hi)} != predictions {len(preds)}'
+    for t in range(len(preds)):
+        lo, hi, pt = float(band_lo[t]), float(band_hi[t]), float(preds[t])
+        assert lo <= hi, f'S8b t={t} (seed={seed}): lo {lo} > hi {hi}'
+        # HDI != percentile → точка может выйти за границу на малую величину (как в S8).
+        margin = max(abs(hi - lo) * 0.05, abs(pt) * 0.01, 1.0)
+        assert lo - margin <= pt <= hi + margin, (
+            f'S8b t={t} (seed={seed}): pred={pt} not в [{lo}, {hi}]'
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────
 # S9 - ROAS CI = incremental_kpi_ci / total_spend (constant denominator)
 # ──────────────────────────────────────────────────────────────────────
 

@@ -461,6 +461,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     roas_native_ci = None
     roas_money_ci = None
     lift_pct_ci = None
+    predictions_ci_low = None   # per-period 90% HDI band (forecast fan) для MultiScenarioChart
+    predictions_ci_high = None  # None когда posterior недоступен (v1.0-v1.1 pickle)
     # F1 fix (audit 2026-04-27): load training raw spend per channel for per-sample
     # adstock_mean computation. Required to match in-model `adstock_full[s,:].mean()`
     # normalization when adstock decay varies across posterior draws (Phase 1.1).
@@ -565,6 +567,20 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
 
             _, p_lo, p_hi, _m_p = compute_ci_hdi(predicted_total_samples)
             predicted_kpi_ci = (p_lo, p_hi)
+
+            # Per-period CI band (forecast fan) — reuse predicted_per_period_samples
+            # (n_samples, n_periods). Питает CI-веер MultiScenarioChart. Тот же HDI-метод,
+            # что и скалярный predicted_kpi_ci → единый источник честности (INV-50).
+            # NB: HDI суммы ≠ сумма по-периодных HDI — band показывает неопределённость
+            # КАЖДОГО месяца, скаляр — годового тотала; это разные (обе валидные) меры.
+            _pp_low: list[float] = []
+            _pp_high: list[float] = []
+            for _t in range(n_periods):
+                _, _pp_lo, _pp_hi, _m_pp = compute_ci_hdi(predicted_per_period_samples[:, _t])
+                _pp_low.append(round(float(_pp_lo), 0))
+                _pp_high.append(round(float(_pp_hi), 0))
+            predictions_ci_low = _pp_low
+            predictions_ci_high = _pp_high
             _, i_lo, i_hi, _m_i = compute_ci_hdi(incremental_total_samples)
             incremental_kpi_ci = (i_lo, i_hi)
 
@@ -622,6 +638,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             predicted_kpi_ci = None
             incremental_kpi_ci = None
             lift_pct_ci = None
+            predictions_ci_low = None
+            predictions_ci_high = None
 
     # Native spend sum (mixed units - informative only, bogus for ROAS across channels)
     per_channel_native = {col: sum(media_plan.get(col, [])) for col in media_cols}
@@ -697,6 +715,10 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         'scenario_name': scenario_name,
         'n_periods': n_periods,
         'predictions': predictions,
+        # Per-period 90% HDI band для CI-веера прогноза (None если posterior недоступен).
+        # Длина == len(predictions). Питает MultiScenarioChart ciLowSeries/ciHighSeries.
+        'predictions_ci_low': predictions_ci_low,
+        'predictions_ci_high': predictions_ci_high,
         'channel_contributions': channel_contributions,
         'totals': {
             'predicted_kpi': round(scenario_total, 0),
