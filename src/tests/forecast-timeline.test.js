@@ -68,6 +68,7 @@ describe('buildScenarioTails', () => {
   const compareResult = {
     status: 'ok',
     money_mode: true,
+    comparison: { kpi_money_mode: true },
     scenarios: [
       {
         scenario_name: 'Базовый',
@@ -75,6 +76,8 @@ describe('buildScenarioTails', () => {
         predictions: [300, 310, 320],
         predictions_ci_low: [280, 290, 300],
         predictions_ci_high: [320, 330, 340],
+        forecast_periods: 12,
+        forecast_period_label: '2026 год',
         totals: {
           total_spend: 1000, total_spend_money: 5000,
           predicted_kpi: 930, predicted_kpi_money: 46500,
@@ -95,11 +98,56 @@ describe('buildScenarioTails', () => {
     expect(t.ciHighSeries).toEqual([320, 330, 340]);
   });
 
-  it('money-первичность для budget/predictedKpi', () => {
+  it('money-единицы когда глобальные флаги money_mode/kpi_money_mode = true', () => {
     const t = buildScenarioTails(compareResult, '2025-07-01')[0];
     expect(t.budget).toBe(5000);
     expect(t.predictedKpi).toBe(46500);
     expect(t.perChannelAllocation).toEqual({ TV: 2500 });
+  });
+
+  it('A1 (INV-50): глобальный money_mode=false → ВСЕ сценарии native, без смешения единиц', () => {
+    // Реальный кейс Кагоцела: «ноль активности» обнуляет has_money глобально,
+    // но у покрытых сценариев есть total_spend_money — per-field fallback смешал бы.
+    const mixed = {
+      status: 'ok',
+      money_mode: false,                       // has_money глобально false
+      comparison: { kpi_money_mode: false },
+      scenarios: [
+        { scenario_name: 'A', n_periods: 1, predictions: [300],
+          totals: { total_spend: 36, total_spend_money: 378, predicted_kpi: 1000, predicted_kpi_money: 1000 },
+          per_channel_spend: { native: {}, money: {} } },
+        { scenario_name: 'C-ноль', n_periods: 1, predictions: [286],
+          totals: { total_spend: 0, total_spend_money: null, predicted_kpi: 800, predicted_kpi_money: 800 },
+          per_channel_spend: { native: {}, money: null } },
+      ],
+    };
+    const tails = buildScenarioTails(mixed, '2025-07-01');
+    // ОБА в native: A=36 (НЕ 378 money), C=0 — сопоставимо под одним заголовком
+    expect(tails[0].budget).toBe(36);
+    expect(tails[1].budget).toBe(0);
+  });
+
+  it('C1: band отдаётся ТОЛЬКО при совпадении длины с кривой (иначе undefined, без обрыва ленты)', () => {
+    const badBand = {
+      money_mode: false,
+      scenarios: [{
+        scenario_name: 'corrupt', n_periods: 3, predictions: [1, 2, 3],
+        predictions_ci_low: [1, 2], predictions_ci_high: [3, 4], // длина 2 != 3
+        totals: { total_spend: 1, predicted_kpi: 6 },
+        per_channel_spend: { native: {}, money: null },
+      }],
+    };
+    const t = buildScenarioTails(badBand, '2025-07-01')[0];
+    expect(t.ciLowSeries).toBeUndefined();
+    expect(t.ciHighSeries).toBeUndefined();
+    // даты ведутся от длины кривой (3), не от потенциально расходящегося n_periods
+    expect(t.dates).toHaveLength(3);
+  });
+
+  it('B1: forecast_periods/label проброшены (horizon-контекст)', () => {
+    const t = buildScenarioTails(compareResult, '2025-07-01')[0];
+    expect(t.forecastPeriods).toBe(12);
+    expect(t.forecastPeriodLabel).toBe('2026 год');
   });
 
   it('graceful: старый сценарий без per-period band → ciLowSeries undefined (chart рисует линию без ленты)', () => {

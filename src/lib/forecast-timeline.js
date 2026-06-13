@@ -66,8 +66,16 @@ export function buildBaselineFromDiagnostics(modelDiagnostics) {
 
 /**
  * Собрать массив сценариев-хвостов из результата `econ_compare` в форму, которую
- * ждёт MultiScenarioChart (dates продолжают историю; CI-веер из движка, graceful null
- * для старых сценариев, сохранённых до появления per-period band).
+ * ждёт MultiScenarioChart (dates продолжают историю вперёд; CI-веер из движка,
+ * graceful null для старых сценариев без per-period band).
+ *
+ * Единицы (money/native) выбираются ГЛОБАЛЬНО по флагам compare_scenarios, НЕ
+ * per-scenario fallback (INV-50): иначе непокрытый unit_costs сценарий показал бы
+ * native, а покрытый — money, под одним заголовком таблицы = несопоставимо.
+ *
+ * Семантика дат: хвост кладётся ВПЕРЁД от конца истории — это forward-прогноз
+ * (deliverable «Прогноз продаж по сценариям»). Ретроспективный what-if на
+ * тренировочном горизонте — отдельный компонент ScenarioCompare, не эта страница.
  *
  * @param {any} compareResult ответ `invoke('econ_compare')`
  * @param {string|null} lastHistDate последняя дата истории (для продолжения вперёд)
@@ -75,27 +83,39 @@ export function buildBaselineFromDiagnostics(modelDiagnostics) {
  */
 export function buildScenarioTails(compareResult, lastHistDate) {
   const raw = Array.isArray(compareResult?.scenarios) ? compareResult.scenarios : [];
+  // has_money / kpi_money_mode = ALL-or-nothing (compare_scenarios). Решают единицы для ВСЕХ.
+  const moneyMode = Boolean(compareResult?.money_mode);
+  const kpiMoneyMode = Boolean(compareResult?.comparison?.kpi_money_mode);
   return raw.map((/** @type {any} */ sc, /** @type {number} */ idx) => {
     const totals = sc?.totals ?? {};
     const predictions = Array.isArray(sc?.predictions) ? sc.predictions : [];
-    const nPeriods = Number.isFinite(sc?.n_periods) ? sc.n_periods : predictions.length;
-    const dates = lastHistDate ? nextMonths(lastHistDate, nPeriods) : [];
-    const ciLowSeries = Array.isArray(sc?.predictions_ci_low) ? sc.predictions_ci_low : undefined;
-    const ciHighSeries = Array.isArray(sc?.predictions_ci_high) ? sc.predictions_ci_high : undefined;
+    // Даты ведём от ДЛИНЫ кривой (не от отдельного поля n_periods) → гарантирует
+    // dates.length == predictions.length (иначе alignToTimeline молча гэпует ленту).
+    const horizon = predictions.length;
+    const dates = lastHistDate && horizon > 0 ? nextMonths(lastHistDate, horizon) : [];
+    // CI-веер только если длина ОБОИХ массивов == длине кривой (иначе обрыв ленты).
+    const rawLow = sc?.predictions_ci_low;
+    const rawHigh = sc?.predictions_ci_high;
+    const bandOk = Array.isArray(rawLow) && Array.isArray(rawHigh)
+      && rawLow.length === horizon && rawHigh.length === horizon;
     const perChannel = sc?.per_channel_spend?.money ?? sc?.per_channel_spend?.native ?? {};
     return {
       id: `sc-${idx}-${sc?.scenario_name ?? idx}`,
       name: sc?.scenario_name ?? `Сценарий ${idx + 1}`,
-      // money-первичность согласована с compare_scenarios money_mode и таблицей MultiScenarioPage
-      budget: totals.total_spend_money ?? totals.total_spend ?? 0,
-      predictedKpi: totals.predicted_kpi_money ?? totals.predicted_kpi ?? 0,
+      budget: moneyMode ? (totals.total_spend_money ?? 0) : (totals.total_spend ?? 0),
+      predictedKpi: kpiMoneyMode
+        ? (totals.predicted_kpi_money ?? totals.predicted_kpi ?? 0)
+        : (totals.predicted_kpi ?? 0),
       ciLow: totals.predicted_kpi_ci_low ?? undefined,
       ciHigh: totals.predicted_kpi_ci_high ?? undefined,
       dates,
       predictions,
-      ciLowSeries,
-      ciHighSeries,
+      ciLowSeries: bandOk ? rawLow : undefined,
+      ciHighSeries: bandOk ? rawHigh : undefined,
       perChannelAllocation: perChannel,
+      // Horizon-контекст (планировочный горизонт сценария, если был задан planning-mode).
+      forecastPeriods: sc?.forecast_periods ?? null,
+      forecastPeriodLabel: sc?.forecast_period_label ?? null,
     };
   });
 }

@@ -28,9 +28,10 @@
   let loading = $state(true);
   /** @type {string | null} */
   let loadError = $state(null);
-  let moneyMode = $state(false);
 
-  const kpiLabel = $derived(moneyMode ? 'Прогноз продаж, ₽' : 'Прогноз продаж');
+  // Нейтрально: chart рисует predictions[] в НАТИВНОЙ единице KPI модели (для count-KPI
+  // это штуки, не ₽) — money-конверсия применяется только к табличным полям внутри сборки.
+  const kpiLabel = 'Прогноз продаж';
 
   /**
    * Загрузить сохранённые сценарии + baseline-историю и собрать единый таймлайн.
@@ -58,11 +59,9 @@
         // Нет сохранённых сценариев — это НЕ ошибка, а пустое состояние с CTA.
         scenarios = [];
         baseline = null;
-        moneyMode = false;
         return;
       }
 
-      moneyMode = Boolean(result.money_mode);
       const diag = get(modelData)?.diagnostics ?? null;
       const assembled = assembleScenarioTimeline(result, diag);
       scenarios = assembled.scenarios;
