@@ -6,35 +6,105 @@
    * Embeds MultiScenarioPage с overlay chart, comparison table,
    * diff narratives, export actions.
    *
+   * Phase E (2026-06-13): wired к реальным данным движка —
+   *  baseline-история = modelData.diagnostics.actual_vs_predicted (model fit),
+   *  прогнозные хвосты + per-period CI-веер = econ_compare().scenarios[].
+   *  Сборка таймлайна доказана probe `tools/probe_forecast_scenarios_kagocel.py`.
+   *
    * @route /pipeline/compare
    */
   import MultiScenarioPage from '$lib/components/pipeline/MultiScenarioPage.svelte';
   import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { get } from 'svelte/store';
+  import { activeProjectId, unitCosts, modelData } from '$lib/project-state.js';
+  import { assembleScenarioTimeline } from '$lib/forecast-timeline.js';
 
-  /**
-   * TODO Phase E: wire actual scenarios от project state.
-   * Currently empty array → empty state CTA «Добавьте сценарий чтобы сравнить».
-   * @type {any[]}
-   */
+  /** @type {any[]} */
   let scenarios = $state([]);
-
   /** @type {any} */
   let baseline = $state(null);
+  let loading = $state(true);
+  /** @type {string | null} */
+  let loadError = $state(null);
+  let moneyMode = $state(false);
 
-  function handleAccept(/** @type {any} */ scenario) {
-    // TODO Phase E: persist accepted scenario, navigate back к Optimize
+  const kpiLabel = $derived(moneyMode ? 'Прогноз продаж, ₽' : 'Прогноз продаж');
+
+  /**
+   * Загрузить сохранённые сценарии + baseline-историю и собрать единый таймлайн.
+   * Переиспользуется при mount и после удаления сценария.
+   */
+  async function loadScenarios() {
+    loading = true;
+    loadError = null;
+    try {
+      const projectId = get(activeProjectId);
+      if (!projectId) {
+        loadError = 'Проект не выбран — откройте проект на шаге «Данные».';
+        scenarios = [];
+        baseline = null;
+        return;
+      }
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const uc = get(unitCosts) ?? {};
+      const result = /** @type {any} */ (await invoke('econ_compare', {
+        projectDir,
+        unitCosts: Object.keys(uc).length > 0 ? uc : null,
+      }));
+
+      if (result?.status !== 'ok') {
+        // Нет сохранённых сценариев — это НЕ ошибка, а пустое состояние с CTA.
+        scenarios = [];
+        baseline = null;
+        moneyMode = false;
+        return;
+      }
+
+      moneyMode = Boolean(result.money_mode);
+      const diag = get(modelData)?.diagnostics ?? null;
+      const assembled = assembleScenarioTimeline(result, diag);
+      scenarios = assembled.scenarios;
+      baseline = assembled.baseline;
+    } catch (/** @type {any} */ e) {
+      loadError = String(e);
+      scenarios = [];
+      baseline = null;
+    } finally {
+      loading = false;
+    }
+  }
+
+  onMount(() => {
+    void loadScenarios();
+  });
+
+  /** @param {any} scenario */
+  function handleAccept(scenario) {
+    // Сценарий уже сохранён (артефакт шага Optimize) — «принять» = выбрать и вернуться.
     console.log('[Compare] Accept scenario:', scenario?.name);
     goto('/pipeline');
   }
 
-  function handleDuplicate(/** @type {any} */ scenario) {
-    // TODO Phase E: clone scenario, add к store
-    console.log('[Compare] Duplicate scenario:', scenario?.name);
-  }
-
-  function handleDelete(/** @type {any} */ scenario) {
-    // TODO Phase E: remove scenario from store
-    console.log('[Compare] Delete scenario:', scenario?.name);
+  /** @param {any} scenario */
+  async function handleDelete(scenario) {
+    const projectId = get(activeProjectId);
+    if (!projectId || !scenario?.name) return;
+    try {
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const r = /** @type {any} */ (await invoke('econ_scenario_delete', {
+        projectDir,
+        scenarioName: scenario.name,
+      }));
+      if (r?.status === 'ok') {
+        await loadScenarios();
+      } else {
+        loadError = r?.message || 'Не удалось удалить сценарий';
+      }
+    } catch (/** @type {any} */ e) {
+      loadError = String(e);
+    }
   }
 </script>
 
@@ -45,16 +115,28 @@
 <main class="compare-route">
   <header class="route-header">
     <button class="back-link" onclick={() => goto('/pipeline')}>← Назад к pipeline</button>
-    <h1>Сравнение сценариев</h1>
+    <h1>Прогноз продаж по сценариям</h1>
   </header>
 
-  <MultiScenarioPage
-    {scenarios}
-    {baseline}
-    onAccept={handleAccept}
-    onDuplicate={handleDuplicate}
-    onDelete={handleDelete}
-  />
+  {#if loading}
+    <div class="state-box">Загрузка сценариев…</div>
+  {:else if loadError}
+    <div class="state-box state-error" role="alert">{loadError}</div>
+  {:else}
+    {#if !baseline}
+      <div class="state-box state-hint">
+        История модели недоступна — постройте модель и декомпозицию, чтобы увидеть
+        факт+прогноз на одном таймлайне. Сценарии ниже показаны без исторической линии.
+      </div>
+    {/if}
+    <MultiScenarioPage
+      {scenarios}
+      {baseline}
+      {kpiLabel}
+      onAccept={handleAccept}
+      onDelete={handleDelete}
+    />
+  {/if}
 </main>
 
 <style>
@@ -86,5 +168,22 @@
   .back-link:hover {
     border-color: var(--gold, #c9a449);
     color: var(--gold, #c9a449);
+  }
+  .state-box {
+    padding: 16px 18px;
+    border-radius: 10px;
+    background: var(--bg-card, #181824);
+    border: 1px solid var(--border, rgba(255,255,255,0.08));
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+  .state-error {
+    border-color: color-mix(in srgb, #ef4444 40%, transparent);
+    color: #fca5a5;
+  }
+  .state-hint {
+    border-color: color-mix(in srgb, var(--warning, #F59E0B) 30%, transparent);
+    color: var(--warning, #F59E0B);
   }
 </style>
