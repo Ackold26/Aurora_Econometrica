@@ -1386,7 +1386,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # violation) → Rust serde_json не парсит → project_load_results молча отдаёт null
         # → Отчёт «модель не загружена», хотя обучение прошло. Санитайзим NaN→null.
         from utils.safe_io import sanitize_nonfinite
-        # Save params as JSON (for UI without loading pickle)
+        # latest-params.json: train-снимок (channel_params/config/mcmc + КОПИЯ
+        # diagnostics). SSOT диагностики для ЧТЕНИЯ = results/model-diagnostics.json
+        # (его читают server.py + optimizer_honesty/M2; recompute_mqs патчит ОБА —
+        # honesty-аудит 2026-06-13). Этот снимок UI напрямую не читает (архивируется
+        # в history/ при следующем ретрейне).
         params_path = models_dir / 'latest-params.json'
         with open(params_path, 'w', encoding='utf-8') as f:
             json.dump(sanitize_nonfinite({

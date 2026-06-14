@@ -49,6 +49,25 @@ def test_excellent_verdict_unchanged():
     assert 'только' not in summary['verdict']
 
 
+def test_good_tier_thin_data_no_reliability_claim():
+    """Sub-finding b (2026-06-13): tier good/excellent НО данных мало (ratio<4) → лид
+    НЕ должен заявлять «надёжно для бюджетных решений» (противоречило бы предупреждению
+    о переобучении). Согласовано с M2: тонкая «хорошая» модель = uncertain, не reliable.
+    Кагоцел-кейс: эффективный ratio 2.4 → tier good, но thin_note присутствует."""
+    summary = generate_diagnostics_summary(
+        r_squared=0.98, mape=6.0, rmse=100.0,
+        r_hat_max=1.0, divergences=0, n_obs=31, n_params=20,
+        effective_params=13.1,  # эфф. ratio 31/13.1 ≈ 2.4 → tier good + thin
+    )
+    assert summary['mqs']['tier'] in ('excellent', 'good'), summary['mqs']['tier']
+    assert summary['checks']['ratio'] is False  # тонко
+    verdict = summary['verdict']
+    assert 'Надёжный результат для принятия бюджетных решений' not in verdict, \
+        f"Тонкая «хорошая» модель не должна заявлять надёжность для бюджета: {verdict}"
+    assert 'ориентировочные' in verdict.lower() or 'переобуч' in verdict.lower()
+    assert 'Ratio' in verdict  # thin_note присутствует
+
+
 def test_thinness_cap_low_r2_still_honest():
     """Граничный: thin data НО реально низкий R² (<0.7) → остаётся «только»."""
     summary = generate_diagnostics_summary(

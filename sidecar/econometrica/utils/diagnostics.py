@@ -210,8 +210,14 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
     # INV-50 F-DELIVERABLE-1: единая формулировка (та же, что в отчётах).
     thin_note = format_thinness_caveat(ratio, mqs.get('thinness_cap'))
 
-    if mqs['tier'] in ('excellent', 'good'):
-        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Надёжный результат для принятия бюджетных решений.{thin_note}"
+    if mqs['tier'] in ('excellent', 'good') and not thin_note:
+        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Надёжный результат для принятия бюджетных решений."
+    elif mqs['tier'] in ('excellent', 'good'):
+        # honesty-аудит 2026-06-13 (sub-finding b): tier хороший, но данных мало
+        # (ratio<4 → thin_note непустой) → НЕ заявляем «надёжно для бюджетных решений»
+        # (противоречило бы предупреждению о переобучении). Лид смягчён, согласовано
+        # с M2 (optimizer_honesty): тонкая «хорошая» модель = uncertain, не reliable.
+        verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²) и формально качественна, но на ограниченных данных результаты ориентировочные.{thin_note}"
     elif mqs['tier'] == 'acceptable':
         verdict = f"Модель объясняет {r2_pct}% вариации продаж (R²). Приемлемо для ориентировочных решений, рекомендуем дополнительную валидацию.{thin_note}"
     elif mqs.get('thinness_cap') is not None and r_squared >= 0.7:

@@ -119,6 +119,23 @@ def recompute_project(proj_dir: str, dry_run: bool = False) -> dict:
         with open(diag_path, 'w', encoding='utf-8') as f:
             json.dump(sanitize_nonfinite(diag), f, ensure_ascii=False, indent=2)
         result['written'] = True
+
+        # Honesty-аудит 2026-06-13: latest-params.json несёт КОПИЮ diagnostics
+        # (train-снимок). Раньше миграция патчила только SSOT (model-diagnostics.json)
+        # → train-снимок оставался stale (Кагоцел: SSOT MQS 70, снимок MQS 50). Файл
+        # UI не читает (только архивация при ретрейне), но рассинхрон вводит в заблуждение
+        # при инспекции. Синхронизируем его diagnostics-блок с пересчитанным SSOT.
+        params_path = os.path.join(proj_dir, 'models', 'latest-params.json')
+        if os.path.exists(params_path):
+            try:
+                with open(params_path, 'r', encoding='utf-8') as f:
+                    lp = json.load(f)
+                lp['diagnostics'] = diag
+                with open(params_path, 'w', encoding='utf-8') as f:
+                    json.dump(sanitize_nonfinite(lp), f, ensure_ascii=False, indent=2)
+                result['params_synced'] = True
+            except (json.JSONDecodeError, OSError) as e:
+                result['params_sync_error'] = str(e)
     return result
 
 
