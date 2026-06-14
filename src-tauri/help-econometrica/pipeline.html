@@ -61,6 +61,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
   </div>
   <div class="ui-ref">UI: шаг «Валидация». Добавь стоимость юнита в ₽ если есть физические метрики (TRP/impressions) и нужен ROI.</div>
   <div class="ui-ref" style="margin-top: 8px;">Если у тебя 3+ слабых каналов — появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
+  <div class="ui-ref" style="margin-top: 8px;"><strong style="color: var(--text);">Панель «Авто-праздники РФ»</strong> — мастер-переключатель <em>«Учитывать праздники РФ как факторы»</em> (<strong>ВКЛ по умолчанию</strong>). При включении ~12 государственных праздников добавляются как контрольные переменные в модель (отображаются ниже Ratio). Это снижает риск OVB — если праздники реально влияют на продажи, их эффект не будет ошибочно приписан медиаканалам. При <strong>ВЫКЛ</strong>: меньше параметров → Ratio растёт → ниже риск переобучения. Отключай, если данных мало (Ratio &lt; 4) или категория не зависит от праздников. <span title="OVB (Omitted Variable Bias): если убрать значимый фактор, его реальный эффект ошибочно перейдёт на другие переменные и исказит их ROI" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;background:rgba(88,166,255,0.15);color:var(--accent);font-size:11px;font-weight:700;border-radius:50%;cursor:help;vertical-align:middle;margin-left:4px;">?</span></div>
 </div>
 
 <div class="step-card">
@@ -91,6 +92,8 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
     <div class="io-box"><div class="lbl">Output</div><div class="val">оптимальное распределение, lift%, miROAS per channel, saturation map</div></div>
   </div>
   <div class="ui-ref">UI: шаг «Оптимизация». При первом визите запустится короткий тур по блокам A→E.</div>
+  <div class="ui-ref" style="margin-top: 8px; background: rgba(210,153,34,0.08); border: 1px solid rgba(210,153,34,0.3); border-radius: 6px; padding: 8px 12px; color: var(--text2);">⚠ <strong style="color: var(--amber);">При тонких данных (Ratio &lt; 4):</strong> рекомендации ориентировочные — опирайтесь на доверительные интервалы, а не на точечные оценки lift%.</div>
+  <div class="ui-ref" style="margin-top: 6px; background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.3); border-radius: 6px; padding: 8px 12px; color: var(--text2);">✕ <strong style="color: var(--red);">При несошедшейся модели (плохая сходимость R-hat / дивергенции):</strong> переброска бюджета не применяется автоматически — модели нельзя доверять, результаты требуют проверки.</div>
 </div>
 
 <div class="step-card">
