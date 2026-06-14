@@ -87,6 +87,38 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     metrics = diagnostics.get('metrics') or {}
     checks = diagnostics.get('checks') or {}
     mqs = diagnostics.get('mqs') or {}
+    engine = (diagnostics.get('engine') or '').lower()
+
+    # OVB-маркер (аудит 2026-06-14): праздники РФ принудительно исключены
+    # (use_holidays=False). Если категория сезонна к праздникам — модель смещена
+    # (omitted-variable bias), и «надёжной» её называть нельзя (отсутствие эффекта мы
+    # подтвердить не можем). Маркер ставит modeler.py/ols_modeler.py при обучении.
+    holidays_excluded = bool(diagnostics.get('holidays_excluded'))
+    ovb_reason = ('Праздники РФ исключены из модели: если категория сезонна к праздникам, '
+                  'вклад медиаканалов может быть смещён (omitted-variable bias). Убедитесь, '
+                  'что спрос категории к праздникам нечувствителен.')
+    ovb_caveat = ' Праздники исключены — возможен OVB, если категория сезонна.'
+
+    # ── OLS small-data fallback → НИКОГДА не reliable (аудит 2026-06-14) ────
+    # OLS-диагностика (ols_modeler) НЕ содержит checks/mqs/ratio: ни одна ветка ниже
+    # не сработала бы → молча 'reliable'. Но OLS = режим МАЛЫХ данных (n<30): Hill-
+    # параметры ФИКСИРОВАНЫ (не обучаются), нет MCMC. Худший случай не должен получать
+    # самый уверенный вердикт → максимум 'uncertain'.
+    if engine == 'ols':
+        n_obs = diagnostics.get('n_obs') or metrics.get('n_observations')
+        n_params = diagnostics.get('n_params') or metrics.get('n_parameters')
+        ratio_ols = (n_obs / n_params) if (n_obs and n_params) else None
+        rtxt = f', Ratio {ratio_ols:.1f}:1' if ratio_ols else ''
+        reasons = [f'Режим малых данных OLS (n={n_obs}{rtxt}): Hill-параметры фиксированы '
+                   f'(не обучаются), доверительные интервалы частотные — рекомендации '
+                   f'ориентировочные.']
+        caveat = ('Режим малых данных (OLS): рекомендации ориентировочные, опирайтесь на '
+                  'доверительные интервалы и валидируйте крупные сдвиги лифт-тестом.')
+        if holidays_excluded:
+            reasons.append(ovb_reason)
+            caveat += ovb_caveat
+        return {'verdict': 'uncertain', 'refused': False,
+                'reasons': reasons, 'caveat_text': caveat}
 
     r_hat = float(metrics.get('r_hat_max') or 0.0)
     divergences = int(metrics.get('divergences') or 0)
@@ -138,17 +170,31 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         reasons.append(
             f'{divergences} дивергенц(ий) MCMC — лёгкая нестабильность сэмплера, '
             f'трактуйте рекомендации осторожно.')
-    if thin or weak_tier or mild_div:
+    if thin or weak_tier or mild_div or holidays_excluded:
+        if holidays_excluded:
+            reasons.append(ovb_reason)
         return {
             'verdict': 'uncertain',
             'refused': False,
             'reasons': reasons,
             'caveat_text': ('Рекомендации ориентировочные: модель на ограниченных данных. '
                             'Опирайтесь на доверительные интервалы, а не точечные цифры; '
-                            'крупные сдвиги бюджета валидируйте лифт-тестом.'),
+                            'крупные сдвиги бюджета валидируйте лифт-тестом.'
+                            + (ovb_caveat if holidays_excluded else '')),
         }
 
     # ── reliable ──────────────────────────────────────────────────────────
+    # Защита (аудит 2026-06-14): подтверждать надёжность можно только при наличии
+    # реальных checks. Пустые checks (нестандартная/битая диагностика) → 'unknown',
+    # не 'reliable' — иначе нечего подтверждать.
+    if not checks:
+        return {
+            'verdict': 'unknown',
+            'refused': False,
+            'reasons': ['Диагностика модели неполна — надёжность не подтверждена.'],
+            'caveat_text': ('Не удалось подтвердить надёжность модели (неполная '
+                            'диагностика). Трактуйте рекомендации осторожно.'),
+        }
     return {
         'verdict': 'reliable',
         'refused': False,

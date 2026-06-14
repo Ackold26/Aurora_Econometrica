@@ -1386,6 +1386,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # violation) → Rust serde_json не парсит → project_load_results молча отдаёт null
         # → Отчёт «модель не загружена», хотя обучение прошло. Санитайзим NaN→null.
         from utils.safe_io import sanitize_nonfinite
+        # OVB-маркер (аудит 2026-06-14): фиксируем, что праздники РФ были исключены
+        # (use_holidays=False). optimizer_honesty прочитает флаг → добавит OVB-
+        # предупреждение и не назовёт модель «надёжной» (подтвердить отсутствие
+        # праздничного эффекта мы не можем). Бэк-компат: для старых пиклов флага нет → False.
+        diagnostics['holidays_excluded'] = not use_holidays
+
         # latest-params.json: train-снимок (channel_params/config/mcmc + КОПИЯ
         # diagnostics). SSOT диагностики для ЧТЕНИЯ = results/model-diagnostics.json
         # (его читают server.py + optimizer_honesty/M2; recompute_mqs патчит ОБА —
