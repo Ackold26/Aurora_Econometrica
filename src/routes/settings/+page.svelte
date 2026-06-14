@@ -312,11 +312,12 @@
             </svg>
             <span>Светлая</span>
           {:else}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-width="2">
-              <path d="M2 19 A10 10 0 0 1 22 19" stroke="#e74c3c"/>
-              <path d="M4.5 19 A7.5 7.5 0 0 1 19.5 19" stroke="#f39c12"/>
-              <path d="M7 19 A5 5 0 0 1 17 19" stroke="#2ecc71"/>
-              <path d="M9.5 19 A2.5 2.5 0 0 1 14.5 19" stroke="#3498db"/>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
+              <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4z"/>
+              <line x1="6" y1="1" x2="6" y2="4"/>
+              <line x1="10" y1="1" x2="10" y2="4"/>
+              <line x1="14" y1="1" x2="14" y2="4"/>
             </svg>
             <span>Весёлая</span>
           {/if}
