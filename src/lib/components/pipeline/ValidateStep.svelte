@@ -588,7 +588,7 @@
   .excluded-badge {
     margin-top: 8px;
     font-size: 11px;
-    color: #4ade80;
+    color: var(--success);
     padding: 4px 10px;
     background: color-mix(in srgb, var(--success) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);

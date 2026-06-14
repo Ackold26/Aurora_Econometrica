@@ -987,7 +987,7 @@
   .engine-card-badge-active {
     background: color-mix(in srgb, var(--success, #22c55e) 18%, transparent);
     border: 1px solid color-mix(in srgb, var(--success, #22c55e) 35%, transparent);
-    color: #4ade80;
+    color: var(--success);
   }
   .engine-card-badge-muted {
     background: color-mix(in srgb, var(--text-secondary, #94a3b8) 12%, transparent);
@@ -1066,7 +1066,7 @@
     background: color-mix(in srgb, var(--success, #22c55e) 15%, transparent);
     border: 1px solid color-mix(in srgb, var(--success, #22c55e) 30%, transparent);
     border-radius: 12px;
-    color: #4ade80;
+    color: var(--success);
     font-size: 10.5px;
     font-weight: 500;
     letter-spacing: 0.02em;

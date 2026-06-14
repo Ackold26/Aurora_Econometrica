@@ -501,7 +501,7 @@
   .col-chip.selected {
     background: color-mix(in srgb, var(--success) 20%, transparent);
     border-color: color-mix(in srgb, var(--success) 60%, transparent);
-    color: #4ade80;
+    color: var(--success);
     box-shadow: 0 0 8px color-mix(in srgb, var(--success) 25%, transparent);
   }
 
