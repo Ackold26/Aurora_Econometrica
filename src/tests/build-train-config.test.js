@@ -62,6 +62,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       mode: 'bayesian',
       channel_categories: { tv: 'brand', digital: 'performance' },
       disabled_holidays: ['holiday_defender_day', 'holiday_russia_day'],
+      use_holidays: true, // useHolidays отсутствует → default true
     });
   });
 
@@ -83,6 +84,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       'mode',
       'channel_categories',
       'disabled_holidays',
+      'use_holidays',
     ]);
   });
 
@@ -124,7 +126,22 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       mode: 'bayesian',
       channel_categories: {}, // undefined → {}
       disabled_holidays: [], // undefined → []
+      use_holidays: true, // undefined → true (default ON)
     });
+  });
+});
+
+describe('buildTrainConfig — use_holidays (мастер-флаг праздников)', () => {
+  it('undefined → true (default ON)', () => {
+    expect(buildTrainConfig(baseState({ useHolidays: undefined })).use_holidays).toBe(true);
+  });
+
+  it('явный true → true', () => {
+    expect(buildTrainConfig(baseState({ useHolidays: true })).use_holidays).toBe(true);
+  });
+
+  it('явный false → false (отключение праздников)', () => {
+    expect(buildTrainConfig(baseState({ useHolidays: false })).use_holidays).toBe(false);
   });
 });
 

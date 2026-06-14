@@ -621,6 +621,25 @@ activeProject.subscribe((p) => {
 });
 
 /**
+ * Мастер-флаг «учитывать праздники РФ как факторы» (2026-06-13). ON по умолчанию.
+ * Когда False — modeler.py НЕ инжектит ~12 holiday-контролей → n_params падает →
+ * Ratio (степени свободы) растёт. Полезно при тонких данных или категории,
+ * независимой от праздников (с риском OVB, если праздники реально влияют). Персистится
+ * в project.json через project_update; buildTrainConfig шлёт как `use_holidays`.
+ * Гидрируется из activeProject; legacy-проекты без флага → true (всегда учитывали).
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const useHolidays = writable(true);
+
+activeProject.subscribe((p) => {
+  if (p && typeof p.use_holidays === 'boolean') {
+    useHolidays.set(p.use_holidays);
+  } else {
+    useHolidays.set(true);  // default ON (нет проекта / legacy без флага)
+  }
+});
+
+/**
  * Reactive cleanup orphaned channel_categories entries при изменении media_columns
  * на frontend (post-audit fix 2026-04-27): backend project.rs уже cleanup'ит при
  * project_update, но UI store должен sync immediately для consistent badge display.
@@ -927,7 +946,7 @@ export const modelData = writable({ diagnostics: null, channelParams: null, pick
  * был null после reload → modelStaleStatus всегда stale=false → банера нет).
  */
 const LAST_TRAINED_KEY = 'aurora-last-trained-config';
-const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[]} | null} */ ((() => {
+const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean} | null} */ ((() => {
   if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(LAST_TRAINED_KEY);
@@ -956,8 +975,8 @@ if (typeof localStorage !== 'undefined') {
  * }>}
  */
 export const modelStaleStatus = derived(
-  [modelData, validateData, lastTrainedConfig, modelChannelEnabled, disabledHolidays],
-  ([$m, $v, $tc, $en, $dh]) => {
+  [modelData, validateData, lastTrainedConfig, modelChannelEnabled, disabledHolidays, useHolidays],
+  ([$m, $v, $tc, $en, $dh, $uh]) => {
     if (!$m?.diagnostics || !$tc) return { stale: false, reason: '', diff: [] };
     const cur = /** @type {any[]} */ ($v?.result?.columns || []);
     // LOAD-1 (C): defensive-net для краёв (нет ролей в project.json / окно до
@@ -1002,6 +1021,13 @@ export const modelStaleStatus = derived(
     const tdis = [...($tc.disabled || [])].sort();
     if (curDisabled.length !== tdis.length || curDisabled.some((x, i) => x !== tdis[i])) {
       diff.push(`Отключённые праздники: было ${tdis.length}, стало ${curDisabled.length}`);
+    }
+    // Мастер-флаг use_holidays — часть train-config (влияет на состав модели: ~12
+    // праздничных контролей). Изменение после обучения = модель устарела. Legacy
+    // snapshot без use_holidays → true (модели до фичи всегда учитывали праздники).
+    const tUseHolidays = $tc.use_holidays !== false;
+    if (($uh !== false) !== tUseHolidays) {
+      diff.push(`Праздники как фактор: ${tUseHolidays ? 'учитывались' : 'нет'} → ${$uh !== false ? 'учитывать' : 'нет'}`);
     }
     if (diff.length === 0) return { stale: false, reason: '', diff: [] };
     return {

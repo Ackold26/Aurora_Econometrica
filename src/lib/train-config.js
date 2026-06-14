@@ -34,6 +34,7 @@
  *   mergeRules: Record<string, string[]>,
  *   channelCategories: Record<string, string>|null|undefined,
  *   disabledHolidays: string[]|null|undefined,
+ *   useHolidays: boolean|null|undefined,
  * }} state
  * @returns {Record<string, any>} TrainStartRequest-shaped config
  */
@@ -58,6 +59,7 @@ export function buildTrainConfig(state) {
     mergeRules,
     channelCategories,
     disabledHolidays,
+    useHolidays,
   } = state;
 
   return {
@@ -92,5 +94,8 @@ export function buildTrainConfig(state) {
     // modeler.py пропускает их при holiday-инъекции (modeler.py:279). НЕ путать
     // с control_columns: holiday_* генерятся из даты, этот список их подмножество.
     disabled_holidays: disabledHolidays || [],
+    // Мастер-флаг (2026-06-13): use_holidays=False полностью отключает инъекцию
+    // праздников в modeler.py → выше Ratio (степени свободы). Default true.
+    use_holidays: useHolidays !== false,
   };
 }

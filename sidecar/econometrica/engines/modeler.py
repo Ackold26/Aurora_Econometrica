@@ -276,9 +276,15 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # (список имён авто-праздников) пропускается при инъекции. Позволяет убрать
     # неинформативные праздники (contraction<0.1) без OVB и переобучить чище.
     # Existing user-supplied holidays preserved (no overwrite).
+    # Мастер-флаг (2026-06-13): use_holidays=False полностью отключает инъекцию
+    # праздников. Мотивация: ~12 holiday-контролей раздувают n_params → роняют Ratio
+    # (степени свободы). При тонких данных / категории, независимой от праздников,
+    # отключение поднимает Ratio (с риском OVB, если праздники реально значимы).
+    # Default True (legacy + большинство кейсов). Отдельные праздники → disabled_holidays.
+    use_holidays = config.get('use_holidays', True)
     disabled_holidays = set(config.get('disabled_holidays', []) or [])
     holiday_cols_injected = []
-    if date_col in df.columns:
+    if use_holidays and date_col in df.columns:
         try:
             from utils.holiday_calendar_ru import generate_holiday_dummies, list_holiday_names
             holiday_df = generate_holiday_dummies(df[date_col])
@@ -296,6 +302,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                             f'{", ".join(holiday_cols_injected[:5])}{"..." if len(holiday_cols_injected) > 5 else ""}')
         except Exception as e:
             logger.warning('Holiday auto-injection skipped: %s', e)
+    elif not use_holidays:
+        logger.info('РФ holiday auto-injection ОТКЛЮЧЕНА (use_holidays=False): модель '
+                    'без ~12 праздничных контролей → выше Ratio (степени свободы), '
+                    'но OVB-риск если категория сезонна к праздникам.')
 
     # ── Материализация виртуальных каналов (merged recommendations) ──
     # См. utils/merge_rules.py. idempotent. Config + merge_rules сохранятся

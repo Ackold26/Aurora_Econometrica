@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
+  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { buildTrainConfig } from '$lib/train-config.js';
   import HolidayControlsPanel from '$lib/components/pipeline/HolidayControlsPanel.svelte';
@@ -400,6 +400,7 @@
         mergeRules,
         channelCategories: get(channelCategories),
         disabledHolidays: get(disabledHolidays),
+        useHolidays: get(useHolidays),
       });
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)
@@ -411,6 +412,7 @@
         media: [...enabledChannels],
         control: [...controlColumns],
         disabled: [...get(disabledHolidays)],  // #6: stale-детект при смене праздников
+        use_holidays: get(useHolidays),  // мастер-флаг: stale-детект при вкл/выкл праздников
       });
 
       if (useAsyncTraining) {

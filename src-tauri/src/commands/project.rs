@@ -101,10 +101,21 @@ pub struct ProjectInfo {
     /// Backward compat: пустой для legacy проектов (до этого фикса).
     #[serde(default)]
     pub disabled_holidays: Vec<String>,
+    /// Мастер-флаг (2026-06-13): учитывать ли праздники РФ как факторы при обучении.
+    /// True по умолчанию. False → modeler.py НЕ инжектит ~12 holiday-контролей →
+    /// n_params падает → выше Ratio (степени свободы). Полезно при тонких данных /
+    /// категории, независимой от праздников (с риском OVB). Backward compat: legacy
+    /// проекты без поля → true (всегда учитывали праздники).
+    #[serde(default = "default_true")]
+    pub use_holidays: bool,
 }
 
 fn default_industry() -> String {
     "unknown".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Get the projects root directory.
@@ -291,6 +302,7 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         model_channel_enabled: HashMap::new(),
         per_channel_input: HashMap::new(),
         disabled_holidays: Vec::new(),
+        use_holidays: true,
     };
     write_project(&dir, &info)?;
 
@@ -345,6 +357,11 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
         } else if let Some(arr) = dh_v.as_array() {
             info.disabled_holidays = arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
         }
+    }
+    // Мастер-флаг (2026-06-13): учитывать ли праздники РФ как факторы. modeler.py
+    // читает config.use_holidays и пропускает всю инъекцию при false.
+    if let Some(uh) = updates.get("use_holidays").and_then(|v| v.as_bool()) {
+        info.use_holidays = uh;
     }
     if let Some(file) = updates.get("data_file").and_then(|v| v.as_str()) {
         info.data_file = Some(file.to_string());
@@ -1094,6 +1111,7 @@ mod atomic_write_tests {
             model_channel_enabled: HashMap::new(),
             per_channel_input: HashMap::new(),
             disabled_holidays: Vec::new(),
+            use_holidays: true,
         }
     }
 

@@ -18,12 +18,49 @@
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
   import {
-    activeProjectId, activeProject, disabledHolidays, modelData,
+    activeProjectId, activeProject, disabledHolidays, useHolidays, modelData,
     decomposeData, optimizeData,
   } from '$lib/project-state.js';
   import { HOLIDAY_CALENDAR_RU } from '$lib/holiday-calendar.js';
+  import Tooltip from '$lib/components/Tooltip.svelte';
 
   let expanded = $state(false);
+
+  // Мастер-флаг «учитывать праздники РФ как факторы» (ON по умолчанию). Когда OFF —
+  // modeler.py не инжектит праздники → выше Ratio, но риск OVB. Per-holiday тоглы
+  // ниже становятся неактивны (праздников в модели нет).
+  const masterOn = $derived($useHolidays !== false);
+
+  // Тултип ? на выключателе — описание + мотивация шага (требование 2026-06-13).
+  const MASTER_TIP =
+    'Праздники РФ (Новый год, 8 марта, чёрная пятница и др.) автоматически учитываются ' +
+    'как факторы при обучении — это ~12 дополнительных контролей. Отключите, если ' +
+    'данных мало или категория не зависит от праздников: модель станет проще, число ' +
+    'параметров упадёт, а Ratio (наблюдения ÷ параметры — мера надёжности) вырастет. ' +
+    'Риск: если праздники реально влияют на продажи, их отключение исказит вклад ' +
+    'медиаканалов (omitted-variable bias).';
+
+  /** Переключить мастер-флаг + persist (паттерн toggle ниже: оптимистично + rollback). */
+  async function toggleMaster() {
+    const prev = get(useHolidays);
+    const next = prev === false;  // OFF→ON, иначе ON→OFF
+    useHolidays.set(next);  // оптимистично
+    const projectId = get(activeProjectId);
+    if (!projectId) { useHolidays.set(prev); return; }
+    try {
+      const info = /** @type {any} */ (await invoke('project_update', {
+        projectId,
+        updates: { use_holidays: next },
+      }));
+      if (info) activeProject.set(info);
+      // Состав контролей изменился → старая декомпозиция/оптимизация не consistent.
+      decomposeData.set(null);
+      optimizeData.set(null);
+    } catch (e) {
+      console.warn('Failed to persist use_holidays:', e);
+      useHolidays.set(prev);  // rollback — иначе store ≠ диск
+    }
+  }
 
   // per_control_contraction появляется в diagnostics ПОСЛЕ обучения. До обучения null
   // → бейджи не показываем (нет данных «информативен ли праздник»).
@@ -122,6 +159,27 @@
   </button>
 
   {#if expanded}
+    <!-- Мастер-выключатель «учитывать праздники как факторы» + ? тултип. -->
+    <div class="master-row">
+      <label class="master-toggle">
+        <input type="checkbox" checked={masterOn} onchange={toggleMaster} />
+        <span class="master-label">Учитывать праздники РФ как факторы</span>
+      </label>
+      <Tooltip text={MASTER_TIP} position="auto">
+        <span class="help-badge" tabindex="0" role="button"
+              aria-label="Зачем нужен учёт праздников и когда его отключать">?</span>
+      </Tooltip>
+    </div>
+
+    {#if !masterOn}
+      <p class="master-off-note">
+        Праздники отключены — модель проще и Ratio (надёжность) выше. Но если категория
+        сезонна к праздникам, вклад медиаканалов может исказиться (omitted-variable bias).
+        Список ниже не применяется, пока учёт выключен.
+      </p>
+    {/if}
+
+    {#if masterOn}
     <p class="panel-hint">
       Модель автоматически учитывает 12 праздников РФ как контрольные факторы.
       {#if contraction}
@@ -132,16 +190,18 @@
         Обучите модель, чтобы увидеть, какие из них реально повлияли на продажи.
       {/if}
     </p>
+    {/if}
 
-    <div class="holiday-list">
+    <div class="holiday-list" class:dimmed={!masterOn}>
       {#each HOLIDAY_CALENDAR_RU as h (h.name)}
         {@const t = tierOf(h.name)}
         {@const off = disabledSet.has(h.name)}
-        <div class="holiday-row" class:disabled={off}>
+        <div class="holiday-row" class:disabled={off || !masterOn}>
           <label class="holiday-toggle" title={h.hint}>
             <input
               type="checkbox"
               checked={!off}
+              disabled={!masterOn}
               onchange={() => toggle(h.name)}
               aria-label="{h.label} — {off ? 'выключен' : 'включён'} ({h.hint})"
             />
@@ -198,6 +258,39 @@
     margin: 0; font-size: 12px; line-height: 1.5;
     color: var(--text-secondary, rgba(255, 255, 255, 0.65));
   }
+
+  /* Мастер-выключатель + ? тултип + off-note. Тема-токены, не хардкод светлого. */
+  .master-row { display: flex; align-items: center; gap: 8px; }
+  .master-toggle {
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+  .master-toggle input {
+    cursor: pointer; flex-shrink: 0;
+    accent-color: var(--accent-primary, #84cc16);
+  }
+  .master-label { color: var(--text-primary, rgba(255, 255, 255, 0.92)); }
+  .help-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    font-size: 11px; font-weight: 700; cursor: help;
+    background: color-mix(in srgb, var(--text-primary, #fff) 12%, transparent);
+    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+    border: 1px solid color-mix(in srgb, var(--text-primary, #fff) 18%, transparent);
+  }
+  .help-badge:hover, .help-badge:focus-visible {
+    background: color-mix(in srgb, var(--accent-primary, #84cc16) 22%, transparent);
+    color: var(--text-primary);
+    outline: none;
+  }
+  .master-off-note {
+    margin: 0; font-size: 12px; line-height: 1.5;
+    color: var(--warn-text, #b07a00);
+    padding: 8px 10px; border-radius: 8px;
+    background: var(--warn-bg, rgba(255, 176, 32, 0.1));
+    border: 1px solid var(--warn-border, rgba(255, 176, 32, 0.4));
+  }
+  .holiday-list.dimmed { opacity: 0.45; pointer-events: none; }
 
   .holiday-list {
     display: grid;
