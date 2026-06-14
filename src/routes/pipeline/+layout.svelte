@@ -631,7 +631,7 @@
     border-radius: 14px;
     border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
     background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
-    color: #93c5fd;
+    color: var(--accent);
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.03em;

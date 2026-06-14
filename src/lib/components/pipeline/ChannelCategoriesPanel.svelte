@@ -325,8 +325,8 @@
     font-size: 13px;
   }
   .summary-row.hierarchical-active { border-left: 3px solid rgba(127, 90, 240, 0.7); }
-  .count.brand { color: rgba(110, 168, 254, 0.95); }
-  .count.performance { color: rgba(110, 220, 158, 0.95); }
+  .count.brand { color: var(--color-info); }
+  .count.performance { color: var(--success); }
   .count.mixed { color: rgba(200, 200, 200, 0.7); }
   .status { margin-left: auto; font-size: 11px; color: var(--text-muted, rgba(255, 255, 255, 0.5)); }
 
@@ -386,7 +386,7 @@
     display: flex; align-items: center; justify-content: space-between;
   }
   .popup-head h5 { margin: 0; font-size: 14px; font-weight: 600; }
-  .popup-head code { font-family: monospace; font-size: 13px; color: rgba(110, 168, 254, 0.95); }
+  .popup-head code { font-family: monospace; font-size: 13px; color: var(--color-info); }
   .close {
     background: none; border: none; cursor: pointer;
     color: rgba(255, 255, 255, 0.6); font-size: 22px; line-height: 1;

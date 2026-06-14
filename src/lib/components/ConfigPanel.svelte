@@ -826,7 +826,7 @@ Weibull (плавная build-up):
     transition: background 0.1s;
   }
   .dropdown-item:hover { background: rgba(255,255,255,0.07); }
-  .dropdown-item.selected { background: color-mix(in srgb, var(--accent-primary) 15%, transparent); color: #93c5fd; }
+  .dropdown-item.selected { background: color-mix(in srgb, var(--accent-primary) 15%, transparent); color: var(--accent); }
 
   .dropdown-empty {
     display: block;
