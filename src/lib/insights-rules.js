@@ -1203,6 +1203,20 @@ export function modelInsights(data, ratioOverride = undefined) {
     }
   }
 
+  // M6 (2026-06-13, п7): на иерархическом пути per_control_contraction пуст
+  // (modeler.py:961 `if not use_hierarchical`) → подсказка по очистке контролей молча
+  // отсутствовала. Явная плашка вместо тихого пробела (honesty, variant b PRD).
+  if (d.hierarchical?.enabled
+      && (!d.per_control_contraction || Object.keys(d.per_control_contraction).length === 0)) {
+    out.push({
+      severity: 'info',
+      text: '🧹 Подсказки по очистке контролей недоступны для иерархической модели.',
+      tip: 'В иерархической модели контроли оцениваются на уровне групп (brand/performance), '
+        + 'и per-control вклад (contraction) на этом пути не вычисляется. Поэтому авто-подсказка '
+        + '«какие контроли можно убрать» здесь не показывается — это ожидаемо, не ошибка.',
+    });
+  }
+
   // ── 1. Headline verdict (MQS-based) ──
   const thinSuffix = isThin ? ' Учитывайте, что данных мало - CI широкие.' : '';
   if (mqs >= 80) {
@@ -1254,10 +1268,24 @@ export function modelInsights(data, ratioOverride = undefined) {
   }
 
   if (divergences > 0 && rHat <= 1.05) {
+    // M8 (2026-06-13): связать дивергенции с actionable Tier-3-рычагом. Неинформативные
+    // контроли (contraction<0.1) часто и есть источник funnel-геометрии → их удаление
+    // (или отключение учёта праздников РФ при тонких данных) убирает дивергенции БЕЗ
+    // смещения ROI. Информативные (Tier-1) убирать нельзя. Подтверждено на Кагоцеле:
+    // holiday-off → дивергенции 1→0 (probe_holiday_off_ratio_kagocel).
+    const pccDiv = d.per_control_contraction;
+    let tier3Hint = '';
+    if (pccDiv && typeof pccDiv === 'object') {
+      const uninfDiv = Object.values(pccDiv).filter(
+        /** @param {any} v */ (v) => typeof v === 'number' && v < 0.1).length;
+      if (uninfDiv > 0) {
+        tier3Hint = ` Часто помогает убрать неинформативные контроли (${uninfDiv} помечены «не повлиял» в панели «Авто-праздники РФ») или, при тонких данных, отключить учёт праздников РФ целиком (мастер-выключатель на шаге «Валидация») — это упрощает геометрию и обычно убирает дивергенции, не смещая ROI каналов. Информативные контроли убирать нельзя.`;
+      }
+    }
     out.push({
       severity: 'warning',
       text: `${divergences} дивергенций в Markov Chain Monte Carlo. Модель может быть нестабильна.`,
-      tip: 'Дивергенции = сэмплер не смог исследовать часть пространства параметров. Увеличьте target_accept (0.9 → 0.95) или tune.',
+      tip: `Дивергенции = сэмплер не смог исследовать часть пространства параметров. Увеличьте target_accept (0.9 → 0.95) или tune.${tier3Hint}`,
     });
   }
 

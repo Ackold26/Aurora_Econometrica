@@ -127,7 +127,7 @@
   }
 
   .nav-rail[data-mode="tabs"] .nav-item.active {
-    border-bottom-color: var(--cab-color);
+    border-bottom-color: var(--cab-accent, var(--cab-color));
     background: var(--hover-bg);
   }
 
@@ -205,7 +205,7 @@
   }
 
   .nav-rail[data-mode="sidebar"] .nav-item.active {
-    border-left: 3px solid var(--cab-color);
+    border-left: 3px solid var(--cab-accent, var(--cab-color));
     padding-left: 7px;
   }
 
@@ -245,7 +245,7 @@
     width: 14px;
     height: 14px;
     border: 2px solid var(--border);
-    border-top-color: var(--cab-color);
+    border-top-color: var(--cab-accent, var(--cab-color));
     border-radius: 50%;
     animation: nav-spin 600ms linear infinite;
     flex-shrink: 0;
@@ -291,7 +291,7 @@
   @media (prefers-reduced-motion: reduce) {
     .nav-spinner {
       border-top-color: var(--border);
-      border-color: var(--cab-color);
+      border-color: var(--cab-accent, var(--cab-color));
     }
   }
 </style>

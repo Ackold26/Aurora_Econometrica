@@ -112,7 +112,7 @@
 
   .cmd-card:hover {
     background: var(--bg-glass-hover, rgba(28,28,40,0.96));
-    border-color: var(--cab-color);
+    border-color: var(--cab-accent, var(--cab-color));
     transform: var(--hover-transform);
     box-shadow: var(--shadow-glow);
   }
@@ -129,8 +129,8 @@
 
   /* Smart highlighting when inbox has files */
   .cmd-card.highlighted {
-    border-color: var(--cab-color);
-    box-shadow: 0 0 0 1px var(--cab-color), var(--shadow-glow);
+    border-color: var(--cab-accent, var(--cab-color));
+    box-shadow: 0 0 0 1px var(--cab-accent, var(--cab-color)), var(--shadow-glow);
   }
 
   /* ─── Content ─── */
