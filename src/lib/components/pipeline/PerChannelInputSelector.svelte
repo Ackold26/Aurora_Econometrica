@@ -14,6 +14,7 @@
    * @component PerChannelInputSelector
    */
 
+  import { ChartColumn } from 'lucide-svelte';
   import { expertMode, analysisMode } from '$lib/project-state.js';
 
   // Mode-aware заголовки и тексты (U-02/4e).
@@ -232,7 +233,7 @@
             {/if}
             {#if av.physical.length > 0}
               <span class="metric-badge physical" title={av.physical.join(', ')}>
-                📊 {av.physical.length === 1 ? av.physical[0] : `${av.physical.length} колонок`}
+                <ChartColumn size={12} strokeWidth={1.5} style="vertical-align: -0.15em" /> {av.physical.length === 1 ? av.physical[0] : `${av.physical.length} колонок`}
               </span>
             {/if}
             {#if av.monetary.length === 0 && av.physical.length === 0}

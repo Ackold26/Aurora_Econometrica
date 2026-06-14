@@ -895,7 +895,7 @@
         {#if searchQuery}
           <span class="search-count">{filteredMessages.length}</span>
         {/if}
-        <button class="search-close" onclick={toggleSearch}><X size={16} strokeWidth={1.5} /></button>
+        <button class="search-close" onclick={toggleSearch} aria-label="Закрыть поиск"><X size={16} strokeWidth={1.5} /></button>
       </div>
     {/if}
   </div>

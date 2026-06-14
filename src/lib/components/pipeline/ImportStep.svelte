@@ -18,7 +18,7 @@
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject, resetPipeline, modelEngine } from '$lib/project-state.js';
-  import { TriangleAlert, ChartColumn, Target, Check } from 'lucide-svelte';
+  import { TriangleAlert, ChartColumn, Target, Check, Package } from 'lucide-svelte';
   import { get } from 'svelte/store';
 
   // Обучающий тур - запускается на mount, независимо от состояния импорта.
@@ -464,7 +464,7 @@
       <!-- 4. Карточка «Загрузить сохранённый проект» -->
       <div class="intro-card">
         <div class="intro-card-header">
-          <div class="intro-card-icon">📦</div>
+          <div class="intro-card-icon"><Package size={24} strokeWidth={1.5} style="vertical-align: -0.15em" /></div>
           <div class="intro-card-title">Загрузить сохранённый проект</div>
         </div>
         <div class="intro-card-body">
@@ -473,7 +473,7 @@
           на тот же шаг, где вы закончили.
         </div>
         <button class="intro-btn secondary" onclick={loadSavedProject} disabled={importingArchive}>
-          {importingArchive ? 'Загрузка…' : '📦 Выбрать .aurora архив'}
+          {#if importingArchive}Загрузка…{:else}<Package size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Выбрать .aurora архив{/if}
         </button>
         <p class="intro-btn-hint">принимаются .aurora и .zip</p>
       </div>
@@ -600,7 +600,7 @@
             </p>
             {#if allowOverride && $modelEngine !== 'bayesian'}
               <p class="engine-card-warn">
-                ⚠ При n &lt; 30 Bayesian-сэмплер может расходиться (divergences &gt; 0) и давать ненадёжные posterior'ы. Рекомендуем OLS.
+                <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> При n &lt; 30 Bayesian-сэмплер может расходиться (divergences &gt; 0) и давать ненадёжные posterior'ы. Рекомендуем OLS.
               </p>
             {/if}
           </button>

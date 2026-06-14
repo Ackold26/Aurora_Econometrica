@@ -13,6 +13,8 @@
    * @typedef {'roi' | 'effectiveness' | 'manual'} Objective
    */
 
+  import { CircleDollarSign, ChartColumn, Wrench } from 'lucide-svelte';
+
   const { onSelect } = $props();
 
   /** @type {Objective | null} */
@@ -41,7 +43,7 @@
       onclick={() => onSelect?.('roi')}
     >
       <div class="card-head">
-        <span class="icon">💰</span>
+        <span class="icon"><CircleDollarSign size={24} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
         <div>
           <h3>ROI</h3>
           <span class="tagline">финансовая отдача</span>
@@ -82,7 +84,7 @@
       onclick={() => onSelect?.('effectiveness')}
     >
       <div class="card-head">
-        <span class="icon">📊</span>
+        <span class="icon"><ChartColumn size={24} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
         <div>
           <h3>Эффективность</h3>
           <span class="tagline">физические контакты</span>
@@ -122,7 +124,7 @@
       onclick={() => onSelect?.('manual')}
     >
       <div class="card-head">
-        <span class="icon">🔧</span>
+        <span class="icon"><Wrench size={24} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
         <div>
           <h3>Вручную</h3>
           <span class="tagline">гибридный микс</span>

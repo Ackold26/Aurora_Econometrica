@@ -44,7 +44,7 @@
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   // v1.3.2: primary actionable recommendation card (mirror of DecomposeStep pattern).
   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
-  import { BarChart2, Target, TrendingUp, Scissors, AlertTriangle } from 'lucide-svelte';
+  import { BarChart2, Target, TrendingUp, Scissors, AlertTriangle, TriangleAlert, Palette } from 'lucide-svelte';
   import { formatMoney } from '$lib/format-numbers.js';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding, markOnboardingDone } from '$lib/onboarding-state.js';
@@ -1744,7 +1744,7 @@
          связь между ForecastHorizonPicker и текущей оптимизацией. -->
     {#if $planningMode === 'planner' && $forecastConfig.periods != null && $forecastConfig.budgetMoney != null}
       <div class="planning-active-banner">
-        <span class="banner-icon">🎯</span>
+        <span class="banner-icon"><Target size={16} strokeWidth={1.5} /></span>
         <div class="banner-body">
           <div class="banner-title">Режим планирования активен</div>
           <div class="banner-text">
@@ -1766,7 +1766,7 @@
          Helper: utils/forecast_validation.hierarchical_extrapolation_warning. -->
     {#if hierarchicalWarning}
       <div class="hierarchical-warning-banner" role="alert">
-        <span class="banner-icon">⚠️</span>
+        <span class="banner-icon"><TriangleAlert size={16} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
         <div class="banner-body">
           <div class="banner-title">
             Прогноз за калибровочной зоной brand-каналов
@@ -1844,7 +1844,7 @@
           disabled={stepState === 'optimizing'}
           title={HELP.runOptimize}
         >
-          {stepState === 'optimizing' ? 'Оптимизирую...' : '🎯 Оптимизировать бюджет'}
+          <Target size={15} strokeWidth={1.5} style="vertical-align: -0.12em" /> {stepState === 'optimizing' ? 'Оптимизирую...' : 'Оптимизировать бюджет'}
         </button>
         {#if optimizeSettingsDirty}
           <span class="dirty-hint" title="Настройки изменились - перезапустите оптимизацию для актуального результата">
@@ -1904,7 +1904,7 @@
                 <strong>«Точно знаю что хочу +30% в performance»</strong> - <code>Perf Мин. = 130%</code>, остальное free. Optimizer найдёт оптимум при условии что суммарный performance ≥ 130% от текущего.
               </li>
               <li>
-                <strong>⚠️ Lock+Lock = 0% lift.</strong> Если оба <code>🔒 Lock 100%</code> заданы и есть только 1 mixed канал - optimizer заморожен (нет степеней свободы). Сначала очисти один из Lock'ов или дай группе свободу (например, Brand 95-105%).
+                <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Lock+Lock = 0% lift.</strong> Если оба <code>🔒 Lock 100%</code> заданы и есть только 1 mixed канал - optimizer заморожен (нет степеней свободы). Сначала очисти один из Lock'ов или дай группе свободу (например, Brand 95-105%).
               </li>
             </ul>
             <div class="group-instr-defaults">
@@ -1914,7 +1914,7 @@
 
           <div class="group-grid">
             <div class="group-col">
-              <div class="group-col-title">🎨 Brand-каналы (TV, OOH, Brand-PR)</div>
+              <div class="group-col-title"><Palette size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Brand-каналы (TV, OOH, Brand-PR)</div>
               <label class="ctrl-label">
                 <span class="ctrl-name">Brand Мин. %<span class="help-icon" title={HELP.brandMin}>?</span></span>
                 <input
@@ -2001,7 +2001,7 @@
           {#if groupConstraintWarnings.length > 0}
             <div class="group-warnings" role="alert">
               {#each groupConstraintWarnings as warn}
-                <div class="group-warn-line">⚠ {warn}</div>
+                <div class="group-warn-line"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {warn}</div>
               {/each}
             </div>
           {/if}
@@ -2121,7 +2121,7 @@
       </div>
     {:else if optData?.binding_constraints}
       <div class="edge-banner banner-warn">
-        <span class="banner-icon">⚠️</span>
+        <span class="banner-icon"><TriangleAlert size={16} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
         <p class="banner-text">
           <strong>Все каналы упёрлись в границы.</strong>
           Optimizer не может найти улучшение при текущих ограничениях. Расширьте
@@ -2142,7 +2142,7 @@
     <!-- Insight banner (после optimize) -->
     {#if optData?.insight}
       <div class="insight-banner">
-        <span class="insight-icon">🎯</span>
+        <span class="insight-icon"><Target size={16} strokeWidth={1.5} /></span>
         <p class="insight-text">{optData.insight}</p>
       </div>
       <!-- 2026-05-04 (audit fix UX): два отдельных pillars - media efficiency lift
@@ -2292,7 +2292,7 @@
       </div>
     {:else if stepState === 'idle'}
       <div class="empty-state">
-        <p>Нажмите <b>«🎯 Оптимизировать бюджет»</b> выше - модель найдёт оптимальное распределение.</p>
+        <p>Нажмите <b>«Оптимизировать бюджет»</b> выше - модель найдёт оптимальное распределение.</p>
         <p class="hint">Дефолты: бюджет = текущий, диапазон 50-150% per-channel. Для радикальной оптимизации снижайте Мин. % и повышайте Макс. %.</p>
       </div>
     {:else if stepState === 'optimizing'}
@@ -2369,7 +2369,7 @@
       </div>
 
       {#if whatIfError}
-        <div class="inline-error">⚠ {whatIfError}</div>
+        <div class="inline-error"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {whatIfError}</div>
       {/if}
       {#if whatIfSuccess}
         <div class="inline-success">{whatIfSuccess}</div>

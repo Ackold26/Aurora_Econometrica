@@ -422,7 +422,7 @@
         <div class="preview-header">
           <span class="preview-filename" title={previewData.filename}>{previewData.filename}</span>
           <span class="preview-size">{formatFileSize(previewData.size)}</span>
-          <button class="preview-close" onclick={() => previewData = null}><X size={16} strokeWidth={1.5} /></button>
+          <button class="preview-close" onclick={() => previewData = null} aria-label="Закрыть просмотр"><X size={16} strokeWidth={1.5} /></button>
         </div>
         {#if previewData.content}
           <pre class="preview-content">{previewData.content}</pre>

@@ -17,7 +17,7 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
-  import { Check } from 'lucide-svelte';
+  import { Check, Target, ChartColumn } from 'lucide-svelte';
   import {
     activeProjectId, activeProject, channelCategories,
     decomposeData, optimizeData,
@@ -223,8 +223,8 @@
   </header>
 
   <div class="summary-row" class:hierarchical-active={willUseHierarchical}>
-    <span class="count brand">🎯 {groupCounts.brand} brand</span>
-    <span class="count performance">📊 {groupCounts.perf} performance</span>
+    <span class="count brand"><Target size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {groupCounts.brand} brand</span>
+    <span class="count performance"><ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {groupCounts.perf} performance</span>
     {#if groupCounts.mixed > 0}
       <span class="count mixed">⚪ {groupCounts.mixed} смешанных</span>
     {/if}

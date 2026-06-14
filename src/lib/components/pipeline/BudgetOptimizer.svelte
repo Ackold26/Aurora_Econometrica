@@ -6,6 +6,7 @@
    */
   import { predictKPI } from '$lib/hill.js';
   import { CHANNEL_COLORS } from '$lib/hill.js';
+  import { LockKeyhole, LockKeyholeOpen } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -165,7 +166,7 @@
       </span>
     {/if}
     <span class="lock-badge" class:locked title={locked ? 'Бюджет заблокирован - перераспределение' : 'Свободное изменение'}>
-      {locked ? '🔒' : '🔓'}
+      {#if locked}<LockKeyhole size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />{:else}<LockKeyholeOpen size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />{/if}
     </span>
   </div>
 

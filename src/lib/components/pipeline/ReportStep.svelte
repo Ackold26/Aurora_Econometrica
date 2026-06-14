@@ -29,7 +29,7 @@
   import { mqsView, ratioView } from '$lib/metric-views.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
-  import { TriangleAlert } from 'lucide-svelte';
+  import { TriangleAlert, ChartColumn, Globe, Check, ClipboardList } from 'lucide-svelte';
 
   let showOnboarding = $state(false);
   let onboardingChecked = false;
@@ -865,7 +865,7 @@
   {:else}
     {@const missing = [!mData?.diagnostics && 'модель', !dData && 'декомпозиция', !oData && 'оптимизация'].filter(Boolean).join(', ')}
     <div class="no-data-banner">
-      <div class="stale-header">⚠ Данные не загружены в память</div>
+      <div class="stale-header"><TriangleAlert size={16} strokeWidth={1.5} style="vertical-align: -0.15em" /> Данные не загружены в память</div>
       <p class="stale-body">
         В этой сессии отсутствуют: {missing || 'результаты шагов'}.
         Если вы уже прошли пайплайн в другой сессии - результаты лежат на диске,
@@ -881,7 +881,7 @@
           </button>
         {/if}
         {#if recomputeError}
-          <span class="stale-error">⚠ {recomputeError}</span>
+          <span class="stale-error"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {recomputeError}</span>
         {/if}
       </div>
     </div>
@@ -900,7 +900,7 @@
           </div>
           {#if xlsxPath}
             <div class="file-row">
-              <span class="file-icon">📊</span>
+              <span class="file-icon"><ChartColumn size={16} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
               <span class="file-path">{xlsxPath}</span>
             </div>
           {/if}
@@ -917,7 +917,7 @@
           {/if}
           {#if htmlPath}
             <div class="file-row">
-              <span class="file-icon">🌐</span>
+              <span class="file-icon"><Globe size={16} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
               <span class="file-path">{htmlPath}</span>
             </div>
           {/if}
@@ -944,21 +944,21 @@
             <input type="radio" name="report-format" value="pptx" bind:group={selectedFormat} />
             <span class="format-icon-sm">📽</span>
             <span class="format-radio-label">PPTX
-              {#if pptxPath}<span class="format-radio-status">✓</span>{/if}
+              {#if pptxPath}<span class="format-radio-status"><Check size={12} strokeWidth={2} style="vertical-align: -0.15em" /></span>{/if}
             </span>
           </label>
           <label class="format-radio" class:active={selectedFormat === 'xlsx'}>
             <input type="radio" name="report-format" value="xlsx" bind:group={selectedFormat} />
-            <span class="format-icon-sm">📊</span>
+            <span class="format-icon-sm"><ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
             <span class="format-radio-label">XLSX
-              {#if xlsxPath}<span class="format-radio-status">✓</span>{/if}
+              {#if xlsxPath}<span class="format-radio-status"><Check size={12} strokeWidth={2} style="vertical-align: -0.15em" /></span>{/if}
             </span>
           </label>
           <label class="format-radio" class:active={selectedFormat === 'html'}>
             <input type="radio" name="report-format" value="html" bind:group={selectedFormat} />
-            <span class="format-icon-sm">🌐</span>
+            <span class="format-icon-sm"><Globe size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
             <span class="format-radio-label">HTML
-              {#if htmlPath}<span class="format-radio-status">✓</span>{/if}
+              {#if htmlPath}<span class="format-radio-status"><Check size={12} strokeWidth={2} style="vertical-align: -0.15em" /></span>{/if}
             </span>
           </label>
         </div>
@@ -995,7 +995,7 @@
 
         <div class="format-card">
           <div class="format-card-header">
-            <span class="format-icon">📊</span>
+            <span class="format-icon"><ChartColumn size={18} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
             <div class="format-title">XLSX - для самостоятельной работы с данными</div>
           </div>
           <p class="format-desc">
@@ -1006,7 +1006,7 @@
 
         <div class="format-card">
           <div class="format-card-header">
-            <span class="format-icon">🌐</span>
+            <span class="format-icon"><Globe size={18} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
             <div class="format-title">HTML - интерактивный отчёт</div>
           </div>
           <p class="format-desc">
@@ -1044,13 +1044,13 @@
                 class="cover-tab"
                 class:active={coverFormat === 'xlsx'}
                 onclick={() => coverFormat = 'xlsx'}
-              >📊 Для XLSX</button>
+              ><ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Для XLSX</button>
               <button
                 type="button"
                 class="cover-tab"
                 class:active={coverFormat === 'html'}
                 onclick={() => coverFormat = 'html'}
-              >🌐 Для HTML</button>
+              ><Globe size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Для HTML</button>
             </div>
             <div class="cover-content">
               {#if coverFormat === 'pptx'}
@@ -1127,7 +1127,7 @@
                 type="button"
                 class="btn-copy"
                 onclick={() => copyCoverToClipboard()}
-              >📋 Скопировать текст</button>
+              ><ClipboardList size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Скопировать текст</button>
               {#if copyMsg}
                 <span class="copy-msg">{copyMsg}</span>
               {/if}
@@ -1222,7 +1222,7 @@
   {#if stepState === 'done'}
     <div class="complete-row">
       <button class="btn-complete" onclick={finishAnalysis}>
-        Завершить анализ ✓
+        Завершить анализ <Check size={14} strokeWidth={2} style="vertical-align: -0.15em" />
       </button>
     </div>
   {/if}

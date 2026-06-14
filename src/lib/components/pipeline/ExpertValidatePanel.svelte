@@ -171,7 +171,7 @@
                         {opt.icon} {opt.label}
                       </button>
                     {/each}
-                    <button class="role-option role-cancel" onclick={() => editingColumn = null}><X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
+                    <button class="role-option role-cancel" onclick={() => editingColumn = null} aria-label="Отмена"><X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
                   </div>
                 {:else}
                   <button

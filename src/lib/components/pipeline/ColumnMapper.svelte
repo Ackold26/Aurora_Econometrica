@@ -15,6 +15,8 @@
    *   onmappingchange?: (mapping: {kpi: string[], media: string[], control: string[], date: string|null, unknown: string[]}) => void,
    * }}
    */
+  import { X } from 'lucide-svelte';
+
   let {
     columns = [],
     detected = {},
@@ -317,7 +319,7 @@
                 </button>
               {/each}
               <button class="quick-role-btn zone-unused" onclick={() => { moveColumn(col.name, 'unknown'); selectedColumn = null; }}>
-                ✕
+                <X size={12} strokeWidth={1.5} style="vertical-align: -0.15em" />
               </button>
             </div>
           {/if}
