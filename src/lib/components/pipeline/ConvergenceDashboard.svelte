@@ -11,6 +11,7 @@
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
+  import { TriangleAlert, Check } from 'lucide-svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
   import { pluralizeRu } from '$lib/utils/i18n.js';
@@ -203,7 +204,7 @@
   {#if rhatFailed > 0}
     <div class="warn-banner warn">
       <p class="banner-primary">
-        ⚠ Модель не завершила расчёт корректно: {rhatFailed} параметров показывают
+        <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Модель не завершила расчёт корректно: {rhatFailed} параметров показывают
         нестабильность. Откройте расширенные настройки и увеличьте число итераций.
       </p>
       <details class="banner-details">
@@ -221,37 +222,37 @@
         {#if rhatFailed === 0}
           {#if divergences <= 10}
             {#if mcmcTune < 4000}
-              ✓ Сходимость достигнута (R-hat &lt; 1.05). Для максимальной точности можно
+              <Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Сходимость достигнута (R-hat &lt; 1.05). Для максимальной точности можно
               улучшить выборку в Эксперт-режиме.
             {:else}
-              ✓ Сходимость достигнута (R-hat &lt; 1.05). Единичные нестабильности не влияют
+              <Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Сходимость достигнута (R-hat &lt; 1.05). Единичные нестабильности не влияют
               на сходимость — надёжность выводов оценивайте по баллу качества модели (MQS).
             {/if}
           {:else if divergences <= 50}
             {#if mcmcTune < 6000}
-              ⚠ Результаты можно использовать ориентировочно. Для улучшения точности
+              <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Результаты можно использовать ориентировочно. Для улучшения точности
               повторите расчёт с расширенными настройками.
             {:else}
-              ⚠ Результаты требуют проверки. Попробуйте упростить модель — уберите
+              <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Результаты требуют проверки. Попробуйте упростить модель — уберите
               каналы, которые дублируют друг друга (см. отчёт по мультиколлинеарности
               в Валидации).
             {/if}
           {:else}
             {#if mcmcTune < 6000}
-              ⚠ Расчёт нестабилен. Повторите с более мощными настройками или упростите
+              <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Расчёт нестабилен. Повторите с более мощными настройками или упростите
               состав каналов перед принятием решений.
             {:else}
-              ⚠ Расчёт нестабилен при текущем наборе каналов. Уберите каналы с похожими
+              <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Расчёт нестабилен при текущем наборе каналов. Уберите каналы с похожими
               данными — это обычно решает проблему. Результаты пока не рекомендуется
               использовать для планирования.
             {/if}
           {/if}
         {:else}
           {#if mcmcTune < 6000}
-            ⚠ Модель не завершила расчёт. Увеличьте число итераций или сократите
+            <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Модель не завершила расчёт. Увеличьте число итераций или сократите
             количество каналов — особенно тех, чьи данные похожи друг на друга.
           {:else}
-            ⚠ Модель не завершила расчёт. Упростите модель — уберите каналы с похожими
+            <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Модель не завершила расчёт. Упростите модель — уберите каналы с похожими
             данными (см. мультиколлинеарность в Эксперт-режиме Валидации).
           {/if}
         {/if}

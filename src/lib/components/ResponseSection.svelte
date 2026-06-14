@@ -1,6 +1,7 @@
 <script>
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
+  import { Check, Copy, Pencil } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -41,11 +42,11 @@
       <span class="section-title">{title}</span>
       <div class="section-actions">
         <button class="section-action" onclick={(e) => { e.stopPropagation(); copySection(); }} title={copied ? 'Скопировано!' : 'Копировать'}>
-          {copied ? '✓' : '⧉'}
+          {#if copied}<Check size={13} strokeWidth={1.5} />{:else}<Copy size={13} strokeWidth={1.5} />{/if}
         </button>
         {#if onRefine}
           <button class="section-action refine-action" onclick={(e) => { e.stopPropagation(); handleRefine(); }} title="Доработать">
-            ✎
+            <Pencil size={13} strokeWidth={1.5} />
           </button>
         {/if}
       </div>

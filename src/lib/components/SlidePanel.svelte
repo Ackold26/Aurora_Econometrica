@@ -3,6 +3,7 @@
   import { cleanSlideTitle, groupSlidesByBlocks } from '$lib/response-parser.js';
   import { pendingCommand } from '$lib/store.js';
   import ResponseSection from './ResponseSection.svelte';
+  import { Check, Copy } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -96,7 +97,7 @@
     </div>
     <div class="sp-actions">
       <button class="sp-btn" onclick={copyAll} title={copied ? 'Скопировано!' : 'Копировать всё'}>
-        {copied ? '✓' : '⧉'}
+        {#if copied}<Check size={14} strokeWidth={1.5} />{:else}<Copy size={14} strokeWidth={1.5} />{/if}
       </button>
       <button class="sp-btn sp-close" onclick={onClose} title="Закрыть (Esc)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">

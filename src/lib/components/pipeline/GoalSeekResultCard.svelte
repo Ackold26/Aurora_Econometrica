@@ -18,6 +18,7 @@
 
   // UX audit v1.3.0: используем unified format helpers (вместо inline ad-hoc).
   import { formatMoney, formatDelta, formatCount } from '$lib/format-numbers.js';
+  import { TriangleAlert } from 'lucide-svelte';
 
   const { result, kpiKind, targetSales } = $props();
 
@@ -140,7 +141,7 @@
     {/if}
   {:else}
     <header class="card-header warn">
-      <span class="icon">⚠️</span>
+      <span class="icon"><TriangleAlert size={18} strokeWidth={1.5} /></span>
       <h3>Цель недостижима в доступном диапазоне бюджета</h3>
     </header>
 

@@ -11,6 +11,7 @@
    * Все эти 3 компонента уже сами по себе пишут к sidecar через invoke;
    * route - простой контейнер + project context.
    */
+  import { TriangleAlert } from 'lucide-svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
   import CausalMethodForm from '$lib/components/causal/CausalMethodForm.svelte';
@@ -78,7 +79,7 @@
     </p>
 
     <div class="caveat-banner">
-      <strong>⚠ v1.0.14 honest caveat:</strong> backend validated на synthetic data + DGP-controlled
+      <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> v1.0.14 honest caveat:</strong> backend validated на synthetic data + DGP-controlled
       ground truth recovery. Real-customer geo-disaggregated validation запланирован в v1.0.15
       после получения Materia Medica regional data + treatment markers. Используй с осторожностью
       на real client data - assumptions (parallel-trends, convex-hull, overlap) проверяй вручную
@@ -87,7 +88,7 @@
 
     {#if !projectDir}
       <div class="warn-banner">
-        ⚠ Не выбран активный project. Перейди в раздел «Проекты» и выбери проект перед запуском
+        <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Не выбран активный project. Перейди в раздел «Проекты» и выбери проект перед запуском
         causal методов.
       </div>
     {:else}

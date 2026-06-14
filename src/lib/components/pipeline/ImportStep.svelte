@@ -18,6 +18,7 @@
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { importData, completeStep, resetDownstream, pipelineStepMeta, pipelineCurrentStep, activeProjectId, activeProject, resetPipeline, modelEngine } from '$lib/project-state.js';
+  import { TriangleAlert, ChartColumn, Target, Check } from 'lucide-svelte';
   import { get } from 'svelte/store';
 
   // Обучающий тур - запускается на mount, независимо от состояния импорта.
@@ -505,7 +506,7 @@
         </div>
       {:else if filePath}
         <div class="drop-content file-ready">
-          <div class="file-icon">📊</div>
+          <div class="file-icon"><ChartColumn size={28} strokeWidth={1.5} /></div>
           <p class="file-name">{fileName}</p>
           {#if shape}
             <p class="file-meta">{shape.rows} строк × {shape.cols} столбцов · {sizeKb} KB</p>
@@ -519,7 +520,7 @@
   <!-- Error message -->
   {#if errorMsg}
     <div class="error-banner">
-      <span class="error-icon">⚠️</span>
+      <span class="error-icon"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
       {errorMsg}
     </div>
   {/if}
@@ -582,12 +583,12 @@
             aria-label="Выбрать Bayesian MMM"
           >
             <div class="engine-card-head">
-              <span class="engine-card-icon">🎯</span>
+              <span class="engine-card-icon"><Target size={20} strokeWidth={1.5} /></span>
               <Tooltip text={TOOLTIPS['import.bayesian']} position="top">
                 <div class="engine-card-name" style="cursor:help;">Полное Bayesian MMM</div>
               </Tooltip>
               {#if $modelEngine === 'bayesian'}
-                <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
+                <span class="engine-card-badge engine-card-badge-active"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Выбрано</span>
               {:else if allowOverride}
                 <span class="engine-card-badge engine-card-badge-muted">Можно выбрать</span>
               {:else}
@@ -620,7 +621,7 @@
                 <div class="engine-card-name" style="cursor:help;">Упрощённое OLS-MMM</div>
               </Tooltip>
               {#if $modelEngine === 'ols'}
-                <span class="engine-card-badge engine-card-badge-active">✓ Выбрано</span>
+                <span class="engine-card-badge engine-card-badge-active"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Выбрано</span>
               {:else if allowOverride}
                 <span class="engine-card-badge engine-card-badge-muted">Можно выбрать</span>
               {:else}

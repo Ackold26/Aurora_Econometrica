@@ -7,6 +7,7 @@
    * @component CorrelationHeatmap
    */
   import { onMount } from 'svelte';
+  import { TriangleAlert, Check } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -196,10 +197,10 @@
       <h4>Корреляционная матрица</h4>
       {#if highCorrelations.length > 0}
         <span class="high-count">
-          ⚠️ {highCorrelations.length} пар с |r| > 0.8
+          <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {highCorrelations.length} пар с |r| > 0.8
         </span>
       {:else}
-        <span class="no-high">✓ Мультиколлинеарность не обнаружена</span>
+        <span class="no-high"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Мультиколлинеарность не обнаружена</span>
       {/if}
     </div>
 

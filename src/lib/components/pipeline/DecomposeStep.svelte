@@ -35,6 +35,7 @@
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
+  import { TriangleAlert, Target, ChartColumn } from 'lucide-svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
@@ -445,7 +446,7 @@
        лишние factors могут появиться в результатах. -->
   {#if $modelStaleStatus?.stale}
     <div class="stale-banner" role="alert">
-      <span class="stale-icon" aria-hidden="true">⚠</span>
+      <span class="stale-icon" aria-hidden="true"><TriangleAlert size={18} strokeWidth={1.5} /></span>
       <div class="stale-text">
         <strong>Декомпозиция устарела.</strong>
         {$modelStaleStatus.reason} Текущие графики могут содержать факторы, которых уже нет в текущих ролях.
@@ -469,7 +470,7 @@
   <!-- Error banner -->
   {#if stepState === 'error' && errorMessage}
     <div class="error-banner">
-      <span class="error-icon">⚠</span>
+      <span class="error-icon"><TriangleAlert size={16} strokeWidth={1.5} /></span>
       <span class="error-text">{errorMessage}</span>
       <button class="btn-retry" onclick={() => runDecompose()}>Повторить</button>
     </div>
@@ -497,7 +498,7 @@
     <!-- Trust Level 3 (v1.1.0): identifiability warnings (single-N group demoted) -->
     {#if data.hierarchical?.categorization_warnings?.length}
       <div class="categorization-warning-banner">
-        <span class="cat-warn-icon">⚠</span>
+        <span class="cat-warn-icon"><TriangleAlert size={18} strokeWidth={1.5} /></span>
         <div>
           <p class="cat-warn-title">Категоризация скорректирована при обучении</p>
           <ul class="cat-warn-list">
@@ -598,7 +599,7 @@
                 <!-- Trust Level 3 (v1.1.0): visual grouping per category -->
                 <tr class="group-header" class:gh-brand={groupKey === 'brand_reach'} class:gh-perf={groupKey === 'performance'} class:gh-mixed={groupKey === 'mixed'}>
                   <td colspan="7">
-                    {#if groupKey === 'brand_reach'}🎯 Brand-каналы - long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}📊 Performance-каналы - short-decay (Search/Social){:else}⚪ Смешанные (single-prior){/if}
+                    {#if groupKey === 'brand_reach'}<Target size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Brand-каналы - long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}<ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Performance-каналы - short-decay (Search/Social){:else}⚪ Смешанные (single-prior){/if}
                     <span class="group-count">{groupChannels.length}</span>
                   </td>
                 </tr>

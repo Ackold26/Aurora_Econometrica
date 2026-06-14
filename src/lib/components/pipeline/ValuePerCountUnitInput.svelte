@@ -47,6 +47,8 @@
     onSkip?.();
   }
 
+  import { Target, TriangleAlert } from 'lucide-svelte';
+
   // v1.3.2: «Зачем это?» раскрывающаяся панель.
   let whyExpanded = $state(false);
 </script>
@@ -90,14 +92,14 @@
   {#if autoValue?.value !== null && autoValue?.value !== undefined}
     <section class="auto-suggestion" class:warning={cvIsHigh}>
       <div class="suggestion-head">
-        <span class="emoji">🎯</span>
+        <span class="emoji"><Target size={20} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
         <div>
           <strong>Обнаружена ценность: {Math.round(autoValue.value)} ₽/единицу</strong>
           <span class="meta">на основе {autoValue.n_periods} периодов{autoValue.cv != null ? `, CV = ${(autoValue.cv * 100).toFixed(1)}%` : ''}</span>
         </div>
       </div>
       {#if autoValue.warning}
-        <p class="warning-text">⚠ {autoValue.warning}</p>
+        <p class="warning-text"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {autoValue.warning}</p>
       {/if}
       <label class="checkbox-label">
         <input type="checkbox" bind:checked={useAuto} />

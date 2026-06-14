@@ -8,6 +8,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { get } from 'svelte/store';
+  import { Check } from 'lucide-svelte';
   import {
     pipelineCurrentStep, activeProjectId,
     importData, validateData, modelData, decomposeData, optimizeData, optimizeLiveState,
@@ -408,7 +409,7 @@
                       onclick={() => revertAction(i)}
                       title="Отменить применённое действие"
                     >
-                      ✓ Применено · Отменить
+                      <Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Применено · Отменить
                     </button>
                   {/if}
                 </div>

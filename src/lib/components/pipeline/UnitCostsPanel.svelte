@@ -25,6 +25,7 @@
     decomposeData, optimizeData, analysisObjective, forecastContext,
     analysisMode, expertMode, kpiKind, perChannelInput,
   } from '$lib/project-state.js';
+  import { TriangleAlert, X, Star } from 'lucide-svelte';
 
   // ADR-019 §1: UnitCostsPanel visible ТОЛЬКО при Expert + mixed + physical channel + monetary KPI.
   // В Manager mode (roi / effectiveness) panel скрыта - single-unit mode не требует конверсионных ставок.
@@ -416,7 +417,7 @@
           <br>📅 <strong>Обучение охватывает несколько лет</strong> - задайте <em>исторический</em> темп инфляции CPP/CPM
           (по РФ типично 25–30% год к году). Backend пересчитает цену по обучающим периодам:
           текущая ÷ (1+rate)<sup>лет</sup> и применит weighted-average. 0 = цена не менялась.
-          <br><span class="hint-secondary">⚠ Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в шаге «Оптимизация» (Блок D).</span>
+          <br><span class="hint-secondary"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в шаге «Оптимизация» (Блок D).</span>
         {/if}
       </div>
     </div>
@@ -518,7 +519,7 @@
                 </div>
               {/if}
               {#if warn}
-                <div class="row-warn-msg">⚠ {warn}</div>
+                <div class="row-warn-msg"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {warn}</div>
               {/if}
             </div>
             <button
@@ -527,7 +528,7 @@
               onclick={() => removeChannel(ch.name)}
               title="Убрать канал из списка"
               aria-label="Убрать {ch.name}"
-            >✕</button>
+            ><X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
           </div>
         {/each}
       </div>

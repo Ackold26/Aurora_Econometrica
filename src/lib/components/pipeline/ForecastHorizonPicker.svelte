@@ -15,6 +15,7 @@
 -->
 <script>
   import { forecastConfig, forecastContext } from '$lib/project-state.js';
+  import { ChartColumn } from 'lucide-svelte';
 
   /** @type {{
    *   trainNPeriods: number,
@@ -248,7 +249,7 @@
   {:else}
   {#if trainingSpanLabel}
     <div class="training-span" aria-live="polite">
-      <span class="training-span-icon" aria-hidden="true">📊</span>
+      <span class="training-span-icon" aria-hidden="true"><ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
       <span class="training-span-text">{trainingSpanLabel}</span>
     </div>
   {/if}

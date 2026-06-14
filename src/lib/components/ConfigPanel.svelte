@@ -10,6 +10,7 @@
   import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { buildTrainConfig } from '$lib/train-config.js';
+  import { Check } from 'lucide-svelte';
   import HolidayControlsPanel from '$lib/components/pipeline/HolidayControlsPanel.svelte';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
@@ -678,7 +679,7 @@ Weibull (плавная build-up):
     {#if $isComputing}
       <span class="spinner"></span> {$computeStatus || 'Обучаю модель...'}
     {:else if modelTrained}
-      ✓ Обучено · Перетренировать
+      <Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Обучено · Перетренировать
     {:else}
       Запустить модель
     {/if}

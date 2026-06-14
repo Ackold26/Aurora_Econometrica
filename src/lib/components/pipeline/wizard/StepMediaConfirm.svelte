@@ -11,7 +11,7 @@
    * @component StepMediaConfirm
    */
 
-  import { CheckCircle, AlertTriangle, Info, ChevronDown, ChevronRight } from 'lucide-svelte';
+  import { CheckCircle, AlertTriangle, Info, ChevronDown, ChevronRight, Check } from 'lucide-svelte';
   import { analysisMode, expertMode, perChannelInput } from '$lib/project-state.js';
 
   /**
@@ -427,7 +427,7 @@
   {:else if confirmed}
     <div class="confirmed-banner">
       <CheckCircle size={16} strokeWidth={1.5} />
-      <span>Конфигурация каналов подтверждена ✓</span>
+      <span>Конфигурация каналов подтверждена <Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
     </div>
   {/if}
 </div>

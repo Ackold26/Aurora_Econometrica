@@ -1,5 +1,6 @@
 <script>
   import { getCommandMeta } from '$lib/command-meta.js';
+  import { Star } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -53,7 +54,7 @@
   title={!hasTooltip ? label : undefined}
 >
   {#if isFavorite}
-    <span class="fav-star">★</span>
+    <span class="fav-star"><Star size={10} strokeWidth={1.5} /></span>
   {/if}
 
   <span class="cmd-label">{label}</span>

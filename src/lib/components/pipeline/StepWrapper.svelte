@@ -4,6 +4,7 @@
    * A3: Uses opacity/visibility, NOT display:none, to preserve CSS transitions.
    * CLAUDE.md Rule 14: visibility, not display:none.
    */
+  import { Check, X } from 'lucide-svelte';
   import { PIPELINE_STEPS, pipelineCurrentStep, pipelineStepMeta, validationHeaderMetrics } from '$lib/project-state.js';
 
   /** helpPage сохранён как prop для обратной совместимости с /pipeline/+page.svelte,
@@ -53,9 +54,9 @@
       </div>
     {/if}
     {#if meta.status === 'complete'}
-      <span class="step-badge complete">✓ Готово</span>
+      <span class="step-badge complete"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Готово</span>
     {:else if meta.status === 'error'}
-      <span class="step-badge error">✕ Ошибка{meta.errorMessage ? `: ${meta.errorMessage}` : ''}</span>
+      <span class="step-badge error"><X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Ошибка{meta.errorMessage ? `: ${meta.errorMessage}` : ''}</span>
     {:else if meta.status === 'active'}
       <span class="step-badge active">● Выполняется</span>
     {/if}

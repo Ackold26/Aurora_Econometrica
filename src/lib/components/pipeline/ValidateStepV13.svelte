@@ -65,6 +65,7 @@
   // Replaces previous v2.0.1 hotfix inline MONETARY_RE/PHYSICAL_RE - теперь
   // single source of truth с column_detection.py.
   import { detectChannelUnitType as detectChannelType } from '$lib/services/classifier-patterns.js';
+  import { TriangleAlert } from 'lucide-svelte';
 
   /** Channel sums (Σ единиц за весь период) из validateData. Используется
    *  AppliedModeSummary для derivation unit_cost из «общего бюджета»
@@ -1185,7 +1186,7 @@
     {/if}
     {#if expertCppMissing}
       <div class="expert-cpp-banner" role="alert">
-        ⚠ Для физических каналов (TRP / показы / клики) в ROI-режиме укажите стоимость
+        <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Для физических каналов (TRP / показы / клики) в ROI-режиме укажите стоимость
         единицы (CPP/CPM) или общий бюджет ₽ выше - без этого ROI канала некорректен
         (точки трактуются как рубли). Либо переключите канал на «₽-бюджет» или исключите.
       </div>

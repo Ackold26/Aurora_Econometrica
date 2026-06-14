@@ -24,6 +24,7 @@
     syncChannelCategoriesToMedia,
   } from '$lib/project-state.js';
   import { applyObjectiveToColumns, describeObjective, recomputeResultAfterObjective } from '$lib/objective-engine.js';
+  import { TriangleAlert, ChartColumn } from 'lucide-svelte';
   import { setColumnRole, applyMapping, buildProjectUpdates, restoreExcludedColumns, isExcluded } from '$lib/column-roles.js';
   import ExpertValidatePanel from '$lib/components/pipeline/ExpertValidatePanel.svelte';
   import UnitCostsPanel from '$lib/components/pipeline/UnitCostsPanel.svelte';
@@ -286,7 +287,7 @@
 
   <!-- Error -->
   {#if errorMsg}
-    <div class="error-banner">⚠️ {errorMsg}</div>
+    <div class="error-banner"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {errorMsg}</div>
   {/if}
 
   <!-- Objective selector: ROI / Effectiveness / Manual -->
@@ -313,7 +314,7 @@
           onclick={() => switchObjective('effectiveness')}
           title="Измеряем эффективность медиа - оставляем показы/клики/визиты"
         >
-          📊 Эффективность
+          <ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Эффективность
           <span class="objective-sub">показы/клики</span>
         </button>
         <button

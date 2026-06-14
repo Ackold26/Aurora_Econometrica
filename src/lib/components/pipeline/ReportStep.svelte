@@ -29,6 +29,7 @@
   import { mqsView, ratioView } from '$lib/metric-views.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
+  import { TriangleAlert } from 'lucide-svelte';
 
   let showOnboarding = $state(false);
   let onboardingChecked = false;
@@ -798,7 +799,7 @@
   <!-- Error banner -->
   {#if stepState === 'error' && errorMessage}
     <div class="error-banner">
-      <span class="error-icon">⚠</span>
+      <span class="error-icon"><TriangleAlert size={16} strokeWidth={1.5} /></span>
       <span class="error-text">{errorMessage}</span>
       <button class="btn-retry" onclick={() => { stepState = 'idle'; errorMessage = null; }}>
         Попробовать снова

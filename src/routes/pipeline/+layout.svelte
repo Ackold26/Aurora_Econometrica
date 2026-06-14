@@ -36,6 +36,7 @@
   // Phase 2.16: trust-signal toast после successful migration.
   import MigrationCompletedToast from '$lib/components/MigrationCompletedToast.svelte';
   import ErrorState from '$lib/components/pipeline/ErrorState.svelte';
+  import { ChartColumn } from 'lucide-svelte';
 
   let { children } = $props();
 
@@ -373,7 +374,7 @@
         <div class="project-area">
           {#if $activeProject}
             <span class="project-chip" title="Активный проект - переключение доступно на шаге «Импорт»">
-              📊 {$activeProject.name}
+              <ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {$activeProject.name}
             </span>
             <button
               class="save-chip-btn"

@@ -9,6 +9,7 @@
    */
   import { validateData } from '$lib/project-state.js';
   import { fmtNum, fmtPct } from '$lib/fmt.js';
+  import { X } from 'lucide-svelte';
 
   const result = $derived($validateData?.result);
 
@@ -170,7 +171,7 @@
                         {opt.icon} {opt.label}
                       </button>
                     {/each}
-                    <button class="role-option role-cancel" onclick={() => editingColumn = null}>✕</button>
+                    <button class="role-option role-cancel" onclick={() => editingColumn = null}><X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
                   </div>
                 {:else}
                   <button

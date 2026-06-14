@@ -16,6 +16,7 @@
     modelStaleStatus,
   } from '$lib/project-state.js';
   import { mqsView } from '$lib/metric-views.js';
+  import { TriangleAlert } from 'lucide-svelte';
   import ExpertModelPanel from '$lib/components/pipeline/ExpertModelPanel.svelte';
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
   import TrainingProgress from '$lib/components/pipeline/TrainingProgress.svelte';
@@ -213,7 +214,7 @@
        pickle содержат старую конфигурацию. -->
   {#if stepState === 'trained' && $modelStaleStatus?.stale}
     <div class="stale-banner" role="alert">
-      <span class="stale-icon" aria-hidden="true">⚠</span>
+      <span class="stale-icon" aria-hidden="true"><TriangleAlert size={18} strokeWidth={1.5} /></span>
       <div class="stale-text">
         <strong>Конфигурация изменилась после обучения.</strong>
         {$modelStaleStatus.reason}
@@ -276,7 +277,7 @@
   <!-- Error recovery (C5) -->
   {#if stepState === 'error' && errorMessage}
     <div class="error-banner">
-      <span class="error-icon">⚠</span>
+      <span class="error-icon"><TriangleAlert size={16} strokeWidth={1.5} /></span>
       <span class="error-text">{errorMessage}</span>
       <div class="error-actions">
         <button class="btn-retry" onclick={retryTraining}>Повторить</button>

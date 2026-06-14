@@ -10,7 +10,7 @@
    * @component StepTargetConfirm
    */
 
-  import { CheckCircle, Info, ChevronRight } from 'lucide-svelte';
+  import { CheckCircle, Info, ChevronRight, Check } from 'lucide-svelte';
   import { kpiKind, kpiType, expertMode } from '$lib/project-state.js';
 
   /**
@@ -205,7 +205,7 @@
           Подтвердить <ChevronRight size={15} />
         </button>
       {:else}
-        <span class="confirmed-label">Подтверждено ✓</span>
+        <span class="confirmed-label">Подтверждено <Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
       {/if}
     </div>
 

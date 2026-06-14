@@ -12,6 +12,7 @@
   import { activeProjectId, sessionStats, unitCosts, unitCostInflation, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import DataTable from '$lib/components/DataTable.svelte';
+  import { TriangleAlert, X } from 'lucide-svelte';
 
   /** @type {{
    *   channelBudgets: Record<string, number>,
@@ -198,7 +199,7 @@
   {#if comparison}
     {#if !moneyMode}
       <div class="units-warn">
-        ⚠️ Бюджеты в native-единицах (TRP + ₽). ROAS несопоставим между сценариями.
+        <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Бюджеты в native-единицах (TRP + ₽). ROAS несопоставим между сценариями.
         Укажи «Стоимость юнита» в блоке «Проверка», чтобы получить ROAS в ₽.
       </div>
     {/if}
@@ -213,7 +214,7 @@
               onclick={() => deleteScenario(name)}
               title="Удалить сценарий «{name}»"
               aria-label="Удалить {name}"
-            >✕</button>
+            ><X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
           </span>
         {/each}
       </div>

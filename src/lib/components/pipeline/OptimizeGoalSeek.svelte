@@ -21,6 +21,7 @@
   import CorridorSlider from './CorridorSlider.svelte';
   import GoalSeekResultCard from './GoalSeekResultCard.svelte';
   import WhyThisStep from './WhyThisStep.svelte';
+  import { TriangleAlert } from 'lucide-svelte';
 
   const { currentSales = 0, salesCorridor } = $props();
 
@@ -221,7 +222,7 @@
     </button>
     {#if currentZone === 'red'}
       <span class="zone-warning">
-        ⚠ Цель в красной зоне - кнопка заблокирована.
+        <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Цель в красной зоне - кнопка заблокирована.
       </span>
     {/if}
   </div>

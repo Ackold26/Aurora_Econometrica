@@ -27,6 +27,7 @@
     columns = [],
   } = $props();
 
+  import { X } from 'lucide-svelte';
   import { validateData } from '$lib/project-state.js';
   import { fmtNum } from '$lib/fmt.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -234,7 +235,7 @@
                         {#each ROLE_OPTS as opt}
                           <button class="rp-btn" class:active={col.role === opt.id} onclick={() => setRole(col.name, opt.id)}>{opt.icon} {opt.label}</button>
                         {/each}
-                        <button class="rp-btn rp-close" onclick={() => editingCol = null}>✕</button>
+                        <button class="rp-btn rp-close" onclick={() => editingCol = null}><X size={12} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
                       </div>
                     {:else}
                       <button class="role-click" class:unknown={!col.role || col.role === 'unknown'} onclick={() => editingCol = col.name} title="Нажмите для изменения">{roleLabel(col)}</button>

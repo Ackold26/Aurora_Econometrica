@@ -6,6 +6,7 @@
   import { activeCabinet } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
   import { estimateSavedTime, pluralRu } from '$lib/psy.js';
+  import { Star } from 'lucide-svelte';
   import WorkflowGraph from '$lib/components/workflow/WorkflowGraph.svelte';
   import WorkflowCanvas from '$lib/components/workflow/WorkflowCanvas.svelte';
   import CanvasToolbar from '$lib/components/workflow/CanvasToolbar.svelte';
@@ -627,7 +628,7 @@
             <button class="cabinet-option cabinet-option--suggested" onclick={() => addStep(cab.id, cab.name)}>
               <span class="cabinet-option-icon">{cab.icon}</span>
               <span class="cabinet-option-name">{cab.name}</span>
-              <span class="suggested-badge">★</span>
+              <span class="suggested-badge"><Star size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
             </button>
           {/each}
         </div>

@@ -1,4 +1,5 @@
 <script>
+  import { Check, X } from 'lucide-svelte';
   import { PIPELINE_STEPS, pipelineCurrentStep, pipelineStepMeta } from '$lib/project-state.js';
 
   /** @type {{ onNavigate: (step: number) => void }} */
@@ -43,8 +44,8 @@
       title={rawMeta.errorMessage || step.labelRu}
     >
       <span class="node-circle">
-        {#if effectiveStatus === 'complete'}✓
-        {:else if effectiveStatus === 'error'}✕
+        {#if effectiveStatus === 'complete'}<Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />
+        {:else if effectiveStatus === 'error'}<X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />
         {:else if effectiveStatus === 'locked'}-
         {:else}{step.icon}{/if}
       </span>
