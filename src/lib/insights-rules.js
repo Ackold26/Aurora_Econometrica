@@ -361,7 +361,7 @@ export function validateConfirmInsights(result, context = {}) {
   if (ratio < 4) {
     out.push({
       severity: 'warning',
-      text: `Ratio ${ratio.toFixed(1)}:1 ниже рекомендованного 4:1. Модель обучится, но результаты с широкими диапазонами возможных значений.`,
+      text: `Ratio данных ${ratio.toFixed(1)}:1 (наблюдения ÷ выбранные признаки, оценка до обучения) ниже рекомендованного 4:1. Модель обучится, но результаты с широкими диапазонами возможных значений.`,
       tip: 'После обучения смотрите R-hat (показатель сходимости модели, < 1.05) и MQS - если < 1.05 и > 60 соответственно, модель надёжна для пилотных решений.',
     });
   }
@@ -1119,6 +1119,14 @@ export function modelInsights(data, ratioOverride = undefined) {
   const thinnessCap = _mqsV?.thinnessCap ?? null;
   const isThin = _ratioV?.isThin ?? false;
   const isVeryThin = _ratioV?.isVeryThin ?? false;
+  // Имя ratio зависит от источника: backend post-train = «Эффективный Ratio»
+  // (наблюдения ÷ effective_params), pre-train fallback = «Ratio данных»
+  // (÷ выбранные колонки). Разводим явно — иначе 4.4 (Валидация) vs 2.9 (после
+  // обучения) читается клиентом как ошибка (репорт 2026-06-13).
+  const ratioName = _ratioV?.source === 'effective' ? 'Эффективный Ratio' : 'Ratio данных';
+  const ratioBridge = _ratioV?.source === 'effective'
+    ? ' Примечание: это наблюдения ÷ параметры обученной модели — обычно ниже «Ratio данных» с шага Валидация (÷ выбранные колонки), т.к. модель оценивает больше параметров, чем колонок (трансформации каналов, сезонность). Расхождение нормально, не ошибка.'
+    : '';
   const channels = data.channelParams ? Object.keys(data.channelParams) : [];
   const nChannels = channels.length;
 
@@ -1147,14 +1155,14 @@ export function modelInsights(data, ratioOverride = undefined) {
     if (cls.severity === 'error') {
       out.push({
         severity: 'error',
-        text: `⚠ Ratio ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}. Модель может «выучить» точки, а не закономерность - высокий R² здесь артефакт переобучения.`,
-        tip: 'Рекомендуем: увеличить историю до ≥52 недель, либо упростить модель (меньше каналов, перевести недели в месяцы). ROI и декомпозиция ненадёжны при таком Ratio.',
+        text: `⚠ ${ratioName} ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}. Модель может «выучить» точки, а не закономерность - высокий R² здесь артефакт переобучения.`,
+        tip: 'Рекомендуем: увеличить историю до ≥52 недель, либо упростить модель (меньше каналов, перевести недели в месяцы). ROI и декомпозиция ненадёжны при таком Ratio.' + ratioBridge,
       });
     } else if (cls.severity === 'warning-high' || cls.severity === 'warning') {
       out.push({
         severity: 'warning',
-        text: `Ratio ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}. Высокий R² может быть артефактом переобучения.`,
-        tip: 'Bayesian MMM с приорами (априорными ожиданиями) смягчает проблему, но не устраняет. Относитесь к декомпозиции как к ориентиру, а не истине. Для надёжности — ≥52 недель данных.',
+        text: `${ratioName} ${ratio.toFixed(1)}:1 - ${cls.label.toLowerCase()}. ${cls.description}. Высокий R² может быть артефактом переобучения.`,
+        tip: 'Bayesian MMM с приорами (априорными ожиданиями) смягчает проблему, но не устраняет. Относитесь к декомпозиции как к ориентиру, а не истине. Для надёжности — ≥52 недель данных.' + ratioBridge,
       });
     }
   }
@@ -1258,7 +1266,7 @@ export function modelInsights(data, ratioOverride = undefined) {
     out.push({
       severity: isThin ? 'info' : 'success',
       text: isThin
-        ? `R² = ${rSq.toFixed(3)} - очень высокий fit, но на коротких данных (Ratio ${ratio.toFixed(1)}:1) это признак переобучения, а не силы модели.`
+        ? `R² = ${rSq.toFixed(3)} - очень высокий fit, но на коротких данных (${ratioName} ${ratio.toFixed(1)}:1) это признак переобучения, а не силы модели.`
         : `R² = ${rSq.toFixed(3)} - модель объясняет ${(rSq * 100).toFixed(0)}% вариации KPI. Очень сильный fit.`,
       tip: isThin
         ? 'На тонких данных R² стремится к 1 автоматически: модель подгоняется под каждую точку. Это НЕ означает, что декомпозиция каналов верна. Out-of-sample валидация невозможна (нет hold-out набора).'
