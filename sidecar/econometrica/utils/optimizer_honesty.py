@@ -170,17 +170,28 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         reasons.append(
             f'{divergences} дивергенц(ий) MCMC — лёгкая нестабильность сэмплера, '
             f'трактуйте рекомендации осторожно.')
-    if thin or weak_tier or mild_div or holidays_excluded:
+    data_uncertain = thin or weak_tier or mild_div
+    if data_uncertain or holidays_excluded:
         if holidays_excluded:
             reasons.append(ovb_reason)
+        if data_uncertain:
+            # Тонкие/слабые данные — caveat про ограниченность данных (+OVB если ещё и
+            # праздники исключены).
+            caveat = ('Рекомендации ориентировочные: модель на ограниченных данных. '
+                      'Опирайтесь на доверительные интервалы, а не точечные цифры; '
+                      'крупные сдвиги бюджета валидируйте лифт-тестом.'
+                      + (ovb_caveat if holidays_excluded else ''))
+        else:
+            # Данных достаточно, но праздники исключены — caveat именно про OVB
+            # (не про «ограниченные данные», иначе вводит в заблуждение).
+            caveat = ('Рекомендации ориентировочные: праздники РФ исключены из модели — '
+                      'если категория сезонна к праздникам, вклад медиаканалов может быть '
+                      'смещён (OVB). Крупные сдвиги бюджета валидируйте лифт-тестом.')
         return {
             'verdict': 'uncertain',
             'refused': False,
             'reasons': reasons,
-            'caveat_text': ('Рекомендации ориентировочные: модель на ограниченных данных. '
-                            'Опирайтесь на доверительные интервалы, а не точечные цифры; '
-                            'крупные сдвиги бюджета валидируйте лифт-тестом.'
-                            + (ovb_caveat if holidays_excluded else '')),
+            'caveat_text': caveat,
         }
 
     # ── reliable ──────────────────────────────────────────────────────────
