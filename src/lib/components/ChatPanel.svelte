@@ -9,6 +9,7 @@
   import { playSendSound, playCompleteSound, playAchievementSound } from '$lib/audio.js';
   import { parseResponseSections, shouldRenderStructured, isSlideDeckResponse, splitSlideSections, cleanSlideTitle, extractCompletionStats } from '$lib/response-parser.js';
   import { fade } from 'svelte/transition';
+  import { X, Check, Copy } from 'lucide-svelte';
   import { prefersReducedMotion } from '$lib/stores/a11y.js';
   import ResponseSection from '$lib/components/ResponseSection.svelte';
   import { marked } from 'marked';
@@ -894,7 +895,7 @@
         {#if searchQuery}
           <span class="search-count">{filteredMessages.length}</span>
         {/if}
-        <button class="search-close" onclick={toggleSearch}>✕</button>
+        <button class="search-close" onclick={toggleSearch}><X size={16} strokeWidth={1.5} /></button>
       </div>
     {/if}
   </div>
@@ -1039,7 +1040,7 @@
                   onclick={() => copyMessage(msg.content, idx)}
                   title="Копировать"
                 >
-                  {copiedIdx === idx ? '✓' : '⧉'}
+                  {#if copiedIdx === idx}<Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />{:else}<Copy size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />{/if}
                 </button>
               {/if}
             </div>

@@ -17,6 +17,7 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
+  import { Check } from 'lucide-svelte';
   import {
     activeProjectId, activeProject, channelCategories,
     decomposeData, optimizeData,
@@ -276,7 +277,7 @@
             <span class="opt-head">
               <span class="opt-icon">{badge.icon}</span>
               <strong>{badge.label}</strong>
-              {#if isActive}<span class="check">✓</span>{/if}
+              {#if isActive}<span class="check"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>{/if}
             </span>
             <span class="opt-help">{HELP[opt]}</span>
           </button>

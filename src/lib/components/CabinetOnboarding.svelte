@@ -6,6 +6,7 @@
     completeOnboarding,
     skipOnboarding,
   } from '$lib/onboarding-config.js';
+  import { Check } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -94,7 +95,7 @@
 
         {:else if stepConfig.id === 'result'}
           <div class="onboarding-step result-step">
-            <div class="success-icon" aria-hidden="true">✓</div>
+            <div class="success-icon" aria-hidden="true"><Check size={18} strokeWidth={2} /></div>
             <p class="step-title">{stepConfig.title}</p>
             <p class="step-desc">{stepConfig.description}</p>
             {#if stepConfig.nextActions?.length}

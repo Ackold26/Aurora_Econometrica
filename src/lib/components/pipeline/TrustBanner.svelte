@@ -9,6 +9,7 @@
    * @typedef {{ type: string, channel?: string, channels?: string[], value?: number, severity?: string }} Flag
    */
   import { pipelineCurrentStep } from '$lib/project-state.js';
+  import { TriangleAlert } from 'lucide-svelte';
 
   /** @type {{ flags: Flag[] }} */
   let { flags } = $props();
@@ -29,7 +30,7 @@
 {#if flags && flags.length > 0}
   <div class="trust-banner">
     <div class="row">
-      <span class="icon">⚠</span>
+      <span class="icon"><TriangleAlert size={16} strokeWidth={1.5} /></span>
       <div class="body">
         <div class="title">Внимание: результаты требуют интерпретации</div>
         <div class="reasons">

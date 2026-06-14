@@ -45,6 +45,7 @@
   import DigitalClock from '$lib/components/DigitalClock.svelte';
 
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
+  import { LockKeyhole, Package } from 'lucide-svelte';
   // Cabinets filtered by product type (Legal=3, Creative=5, Agency=all)
   const cabinets = $derived(filterCabinetsByProduct($layoutCabinets, $productType));
   let loading = $derived($layoutCabinets.length === 0 && !$licenseErrorStore);
@@ -301,7 +302,7 @@
 
     {:else if $licenseErrorStore}
       <div class="state-panel glass-panel">
-        <div class="state-icon">🔒</div>
+        <div class="state-icon"><LockKeyhole size={28} strokeWidth={1.5} /></div>
         <h2 class="state-title">Лицензия не найдена</h2>
         <p class="state-desc">{$licenseErrorStore}</p>
         <a href="/settings" class="btn-primary">Импортировать лицензию</a>
@@ -309,7 +310,7 @@
 
     {:else if cabinets.length === 0}
       <div class="state-panel glass-panel">
-        <div class="state-icon">📦</div>
+        <div class="state-icon"><Package size={28} strokeWidth={1.5} /></div>
         <h2 class="state-title">Рабочая область недоступна</h2>
         <p class="state-desc">В вашей лицензии не активирована Econometrica. Обратитесь в поддержку.</p>
       </div>

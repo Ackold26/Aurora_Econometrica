@@ -4,6 +4,7 @@
   import { getCommandMeta, getFileCommands } from '$lib/command-meta.js';
   import { get } from 'svelte/store';
   import CommandCard from './CommandCard.svelte';
+  import { Star } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -159,7 +160,7 @@
         <span class="quick-label">Quick:</span>
         {#each quickItems as item (item.command)}
           <button class="quick-chip" onclick={() => onExecute?.(item.command)}>
-            <span class="quick-star">★</span> {item.label}
+            <span class="quick-star"><Star size={10} strokeWidth={1.5} /></span> {item.label}
           </button>
         {/each}
       </div>

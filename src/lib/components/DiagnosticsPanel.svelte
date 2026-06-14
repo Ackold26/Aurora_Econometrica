@@ -6,6 +6,7 @@
    * @component DiagnosticsPanel
    */
   import { invoke } from '@tauri-apps/api/core';
+  import { ChartColumn } from 'lucide-svelte';
   import { activeProjectId, chartImages, pipelineState } from '$lib/project-state.js';
 
   /** @type {{ chartType: string, title?: string, insight?: string }} */
@@ -56,7 +57,7 @@
     <div class="chart-error">{error}</div>
   {:else}
     <button class="load-btn" onclick={loadChart}>
-      📊 Показать {title || chartType}
+      <ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Показать {title || chartType}
     </button>
   {/if}
 

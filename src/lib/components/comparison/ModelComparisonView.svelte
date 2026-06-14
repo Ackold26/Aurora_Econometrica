@@ -11,6 +11,7 @@
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import DataTable from '$lib/components/DataTable.svelte';
   import { mqsView } from '$lib/metric-views.js';
+  import { ChartColumn, Target, X } from 'lucide-svelte';
 
   /** @type {{ primaryId: string, secondaryId: string, onClose: () => void }} */
   let { primaryId, secondaryId, onClose } = $props();
@@ -341,7 +342,7 @@
           <span class="n-b">{B?.info?.name ?? 'Проект B'}</span>
         </span>
       </div>
-      <button class="cmp-close" onclick={onClose} aria-label="Закрыть">✕</button>
+      <button class="cmp-close" onclick={onClose} aria-label="Закрыть"><X size={16} strokeWidth={1.5} /></button>
     </header>
 
     <div class="cmp-body">
@@ -357,7 +358,7 @@
         {/if}
         <!-- ── KPI cards ──────────────────────────────────────────── -->
         <section class="block">
-          <h2>📊 Ключевые метрики</h2>
+          <h2><ChartColumn size={18} strokeWidth={1.5} style="vertical-align: -0.15em" /> Ключевые метрики</h2>
           <div class="kpi-grid">
             {#each kpiSpec as k}
               {@const hl = highlight(k.a, k.b, k.better)}
@@ -385,7 +386,7 @@
         <!-- ── Channels table (inline для win-highlight на ROI) ────── -->
         {#if channelRows.length > 0}
           <section class="block">
-            <h2>🎯 Каналы: расходы и ROI</h2>
+            <h2><Target size={18} strokeWidth={1.5} style="vertical-align: -0.15em" /> Каналы: расходы и ROI</h2>
             <div class="tbl-wrap">
               <table class="cmp-table">
                 <thead>

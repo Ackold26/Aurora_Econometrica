@@ -4,6 +4,7 @@
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
   import { activeCabinet, isLoading, panelWidth, inboxFiles as inboxFilesStore } from '$lib/store.js';
+  import { X } from 'lucide-svelte';
 
   /** @type {string[]} */
   let inboxFiles = $state([]);
@@ -351,7 +352,7 @@
                   <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
                 </svg>
               </button>
-              <button class="delete-btn" onclick={() => deleteInboxFile(file)} title="Удалить">✕</button>
+              <button class="delete-btn" onclick={() => deleteInboxFile(file)} title="Удалить"><X size={14} strokeWidth={1.5} /></button>
             {/if}
           </div>
         {/each}
@@ -406,7 +407,7 @@
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
               </svg>
             </button>
-            <button class="export-action-btn export-delete-btn" onclick={() => deleteExportFile(file)} title="Удалить">✕</button>
+            <button class="export-action-btn export-delete-btn" onclick={() => deleteExportFile(file)} title="Удалить"><X size={14} strokeWidth={1.5} /></button>
           </div>
         {/each}
       {/if}
@@ -421,7 +422,7 @@
         <div class="preview-header">
           <span class="preview-filename" title={previewData.filename}>{previewData.filename}</span>
           <span class="preview-size">{formatFileSize(previewData.size)}</span>
-          <button class="preview-close" onclick={() => previewData = null}>✕</button>
+          <button class="preview-close" onclick={() => previewData = null}><X size={16} strokeWidth={1.5} /></button>
         </div>
         {#if previewData.content}
           <pre class="preview-content">{previewData.content}</pre>

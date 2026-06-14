@@ -31,6 +31,7 @@
   // H-10a + H-10b (Партия 4): reusable empty state + loading skeleton.
   import EmptyState from './EmptyState.svelte';
   import LoadingSkeleton from './LoadingSkeleton.svelte';
+  import { Check, TriangleAlert } from 'lucide-svelte';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
@@ -327,7 +328,7 @@
   {#if channels.length > 0}
     {#if incompatibleCount > 0}
       <div class="incompat-banner" role="alert" data-testid="incompat-banner">
-        <strong>⚠ {incompatibleCount}
+        <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {incompatibleCount}
           {pluralizeRu(incompatibleCount, ['канал', 'канала', 'каналов'])}</strong>
         с физическими метриками (TRP / показы / клики) - для ROI режима их нужно перевести в ₽.
         <br />
@@ -372,7 +373,7 @@
                 class:metric-converted={meta.converted}>
             {meta.label}
             {#if !meta.isPhysical && !meta.incompatible}
-              <span class="check-mark" aria-label="Подтверждено">✓</span>
+              <span class="check-mark" aria-label="Подтверждено"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
             {/if}
           </span>
         </li>

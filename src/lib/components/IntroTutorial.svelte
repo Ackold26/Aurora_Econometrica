@@ -9,7 +9,7 @@
    * @component IntroTutorial
    */
 
-  import { BarChart2, Hourglass, TrendingUp, Target, Calculator, Scale, Sliders } from 'lucide-svelte';
+  import { BarChart2, Hourglass, TrendingUp, Target, Calculator, Scale, Sliders, X } from 'lucide-svelte';
 
   const { onComplete, onSkip } = $props();
 
@@ -108,7 +108,7 @@
   <div class="modal" class:slide-in={!isAnimating}>
     <header class="modal-header">
       <span class="step-counter">{currentIndex + 1} / {slides.length}</span>
-      <button type="button" class="skip-btn" onclick={skip}>Пропустить ✕</button>
+      <button type="button" class="skip-btn" onclick={skip}>Пропустить <X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
     </header>
 
     <div class="slide">

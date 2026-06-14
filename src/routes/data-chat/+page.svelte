@@ -7,6 +7,7 @@
   import { classifyIntent, formatGreetingAnswer } from '$lib/data-chat-engine.js';
   import { toast } from '$lib/toast.js';
   import { marked } from 'marked';
+  import { MessagesSquare } from 'lucide-svelte';
   import DOMPurify from 'dompurify';
   import { get } from 'svelte/store';
   import { listen } from '@tauri-apps/api/event';
@@ -234,7 +235,7 @@
     <div class="chat-body" bind:this={chatContainer}>
       {#if chatMessages.length === 0}
         <div class="welcome">
-          <div class="welcome-icon">💬</div>
+          <div class="welcome-icon"><MessagesSquare size={28} strokeWidth={1.5} /></div>
           <h2 class="welcome-title">Спросите о чём угодно</h2>
           <p class="welcome-desc">Data Chat Lite отвечает на вопросы и направляет к нужным кабинетам. Полный анализ данных бренда - в v0.5.0.</p>
 

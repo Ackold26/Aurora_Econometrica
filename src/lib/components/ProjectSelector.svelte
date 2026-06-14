@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { save as saveDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
+  import { ChartColumn, Package } from 'lucide-svelte';
   import { onMount } from 'svelte';
   import { activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
   import ProjectPickerModal from '$lib/components/comparison/ProjectPickerModal.svelte';
@@ -222,7 +223,7 @@
 <div class="project-selector">
   {#if $activeProject}
     <button class="project-btn" onclick={() => showCreate = !showCreate}>
-      <span class="project-icon">📊</span>
+      <span class="project-icon"><ChartColumn size={16} strokeWidth={1.5} /></span>
       <span class="project-name">{$activeProject.name}</span>
       <span class="project-chevron">▾</span>
     </button>
@@ -308,7 +309,7 @@
           disabled={archiving}
           title="Загрузить ранее сохранённый .aurora файл как новый проект"
         >
-          📦 Загрузить из архива
+          <Package size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Загрузить из архива
         </button>
       </div>
       {#if archiveMsg}

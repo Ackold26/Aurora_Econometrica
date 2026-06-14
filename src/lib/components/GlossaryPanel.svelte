@@ -7,6 +7,7 @@
    */
 
   import { GLOSSARY, getAllTerms, searchTerms, getTerm } from '$lib/glossary.js';
+  import { X } from 'lucide-svelte';
 
   const { onClose, initialTerm = null } = $props();
 
@@ -85,7 +86,7 @@
   >
     <header class="panel-header">
       <h2 id="glossary-title">Словарь терминов</h2>
-      <button type="button" class="close-btn" onclick={onClose} aria-label="Закрыть глоссарий">✕</button>
+      <button type="button" class="close-btn" onclick={onClose} aria-label="Закрыть глоссарий"><X size={16} strokeWidth={1.5} /></button>
     </header>
 
     <input

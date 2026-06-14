@@ -4,6 +4,7 @@
    * @component
    */
   import { invoke } from '@tauri-apps/api/core';
+  import { Library } from 'lucide-svelte';
 
   /**
    * @typedef {{ projectDir?: string, refreshKey?: any, onSelect?: (a: any) => void }} Props
@@ -76,7 +77,7 @@
 
 <div class="artifact-list">
   <header>
-    <h3>📚 Артефакты ({artifacts.length})</h3>
+    <h3><Library size={18} strokeWidth={1.5} style="vertical-align: -0.15em" /> Артефакты ({artifacts.length})</h3>
     <div class="actions">
       <button onclick={refresh} disabled={isLoading} class="btn-ghost">
         {isLoading ? '...' : 'Обновить'}

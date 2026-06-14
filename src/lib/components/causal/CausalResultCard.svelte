@@ -4,6 +4,8 @@
    * Universal - works для DiD/SCM/Forest output (uniform schema per ADR §4.3).
    * @component
    */
+  import { Check, TriangleAlert, Search, ChartColumn } from 'lucide-svelte';
+
   /**
    * @typedef {{ result: any }} Props
    */
@@ -63,9 +65,9 @@
         <span class="ci-method">({att?.ci_method})</span>
       </div>
       {#if att && att.ci_low > 0 && att.ci_high > 0}
-        <div class="att-verdict positive">✓ Эффект статистически значим (CI больше 0)</div>
+        <div class="att-verdict positive"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Эффект статистически значим (CI больше 0)</div>
       {:else if att && att.ci_low < 0 && att.ci_high < 0}
-        <div class="att-verdict negative">⚠ Эффект отрицательный (CI меньше 0)</div>
+        <div class="att-verdict negative"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Эффект отрицательный (CI меньше 0)</div>
       {:else}
         <div class="att-verdict inconclusive">- Эффект неоднозначен (CI пересекает 0)</div>
       {/if}
@@ -74,7 +76,7 @@
     <!-- Honest disclosure -->
     {#if disclosure?.method}
       <details open class="disclosure-block">
-        <summary>🔍 Honest disclosure ({disclosure.method})</summary>
+        <summary><Search size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Honest disclosure ({disclosure.method})</summary>
         <div class="disclosure-content">
           {#if disclosure.assumptions?.length}
             <div class="disclosure-section">
@@ -85,14 +87,14 @@
 
           {#if disclosure.diagnostics_passed?.length}
             <div class="disclosure-section">
-              <strong class="ok">✓ Diagnostics passed:</strong>
+              <strong class="ok"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Diagnostics passed:</strong>
               <ul>{#each disclosure.diagnostics_passed as d}<li class="ok">{d}</li>{/each}</ul>
             </div>
           {/if}
 
           {#if disclosure.diagnostics_failed?.length}
             <div class="disclosure-section warn">
-              <strong>⚠ Diagnostics failed:</strong>
+              <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Diagnostics failed:</strong>
               <ul>{#each disclosure.diagnostics_failed as d}<li>{d}</li>{/each}</ul>
             </div>
           {/if}
@@ -116,7 +118,7 @@
 
     <!-- Method-specific diagnostics -->
     <details class="diagnostics-block">
-      <summary>📊 Diagnostics</summary>
+      <summary><ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Diagnostics</summary>
       <div class="diagnostics-content">
         {#if result.method === 'did_twfe'}
           <p><strong>n_observations:</strong> {diag.n_observations} ({diag.n_entities} units × {diag.n_periods} periods)</p>

@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles } from '$lib/store.js';
+  import { ChartColumn } from 'lucide-svelte';
   import { activeProject } from '$lib/project-state.js';
   import { getProductName, getCommandBrief, getCommandMeta } from '$lib/command-meta.js';
   import CommandBrief from '$lib/components/CommandBrief.svelte';
@@ -300,7 +301,7 @@
         </div>
         {#if $activeProject}
           <span class="breadcrumb-project" title="Активный проект - переключение в pipeline">
-            📊 {$activeProject.name}
+            <ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {$activeProject.name}
           </span>
         {/if}
 

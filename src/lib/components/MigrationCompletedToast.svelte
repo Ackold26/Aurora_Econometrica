@@ -13,6 +13,7 @@
    * subtle slide-in via prefers-reduced-motion-aware CSS).
    */
   import { onMount } from 'svelte';
+  import { Check } from 'lucide-svelte';
 
   /**
    * @type {{
@@ -58,7 +59,7 @@
     aria-live="polite"
     data-testid="migration-completed-toast"
   >
-    <div class="toast-icon" aria-hidden="true">✓</div>
+    <div class="toast-icon" aria-hidden="true"><Check size={16} strokeWidth={2} /></div>
     <div class="toast-content">
       <strong class="toast-title">Проект обновлён до v{toVersion}</strong>
       <p class="toast-detail">

@@ -35,6 +35,8 @@
     detailText = '',
   } = $props();
 
+  import { X, TriangleAlert } from 'lucide-svelte';
+
   let showDetail = $state(false);
   const hasRetry = $derived(Boolean(onRetry));
   const hasDetail = $derived(Boolean(detailText));
@@ -46,7 +48,7 @@
   data-testid="error-state"
 >
   <div class="error-icon" aria-hidden="true">
-    {severity === 'error' ? '✕' : '⚠'}
+    {#if severity === 'error'}<X size={13} strokeWidth={2} />{:else}<TriangleAlert size={13} strokeWidth={2} />{/if}
   </div>
   <div class="error-content">
     <strong class="error-title">{title}</strong>
