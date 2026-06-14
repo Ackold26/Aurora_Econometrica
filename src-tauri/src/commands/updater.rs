@@ -242,17 +242,35 @@ pub fn check_server_update(
     })
 }
 
-/// Simple semver comparison: returns true if `remote` > `current`.
+/// Semver comparison с учётом prerelease: returns true if `remote` > `current`.
+///
+/// Старая версия делала `split('.').filter_map(parse::<u32>)` и МОЛЧА отбрасывала
+/// хвост `0-rc11` → "2.1.0-rc11" и "2.1.0-rc10" оба сводились к `[2,1]` → считались
+/// равными → rc→rc авто-апдейт НИКОГДА не срабатывал (баг найден на rc10→rc11,
+/// 2026-06-13). Теперь база и prerelease сравниваются раздельно:
+///   - stable (без `-`) ранжируется ВЫШЕ любого prerelease той же базы (rank = u32::MAX);
+///   - `rc11` > `rc10` (числовой хвост тега, не лексический — иначе "rc2" > "rc10");
+///   - база ("2.1.0") доминирует над prerelease-рангом.
 fn is_newer(remote: &str, current: &str) -> bool {
-    let parse = |v: &str| -> Vec<u32> {
-        v.trim_start_matches('v')
-            .split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
-    let r = parse(remote);
-    let c = parse(current);
-    r > c
+    fn parse(v: &str) -> (Vec<u32>, u32) {
+        let v = v.trim_start_matches('v');
+        let (base, pre_rank) = match v.split_once('-') {
+            Some((b, tag)) => {
+                // rc11 → 11, beta3 → 3, без цифр → 0. Всегда < u32::MAX (= release).
+                let n = tag
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .parse()
+                    .unwrap_or(0);
+                (b, n)
+            }
+            None => (v, u32::MAX), // нет prerelease = stable релиз
+        };
+        let nums = base.split('.').filter_map(|s| s.parse().ok()).collect();
+        (nums, pre_rank)
+    }
+    parse(remote) > parse(current)
 }
 
 use sha2::Digest;
@@ -276,5 +294,22 @@ mod tests {
         assert!(!is_newer("0.2.0", "0.2.0"));
         assert!(!is_newer("1.0.0", "1.0.0"));
         assert!(!is_newer("v0.0.1", "0.0.1"));
+    }
+
+    #[test]
+    fn version_comparison_prerelease() {
+        // rc → rc одной базы: раньше оба сводились к [2,1] и считались равными (баг rc10→rc11).
+        assert!(is_newer("2.1.0-rc11", "2.1.0-rc10"));
+        assert!(!is_newer("2.1.0-rc10", "2.1.0-rc11"));
+        assert!(!is_newer("2.1.0-rc11", "2.1.0-rc11"));
+        // числовой хвост, не лексический: rc2 < rc10
+        assert!(!is_newer("2.1.0-rc2", "2.1.0-rc10"));
+        assert!(is_newer("2.1.0-rc10", "2.1.0-rc2"));
+        // stable > любой prerelease той же базы; prerelease < stable
+        assert!(is_newer("2.1.0", "2.1.0-rc11"));
+        assert!(!is_newer("2.1.0-rc11", "2.1.0"));
+        // числовая база доминирует над prerelease-рангом
+        assert!(is_newer("2.2.0-rc1", "2.1.0-rc11"));
+        assert!(is_newer("2.1.0-rc1", "2.0.0"));
     }
 }
