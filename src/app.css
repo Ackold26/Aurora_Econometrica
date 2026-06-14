@@ -268,6 +268,10 @@
   /* ── добавлено rollout 2026-06-13 ── */
   --accent-primary: #1E3A5F;
   --accent: #1E3A5F;
+  /* M7 cab-accent (2026-06-13): акцент кабинетов на светлой теме = тёплый/когерентный
+     акцент темы (навы), а не холодный per-cabinet цвет. Dark не задаёт → fallback на
+     --cab-color (яркие per-cabinet). Потребляется var(--cab-accent, var(--cab-color)). */
+  --cab-accent: #1E3A5F;
   --accent-hover: #2C4E7C;
   --focus-ring: #1E3A5F;
   --selection-bg: #1E3A5F;
@@ -313,6 +317,9 @@
   --accent-primary: #7E4F23;
   --accent-secondary: #5F7A34;
   --accent: #7E4F23;
+  /* M7 cab-accent (2026-06-13): акцент кабинетов на фан-теме = кофейно-коричневый
+     (на-тема), не холодный per-cabinet цвет. var(--cab-accent, var(--cab-color)). */
+  --cab-accent: #7E4F23;
   --accent-hover: #94602E;
   --accent-glow: rgba(126, 79, 35, 0.15);
   --accent-glow-strong: rgba(126, 79, 35, 0.28);
