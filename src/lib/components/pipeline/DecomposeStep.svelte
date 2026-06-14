@@ -35,7 +35,7 @@
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
-  import { TriangleAlert, Target, ChartColumn } from 'lucide-svelte';
+  import { TriangleAlert, Target, ChartColumn, Lightbulb, Circle } from 'lucide-svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
@@ -95,7 +95,7 @@
         (b.contribution_pct ?? 0) - (a.contribution_pct ?? 0))[0];
       if (top && top.contribution_pct > 30) {
         return {
-          icon: '💡',
+          icon: Lightbulb,
           title: 'Что мы видим',
           text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(0)}% медиа-вклада в продажи.`,
           detail: 'Все каналы сбалансированы по эффективности (gap в пределах ±10%). Проверьте оптимизацию для прироста при тех же ресурсах.',
@@ -110,7 +110,7 @@
     const totalSpend = channels.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (c.spend || 0), 0);
     const shiftAmount = from.spend * 0.20;  // shift 20% от канала-донора
     return {
-      icon: '🎯',
+      icon: Target,
       title: 'Главная рекомендация',
       text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен, gap ${from.efficiency_gap.toFixed(0)}%) в «${to.name}» (недонасыщен, gap +${to.efficiency_gap.toFixed(0)}%).`,
       detail: 'Точный расчёт прироста - на шаге «Оптимизация» через Forward solver. Goal-Seek позволит задать целевое значение продаж.',
@@ -513,7 +513,7 @@
     <!-- Insight banner -->
     {#if data.insight}
       <div class="insight-banner">
-        <span class="insight-icon">💡</span>
+        <span class="insight-icon"><Lightbulb size={18} strokeWidth={1.5} /></span>
         <p class="insight-text">{data.insight}</p>
         <button class="btn-rerun" onclick={() => runDecompose()} title="Пересчитать">↺</button>
       </div>
@@ -599,7 +599,7 @@
                 <!-- Trust Level 3 (v1.1.0): visual grouping per category -->
                 <tr class="group-header" class:gh-brand={groupKey === 'brand_reach'} class:gh-perf={groupKey === 'performance'} class:gh-mixed={groupKey === 'mixed'}>
                   <td colspan="7">
-                    {#if groupKey === 'brand_reach'}<Target size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Brand-каналы - long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}<ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Performance-каналы - short-decay (Search/Social){:else}⚪ Смешанные (single-prior){/if}
+                    {#if groupKey === 'brand_reach'}<Target size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Brand-каналы - long-decay (TV/TRPs/OOH){:else if groupKey === 'performance'}<ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Performance-каналы - short-decay (Search/Social){:else}<Circle size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Смешанные (single-prior){/if}
                     <span class="group-count">{groupChannels.length}</span>
                   </td>
                 </tr>

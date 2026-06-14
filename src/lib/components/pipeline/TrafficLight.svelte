@@ -27,7 +27,8 @@
     columns = [],
   } = $props();
 
-  import { X } from 'lucide-svelte';
+  import { X, CircleAlert, TriangleAlert } from 'lucide-svelte';
+  import { roleIcons } from '$lib/role-icons.js';
   import { validateData } from '$lib/project-state.js';
   import { fmtNum } from '$lib/fmt.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -46,12 +47,13 @@
   /** @type {string|null} */
   let editingCol = $state(null);
   // v2.1.0 (rc2 retry): унификация терминов с ColumnMapperConfirm (Nielsen MMM).
+  // Иконки ролей — единый источник $lib/role-icons.js (roleIcons[id]).
   const ROLE_OPTS = [
-    { id: 'media', icon: '📺', label: 'Медиа-канал' },
-    { id: 'kpi', icon: '📈', label: 'Целевая метрика' },
-    { id: 'control', icon: '🎛', label: 'Контрольная' },
-    { id: 'date', icon: '📅', label: 'Дата' },
-    { id: 'unused', icon: '🚫', label: 'Не использовать' },
+    { id: 'media', label: 'Медиа-канал' },
+    { id: 'kpi', label: 'Целевая метрика' },
+    { id: 'control', label: 'Контрольная' },
+    { id: 'date', label: 'Дата' },
+    { id: 'unused', label: 'Не использовать' },
   ];
   /** @param {string} colName @param {string} newRole */
   function setRole(colName, newRole) {
@@ -74,12 +76,13 @@
 
   /** @param {any} col */
   function roleLabel(col) {
+    // Только текст метки; иконка роли рендерится отдельным компонентом (roleIcons) в template.
     const map = /** @type {Record<string, string>} */ ({
-      kpi: '📈 Целевая метрика',
-      media: '📺 Медиа-канал',
-      control: '🎛 Контрольная',
-      date: '📅 Дата',
-      unused: '🚫 Не использовать',
+      kpi: 'Целевая метрика',
+      media: 'Медиа-канал',
+      control: 'Контрольная',
+      date: 'Дата',
+      unused: 'Не использовать',
       unknown: '?',
     });
     return map[col.role] ?? col.role;
@@ -141,16 +144,20 @@
   {#if detected}
     <div class="detected-row">
       {#if detected.kpi?.length}
-        <span class="det-chip kpi">📈 KPI: {detected.kpi.join(', ')}</span>
+        {@const KpiIcon = roleIcons.kpi}
+        <span class="det-chip kpi"><KpiIcon size={13} strokeWidth={1.5} style="vertical-align: -0.15em" /> KPI: {detected.kpi.join(', ')}</span>
       {/if}
       {#if detected.media?.length}
-        <span class="det-chip media">📺 Медиа: {detected.media.length} канал{detected.media.length === 1 ? '' : 'ов'}</span>
+        {@const MediaIcon = roleIcons.media}
+        <span class="det-chip media"><MediaIcon size={13} strokeWidth={1.5} style="vertical-align: -0.15em" /> Медиа: {detected.media.length} канал{detected.media.length === 1 ? '' : 'ов'}</span>
       {/if}
       {#if detected.control?.length}
-        <span class="det-chip control">🎛 Контроль: {detected.control.length}</span>
+        {@const ControlIcon = roleIcons.control}
+        <span class="det-chip control"><ControlIcon size={13} strokeWidth={1.5} style="vertical-align: -0.15em" /> Контроль: {detected.control.length}</span>
       {/if}
       {#if detected.date}
-        <span class="det-chip date">📅 {detected.date}</span>
+        {@const DateIcon = roleIcons.date}
+        <span class="det-chip date"><DateIcon size={13} strokeWidth={1.5} style="vertical-align: -0.15em" /> {detected.date}</span>
       {/if}
       {#if detected.ratio}
         <Tooltip text={TOOLTIPS['col.ratio']} position="top">
@@ -167,7 +174,7 @@
     <div class="issue-list">
       {#each issues as issue}
         <div class="issue-item critical">
-          <span class="issue-icon">🔴</span>
+          <span class="issue-icon" style="color:#ef4444"><CircleAlert size={14} strokeWidth={1.75} /></span>
           <span class="issue-msg">{issue.message}</span>
         </div>
       {/each}
@@ -179,7 +186,7 @@
     <div class="issue-list">
       {#each warnings as w}
         <div class="issue-item warning">
-          <span class="issue-icon">🟡</span>
+          <span class="issue-icon" style="color:#f59e0b"><TriangleAlert size={14} strokeWidth={1.75} /></span>
           <div class="issue-msg">
             {w.message}
             {#if w.action}
@@ -233,12 +240,14 @@
                     {#if editingCol === col.name}
                       <div class="role-picker-inline">
                         {#each ROLE_OPTS as opt}
-                          <button class="rp-btn" class:active={col.role === opt.id} onclick={() => setRole(col.name, opt.id)}>{opt.icon} {opt.label}</button>
+                          {@const ROIcon = roleIcons[opt.id]}
+                          <button class="rp-btn" class:active={col.role === opt.id} onclick={() => setRole(col.name, opt.id)}>{#if ROIcon}<ROIcon size={13} strokeWidth={1.5} style="vertical-align: -0.15em" /> {/if}{opt.label}</button>
                         {/each}
                         <button class="rp-btn rp-close" onclick={() => editingCol = null} aria-label="Закрыть"><X size={12} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
                       </div>
                     {:else}
-                      <button class="role-click" class:unknown={!col.role || col.role === 'unknown'} onclick={() => editingCol = col.name} title="Нажмите для изменения">{roleLabel(col)}</button>
+                      {@const RLIcon = roleIcons[col.role]}
+                      <button class="role-click" class:unknown={!col.role || col.role === 'unknown'} onclick={() => editingCol = col.name} title="Нажмите для изменения">{#if RLIcon}<RLIcon size={13} strokeWidth={1.5} style="vertical-align: -0.15em" /> {/if}{roleLabel(col)}</button>
                     {/if}
                   </td>
                   <td class="mono">{fmtNum(col.stats.min)}</td>

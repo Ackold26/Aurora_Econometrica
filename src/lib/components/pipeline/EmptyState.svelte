@@ -27,7 +27,7 @@
    * @type {{
    *   title?: string,
    *   body?: string,
-   *   icon?: string,
+   *   icon?: string | any,
    *   variant?: 'info' | 'action',
    *   ctaText?: string,
    *   onCta?: () => void,
@@ -45,6 +45,8 @@
   } = $props();
 
   const hasCta = $derived(Boolean(ctaText && onCta));
+  // icon может быть Lucide-компонентом (предпочтительно) или строкой-эмодзи (legacy).
+  const isComponentIcon = $derived(typeof icon === 'function');
 </script>
 
 <div
@@ -53,7 +55,10 @@
   role="status"
   data-testid="empty-state"
 >
-  {#if icon}
+  {#if isComponentIcon}
+    {@const IconComponent = icon}
+    <div class="empty-icon" aria-hidden="true"><IconComponent size={24} strokeWidth={1.5} /></div>
+  {:else if icon}
     <div class="empty-icon" aria-hidden="true">{icon}</div>
   {/if}
   {#if title}

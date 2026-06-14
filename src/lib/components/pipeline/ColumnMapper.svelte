@@ -16,6 +16,7 @@
    * }}
    */
   import { X } from 'lucide-svelte';
+  import { roleIcons } from '$lib/role-icons.js';
 
   let {
     columns = [],
@@ -25,11 +26,12 @@
 
   // ── Zones ──────────────────────────────────────────
   // v2.1.0 (rc2 retry): унифицированные термины с ColumnMapperConfirm (Nielsen MMM).
+  // Иконки ролей — единый источник $lib/role-icons.js (roleIcons[id]), массив несёт только id/label/desc.
   const ZONES = [
-    { id: 'kpi',     label: 'Целевая метрика',  icon: '📈', desc: 'Целевой показатель (продажи, конверсии)' },
-    { id: 'media',   label: 'Медиа-канал',      icon: '📺', desc: 'Расходы, контакты, показы, цены, промо' },
-    { id: 'control', label: 'Контрольная',      icon: '🎛', desc: 'Сезонность, погода, конкуренты, SOV' },
-    { id: 'date',    label: 'Дата',             icon: '📅', desc: 'Столбец с датой / периодом' },
+    { id: 'kpi',     label: 'Целевая метрика',  desc: 'Целевой показатель (продажи, конверсии)' },
+    { id: 'media',   label: 'Медиа-канал',      desc: 'Расходы, контакты, показы, цены, промо' },
+    { id: 'control', label: 'Контрольная',      desc: 'Сезонность, погода, конкуренты, SOV' },
+    { id: 'date',    label: 'Дата',             desc: 'Столбец с датой / периодом' },
   ];
 
   // ── Mapping state ──────────────────────────────────
@@ -314,8 +316,9 @@
           {#if selectedColumn === col.name}
             <div class="inline-role-picker">
               {#each ZONES as z}
+                {@const ZIcon = roleIcons[z.id]}
                 <button class="quick-role-btn zone-{z.id}" onclick={() => { moveColumn(col.name, z.id); selectedColumn = null; }}>
-                  {z.icon} {z.label}
+                  {#if ZIcon}<ZIcon size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {/if}{z.label}
                 </button>
               {/each}
               <button class="quick-role-btn zone-unused" onclick={() => { moveColumn(col.name, 'unknown'); selectedColumn = null; }}>
@@ -324,10 +327,11 @@
             </div>
           {/if}
         {:else}
+          {@const ZBIcon = roleIcons[zone]}
           <!-- Assigned - shown in zone, greyed out here -->
           <div class="col-chip assigned" title="Назначен: {zone}">
             <span class="chip-name">{col.name}</span>
-            <span class="chip-zone-badge zone-{zone}">{ZONES.find(z => z.id === zone)?.icon}</span>
+            <span class="chip-zone-badge zone-{zone}">{#if ZBIcon}<ZBIcon size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />{/if}</span>
           </div>
         {/if}
       {/each}
@@ -342,6 +346,7 @@
   <div class="zones-grid">
     {#each ZONES as zone (zone.id)}
       {@const items = /** @type {string[]} */ ((/** @type {Record<string, string[]>} */(zoneItems))[zone.id] ?? [])}
+      {@const ZHIcon = roleIcons[zone.id]}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="zone"
@@ -352,7 +357,7 @@
         onclick={() => assignToZone(zone.id)}
       >
         <div class="zone-header">
-          <span class="zone-icon">{zone.icon}</span>
+          <span class="zone-icon">{#if ZHIcon}<ZHIcon size={18} strokeWidth={1.5} style="vertical-align: -0.15em" />{/if}</span>
           <div>
             <div class="zone-label">{zone.label}</div>
             <div class="zone-desc">{zone.desc}</div>

@@ -10,6 +10,7 @@
   import { validateData } from '$lib/project-state.js';
   import { fmtNum, fmtPct } from '$lib/fmt.js';
   import { X } from 'lucide-svelte';
+  import { roleIcons } from '$lib/role-icons.js';
 
   const result = $derived($validateData?.result);
 
@@ -48,12 +49,13 @@
   // v2.1.0 (rc2 retry): унификация терминов с ColumnMapperConfirm.
   // Раньше использовались короткие термины (Медиа / KPI / Внешние /
   // Исключить), теперь полные общепринятые из MMM (Nielsen / Kantar).
+  // Иконки ролей — единый источник $lib/role-icons.js (roleIcons[id]).
   const ROLE_OPTIONS = [
-    { id: 'media',   icon: '📺', label: 'Медиа-канал' },
-    { id: 'kpi',     icon: '📈', label: 'Целевая метрика' },
-    { id: 'control', icon: '🎛', label: 'Контрольная' },
-    { id: 'date',    icon: '📅', label: 'Дата' },
-    { id: 'unused',  icon: '🚫', label: 'Не использовать' },
+    { id: 'media',   label: 'Медиа-канал' },
+    { id: 'kpi',     label: 'Целевая метрика' },
+    { id: 'control', label: 'Контрольная' },
+    { id: 'date',    label: 'Дата' },
+    { id: 'unused',  label: 'Не использовать' },
   ];
 
   /** @param {string} colName @param {string} newRole */
@@ -77,7 +79,8 @@
   function roleLabel(role) {
     if (!role || role === 'unknown') return '?';
     const opt = ROLE_OPTIONS.find(o => o.id === role);
-    return opt ? `${opt.icon} ${opt.label}` : role;
+    // Только текст; иконка роли рендерится отдельным компонентом (roleIcons) в template.
+    return opt ? opt.label : role;
   }
 </script>
 
@@ -163,17 +166,19 @@
                 {#if editingColumn === row.name}
                   <div class="role-picker">
                     {#each ROLE_OPTIONS as opt}
+                      {@const OptIcon = roleIcons[opt.id]}
                       <button
                         class="role-option"
                         class:active={row.role === opt.id}
                         onclick={() => assignRole(row.name, opt.id)}
                       >
-                        {opt.icon} {opt.label}
+                        {#if OptIcon}<OptIcon size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {/if}{opt.label}
                       </button>
                     {/each}
                     <button class="role-option role-cancel" onclick={() => editingColumn = null} aria-label="Отмена"><X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></button>
                   </div>
                 {:else}
+                  {@const RowIcon = roleIcons[row.role]}
                   <button
                     class="role-badge"
                     class:unknown={!row.role || row.role === 'unknown'}
@@ -181,7 +186,7 @@
                     onclick={() => editingColumn = row.name}
                     title="Нажмите для изменения роли"
                   >
-                    {roleLabel(row.role)}
+                    {#if RowIcon}<RowIcon size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {/if}{roleLabel(row.role)}
                   </button>
                 {/if}
               </td>

@@ -17,7 +17,7 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
-  import { Check, Target, ChartColumn } from 'lucide-svelte';
+  import { Check, Target, ChartColumn, Circle } from 'lucide-svelte';
   import {
     activeProjectId, activeProject, channelCategories,
     decomposeData, optimizeData,
@@ -33,9 +33,9 @@
   let editingChannel = $state(null);
 
   const BADGES = {
-    brand: { icon: '🎯', label: 'Brand', tone: 'brand' },
-    performance: { icon: '📊', label: 'Performance', tone: 'performance' },
-    mixed: { icon: '⚪', label: 'Смешанный', tone: 'mixed' },
+    brand: { Icon: Target, label: 'Brand', tone: 'brand' },
+    performance: { Icon: ChartColumn, label: 'Performance', tone: 'performance' },
+    mixed: { Icon: Circle, label: 'Смешанный', tone: 'mixed' },
   };
 
   /** @type {Record<'brand' | 'performance' | 'mixed', string>} */
@@ -226,7 +226,7 @@
     <span class="count brand"><Target size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {groupCounts.brand} brand</span>
     <span class="count performance"><ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {groupCounts.perf} performance</span>
     {#if groupCounts.mixed > 0}
-      <span class="count mixed">⚪ {groupCounts.mixed} смешанных</span>
+      <span class="count mixed"><Circle size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {groupCounts.mixed} смешанных</span>
     {/if}
     <span class="status">
       {#if willUseHierarchical}
@@ -241,6 +241,7 @@
     {#each mediaChannels as ch (ch)}
       {@const cat = resolvedCategories[ch] ?? 'mixed'}
       {@const badge = BADGES[cat]}
+      {@const BadgeIcon = badge.Icon}
       <button
         type="button"
         class="badge-row tone-{badge.tone}"
@@ -248,7 +249,7 @@
         aria-haspopup="dialog"
       >
         <span class="channel-name">{ch}</span>
-        <span class="badge-icon">{badge.icon}</span>
+        <span class="badge-icon"><BadgeIcon size={16} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
         <span class="badge-label">{badge.label}</span>
         <span class="edit-hint">▾</span>
       </button>
@@ -267,6 +268,7 @@
       <div class="popup-options">
         {#each CATEGORY_OPTIONS as opt (opt)}
           {@const badge = BADGES[opt]}
+          {@const OptIcon = badge.Icon}
           {@const isActive = editingChannel ? (resolvedCategories[editingChannel] ?? 'mixed') === opt : false}
           <button
             type="button"
@@ -275,7 +277,7 @@
             onclick={() => editingChannel && setCategory(editingChannel, opt)}
           >
             <span class="opt-head">
-              <span class="opt-icon">{badge.icon}</span>
+              <span class="opt-icon"><OptIcon size={16} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
               <strong>{badge.label}</strong>
               {#if isActive}<span class="check"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>{/if}
             </span>

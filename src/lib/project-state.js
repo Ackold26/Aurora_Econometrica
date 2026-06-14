@@ -68,13 +68,16 @@ export const pipelineStep = derived(pipelineState, ($s) => {
 // Phase 1: Visual Pipeline State Machine (6 steps)
 // ===================================================================
 
+// Иконка шага — Lucide-компонент по id из $lib/step-icons.js (stepIcons[id]).
+// Сама карта вынесена в отдельный модуль, чтобы lucide-svelte НЕ попадал в граф
+// зависимостей этого core-стора (барель ~1500 иконок раздувал transform тестов).
 export const PIPELINE_STEPS = [
-  { id: 'import',    label: 'Import',    labelRu: 'Импорт',       icon: '📥' },
-  { id: 'validate',  label: 'Validate',  labelRu: 'Валидация',    icon: '✅' },
-  { id: 'model',     label: 'Model',     labelRu: 'Модель',       icon: '🧠' },
-  { id: 'decompose', label: 'Decompose', labelRu: 'Декомпозиция', icon: '🔬' },
-  { id: 'optimize',  label: 'Optimize',  labelRu: 'Оптимизация',  icon: '🎯' },
-  { id: 'report',    label: 'Report',    labelRu: 'Отчёт',        icon: '📋' },
+  { id: 'import',    label: 'Import',    labelRu: 'Импорт' },
+  { id: 'validate',  label: 'Validate',  labelRu: 'Валидация' },
+  { id: 'model',     label: 'Model',     labelRu: 'Модель' },
+  { id: 'decompose', label: 'Decompose', labelRu: 'Декомпозиция' },
+  { id: 'optimize',  label: 'Optimize',  labelRu: 'Оптимизация' },
+  { id: 'report',    label: 'Report',    labelRu: 'Отчёт' },
 ];
 
 /**

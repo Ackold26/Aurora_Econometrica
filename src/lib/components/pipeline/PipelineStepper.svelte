@@ -1,6 +1,7 @@
 <script>
   import { Check, X } from 'lucide-svelte';
   import { PIPELINE_STEPS, pipelineCurrentStep, pipelineStepMeta } from '$lib/project-state.js';
+  import { stepIcons } from '$lib/step-icons.js';
 
   /** @type {{ onNavigate: (step: number) => void }} */
   let { onNavigate } = $props();
@@ -47,7 +48,7 @@
         {#if effectiveStatus === 'complete'}<Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />
         {:else if effectiveStatus === 'error'}<X size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />
         {:else if effectiveStatus === 'locked'}-
-        {:else}{step.icon}{/if}
+        {:else}{@const StepIcon = stepIcons[step.id]}<StepIcon size={14} strokeWidth={1.5} style="vertical-align: -0.15em" />{/if}
       </span>
       <span class="node-label">{step.labelRu}</span>
     </button>

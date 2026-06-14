@@ -6,6 +6,7 @@
    */
   import { Check, X } from 'lucide-svelte';
   import { PIPELINE_STEPS, pipelineCurrentStep, pipelineStepMeta, validationHeaderMetrics } from '$lib/project-state.js';
+  import { stepIcons } from '$lib/step-icons.js';
 
   /** helpPage сохранён как prop для обратной совместимости с /pipeline/+page.svelte,
       но сама кнопка «?» больше здесь не рендерится - она переехала в header pipeline. */
@@ -13,6 +14,8 @@
   let { step, helpPage: _helpPage, children } = $props();
 
   const stepDef = $derived(PIPELINE_STEPS[step]);
+  // Lucide-компонент иконки шага; рендерится напрямую (runes mode — компоненты динамические).
+  const StepIcon = $derived(stepIcons[stepDef.id]);
   const meta = $derived($pipelineStepMeta[step]);
   const isActive = $derived(step === $pipelineCurrentStep);
 
@@ -31,7 +34,7 @@
   aria-hidden={!isActive}
 >
   <div class="step-header">
-    <span class="step-icon">{stepDef.icon}</span>
+    <span class="step-icon"><StepIcon size={18} strokeWidth={1.5} /></span>
     <h2 class="step-title">{stepDef.labelRu}</h2>
     {#if validationMetrics}
       <div class="key-metrics" aria-label="Ключевые параметры валидации">

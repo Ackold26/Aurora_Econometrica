@@ -31,7 +31,7 @@
   // H-10a + H-10b (Партия 4): reusable empty state + loading skeleton.
   import EmptyState from './EmptyState.svelte';
   import LoadingSkeleton from './LoadingSkeleton.svelte';
-  import { Check, TriangleAlert } from 'lucide-svelte';
+  import { Check, TriangleAlert, Import } from 'lucide-svelte';
 
   /**
    * @typedef {{ name: string, detectedType: 'monetary' | 'physical' }} ChannelInfo
@@ -382,7 +382,7 @@
   {:else}
     <!-- H-10a - use reusable EmptyState (Phase 2.15 was created but unused). -->
     <EmptyState
-      icon="📥"
+      icon={Import}
       title="Каналы не определены"
       body="После импорта данных мы автоматически определим типы колонок (медиа, контроль, KPI) и покажем их здесь."
       variant="info"
