@@ -1531,6 +1531,19 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         },
     }
 
+    # M2 honesty-gate (2026-06-13, PRD §п2): model-reliability verdict, который
+    # оптимизатор обязан нести ДО того, как UI покажет переброску. SSOT =
+    # results/model-diagnostics.json (pickle.mcmc_diagnostics пуст; rHat/divergences/
+    # ratio живут только там). Гибрид: unreliable→refused (UI прячет переброску),
+    # uncertain→caveat+бенды, reliable→как есть. См. utils.optimizer_honesty +
+    # tools/probe_optimizer_honesty_kagocel.py (гэп доказан на реальном Кагоцеле).
+    from utils.optimizer_honesty import (
+        load_model_diagnostics,
+        model_reliability_verdict,
+    )
+    result_data['model_reliability'] = model_reliability_verdict(
+        load_model_diagnostics(project_path))
+
     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
     from utils.safe_io import sanitize_nonfinite
     results_dir = project_path / 'results'

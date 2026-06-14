@@ -336,6 +336,10 @@
 
   // Current data from store
   const optData = $derived($optimizeData);
+  // M2 honesty-gate (PRD §п2): model-reliability verdict из backend (SSOT,
+  // utils.optimizer_honesty). UI потребляет verbatim, не пере-выводит (INV-50).
+  // reliable → пусто; uncertain → caveat+бенды; unreliable → refused (переброска скрыта).
+  const modelReliability = $derived(optData?.model_reliability ?? null);
   const mData = $derived($modelData);
   const dData = $derived($decomposeData);
 
@@ -1472,6 +1476,10 @@
   /** Apply optimal budgets to sliders with animation */
   function applyOptimal() {
     if (!optimalBudgets) return;
+    // M2 honesty-gate: при unreliable модели (refused) НЕ авто-применяем переброску
+    // на слайдеры — «не давать совет по переброске на несошедшейся модели» (PRD §п2,
+    // решение grill-me 2026-06-13). Баннер объясняет почему; слайдеры остаются на current.
+    if ($optimizeData?.model_reliability?.refused) return;
     // Animate: set budgets step by step over 800ms
     const start = { ...channelBudgets };
     const end = optimalBudgets;
@@ -1562,6 +1570,31 @@
   <!-- Trust banner - наследуем smell_flags от decompose -->
   {#if dData?.smell_flags?.length}
     <TrustBanner flags={dData.smell_flags} />
+  {/if}
+
+  <!-- M2 honesty-gate (PRD §п2): model-reliability баннер. uncertain → янтарный
+       caveat+причины (совет даётся, но ориентировочный); unreliable → красный отказ
+       (переброска не авто-применяется, applyOptimal() guard). reliable → пусто.
+       Источник = backend model_reliability (SSOT), потребляем verbatim (INV-50). -->
+  {#if modelReliability?.caveat_text}
+    <div class="reliability-banner" class:refused={modelReliability.refused} role="alert">
+      <span class="banner-icon"><AlertTriangle size={16} strokeWidth={1.5} /></span>
+      <div class="banner-body">
+        <div class="banner-title">
+          {modelReliability.refused
+            ? 'Переброска бюджета отключена — модель не завершила расчёт корректно'
+            : 'Рекомендации ориентировочные — ограниченная надёжность модели'}
+        </div>
+        <div class="banner-text">{modelReliability.caveat_text}</div>
+        {#if modelReliability.reasons?.length}
+          <ul class="reliability-reasons">
+            {#each modelReliability.reasons as reason}
+              <li>{reason}</li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    </div>
   {/if}
 
   <!-- ══════════ v1.3.0 - Task toggle (Forward | Goal-Seek) per ADR-014 ══════════ -->
@@ -2646,6 +2679,50 @@
     color: var(--text-primary);
     line-height: 1.5;
   }
+
+  /* M2 honesty-gate banner. Тема-токены (--warn-text/--danger/--text-*), НЕ
+     хардкод светлого текста — иначе нечитаемо на беж/песок (палитра-урок). */
+  .reliability-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin-bottom: 14px;
+    background: var(--warn-bg, rgba(255, 176, 32, 0.1));
+    border: 1px solid var(--warn-border, rgba(255, 176, 32, 0.45));
+  }
+  .reliability-banner.refused {
+    background: color-mix(in srgb, var(--danger) 9%, transparent);
+    border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+  }
+  .reliability-banner .banner-icon {
+    flex-shrink: 0;
+    margin-top: 1px;
+    color: var(--warn-text, #b07a00);
+    display: inline-flex;
+  }
+  .reliability-banner.refused .banner-icon { color: var(--danger); }
+  .reliability-banner .banner-body { display: flex; flex-direction: column; gap: 4px; }
+  .reliability-banner .banner-title {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--warn-text, #b07a00);
+  }
+  .reliability-banner.refused .banner-title { color: var(--danger); }
+  .reliability-banner .banner-text {
+    font-size: 0.86rem;
+    color: var(--text-primary);
+    line-height: 1.5;
+  }
+  .reliability-reasons {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .reliability-reasons li { margin: 2px 0; }
 
   .optimize-step {
     /* Скрол владеет .pipeline-main - здесь никаких overflow / height: 100%,
