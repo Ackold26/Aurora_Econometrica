@@ -190,8 +190,8 @@
   .tip-badge {
     font-size: 11px; font-weight: 600;
     padding: 2px 8px; border-radius: 10px;
-    background: rgba(132, 204, 22, 0.16);
-    color: rgba(163, 230, 53, 0.95);
+    background: color-mix(in srgb, var(--success) 16%, transparent);
+    color: var(--success);
   }
 
   .panel-hint {
@@ -228,7 +228,7 @@
     padding: 2px 6px; border-radius: 6px;
     flex-shrink: 0;
   }
-  .tier-uninformative { background: rgba(132, 204, 22, 0.16); color: rgba(163, 230, 53, 0.95); }
-  .tier-informative { background: rgba(110, 168, 254, 0.16); color: rgba(147, 197, 253, 0.95); }
+  .tier-uninformative { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+  .tier-informative { background: color-mix(in srgb, var(--color-info) 16%, transparent); color: var(--color-info); }
   .tier-weak { background: color-mix(in srgb, var(--text-primary, #fff) 8%, transparent); color: var(--text-muted, rgba(255, 255, 255, 0.55)); }
 </style>
