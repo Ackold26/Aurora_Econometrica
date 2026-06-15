@@ -1,6 +1,6 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
-    "productName": "Aurora AI Econometrica",
+    "productName": "Optimizer MMM",
     "version": "2.1.0",
     "identifier": "com.aurora.econometrica",
     "build": {
