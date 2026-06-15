@@ -3,7 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { activeBrand, activeWorkflow, workflowView, isCreativeHub } from '$lib/creative-store.js';
-  import { activeCabinet } from '$lib/store.js';
+  import { activeCabinet, cloudConsentPromptOpen } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
   import { estimateSavedTime, pluralRu } from '$lib/psy.js';
   import { Star } from 'lucide-svelte';
@@ -109,6 +109,19 @@
     } catch { /* notification not available */ }
   }
 
+  /** Если ошибка выполнения — требование согласия на облачную обработку (бэкенд-гейт
+   * run_claude_pipeline возвращает [CL-CONSENT]), открыть экран согласия. Единый
+   * чок-поинт для workflow-пути (кабинет-путь покрыт гейтом /cabinet).
+   * @param {unknown} err
+   * @returns {boolean} true, если это случай согласия */
+  function maybeCloudConsentPrompt(err) {
+    if (err != null && String(err).includes('CL-CONSENT')) {
+      cloudConsentPromptOpen.set(true);
+      return true;
+    }
+    return false;
+  }
+
   async function runPipeline() {
     const brandId = $activeBrand?.brand_id || '';
     if (!workflow || !brandId || executionStatus === 'running') return;
@@ -146,13 +159,21 @@
             showCelebration = true;
             sendPipelineNotification(workflow.name, sc, timeSec);
           } else if (data.status === 'failed') {
-            toast(`Ошибка: ${data.error || ''}`, 'error');
+            if (maybeCloudConsentPrompt(data.error)) {
+              toast('Нужно согласие на облачную обработку для кабинетов-советников', 'error', 6000);
+            } else {
+              toast(`Ошибка: ${data.error || ''}`, 'error');
+            }
             sendPipelineNotification(workflow.name, 0, 0, data.error);
           }
         }
       });
     } catch (err) {
-      toast(`Ошибка запуска: ${err}`, 'error');
+      if (maybeCloudConsentPrompt(err)) {
+        toast('Нужно согласие на облачную обработку для кабинетов-советников', 'error', 6000);
+      } else {
+        toast(`Ошибка запуска: ${err}`, 'error');
+      }
       executionStatus = null;
     }
   }
@@ -324,13 +345,21 @@
             showCelebration = true;
             sendPipelineNotification(workflow.name, sc, timeSec);
           } else if (data.status === 'failed') {
-            toast(`Workflow ошибка: ${data.error || ''}`, 'error');
+            if (maybeCloudConsentPrompt(data.error)) {
+              toast('Нужно согласие на облачную обработку для кабинетов-советников', 'error', 6000);
+            } else {
+              toast(`Workflow ошибка: ${data.error || ''}`, 'error');
+            }
             sendPipelineNotification(workflow.name, 0, 0, data.error);
           }
         }
       });
     } catch (err) {
-      toast(`Ошибка запуска: ${err}`, 'error');
+      if (maybeCloudConsentPrompt(err)) {
+        toast('Нужно согласие на облачную обработку для кабинетов-советников', 'error', 6000);
+      } else {
+        toast(`Ошибка запуска: ${err}`, 'error');
+      }
       executionStatus = null;
     }
   }

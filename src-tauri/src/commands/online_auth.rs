@@ -64,6 +64,12 @@ struct AuthRequest {
     content_version: String,
     hostname: String,
     product: String,
+    /// Аудит-след согласия на облачную обработку (облачная редакция). Отсутствует, если
+    /// согласие не давалось или для редакций/продуктов без него (skip → payload как раньше).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    consent_terms_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    consent_accepted_at: Option<i64>,
 }
 
 /// Request body for POST /heartbeat.
@@ -249,6 +255,14 @@ pub async fn check_auth(
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_default();
 
+    // Аудит-след согласия на облачную обработку: читаем зафиксированное согласие из
+    // durable-конфига и прикладываем к auth-запросу (сервер пишет в audit_log).
+    let (consent_terms_version, consent_accepted_at) =
+        match crate::commands::user_config::load(app_config_dir).cloud_consent {
+            Some(c) => (Some(c.terms_version), Some(c.accepted_at)),
+            None => (None, None),
+        };
+
     let req = AuthRequest {
         fingerprint_hash: fp_hash,
         instance_id,
@@ -257,6 +271,8 @@ pub async fn check_auth(
         content_version: content_version.to_string(),
         hostname,
         product: detect_product().to_string(),
+        consent_terms_version,
+        consent_accepted_at,
     };
 
     let client = build_client()?;
