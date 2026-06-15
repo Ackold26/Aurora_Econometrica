@@ -272,6 +272,38 @@ mod tests {
         assert!(!result.unwrap(), "64-byte garbage signature should not verify as valid");
     }
 
+    #[test]
+    fn expired_subscription_license_rejected_li005() {
+        // Срочная лицензия (режим годовой подписки): по истечении срока validate() обязана
+        // вернуть valid=false с кодом LI005. Привязываемся к РЕАЛЬНОМУ отпечатку машины, чтобы
+        // пройти проверку machine-binding (она раньше проверки срока) и дойти до неё. expires в
+        // прошлом → ветка LI005 (раньше проверки подписи), поэтому подпись может быть пустой.
+        // Если отпечаток недоступен в среде — тест корректно пропускается.
+        let Ok(fp) = fingerprint::get_machine_fingerprint() else { return; };
+        let fp_hash = fingerprint::hash_fingerprint(&fp);
+        let lic = License {
+            license_id: "TEST-EXPIRED".into(),
+            issued_to: "Pilot Co".into(),
+            expires_at: "2020-01-01".into(), // срок в прошлом
+            machine_fingerprint_hash: fp_hash,
+            cabinets: vec!["econometrist".into()],
+            salt: String::new(),
+            signature: String::new(),
+        };
+        let status = lic.validate().expect("validate() возвращает Ok даже для недействительных лицензий");
+        let actual_err = status.error.clone().unwrap_or_default();
+        // Security property: истёкшая лицензия отклонена, а срок распознан как прошедший
+        // (days_remaining возвращается во всех ветках, поэтому проверка устойчива).
+        assert!(!status.valid, "Истёкшая лицензия должна быть отклонена, ошибка: {actual_err:?}");
+        assert!(status.days_remaining < 0, "days_remaining должен быть отрицательным для истёкшей лицензии");
+        // На машине с корректными часами (сборка в прошлом) причина отказа — именно истечение
+        // LI-005. В окружении, где сборка «из будущего» относительно системных часов, раньше
+        // срабатывает LI-009 (anti-rollback) — это тоже корректный отказ.
+        if !actual_err.contains("LI-009") {
+            assert!(actual_err.contains("LI-005"), "Ожидался LI-005, фактически: {actual_err:?}");
+        }
+    }
+
     /// Без feature `legacy_aiagency_fallback` resolve_license_path НЕ должен
     /// возвращать legacy path, даже если файл реально существует.
     #[cfg(not(feature = "legacy_aiagency_fallback"))]
