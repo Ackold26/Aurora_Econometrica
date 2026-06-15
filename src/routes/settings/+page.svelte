@@ -1,7 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { theme, toggleTheme } from '$lib/store.js';
+  import { theme, toggleTheme, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
   import { productType } from '$lib/creative-store.js';
   import { getProductName, filterCabinetsByProduct } from '$lib/command-meta.js';
   import { getVersion } from '@tauri-apps/api/app';
@@ -14,6 +14,34 @@
   import { resolveLicenseTier } from '$lib/license-display.js';
 
   let audioEnabled = $state(isAudioEnabled());
+
+  // Cloud-consent (облачная редакция): отзыв — прямое действие тумблера; выдача — через
+  // экран согласия с чекбоксом-подтверждением (не молчаливый grant). Секция видна только
+  // в облачной редакции ($cloudConsent.advisorsEnabled).
+  let consentBusy = $state(false);
+  let consentMsg = $state('');
+  async function withdrawConsent() {
+    if (consentBusy) return;
+    consentBusy = true;
+    consentMsg = '';
+    try {
+      await invoke('withdraw_cloud_consent');
+      cloudConsent.update((c) => ({ ...c, granted: false }));
+      consentMsg = '✓ Облачная обработка отключена. Кабинеты-советники недоступны; MMM-анализ работает.';
+      setTimeout(() => { consentMsg = ''; }, 7000);
+    } catch (e) {
+      consentMsg = 'Ошибка: ' + String(e);
+    } finally {
+      consentBusy = false;
+    }
+  }
+  function toggleCloudConsent() {
+    if ($cloudConsent.granted) {
+      withdrawConsent();
+    } else {
+      cloudConsentPromptOpen.set(true);
+    }
+  }
 
   // Econometrica projects root
   /** @type {{current: string, default: string, is_custom: boolean} | null} */
@@ -481,6 +509,43 @@
         </select>
       </div>
     </section>
+
+    {#if $cloudConsent.advisorsEnabled}
+      <section class="section">
+        <h2 class="section-title">Облачная обработка (кабинеты-советники)</h2>
+        <p class="section-desc">
+          Кабинеты-советники отправляют контекст задачи в Anthropic (Claude) по вашей команде.
+          MMM-анализ всегда выполняется локально. Отключение делает советников недоступными –
+          расчёты продолжают работать. Включение запросит согласие на облачную обработку.
+        </p>
+        <div class="theme-toggle-row">
+          <span class="theme-label">Облачная обработка</span>
+          <button
+            class="theme-toggle"
+            onclick={toggleCloudConsent}
+            disabled={consentBusy}
+            aria-label="Toggle cloud processing consent"
+          >
+            {#if $cloudConsent.granted}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <span>Включена</span>
+            {:else}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+              </svg>
+              <span>Выключена</span>
+            {/if}
+          </button>
+        </div>
+        {#if consentMsg}
+          <p class="import-status" style="color: {consentMsg.startsWith('Ошибка') ? 'var(--danger)' : 'var(--success)'}; margin-top: 8px;">{consentMsg}</p>
+        {/if}
+      </section>
+    {/if}
 
     <section class="section">
       <h2 class="section-title">Справочный центр</h2>

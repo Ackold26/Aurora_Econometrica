@@ -4,11 +4,12 @@
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError } from '$lib/store.js';
+  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
   import { initCreativeStore, productType } from '$lib/creative-store.js';
   import { toasts, dismiss } from '$lib/toast.js';
   import { onMount } from 'svelte';
   import UpdateBlockingOverlay from '$lib/components/UpdateBlockingOverlay.svelte';
+  import CloudConsentOverlay from '$lib/components/CloudConsentOverlay.svelte';
   import Toast from '$lib/components/Toast.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import NavRail from '$lib/components/NavRail.svelte';
@@ -201,6 +202,24 @@
       heartbeat();
     })();
 
+    // Cloud-consent (облачная редакция): получить статус и при необходимости показать
+    // экран согласия на first-run. Graceful — MMM доступен и без согласия; экран лишь
+    // информирует и разблокирует кабинеты-советники. В локальной редакции advisorsEnabled=false.
+    (async () => {
+      try {
+        const st = /** @type {{cloud_advisors_enabled: boolean, consent_required: boolean}} */ (
+          await invoke('get_cloud_consent_status')
+        );
+        const advisorsEnabled = !!st?.cloud_advisors_enabled;
+        const granted = !st?.consent_required;
+        cloudConsent.set({ advisorsEnabled, granted, loaded: true });
+        if (advisorsEnabled && !granted) cloudConsentPromptOpen.set(true);
+      } catch {
+        // Статус недоступен → гейт не активируем (бэкенд run_claude всё равно не даст egress без согласия).
+        cloudConsent.set({ advisorsEnabled: false, granted: false, loaded: true });
+      }
+    })();
+
     // Update check on app start (heartbeat moved inside async after get_cabinets)
     checkFullUpdate();
     const interval = setInterval(heartbeat, HEARTBEAT_INTERVAL);
@@ -214,6 +233,7 @@
 </script>
 
 <UpdateBlockingOverlay />
+<CloudConsentOverlay />
 <CommandPalette open={paletteOpen} onClose={() => paletteOpen = false} />
 
 {#if $showGlossaryPanel}

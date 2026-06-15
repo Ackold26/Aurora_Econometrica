@@ -1930,6 +1930,48 @@ fn set_model_settings(model: String, effort: String, app_handle: tauri::AppHandl
     user_config::save(&config_dir, &config)
 }
 
+// ============== Cloud Processing Consent (облачная редакция) ==============
+
+/// Статус согласия на облачную обработку для фронта: включена ли облачная редакция
+/// и нужно ли показать блокирующий экран согласия.
+#[tauri::command]
+fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "cloud_advisors_enabled": claude::CLOUD_ADVISORS_ENABLED,
+        "consent_required": user_config::cloud_consent_required(&config_dir),
+        "terms_version": user_config::CLOUD_CONSENT_TERMS_VERSION,
+    }))
+}
+
+/// Зафиксировать согласие пользователя на облачную обработку (текущая версия условий).
+/// Durable backend-persist — переживает очистку WebView2-кэша.
+#[tauri::command]
+fn accept_cloud_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    let accepted_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    config.cloud_consent = Some(user_config::CloudConsent {
+        terms_version: user_config::CLOUD_CONSENT_TERMS_VERSION,
+        accepted_at,
+    });
+    user_config::save(&config_dir, &config)
+}
+
+/// Отозвать согласие на облачную обработку. Graceful: MMM-анализ продолжает работать,
+/// кабинеты-советники становятся недоступны (egress-гейт run_claude снова сработает)
+/// до повторного согласия.
+#[tauri::command]
+fn withdraw_cloud_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    config.cloud_consent = None;
+    user_config::save(&config_dir, &config)
+}
+
 // ============== Econometrica Projects Root ==============
 
 /// Get current projects root path + default path for UI display.
@@ -3156,6 +3198,9 @@ fn build_app() -> Result<(), String> {
             open_econometrica_projects_root,
             get_model_settings,
             set_model_settings,
+            get_cloud_consent_status,
+            accept_cloud_consent,
+            withdraw_cloud_consent,
             list_vault_status,
             // export_logs removed - now internal helper, open_logs_folder uses it
             open_logs_folder,

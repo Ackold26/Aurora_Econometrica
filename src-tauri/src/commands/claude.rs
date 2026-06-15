@@ -86,6 +86,21 @@ pub fn user_message(err: &ClaudeError) -> String {
 /// статически недостижим (единственный путь спавна — `run_claude_inner` — за этим гейтом).
 pub const CLOUD_ADVISORS_ENABLED: bool = cfg!(feature = "cloud_advisors");
 
+/// Defense-in-depth: запретить egress к Anthropic, пока пользователь не дал согласие на
+/// облачную обработку. Блокирующий экран согласия — на фронте; это бэкенд-страховка на
+/// случай обхода UI. Тот же чок-поинт, что и egress-гард локальной редакции (run_claude*).
+#[cfg(feature = "cloud_advisors")]
+fn ensure_cloud_consent(app_handle: &tauri::AppHandle) -> Result<()> {
+    let config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| anyhow::anyhow!("app_config_dir: {e}"))?;
+    if crate::commands::user_config::cloud_consent_required(&config_dir) {
+        anyhow::bail!("[CL-CONSENT] Требуется согласие на облачную обработку перед использованием кабинетов-советников");
+    }
+    Ok(())
+}
+
 /// Spawn Claude Code CLI and stream output via Tauri events.
 /// Returns (session_id, response_text) - session ID for --resume and full response text.
 #[allow(clippy::too_many_arguments)]
@@ -106,6 +121,7 @@ pub async fn run_claude(
     }
     #[cfg(feature = "cloud_advisors")]
     {
+        ensure_cloud_consent(&app_handle)?;
         let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
         Ok((sid, response_text))
     }
@@ -127,6 +143,7 @@ pub async fn run_claude_pipeline(
     }
     #[cfg(feature = "cloud_advisors")]
     {
+        ensure_cloud_consent(&app_handle)?;
         // Pipeline phases always suppress export - final output is built by post-processor
         let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
         Ok((sid, response_text))

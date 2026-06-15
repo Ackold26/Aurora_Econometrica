@@ -2,7 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles } from '$lib/store.js';
+  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
   import { ChartColumn } from 'lucide-svelte';
   import { activeProject } from '$lib/project-state.js';
   import { getProductName, getCommandBrief, getCommandMeta } from '$lib/command-meta.js';
@@ -22,6 +22,17 @@
   if (!$activeCabinet) {
     goto('/');
   }
+
+  // Кабинеты-советники требуют согласия на облачную обработку (облачная редакция).
+  // Единый funnel: все точки открытия кабинета ведут на /cabinet, поэтому гейт здесь
+  // покрывает NavRail / главную / Ctrl+K / pipeline-chain. Graceful: без согласия вернуть
+  // на главную и открыть экран согласия — MMM-анализ при этом полностью доступен.
+  $effect(() => {
+    if ($cloudConsent.loaded && $cloudConsent.advisorsEnabled && !$cloudConsent.granted) {
+      cloudConsentPromptOpen.set(true);
+      goto('/');
+    }
+  });
 
   // C4: Cabinet Mastery Badge (Self-Determination Theory)
   // $milestones читается для реактивности - пересчитывается при каждом запросе
