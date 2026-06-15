@@ -2,6 +2,18 @@
 
 ---
 
+## v2.1.0 — STABLE (drop rc): honesty-ядро оптимизатора + локальная редакция + полировка + публикация (2026-06-14)
+
+Консолидирующая stable-пересборка (вбирает rc11 → 2.1.0). Опубликован клиентам: GitHub Release `aurora-releases` v2.1.0 + app_versions (`aurora-econometrica-gui` + `econometrica`) + fallback-манифест + content-pack v5 (Supabase). Unsigned (ООО нет), mandatory=false.
+
+- **Честность оптимизатора (M2):** детерминированный verdict-gate в sidecar (reliable/uncertain/unreliable) — отказ от советов по перебросу бюджета при несошедшейся модели (r_hat/дивергенции) и смешанных единицах; доверительные бенды + оговорки в зоне неопределённости (Ratio<4). Аудит: OLS никогда не «reliable» (режим малых данных), OVB-кап при исключённых праздниках.
+- **Holiday master-toggle:** `use_holidays` (default ON, opt-out) — отключение праздников снижает n_params, повышает Ratio при тонких/holiday-независимых данных.
+- **Локальная редакция (M1, 152-ФЗ):** build-вариант (feature `cloud_advisors`) — только MMM-пайплайн, 0 Claude egress (статически недостижим), кабинет-советник скрыт. + документ потоков данных `docs/DATA_FLOW.md`.
+- **Полировка:** иерархическая плашка контролей, дивергенции → Tier-3 actionable, тёплые акценты кабинетов (cab-accent), единый стиль иконок (эмодзи→Lucide во всём UI, включая data-объекты и пайплайн-шаги).
+- **Фиксы локальной редакции:** home-экран не зависает при 0 advisor-кабинетов; справка MMM в Ctrl+K по продукту, не по кабинету.
+
+---
+
 ## v2.1.0-rc9 — Help-redesign + honesty engine + LOAD-1 + UI polish + публикация (2026-06-07)
 
 Релиз вбирает rc7→rc9 (rc8 не публиковался). Опубликован клиентам через app_versions (`aurora-econometrica-gui` + `econometrica`) + GitHub Release `aurora-releases` + fallback-манифест. Unsigned (ООО нет), mandatory=false.
