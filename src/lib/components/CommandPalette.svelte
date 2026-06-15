@@ -2,7 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { activeCabinet, messages, pendingCommand } from '$lib/store.js';
-  import { isCreativeHub } from '$lib/creative-store.js';
+  import { isCreativeHub, isEconometrica } from '$lib/creative-store.js';
   import { getAllTerms } from '$lib/glossary.js';
   import { showGlossaryPanel, glossaryInitialTerm } from '$lib/project-state.js';
 
@@ -94,9 +94,10 @@
       }
 
       // v2.1 (Ctrl+K-рычаг): справка + глоссарий в палитре.
-      // Gating: только если есть кабинет «econometrist» (MMM-продукт).
-      const hasEconometrist = Array.isArray(cabinets) && cabinets.some((c) => c.id === 'econometrist');
-      if (hasEconometrist) {
+      // Gating: MMM-продукт Econometrica (обе редакции). Раньше гейтилось наличием кабинета
+      // econometrist, но локальная редакция (152-ФЗ) его скрывает → MMM-справка/глоссарий
+      // пропадали. Теперь — по продукту, не по advisor-кабинету.
+      if ($isEconometrica) {
         for (const pg of HELP_PAGES) {
           items.push({
             id: `help-${pg.id}`,

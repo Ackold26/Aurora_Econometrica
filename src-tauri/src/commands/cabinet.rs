@@ -115,7 +115,12 @@ pub fn filter_by_product(product: &str, cabinets: Vec<CabinetInfo>) -> Vec<Cabin
     let allowed: Option<&[&str]> = match product {
         "agency" | "creative-hub" => None, // all cabinets
         "analytics-hub" => Some(&["media-analyst"]),
+        // Облачная редакция: кабинет-советник econometrist (Claude). Локальная редакция
+        // (152-ФЗ, сборка без feature cloud_advisors): только MMM-пайплайн, без cloud-кабинетов.
+        #[cfg(feature = "cloud_advisors")]
         "econometrica" => Some(&["econometrist"]),
+        #[cfg(not(feature = "cloud_advisors"))]
+        "econometrica" => Some(&[]),
         "marketing" => Some(&["media-analyst", "communication-analyst"]),
         "legal" => Some(&["lawyer-contracts", "lawyer-claims", "lawyer-advertising"]),
         "creative" => Some(&["creative-director", "communication-strategist", "focus-groups", "copywriter", "art-director"]),
@@ -600,6 +605,32 @@ mod tests {
 
         let cmds = get_commands_dynamic(dir.path(), "media-analyst");
         assert_eq!(cmds.len(), 9);
+    }
+
+    // ── M1 edition gating: локальная (152-ФЗ) vs облачная редакция ────────────
+    #[cfg(feature = "cloud_advisors")]
+    #[test]
+    fn cloud_edition_exposes_econometrist_advisor() {
+        let visible = filter_by_product("econometrica", get_cabinet_definitions());
+        let ids: Vec<&str> = visible.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["econometrist"], "Облачная редакция показывает кабинет-советник econometrist");
+    }
+
+    #[cfg(not(feature = "cloud_advisors"))]
+    #[test]
+    fn local_edition_hides_all_advisor_cabinets() {
+        // Локальная редакция = только MMM-пайплайн, ноль cloud-кабинетов (нет точки входа к Claude).
+        let visible = filter_by_product("econometrica", get_cabinet_definitions());
+        assert!(visible.is_empty(), "Локальная редакция не должна показывать ни одного advisor-кабинета");
+    }
+
+    #[test]
+    fn cloud_advisors_const_matches_build_feature() {
+        // Egress-флаг claude.rs должен совпадать с feature-конфигурацией сборки.
+        assert_eq!(
+            crate::commands::claude::CLOUD_ADVISORS_ENABLED,
+            cfg!(feature = "cloud_advisors")
+        );
     }
 }
 // force rebuild

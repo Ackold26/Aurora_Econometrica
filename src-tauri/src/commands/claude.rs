@@ -1,3 +1,8 @@
+// Локальная редакция (152-ФЗ, сборка без feature `cloud_advisors`): cloud-only spawn-машинерия
+// (run_claude_inner и приватные хелперы) недостижима — run_claude/run_claude_pipeline делают
+// ранний bail. Глушим dead_code ТОЛЬКО для этой конфигурации; egress-гард — на входных функциях.
+#![cfg_attr(not(feature = "cloud_advisors"), allow(dead_code))]
+
 use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -75,6 +80,12 @@ pub fn user_message(err: &ClaudeError) -> String {
     }
 }
 
+/// Скомпилирована ли облачная редакция (кабинеты-советники на Anthropic, Claude egress).
+/// Локальная редакция (152-ФЗ) собирается без feature `cloud_advisors` → `run_claude` и
+/// `run_claude_pipeline` делают ранний bail ДО спавна Claude CLI; egress к Anthropic
+/// статически недостижим (единственный путь спавна — `run_claude_inner` — за этим гейтом).
+pub const CLOUD_ADVISORS_ENABLED: bool = cfg!(feature = "cloud_advisors");
+
 /// Spawn Claude Code CLI and stream output via Tauri events.
 /// Returns (session_id, response_text) - session ID for --resume and full response text.
 #[allow(clippy::too_many_arguments)]
@@ -88,8 +99,16 @@ pub async fn run_claude(
     suppress_export: bool,
     model: Option<String>,
 ) -> Result<(Option<String>, String)> {
-    let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
-    Ok((sid, response_text))
+    #[cfg(not(feature = "cloud_advisors"))]
+    {
+        let _ = (work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, suppress_export, model);
+        anyhow::bail!("[CL-LOCAL] Облачные кабинеты-советники отключены в локальной редакции (0 Claude egress)");
+    }
+    #[cfg(feature = "cloud_advisors")]
+    {
+        let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
+        Ok((sid, response_text))
+    }
 }
 
 /// Run Claude for pipeline phase: suppress claude-done and exports, return (session_id, response_text).
@@ -101,9 +120,17 @@ pub async fn run_claude_pipeline(
     resume_session_id: Option<String>,
     active_pids: Arc<Mutex<HashMap<String, u32>>>,
 ) -> Result<(Option<String>, String)> {
-    // Pipeline phases always suppress export - final output is built by post-processor
-    let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
-    Ok((sid, response_text))
+    #[cfg(not(feature = "cloud_advisors"))]
+    {
+        let _ = (work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids);
+        anyhow::bail!("[CL-LOCAL] Облачные кабинеты-советники отключены в локальной редакции (0 Claude egress)");
+    }
+    #[cfg(feature = "cloud_advisors")]
+    {
+        // Pipeline phases always suppress export - final output is built by post-processor
+        let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
+        Ok((sid, response_text))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

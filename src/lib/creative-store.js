@@ -15,6 +15,11 @@ export const productType = writable('agency');
 /** @type {import('svelte/store').Readable<boolean>} */
 export const isCreativeHub = derived(productType, $p => $p === 'creative-hub');
 
+/** MMM-продукт Econometrica (обе редакции — локальная и облачная). Не зависит от наличия
+ * advisor-кабинета econometrist, который локальная редакция скрывает.
+ * @type {import('svelte/store').Readable<boolean>} */
+export const isEconometrica = derived(productType, $p => $p === 'econometrica');
+
 /** @type {import('svelte/store').Writable<boolean>} */
 export const ragAvailable = writable(false);
 

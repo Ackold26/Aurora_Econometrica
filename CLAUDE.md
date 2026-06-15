@@ -204,9 +204,20 @@ New_AI_Agency/                    # Промпты и скрипты кабин�
 ## Сборка
 
 ```bash
+# Облачная редакция (default — кабинеты-советники на Anthropic):
 CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build
+
+# Локальная редакция (M1, 152-ФЗ — только MMM-пайплайн, 0 Claude egress):
+CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build -- --no-default-features
 ```
 Результат: `<cargo_target>/release/bundle/nsis/*-setup.exe`
+
+**Редакции (feature `cloud_advisors`, default-on):** без фичи (`--no-default-features`)
+`claude.rs::run_claude`/`run_claude_pipeline` делают ранний bail ДО спавна Claude CLI
+(egress к Anthropic статически недостижим), а `filter_by_product` скрывает кабинет-советник
+`econometrist`. Гейт MMM-справки в Ctrl+K — по продукту (`isEconometrica`), не по advisor-кабинету.
+TODO упаковки: для сосуществования двух редакций у локальной нужен отдельный
+`productName`/`identifier` (сейчас обе = `com.aurora.econometrica`).
 
 ## Тесты
 

@@ -10,6 +10,14 @@ name = "aurora_econometrica_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
+# default = облачная редакция. Локальная редакция (152-ФЗ) собирается БЕЗ default-фич:
+#   cargo build --no-default-features  (или tauri build -- --no-default-features)
+# → feature `cloud_advisors` выключена → run_claude/run_claude_pipeline делают ранний bail
+#   ДО спавна Claude CLI; кабинет-советник econometrist скрыт (filter_by_product). 0 egress.
+default = ["cloud_advisors"]
+# cloud_advisors — кабинеты-советники на Anthropic (Claude). Единственная точка egress —
+# claude.rs::run_claude_inner, достижимая только через gated run_claude/run_claude_pipeline.
+cloud_advisors = []
 # Включается по умолчанию ТОЛЬКО в AI_APP_AGENCY - единственный «native» Agency
 # продукт. В 9 форках feature отсутствует → legacy %APPDATA%\AIAgency\license.json
 # fallback компилируется в zero-LOC. См. memory/project_per_user_port_isolation.md.
