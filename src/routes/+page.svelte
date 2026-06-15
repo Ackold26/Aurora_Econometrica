@@ -2,8 +2,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { activeCabinet, messages, errorMessage, theme, toggleTheme, updateRequired, layoutCabinets, lastCabinetId, licenseError as licenseErrorStore } from '$lib/store.js';
-  import { isCreativeHub, activeBrand, brands, refreshBrands, setActiveBrand, productType } from '$lib/creative-store.js';
+  import { activeCabinet, messages, errorMessage, theme, toggleTheme, updateRequired, layoutCabinets, cabinetsLoaded, lastCabinetId, licenseError as licenseErrorStore } from '$lib/store.js';
+  import { isCreativeHub, isEconometrica, activeBrand, brands, refreshBrands, setActiveBrand, productType } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
   import CabinetCard from '$lib/components/CabinetCard.svelte';
   import BrandSelector from '$lib/components/BrandSelector.svelte';
@@ -48,7 +48,9 @@
   import { LockKeyhole, Package } from 'lucide-svelte';
   // Cabinets filtered by product type (Legal=3, Creative=5, Agency=all)
   const cabinets = $derived(filterCabinetsByProduct($layoutCabinets, $productType));
-  let loading = $derived($layoutCabinets.length === 0 && !$licenseErrorStore);
+  // Индикатор загрузки опирается на флаг завершения, НЕ на количество кабинетов:
+  // в локальной редакции Econometrica список advisor-кабинетов пуст по дизайну.
+  let loading = $derived(!$cabinetsLoaded && !$licenseErrorStore);
   /** @type {{file: string, current: number, total: number}|null} */
   let vaultProgress = $state(null);
 
@@ -308,7 +310,7 @@
         <a href="/settings" class="btn-primary">Импортировать лицензию</a>
       </div>
 
-    {:else if cabinets.length === 0}
+    {:else if cabinets.length === 0 && !$isEconometrica}
       <div class="state-panel glass-panel">
         <div class="state-icon"><Package size={28} strokeWidth={1.5} /></div>
         <h2 class="state-title">Рабочая область недоступна</h2>

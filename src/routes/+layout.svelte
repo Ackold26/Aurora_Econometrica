@@ -4,7 +4,7 @@
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { theme, updateRequired, layoutCabinets, activeCabinet, messages, navCollapsed, licenseError } from '$lib/store.js';
+  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError } from '$lib/store.js';
   import { initCreativeStore, productType } from '$lib/creative-store.js';
   import { toasts, dismiss } from '$lib/toast.js';
   import { onMount } from 'svelte';
@@ -193,6 +193,9 @@
       } catch (e) {
         licenseError.set(String(e));
       }
+      // Загрузка кабинетов завершена (успех или ошибка). В локальной редакции список пуст —
+      // это валидное состояние, поэтому индикатор загрузки опирается на флаг, не на длину.
+      cabinetsLoaded.set(true);
 
       // 3. Heartbeat AFTER auth - activation record must exist first
       heartbeat();

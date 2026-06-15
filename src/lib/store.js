@@ -84,6 +84,12 @@ export const stickyContext = writable(null);
  * @type {import('svelte/store').Writable<Array<{id: string, name: string, description: string, icon: string, color: string}>>} */
 export const layoutCabinets = writable(/** @type {any[]} */ ([]));
 
+/** Флаг «попытка загрузки кабинетов в layout завершена» (успех или ошибка). Используется
+ * вместо `layoutCabinets.length === 0` как индикатор загрузки: в локальной редакции
+ * Econometrica 0 advisor-кабинетов — валидное финальное состояние, а не «ещё грузится».
+ * @type {import('svelte/store').Writable<boolean>} */
+export const cabinetsLoaded = writable(false);
+
 /** NavRail collapsed state (sidebar mode only).
  * @type {import('svelte/store').Writable<boolean>} */
 export const navCollapsed = createPersistentStore('ai-agency-nav-collapsed-v2', false);
