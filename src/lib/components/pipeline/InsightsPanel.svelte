@@ -783,7 +783,11 @@
     text-align: center; padding: 20px 0; margin: 0;
   }
 
-  .insights-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .insights-list {
+    list-style: none; margin: 2px 0 0; padding: 10px 0 0;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    display: flex; flex-direction: column; gap: 6px; flex: 1;
+  }
 
   .insight-item {
     display: flex; gap: 8px; align-items: flex-start;
@@ -884,10 +888,14 @@
   }
 
   /* ── Tier 2: «Спросить ИИ» ── */
+  /* Аврора и советчик — наверх панели (над инсайтами) через flex order. */
   .ask-ai {
-    margin-top: 10px; padding-top: 10px;
-    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    order: -1;
     display: flex; flex-direction: column; gap: 8px;
+  }
+  .ask-ai.scenario {
+    margin-top: 2px; padding-top: 10px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
   }
   .ask-title { font-size: 11px; letter-spacing: 0.02em; }
   .ask-name {
