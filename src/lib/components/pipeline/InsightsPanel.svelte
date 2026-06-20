@@ -502,11 +502,12 @@
 
       {#if canAsk}
         <div class="ask-ai">
+          <div class="ask-title"><span class="ask-name">Аврора</span><span class="ask-sub"> · ИИ-ассистент</span></div>
           <div class="ask-row">
             <input
               class="ask-input"
               type="text"
-              placeholder="Спросить ИИ об этом результате…"
+              placeholder="Спросить Аврору об этом результате…"
               bind:value={askQuestion}
               onkeydown={(e) => { if (e.key === 'Enter') askAI(); }}
               disabled={askLoading}
@@ -721,6 +722,12 @@
     border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     display: flex; flex-direction: column; gap: 8px;
   }
+  .ask-title { font-size: 11px; letter-spacing: 0.02em; }
+  .ask-name {
+    font-weight: 700;
+    color: var(--accent-primary, #3b82f6);
+  }
+  .ask-sub { color: var(--text-muted); font-weight: 500; }
   .ask-row { display: flex; gap: 6px; align-items: center; }
   .ask-input {
     flex: 1; min-width: 0;
