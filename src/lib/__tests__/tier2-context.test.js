@@ -88,6 +88,12 @@ describe('honesty verdict проходит в контекст и промпт v
     expect(prompt).toContain('Надёжность');
     expect(prompt).toContain('Данных мало (Ratio 2.4:1): рекомендации ориентировочные.');
   });
+
+  it('число из honesty.caveat_text не флагается стражем (grounding включает honesty)', () => {
+    // 2.4 есть только в honesty.caveat_text, не в opt-фактах — без honesty в
+    // grounding оно бы ложно флагалось. Фикс ревью #2.
+    expect(findUngroundedNumbers('Доверять осторожно: Ratio всего 2.4:1.', ctx.grounding)).toEqual([]);
+  });
 });
 
 describe('INV-50 смычка: честный ответ из фактов контекста проходит страж', () => {

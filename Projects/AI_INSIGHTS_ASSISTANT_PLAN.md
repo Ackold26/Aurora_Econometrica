@@ -109,7 +109,7 @@
 **Антон дал полный автономный мандат (2026-06-20): «действуй, дальше работай полностью автономно».**
 Режим: single trackfile (этот файл), audit-before-commit, auto-commit local. Вопросы только: архитектура / push к remote / schema-migration. Push НЕ делать без approval.
 
-**Текущее состояние: Ф0 ✅, Ф1.1 ✅, Ф1.2 ✅. Идёт Фаза 1.3 (UI «Спросить ИИ»).**
+**Текущее состояние: ФАЗА 1 КОД-COMPLETE ✅ (0,1.1,1.2,1.3 + ревью). Дальше: live E2E (ручная) и/или Фаза 2 (runtime-тумблер).**
 
 Сделано:
 - ✅ Ветка `feat/ai-insights-tier2` (от master `7fbfd96`). Коммит Фаза 0 `a4c4e14`.
@@ -118,17 +118,19 @@
 
 - ✅ **Фаза 1.2 (Rust-мост)** — Tauri-команда `econ_ask_insight(prompt) -> Result<String>` в `src-tauri/src/lib.rs` (рядом с open_cabinet, ~318), регистрация в generate_handler! рядом с `open_cabinet`. Тонкий транспорт: промпт строит фронт, Rust шлёт через ЕДИНЫЙ egress-чок-поинт `run_claude` (consent+feature гейт наследуются; local-редакция → bail, 0 egress). Stateless (resume=None, INV-50), suppress_export=true. Требует открытой сессии кабинета `econometrist` (get_work_dir). **Обе редакции компилируются** (cargo check: cloud 36s, local --no-default-features 1m43s).
 
-**Следующий конкретный шаг — Фаза 1.3 (UI «Спросить ИИ») в `src/lib/components/pipeline/InsightsPanel.svelte`:**
-1. Поле ввода вопроса + кнопка «Спросить ИИ» внизу панели. Видна только cloud (`get_app_status.cloud_advisors_enabled`, см. `+layout.svelte:210`) И `isEconometrica` (`$lib/creative-store.js`).
-2. По клику строить промпт: `buildTier2Prompt(buildTier2Context({step:$pipelineCurrentStep, tier1Insights: insights, mod:$modelData, dec:$decomposeData, opt:$optimizeData, val:$validateData}), question)`.
-3. Лениво открыть сессию: при ошибке `[ASK-NO-SESSION]` от econ_ask_insight → `invoke('open_cabinet', {cabinetId:'econometrist'})` → повтор.
-4. `invoke('econ_ask_insight', {prompt})` → текст.
-5. Рантайм-страж: `findUngroundedNumbers(answer, ctx.grounding)` — непусто → пометить ответ «⚠ числа не сверены» (не блокировать).
-6. Рендер ответа в панель (loading/error). Стрим `claude-stream-econometrist` — опц., MVP без стрима.
+- ✅ **Фаза 1.3 (UI)** — `InsightsPanel.svelte`: блок «Спросить ИИ» (поле+кнопка), гейт `canAsk = cloudConsent.advisorsEnabled && granted && isEconometrica`. `askAI()`: строит промпт (tier2-context), ленивое `open_cabinet('econometrist')` при `[ASK-NO-SESSION]`, рантайм-страж `findUngroundedNumbers` → пометка «⚠ числа не сверены». $effect сбрасывает ответ при смене шага. svelte-check: 0 ошибок в проекте. Фикс em dash в JSDoc (TS «Invalid character»).
+- ✅ **Audit-before-commit (Sonnet-ревью Tier 2 цепочки)** — 5 находок. Приняты 2: (#2) honesty явно добавлен в grounding `[fullFacts, honesty]`; (#3) сброс ответа при смене шага ($effect). Отвергнуты 3 с обоснованием: #1/#4 — толеранс корректно отделяет округление от галлюцинации (осознанный компромисс); #5 — run_claude имеет 30-мин таймаут (known limitation: нет кнопки отмены). Тесты после фиксов 27/27.
 
-После 1.3 — прогон guard на реальном ответе Claude (нужен dev-запуск). Затем Фаза 1 закрыта → Фаза 2 (runtime-тумблер).
+**ФАЗА 1 КОД-COMPLETE.** Осталось по Фазе 1: **live E2E с реальным Claude** (открыть кабинет econometrist, задать вопрос, увидеть ответ + работу INV-50-стража) — дорогой GUI+auth прогон, оставлен на **ручную проверку с Антоном** (или отдельную dev-сессию). Дёшево верифицировано: svelte-check 0, тесты 27/27, Rust обе редакции компилируются, guard на реальной фикстуре.
+
+**Следующий конкретный шаг — Фаза 2 (runtime-тумблер «только локально»):**
+1. Rust: `ensure_not_local_only()` рядом с `ensure_cloud_consent()` (claude.rs) в едином чок-поинте. Egress = feature ∧ consent ∧ ¬local_only. Настройка в `user_config`.
+2. UI: тумблер в Настройках «Только локально (данные не уходят)» → влияет на `cloudConsent`/видимость Tier 2.
+3. Тест: при local_only — Claude не спавнится (нет egress).
+Альтернатива по приоритету: можно сделать live E2E (с Антоном) до Фазы 2.
 
 ## ЛОГ ПРОГРЕССА
 - **2026-06-20 (1) Исследование+план** — Инвентарь модели (3 Explore-субагента). Личная верификация (honesty-gate, verdict, ratio-classifier, git, insights-rules.js полнота, InsightsPanel, claude.rs мост). Открыт замысел Tier1(done)/Tier2(Phase10 pending) = наш гибрид. Delta, план фаз, адверсариальный аудит (L1-3/T1-4/M1-4). Антон дал добро + полный автономный мандат.
 - **2026-06-20 (2) Фаза 0** — Ветка создана. Построен INV-50 grounding guard (insights-grounding.js) + тест на реальной фикстуре Кагоцел, 15/15 зелёных. Прокси-гейт = прокси живого прогона Tier 2 (тот же `findUngroundedNumbers` станет рантайм-стражем). Коммит локальный.
-- **2026-06-20 (3) Фаза 1.1+1.2** — JS-ядро Tier 2 (tier2-context.js: контекст+промпт, 11/11). Rust-мост econ_ask_insight (lib.rs, через единый egress-чок-поинт run_claude, обе редакции компилируются). Коммиты `401eb6c` + текущий.
+- **2026-06-20 (3) Фаза 1.1+1.2** — JS-ядро Tier 2 (tier2-context.js: контекст+промпт, 11/11). Rust-мост econ_ask_insight (lib.rs, через единый egress-чок-поинт run_claude, обе редакции компилируются). Коммиты `401eb6c`, `8041ef6`.
+- **2026-06-20 (4) Фаза 1.3 + ревью** — UI «Спросить ИИ» в InsightsPanel.svelte (canAsk-гейт, askAI с ленивым open_cabinet + рантайм-страж + $effect сброс). svelte-check 0 ошибок. Sonnet audit-before-commit: 2 фикса (honesty в grounding, сброс ответа), 3 отвергнуты с обоснованием. Тесты 27/27. ФАЗА 1 код-complete; live E2E с Claude — на ручную проверку.

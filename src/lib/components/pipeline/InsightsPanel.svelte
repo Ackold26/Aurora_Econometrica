@@ -38,6 +38,12 @@
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
   import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
+  // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
+  // редакции с согласием и для продукта Econometrica.
+  import { isEconometrica } from '$lib/creative-store.js';
+  import { cloudConsent } from '$lib/store.js';
+  import { buildTier2Context, buildTier2Prompt } from '$lib/tier2-context.js';
+  import { findUngroundedNumbers } from '$lib/insights-grounding.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -324,6 +330,74 @@
   /** @type {number | null} */
   let expandedTip = $state(null);
 
+  // ── Tier 2: «Спросить ИИ» (Claude-усилитель поверх детерминированных инсайтов) ──
+  let askQuestion = $state('');
+  let askAnswer = $state('');
+  let askLoading = $state(false);
+  let askError = $state('');
+  /** @type {string[]} негрунд-числа из ответа (рантайм-страж INV-50) */
+  let askUngrounded = $state(/** @type {string[]} */ ([]));
+
+  // Видимость: облачная редакция + согласие дано + продукт Econometrica.
+  const canAsk = $derived(
+    $cloudConsent.advisorsEnabled && $cloudConsent.granted && $isEconometrica,
+  );
+
+  // Ответ ИИ относится к конкретному шагу пайплайна — сбрасывать при смене шага,
+  // иначе пользователь видит ответ про декомпозицию на шаге оптимизации.
+  $effect(() => {
+    void $pipelineCurrentStep;
+    askAnswer = '';
+    askError = '';
+    askUngrounded = [];
+  });
+
+  async function askAI() {
+    if (askLoading) return;
+    askError = '';
+    askAnswer = '';
+    askUngrounded = [];
+
+    // Контекст текущего шага: факты модели + детерминированные Tier-1 инсайты.
+    const ctx = buildTier2Context({
+      step: $pipelineCurrentStep,
+      tier1Insights: insights,
+      val: $validateData,
+      mod: $modelData,
+      dec: $decomposeData,
+      opt: $optimizeData,
+    });
+    const prompt = buildTier2Prompt(ctx, askQuestion);
+
+    askLoading = true;
+    try {
+      let text;
+      try {
+        text = await invoke('econ_ask_insight', { prompt });
+      } catch (e) {
+        // Сессия кабинета эконометриста не открыта — открыть лениво и повторить.
+        if (String(e).includes('ASK-NO-SESSION')) {
+          await invoke('open_cabinet', { cabinetId: 'econometrist' });
+          text = await invoke('econ_ask_insight', { prompt });
+        } else {
+          throw e;
+        }
+      }
+      askAnswer = String(text || '').trim();
+      // Рантайм-страж INV-50: числа в ответе должны быть в фактах модели.
+      askUngrounded = findUngroundedNumbers(askAnswer, ctx.grounding).map((b) => b.raw);
+    } catch (e) {
+      const msg = String(e);
+      askError = msg.includes('CONSENT')
+        ? 'Нужно согласие на облачную обработку (см. настройки).'
+        : msg.includes('LOCAL')
+          ? 'Локальная редакция: ИИ-ассистент отключён (данные не уходят).'
+          : msg.replace(/^\[?[A-Z-]+\]?\s*/, '');
+    } finally {
+      askLoading = false;
+    }
+  }
+
   // ── Drag-resize ──
   let panelWidth = $state(300);
   let isResizing = $state(false);
@@ -420,6 +494,40 @@
             </li>
           {/each}
         </ul>
+      {/if}
+
+      {#if canAsk}
+        <div class="ask-ai">
+          <div class="ask-row">
+            <input
+              class="ask-input"
+              type="text"
+              placeholder="Спросить ИИ об этом результате…"
+              bind:value={askQuestion}
+              onkeydown={(e) => { if (e.key === 'Enter') askAI(); }}
+              disabled={askLoading}
+            />
+            <button
+              class="ask-btn"
+              onclick={askAI}
+              disabled={askLoading || insights.length === 0}
+              title="Объяснит результат на основе фактов модели"
+            >
+              {askLoading ? '…' : 'Спросить'}
+            </button>
+          </div>
+          {#if askError}
+            <p class="ask-error">{askError}</p>
+          {/if}
+          {#if askAnswer}
+            <div class="ask-answer">
+              {#if askUngrounded.length > 0}
+                <p class="ask-warn">⚠ Числа не сверены с моделью: {askUngrounded.join(', ')}</p>
+              {/if}
+              <p class="ask-text">{askAnswer}</p>
+            </div>
+          {/if}
+        </div>
       {/if}
 
     </div>
@@ -600,6 +708,61 @@
     font-size: 11px; color: var(--text-muted);
     line-height: 1.5; margin: 4px 0 0; padding: 6px 8px;
     background: rgba(255,255,255,0.02); border-radius: 4px;
+    white-space: pre-line;
+  }
+
+  /* ── Tier 2: «Спросить ИИ» ── */
+  .ask-ai {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .ask-row { display: flex; gap: 6px; align-items: center; }
+  .ask-input {
+    flex: 1; min-width: 0;
+    padding: 6px 9px;
+    font-size: 12px; line-height: 1.4;
+    color: var(--text-primary, #e2e8f0);
+    background: var(--bg-surface-focus, rgba(20, 22, 30, 0.72));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+    border-radius: var(--radius-sm, 6px);
+  }
+  .ask-input:focus {
+    outline: none;
+    border-color: var(--accent-primary, #3b82f6);
+  }
+  .ask-input:disabled { opacity: 0.6; }
+  .ask-btn {
+    padding: 6px 12px;
+    font-size: 11px; font-weight: 600;
+    color: #fff;
+    background: var(--accent-primary, #3b82f6);
+    border: 1px solid var(--accent-primary, #3b82f6);
+    border-radius: var(--radius-chip, 5px);
+    cursor: pointer; flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .ask-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-primary, #3b82f6) 85%, black); }
+  .ask-btn:disabled { opacity: 0.5; cursor: default; }
+  .ask-error {
+    margin: 0; font-size: 11px; line-height: 1.4;
+    color: var(--danger, #ef4444);
+  }
+  .ask-answer {
+    padding: 8px 10px;
+    background: var(--bg-insight-info, rgba(59,130,246,0.06));
+    border-left: 3px solid var(--color-info, var(--accent-primary, #3b82f6));
+    border-radius: var(--radius-sm, 6px);
+  }
+  .ask-warn {
+    margin: 0 0 6px;
+    font-size: 11px; line-height: 1.4; font-weight: 600;
+    color: var(--warning, #f59e0b);
+  }
+  .ask-text {
+    margin: 0;
+    font-size: 12px; line-height: 1.5;
+    color: var(--text-secondary, #94a3b8);
     white-space: pre-line;
   }
 

@@ -194,7 +194,13 @@ export function buildTier2Context(input) {
     tier1Insights,
     facts,
     honesty,
-    grounding: { jsonFacts: fullFacts, insightTexts: tier1Insights },
+    // honesty (caveat_text вердикта надёжности) попадает в промпт — его числа
+    // тоже должны считаться grounded. Для optimize/report honesty ⊂ fullFacts,
+    // но включаем явно (defense-in-depth: убирает хрупкую неявную связь).
+    grounding: {
+      jsonFacts: honesty ? [fullFacts, honesty] : fullFacts,
+      insightTexts: tier1Insights,
+    },
   };
 }
 
@@ -220,7 +226,7 @@ export const TIER2_SYSTEM_RULES = [
  * Построить промпт для Claude из Tier-2 контекста и вопроса пользователя.
  *
  * @param {Tier2Context} context
- * @param {string} [userQuestion] — пусто = «объясни этот результат простыми словами»
+ * @param {string} [userQuestion] - пусто = «объясни этот результат простыми словами»
  * @returns {string}
  */
 export function buildTier2Prompt(context, userQuestion) {
