@@ -109,18 +109,21 @@
 **Антон дал полный автономный мандат (2026-06-20): «действуй, дальше работай полностью автономно».**
 Режим: single trackfile (этот файл), audit-before-commit, auto-commit local. Вопросы только: архитектура / push к remote / schema-migration. Push НЕ делать без approval.
 
-**Текущее состояние: Фаза 0 ЗАВЕРШЕНА. Идёт Фаза 1.**
+**Текущее состояние: Фаза 0 ✅. Фаза 1 — идёт (1.1 ✅, дальше 1.2 Rust-мост).**
 
 Сделано:
-- ✅ Ветка `feat/ai-insights-tier2` создана (от master `7fbfd96`).
-- ✅ Прокси-гейт INV-50: `src/lib/insights-grounding.js` (extractNumbers / collectGroundedNumbers / findUngroundedNumbers / assertGrounded) + тест `src/lib/__tests__/insights-grounding.test.js` на реальной фикстуре `fixtures/kagocel-load1/decomposition.json`. **15/15 зелёных.**
+- ✅ Ветка `feat/ai-insights-tier2` (от master `7fbfd96`). Коммит Фаза 0 `a4c4e14`.
+- ✅ **Фаза 0** — Прокси-гейт INV-50: `src/lib/insights-grounding.js` (extractNumbers / collectGroundedNumbers / findUngroundedNumbers / assertGrounded) + тест на фикстуре `fixtures/kagocel-load1/decomposition.json`. 15/15.
+- ✅ **Фаза 1.1 (JS-ядро Tier 2)** — `src/lib/tier2-context.js` (buildTier2Context / buildTier2Prompt / TIER2_SYSTEM_RULES / STEP). Сводка фактов по шагам (decompose реально, optimize/model/report), honesty verbatim, промпт с железными правилами INV-50. Тест `tier2-context.test.js` смыкает с guard: честный ответ из контекста проходит, выдуманное флагается. 11/11.
 
-**Следующий конкретный шаг (Фаза 1 — Tier 2 ядро):**
-1. `grounding-пакет` сборщик: для текущего шага собрать {Tier-1 инсайты + релевантные JSON-факты модели из stores + honesty `caveat_text` verbatim}. Новый модуль, напр. `src/lib/tier2-context.js`.
-2. Промпт-шаблон Tier 2 (запрет выдумывать числа; honesty verbatim; INV-50).
-3. Rust/мост: тонкий путь через `run_claude` (claude.rs:107) — лёгкий work_dir/cabinet, без vault-pipeline. Возможно новая Tauri-команда `econ_ask_insight` в `commands/econometrica.rs`.
-4. UI: кнопка/поле «Спросить ИИ» в `InsightsPanel.svelte`, видна только cloud+consent, гейт по `isEconometrica`. Ответ через `findUngroundedNumbers` (рантайм-страж) → рендер в панель.
+**Следующий конкретный шаг — Фаза 1.2 (Rust-мост, тяжёлая часть):**
+1. Изучить `src-tauri/src/commands/claude.rs` `run_claude_inner` (что требует: work_dir/vault, какие Tauri-события эмитит, как фронт получает результат) + `commands/econometrica.rs` (паттерн команд econ_*).
+2. **Архитектура (согласована с Антоном — НЕ требует нового вопроса):** Tier 2 идёт через ЕДИНЫЙ egress-чок-поинт run_claude (не новый API-канал). Решить: переиспользовать run_claude с лёгким work_dir/cabinet vs тонкая новая функция рядом (тот же `ensure_cloud_consent` гейт).
+3. Новая Tauri-команда `econ_ask_insight(step, question, project_dir)` → строит промпт на фронте (tier2-context) ИЛИ принимает готовый промпт → run_claude → возврат текста.
+4. UI: кнопка/поле «Спросить ИИ» в `InsightsPanel.svelte`, видна только cloud+consent, гейт `isEconometrica`. Ответ через `findUngroundedNumbers` (рантайм-страж) → рендер.
 5. Прогон guard на реальном ответе Claude.
+
+ВАЖНО (T1 аудита): run_claude — тяжёлый CLI-спавн с vault workspace. Для inline «спросить ИИ» нужен лёгкий путь. Если переиспользование run_claude даёт плохую латентность — это технический под-вопрос (не архитектурный), решаю сама в ходе.
 
 ## ЛОГ ПРОГРЕССА
 - **2026-06-20 (1) Исследование+план** — Инвентарь модели (3 Explore-субагента). Личная верификация (honesty-gate, verdict, ratio-classifier, git, insights-rules.js полнота, InsightsPanel, claude.rs мост). Открыт замысел Tier1(done)/Tier2(Phase10 pending) = наш гибрид. Delta, план фаз, адверсариальный аудит (L1-3/T1-4/M1-4). Антон дал добро + полный автономный мандат.
