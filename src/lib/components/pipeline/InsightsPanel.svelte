@@ -390,7 +390,7 @@
           throw e;
         }
       }
-      askAnswer = String(text || '').trim();
+      askAnswer = sanitizeAvroraText(text);
       // Рантайм-страж INV-50: числа в ответе должны быть в фактах модели.
       askUngrounded = findUngroundedNumbers(askAnswer, ctx.grounding).map((b) => b.raw);
     } catch (e) {
@@ -416,6 +416,17 @@
       }
       throw e;
     }
+  }
+
+  /** Убрать служебные артефакты кабинета эконометриста из ответа Авроры:
+   *  теги источника [STATISTICAL]/[MODELED], внутренние слэш-команды,
+   *  завершающие фразы Claude CLI. Страховка к промпт-правилу «чистота ответа». */
+  function sanitizeAvroraText(/** @type {any} */ t) {
+    return String(t || '')
+      .replace(/\s*\[(STATISTICAL|MODELED|MODEL|DATA|ASSUMPTION|INFERRED)\]/gi, '')
+      .replace(/(^|\s)\/(diagnose|optimize|decompose|report|validate|train)\b/g, '$1')
+      .replace(/\n*\s*(Все задачи выполнены\.?|Задача выполнена\.?|Готово\.?)\s*$/i, '')
+      .trim();
   }
 
   // ── Tier 2: советчик «Что если» (сценарии словами) ──
@@ -520,7 +531,7 @@
         '=== Задача ===',
         'Объясни кратко простым языком, что даёт этот сценарий и стоит ли его применять. Используй ТОЛЬКО числа выше.',
       ].join('\n');
-      scenarioInterpret = String(await callAurora(interpPrompt) || '').trim();
+      scenarioInterpret = sanitizeAvroraText(await callAurora(interpPrompt));
     } catch (e) {
       scenarioError = String(e).replace(/^\[?[A-Z-]+\]?\s*/, '');
     } finally {
