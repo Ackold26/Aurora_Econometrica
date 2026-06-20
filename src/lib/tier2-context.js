@@ -15,6 +15,8 @@
  * @module tier2-context
  */
 
+import { buildHelpContext } from './program-help.js';
+
 /** Шаги пайплайна (совпадает с $pipelineCurrentStep в InsightsPanel). */
 export const STEP = /** @type {const} */ ({
   IMPORT: 0,
@@ -136,7 +138,8 @@ function extractHonesty(opt) {
  * @property {Array<{severity:string,text:string,tip?:string}>} tier1Insights
  * @property {Record<string, any>} facts — компактная сводка для промпта
  * @property {ReturnType<typeof extractHonesty>} honesty — verbatim или null
- * @property {{ jsonFacts: unknown, insightTexts: any[] }} grounding — для guard
+ * @property {string} help — справочный контекст программы (карта + термины)
+ * @property {{ jsonFacts: unknown[], insightTexts: any[] }} grounding — для guard
  */
 
 /**
@@ -146,13 +149,14 @@ function extractHonesty(opt) {
  *
  * @param {{
  *   step: number,
+ *   question?: string,
  *   tier1Insights?: Array<{severity:string,text:string,tip?:string}>,
  *   val?: any, mod?: any, dec?: any, opt?: any,
  * }} input
  * @returns {Tier2Context}
  */
 export function buildTier2Context(input) {
-  const { step, tier1Insights = [], val, mod, dec, opt } = input;
+  const { step, question, tier1Insights = [], val, mod, dec, opt } = input;
 
   /** @type {Record<string, any>} */
   let facts = {};
@@ -189,16 +193,29 @@ export function buildTier2Context(input) {
       fullFacts = val ?? {};
   }
 
+  // Справочный контекст программы (карта + релевантные термины). Идёт в промпт
+  // И в grounding: его числа — методологические нормативы из справки (пороги
+  // R-hat / NRMSE / R², минимум наблюдений), их цитирование легитимно, поэтому
+  // они должны считаться grounded, иначе рантайм-страж ложно пометит (INV-50).
+  const help = buildHelpContext({ step, question });
+
+  // jsonFacts — массив источников grounded-чисел: факты модели, вердикт
+  // надёжности (caveat_text honesty попадает в промпт — числа должны быть
+  // grounded; для optimize/report honesty ⊂ fullFacts, но включаем явно —
+  // defense-in-depth), справка. collectGroundedNumbers рекурсивно их обойдёт.
+  /** @type {unknown[]} */
+  const jsonFacts = [fullFacts];
+  if (honesty) jsonFacts.push(honesty);
+  if (help) jsonFacts.push(help);
+
   return {
     step,
     tier1Insights,
     facts,
     honesty,
-    // honesty (caveat_text вердикта надёжности) попадает в промпт — его числа
-    // тоже должны считаться grounded. Для optimize/report honesty ⊂ fullFacts,
-    // но включаем явно (defense-in-depth: убирает хрупкую неявную связь).
+    help,
     grounding: {
-      jsonFacts: honesty ? [fullFacts, honesty] : fullFacts,
+      jsonFacts,
       insightTexts: tier1Insights,
     },
   };
@@ -226,6 +243,9 @@ export const TIER2_SYSTEM_RULES = [
   'ТЕМАТИКА: отвечай только по существу — эконометрика, MMM, результаты и диагностика',
   '  модели, оптимизация бюджета, работа и функции программы Aurora (в т.ч. по её',
   '  справочной системе). На вопросы вне этой темы вежливо верни к анализу.',
+  'СПРАВКА: когда вопрос о работе, функциях, шагах или интерфейсе программы —',
+  '  опирайся на блок «Справка о программе» ниже. Не приписывай программе функций,',
+  '  которых там нет; чего нет в справке — так и скажи, не домысливай.',
   'БЕЗОПАСНОСТЬ: не объясняй обход лицензии, защиты, ограничений редакции или иные',
   '  способы нарушить условия использования — на такие просьбы краткий вежливый отказ.',
   'ЧИСТОТА ОТВЕТА: не используй служебные пометки источника (вроде [STATISTICAL],',
@@ -262,6 +282,12 @@ export function buildTier2Prompt(context, userQuestion) {
   const question = (userQuestion || '').trim() || 'Объясни этот результат простыми словами и подскажи, на что обратить внимание.';
 
   const parts = [TIER2_SYSTEM_RULES, ''];
+
+  if (context.help) {
+    parts.push('=== Справка о программе (смысл терминов и функций; числа здесь — методологические нормативы, НЕ результаты вашей модели) ===');
+    parts.push(context.help);
+    parts.push('');
+  }
 
   parts.push('=== Факты модели (единственный источник чисел) ===');
   parts.push(JSON.stringify(context.facts, null, 2));

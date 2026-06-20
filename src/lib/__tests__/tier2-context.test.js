@@ -34,8 +34,10 @@ describe('buildTier2Context — декомпозиция (реальная фи�
     expect(statyi.verdict).toMatch(/эффективен/i);
   });
 
-  it('grounding.jsonFacts = ПОЛНАЯ фикстура (для цитирования имён/нарратива)', () => {
-    expect(ctx.grounding.jsonFacts).toBe(decomposition);
+  it('grounding.jsonFacts включает ПОЛНУЮ фикстуру (для цитирования имён/нарратива)', () => {
+    // Форма — массив источников [fullFacts, honesty?, help?]; фикстура первый.
+    expect(Array.isArray(ctx.grounding.jsonFacts)).toBe(true);
+    expect(ctx.grounding.jsonFacts[0]).toBe(decomposition);
   });
 });
 
@@ -110,6 +112,38 @@ describe('INV-50 смычка: честный ответ из фактов ко�
   it('выдуманное число флагается даже при наличии контекста', () => {
     const halluc = 'Если удвоить Статьи, продажи вырастут на 137%.';
     const bad = findUngroundedNumbers(halluc, ctx.grounding).map((b) => b.value);
+    expect(bad).toContain(137);
+  });
+});
+
+describe('справка о программе в контексте Авроры', () => {
+  it('контекст несёт help; промпт — блок «Справка о программе»', () => {
+    const ctx = buildTier2Context({
+      step: STEP.DECOMPOSE,
+      dec: decomposition,
+      question: 'что такое декомпозиция?',
+    });
+    expect(ctx.help).toMatch(/СПРАВКА О ПРОГРАММЕ/);
+    const prompt = buildTier2Prompt(ctx, 'что такое декомпозиция?');
+    expect(prompt).toContain('Справка о программе');
+    expect(prompt).toMatch(/Декомпозиция/);
+  });
+
+  it('норматив-порог из справки (R-hat 1,05) не флагается стражем', () => {
+    const ctx = buildTier2Context({
+      step: STEP.MODEL,
+      question: 'модель сошлась?',
+      mod: { diagnostics: { metrics: { r_hat_max: 1.02 } }, channelParams: {} },
+    });
+    // 1,05 — порог из справки (overview), 1,02 — факт модели. Оба grounded.
+    expect(
+      findUngroundedNumbers('R-hat 1,02 при пороге надёжности 1,05 — модель сошлась.', ctx.grounding),
+    ).toEqual([]);
+  });
+
+  it('выдуманный результат всё ещё ловится при наличии справки', () => {
+    const ctx = buildTier2Context({ step: STEP.DECOMPOSE, dec: decomposition, question: 'итог?' });
+    const bad = findUngroundedNumbers('Вклад ТВ вырос на 137%.', ctx.grounding).map((b) => b.value);
     expect(bad).toContain(137);
   });
 });

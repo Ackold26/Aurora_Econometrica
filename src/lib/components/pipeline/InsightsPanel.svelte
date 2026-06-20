@@ -368,6 +368,7 @@
     // Контекст текущего шага: факты модели + детерминированные Tier-1 инсайты.
     const ctx = buildTier2Context({
       step: $pipelineCurrentStep,
+      question: askQuestion,
       tier1Insights: insights,
       val: $validateData,
       mod: $modelData,
