@@ -109,7 +109,7 @@
 **Антон дал полный автономный мандат (2026-06-20): «действуй, дальше работай полностью автономно».**
 Режим: single trackfile (этот файл), audit-before-commit, auto-commit local. Вопросы только: архитектура / push к remote / schema-migration. Push НЕ делать без approval.
 
-**Текущее состояние: ФАЗА 1 КОД-COMPLETE ✅ (0,1.1,1.2,1.3 + ревью). Дальше: live E2E (ручная) и/или Фаза 2 (runtime-тумблер).**
+**Текущее состояние: ФАЗЫ 0–2 КОД-COMPLETE ✅. Дальше: live E2E (с Антоном) и/или Фаза 3 (советчик).**
 
 Сделано:
 - ✅ Ветка `feat/ai-insights-tier2` (от master `7fbfd96`). Коммит Фаза 0 `a4c4e14`.
@@ -123,14 +123,21 @@
 
 **ФАЗА 1 КОД-COMPLETE.** Осталось по Фазе 1: **live E2E с реальным Claude** (открыть кабинет econometrist, задать вопрос, увидеть ответ + работу INV-50-стража) — дорогой GUI+auth прогон, оставлен на **ручную проверку с Антоном** (или отдельную dev-сессию). Дёшево верифицировано: svelte-check 0, тесты 27/27, Rust обе редакции компилируются, guard на реальной фикстуре.
 
-**Следующий конкретный шаг — Фаза 2 (runtime-тумблер «только локально»):**
-1. Rust: `ensure_not_local_only()` рядом с `ensure_cloud_consent()` (claude.rs) в едином чок-поинте. Egress = feature ∧ consent ∧ ¬local_only. Настройка в `user_config`.
-2. UI: тумблер в Настройках «Только локально (данные не уходят)» → влияет на `cloudConsent`/видимость Tier 2.
-3. Тест: при local_only — Claude не спавнится (нет egress).
-Альтернатива по приоритету: можно сделать live E2E (с Антоном) до Фазы 2.
+- ✅ **Фаза 2 (runtime-тумблер «только локально»)** — одна сборка, два режима:
+  - Rust: `user_config.local_only: bool` (#[serde(default)], НЕ миграция — доказано тестом legacy-конфига); `local_only_enabled()`; `ensure_not_local_only()` в claude.rs добавлен в ОБА egress-чок-поинта (run_claude + run_claude_pipeline, replace_all). Egress = feature ∧ consent ∧ ¬local_only. Команда `set_local_only(enabled)`, поле `local_only` в `get_cloud_consent_status`.
+  - UI: стор `cloudConsent.localOnly`; layout прокидывает из статуса; `canAsk` гейтит `!localOnly`; тумблер «Только локально» в Настройках (облачная секция).
+  - Defense-in-depth: UI скрывает кнопку + backend bail. Обе редакции компилируются (cargo check 9s). user_config тесты 6/6 (вкл. 2 новых local_only). svelte-check 0.
+
+**ФАЗА 2 КОД-COMPLETE.** Осталось (как и по Ф1): live-проверка вживую.
+
+**Следующий конкретный шаг — выбор направления:**
+- **Вариант A — live E2E (рекомендую сделать с Антоном):** запустить dev (`npm run tauri:dev`), открыть кабинет эконометриста, задать вопрос на шаге декомпозиции/оптимизации, увидеть ответ + сверку чисел + работу тумблера «только локально». Закрывает живую проверку Ф1+Ф2.
+- **Вариант B — Фаза 3 (советчик «сценарии словами»):** NL → optimizer/scenario config → `predict_scenario`/`optimize` → интерпретация. Human-in-the-loop (показать config до запуска). Самое дорогое; NL только cloud, формы — оба режима. [L]
+- **Вариант D — Фаза 4 (нарратив):** резюме для презентации. [S-M]
 
 ## ЛОГ ПРОГРЕССА
 - **2026-06-20 (1) Исследование+план** — Инвентарь модели (3 Explore-субагента). Личная верификация (honesty-gate, verdict, ratio-classifier, git, insights-rules.js полнота, InsightsPanel, claude.rs мост). Открыт замысел Tier1(done)/Tier2(Phase10 pending) = наш гибрид. Delta, план фаз, адверсариальный аудит (L1-3/T1-4/M1-4). Антон дал добро + полный автономный мандат.
 - **2026-06-20 (2) Фаза 0** — Ветка создана. Построен INV-50 grounding guard (insights-grounding.js) + тест на реальной фикстуре Кагоцел, 15/15 зелёных. Прокси-гейт = прокси живого прогона Tier 2 (тот же `findUngroundedNumbers` станет рантайм-стражем). Коммит локальный.
 - **2026-06-20 (3) Фаза 1.1+1.2** — JS-ядро Tier 2 (tier2-context.js: контекст+промпт, 11/11). Rust-мост econ_ask_insight (lib.rs, через единый egress-чок-поинт run_claude, обе редакции компилируются). Коммиты `401eb6c`, `8041ef6`.
 - **2026-06-20 (4) Фаза 1.3 + ревью** — UI «Спросить ИИ» в InsightsPanel.svelte (canAsk-гейт, askAI с ленивым open_cabinet + рантайм-страж + $effect сброс). svelte-check 0 ошибок. Sonnet audit-before-commit: 2 фикса (honesty в grounding, сброс ответа), 3 отвергнуты с обоснованием. Тесты 27/27. ФАЗА 1 код-complete; live E2E с Claude — на ручную проверку.
+- **2026-06-20 (5) Фаза 2** — Runtime-тумблер «только локально» (одна сборка, два режима). Rust: local_only поле/функция/egress-гейт в обоих чок-поинтах/команда set_local_only/статус. UI: стор+layout+canAsk-гейт+тумблер настроек. Обе редакции компилируются, user_config тесты 6/6, svelte-check 0. ФАЗА 2 код-complete.

@@ -338,9 +338,13 @@
   /** @type {string[]} негрунд-числа из ответа (рантайм-страж INV-50) */
   let askUngrounded = $state(/** @type {string[]} */ ([]));
 
-  // Видимость: облачная редакция + согласие дано + продукт Econometrica.
+  // Видимость: облачная редакция + согласие дано + НЕ режим «только локально»
+  // + продукт Econometrica.
   const canAsk = $derived(
-    $cloudConsent.advisorsEnabled && $cloudConsent.granted && $isEconometrica,
+    $cloudConsent.advisorsEnabled &&
+      $cloudConsent.granted &&
+      !$cloudConsent.localOnly &&
+      $isEconometrica,
   );
 
   // Ответ ИИ относится к конкретному шагу пайплайна — сбрасывать при смене шага,

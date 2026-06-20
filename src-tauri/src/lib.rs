@@ -1991,6 +1991,7 @@ fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::
         "cloud_advisors_enabled": claude::CLOUD_ADVISORS_ENABLED,
         "consent_required": user_config::cloud_consent_required(&config_dir),
         "terms_version": user_config::CLOUD_CONSENT_TERMS_VERSION,
+        "local_only": user_config::local_only_enabled(&config_dir),
     }))
 }
 
@@ -2019,6 +2020,17 @@ fn withdraw_cloud_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let mut config = user_config::load(&config_dir);
     config.cloud_consent = None;
+    user_config::save(&config_dir, &config)
+}
+
+/// Включить/выключить runtime-режим «только локально». Пишет `local_only` в
+/// user_config; egress-гейт `run_claude` (ensure_not_local_only) читает его и
+/// блокирует облачный ИИ, когда включено. Одна сборка, два режима.
+#[tauri::command]
+fn set_local_only(enabled: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    config.local_only = enabled;
     user_config::save(&config_dir, &config)
 }
 
@@ -3208,6 +3220,7 @@ fn build_app() -> Result<(), String> {
             get_raw_fingerprint,
             open_cabinet,
             econ_ask_insight,
+            set_local_only,
             close_cabinet,
             send_message,
             list_inbox_files,

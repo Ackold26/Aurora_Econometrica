@@ -25,6 +25,11 @@ pub struct UserConfig {
     /// None = согласие не давалось. Только облачная редакция (см. `cloud_consent_required`).
     #[serde(default)]
     pub cloud_consent: Option<CloudConsent>,
+    /// Runtime-режим «только локально»: пользователь явно отключил облачный ИИ,
+    /// данные не уходят на серверы. Одна сборка, два режима — тумблер в Настройках.
+    /// Дефолт false. Проверяется в egress-чок-поинте `run_claude` (defense-in-depth).
+    #[serde(default)]
+    pub local_only: bool,
 }
 
 /// Версия условий облачной обработки. Bump → согласие запрашивается повторно
@@ -57,6 +62,13 @@ pub fn cloud_consent_required(config_dir: &Path) -> bool {
         return false;
     }
     consent_outdated(&load(config_dir).cloud_consent)
+}
+
+/// Включён ли пользователем runtime-режим «только локально» (egress отключён).
+/// Дефолт false (нет конфига / поле отсутствует → облачный ИИ разрешён, если
+/// редакция облачная и согласие дано).
+pub fn local_only_enabled(config_dir: &Path) -> bool {
+    load(config_dir).local_only
 }
 
 fn config_path(config_dir: &Path) -> PathBuf {
@@ -138,5 +150,21 @@ mod tests {
         let back: CloudConsent = serde_json::from_str(&json).unwrap();
         assert_eq!(back.terms_version, 3);
         assert_eq!(back.accepted_at, 1_700_000_000);
+    }
+
+    #[test]
+    fn local_only_defaults_false_for_legacy_config() {
+        // Старый конфиг без поля local_only → serde default false (НЕ миграция,
+        // старые user_config.json читаются без ошибок).
+        let cfg: UserConfig = serde_json::from_str(r#"{"model":"opus"}"#).unwrap();
+        assert!(!cfg.local_only);
+    }
+
+    #[test]
+    fn local_only_serde_roundtrip() {
+        let cfg = UserConfig { local_only: true, ..Default::default() };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: UserConfig = serde_json::from_str(&json).unwrap();
+        assert!(back.local_only);
     }
 }

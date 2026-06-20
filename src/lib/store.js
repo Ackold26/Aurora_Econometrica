@@ -165,8 +165,9 @@ export const licenseError = writable(null);
  * granted — дал ли пользователь согласие на облачную обработку;
  * loaded — статус получен с бэкенда (до этого гейт не срабатывает).
  * Graceful: без согласия MMM-анализ доступен полностью, заблокированы только советники.
- * @type {import('svelte/store').Writable<{advisorsEnabled: boolean, granted: boolean, loaded: boolean}>} */
-export const cloudConsent = writable({ advisorsEnabled: false, granted: false, loaded: false });
+ * localOnly — пользователь включил режим «только локально» (egress облачного ИИ отключён).
+ * @type {import('svelte/store').Writable<{advisorsEnabled: boolean, granted: boolean, localOnly: boolean, loaded: boolean}>} */
+export const cloudConsent = writable({ advisorsEnabled: false, granted: false, localOnly: false, loaded: false });
 
 /** Открыт ли экран согласия (prompt-triggered: первый запуск или вход в кабинет-советник).
  * @type {import('svelte/store').Writable<boolean>} */
