@@ -42,8 +42,9 @@
   // редакции с согласием и для продукта Econometrica.
   import { isEconometrica } from '$lib/creative-store.js';
   import { cloudConsent } from '$lib/store.js';
-  import { buildTier2Context, buildTier2Prompt } from '$lib/tier2-context.js';
+  import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES } from '$lib/tier2-context.js';
   import { findUngroundedNumbers } from '$lib/insights-grounding.js';
+  import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario } from '$lib/scenario-advisor.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -354,6 +355,8 @@
     askAnswer = '';
     askError = '';
     askUngrounded = [];
+    scenarioText = '';
+    resetScenario();
   });
 
   async function askAI() {
@@ -399,6 +402,129 @@
           : msg.replace(/^\[?[A-Z-]+\]?\s*/, '');
     } finally {
       askLoading = false;
+    }
+  }
+
+  /** Вызвать Аврору (Claude) с ленивым открытием кабинета econometrist. */
+  async function callAurora(/** @type {string} */ prompt) {
+    try {
+      return await invoke('econ_ask_insight', { prompt });
+    } catch (e) {
+      if (String(e).includes('ASK-NO-SESSION')) {
+        await invoke('open_cabinet', { cabinetId: 'econometrist' });
+        return await invoke('econ_ask_insight', { prompt });
+      }
+      throw e;
+    }
+  }
+
+  // ── Tier 2: советчик «Что если» (сценарии словами) ──
+  let scenarioText = $state('');
+  /** @type {import('$lib/scenario-advisor.js').ScenarioConfig | null} */
+  let scenarioConfig = $state(null);
+  let scenarioConfirm = $state('');
+  /** @type {any} */
+  let scenarioResult = $state(null);
+  let scenarioInterpret = $state('');
+  let scenarioLoading = $state(false);
+  let scenarioError = $state('');
+
+  function scenarioChannels() {
+    const dec = $decomposeData;
+    return Array.isArray(dec?.channels) ? dec.channels : [];
+  }
+
+  function resetScenario() {
+    scenarioConfig = null;
+    scenarioConfirm = '';
+    scenarioResult = null;
+    scenarioInterpret = '';
+    scenarioError = '';
+  }
+
+  /** Шаг 1: разобрать NL-запрос в config (Аврора) → показать подтверждение. */
+  async function parseScenario() {
+    if (scenarioLoading) return;
+    resetScenario();
+    const chans = scenarioChannels();
+    if (chans.length === 0) {
+      scenarioError = 'Сначала выполните декомпозицию — нужны каналы модели.';
+      return;
+    }
+    const names = chans.map(/** @param {any} c */ (c) => c.name);
+    scenarioLoading = true;
+    try {
+      const text = await callAurora(buildScenarioParsePrompt(scenarioText, names));
+      const cfg = extractScenarioConfig(String(text || ''));
+      if (!cfg || cfg.kind === 'unclear') {
+        scenarioError = 'Не похоже на сценарий. Опишите изменение, например «урежь ТВ на 20%».';
+        return;
+      }
+      scenarioConfig = cfg;
+      scenarioConfirm = describeScenario(cfg) || '';
+    } catch (e) {
+      scenarioError = String(e).replace(/^\[?[A-Z-]+\]?\s*/, '');
+    } finally {
+      scenarioLoading = false;
+    }
+  }
+
+  /** Шаг 2: применить config → econ_scenario (детерминир. расчёт) → интерпретация Авророй. */
+  async function runScenario() {
+    if (!scenarioConfig || scenarioLoading) return;
+    scenarioError = '';
+    scenarioResult = null;
+    scenarioInterpret = '';
+    if (scenarioConfig.kind !== 'scenario') {
+      scenarioError = 'Оптимизация запускается на шаге «Оптимизация». Здесь — сценарии «что если».';
+      return;
+    }
+    const chans = scenarioChannels();
+    /** @type {Record<string, number>} */
+    const currentBudgets = {};
+    for (const c of chans) currentBudgets[c.name] = Number(c.spend) || 0;
+    scenarioLoading = true;
+    try {
+      const projectId = get(activeProjectId);
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const uc = $unitCosts ?? {};
+      const _kuc = $valuePerCountUnit;
+      const kpiUnitCost = $kpiKind === 'count' && typeof _kuc === 'number' && _kuc > 0 ? _kuc : null;
+      const mediaPlan = applyChangesToMediaPlan(scenarioConfig.changes, currentBudgets);
+      const result = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir,
+        scenarioName: 'Аврора: ' + scenarioText.slice(0, 40),
+        mediaPlan,
+        unitCosts: Object.keys(uc).length > 0 ? uc : null,
+        kpiUnitCost,
+      }));
+      if (result?.status && result.status !== 'ok') {
+        scenarioError = result.message || 'Не удалось рассчитать сценарий.';
+        return;
+      }
+      scenarioResult = result;
+      // Интерпретация Авророй — числа ТОЛЬКО из результата движка (INV-50).
+      const t = result.totals || {};
+      const factLines = [
+        `Запрос пользователя: ${scenarioText}`,
+        `Что меняется: ${scenarioConfirm}`,
+        'Результат расчёта движком (ЕДИНСТВЕННЫЙ источник чисел):',
+        t.lift_pct != null ? `- Прирост KPI: ${Number(t.lift_pct).toFixed(1)}%` : '',
+        t.roas != null ? `- ROAS сценария: ${Number(t.roas).toFixed(2)}` : '',
+        t.predicted_kpi != null ? `- Прогноз KPI: ${Math.round(Number(t.predicted_kpi))}` : '',
+        t.incremental_kpi != null ? `- Инкрементальный KPI: ${Math.round(Number(t.incremental_kpi))}` : '',
+      ].filter(Boolean).join('\n');
+      const interpPrompt = [
+        TIER2_SYSTEM_RULES, '',
+        '=== Факты сценария (единственный источник чисел) ===', factLines, '',
+        '=== Задача ===',
+        'Объясни кратко простым языком, что даёт этот сценарий и стоит ли его применять. Используй ТОЛЬКО числа выше.',
+      ].join('\n');
+      scenarioInterpret = String(await callAurora(interpPrompt) || '').trim();
+    } catch (e) {
+      scenarioError = String(e).replace(/^\[?[A-Z-]+\]?\s*/, '');
+    } finally {
+      scenarioLoading = false;
     }
   }
 
@@ -530,6 +656,47 @@
                 <p class="ask-warn">⚠ Числа не сверены с моделью: {askUngrounded.join(', ')}</p>
               {/if}
               <p class="ask-text">{askAnswer}</p>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if canAsk && scenarioChannels().length > 0}
+        <div class="ask-ai scenario">
+          <div class="ask-title"><span class="ask-name">Что если…</span><span class="ask-sub"> · сценарий</span></div>
+          {#if !scenarioConfig && !scenarioInterpret}
+            <div class="ask-row">
+              <input
+                class="ask-input"
+                type="text"
+                placeholder="напр. «урежь ТВ на 20%»"
+                bind:value={scenarioText}
+                onkeydown={(e) => { if (e.key === 'Enter') parseScenario(); }}
+                disabled={scenarioLoading}
+              />
+              <button class="ask-btn" onclick={parseScenario} disabled={scenarioLoading || !scenarioText.trim()}>
+                {scenarioLoading ? '…' : 'Разобрать'}
+              </button>
+            </div>
+          {/if}
+          {#if scenarioError}
+            <p class="ask-error">{scenarioError}</p>
+          {/if}
+          {#if scenarioConfig && !scenarioResult}
+            <div class="ask-answer">
+              <p class="ask-text">{scenarioConfirm}</p>
+              <div class="scenario-actions">
+                <button class="ask-btn" onclick={runScenario} disabled={scenarioLoading}>
+                  {scenarioLoading ? 'Считаю…' : 'Запустить'}
+                </button>
+                <button class="tip-toggle" onclick={resetScenario} disabled={scenarioLoading}>Отмена</button>
+              </div>
+            </div>
+          {/if}
+          {#if scenarioInterpret}
+            <div class="ask-answer">
+              <p class="ask-text">{scenarioInterpret}</p>
+              <button class="tip-toggle" onclick={() => { resetScenario(); scenarioText = ''; }}>Новый сценарий</button>
             </div>
           {/if}
         </div>
@@ -776,5 +943,9 @@
     color: var(--text-secondary, #94a3b8);
     white-space: pre-line;
   }
+
+  /* Советчик «Что если» — зелёный акцент, чтобы отличать от синей Авроры-объяснителя */
+  .ask-ai.scenario .ask-name { color: var(--success, #10b981); }
+  .scenario-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
 
 </style>
