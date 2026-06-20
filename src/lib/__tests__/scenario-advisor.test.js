@@ -9,6 +9,8 @@ import {
   extractScenarioConfig,
   applyChangesToMediaPlan,
   describeScenario,
+  findCollinearPairs,
+  collinearityCaveat,
 } from '../scenario-advisor.js';
 
 const CHANNELS = ['TV', 'OLV', 'Digital', 'Banners'];
@@ -113,5 +115,77 @@ describe('describeScenario (human-in-the-loop)', () => {
 
   it('unclear → null (подтверждать нечего)', () => {
     expect(describeScenario({ kind: 'unclear', changes: [], goal: '' })).toBeNull();
+  });
+});
+
+describe('findCollinearPairs — коллинеарность каналов сценария (McElreath)', () => {
+  // TV×OLV сильно скоррелированы (0.82), TV×Digital — слабо (0.10).
+  const corr = {
+    labels: ['TV', 'OLV', 'Digital'],
+    matrix: [
+      [1.0, 0.82, 0.10],
+      [0.82, 1.0, 0.15],
+      [0.10, 0.15, 1.0],
+    ],
+  };
+
+  it('пара изменённых каналов выше порога — найдена', () => {
+    const pairs = findCollinearPairs(
+      [{ channel: 'TV', delta_pct: -20 }, { channel: 'OLV', delta_pct: 30 }],
+      corr,
+    );
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].a).toBe('TV');
+    expect(pairs[0].b).toBe('OLV');
+    expect(pairs[0].r).toBeCloseTo(0.82);
+  });
+
+  it('слабо скоррелированная пара — не найдена', () => {
+    const pairs = findCollinearPairs(
+      [{ channel: 'TV', delta_pct: -20 }, { channel: 'Digital', delta_pct: 30 }],
+      corr,
+    );
+    expect(pairs).toEqual([]);
+  });
+
+  it('один изменённый канал → нет пар (переброса нет)', () => {
+    expect(findCollinearPairs([{ channel: 'TV', delta_pct: 50 }], corr)).toEqual([]);
+  });
+
+  it('неизвестный канал молча пропускается', () => {
+    const pairs = findCollinearPairs(
+      [{ channel: 'TV', delta_pct: -20 }, { channel: 'Радио', delta_pct: 30 }],
+      corr,
+    );
+    expect(pairs).toEqual([]);
+  });
+
+  it('нет матрицы → []', () => {
+    expect(findCollinearPairs([{ channel: 'TV', delta_pct: -20 }], null)).toEqual([]);
+    expect(findCollinearPairs([{ channel: 'TV', delta_pct: -20 }], /** @type {any} */ ({}))).toEqual([]);
+  });
+
+  it('отрицательная сильная корреляция тоже ловится (по модулю)', () => {
+    const negCorr = { labels: ['A', 'B'], matrix: [[1, -0.9], [-0.9, 1]] };
+    const pairs = findCollinearPairs(
+      [{ channel: 'A', delta_pct: 10 }, { channel: 'B', delta_pct: -10 }],
+      negCorr,
+    );
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].r).toBeCloseTo(-0.9);
+  });
+});
+
+describe('collinearityCaveat — текст оговорки', () => {
+  it('пары → текст с именами каналов и предупреждением', () => {
+    const txt = collinearityCaveat([{ a: 'TV', b: 'OLV', r: 0.82 }]);
+    expect(txt).toMatch(/TV/);
+    expect(txt).toMatch(/OLV/);
+    expect(txt).toMatch(/не может надёжно разделить/);
+  });
+
+  it('нет пар → пустая строка', () => {
+    expect(collinearityCaveat([])).toBe('');
+    expect(collinearityCaveat(null)).toBe('');
   });
 });

@@ -138,3 +138,71 @@ export function describeScenario(config) {
   });
   return `Сценарий — ${parts.join('; ')}; остальные каналы без изменений. Запустить расчёт?`;
 }
+
+/** Порог |r| для предупреждения о коллинеарности при перебросе бюджета.
+ * Консервативнее UI-порога мультиколлинеарности (0.8): McElreath (гл. 5–6) —
+ * коллинеарность мешает разделить вклад уже при умеренной корреляции, а для
+ * совета «переложить бюджет с A на B» цена ошибки разделения высока. */
+const COLLINEAR_THRESHOLD = 0.65;
+
+/**
+ * @typedef {Object} CollinearPair
+ * @property {string} a
+ * @property {string} b
+ * @property {number} r — корреляция (со знаком)
+ */
+
+/**
+ * Среди задействованных в сценарии каналов найти пары с высокой взаимной
+ * корреляцией. Вклад таких каналов модель не может надёжно разделить, поэтому
+ * прогноз переброса бюджета между ними ненадёжен (McElreath: коллинеарность).
+ *
+ * Имена сверяются с метками матрицы напрямую; канал без метки молча
+ * пропускается (защита от мисматча имени, как в applyChangesToMediaPlan).
+ *
+ * @param {ChannelChange[]} changes
+ * @param {{ labels: string[], matrix: number[][] } | null | undefined} correlationMatrix
+ * @param {number} [threshold]
+ * @returns {CollinearPair[]}
+ */
+export function findCollinearPairs(changes, correlationMatrix, threshold = COLLINEAR_THRESHOLD) {
+  if (!correlationMatrix || !Array.isArray(correlationMatrix.labels) || !Array.isArray(correlationMatrix.matrix)) {
+    return [];
+  }
+  const { labels, matrix } = correlationMatrix;
+  /** @type {Map<string, number>} */
+  const idx = new Map(labels.map((l, i) => [l, i]));
+  const chans = [...new Set((changes || []).map((c) => c.channel))].filter((c) => idx.has(c));
+  /** @type {CollinearPair[]} */
+  const pairs = [];
+  for (let i = 0; i < chans.length; i++) {
+    for (let j = i + 1; j < chans.length; j++) {
+      const ri = /** @type {number} */ (idx.get(chans[i]));
+      const rj = /** @type {number} */ (idx.get(chans[j]));
+      const r = Number(matrix[ri]?.[rj]);
+      if (Number.isFinite(r) && Math.abs(r) >= threshold) {
+        pairs.push({ a: chans[i], b: chans[j], r });
+      }
+    }
+  }
+  return pairs;
+}
+
+/**
+ * Текст-оговорка о коллинеарности для промпта интерпретации сценария (или ''
+ * если коллинеарных пар нет). Подаётся Авроре как методологический контекст —
+ * число r здесь справочное (корреляция данных), не результат модели.
+ *
+ * @param {CollinearPair[] | null | undefined} pairs
+ * @returns {string}
+ */
+export function collinearityCaveat(pairs) {
+  if (!Array.isArray(pairs) || pairs.length === 0) return '';
+  const list = pairs.map((p) => `«${p.a}» и «${p.b}» (r≈${p.r.toFixed(2)})`).join('; ');
+  return (
+    `Коллинеарность каналов сценария: ${list}. Их рекламная активность шла почти ` +
+    `синхронно, поэтому модель не может надёжно разделить вклад этих каналов, и ` +
+    `прогноз переброса бюджета между ними ненадёжен. Обязательно предупреди об этом ` +
+    `и трактуй такой результат осторожно.`
+  );
+}

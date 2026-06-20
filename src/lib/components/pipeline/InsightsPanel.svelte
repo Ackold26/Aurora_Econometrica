@@ -44,7 +44,7 @@
   import { cloudConsent } from '$lib/store.js';
   import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES } from '$lib/tier2-context.js';
   import { findUngroundedNumbers } from '$lib/insights-grounding.js';
-  import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario } from '$lib/scenario-advisor.js';
+  import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario, findCollinearPairs, collinearityCaveat } from '$lib/scenario-advisor.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -526,12 +526,18 @@
         t.predicted_kpi != null ? `- Прогноз KPI: ${Math.round(Number(t.predicted_kpi))}` : '',
         t.incremental_kpi != null ? `- Инкрементальный KPI: ${Math.round(Number(t.incremental_kpi))}` : '',
       ].filter(Boolean).join('\n');
+      // Методологическая оговорка о коллинеарности (McElreath): если каналы
+      // сценария сильно скоррелированы, переброс между ними ненадёжен.
+      const collinearWarn = collinearityCaveat(
+        findCollinearPairs(scenarioConfig.changes, get(validateData)?.correlationMatrix),
+      );
       const interpPrompt = [
         TIER2_SYSTEM_RULES, '',
+        collinearWarn ? `=== Методологическая оговорка (учесть обязательно) ===\n${collinearWarn}\n` : '',
         '=== Факты сценария (единственный источник чисел) ===', factLines, '',
         '=== Задача ===',
         'Объясни кратко простым языком, что даёт этот сценарий и стоит ли его применять. Используй ТОЛЬКО числа выше.',
-      ].join('\n');
+      ].filter(Boolean).join('\n');
       scenarioInterpret = sanitizeAvroraText(await callAurora(interpPrompt));
     } catch (e) {
       scenarioError = String(e).replace(/^\[?[A-Z-]+\]?\s*/, '');
