@@ -1583,6 +1583,15 @@ def render_sources(ctx: dict) -> str:
         mr_html = (f'<div class="mqs-caveat mqs-reliability">'
                    f'<strong>{escape(_mr_label)}.</strong> {escape(mr_caveat_text)}</div>')
 
+    # Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
+    _mode_label = diag.get("analysis_mode_label")
+    _kind_label = diag.get("kpi_kind_label")
+    mode_html = ""
+    if _mode_label:
+        _kpi_part = f" · KPI: {escape(_kind_label)}" if _kind_label else ""
+        mode_html = (f'<div class="mqs-mode">Режим анализа: '
+                     f'{escape(_mode_label)}{_kpi_part}</div>')
+
     mqs_diag_html = ""
     if is_ols:
         # OLS: показываем только R²/MAPE + frequentist метод (без MCMC).
@@ -1623,6 +1632,7 @@ def render_sources(ctx: dict) -> str:
     <div class="mqs-tier">{escape(mqs_tier)}</div>
     {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
     {mr_html}
+    {mode_html}
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
     <a class="method-badge" href="#method">{escape(_badge_text)}</a>
   </div>

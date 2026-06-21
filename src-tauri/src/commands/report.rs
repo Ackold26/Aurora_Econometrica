@@ -81,6 +81,25 @@ fn clean_label(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик для
+/// клиента). Зеркало Python (narrative_adapter). Rust XLSX/MD читают decompose
+/// JSON напрямую. Пустая строка ⇒ метку не показываем.
+fn analysis_mode_label(mode: &str) -> &'static str {
+    match mode {
+        "roi" => "ROI (деньги)",
+        "effectiveness" => "Эффективность (доля вклада)",
+        "mixed" | "expert" => "Смешанный (эксперт)",
+        _ => "",
+    }
+}
+fn kpi_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "monetary" => "денежный",
+        "count" => "количественный",
+        _ => "",
+    }
+}
+
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
 /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
 /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
@@ -376,6 +395,15 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // ── Executive Summary ────────────────────────────────────
     md.push_str("## EXECUTIVE SUMMARY\n\n");
     md.push_str(&format!("- **Качество модели (MQS):** {mqs:.1} - {mqs_label}\n"));
+    // Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
+    {
+        let md_mode = analysis_mode_label(&decompose["derived_mode"].as_str().unwrap_or("roi").to_lowercase());
+        let md_kind = kpi_kind_label(&decompose["kpi_kind"].as_str().unwrap_or("monetary").to_lowercase());
+        if !md_mode.is_empty() {
+            let kpi_part = if md_kind.is_empty() { String::new() } else { format!(" · KPI: {md_kind}") };
+            md.push_str(&format!("- **Режим анализа:** {md_mode}{kpi_part}\n"));
+        }
+    }
     md.push_str(&format!("- **R²:** {r_squared:.4} (объяснённая дисперсия: {:.1}%)\n", r_squared * 100.0));
     md.push_str(&format!("- **MAPE:** {mape:.2}%\n"));
     md.push_str(&format!("- **Ожидаемый прирост от оптимизации:** {:+.1}%\n", lift));
@@ -963,11 +991,17 @@ fn build_xlsx(
             .or_else(|| model["model_version"].as_str())
             .map(|v| format!("v{v}"))
             .unwrap_or_else(|| "—".to_string());
+        // Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
+        let mode_lbl = analysis_mode_label(&decompose["derived_mode"].as_str().unwrap_or("roi").to_lowercase());
+        let kind_lbl = kpi_kind_label(&decompose["kpi_kind"].as_str().unwrap_or("monetary").to_lowercase());
+        let mode_meta = if kind_lbl.is_empty() { mode_lbl.to_string() }
+                        else { format!("{mode_lbl} · KPI: {kind_lbl}") };
         let meta_rows: &[(&str, String)] = &[
             ("Подготовлено для:", client_label.to_string()),
             ("Проект:",           project_id.to_string()),
             ("Дата:",             today),
             ("Версия модели:",    model_ver),
+            ("Режим анализа:",    mode_meta),
             ("Гриф:",             "Конфиденциально".to_string()),
         ];
         for (i, (k, v)) in meta_rows.iter().enumerate() {
@@ -1983,6 +2017,19 @@ mod tests {
         assert_eq!(verdict_display("Watch", "uncertain"), "Наблюдать");
         // unreliable → направление не показываем
         assert_eq!(verdict_display("Scale", "unreliable"), "Требует переобучения");
+    }
+
+    /// Волна 3: метки режима анализа + типа KPI (зеркало Python). Неизвестное ⇒
+    /// пустая строка (метку не показываем).
+    #[test]
+    fn analysis_and_kpi_labels() {
+        assert_eq!(analysis_mode_label("roi"), "ROI (деньги)");
+        assert_eq!(analysis_mode_label("effectiveness"), "Эффективность (доля вклада)");
+        assert_eq!(analysis_mode_label("expert"), "Смешанный (эксперт)");
+        assert_eq!(analysis_mode_label("xyz"), "");
+        assert_eq!(kpi_kind_label("monetary"), "денежный");
+        assert_eq!(kpi_kind_label("count"), "количественный");
+        assert_eq!(kpi_kind_label("xyz"), "");
     }
 
     /// Волна 2: чистка `\n`/двойных пробелов в именах каналов (исходные Excel-

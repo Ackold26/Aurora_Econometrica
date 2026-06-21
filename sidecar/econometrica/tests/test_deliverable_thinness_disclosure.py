@@ -270,6 +270,23 @@ def test_sanitize_slug_no_service_word_leak():
     assert '2021-2025' in _sanitize_project_slug('mmx-2021-2025-исходник-26--4')[0]
 
 
+def test_seam_carries_analysis_mode_labels():
+    """Волна 3: мост доносит метку режима анализа + типа KPI из decompose."""
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data={
+            "derived_mode": "effectiveness", "kpi_kind": "count",
+            "channels": [{"name": "A", "mroas": 1.2}, {"name": "B", "mroas": 1.0}]},
+        optimize_data={}, scenarios=[], project_id="t")
+    d = payload["diagnostics"]
+    assert d["analysis_mode_label"] == "Эффективность (доля вклада)"
+    assert d["kpi_kind_label"] == "количественный"
+    # дефолт (нет полей) → ROI/денежный
+    payload2 = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data={"channels": [{"name": "A", "mroas": 1.2}, {"name": "B"}]},
+        optimize_data={}, scenarios=[], project_id="t")
+    assert payload2["diagnostics"]["analysis_mode_label"] == "ROI (деньги)"
+
+
 def test_channel_reasoning_no_anglicisms():
     """Волна 3: клиентский reasoning без англицизмов (saturation/breakeven/Optimizer)."""
     from engines.channel_action import compute_channel_action

@@ -276,6 +276,9 @@ class AuroraPPTXBuilder:
         # дефолтил 1247, наблюдения = каналы×13). None ⇒ «н/д», не выдумываем.
         self.ess_min = diag.get("ess_min")
         self.n_obs = diag.get("n_obs")
+        # Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
+        self.analysis_mode_label = diag.get("analysis_mode_label")
+        self.kpi_kind_label = diag.get("kpi_kind_label")
         # v2.1.0 (Pilot C): engine detection. 'ols' для small-data fallback,
         # 'bayesian' (default) для production v1.2/v1.3 pickles. Determines
         # methodology labels (MCMC/NUTS vs closed-form/bootstrap).
@@ -2851,6 +2854,11 @@ class AuroraPPTXBuilder:
         ]
         if self.data_frequency:
             data_info.append(("Частота", self.data_frequency))
+        if self.analysis_mode_label:
+            _mode_val = self.analysis_mode_label
+            if self.kpi_kind_label:
+                _mode_val += f" · KPI: {self.kpi_kind_label}"
+            data_info.append(("Режим анализа", _mode_val))
         dy = card_y + 0.55
         for label, val in data_info:
             self._text(

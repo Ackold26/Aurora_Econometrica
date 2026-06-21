@@ -910,6 +910,22 @@ def _map_pipeline_to_builder_data(
             "reasons": [str(r) for r in (mr.get("reasons") or [])],
         }
 
+    # Волна 3 (2026-06-20): метка режима анализа + типа KPI — контекст метрик для
+    # клиента (ROI vs Эффективность/доля; денежный vs количественный KPI). Источник
+    # — decompose (derived_mode/kpi_kind). Прежде отчёт не сообщал, в каком режиме
+    # считаны метрики → клиент мог принять долю вклада за ROI.
+    _mode = str(decompose_data.get("derived_mode") or "roi").lower()
+    _kind = str(decompose_data.get("kpi_kind") or "monetary").lower()
+    diagnostics["analysis_mode"] = _mode
+    diagnostics["analysis_mode_label"] = {
+        "roi": "ROI (деньги)", "effectiveness": "Эффективность (доля вклада)",
+        "mixed": "Смешанный (эксперт)", "expert": "Смешанный (эксперт)",
+    }.get(_mode, _mode)
+    diagnostics["kpi_kind"] = _kind
+    diagnostics["kpi_kind_label"] = {
+        "monetary": "денежный", "count": "количественный",
+    }.get(_kind, _kind)
+
     data: dict[str, Any] = {"meta": meta}
     if diagnostics:
         data["diagnostics"] = diagnostics
