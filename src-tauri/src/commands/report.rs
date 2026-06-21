@@ -13,6 +13,21 @@ use std::path::{Path, PathBuf};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/// Канал с ненадёжным ROI (битые единицы / артефакт): unit_smell ИЛИ маркер
+/// артефакта в тексте вердикта. Зеркалит narrative_adapter._roi_unreliable
+/// (Python-мост сюда не доходит — Rust XLSX/MD читают results JSON напрямую).
+/// Битый ROI нельзя подавать клиенту числом (INV-50) — билдер пишет «н/д».
+fn roi_unreliable(ch: &Value) -> bool {
+    if ch["unit_smell"].as_bool().unwrap_or(false) {
+        return true;
+    }
+    let v = ch["verdict"].as_str().unwrap_or("").to_lowercase();
+    v.contains("завышен")
+        || v.contains("нереалистичн")
+        || v.contains("артефакт")
+        || v.contains("не рубл")
+}
+
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
 /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
 /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
@@ -363,9 +378,14 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
             let name   = ch["name"].as_str().unwrap_or("-");
             let spend  = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
-            let roi    = ch["roi"].as_f64().unwrap_or(0.0);
             let verdict = ch["verdict"].as_str().unwrap_or("-");
-            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi:.2}x | {verdict} |\n"));
+            // INV-50: битый ROI (артефакт единиц) не пишем числом.
+            let roi_cell = if roi_unreliable(ch) {
+                "н/д".to_string()
+            } else {
+                format!("{:.2}x", ch["roi"].as_f64().unwrap_or(0.0))
+            };
+            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi_cell} | {verdict} |\n"));
         }
         md.push('\n');
 
@@ -377,10 +397,14 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
             md.push_str("|-------|----:|----------:|-----------:|\n");
             for ch in chs_for_ci {
                 let ch_name = ch["name"].as_str().unwrap_or("-");
-                let roi     = ch["roi"].as_f64().unwrap_or(0.0);
-                let ci_lo   = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
-                let ci_hi   = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
-                md.push_str(&format!("| {ch_name} | {roi:.2}x | {ci_lo:.2}x | {ci_hi:.2}x |\n"));
+                if roi_unreliable(ch) {
+                    md.push_str(&format!("| {ch_name} | н/д | — | — |\n"));
+                } else {
+                    let roi   = ch["roi"].as_f64().unwrap_or(0.0);
+                    let ci_lo = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
+                    let ci_hi = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
+                    md.push_str(&format!("| {ch_name} | {roi:.2}x | {ci_lo:.2}x | {ci_hi:.2}x |\n"));
+                }
             }
             md.push('\n');
         }
@@ -1145,14 +1169,32 @@ fn build_xlsx(
             let ci_lo = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
             let ci_hi = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
 
+            // Волна 1 Шаг 2: битый ROI (битые единицы / артефакт) не пишем числом —
+            // абсурдные 18500× нельзя подавать клиенту как факт (INV-50). Признак —
+            // helper roi_unreliable (зеркалит narrative_adapter._roi_unreliable; Python
+            // мост сюда не доходит: Rust XLSX читает results JSON напрямую).
+            let roi_bad = roi_unreliable(ch);
+
             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, contrib, &num_fmt).map_err(|e| format!("{e}"))?;
-            let roi = if spend > 0.0 { contrib / spend } else { 0.0 };
-            ws.write_with_format(row, 3, roi, &roi_fmt).map_err(|e| format!("{e}"))?;
-            ws.write_with_format(row, 4, ci_lo, &roi_fmt).map_err(|e| format!("{e}"))?;
-            ws.write_with_format(row, 5, ci_hi, &roi_fmt).map_err(|e| format!("{e}"))?;
+            if roi_bad {
+                ws.write(row, 3, "н/д*").map_err(|e| format!("{e}"))?;
+                ws.write(row, 4, "—").map_err(|e| format!("{e}"))?;
+                ws.write(row, 5, "—").map_err(|e| format!("{e}"))?;
+            } else {
+                let roi = if spend > 0.0 { contrib / spend } else { 0.0 };
+                ws.write_with_format(row, 3, roi, &roi_fmt).map_err(|e| format!("{e}"))?;
+                ws.write_with_format(row, 4, ci_lo, &roi_fmt).map_err(|e| format!("{e}"))?;
+                ws.write_with_format(row, 5, ci_hi, &roi_fmt).map_err(|e| format!("{e}"))?;
+            }
             ws.write(row, 6, verdict).map_err(|e| format!("{e}"))?;
+        }
+        // Сноска-пояснение «н/д*» (если был хоть один битый ROI-канал).
+        if chs.iter().any(roi_unreliable) {
+            let note_row = chs.len() as u32 + 4;
+            ws.write(note_row, 0, "* ROI н/д — единицы канала требуют проверки (не сопоставим с рублёвыми); сравнивайте по доле вклада.")
+                .map_err(|e| format!("{e}"))?;
         }
 
         // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
