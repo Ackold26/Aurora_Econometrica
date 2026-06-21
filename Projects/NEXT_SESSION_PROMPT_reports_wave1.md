@@ -22,8 +22,13 @@
 - **Тесты:** `cd sidecar/econometrica && python -m pytest tests/test_deliverable_thinness_disclosure.py tests/test_diagnostics_verdict.py`. Rust: `CARGO_TARGET_DIR="D:/cargo-targets/econ-check" cargo check --manifest-path src-tauri/Cargo.toml` (не конфликтует с dev). Системный python 3.12 + pytest есть; pptx/openpyxl установлены.
 - Коммиты локальные с мини-аудитом, push с approval Антона, своим pathspec (репо общий — есть untracked-мусор CC-Sessions/tmp).
 
+## Параллельное направление — доработки по дизайну приложения (UI/UX)
+> Запрос Антона (2026-06-20): помимо отчётности, в следующей сессии — **доработки дизайна интерфейса приложения** (не отчёты — сам UI Optimizer: SvelteKit 5 + дизайн-система Aether Mesh, glass tiers; см. `CLAUDE.md` раздел «UX Architecture v2.0»). **Конкретику Антон задаёт в начале сессии** (какие экраны/элементы дорабатываем) — не выдумывать, уточнить.
+> **Инструменты:** автономный визуальный аудит вживую — стандарт AVT (программная инспекция `mcp__tauri__webview_dom_snapshot`/`webview_*` > скриншоты; готовая фикстура-проект вместо прохода pipeline; чек-лист на экран; верифицировать находки), скилл **`visual-audit`** (десктоп Tauri); для нового UI/полировки — `frontend-design` / `ui-ux-pro-max` / `design-system`. Поднять `npm run tauri:dev` + MCP-мост (`driver_session :9223`); проекты-фикстуры — кагоцел (125 шт в `%APPDATA%\aurora-econometrica-gui\projects`).
+> **Зацепка этой сессии:** UX-фикс блока «Что если» (был виден на шаге Обучение — перенесён на Оптимизацию) показал, что панель инсайтов/«Аврора» живёт в реальном UI и стоит пройти GUI-аудит панели + всех 6 шагов пайплайна на консистентность/полировку. Ключевые компоненты: `InsightsPanel.svelte`, `cabinet/+page.svelte` (Selection/Execution), `NavRail.svelte`, `routes/pipeline/`.
+
 ## Как проверять (мета-урок)
 Перегенерировать отчёт на РЕАЛЬНОМ прогоне (метод «артефакт в работе»), не на синтетике: проект `кагоцел-…-2006-26--3` (ratio 2.4, есть unit_smell-канал TRPs — идеальная фикстура). Путь: `C:/Users/ackol/AppData/Roaming/aurora-econometrica-gui/projects/<id>/results/`. HTML/PPTX — через `engines.html_export.build_html` / `aurora_pptx.builder.AuroraPPTXBuilder` на python. XLSX — Rust (live после пересборки).
 
 ## С чего начать
-Прочитать trackfile секцию «Аудит отчётности» → уточнить у Антона: (а) пункт 2 (плашка) или пункт 3 (синхрон вердиктов) первым; (б) решение по развилке вердиктов (honesty доминирует?). Открыть проект 2006-26--3 как фикстуру.
+Два направления в работе: **(A) отчётность Волна 1** (задачи выше) и **(B) доработки дизайна приложения** (раздел выше). Уточнить у Антона приоритет/порядок. Для (A): прочитать trackfile секцию «Аудит отчётности» → (а) пункт 2 (плашка) или пункт 3 (синхрон вердиктов) первым; (б) решение по развилке вердиктов (honesty доминирует?); открыть проект 2006-26--3 как фикстуру. Для (B): уточнить конкретику дизайна → поднять dev+мост → AVT/visual-audit.
