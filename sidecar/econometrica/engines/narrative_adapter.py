@@ -867,6 +867,26 @@ def _map_pipeline_to_builder_data(
         ch["roi_unreliable"] = _roi_unreliable(ch)
         if ch["roi_unreliable"]:
             ch["roi_caveat"] = "единицы канала требуют проверки (ROI не сопоставим с рублёвыми)"
+            # Системная заглушка (data-level): зануляем ОТОБРАЖАЕМЫЙ mROAS/ROI и
+            # их CI у битого канала, чтобы НИ ОДИН потребитель (таблицы, графики
+            # CHART_DATA, нарратив — HTML/PPTX/XLSX) не показал абсурд 15525×.
+            # Сырое значение сохраняем в *_raw для отладки. Билдеры с флагом
+            # roi_unreliable рисуют качественную пометку; прочие видят None→пусто.
+            ch["mroas_raw"] = ch.get("mroas")
+            ch["roi_raw"] = ch.get("roi")
+            ch["mroas"] = None
+            ch["roi"] = None
+            ch["mroas_ci_low"] = None
+            ch["mroas_ci_high"] = None
+            ch["roi_ci_low"] = None
+            ch["roi_ci_high"] = None
+            # action_reasoning вычислен compute_channel_action ВЫШЕ (до обнуления)
+            # и несёт сырое число (напр. «mROAS 15525×»); PPTX/HTML-комментарии его
+            # тиражируют → заменяем на качественную оговорку (один источник истины).
+            ch["action_reasoning"] = (
+                "ROI/mROAS этого канала ненадёжен (" + ch["roi_caveat"]
+                + ") — сравнивайте канал по доле вклада в продажи, а не по ROI."
+            )
 
     narrative_facts: dict | None = None
     if len(channels) >= 2:

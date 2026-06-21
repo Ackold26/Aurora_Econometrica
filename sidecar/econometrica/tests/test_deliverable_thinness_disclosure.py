@@ -112,6 +112,28 @@ def test_no_overfitting_artefact_wording_in_caveat():
         assert "ненадёжны" not in cav
 
 
+def test_unreliable_channel_roi_blanked_in_payload():
+    """Волна 1 Шаг 2 (data-level заглушка): битый ROI-канал в payload обнулён
+    (mroas/roi=None, action_reasoning без сырого числа) → ни один билдер
+    (HTML/PPTX/XLSX) не покажет абсурдные 15525×. INV-50."""
+    dec = {"channels": [
+        {"name": "TRPs бренд", "spend": 22100, "contribution": 409e6, "roi": 18500,
+         "mroi_current": 15525, "unit_smell": True, "verdict": "ROI завышен (не рубли?)"},
+        {"name": "Social", "spend": 100e6, "contribution": 1345e6, "roi": 13.4,
+         "mroi_current": 1.5, "verdict": "Высокоэффективен"},
+    ]}
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data=dec, optimize_data={}, scenarios=[], project_id="t")
+    trp = next(c for c in payload["channels"] if "TRP" in (c.get("name") or ""))
+    assert trp["roi_unreliable"] is True
+    assert trp["mroas"] is None and trp["roi"] is None
+    reasoning = trp.get("action_reasoning") or ""
+    assert "15525" not in reasoning and "18500" not in reasoning
+    # надёжный канал не тронут
+    social = next(c for c in payload["channels"] if "Social" in (c.get("name") or ""))
+    assert social.get("roi_unreliable") is False
+
+
 def test_merge_channels_preserves_unit_smell():
     """Волна 1: honesty-поля (unit_smell/smell_flags) доходят через мост до
     hero-гарда; иначе битый ROI-канал (TRP, не рубли) коронуется «лучшим»."""
