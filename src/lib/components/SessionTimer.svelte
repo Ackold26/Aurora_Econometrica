@@ -3,17 +3,13 @@
   // ОБРАТНЫЙ отсчёт от целевой длительности к 00:00:00 (HH:MM:SS). Не
   // останавливается при навигации/командах/отменах. Управление кнопкой:
   //   1 клик — стоп · 2-й клик — пуск/продолжение · двойной клик — сброс к полной.
-  // Сбрасывается при перезапуске приложения. Стиль — мono lime; на исходе цвет
-  // меняется (≤5 мин янтарный, 00:00 красный). Виден сквозным образом на всех
-  // страницах (один общий стор).
+  // Сбрасывается при перезапуске приложения. Стиль — mono lime (sacred-цвет
+  // таймера/часов, без смены цвета на исходе — решение Антона). Виден сквозным
+  // образом на всех страницах (один общий стор).
   import { onMount, onDestroy } from 'svelte';
   import { timerState, timerRemainingMs, toggleTimer, resetTimer } from '$lib/store.js';
 
-  const LOW_MS = 5 * 60 * 1000; // ≤5 мин → визуальный сигнал «на исходе»
-
   let remaining = $state('00:00:00');
-  let low = $state(false);   // ≤5 мин осталось
-  let ended = $state(false); // 00:00 достигнут
 
   /** @param {number} ms */
   function fmt(ms) {
@@ -24,12 +20,7 @@
     return `${h}:${m}:${s}`;
   }
 
-  function tick() {
-    const ms = timerRemainingMs($timerState);
-    remaining = fmt(ms);
-    ended = ms <= 0;
-    low = ms > 0 && ms <= LOW_MS;
-  }
+  function tick() { remaining = fmt(timerRemainingMs($timerState)); }
 
   onMount(() => {
     tick();
@@ -56,7 +47,7 @@
 </script>
 
 <div class="session-timer">
-  <span class="st-time" class:paused={!$timerState.running} class:low class:ended title="Осталось до конца сессии">{remaining}</span>
+  <span class="st-time" class:paused={!$timerState.running} title="Осталось до конца сессии">{remaining}</span>
   <button
     class="st-reset"
     onclick={handleClick}
@@ -89,15 +80,6 @@
   /* На паузе — приглушённо (видно, что отсчёт остановлен). */
   .st-time.paused {
     opacity: 0.4;
-  }
-  /* На исходе — цвет меняется (сдержанно, без пульсации): ≤5 мин янтарный, 00:00 красный. */
-  .st-time.low {
-    color: var(--warning, #F59E0B);
-    opacity: 1;
-  }
-  .st-time.ended {
-    color: var(--danger, #EF4444);
-    opacity: 1;
   }
   .st-reset {
     display: inline-flex;
