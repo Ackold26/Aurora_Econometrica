@@ -714,6 +714,34 @@ def _derive_narrative_facts(
     }
 
 
+def _fmt_period_label(iso_date: str) -> str:
+    """'2023-01-01' → '01.2023' (мес.год) для честной метки периода данных."""
+    try:
+        return datetime.strptime(str(iso_date)[:10], "%Y-%m-%d").strftime("%m.%Y")
+    except (ValueError, TypeError):
+        return str(iso_date)
+
+
+def _infer_frequency(dates: list) -> str | None:
+    """Частота данных по интервалу между первыми точками (для метки отчёта).
+    Прежде PPTX хардкодил «Еженедельно (Пн-Вс)» — для месячных данных это ложь."""
+    if not dates or len(dates) < 2:
+        return None
+    try:
+        d0 = datetime.strptime(str(dates[0])[:10], "%Y-%m-%d")
+        d1 = datetime.strptime(str(dates[1])[:10], "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return None
+    delta = abs((d1 - d0).days)
+    if delta <= 10:
+        return "Еженедельно"
+    if delta <= 45:
+        return "Ежемесячно"
+    if delta <= 100:
+        return "Поквартально"
+    return None
+
+
 def _map_pipeline_to_builder_data(
     model_data: dict | None,
     decompose_data: dict | None,
@@ -773,6 +801,18 @@ def _map_pipeline_to_builder_data(
         "version": version,
         "report_date": _fmt_ru_date(now),
     }
+    # Волна 2 (2026-06-20): реальный период/частота из дат прогона. Прежде мост НЕ
+    # заполнял эти meta → PPTX дефолтил на ВЫДУМАННОЕ «W01 W13 2026» (недельный
+    # период на месячных данных) и хардкод «Еженедельно». Берём окно из реальных
+    # дат декомпозиции; n_periods = число точек (= наблюдений одной серии).
+    _dates = ((decompose_data.get("time_series") or {}).get("dates")
+              or (decompose_data.get("decomposition_series") or {}).get("dates") or [])
+    if _dates:
+        meta["data_window_label"] = f"{_fmt_period_label(_dates[0])} – {_fmt_period_label(_dates[-1])}"
+        meta["n_periods"] = len(_dates)
+        _freq = _infer_frequency(_dates)
+        if _freq:
+            meta["data_frequency"] = _freq
 
     # --- Diagnostics ---
     diag_src = model_data.get("diagnostics", {}) or {}
@@ -791,6 +831,9 @@ def _map_pipeline_to_builder_data(
     mape_pct = _first(metrics.get("mape_pct"), diag_src.get("mape"), default=None)
     r_hat_max = _first(metrics.get("r_hat_max"), metrics.get("r_hat"), diag_src.get("r_hat"), default=None)
     ess_min = _first(metrics.get("ess_min"), metrics.get("ess"), diag_src.get("ess"), default=None)
+    # Волна 2 (2026-06-20): реальное число наблюдений — прежде PPTX фабриковал
+    # «Наблюдений 78» = active_count*13 (каналы×недели); реально n=31 (месячные).
+    n_obs = _first(metrics.get("n_observations"), metrics.get("n_obs"), diag_src.get("n_obs"), default=None)
     # INV-50 F-DELIVERABLE-1: data-thinness disclosure fields (прежде дропались).
     # thinness_cap читаем из mqs (там его кладёт model_quality_score), ratio —
     # из metrics (эффективный, драйвит cap). None — когда cap не применён.
@@ -813,6 +856,11 @@ def _map_pipeline_to_builder_data(
     if ess_min is not None:
         try:
             diagnostics["ess_min"] = int(ess_min)
+        except (TypeError, ValueError):
+            pass
+    if n_obs is not None:
+        try:
+            diagnostics["n_obs"] = int(n_obs)
         except (TypeError, ValueError):
             pass
     # thinness_cap намеренно может быть None (cap не сработал) — кладём всегда,

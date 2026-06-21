@@ -198,7 +198,11 @@ class AuroraPPTXBuilder:
         self.report_date = meta.get("report_date", "24 апреля 2026")
         self.period_label = meta.get("period_label", "Q1 2026")
         self.forecast_period_label = meta.get("forecast_period_label", "Q3-Q4 2026")
+        # Волна 2 (2026-06-20): реальный период/частота/наблюдения из meta (мост
+        # строит из дат прогона); дефолты — только для wireframe-превью без данных.
         self.data_window_label = meta.get("data_window_label", "W01 W13 2026")
+        self.n_periods = meta.get("n_periods")
+        self.data_frequency = meta.get("data_frequency")
         # Stage C.6.3: TOC shrunk to 5 real sections with content (Option B
         # symmetric tier-1 structure). Previous 8-section layout promised
         # sections 4/6/7 (Модель / Оптимизация / Рекомендации) with no
@@ -257,7 +261,7 @@ class AuroraPPTXBuilder:
         self.r_squared = diag.get("r_squared", 0.872)
         self.mape_pct = diag.get("mape_pct", 8.3)
         self.r_hat_max = diag.get("r_hat_max", 1.008)
-        self.ess_min = diag.get("ess_min", 1247)
+        # self.ess_min / self.n_obs — реальные, заданы ниже (Волна 2): НЕ фабрикуем.
         # INV-50 F-DELIVERABLE-1 (2026-06-07): data-thinness disclosure.
         # Default None → preview/wireframe (Кагоцел fallback) НЕ фабрикует
         # оговорку о переобучении; она появляется только когда backend реально
@@ -268,6 +272,10 @@ class AuroraPPTXBuilder:
         # плашки на слайде источников. caveat_text идёт VERBATIM из SSOT
         # (optimizer_honesty — тот же текст, что в UI, INV-50; уже клиентский, с OVB).
         self.model_reliability = diag.get("model_reliability") or {}
+        # Волна 2 (2026-06-20): ESS/наблюдения — реальные; НЕ фабрикуем (прежде ESS
+        # дефолтил 1247, наблюдения = каналы×13). None ⇒ «н/д», не выдумываем.
+        self.ess_min = diag.get("ess_min")
+        self.n_obs = diag.get("n_obs")
         # v2.1.0 (Pilot C): engine detection. 'ols' для small-data fallback,
         # 'bayesian' (default) для production v1.2/v1.3 pickles. Determines
         # methodology labels (MCMC/NUTS vs closed-form/bootstrap).
@@ -2654,7 +2662,7 @@ class AuroraPPTXBuilder:
                 ("R²",                f"{self.r_squared:.3f}"),
                 ("MAPE",              f"{self.mape_pct:.1f}%"),
                 ("R-hat (max)",       f"{self.r_hat_max:.3f}"),
-                ("ESS (min)",         f"{self.ess_min:,}".replace(",", " ")),
+                ("ESS (min)",         f"{self.ess_min:,}".replace(",", " ") if self.ess_min is not None else "н/д"),
             ]
         dy = diag_y + 0.4
         for label, val in diag:
@@ -2799,7 +2807,7 @@ class AuroraPPTXBuilder:
             ("R²",     f"{self.r_squared:.2f}"),
             ("MAPE",   f"{self.mape_pct:.1f}%"),
             ("R-hat",  f"{self.r_hat_max:.3f}"),
-            ("ESS",    f"{self.ess_min:,}".replace(",", " ")),
+            ("ESS",    f"{self.ess_min:,}".replace(",", " ") if self.ess_min is not None else "н/д"),
         ]
         for i, (label, val) in enumerate(mets):
             row, col = divmod(i, 2)
@@ -2830,14 +2838,19 @@ class AuroraPPTXBuilder:
         # defensive defaults (will be parametrized via meta when pipeline
         # exposes them; for now document canonical RU phrasing).
         active_count = len(self.channels) if self.channels else 0
+        # Волна 2 (2026-06-20): честные мета-данные. Прежде «Наблюдений» = каналы×13
+        # (фейк: 6×13=78, реально n=31), «Частота Еженедельно» хардкод (данные
+        # месячные), «Полнота 100%»/«Аномалии обработаны» — хардкод без источника →
+        # убраны (INV-50: не утверждаем непроверяемое). Наблюдения/частота — реальные.
+        obs_val = (str(self.n_obs) if self.n_obs is not None
+                   else (str(self.n_periods) if self.n_periods else "-"))
         data_info = [
             ("Период",              self.data_window_label),
-            ("Наблюдений",          f"{active_count * 13}" if active_count else "-"),
+            ("Наблюдений",          obs_val),
             ("Активных каналов",    f"{active_count}" if active_count else "-"),
-            ("Частота",             "Еженедельно (Пн-Вс)"),
-            ("Полнота",             "100% (0 пропусков)"),
-            ("Аномалии",            "обработаны (праздничные недели)"),
         ]
+        if self.data_frequency:
+            data_info.append(("Частота", self.data_frequency))
         dy = card_y + 0.55
         for label, val in data_info:
             self._text(

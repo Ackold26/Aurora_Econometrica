@@ -73,6 +73,14 @@ fn verdict_display(verdict_key: &str, reliability_verdict: &str) -> String {
     }
 }
 
+/// Волна 2 (2026-06-20): чистка мусора в клиентских метках. Имена каналов несут
+/// `\n` и двойные пробелы из исходных Excel-заголовков («Статьи Бюджет \nДО НДС
+/// до АК») — в отчёте это многострочные ячейки и рваный текст. Схлопывает любой
+/// whitespace (вкл. переводы строк) в один пробел, обрезает края.
+fn clean_label(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
 /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
 /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
@@ -413,17 +421,30 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("\n\n");
     }
 
-    if let Some(wf) = decompose["waterfall"].as_array() {
-        md.push_str("### Вклады в продажи (Waterfall)\n\n");
-        md.push_str("| Категория | Вклад | % |\n");
-        md.push_str("|-----------|------:|--:|\n");
-        for item in wf {
-            let cat = item["category"].as_str().unwrap_or("-");
-            let val = item["value"].as_f64().unwrap_or(0.0);
-            let pct = item["contribution_pct"].as_f64().unwrap_or(0.0);
-            md.push_str(&format!("| {cat} | {val:.0} | {pct:.1}% |\n"));
+    // Волна 2 фикс (2026-06-20): waterfall = объект {labels, values, types}
+    // (прежде .as_array() на объекте → секция Waterfall молча терялась в MD).
+    if let Some(wf) = decompose["waterfall"].as_object() {
+        let labels = wf.get("labels").and_then(|v| v.as_array());
+        let values = wf.get("values").and_then(|v| v.as_array());
+        let types = wf.get("types").and_then(|v| v.as_array());
+        if let (Some(labels), Some(values)) = (labels, values) {
+            md.push_str("### Вклады в продажи (Waterfall)\n\n");
+            md.push_str("| Категория | Вклад | % |\n");
+            md.push_str("|-----------|------:|--:|\n");
+            let total_val = types
+                .and_then(|t| t.iter().position(|x| x.as_str() == Some("total")))
+                .and_then(|i| values.get(i)).and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let denom = if total_val != 0.0 { total_val }
+                        else { values.iter().filter_map(|v| v.as_f64()).sum() };
+            for (i, lab) in labels.iter().enumerate() {
+                let cat = clean_label(lab.as_str().unwrap_or("-"));
+                let val = values.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let pct = if denom != 0.0 { val / denom * 100.0 } else { 0.0 };
+                md.push_str(&format!("| {cat} | {val:.0} | {pct:.1}% |\n"));
+            }
+            md.push('\n');
         }
-        md.push('\n');
     }
 
     // ── Channel ROI ──────────────────────────────────────────
@@ -1171,49 +1192,72 @@ fn build_xlsx(
     }
 
     // ── Sheet 2: Декомпозиция + waterfall chart ─────────────
-    if let Some(wf) = decompose["waterfall"].as_array() {
-        let ws = wb.add_worksheet();
-        ws.set_name("Декомпозиция").map_err(|e| format!("{e}"))?;
-        ws.set_tab_color(Color::RGB(DEEP_80));
-        apply_base_cols(ws, &base_fmt)?;
-        apply_print_setup(ws, "Декомпозиция")?;
-        write_brand_header(ws, "Декомпозиция", 6)?;
+    // Волна 2 фикс (2026-06-20): waterfall = ОБЪЕКТ {labels, values, types}
+    // (параллельные массивы; types: baseline|channel|total). Прежде Rust ждал
+    // массив объектов [{category,value}] → .as_array()=None → лист «Декомпозиция»
+    // МОЛЧА терялся в XLSX (положительная канарейка: лист обязан существовать).
+    if let Some(wf) = decompose["waterfall"].as_object() {
+        let labels: Vec<String> = wf.get("labels").and_then(|v| v.as_array())
+            .map(|a| a.iter().map(|x| clean_label(x.as_str().unwrap_or("-"))).collect())
+            .unwrap_or_default();
+        let values: Vec<f64> = wf.get("values").and_then(|v| v.as_array())
+            .map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect())
+            .unwrap_or_default();
+        let types: Vec<String> = wf.get("types").and_then(|v| v.as_array())
+            .map(|a| a.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect())
+            .unwrap_or_default();
 
-        // Header row offset by 2 (brand header occupies rows 0+1).
-        ws.write_with_format(2, 0, "Категория",  &header_fmt).map_err(|e| format!("{e}"))?;
-        ws.write_with_format(2, 1, "Вклад, ₽",    &header_fmt).map_err(|e| format!("{e}"))?;
-        ws.write_with_format(2, 2, "% от общего", &header_fmt).map_err(|e| format!("{e}"))?;
+        if !labels.is_empty() && labels.len() == values.len() {
+            let ws = wb.add_worksheet();
+            ws.set_name("Декомпозиция").map_err(|e| format!("{e}"))?;
+            ws.set_tab_color(Color::RGB(DEEP_80));
+            apply_base_cols(ws, &base_fmt)?;
+            apply_print_setup(ws, "Декомпозиция")?;
+            write_brand_header(ws, "Декомпозиция", 6)?;
 
-        for (i, item) in wf.iter().enumerate() {
-            let row = (i + 3) as u32; // header at row 2 → data starts row 3
-            let cat = item["category"].as_str().unwrap_or("-");
-            let val = item["value"].as_f64().unwrap_or(0.0);
-            ws.write(row, 0, cat).map_err(|e| format!("{e}"))?;
-            ws.write_with_format(row, 1, val, &num_fmt).map_err(|e| format!("{e}"))?;
-            // Formula: contribution / total. Excel 1-based ref = row+1; total at total_row+1.
-            let total_xlsx = wf.len() as u32 + 4; // ИТОГО row Excel 1-based
-            ws.write_formula_with_format(row, 2, Formula::new(format!("=B{}/B${}", row + 1, total_xlsx)), &pct_fmt).map_err(|e| format!("{e}"))?;
+            // Header row offset by 2 (brand header occupies rows 0+1).
+            ws.write_with_format(2, 0, "Категория",  &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(2, 1, "Вклад, ₽",    &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(2, 2, "% от общего", &header_fmt).map_err(|e| format!("{e}"))?;
+
+            // Знаменатель % = элемент типа 'total' (если есть), иначе сумма не-total.
+            let total_val = types.iter().position(|t| t == "total")
+                .map(|i| values[i])
+                .unwrap_or_else(|| values.iter().zip(types.iter())
+                    .filter(|(_, t)| t.as_str() != "total").map(|(v, _)| *v).sum());
+
+            // Data rows = всё кроме 'total' (total выносим в ИТОГО ниже).
+            let mut row = 3u32;
+            for ((lab, val), ty) in labels.iter().zip(values.iter()).zip(types.iter()) {
+                if ty == "total" { continue; }
+                ws.write(row, 0, lab.as_str()).map_err(|e| format!("{e}"))?;
+                ws.write_with_format(row, 1, *val, &num_fmt).map_err(|e| format!("{e}"))?;
+                let pct = if total_val != 0.0 { val / total_val } else { 0.0 };
+                ws.write_with_format(row, 2, pct, &pct_fmt).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+            let last_data_row = row - 1; // zero-based индекс последней data-строки
+            // ИТОГО — значение из waterfall.total (точнее, чем SUM: baseline+channels
+            // может расходиться с total на округление).
+            ws.write_with_format(row, 0, "ИТОГО", &bold).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 1, total_val, &bold).map_err(|e| format!("{e}"))?;
+
+            // Bar chart — только data-строки (3..=last_data_row), значения col B.
+            let mut chart = Chart::new(ChartType::Bar);
+            chart.add_series()
+                .set_categories(("Декомпозиция", 3, 0, last_data_row, 0))
+                .set_values(("Декомпозиция", 3, 1, last_data_row, 1))
+                .set_name("Вклад в продажи");
+            chart.set_style(12); // Excel built-in style closest to Aurora hybrid (gradient navy/gold)
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("Декомпозиция продаж");
+            ws.insert_chart(row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+
+            // Widths matching reference style
+            ws.set_column_width(0, 35.71).map_err(|e| format!("{e}"))?;
+            ws.set_column_width(1, 24.57).map_err(|e| format!("{e}"))?;
+            ws.set_column_width(2, 18.0).map_err(|e| format!("{e}"))?;
         }
-        // Total row (zero-based = wf.len() + 3 since data starts at 3 and runs wf.len() rows)
-        let total_row = wf.len() as u32 + 3;
-        ws.write_with_format(total_row, 0, "ИТОГО", &bold).map_err(|e| format!("{e}"))?;
-        ws.write_formula_with_format(total_row, 1, Formula::new(format!("=SUM(B4:B{})", total_row)), &bold).map_err(|e| format!("{e}"))?;
-
-        // Bar chart - categories at rows 3..wf.len()+2 (zero-based), values col B
-        let mut chart = Chart::new(ChartType::Bar);
-        chart.add_series()
-            .set_categories(("Декомпозиция", 3, 0, wf.len() as u32 + 2, 0))
-            .set_values(("Декомпозиция", 3, 1, wf.len() as u32 + 2, 1))
-            .set_name("Вклад в продажи");
-        chart.set_style(12); // Excel built-in style closest to Aurora hybrid (gradient navy/gold)
-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-        chart.title().set_name("Декомпозиция продаж");
-        ws.insert_chart(total_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
-
-        // Widths matching reference style
-        ws.set_column_width(0, 35.71).map_err(|e| format!("{e}"))?;
-        ws.set_column_width(1, 24.57).map_err(|e| format!("{e}"))?;
-        ws.set_column_width(2, 18.0).map_err(|e| format!("{e}"))?;
     }
 
     // ── Sheet 3: ROI каналов + chart + conditional formatting ─
@@ -1932,5 +1976,33 @@ mod tests {
         assert_eq!(verdict_display("Watch", "uncertain"), "Наблюдать");
         // unreliable → направление не показываем
         assert_eq!(verdict_display("Scale", "unreliable"), "Требует переобучения");
+    }
+
+    /// Волна 2: чистка `\n`/двойных пробелов в именах каналов (исходные Excel-
+    /// заголовки) — иначе многострочные ячейки и рваный текст в отчёте.
+    #[test]
+    fn clean_label_collapses_whitespace() {
+        assert_eq!(clean_label("Статьи Бюджет \nДО НДС до АК"), "Статьи Бюджет ДО НДС до АК");
+        assert_eq!(clean_label("  TV  \n\n Digital "), "TV Digital");
+        assert_eq!(clean_label("OLV"), "OLV");
+    }
+
+    /// Волна 2: waterfall = ОБЪЕКТ {labels, values, types} (прежде Rust ждал массив
+    /// → лист «Декомпозиция» молча терялся). Проверяем, что объектный формат
+    /// распознаётся как объект (as_object), а старый массив — нет.
+    #[test]
+    fn waterfall_is_object_not_array() {
+        let wf = json!({
+            "labels": ["Baseline", "TV", "Итого"],
+            "values": [80.0, 20.0, 100.0],
+            "types": ["baseline", "channel", "total"],
+        });
+        let obj = wf.as_object().expect("waterfall должен читаться как объект");
+        assert_eq!(obj.get("labels").unwrap().as_array().unwrap().len(), 3);
+        assert!(wf.as_array().is_none(), "объектный waterfall не должен быть массивом");
+        // total-элемент находится по типу
+        let types: Vec<&str> = obj["types"].as_array().unwrap().iter()
+            .map(|t| t.as_str().unwrap()).collect();
+        assert_eq!(types.iter().position(|t| *t == "total"), Some(2));
     }
 }
