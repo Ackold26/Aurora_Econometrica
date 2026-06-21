@@ -1,5 +1,6 @@
 <script>
   import '../app.css';
+  import '../aurora-ui-alias.css';  // канон-namespace --ui-* → живые токены app.css (design-sync 2026-06-20)
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
