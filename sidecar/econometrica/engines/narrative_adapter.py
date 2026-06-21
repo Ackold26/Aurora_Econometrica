@@ -219,6 +219,13 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             "mroas": marginal,
             "current_spend": oc.get("current_spend"),
             "optimal_spend": oc.get("optimal_spend"),
+            # Honesty-слой (Волна 1, 2026-06-20): прокидываем из decompose, иначе
+            # теряется на report-шве. unit_smell → оживляет hero-гард в
+            # _derive_narrative_facts (битый ROI-канал TRP не должен короноваться
+            # «лучшим / масштабировать»). smell_flags/category — для оговорок билдеров.
+            "unit_smell": dc.get("unit_smell"),
+            "smell_flags": dc.get("smell_flags"),
+            "category": dc.get("category"),
             # verdict filled in after merge by derive_verdict
         }
         # Phase 1.9: preserve posterior CI bounds (None for v1.0/v1.1 pickles).

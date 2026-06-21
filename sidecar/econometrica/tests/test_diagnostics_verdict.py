@@ -23,7 +23,12 @@ def test_high_r2_thin_data_verdict_not_misleading():
     verdict = summary['verdict']
     assert 'только' not in verdict, f"Вводящее в заблуждение «только» при R²=98%: {verdict}"
     assert '98%' in verdict
-    assert 'переобуч' in verdict.lower(), f"Должно объяснять переобучение: {verdict}"
+    # Тон McElreath (2026-06-20): высокий fit на коротких данных объясняем через
+    # ограниченность точечной надёжности / priors / доверительные интервалы, а не
+    # алармизмом «переобучение» (синхрон с optimizer_honesty.py).
+    assert ('надёжность ограничена' in verdict.lower() or 'априорн' in verdict.lower()
+            or 'доверительн' in verdict.lower()), \
+        f"Должно честно объяснять ограниченность на коротких данных: {verdict}"
 
 
 def test_genuinely_low_r2_keeps_honest_verdict():

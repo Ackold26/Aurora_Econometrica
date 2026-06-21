@@ -29,7 +29,10 @@ FAT = generate_diagnostics_summary(
     n_obs=200, n_params=20, effective_params=18.0,
 )
 
-CAVEAT_RE = re.compile(r"переобуч|данных мало|артефакт", re.I)
+# Тон McElreath (2026-06-20): оговорка про «модель сдержана / опирается на
+# priors / ориентировочные», а не про «артефакт переобучения». Обе ветки
+# format_thinness_caveat начинаются с «Данных мало».
+CAVEAT_RE = re.compile(r"данных мало|сдержан|априорн|ориентировочн", re.I)
 
 
 def _payload(diag):
@@ -97,3 +100,28 @@ def test_pptx_deliverable_carries_caveat_when_capped():
     # PPTX дробит текст по run'ам → ищем по стрипнутому тексту.
     stripped = re.sub(r"<[^>]+>", "", txt)
     assert CAVEAT_RE.search(stripped), "PPTX отчёт обязан нести оговорку при data-thinness cap"
+
+
+def test_no_overfitting_artefact_wording_in_caveat():
+    """Анти-регрессия тона (Волна 1, McElreath): старый алармизм «артефакт
+    переобучения / высокий риск переобучения» в клиентской оговорке недопустим."""
+    for r in (1.5, 2.4, 3.5):
+        cav = format_thinness_caveat(r, 70, leading_space=False).lower()
+        assert "артефакт" not in cav
+        assert "высокий риск переобуч" not in cav
+        assert "ненадёжны" not in cav
+
+
+def test_merge_channels_preserves_unit_smell():
+    """Волна 1: honesty-поля (unit_smell/smell_flags) доходят через мост до
+    hero-гарда; иначе битый ROI-канал (TRP, не рубли) коронуется «лучшим»."""
+    from engines.narrative_adapter import _merge_channels
+    decomp = [
+        {"name": "TRPs бренд", "spend": 22100, "contribution": 409e6, "roi": 18500,
+         "unit_smell": True, "smell_flags": [{"type": "roi_max"}], "category": "brand"},
+        {"name": "Social", "spend": 100e6, "contribution": 1345e6, "roi": 13.4},
+    ]
+    merged = _merge_channels(decomp, [])
+    trp = next(c for c in merged if "TRP" in (c.get("name") or ""))
+    assert trp.get("unit_smell") is True
+    assert trp.get("smell_flags")
