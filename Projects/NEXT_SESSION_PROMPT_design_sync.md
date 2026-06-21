@@ -4,6 +4,19 @@
 > Параллельный трек к отчётности (та закрыта Волнами 1–3, см. `NEXT_SESSION_PROMPT_reports_wave1.md` + trackfile `AI_INSIGHTS_ASSISTANT_PLAN.md`).
 > Обмен с **Машей design-sync** идёт ЧЕРЕЗ Антона (она спрашивает/отвечает, он приносит).
 
+## ✅ СДЕЛАНО в дизайн-серии (2026-06-20, коммиты `da330d1` + `d711129`, запушено)
+- **alias-слой** `src/aurora-ui-alias.css` (--ui-*→--bg-*) — де-факто ОСТАВЛЕН (BrandChip пока на родных `--bg-*`; alias готов к будущим канон-элементам).
+- **Чип названия приложения** — `src/lib/components/BrandChip.svelte`: логотип Horizon 87px + название в 2 строки английским «ECONOMETRICA / MMM OPTIMIZER» в плашке **electric-blue** (стиль эталона Creative Hub `.brand-rosst`: accent-рамка 40% + accent-фон 8% + accent-текст). На ГЛАВНОЙ (поток `+page.svelte` topbar) и ВСЕХ внутренних (sticky `global-topbar` в `+layout.svelte`, условие route≠'/'). Live-verified (главная + settings, без наезда).
+- **Таймер сессии** — `src/lib/components/SessionTimer.svelte` (порт эталона Oracle/Creative Hub) + `store.js` timer §11 (`timerState/timerElapsedMs/toggleTimer/resetTimer`). Заменил `DigitalClock`+«МСК» в topbar-center главной. ПРЯМОЙ счёт (elapsed), как эталон Core. `DigitalClock.svelte` больше не используется (оставлен).
+- **Hero-glow** — `.pipeline-stage::before` radial accent-свечение за логотипом AURORA на главной, центрировано НА логотипе (`top:90px` + `translate(-50%,-50%)`) + усилен drop-shadow `.hero-logo`.
+- **УРОК** (зафиксирован): [[feedback_copy_live_reference_not_interpret_design_standard]] — дизайн «как в Core» копируй с ЖИВОГО эталона (скрин+код Creative Hub), не интерпретируй; скрин эталона В НАЧАЛЕ. Чип переделывался 4 раза до скрина Антона.
+
+## ОСТАЛОСЬ (дизайн-трек)
+1. **InsightCard dark-tint** — `app.css:173-177` `--bg-insight-*` нейтральный 3% → severity-цветной 8% (DS + своя light-тема уже цветная). 4 токена. Live-рендер.
+2. **Широкий проход** компонентов Эконометрики (Button/Card/Modal/Badge) vs канон `aurora_design` — найти дельты, доказать «выравнивать, не портировать».
+3. **Таймер обратным отсчётом** — ЕСЛИ Антон захочет countdown (от лимита к 0); сейчас прямой elapsed (как эталон Core). Уточнить целевое время.
+4. **Эталон для нового** — Creative Hub (`Dev/Aurora_Creative_Hub`) + Oracle (`Dev/Aurora_Oracle`): копировать живой код, не интерпретировать.
+
 ## Контекст и направление (Антон + Маша design-sync, 2026-06-20)
 Применять новую дизайн-систему **НЕ всю целиком**, а **по элементам, JIT** (только то, что просит конкретный экран). Метод — трассирующая пуля ВНУТРИ Эконометрики: заземлись в реальном репо → один экран насквозь до отрисованного, проверенного ГЛАЗАМИ результата → потом веер. `drift=0`/`check=0` детектора — необходимо, но НЕ достаточно: доказательство в РЕНДЕРЕ.
 
