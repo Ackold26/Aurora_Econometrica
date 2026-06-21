@@ -15,6 +15,7 @@
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import NavRail from '$lib/components/NavRail.svelte';
   import BrandChip from '$lib/components/BrandChip.svelte';  // чип названия приложения (стандарт Aurora Core, левый верхний угол, все страницы)
+  import SessionTimer from '$lib/components/SessionTimer.svelte';  // таймер сессии (countdown), сквозной на всех внутренних страницах
   import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
   import IntroTutorial from '$lib/components/IntroTutorial.svelte';
   import { showGlossaryPanel, glossaryInitialTerm, showIntroTutorial } from '$lib/project-state.js';
@@ -283,7 +284,10 @@
     <!-- Брендинг-чип на внутренних страницах в потоке (на главной — свой topbar
          с BrandChip). Стандарт Aurora Core: название приложения, левый верхний угол. -->
     {#if $page.url.pathname !== '/'}
-      <div class="global-topbar"><BrandChip /></div>
+      <div class="global-topbar">
+        <BrandChip />
+        <div class="gt-timer"><SessionTimer /></div>
+      </div>
     {/if}
     {#key $page.url.pathname}
       <div class="page-transition">
@@ -317,6 +321,14 @@
     background: var(--bg-glass);
     backdrop-filter: var(--glass-blur);
     border-bottom: 1px solid var(--border-subtle);
+  }
+  /* Таймер сессии — по центру топбара, независимо от ширины чипа (как на главной). */
+  .gt-timer {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
   }
 
   .toast-container {
