@@ -169,12 +169,17 @@
   --card-bg-peach:    var(--bg-card);
   --card-bg-coral:    var(--bg-card);
 
-  /* ── Insight card backgrounds (per-severity) - default: subtle translucent ── */
+  /* ── Insight card backgrounds (per-severity) ──
+     Dark severity-tint 8% (DS-канон + эталон Creative Hub, выбор Антона 2026-06-21
+     «Вариант B» из live-превью). Прежде все = нейтральный серый 3% → severity читался
+     только левой полоской; теперь фон тонко окрашен по важности, как уже делает
+     light/fun-тема. Цвета = те же severity-токены, что у полоски (InsightsPanel .sev-*).
+     --bg-insight-base оставлен нейтральным fallback. ── */
   --bg-insight-base:    color-mix(in srgb, var(--text-primary) 3%, transparent);
-  --bg-insight-info:    var(--bg-insight-base);
-  --bg-insight-success: var(--bg-insight-base);
-  --bg-insight-warning: var(--bg-insight-base);
-  --bg-insight-error:   var(--bg-insight-base);
+  --bg-insight-info:    color-mix(in srgb, var(--color-info) 8%, transparent);
+  --bg-insight-success: color-mix(in srgb, var(--success) 8%, transparent);
+  --bg-insight-warning: color-mix(in srgb, var(--warning) 8%, transparent);
+  --bg-insight-error:   color-mix(in srgb, var(--danger) 8%, transparent);
 
   /* ── Surface: dropzones, empty states ── */
   --dropzone-bg:     rgba(15, 23, 42, 0.4);
