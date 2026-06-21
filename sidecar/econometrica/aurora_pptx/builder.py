@@ -264,6 +264,10 @@ class AuroraPPTXBuilder:
         # применил cap (thinness_cap=50/70). ratio_eff — эффективный (драйвит cap).
         self.thinness_cap = diag.get("thinness_cap")
         self.ratio_eff = diag.get("ratio")
+        # Волна 1 пункт 2 (2026-06-20): надёжность модели (verdict != reliable) для
+        # плашки на слайде источников. caveat_text идёт VERBATIM из SSOT
+        # (optimizer_honesty — тот же текст, что в UI, INV-50; уже клиентский, с OVB).
+        self.model_reliability = diag.get("model_reliability") or {}
         # v2.1.0 (Pilot C): engine detection. 'ols' для small-data fallback,
         # 'bayesian' (default) для production v1.2/v1.3 pickles. Determines
         # methodology labels (MCMC/NUTS vs closed-form/bootstrap).
@@ -2858,6 +2862,24 @@ class AuroraPPTXBuilder:
         if _caveat:
             self._text(
                 slide, right_x, dy + 0.15, right_w, 0.9, _caveat,
+                font=self.sans, size=10, italic=True, color=self.gold,
+            )
+
+        # Волна 1 пункт 2 (2026-06-20): плашка надёжности модели (решение 1b, Антон).
+        # Только при verdict != reliable; caveat_text VERBATIM из SSOT (тот же текст,
+        # что в UI — INV-50; уже клиентский, с OVB). Технический жаргон (R-hat/
+        # дивергенции) в reasons — в плашку не выносим. Honesty-визуал (gold, italic).
+        _mr_verdict = str(self.model_reliability.get("verdict") or "").lower()
+        _mr_caveat = str(self.model_reliability.get("caveat_text") or "")
+        if _mr_verdict and _mr_verdict != "reliable" and _mr_caveat:
+            _mr_label = {
+                "uncertain": "Ограниченная надёжность модели",
+                "unreliable": "Модель ненадёжна — переброска отключена",
+                "unknown": "Надёжность модели не подтверждена",
+            }.get(_mr_verdict, "Надёжность модели")
+            _mr_y = dy + 0.15 + (1.0 if _caveat else 0.0)
+            self._text(
+                slide, right_x, _mr_y, right_w, 1.1, f"{_mr_label}. {_mr_caveat}",
                 font=self.sans, size=10, italic=True, color=self.gold,
             )
 

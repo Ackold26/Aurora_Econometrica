@@ -28,6 +28,21 @@ fn roi_unreliable(ch: &Value) -> bool {
         || v.contains("не рубл")
 }
 
+/// Волна 1 пункт 2 (2026-06-20): заголовок-вердикт плашки надёжности модели.
+/// Зеркалит лейблы Python (narrative_adapter / sections.py / builder.py) — Rust
+/// XLSX/MD читают optimization.json напрямую, мимо Python-моста. caveat_text сам
+/// идёт VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) — здесь
+/// только заголовок. Пустая строка ⇒ плашку не рисуем (verdict reliable/нет).
+fn reliability_label(verdict: &str) -> &'static str {
+    match verdict {
+        "uncertain" => "Ограниченная надёжность модели",
+        "unreliable" => "Модель ненадёжна — переброска отключена",
+        "unknown" => "Надёжность модели не подтверждена",
+        "" | "reliable" => "",
+        _ => "Надёжность модели",
+    }
+}
+
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
 /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
 /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
@@ -329,6 +344,18 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     md.push_str(&format!("- **Лучший канал по ROI:** {top_ch}\n"));
     if budget > 0.0 {
         md.push_str(&format!("- **Оптимизированный бюджет:** {budget:.0} руб.\n"));
+    }
+    // Волна 1 пункт 2 (2026-06-20): плашка надёжности модели (verdict != reliable).
+    // caveat_text VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) —
+    // тот же текст, что в UI/HTML/PPTX. Rust читает optimize JSON напрямую (мимо
+    // Python-моста) → плашка-зеркало. Заголовок-вердикт — reliability_label.
+    {
+        let mr_verdict = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+        let mr_label = reliability_label(&mr_verdict);
+        let mr_caveat = optimize["model_reliability"]["caveat_text"].as_str().unwrap_or("");
+        if !mr_label.is_empty() && !mr_caveat.is_empty() {
+            md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
+        }
     }
     md.push_str("\n---\n\n");
 
@@ -991,6 +1018,18 @@ fn build_xlsx(
                 format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1): модель намеренно сдержана — опирается на априорные отраслевые знания, поэтому доверительные интервалы широкие. Это честная неопределённость, а не ошибка; с ростом данных интервалы сузятся.")
             };
             ws.write(11, 0, caveat).map_err(|e| format!("{e}"))?;
+        }
+        // Волна 1 пункт 2 (2026-06-20): плашка надёжности модели на строке 12 (под
+        // thinness caveat). caveat_text VERBATIM из optimization.json (SSOT
+        // optimizer_honesty, INV-50) — тот же текст, что в UI/HTML/PPTX/MD. Rust
+        // читает optimize JSON напрямую (мимо Python-моста) → зеркало пути.
+        {
+            let mr_verdict = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+            let mr_label = reliability_label(&mr_verdict);
+            let mr_caveat = optimize["model_reliability"]["caveat_text"].as_str().unwrap_or("");
+            if !mr_label.is_empty() && !mr_caveat.is_empty() {
+                ws.write(12, 0, format!("⚠ {mr_label}. {mr_caveat}")).map_err(|e| format!("{e}"))?;
+            }
         }
 
         // Widths from XLSX_reference.xlsx - A:C = 26.43
@@ -1828,5 +1867,18 @@ mod tests {
         assert_eq!(dates.len(), 2);
         let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
         assert_eq!(headers, vec!["Baseline", "TV"]);
+    }
+
+    /// Волна 1 пункт 2: заголовок плашки надёжности. Пустая строка ⇒ плашки нет
+    /// (reliable/нет verdict, решение 1b); прочие verdict дают заголовок. Лейблы
+    /// зеркалят Python (sections.py/builder.py); caveat_text идёт verbatim отдельно.
+    #[test]
+    fn reliability_label_gates_on_verdict() {
+        assert_eq!(reliability_label(""), "");
+        assert_eq!(reliability_label("reliable"), "");
+        assert_eq!(reliability_label("uncertain"), "Ограниченная надёжность модели");
+        assert_eq!(reliability_label("unreliable"), "Модель ненадёжна — переброска отключена");
+        assert_eq!(reliability_label("unknown"), "Надёжность модели не подтверждена");
+        assert_eq!(reliability_label("какой-то новый"), "Надёжность модели");
     }
 }

@@ -134,6 +134,78 @@ def test_unreliable_channel_roi_blanked_in_payload():
     assert social.get("roi_unreliable") is False
 
 
+# ── Волна 1 пункт 2 (2026-06-20): плашка надёжности модели в отчётах ──────────
+# Решение 1b (Антон): плашка ТОЛЬКО при verdict != reliable; caveat_text идёт
+# VERBATIM из SSOT (optimizer_honesty, тот же текст в UI — INV-50, без рассинхрона).
+
+MR_UNCERTAIN = {
+    "verdict": "uncertain", "refused": False,
+    "caveat_text": "Рекомендации ориентировочные: опирайтесь на доверительные интервалы.",
+    "reasons": ["Ограниченные данные (Ratio 2.4:1 < 4:1): модель сдержана, опирается на priors."],
+}
+MR_RELIABLE = {"verdict": "reliable", "refused": False, "caveat_text": "", "reasons": []}
+
+
+def _payload_opt(opt):
+    return _map_pipeline_to_builder_data(
+        model_data={"diagnostics": FAT}, decompose_data={}, optimize_data=opt,
+        scenarios=[], project_id="test",
+    )
+
+
+def test_seam_carries_model_reliability_when_uncertain():
+    """Мост доносит model_reliability в diagnostics при verdict != reliable, текст verbatim."""
+    pdiag = _payload_opt({"model_reliability": MR_UNCERTAIN})["diagnostics"]
+    mr = pdiag.get("model_reliability")
+    assert mr is not None, "мост обязан донести model_reliability при uncertain"
+    assert mr["verdict"] == "uncertain"
+    assert mr["caveat_text"] == MR_UNCERTAIN["caveat_text"]  # VERBATIM (INV-50)
+    assert mr["reasons"]
+
+
+def test_seam_drops_model_reliability_when_reliable():
+    """При reliable плашки нет — не зашумляем хороший отчёт (решение 1b)."""
+    pdiag = _payload_opt({"model_reliability": MR_RELIABLE}).get("diagnostics", {})
+    assert "model_reliability" not in pdiag
+
+
+def test_html_carries_reliability_plaque_when_uncertain():
+    """HTML несёт плашку надёжности (verdict != reliable) с текстом verbatim."""
+    from engines.html_export import build_html
+    out = tempfile.gettempdir() + "/test_mr_uncertain.html"
+    build_html(model_data={"diagnostics": FAT}, decompose_data={},
+               optimize_data={"model_reliability": MR_UNCERTAIN},
+               output_path=out, project_id="test")
+    html = open(out, encoding="utf-8").read()
+    assert "mqs-reliability" in html, "HTML обязан нести плашку надёжности при uncertain"
+    assert "Ограниченная надёжность модели" in html
+    assert MR_UNCERTAIN["caveat_text"] in html  # verbatim из SSOT
+
+
+def test_html_no_reliability_plaque_when_reliable():
+    from engines.html_export import build_html
+    out = tempfile.gettempdir() + "/test_mr_reliable.html"
+    build_html(model_data={"diagnostics": FAT}, decompose_data={},
+               optimize_data={"model_reliability": MR_RELIABLE},
+               output_path=out, project_id="test")
+    html = open(out, encoding="utf-8").read()
+    assert "mqs-reliability" not in html, "при reliable плашку фабриковать нельзя"
+
+
+def test_pptx_carries_reliability_plaque_when_uncertain():
+    from aurora_pptx.builder import AuroraPPTXBuilder
+    b = AuroraPPTXBuilder(_payload_opt({"model_reliability": MR_UNCERTAIN}))
+    prs = b.build()
+    out = tempfile.gettempdir() + "/test_mr_uncertain.pptx"
+    prs.save(out)
+    import zipfile
+    z = zipfile.ZipFile(out)
+    txt = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
+    stripped = re.sub(r"<[^>]+>", "", txt)
+    assert re.search(r"надёжност|ориентировочн", stripped, re.I), \
+        "PPTX обязан нести плашку надёжности при uncertain"
+
+
 def test_merge_channels_preserves_unit_smell():
     """Волна 1: honesty-поля (unit_smell/smell_flags) доходят через мост до
     hero-гарда; иначе битый ROI-канал (TRP, не рубли) коронуется «лучшим»."""

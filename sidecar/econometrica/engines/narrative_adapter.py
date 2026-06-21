@@ -836,6 +836,23 @@ def _map_pipeline_to_builder_data(
         except (TypeError, ValueError):
             pass
 
+    # Волна 1 пункт 2 (2026-06-20): плашка надёжности модели в отчёты.
+    # SSOT вердикта = optimizer_honesty.model_reliability_verdict, пишется
+    # optimizer.py в optimization.json. Прежде мост его НЕ доносил → HTML/PPTX
+    # показывали MQS/R-hat, но не «почему модель неуверена» (verdict/OVB/
+    # дивергенции). Решение 1b (Антон): прокидываем ТОЛЬКО при verdict != reliable
+    # (при reliable плашки нет — не зашумляем); caveat_text идёт VERBATIM (SSOT,
+    # тот же текст, что в UI — INV-50, без рассинхрона), reasons — для опц. сноски.
+    mr = optimize_data.get("model_reliability") or {}
+    mr_verdict = str(mr.get("verdict") or "").lower()
+    if mr_verdict and mr_verdict != "reliable":
+        diagnostics["model_reliability"] = {
+            "verdict": mr_verdict,
+            "refused": bool(mr.get("refused")),
+            "caveat_text": str(mr.get("caveat_text") or ""),
+            "reasons": [str(r) for r in (mr.get("reasons") or [])],
+        }
+
     data: dict[str, Any] = {"meta": meta}
     if diagnostics:
         data["diagnostics"] = diagnostics

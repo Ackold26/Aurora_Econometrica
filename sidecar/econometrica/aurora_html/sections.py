@@ -1557,6 +1557,25 @@ def render_sources(ctx: dict) -> str:
     mqs_caveat = format_thinness_caveat(diag.get("ratio"), diag.get("thinness_cap"),
                                         leading_space=False)
 
+    # Волна 1 пункт 2 (2026-06-20): плашка надёжности модели (решение 1b, Антон).
+    # Показываем ТОЛЬКО при verdict != reliable; caveat_text идёт VERBATIM из SSOT
+    # (optimizer_honesty — тот же текст, что в UI, INV-50; он уже клиентский, без
+    # жаргона, и уже содержит OVB-оговорку). Технический жаргон (R-hat/дивергенции)
+    # сидит в reasons — в клиентскую плашку НЕ выносим. Переиспользуем honesty-
+    # визуал .mqs-caveat + жирный заголовок-вердикт.
+    mr = diag.get("model_reliability") or {}
+    mr_verdict = str(mr.get("verdict") or "").lower()
+    mr_caveat_text = str(mr.get("caveat_text") or "")
+    mr_html = ""
+    if mr_verdict and mr_verdict != "reliable" and mr_caveat_text:
+        _mr_label = {
+            "uncertain": "Ограниченная надёжность модели",
+            "unreliable": "Модель ненадёжна — переброска отключена",
+            "unknown": "Надёжность модели не подтверждена",
+        }.get(mr_verdict, "Надёжность модели")
+        mr_html = (f'<div class="mqs-caveat mqs-reliability">'
+                   f'<strong>{escape(_mr_label)}.</strong> {escape(mr_caveat_text)}</div>')
+
     mqs_diag_html = ""
     if is_ols:
         # OLS: показываем только R²/MAPE + frequentist метод (без MCMC).
@@ -1596,6 +1615,7 @@ def render_sources(ctx: dict) -> str:
     <div class="mqs-score">{escape(mqs_display)}<sub>/100</sub></div>
     <div class="mqs-tier">{escape(mqs_tier)}</div>
     {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
+    {mr_html}
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
     <a class="method-badge" href="#method">{escape(_badge_text)}</a>
   </div>
