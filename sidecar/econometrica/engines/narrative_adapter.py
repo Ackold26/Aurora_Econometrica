@@ -742,6 +742,8 @@ def _infer_frequency(dates: list) -> str | None:
     except (ValueError, TypeError):
         return None
     delta = abs((d1 - d0).days)
+    if delta == 0:
+        return None  # дубль/совпадение соседних дат — аномалия данных, не частота
     if delta <= 10:
         return "Еженедельно"
     if delta <= 45:

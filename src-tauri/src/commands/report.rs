@@ -463,8 +463,17 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
                 .and_then(|t| t.iter().position(|x| x.as_str() == Some("total")))
                 .and_then(|i| values.get(i)).and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
+            // Аудит 2026-06-20: fallback-знаменатель исключает total-элемент (иначе
+            // при наличии total в values сумма завышена) — консистентно с XLSX.
             let denom = if total_val != 0.0 { total_val }
-                        else { values.iter().filter_map(|v| v.as_f64()).sum() };
+                        else {
+                            match types {
+                                Some(t) => values.iter().enumerate()
+                                    .filter(|(i, _)| t.get(*i).and_then(|x| x.as_str()) != Some("total"))
+                                    .filter_map(|(_, v)| v.as_f64()).sum(),
+                                None => values.iter().filter_map(|v| v.as_f64()).sum(),
+                            }
+                        };
             for (i, lab) in labels.iter().enumerate() {
                 let cat = clean_label(lab.as_str().unwrap_or("-"));
                 let val = values.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -1254,7 +1263,10 @@ fn build_xlsx(
             .map(|a| a.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect())
             .unwrap_or_default();
 
-        if !labels.is_empty() && labels.len() == values.len() {
+        // Аудит 2026-06-20: требуем равенство ВСЕХ ТРЁХ длин (прежде проверялись
+        // только labels==values → при битом types: values[i] panic / zip молча
+        // терял строки). Неравенство → лист пропускается безопасно (как не-объект).
+        if !labels.is_empty() && labels.len() == values.len() && labels.len() == types.len() {
             let ws = wb.add_worksheet();
             ws.set_name("Декомпозиция").map_err(|e| format!("{e}"))?;
             ws.set_tab_color(Color::RGB(DEEP_80));
@@ -1269,7 +1281,7 @@ fn build_xlsx(
 
             // Знаменатель % = элемент типа 'total' (если есть), иначе сумма не-total.
             let total_val = types.iter().position(|t| t == "total")
-                .map(|i| values[i])
+                .and_then(|i| values.get(i).copied())  // .get вместо [i] — без panic при рассинхроне
                 .unwrap_or_else(|| values.iter().zip(types.iter())
                     .filter(|(_, t)| t.as_str() != "total").map(|(v, _)| *v).sum());
 
@@ -1290,15 +1302,19 @@ fn build_xlsx(
             ws.write_with_format(row, 1, total_val, &bold).map_err(|e| format!("{e}"))?;
 
             // Bar chart — только data-строки (3..=last_data_row), значения col B.
-            let mut chart = Chart::new(ChartType::Bar);
-            chart.add_series()
-                .set_categories(("Декомпозиция", 3, 0, last_data_row, 0))
-                .set_values(("Декомпозиция", 3, 1, last_data_row, 1))
-                .set_name("Вклад в продажи");
-            chart.set_style(12); // Excel built-in style closest to Aurora hybrid (gradient navy/gold)
-            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-            chart.title().set_name("Декомпозиция продаж");
-            ws.insert_chart(row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+            // Аудит 2026-06-20: guard last_data_row >= 3 — иначе при waterfall без
+            // data-строк (все элементы 'total') диапазон (3..2) невалиден.
+            if last_data_row >= 3 {
+                let mut chart = Chart::new(ChartType::Bar);
+                chart.add_series()
+                    .set_categories(("Декомпозиция", 3, 0, last_data_row, 0))
+                    .set_values(("Декомпозиция", 3, 1, last_data_row, 1))
+                    .set_name("Вклад в продажи");
+                chart.set_style(12); // Excel built-in style closest to Aurora hybrid (gradient navy/gold)
+                chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+                chart.title().set_name("Декомпозиция продаж");
+                ws.insert_chart(row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+            }
 
             // Widths matching reference style
             ws.set_column_width(0, 35.71).map_err(|e| format!("{e}"))?;
