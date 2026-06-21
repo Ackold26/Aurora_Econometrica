@@ -372,10 +372,15 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         })
         .unwrap_or(0.0);
 
-    // Top ROI channel (by decompose channels)
+    // Top ROI channel (by decompose channels).
+    // INV-50 (2026-06-21, live-проба): исключаем roi_unreliable каналы — иначе
+    // битый ROI (unit_smell «не рубли», напр. TRPs 12186×) коронуется «лучшим» и
+    // «Приоритизировать» в MD. Зеркалит hero-гард HTML/PPTX/XLSX (Волна 1 Шаг 2).
+    // clean_label — имя может нести `\n` из исходных Excel-заголовков.
     let top_ch = decompose["channels"].as_array()
         .and_then(|chs| {
             chs.iter()
+                .filter(|c| !roi_unreliable(c))
                 .max_by(|a, b| {
                     let ra = a["roi"].as_f64().unwrap_or(0.0);
                     let rb = b["roi"].as_f64().unwrap_or(0.0);
@@ -383,7 +388,8 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
                 })
                 .and_then(|c| c["name"].as_str())
         })
-        .unwrap_or("N/A");
+        .map(clean_label)
+        .unwrap_or_else(|| "N/A".to_string());
 
     let now = Local::now().format("%d.%m.%Y %H:%M").to_string();
     let mut md = String::with_capacity(4096);
@@ -493,7 +499,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("| Канал | Расход | Вклад | ROI | Вердикт |\n");
         md.push_str("|-------|-------:|------:|----:|---------|\n");
         for ch in chs {
-            let name   = ch["name"].as_str().unwrap_or("-");
+            let name   = clean_label(ch["name"].as_str().unwrap_or("-"));
             let spend  = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
             let verdict = ch["verdict"].as_str().unwrap_or("-");
@@ -515,7 +521,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
             md.push_str("| Канал | ROI | CI нижний | CI верхний |\n");
             md.push_str("|-------|----:|----------:|-----------:|\n");
             for ch in chs_for_ci {
-                let ch_name = ch["name"].as_str().unwrap_or("-");
+                let ch_name = clean_label(ch["name"].as_str().unwrap_or("-"));
                 if roi_unreliable(ch) {
                     md.push_str(&format!("| {ch_name} | н/д | — | — |\n"));
                 } else {
@@ -546,7 +552,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("| Канал | Текущий, ₽ | Оптимальный, ₽ | Δ, ₽ | Δ% |\n");
         md.push_str("|-------|-----------:|---------------:|-----:|---:|\n");
         for ch in opt_chs {
-            let name  = ch["name"].as_str().unwrap_or("-");
+            let name  = clean_label(ch["name"].as_str().unwrap_or("-"));
             let curr  = ch["current_spend_money"].as_f64()
                 .unwrap_or_else(|| ch["current_spend"].as_f64().unwrap_or(0.0));
             let opt   = ch["optimal_spend_money"].as_f64()
@@ -1358,7 +1364,7 @@ fn build_xlsx(
             // мост сюда не доходит: Rust XLSX читает results JSON напрямую).
             let roi_bad = roi_unreliable(ch);
 
-            ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
+            ws.write(row, 0, clean_label(name)).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, contrib, &num_fmt).map_err(|e| format!("{e}"))?;
             if roi_bad {
@@ -1443,7 +1449,7 @@ fn build_xlsx(
             // Compute Efficiency inline → static value, matches UI display.
             let efficiency = if spend_pct > 1e-9 { effect_pct / spend_pct } else { 0.0 };
 
-            ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
+            ws.write(row, 0, clean_label(name)).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, spend_pct, &pct_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 3, contrib, &num_fmt).map_err(|e| format!("{e}"))?;
@@ -1496,7 +1502,7 @@ fn build_xlsx(
             // Header row at row 2
             ws.write_with_format(2, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
             for (j, (header, _)) in columns.iter().enumerate() {
-                ws.write_with_format(2, (j + 1) as u16, header.as_str(), &header_fmt)
+                ws.write_with_format(2, (j + 1) as u16, clean_label(header), &header_fmt)
                     .map_err(|e| format!("{e}"))?;
             }
             let last_col = columns.len() as u16; // индекс последней колонки данных
@@ -1594,7 +1600,7 @@ fn build_xlsx(
             let delta_pct = if curr.abs() > 1e-9 { delta / curr } else { 0.0 };
             let curr_roi = decompose_roi_by_name.get(&normalize_name(name)).copied().unwrap_or(0.0);
 
-            ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
+            ws.write(row, 0, clean_label(name)).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, curr, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, opt, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 3, delta, &num_fmt).map_err(|e| format!("{e}"))?;
@@ -1770,7 +1776,7 @@ fn build_xlsx(
         ws.write_with_format(2, 0, "Период", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 1, "Baseline", &header_fmt).map_err(|e| format!("{e}"))?;
         for (i, name) in channel_names.iter().enumerate() {
-            ws.write_with_format(2, (i + 2) as u16, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(2, (i + 2) as u16, clean_label(name), &header_fmt).map_err(|e| format!("{e}"))?;
         }
         let total_col = (channel_names.len() + 2) as u16;
         let kpi_col = total_col + 1;
@@ -2118,5 +2124,50 @@ mod tests {
         assert!(empty.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
         let none: Option<Value> = None;
         assert!(none.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
+    }
+
+    /// LIVE-проба (opt-in, 2026-06-21): собрать НАСТОЯЩИЙ .xlsx + .md из реальных
+    /// results и оставить файлы на диске для ручной инспекции ячеек/канареек.
+    /// Закрывает остаток «доказано cargo+unit, но не на реальном XLSX».
+    /// Активируется ТОЛЬКО при заданном `AURORA_LIVE_OUT_DIR` — иначе no-op,
+    /// CI не трогается. Входы (пути к JSON) — через env:
+    ///   AURORA_LIVE_MODEL / AURORA_LIVE_DECOMPOSE / AURORA_LIVE_OPTIMIZE
+    ///   AURORA_LIVE_GLOSSARY (опц.).
+    #[test]
+    fn live_real_xlsx_md_probe() {
+        let out_dir = match std::env::var("AURORA_LIVE_OUT_DIR") {
+            Ok(v) => v,
+            Err(_) => return, // no-op без env: CI зелёный
+        };
+        let read = |env_key: &str| -> Value {
+            let p = std::env::var(env_key)
+                .unwrap_or_else(|_| panic!("env {env_key} required for live probe"));
+            let s = std::fs::read_to_string(&p)
+                .unwrap_or_else(|e| panic!("read {p}: {e}"));
+            serde_json::from_str(&s).unwrap_or_else(|e| panic!("parse {p}: {e}"))
+        };
+        let model = read("AURORA_LIVE_MODEL");
+        let decompose = read("AURORA_LIVE_DECOMPOSE");
+        let optimize = read("AURORA_LIVE_OPTIMIZE");
+        let glossary: Option<Value> = std::env::var("AURORA_LIVE_GLOSSARY").ok().map(|p| {
+            serde_json::from_str(&std::fs::read_to_string(&p).expect("read glossary"))
+                .expect("parse glossary")
+        });
+
+        let out = PathBuf::from(&out_dir);
+        std::fs::create_dir_all(&out).expect("create out dir");
+        let xlsx_path = out.join("live_report.xlsx");
+        build_xlsx(
+            &model, &decompose, &optimize, &[], "кагоцел-рф",
+            &xlsx_path, glossary.as_ref(),
+        )
+        .expect("build_xlsx должен собраться без ошибки");
+        let md = build_markdown(&model, &decompose, &optimize);
+        std::fs::write(out.join("live_report.md"), &md).expect("write md");
+
+        eprintln!("LIVE XLSX → {}", xlsx_path.display());
+        eprintln!("LIVE MD   → {}", out.join("live_report.md").display());
+        assert!(xlsx_path.exists(), "xlsx файл должен существовать");
+        assert!(std::fs::metadata(&xlsx_path).unwrap().len() > 0, "xlsx не пустой");
     }
 }
