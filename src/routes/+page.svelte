@@ -42,7 +42,8 @@
       creatingBrand = false;
     }
   }
-  import DigitalClock from '$lib/components/DigitalClock.svelte';
+  import SessionTimer from '$lib/components/SessionTimer.svelte';
+  import BrandChip from '$lib/components/BrandChip.svelte';
 
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
   import { LockKeyhole, Package } from 'lucide-svelte';
@@ -199,15 +200,10 @@
   <!-- ── Top Bar ── -->
   <header class="topbar">
     <div class="topbar-left">
-      <img src="/logo-horizon.png" alt="Aurora AI" class="topbar-logo" />
-      <div class="brand">
-        <span class="brand-product">ECONOMETRICA</span>
-        <span class="brand-sub">OPTIMIZER MMM</span>
-      </div>
+      <BrandChip />
     </div>
     <div class="topbar-center">
-      <DigitalClock />
-      <span class="tz-label">МСК</span>
+      <SessionTimer />
     </div>
     <nav class="topbar-right">
       {#if $isCreativeHub && $brands.length > 0}
@@ -962,6 +958,7 @@
 
   /* Pipeline Promo Panel */
   .pipeline-stage {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -970,14 +967,31 @@
     max-width: 520px;
   }
 
+  /* Hero-подсветка логотипа (стандарт Aurora Core, эталон Creative Hub
+     .home-hero::before): радиальное accent-свечение за логотипом. */
+  .pipeline-stage::before {
+    content: '';
+    position: absolute;
+    top: 90px;            /* центр логотипа (hero-logo высота ~180px) */
+    left: 50%;
+    width: 420px;
+    height: 260px;
+    transform: translate(-50%, -50%);  /* центрировать свечение на логотипе, не ниже */
+    background: radial-gradient(ellipse at center, var(--accent-glow, rgba(46, 91, 255, 0.20)) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
   .hero-logo {
+    position: relative;
+    z-index: 1;
     width: 180px;
     max-width: 60%;
     height: auto;
     object-fit: contain;
     user-select: none;
     pointer-events: none;
-    filter: drop-shadow(0 4px 16px color-mix(in srgb, var(--accent-primary) 25%, transparent));
+    filter: drop-shadow(0 6px 28px color-mix(in srgb, var(--accent-primary) 35%, transparent));
   }
 
   .pipeline-promo {
