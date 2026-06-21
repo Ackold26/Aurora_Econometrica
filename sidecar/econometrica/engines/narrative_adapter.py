@@ -867,7 +867,7 @@ def _map_pipeline_to_builder_data(
     # math-fix v1.0.14.1, B (2026-04-28): decorate с action structured data.
     # Templates (HTML/PPTX) reads ch['action_label']/['action_reasoning'] вместо
     # генерируя свои hardcoded строки → coherence between table + commentary.
-    from engines.channel_action import compute_channel_action
+    from engines.channel_action import compute_channel_action, soften_verdict_display
     for ch in channels:
         action = compute_channel_action(ch)
         ch["verdict"] = action.key
@@ -877,6 +877,16 @@ def _map_pipeline_to_builder_data(
         ch["action_tone"] = action.tone
         ch["action_priority"] = action.priority
         ch["action_confidence"] = action.confidence
+        # Волна 1 пункт 3 (2026-06-20): honesty-потолок (решение 2a, Антон).
+        # Глобальная надёжность модели (mr_verdict выше) смягчает ДИРЕКТИВНОСТЬ
+        # вердикта канала по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ: при не-reliable
+        # «Увеличить»→«Увеличить (предв.)», при unreliable→«Требует переобучения».
+        # Снимает противоречие «Scale в отчёте vs Uncertain в декомпозиции».
+        # machine-key ch["verdict"] НЕ трогаем (нужен для counts/narrative_facts);
+        # смягчаем только отображаемый слой verdict_display (билдеры читают его).
+        v_label, v_modality = soften_verdict_display(action.key, mr_verdict)
+        ch["verdict_display"] = v_label
+        ch["verdict_modality"] = v_modality
         # Волна 1 Шаг 2 (2026-06-20): централизованный флаг ненадёжного ROI
         # (битые единицы / артефакт). Билдеры (HTML/PPTX/XLSX) читают его, чтобы
         # НЕ подавать клиенту абсурдное ROI-число (TRP 15525×) как факт — вместо

@@ -43,6 +43,36 @@ fn reliability_label(verdict: &str) -> &'static str {
     }
 }
 
+/// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
+/// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
+/// (Python) — Rust XLSX/MD читают results JSON напрямую, мимо Python-моста, поэтому
+/// рус-локализацию и смягчение держим здесь. Глобальная надёжность модели смягчает
+/// ДИРЕКТИВНОСТЬ, сохраняя НАПРАВЛЕНИЕ: reliable→«Увеличить»; uncertain/unknown→
+/// «Увеличить (предв.)»; unreliable→«Требует переобучения». Снимает рассогласование
+/// (прежде XLSX/MD писали англ. machine-key «Scale», PPTX — рус «Увеличить»).
+fn verdict_display(verdict_key: &str, reliability_verdict: &str) -> String {
+    let base = match verdict_key {
+        "Scale" => "Увеличить",
+        "Hold" => "Держать",
+        "Watch" => "Наблюдать",
+        "Reduce" => "Сократить",
+        "Cut" => "Остановить",
+        "Uncertain" => "Недостаточно данных",
+        other => other,
+    };
+    match reliability_verdict {
+        "unreliable" => "Требует переобучения".to_string(),
+        "uncertain" | "unknown" => {
+            if verdict_key == "Uncertain" || verdict_key == "Watch" {
+                base.to_string()
+            } else {
+                format!("{base} (предв.)")
+            }
+        }
+        _ => base.to_string(),
+    }
+}
+
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
 /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
 /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
@@ -397,6 +427,9 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     }
 
     // ── Channel ROI ──────────────────────────────────────────
+    // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
+    // verdict_display несёт рус + «(предв.)» при не-reliable модели.
+    let mr_v_md = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
     if let Some(chs) = decompose["channels"].as_array() {
         md.push_str("## БЛОК: Инвестиции. ROI по каналам\n\n");
         md.push_str("| Канал | Расход | Вклад | ROI | Вердикт |\n");
@@ -412,7 +445,8 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
             } else {
                 format!("{:.2}x", ch["roi"].as_f64().unwrap_or(0.0))
             };
-            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi_cell} | {verdict} |\n"));
+            let vshow = verdict_display(verdict, &mr_v_md);
+            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi_cell} | {vshow} |\n"));
         }
         md.push('\n');
 
@@ -1195,6 +1229,9 @@ fn build_xlsx(
         for (c, h) in headers.iter().enumerate() {
             ws.write_with_format(2, c as u16, *h, &header_fmt).map_err(|e| format!("{e}"))?;
         }
+        // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
+        // verdict_display несёт рус + «(предв.)» при не-reliable модели.
+        let mr_v = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
 
         // 5c (2026-05-04) FIX: CI fields live in decompose.channels[i].roi_ci_low/high,
         // NOT в model["channelParams"] (modeler output не содержит CI). Pre-fix Rust
@@ -1227,7 +1264,7 @@ fn build_xlsx(
                 ws.write_with_format(row, 4, ci_lo, &roi_fmt).map_err(|e| format!("{e}"))?;
                 ws.write_with_format(row, 5, ci_hi, &roi_fmt).map_err(|e| format!("{e}"))?;
             }
-            ws.write(row, 6, verdict).map_err(|e| format!("{e}"))?;
+            ws.write(row, 6, verdict_display(verdict, &mr_v)).map_err(|e| format!("{e}"))?;
         }
         // Сноска-пояснение «н/д*» (если был хоть один битый ROI-канал).
         if chs.iter().any(roi_unreliable) {
@@ -1880,5 +1917,20 @@ mod tests {
         assert_eq!(reliability_label("unreliable"), "Модель ненадёжна — переброска отключена");
         assert_eq!(reliability_label("unknown"), "Надёжность модели не подтверждена");
         assert_eq!(reliability_label("какой-то новый"), "Надёжность модели");
+    }
+
+    /// Волна 1 пункт 3: honesty-смягчение вердикта (решение 2a). Зеркало Python
+    /// soften_verdict_display: reliable→директивный; uncertain→«(предв.)»
+    /// (направление сохранено); unreliable→нейтрализация.
+    #[test]
+    fn verdict_display_softens_by_reliability() {
+        assert_eq!(verdict_display("Scale", "reliable"), "Увеличить");
+        assert_eq!(verdict_display("Scale", ""), "Увеличить");
+        assert_eq!(verdict_display("Scale", "uncertain"), "Увеличить (предв.)");
+        assert_eq!(verdict_display("Cut", "unknown"), "Остановить (предв.)");
+        // нейтральные — без суффикса
+        assert_eq!(verdict_display("Watch", "uncertain"), "Наблюдать");
+        // unreliable → направление не показываем
+        assert_eq!(verdict_display("Scale", "unreliable"), "Требует переобучения");
     }
 }

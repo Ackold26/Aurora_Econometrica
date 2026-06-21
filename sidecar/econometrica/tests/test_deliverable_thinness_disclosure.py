@@ -206,6 +206,56 @@ def test_pptx_carries_reliability_plaque_when_uncertain():
         "PPTX обязан нести плашку надёжности при uncertain"
 
 
+# ── Волна 1 пункт 3 (2026-06-20): синхрон вердиктов — honesty-потолок (2a) ─────
+# Решение 2a (Антон): глобальная надёжность модели смягчает ДИРЕКТИВНОСТЬ
+# канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ. Снимает противоречие
+# «Scale в отчёте vs Uncertain в декомпозиции».
+
+def test_soften_verdict_display_preserves_direction():
+    from engines.channel_action import soften_verdict_display
+    # reliable / нет вердикта → директивный label
+    assert soften_verdict_display("Scale", "reliable") == ("Увеличить", "firm")
+    assert soften_verdict_display("Scale", None) == ("Увеличить", "firm")
+    # uncertain/unknown → направление сохранено + «(предв.)»
+    lbl, mod = soften_verdict_display("Scale", "uncertain")
+    assert "Увеличить" in lbl and "предв" in lbl and mod == "tentative"
+    lbl, _ = soften_verdict_display("Cut", "unknown")
+    assert "Остановить" in lbl and "предв" in lbl
+    # нейтральные (Watch/Uncertain) — без суффикса, уже неуверенные
+    assert soften_verdict_display("Watch", "uncertain") == ("Наблюдать", "tentative")
+    # unreliable → нейтрализация: направление НЕ показываем (модель не сошлась)
+    assert soften_verdict_display("Scale", "unreliable") == ("Требует переобучения", "refused")
+
+
+_DEC_DIRECTIVE = {"channels": [
+    {"name": "TV", "spend": 100e6, "contribution": 200e6, "roi": 2.0,
+     "mroas": 1.5, "optimal_spend": 130e6, "current_spend": 100e6},
+    {"name": "Social", "spend": 50e6, "contribution": 120e6, "roi": 2.4, "mroas": 1.6},
+]}
+
+
+def test_seam_channel_verdict_softened_when_uncertain():
+    """Мост смягчает verdict_display при не-reliable; machine-key verdict цел (counts)."""
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data=_DEC_DIRECTIVE,
+        optimize_data={"model_reliability": MR_UNCERTAIN}, scenarios=[], project_id="t")
+    for ch in payload["channels"]:
+        assert ch.get("verdict_modality") == "tentative"
+        assert ch.get("verdict") in ("Scale", "Hold", "Watch", "Reduce", "Cut", "Uncertain")
+    # хотя бы один директивный канал смягчён до «(предв.)»
+    assert any("предв" in (ch.get("verdict_display") or "") for ch in payload["channels"])
+
+
+def test_seam_channel_verdict_firm_when_reliable():
+    """При reliable вердикты остаются директивными (без «(предв.)»)."""
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data=_DEC_DIRECTIVE,
+        optimize_data={"model_reliability": MR_RELIABLE}, scenarios=[], project_id="t")
+    for ch in payload["channels"]:
+        assert ch.get("verdict_modality") == "firm"
+        assert "предв" not in (ch.get("verdict_display") or "")
+
+
 def test_merge_channels_preserves_unit_smell():
     """Волна 1: honesty-поля (unit_smell/smell_flags) доходят через мост до
     hero-гарда; иначе битый ROI-канал (TRP, не рубли) коронуется «лучшим»."""

@@ -1035,6 +1035,13 @@ def render_action_table(ctx: dict) -> str:
         contrib_mln = float(c.get("contribution") or 0) / 1_000_000.0
         mroas = c.get("mroas")
         verdict = c.get("verdict") or "Watch"
+        # Волна 1 пункт 3 (2026-06-20): отображаемый вердикт — рус + honesty-смягчение
+        # (решение 2a). verdict_display несёт «Увеличить (предв.)» при не-reliable
+        # модели; machine-key `verdict` оставляем для CSS-класса цвета. fallback на
+        # локализацию по ключу, если поле не пришло (legacy/wireframe payload).
+        from engines.channel_action import soften_verdict_display
+        v_display = c.get("verdict_display") or soften_verdict_display(verdict, None)[0]
+        v_modality = c.get("verdict_modality") or "firm"
         share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
         fn = fn_by_name.get(name, "")
         fn_html = f'<sup class="fn-marker">{fn}</sup>' if fn else ''
@@ -1064,7 +1071,7 @@ def render_action_table(ctx: dict) -> str:
             f'<td class="num" data-sort="{contrib_mln:.2f}">{_fmt_mln(contrib_mln)}</td>'
             f'<td class="num" data-sort="{mroas_sort:.3f}">{mroas_html}{fn_html}</td>'
             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
-            f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
+            f'<td><span class="verdict-badge verdict-{escape(verdict)} verdict-mod-{escape(v_modality)}">{escape(v_display)}</span></td>'
             f'</tr>'
         )
 

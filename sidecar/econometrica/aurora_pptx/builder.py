@@ -1837,16 +1837,13 @@ class AuroraPPTXBuilder:
             "Reduce": (self.gold_muted, True),
             "Cut":    (self.gold, True),
         }
-        # Stage C.3: display verdicts in Russian. Enum keys stay English
-        # internally so derive_verdict() and downstream narrative helpers
-        # remain unchanged.
-        verdict_ru = {
-            "Scale":  "Увеличить",
-            "Hold":   "Держать",
-            "Watch":  "Наблюдать",
-            "Reduce": "Сократить",
-            "Cut":    "Остановить",
-        }
+        # Волна 1 пункт 3 (2026-06-20): рус-локализация + honesty-смягчение вердикта —
+        # единый источник engines.channel_action.soften_verdict_display
+        # (VERDICT_DISPLAY_RU), синхрон с HTML/XLSX/MD. Прежний локальный verdict_ru
+        # убран (рассогласовывался: PPTX рус, HTML/Rust англ). Enum-ключи (machine-
+        # key) остаются англ. внутри для verdict_colors / derive_verdict.
+        from engines.channel_action import soften_verdict_display
+        _mr_v = str(self.model_reliability.get("verdict") or "").lower()
         row_y = table_y + 0.65
         for row in rows:
             # Phase 1.9: rows are 8-tuples (added ci_str). Backward compat for fallback
@@ -1908,7 +1905,9 @@ class AuroraPPTXBuilder:
             x += col_widths[4]
             # Verdict - fallback to Hold styling if unknown key
             vcolor, vbold = verdict_colors.get(verdict, (self.deep_60, False))
-            verdict_label = verdict_ru.get(verdict, verdict)
+            verdict_label, _v_mod = soften_verdict_display(verdict, _mr_v)
+            if _v_mod == "refused":  # модель не сошлась — направление не показываем
+                vcolor, vbold = self.deep_60, False
             self._text(
                 slide, x + 0.05, row_y, col_widths[5] - 0.1, 0.3, verdict_label,
                 font=self.sans, size=11, bold=vbold, color=vcolor,

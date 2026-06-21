@@ -71,6 +71,45 @@ ACTION_PRIORITY: dict[str, int] = {
 }
 
 
+# Волна 1 пункт 3 (2026-06-20): краткий отображаемый вердикт-действие для ТАБЛИЦ
+# отчётов (HTML badge / PPTX action table / XLSX / MD). Единый рус-источник —
+# прежде HTML и Rust (XLSX/MD) показывали англ. machine-key «Scale», а PPTX свой
+# verdict_ru «Увеличить» → один канал выглядел по-разному в трёх форматах.
+VERDICT_DISPLAY_RU: dict[str, str] = {
+    'Scale':     'Увеличить',
+    'Hold':      'Держать',
+    'Watch':     'Наблюдать',
+    'Reduce':    'Сократить',
+    'Cut':       'Остановить',
+    'Uncertain': 'Недостаточно данных',
+}
+
+
+def soften_verdict_display(verdict_key: str, reliability_verdict: str | None) -> tuple[str, str]:
+    """Honesty-потолок (решение 2a, Антон): глобальная надёжность модели смягчает
+    ДИРЕКТИВНОСТЬ канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ.
+
+    Снимает противоречие «канал Scale в отчёте vs Uncertain в декомпозиции»: при
+    неуверенной модели ни один канал не подаётся как директива к масштабированию.
+
+    Returns (label, modality):
+      • reliable / нет вердикта → директивный label («Увеличить»), modality 'firm'
+      • uncertain / unknown → label + « (предв.)» («Увеличить (предв.)»), modality
+        'tentative'; нейтральные Watch/Uncertain — без суффикса (уже неуверенные)
+      • unreliable → «Требует переобучения», modality 'refused' (модель не сошлась —
+        направление ненадёжно, не показываем; согласуется с гейтом M2 refused)
+    """
+    base = VERDICT_DISPLAY_RU.get(verdict_key, verdict_key)
+    rv = (reliability_verdict or '').lower()
+    if rv == 'unreliable':
+        return ('Требует переобучения', 'refused')
+    if rv in ('uncertain', 'unknown'):
+        if verdict_key in ('Uncertain', 'Watch'):
+            return (base, 'tentative')
+        return (f'{base} (предв.)', 'tentative')
+    return (base, 'firm')
+
+
 @dataclass(frozen=True)
 class ChannelAction:
     """Result of compute_channel_action - what to do with this channel."""
