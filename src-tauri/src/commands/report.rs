@@ -623,6 +623,9 @@ pub async fn econ_export_xlsx(
     model_data: Value,
     decompose_data: Value,
     optimize_data: Value,
+    // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 47 терминов).
+    // Option → старые вызовы без поля дают None → fallback на встроенные 11.
+    glossary: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_export_xlsx: project={project_id}");
 
@@ -646,7 +649,7 @@ pub async fn econ_export_xlsx(
     // лист «Сценарии» просто не добавится.
     let scenarios = read_scenarios(&project_id);
 
-    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, &project_id, &path)?;
+    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, &project_id, &path, glossary.as_ref())?;
 
     info!("XLSX saved: {}", path.display());
     Ok(serde_json::json!({
@@ -793,6 +796,9 @@ fn build_xlsx(
     scenarios: &[Value],
     project_id: &str,
     path: &PathBuf,
+    // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 47 терминов);
+    // None → fallback на встроенные 11.
+    glossary: Option<&Value>,
 ) -> Result<(), String> {
     use rust_xlsxwriter::{Chart, ChartType, Color, ConditionalFormatCell, ConditionalFormatCellRule, Formula, Image};
 
@@ -1808,7 +1814,11 @@ fn build_xlsx(
         ws.write_with_format(2, 0, "Термин", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 1, "Определение", &header_fmt).map_err(|e| format!("{e}"))?;
 
-        let terms: &[(&str, &str)] = &[
+        // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 47 терминов
+        // {term, definition}). XLSX перестаёт быть «4-м расходящимся глоссарием» —
+        // единый источник glossary.js, Rust пассивно пишет переданное. Fallback на
+        // встроенные 11 — только при отсутствии параметра (legacy-вызовы).
+        let fallback: &[(&str, &str)] = &[
             ("MQS", "Model Quality Score - комплексная оценка качества модели (0-100). >80 = отлично, 60-80 = хорошо, <60 = требует доработки."),
             ("R²", "Коэффициент детерминации - доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
             ("MAPE", "Mean Absolute Percentage Error - средняя абсолютная ошибка в %. <10% = отлично."),
@@ -1821,10 +1831,23 @@ fn build_xlsx(
             ("Base sales", "Продажи без рекламного воздействия (органический спрос, бренд-эффект, сезонность)."),
             ("Efficiency Index", "Отношение доли эффекта к доле бюджета. >1.0 = канал эффективнее среднего."),
         ];
-        for (i, (term, def)) in terms.iter().enumerate() {
-            let row = (i + 3) as u32;
-            ws.write_with_format(row, 0, *term, &bold).map_err(|e| format!("{e}"))?;
-            ws.write(row, 1, *def).map_err(|e| format!("{e}"))?;
+        let mut row = 3u32;
+        if let Some(arr) = glossary.and_then(|g| g.as_array()).filter(|a| !a.is_empty()) {
+            for item in arr {
+                let term = item["term"].as_str().unwrap_or("-");
+                let def = item["definition"].as_str()
+                    .or_else(|| item["short"].as_str())
+                    .unwrap_or("");
+                ws.write_with_format(row, 0, term, &bold).map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, def).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+        } else {
+            for (term, def) in fallback.iter() {
+                ws.write_with_format(row, 0, *term, &bold).map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, *def).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
         }
         // Widths - Глоссарий (A = 3 cm; B = 19.2 cm; C hidden, per Антон)
         ws.set_column_width(0, 16.2).map_err(|e| format!("{e}"))?;
@@ -2058,5 +2081,26 @@ mod tests {
         let types: Vec<&str> = obj["types"].as_array().unwrap().iter()
             .map(|t| t.as_str().unwrap()).collect();
         assert_eq!(types.iter().position(|t| *t == "total"), Some(2));
+    }
+
+    /// Волна 3: глоссарий из фронта (SSOT glossary.js) — извлечение term/definition
+    /// (логика Sheet 6). definition с fallback на short; пустой/None → fallback-ветка.
+    #[test]
+    fn glossary_from_frontend_extraction() {
+        let g = json!([
+            {"term": "ROAS", "definition": "возврат на рекламные расходы"},
+            {"term": "Adstock", "short": "остаточный эффект"},
+        ]);
+        let arr = g.as_array().unwrap();
+        assert_eq!(arr[0]["term"].as_str().unwrap(), "ROAS");
+        assert_eq!(arr[0]["definition"].as_str().unwrap(), "возврат на рекламные расходы");
+        // definition отсутствует → fallback на short
+        let def = arr[1]["definition"].as_str().or_else(|| arr[1]["short"].as_str());
+        assert_eq!(def, Some("остаточный эффект"));
+        // пустой / отсутствующий глоссарий → ветка fallback (filter отсекает пустой)
+        let empty: Option<Value> = Some(json!([]));
+        assert!(empty.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
+        let none: Option<Value> = None;
+        assert!(none.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
     }
 }

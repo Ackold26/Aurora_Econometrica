@@ -27,6 +27,7 @@
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { mqsView, ratioView } from '$lib/metric-views.js';
+  import { getAllTerms } from '$lib/glossary.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
   import { TriangleAlert, ChartColumn, Globe, Check, ClipboardList } from 'lucide-svelte';
@@ -694,6 +695,9 @@
         modelData:    get(modelData),
         decomposeData: get(decomposeData),
         optimizeData:  get(optimizeData),
+        // Волна 3: глоссарий из единого источника glossary.js (47 терминов) —
+        // XLSX больше не держит свою расходящуюся копию (SSOT).
+        glossary:     getAllTerms().map((t) => ({ term: t.term, definition: t.short })),
       }));
 
       if (result.status === 'ok') {
