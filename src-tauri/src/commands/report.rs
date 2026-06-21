@@ -1386,28 +1386,32 @@ fn build_xlsx(
                 .map_err(|e| format!("{e}"))?;
         }
 
-        // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
+        // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len).
+        // Guard (2026-06-21): пустой chs → last_row(2) < first_row(3) → range-error
+        // роняет ВЕСЬ экспорт. В проде недостижимо (media_cols ≥ 1), defense-in-depth.
         let first_row = 3u32;
         let last_row = chs.len() as u32 + 2;
-        let green_cond = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::GreaterThanOrEqualTo(2.0))
-            .set_format(Format::new().set_font_color(Color::RGB(GO)));
-        let red_cond = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::LessThan(1.0))
-            .set_format(Format::new().set_font_color(Color::RGB(STOP)));
-        ws.add_conditional_format(first_row, 3, last_row, 3, &green_cond).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 3, last_row, 3, &red_cond).map_err(|e| format!("{e}"))?;
+        if !chs.is_empty() {
+            let green_cond = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::GreaterThanOrEqualTo(2.0))
+                .set_format(Format::new().set_font_color(Color::RGB(GO)));
+            let red_cond = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::LessThan(1.0))
+                .set_format(Format::new().set_font_color(Color::RGB(STOP)));
+            ws.add_conditional_format(first_row, 3, last_row, 3, &green_cond).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 3, last_row, 3, &red_cond).map_err(|e| format!("{e}"))?;
 
-        // ROI bar chart
-        let mut chart = Chart::new(ChartType::Bar);
-        chart.add_series()
-            .set_categories(("ROI каналов", first_row, 0, last_row, 0))
-            .set_values(("ROI каналов", first_row, 3, last_row, 3))
-            .set_name("ROI");
-        chart.set_style(12);
-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-        chart.title().set_name("ROI по каналам");
-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+            // ROI bar chart
+            let mut chart = Chart::new(ChartType::Bar);
+            chart.add_series()
+                .set_categories(("ROI каналов", first_row, 0, last_row, 0))
+                .set_values(("ROI каналов", first_row, 3, last_row, 3))
+                .set_name("ROI");
+            chart.set_style(12);
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("ROI по каналам");
+            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        }
 
         // Widths - ROI каналов (A = 4.4 cm ≈ 23.76; C = 3.91 cm; D = 2.2 cm, per Антон)
         ws.set_column_width(0, 23.76).map_err(|e| format!("{e}"))?;
@@ -1457,22 +1461,25 @@ fn build_xlsx(
             ws.write_with_format(row, 5, efficiency, &roi_fmt).map_err(|e| format!("{e}"))?;
         }
 
-        // Clustered bar chart: spend% vs effect% (data rows 3..3+len-1)
+        // Clustered bar chart: spend% vs effect% (data rows 3..3+len-1).
+        // Guard (2026-06-21): пустой chs → диапазон 3..2 → range-error на весь экспорт.
         let first_row = 3u32;
         let last_row = chs.len() as u32 + 2;
-        let mut chart = Chart::new(ChartType::Column);
-        chart.add_series()
-            .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
-            .set_values(("Spend vs Effect", first_row, 2, last_row, 2))
-            .set_name("% бюджета");
-        chart.add_series()
-            .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
-            .set_values(("Spend vs Effect", first_row, 4, last_row, 4))
-            .set_name("% эффекта");
-        chart.set_style(12);
-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-        chart.title().set_name("Доля бюджета vs Доля эффекта");
-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        if !chs.is_empty() {
+            let mut chart = Chart::new(ChartType::Column);
+            chart.add_series()
+                .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
+                .set_values(("Spend vs Effect", first_row, 2, last_row, 2))
+                .set_name("% бюджета");
+            chart.add_series()
+                .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
+                .set_values(("Spend vs Effect", first_row, 4, last_row, 4))
+                .set_name("% эффекта");
+            chart.set_style(12);
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("Доля бюджета vs Доля эффекта");
+            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        }
 
         // Widths - Spend vs Effect (A:C = 3.50 cm ≈ 18.90 char, per Антон)
         ws.set_column_width(0, 18.90).map_err(|e| format!("{e}"))?;
@@ -1608,34 +1615,39 @@ fn build_xlsx(
             ws.write_with_format(row, 5, curr_roi, &roi_fmt).map_err(|e| format!("{e}"))?;
         }
 
-        // Conditional formatting on delta columns (data rows 3..3+len-1)
+        // Conditional formatting on delta columns (data rows 3..3+len-1).
+        // Guard (2026-06-21): пустой opt_chs → last_row(2) < first_row(3) → range-error
+        // роняет ВЕСЬ экспорт (в проде недостижимо: channels = цикл по media_cols ≥ 1;
+        // см. optimizer.py). first_row/last_row остаются снаружи — нужны блоку ИТОГО.
         let first_row = 3u32;
         let last_row = opt_chs.len() as u32 + 2;
-        let green_d = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::GreaterThan(0.0))
-            .set_format(Format::new().set_font_color(Color::RGB(GO)));
-        let red_d = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::LessThan(0.0))
-            .set_format(Format::new().set_font_color(Color::RGB(BERRY)));
-        ws.add_conditional_format(first_row, 3, last_row, 3, &green_d).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 3, last_row, 3, &red_d).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 4, last_row, 4, &green_d).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 4, last_row, 4, &red_d).map_err(|e| format!("{e}"))?;
+        if !opt_chs.is_empty() {
+            let green_d = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::GreaterThan(0.0))
+                .set_format(Format::new().set_font_color(Color::RGB(GO)));
+            let red_d = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::LessThan(0.0))
+                .set_format(Format::new().set_font_color(Color::RGB(BERRY)));
+            ws.add_conditional_format(first_row, 3, last_row, 3, &green_d).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 3, last_row, 3, &red_d).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 4, last_row, 4, &green_d).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 4, last_row, 4, &red_d).map_err(|e| format!("{e}"))?;
 
-        // Clustered bar: current vs optimal
-        let mut chart = Chart::new(ChartType::Column);
-        chart.add_series()
-            .set_categories(("Оптимизация", first_row, 0, last_row, 0))
-            .set_values(("Оптимизация", first_row, 1, last_row, 1))
-            .set_name("Текущий");
-        chart.add_series()
-            .set_categories(("Оптимизация", first_row, 0, last_row, 0))
-            .set_values(("Оптимизация", first_row, 2, last_row, 2))
-            .set_name("Оптимальный");
-        chart.set_style(12);
-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-        chart.title().set_name("Текущий vs Оптимальный бюджет");
-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+            // Clustered bar: current vs optimal
+            let mut chart = Chart::new(ChartType::Column);
+            chart.add_series()
+                .set_categories(("Оптимизация", first_row, 0, last_row, 0))
+                .set_values(("Оптимизация", first_row, 1, last_row, 1))
+                .set_name("Текущий");
+            chart.add_series()
+                .set_categories(("Оптимизация", first_row, 0, last_row, 0))
+                .set_values(("Оптимизация", first_row, 2, last_row, 2))
+                .set_name("Оптимальный");
+            chart.set_style(12);
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("Текущий vs Оптимальный бюджет");
+            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        }
 
         // 5c (2026-05-04) FIX: same formula-result issue - рrust_xlsxwriter writes
         // formulas with default cached result=0, Excel showed 0+0 для ИТОГО.
@@ -2124,6 +2136,23 @@ mod tests {
         assert!(empty.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
         let none: Option<Value> = None;
         assert!(none.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
+    }
+
+    /// Guard-регрессия (2026-06-21): пустые коллекции каналов НЕ должны ронять
+    /// весь XLSX-экспорт range-ошибкой conditional-format/графика на листах
+    /// ROI/Spend/Оптимизация (last_row < first_row при len==0). В проде недостижимо
+    /// (channels = цикл по media_cols ≥ 1), но defense-in-depth.
+    #[test]
+    fn build_xlsx_survives_empty_channels() {
+        let model = json!({"diagnostics": {"mqs": {"score": 0.0, "tier_label": "N/A"}}});
+        let decompose = json!({"channels": [], "model_version": "1.0",
+            "derived_mode": "roi", "kpi_kind": "monetary"});
+        let optimize = json!({"channels": [],
+            "model_reliability": {"verdict": "uncertain", "caveat_text": "тест"}});
+        let path = std::env::temp_dir().join("aurora_empty_channels_guard.xlsx");
+        let r = build_xlsx(&model, &decompose, &optimize, &[], "test", &path, None);
+        assert!(r.is_ok(), "пустые channels не должны ронять экспорт: {r:?}");
+        let _ = std::fs::remove_file(&path);
     }
 
     /// LIVE-проба (opt-in, 2026-06-21): собрать НАСТОЯЩИЙ .xlsx + .md из реальных

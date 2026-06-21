@@ -54,6 +54,13 @@ def _fmt_roi(r) -> str:
     return f"{r:.2f}×" if abs(r) < 1 else f"{r:.1f}×"
 
 
+def _clean_name(s) -> str:
+    """Имя канала без `\\n`/двойных пробелов (исходные Excel-заголовки несут переносы).
+    Зеркалит Rust report.rs::clean_label — иначе нарратив-insight (и таблицы XLSX/MD,
+    читающие его) рвут имя на строки (INV-50 гигиена клиентского текста, 2026-06-21)."""
+    return ' '.join(str(s).split())
+
+
 def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str:
     """SSOT инсайта «лучший/худший канал» (template, 0 токенов).
 
@@ -108,21 +115,23 @@ def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str
             'Точную оценку отдачи и сценарии перераспределения см. в шаге «Оптимизация».'
         )
     top_roi = float(top.get('roi') or 0)
+    top_name = _clean_name(top['name'])
+    worst_name = _clean_name(worst['name'])
     if top_roi >= ROI_BREAKEVEN:
         insight = (
-            f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
-            f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+            f"{top_name} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
+            f"{worst_name} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
         )
         if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
             insight += (
-                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                f" Канал {worst_name} использует больше бюджета чем даёт эффекта "
                 f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
-                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+                f"в {top_name}. Точную оценку прироста см. в шаге «Оптимизация»."
             )
     else:
         # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
         insight = (
-            f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
+            f"Ни один канал не окупается напрямую (лучший - {top_name}, "
             f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
             f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
             f"перераспределения см. в шаге «Оптимизация»."
