@@ -42,7 +42,7 @@
   // редакции с согласием и для продукта Econometrica.
   import { isEconometrica } from '$lib/creative-store.js';
   import { cloudConsent } from '$lib/store.js';
-  import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES } from '$lib/tier2-context.js';
+  import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES, STEP } from '$lib/tier2-context.js';
   import { findUngroundedNumbers } from '$lib/insights-grounding.js';
   import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario, findCollinearPairs, collinearityCaveat } from '$lib/scenario-advisor.js';
 
@@ -679,7 +679,7 @@
         </div>
       {/if}
 
-      {#if canAsk && scenarioChannels().length > 0}
+      {#if canAsk && $pipelineCurrentStep === STEP.OPTIMIZE && scenarioChannels().length > 0}
         <div class="ask-ai scenario">
           <div class="ask-title"><span class="ask-name">Что если…</span><span class="ask-sub"> · сценарий</span></div>
           {#if !scenarioConfig && !scenarioInterpret}
