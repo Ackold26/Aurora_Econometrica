@@ -251,7 +251,7 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             label_ru=ACTION_LABEL_RU['Cut'],
             tone=ACTION_TONE['Cut'],
             reasoning=(
-                f'Optimizer рекомендует -{(1 - ratio) * 100:.0f}% - '
+                f'Оптимизатор рекомендует -{(1 - ratio) * 100:.0f}% - '
                 f'бюджет лучше использовать на других каналах'
             ),
             priority=ACTION_PRIORITY['Cut'],
@@ -264,7 +264,7 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             key='Cut',
             label_ru=ACTION_LABEL_RU['Cut'],
             tone=ACTION_TONE['Cut'],
-            reasoning=f'mROAS {mroas:.2f}× глубоко ниже breakeven - каждый рубль приносит убыток',
+            reasoning=f'mROAS {mroas:.2f}× глубоко ниже точки безубыточности - каждый рубль приносит убыток',
             priority=ACTION_PRIORITY['Cut'],
             confidence=confidence,
         )
@@ -276,7 +276,7 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
             reasoning=(
-                f'Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - saturation, '
+                f'Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% - насыщение, '
                 f'mROAS {mroas:.2f}× падает с ростом вложения'
             ),
             priority=ACTION_PRIORITY['Reduce'],
@@ -289,7 +289,7 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             key='Reduce',
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
-            reasoning=f'mROAS {mroas:.2f}× близок к breakeven - снизить риск',
+            reasoning=f'mROAS {mroas:.2f}× близок к точке безубыточности - снизить риск',
             priority=ACTION_PRIORITY['Reduce'],
             confidence=confidence,
         )
@@ -301,7 +301,7 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             label_ru=ACTION_LABEL_RU['Scale'],
             tone=ACTION_TONE['Scale'],
             reasoning=(
-                f'Optimizer рекомендует +{(ratio - 1) * 100:.0f}%, mROAS {mroas:.2f}× - '
+                f'Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}%, mROAS {mroas:.2f}× - '
                 f'недо-инвестирован'
             ),
             priority=ACTION_PRIORITY['Scale'],

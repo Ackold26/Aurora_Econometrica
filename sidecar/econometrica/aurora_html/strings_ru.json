@@ -45,9 +45,9 @@
     "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
     "f2_hero":           "{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×",
     "f2_hero_support":   "Текущий бюджет на нём {hero_spend_pct_fmt}",
-    "f3_realloc":        "Recommendation: reallocate {realloc:.0f} млн ₽ из {leader} в {hero}",
+    "f3_realloc":        "Рекомендация: переместить {realloc:.0f} млн ₽ из {leader} в {hero}",
     "f3_realloc_support": "Ожидаемый прирост ROAS: +{lift:.1f} пп",
-    "f3_keep":           "Recommendation: сохранить текущую аллокацию по лидеру портфеля",
+    "f3_keep":           "Рекомендация: сохранить текущую аллокацию по лидеру портфеля",
     "f3_keep_support":   "Портфель близок к оптимуму по текущим данным",
     "f4_verdicts":       "Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению",
     "f4_verdicts_support": "Из {n_channels} активных каналов - чёткий verdict по каждому",
@@ -61,7 +61,7 @@
   "action_titles": {
     "s02_five":          "Пять ключевых находок по результатам моделирования",
     "s04_takeaway":      "{leader} генерирует {contrib_pct_fmt} продаж при {spend_pct_fmt} бюджета - основная точка оптимизации",
-    "s05_default":       "{leader} остаётся драйвером, но эффективность требует проверки saturation",
+    "s05_default":       "{leader} остаётся драйвером, но эффективность требует проверки насыщения",
     "s06_hero":          "{hero} - наиболее эффективный канал, сигнал к пересмотру аллокации",
     "s07_dominant":      "Один канал даёт {pct_fmt} продаж - остальные рекомендованы к консолидации",
     "s07_top_n":         "Топ-{top_n} каналов дают {pct_fmt} продаж - остальные рекомендованы к консолидации",
@@ -70,9 +70,9 @@
     "s07_zero":          "Вклад каналов требует пересчёта - проверьте входные данные",
     "s08_leader":        "{leader}-всплески выделяются на устойчивом baseline - медиа-активность видна по неделям",
     "s09_scale_hero":    "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
-    "s09_hold_leader":   "Aurora рекомендует сохранить приоритет {leader} с учётом saturation",
-    "s10_methodology":   "Bayesian MMM с adstock + saturation - NUTS NumPyro, 4 chains × 2000 iter",
-    "s10_methodology_ols": "OLS MMM с adstock + saturation - closed-form, bootstrap n=1000",
+    "s09_hold_leader":   "Aurora рекомендует сохранить приоритет {leader} с учётом насыщения",
+    "s10_methodology":   "Bayesian MMM с adstock + насыщение - NUTS NumPyro, 4 chains × 2000 iter",
+    "s10_methodology_ols": "OLS MMM с adstock + насыщение - closed-form, bootstrap n=1000",
     "s13_glossary":      "Терминология, необходимая для чтения отчёта",
     "s14_closing":       "Решения, основанные на данных"
   },
@@ -177,8 +177,8 @@
     "Cut":    "Cut"
   },
   "verdict_reasons": {
-    "Cut":    "ниже breakeven по mROAS; рекомендовано остановить или перевести в другие каналы.",
-    "Reduce": "saturation-bound; маржинальный возврат от дополнительного рубля ниже среднего по портфелю."
+    "Cut":    "ниже точки безубыточности по mROAS; рекомендовано остановить или перевести в другие каналы.",
+    "Reduce": "эффект насыщения; маржинальный возврат от дополнительного рубля ниже среднего по портфелю."
   },
   "table_headers": {
     "channel":   "Канал",

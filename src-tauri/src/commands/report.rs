@@ -956,11 +956,18 @@ fn build_xlsx(
         let value_fmt = base_fmt.clone().set_font_color(Color::RGB(DEEP_100));
 
         let today = Local::now().format("%d.%m.%Y").to_string();
+        // Волна 3 (2026-06-20): версия модели — РЕАЛЬНАЯ из прогона (прежде зашито
+        // «v1.0.13», устаревшее; реальная model_version = напр. 1.2). Источник —
+        // decompose.model_version (fallback model.model_version), «—» если нет.
+        let model_ver = decompose["model_version"].as_str()
+            .or_else(|| model["model_version"].as_str())
+            .map(|v| format!("v{v}"))
+            .unwrap_or_else(|| "—".to_string());
         let meta_rows: &[(&str, String)] = &[
             ("Подготовлено для:", client_label.to_string()),
             ("Проект:",           project_id.to_string()),
             ("Дата:",             today),
-            ("Версия:",           "v1.0.13".to_string()),
+            ("Версия модели:",    model_ver),
             ("Гриф:",             "Конфиденциально".to_string()),
         ];
         for (i, (k, v)) in meta_rows.iter().enumerate() {

@@ -764,7 +764,7 @@ class AuroraPPTXBuilder:
         # от honest_narrative (media<10%). effectiveness-mode исключён (метрика —
         # доля, breakeven неприменим). Зеркалит decomposer + HTML-hero.
         if hero_mroas < 1.0 and self.kpi["mode"] != "effectiveness":
-            f2 = f"{hero} - лучший среди медиа, но под breakeven ({hero_metric_short} {hero_metric_fmt})"
+            f2 = f"{hero} - лучший среди медиа, но под точкой безубыточности ({hero_metric_short} {hero_metric_fmt})"
             s2 = f"{_under_breakeven_phrase_pptx(self.kpi)} означает что канал тратит больше чем приносит"
         elif hero_mroas > 0:
             f2 = f"{hero} - самый эффективный канал, {hero_metric_short} {hero_metric_fmt}"
@@ -787,7 +787,7 @@ class AuroraPPTXBuilder:
             and all((float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in self.channels)
         )
         if honest and all_below_breakeven:
-            f3 = "Рекомендация: все каналы под breakeven - сократить медиа или диагностика данных"
+            f3 = "Рекомендация: все каналы под точкой безубыточности - сократить медиа или диагностика данных"
             if self.kpi["is_legacy"]:
                 s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
             else:

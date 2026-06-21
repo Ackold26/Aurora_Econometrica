@@ -529,7 +529,7 @@ def render_executive_summary(ctx: dict) -> str:
             else:
                 answer = scqar.get("answer_all_hold", {}).get(
                     "template",
-                    f"Сохранить приоритет {leader} с контролем saturation."
+                    f"Сохранить приоритет {leader} с контролем насыщения."
                 )
             recommendation = (
                 "Дальнейший прирост возможен через расширение границ оптимизации "
@@ -627,7 +627,7 @@ def render_at_a_glance(ctx: dict) -> str:
         # effectiveness-mode исключён: там метрика — доля, breakeven неприменим (как
         # all_below_breakeven ниже).
         if hero_m < 1.0 and kpi["mode"] != "effectiveness":
-            f2 = f"{hero} - лучший среди медиа, но всё ещё под breakeven ({kpi['metric_short']} {hero_m_fmt})"
+            f2 = f"{hero} - лучший среди медиа, но всё ещё под точкой безубыточности ({kpi['metric_short']} {hero_m_fmt})"
             f2_sup = f"{_under_breakeven_phrase(kpi)} означает что канал тратит больше чем приносит инкрементала"
         elif honest:
             f2 = f"{hero} - единственный канал близкий к окупаемости ({kpi['metric_short']} {hero_m_fmt})"
@@ -656,7 +656,7 @@ def render_at_a_glance(ctx: dict) -> str:
         # explicitly - otherwise narrative says "сохранить аллокацию" while
         # the real story is "оптимизатор не получил места для манёвра".
         if honest and all_below_breakeven:
-            f3 = "Все медиа-каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
+            f3 = "Все медиа-каналы под точкой безубыточности - рассмотреть сокращение медиа или диагностику данных"
             if kpi["is_legacy"]:
                 f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
             else:
@@ -817,7 +817,7 @@ def render_key_message(ctx: dict) -> str:
             quote = (
                 f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
                 f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
-                "Низкая инкрементальность - проверить adstock, saturation, качество данных."
+                "Низкая инкрементальность - проверить adstock, насыщение, качество данных."
             )
         else:
             title = strings["action_titles"]["s05_default"].format(leader=leader)
@@ -828,10 +828,10 @@ def render_key_message(ctx: dict) -> str:
             if hero != leader:
                 quote = (
                     f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                    "Сигнал к reallocate части бюджета."
+                    "Сигнал к перераспределению части бюджета."
                 )
             else:
-                quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков saturation."
+                quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."
     else:
         title = "Главный вывод появится после обучения модели"
         big = "-"
@@ -1287,7 +1287,7 @@ def render_recommendation(ctx: dict) -> str:
         else:
             action_01_text = (
                 f"Портфель близок к оптимуму при заданных границах. "
-                f"Сохранить аллокацию по {leader} с контролем индикаторов saturation."
+                f"Сохранить аллокацию по {leader} с контролем индикаторов насыщения."
             )
 
         # N4 - Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
@@ -1300,27 +1300,27 @@ def render_recommendation(ctx: dict) -> str:
         metric_short = kpi["metric_short"]
         if n_saturated > 0:
             if kpi["is_legacy"]:
-                problem_clause = f"{n_saturated} канал(ов) под breakeven (mROAS < 1×)"
+                problem_clause = f"{n_saturated} канал(ов) под точкой безубыточности (mROAS < 1×)"
             elif kpi["mode"] == "effectiveness":
                 problem_clause = f"{n_saturated} канал(ов) с низкой долей в портфеле"
             elif kpi["kpi_kind"] == "count":
-                problem_clause = f"{n_saturated} канал(ов) под breakeven ({_under_breakeven_phrase(kpi)})"
+                problem_clause = f"{n_saturated} канал(ов) под точкой безубыточности ({_under_breakeven_phrase(kpi)})"
             else:
-                problem_clause = f"{n_saturated} канал(ов) под breakeven"
+                problem_clause = f"{n_saturated} канал(ов) под точкой безубыточности"
             action_02_text = (
-                f"{problem_clause} - проверить data quality, adstock decay и сравнить "
-                "с industry benchmarks перед следующей итерацией."
+                f"{problem_clause} - проверить качество данных, затухание adstock и сравнить "
+                "с отраслевыми бенчмарками перед следующей итерацией."
             )
         else:
             if kpi["mode"] == "effectiveness":
                 action_02_text = (
                     "Все каналы дают сравнимый вклад в долю эффекта - "
-                    f"мониторить {metric_short.lower()} канала в следующих периодах на признаки saturation."
+                    f"мониторить {metric_short.lower()} канала в следующих периодах на признаки насыщения."
                 )
             else:
                 action_02_text = (
-                    f"Все каналы выше breakeven - мониторить {metric_short} в следующих периодах "
-                    "на признаки saturation."
+                    f"Все каналы выше точки безубыточности - мониторить {metric_short} в следующих периодах "
+                    "на признаки насыщения."
                 )
 
         if underperf:
@@ -1340,7 +1340,7 @@ def render_recommendation(ctx: dict) -> str:
 
         actions = [
             ("01", "Перебалансировать бюджет.", action_01_text),
-            ("02", "Контролировать saturation.", action_02_text),
+            ("02", "Контролировать насыщение.", action_02_text),
             ("03", "Замерить эффект через 90 дней.", action_03_text),
         ]
         lift_val = lift if lift is not None else 0
@@ -1348,7 +1348,7 @@ def render_recommendation(ctx: dict) -> str:
         title = "Рекомендация появится после оптимизации"
         actions = [
             ("01", "Перебалансировать бюджет.", "Из лидера в hero-канал по mROAS"),
-            ("02", "Контролировать saturation.", "По каналам с mROAS < 1×"),
+            ("02", "Контролировать насыщение.", "По каналам с mROAS < 1×"),
             ("03", "Замерить эффект через 90 дней.", "KPI vs baseline после применения"),
         ]
         lift_val = 0

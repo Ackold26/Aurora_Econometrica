@@ -256,6 +256,34 @@ def test_seam_channel_verdict_firm_when_reliable():
         assert "предв" not in (ch.get("verdict_display") or "")
 
 
+# ── Волна 3 (2026-06-20): гигиена клиентского текста ──────────────────────────
+
+def test_sanitize_slug_no_service_word_leak():
+    """Служебные слова slug НЕ текут в «Подготовлено для»; имя ≤2 токенов."""
+    from engines.narrative_adapter import _sanitize_project_slug
+    cl, _ = _sanitize_project_slug('кагоцел-рф--данные-для-эконометрики---на-ммх-2006-26--3')
+    assert cl == 'Кагоцел Рф'
+    assert 'Данные' not in cl and 'Эконометрики' not in cl and '2006' not in cl
+    # дата-маркер ммх (2404 = 24 апр) не год → не протекает в имя
+    assert _sanitize_project_slug('венарус-ммх-2404-26--2')[0] == 'Венарус'
+    # настоящий год-диапазон сохраняется
+    assert '2021-2025' in _sanitize_project_slug('mmx-2021-2025-исходник-26--4')[0]
+
+
+def test_channel_reasoning_no_anglicisms():
+    """Волна 3: клиентский reasoning без англицизмов (saturation/breakeven/Optimizer)."""
+    from engines.channel_action import compute_channel_action
+    samples = [
+        {"name": "A", "mroas": 0.5, "current_spend": 100, "optimal_spend": 100},   # Cut
+        {"name": "B", "mroas": 1.3, "current_spend": 100, "optimal_spend": 70},     # Reduce (saturation)
+        {"name": "C", "mroas": 1.4, "current_spend": 100, "optimal_spend": 140},    # Scale
+    ]
+    for ch in samples:
+        r = compute_channel_action(ch).reasoning.lower()
+        for bad in ("saturation", "breakeven", "optimizer"):
+            assert bad not in r, f"англицизм '{bad}' в reasoning: {r}"
+
+
 def test_merge_channels_preserves_unit_smell():
     """Волна 1: honesty-поля (unit_smell/smell_flags) доходят через мост до
     hero-гарда; иначе битый ROI-канал (TRP, не рубли) коронуется «лучшим»."""

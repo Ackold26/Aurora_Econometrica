@@ -51,6 +51,10 @@ _SLUG_INTERNAL_MARKERS = {
     "исходник", "источник", "dataset", "data", "source",
     "test", "debug", "tmp", "temp", "backup", "bak",
     "ммх", "mmx", "mmm",  # platform/methodology tags - not client name
+    # Волна 3 (2026-06-20): рус. служебные слова в slug — не имя клиента (иначе
+    # в «Подготовлено для» протекало «Данные Для Эконометрики На»).
+    "данные", "для", "на", "по", "из", "файл",
+    "эконометрики", "эконометрика", "эконометрике",
 }
 
 
@@ -82,14 +86,16 @@ def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
     clean_parts = []
     year_range = None
     for p in parts:
-        # Detect year range like "2021-2025" (already a token or captured)
-        if re.fullmatch(r'\d{4}', p):
+        # Год (19xx/20xx) сохраняем как вторичную инфо. Волна 3 (2026-06-20): прочие
+        # чисто-цифровые токены (даты ммх «2404»=24апр, ревизии «26») — служебные,
+        # отбрасываем; прежде «\d{4}» ловило «2404» как ложный год → «Венарус 2404».
+        if re.fullmatch(r'(19|20)\d{2}', p):
             clean_parts.append(p)
             continue
         if p.lower() in _SLUG_INTERNAL_MARKERS:
             continue
-        # Drop pure-digit suffix tokens shorter than 4 chars (revisions)
-        if re.fullmatch(r'\d{1,3}', p):
+        # Drop любые чисто-цифровые токены, не являющиеся годом (даты/ревизии).
+        if re.fullmatch(r'\d+', p):
             continue
         clean_parts.append(p)
 
@@ -114,8 +120,11 @@ def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
             labels.append(_fmt_token(tok))
             i += 1
 
-    client_label = " ".join(labels)
-    # Project code: uppercase, hyphen-joined
+    # Волна 3 (2026-06-20): client_label — максимум 2 первых токена (имя клиента
+    # редко длиннее «Бренд Страна»); страховка от протечки длинного служебного
+    # хвоста в «Подготовлено для». Полная цепочка остаётся в project_code.
+    client_label = " ".join(labels[:2])
+    # Project code: uppercase, hyphen-joined (полная цепочка для уникальности)
     project_code = "-".join(labels).upper()
     return (client_label, project_code)
 
