@@ -856,13 +856,21 @@
     width: auto;
   }
 
+  /* Чип названия (electric-blue, как BrandChip на главной — стандарт Aurora Core
+     .brand-rosst): accent-рамка 40% + accent-фон 8% + accent-текст. inline-block —
+     центрируется через text-align:center родителя .settings-logo. */
   .settings-logo-subtitle {
     display: block;
-    font-size: 18px;
+    width: fit-content;
+    margin: 10px auto 0;   /* своя строка под логотипом + центрирование (не в строку с лого) */
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    color: var(--text-secondary);
-    margin-top: 4px;
+    letter-spacing: 0.12em;
+    color: var(--accent-primary);
+    padding: 5px 12px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    border-radius: var(--radius-chip, 8px);
     text-transform: uppercase;
   }
 

@@ -174,43 +174,29 @@ export const cloudConsent = writable({ advisorsEnabled: false, granted: false, l
 export const cloudConsentPromptOpen = writable(false);
 
 // ─── Session timer (Aurora design SSOT §11) ─────────────────────────────────
-// Таймер сессии ОБРАТНЫМ отсчётом (HH:MM:SS) от целевой длительности к 00:00.
-// Один общий стор → виден сквозным образом на ВСЕХ страницах (global-topbar +
-// home topbar читают это же значение, всегда совпадают). Не останавливается на
-// навигации/командах — только кнопкой (стоп/пуск/сброс). Стандарт Aurora Core
-// (эталон Oracle/Creative Hub SessionTimer; здесь — countdown-редакция).
+// Счётчик ВРЕМЕНИ РАБОТЫ приложения (HH:MM:SS), отсчёт ВВЕРХ от 00:00:00 с
+// открытия. Не останавливается на навигации/командах. Управление кнопкой:
+// 1 клик — стоп/пуск, двойной клик — сброс на 00:00:00. Один общий стор → виден
+// сквозным образом на ВСЕХ страницах (global-topbar + home topbar, всегда
+// совпадают). Стандарт Aurora Core (эталон Oracle/Creative Hub SessionTimer).
 
-/** Целевая длительность сессии по умолчанию (мс). Меняется одной константой /
- * через setTimerTarget(). 60 минут. */
-export const DEFAULT_TIMER_TARGET_MS = 60 * 60 * 1000;
-
-/** @typedef {{accumulated: number, segmentStart: number, running: boolean, targetMs: number}} TimerState
+/** @typedef {{accumulated: number, segmentStart: number, running: boolean}} TimerState
  * @type {import('svelte/store').Writable<TimerState>} */
-export const timerState = writable({ accumulated: 0, segmentStart: Date.now(), running: true, targetMs: DEFAULT_TIMER_TARGET_MS });
+export const timerState = writable({ accumulated: 0, segmentStart: Date.now(), running: true });
 
-/** Прошедшее время в мс (внутреннее — основа для остатка). @param {TimerState} s */
+/** Прошедшее время сессии в мс (отсчёт вверх). @param {TimerState} s */
 export function timerElapsedMs(s) {
   return s.accumulated + (s.running ? Date.now() - s.segmentStart : 0);
 }
 
-/** Остаток до 00:00 в мс (countdown), clamp ≥ 0 (не уходит в минус). @param {TimerState} s */
-export function timerRemainingMs(s) {
-  return Math.max(0, (s.targetMs ?? DEFAULT_TIMER_TARGET_MS) - timerElapsedMs(s));
-}
-
-/** Стоп ↔ пуск/продолжение (одиночный клик). targetMs сохраняется. */
+/** Стоп ↔ пуск/продолжение (одиночный клик). */
 export function toggleTimer() {
   timerState.update(s => s.running
     ? { ...s, accumulated: s.accumulated + (Date.now() - s.segmentStart), running: false }
     : { ...s, segmentStart: Date.now(), running: true });
 }
 
-/** Сброс на полную длительность (двойной клик); отсчёт продолжается. */
+/** Сброс на 00:00:00 (двойной клик); отсчёт продолжается. */
 export function resetTimer() {
-  timerState.update(s => ({ accumulated: 0, segmentStart: Date.now(), running: true, targetMs: s.targetMs ?? DEFAULT_TIMER_TARGET_MS }));
-}
-
-/** Задать целевую длительность сессии (мс) + сброс отсчёта. @param {number} ms */
-export function setTimerTarget(ms) {
-  timerState.set({ accumulated: 0, segmentStart: Date.now(), running: true, targetMs: ms });
+  timerState.set({ accumulated: 0, segmentStart: Date.now(), running: true });
 }

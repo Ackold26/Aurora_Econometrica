@@ -651,7 +651,7 @@
             <input
               class="ask-input"
               type="text"
-              placeholder="Спросить Аврору об этом результате…"
+              placeholder="Спросить Аврору…"
               bind:value={askQuestion}
               onkeydown={(e) => { if (e.key === 'Enter') askAI(); }}
               disabled={askLoading}

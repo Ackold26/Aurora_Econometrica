@@ -1,15 +1,14 @@
 <script>
   // Таймер сессии (стандарт Aurora Core / SSOT §11, эталон Oracle + Creative Hub):
-  // ОБРАТНЫЙ отсчёт от целевой длительности к 00:00:00 (HH:MM:SS). Не
+  // отсчёт ВВЕРХ — время работы приложения с открытия (HH:MM:SS). Не
   // останавливается при навигации/командах/отменах. Управление кнопкой:
-  //   1 клик — стоп · 2-й клик — пуск/продолжение · двойной клик — сброс к полной.
-  // Сбрасывается при перезапуске приложения. Стиль — mono lime (sacred-цвет
-  // таймера/часов, без смены цвета на исходе — решение Антона). Виден сквозным
+  //   1 клик — стоп/пуск · двойной клик — сброс на 00:00:00.
+  // Сбрасывается при перезапуске приложения. Стиль — mono lime. Виден сквозным
   // образом на всех страницах (один общий стор).
   import { onMount, onDestroy } from 'svelte';
-  import { timerState, timerRemainingMs, toggleTimer, resetTimer } from '$lib/store.js';
+  import { timerState, timerElapsedMs, toggleTimer, resetTimer } from '$lib/store.js';
 
-  let remaining = $state('00:00:00');
+  let elapsed = $state('00:00:00');
 
   /** @param {number} ms */
   function fmt(ms) {
@@ -20,7 +19,7 @@
     return `${h}:${m}:${s}`;
   }
 
-  function tick() { remaining = fmt(timerRemainingMs($timerState)); }
+  function tick() { elapsed = fmt(timerElapsedMs($timerState)); }
 
   onMount(() => {
     tick();
@@ -47,7 +46,7 @@
 </script>
 
 <div class="session-timer">
-  <span class="st-time" class:paused={!$timerState.running} title="Осталось до конца сессии">{remaining}</span>
+  <span class="st-time" class:paused={!$timerState.running} title="Время работы приложения">{elapsed}</span>
   <button
     class="st-reset"
     onclick={handleClick}

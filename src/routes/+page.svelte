@@ -315,11 +315,13 @@
 
     {:else}
       <div class="pipeline-stage">
-        <img
-          src="/logo-hero.png"
-          alt="Aurora AI"
-          class="hero-logo"
-        />
+        <div class="hero-zone">
+          <img
+            src="/logo-hero.png"
+            alt="Aurora AI"
+            class="hero-logo"
+          />
+        </div>
         <div class="pipeline-promo">
           <div class="pipeline-promo-icon">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="1.5" stroke-linecap="round">
@@ -962,21 +964,33 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 32px;
+    justify-content: space-evenly;  /* логотип в центре зазора topbar↔карточка, карточка ниже */
+    flex: 1 1 auto;                 /* занять высоту .main, чтобы было что распределять */
+    gap: 24px;
     width: 100%;
     max-width: 520px;
   }
 
+  /* Зона логотипа — центрирует hero-logo и несёт его подсветку (раньше свечение
+     было привязано к верху .pipeline-stage; теперь следует за логотипом, где бы
+     space-evenly его ни поставил). */
+  .hero-zone {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
   /* Hero-подсветка логотипа (стандарт Aurora Core, эталон Creative Hub
      .home-hero::before): радиальное accent-свечение за логотипом. */
-  .pipeline-stage::before {
+  .hero-zone::before {
     content: '';
     position: absolute;
-    top: 90px;            /* центр логотипа (hero-logo высота ~180px) */
+    top: 50%;
     left: 50%;
     width: 420px;
     height: 260px;
-    transform: translate(-50%, -50%);  /* центрировать свечение на логотипе, не ниже */
+    transform: translate(-50%, -50%);  /* свечение центрировано на логотипе */
     background: radial-gradient(ellipse at center, var(--accent-glow, rgba(46, 91, 255, 0.20)) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
@@ -985,7 +999,7 @@
   .hero-logo {
     position: relative;
     z-index: 1;
-    width: 180px;
+    width: 184px;       /* подобрано вживую с Антоном: 180 → +20% → −15% = 184px */
     max-width: 60%;
     height: auto;
     object-fit: contain;
