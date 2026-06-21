@@ -226,6 +226,10 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             "unit_smell": dc.get("unit_smell"),
             "smell_flags": dc.get("smell_flags"),
             "category": dc.get("category"),
+            # decompose-вердикт-ТЕКСТ («ROI завышен», «нереалистичен») — под
+            # отдельным ключом, т.к. merged_ch["verdict"] перезаписывается
+            # derive_verdict (action-key Scale/Hold). _roi_unreliable читает его.
+            "decompose_verdict": dc.get("verdict"),
             # verdict filled in after merge by derive_verdict
         }
         # Phase 1.9: preserve posterior CI bounds (None for v1.0/v1.1 pickles).
@@ -493,6 +497,26 @@ def derive_action_headline(
     return None
 
 
+# Маркеры «артефакта единиц / завышенного ROI» в тексте вердикта канала
+# (decomposer.compute_roi_verdict). verdict_tone='warn' слишком широк
+# (перенасыщение тоже 'warn') — ловим именно ROI-артефакт.
+_ROI_ARTEFACT_MARKERS = ("завышен", "нереалистичн", "артефакт", "не рубл")
+
+
+def _roi_unreliable(channel: dict) -> bool:
+    """Канал с ненадёжным ROI: явный unit_smell (битые единицы, напр. TRP не
+    в рублях) ИЛИ маркер артефакта в вердикте. Такой канал нельзя короновать
+    «лучшим»/«масштабировать», а его ROI-число нельзя подавать клиенту как
+    руководство к действию (INV-50). Волна 1 Шаг 2, 2026-06-20.
+    """
+    if channel.get("unit_smell"):
+        return True
+    # decompose_verdict — на merged-каналах (verdict там перезаписан action-key);
+    # verdict — на исходных decompose-каналах. Читаем оба.
+    verdict = (channel.get("decompose_verdict") or channel.get("verdict") or "").lower()
+    return any(m in verdict for m in _ROI_ARTEFACT_MARKERS)
+
+
 def _derive_narrative_facts(
     channels: list[dict],
     optimize_data: dict,
@@ -513,9 +537,11 @@ def _derive_narrative_facts(
 
     leader = by_contrib[0] if by_contrib else {}
     # REC-1-GAP (2026-06-03 audit): hero = канал с макс. mROAS → попадает в клиентский
-    # PPTX/HTML «перераспределить N млн в {hero}». unit_smell-канал (TRP, ROI-артефакт) НЕ
-    # должен быть hero (та же ROI-1/2). Лучший по mROAS среди денежных; fallback если все unit_smell.
-    _by_mroas_clean = [c for c in by_mroas if not c.get("unit_smell")]
+    # PPTX/HTML «перераспределить N млн в {hero}». Канал с ненадёжным ROI (unit_smell
+    # ИЛИ артефакт-вердикт, напр. TRP «не рубли» 15525× или «Статьи» «ROI нереалистичен»)
+    # НЕ должен быть hero. Волна 1 Шаг 2: гард расширен с unit_smell на _roi_unreliable
+    # (раньше «Статьи» проскакивал). Лучший по mROAS среди надёжных; fallback если все битые.
+    _by_mroas_clean = [c for c in by_mroas if not _roi_unreliable(c)]
     hero = (_by_mroas_clean[0] if _by_mroas_clean else (by_mroas[0] if by_mroas else {}))
 
     total_spend = sum(float(c.get("spend") or 0) for c in channels)
@@ -834,6 +860,13 @@ def _map_pipeline_to_builder_data(
         ch["action_tone"] = action.tone
         ch["action_priority"] = action.priority
         ch["action_confidence"] = action.confidence
+        # Волна 1 Шаг 2 (2026-06-20): централизованный флаг ненадёжного ROI
+        # (битые единицы / артефакт). Билдеры (HTML/PPTX/XLSX) читают его, чтобы
+        # НЕ подавать клиенту абсурдное ROI-число (TRP 15525×) как факт — вместо
+        # числа показывают качественную оговорку (INV-50).
+        ch["roi_unreliable"] = _roi_unreliable(ch)
+        if ch["roi_unreliable"]:
+            ch["roi_caveat"] = "единицы канала требуют проверки (ROI не сопоставим с рублёвыми)"
 
     narrative_facts: dict | None = None
     if len(channels) >= 2:

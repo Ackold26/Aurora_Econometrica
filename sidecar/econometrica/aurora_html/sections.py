@@ -907,11 +907,15 @@ def render_mroas(ctx: dict) -> str:
             seen_actions.add(ch_action)
             ch_name = ch.get("name") or "-"
             label = ch.get("action_label") or ch_action
-            reasoning = ch.get("action_reasoning") or ""
-            commentary_blocks.append((
-                f"{ch_name} - {label}.",
-                reasoning or f"mROAS {float(ch.get('mroas') or 0):.2f}×, рекомендация по портфелю.",
-            ))
+            # Волна 1 Шаг 2: для битого ROI не тиражируем абсурдное mROAS-число в
+            # комментарии (action_reasoning несёт его, напр. «15525×»). INV-50.
+            if ch.get("roi_unreliable"):
+                body = ("ROI/mROAS этого канала ненадёжен — "
+                        + (ch.get("roi_caveat") or "единицы требуют проверки")
+                        + ". Сравнивайте канал по доле вклада в продажи, а не по ROI.")
+            else:
+                body = ch.get("action_reasoning") or f"mROAS {float(ch.get('mroas') or 0):.2f}×, рекомендация по портфелю."
+            commentary_blocks.append((f"{ch_name} - {label}.", body))
             if len(commentary_blocks) >= 3:
                 break
         # Fallback когда channels not decorated (legacy callers без narrative_adapter)
@@ -1039,17 +1043,26 @@ def render_action_table(ctx: dict) -> str:
         # mroas_ci_* aliased from optimizer's mroi_current_ci_* in narrative_adapter._merge_channels.
         mroas_ci_low = c.get("mroas_ci_low")
         mroas_ci_high = c.get("mroas_ci_high")
-        if kpi["is_legacy"]:
+        # Волна 1 Шаг 2: битый ROI (unit_smell/артефакт) не показываем числом —
+        # абсурдные 15525× нельзя подавать клиенту как факт (INV-50). Пометка +
+        # пояснение в title; data-sort=0, чтобы канал не всплывал вверх по ROI.
+        if c.get("roi_unreliable"):
+            mroas_html = (f'<span class="roi-flag" title="{escape(c.get("roi_caveat") or "ROI ненадёжен")}">'
+                          f'ROI н/д*</span>')
+            mroas_sort = 0.0
+        elif kpi["is_legacy"]:
             mroas_html = _fmt_x_with_ci(mroas, mroas_ci_low, mroas_ci_high)
+            mroas_sort = float(mroas or 0)
         else:
             mroas_html = _fmt_metric_with_ci(mroas, mroas_ci_low, mroas_ci_high, kpi)
+            mroas_sort = float(mroas or 0)
 
         rows_html.append(
             f'<tr data-channel="{escape(name)}">'
             f'<td>{escape(name)}</td>'
             f'<td class="num" data-sort="{spend_mln:.2f}">{_fmt_mln(spend_mln)}</td>'
             f'<td class="num" data-sort="{contrib_mln:.2f}">{_fmt_mln(contrib_mln)}</td>'
-            f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
+            f'<td class="num" data-sort="{mroas_sort:.3f}">{mroas_html}{fn_html}</td>'
             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
             f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
             f'</tr>'
