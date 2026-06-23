@@ -14,13 +14,17 @@
    - Constrained optimization: `scipy.optimize.minimize(method='SLSQP')`
    - Constraints: total_budget, per_channel_min, per_channel_max
    - Objective: maximize sum of response across channels
+   - **Оптимум НЕ точечный — прогони оптимизатор по K≥200 draws из posterior** → получишь распределение оптимальной доли каждого канала с CI. Агрегируй ПО СЭМПЛАМ (каждый draw → своя аллокация), НЕ подставляй средние отдельных параметров в формулы (это игнорирует корреляцию параметров). На Windows-Metropolis полный SLSQP×K дорог → подвыборка 200–500 draws.
 4. Выполни скрипт через Bash
-5. Результат — таблица:
-   | Канал | Current Spend | Optimized Spend | Delta % | Current ROAS | Marginal ROAS | Expected Lift |
+5. Результат — таблица (доля канала — с доверительным интервалом по сэмплам):
+   | Канал | Current Spend | Optimized Spend [CI 5–95%] | Delta % | Current ROAS | Marginal ROAS | Expected Lift |
+
+   Вывод по доле: «доля A: 38% [27–46%]». При перекрытии CI каналов — «разница в аллокации статистически не выделяется». Если оптимум канала выходит за исторический максимум его трат — пометка `[ЭКСТРАПОЛЯЦИЯ: вне диапазона данных, высокая неопределённость]` и расширенный CI (оговорка только когда реально вне диапазона; норма — в CLAUDE.md).
 6. Визуализации:
    - Response curves с точками текущих (серые) и оптимальных (синие) затрат
    - Bar chart: current vs optimized allocation
 7. Ключевой вывод: «Перераспределение X% бюджета из [каналов-доноров] в [каналы-реципиенты] увеличит совокупный отклик на Y% [CI: Z1%-Z2%]»
+8. **Чувствительность к priors:** строка «Чувствительность к priors: [устойчив к данным / зависит от priors канала X]». Где posterior≈prior (малая вариативность трат канала) — пометить «оптимум определён допущением, не данными».
 
 Сохрани: `exports/mmm-optimization-[дата].xlsx` (листы: Summary, Channel_Detail, Constraints) + графики
 

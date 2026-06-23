@@ -9,19 +9,23 @@
    - Контроль: остальные числовые столбцы (price, distribution, search_queries, competitors и т.д.)
    - Adstock: geometric для digital (budget/impressions), Weibull для TV (trp/grp)
    Пометь все допущения [ASSUMED]. Если не удаётся определить — используй разумный дефолт
+2.1. **Backdoor-проверка отбора контролей** (процедура McElreath, перед фиксацией контрольных переменных): (1) перечисли пути от каждого медиаканала к продажам; (2) классифицируй путь как открытый/закрытый — коллайдер закрывает путь; (3) выдели backdoor-пути (стрелка ВХОДИТ в медиа); (4) закрой открытые backdoor выбором контролей. В отчёт: «контроли, закрывающие backdoor: […]; открытые пути: […]». Не подбирай контроли по корреляции r>0.8 — отбирай по графу причинности (нормы коллайдера / M-bias / descendant — в Red Teaming CLAUDE.md).
 3. Проверь наличие Python и пакетов: `pip install pymc-marketing pandas scipy matplotlib plotly prophet openpyxl`
+3.5. **Калибровка priors из внешних источников.** Если в inbox есть результаты A/B-теста, Geo-Lift или прошлого MMM по каналу — задай informative prior на β/ROAS этого канала с центром на внешней оценке (вноси как центр+разброс, не точку), тег `[CALIBRATED]`. Чем слабее данные канала, тем ценнее informative prior. Калибруй только из релевантного эксперимента того же бренда/категории (чужой рынок/период = смещение).
 4. Сгенерируй Python-скрипт `exports/scripts/mmm_model.py`:
    - Загрузка и подготовка данных (pandas)
    - Декомпозиция временного ряда (Prophet): тренд, сезонность, праздники
    - Adstock-трансформация для каждого медиаканала
    - Hill function saturation
    - Спецификация байесовской модели (PyMC-Marketing MMM)
+   - При ratio данные:переменные < 4:1 или большом числе каналов — regularized horseshoe prior на медиа-коэффициенты (ожидаемое число релевантных каналов задать через global scale) или R2D2 вместо размытого «более сильные priors». **Оговорка [ASSUMED]:** shrinkage оптимизирует предсказание и тянет коэффициенты к нулю → может занизить ROI канала; применять для стабильности при дефиците данных, НЕ как замену каузально-корректному отбору контролей (см. Red Teaming CLAUDE.md).
    - MCMC-сэмплирование (параметры draws/chains/sampler — по правилам из секции "Windows: облегчённый MCMC" в CLAUDE.md)
    - Сохранение результатов в pickle + xlsx
+4.5. **Prior predictive check ДО MCMC:** `pm.sample_prior_predictive()` → проверь, что симулированные продажи неотрицательны и в правдоподобном бизнес-диапазоне. Если prior допускает абсурд — авто-логируй `[ОГРАНИЧЕНИЕ: prior допускает <абсурд>]` и ужесточи prior, продолжая работу (zero-stop: НЕ останавливаться, НЕ задавать вопрос).
 5. Выполни скрипт через Bash
 6. Проверь диагностику:
    - R-hat < 1.05 для всех параметров
-   - Нет divergences
+   - Нет divergences. **Протокол при divergences (только NUTS-режим — на Metropolis divergences не возникают):** (1) подними `target_accept` 0.9→0.95/0.99; (2) если divergences остаются ИЛИ ESS не растёт — non-centered параметризация (особенно для иерархических geo/категория/бренд effects); (3) проверь funnel (scatter group-параметра против log(σ), скопление divergences в горловине).
    - Posterior predictive check: predicted vs actual
 7. Рассчитай и сообщи **MQS** (Model Quality Score): R², MAPE, R-hat → тир (Poor/Weak/Acceptable/Good/Excellent)
 8. Пройди MMM Diagnostics Checklist (8 пунктов из CLAUDE.md)
