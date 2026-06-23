@@ -28,7 +28,7 @@
    - Нет divergences. **Протокол при divergences (только NUTS-режим — на Metropolis divergences не возникают):** (1) подними `target_accept` 0.9→0.95/0.99; (2) если divergences остаются ИЛИ ESS не растёт — non-centered параметризация (особенно для иерархических geo/категория/бренд effects); (3) проверь funnel (scatter group-параметра против log(σ), скопление divergences в горловине).
    - Posterior predictive check: predicted vs actual
 7. Рассчитай и сообщи **MQS** (Model Quality Score): R², MAPE, R-hat → тир (Poor/Weak/Acceptable/Good/Excellent)
-8. Пройди MMM Diagnostics Checklist (8 пунктов из CLAUDE.md)
+8. Пройди MMM Diagnostics Checklist (все пункты из CLAUDE.md)
 
 Сохрани: `exports/mmm-model-[дата].xlsx` (листы: Diagnostics, Parameters, Fit) + скрипт в `exports/scripts/`
 
