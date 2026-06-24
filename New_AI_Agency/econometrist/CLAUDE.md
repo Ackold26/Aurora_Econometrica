@@ -158,7 +158,7 @@ has_cxx = bool(pytensor.config.cxx)
    - MCMC-сэмплирование: 2000 draws, 4 chains, target_accept=0.9
 4. Выполнить скрипт через Bash, захватить вывод
 5. **Диагностика конвергенции:**
-   - R-hat < 1.05 для всех параметров
+   - rank-normalized split-R̂ < 1.01 (NUTS) / < 1.05 минимум (Windows-Metropolis), 4 цепи
    - Нет divergences
    - Trace plots: стабильное сэмплирование
    - Posterior predictive check: predicted vs actual
@@ -300,13 +300,14 @@ has_cxx = bool(pytensor.config.cxx)
 При оценке ВСЕГДА указывай MQS и ближайший якорь:
 «MQS 6 (Acceptable) — R²=0.82, MAPE=12%, R-hat=1.02. Модель пригодна для директивных рекомендаций, но доверительные интервалы широки для digital-каналов.»
 
-Помимо R-hat учитывай **ESS bulk/tail ≥ 400** [ASSUMED-ориентир по Vehtari 2021]: R-hat у порога при катастрофически низком ESS (например R-hat 1.02, но ESS bulk ~20) означает плохо перемешанные цепи — понизить уверенность независимо от тира по R-hat. На Windows-Metropolis ESS физически ниже — индикатор, не вердикт.
+Помимо R-hat учитывай **bulk-ESS и tail-ESS ≥ 400** (Vehtari et al. 2021 — рекомендованный порог; при ESS < 400 сам R̂ ненадёжен): R-hat у порога при катастрофически низком ESS (например R-hat 1.02, но bulk-ESS ~20) означает плохо перемешанные цепи — понизить уверенность независимо от тира по R-hat. На Windows-Metropolis ESS физически ниже — индикатор, не вердикт.
 
 ## MMM Diagnostics Checklist (обязательный после каждого обучения модели)
 
-- [ ] R-hat < 1.05 для всех параметров
-- [ ] ESS bulk и ESS tail ≥ 400 для каждого параметра [ASSUMED-ориентир по Vehtari 2021, не жёсткий порог; `az.summary` печатает их рядом с R-hat]. Низкий ESS при хорошем R-hat = плохое перемешивание цепей (Gelman)
+- [ ] **rank-normalized split-R̂ < 1.01** для всех параметров (Vehtari et al. 2021 — строже старого Gelman-Rubin <1.05; `az.summary` даёт rank-normalized R̂). Минимум **4 цепи** (Vehtari). На Windows-Metropolis 1.01 недостижим → 1.05 как минимум-приемлемый, 1.01 — цель для NUTS
+- [ ] **bulk-ESS и tail-ESS ≥ 400** для каждого параметра (Vehtari et al. 2021 — рекомендованный порог; `az.summary` печатает их рядом с R̂). Низкий ESS при хорошем R̂ = плохое перемешивание цепей
 - [ ] Divergences: при наличии — не пассивно фиксировать, а отработать протокол: (1) поднять `target_accept` 0.9 → 0.95/0.99; (2) если остаются ИЛИ ESS не растёт при иерархии (geo/категория/бренд) — non-centered параметризация; (3) проверить funnel (скопление divergences в горловине). Авто-логировать `[ОГРАНИЧЕНИЕ: divergences, применён протокол ...]`, не останавливаться вопросом
+- [ ] **E-BFMI (energy diagnostic, только NUTS)**: `az.bfmi` / `az.plot_energy`. Energy-BFMI квантует, успевает ли momentum-resampling исследовать хвосты распределения энергии (Betancourt 2016): **BFMI→1 хорошо, BFMI→0 — медленное исследование, патологичная геометрия**. Stan/PyMC/ArviZ предупреждают при низком E-BFMI (эвристика инструмента <0.3 — у Betancourt жёсткого порога нет). Лечится тем же, что divergences: **non-centered параметризация** иерархии (Betancourt: CP→NCP резко поднимает BFMI). ⚠ Применимо к NUTS; на Windows-Metropolis energy-диагностики нет — опора на R̂/ESS/trace + признание ограничения
 - [ ] Trace plots показывают стабильное сэмплирование («мохнатая гусеница», нет дрейфа)
 - [ ] Posterior predictive check: predicted vs actual визуально совпадают
 - [ ] R² > 0.8
