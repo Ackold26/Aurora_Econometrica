@@ -19,8 +19,14 @@ fn supabase_url() -> String {
     obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1").to_string()
 }
 
-/// Cache validity period: 24 hours in seconds.
-const CACHE_TTL_SECS: u64 = 24 * 60 * 60;
+/// Cache validity period: 7 days in seconds.
+///
+/// Was 24h — слишком хрупко при прерывистой связи к Supabase: одно офлайн-окно
+/// >24h роняло лицензию, если offline-файл Ed25519 не импортирован (CLOUDEAI,
+/// 2026-06-25 — все хосты недоступны, кэш протух, LI-001). Кэш хранит серверный
+/// `expires_at`; доверие ему до 7 дней переживает недельный офлайн и сохраняет
+/// контроль отзыва (отозванная лицензия переспросит сервер в течение недели).
+const CACHE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
 /// Heartbeat interval: 4 hours in seconds.
 pub const HEARTBEAT_INTERVAL_SECS: u64 = 4 * 60 * 60;
@@ -221,6 +227,13 @@ fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
     let cached: CachedAuth = serde_json::from_str(&data).ok()?;
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+    // Future-dated cached_at (часы сдвинуты назад / подделка файла кэша) — аномалия:
+    // REJECT (форсим реальную перепроверку; offline Ed25519 ниже). Прямое вычитание
+    // u64 паниковало бы в debug при cached_at > now (в release wrap > TTL отвергал
+    // случайно). Mirror канона aurora_fleet (underflow guard) — не доверяем будущему кэшу.
+    if cached.cached_at > now {
+        return None;
+    }
     if now - cached.cached_at > CACHE_TTL_SECS {
         info!("Auth cache expired (age: {}h)", (now - cached.cached_at) / 3600);
         return None;
