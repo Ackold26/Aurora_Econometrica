@@ -14,6 +14,7 @@
   import { TriangleAlert } from 'lucide-svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import CausalMethodForm from '$lib/components/causal/CausalMethodForm.svelte';
   import CausalResultCard from '$lib/components/causal/CausalResultCard.svelte';
   import CausalArtifactList from '$lib/components/causal/CausalArtifactList.svelte';
@@ -68,6 +69,10 @@
 
 <div class="causal-page">
   <header class="page-header">
+    <button class="back-home" onclick={() => goto('/')} title="Вернуться на главную">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      На главную
+    </button>
     <div class="title-row">
       <h1>Причинность</h1>
       <span class="version-tag">Sprint 3 backend M0-M4 · v1.0.14-rc</span>
@@ -140,6 +145,28 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+  }
+
+  .back-home {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 14px;
+    padding: 6px 12px;
+    background: var(--hover-bg, rgba(255, 255, 255, 0.06));
+    border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .back-home:hover {
+    background: var(--bg-card-hover, rgba(255, 255, 255, 0.1));
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
   }
 
   .version-tag {
