@@ -4,6 +4,10 @@
   "description": "",
   "type": "module",
   "scripts": {
+    "build:tokens": "node tools/build-tokens.mjs",
+    "build:tokens:check": "node tools/build-tokens.mjs --check",
+    "predev": "npm run build:tokens",
+    "prebuild": "npm run build:tokens",
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",

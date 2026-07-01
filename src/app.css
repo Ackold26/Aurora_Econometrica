@@ -1,14 +1,25 @@
+/* Aurora Hybrid Design System — SSOT tokens (auto-generated, see Standards/tokens/) */
+@import './tokens.generated.css';
+
 /* ═══════════════════════════════════════════════════
    AETHER MESH - Design System
    Tauri v2 + SvelteKit 5, dark cyber-minimalism
+
+   Hybrid DS (2026-07-02): tokens.generated.css supplies --color-brand-*,
+   --color-ui-*, --color-semantic-* (W3C DTCG SSOT). Живые --bg-*/--accent-*
+   aliases сохранены. App-themes (themes.json) НЕ мигрирован — живой богаче
+   SSOT (fun card-accents/pill/insight), см. DESIGN_GAP_MAP_2026-07-01.md.
    ═══════════════════════════════════════════════════ */
 
-/* ─── Font ─── */
+/* ─── Font — Inter Variable (self-hosted, premium typography) ─── */
 @font-face {
   font-family: 'Inter';
-  src: local('Inter'), local('Inter Variable');
+  src: url('/fonts/InterVariable.woff2') format('woff2-variations'),
+       url('/fonts/InterVariable.woff2') format('woff2'),
+       local('Inter'), local('Inter Variable');
   font-weight: 100 900;
   font-style: normal;
+  font-display: swap;
 }
 
 :root {

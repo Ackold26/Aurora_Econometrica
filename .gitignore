@@ -62,8 +62,9 @@ sidecar/econometrica/mmx-*/
 # Diagnostic PPTX artifacts from tools/ (verify_signature_lime.py, pseudo_dogfood_kagocel.py)
 tools/*.pptx
 
-# Generated tokens from Standards/tokens/build.py — regenerate on build, do not edit
-src/tokens.generated.css
+# Generated tokens from Standards/tokens/build.py — regenerate on build, do not edit.
+# src/tokens.generated.css — VERSIONED (vendored, как DocMaster): @import в app.css
+# требует его в чистом checkout без Standards/. Регенерится predev/prebuild + drift-check.
 sidecar/econometrica/aurora_tokens.py
 # HTML tier-1 generated artifacts (Standards/tokens/build.py --target html-css/html-js)
 sidecar/econometrica/aurora_html/templates/aurora_html.css
