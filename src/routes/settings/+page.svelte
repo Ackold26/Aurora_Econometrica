@@ -299,6 +299,9 @@
 
 <div class="settings">
   <header class="header">
+    <a href="/" class="header-logo-link" title="На главную" aria-label="Aurora AI — на главную">
+      <img src="/logo-horizon.png" alt="Aurora AI" class="header-logo" />
+    </a>
     <a href="/" class="back-link">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M19 12H5M12 19l-7-7 7-7"/>
@@ -759,6 +762,17 @@
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     flex-shrink: 0;
+  }
+
+  .header-logo-link {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    line-height: 0;
+  }
+  .header-logo {
+    height: 40px;
+    width: auto;
   }
 
   .header h1 {

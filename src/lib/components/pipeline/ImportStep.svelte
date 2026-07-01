@@ -1086,8 +1086,9 @@
     width: 100%;
     padding: 24px 28px;
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border: 1px solid var(--border);
     border-radius: 14px;
+    box-shadow: var(--shadow-card);
   }
   .intro-title {
     margin: 0 0 8px 0;
@@ -1138,13 +1139,18 @@
   }
   .intro-card {
     padding: 18px 20px;
-    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 4%, transparent);
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 10px;
+    box-shadow: var(--shadow-elevation-1);
     display: flex;
     flex-direction: column;
     gap: 10px;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+  }
+  .intro-card:hover {
+    box-shadow: var(--shadow-elevation-2);
+    transform: translateY(-1px);
   }
   .intro-card:hover {
     border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 35%, transparent);
