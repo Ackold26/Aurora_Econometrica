@@ -171,3 +171,29 @@ export const cloudConsent = writable({ advisorsEnabled: false, granted: false, l
 /** Открыт ли экран согласия (prompt-triggered: первый запуск или вход в кабинет-советник).
  * @type {import('svelte/store').Writable<boolean>} */
 export const cloudConsentPromptOpen = writable(false);
+
+// ── Таймер сессии (Aurora design SSOT §11) ─────────────────────────────────
+// Отсчёт с запуска приложения. Управление: стоп/пуск (одиночный клик) + сброс (двойной клик).
+// Сбрасывается при перезапуске приложения. Эталон DocMaster.
+
+/** @typedef {{accumulated: number, segmentStart: number, running: boolean}} TimerState
+ * @type {import('svelte/store').Writable<TimerState>} */
+export const timerState = writable({ accumulated: 0, segmentStart: Date.now(), running: true });
+
+/** Текущее значение таймера в мс.
+ * @param {TimerState} s */
+export function timerElapsedMs(s) {
+    return s.accumulated + (s.running ? Date.now() - s.segmentStart : 0);
+}
+
+/** Стоп ↔ пуск/продолжение (одиночный клик). */
+export function toggleTimer() {
+    timerState.update(s => s.running
+        ? { accumulated: s.accumulated + (Date.now() - s.segmentStart), segmentStart: s.segmentStart, running: false }
+        : { accumulated: s.accumulated, segmentStart: Date.now(), running: true });
+}
+
+/** Сброс на 00:00:00 (двойной клик); отсчёт продолжается. */
+export function resetTimer() {
+    timerState.set({ accumulated: 0, segmentStart: Date.now(), running: true });
+}

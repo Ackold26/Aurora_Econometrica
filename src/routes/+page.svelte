@@ -42,7 +42,7 @@
       creatingBrand = false;
     }
   }
-  import DigitalClock from '$lib/components/DigitalClock.svelte';
+  import SessionTimer from '$lib/components/SessionTimer.svelte';
 
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
   import { LockKeyhole, Package } from 'lucide-svelte';
@@ -217,13 +217,12 @@
     <div class="topbar-left">
       <img src="/logo-horizon.png" alt="Aurora AI" class="topbar-logo" />
       <div class="brand">
-        <span class="brand-product">ECONOMETRICA</span>
-        <span class="brand-sub">OPTIMIZER MMM</span>
+        <span class="brand-rosst">ECONOMETRICA</span>
+        <span class="brand-sub">MMM Optimizer</span>
       </div>
     </div>
     <div class="topbar-center">
-      <DigitalClock />
-      <span class="tz-label">МСК</span>
+      <SessionTimer />
     </div>
     <nav class="topbar-right">
       {#if $isCreativeHub && $brands.length > 0}
@@ -459,7 +458,8 @@
   .brand {
     display: flex;
     flex-direction: column;
-    gap: 0px;
+    align-items: flex-start;
+    gap: 5px;
     line-height: 1;
   }
 
@@ -468,21 +468,31 @@
     width: auto;
   }
 
-  .brand-product {
-    font-size: 15px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    color: var(--text-primary);
+  .brand-rosst {
+    /* Чип названия продукта (Aurora design SSOT §2, эталон DocMaster) —
+       пилюля accent-цветом, адаптируется к теме (blue/navy/coffee). */
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
+    color: var(--accent-primary);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    padding: 4px 11px;
+    border-radius: 999px;
   }
 
   .brand-sub {
-    font-size: 10px;
+    /* Вторичный чип продукта — приглушённая капсула под основным «ECONOMETRICA». */
+    font-size: 9.5px;
     font-weight: 600;
-    letter-spacing: 0.18em;
-    color: var(--text-secondary);
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    margin-top: 2px;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+    padding: 3px 9px;
+    border-radius: 999px;
   }
 
 
@@ -493,13 +503,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-  }
-
-  .tz-label {
-    font-size: 10px;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    font-weight: 500;
   }
 
   .topbar-right {
