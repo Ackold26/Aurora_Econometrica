@@ -667,7 +667,7 @@
   .mode-toggle.expert {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
     border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-    color: #fca5a5;
+    color: var(--danger);
   }
   .mode-toggle.expert:hover { background: color-mix(in srgb, var(--danger) 20%, transparent); }
 

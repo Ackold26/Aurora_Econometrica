@@ -180,7 +180,7 @@
   }
   .state-error {
     border-color: color-mix(in srgb, #ef4444 40%, transparent);
-    color: #fca5a5;
+    color: var(--danger);
   }
   .state-hint {
     border-color: color-mix(in srgb, var(--warning, #F59E0B) 30%, transparent);

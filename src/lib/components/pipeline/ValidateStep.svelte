@@ -608,7 +608,7 @@
     border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
     border-radius: 10px;
     font-size: 13px;
-    color: #fca5a5;
+    color: var(--danger);
     flex-shrink: 0;
   }
 

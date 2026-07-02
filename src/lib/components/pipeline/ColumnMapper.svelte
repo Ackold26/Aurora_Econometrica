@@ -717,7 +717,7 @@
 
   .conf-low {
     background: color-mix(in srgb, var(--danger) 10%, transparent);
-    color: #fca5a5;
+    color: var(--danger);
     border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
   }
 
@@ -762,7 +762,7 @@
   }
   .zeros-high {
     background: color-mix(in srgb, var(--danger) 10%, transparent);
-    color: #fca5a5;
+    color: var(--danger);
     border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
   }
   /* Placeholder для отсутствующих данных - убирает визуальный «провал» */

@@ -313,12 +313,12 @@
   --bg-primary: #E7D8B2;
   --bg-secondary: #DDCB98;
   --bg-tertiary: #D1BC80;
-  --bg-card: #FFFDF2;
-  --bg-card-hover: #F8F0D8;
+  --bg-card: #F1E7CC;
+  --bg-card-hover: #EBDFBF;
   --bg-glass: rgba(231, 216, 178, 0.94);
   --bg-glass-hover: rgba(221, 203, 152, 0.96);
 
-  --bg-surface-quiet: rgba(221, 203, 152, 0.92);
+  --bg-surface-quiet: #EBE0C0;
   --bg-surface-focus: rgba(231, 216, 178, 0.88);
   --blur-quiet: blur(8px);
   --blur-focus: blur(20px) saturate(1.1);
@@ -379,7 +379,7 @@
 
   /* ── Cabinet interior ── */
   --panel-bg: rgba(231, 216, 178, 0.85);
-  --input-bg: #FFFDF2;
+  --input-bg: #F1E7CC;
   --input-border: rgba(80, 55, 20, 0.30);
   --hover-bg: rgba(126, 79, 35, 0.10);
   --code-bg: rgba(80, 55, 20, 0.06);
@@ -419,7 +419,7 @@
   --bg-insight-error: var(--card-bg-coral);
 
   /* ── Surface: dropzone blends with cream bg ── */
-  --dropzone-bg: #FFFDF2;
+  --dropzone-bg: #F1E7CC;
   --dropzone-border: rgba(126, 79, 35, 0.40);
 
   --disabled-opacity: 0.45;

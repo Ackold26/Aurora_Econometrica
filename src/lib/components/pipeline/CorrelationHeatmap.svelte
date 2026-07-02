@@ -304,7 +304,7 @@
 
   .high-count {
     font-size: 11px;
-    color: #fca5a5;
+    color: var(--danger);
     background: color-mix(in srgb, var(--danger) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
     border-radius: 20px;
@@ -361,12 +361,12 @@
   }
 
   .r-val.r-high {
-    color: #fca5a5;
+    color: var(--danger);
   }
 
   .r-warn {
     font-size: 10px;
-    color: #fca5a5;
+    color: var(--danger);
     font-style: italic;
   }
 
@@ -418,7 +418,7 @@
   }
 
   .high-r {
-    color: #fca5a5;
+    color: var(--danger);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
