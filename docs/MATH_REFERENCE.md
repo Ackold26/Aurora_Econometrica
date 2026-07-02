@@ -856,7 +856,17 @@ assert np.std(y_pred_prior) < 5 * np.std(y_observed)  # not absurdly diffuse
 | `divergent transitions` | > 5% draws | **WARN** - recommend reparam (z-score non-centered already applied) | NUTS standard |
 | `ESS_bulk` | < 400 | **WARN** - chains недостаточно informative | Vehtari et al. 2021 |
 | `ESS_tail` | < 400 | **WARN** - extreme quantiles unreliable | Vehtari et al. 2021 |
-| `BFMI` | < 0.3 | **WARN** - energy mismatch, posterior geometry hard | Betancourt 2018 |
+| `BFMI` | < 0.3 | **WARN** - energy mismatch, posterior geometry hard | эвристика Stan/PyMC (у Betancourt 2016 жёсткого порога нет) |
+
+> **Status (мат-аудит 2026-07-02, F-11/F-12):** до этой даты строки ESS/BFMI были
+> декларацией без кода (diagnostics.py их не знал; собирался только per-channel
+> tail_ess_ok без потребителя в вердикте). Реализовано: modeler.py собирает
+> `ess_bulk_min`/`ess_tail_min` (min по β/α/γ/decay/intercept) + `bfmi_min`
+> (min по цепям, NUTS-only) → `metrics` + `checks.ess`/`checks.bfmi`
+> (ключи только при измеренных значениях; unknown ≠ pass) →
+> `optimizer_honesty.model_reliability_verdict` понижает вердикт до **uncertain**
+> (совет + громкий caveat). MQS-формула сознательно НЕ изменена. Тесты:
+> `tools/test_ess_bfmi_gate.py`.
 | Posterior predictive p-value | < 0.05 OR > 0.95 | **INFO** - model misspecification suspect | convention |
 
 > **Note on R-hat threshold:** Vehtari et al. 2021 ("Rank-normalization, folding, and localization") recommends **stricter R-hat < 1.01** для improved Ȓ statistic. Aurora использует более lenient `1.1` (Gelman-Rubin 1992 historical convention), что разумно для production MMM где occasionally noisy posteriors допустимы. Sprint 4+ enhancement: tighten к 1.01 после real-world coverage validation.

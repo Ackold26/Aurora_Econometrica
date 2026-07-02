@@ -44,8 +44,8 @@
 ### P0 — статистика
 | ID | Где | Гипотеза | Класс | Verify | Fix |
 |---|---|---|---|---|---|
-| F-11 | utils/diagnostics.py | bulk/tail-ESS≥400 НЕ является gate (только R-hat); канон T3.10/Vehtari: при ESS<400 R̂ ненадёжен | ? METHOD-GAP | — | — |
-| F-12 | utils/diagnostics.py | E-BFMI (Betancourt, NUTS-only) не реализован | ? METHOD-GAP | — | — |
+| F-11 | diagnostics/modeler/honesty | ✅ ЗАКРЫТА. Подтверждено: ESS нигде не был gate (MATH_REFERENCE декларировал WARN — код не знал; только tail_ess_ok per-channel без потребителя). FIX: modeler собирает min bulk/tail-ESS (β/α/γ/decay/intercept) → metrics+checks.ess (ключ только при измеренном; unknown≠pass) → honesty-gate uncertain с reason «<400, Vehtari et al. 2021, R-hat ненадёжен». RAG-верификация: Vehtari 2021 «recommended threshold of 400» поднята из корпуса. MQS не изменён | METHOD-GAP+DOC-DRIFT | ✅ grep+RAG | ✅ FIX+9 тестов |
+| F-12 | то же | ✅ ЗАКРЫТА. E-BFMI отсутствовал вовсе. FIX: az.bfmi(trace) min по цепям (NUTS-only, ADVI→None) → checks.bfmi (порог 0.3 = эвристика Stan/PyMC, НЕ Betancourt — урок T3.10 соблюдён, тест проверяет отсутствие атрибуции Betancourt) → honesty uncertain + подсказка non-centered | METHOD-GAP | ✅ grep | ✅ FIX (в тех же 9) |
 | F-13 | engines/modeler.py + server.py:903-917 | prior predictive check (reliability_a4) вызывается только в preflight опционально, НЕ в train_model | ? METHOD/verify | — | — |
 | F-14 | engines/modeler.py:484-509 | Контрольные priors μ через classify_column-эвристику; fallback μ=0 молча | ? verify | — | — |
 | F-15 | engines/decomposer.py:854-855 | Реконструкция контролей: std=0 → деление на ноль без guard | ? BUG | — | — |

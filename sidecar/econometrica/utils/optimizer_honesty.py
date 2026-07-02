@@ -158,6 +158,11 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     thin = checks.get('ratio') is False
     weak_tier = tier in WEAK_TIERS
     mild_div = divergences > 0
+    # Мат-аудит 2026-07-02 (F-11/F-12): ESS/E-BFMI-гейты. Ключи в checks
+    # присутствуют только когда метрики реально измерены (NUTS-путь) —
+    # отсутствие ключа НЕ считается провалом (OLS/legacy).
+    low_ess = checks.get('ess') is False
+    low_bfmi = checks.get('bfmi') is False
     if thin:
         ratio_txt = f' (Ratio {ratio}:1 < 4:1)' if ratio is not None else ''
         reasons.append(
@@ -170,7 +175,29 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         reasons.append(
             f'{divergences} дивергенц(ий) MCMC — лёгкая нестабильность сэмплера, '
             f'трактуйте рекомендации осторожно.')
-    data_uncertain = thin or weak_tier or mild_div
+    if low_ess:
+        _eb = metrics.get('ess_bulk_min')
+        _et = metrics.get('ess_tail_min')
+        _ess_txt = ''
+        if _eb is not None or _et is not None:
+            _parts = []
+            if _eb is not None:
+                _parts.append(f'bulk {_eb:.0f}')
+            if _et is not None:
+                _parts.append(f'tail {_et:.0f}')
+            _ess_txt = f' ({", ".join(_parts)} < 400)'
+        reasons.append(
+            f'Эффективный размер выборки MCMC ниже порога 400{_ess_txt} '
+            f'(Vehtari et al. 2021) — цепи перемешаны слабо, при таком ESS сам '
+            f'R-hat ненадёжен; доверительные интервалы ориентировочны.')
+    if low_bfmi:
+        _bf = metrics.get('bfmi_min')
+        _bf_txt = f' {_bf:.2f}' if _bf is not None else ''
+        reasons.append(
+            f'E-BFMI{_bf_txt} < 0.3 (эвристика Stan/PyMC) — сэмплер плохо '
+            f'исследует хвосты распределения энергии; результаты менее надёжны '
+            f'(обычно лечится non-centered параметризацией).')
+    data_uncertain = thin or weak_tier or mild_div or low_ess or low_bfmi
     if data_uncertain or holidays_excluded:
         if holidays_excluded:
             reasons.append(ovb_reason)

@@ -1003,11 +1003,49 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 logger.warning(f"effective_params contraction failed: {_e}")
                 effective_params = None
 
+        # Мат-аудит 2026-07-02 (F-11/F-12): bulk/tail-ESS (Vehtari et al. 2021 —
+        # recommended threshold 400; при ESS ниже сам R-hat ненадёжен) и E-BFMI
+        # (energy-диагностика NUTS; порог 0.3 — эвристика Stan/PyMC, НЕ Betancourt).
+        # Идут в metrics + checks honesty-gate; MQS-формула НЕ меняется
+        # (клиентские числа стабильны). Любой сбой → None (не роняем обучение).
+        ess_bulk_min = None
+        ess_tail_min = None
+        bfmi_min = None
+        try:
+            _ess_vars = [v for v in ('media_betas', 'alphas', 'gammas',
+                                     'adstock_decay', 'intercept')
+                         if v in trace.posterior]
+            _bulk_vals, _tail_vals = [], []
+            for _v in _ess_vars:
+                try:
+                    _bulk_vals.append(float(np.min(
+                        az.ess(trace, var_names=[_v], method='bulk')[_v].values)))
+                    _tail_vals.append(float(np.min(
+                        az.ess(trace, var_names=[_v], method='tail')[_v].values)))
+                except Exception:  # noqa: BLE001 - per-var сбой не фатален
+                    continue
+            if _bulk_vals:
+                ess_bulk_min = min(_bulk_vals)
+            if _tail_vals:
+                ess_tail_min = min(_tail_vals)
+        except Exception as _ess_min_err:  # noqa: BLE001
+            logger.warning(f"ESS bulk/tail min computation failed: {_ess_min_err}")
+        try:
+            _bfmi_vals = az.bfmi(trace)
+            if _bfmi_vals is not None and np.size(_bfmi_vals) > 0 \
+                    and bool(np.all(np.isfinite(_bfmi_vals))):
+                bfmi_min = float(np.min(_bfmi_vals))
+        except Exception:  # noqa: BLE001 - ADVI/не-NUTS: energy отсутствует
+            bfmi_min = None
+
         diagnostics = generate_diagnostics_summary(
             r_squared=r_squared, mape=mape, rmse=rmse,
             r_hat_max=r_hat_max, divergences=divergences,
             n_obs=n_obs, n_params=n_params,
             effective_params=effective_params,
+            ess_bulk_min=ess_bulk_min,
+            ess_tail_min=ess_tail_min,
+            bfmi_min=bfmi_min,
         )
         # Enrich diagnostics with per-param R-hat and actual_vs_predicted
         diagnostics['per_param_rhat'] = per_param_rhat
