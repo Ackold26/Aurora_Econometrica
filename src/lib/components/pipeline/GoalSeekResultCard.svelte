@@ -45,7 +45,18 @@
     if (m === 'flat_response_fallback') return 'оценка при насыщении';
     if (m === 'point') return 'точечная оценка';
     if (m === 'delta') return 'дельта-метод';
+    // Мат-аудит 2026-07-02: CI из апостериорного разброса модели (честная
+    // неопределённость вместо прежней константы ±6.4%).
+    if (m === 'delta_posterior') return 'дельта-метод по постериору';
     return 'бисекция';
+  }
+
+  // Мат-аудит 2026-07-02 (F-01): человекочитаемая строка каналов за диапазоном.
+  /** @param {{name: string, ratio_vs_max: number | null}[]} channels */
+  function extrapolationChannelsLabel(channels) {
+    return (channels ?? [])
+      .map((c) => (c.ratio_vs_max != null ? `${c.name} – ${c.ratio_vs_max}× исторического максимума` : c.name))
+      .join(', ');
   }
 </script>
 
@@ -80,13 +91,41 @@
           <strong>Модель близка к насыщению</strong>
           <p>
             Бюджет найден, но каждый следующий рубль почти не увеличивает результат —
-            отдача вышла на плато. Поэтому интервал требуемого бюджета широкий (±10%),
+            отдача вышла на плато. Поэтому интервал требуемого бюджета широкий,
             а точное значение менее надёжно.
           </p>
           <p class="note-hint">
             💡 Прирост вероятнее получить перераспределением между каналами или
             подключением новых, чем увеличением общего бюджета.
           </p>
+        </div>
+      </section>
+    {/if}
+
+    <!-- Мат-аудит 2026-07-02 (F-01, INV-50): честная пометка экстраполяции —
+         рекомендация требует трат выше наблюдавшихся в данных (Chan & Perry 2017:
+         кривая отклика вне наблюдённого диапазона не подтверждена данными). -->
+    {#if result.extrapolation && result.extrapolation.severity >= 1}
+      <section class="extrapolation-note" class:critical={result.extrapolation.severity >= 2}>
+        <span class="note-icon">📈</span>
+        <div class="note-body">
+          <strong>
+            {result.extrapolation.severity >= 2 ? 'Сильная экстраполяция' : 'Экстраполяция за наблюдавшийся диапазон'}
+          </strong>
+          <p>
+            Рекомендованные траты выходят за диапазон, на котором обучалась модель
+            {#if result.extrapolation.channels?.length}
+              : {extrapolationChannelsLabel(result.extrapolation.channels)}
+            {/if}.
+            Форма кривой отклика в этой зоне не подтверждена данными – фактический
+            результат может заметно отличаться от прогноза.
+          </p>
+          {#if result.extrapolation.severity >= 2}
+            <p class="note-hint">
+              💡 Надёжнее наращивать бюджет поэтапно: частичное увеличение → новые
+              данные → переобучение модели → следующий шаг.
+            </p>
+          {/if}
         </div>
       </section>
     {/if}
@@ -224,6 +263,25 @@
   .saturation-note strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
   .saturation-note p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
   .saturation-note .note-hint { color: var(--text-primary); }
+
+  /* Мат-аудит 2026-07-02 (F-01): баннер экстраполяции — warn tier; severity>=2 — danger. */
+  .extrapolation-note {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 30%, transparent);
+    border-radius: var(--radius-sm, 8px);
+  }
+  .extrapolation-note.critical {
+    background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 30%, transparent);
+  }
+  .extrapolation-note .note-icon { font-size: 18px; line-height: 1.3; }
+  .extrapolation-note .note-body { display: flex; flex-direction: column; gap: 4px; }
+  .extrapolation-note strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .extrapolation-note p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+  .extrapolation-note .note-hint { color: var(--text-primary); }
 
   .metrics-row {
     display: grid;

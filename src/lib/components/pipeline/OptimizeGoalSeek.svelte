@@ -75,8 +75,18 @@
   });
 
   const corridorLo = $derived(salesCorridor?.lo ?? Math.max(0, currentSales * 0.7));
-  // Верх = достижимый потолок (если зондирован), иначе прежняя эвристика.
-  const corridorHi = $derived(achievableCeiling ?? salesCorridor?.hi ?? currentSales * 1.5);
+  // Мат-аудит 2026-07-02 (INV-50): зелёная зона слайдера = НАБЛЮДАВШИЙСЯ диапазон
+  // (salesCorridor), НЕ потолок модели. Прежде (правка 2026-06-07, адаптивная шкала)
+  // corridorHi = achievableCeiling закрашивал зелёным весь путь до асимптоты модели
+  // при 5× бюджете — глубокую экстраполяцию, — тогда как подсказка рядом обещала
+  // «зелёная зона = без экстраполяции за observed range». Потолок достижимости
+  // остаётся ВЕРХОМ ШКАЛЫ (sliderMax): UX «недостижимая зона у самого края»
+  // сохранён, но зона выше corridorHi честно жёлто-красная (Chan & Perry 2017:
+  // кривая вне наблюдённого диапазона не идентифицируется данными).
+  const corridorHi = $derived(salesCorridor?.hi ?? currentSales * 1.5);
+  const sliderMax = $derived(
+    Math.max(achievableCeiling ?? corridorHi * 1.15, corridorHi * 1.02)
+  );
 
   // GS-2 (2026-06-02): рекомендуемый стартовый ориентир - умеренный рост +10%,
   // но не выше безопасного коридора (×0.95 от верхней границы). Раньше дефолт =
@@ -160,11 +170,11 @@
     <CorridorSlider
       value={targetSales}
       min={corridorLo * 0.5}
-      max={corridorHi}
+      max={sliderMax}
       corridorLo={corridorLo}
       corridorHi={corridorHi}
       yellowZonePct={0.10}
-      step={(corridorHi - corridorLo) / 100}
+      step={(sliderMax - corridorLo * 0.5) / 100}
       label="Целевые продажи"
       formatFn={formatTarget}
       onChange={(/** @type {number} */ v) => { targetSales = v; }}

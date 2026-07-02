@@ -18,9 +18,9 @@
 ### P0 — математика/оптимизация
 | ID | Где | Гипотеза | Класс | Verify | Fix |
 |---|---|---|---|---|---|
-| F-01 | optimize/inverse.py:499-509 | goal-seek `budget_hi=5×current` в обход safe-коридора → рекомендация в зоне экстраполяции без пометки [ЭКСТРАПОЛЯЦИЯ] (Chan&Perry) | ? METHOD-GAP | — | — |
-| F-02 | optimize/inverse.py:360-416 | Delta-CI на бюджет: `response_spread=|f⁺−f⁻|/2 ≈ grad×δ` → `half_width=1.28×spread/|grad| ≈ 1.28×δ` — алгебраически СХЛОПЫВАЕТСЯ в константу ~±6.4% бюджета, «CI» не отражает posterior-неопределённость вовсе | ? BUG/METHOD | — | — |
-| F-03 | optimize/inverse.py:419-440 | `p_hit_target` «crude»: при spread=0 → 0.5; ниже цели → линейная доля. Псевдовероятность в UI | ? METHOD/TRADEOFF (в коде помечен MVP) | — | — |
+| F-01 | optimize/inverse.py | ✅ ЗАКРЫТА. Подтверждена зондом (B*=3.3×, все 5 каналов 2.1–2.3× исторического max, маркера нет) + UI-слой: правка 2026-06-07 сделала corridorHi=achievableCeiling (потолок модели при 5× бюджете) → зелёная зона закрашивала глубокую экстраполяцию, подсказка обещала обратное. FIX: `extrapolation_reporter` в meta (канонические тиры p95/p99 через forecast_validation.extrapolation_severity на per-period тратах vs история; Chan&Perry 2017 Fig.2) + `result['extrapolation']` + UI-бейдж (warn/danger) + развязка corridorHi(observed)/sliderMax(ceiling) | METHOD-GAP/INV-50 | ✅ зонд | ✅ FIX+тесты |
+| F-02 | optimize/inverse.py | ✅ ЗАКРЫТА. Подтверждена зондом: narrow(sd 0.05)/wide(sd 0.45) → одинаковые 12.80% отн. ширины (ratio 1.00) — CI=константа 1.28δ. FIX: `posterior_sampler` в meta (per-sample S(B) через evaluate_flat_allocation_response — SSOT формулы, I8; включая intercept-разброс; epistemic без σ_obs) → правильный delta: sd(B)=z₀.₉·sd_post(S)/|grad|, method='delta_posterior' (Gelman Bayesian Workflow: неопределённость из posterior-симуляций). Fallback 'delta' для OLS/legacy сохранён. + `capped`-флаг (упор в cap 50% = плоская зона → баннер насыщения) | BUG+METHOD | ✅ зонд | ✅ FIX+тесты |
+| F-03 | optimize/inverse.py | ✅ ЗАКРЫТА. Подтверждена зондом: p_hit≈0.500 ВСЕГДА (бисекция останавливается на S(B*)≈target → z≈0). FIX: p_hit = доля posterior draws ≥ цели (те же samples), `p_hit_method: posterior/heuristic`. NB: на самом B* доля ~0.5 by construction (медиана у цели) — честно; настоящая ценность p_hit — при maxBudget-капе и в будущем «бюджет под P=80%» (→ OPP-02) | METHOD | ✅ зонд | ✅ FIX+тесты |
 | F-04 | engines/scenario.py:238-301 | Нет guard экстраполяции: сценарий +30% уходит за историч. максимум канала молча (2 независимых источника) | ? METHOD-GAP | — | — |
 | F-05 | engines/optimizer.py | CI на mROI есть (:1297-1357); а на сам оптимальный СПЛИТ долей — нет (канон Jin: «доля 38% [27–46%]») | ? METHOD-GAP | — | — |
 | F-06 | engines/sensitivity.py:60-176,626 | Sensitivity = детерминированное ±20% возмущение, НЕ posterior-неопределённость; пользователь читает как неопределённость | ? METHOD | — | — |
@@ -57,7 +57,9 @@
 ### Реестр возможностей (OPP — поручение Антона 2026-07-02: эффективнее/надёжнее/стабильнее/удобнее; НЕ дефекты — рекомендации, вернуться к Антону по итогам)
 | ID | Область | Идея | Эффект |
 |---|---|---|---|
-| OPP-01 | UX | [пример-слот: наполнять по ходу фаз] | — |
+| OPP-01 | Надёжность CI | Зафиксировать `-n 4` (или `--dist worksteal` + лимит) в pytest.ini addopts: `-n auto`=24 воркера на Windows ловит гонку загрузки jaxlib-DLL → флаки-развал прогона (наблюдён боем) | Стабильный CI-прогон |
+| OPP-02 | Продукт/UX Goal-Seek | «Бюджет под заданную вероятность»: сейчас B* = медианный бюджет (p_hit≈50% by construction). Квантильная бисекция по posterior-samples → «бюджет, при котором цель достигается с вероятностью 80%» — прямой ответ CFO, дифференциатор. Механика уже готова (posterior_sampler) | Сильная продуктовая фича на готовой механике |
+| OPP-03 | UX честности | `/optimize/corridor` в UI goal-seek получает salesCorridor от родителя; проверить, что forward-оптимизация и сценарии показывают тот же extrapolation-язык (единый словарь тиров 0-3) — сейчас маркер есть у forecast-scaling и (теперь) goal-seek, у сценариев напрямую нет | Единый язык честности по всем вкладкам |
 
 ### Закрыто в ходе аудита
 | ID | Где | Что | Класс | Статус |
@@ -73,19 +75,17 @@
 - ~~Metropolis-fallback опасен~~ → **TRADEOFF задокументирован**: modeler.py:691-695 «Metropolis НЕ используется как Tier-3» — честный fail MMM_SAMPLER_EXHAUSTED. Windows-режим 2×1000×500 (get_mcmc_params:127) — verify, применяется ли вообще.
 
 ## СДЕЛАНО
-- 2026-07-02: План одобрен (2 раунда самоаудита R1+R2). Ветка `feat/econ-math-audit` + тег `v-pre-math-reaudit`. Реестр находок собран (27 гипотез, дедуп).
+- 2026-07-02: План одобрен (2 раунда самоаудита R1+R2). Ветка `feat/econ-math-audit` + тег `v-pre-math-reaudit`. Реестр собран (27 гипотез + F-28..30 по ходу).
+- Фаза 0 ✅: флаг в MEMORY.md; среда (Tier-1 NUTS/JAX, реальные данные ЕСТЬ); критерии прочитаны (MATH_REFERENCE — НЕ создавать новых MATH_AUDIT_v*.md, отчёт → docs/audits/ + правки мат-истины → MATH_REFERENCE); baseline 1623 passed после починки F-29 (коммит `b788041`).
+- **F-29 ✅** (дрейф test_priors_calibration — набор молча выключен) — коммит `b788041`.
+- **Батч «goal-seek honesty» ✅ (F-01+F-02+F-03):** зонд tmp/probe_inverse_f01_f02.py доказал все три числом (12.80%=12.80%, p_hit≡0.5, 5 каналов 2.1-2.3× max без пометки) → правки inverse.py (posterior_sampler/extrapolation_reporter в meta; delta_posterior CI; честный p_hit; capped→баннер) + UI (развязка corridorHi/sliderMax; бейдж экстраполяции; methodLabel) + tools/test_goalseek_honesty.py (9 тестов). RAG-атрибуции: Chan&Perry 2017 Fig.2, Gelman Bayesian Workflow. Гейт: 1632 passed/0 failed, svelte-check 0 ошибок, 15 контрактных sidecar-тестов inverse зелёные.
 
 ## ОСТАЛОСЬ (next actions, по порядку)
-1. **0.0-остаток:** флаг 🔴 в MEMORY.md ядро (компактно, не раздувая >180 строк).
-2. **0.1 Среда:** python сайдкара, pymc/jax/arviz, check_compiler() → NUTS/Metropolis; зафиксировать в шапке.
-3. **0.2 Baseline:** `pytest tools/ -m "not slow and not integration and not requires_real_data" -n auto` (из корня Dev/Aurora_Econometrica); затем целевые property-based. Красное = находка-регрессия в реестр.
-4. **0.3 Критерии:** MATH_REFERENCE.md, SCENARIO_INVARIANTS_REGISTRY.md, MATH_AUDIT_v1_3_PHASE_0_1.md, MATH_AUDIT_v2_0_FORECAST_HORIZON.md, ADR-014/020/021 (по мере надобности в verify, не всё подряд).
-5. **0.4 Фикстура:** реальные данные (AURORA_TESTDATA_DIR / pin Кагоцел) или синтетика с ground-truth; обучить; **проверить сходимость ДО использования** (R-hat/ESS/div).
-6. **Фаза 1 зонд:** inverse на фикстуре с растущей целью → бюджет за историч. максимум без пометки? (F-01). Параллельно F-02 алгеброй+числом.
-7. Фаза 1 verify→fix (F-01..F-10, батч P0 → коммит).
-8. Фаза 2 зонд (канарейки R²/MAPE/ROI + ESS-gate) → verify→fix (F-11..F-20, батч → коммит).
-9. Фаза 3 (F-21..F-27, батч → коммит).
-10. Фаза 4: отчёт MATH_AUDIT_v2_1_CORE_REAUDIT.md + реестры инвариантов + полный gate `pytest tools/ -n auto` + smoke на фикстуре в двух режимах + отчёт Антону **вкл. раздел «Рекомендации» из реестра OPP (эффективность/надёжность/стабильность/удобство — поручение 2026-07-02)**.
+1. **Коммит батча honesty** (если ещё не сделан — проверить git log: сообщение «feat(goal-seek): честность…»).
+2. **Фаза 1 продолжение (verify→fix):** F-05 (CI на оптимальный сплит: H11 full per-draw заявлен в MATH_REFERENCE — реализован ли в optimizer.py? verify); F-07 (adstock geometric-fallback тихо); F-08 (Weibull weights.sum()→uniform); F-09 (Hill numerics α<0/переполнение); F-04 (scenario extrapolation — проверить проводку /compute/forecast-scaling во вкладке сценариев: возможно guard на UI-слое есть → TRADEOFF); F-10 (покрытие inverse в tools/ — частично закрыто test_goalseek_honesty).
+3. **Фаза 2 зонд:** канарейки R²/MAPE/ROI на фикстуре + ESS/E-BFMI gate (F-11/F-12: MATH_REFERENCE ДЕКЛАРИРУЕТ ESS<400→WARN и BFMI<0.3→WARN — есть ли в коде diagnostics.py? док-vs-код) → F-13..F-20.
+4. **Фаза 3:** F-21..F-27 (+F-28 get_mcmc_params мёртвый Metropolis-путь).
+5. **Фаза 4:** отчёт `docs/audits/MATH_REAUDIT_2026_07.md` (НЕ MATH_AUDIT_v2_1 — политика доков) + обновление MATH_REFERENCE (delta_posterior, extrapolation goal-seek) + реестры инвариантов (новый GS-инвариант?) + полный gate + отчёт Антону вкл. раздел «Рекомендации» из OPP.
 
 ## Грабли и решения
 - pytest гнать из корня `Dev/Aurora_Econometrica` (pytest.ini: testpaths=tools). В tools/ свой conftest — проверить sys.path к sidecar/econometrica.
