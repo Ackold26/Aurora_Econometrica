@@ -82,7 +82,28 @@ def forecast_awareness(config: dict, project_dir: str) -> dict[str, Any]:
         forecast.append(next_val)
 
     forecast_values = [round(v, 1) for v in forecast[n:]]
-    ci_width = np.std(awareness) * 0.5  # simplified CI
+
+    # Мат-аудит 2026-07-02 (F-26): прежний «CI» = std(awareness)×0.5 — константа
+    # без статистического смысла (прогноз на 12 периодов «уверен» как на 1).
+    # Честный прогнозный интервал AR(1): дисперсия h-шагового прогноза
+    # var[h] = σ²_resid · Σ_{i=0..h-1} decay^(2i) (стандартная формула
+    # прогнозной дисперсии авторегрессии; при |decay|<1 сходится к
+    # σ²/(1−decay²)). 90% интервал (z=1.645) — согласован с DEFAULT_HDI_PROB=0.9
+    # остального пайплайна. Fallback на прежний прокси при n<10 (нет регрессии).
+    if n >= 10:
+        resid = y - reg.predict(X)
+        sigma_resid = float(np.std(resid, ddof=min(2, max(0, len(resid) - 1))))
+        d2 = min(decay * decay, 0.9999)  # защита от decay≥1 (взрыв дисперсии)
+        ci_widths = [
+            1.645 * sigma_resid * float(np.sqrt((1 - d2 ** h) / (1 - d2)))
+            if d2 < 1.0 else 1.645 * sigma_resid * float(np.sqrt(h))
+            for h in range(1, forecast_periods + 1)
+        ]
+        ci_method = 'ar1_forecast_variance_90'
+    else:
+        flat = float(np.std(awareness) * 0.5)
+        ci_widths = [flat] * forecast_periods
+        ci_method = 'std_proxy_smalln'
 
     result = {
         'status': 'ok',
@@ -91,10 +112,11 @@ def forecast_awareness(config: dict, project_dir: str) -> dict[str, Any]:
             'media_impact': round(impact, 6),
             'r_squared': round(r2, 3),
         },
+        'ci_method': ci_method,
         'historical': [round(v, 1) for v in awareness.tolist()],
         'forecast': forecast_values,
-        'ci_lower': [round(max(0, v - ci_width), 1) for v in forecast_values],
-        'ci_upper': [round(min(100, v + ci_width), 1) for v in forecast_values],
+        'ci_lower': [round(max(0, v - w), 1) for v, w in zip(forecast_values, ci_widths)],
+        'ci_upper': [round(min(100, v + w), 1) for v, w in zip(forecast_values, ci_widths)],
         'current_awareness': round(float(awareness[-1]), 1),
         'forecast_end': round(forecast_values[-1], 1) if forecast_values else 0,
         'trend': 'рост' if forecast_values and forecast_values[-1] > awareness[-1] else 'снижение',
