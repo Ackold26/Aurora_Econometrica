@@ -811,6 +811,15 @@ numpyro_jax (primary) → pymc_nuts → ADVI → ERROR
 
 **Metropolis-Hastings явно ИСКЛЮЧЁН** - на Adstock+Hill geometry даёт `R-hat > 2.0` (false-green выводы). Explicit comment `modeler.py:484`: «Adstock/Hill он даёт r_hat > 2.0 (ложный зелёный результат…)».
 
+### count-KPI money conversion (задокументированное допущение)
+
+`contribution_money = contribution_count × kpi_unit_cost` (ADR-021) предполагает
+**kpi_unit_cost константным во времени** (мат-аудит 2026-07-02, F-19). Если цена
+единицы KPI существенно менялась внутри периода обучения, money-ROI смещён
+пропорционально дрейфу цены. Для медиа-стороны инфляция CPP обрабатывается
+(`unit_cost_inflation`, weighted-average training cost); для KPI-стороны —
+допущение, вносить только при явной потребности клиента.
+
 ### Pickle version comparison
 
 `_parse_version()` парсит `'X.Y'`/`'X.Y.Z'` → tuple. Защищает от lex-compare bug (`'1.10' < '1.3'` ложно `True` при string compare). `'1.0-ols'` обрабатывается отдельно через regex.
