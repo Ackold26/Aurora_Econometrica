@@ -97,5 +97,31 @@ def test_honesty_backcompat_absent_keys_not_failure():
     assert v['verdict'] == 'reliable', v
 
 
+# ─── F-13: prior predictive (in-train preflight) → honesty ───────────────────
+
+def test_honesty_uncertain_on_prior_predictive_fail():
+    d = _diag()
+    d['preflight'] = {'prior_predictive': {'status': 'fail', 'coverage': 0.3}}
+    v = model_reliability_verdict(d)
+    assert v['verdict'] == 'uncertain'
+    assert any('Prior predictive' in r for r in v['reasons']), v['reasons']
+
+
+def test_honesty_prior_predictive_warn_not_uncertain():
+    """warn — информируем warnings-каналом, вердикт не понижаем (только fail)."""
+    d = _diag(ess_bulk_min=900.0, ess_tail_min=800.0, bfmi_min=0.9)
+    d['preflight'] = {'prior_predictive': {'status': 'warn', 'coverage': 0.7}}
+    v = model_reliability_verdict(d)
+    assert v['verdict'] == 'reliable', v
+
+
+def test_honesty_preflight_absent_backcompat():
+    """Нет preflight-ключа (legacy diagnostics) — не считается провалом."""
+    d = _diag(ess_bulk_min=900.0, ess_tail_min=800.0, bfmi_min=0.9)
+    assert 'preflight' not in d
+    v = model_reliability_verdict(d)
+    assert v['verdict'] == 'reliable', v
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-q']))

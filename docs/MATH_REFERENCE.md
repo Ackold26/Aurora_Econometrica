@@ -838,11 +838,19 @@ assert np.percentile(y_pred_prior, 95) < 100      # ≤ ceiling
 assert np.std(y_pred_prior) < 5 * np.std(y_observed)  # not absurdly diffuse
 ```
 
-**Status (2026-04-28):** не integrated в pipeline. Priors validated через:
+**Status (актуализировано мат-аудитом 2026-07-02, F-13):** реализовано в
+`utils/reliability_a4.py::prior_predictive_check` (симуляция из priors,
+matching modeler; coverage-пороги 0.80/0.50) и вызывается:
+1. `/compute/preflight` (S1) — **однако endpoint НЕ подключён к UI** (Rust-команды
+   нет, фронт зовёт train напрямую) — до 2026-07-02 гейт не доставлялся;
+2. **in-train preflight** (modeler.py, перед MCMC): quick_proxy + prior_predictive
+   (300 samples) → `diagnostics['preflight']` → model-diagnostics.json →
+   `optimizer_honesty` (prior predictive **fail** → вердикт uncertain).
+   Атрибуция: McElreath ([ASSUMED]-priors обязаны пройти проверку до данных);
+   Gelman, *Bayesian Workflow* §5.10. Полноценный UX-гейт до кнопки «Обучить» —
+   OPP-05. Priors также validated через:
 - `test_kpi_registry.py::test_sales_config_priors_match_trust3_frozen` - frozen-values regression guard
 - `test_regression_pin_kagocel.py` - synthetic pickle hash drift detection
-
-Полноценная prior predictive simulation - задача Z (post-ship telemetry/regression) в плане.
 
 ---
 

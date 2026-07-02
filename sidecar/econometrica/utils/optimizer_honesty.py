@@ -163,6 +163,12 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     # отсутствие ключа НЕ считается провалом (OLS/legacy).
     low_ess = checks.get('ess') is False
     low_bfmi = checks.get('bfmi') is False
+    # Мат-аудит 2026-07-02 (F-13): prior predictive из in-train preflight.
+    # fail → priors допускают неправдоподобные продажи ДО данных (McElreath;
+    # Gelman, Bayesian Workflow §5.10) — доверие к CI/оптимуму снижено.
+    _pp_status = (((diagnostics.get('preflight') or {}).get('prior_predictive')
+                   or {}).get('status'))
+    prior_pred_fail = _pp_status == 'fail'
     if thin:
         ratio_txt = f' (Ratio {ratio}:1 < 4:1)' if ratio is not None else ''
         reasons.append(
@@ -197,7 +203,13 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
             f'E-BFMI{_bf_txt} < 0.3 (эвристика Stan/PyMC) — сэмплер плохо '
             f'исследует хвосты распределения энергии; результаты менее надёжны '
             f'(обычно лечится non-centered параметризацией).')
-    data_uncertain = thin or weak_tier or mild_div or low_ess or low_bfmi
+    if prior_pred_fail:
+        reasons.append(
+            'Prior predictive check: fail — априорные допущения модели дают '
+            'неправдоподобный диапазон продаж ещё до данных (симуляция из priors); '
+            'оценки могут определяться приором, а не данными — трактуйте '
+            'рекомендации осторожно.')
+    data_uncertain = thin or weak_tier or mild_div or low_ess or low_bfmi or prior_pred_fail
     if data_uncertain or holidays_excluded:
         if holidays_excluded:
             reasons.append(ovb_reason)

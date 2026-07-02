@@ -511,6 +511,41 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     y_mean, y_std = y.mean(), max(y.std(), 1e-10)
     y_norm = (y - y_mean) / y_std
 
+    # ── Мат-аудит 2026-07-02 (F-13): in-train pre-flight ────────────────────
+    # Endpoint /compute/preflight (S1: quick proxy + prior predictive) существовал,
+    # но НЕ подключён к UI (Rust-команды нет, фронт зовёт train напрямую) —
+    # гейт честности не доставлялся пользователю. Минимальная доставка: те же
+    # проверки в начале обучения → diagnostics['preflight'] →
+    # model-diagnostics.json → optimizer_honesty/UI. Prior predictive — канон
+    # (McElreath: [ASSUMED]-priors обязаны пройти проверку до данных; Gelman,
+    # Bayesian Workflow §5.10 — понимание неочевидных свойств модели ДО данных).
+    # Сбой контура НЕ роняет обучение. Полноценный UX-гейт до кнопки — OPP-05.
+    preflight_summary = None
+    try:
+        from utils.reliability_quick_proxy import quick_proxy_check
+        _media_matrix_pf = df[media_cols].fillna(0).values.astype(float)
+        _qp = quick_proxy_check(_media_matrix_pf, media_cols)
+        _pp = None
+        try:
+            from utils.reliability_a4 import prior_predictive_check
+            _pp = prior_predictive_check(y, _media_matrix_pf, n_samples=300)
+        except Exception as _pp_err:  # noqa: BLE001
+            logger.warning(f"prior_predictive_check failed in-train: {_pp_err}")
+        preflight_summary = {
+            'quick_proxy': ({k: _qp.get(k) for k in ('tier', 'warnings', 'checks')
+                             if k in _qp} if isinstance(_qp, dict) else None),
+            'prior_predictive': ({k: _pp.get(k) for k in
+                                  ('status', 'coverage', 'warning', 'recommendation')
+                                  if k in _pp} if isinstance(_pp, dict) else None),
+        }
+        _pp_status = (_pp or {}).get('status')
+        if _pp_status in ('warn', 'fail'):
+            logger.warning(
+                f"Prior predictive {_pp_status}: {(_pp or {}).get('warning')}")
+    except Exception as _pf_err:  # noqa: BLE001
+        logger.warning(f"In-train preflight failed (не блокирует обучение): {_pf_err}")
+        preflight_summary = None
+
     # MCMC parameters
     has_compiler = check_compiler()
     mcmc = config.get('mcmc_override') or get_mcmc_params(has_compiler)
@@ -1049,6 +1084,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         )
         # Enrich diagnostics with per-param R-hat and actual_vs_predicted
         diagnostics['per_param_rhat'] = per_param_rhat
+        # F-13 (2026-07-02): in-train preflight (quick proxy + prior predictive)
+        # доезжает до model-diagnostics.json → honesty-gate/UI.
+        diagnostics['preflight'] = preflight_summary
         # #6 OVB-guardrail: per-control contraction для UI-подсказок (убрать неинформативные)
         diagnostics['per_control_contraction'] = per_control_contraction
         # Trust Level 3: hierarchical metadata for UI display.
