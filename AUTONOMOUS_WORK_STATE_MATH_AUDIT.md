@@ -53,7 +53,7 @@
 | F-17 | utils/ols_bootstrap.py:135-166 | ✅ FALSE: массивы фиксированной длины n_boot, индексация по boot_i (индекс цикла); LinAlgError→continue → presence_mask[boot_i] остаётся False → сэмпл корректно исключён из HDI (это и есть C-OLS-2 маска). Off-by-one нет | FALSE | ✅ код | — |
 | F-18 | utils/conformal.py | split-conformal exchangeability + plain jackknife (не jackknife+): caveat в коде есть — виден ли пользователю (INV-50)? где потребляется conformal_pi | ? TRADEOFF/honesty | — | — |
 | F-19 | engines/decomposer.py:679-684 | count-KPI: kpi_unit_cost предполагается константой во времени, не валидируется | ? METHOD (low) | — | — |
-| F-20 | engines/modeler.py:909-942 | posterior extraction fail → y_pred=zeros: маскирует причину, R² аномально низкий без объяснения | ? BUG (obs) | — | — |
+| F-20 | engines/modeler.py:~975 | ✅ ЗАКРЫТА. Подтверждено: y_pred=zeros при сбое реконструкции → R²/MAPE от константы «выглядят как плохая модель» (причина только в логе). FIX: флаг y_pred_reconstruction_failed → diagnostics → honesty-вердикт unknown («качество не измерено», не «модель плохая») + понятный caveat | BUG (obs/honesty) | ✅ код | ✅ FIX+2 теста |
 
 ### P1-P2 — общая логика
 | ID | Где | Гипотеза | Класс | Verify | Fix |

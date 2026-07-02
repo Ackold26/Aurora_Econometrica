@@ -971,10 +971,16 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
             y_pred_norm = intercept_mean + media_effect_pred + control_effect_pred
             logger.info(f"y_pred reconstructed from posterior means ({n_obs} obs)")
+            y_pred_reconstruction_failed = False
         except Exception as e:
             logger.exception(f"y_pred reconstruction failed: {e}")
             import numpy as _np
             y_pred_norm = _np.zeros(n_obs)
+            # Мат-аудит 2026-07-02 (F-20): нулевой y_pred → R²/MAPE считаются от
+            # константы y_mean и выглядят как «плохая модель», хотя реальная
+            # причина — сбой реконструкции. Маркер уводит honesty-вердикт в
+            # unknown («качество не измерено»), а не в «модель плохая».
+            y_pred_reconstruction_failed = True
 
         y_pred = y_pred_norm * y_std + y_mean
 
@@ -1087,6 +1093,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # F-13 (2026-07-02): in-train preflight (quick proxy + prior predictive)
         # доезжает до model-diagnostics.json → honesty-gate/UI.
         diagnostics['preflight'] = preflight_summary
+        # F-20 (2026-07-02): сбой реконструкции y_pred → метрики от константы;
+        # honesty различает «модель плохая» vs «диагностика деградировала».
+        diagnostics['y_pred_reconstruction_failed'] = y_pred_reconstruction_failed
         # #6 OVB-guardrail: per-control contraction для UI-подсказок (убрать неинформативные)
         diagnostics['per_control_contraction'] = per_control_contraction
         # Trust Level 3: hierarchical metadata for UI display.

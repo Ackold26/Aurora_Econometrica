@@ -123,5 +123,23 @@ def test_honesty_preflight_absent_backcompat():
     assert v['verdict'] == 'reliable', v
 
 
+# ─── F-20: сбой реконструкции y_pred → unknown (не «модель плохая») ──────────
+
+def test_honesty_unknown_on_ypred_reconstruction_failure():
+    d = _diag()
+    d['y_pred_reconstruction_failed'] = True
+    v = model_reliability_verdict(d)
+    assert v['verdict'] == 'unknown'
+    assert v['refused'] is False
+    assert any('реконструкции' in r for r in v['reasons']), v['reasons']
+
+
+def test_honesty_ypred_flag_false_no_effect():
+    d = _diag(ess_bulk_min=900.0, ess_tail_min=800.0, bfmi_min=0.9)
+    d['y_pred_reconstruction_failed'] = False
+    v = model_reliability_verdict(d)
+    assert v['verdict'] == 'reliable', v
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-q']))
