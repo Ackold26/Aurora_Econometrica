@@ -710,6 +710,59 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
 
     scenario_name = config.get('scenario_name', 'custom')
 
+    # ── Мат-аудит 2026-07-02 (F-04): маркер экстраполяции сценария ────────────
+    # Machinery экстраполяции существовала (extrapolation_severity, endpoint
+    # /compute/forecast-scaling ~12ms), но до пользователя сценариев не доходила
+    # (endpoint не подключён к UI, движок план не помечал). Честность INV-50
+    # живёт в движке: сценарий сам помечает выход per-period плана за
+    # наблюдавшийся диапазон трат канала — канонические тиры p95/p99
+    # (Chan & Perry 2017 Fig. 2: кривая отклика вне наблюдённого диапазона
+    # не идентифицируется данными). Сбой контура → None, сценарий не роняем.
+    extrapolation = None
+    try:
+        from utils.forecast_validation import extrapolation_severity
+        _data_file_ex = config_model.get('data_file')
+        if _data_file_ex:
+            _hist_df = (pd.read_excel(_data_file_ex)
+                        if str(_data_file_ex).endswith(('.xlsx', '.xls'))
+                        else pd.read_csv(_data_file_ex))
+            try:
+                from utils.merge_rules import apply_merge_rules as _amr_ex
+                _amr_ex(_hist_df, config_model.get('merge_rules'))
+            except Exception:  # noqa: BLE001 - merge_rules опциональны
+                pass
+            _channels_ex = []
+            _max_sev = 0
+            for _col in media_cols:
+                _plan_vals = media_plan.get(_col)
+                if not _plan_vals or _col not in _hist_df.columns:
+                    continue
+                _peak = max((float(v or 0) for v in _plan_vals), default=0.0)
+                if _peak <= 0:
+                    continue
+                _hist = _hist_df[_col].fillna(0).to_numpy(dtype=float)
+                _hist_pos = _hist[_hist > 0]
+                if _hist_pos.size == 0:
+                    continue
+                _q = {
+                    'p95': float(np.quantile(_hist_pos, 0.95)),
+                    'p99': float(np.quantile(_hist_pos, 0.99)),
+                }
+                _sev = extrapolation_severity(_peak, _q)
+                _max_sev = max(_max_sev, _sev)
+                if _sev > 0:
+                    _hmax = float(_hist.max())
+                    _channels_ex.append({
+                        'name': _col,
+                        'peak_per_period_native': round(_peak, 2),
+                        'hist_max_native': round(_hmax, 2),
+                        'ratio_vs_max': round(_peak / _hmax, 2) if _hmax > 0 else None,
+                        'severity': _sev,
+                    })
+            extrapolation = {'severity': _max_sev, 'channels': _channels_ex}
+    except Exception:  # noqa: BLE001 - honesty-контур не роняет сценарий
+        extrapolation = None
+
     result = {
         'status': 'ok',
         'scenario_name': scenario_name,
@@ -785,6 +838,9 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         'unit_costs': unit_costs if unit_costs else None,
         'media_plan': media_plan,
         'model_version': model_version,  # for downstream UI badge
+        # Мат-аудит 2026-07-02 (F-04): {'severity': 0..3, 'channels': [...]} —
+        # выход per-period плана за наблюдавшийся диапазон трат (p95/p99 тиры).
+        'extrapolation': extrapolation,
     }
 
     # Save. NaN-safe (как decomposer.py:1174, rc10-урок 2026-06-04): NaN→null, иначе

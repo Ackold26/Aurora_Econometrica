@@ -8,7 +8,16 @@ v1.2.0 additions (Phase 1.5 - Weibull learnable):
 - compute_weibull_peak / compute_weibull_half_life: metric helpers для reporting
 - peak_week_to_lambda / tail_decay_to_k: parameter conversion helpers
 """
+import logging
+
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Мат-аудит 2026-07-02 (F-07): однократный лог на процесс для каждого
+# неизвестного adstock_type — иначе тихий geometric-fallback маскирует
+# опечатку/битый конфиг ('Weibull', 'weibul', мусор из legacy pickle).
+_warned_unknown_types: set[str] = set()
 
 
 def geometric_adstock(x: np.ndarray, alpha: float = 0.5) -> np.ndarray:
@@ -44,7 +53,19 @@ def weibull_adstock(x: np.ndarray, shape: float = 2.0, scale: float = 3.0,
     lags = np.arange(max_lag)
     # Weibull PDF as weights (normalized)
     weights = (shape / scale) * (lags / scale) ** (shape - 1) * np.exp(-(lags / scale) ** shape)
-    weights = weights / weights.sum() if weights.sum() > 0 else weights
+    if weights.sum() > 0:
+        weights = weights / weights.sum()
+    else:
+        # Мат-аудит 2026-07-02 (F-08): вырожденное ядро (underflow при
+        # экстремальных shape/scale) прежде уходило в convolve молча —
+        # канал занулялся без следа. Численное поведение сохранено
+        # (детерминизм), добавлена наблюдаемость.
+        logger.warning(
+            'weibull_adstock: вырожденное ядро (weights.sum()=0) при '
+            'shape=%.4g scale=%.4g max_lag=%d — канал получит ~нулевой '
+            'adstock. Проверьте параметры Weibull.',
+            shape, scale, max_lag,
+        )
 
     result = np.convolve(x, weights, mode='full')[:len(x)]
     return result
@@ -71,6 +92,18 @@ def apply_adstock(series: np.ndarray, adstock_type: str, params: dict | None = N
             max_lag=params.get('max_lag', 12),
         )
     else:  # geometric (default for digital)
+        # Мат-аудит 2026-07-02 (F-07): неизвестный тип прежде падал в geometric
+        # МОЛЧА — 'Weibull'/'weibul'/мусор из конфига незаметно менял модель
+        # переноса. Fallback сохранён (back-compat, детерминизм), но с
+        # однократным warning на процесс для каждого нового неизвестного типа.
+        if adstock_type != 'geometric' and adstock_type not in _warned_unknown_types:
+            _warned_unknown_types.add(adstock_type)
+            logger.warning(
+                "apply_adstock: неизвестный adstock_type=%r — fallback на "
+                "geometric. Допустимые: 'geometric', 'weibull', 'noop'/'none'. "
+                "Проверьте adstock_config (опечатка/регистр?).",
+                adstock_type,
+            )
         return geometric_adstock(
             series,
             alpha=params.get('alpha', 0.5),

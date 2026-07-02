@@ -58,6 +58,9 @@
   /** @type {Record<string, number>} Channel budget multiplier (100 = unchanged) */
   let sliders = $state(/** @type {Record<string, number>} */ ({}));
   let sliderPrediction = $state('');
+  // Мат-аудит 2026-07-02 (F-04): {'severity': 1..3, 'channels': [...]} | null.
+  /** @type {any | null} */
+  let sliderExtrapolation = $state(null);
 
   $effect(() => {
     if (channels.length && Object.keys(sliders).length === 0) {
@@ -125,6 +128,11 @@
       }));
       if (result.status === 'ok') {
         sliderPrediction = `Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}`;
+        // Мат-аудит 2026-07-02 (F-04): движок теперь помечает выход плана за
+        // наблюдавшийся диапазон трат (тиры p95/p99, Chan & Perry 2017).
+        sliderExtrapolation = (result.extrapolation && result.extrapolation.severity >= 1)
+          ? result.extrapolation
+          : null;
       }
     } catch { /* silent */ }
   }
@@ -156,7 +164,11 @@
       }));
 
       if (result.status === 'ok') {
-        computeStatus.set(`Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}`);
+        // Мат-аудит 2026-07-02 (F-04): честная пометка экстраполяции медиаплана.
+        const _exSuffix = (result.extrapolation && result.extrapolation.severity >= 1)
+          ? ' · ⚠ план выходит за наблюдавшийся диапазон трат (экстраполяция)'
+          : '';
+        computeStatus.set(`Прогноз: ${result.totals.lift_pct > 0 ? '+' : ''}${result.totals.lift_pct}${liftLabel}${_exSuffix}`);
         await loadComparison();
       } else {
         computeStatus.set(`Ошибка: ${result.message}`);
@@ -224,6 +236,16 @@
 
     {#if sliderPrediction}
       <div class="slider-result">{sliderPrediction}</div>
+    {/if}
+    <!-- Мат-аудит 2026-07-02 (F-04): предупреждение об экстраполяции сценария -->
+    {#if sliderExtrapolation}
+      <div class="extrapolation-warn" class:critical={sliderExtrapolation.severity >= 2} role="status">
+        ⚠ План выходит за наблюдавшийся диапазон трат
+        {#if sliderExtrapolation.channels?.length}
+          ({sliderExtrapolation.channels.map((/** @type {any} */ c) => c.name).join(', ')})
+        {/if}
+        – прогноз в этой зоне не подтверждён данными.
+      </div>
     {/if}
   </div>
 
@@ -343,6 +365,22 @@
 
   .slider-value.positive { color: var(--success, #22c55e); }
   .slider-value.negative { color: var(--error, #ef4444); }
+
+  /* Мат-аудит 2026-07-02 (F-04): предупреждение экстраполяции — warn/danger. */
+  .extrapolation-warn {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 30%, transparent);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .extrapolation-warn.critical {
+    background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 30%, transparent);
+  }
 
   .slider-result {
     margin-top: 12px;

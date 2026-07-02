@@ -1,8 +1,19 @@
 # АВТОНОМНАЯ РАБОТА: мат-аудит ядра MMM Optimizer
 
 > **SSOT прогресса аудита.** Метод и фазы — в плане `C:\Users\ackol\.claude\plans\rippling-growing-hamming.md`.
-> Протокол восстановления после компрессии: прочитать этот файл + план → продолжить с «ОСТАЛОСЬ» БЕЗ переспроса.
+> Протокол восстановления после компрессии/обрыва: прочитать этот файл + план → продолжить с «ОСТАЛОСЬ» БЕЗ переспроса.
 > Развилки решать самой; методологические правки — с RAG-атрибуцией (`lib_vec.py search`, двуязычный запрос).
+> 🫀 **HEARTBEAT (поручение Антона 2026-07-02, страховка от «API Error: socket closed»):**
+> в КОНЦЕ КАЖДОГО хода вызывать `ScheduleWakeup(delaySeconds≈900, prompt=<восстановительный промпт ниже>)` —
+> сессия сама просыпается через ~15 мин и продолжает работу без вмешательства Антона.
+> Восстановительный промпт: «Продолжай автономный мат-аудит MMM Optimizer: прочитай
+> Dev/Aurora_Econometrica/AUTONOMOUS_WORK_STATE_MATH_AUDIT.md (секция ОСТАЛОСЬ + микростатус)
+> и продолжи БЕЗ переспроса. Если это пробуждение после обрыва — восстановись по durable-состоянию.
+> В конце хода снова вызови ScheduleWakeup(900) с этим же промптом. Стоп — только по слову Антона.»
+> Снять heartbeat, когда Антон скажет «стоп/готово по мат-аудиту».
+
+## 🔬 МИКРОСТАТУС (обновлять при каждом незакоммиченном изменении!)
+- Незакоммиченного нет (батч №3 закоммичен, см. СДЕЛАНО). Следующий шаг — п.1 раздела ОСТАЛОСЬ.
 
 ## Шапка
 - **Статус:** Фаза 0 (baseline-прогон)
@@ -21,11 +32,12 @@
 | F-01 | optimize/inverse.py | ✅ ЗАКРЫТА. Подтверждена зондом (B*=3.3×, все 5 каналов 2.1–2.3× исторического max, маркера нет) + UI-слой: правка 2026-06-07 сделала corridorHi=achievableCeiling (потолок модели при 5× бюджете) → зелёная зона закрашивала глубокую экстраполяцию, подсказка обещала обратное. FIX: `extrapolation_reporter` в meta (канонические тиры p95/p99 через forecast_validation.extrapolation_severity на per-period тратах vs история; Chan&Perry 2017 Fig.2) + `result['extrapolation']` + UI-бейдж (warn/danger) + развязка corridorHi(observed)/sliderMax(ceiling) | METHOD-GAP/INV-50 | ✅ зонд | ✅ FIX+тесты |
 | F-02 | optimize/inverse.py | ✅ ЗАКРЫТА. Подтверждена зондом: narrow(sd 0.05)/wide(sd 0.45) → одинаковые 12.80% отн. ширины (ratio 1.00) — CI=константа 1.28δ. FIX: `posterior_sampler` в meta (per-sample S(B) через evaluate_flat_allocation_response — SSOT формулы, I8; включая intercept-разброс; epistemic без σ_obs) → правильный delta: sd(B)=z₀.₉·sd_post(S)/|grad|, method='delta_posterior' (Gelman Bayesian Workflow: неопределённость из posterior-симуляций). Fallback 'delta' для OLS/legacy сохранён. + `capped`-флаг (упор в cap 50% = плоская зона → баннер насыщения) | BUG+METHOD | ✅ зонд | ✅ FIX+тесты |
 | F-03 | optimize/inverse.py | ✅ ЗАКРЫТА. Подтверждена зондом: p_hit≈0.500 ВСЕГДА (бисекция останавливается на S(B*)≈target → z≈0). FIX: p_hit = доля posterior draws ≥ цели (те же samples), `p_hit_method: posterior/heuristic`. NB: на самом B* доля ~0.5 by construction (медиана у цели) — честно; настоящая ценность p_hit — при maxBudget-капе и в будущем «бюджет под P=80%» (→ OPP-02) | METHOD | ✅ зонд | ✅ FIX+тесты |
-| F-04 | engines/scenario.py:238-301 | Нет guard экстраполяции: сценарий +30% уходит за историч. максимум канала молча (2 независимых источника) | ? METHOD-GAP | — | — |
+| F-04 | engines/scenario.py | ✅ ЗАКРЫТА. Уточнение: machinery существовала (extrapolation_severity + endpoint /compute/forecast-scaling ~12ms), но НЕ ДОСТАВЛЕНА (endpoint не вызывается фронтом нигде — мёртв; движок план не помечал). FIX: predict_scenario сам возвращает `extrapolation:{severity,channels[]}` (пик per-period плана vs p95/p99 истории; Chan&Perry 2017 Fig.2) + UI ScenarioCompare (warn-плашка у слайдера + суффикс в статусе загрузки медиаплана). Мёртвый endpoint — кандидат в OPP (снести или подключить) | BUG-wiring/INV-50 | ✅ код+grep | ✅ FIX+3 теста |
 | F-05 | engines/optimizer.py | CI на mROI есть (:1297-1357); а на сам оптимальный СПЛИТ долей — нет (канон Jin: «доля 38% [27–46%]») | ? METHOD-GAP | — | — |
 | F-06 | engines/sensitivity.py:60-176,626 | Sensitivity = детерминированное ±20% возмущение, НЕ posterior-неопределённость; пользователь читает как неопределённость | ? METHOD | — | — |
-| F-07 | utils/adstock.py:73-77 | apply_adstock: неизвестный adstock_type тихо падает в geometric (Weibull-конфиг игнорируется без ошибки) | ? BUG | — | — |
-| F-08 | utils/adstock.py:47,214-216 | Weibull weights.sum()<1e-12 → uniform-fallback молча (ломает семантику ядра) | ? BUG | — | — |
+| F-07 | utils/adstock.py | ✅ ЗАКРЫТА (набл.): подтверждён тихий geometric-fallback для любого неизвестного типа ('Weibull'/'weibul'/мусор). FIX: однократный warning-лог на процесс per тип; ЧИСЛА НЕ ТРОНУТЫ (детерминизм I4/D13 цел, fallback сохранён — back-compat) | BUG (observability) | ✅ код | ✅ FIX |
+| F-08 | utils/adstock.py | ✅ ЗАКРЫТА (набл.): weights.sum()==0 (underflow экстрем. shape/scale) уходил в convolve молча → канал ~нулевой без следа. FIX: warning-лог; численное поведение сохранено | BUG (observability, low) | ✅ код | ✅ FIX |
+| F-31 | ScenarioCompare.svelte:102-113 | 🆕 Слайдер-превью шлёт `plan[ch]=[множитель 0..2]` как native-траты в econ_scenario — семантика подозрительна (крошечный план vs тысячи native единиц истории); где-то множитель должен разворачиваться в траты. Проверить путь Rust econ_scenario → predict_scenario; лифты у пользователей выглядят осмысленно → возможно, разворачивается. Verify Фаза 3 | ? ЛОГИКА | — | — |
 | F-09 | utils/saturation.py:8-43 | x^α переполнение при больших α/x; γ-floor 1e-10 неадаптивен; α<0 не отвергается | ? BUG (numerics) | — | — |
 | F-10 | optimize/inverse.py | Покрытие тестами inverse в tools/ почти нет (только sidecar/tests/test_inverse_*) | ? GAP-тестов | — | — |
 
