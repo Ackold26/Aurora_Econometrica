@@ -58,6 +58,12 @@
       .map((c) => (c.ratio_vs_max != null ? `${c.name} – ${c.ratio_vs_max}× исторического максимума` : c.name))
       .join(', ');
   }
+
+  // OPP-02 (2026-07-03): «бюджет под вероятность» — процент уровня доверия
+  // (result.confidence = 0.8 → «80%»), null = обычный медианный режим.
+  const confidencePct = $derived(
+    result?.confidence != null ? Math.round(result.confidence * 100) : null
+  );
 </script>
 
 <div class="goal-seek-card" class:not-achievable={!result.achievable}>
@@ -68,8 +74,22 @@
     </header>
 
     <section class="main-figure">
-      <div class="figure-label">Требуемый бюджет:</div>
+      <div class="figure-label">
+        {#if confidencePct != null}
+          Бюджет под вероятность {confidencePct}%:
+        {:else}
+          Требуемый бюджет:
+        {/if}
+      </div>
       <div class="figure-value">{formatRub(result.total_budget.p50)}</div>
+      {#if confidencePct != null}
+        <div class="figure-confidence">
+          Цель достигается не менее чем в {confidencePct}% сценариев модели
+          {#if result.expected_sales_median != null}
+            · типичный (медианный) прогноз при этом бюджете: <strong>{formatTarget(result.expected_sales_median)}</strong>
+          {/if}
+        </div>
+      {/if}
       {#if result.total_budget.p10 != null && result.total_budget.p90 != null}
         <div class="figure-ci">
           80% доверительный интервал: {formatRub(result.total_budget.p10)} - {formatRub(result.total_budget.p90)}
@@ -83,6 +103,22 @@
         </div>
       {/if}
     </section>
+
+    <!-- OPP-02 (INV-50): просили осторожный режим, но модель без апостериорных
+         выборок (OLS/legacy) — честно говорим, что показан медианный расчёт. -->
+    {#if result.confidence_unavailable}
+      <section class="confidence-unavailable-note">
+        <span class="note-icon"><TriangleAlert size={16} strokeWidth={1.5} /></span>
+        <div class="note-body">
+          <strong>Осторожный режим недоступен для этой модели</strong>
+          <p>
+            У модели нет апостериорных выборок (обучение без байесовского вывода),
+            поэтому «бюджет под вероятность» посчитать нельзя. Показан обычный
+            медианный расчёт – бюджет достигает цели примерно в половине сценариев.
+          </p>
+        </div>
+      </section>
+    {/if}
 
     {#if result.flat_response_fallback}
       <section class="saturation-note">
@@ -190,13 +226,24 @@
            budget-недостижимости компонуем текст из структурных полей; для прочих
            (non-convex Hill и т.п. — без чисел) показываем backend-message. -->
       {#if result.fallback_max_sales != null}
-        <p>Цель <strong>{formatTarget(result.target_sales ?? targetSales)}</strong> недостижима в доступном диапазоне бюджета.</p>
+        <p>
+          Цель <strong>{formatTarget(result.target_sales ?? targetSales)}</strong>
+          {#if confidencePct != null}
+            недостижима с вероятностью {confidencePct}% в доступном диапазоне бюджета.
+          {:else}
+            недостижима в доступном диапазоне бюджета.
+          {/if}
+        </p>
       {:else}
         <p>{result.message ?? 'Цель за пределами math-валидного диапазона модели.'}</p>
       {/if}
       {#if result.fallback_max_sales}
         <p class="fallback-detail">
-          Максимум достижимых продаж при текущем миксе каналов:
+          {#if confidencePct != null}
+            Максимум продаж, достижимый с вероятностью {confidencePct}% при текущем миксе каналов:
+          {:else}
+            Максимум достижимых продаж при текущем миксе каналов:
+          {/if}
           <strong>{formatTarget(result.fallback_max_sales)}</strong>
           (бюджет {formatRub(result.fallback_budget)}).
         </p>
@@ -248,6 +295,27 @@
     letter-spacing: -0.02em;
   }
   .figure-ci { font-size: 11px; color: var(--text-secondary); }
+  /* OPP-02: строка семантики осторожного режима под главной цифрой. */
+  .figure-confidence {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+  }
+  .figure-confidence strong { color: var(--text-primary); font-weight: 600; }
+
+  /* OPP-02 (INV-50): плашка «осторожный режим недоступен» — warning tier. */
+  .confidence-unavailable-note {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 30%, transparent);
+    border-radius: var(--radius-sm, 8px);
+  }
+  .confidence-unavailable-note .note-icon { line-height: 1.3; color: var(--warning, #fbbf24); }
+  .confidence-unavailable-note .note-body { display: flex; flex-direction: column; gap: 4px; }
+  .confidence-unavailable-note strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .confidence-unavailable-note p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
 
   /* #59 (2026-06-02): баннер насыщения (flat response) — warning tier. */
   .saturation-note {

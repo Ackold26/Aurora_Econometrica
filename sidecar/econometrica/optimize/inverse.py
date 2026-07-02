@@ -611,6 +611,7 @@ def optimize_inverse(
     mode: str = 'roi',
     budget_constraints: Optional[Dict[str, Any]] = None,
     unit_costs: Optional[Dict[str, Any]] = None,
+    confidence: Optional[float] = None,
 ) -> Dict[str, Any]:
     """High-level inverse / goal-seek optimization.
 
@@ -622,6 +623,17 @@ def optimize_inverse(
         kpi_kind: 'monetary' | 'count' (для logging, не влияет на math).
         mode: 'roi' | 'effectiveness' | 'manual' (для logging).
         budget_constraints: optional {'max_budget': float, 'min_budget': float}.
+        confidence: OPP-02 (2026-07-03) «бюджет под вероятность». None (default) —
+            прежнее поведение: бисекция по медианному (точечному) forward, бюджет
+            достигает цели с P≈50% by construction. float в (0, 1), напр. 0.8 —
+            квантильная бисекция: минимальный B, при котором квантиль уровня
+            (1−confidence) распределения posterior-draws S(B) ≥ target, т.е.
+            P(S(B) ≥ target) ≥ confidence. Монотонность квантильного forward
+            следует из per-draw монотонности S_s(B) (сумма Hill-откликов растёт
+            по B при фикс. параметрах draw ⇒ стохастическое доминирование ⇒
+            квантиль монотонен; подтверждено зондом). Требует posterior_samples:
+            на OLS/legacy-pickle честная деградация в медианный режим с маркером
+            confidence_unavailable (INV-50: не притворяться, что посчитали).
 
     Returns:
         Dict (achievable=True case):
@@ -654,6 +666,22 @@ def optimize_inverse(
             'message': 'Модель не найдена. Сначала обучите модель.',
         }
 
+    # OPP-02: валидация уровня доверия ДО тяжёлой работы.
+    if confidence is not None:
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            confidence = -1.0  # провалит проверку диапазона ниже
+        if not (0.0 < confidence < 1.0):
+            return {
+                'achievable': False,
+                'error': 'INVALID_CONFIDENCE',
+                'message': (
+                    'Уровень вероятности должен быть числом строго между 0 и 1 '
+                    '(например, 0.8 для «бюджета под 80%»).'
+                ),
+            }
+
     # GS-1 (2026-06-02): proportional forward (фикс. текущий микс каналов) -
     # монотонен по построению, обрабатывает unit_costs напрямую (без UNIT_SMELL
     # guard, который ронял re-optimize forward на не-денежных каналах).
@@ -678,16 +706,67 @@ def optimize_inverse(
             budget_hi = float(budget_constraints['max_budget'])
         budget_lo = max(budget_lo, budget_constraints.get('min_budget', budget_lo))
 
-    # Bisection через proportional forward.
+    # ── OPP-02 (2026-07-03): квантильный forward для «бюджета под вероятность» ──
+    # q_fwd(B) — обёртка ТОЧЕЧНОГО forward: distribution (пропорциональный микс)
+    # берём из него, expected_sales заменяем квантилью уровня (1−confidence)
+    # posterior-draws S(B). Формула отклика не дублируется — per-sample вызов
+    # evaluate_flat_allocation_response внутри posterior_sampler (SSOT, I8).
+    # Стоимость: sampler(B) ≈ 12–15 мс × ~13 итераций бисекции ≈ 0.2 с (зонд
+    # tmp/probe_a2_sampler_cost.py) — в perf-бюджете goal-seek < 1 s.
+    confidence_applied: Optional[float] = None
+    confidence_unavailable_reason: Optional[str] = None
+    active_forward = forward_fn
+    if confidence is not None:
+        sampler_probe = fwd_meta.get('posterior_sampler')
+        probe_arr = sampler_probe(budget_hi) if callable(sampler_probe) else None
+        if probe_arr is None or len(probe_arr) < 2:
+            # Честная деградация (INV-50): нет posterior (OLS/legacy pickle) —
+            # медианный расчёт с явным маркером, НЕ тихая подмена семантики.
+            confidence_unavailable_reason = 'no_posterior_samples'
+        else:
+            import numpy as _np_q
+            q_level = 1.0 - confidence
+
+            def _quantile_forward(total_budget_money: float) -> Dict[str, Any]:
+                base = forward_fn(total_budget_money)
+                if base.get('status') == 'error':
+                    return base
+                arr = sampler_probe(total_budget_money)
+                if arr is None or len(arr) < 2:
+                    return {'expected_sales': 0.0, 'distribution': {}, 'status': 'error',
+                            'error_message': 'posterior sampler failed mid-bisection'}
+                return {
+                    'expected_sales': float(_np_q.quantile(arr, q_level)),
+                    'distribution': base['distribution'],
+                    'status': 'ok',
+                }
+
+            active_forward = _quantile_forward
+            confidence_applied = confidence
+
+    # Bisection через proportional forward (медианный или квантильный).
     bisect_result = bisect_for_target(
         project_dir=project_dir,
         target_sales=target_sales,
         budget_lo=budget_lo,
         budget_hi=budget_hi,
-        forward_fn=forward_fn,
+        forward_fn=active_forward,
     )
 
     if not bisect_result.get('achievable'):
+        message = bisect_result.get('message', 'Goal not achievable')
+        # OPP-02: в квантильном режиме fallback_max_sales = квантиль уровня
+        # (1−confidence) при бюджете hi — «максимум, достижимый с вероятностью
+        # ≥ confidence». Формулировка обязана это доносить (INV-50), иначе число
+        # выглядит противоречащим медианной вкладке.
+        if confidence_applied is not None and bisect_result.get('fallback_max_sales') is not None:
+            pct = round(confidence_applied * 100)
+            message = (
+                f'Цель {target_sales:,.0f} недостижима с вероятностью {pct}% '
+                f'в доступном диапазоне бюджета. Максимум продаж, достижимый '
+                f'с вероятностью {pct}% при текущем миксе каналов: '
+                f'{bisect_result["fallback_max_sales"]:,.0f}'
+            ).replace(',', ' ')
         return {
             'achievable': False,
             'kpi_kind': kpi_kind,
@@ -698,8 +777,10 @@ def optimize_inverse(
             'error': bisect_result.get('error'),
             'fallback_max_sales': bisect_result.get('fallback_max_sales'),
             'fallback_budget': bisect_result.get('fallback_budget'),
-            'message': bisect_result.get('message', 'Goal not achievable'),
+            'message': message,
             'iterations': bisect_result.get('iterations', 0),
+            'confidence': confidence_applied,
+            'confidence_unavailable': confidence_unavailable_reason is not None,
         }
 
     # Posterior CI via Delta method (тот же proportional forward для согласованного градиента).
@@ -758,6 +839,16 @@ def optimize_inverse(
         (budget_optimum - current_total) / current_total if current_total > 0 else 0.0
     )
 
+    # OPP-02: в квантильном режиме expected_sales = квантиль (1−confidence) при B*
+    # («продажи, достижимые с вероятностью ≥ confidence»). Дополнительно отдаём
+    # медианную (точечную) траекторию при том же бюджете — UI показывает
+    # «гарантия 80%: цель X; в типичном сценарии при этом бюджете: Y».
+    expected_sales_median = None
+    if confidence_applied is not None:
+        point_at_optimum = forward_fn(budget_optimum)
+        if point_at_optimum.get('status') == 'ok':
+            expected_sales_median = point_at_optimum['expected_sales']
+
     return {
         'achievable': True,
         'kpi_kind': kpi_kind,
@@ -770,10 +861,17 @@ def optimize_inverse(
         'p_hit_method': 'posterior' if sales_samples is not None else 'heuristic',
         'iterations': bisect_result['iterations'],
         'expected_sales': bisect_result['expected_sales'],
+        'expected_sales_median': expected_sales_median,
         'current_total_budget': current_total,
         'flat_response_fallback': flat_response_fallback,
         'extrapolation': extrapolation,
         # GS-1: распределение получено масштабированием ТЕКУЩЕГО микса (фикс. пропорции),
         # а не оптимальным перераспределением. UI поясняет это пользователю.
         'allocation_mode': 'proportional',
+        # OPP-02: применённый уровень «бюджета под вероятность» (None = медианный
+        # режим); confidence_unavailable=True — просили, но модель без posterior.
+        'confidence': confidence_applied,
+        'confidence_unavailable': confidence_unavailable_reason is not None,
+        **({'confidence_unavailable_reason': confidence_unavailable_reason}
+           if confidence_unavailable_reason else {}),
     }

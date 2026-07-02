@@ -37,6 +37,12 @@
   let errorMessage = $state(null);
   /** @type {'green' | 'yellow' | 'red'} */
   let currentZone = $state('green');
+  // OPP-02 (2026-07-03): режим «бюджет под вероятность». false = обычный
+  // (медианный: бюджет достигает цели в ~половине сценариев модели),
+  // true = осторожный (минимальный бюджет с P(достижения) >= 80% по
+  // апостериорным сценариям). Уровень 0.8 фиксирован продуктово.
+  let cautiousMode = $state(false);
+  const CAUTIOUS_CONFIDENCE = 0.8;
 
   // 2026-06-07: АДАПТИВНАЯ шкала цели под РЕЗУЛЬТАТ модели. Раньше верх слайдера =
   // currentSales×1.5×1.15 (чистая эвристика, не связана с тем, что модель реально
@@ -139,6 +145,8 @@
         mode: $derivedMode,
         maxBudget: maxBudgetCap,
         minBudget: null,
+        // OPP-02: null = медианный режим (прежнее поведение).
+        confidence: cautiousMode ? CAUTIOUS_CONFIDENCE : null,
       });
       result = res;
     } catch (e) {
@@ -221,6 +229,42 @@
     {/if}
   </section>
 
+<!-- OPP-02 (2026-07-03): «бюджет под вероятность» — переключатель режима расчёта. -->
+  <section class="confidence-mode" role="radiogroup" aria-label="Режим расчёта бюджета">
+    <span class="mode-title">Режим расчёта:</span>
+    <div class="mode-segment">
+      <button
+        type="button"
+        class="mode-option"
+        class:active={!cautiousMode}
+        aria-pressed={!cautiousMode}
+        onclick={() => { cautiousMode = false; }}
+      >
+        Обычный (медиана)
+      </button>
+      <button
+        type="button"
+        class="mode-option"
+        class:active={cautiousMode}
+        aria-pressed={cautiousMode}
+        onclick={() => { cautiousMode = true; }}
+      >
+        Осторожный (80%)
+      </button>
+    </div>
+    <p class="mode-hint">
+      {#if cautiousMode}
+        Минимальный бюджет, при котором цель достигается не менее чем в 80%
+        сценариев модели. Бюджет выше медианного – надбавка растёт с
+        неопределённостью модели.
+      {:else}
+        Бюджет, при котором модель достигает цели в типичном (медианном)
+        сценарии – примерно в половине случаев. Для планирования с запасом
+        включите осторожный режим.
+      {/if}
+    </p>
+  </section>
+
   <div class="actions">
     <button
       type="button"
@@ -301,6 +345,47 @@
     font-size: 12px;
     width: 160px;
     font: inherit;
+  }
+
+  /* OPP-02: сегмент-переключатель режима расчёта («медиана» / «80%»). */
+  .confidence-mode {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 10px 12px;
+    background: var(--bg-surface-quiet);
+    border-radius: var(--radius-sm, 6px);
+    font-size: 12px;
+  }
+  .mode-title { color: var(--text-secondary); font-weight: 600; }
+  .mode-segment {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 6px);
+    overflow: hidden;
+  }
+  .mode-option {
+    padding: 6px 12px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+    font: inherit;
+  }
+  .mode-option + .mode-option { border-left: 1px solid var(--border); }
+  .mode-option.active {
+    background: var(--accent-primary);
+    color: #fff;
+    font-weight: 600;
+  }
+  .mode-hint {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
   }
 
   .actions {

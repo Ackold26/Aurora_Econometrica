@@ -2026,6 +2026,10 @@ class InverseOptimizeRequest(BaseModel):
     mode: str = 'roi'           # 'roi' | 'effectiveness' | 'manual' (for logging)
     max_budget: float | None = None
     min_budget: float | None = None
+    # OPP-02 (2026-07-03): «бюджет под вероятность». None = медианный режим
+    # (back-compat); напр. 0.8 = минимальный бюджет с P(достижения цели) >= 80%
+    # (квантильная бисекция по posterior-draws, optimize/inverse.py).
+    confidence: float | None = None
 
 
 @app.post('/optimize/inverse')
@@ -2052,6 +2056,7 @@ def optimize_inverse_endpoint(req: InverseOptimizeRequest):
             kpi_kind=req.kpi_kind,
             mode=req.mode,
             budget_constraints=budget_constraints,
+            confidence=req.confidence,
         )
         if 'status' not in result:
             result['status'] = 'ok'

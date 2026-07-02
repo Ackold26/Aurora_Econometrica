@@ -623,6 +623,9 @@ pub async fn econ_optimize_inverse(
     mode: Option<String>,
     max_budget: Option<f64>,
     min_budget: Option<f64>,
+    // OPP-02 (2026-07-03): «бюджет под вероятность» — None = медианный режим
+    // (back-compat), Some(0.8) = квантильная бисекция P(hit) >= 80%.
+    confidence: Option<f64>,
 ) -> Result<Value, String> {
     info!("econ_optimize_inverse: project_dir={project_dir}, target={target_sales}");
     let body = serde_json::json!({
@@ -632,6 +635,7 @@ pub async fn econ_optimize_inverse(
         "mode": mode.unwrap_or_else(|| "roi".to_string()),
         "max_budget": max_budget,
         "min_budget": min_budget,
+        "confidence": confidence,
     });
     // Inverse + bisection может занимать до 10s - use train_client с longer timeout.
     post_json("/optimize/inverse", &body, train_client()).await
