@@ -159,7 +159,7 @@
       // 1. Product type + content packs in parallel (both needed before filtering)
       const [, cmdMeta, psyData, classifierData, onboardingData, themesData] =
         await Promise.all([
-          initCreativeStore(),
+          initCreativeStore().catch(() => null),
           invoke('get_content_pack', { packName: 'command-meta-data.json' }).catch(() => null),
           invoke('get_content_pack', { packName: 'psy-data.json' }).catch(() => null),
           invoke('get_content_pack', { packName: 'classifier-data.json' }).catch(() => null),
