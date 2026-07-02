@@ -16,7 +16,7 @@
 - Незакоммиченного нет (батч №3 закоммичен, см. СДЕЛАНО). Следующий шаг — п.1 раздела ОСТАЛОСЬ.
 
 ## Шапка
-- **Статус:** Фаза 0 (baseline-прогон)
+- **Статус: ✅ АУДИТ ЗАВЕРШЁН (2026-07-02).** Все 31 находка реестра закрыты (18 FIX с тестами, 7 FALSE разоблачены пробами, 6 TRADEOFF задокументированы). Сводный отчёт: `docs/audits/MATH_REAUDIT_2026_07.md`. Финальный gate: tools 1662 passed / sidecar 379 / math_correctness 156/156 / posterior_ci 82/82 / svelte-check 0 ошибок. **Ждёт Антона:** решение по push ветки `feat/econ-math-audit` (12 коммитов) + приоритезация OPP-01..08. Heartbeat снят (работа выполнена).
 - **Ветка:** `feat/econ-math-audit` (от `feat/design-adopt-hybrid-ds` @ 9054f7f)
 - **Safety-тег:** `v-pre-math-reaudit`
 - **Среда (0.1 ✅):** глобальный Python 3.12.10 (`C:\Users\ackol\AppData\Local\Programs\Python\Python312`); pymc 5.28.4 / arviz 0.23.4 / numpy 2.4.2 / scipy 1.17.1 / pandas 3.0.1 / jax 0.7.2 + numpyro 0.20.1 / pytest+xdist. g++ НЕТ (pytensor.cxx='') → **режим аудита = Tier-1 NUTS via JAX** (Tier-2 PyTensor-NUTS будет медленный Python-mode). Реальные данные ЕСТЬ: `D:\Docs\Aurora_Ai\TestData\Econometrica` (Kagocel_RF, Venarus, MMX_2021-2025, Planning) → requires_real_data тесты работают.
