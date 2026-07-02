@@ -106,13 +106,29 @@
     const projectId = $activeProjectId;
     if (!projectId) return;
 
-    // Build media plan from sliders (relative to current spend)
+    // Build media plan from sliders (relative to current spend).
+    // Мат-аудит 2026-07-02 (F-31): раньше слался ГОЛЫЙ МНОЖИТЕЛЬ (plan[ch]=[1.15])
+    // как native-траты → «план» на единицы рублей → predicted = чистый baseline →
+    // lift ≈ −20% при ЛЮБОМ положении ползунков (проба: слайдер −21.6% vs честный
+    // +1.9%). Теперь план = текущие native-траты канала (из результата
+    // оптимизации) × множитель; движок распределит total по периодам.
+    const optChannels = optimization?.channels ?? [];
+    /** @type {Map<string, number>} */
+    const currentByName = new Map(
+      optChannels.map((/** @type {any} */ c) => [c.name, Number(c.current_spend) || 0])
+    );
     /** @type {Record<string, number[]>} */
     const plan = {};
     for (const ch of channels) {
       const mult = (sliders[ch] || 100) / 100;
-      // Single period prediction
-      plan[ch] = [mult];
+      const cur = currentByName.get(ch) ?? 0;
+      if (cur <= 0) continue; // канал без текущих трат — не включаем в план
+      plan[ch] = [cur * mult]; // native TOTAL за период обучения/горизонт
+    }
+    if (Object.keys(plan).length === 0) {
+      sliderPrediction = 'Сначала выполните расчёт оптимизации – слайдеры опираются на текущие траты каналов.';
+      sliderExtrapolation = null;
+      return;
     }
 
     try {

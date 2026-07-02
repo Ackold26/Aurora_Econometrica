@@ -984,6 +984,34 @@ def _aggregate_recommendation(tier: str, mode: str, n_warnings: int) -> str:
     )
 
 
+def _cleanup_stale_training_tasks(now: float | None = None) -> int:
+    """Мат-аудит 2026-07-02 (F-21): чистка _training_tasks. Вызывать ПОД _training_lock.
+
+    Два критерия:
+    1. consumed_at старше 5 мин (прежнее поведение, C3: result забрали — держим
+       короткое окно для ретраев фронта);
+    2. терминальный статус (done/error/cancelled) старше 60 мин БЕЗ consumed_at —
+       раньше такие задачи жили вечно вместе с полным result в памяти (фронт
+       закрыли до done / error никто не забрал / cancelled result не читается).
+       Модель при этом НЕ теряется — она на диске (latest.pkl + diagnostics).
+
+    Returns: число удалённых задач.
+    """
+    ts = now if now is not None else time.time()
+    consumed_cutoff = ts - 300
+    terminal_cutoff = ts - 3600
+    stale = [
+        k for k, v in _training_tasks.items()
+        if (v.get('consumed_at', 0) and v['consumed_at'] < consumed_cutoff)
+        or (v.get('status') in ('done', 'error', 'cancelled')
+            and not v.get('consumed_at')
+            and v.get('started_at', 0) < terminal_cutoff)
+    ]
+    for k in stale:
+        del _training_tasks[k]
+    return len(stale)
+
+
 @app.post('/compute/train/start')
 def train_start(req: TrainStartRequest):
     """Start async training. Returns task_id immediately."""
@@ -994,11 +1022,7 @@ def train_start(req: TrainStartRequest):
     logger.info(f'/compute/train/start: kpi={req.kpi_column}, media={len(req.media_columns)} channels, merge_rules={req.merge_rules!r}')
 
     with _training_lock:
-        # Cleanup consumed tasks older than 5 min
-        cutoff = time.time() - 300
-        stale = [k for k, v in _training_tasks.items() if v.get('consumed_at', 0) and v['consumed_at'] < cutoff]
-        for k in stale:
-            del _training_tasks[k]
+        _cleanup_stale_training_tasks()
 
         _training_tasks[task_id] = {
             'status': 'running',

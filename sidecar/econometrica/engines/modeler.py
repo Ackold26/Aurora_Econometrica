@@ -114,17 +114,37 @@ def check_compiler() -> bool:
         return False
 
 
-def get_mcmc_params(has_compiler: bool) -> dict:
+def get_mcmc_params(has_compiler: bool, has_jax: bool | None = None) -> dict:
     """MCMC parameters based on environment (Windows optimization).
 
     Defaults bumped 2026-04-19 to 4/2000/2000 - на JAX/NUTS секунды,
     но даёт надёжный R-hat (4 цепи) и точные ROI CI (2000 draws + 2000 tune).
+
+    Мат-аудит 2026-07-02 (F-28): решает БЭКЕНД, не компилятор. Tier-1 NUTS
+    идёт через numpyro/JAX, которому g++ не нужен, — прежняя проверка
+    check_compiler() даунгрейдила полноценный JAX-NUTS до 2×1000×500 на любой
+    машине без g++ (включая клиентскую PyInstaller-поставку с вендоренным JAX):
+    2 цепи вместо канонических 4 (Vehtari et al. 2021), половина draws.
+    Ярлык sampler='Metropolis' был ложью вдвойне: ключ нигде не читается,
+    а Metropolis в цепочке сэмплеров запрещён (numpyro→pytensor→ADVI).
+    Урезанные параметры оправданы ТОЛЬКО для действительно медленного пути —
+    PyTensor Python-mode (нет ни JAX, ни компилятора).
+
+    Args:
+        has_compiler: наличие C-компилятора (PyTensor fast path).
+        has_jax: наличие numpyro/JAX (Tier-1). None → автоопределение.
     """
-    if has_compiler:
+    if has_jax is None:
+        try:
+            import numpyro  # noqa: F401
+            has_jax = True
+        except ImportError:
+            has_jax = False
+    if has_jax or has_compiler:
         return {'chains': 4, 'draws': 2000, 'tune': 2000, 'sampler': 'NUTS'}
-    # No compiler → Metropolis fallback. Сохраняем меньшие дефолты, иначе обучение
-    # 4×2000×2000 на Metropolis = десятки минут. Antон поднимет вручную если нужно.
-    return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'Metropolis'}
+    # Медленный путь (PyTensor Python-mode, ни JAX, ни g++): меньшие дефолты,
+    # иначе обучение 4×2000×2000 = десятки минут. Поднять можно mcmc_override.
+    return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'NUTS'}
 
 
 def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[str, Any]:
