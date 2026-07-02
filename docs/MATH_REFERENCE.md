@@ -3,7 +3,7 @@
 **Purpose:** centralized math reference for all model components. Versioned sections per release.
 Replaces sprawled MATH_AUDIT_v1_*.md files (single source of truth).
 
-**Last updated:** 2026-04-28 (v1.2.0 development - Awareness KPI + Weibull Learnable; doc-extension session)
+**Last updated:** 2026-07-02 (мат-аудит ядра: Goal-Seek delta_posterior CI + p_hit + маркеры экстраполяции goal-seek/scenario; Hill overflow-предел; H11 status-честность)
 
 ---
 
@@ -608,7 +608,42 @@ Optimizer оперирует с total spend per channel (scalar), Hill ожид�
 | Posterior mean | Interactive sliders, real-time UI | Fast (1 SLSQP run) | point estimate |
 | Full per-draw | Final acceptance + uncertainty band | 100-500× slower (~1000 SLSQP runs) | distribution + HDI |
 
-UI toggle "Use full posterior" для accuracy mode. Default = posterior mean.
+> **Status (мат-аудит 2026-07-02, F-05):** full per-draw режим и «UI toggle Use full
+> posterior» — **ДИЗАЙН, в optimizer.py НЕ реализованы** (grep: use_full_posterior /
+> per_draw отсутствуют). Реализовано: per-channel **mROAS CI** из posterior draws
+> (`_compute_mroas_money_samples` → `compute_ci_hdi`, optimizer.py:1297-1357).
+> CI на сам оптимальный сплит долей (канон Jin 2017: «доля A 38% [27-46%]») —
+> отсутствует; рекомендация OPP-04 в отчёте аудита. Таблица выше сохранена как
+> целевой дизайн — не выдавать за текущее поведение.
+
+### Goal-Seek (inverse) — неопределённость и честность (мат-аудит 2026-07-02)
+
+**Module:** `sidecar/econometrica/optimize/inverse.py` · tests: `tools/test_goalseek_honesty.py`
+
+1. **CI бюджета — `delta_posterior`.** Прежний Delta-прокси `spread = |S(B+δ)−S(B−δ)|/2 ≈
+   |grad|·δ` алгебраически схлопывал `half = 1.28·spread/|grad|` в константу `1.28·δ`
+   (~±6.4% бюджета) — CI не зависел от неопределённости модели (зонд: posterior sd
+   β 0.05 и 0.45 → одинаковые 12.80% отн. ширины). Теперь при наличии posterior:
+   `sd(B) = z₀.₉ · sd_posterior(S(B*)) / |∂S/∂B|`, где `sd_posterior(S)` — std
+   per-sample forward через ту же `evaluate_flat_allocation_response` (SSOT формулы,
+   I8-alignment; intercept-разброс включён; epistemic, без σ_obs). Атрибуция: Gelman,
+   *Bayesian Workflow* — неопределённость поддерживается posterior-симуляциями;
+   Delta-аппроксимация — метод эпохи до симуляций. Fallback `delta` (старый прокси)
+   сохраняется для OLS/legacy-pickle. `capped=True` (упор в cap 50% ширины — почти
+   плоская кривая) поднимает UI-баннер насыщения наравне с `flat_response_fallback`.
+2. **P(достижения) — `p_hit_method='posterior'`.** Прежняя эвристика давала ≈0.5
+   всегда (бисекция останавливается на `S(B*)≈target` → z≈0). Теперь — доля posterior
+   draws ≥ цели. NB: на самом B* доля ~0.5 by construction (медиана у цели) —
+   осмысленна при пользовательском max_budget-капе; развитие «бюджет под P=80%»
+   (квантильная бисекция) — OPP-02.
+3. **Маркер экстраполяции.** `result['extrapolation'] = {severity 0..3, channels[]}` —
+   per-period рекомендованные траты канала против p95/p99 наблюдавшихся
+   (канонические тиры `utils/forecast_validation.extrapolation_severity`). Диапазон
+   бисекции `budget_hi = 5×current` сознательно шире safe-коридора (GS-1), но
+   рекомендация честно помечает выход за наблюдённый диапазон (Chan & Perry 2017,
+   Fig. 2: кривая вне наблюдённого диапазона не идентифицируется данными).
+   Аналогичный маркер возвращает `scenario.predict_scenario` (F-04): пик per-period
+   плана vs p95/p99 истории канала.
 
 ---
 
@@ -736,6 +771,17 @@ hill = x_norm**α / (x_norm**α + γ**α + 1e-12)     # γ=0 edge защищён
 ```
 
 В HTML report ранее ловили `media_mean=0 → NaN propagation` (Sprint 5 post-audit, commit `b68cf5b` 2026-04-27). Защита: 5 div-by-zero guards в `what_if.js`.
+
+**Overflow-предел (мат-аудит 2026-07-02, F-09):** `x**α` переполняется при
+x ≳ 1e154 (α=2) → прежде `inf/inf = NaN` тихо уплывал в JSON как null. Теперь
+`utils/saturation.py` (все 4 варианта: hill_function / batch / batch_2d /
+derivative_batch) возвращает честный математический предел `hill(x→∞)=1.0`,
+`hill'(x→∞)=0.0`. Нормальный диапазон byte-exact (формула не менялась — проверено
+`tools/test_hill_numerics.py::test_normal_range_byte_exact_vs_direct_formula`);
+NaN-вход НЕ маскируется. Известные документированные крайние свойства (не баги):
+производная при α<1, x→0 стремится к ∞ (истинная математика C-shape; смягчено
+floor 1e-10); α<0 математически инвертирует кривую — из posterior недостижимо
+(Gamma-prior > 0), defensive-проверка не добавлена (горячий путь).
 
 ### Geometric adstock (boundary θ)
 
