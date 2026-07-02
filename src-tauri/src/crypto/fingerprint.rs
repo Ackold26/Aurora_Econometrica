@@ -8,6 +8,36 @@ use crate::errors::{coded_err, ErrorCode};
 /// Cached fingerprint - WMI queries are expensive (~100ms each), called 6+ times per session.
 static FINGERPRINT_CACHE: OnceLock<String> = OnceLock::new();
 
+/// Whether a `Win32_DiskDrive` row represents a FIXED internal disk eligible to
+/// contribute its serial to the machine fingerprint.
+///
+/// Removable / USB / FireWire media are excluded: they appear and disappear
+/// between sessions, shift the Win32_DiskDrive enumeration, and would otherwise
+/// silently change the selected serial → unstable fingerprint → "license not
+/// found" (класс LIC-01). Три независимых сигнала, чтобы одно ошибочное поле не
+/// пропустило съёмный диск: MediaType, InterfaceType, PNPDeviceID. Внутренние
+/// NVMe/SATA не матчат ни один → serial типовой машины не меняется (существующие
+/// лицензии целы).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn disk_is_fixed_internal(
+    media_type: Option<&str>,
+    interface_type: Option<&str>,
+    pnp_device_id: Option<&str>,
+) -> bool {
+    let removable = media_type.map_or(false, |m| {
+        let m = m.to_ascii_lowercase();
+        m.contains("removable") || m.contains("external")
+    });
+    let hot_plug_bus = interface_type.map_or(false, |i| {
+        i.eq_ignore_ascii_case("USB") || i.eq_ignore_ascii_case("1394")
+    });
+    let usb_pnp = pnp_device_id.map_or(false, |p| {
+        let p = p.to_ascii_uppercase();
+        p.starts_with("USBSTOR") || p.starts_with("USB\\")
+    });
+    !removable && !hot_plug_bus && !usb_pnp
+}
+
 /// Collects machine-unique identifiers and produces a SHA-256 fingerprint.
 /// Components: Machine UUID + Disk Serial + Motherboard Serial.
 /// Result is cached after first computation (hardware doesn't change at runtime).
@@ -63,23 +93,45 @@ fn collect_hw_ids_inner() -> Result<Vec<String>> {
         }
     }
 
-    // Disk serial (sorted by Index for deterministic selection across processes)
+    // Disk serial (sorted by Index for deterministic selection across processes).
+    // LIC-01: только FIXED внутренние диски дают serial — removable/USB media
+    // сдвигают enumeration и меняют fingerprint между сессиями.
     #[derive(Deserialize)]
     #[serde(rename_all = "PascalCase")]
     struct DiskDrive {
         serial_number: Option<String>,
         index: u32,
+        media_type: Option<String>,
+        interface_type: Option<String>,
+        #[serde(rename = "PNPDeviceID")]
+        pnp_device_id: Option<String>,
     }
 
-    if let Ok(mut results) = wmi_con.raw_query::<DiskDrive>("SELECT SerialNumber, Index FROM Win32_DiskDrive") {
+    let is_fixed = |d: &DiskDrive| {
+        disk_is_fixed_internal(
+            d.media_type.as_deref(),
+            d.interface_type.as_deref(),
+            d.pnp_device_id.as_deref(),
+        )
+    };
+
+    if let Ok(mut results) = wmi_con.raw_query::<DiskDrive>(
+        "SELECT SerialNumber, Index, MediaType, InterfaceType, PNPDeviceID FROM Win32_DiskDrive",
+    ) {
         results.sort_by_key(|d| d.index);
         info!("WMI Win32_DiskDrive: {} disk(s)", results.len());
+        let has_serial = |d: &DiskDrive| d.serial_number.as_ref().is_some_and(|s| !s.trim().is_empty());
         for (i, d) in results.iter().enumerate() {
-            info!("  disk[{}]: Index={}, serial={:?}", i, d.index, d.serial_number);
+            info!("  disk[{}]: Index={}, fixed={}, serial_present={}", i, d.index, is_fixed(d), has_serial(d));
         }
-        if let Some(item) = results.iter().find(|d| {
-            d.serial_number.as_ref().is_some_and(|s| !s.trim().is_empty())
-        }) {
+        // Предпочесть фиксированный внутренний диск с serial; fallback на любой
+        // диск с serial, если фиксированного нет — сохраняет прежнее поведение
+        // для типовой машины (внутренний уже был index 0) → лицензии целы.
+        let chosen = results
+            .iter()
+            .find(|d| has_serial(d) && is_fixed(d))
+            .or_else(|| results.iter().find(|d| has_serial(d)));
+        if let Some(item) = chosen {
             let serial = item.serial_number.as_ref().unwrap().trim();
             ids.push(format!("disk-serial:{serial}"));
         }
@@ -196,4 +248,28 @@ pub fn hash_fingerprint(fingerprint: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(fingerprint.as_bytes());
     hex::encode(hasher.finalize())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_internal_disk_passes() {
+        // Внутренний NVMe/SATA — ни один сигнал removable не матчит.
+        assert!(disk_is_fixed_internal(Some("Fixed hard disk media"), Some("SCSI"), Some("SCSI\\DISK&VEN")));
+        // Отсутствующие поля → трактуем как fixed (fallback безопасен, лицензии целы).
+        assert!(disk_is_fixed_internal(None, None, None));
+    }
+
+    #[test]
+    fn removable_disk_excluded() {
+        // Любого одного сигнала достаточно, чтобы исключить съёмный носитель.
+        assert!(!disk_is_fixed_internal(Some("Removable Media"), None, None));
+        assert!(!disk_is_fixed_internal(Some("External hard disk media"), None, None));
+        assert!(!disk_is_fixed_internal(None, Some("USB"), None));
+        assert!(!disk_is_fixed_internal(None, Some("1394"), None));
+        assert!(!disk_is_fixed_internal(None, None, Some("USBSTOR\\DISK&VEN_SANDISK")));
+        assert!(!disk_is_fixed_internal(None, None, Some("USB\\VID_...")));
+    }
 }
