@@ -95,10 +95,26 @@ advisory + honesty-gate), F-24 (CanonicalizationError информативен).
 | OPP-08 | Мёртвые endpoint'ы (/compute/forecast-scaling, /compute/preflight) — подключить или снести | меньше ложных якорей |
 
 ## Гейт
-Полный прогон: см. итог в state-файле (tools ~1650+ и sidecar-тесты зелёные,
-standalone math_correctness/posterior_ci — прогнаны отдельно, они в collect_ignore).
-svelte-check 0 ошибок. Pin Кагоцела не изменён ни одной правкой (byte-exact
-гарантии там, где формулы не менялись).
+Полный прогон: tools 1662 passed / sidecar 379 / math_correctness 156/156 /
+posterior_ci 82/82 / svelte-check 0 ошибок. Pin Кагоцела не изменён ни одной
+правкой (byte-exact гарантии там, где формулы не менялись).
+
+## Живая верификация на РЕАЛЬНОМ Kagocel (сильнейший тест)
+Правки в горячем пути `train_model` юнит-тесты мокают — поэтому обучена
+байесовская модель на клиентском `Kagocel_RF_MMM_dataset.xlsx` (31 мес × 4
+денежных канала) через настоящий JAX-NUTS + прогнан весь пайплайн. Всё зелёное:
+- **F-13** prior predictive сработал вживую — поймал тонкий Kagocel (coverage 42% < 50%);
+- **F-11** ESS bulk=704 / tail=458 собраны на реальном arviz-trace → `checks.ess=True`;
+- **F-12** E-BFMI=0.881 на реальной NUTS-energy → `checks.bfmi=True` (energy у numpyro есть — guard корректен);
+- **F-20** `y_pred_reconstruction_failed=False`; honesty-вердикт **uncertain** (правильно: тонкие данные + prior-predictive fail);
+- **D1** канарейка на реальных данных gap=**0.000%**;
+- optimize `converged=True`, `mroi_current_ci_low=0.0069` (CI на mROI из posterior);
+- **F-02** goal-seek CI `method=delta_posterior`; **F-03** `p_hit_method=posterior`, p_hit=0.405 (не константа 0.5);
+- **F-01/F-04** extrapolation-маркеры присутствуют (severity=0 на умеренных целях — корректно).
+
+Побочно: feasibility-гейт optimizer вернул `INFEASIBLE_BUDGET_HIGH` на наивных
+границах ±50% (Kagocel-шкала) — корректное поведение, не дефект (optimizer вне
+правок аудита; при широких границах converged=True).
 
 ## Коммиты аудита
 `b788041` → `4c34827` → `0560c6d` → `126a294` → `8c78e65` → `384e504` → `e736518`
