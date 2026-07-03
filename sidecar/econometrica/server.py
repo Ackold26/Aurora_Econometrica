@@ -1930,17 +1930,21 @@ def export_pptx(req: PptxExportRequest):
         # модель на истории») — как и сценарии, frontend её не передаёт.
         from engines.backtest import load_saved_backtest
         backtest = load_saved_backtest(str(project_path))
+        # E3 (2026-07-03): сравнение поколений — тем же путём с диска.
+        from engines.model_compare import load_saved_generation_compare
+        generation_compare = load_saved_generation_compare(str(project_path))
 
         logger.info(
             f'PPTX inputs: model={has_model} decompose={has_decomp} '
             f'optimize={has_optim} scenarios={len(scenarios)} '
-            f'backtest={"yes" if backtest else "no"}'
+            f'backtest={"yes" if backtest else "no"} '
+            f'gen_compare={"yes" if generation_compare else "no"}'
         )
 
         result = build_pptx(
             req.model_data, req.decompose_data, req.optimize_data,
             output_path, scenarios=scenarios, project_id=req.project_id,
-            backtest=backtest,
+            backtest=backtest, generation_compare=generation_compare,
         )
         logger.info(f'PPTX export OK: {result}')
         return JSONResponse(content=result)
@@ -2130,6 +2134,73 @@ def compute_backtest_endpoint(req: BacktestRequest):
         return JSONResponse(content=result)
     except Exception as e:
         logger.exception('Backtest FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+class GenerationCompareRequest(BaseModel):
+    """E3 (2026-07-03): сравнение текущей модели с архивным поколением
+    («что изменилось с прошлого квартала», вердикты по перекрытию CI)."""
+    project_dir: str
+    baseline_ts: str | None = Field(default=None, pattern=r'^\d{8}_\d{6}$')
+    unit_costs: dict[str, float] | None = None
+    # Мгновенное чтение сохранённого сравнения (models/generation_compare.json).
+    read_only: bool = False
+
+
+@app.post('/compute/generation-compare')
+def generation_compare_endpoint(req: GenerationCompareRequest):
+    """Дёшево (2 декомпозиции, секунды). status='insufficient' — честный
+    результат «истории поколений ещё нет», не сбой."""
+    try:
+        from engines.model_compare import (
+            compare_generations,
+            load_saved_generation_compare,
+        )
+        if req.read_only:
+            saved = load_saved_generation_compare(req.project_dir)
+            if saved is None:
+                return JSONResponse(content={
+                    'status': 'not_found',
+                    'message': 'Сравнение поколений ещё не выполнялось.',
+                })
+            return JSONResponse(content=saved)
+        result = compare_generations(
+            req.project_dir,
+            baseline_ts=req.baseline_ts,
+            unit_costs_override=req.unit_costs,
+        )
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'GENERATION_NOT_FOUND')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Generation compare FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+class DriftCheckRequest(BaseModel):
+    """E3 (2026-07-03): дрейф — архивное поколение на свежем хвосте данных."""
+    project_dir: str
+    baseline_ts: str | None = Field(default=None, pattern=r'^\d{8}_\d{6}$')
+
+
+@app.post('/compute/drift-check')
+def drift_check_endpoint(req: DriftCheckRequest):
+    try:
+        from engines.model_compare import drift_check
+        result = drift_check(req.project_dir, baseline_ts=req.baseline_ts)
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'GENERATION_NOT_FOUND', 'NO_DATA')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Drift check FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
 

@@ -63,10 +63,10 @@ ROI/decay/долей С ИНТЕРВАЛАМИ; вердикт «стабиль�
 | E3-0 | Аудит лесов + реестр + дизайн-решения | ✅ 2026-07-03 |
 | E3-1 | Движок сравнения поколений (per-channel ROI/decay CI + вердикты по перекрытию) + тесты с канарейкой | ✅ 8 тестов (канарейка-пересчёт вердиктов, детерминизм, без побочек) |
 | E3-2 | Дрейф-мониторинг (старая модель на новых точках, связка с E1-механикой) + тесты | ✅ 3 теста (6 свежих точек, insufficient, детерминизм) |
-| E3-3 | Доставка-1: endpoints (generation-compare, drift) + Rust (econ_model_history, econ_generation_compare) + lib.rs | ⏳ TODO |
-| E3-4 | Доставка-2: UI-карточка «История модели» (список поколений + сравнить + дрейф-плашка) | ⏳ TODO |
-| E3-5 | Доставка-3: PPTX-раздел «Что изменилось с прошлого квартала» (is_live, без wireframe) | ⏳ TODO |
-| E3-6 | Живой зонд Kagocel: обучить 25 мес → ретрейн 31 мес → сравнение поколений + дрейф + PPTX; детерминизм | ⏳ TODO |
+| E3-3 | Доставка-1: endpoints (generation-compare, drift) + Rust (econ_model_history, econ_generation_compare) + lib.rs | ✅ 8 server-тестов + cargo чисто (F-E3-1 закрыта: history доставлен) |
+| E3-4 | Доставка-2: UI-карточка «История модели» (список поколений + сравнить + дрейф-плашка) | ✅ ModelHistoryCard в TrainStep, 6 vitest, svelte 0 |
+| E3-5 | Доставка-3: PPTX-раздел «Что изменилось с прошлого квартала» (is_live, без wireframe) | ✅ слайд №6/7 (сдвиги формулой на 2 вставных), +3 теста, verify 43/43 |
+| E3-6 | Живой зонд Kagocel: обучить 25 мес → ретрейн 31 мес → сравнение поколений + дрейф + PPTX; детерминизм | ✅ **11/11 «ВСЁ ЗЕЛЁНОЕ»**: compare 5/5 каналов по CI, drift retrain_recommended (43.8% vs наивный 19.4%), PPTX 13 слайдов, детерминизм; отчёт docs/audits/E3_LIFECYCLE_2026_07.md |
 
 ## Находки по ходу
 - **F-E3-1:** /compute/model_history не доставлен (Rust/UI нет) — закрыть в E3-3.
@@ -96,6 +96,19 @@ ROI/decay/долей С ИНТЕРВАЛАМИ; вердикт «стабиль�
   generation_compare.json + load_saved). Тесты: юнит вердикта 5 веток,
   структура, канарейка-пересчёт вердиктов, БЕЗ ПОБОЧЕК (сторожевой маркер
   decomposition.json), roundtrip+детерминизм, insufficient/NOT_FOUND/NO_MODEL.
+- **E3-3..E3-6 (2026-07-03):** endpoints generation-compare (+read_only,
+  422-паттерн baseline_ts, insufficient=200) и drift-check; Rust econ_model_history/
+  econ_generation_compare/econ_drift_check (quick_client — секунды) + lib.rs;
+  ModelHistoryCard (поколения, кнопка «Что изменилось», вердикт-бейджи с CI,
+  дрейф-плашка alert только при retrain_recommended) в TrainStep под BacktestCard;
+  PPTX: сдвиги переведены на формулу _page_shift=(витрина)+(сравнение), слайд
+  s10c №6/7, дека 12/13/14; шов адаптер→pptx_export→server (чтение
+  generation_compare.json с диска). Живой зонд: **train 25 мес 14с → 31 мес 19с →
+  history=1 → compare ok 0.8с (headline «был 0.3 [0.0–0.6], стал 0.4 [0.1–0.7]»,
+  5/5 ci_overlap, вердикты стабильно/сдвиг-в-пределах) → drift ok 0.7с
+  (retrain_recommended: 43.8% против сезонного наивного 19.4% — сезонность!) →
+  PPTX 13 слайдов, слайд №6 живьём, 0 wireframe-маркеров — 11/11.**
+  Гейты этапа: 11+8+9 python · vitest 777/777 · svelte 0 · verify 43/43 · cargo чисто.
 - **E3-2 (2026-07-03):** drift_check: окно обучения поколения из params-снимка
   (каскад n_obs → metrics.n_obs → len(actual_vs_predicted)), прогноз хвоста
   архивной моделью через времянку latest.pkl + predict_scenario, MAPE хвоста

@@ -168,6 +168,91 @@ def test_backtest_slide_content_honest(live_decks):
     assert 'будущее ей не показывают' in text
 
 
+def _gen_compare_fixture(**overrides):
+    gc = {
+        'status': 'ok',
+        'baseline': {'timestamp': '20260401_120000',
+                     'trained_at': '2026-04-01T12:00:00+00:00'},
+        'current': {'trained_at': '2026-07-03T10:00:00+00:00'},
+        'channels': [
+            {'name': 'TV', 'roi_old': 3.2, 'roi_new': 3.4,
+             'roi_ci_old': [2.6, 3.9], 'roi_ci_new': [2.8, 4.0],
+             'delta_pct': 6.3, 'verdict': 'stable', 'verdict_ru': 'стабильно',
+             'method': 'ci_overlap', 'decay_shift': False, 'contribution_new': 900},
+            {'name': 'Digital', 'roi_old': 2.0, 'roi_new': 4.8,
+             'roi_ci_old': [1.6, 2.4], 'roi_ci_new': [4.2, 5.4],
+             'delta_pct': 140.0, 'verdict': 'shift_strong',
+             'verdict_ru': 'резкий сдвиг', 'method': 'ci_overlap',
+             'decay_shift': False, 'contribution_new': 500},
+        ],
+        'added_channels': [], 'removed_channels': [],
+        'summary': {
+            'counts': {'stable': 1, 'shift_within_ci': 0, 'shift_strong': 1},
+            'headline': 'ROI TV: был 3.2 [2.6–3.9], стал 3.4 [2.8–4.0] — стабильно.',
+            'strong_shifts': ['Digital'],
+            'probable_causes': ['Новые наблюдения изменили оценку вклада.'],
+        },
+        'generated_at': '2026-07-03T10:05:00+00:00',
+    }
+    gc.update(overrides)
+    return gc
+
+
+def test_mapper_passes_only_ok_generation_compare():
+    ok = _gen_compare_fixture()
+    data = _map_pipeline_to_builder_data({}, {}, {}, None, generation_compare=ok)
+    assert data['generation_compare']['summary']['counts']['stable'] == 1
+    for bad in (None, {'status': 'insufficient'}, {'status': 'ok', 'channels': []}):
+        d = _map_pipeline_to_builder_data({}, {}, {}, None, generation_compare=bad)
+        assert 'generation_compare' not in d
+
+
+def test_deck_with_both_inserts_14_slides_ordered(live_decks, tmp_path):
+    """E3: оба вставных артефакта → дека 14; №6 витрина, №7 «что изменилось»."""
+    from pptx import Presentation
+    from engines.pptx_export import build_pptx
+    p = live_decks['pipeline']
+    out = str(tmp_path / 'both.pptx')
+    res = build_pptx(
+        p['model_data'], p['dec'], p['opt'], out, scenarios=[],
+        project_id='e3_test', backtest=_backtest_fixture(),
+        generation_compare=_gen_compare_fixture(),
+    )
+    assert res.get('status') == 'ok', res.get('message')
+    assert res['slides'] == 14
+    prs = Presentation(out)
+
+    def slide_text(i):
+        return '\n'.join(
+            sh.text_frame.text for sh in prs.slides[i].shapes if sh.has_text_frame
+        )
+    assert 'Проверка на истории' in slide_text(5)          # слайд №6
+    s7 = slide_text(6)                                      # слайд №7
+    assert 'был 3.2 [2.6–3.9], стал 3.4' in s7
+    assert 'резкий сдвиг' in s7
+    assert 'перекрытию интервалов' in s7
+    assert 'Резких сдвигов: 1' in s7
+
+
+def test_deck_with_only_gen_compare_13_slides(live_decks, tmp_path):
+    from pptx import Presentation
+    from engines.pptx_export import build_pptx
+    p = live_decks['pipeline']
+    out = str(tmp_path / 'only_gc.pptx')
+    res = build_pptx(
+        p['model_data'], p['dec'], p['opt'], out, scenarios=[],
+        project_id='e3_test', backtest=None,
+        generation_compare=_gen_compare_fixture(),
+    )
+    assert res.get('status') == 'ok'
+    assert res['slides'] == 13
+    prs = Presentation(out)
+    s6 = '\n'.join(
+        sh.text_frame.text for sh in prs.slides[5].shapes if sh.has_text_frame
+    )
+    assert 'был 3.2' in s6, 'без витрины «что изменилось» занимает слайд №6'
+
+
 def test_backtest_slide_worse_than_naive_title(live_decks, tmp_path):
     """Нелестный вердикт выносится в заголовок слайда — честность на витрине."""
     from engines.pptx_export import build_pptx

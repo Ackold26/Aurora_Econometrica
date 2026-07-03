@@ -753,6 +753,7 @@ def _map_pipeline_to_builder_data(
     project_id: str | None = None,
     version: str = "1.0.11",
     backtest: dict | None = None,
+    generation_compare: dict | None = None,
 ) -> dict:
     """Translate Econometrica pipeline output into deliverable builder schema.
 
@@ -1025,6 +1026,15 @@ def _map_pipeline_to_builder_data(
     # insufficient/error не рождают слайд (никаких wireframe-суррогатов).
     if backtest and backtest.get('status') == 'ok' and backtest.get('windows'):
         data['backtest'] = backtest
+
+    # E3 (2026-07-03): сравнение поколений («что изменилось с прошлого
+    # квартала», models/generation_compare.json) — тот же принцип: только ok.
+    if (
+        generation_compare
+        and generation_compare.get('status') == 'ok'
+        and generation_compare.get('channels')
+    ):
+        data['generation_compare'] = generation_compare
 
     logger.info(
         f"narrative_adapter: client={client_label!r} "

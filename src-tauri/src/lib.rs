@@ -3277,6 +3277,10 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_optimize_split_ci,
             // E1 (2026-07-03): backtest-витрина «модель vs факт» (rolling-origin)
             commands::econometrica::econ_backtest,
+            // E3 (2026-07-03): жизненный цикл модели - история/сравнение/дрейф
+            commands::econometrica::econ_model_history,
+            commands::econometrica::econ_generation_compare,
+            commands::econometrica::econ_drift_check,
             // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
             commands::econometrica::econ_safe_corridor,
             commands::econometrica::econ_optimize_inverse,

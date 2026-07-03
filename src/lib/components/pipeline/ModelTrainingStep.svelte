@@ -22,6 +22,7 @@
   import TrainingProgress from '$lib/components/pipeline/TrainingProgress.svelte';
   import ConvergenceDashboard from '$lib/components/pipeline/ConvergenceDashboard.svelte';
   import BacktestCard from '$lib/components/pipeline/BacktestCard.svelte';
+  import ModelHistoryCard from '$lib/components/pipeline/ModelHistoryCard.svelte';
   import MQSBadge from '$lib/components/MQSBadge.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
@@ -307,6 +308,8 @@
          карточку (перечитывает сохранённую витрину + пометку устаревания). -->
     {#key $modelData?.picklePath}
       <BacktestCard />
+      <!-- E3 (2026-07-03): жизненный цикл — поколения, сравнение, дрейф. -->
+      <ModelHistoryCard />
     {/key}
 
     {#if $expertMode}

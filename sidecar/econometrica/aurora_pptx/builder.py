@@ -275,38 +275,39 @@ class AuroraPPTXBuilder:
         # B1-fix R-03/R-04: честное покрытие данных (n наблюдений / частота /
         # разрывы) от адаптера; None → строки рендерятся «—» или скрываются.
         self.data_coverage = self.data.get("data_coverage") or {}
-        # E1 (2026-07-03): backtest-витрина «Проверка на истории». Слайд рисуется
-        # ТОЛЬКО при живой проверке (models/backtest.json через адаптер) — у слайда
-        # принципиально НЕТ wireframe-дефолта (урок B1: «замаскированная дефолтом
-        # честность»). П5 (одобрено Антоном): витрина — В СЕКЦИИ «ГЛАВНОЕ»,
-        # физический №6 сразу после SCQAR (самый убедительный слайд для продления
-        # подписки — не прятать в методологию); дека = 13, хвост сдвигается на +1.
+        # E1+E3 (2026-07-03): вставные слайды честности в секции «ГЛАВНОЕ»
+        # сразу после SCQAR — самые убедительные для продления подписки:
+        #  · «Проверка на истории» (E1, models/backtest.json);
+        #  · «Что изменилось с прошлого квартала» (E3, generation_compare.json).
+        # Оба рисуются ТОЛЬКО с живыми данными — wireframe-режима НЕТ по
+        # построению (урок B1: «замаскированная дефолтом честность»).
+        # Дека 12 (+1 за каждый вставной); хвост и TOC сдвигаются формулой.
         _bt = self.data.get("backtest") or {}
         self.backtest = (
             _bt if (self.is_live and _bt.get("status") == "ok" and _bt.get("windows"))
             else None
         )
-        self._page_shift = 1 if self.backtest else 0
-        if self.backtest:
+        _gc = self.data.get("generation_compare") or {}
+        self.gen_compare = (
+            _gc if (self.is_live and _gc.get("status") == "ok" and _gc.get("channels"))
+            else None
+        )
+        self._page_shift = int(bool(self.backtest)) + int(bool(self.gen_compare))
+        if self._page_shift:
+            _s = self._page_shift
             if "total_slides" not in meta:
-                self.total_slides = 13
+                self.total_slides = 12 + _s
             if "toc_page_refs" not in meta:
-                self.toc_page_refs = [3, 7, 10, 11, 12]
+                self.toc_page_refs = [3, 6 + _s, 9 + _s, 10 + _s, 11 + _s]
             if not meta.get("slide_to_section"):
-                self.slide_to_section = {
-                    2:  (1, "Главное"),
-                    3:  (1, "Главное"),
-                    4:  (1, "Главное"),
-                    5:  (1, "Главное"),
-                    6:  (1, "Главное"),                # П5: проверка на истории
-                    7:  (2, "Декомпозиция вкладов"),
-                    8:  (2, "Декомпозиция вкладов"),
-                    9:  (2, "Декомпозиция вкладов"),
-                    10: (3, "Методология"),
-                    11: (4, "Данные и качество"),
-                    12: (5, "Приложение и источники"),
-                    13: (5, "Приложение и источники"),
-                }
+                _map = {n: (1, "Главное") for n in range(2, 6 + _s)}
+                for n in range(6 + _s, 9 + _s):
+                    _map[n] = (2, "Декомпозиция вкладов")
+                _map[9 + _s] = (3, "Методология")
+                _map[10 + _s] = (4, "Данные и качество")
+                _map[11 + _s] = (5, "Приложение и источники")
+                _map[12 + _s] = (5, "Приложение и источники")
+                self.slide_to_section = _map
         # INV-50 F-DELIVERABLE-1 (2026-06-07): data-thinness disclosure.
         # Default None → preview/wireframe (Кагоцел fallback) НЕ фабрикует
         # оговорку о переобучении; она появляется только когда backend реально
@@ -3377,6 +3378,106 @@ class AuroraPPTXBuilder:
         )
         self._footer(slide, 6)
 
+    def s10c_generation_compare(self):
+        """E3 (2026-07-03): слайд «Что изменилось с прошлого квартала».
+
+        Сравнение поколений модели: per-channel ROI был [CI] → стал [CI]
+        с вердиктом по перекрытию интервалов (Jin 2017). Рисуется ТОЛЬКО
+        при живом models/generation_compare.json — wireframe-режима нет.
+        """
+        gc = self.gen_compare
+        slide = self._blank()
+        self._header(slide, slide_num=6 + int(bool(self.backtest)))
+
+        summary = gc.get("summary") or {}
+        counts = summary.get("counts") or {}
+        headline = summary.get("headline")
+        title = headline or "Что изменилось с прошлого квартала"
+        self._action_title(slide, title, show_lime=True, y=0.80, height=0.80, size=20)
+
+        left_x = self.safe
+        left_y = 1.85
+        left_w = (self.w - 2 * self.safe) * 0.34
+
+        # LEFT: счётчики стабильности + базовое поколение
+        self._text(
+            slide, left_x, left_y, left_w, 0.25, "ПОКОЛЕНИЯ МОДЕЛИ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
+        _base_ts = (gc.get("baseline") or {}).get("timestamp") or "—"
+        _rows = [
+            (f"Сравнение с версией от {_base_ts[:8]}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+            (f"Стабильных каналов: {counts.get('stable', 0)}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+            (f"Сдвиг в пределах неопределённости: {counts.get('shift_within_ci', 0)}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+            (f"Резких сдвигов: {counts.get('shift_strong', 0)}",
+             {"font": self.sans, "size": 11, "bold": counts.get('shift_strong', 0) > 0,
+              "color": self.deep_100}),
+        ]
+        self._paragraphs(slide, left_x, left_y + 0.5, left_w, 2.2, _rows, line_spacing=1.5)
+
+        _causes = summary.get("probable_causes") or []
+        if counts.get('shift_strong', 0) > 0 and _causes:
+            self._text(
+                slide, left_x, left_y + 2.6, left_w, 0.25, "ВЕРОЯТНЫЕ ПРИЧИНЫ",
+                font=self.sans, size=9, bold=True, color=self.gold,
+            )
+            self._paragraphs(
+                slide, left_x, left_y + 2.9, left_w, 1.6,
+                [(f"• {c}", {"font": self.sans, "size": 10, "color": self.deep_60})
+                 for c in _causes[:3]],
+                line_spacing=1.3,
+            )
+
+        # RIGHT: таблица каналов «был [CI] → стал [CI] · вердикт»
+        right_x = left_x + left_w + 0.5
+        right_w = self.w - self.safe - right_x
+        ry = left_y
+        self._text(
+            slide, right_x, ry, right_w, 0.25, "ROI ПО КАНАЛАМ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, right_x, ry + 0.28, 1.0, weight=0.75, color=self.gold)
+        ry += 0.5
+        name_w = right_w * 0.34
+        vals_w = right_w * 0.42
+        for ch in (gc.get("channels") or [])[:8]:
+            def _ci_txt(ci):
+                if not ci or ci[0] is None or ci[1] is None:
+                    return ""
+                return f" [{float(ci[0]):.1f}–{float(ci[1]):.1f}]"
+            self._text(
+                slide, right_x, ry, name_w, 0.24, str(ch.get("name") or "—"),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + name_w, ry, vals_w, 0.24,
+                (f"{float(ch.get('roi_old') or 0):.1f}{_ci_txt(ch.get('roi_ci_old'))} → "
+                 f"{float(ch.get('roi_new') or 0):.1f}{_ci_txt(ch.get('roi_ci_new'))}"),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + name_w + vals_w, ry, right_w - name_w - vals_w, 0.24,
+                str(ch.get("verdict_ru") or ""),
+                font=self.sans, size=9,
+                bold=ch.get("verdict") == "shift_strong",
+                color=self.deep_100 if ch.get("verdict") == "shift_strong" else self.deep_60,
+            )
+            self._hairline(slide, right_x, ry + 0.27, right_w, weight=0.25)
+            ry += 0.34
+
+        self._text(
+            slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
+            ("Метод: обе версии модели пересчитаны на сегодняшних данных; вердикт — "
+             "по перекрытию интервалов неопределённости (у оценок есть разброс, "
+             "сравниваются интервалы, а не голые точки)."),
+            font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
+        )
+        self._footer(slide, 6 + int(bool(self.backtest)))
+
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
         slide = self._blank()
@@ -3601,11 +3702,13 @@ class AuroraPPTXBuilder:
         self.s02_at_a_glance()
         self.s05_key_message()
         self.s09_scqar()
-        # E1+П5 (2026-07-03, одобрено Антоном): витрина «Проверка на истории» —
-        # завершает секцию «Главное» (сразу после SCQAR); только при живой
-        # проверке (models/backtest.json); дека становится 13-слайдовой.
+        # E1+П5+E3 (2026-07-03): вставные слайды честности завершают «Главное»
+        # (после SCQAR): витрина «Проверка на истории», затем «Что изменилось
+        # с прошлого квартала» — только при живых артефактах.
         if self.backtest:
             self.s10b_backtest()
+        if self.gen_compare:
+            self.s10c_generation_compare()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()

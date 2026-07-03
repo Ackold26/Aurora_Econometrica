@@ -715,6 +715,51 @@ pub async fn econ_backtest(
     post_json("/compute/backtest", &body, client).await
 }
 
+/// E3 (2026-07-03): список архивных поколений модели (models/history/) —
+/// endpoint существовал с v2.0, но не был доставлен до UI (F-E3-1).
+#[tauri::command]
+pub async fn econ_model_history(project_dir: String) -> Result<Value, String> {
+    info!("econ_model_history: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/model_history", &body, quick_client()).await
+}
+
+/// E3 (2026-07-03): сравнение текущей модели с архивным поколением
+/// («что изменилось с прошлого квартала», вердикты по перекрытию CI).
+/// read_only=true — мгновенное чтение сохранённого сравнения.
+#[tauri::command]
+pub async fn econ_generation_compare(
+    project_dir: String,
+    baseline_ts: Option<String>,
+    unit_costs: Option<Value>,
+    read_only: Option<bool>,
+) -> Result<Value, String> {
+    let ro = read_only.unwrap_or(false);
+    info!("econ_generation_compare: {project_dir} baseline={baseline_ts:?} read_only={ro}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "baseline_ts": baseline_ts,
+        "unit_costs": unit_costs,
+        "read_only": ro,
+    });
+    post_json("/compute/generation-compare", &body, quick_client()).await
+}
+
+/// E3 (2026-07-03): дрейф — архивное поколение на свежем хвосте данных;
+/// вердикт «пора переобучить» / «держит точность».
+#[tauri::command]
+pub async fn econ_drift_check(
+    project_dir: String,
+    baseline_ts: Option<String>,
+) -> Result<Value, String> {
+    info!("econ_drift_check: {project_dir} baseline={baseline_ts:?}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "baseline_ts": baseline_ts,
+    });
+    post_json("/compute/drift-check", &body, quick_client()).await
+}
+
 #[tauri::command]
 pub async fn econ_optimize_inverse(
     project_dir: String,
