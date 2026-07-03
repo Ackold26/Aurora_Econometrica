@@ -210,6 +210,19 @@ def compute_histogram(series: 'pd.Series', bins: int = 10) -> dict:
     }
 
 
+def _read_csv_smart(path: 'Path') -> 'pd.DataFrame':
+    """C1 (2026-07-03): CSV русского Excel по умолчанию с разделителем «;» —
+    pd.read_csv(запятая) читал его в ОДНУ колонку → пользователь получал
+    невнятное «Не найден KPI-столбец». Дешёвый детект: если после запятой
+    вышла одна колонка с «;» в имени — перечитать с «;». Обычные CSV идут
+    прежним быстрым путём (без sniffer-замедления engine='python').
+    """
+    df = pd.read_csv(path)
+    if df.shape[1] == 1 and ';' in str(df.columns[0]):
+        df = pd.read_csv(path, sep=';')
+    return df
+
+
 def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
     """Read first n_rows of a file and return preview data.
 
@@ -228,7 +241,7 @@ def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
         if path.suffix in ('.xlsx', '.xls'):
             df = pd.read_excel(path)
         elif path.suffix == '.csv':
-            df = pd.read_csv(path)
+            df = _read_csv_smart(path)
         else:
             return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}'}
     except Exception as e:
@@ -280,13 +293,24 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         if path.suffix in ('.xlsx', '.xls'):
             df = pd.read_excel(path)
         elif path.suffix == '.csv':
-            df = pd.read_csv(path)
+            df = _read_csv_smart(path)
         else:
             return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}. Нужен xlsx или csv.'}
     except Exception as e:
         return {'status': 'error', 'message': f'Ошибка чтения файла: {e}'}
 
     n_rows, n_cols = df.shape
+
+    # C1 (2026-07-03): полностью пустой файл — ранний понятный отказ.
+    # Прежде каскад давал невпопад «Переименуйте столбец в "date"»,
+    # хотя переименовывать нечего.
+    if n_cols == 0 or (n_rows == 0 and n_cols == 0):
+        return {
+            'status': 'error',
+            'message': ('Файл пуст — в нём нет данных. Загрузите файл с колонками: '
+                        'дата, продажи (KPI) и медиа-каналы.'),
+        }
+
     issues = []
     warnings = []
 
