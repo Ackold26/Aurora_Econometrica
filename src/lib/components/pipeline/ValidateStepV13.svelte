@@ -301,6 +301,26 @@
     deriveModeWithExplanation(currentPerChannel || {})
   );
 
+  // UX-2 (2026-07-03): умный дефолт против детекта. Дефолт 'sales' мог
+  // оказаться вне available_kpi_types (данные без денежной целевой —
+  // например, только лиды): карточка выключена, но «Далее» пропускала
+  // невалидный выбор → kpiKind расходился с данными (monetary для штук).
+  // Невалидный текущий выбор заменяется первым доступным типом
+  // (предпочитая 'sales'); кнопка дополнительно сверяется с доступностью.
+  const availableKpi = $derived(
+    /** @type {string[] | null} */ ($validateData?.result?.available_kpi_types ?? null)
+  );
+  const kpiUnavailable = $derived(
+    Array.isArray(availableKpi) && availableKpi.length > 0 && !!currentKPI
+      ? !availableKpi.includes(currentKPI)
+      : false
+  );
+  $effect(() => {
+    if (kpiUnavailable && availableKpi && availableKpi.length > 0) {
+      handleKPISelect(availableKpi.includes('sales') ? 'sales' : availableKpi[0]);
+    }
+  });
+
   // ─── v2.1.0 (пилот 2026-05-16): анимация переходов между под-шагами ───
   // Отслеживаем направление: forward (правый сдвиг) vs back (левый сдвиг).
   // prefers-reduced-motion → duration 0 (мгновенно).
@@ -1089,7 +1109,7 @@
         type="button"
         class="substep-next-btn"
         onclick={confirmKpiAndProceed}
-        disabled={!currentKPI}
+        disabled={!currentKPI || kpiUnavailable}
       >
         Далее ▶
       </button>
