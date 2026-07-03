@@ -10,6 +10,8 @@
   import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { buildTrainConfig } from '$lib/train-config.js';
+  import { calibrations, loadCalibrations } from '$lib/calibration-store.js';
+  import CalibrationPanel from '$lib/components/pipeline/CalibrationPanel.svelte';
   import { Check } from 'lucide-svelte';
   import HolidayControlsPanel from '$lib/components/pipeline/HolidayControlsPanel.svelte';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
@@ -227,6 +229,14 @@
   //   ~5-10 мс / sample + ~15-30 сек JIT compile при первом запуске.
   // Старая формула (0.3 с × max(channels/4,1)) давала 160 мин для того же прогона - оверкилл.
   const enabledCount = $derived(Object.values(channelEnabled).filter(Boolean).length);
+  // E2 (2026-07-03): имена включённых каналов — для панели калибровок.
+  const enabledChannelNames = $derived(
+    Object.entries(channelEnabled).filter(([, v]) => v).map(([k]) => k)
+  );
+  // E2: калибровки — per-project persist (localStorage), перезагрузка при смене проекта.
+  $effect(() => {
+    loadCalibrations($activeProjectId);
+  });
   const estimateMinutes = $derived.by(() => {
     const chains = showAdvanced ? mcmcChains : 4;
     const draws = showAdvanced ? mcmcDraws : 2000;
@@ -414,6 +424,9 @@
         channelCategories: get(channelCategories),
         disabledHolidays: get(disabledHolidays),
         useHolidays: get(useHolidays),
+        // E2 (2026-07-03): калибровки lift-тестами (buildTrainConfig включит
+        // только при bayesian и непустом списке).
+        calibrations: get(calibrations),
       });
 
       // A3/OPP-05: preflight-гейт (tier reliable → сразу обучаем; иначе баннер).
@@ -630,6 +643,17 @@ Weibull (плавная build-up):
             </div>
           {/each}
         </div>
+
+        <!-- E2 (2026-07-03): калибровка lift-тестами — только bayesian
+             (у OLS нет вероятностной модели; сервер откажет честно). -->
+        {#if engine === 'bayesian'}
+          <div class="config-group">
+            <CalibrationPanel
+              channels={enabledChannelNames}
+              projectId={$activeProjectId}
+            />
+          </div>
+        {/if}
 
         <!-- MCMC params (presets + expert mode opt-in) -->
         <div class="config-group">

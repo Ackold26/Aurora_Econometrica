@@ -908,6 +908,16 @@ def _map_pipeline_to_builder_data(
                 "prior_predictive_coverage": _pp.get("coverage"),
                 "quick_proxy_tier": _qp.get("tier"),
             }
+        # E2 (2026-07-03): калибровка lift-тестами — пометка [CALIBRATED] у
+        # канала + честное расхождение модель-vs-тест (within_ci=False НЕ
+        # замалчивается — §E2.4 ROADMAP).
+        _calib_applied = diag_src.get("calibration_applied") or []
+        _calib_checks = diag_src.get("calibration_check") or []
+        if _calib_applied or _calib_checks:
+            diagnostics["calibration"] = {
+                "applied": _calib_applied,
+                "checks": _calib_checks,
+            }
 
     data: dict[str, Any] = {"meta": meta}
     if diagnostics:

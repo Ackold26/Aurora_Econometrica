@@ -363,6 +363,10 @@ class TrainRequest(BaseModel):
     # Empty / all-mixed → backward compat single-prior path. ≥2 brand or ≥2 perf →
     # hierarchical priors с group-conditional sigma + decay mu.
     channel_categories: dict[str, str] = {}
+    # E2 (2026-07-03): калибровка lift-тестами (Robyn §4.3 / Jin 2017) —
+    # [{channel, date_from, date_to, lift_abs, lift_low?, lift_high?,
+    #   confidence_level?, sigma_abs?, test_type?}]. Только bayesian.
+    calibrations: list[dict] | None = None
 
 
 class TrainStartRequest(BaseModel):
@@ -386,6 +390,8 @@ class TrainStartRequest(BaseModel):
     merge_rules: dict[str, list[str]] = {}
     # Trust Level 3 (v1.1.0): channel_categories propagated в train_model config.
     channel_categories: dict[str, str] = {}
+    # E2 (2026-07-03): см. TrainRequest.calibrations.
+    calibrations: list[dict] | None = None
 
 
 class DecomposeRequest(BaseModel):

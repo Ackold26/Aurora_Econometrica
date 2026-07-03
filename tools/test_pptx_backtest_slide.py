@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -251,6 +252,35 @@ def test_deck_with_only_gen_compare_13_slides(live_decks, tmp_path):
         sh.text_frame.text for sh in prs.slides[5].shapes if sh.has_text_frame
     )
     assert 'был 3.2' in s6, 'без витрины «что изменилось» занимает слайд №6'
+
+
+def test_calibration_marks_delivered(live_decks, tmp_path):
+    """E2-3: [CALIBRATED] у канала + строка калибровки + честное расхождение
+    (within_ci=false) доезжают до клиентской деки."""
+    from engines.pptx_export import build_pptx
+    p = live_decks['pipeline']
+    model_data = json.loads(json.dumps(p['model_data']))  # deep copy
+    ch_name = (p['dec'].get('channels') or [{}])[0].get('name')
+    model_data['diagnostics']['calibration_applied'] = [{
+        'channel': ch_name, 'test_type': 'geo_lift',
+        'date_from': '2026-01-01', 'date_to': '2026-03-01', 'lift_abs': 500.0,
+    }]
+    model_data['diagnostics']['calibration_check'] = [{
+        'channel': ch_name, 'test_type': 'geo_lift',
+        'date_from': '2026-01-01', 'date_to': '2026-03-01',
+        'test_lift': 500.0, 'test_sigma': 60.0,
+        'model_contrib_mean': 320.0, 'model_contrib_ci90': [280.0, 360.0],
+        'within_ci': False,
+    }]
+    out = str(tmp_path / 'calib.pptx')
+    res = build_pptx(model_data, p['dec'], p['opt'], out, scenarios=[],
+                     project_id='e2_test')
+    assert res.get('status') == 'ok', res.get('message')
+    text = _extract_all_text(out)
+    assert '[CALIBRATED]' in text
+    assert 'откалиброван тестом' in text
+    assert 'Модель и тест расходятся' in text
+    assert 'разберите период с аналитиком' in text
 
 
 def test_backtest_slide_worse_than_naive_title(live_decks, tmp_path):

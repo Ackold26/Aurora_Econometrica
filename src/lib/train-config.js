@@ -35,6 +35,7 @@
  *   channelCategories: Record<string, string>|null|undefined,
  *   disabledHolidays: string[]|null|undefined,
  *   useHolidays: boolean|null|undefined,
+ *   calibrations?: Array<Record<string, any>>|null,
  * }} state
  * @returns {Record<string, any>} TrainStartRequest-shaped config
  */
@@ -97,5 +98,10 @@ export function buildTrainConfig(state) {
     // Мастер-флаг (2026-06-13): use_holidays=False полностью отключает инъекцию
     // праздников в modeler.py → выше Ratio (степени свободы). Default true.
     use_holidays: useHolidays !== false,
+    // E2 (2026-07-03): калибровка lift-тестами — только bayesian (OLS честно
+    // откажет CALIBRATION_REQUIRES_BAYESIAN) и только непустой список.
+    ...(engine === 'bayesian' && Array.isArray(state.calibrations) && state.calibrations.length > 0
+      ? { calibrations: state.calibrations }
+      : {}),
   };
 }

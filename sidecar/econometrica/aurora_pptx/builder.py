@@ -272,6 +272,13 @@ class AuroraPPTXBuilder:
         self.honesty_verdict = diag.get("honesty_verdict")
         self.honesty_reasons = diag.get("honesty_reasons") or []
         self.preflight = diag.get("preflight") or {}
+        # E2 (2026-07-03): калибровка lift-тестами — [CALIBRATED]-пометка у
+        # канала в таблице + строки честности (включая расхождение модель-vs-
+        # тест) на слайде «Данные и качество». Только live (из диагностики).
+        self.calibration = diag.get("calibration") or {}
+        self.calibrated_channels = {
+            str(a.get("channel")) for a in (self.calibration.get("applied") or [])
+        }
         # B1-fix R-03/R-04: честное покрытие данных (n наблюдений / частота /
         # разрывы) от адаптера; None → строки рендерятся «—» или скрываются.
         self.data_coverage = self.data.get("data_coverage") or {}
@@ -1987,13 +1994,24 @@ class AuroraPPTXBuilder:
             if len(row) == 7:
                 row = row + ("",)
             channel, budget, contrib, roi, share, verdict, footnote, ci_str = row
-            # Channel name
+            # Channel name (+E2: пометка калиброванного тестом канала)
             x = table_x
-            self._text(
-                slide, x + 0.05, row_y, col_widths[0] - 0.1, 0.3,
-                channel,
-                font=self.sans, size=11, bold=True, color=self.deep_100,
-            )
+            if channel in self.calibrated_channels:
+                self._rich(
+                    slide, x + 0.05, row_y, col_widths[0] - 0.1, 0.3,
+                    runs=[
+                        (channel, {"font": self.sans, "size": 11, "bold": True,
+                                   "color": self.deep_100}),
+                        ("  [CALIBRATED]", {"font": self.sans, "size": 7,
+                                            "color": self.gold}),
+                    ],
+                )
+            else:
+                self._text(
+                    slide, x + 0.05, row_y, col_widths[0] - 0.1, 0.3,
+                    channel,
+                    font=self.sans, size=11, bold=True, color=self.deep_100,
+                )
             x += col_widths[0]
             # Budget
             self._text(
@@ -3139,6 +3157,34 @@ class AuroraPPTXBuilder:
                 slide, right_x, _hy, right_w, 0.45,
                 f"Проверка приоров: расхождение с данными{_cov_sfx} — "
                 "оценки чувствительны к допущениям модели.",
+                font=self.sans, size=10, italic=True, color=self.gold,
+            )
+            _hy += 0.45
+
+        # E2 (2026-07-03): калибровка lift-тестами — строка «откалиброван
+        # тестом от <дата>» + ЧЕСТНОЕ расхождение модель-vs-тест (within_ci
+        # false не замалчивается — §E2.4).
+        for _ca in (self.calibration.get("applied") or []):
+            self._text(
+                slide, right_x, _hy, right_w, 0.25,
+                (f"Канал «{_ca.get('channel')}» откалиброван тестом "
+                 f"({_ca.get('test_type')}) от {_ca.get('date_from')} — "
+                 f"вошёл в модель как наблюдение."),
+                font=self.sans, size=10, color=self.deep_100,
+            )
+            _hy += 0.26
+        for _cc in (self.calibration.get("checks") or []):
+            if _cc.get("within_ci"):
+                continue
+            _ci = _cc.get("model_contrib_ci90") or [None, None]
+            self._text(
+                slide, right_x, _hy, right_w, 0.45,
+                (f"Модель и тест расходятся по «{_cc.get('channel')}»: вклад "
+                 f"модели {self._mstr(_cc.get('model_contrib_mean'), '{:,.0f}').replace(',', ' ')} "
+                 f"[{self._mstr(_ci[0], '{:,.0f}').replace(',', ' ')} – "
+                 f"{self._mstr(_ci[1], '{:,.0f}').replace(',', ' ')}] против теста "
+                 f"{self._mstr(_cc.get('test_lift'), '{:,.0f}').replace(',', ' ')} — "
+                 f"разберите период с аналитиком."),
                 font=self.sans, size=10, italic=True, color=self.gold,
             )
             _hy += 0.45
