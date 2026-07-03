@@ -21,6 +21,7 @@
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
   import TrainingProgress from '$lib/components/pipeline/TrainingProgress.svelte';
   import ConvergenceDashboard from '$lib/components/pipeline/ConvergenceDashboard.svelte';
+  import BacktestCard from '$lib/components/pipeline/BacktestCard.svelte';
   import MQSBadge from '$lib/components/MQSBadge.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
@@ -300,6 +301,13 @@
     <div data-tour="model-convergence" data-tour-step="results-section">
       <ConvergenceDashboard {diagnostics} />
     </div>
+
+    <!-- E1 (2026-07-03): backtest-витрина «модель vs факт» — проверка на
+         удержанной истории. Ключ по picklePath: свежее обучение пересоздаёт
+         карточку (перечитывает сохранённую витрину + пометку устаревания). -->
+    {#key $modelData?.picklePath}
+      <BacktestCard />
+    {/key}
 
     {#if $expertMode}
       <ExpertModelPanel />

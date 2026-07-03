@@ -92,7 +92,7 @@ coverage сверен канарейкой с пересчётом; слайд �
 | E1-0 | Аудит backtest.py + инвентаризация + RAG + реестр + ветка | ✅ 2026-07-03 |
 | E1-1 | Движок: `run_rolling_backtest` (rolling-origin, coverage×2, naive, granularity, insufficient при N<3) + тесты с канарейкой-пересчётом | ✅ 14 тестов, 7.4с |
 | E1-2 | Доставка-1: endpoint `/compute/backtest` (+чтение сохранённого) + Rust `econ_backtest` + lib.rs | ✅ 6 тестов + cargo check |
-| E1-3 | Доставка-2: UI-карточка «Проверка на истории» (кнопка, вердикт, устаревание) | ⏳ TODO |
+| E1-3 | Доставка-2: UI-карточка «Проверка на истории» (кнопка, вердикт, устаревание) | ✅ 9 vitest, svelte-check 0 |
 | E1-4 | Доставка-3: PPTX-слайд + narrative (is_live гейт, без wireframe) + канарейка-маркеры | ⏳ TODO |
 | E1-5 | Живой зонд Kagocel (bayesian окна, реальное время) + канарейка coverage + сводный отчёт | ⏳ TODO |
 
@@ -169,3 +169,16 @@ coverage сверен канарейкой с пересчётом; слайд �
   tools/test_server_backtest.py: **6 зелёных за 9.6с** (422×6 кейсов, 404×2
   русские, insufficient-контракт, read_only not_found, боевой OLS-прогон через
   TestClient + read_only roundtrip generated_at). cargo check: чисто.
+- **E1-3 (2026-07-03):** BacktestCard.svelte — карточка «Проверка на истории»
+  в ModelTrainingStep после ConvergenceDashboard ({#key picklePath} — свежее
+  обучение перечитывает витрину). Состояния: loading → empty (кнопка + честное
+  «несколько минут, модель переобучается до 8 раз») / running / done /
+  insufficient (плашка, не ошибка) / error (+Повторить). Done: вердикт-бейдж
+  (нелестные worse_than_naive/coverage_low — так же заметно), герой «X из Y
+  кварталов» (слово «кварталов» только при квартальном горизонте M3/W13/D90),
+  MAPE vs наивный + выигрыш %, свёрнутая таблица окон (период/факт/прогноз/
+  интервал/✓✕), метод по-русски. Устаревание: движок дописывает
+  model_trained_at_current при чтении (mtime latest.pkl) → жёлтая пометка
+  «модель переобучена — обновите». Гейты: **9 vitest зелёных**, svelte-check
+  **0 ошибок** (была 1 моя — VERDICTS index type, починена JSDoc Record),
+  python-регресс 20 зелёных.

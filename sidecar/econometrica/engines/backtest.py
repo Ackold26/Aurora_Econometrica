@@ -387,17 +387,26 @@ def load_saved_backtest(project_dir: str) -> dict[str, Any] | None:
     """Прочитать сохранённую витрину (models/backtest.json) или None.
 
     Битый JSON честно возвращается как None (витрина «не проводилась») с логом —
-    лучше пустая карточка, чем краш отчёта.
+    лучше пустая карточка, чем краш отчёта. Дописывает model_trained_at_current
+    (свежий mtime latest.pkl): UI сравнивает с model_trained_at витрины и честно
+    помечает «модель переобучена после проверки — обновите».
     """
     p = Path(project_dir) / 'models' / 'backtest.json'
     if not p.exists():
         return None
     try:
         with open(p, encoding='utf-8') as f:
-            return json.load(f)
+            saved = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning('backtest.json повреждён (%s) — витрина считается непроведённой', e)
         return None
+    model_path = Path(project_dir) / 'models' / 'latest.pkl'
+    if model_path.exists():
+        from datetime import datetime, timezone
+        saved['model_trained_at_current'] = datetime.fromtimestamp(
+            model_path.stat().st_mtime, tz=timezone.utc
+        ).isoformat(timespec='seconds')
+    return saved
 
 
 def run_rolling_backtest(
