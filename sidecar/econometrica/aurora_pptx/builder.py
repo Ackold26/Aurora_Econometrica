@@ -320,11 +320,27 @@ class AuroraPPTXBuilder:
 
     # ---------- Primitives ----------
 
+    # B4-3: семантическая привязка секция → пиктограмма (assets/icons/*.png,
+    # генератор tools/gen_report_icons.py; линейный стиль deep/gold).
+    _SECTION_ICONS = {2: "growth", 3: "lens", 4: "db", 5: "book"}
+
     def _section_intro(self, slide, num, title, takeaway=None):
         """B4-2 (2026-07-03, стайлгайд §1): секцию открывает компактная плашка
         на первом содержательном слайде — вместо отдельного слайда-дивайдера
         (4 полупустых слайда из 16 = 25% деки; Knaflic: каждый элемент экрана
-        тратит внимание читателя). Строка: «0X · НАЗВАНИЕ — вывод секции»."""
+        тратит внимание читателя). Строка: «[пиктограмма] 0X · НАЗВАНИЕ — вывод»."""
+        from pathlib import Path
+        text_x = self.safe
+        icon_name = self._SECTION_ICONS.get(num)
+        if icon_name:
+            icon_path = Path(__file__).parent / "assets" / "icons" / f"{icon_name}.png"
+            if icon_path.exists():
+                # graceful: файла нет (дистрибутив без ассетов) — плашка без иконки
+                slide.shapes.add_picture(
+                    str(icon_path), Inches(self.safe), Inches(0.545),
+                    height=Inches(0.20),
+                )
+                text_x = self.safe + 0.28
         runs = [
             (f"{num:02d} · {title.upper()}",
              {"font": self.sans, "size": 9, "bold": True, "color": self.gold}),
@@ -333,7 +349,7 @@ class AuroraPPTXBuilder:
             _t = takeaway if len(takeaway) <= 120 else takeaway[:117] + "…"
             runs.append((f"  —  {_t}",
                          {"font": self.sans, "size": 9, "italic": True, "color": self.deep_60}))
-        self._rich(slide, self.safe, 0.56, self.w - 2 * self.safe, 0.2, runs=runs)
+        self._rich(slide, text_x, 0.56, self.w - text_x - self.safe, 0.2, runs=runs)
 
     def _mstr(self, value, fmt="{}", na="н/д"):
         """B1-fix R-01: None-безопасный рендер метрики. Отсутствующее значение
@@ -3342,18 +3358,20 @@ class AuroraPPTXBuilder:
         # Narrative paragraph - platform philosophy (positioned AFTER CTA as rationale footer)
         # B1-fix R-06-семейство: «результаты уровня ведущих консалтинговых групп»
         # — недоказуемое сравнительное заявление (INV-50); заменено фактичным.
-        narrative = (
-            "Aurora AI превращает медиабюджет из статьи затрат в управляемый инструмент роста. "
-            "Байесовский вывод позволяет не просто измерить эффективность каналов, но понять границы "
-            "неопределённости - основу доверия к любым модельным решениям. Методология выстроена по "
-            "отраслевым стандартам байесовского MMM и лучшим опубликованным практикам - без "
-            "необходимости содержать собственную команду аналитиков. Платформа масштабируется от "
-            "ежеквартального отчёта до ежемесячного пульс-мониторинга, от одной SKU до портфеля брендов."
-        )
-        self._text(
+        # B4-3 (стайлгайд §4): сплошной массив 4 строки разбит — лид-мысль
+        # выделена, дальше два коротких предложения (Ильяхов: одна мысль —
+        # одно предложение; массивы без акцентов тяжело воспринимать).
+        self._rich(
             slide, self.safe, 5.00, self.w - 2 * self.safe, 1.5,
-            narrative,
-            font=self.serif, size=11, italic=True, color=self.deep_60,
+            runs=[
+                ("Медиабюджет - управляемый инструмент роста, а не статья затрат. ",
+                 {"font": self.serif, "size": 11, "bold": True, "italic": True, "color": self.deep_80}),
+                ("Байесовский вывод измеряет эффективность каналов вместе с границами "
+                 "неопределённости - это основа доверия к решениям. Методология следует "
+                 "отраслевым стандартам MMM; платформа масштабируется от квартального отчёта "
+                 "до ежемесячного мониторинга, от одной позиции до портфеля брендов.",
+                 {"font": self.serif, "size": 11, "italic": True, "color": self.deep_60}),
+            ],
             line_spacing=1.5,
         )
 
