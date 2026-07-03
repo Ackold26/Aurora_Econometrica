@@ -35,10 +35,18 @@ impl License {
     /// Fallback: legacy shared paths for migration
     pub fn load(app_config_dir: &Path) -> Result<Self> {
         let path = Self::resolve_license_path(app_config_dir)
-            .ok_or_else(|| coded_err(ErrorCode::LI001, "License file not found. Please import your license in Settings."))?;
+            .ok_or_else(|| coded_err(ErrorCode::LI001, "Файл лицензии не найден. Импортируйте лицензию в «Настройках»."))?;
         let data = std::fs::read_to_string(&path)
-            .map_err(|_| coded_err(ErrorCode::LI002, &format!("Cannot read license file at {}", path.display())))?;
-        let license: License = serde_json::from_str(&data)?;
+            .map_err(|_| coded_err(ErrorCode::LI002, &format!("Не удалось прочитать файл лицензии: {}", path.display())))?;
+        // B2 (2026-07-03): повреждённый license.json отдавал СЫРОЙ serde-error
+        // («expected value at line 1 column 1») прямо в UI. Теперь LI003 с
+        // понятным сообщением — пользователь знает, что делать.
+        let license: License = serde_json::from_str(&data).map_err(|_| {
+            coded_err(
+                ErrorCode::LI003,
+                "Файл лицензии повреждён или имеет неверный формат. Импортируйте лицензию заново в «Настройках».",
+            )
+        })?;
 
         // Migrate: if loaded from legacy path, copy to per-app dir
         let per_app_path = Self::license_path(app_config_dir);
@@ -133,7 +141,7 @@ impl License {
 
         // Parse expiry early so days_remaining is available in all branches
         let expires = NaiveDate::parse_from_str(&self.expires_at, "%Y-%m-%d")
-            .map_err(|_| coded_err(ErrorCode::LI008, "Invalid expiry date format"))?;
+            .map_err(|_| coded_err(ErrorCode::LI008, "Неверный формат даты в лицензии. Импортируйте лицензию заново."))?;
         let today = chrono::Local::now().date_naive();
         let days_remaining = (expires - today).num_days();
 
@@ -146,7 +154,9 @@ impl License {
                 days_remaining,
                 cabinets: vec![],
                 machine_id: machine_id_short,
-                error: Some(coded(ErrorCode::LI006, "License is bound to a different machine")),
+                // B2 (2026-07-03): русификация клиентских сообщений (продукт для
+                // русскоязычных маркетологов; сырой английский поднимал панику).
+                error: Some(coded(ErrorCode::LI006, "Лицензия привязана к другому компьютеру. Обратитесь в поддержку для переноса на эту машину.")),
             });
         }
 
@@ -177,7 +187,7 @@ impl License {
                 days_remaining,
                 cabinets: vec![],
                 machine_id: machine_id_short,
-                error: Some(coded(ErrorCode::LI005, "License has expired")),
+                error: Some(coded(ErrorCode::LI005, &format!("Срок действия лицензии истёк {}. Обратитесь в поддержку для продления.", self.expires_at))),
             });
         }
 
@@ -199,7 +209,7 @@ impl License {
                 days_remaining,
                 cabinets: vec![],
                 machine_id: machine_id_short,
-                error: Some(coded(ErrorCode::LI007, "License signature is invalid")),
+                error: Some(coded(ErrorCode::LI007, "Подпись лицензии недействительна — файл повреждён или изменён. Импортируйте лицензию заново.")),
             });
         }
 
@@ -335,6 +345,114 @@ mod tests {
         // Файла нет → функция ничего не делает и не падает
         quarantine_legacy_files(); // smoke test - не должно паниковать
     }
+
+    // ── B2 (2026-07-03): матрица лицензионных сценариев ──────────────────────
+
+    /// Смена железа / вторая машина: fingerprint лицензии ≠ fingerprint машины
+    /// → отказ LI-006 с русским сообщением (не сырой Rust-error).
+    #[test]
+    fn foreign_machine_license_rejected_li006() {
+        let Ok(_) = fingerprint::get_machine_fingerprint() else { return; };
+        let lic = License {
+            license_id: "TEST-FOREIGN".into(),
+            issued_to: "Pilot Co".into(),
+            expires_at: "2099-01-01".into(),
+            machine_fingerprint_hash: "0".repeat(64), // заведомо чужой
+            cabinets: vec!["econometrist".into()],
+            salt: String::new(),
+            signature: String::new(),
+        };
+        let status = lic.validate().expect("validate() Ok даже для невалидных");
+        assert!(!status.valid);
+        let err = status.error.unwrap_or_default();
+        assert!(err.contains("LI-006"), "Ожидался LI-006, фактически: {err}");
+        assert!(err.contains("другому компьютеру"), "Сообщение должно быть понятным по-русски: {err}");
+        assert!(status.cabinets.is_empty(), "Кабинеты не должны выдаваться при отказе");
+    }
+
+    /// Повреждённый license.json → LI-003 с понятным сообщением,
+    /// НЕ сырой serde-error («expected value at line 1 column 1»).
+    #[test]
+    fn corrupted_license_json_coded_li003() {
+        let tmp = std::env::temp_dir().join(format!(
+            "aurora-test-corrupt-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("license.json"), b"{ this is not json !!!").unwrap();
+
+        let err = License::load(&tmp).expect_err("повреждённый JSON должен дать ошибку");
+        let msg = err.to_string();
+        assert!(msg.contains("LI-003"), "Ожидался код LI-003, фактически: {msg}");
+        assert!(msg.contains("повреждён"), "Сообщение должно быть понятным по-русски: {msg}");
+        assert!(!msg.contains("expected value"), "Сырой serde-error не должен течь в UI: {msg}");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Мусорный salt (не base64) → LI-004.
+    #[test]
+    fn invalid_salt_base64_li004() {
+        let lic = License {
+            license_id: "TEST-SALT".into(),
+            issued_to: "Pilot Co".into(),
+            expires_at: "2099-01-01".into(),
+            machine_fingerprint_hash: "0".repeat(64),
+            cabinets: vec![],
+            salt: "@@@not-base64@@@".into(),
+            signature: String::new(),
+        };
+        let err = lic.salt_bytes().expect_err("мусорный base64 должен дать ошибку");
+        assert!(err.to_string().contains("LI-004"), "Ожидался LI-004: {err}");
+    }
+
+    /// #61 offline-smoke (live-тест 2026-06-02, закрыт 2026-07-03): ПОЛНЫЙ
+    /// офлайн-путь Ed25519 на РЕАЛЬНОЙ выданной лицензии — load (temp config,
+    /// миграция не мешает) → validate: настоящая подпись против вшитого
+    /// публичного ключа + machine-binding + срок. Файл берётся из выдачи
+    /// (env AURORA_SMOKE_LICENSE переопределяет путь); на чужой машине/CI:
+    /// нет файла → тихий skip; файл с другой машины → LI-006 = корректный
+    /// отказ (это тоже валидный исход матрицы, «вторая машина»).
+    #[test]
+    fn offline_smoke_real_license_ed25519_roundtrip() {
+        let path = std::env::var("AURORA_SMOKE_LICENSE").unwrap_or_else(|_| {
+            r"D:\Docs\Aurora_Ai\2_Выдача_лицензий\license_Anton_econometrica_20260525.json".into()
+        });
+        if !Path::new(&path).exists() {
+            eprintln!("offline-smoke: файла лицензии нет ({path}) — skip");
+            return;
+        }
+        // Копируем в изолированный config-dir (load не должен трогать выдачу).
+        let tmp = std::env::temp_dir().join(format!(
+            "aurora-smoke-lic-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        fs::copy(&path, tmp.join("license.json")).unwrap();
+
+        let lic = License::load(&tmp).expect("реальная лицензия должна читаться");
+        let status = lic.validate().expect("validate() возвращает Ok");
+        let err = status.error.clone().unwrap_or_default();
+        if err.contains("LI-006") {
+            eprintln!("offline-smoke: лицензия выдана для другой машины (LI-006) — корректный отказ, skip полного пути");
+            let _ = fs::remove_dir_all(&tmp);
+            return;
+        }
+        assert!(
+            status.valid,
+            "Реальная лицензия на своей машине обязана проходить офлайн-путь: {err}"
+        );
+        assert!(
+            status.cabinets.contains(&"econometrist".to_string()),
+            "Кабинет econometrist должен быть в лицензии: {:?}", status.cabinets
+        );
+        assert!(status.days_remaining > 0, "Срок должен быть в будущем");
+        eprintln!(
+            "offline-smoke: PASS — Ed25519-подпись + binding + срок на реальной лицензии (осталось {} дней)",
+            status.days_remaining
+        );
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }
 
 /// Import a license file from a given path into the per-app config directory.
@@ -345,14 +463,14 @@ pub fn import_license(source_path: &str, app_config_dir: &Path) -> Result<()> {
 
     let data = std::fs::read_to_string(&source)?;
     let license: License = serde_json::from_str(&data)
-        .map_err(|e| coded_err(ErrorCode::LI003, &format!("Invalid license file: {e}")))?;
+        .map_err(|_| coded_err(ErrorCode::LI003, "Выбранный файл не является лицензией Aurora или повреждён."))?;
 
     // Verify signature and machine binding before saving
     let status = license.validate()
-        .map_err(|e| coded_err(ErrorCode::LI010, &format!("License validation error: {e}")))?;
+        .map_err(|e| coded_err(ErrorCode::LI010, &format!("Ошибка проверки лицензии: {e}")))?;
     if !status.valid {
-        let reason = status.error.unwrap_or("Unknown error".to_string());
-        return Err(coded_err(ErrorCode::LI010, &format!("License is not valid: {reason}")));
+        let reason = status.error.unwrap_or("неизвестная причина".to_string());
+        return Err(coded_err(ErrorCode::LI010, &format!("Лицензия не прошла проверку: {reason}")));
     }
 
     if let Some(parent) = dest.parent() {

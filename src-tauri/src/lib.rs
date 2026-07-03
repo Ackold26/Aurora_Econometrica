@@ -126,7 +126,7 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
     let status = license.validate().map_err(|e| e.to_string())?;
 
     if !status.valid {
-        let err = status.error.unwrap_or("Invalid license".to_string());
+        let err = status.error.unwrap_or("Лицензия недействительна".to_string());
         metrics::audit::log_event("license_validate", &err, false);
         warn!("License invalid: {err}");
         return Err(err);
@@ -362,14 +362,15 @@ async fn open_cabinet(
         let license = license::License::load(&config_dir).map_err(|e| e.to_string())?;
         let status = license.validate().map_err(|e| e.to_string())?;
         if !status.valid {
-            return Err(status.error.unwrap_or("Invalid license".to_string()));
+            return Err(status.error.unwrap_or("Лицензия недействительна".to_string()));
         }
         allowed_cabinets = status.cabinets;
     }
 
     if !allowed_cabinets.contains(&cabinet_id) {
         warn!("Cabinet '{cabinet_id}' not allowed (cabinets: {:?})", allowed_cabinets);
-        return Err(format!("Cabinet '{cabinet_id}' not included in license"));
+        // B2 (2026-07-03): русское сообщение вместо технического английского.
+        return Err(format!("Кабинет «{cabinet_id}» не входит в вашу лицензию. Обратитесь в поддержку для расширения доступа."));
     }
 
     // ── Auto-download vault if missing ──
@@ -408,7 +409,7 @@ async fn open_cabinet(
                             Ok(salt) => crypto::hkdf::derive_key(&fp, &salt).map_err(|e| e.to_string())?,
                             Err(e) => return Err(e.to_string()),
                         },
-                        Err(e) => return Err(format!("Cannot decrypt vault: no valid key. {e}")),
+                        Err(e) => return Err(format!("Не удалось расшифровать данные кабинета: нет действующего ключа. {e}")),
                     }
                 }
             }
