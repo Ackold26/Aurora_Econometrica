@@ -1471,8 +1471,50 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         if top_decrease['delta_pct'] < -5:
             insight += f" Сократить {top_decrease['name']} на {abs(top_decrease['delta_pct']):.0f}%."
 
+    # A3/OPP-03 (2026-07-03): единый язык extrapolation-тиров на forward-
+    # оптимизации. Goal-seek (F-01) и сценарии (F-04) уже помечают выход
+    # per-period трат за наблюдавшийся диапазон (канонические тиры p95/p99,
+    # Chan & Perry 2017 Fig. 2: кривая вне наблюдённого диапазона не
+    # идентифицируется данными) — forward-рекомендация обязана говорить тем же
+    # языком: optimal_spend_money канала vs его история в НАТИВНЫХ единицах.
+    extrapolation = None
+    try:
+        from utils.forecast_validation import extrapolation_severity
+        _ex_channels = []
+        _ex_max = 0
+        for _ch in channels:
+            _money = float(_ch.get('optimal_spend_money') or 0)
+            _name = _ch.get('name')
+            if _money <= 0 or _name not in df.columns:
+                continue
+            _uc_c = float(unit_costs.get(_name, 1.0) or 1.0)
+            _pp_native = (_money / _uc_c) / max(int(forecast_n_periods), 1)
+            _hist = df[_name].fillna(0).to_numpy(dtype=float)
+            _hist_pos = _hist[_hist > 0]
+            if _hist_pos.size == 0:
+                continue
+            _q = {
+                'p95': float(np.quantile(_hist_pos, 0.95)),
+                'p99': float(np.quantile(_hist_pos, 0.99)),
+            }
+            _sev = extrapolation_severity(_pp_native, _q)
+            _ex_max = max(_ex_max, _sev)
+            if _sev > 0:
+                _hist_max = float(_hist.max())
+                _ex_channels.append({
+                    'name': _name,
+                    'per_period_native': round(_pp_native, 2),
+                    'hist_max_native': round(_hist_max, 2),
+                    'ratio_vs_max': round(_pp_native / _hist_max, 2) if _hist_max > 0 else None,
+                    'severity': _sev,
+                })
+        extrapolation = {'severity': _ex_max, 'channels': _ex_channels}
+    except Exception:  # noqa: BLE001 - honesty-контур не роняет оптимизацию
+        extrapolation = None
+
     result_data = {
         'status': 'ok',
+        'extrapolation': extrapolation,
         'total_budget': round(total_budget, 0),
         'total_budget_money': round(total_budget_money, 0),
         'total_current_money': round(total_current_money, 0),

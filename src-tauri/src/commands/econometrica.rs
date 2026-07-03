@@ -267,6 +267,13 @@ pub async fn econ_forecast_context(project_dir: String) -> Result<Value, String>
     post_json("/compute/forecast-context", &body, quick_client()).await
 }
 
+/// A3/OPP-08 (2026-07-03, решение по месту): фронт эту команду НЕ вызывает —
+/// потребность «план vs история» покрыта доставкой extrapolation-маркеров
+/// прямо в результаты goal-seek (F-01), сценариев (F-04) и forward-оптимизации
+/// (OPP-03). Endpoint /compute/forecast-scaling остаётся внутренним API
+/// (контур математики масштабирования, ~10 тестов: test_phase2_synergies G5,
+/// test_server_phase2_endpoints); мост сохранён как кандидат для E1
+/// backtest-витрины (ROADMAP v3). НЕ считать этот мост «фичей с UI».
 #[tauri::command]
 pub async fn econ_forecast_scaling(
     project_dir: String,

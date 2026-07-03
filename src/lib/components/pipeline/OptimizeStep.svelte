@@ -2139,6 +2139,30 @@
       </div>
     {/if}
 
+    <!-- A3/OPP-03 (2026-07-03): единый язык extrapolation-тиров — forward-
+         рекомендация помечает выход per-period трат за наблюдавшийся диапазон
+         тем же языком, что goal-seek (F-01) и сценарии (F-04): тиры p95/p99,
+         Chan & Perry 2017 (кривая вне наблюдённого диапазона не подтверждена
+         данными). severity 1 = warn, 2+ = danger. -->
+    {#if optData?.extrapolation && optData.extrapolation.severity >= 1}
+      {@const _exCh = optData.extrapolation.channels ?? []}
+      <div class="edge-banner" class:banner-warn={optData.extrapolation.severity < 2} class:banner-error={optData.extrapolation.severity >= 2}>
+        <span class="banner-icon">📈</span>
+        <p class="banner-text">
+          <strong>
+            {optData.extrapolation.severity >= 2 ? 'Сильная экстраполяция рекомендации.' : 'Экстраполяция за наблюдавшийся диапазон.'}
+          </strong>
+          Оптимальные траты выходят за диапазон, на котором обучалась модель{#if _exCh.length}:
+            {_exCh.map((/** @type {any} */ c) => c.ratio_vs_max != null ? `${c.name} – ${c.ratio_vs_max}× исторического максимума` : c.name).join(', ')}{/if}.
+          Форма кривой отклика в этой зоне не подтверждена данными – фактический
+          эффект может заметно отличаться от прогноза.
+          {#if optData.extrapolation.severity >= 2}
+            Надёжнее наращивать бюджет поэтапно: частичное увеличение → новые данные → переобучение.
+          {/if}
+        </p>
+      </div>
+    {/if}
+
     <!-- Insight banner (после optimize) -->
     {#if optData?.insight}
       <div class="insight-banner">
