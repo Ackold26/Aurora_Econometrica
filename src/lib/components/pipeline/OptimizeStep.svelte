@@ -336,6 +336,42 @@
 
   // Current data from store
   const optData = $derived($optimizeData);
+
+  // A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального сплита
+  // (Jin 2017) — пере-оптимизация на подвыборке posterior-draws, ~5 с →
+  // отдельная кнопка, НЕ интерактивный путь.
+  /** @type {any | null} */
+  let splitCi = $state(null);
+  let splitCiBusy = $state(false);
+  /** @type {string | null} */
+  let splitCiError = $state(null);
+
+  async function computeSplitCi() {
+    if (splitCiBusy) return;
+    const projectId = get(activeProjectId);
+    if (!projectId) return;
+    splitCiBusy = true;
+    splitCiError = null;
+    try {
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+      const uc = get(unitCosts) ?? {};
+      const res = /** @type {any} */ (await invoke('econ_optimize_split_ci', {
+        projectDir,
+        totalBudgetMoney: optData?.total_budget_money ?? null,
+        nDraws: 60,
+        unitCosts: Object.keys(uc).length > 0 ? uc : null,
+      }));
+      if (res?.status === 'ok') {
+        splitCi = res;
+      } else {
+        splitCiError = res?.message || 'Не удалось рассчитать интервалы долей.';
+      }
+    } catch (e) {
+      splitCiError = String(e);
+    } finally {
+      splitCiBusy = false;
+    }
+  }
   // M2 honesty-gate (PRD §п2): model-reliability verdict из backend (SSOT,
   // utils.optimizer_honesty). UI потребляет verbatim, не пере-выводит (INV-50).
   // reliable → пусто; uncertain → caveat+бенды; unreliable → refused (переброска скрыта).
@@ -2228,6 +2264,52 @@
           tone={primaryOptimizeRecommendation.tone}
         />
       {/if}
+
+      <!-- A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального
+           сплита (Jin 2017) — насколько доверять точечному распределению. -->
+      {#if optData?.channels?.length}
+        <section class="split-ci-block">
+          {#if !splitCi}
+            <button
+              type="button"
+              class="btn-split-ci"
+              disabled={splitCiBusy}
+              onclick={computeSplitCi}
+            >
+              {splitCiBusy ? 'Считаю интервалы долей…' : 'Интервалы оптимальных долей (≈5 с)'}
+            </button>
+            <span class="split-ci-hint">
+              Разброс оптимального распределения по сценариям модели —
+              показывает, насколько доверять точечному сплиту.
+            </span>
+            {#if splitCiError}
+              <p class="split-ci-error" role="alert">{splitCiError}</p>
+            {/if}
+          {:else}
+            <h4 class="split-ci-title">Оптимальные доли с интервалами (90% HDI)</h4>
+            <ul class="split-ci-list">
+              {#each splitCi.channels as ch (ch.name)}
+                <li>
+                  <span class="split-ci-name">{ch.name}</span>
+                  <span class="split-ci-value">
+                    {(ch.share_mean * 100).toFixed(0)}%
+                    <span class="split-ci-range">[{(ch.share_ci_low * 100).toFixed(0)}–{(ch.share_ci_high * 100).toFixed(0)}%]</span>
+                  </span>
+                </li>
+              {/each}
+            </ul>
+            {#if splitCi.overlapping_pairs?.length}
+              <p class="split-ci-overlap">
+                Интервалы пересекаются у {splitCi.overlapping_pairs.length}
+                {splitCi.overlapping_pairs.length === 1 ? 'пары' : 'пар'} каналов —
+                разница их долей статистически не выделяется: перераспределение
+                между ними модель уверенно не обосновывает.
+              </p>
+            {/if}
+            <p class="split-ci-note">{splitCi.note}</p>
+          {/if}
+        </section>
+      {/if}
     {/if}
 
     <!-- Two-column: BudgetOptimizer | ResponseCurves -->
@@ -3566,6 +3648,48 @@
     font-weight: 600;
     cursor: pointer;
   }
+
+  /* A4/OPP-04: блок интервалов оптимального сплита. */
+  .split-ci-block {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: var(--bg-surface-quiet);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .btn-split-ci {
+    padding: 8px 14px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font: inherit;
+  }
+  .btn-split-ci:disabled { opacity: 0.6; cursor: wait; }
+  .split-ci-hint { margin-left: 10px; font-size: 11px; color: var(--text-muted); }
+  .split-ci-error { margin: 8px 0 0; color: var(--danger, #f87171); }
+  .split-ci-title { margin: 0 0 8px; font-size: 13px; color: var(--text-primary); }
+  .split-ci-list {
+    margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .split-ci-list li { display: flex; justify-content: space-between; gap: 12px; }
+  .split-ci-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .split-ci-value { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; white-space: nowrap; }
+  .split-ci-range { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+  .split-ci-overlap {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border-radius: 6px;
+    color: var(--text-primary);
+  }
+  .split-ci-note { margin: 8px 0 0; font-size: 11px; font-style: italic; color: var(--text-muted); }
 
   .insight-banner {
     display: flex;
