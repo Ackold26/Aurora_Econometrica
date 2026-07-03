@@ -278,8 +278,9 @@ class AuroraPPTXBuilder:
         # E1 (2026-07-03): backtest-витрина «Проверка на истории». Слайд рисуется
         # ТОЛЬКО при живой проверке (models/backtest.json через адаптер) — у слайда
         # принципиально НЕТ wireframe-дефолта (урок B1: «замаскированная дефолтом
-        # честность»). При витрине дека = 13 слайдов: физический №10 после
-        # методологии, хвост (sources/glossary/colophon) сдвигается на +1.
+        # честность»). П5 (одобрено Антоном): витрина — В СЕКЦИИ «ГЛАВНОЕ»,
+        # физический №6 сразу после SCQAR (самый убедительный слайд для продления
+        # подписки — не прятать в методологию); дека = 13, хвост сдвигается на +1.
         _bt = self.data.get("backtest") or {}
         self.backtest = (
             _bt if (self.is_live and _bt.get("status") == "ok" and _bt.get("windows"))
@@ -290,18 +291,18 @@ class AuroraPPTXBuilder:
             if "total_slides" not in meta:
                 self.total_slides = 13
             if "toc_page_refs" not in meta:
-                self.toc_page_refs = [3, 6, 9, 11, 12]
+                self.toc_page_refs = [3, 7, 10, 11, 12]
             if not meta.get("slide_to_section"):
                 self.slide_to_section = {
                     2:  (1, "Главное"),
                     3:  (1, "Главное"),
                     4:  (1, "Главное"),
                     5:  (1, "Главное"),
-                    6:  (2, "Декомпозиция вкладов"),
+                    6:  (1, "Главное"),                # П5: проверка на истории
                     7:  (2, "Декомпозиция вкладов"),
                     8:  (2, "Декомпозиция вкладов"),
-                    9:  (3, "Методология"),
-                    10: (3, "Методология"),            # E1: проверка на истории
+                    9:  (2, "Декомпозиция вкладов"),
+                    10: (3, "Методология"),
                     11: (4, "Данные и качество"),
                     12: (5, "Приложение и источники"),
                     13: (5, "Приложение и источники"),
@@ -1557,7 +1558,7 @@ class AuroraPPTXBuilder:
 
     def s06_action_chart(self):
         slide = self._blank()
-        self._header(slide, slide_num=6)
+        self._header(slide, slide_num=6 + self._page_shift)
 
         # B4-2: плашка секции вместо отдельного слайда-дивайдера.
         if self.facts:
@@ -1887,7 +1888,7 @@ class AuroraPPTXBuilder:
             self._vbar(slide, right_x - 0.15, cy + 0.03, 1.2, weight=2, color=self.gold)
             cy += 1.35
 
-        self._footer(slide, 6)
+        self._footer(slide, 6 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 07 - ACTION + TABLE (with conditional formatting & footnotes)
@@ -1895,7 +1896,7 @@ class AuroraPPTXBuilder:
 
     def s07_action_table(self):
         slide = self._blank()
-        self._header(slide, slide_num=7)
+        self._header(slide, slide_num=7 + self._page_shift)
 
         self._category(slide, self.safe, 0.60, "ПОРТФЕЛЬ КАНАЛОВ")
 
@@ -2167,7 +2168,7 @@ class AuroraPPTXBuilder:
         )
         self._source(slide, 6.87, text=_src_text2)
 
-        self._footer(slide, 7)
+        self._footer(slide, 7 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 08 - ACTION + FULL TIMELINE (with annotations)
@@ -2175,7 +2176,7 @@ class AuroraPPTXBuilder:
 
     def s08_action_timeline(self):
         slide = self._blank()
-        self._header(slide, slide_num=8)
+        self._header(slide, slide_num=8 + self._page_shift)
 
         self._category(slide, self.safe, 0.60, "ДИНАМИКА")
 
@@ -2277,7 +2278,7 @@ class AuroraPPTXBuilder:
                 text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция {_engine_decomp} · {self.report_id}",
             )
 
-            self._footer(slide, 8)
+            self._footer(slide, 8 + self._page_shift)
             return
 
         # ── Legacy preview/wireframe path (no real time_series) ───────────
@@ -2425,7 +2426,7 @@ class AuroraPPTXBuilder:
             text=f"Источник: {self.sources_client_label}{_tl_period_part}; декомпозиция {_engine_decomp2} · {self.report_id}",
         )
 
-        self._footer(slide, 8)
+        self._footer(slide, 8 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 09 - EXECUTIVE SUMMARY (SCQAR)
@@ -2777,7 +2778,7 @@ class AuroraPPTXBuilder:
     # C.6.3: s10 methodology content now at physical page 11 (divider at 10).
     def s10_methodology(self):
         slide = self._blank()
-        self._header(slide, slide_num=9)
+        self._header(slide, slide_num=9 + self._page_shift)
 
         # B4-2: плашка секции вместо отдельного слайда-дивайдера.
         self._section_intro(
@@ -2960,7 +2961,7 @@ class AuroraPPTXBuilder:
             )
             self._source(slide, 6.87, text=_bottom_note2)
 
-        self._footer(slide, 9)
+        self._footer(slide, 9 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 11 - SOURCES + MQS
@@ -3233,7 +3234,8 @@ class AuroraPPTXBuilder:
         """
         bt = self.backtest
         slide = self._blank()
-        self._header(slide, slide_num=10)
+        # П5: витрина — слайд №6, финал секции «Главное».
+        self._header(slide, slide_num=6)
 
         verdict = bt.get("verdict")
         hit = bt.get("windows_hit_total")
@@ -3373,7 +3375,7 @@ class AuroraPPTXBuilder:
                 "Интервал — 90% предиктивный (неопределённость модели и шум наблюдений).")),
             font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
         )
-        self._footer(slide, 10)
+        self._footer(slide, 6)
 
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
@@ -3599,14 +3601,15 @@ class AuroraPPTXBuilder:
         self.s02_at_a_glance()
         self.s05_key_message()
         self.s09_scqar()
+        # E1+П5 (2026-07-03, одобрено Антоном): витрина «Проверка на истории» —
+        # завершает секцию «Главное» (сразу после SCQAR); только при живой
+        # проверке (models/backtest.json); дека становится 13-слайдовой.
+        if self.backtest:
+            self.s10b_backtest()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()
         self.s10_methodology()
-        # E1 (2026-07-03): витрина «Проверка на истории» — только при живой
-        # проверке (models/backtest.json); дека становится 13-слайдовой.
-        if self.backtest:
-            self.s10b_backtest()
         self.s11_sources()
         self.s12_glossary()
         self.s13_colophon()

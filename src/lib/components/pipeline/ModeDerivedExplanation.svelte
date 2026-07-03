@@ -348,8 +348,8 @@
 
     <div class="quality-grid">
       <!-- Ratio -->
-      <div class="quality-card tone-{ratioStatus}" aria-label="Соотношение данных">
-        <span class="qc-label">Ratio данных</span>
+      <div class="quality-card tone-{ratioStatus}" aria-label="Запас данных">
+        <span class="qc-label">Запас данных (Ratio)</span>
         <span class="qc-value">{detectedRatio > 0 ? detectedRatio.toFixed(1) + ':1' : '—'}</span>
         <span class="qc-status">{ratioStatusLabel}</span>
       </div>

@@ -120,7 +120,8 @@ def live_decks(tmp_path_factory):
     assert res_without.get('status') == 'ok', res_without.get('message')
 
     return {
-        'with': {'result': res_with, 'text': _extract_all_text(out_with)},
+        'with': {'result': res_with, 'text': _extract_all_text(out_with),
+                 'result_path': out_with},
         'without': {'result': res_without, 'text': _extract_all_text(out_without)},
         'pipeline': {'model_data': model_data, 'dec': dec, 'opt': opt, 'tmp': str(tmp)},
     }
@@ -128,6 +129,19 @@ def live_decks(tmp_path_factory):
 
 def test_deck_with_backtest_has_13_slides(live_decks):
     assert live_decks['with']['result']['slides'] == 13
+
+
+def test_backtest_slide_position_in_main_section(live_decks):
+    """П5 (одобрено Антоном): витрина — слайд №6, финал секции «Главное»
+    (сразу после SCQAR), а не в глубине методологии."""
+    from pptx import Presentation
+    prs = Presentation(live_decks['with']['result_path'])
+    slide6_text = '\n'.join(
+        sh.text_frame.text for sh in prs.slides[5].shapes if sh.has_text_frame
+    )
+    assert 'Проверка на истории' in slide6_text, (
+        'Слайд №6 обязан быть витриной «Проверка на истории» (П5)'
+    )
 
 
 def test_deck_without_backtest_stays_12_and_clean(live_decks):

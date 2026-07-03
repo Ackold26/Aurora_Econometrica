@@ -38,8 +38,8 @@
     <h2 class="step-title">{stepDef.labelRu}</h2>
     {#if validationMetrics}
       <div class="key-metrics" aria-label="Ключевые параметры валидации">
-        <span class="metric-chip light-{validationMetrics.ratioStatus}" title="Ratio (наблюдений на параметр) - устойчивость оценок. ≥10 отлично, 4–10 приемлемо (широкие CI), <4 рискованно (overfitting).">
-          <span class="metric-label">Ratio</span>
+        <span class="metric-chip light-{validationMetrics.ratioStatus}" title="Запас данных (Ratio) - наблюдений на параметр, устойчивость оценок. ≥10 отлично, 4–10 приемлемо (интервалы шире), <4 рискованно (переобучение).">
+          <span class="metric-label">Запас данных</span>
           <span class="metric-value">{validationMetrics.ratio.toFixed(1)}:1</span>
         </span>
         <span class="metric-chip light-{validationMetrics.vifStatus}" title="VIF max - коллинеарность медиа-каналов. ≤5 каналы независимы, 5–10 умеренная collinearity (CI шире), >10 модель не разделит вклады каналов.">
