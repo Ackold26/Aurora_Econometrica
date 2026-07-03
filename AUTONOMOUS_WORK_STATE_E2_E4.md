@@ -1,0 +1,64 @@
+# E2 Калибровка lift-тестами + E4 Рекомендации-обещания — durable-реестр
+
+> **Старт:** 2026-07-03 · ветка `feat/econ-e1-backtest` (продолжение дня E1→UX→UXP→E3)
+> **Вход:** ROADMAP v3 §E2+§E4 (Фаза 3, методологический пик + замыкание петли доверия).
+> **Мандат:** автономно, развилки самой, реестр = ФАКТ, heartbeat 600, батчи с гейтами.
+> **При старте/компрессии:** читать этот файл, продолжать БЕЗ переспроса. Мост tauri НЕ вызывать.
+
+## RAG-канон (поднят, батч E24-0)
+- **Robyn (Meta 2024, arXiv 2403.14674) §2.2/§4.3:** калибровка экспериментами =
+  метод идентификации, двигает оценки по «спектру инкрементальности» к RCT-ground-truth;
+  MAPE.LIFT как целевая ошибка калибровки в multi-objective оптимизации.
+- **Jin et al. 2017 (Google):** experiments as informative priors для MMM.
+- **Gelman BW:** proper priors; предупреждение об overfitting при model selection.
+
+## Ключевые дизайн-решения (E24-0)
+- **D-E2-1 Калибровка = ДОПОЛНИТЕЛЬНОЕ НАБЛЮДЕНИЕ правдоподобия, не ручной приор.**
+  ROADMAP предлагал «prior=Normal вокруг калиброванного β», но β_calib зависит от
+  sat/adstock (курица-яйцо). Каноничнее (Robyn MAPE.LIFT-класс): в PyMC-модель
+  добавляется observed-узел: суммарный вклад канала за период теста (в norm-шкале)
+  ~ Normal(измеренный lift_norm, σ_norm из интервала теста). α/γ/decay/β
+  согласуются сами. Пометка в отчёте остаётся «[CALIBRATED]».
+- **D-E2-2 Вход теста:** {channel, date_from, date_to, lift_abs (в единицах KPI),
+  lift_low, lift_high, confidence_level (0.8/0.9/0.95), test_type}. σ_abs =
+  (hi−lo)/(2·z(level)). Подготовка/валидация дат→индексы — чистый модуль
+  utils/calibration.py (юниты без PyMC).
+- **D-E2-3 Честность расхождения:** pm.Deterministic per калибровка →
+  после сэмплирования diagnostics.calibration_check: {channel, model_contrib
+  mean/CI, test_lift, within_ci: bool}; расхождение вне CI → warning в
+  диагностику и отчёт (НЕ замалчивать — §E2.4).
+- **D-E2-4 Только bayesian:** OLS без приоров/likelihood-узлов — честный отказ
+  «калибровка требует байесовского режима» на этапе валидации конфига.
+- **D-E2-5 Pickle additive:** config.calibrations + diagnostics.calibration_check;
+  старые пиклы без полей работают как раньше.
+- **D-E4-1 Обещание:** results/promises.json (atomic): [{id, created_at,
+  action_text, channel_changes {ch: delta_pct}, expected {kpi_total, ci_low,
+  ci_high, horizon_periods}, extrapolation_flag, check_after_index (номер
+  наблюдения данных, после которого можно сверять), status pending/kept/missed/
+  inconclusive, checked_at, actual_kpi_total}]. Создание — из результата
+  optimize/goal-seek (CI и extrapolation уже есть в движках).
+- **D-E4-2 Сверка фактом:** promise_check(df): факт = сумма KPI за
+  horizon_periods строк данных ПОСЛЕ check_after_index; kept = внутри CI;
+  missed = вне; inconclusive = данных ещё не хватает. Оговорка о внешних
+  факторах — в текст карточки/отчёта (честность: сверка ожидания, не каузальный
+  вывод).
+
+## Реестр задач (статус — только по факту)
+| # | Задача | Статус |
+|---|---|---|
+| E24-0 | RAG + аудит лесов (зона likelihood modeler:730-735, channel_action, scenario CI) + реестр | ✅ 2026-07-03 |
+| E2-1 | Движок: utils/calibration.py (prepare+валидация) + вживление lift-наблюдений и Deterministic в modeler + calibration_check в диагностику + характеризующий тест (синтетика с зашитым lift: калиброванная ближе к истине) | ⏳ TODO |
+| E2-2 | Доставка: config.calibrations через TrainRequest → UI-форма «Результат эксперимента» (ConfigPanel advanced) + persist | ⏳ TODO |
+| E2-3 | Отчёт: [CALIBRATED] у канала + строка «приор откалиброван тестом от <дата>» + честное расхождение (PPTX/narrative) | ⏳ TODO |
+| E4-1 | Движок promises.py: create_from_optimize / list / check_all + тесты (kept/missed/inconclusive, extrapolation-пометка) | ⏳ TODO |
+| E4-2 | Доставка: endpoints + Rust + UI-карточка «Сбывшиеся рекомендации» (кнопка «Зафиксировать как обещание» в Optimize) | ⏳ TODO |
+| E4-3 | PPTX/narrative «Сбывшиеся рекомендации» + живой зонд (синтетика двух обновлений данных) + сводный отчёт docs/audits/E2_E4_2026_07.md | ⏳ TODO |
+
+## Находки по ходу
+—
+
+## Журнал батчей (только совершённое)
+- **E24-0 (2026-07-03):** RAG-канон поднят (Robyn §4.3 калибровка-как-идентификация
+  и MAPE.LIFT; Jin 2017; Gelman BW); зона вживления найдена (modeler:703-735 —
+  per-channel вклад `media_betas[i]*saturated` доступен как pt-выражение в цикле;
+  likelihood на 733-735); дизайн-решения D-E2-1..5, D-E4-1..2; реестр создан.
