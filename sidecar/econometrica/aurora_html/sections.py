@@ -509,7 +509,14 @@ def render_executive_summary(ctx: dict) -> str:
             # v1.3.2 audit fix (M2): scqar.recommendation template = «Ожидаемый
             # прирост ROAS: +N пп». Для non-monetary modes слово «ROAS» leak.
             # Override formula manually per kpi mode.
-            if kpi["is_legacy"]:
+            # B1-fix R-09/R-13 (2026-07-03): «+0 пп» — пустое обещание; при
+            # незначимом lift (<0.5) — честная формулировка без нулевого числа.
+            if lift is None or float(lift) < 0.5:
+                recommendation = (
+                    "Прирост от перераспределения незначим (<0.5 пп) - "
+                    "портфель близок к оптимуму в заданных границах."
+                )
+            elif kpi["is_legacy"]:
                 recommendation = scqar["recommendation"]["template"].format(lift=lift)
             elif kpi["mode"] == "effectiveness":
                 recommendation = f"Ожидаемый прирост доли эффекта: +{lift:.0f} пп."
@@ -1310,18 +1317,18 @@ def render_recommendation(ctx: dict) -> str:
             # action='Cut' channels listed → customer sees full picture.
             action_03_text = (
                 f"Перевести бюджет из {', '.join(underperf)} согласно вердиктам, "
-                "затем измерить эффект через 90 дней (KPI vs baseline)."
+                "затем сверить эффект после следующего периода данных (KPI vs baseline)."
             )
         else:
             action_03_text = (
-                "Замерить эффект через 90 дней (KPI vs baseline) - "
+                "Сверить эффект после следующего периода данных (KPI vs baseline) - "
                 "перезапустить MMM с обновлёнными данными для калибровки модели."
             )
 
         actions = [
             ("01", "Перебалансировать бюджет.", action_01_text),
             ("02", "Контролировать saturation.", action_02_text),
-            ("03", "Замерить эффект через 90 дней.", action_03_text),
+            ("03", "Сверить прогноз с фактом.", action_03_text),
         ]
         lift_val = lift if lift is not None else 0
     else:
@@ -1329,7 +1336,7 @@ def render_recommendation(ctx: dict) -> str:
         actions = [
             ("01", "Перебалансировать бюджет.", "Из лидера в hero-канал по mROAS"),
             ("02", "Контролировать saturation.", "По каналам с mROAS < 1×"),
-            ("03", "Замерить эффект через 90 дней.", "KPI vs baseline после применения"),
+            ("03", "Сверить прогноз с фактом.", "KPI vs baseline после применения"),
         ]
         lift_val = 0
 
@@ -1350,6 +1357,19 @@ def render_recommendation(ctx: dict) -> str:
     else:
         impact_period_label = "Прогнозный ROAS"
 
+    # B1-fix R-09/R-13 (2026-07-03): «+0 пп» — пустое обещание; незначимый
+    # lift (<0.5) подписываем честно, без нулевого числа и без анимации.
+    if lift_val >= 0.5:
+        _impact_value_html = (
+            f'<div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>'
+        )
+        _impact_card_attr = ' data-animate-counter'
+    else:
+        _impact_value_html = (
+            '<div class="impact-value" style="font-size:22px;">Незначим (&lt;0.5 пп)</div>'
+        )
+        _impact_card_attr = ''
+
     # Optimize comparison chart (current vs optimal spend per channel)
     # rendered only when optimize data is available - JS checks CHART_DATA
     # shape and silently no-ops if empty.
@@ -1358,10 +1378,10 @@ def render_recommendation(ctx: dict) -> str:
 <div class="recommendations">
 {actions_html}
 </div>
-<div class="impact-card" data-animate-counter>
+<div class="impact-card"{_impact_card_attr}>
   <div class="impact-label">Ожидаемый эффект</div>
   <div class="impact-hairline" aria-hidden="true"></div>
-  <div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>
+  {_impact_value_html}
   <div class="impact-period">{escape(impact_period_label)}</div>
 </div>
 <div class="chart-container" style="margin-top:28px;">
@@ -1569,10 +1589,13 @@ def render_sources(ctx: dict) -> str:
         if is_ols
         else _brand["methodology_badge"]
     )
+    # B1-fix R-07 (2026-07-03): фактический уровень интервалов — 90% HDI
+    # (DEFAULT_HDI_PROB=0.9, OLS bootstrap тем же compute_ci_hdi, n=200);
+    # «95%» было враньём семейства F-18.
     _src_line = (
-        "OLS MMM · точечные оценки · bootstrap CI 95%"
+        "OLS MMM · точечные оценки · bootstrap 90% HDI (n=200)"
         if is_ols
-        else "Bayesian MMM · posterior means · 95% CI"
+        else "Bayesian MMM · posterior means · 90% HDI"
     )
 
     body = f"""

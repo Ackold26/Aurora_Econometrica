@@ -64,6 +64,11 @@ WIREFRAME_MARKERS = [
     'Целевой ретаргетинг',
     '+0.0 пп',
     '+0 пп',
+    # B1-fix-3 (HTML, то же семейство): уровень CI и доля «продаж».
+    '95% CI',
+    'CI 95%',
+    '% продаж при',
+    'через 90 дней',
 ]
 
 
@@ -144,9 +149,9 @@ def test_adapter_delivers_honesty_and_preflight():
 # ─── Интеграционный: живой PPTX без wireframe-вранья ─────────────────────────
 
 @pytest.fixture(scope='module')
-def live_pptx_text(tmp_path_factory):
+def live_reports(tmp_path_factory):
     """Полный live-путь на synthetic-проекте: decompose → optimize →
-    build_pptx → извлечённый текст всех слайдов."""
+    build_pptx + build_html → извлечённые тексты обоих отчётов."""
     tmp = tmp_path_factory.mktemp('b1_live')
     pdir = _build_project(tmp, 'fidelity', beta_sd=0.2, seed=7)
 
@@ -164,11 +169,25 @@ def live_pptx_text(tmp_path_factory):
         'mqs': {'score': 71.0, 'tier_label': 'Хорошее'},
         'checks': {},
     }}
-    out = str(tmp / 'report.pptx')
+    out_pptx = str(tmp / 'report.pptx')
     from engines.pptx_export import build_pptx
-    res = build_pptx(model_data, dec, opt, out, scenarios=[], project_id='fidelity_test')
+    res = build_pptx(model_data, dec, opt, out_pptx, scenarios=[], project_id='fidelity_test')
     assert res.get('status') == 'ok', res.get('message')
-    return _extract_all_text(out)
+
+    out_html = str(tmp / 'report.html')
+    from engines.html_export import build_html
+    dec_html = dict(dec)
+    dec_html.setdefault('project_dir', str(pdir))
+    res_h = build_html(model_data, dec_html, opt, out_html,
+                       scenarios=[], project_id='fidelity_test')
+    assert res_h.get('status') == 'ok', res_h.get('message')
+    html_text = Path(out_html).read_text(encoding='utf-8')
+    return {'pptx': _extract_all_text(out_pptx), 'html': html_text}
+
+
+@pytest.fixture(scope='module')
+def live_pptx_text(live_reports):
+    return live_reports['pptx']
 
 
 def test_live_pptx_has_no_wireframe_markers(live_pptx_text):
@@ -192,6 +211,24 @@ def test_live_pptx_delivers_honest_values(live_pptx_text):
     assert 'файл, загруженный в проект' in live_pptx_text, \
         'Честная строка источника данных отсутствует'
     assert '90% HDI' in live_pptx_text, 'Честный уровень CI (90% HDI) не заявлен'
+
+
+def test_live_html_has_no_wireframe_markers(live_reports):
+    """HTML — то же семейство: ни один wireframe/ложь-маркер не в живом отчёте.
+    Исключение: 'Q1 2026'-класс меток в HTML не рендерится вовсе (нет
+    периодных подписей билдера), а данные периода идут из реальных дат."""
+    html = live_reports['html']
+    hits = [m for m in WIREFRAME_MARKERS if m in html]
+    assert not hits, f'Wireframe/ложь-маркеры в живом HTML: {hits}'
+
+
+def test_live_html_delivers_honest_values(live_reports):
+    """HTML доставляет честные значения: 90% HDI, ESS из bulk/tail,
+    медиа-вклад с квалификатором."""
+    html = live_reports['html']
+    assert '90% HDI' in html, 'Честный уровень CI (90% HDI) не заявлен в HTML'
+    assert '640' in html, 'ESS (min bulk/tail) не доставлен в HTML'
+    assert 'медиа-вклада' in html, 'Квалификатор «медиа-вклада» отсутствует в HTML'
 
 
 def test_preview_mode_keeps_wireframe():

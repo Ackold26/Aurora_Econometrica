@@ -41,7 +41,7 @@
     "recommendation": { "label": "RECOMMENDATION", "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп." }
   },
   "findings_templates": {
-    "f1_leader":        "{leader} - {contrib_pct_fmt} продаж при {spend_pct_fmt} бюджета",
+    "f1_leader":        "{leader} - {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета",
     "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
     "f2_hero":           "{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×",
     "f2_hero_support":   "Текущий бюджет на нём {hero_spend_pct_fmt}",
@@ -60,7 +60,7 @@
   },
   "action_titles": {
     "s02_five":          "Пять ключевых находок по результатам моделирования",
-    "s04_takeaway":      "{leader} генерирует {contrib_pct_fmt} продаж при {spend_pct_fmt} бюджета - основная точка оптимизации",
+    "s04_takeaway":      "{leader} даёт {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета - основная точка оптимизации",
     "s05_default":       "{leader} остаётся драйвером, но эффективность требует проверки saturation",
     "s06_hero":          "{hero} - наиболее эффективный канал, сигнал к пересмотру аллокации",
     "s07_dominant":      "Один канал даёт {pct_fmt} продаж - остальные рекомендованы к консолидации",
@@ -84,7 +84,7 @@
       "   θ_i ∈ [0, 0.95]  (geometric decay)",
       "sat(z, α, γ) = z^α / (z^α + γ^α)",
       "   Hill function, half-max = γ_i",
-      "β_i ~ HalfNormal(0.5) · CPP-normalized",
+      "β_i ~ HalfNormal (слабоинформативный) · CPP-normalized",
       "ε_t ~ Normal(0, σ)"
     ],
     "spec_formulas_ols": [
@@ -121,7 +121,7 @@
         "body": "Экстремальные события (валютные скачки, регуляторные) вне scope."
       }
     ],
-    "prior_note": "Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM."
+    "prior_note": "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
   },
   "glossary": {
     "categories": [
@@ -149,7 +149,7 @@
           { "term": "R-hat", "definition": "Gelman-Rubin сходимость цепей MCMC. Значение <1.01 - хорошая сходимость." },
           { "term": "ESS", "definition": "Effective Sample Size - число независимых samples из posterior. Выше = надёжнее." },
           { "term": "Baseline", "definition": "Органический уровень продаж без медиа - то, что продаётся без рекламы." },
-          { "term": "Credible interval", "definition": "95% диапазон posterior, содержащий истинное значение с указанной вероятностью." },
+          { "term": "Credible interval", "definition": "90% диапазон posterior (HDI), содержащий истинное значение с указанной вероятностью." },
           { "term": "Weighted ROI", "definition": "ROI портфеля, взвешенный по объёму вложений каждого канала." }
         ]
       },
@@ -264,14 +264,14 @@
   "source_notes": {
     "data":       "Источник: данные клиента {data_window}; декомпозиция Bayesian MMM v{version}",
     "data_ols":   "Источник: данные клиента {data_window}; декомпозиция OLS MMM v{version}",
-    "posterior":  "CI 95%, posterior means reported",
-    "posterior_ols": "CI 95% bootstrap (n=1000), точечные оценки β",
+    "posterior":  "90% HDI, posterior means reported",
+    "posterior_ols": "90% HDI bootstrap (n=200), точечные оценки β",
     "generic":    "Модель откалибрована под FMCG-бенчмарки Aurora"
   },
   "closing": {
     "statement":  "Решения, основанные на данных.",
     "emphasis":   "Не на интуиции.",
-    "cta":        "Следующий шаг - применить рекомендации и измерить эффект через 90 дней.",
+    "cta":        "Следующий шаг - применить рекомендации и сверить эффект после следующего периода данных.",
     "narrative":  "Aurora AI помогает принимать обоснованные медиа-решения с опорой на байесовскую эконометрику.",
     "report_id_hint": "Используйте Report ID для референса при обсуждении этого отчёта."
   }
