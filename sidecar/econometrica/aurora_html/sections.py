@@ -536,7 +536,7 @@ def render_executive_summary(ctx: dict) -> str:
             else:
                 answer = scqar.get("answer_all_hold", {}).get(
                     "template",
-                    f"Сохранить приоритет {leader} с контролем saturation."
+                    f"Сохранить приоритет {leader} с контролем насыщения."
                 )
             recommendation = (
                 "Дальнейший прирост возможен через расширение границ оптимизации "
@@ -824,7 +824,7 @@ def render_key_message(ctx: dict) -> str:
             quote = (
                 f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
                 f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
-                "Низкая инкрементальность - проверить adstock, saturation, качество данных."
+                "Низкий вклад медиа - проверить adstock, насыщение, качество данных."
             )
         else:
             title = strings["action_titles"]["s05_default"].format(leader=leader)
@@ -838,7 +838,7 @@ def render_key_message(ctx: dict) -> str:
                     "Сигнал к reallocate части бюджета."
                 )
             else:
-                quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков saturation."
+                quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."
     else:
         title = "Главный вывод появится после обучения модели"
         big = "-"
@@ -1274,7 +1274,7 @@ def render_recommendation(ctx: dict) -> str:
         else:
             action_01_text = (
                 f"Портфель близок к оптимуму при заданных границах. "
-                f"Сохранить аллокацию по {leader} с контролем индикаторов saturation."
+                f"Сохранить распределение по {leader} с контролем признаков насыщения."
             )
 
         # N4 - Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
@@ -1302,12 +1302,12 @@ def render_recommendation(ctx: dict) -> str:
             if kpi["mode"] == "effectiveness":
                 action_02_text = (
                     "Все каналы дают сравнимый вклад в долю эффекта - "
-                    f"мониторить {metric_short.lower()} канала в следующих периодах на признаки saturation."
+                    f"следить за {metric_short.lower()} канала в следующих периодах - не появится ли насыщение."
                 )
             else:
                 action_02_text = (
                     f"Все каналы выше breakeven - мониторить {metric_short} в следующих периодах "
-                    "на признаки saturation."
+                    "на признаки насыщения."
                 )
 
         if underperf:
@@ -1327,7 +1327,7 @@ def render_recommendation(ctx: dict) -> str:
 
         actions = [
             ("01", "Перебалансировать бюджет.", action_01_text),
-            ("02", "Контролировать saturation.", action_02_text),
+            ("02", "Контролировать насыщение.", action_02_text),
             ("03", "Сверить прогноз с фактом.", action_03_text),
         ]
         lift_val = lift if lift is not None else 0
@@ -1335,7 +1335,7 @@ def render_recommendation(ctx: dict) -> str:
         title = "Рекомендация появится после оптимизации"
         actions = [
             ("01", "Перебалансировать бюджет.", "Из лидера в hero-канал по mROAS"),
-            ("02", "Контролировать saturation.", "По каналам с mROAS < 1×"),
+            ("02", "Контролировать насыщение.", "По каналам с mROAS < 1×"),
             ("03", "Сверить прогноз с фактом.", "KPI vs baseline после применения"),
         ]
         lift_val = 0
@@ -1512,7 +1512,7 @@ def render_methodology(ctx: dict) -> str:
         else _ats["s10_methodology"]
     )
     _prior_note = (
-        "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=1000 для CI."
+        "Параметры adstock и насыщения: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=200 для CI."
         if is_ols
         else meth["prior_note"]
     )

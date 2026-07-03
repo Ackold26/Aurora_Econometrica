@@ -215,7 +215,7 @@ class AuroraPPTXBuilder:
         # dedicated slides; now each section-divider slide precedes real
         # content. Header "01 / 05" honest across the deck.
         self.section_names = meta.get("section_names", [
-            "Executive summary",        # 1: TOC + ataglance + keymsg + SCQAR
+            "Главное",                  # 1: TOC + ataglance + keymsg + SCQAR (B4: было Executive summary)
             "Декомпозиция вкладов",     # 2: divider + chart + table + timeline
             "Методология",              # 3: divider + methodology
             "Данные и качество",        # 4: divider + sources
@@ -230,10 +230,10 @@ class AuroraPPTXBuilder:
         # s_div_data @ 12, s_div_appendix @ 14) provide visual anchoring
         # symmetric to the existing Декомпозиция divider at page 4.
         self.slide_to_section = meta.get("slide_to_section") or {
-            2:  (1, "Executive summary"),          # TOC
-            3:  (1, "Executive summary"),          # At a glance
-            4:  (1, "Executive summary"),          # Key message
-            5:  (1, "Executive summary"),          # SCQAR
+            2:  (1, "Главное"),                    # TOC
+            3:  (1, "Главное"),                    # At a glance
+            4:  (1, "Главное"),                    # Key message
+            5:  (1, "Главное"),                    # SCQAR
             6:  (2, "Декомпозиция вкладов"),       # Section divider
             7:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS)
             8:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
@@ -249,8 +249,8 @@ class AuroraPPTXBuilder:
         # Header center label (shown on every content slide)
         self.header_project_label = meta.get(
             "header_project_label",
-            (f"{self.client.upper()} . MMM REPORT . {self.period_label}"
-             if self.period_label else f"{self.client.upper()} . MMM REPORT"),
+            (f"{self.client.upper()} . ОТЧЁТ MMM . {self.period_label}"
+             if self.period_label else f"{self.client.upper()} . ОТЧЁТ MMM"),
         )
         # Copyright footer on cover - dynamic year for future-proofing
         _year = datetime.now().year
@@ -595,7 +595,7 @@ class AuroraPPTXBuilder:
         if include_confidential:
             self._text(
                 slide, self.w - self.safe - 4.0, y, 4.0, 0.2,
-                "CONFIDENTIAL",
+                "КОНФИДЕНЦИАЛЬНО",
                 font=self.sans, size=8, italic=True, color=self.deep_60,
                 align=PP_ALIGN.RIGHT,
             )
@@ -1311,7 +1311,7 @@ class AuroraPPTXBuilder:
                 ),
                 topics=[
                     "Спецификация модели и уравнение отклика",
-                    "Параметры adstock и saturation (фиксированные)",
+                    "Параметры adstock и насыщения (фиксированные)",
                     "Диагностика OLS · closed-form · bootstrap CI",
                 ],
             )
@@ -1411,7 +1411,7 @@ class AuroraPPTXBuilder:
                 quote_txt = (
                     f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
                     f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
-                    "Низкая инкрементальность - проверить adstock, saturation, качество данных."
+                    "Низкий вклад медиа - проверить adstock, насыщение, качество данных."
                 )
             else:
                 # Action title - leader's position statement
@@ -1779,14 +1779,14 @@ class AuroraPPTXBuilder:
                 if self.kpi["is_legacy"]:
                     commentary.append((
                         f"{hero_name} - лидер по mROAS.",
-                        f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом saturation.",
+                        f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом насыщения.",
                     ))
                 else:
                     metric_short = self.kpi["metric_short"]
                     metric_val = _fmt_metric_pptx(hero_m, self.kpi)
                     commentary.append((
                         f"{hero_name} - лидер по {metric_short}.",
-                        f" {metric_short} {metric_val}. Бюджет следует пересмотреть с учётом saturation.",
+                        f" {metric_short} {metric_val}. Бюджет следует пересмотреть с учётом насыщения.",
                     ))
         else:
             # Wireframe placeholder when no channels (preview mode)
@@ -2910,7 +2910,7 @@ class AuroraPPTXBuilder:
 
         self._text(
             slide, card_x + 0.35, card_y + 0.3, card_w - 0.7, 0.25,
-            "MODEL QUALITY SCORE",
+            "ОЦЕНКА КАЧЕСТВА МОДЕЛИ (MQS)",
             font=self.sans, size=10, bold=True, color=self.gold,
         )
 
