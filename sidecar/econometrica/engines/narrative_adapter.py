@@ -431,7 +431,15 @@ def derive_action_headline(
                 return f"Нарастить {hero} и сократить {leader} - {lift_txt}"
             return f"Нарастить {hero} - mROAS {hero_m:.1f}x против {leader}"
         if hero and hero_m >= 1.2:
-            return f"Защитить лидерство {hero} - mROAS {hero_m:.1f}x устойчив"
+            # B1-fix R-14-семейство: «устойчив» — только когда нижняя граница
+            # CI выше безубыточности; при широком интервале эпитет не заявляем.
+            _ci_lo = hero_ch.get("mroas_ci_low")
+            try:
+                _stable = _ci_lo is not None and float(_ci_lo) >= 1.0
+            except (TypeError, ValueError):
+                _stable = False
+            _sfx = " устойчив" if _stable else ""
+            return f"Защитить лидерство {hero} - mROAS {hero_m:.1f}x{_sfx}"
         if all_underperf:
             return "Сократить неэффективные каналы и сфокусировать бюджет"
         return "Сбалансировать портфель по mROAS - один канал не доминирует"
@@ -463,10 +471,16 @@ def derive_action_headline(
         return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {pct}% продаж"
 
     if slide_hint == "timeline":
-        # s08: schedule action
+        # B1-fix R-09 (2026-07-03): прежний заголовок «Перейти на пульсирующее
+        # размещение - экономия 15-20% без потери охвата» — выдуманное обещание
+        # с числами: модель flighting-стратегии НЕ вычисляет. Честный заголовок
+        # строится из реального числа (доля лидера в медиа-вкладе) без обещаний.
+        share = facts.get("leader_share_contrib_pct")
+        if leader and share is not None:
+            return f"{leader} - {share:.0f}% медиа-вклада: контролировать динамику и признаки насыщения"
         if leader:
-            return f"Перейти на пульсирующее размещение {leader} - экономия 15-20% без потери охвата"
-        return "Пульсирующее размещение вместо непрерывного - экономия без потери охвата"
+            return f"Контролировать динамику {leader} - опора медиа-вклада портфеля"
+        return "Динамика вкладов: базовый уровень и медиа по периодам"
 
     if slide_hint == "scqar":
         # s09 - 3 scenarios: Rebalance / Hold+control / Risk
@@ -480,6 +494,11 @@ def derive_action_headline(
         if hero and leader and hero != leader and realloc >= 1:
             # Rebalance без верного lift - action без числа
             return f"Перераспределить {realloc:.0f} млн руб из {leader} в {hero}"
+        # B1-fix R-14: «сбалансирован» при неопределённых вердиктах — не то же
+        # самое; сначала снять неопределённость, потом перераспределять.
+        _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")
+        if _uncertain_n >= max(2, (total_ch + 1) // 2):
+            return "Снять неопределённость вердиктов перед ре-аллокацией - интервалы эффективности широки"
         # Hold + control scenario
         return "Портфель сбалансирован - рекомендуется A/B тест перед ре-аллокацией"
 

@@ -760,9 +760,13 @@ class AuroraPPTXBuilder:
             s1 = f"{leader} - лидер среди медиа ({_fmt_pct(leader_contrib_pct)} media-вклада)" if leader_contrib_pct is not None else f"{leader} - лидер среди медиа"
         else:
             if leader_contrib_pct is not None and leader_spend_pct is not None:
-                f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} продаж при {_fmt_pct(leader_spend_pct)} бюджета"
+                # B1-fix R-12 (2026-07-03): leader_share_contrib_pct — доля в
+                # МЕДИА-вкладе, не в продажах (Kagocel: «32% продаж» реально
+                # 32% медиа-вклада = 12% продаж при медиа 38%). Квалификатор
+                # обязателен — иначе клиент завышает роль канала втрое.
+                f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
             else:
-                f1 = f"{leader} - максимальный вклад в продажи"
+                f1 = f"{leader} - максимальный медиа-вклад в продажи"
             # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
             if weighted_roi is not None:
                 if self.kpi["is_legacy"]:
@@ -829,13 +833,19 @@ class AuroraPPTXBuilder:
             s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
-            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Портфель близок к оптимуму"
+            # B1-fix R-09/R-13: «+0.0 пп» — пустое обещание; при незначимом lift
+            # честная формулировка вместо нулевого числа.
+            if expected_lift_pct is not None and expected_lift_pct >= 0.5:
+                s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп"
+            else:
+                s3 = "Перераспределение не даёт ощутимого прироста - портфель у оптимума"
 
         # Finding 4 - verdict distribution (how portfolio looks)
         # Stage C.3: idiomatic Russian plural forms (no lazy "канал(ов)" hack).
         verdicts = [c.get("verdict") for c in self.channels]
         scale_n = sum(1 for v in verdicts if v == "Scale")
         cut_n = sum(1 for v in verdicts if v in ("Cut", "Reduce"))
+        uncertain_n = sum(1 for v in verdicts if v == "Uncertain")
         def _ru_channels(n: int) -> str:
             if n == 0:
                 return "ни одного канала"
@@ -844,8 +854,18 @@ class AuroraPPTXBuilder:
             if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
                 return f"{n} канала"
             return f"{n} каналов"
-        f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
-        s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
+        # B1-fix R-14 (2026-07-03): при неопределённых вердиктах (широкие
+        # posterior-интервалы) «чёткая рекомендация по каждому» — ложь.
+        # Kagocel-зонд: все 4 канала Uncertain + текст обещал чёткость.
+        if uncertain_n > 0 and scale_n == 0 and cut_n == 0:
+            f4 = f"Портфель: вердикты {_ru_channels(uncertain_n)} неопределённые - интервалы эффективности широки"
+            s4 = "Для уверенных действий нужно больше данных или длиннее история"
+        elif uncertain_n > 0:
+            f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
+            s4 = f"Из {len(self.channels)} каналов у {_ru_channels(uncertain_n)} вердикт неопределённый"
+        else:
+            f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
+            s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
 
         # Finding 5 - MQS quality signal (guards None / non-numeric mqs_score)
         try:
@@ -1260,8 +1280,10 @@ class AuroraPPTXBuilder:
             cpct = self.facts.get("leader_share_contrib_pct")
             spct = self.facts.get("leader_share_spend_pct")
             if cpct is not None and spct is not None:
+                # B1-fix R-12: cpct — доля в МЕДИА-вкладе, не в продажах
+                # (без квалификатора клиент завышает роль канала кратно).
                 takeaway = (
-                    f"{leader} генерирует {_fmt_pct(cpct)} продаж при {_fmt_pct(spct)} бюджета - "
+                    f"{leader} даёт {_fmt_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета - "
                     "основная точка оптимизации портфеля"
                 )
             else:
@@ -2388,8 +2410,14 @@ class AuroraPPTXBuilder:
                 f"за период {self.data_window_label}" if self.data_window_label
                 else "за анализируемый период"
             )
+            # Склонение: 1 канал / 2-4 канала / 5+ каналов.
+            _ch_word = ("канал" if n_ch % 10 == 1 and n_ch % 100 != 11
+                        else "канала" if n_ch % 10 in (2, 3, 4) and n_ch % 100 not in (12, 13, 14)
+                        else "каналов")
+            _ch_adj = ("активный" if _ch_word == "канал"
+                       else "активных")
             situation_body = (
-                f"{self.client} размещает {tb:.0f} млн ₽ {_period_phrase} через {n_ch} активных каналов. "
+                f"{self.client} размещает {tb:.0f} млн ₽ {_period_phrase} через {n_ch} {_ch_adj} {_ch_word}. "
                 + wr_segment
                 + f"MQS модели {self._mstr(self.mqs_score, '{:.0f}')}/100."
             )
@@ -2415,7 +2443,27 @@ class AuroraPPTXBuilder:
                     complication_parts.append(f"по {metric_short} {hero} опережает ({metric_fmt})")
             if underperf:
                 complication_parts.append(f"{underperf_str} тянут портфель вниз")
-            complication_body = ". ".join(complication_parts) + (". Портфель требует перебалансировки." if complication_parts else "Портфель требует перебалансировки.")
+            # B1-fix R-13 (2026-07-03): хвост «Портфель требует перебалансировки»
+            # противоречил ответу «Сохранить аллокацию» при lift≈0 (Kagocel-зонд:
+            # ПРОБЛЕМА требует, ОТВЕТ сохраняет). Хвост — из фактов оптимизатора.
+            _lift_f = f.get("expected_lift_pct")
+            _realloc_potential = bool(
+                (f.get("cut_source_channel") or f.get("scale_destination_channel"))
+                and (f.get("reallocation_mln") or 0) >= 1
+            )
+            _has_real_lift = _lift_f is not None and _lift_f >= 0.5
+            if _realloc_potential and _has_real_lift:
+                _compl_tail = "Портфель требует перебалансировки."
+            elif f.get("binding_constraints"):
+                _compl_tail = ("Однако оптимизатор упёрся в заданные границы каналов - "
+                               "потенциал перераспределения ограничен настройками.")
+            else:
+                _compl_tail = ("Однако перераспределение в заданных границах не даёт "
+                               "ощутимого прироста - разрыв объясняется насыщением каналов.")
+            complication_body = (
+                (". ".join(complication_parts) + ". " + _compl_tail)
+                if complication_parts else _compl_tail
+            )
 
             # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
             # scale_destination from action_summary вместо leader/hero.
@@ -2432,11 +2480,18 @@ class AuroraPPTXBuilder:
                 answer_parts.append(f"остановить {underperf_str}")
             answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
 
+            # B1-fix R-13: вопрос согласован со сценарием — при hold-исходе
+            # «как перераспределить» обещал то, чего ответ не даёт.
+            _question_body = (
+                "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?"
+                if (_realloc_potential and _has_real_lift)
+                else "Есть ли в текущем миксе резерв эффективности, который стоит задействовать?"
+            )
             blocks = [
                 {"label": "СИТУАЦИЯ", "height": 0.6, "body": situation_body},
                 {"label": "ПРОБЛЕМА", "height": 0.8, "body": complication_body},
                 {"label": "ВОПРОС", "height": 0.55,
-                 "body": "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?",
+                 "body": _question_body,
                  "accent": True},
                 {"label": "ОТВЕТ", "height": 0.6, "body": answer_body},
                 {"label": "РЕКОМЕНДАЦИИ", "height": 2.3, "body": None},
@@ -2501,7 +2556,6 @@ class AuroraPPTXBuilder:
                     realloc = f.get("reallocation_mln") or 0
                     lift = f.get("expected_lift_pct")
                     underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut",)]
-                    lift_txt = f"+{lift:.1f} пп к ROAS по прогнозу" if lift is not None else "Положительный прирост ROAS по прогнозу"
                     cut_source = f.get("cut_source_channel")
                     scale_dest = f.get("scale_destination_channel")
 
@@ -2529,15 +2583,40 @@ class AuroraPPTXBuilder:
                     else:
                         action_01_body = f" Сохранить аллокацию по {leader} с контролем индикаторов насыщения."
 
+                    # B1-fix R-09 (2026-07-03): рекомендации 02/03 были выдуманы
+                    # («пульсирующее размещение - экономия 15-20%», «целевой
+                    # ретаргетинг по сегментам») — модель не вычисляет ни
+                    # flighting, ни сегменты; числа фабриковались. Честные
+                    # рекомендации — только выводимые из модели: контроль
+                    # насыщения (Hill-механика), снятие неопределённости
+                    # вердиктов, сверка прогноза с фактом при следующей волне.
+                    _uncertain_names = [
+                        c.get("name") for c in self.channels
+                        if c.get("verdict") == "Uncertain" and c.get("name")
+                    ]
+                    if _uncertain_names:
+                        _action_02 = (
+                            "Снять неопределённость вердиктов.",
+                            f" {', '.join(_uncertain_names[:3])}: интервалы эффективности "
+                            "широки - добавить историю данных или вариацию трат, затем переобучить модель.",
+                        )
+                    else:
+                        _action_02 = (
+                            f"Контролировать насыщение {leader}.",
+                            " Наращивание трат сверх текущего уровня даёт убывающую отдачу "
+                            "(Hill-насыщение) - отслеживать mROAS при изменениях бюджета.",
+                        )
+                    _lift_frag = (
+                        f" Ожидаемый прирост ROAS +{lift:.1f} пп - проверить фактом."
+                        if (lift is not None and lift >= 0.5)
+                        else " Проверить, что фактические продажи соответствуют прогнозу модели."
+                    )
                     actions = [
                         ("01", "Перераспределить бюджет.", action_01_body),
-                        ("02",
-                         "Пульсирующее размещение вместо непрерывного.",
-                         f" Короткие флайты {leader} с паузами - экономия бюджета 15-20% при сохранении охвата."),
+                        ("02", *_action_02),
                         ("03",
-                         "Целевой ретаргетинг через эффективные сегменты.",
-                         f" Приоритетный сегмент - {scale_dest or hero}; {lift_txt}."
-                            + (f" Бюджет переводим из {', '.join(underperf)}." if underperf else "")),
+                         "Сверить прогноз с фактом после следующего периода.",
+                         f" Обновить модель новыми данными и подтвердить рекомендации.{_lift_frag}"),
                     ]
                 else:
                     actions = [
@@ -2585,9 +2664,15 @@ class AuroraPPTXBuilder:
         # semantic «Не определён» вместо em-dash для consultant context — em-dash
         # читается как «забыли заполнить», текст явно signals «не посчитано / нет данных».
         # Font size scaled down (42→22pt) чтобы фраза влезла в 2.5" box без переноса.
-        if self.facts and self.facts.get("expected_lift_pct") is not None:
-            impact_num = f"+{self.facts['expected_lift_pct']:.0f} пп"
+        # B1-fix R-09/R-13: «+0 пп» — пустое обещание; незначимый lift (<0.5)
+        # подписываем честно, не нулевым числом.
+        _lift_box = self.facts.get("expected_lift_pct") if self.facts else None
+        if _lift_box is not None and _lift_box >= 0.5:
+            impact_num = f"+{_lift_box:.0f} пп"
             impact_size = 42
+        elif _lift_box is not None:
+            impact_num = "Незначим (<0.5 пп)"
+            impact_size = 18
         else:
             impact_num = "Не определён"
             impact_size = 22
@@ -3206,11 +3291,13 @@ class AuroraPPTXBuilder:
         self._lime_under(slide, self.safe, cta_y + 0.75, 4.5)
 
         # Narrative paragraph - platform philosophy (positioned AFTER CTA as rationale footer)
+        # B1-fix R-06-семейство: «результаты уровня ведущих консалтинговых групп»
+        # — недоказуемое сравнительное заявление (INV-50); заменено фактичным.
         narrative = (
             "Aurora AI превращает медиабюджет из статьи затрат в управляемый инструмент роста. "
             "Байесовский вывод позволяет не просто измерить эффективность каналов, но понять границы "
-            "неопределённости - основу доверия к любым модельным решениям. Методология, откалиброванная "
-            "под индустриальные стандарты, даёт результаты уровня ведущих консалтинговых групп без "
+            "неопределённости - основу доверия к любым модельным решениям. Методология выстроена по "
+            "отраслевым стандартам байесовского MMM и лучшим опубликованным практикам - без "
             "необходимости содержать собственную команду аналитиков. Платформа масштабируется от "
             "ежеквартального отчёта до ежемесячного пульс-мониторинга, от одной SKU до портфеля брендов."
         )
