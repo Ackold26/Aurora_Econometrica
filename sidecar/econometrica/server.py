@@ -46,6 +46,19 @@ from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+
+def _friendly_error(e: Exception) -> str:
+    """П6 (UX-волна, 2026-07-03): последняя миля ошибок. Generic-обработчики
+    прежде отдавали голый str(e) — английский технотекст доезжал до клиента.
+    Теперь: что случилось + что делать; техдеталь остаётся для поддержки
+    (полный стек в логах через logger.exception)."""
+    detail = str(e) or type(e).__name__
+    return (
+        f'Внутренняя ошибка при расчёте: {detail[:200]}. '
+        f'Повторите действие; если ошибка повторится — перезапустите программу '
+        f'или напишите в поддержку.'
+    )
+
 # ── Identity & session (required by handshake protocol v1.0.9+) ──────────────
 # Session_id меняется при каждом cold start. Rust сверяет его с sidecar.json
 # и live /health, несовпадение → force kill + respawn (защита от stale/foreign).
@@ -692,7 +705,7 @@ def project_migrate_endpoint(req: ProjectMigrateRequest):
         logger.exception('Migration endpoint FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 
@@ -1720,7 +1733,7 @@ def generate_chart(req: ChartRequest):
         return {'status': 'error', 'message': f'Результаты для {req.chart_type} не найдены. Сначала выполните соответствующий расчёт'}
     except Exception as e:
         logger.exception(f'Chart generation failed: {req.chart_type}')
-        return {'status': 'error', 'message': str(e)}
+        return {'status': 'error', 'message': _friendly_error(e)}
 
 
 # ── Adstock Auto-Select ──────────────────────────────────
@@ -1937,7 +1950,7 @@ def export_pptx(req: PptxExportRequest):
             status_code=500,
             content={
                 'status': 'error',
-                'message': str(e),
+                'message': _friendly_error(e),
                 'type': type(e).__name__,
             },
         )
@@ -1987,7 +2000,7 @@ def export_html(req: HtmlExportRequest):
             status_code=500,
             content={
                 'status': 'error',
-                'message': str(e),
+                'message': _friendly_error(e),
                 'type': type(e).__name__,
             },
         )
@@ -2037,7 +2050,7 @@ def optimize_corridor(req: SafeCorridorRequest):
         logger.exception('Safe corridor compute FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 
@@ -2065,12 +2078,13 @@ def optimize_split_ci_endpoint(req: SplitCiRequest):
         )
         return JSONResponse(content=result)
     except FileNotFoundError as e:
+        # Текст резолвера данных уже человеческий и с действием — как есть.
         return JSONResponse(status_code=200, content={
             'status': 'error', 'error_code': 'DATA_FILE_MISSING', 'message': str(e)})
     except Exception as e:
         logger.exception('Split-CI FAILED')
         return JSONResponse(status_code=500, content={
-            'status': 'error', 'message': str(e), 'type': type(e).__name__})
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
 
 
 class BacktestRequest(BaseModel):
@@ -2117,7 +2131,7 @@ def compute_backtest_endpoint(req: BacktestRequest):
     except Exception as e:
         logger.exception('Backtest FAILED')
         return JSONResponse(status_code=500, content={
-            'status': 'error', 'message': str(e), 'type': type(e).__name__})
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
 
 
 class InverseOptimizeRequest(BaseModel):
@@ -2167,7 +2181,7 @@ def optimize_inverse_endpoint(req: InverseOptimizeRequest):
         logger.exception('Inverse optimize FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 
@@ -2234,7 +2248,7 @@ def project_auto_price(req: AutoPriceRequest):
         logger.exception('Auto price detection FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 
@@ -2462,7 +2476,7 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
         logger.exception('Save KPI settings FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 

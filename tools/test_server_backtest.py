@@ -115,5 +115,18 @@ def test_happy_ols_and_read_only_roundtrip(client, tmp_path):
     assert saved['mape_model'] == body['mape_model']
 
 
+def test_friendly_error_envelope():
+    """П6: generic-500 конверт человеческий — что случилось + что делать;
+    техдеталь усечена, пустое исключение не рождает пустоту."""
+    from server import _friendly_error
+    msg = _friendly_error(ValueError('division by zero in xyz'))
+    assert 'division by zero' in msg
+    assert 'Повторите действие' in msg and 'поддержку' in msg
+    long = _friendly_error(RuntimeError('x' * 500))
+    assert len(long) < 400, 'техдеталь обязана усекаться'
+    empty = _friendly_error(KeyError())
+    assert 'KeyError' in empty, 'пустое исключение → хотя бы тип'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-q']))
