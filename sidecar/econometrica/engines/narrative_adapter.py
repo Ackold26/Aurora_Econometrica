@@ -752,6 +752,7 @@ def _map_pipeline_to_builder_data(
     scenarios: list[dict] | None,
     project_id: str | None = None,
     version: str = "1.0.11",
+    backtest: dict | None = None,
 ) -> dict:
     """Translate Econometrica pipeline output into deliverable builder schema.
 
@@ -1019,12 +1020,19 @@ def _map_pipeline_to_builder_data(
         'labels': kpi_labels,
     }
 
+    # E1 (2026-07-03): backtest-витрина «модель vs факт» (models/backtest.json).
+    # Передаётся билдеру ТОЛЬКО завершённая проверка (status ok + окна) —
+    # insufficient/error не рождают слайд (никаких wireframe-суррогатов).
+    if backtest and backtest.get('status') == 'ok' and backtest.get('windows'):
+        data['backtest'] = backtest
+
     logger.info(
         f"narrative_adapter: client={client_label!r} "
         f"diagnostics_keys={list(diagnostics.keys())} "
         f"channels={len(channels)} "
         f"facts={'yes' if narrative_facts else 'fallback'} "
         f"scenarios={len(scenarios or [])} "
-        f"kpi_kind={kpi_kind!r} mode={derived_mode!r}"
+        f"kpi_kind={kpi_kind!r} mode={derived_mode!r} "
+        f"backtest={'yes' if data.get('backtest') else 'no'}"
     )
     return data

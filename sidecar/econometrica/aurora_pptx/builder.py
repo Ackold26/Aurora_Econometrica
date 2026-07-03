@@ -275,6 +275,37 @@ class AuroraPPTXBuilder:
         # B1-fix R-03/R-04: честное покрытие данных (n наблюдений / частота /
         # разрывы) от адаптера; None → строки рендерятся «—» или скрываются.
         self.data_coverage = self.data.get("data_coverage") or {}
+        # E1 (2026-07-03): backtest-витрина «Проверка на истории». Слайд рисуется
+        # ТОЛЬКО при живой проверке (models/backtest.json через адаптер) — у слайда
+        # принципиально НЕТ wireframe-дефолта (урок B1: «замаскированная дефолтом
+        # честность»). При витрине дека = 13 слайдов: физический №10 после
+        # методологии, хвост (sources/glossary/colophon) сдвигается на +1.
+        _bt = self.data.get("backtest") or {}
+        self.backtest = (
+            _bt if (self.is_live and _bt.get("status") == "ok" and _bt.get("windows"))
+            else None
+        )
+        self._page_shift = 1 if self.backtest else 0
+        if self.backtest:
+            if "total_slides" not in meta:
+                self.total_slides = 13
+            if "toc_page_refs" not in meta:
+                self.toc_page_refs = [3, 6, 9, 11, 12]
+            if not meta.get("slide_to_section"):
+                self.slide_to_section = {
+                    2:  (1, "Главное"),
+                    3:  (1, "Главное"),
+                    4:  (1, "Главное"),
+                    5:  (1, "Главное"),
+                    6:  (2, "Декомпозиция вкладов"),
+                    7:  (2, "Декомпозиция вкладов"),
+                    8:  (2, "Декомпозиция вкладов"),
+                    9:  (3, "Методология"),
+                    10: (3, "Методология"),            # E1: проверка на истории
+                    11: (4, "Данные и качество"),
+                    12: (5, "Приложение и источники"),
+                    13: (5, "Приложение и источники"),
+                }
         # INV-50 F-DELIVERABLE-1 (2026-06-07): data-thinness disclosure.
         # Default None → preview/wireframe (Кагоцел fallback) НЕ фабрикует
         # оговорку о переобучении; она появляется только когда backend реально
@@ -2938,7 +2969,7 @@ class AuroraPPTXBuilder:
     # C.6.3: s11 sources content now at physical page 13 (divider at 12).
     def s11_sources(self):
         slide = self._blank()
-        self._header(slide, slide_num=10)
+        self._header(slide, slide_num=10 + self._page_shift)
 
         # B4-2: плашка секции вместо отдельного слайда-дивайдера
         # (takeaway — из фактов, как в бывшем s_divider_data).
@@ -3181,7 +3212,7 @@ class AuroraPPTXBuilder:
                 )
                 sy += 0.23
 
-        self._footer(slide, 10)
+        self._footer(slide, 10 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 12 - COLOPHON (narrative)
@@ -3192,10 +3223,159 @@ class AuroraPPTXBuilder:
     # ----------------------------------------------------------------
 
     # C.6.3: s12 glossary content now at physical page 15 (appendix divider at 14).
+    def s10b_backtest(self):
+        """E1 (2026-07-03): слайд «Проверка на истории» — модель против факта.
+
+        Rolling-origin: модель переобучалась только на прошлом и предсказывала
+        удержанные кварталы; прогноз сверен с фактом (канон Gelman BW §9.4 —
+        доверие проверяется вне выборки). Рисуется ТОЛЬКО при живой витрине
+        (self.backtest) — wireframe-дефолта нет по построению.
+        """
+        bt = self.backtest
+        slide = self._blank()
+        self._header(slide, slide_num=10)
+
+        verdict = bt.get("verdict")
+        hit = bt.get("windows_hit_total")
+        n_int = bt.get("windows_with_interval") or 0
+        gran = bt.get("granularity")
+        h = bt.get("horizon_periods")
+        is_quarter = (gran == "M" and h == 3) or (gran == "W" and h == 13) or (gran == "D" and h == 90)
+        win_word = "кварталов" if is_quarter else "окон проверки"
+
+        if verdict == "validated" and hit is not None and n_int:
+            title = (f"Проверка на истории: {hit} из {n_int} {win_word} — "
+                     f"факт в прогнозном интервале")
+        elif verdict == "worse_than_naive":
+            title = "Проверка на истории: модель пока не точнее наивного прогноза"
+        elif verdict == "coverage_low":
+            title = "Проверка на истории: интервалы модели самоуверенны"
+        else:
+            title = "Проверка модели на истории"
+        self._action_title(slide, title, show_lime=True, y=0.80, height=0.80)
+
+        left_x = self.safe
+        left_y = 1.85
+        left_w = (self.w - 2 * self.safe) * 0.40
+
+        # LEFT: герой-цифра + факты
+        self._text(
+            slide, left_x, left_y, left_w, 0.25, "МОДЕЛЬ ПРОТИВ ФАКТА",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
+        if hit is not None and n_int:
+            self._text(
+                slide, left_x, left_y + 0.55, left_w, 1.0,
+                f"{hit} из {n_int}",
+                font=self.serif, size=44, bold=True, color=self.deep_100,
+            )
+            self._text(
+                slide, left_x, left_y + 1.6, left_w, 0.6,
+                f"{win_word} — фактические продажи попали в 90%-интервал прогноза",
+                font=self.sans, size=11, color=self.deep_60, line_spacing=1.2,
+            )
+        facts_y = left_y + 2.4
+        mape_model = bt.get("mape_model")
+        mape_naive = bt.get("mape_naive_best")
+        cov_pp = bt.get("coverage_per_period")
+        n_pts = bt.get("n_holdout_points_with_interval")
+        fact_lines = [
+            (f"Ошибка прогноза (MAPE): {self._mstr(mape_model, '{:.1f}%')}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+        ]
+        if mape_naive is not None:
+            gain = (1 - float(mape_model) / float(mape_naive)) * 100 if mape_model is not None and mape_naive else None
+            naive_line = f"Наивный прогноз: {self._mstr(mape_naive, '{:.1f}%')}"
+            if gain is not None and gain > 0:
+                naive_line += f" — модель точнее на {gain:.0f}%"
+            fact_lines.append((naive_line, {"font": self.sans, "size": 11, "color": self.deep_100}))
+        if cov_pp is not None:
+            fact_lines.append((
+                f"Покрытие по периодам: {float(cov_pp) * 100:.0f}% ({n_pts} точек, норма ≈ 90%)",
+                {"font": self.sans, "size": 11, "color": self.deep_100},
+            ))
+        self._paragraphs(
+            slide, left_x, facts_y, left_w, 1.6, fact_lines, line_spacing=1.5,
+        )
+
+        # RIGHT: таблица окон (период / факт / прогноз / попадание)
+        right_x = left_x + left_w + 0.5
+        right_w = self.w - self.safe - right_x
+        ry = left_y
+        self._text(
+            slide, right_x, ry, right_w, 0.25, "ОКНА ПРОВЕРКИ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, right_x, ry + 0.28, 1.0, weight=0.75, color=self.gold)
+        ry += 0.5
+        # Заголовок таблицы
+        col_period_w = right_w * 0.40
+        col_num_w = right_w * 0.18
+        for label, cx, cw in (
+            ("Период", right_x, col_period_w),
+            ("Факт", right_x + col_period_w, col_num_w),
+            ("Прогноз", right_x + col_period_w + col_num_w, col_num_w),
+            ("90%-интервал", right_x + col_period_w + 2 * col_num_w, right_w - col_period_w - 2 * col_num_w - 0.5),
+            ("✓", right_x + right_w - 0.4, 0.4),
+        ):
+            self._text(
+                slide, cx, ry, cw, 0.22, label,
+                font=self.sans, size=8.5, bold=True, color=self.deep_60,
+            )
+        ry += 0.3
+        windows = bt.get("windows") or []
+        # До 8 окон — строки по 0.34"; при больших N таблица остаётся читаемой.
+        for w_row in windows[:8]:
+            hit_mark = w_row.get("hit_total")
+            self._text(
+                slide, right_x, ry, col_period_w, 0.24,
+                str(w_row.get("window") or "—"),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + col_period_w, ry, col_num_w, 0.24,
+                self._mstr(w_row.get("actual_total"), "{:,.0f}").replace(",", " "),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + col_period_w + col_num_w, ry, col_num_w, 0.24,
+                self._mstr(w_row.get("predicted_total"), "{:,.0f}").replace(",", " "),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            lo, hi = w_row.get("pi_low_total"), w_row.get("pi_high_total")
+            interval = (
+                f"{lo:,.0f} – {hi:,.0f}".replace(",", " ")
+                if lo is not None and hi is not None else "—"
+            )
+            self._text(
+                slide, right_x + col_period_w + 2 * col_num_w, ry,
+                right_w - col_period_w - 2 * col_num_w - 0.5, 0.24,
+                interval, font=self.sans, size=9, color=self.deep_60,
+            )
+            self._text(
+                slide, right_x + right_w - 0.4, ry, 0.4, 0.24,
+                "✓" if hit_mark else ("—" if hit_mark is None else "✕"),
+                font=self.sans, size=9, bold=True,
+                color=self.deep_100 if hit_mark else self.deep_60,
+            )
+            self._hairline(slide, right_x, ry + 0.27, right_w, weight=0.25)
+            ry += 0.34
+
+        # Сноска метода — по-русски, без жаргона на слайде.
+        self._text(
+            slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
+            ("Метод: скользящая проверка — модель каждый раз обучается только на прошлом "
+             "и предсказывает следующий период; будущее ей не показывают. "
+             "Интервал — 90% доверия."),
+            font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
+        )
+        self._footer(slide, 10)
+
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
         slide = self._blank()
-        self._header(slide, slide_num=11)
+        self._header(slide, slide_num=11 + self._page_shift)
 
         # B4-2: плашка секции вместо отдельного слайда-дивайдера.
         self._section_intro(
@@ -3308,7 +3488,7 @@ class AuroraPPTXBuilder:
                 )
                 ey += entry_h
 
-        self._footer(slide, 11)
+        self._footer(slide, 11 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 13 - COLOPHON (closing)
@@ -3320,7 +3500,7 @@ class AuroraPPTXBuilder:
         Flow: statement → CTA (with lime) → narrative → wordmark → copyright.
         No duplication of metrics from other slides."""
         slide = self._blank()
-        self._header(slide, slide_num=12)
+        self._header(slide, slide_num=12 + self._page_shift)
 
         # Big closing statement - starts higher (more top breathing), no category tag
         self._text(
@@ -3420,6 +3600,10 @@ class AuroraPPTXBuilder:
         self.s07_action_table()
         self.s08_action_timeline()
         self.s10_methodology()
+        # E1 (2026-07-03): витрина «Проверка на истории» — только при живой
+        # проверке (models/backtest.json); дека становится 13-слайдовой.
+        if self.backtest:
+            self.s10b_backtest()
         self.s11_sources()
         self.s12_glossary()
         self.s13_colophon()

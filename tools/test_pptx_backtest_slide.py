@@ -1,0 +1,173 @@
+"""E1 (2026-07-03): слайд «Проверка на истории» в клиентской PPTX-деке.
+
+Контракт: витрина (models/backtest.json, status=ok) рождает 13-й слайд после
+методологии со сдвигом хвостовой нумерации; без витрины дека остаётся
+12-слайдовой и НЕ содержит следов витрины (wireframe-режима у слайда нет
+по построению — урок B1 «замаскированная дефолтом честность»).
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+SIDECAR = ROOT / 'sidecar'
+for _p in (str(SIDECAR), str(SIDECAR / 'econometrica')):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+from test_goalseek_honesty import _build_project  # noqa: E402
+from test_report_fidelity_live import _extract_all_text  # noqa: E402
+from engines.narrative_adapter import _map_pipeline_to_builder_data  # noqa: E402
+
+
+def _backtest_fixture(**overrides):
+    bt = {
+        'status': 'ok',
+        'verdict': 'validated',
+        'verdict_text': 'Модель подтверждена на удержанной истории: MAPE 6.1%.',
+        'granularity': 'M',
+        'horizon_periods': 3,
+        'mode': 'ols',
+        'n_windows': 4,
+        'windows_hit_total': 4,
+        'windows_with_interval': 4,
+        'coverage_per_window': 1.0,
+        'coverage_per_period': 0.9167,
+        'n_holdout_points': 12,
+        'n_holdout_points_with_interval': 12,
+        'mape_model': 6.1,
+        'naive_mape': {'naive_last': 9.4, 'seasonal_naive': 8.2},
+        'mape_naive_best': 8.2,
+        'naive_best_name': 'seasonal_naive',
+        'pi_method': 'conformal_90',
+        'pi_level': 0.9,
+        'generated_at': '2026-07-03T10:00:00+00:00',
+        'model_trained_at': '2026-07-03T09:00:00+00:00',
+        'windows': [
+            {
+                'window': '2025-01-31 — 2025-03-31', 'train_periods': 24,
+                'test_periods': 3, 'actual_total': 3100.0,
+                'predicted_total': 2950.0, 'pi_low_total': 2700.0,
+                'pi_high_total': 3250.0, 'hit_total': True, 'mape': 5.2,
+                'per_period': [],
+            },
+            {
+                'window': '2025-04-30 — 2025-06-30', 'train_periods': 27,
+                'test_periods': 3, 'actual_total': 3400.0,
+                'predicted_total': 3300.0, 'pi_low_total': 3050.0,
+                'pi_high_total': 3550.0, 'hit_total': True, 'mape': 4.9,
+                'per_period': [],
+            },
+        ],
+    }
+    bt.update(overrides)
+    return bt
+
+
+# ─── Адаптер: только завершённая проверка достигает билдера ──────────────────
+
+
+def test_mapper_passes_only_ok_backtest():
+    ok = _backtest_fixture()
+    data = _map_pipeline_to_builder_data({}, {}, {}, None, backtest=ok)
+    assert data['backtest']['windows_hit_total'] == 4
+
+    for bad in (
+        None,
+        {'status': 'insufficient', 'message': 'мало истории'},
+        {'status': 'error', 'error_code': 'NO_MODEL'},
+        {'status': 'ok', 'windows': []},  # ok без окон — не витрина
+    ):
+        d = _map_pipeline_to_builder_data({}, {}, {}, None, backtest=bad)
+        assert 'backtest' not in d, f'{bad} не должен рождать слайд'
+
+
+# ─── Дека: 13 слайдов с витриной / 12 без, содержимое слайда ─────────────────
+
+
+@pytest.fixture(scope='module')
+def live_decks(tmp_path_factory):
+    """Один synthetic live-проект → две деки: с витриной и без."""
+    tmp = tmp_path_factory.mktemp('e1_pptx')
+    pdir = _build_project(tmp, 'e1deck', beta_sd=0.2, seed=7)
+
+    from engines.decomposer import decompose
+    from engines.optimizer import optimize
+    dec = decompose(str(pdir))
+    assert dec.get('status') != 'error', dec.get('message')
+    opt = optimize({'min_pct': 0.0, 'max_pct': 100.0}, str(pdir))
+    assert opt.get('status', 'ok') != 'error', opt.get('message')
+
+    model_data = {'diagnostics': {
+        'metrics': {'r_squared': 0.81, 'mape_pct': 12.3, 'r_hat_max': 1.004,
+                    'ess_bulk_min': 812.0, 'ess_tail_min': 640.0},
+        'mqs': {'score': 71.0, 'tier_label': 'Хорошее'},
+        'checks': {},
+    }}
+    from engines.pptx_export import build_pptx
+
+    out_with = str(tmp / 'with_bt.pptx')
+    res_with = build_pptx(model_data, dec, opt, out_with, scenarios=[],
+                          project_id='e1_test', backtest=_backtest_fixture())
+    assert res_with.get('status') == 'ok', res_with.get('message')
+
+    out_without = str(tmp / 'without_bt.pptx')
+    res_without = build_pptx(model_data, dec, opt, out_without, scenarios=[],
+                             project_id='e1_test', backtest=None)
+    assert res_without.get('status') == 'ok', res_without.get('message')
+
+    return {
+        'with': {'result': res_with, 'text': _extract_all_text(out_with)},
+        'without': {'result': res_without, 'text': _extract_all_text(out_without)},
+        'pipeline': {'model_data': model_data, 'dec': dec, 'opt': opt, 'tmp': str(tmp)},
+    }
+
+
+def test_deck_with_backtest_has_13_slides(live_decks):
+    assert live_decks['with']['result']['slides'] == 13
+
+
+def test_deck_without_backtest_stays_12_and_clean(live_decks):
+    assert live_decks['without']['result']['slides'] == 12
+    text = live_decks['without']['text']
+    # Никаких следов витрины без живой проверки — у слайда нет wireframe-режима.
+    assert 'Проверка на истории' not in text
+    assert 'МОДЕЛЬ ПРОТИВ ФАКТА' not in text
+
+
+def test_backtest_slide_content_honest(live_decks):
+    text = live_decks['with']['text']
+    # Заголовок-вердикт и герой-факт
+    assert 'Проверка на истории: 4 из 4 кварталов' in text
+    # Числа модели против наивного
+    assert 'Ошибка прогноза (MAPE): 6.1%' in text
+    assert 'Наивный прогноз: 8.2%' in text
+    assert 'модель точнее на 26%' in text
+    # Покрытие по периодам с нормой
+    assert 'Покрытие по периодам: 92% (12 точек, норма ≈ 90%)' in text
+    # Окна с датами из данных и метод по-русски
+    assert '2025-01-31 — 2025-03-31' in text
+    assert 'скользящая проверка' in text
+    assert 'будущее ей не показывают' in text
+
+
+def test_backtest_slide_worse_than_naive_title(live_decks, tmp_path):
+    """Нелестный вердикт выносится в заголовок слайда — честность на витрине."""
+    from engines.pptx_export import build_pptx
+    p = live_decks['pipeline']
+    out = str(tmp_path / 'wtn.pptx')
+    res = build_pptx(
+        p['model_data'], p['dec'], p['opt'], out, scenarios=[],
+        project_id='e1_test',
+        backtest=_backtest_fixture(verdict='worse_than_naive'),
+    )
+    assert res.get('status') == 'ok', res.get('message')
+    text = _extract_all_text(out)
+    assert 'модель пока не точнее наивного прогноза' in text
+
+
+if __name__ == '__main__':
+    sys.exit(pytest.main([__file__, '-q']))

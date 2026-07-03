@@ -93,7 +93,7 @@ coverage сверен канарейкой с пересчётом; слайд �
 | E1-1 | Движок: `run_rolling_backtest` (rolling-origin, coverage×2, naive, granularity, insufficient при N<3) + тесты с канарейкой-пересчётом | ✅ 14 тестов, 7.4с |
 | E1-2 | Доставка-1: endpoint `/compute/backtest` (+чтение сохранённого) + Rust `econ_backtest` + lib.rs | ✅ 6 тестов + cargo check |
 | E1-3 | Доставка-2: UI-карточка «Проверка на истории» (кнопка, вердикт, устаревание) | ✅ 9 vitest, svelte-check 0 |
-| E1-4 | Доставка-3: PPTX-слайд + narrative (is_live гейт, без wireframe) + канарейка-маркеры | ⏳ TODO |
+| E1-4 | Доставка-3: PPTX-слайд + narrative (is_live гейт, без wireframe) + канарейка-маркеры | ✅ 13 тестов + verify 43/43 |
 | E1-5 | Живой зонд Kagocel (bayesian окна, реальное время) + канарейка coverage + сводный отчёт | ⏳ TODO |
 
 ## Волна UX — глубокий аудит UX / пайплайна / интерфейса (задание Антона 2026-07-03)
@@ -182,3 +182,23 @@ coverage сверен канарейкой с пересчётом; слайд �
   «модель переобучена — обновите». Гейты: **9 vitest зелёных**, svelte-check
   **0 ошибок** (была 1 моя — VERDICTS index type, починена JSDoc Record),
   python-регресс 20 зелёных.
+- **E1-4 (2026-07-03):** слайд «Проверка на истории» (s10b_backtest) в
+  aurora_pptx/builder.py: физический №10 после методологии, дека 12→13 ТОЛЬКО
+  при живой витрине (self.backtest = data.backtest при is_live+status ok+окна;
+  wireframe-дефолта НЕТ по построению). Заголовок = вердикт-фраза (нелестные
+  worse_than_naive / coverage_low — прямо в заголовок), слева герой «X из Y» +
+  MAPE vs наивный + покрытие, справа таблица окон (период/факт/прогноз/
+  интервал/✓✕), сноска метода по-русски без жаргона. Сдвиг хвостовой нумерации
+  и TOC (toc_page_refs [3,6,9,11,12], slide_to_section 13-строчный,
+  total_slides 13) — условный через _page_shift. Шов: narrative_adapter
+  (_map_pipeline_to_builder_data параметр backtest — пропускает только
+  status=ok с окнами) → pptx_export.build_pptx(backtest=) → server export_pptx
+  читает load_saved_backtest(project_path) с диска (как сценарии). Гейты:
+  **tools/test_pptx_backtest_slide.py 5 зелёных** (13 слайдов с витриной /
+  12 без и БЕЗ следов витрины / содержимое честное: «4 из 4 кварталов»,
+  «модель точнее на 26%», даты окон, метод / нелестный заголовок живьём),
+  регресс test_report_fidelity_live 8 зелёных, verify_aurora_pptx_narrative
+  **43/43**. Урок хода: тощая channels-фикстура (2 голых канала) валит
+  s06_action_chart («no categories») — для интеграционных PPTX-тестов только
+  полный decompose/optimize путь. HTML-секция витрины — кандидат следующего
+  шага (адаптер общий, данные уже доступны; PPTX = носитель критерия E1).

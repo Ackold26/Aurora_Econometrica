@@ -1913,11 +1913,21 @@ def export_pptx(req: PptxExportRequest):
                         scenarios.append(json.load(fh))
                 except Exception:
                     continue
-        logger.info(f'PPTX inputs: model={has_model} decompose={has_decomp} optimize={has_optim} scenarios={len(scenarios)}')
+        # E1 (2026-07-03): backtest-витрина с диска (артефакт кнопки «Проверить
+        # модель на истории») — как и сценарии, frontend её не передаёт.
+        from engines.backtest import load_saved_backtest
+        backtest = load_saved_backtest(str(project_path))
+
+        logger.info(
+            f'PPTX inputs: model={has_model} decompose={has_decomp} '
+            f'optimize={has_optim} scenarios={len(scenarios)} '
+            f'backtest={"yes" if backtest else "no"}'
+        )
 
         result = build_pptx(
             req.model_data, req.decompose_data, req.optimize_data,
             output_path, scenarios=scenarios, project_id=req.project_id,
+            backtest=backtest,
         )
         logger.info(f'PPTX export OK: {result}')
         return JSONResponse(content=result)
