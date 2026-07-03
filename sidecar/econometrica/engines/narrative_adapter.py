@@ -681,6 +681,51 @@ def _derive_narrative_facts(
     }
 
 
+# B1-fix R-02/R-03/R-04 (2026-07-03): честное покрытие данных из time_series.dates
+# вместо wireframe-дефолтов билдера («W01 W13 2026», «наблюдений = каналы×13»,
+# «Еженедельно»). Считаем ТОЛЬКО из реальных дат; непарсибельные (порядковые
+# '1','2',...) → None — билдер покажет «—», НЕ выдумает.
+_RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн',
+                    'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+
+
+def _derive_data_coverage(decompose_data: dict | None) -> dict | None:
+    ts = (decompose_data or {}).get('time_series') or {}
+    dates = ts.get('dates') or []
+    parsed: list[datetime] = []
+    for d in dates:
+        try:
+            parsed.append(datetime.strptime(str(d)[:10], '%Y-%m-%d'))
+        except (ValueError, TypeError):
+            return None  # не даты (legacy порядковые метки) — не гадаем
+    if len(parsed) < 2:
+        return None
+    deltas = [(b - a).days for a, b in zip(parsed, parsed[1:])]
+    med = sorted(deltas)[len(deltas) // 2]
+    if med == 1:
+        freq = 'Ежедневно'
+    elif 6 <= med <= 8:
+        freq = 'Еженедельно'
+    elif 27 <= med <= 32:
+        freq = 'Ежемесячно'
+    elif 88 <= med <= 95:
+        freq = 'Поквартально'
+    else:
+        freq = None
+    # Разрывы оси дат: дельта, заметно превышающая типичный шаг.
+    date_gaps = sum(1 for d in deltas if d > med * 1.5) if med > 0 else 0
+
+    def _lbl(dt: datetime) -> str:
+        return f'{_RU_MONTHS_SHORT[dt.month - 1]} {dt.year}'
+
+    return {
+        'window_label': f'{_lbl(parsed[0])} – {_lbl(parsed[-1])}',
+        'n_observations': len(parsed),
+        'frequency_label': freq,
+        'date_gaps': date_gaps,
+    }
+
+
 def _map_pipeline_to_builder_data(
     model_data: dict | None,
     decompose_data: dict | None,
@@ -740,6 +785,13 @@ def _map_pipeline_to_builder_data(
         "version": version,
         "report_date": _fmt_ru_date(now),
     }
+    # B1-fix R-02 (2026-07-03): честный период данных из реальных дат — прежде
+    # билдер рисовал wireframe «Q1 2026» / «W01 W13 2026» на ЛЮБОМ живом отчёте
+    # (внутреннее противоречие: timeline-слайд показывал настоящие даты).
+    data_coverage = _derive_data_coverage(decompose_data)
+    if data_coverage:
+        meta["period_label"] = data_coverage["window_label"]
+        meta["data_window_label"] = data_coverage["window_label"]
 
     # --- Diagnostics ---
     diag_src = model_data.get("diagnostics", {}) or {}
@@ -758,6 +810,15 @@ def _map_pipeline_to_builder_data(
     mape_pct = _first(metrics.get("mape_pct"), diag_src.get("mape"), default=None)
     r_hat_max = _first(metrics.get("r_hat_max"), metrics.get("r_hat"), diag_src.get("r_hat"), default=None)
     ess_min = _first(metrics.get("ess_min"), metrics.get("ess"), diag_src.get("ess"), default=None)
+    # B1-fix R-01 (2026-07-03): после F-11 мат-аудита движок отдаёт
+    # ess_bulk_min / ess_tail_min (ключа ess_min больше нет) → этот шов терял
+    # ESS, и билдер рисовал wireframe-дефолт 1247 в живом отчёте, маскируя
+    # реальные значения (Kagocel-зонд: tail 382.7 < 400 по Vehtari et al. 2021).
+    # Консервативно берём минимум из bulk/tail — семантика «ESS (min)».
+    if ess_min is None:
+        _ess_cands = [v for v in (metrics.get("ess_bulk_min"), metrics.get("ess_tail_min"))
+                      if isinstance(v, (int, float))]
+        ess_min = min(_ess_cands) if _ess_cands else None
     # INV-50 F-DELIVERABLE-1: data-thinness disclosure fields (прежде дропались).
     # thinness_cap читаем из mqs (там его кладёт model_quality_score), ratio —
     # из metrics (эффективный, драйвит cap). None — когда cap не применён.
@@ -803,9 +864,37 @@ def _map_pipeline_to_builder_data(
         except (TypeError, ValueError):
             pass
 
+    # B1-fix R-16 (2026-07-03): honesty-контур модели в отчёт. Прежде вердикт
+    # надёжности и preflight (prior predictive FAIL на Kagocel-зонде: coverage
+    # 42%) вычислялись движком, показывались в программе — и НЕ доезжали до
+    # клиентского PPTX/HTML вовсе («вычисленная, но не доставленная честность»).
+    if diag_src:
+        try:
+            from utils.optimizer_honesty import model_reliability_verdict
+            _verdict = model_reliability_verdict(diag_src)
+            diagnostics["honesty_verdict"] = _verdict.get("verdict")
+            _reasons = [str(r) for r in (_verdict.get("reasons") or [])]
+            if _reasons:
+                diagnostics["honesty_reasons"] = _reasons[:3]
+        except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
+            pass
+        _pf = diag_src.get("preflight") or {}
+        _pp = _pf.get("prior_predictive") or {}
+        _qp = _pf.get("quick_proxy") or {}
+        if _pp or _qp:
+            diagnostics["preflight"] = {
+                "prior_predictive_status": _pp.get("status"),
+                "prior_predictive_coverage": _pp.get("coverage"),
+                "quick_proxy_tier": _qp.get("tier"),
+            }
+
     data: dict[str, Any] = {"meta": meta}
     if diagnostics:
         data["diagnostics"] = diagnostics
+    # B1-fix R-03/R-04: честное покрытие данных (наблюдения/частота/разрывы) —
+    # билдер рисует эти строки из факта вместо «каналы×13» и «Еженедельно».
+    if data_coverage:
+        data["data_coverage"] = data_coverage
 
     # --- Channels + narrative facts ---
     channels = _merge_channels(
