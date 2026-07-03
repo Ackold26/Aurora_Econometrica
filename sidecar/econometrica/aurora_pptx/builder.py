@@ -216,35 +216,30 @@ class AuroraPPTXBuilder:
         # content. Header "01 / 05" honest across the deck.
         self.section_names = meta.get("section_names", [
             "Главное",                  # 1: TOC + ataglance + keymsg + SCQAR (B4: было Executive summary)
-            "Декомпозиция вкладов",     # 2: divider + chart + table + timeline
-            "Методология",              # 3: divider + methodology
-            "Данные и качество",        # 4: divider + sources
-            "Приложение и источники",   # 5: divider + glossary + colophon
+            "Декомпозиция вкладов",     # 2: chart + table + timeline
+            "Методология",              # 3: methodology
+            "Данные и качество",        # 4: sources
+            "Приложение и источники",   # 5: glossary + colophon
         ])
         self.total_sections = len(self.section_names)
-        self.total_slides = meta.get("total_slides", 16)
+        # B4-2 (2026-07-03): 12 слайдов — отдельные слайды-дивайдеры убраны
+        # (4 полупустых из 16; стайлгайд §1), секции открывает _section_intro.
+        self.total_slides = meta.get("total_slides", 12)
         # Physical page where each section begins (first content slide).
-        self.toc_page_refs = meta.get("toc_page_refs", [3, 6, 10, 12, 14])
-        # Stage C.6.2/C.6.3: physical-slide → (section_idx, section_label) map.
-        # 16-slide expanded layout: 3 new section dividers (s_div_meth @ 10,
-        # s_div_data @ 12, s_div_appendix @ 14) provide visual anchoring
-        # symmetric to the existing Декомпозиция divider at page 4.
+        self.toc_page_refs = meta.get("toc_page_refs", [3, 6, 9, 10, 11])
+        # Physical-slide → (section_idx, section_label) map (12-slide layout).
         self.slide_to_section = meta.get("slide_to_section") or {
             2:  (1, "Главное"),                    # TOC
             3:  (1, "Главное"),                    # At a glance
             4:  (1, "Главное"),                    # Key message
             5:  (1, "Главное"),                    # SCQAR
-            6:  (2, "Декомпозиция вкладов"),       # Section divider
-            7:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS)
-            8:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
-            9:  (2, "Декомпозиция вкладов"),       # Action timeline
-            10: (3, "Методология"),                # Methodology divider
-            11: (3, "Методология"),                # Methodology content
-            12: (4, "Данные и качество"),          # Data divider
-            13: (4, "Данные и качество"),          # Sources content
-            14: (5, "Приложение и источники"),     # Appendix divider
-            15: (5, "Приложение и источники"),     # Glossary
-            16: (5, "Приложение и источники"),     # Colophon
+            6:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS) + плашка
+            7:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
+            8:  (2, "Декомпозиция вкладов"),       # Action timeline
+            9:  (3, "Методология"),                # Methodology + плашка
+            10: (4, "Данные и качество"),          # Sources + плашка
+            11: (5, "Приложение и источники"),     # Glossary + плашка
+            12: (5, "Приложение и источники"),     # Colophon
         }
         # Header center label (shown on every content slide)
         self.header_project_label = meta.get(
@@ -324,6 +319,21 @@ class AuroraPPTXBuilder:
         )
 
     # ---------- Primitives ----------
+
+    def _section_intro(self, slide, num, title, takeaway=None):
+        """B4-2 (2026-07-03, стайлгайд §1): секцию открывает компактная плашка
+        на первом содержательном слайде — вместо отдельного слайда-дивайдера
+        (4 полупустых слайда из 16 = 25% деки; Knaflic: каждый элемент экрана
+        тратит внимание читателя). Строка: «0X · НАЗВАНИЕ — вывод секции»."""
+        runs = [
+            (f"{num:02d} · {title.upper()}",
+             {"font": self.sans, "size": 9, "bold": True, "color": self.gold}),
+        ]
+        if takeaway:
+            _t = takeaway if len(takeaway) <= 120 else takeaway[:117] + "…"
+            runs.append((f"  —  {_t}",
+                         {"font": self.sans, "size": 9, "italic": True, "color": self.deep_60}))
+        self._rich(slide, self.safe, 0.56, self.w - 2 * self.safe, 0.2, runs=runs)
 
     def _mstr(self, value, fmt="{}", na="н/д"):
         """B1-fix R-01: None-безопасный рендер метрики. Отсутствующее значение
@@ -1132,7 +1142,8 @@ class AuroraPPTXBuilder:
         slide = self._blank()
         self._header(slide, slide_num=2)
 
-        self._category(slide, self.safe, 0.60, "AGENDA")
+        # B4 (стайлгайд §2): категория «AGENDA» удалена — англицизм и дубль
+        # заголовка «Содержание отчёта» строкой ниже (Ильяхов: убрать лишнее).
         self._text(
             slide, self.safe, 0.70, 10.0, 0.7, "Содержание отчёта",
             font=self.serif, size=32, color=self.deep_100,
@@ -1274,7 +1285,11 @@ class AuroraPPTXBuilder:
         return slide
 
     def s04_section_divider(self):
-        """Divider for section 2 'Декомпозиция вкладов'."""
+        """Divider for section 2 'Декомпозиция вкладов'.
+
+        B4-2 (2026-07-03): ВНЕ ПОТОКА build() — отдельные слайды-дивайдеры
+        заменены компактными плашками _section_intro (стайлгайд §1).
+        Метод сохранён для возможного возврата/кастомных сборок."""
         if self.facts:
             leader = self.facts.get("leader_channel") or "Лидер"
             cpct = self.facts.get("leader_share_contrib_pct")
@@ -1495,7 +1510,19 @@ class AuroraPPTXBuilder:
 
     def s06_action_chart(self):
         slide = self._blank()
-        self._header(slide, slide_num=7)
+        self._header(slide, slide_num=6)
+
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера.
+        if self.facts:
+            _l = self.facts.get("leader_channel") or "Лидер"
+            _c = self.facts.get("leader_share_contrib_pct")
+            _s = self.facts.get("leader_share_spend_pct")
+            _tk = (f"{_l} даёт {_fmt_pct(_c)} медиа-вклада при {_fmt_pct(_s)} бюджета"
+                   if _c is not None and _s is not None
+                   else f"{_l} - основной драйвер портфеля")
+        else:
+            _tk = None
+        self._section_intro(slide, 2, "Декомпозиция вкладов", _tk)
 
         # v1.3.2: KPI-aware section category + fallback action title.
         if self.kpi["mode"] == "effectiveness":
@@ -1508,7 +1535,9 @@ class AuroraPPTXBuilder:
             category_text = "ROI ПО КАНАЛАМ"
             fallback_action = "Сбалансировать портфель по mROAS"
 
-        self._category(slide, self.safe, 0.60, category_text)
+        # B4-2: категория-слово заменена секционной плашкой выше (KPI-нюанс
+        # категории живёт в заголовке графика chart_title_text ниже).
+        _ = category_text
 
         # Stage C.5: McKinsey action-first headline via narrative_adapter.
         # Shared helper keeps PPTX+HTML in sync and applies zero-effect guard.
@@ -1811,7 +1840,7 @@ class AuroraPPTXBuilder:
             self._vbar(slide, right_x - 0.15, cy + 0.03, 1.2, weight=2, color=self.gold)
             cy += 1.35
 
-        self._footer(slide, 7)
+        self._footer(slide, 6)
 
     # ----------------------------------------------------------------
     # SLIDE 07 - ACTION + TABLE (with conditional formatting & footnotes)
@@ -1819,7 +1848,7 @@ class AuroraPPTXBuilder:
 
     def s07_action_table(self):
         slide = self._blank()
-        self._header(slide, slide_num=8)
+        self._header(slide, slide_num=7)
 
         self._category(slide, self.safe, 0.60, "ПОРТФЕЛЬ КАНАЛОВ")
 
@@ -2099,7 +2128,7 @@ class AuroraPPTXBuilder:
 
     def s08_action_timeline(self):
         slide = self._blank()
-        self._header(slide, slide_num=9)
+        self._header(slide, slide_num=8)
 
         self._category(slide, self.safe, 0.60, "ДИНАМИКА")
 
@@ -2201,7 +2230,7 @@ class AuroraPPTXBuilder:
                 text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция {_engine_decomp} · {self.report_id}",
             )
 
-            self._footer(slide, 9)
+            self._footer(slide, 8)
             return
 
         # ── Legacy preview/wireframe path (no real time_series) ───────────
@@ -2349,7 +2378,7 @@ class AuroraPPTXBuilder:
             text=f"Источник: {self.sources_client_label}{_tl_period_part}; декомпозиция {_engine_decomp2} · {self.report_id}",
         )
 
-        self._footer(slide, 9)
+        self._footer(slide, 8)
 
     # ----------------------------------------------------------------
     # SLIDE 09 - EXECUTIVE SUMMARY (SCQAR)
@@ -2701,9 +2730,13 @@ class AuroraPPTXBuilder:
     # C.6.3: s10 methodology content now at physical page 11 (divider at 10).
     def s10_methodology(self):
         slide = self._blank()
-        self._header(slide, slide_num=11)
+        self._header(slide, slide_num=9)
 
-        self._category(slide, self.safe, 0.60, "ПОДХОД")
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера.
+        self._section_intro(
+            slide, 3, "Методология",
+            "Байесовская MMM с адстоком и Hill-насыщением - прозрачная модель с интервалами доверия",
+        )
 
         _title_text = (
             "OLS MMM с adstock + Hill-насыщением (closed-form + bootstrap CI)"
@@ -2880,7 +2913,7 @@ class AuroraPPTXBuilder:
             )
             self._source(slide, 6.87, text=_bottom_note2)
 
-        self._footer(slide, 11)
+        self._footer(slide, 9)
 
     # ----------------------------------------------------------------
     # SLIDE 11 - SOURCES + MQS
@@ -2889,9 +2922,21 @@ class AuroraPPTXBuilder:
     # C.6.3: s11 sources content now at physical page 13 (divider at 12).
     def s11_sources(self):
         slide = self._blank()
-        self._header(slide, slide_num=13)
+        self._header(slide, slide_num=10)
 
-        self._category(slide, self.safe, 0.60, "ДАННЫЕ")
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера
+        # (takeaway — из фактов, как в бывшем s_divider_data).
+        _tb_mln = self.facts.get("total_budget_mln") if self.facts else None
+        _mqs_part = f"MQS модели {self._mstr(self.mqs_score, '{:.0f}')}/100"
+        _window_part = (
+            f"Данные охватывают {self.data_window_label}" if self.data_window_label
+            else "Данные загружены из файла клиента"
+        )
+        _tk_data = (
+            f"{_window_part}, бюджет {_tb_mln:.0f} млн руб - {_mqs_part}"
+            if _tb_mln else f"{_window_part} - {_mqs_part}"
+        )
+        self._section_intro(slide, 4, "Данные и качество", _tk_data)
 
         self._text(
             slide, self.safe, 0.70, 10.0, 0.7, "Источники и качество",
@@ -3120,7 +3165,7 @@ class AuroraPPTXBuilder:
                 )
                 sy += 0.23
 
-        self._footer(slide, 13)
+        self._footer(slide, 10)
 
     # ----------------------------------------------------------------
     # SLIDE 12 - COLOPHON (narrative)
@@ -3134,9 +3179,13 @@ class AuroraPPTXBuilder:
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
         slide = self._blank()
-        self._header(slide, slide_num=15)
+        self._header(slide, slide_num=11)
 
-        self._category(slide, self.safe, 0.60, "ПРИЛОЖЕНИЕ А")
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера.
+        self._section_intro(
+            slide, 5, "Приложение и источники",
+            "Глоссарий терминов, методологические ссылки и контакты",
+        )
 
         self._text(
             slide, self.safe, 0.80, self.w - 2 * self.safe, 0.70,
@@ -3243,7 +3292,7 @@ class AuroraPPTXBuilder:
                 )
                 ey += entry_h
 
-        self._footer(slide, 15)
+        self._footer(slide, 11)
 
     # ----------------------------------------------------------------
     # SLIDE 13 - COLOPHON (closing)
@@ -3255,7 +3304,7 @@ class AuroraPPTXBuilder:
         Flow: statement → CTA (with lime) → narrative → wordmark → copyright.
         No duplication of metrics from other slides."""
         slide = self._blank()
-        self._header(slide, slide_num=16)
+        self._header(slide, slide_num=12)
 
         # Big closing statement - starts higher (more top breathing), no category tag
         self._text(
@@ -3336,26 +3385,24 @@ class AuroraPPTXBuilder:
     # ---------- Build ----------
 
     def build(self):
-        # Stage C.6.3 (Option B): 16-slide layout with 4 section dividers.
-        # Cover(1) → TOC(2) → Exec Summary block (3,5,9) with Декомпозиция
-        # divider at (4) + chart/table/timeline (6,7,8) → SCQAR (9) →
-        # Методология divider (10) + content (11) → Данные divider (12) +
-        # sources (13) → Приложение divider (14) + glossary (15) +
-        # colophon (16). Symmetric tier-1 structure; TOC 5-section honest.
+        # B4-2 (2026-07-03, стайлгайд §1): 12-slide layout БЕЗ отдельных
+        # слайдов-дивайдеров. Прежняя 16-слайдовая схема (Stage C.6.3) несла
+        # 4 полупустых перебивки (25% деки); теперь секцию открывает компактная
+        # плашка _section_intro на первом содержательном слайде.
+        # Cover(1) → TOC(2) → Главное (3 at-a-glance, 4 key message, 5 SCQAR)
+        # → Декомпозиция (6 chart+плашка, 7 table, 8 timeline) →
+        # Методология (9+плашка) → Данные (10+плашка) →
+        # Приложение (11 glossary+плашка, 12 colophon).
         self.s01_cover()
         self.s03_toc()
         self.s02_at_a_glance()
         self.s05_key_message()
         self.s09_scqar()
-        self.s04_section_divider()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()
-        self.s_divider_methodology()
         self.s10_methodology()
-        self.s_divider_data()
         self.s11_sources()
-        self.s_divider_appendix()
         self.s12_glossary()
         self.s13_colophon()
         return self.prs
