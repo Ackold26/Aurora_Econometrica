@@ -335,6 +335,30 @@ def _mape(actual: np.ndarray, predicted: np.ndarray) -> float:
     return float(np.mean(np.abs((a - p) / np.maximum(np.abs(a), 1e-10))) * 100)
 
 
+def _widen_pi_with_noise(
+    predictions: list[float],
+    ci_low: list[float],
+    ci_high: list[float],
+    noise_half_width: float,
+) -> tuple[list[float], list[float]]:
+    """Расширить интервал СРЕДНЕЙ до ПРЕДИКТИВНОГО квадратурой (гауссово
+    приближение): hw_pred = √(hw_mean² + hw_noise²) на каждый период.
+
+    Найдено живым Kagocel-зондом E1-5: HDI сценария — неопределённость
+    ПАРАМЕТРОВ (средней прогноза); факт же содержит шум наблюдения ε_t.
+    Coverage против интервала средней систематически проваливается даже у
+    честной модели (Kagocel: 0/9 при ширине ±5% и сезонных остатках).
+    Канон — posterior predictive (Gelman BW): var_pred = var_mean + σ².
+    """
+    lo, hi = [], []
+    for p, l, h in zip(predictions, ci_low, ci_high):
+        hw_lo = max(float(p) - float(l), 0.0)
+        hw_hi = max(float(h) - float(p), 0.0)
+        lo.append(float(p) - float(np.sqrt(hw_lo ** 2 + noise_half_width ** 2)))
+        hi.append(float(p) + float(np.sqrt(hw_hi ** 2 + noise_half_width ** 2)))
+    return lo, hi
+
+
 def _rolling_verdict(
     coverage_per_period: float | None,
     mape_model: float,
@@ -663,11 +687,35 @@ def run_rolling_backtest(
             if ci_low and ci_high and len(ci_low) >= len(actual):
                 ci_low = [float(v) for v in ci_low[:len(actual)]]
                 ci_high = [float(v) for v in ci_high[:len(actual)]]
-                window_pi_method = 'posterior_hdi_90'
                 total_pi = (
                     sc.get('totals', {}).get('predicted_kpi_ci_low'),
                     sc.get('totals', {}).get('predicted_kpi_ci_high'),
                 )
+                # E1-5 fix (живой Kagocel-зонд): HDI сценария — интервал СРЕДНЕЙ;
+                # для coverage нужен ПРЕДИКТИВНЫЙ (⊕ шум наблюдения ε_t, канон
+                # posterior predictive — Gelman BW). σ ≈ in-sample RMSE окна
+                # (native; слегка занижен — честно подписано методом; точный
+                # путь — sigma-samples в pickle, кандидат E3).
+                _metrics_win = (train_result.get('diagnostics') or {}).get('metrics') or {}
+                _rmse_win = _metrics_win.get('rmse')
+                if _rmse_win:
+                    _noise_hw = 1.645 * float(_rmse_win)
+                    ci_low, ci_high = _widen_pi_with_noise(
+                        predictions, ci_low, ci_high, _noise_hw,
+                    )
+                    if total_pi[0] is not None and total_pi[1] is not None:
+                        _pt = float(sum(predictions))
+                        _hw_lo_t = max(_pt - float(total_pi[0]), 0.0)
+                        _hw_hi_t = max(float(total_pi[1]) - _pt, 0.0)
+                        _noise_t = _noise_hw * float(np.sqrt(len(actual)))
+                        total_pi = (
+                            _pt - float(np.sqrt(_hw_lo_t ** 2 + _noise_t ** 2)),
+                            _pt + float(np.sqrt(_hw_hi_t ** 2 + _noise_t ** 2)),
+                        )
+                    window_pi_method = 'posterior_predictive_90'
+                else:
+                    # RMSE окна недоступен — честно называем интервал средней.
+                    window_pi_method = 'posterior_hdi_90_mean_only'
             else:
                 half_width_native = None
                 conf = (train_result.get('diagnostics') or {}).get('conformal_pi') or {}

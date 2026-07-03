@@ -247,7 +247,8 @@
       <p class="bt-method">
         Метод: скользящее обучение без подглядывания в будущее
         ({vitrina.n_windows} окон по {vitrina.horizon_periods} периодов);
-        интервалы — {vitrina.pi_method === 'posterior_hdi_90' ? 'байесовские 90% HDI'
+        интервалы — {vitrina.pi_method === 'posterior_predictive_90' ? 'байесовские 90% предиктивные (параметры + шум наблюдения)'
+          : vitrina.pi_method === 'posterior_hdi_90_mean_only' ? 'байесовские 90% только по средней (шум наблюдения недоступен)'
           : vitrina.pi_method === 'conformal_90' ? 'конформные 90%' : 'приближение по остаткам (90%)'}.
       </p>
       <button class="bt-rerun" onclick={runBacktest}>Повторить проверку</button>

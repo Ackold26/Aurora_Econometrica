@@ -29,6 +29,7 @@ from engines.backtest import (  # noqa: E402
     _naive_forecasts,
     _plan_windows,
     _rolling_verdict,
+    _widen_pi_with_noise,
     load_saved_backtest,
     run_rolling_backtest,
 )
@@ -113,6 +114,23 @@ def test_naive_forecasts_last_and_seasonal():
     assert 'seasonal_naive' not in _naive_forecasts(y[:10], h=3, season=12)
     # Горизонт больше сезона → тоже нет (нельзя составить без повтора)
     assert 'seasonal_naive' not in _naive_forecasts(y, h=13, season=12)
+
+
+def test_widen_pi_quadrature():
+    """E1-5 fix (Kagocel-зонд): предиктивный интервал = средняя ⊕ шум наблюдения
+    квадратурой; всегда шире интервала средней; при нулевом шуме — без изменений."""
+    preds = [100.0, 200.0]
+    lo_m = [90.0, 185.0]
+    hi_m = [112.0, 210.0]
+    lo, hi = _widen_pi_with_noise(preds, lo_m, hi_m, noise_half_width=20.0)
+    for i in range(2):
+        assert lo[i] < lo_m[i] and hi[i] > hi_m[i], 'предиктивный обязан быть шире средней'
+    # Квадратура точно: hw_lo[0] = sqrt(10² + 20²)
+    assert lo[0] == pytest.approx(100.0 - np.sqrt(10 ** 2 + 20 ** 2))
+    assert hi[0] == pytest.approx(100.0 + np.sqrt(12 ** 2 + 20 ** 2))
+    # Нулевой шум — интервал средней не трогаем
+    lo0, hi0 = _widen_pi_with_noise(preds, lo_m, hi_m, noise_half_width=0.0)
+    assert lo0 == pytest.approx(lo_m) and hi0 == pytest.approx(hi_m)
 
 
 def test_verdict_priorities_and_russian():
