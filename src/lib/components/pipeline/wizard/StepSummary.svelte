@@ -165,11 +165,25 @@
   }
 
   // ─── Derived status values ───
-  const mcmcSt      = $derived(mcmcStatus(diagnostics.mcmcConvergence.rHatMax, diagnostics.mcmcConvergence.essMin));
-  const backtestSt  = $derived(backtestStatus(diagnostics.backtest.mape, diagnostics.backtest.r2));
-  const ppcSt       = $derived(ppcStatus(diagnostics.ppc.r2));
+  // F-UX-1 (2026-07-03, живучесть): ScenarioWizard легитимно передаёт
+  // diagnostics=null (шаг 6 ДО обучения) — прежде чтение
+  // diagnostics.mcmcConvergence.rHatMax роняло весь шаг TypeError'ом
+  // (в тестах компонент даже мокали из-за этого). Теперь блок диагностики
+  // честно скрывается до появления данных.
+  const hasDiagnostics = $derived(Boolean(diagnostics?.mcmcConvergence));
+  const mcmcSt      = $derived(hasDiagnostics
+    ? mcmcStatus(diagnostics.mcmcConvergence.rHatMax, diagnostics.mcmcConvergence.essMin)
+    : 'yellow');
+  // F-E1-2: ряд «Backtest» показывается ТОЛЬКО когда данные реально есть —
+  // прежний макет рисовал wireframe «4 месяца holdout», который никто не считал.
+  const hasBacktestDiag = $derived(Boolean(diagnostics?.backtest));
+  const backtestSt  = $derived(hasBacktestDiag
+    ? backtestStatus(diagnostics.backtest.mape, diagnostics.backtest.r2)
+    : 'yellow');
+  const hasPpcDiag = $derived(Boolean(diagnostics?.ppc));
+  const ppcSt       = $derived(hasPpcDiag ? ppcStatus(diagnostics.ppc.r2) : 'yellow');
   /** Sensitivity always yellow (informational) */
-  const sensTopEntry = $derived(diagnostics.sensitivity[0] ?? null);
+  const sensTopEntry = $derived(diagnostics?.sensitivity?.[0] ?? null);
 
   /** Overall diagnostics status - worst of the three non-sensitivity */
   const overallStatus = $derived.by(() => {
@@ -225,7 +239,7 @@
         Цель
       </h3>
       <p class="ss-value">{summary.goalDescription}</p>
-      {#if summary.channels.length > 0}
+      {#if summary.channels?.length > 0}
         <p class="ss-sub">Каналы: {summary.channels.join(', ')}</p>
       {/if}
     </section>
@@ -254,7 +268,8 @@
       <p class="ss-value">{summary.taskTypeLabel}</p>
     </section>
 
-    <!-- ─── Diagnostics block ─── -->
+    <!-- ─── Diagnostics block (F-UX-1: скрыт, пока модели нет) ─── -->
+    {#if hasDiagnostics}
     <div class="divider-row">
       <span class="divider-label">ДИАГНОСТИКА МОДЕЛИ</span>
     </div>
@@ -272,9 +287,9 @@
             R-hat {fmt2(diagnostics.mcmcConvergence.rHatMax)},
             ESS {diagnostics.mcmcConvergence.essMin}
             {#if mcmcSt === 'red'}
-              <span class="diag-action"> - рекомендуем re-train</span>
+              <span class="diag-action"> - рекомендуем переобучить</span>
             {:else if mcmcSt === 'yellow'}
-              <span class="diag-action"> - допустимо, возможен re-train</span>
+              <span class="diag-action"> - допустимо, можно переобучить</span>
             {:else}
               <span class="diag-ok"> - OK</span>
             {/if}
@@ -282,13 +297,14 @@
         </div>
       </div>
 
-      <!-- Backtest -->
+      <!-- Backtest (F-E1-2: только при живых данных - wireframe-строки нет) -->
+      {#if hasBacktestDiag}
       <div class="diag-row diag-{backtestSt}">
-        <span class="traffic-dot" aria-label={`Backtest: ${trafficLabel(backtestSt)}`}>
+        <span class="traffic-dot" aria-label={`Проверка на истории: ${trafficLabel(backtestSt)}`}>
           {trafficDot(backtestSt)}
         </span>
         <div class="diag-body">
-          <span class="diag-name">Backtest (4 месяца holdout)</span>
+          <span class="diag-name">Проверка на истории</span>
           <span class="diag-vals">
             MAPE {fmt1(diagnostics.backtest.mape)}%
             {#if diagnostics.backtest.rmse !== null && diagnostics.backtest.rmse !== undefined}
@@ -305,8 +321,10 @@
           </span>
         </div>
       </div>
+      {/if}
 
       <!-- PPC -->
+      {#if hasPpcDiag}
       <div class="diag-row diag-{ppcSt}">
         <span class="traffic-dot" aria-label={`PPC: ${trafficLabel(ppcSt)}`}>
           {trafficDot(ppcSt)}
@@ -316,20 +334,21 @@
           <span class="diag-vals">
             R² {fmt2(diagnostics.ppc.r2)} на observed
             {#if diagnostics.ppc.hasBias}
-              <span class="diag-action"> - обнаружен bias в residuals</span>
+              <span class="diag-action"> - обнаружен систематический сдвиг остатков</span>
             {:else}
-              <span class="diag-ok"> - без bias residuals</span>
+              <span class="diag-ok"> - остатки без сдвига</span>
             {/if}
           </span>
         </div>
       </div>
+      {/if}
 
       <!-- Sensitivity (always yellow, informational) -->
       {#if sensTopEntry !== null}
         <div class="diag-row diag-yellow">
           <span class="traffic-dot" aria-label="Sensitivity: информационно">🟡</span>
           <div class="diag-body">
-            <span class="diag-name">Sensitivity</span>
+            <span class="diag-name">Чувствительность</span>
             <span class="diag-vals">
               {sensTopEntry.param} ±20% → ROI меняется на ±{fmt1(sensTopEntry.deltaPct)}%
               <span class="diag-note"> (нормально)</span>
@@ -351,9 +370,11 @@
         </div>
       </div>
     {/if}
+    {/if}
+    <!-- ↑ конец {#if hasDiagnostics} (F-UX-1) -->
 
     <!-- ─── External factors block ─── -->
-    {#if summary.externalFactors.length > 0}
+    {#if summary.externalFactors?.length > 0}
       <div class="divider-row">
         <span class="divider-label">ВНЕШНИЕ ФАКТОРЫ</span>
       </div>
@@ -370,7 +391,7 @@
     {/if}
 
     <!-- ─── Soft recommendations block ─── -->
-    {#if summary.softRecommendations.length > 0}
+    {#if summary.softRecommendations?.length > 0}
       <div class="soft-rec-block">
         <div class="soft-rec-header">
           <AlertTriangle size={14} strokeWidth={2} />
