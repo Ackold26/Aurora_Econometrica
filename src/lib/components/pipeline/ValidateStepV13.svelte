@@ -39,6 +39,7 @@
   } from '$lib/mode-derivation.js';
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
   import { validateInsights } from '$lib/insights-rules.js';
+  import { buildExpressPlan } from '$lib/express-validate.js';
   import {
     analysisObjective, expertMode, analysisMode,
     // H-16 (audit): Phase 1.3 persistence stores - нужны в save flow.
@@ -320,6 +321,37 @@
       handleKPISelect(availableKpi.includes('sales') ? 'sales' : availableKpi[0]);
     }
   });
+
+  // ── П1-ядро (волна UXP, «go» 2026-07-03): экспресс-подтверждение happy-path ──
+  // Один клик вместо 5 под-шагов, когда автоматика настроила всё безопасно
+  // (денежный KPI, чистая валидация, все каналы в рублях). Гейты и план —
+  // в чистом модуле express-validate.js (юнит-тесты без рендера).
+  const expressPlan = $derived(buildExpressPlan({
+    validateResult: $validateData?.result ?? null,
+    currentKPI,
+    kpiUnavailable,
+    kpiKind: currentKpiKind,
+  }));
+  const showExpressConfirm = $derived(
+    subStep === -2 && !kpiConfirmed && expressPlan.eligible
+  );
+
+  /** Применить план экспресс-подтверждения — ровно та же цепочка состояний,
+   *  что и ручной проход под-шагов без правок (KPI → роли → каналы → режим). */
+  function expressConfirmAll() {
+    kpiConfirmed = true;
+    persistKpiConfirmed(true);
+    rolesConfirmed = true;
+    persistRolesConfirmed(true);
+    currentPerChannel = expressPlan.uniform;
+    perChannelInput.set(expressPlan.uniform);
+    analysisMode.set('roi');
+    const m = deriveModeWithExplanation(expressPlan.uniform);
+    derivedMode.set(/** @type {'roi' | 'effectiveness' | 'manual'} */ (m.mode));
+    // Как в handlePerChannelConfirm: единственная точка разлочивания Модели.
+    completeStep(1);
+    subStep = 3;
+  }
 
   // ─── v2.1.0 (пилот 2026-05-16): анимация переходов между под-шагами ───
   // Отслеживаем направление: forward (правый сдвиг) vs back (левый сдвиг).
@@ -1075,6 +1107,25 @@
     out:fade={{ duration: substepTransitionMs / 2 }}
   >
   {#if subStep === -2}
+    <!-- П1-ядро (2026-07-03): экспресс-подтверждение happy-path одним нажатием.
+         Показывается только когда автоматика настроила всё безопасно
+         (см. buildExpressPlan); в остальных случаях — штатные под-шаги. -->
+    {#if showExpressConfirm}
+      <div class="express-confirm" data-testid="express-confirm">
+        <div class="express-text">
+          <strong>Автоматика уже настроила этот шаг.</strong>
+          KPI: {expressPlan.kpiLabel} · медиа-каналов: {expressPlan.mediaChannels.length}
+          (все в рублях) · режим: ROI. Всё верно — продолжайте одним нажатием;
+          хотите поправить — пройдите шаги ниже.
+        </div>
+        <button
+          type="button"
+          class="express-btn"
+          onclick={expressConfirmAll}
+        >Принять авто-настройку и продолжить</button>
+      </div>
+    {/if}
+
     <!-- v2.0.1-rc2 REORDER (Антон pilot 2026-05-15): KPI preflight FIRST.
          Сначала AnalysisModeSelector (ROI / Эффективность / Mixed Expert),
          потом KPISelector - после select переходим к Roles preflight. -->
@@ -1277,6 +1328,34 @@
       transform: none !important;
     }
   }
+
+  /* П1-ядро (2026-07-03): экспресс-подтверждение happy-path. */
+  .express-confirm {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--success, #2f9e63) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #2f9e63) 35%, transparent);
+  }
+  .express-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .express-btn {
+    flex-shrink: 0;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--success, #2f9e63) 45%, transparent);
+    background: color-mix(in srgb, var(--success, #2f9e63) 20%, transparent);
+    color: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .express-btn:hover { filter: brightness(1.12); }
 
   /* v2.1.0 (пилот 2026-05-16): footer с кнопкой «Далее» под KPISelector. */
   .substep-footer {
