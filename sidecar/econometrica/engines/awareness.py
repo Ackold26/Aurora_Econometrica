@@ -22,6 +22,86 @@ def s_curve(x: np.ndarray, L: float, k: float, x0: float) -> np.ndarray:
     return L / (1 + np.exp(-k * (x - x0)))
 
 
+# A5/OPP-07 (2026-07-03): наклон ESOV→рост SOM. Binet & Field («The Long and
+# the Short of It», Fig. 31–32): кампании digital-эры дают ≈0.05 пп годового
+# роста доли рынка на 1 пп избыточной доли голоса (до 2002 — ≈0.03); в
+# методичке кабинета — диапазон 0.05–0.07. Отдаём точку 0.05 + диапазон.
+ESOV_SLOPE_POINT = 0.05
+ESOV_SLOPE_RANGE = (0.05, 0.07)
+
+
+def _find_col(df: 'pd.DataFrame', needle: str) -> str | None:
+    """Колонка, чьё имя содержит needle (без регистра); None если нет."""
+    for c in df.columns:
+        if needle.lower() in str(c).lower():
+            return c
+    return None
+
+
+def _esov_module(df: 'pd.DataFrame', config: dict) -> dict[str, Any] | None:
+    """ESOV-анализ (Binet & Field) — только при живых SOV/SOM колонках.
+
+    Возвращает None, когда данных нет или они не похожи на доли (канон
+    кабинета: «иначе пропустить ESOV-модуль» — модуль не выдумывает).
+    """
+    sov_col = config.get('sov_column') or _find_col(df, 'sov')
+    som_col = config.get('som_column') or _find_col(df, 'som')
+    if not sov_col or not som_col:
+        return None
+    sov = pd.to_numeric(df[sov_col], errors='coerce').dropna().astype(float)
+    som = pd.to_numeric(df[som_col], errors='coerce').dropna().astype(float)
+    if len(sov) < 4 or len(som) < 4:
+        return None
+
+    def _to_pct(s: 'pd.Series') -> 'pd.Series | None':
+        mx = float(s.max())
+        if mx <= 1.5:          # доли 0..1
+            return s * 100.0
+        if mx <= 100.0:        # уже проценты
+            return s
+        return None            # рубли/штуки — долей не являются, не гадаем
+
+    sov_pct = _to_pct(sov)
+    som_pct = _to_pct(som)
+    if sov_pct is None or som_pct is None:
+        return {
+            'available': False,
+            'reason': (f'Колонки «{sov_col}»/«{som_col}» не похожи на доли '
+                       f'(значения вне 0–100) — ESOV-анализ пропущен.'),
+        }
+
+    m = min(len(sov_pct), len(som_pct))
+    sov_a = sov_pct.values[:m]
+    som_a = som_pct.values[:m]
+    esov_series = sov_a - som_a
+    esov_mean = float(np.mean(esov_series))
+    expected_growth = ESOV_SLOPE_POINT * esov_mean
+    expected_lo = ESOV_SLOPE_RANGE[0] * esov_mean
+    expected_hi = ESOV_SLOPE_RANGE[1] * esov_mean
+    if esov_mean < 0:
+        expected_lo, expected_hi = expected_hi, expected_lo
+
+    out: dict[str, Any] = {
+        'available': True,
+        'sov_column': sov_col,
+        'som_column': som_col,
+        'esov_mean_pp': round(esov_mean, 2),
+        'expected_som_growth_pp_per_year': round(expected_growth, 2),
+        'expected_som_growth_range_pp': [round(expected_lo, 2), round(expected_hi, 2)],
+        'slope_source': ('Binet & Field, The Long and the Short of It: '
+                         '≈0.05 пп роста SOM в год на 1 пп ESOV (диапазон 0.05–0.07, digital-эра)'),
+    }
+    # Факт-сверка: фактический ΔSOM за период наблюдений (честность:
+    # ожидание из канона против того, что реально произошло).
+    if m >= 6:
+        actual_delta = float(som_a[-1] - som_a[0])
+        out['actual_som_delta_pp'] = round(actual_delta, 2)
+        out['note'] = ('Ожидание — отраслевая закономерность (усреднение сотен '
+                       'кампаний), не гарантия для конкретного бренда: сверяйте '
+                       'с фактическим изменением доли.')
+    return out
+
+
 def forecast_awareness(config: dict, project_dir: str) -> dict[str, Any]:
     """Forecast awareness based on media spend.
 
@@ -55,6 +135,21 @@ def forecast_awareness(config: dict, project_dir: str) -> dict[str, Any]:
         total_spend = df[media_cols].fillna(0).sum(axis=1).values.astype(float)
     else:
         total_spend = np.ones(n)
+
+    # A5/OPP-07 (2026-07-03, канон кабинета §/awareness-forecast): знание
+    # строится МЕДЛЕННО и затухает медленно — вместо сырых трат в регрессию
+    # идёт adstock с длинным Weibull-хвостом (kernel из utils/adstock, SSOT).
+    # config['awareness_adstock'] = {'type': 'weibull'|'geometric'|'none', ...};
+    # дефолт — weibull с мягким пиком (shape 2, scale 4 периода).
+    _ad_cfg = config.get('awareness_adstock') or {'type': 'weibull', 'shape': 2.0, 'scale': 4.0}
+    _ad_type = str(_ad_cfg.get('type', 'weibull')).lower()
+    if _ad_type != 'none' and media_cols:
+        from utils.adstock import apply_adstock
+        total_spend = apply_adstock(
+            total_spend, _ad_type,
+            {k: v for k, v in _ad_cfg.items() if k != 'type'},
+        )
+    media_transform = _ad_type if media_cols else 'none'
 
     # Fit decay + impact model
     # awareness[t] = decay * awareness[t-1] + impact * spend[t] + noise
@@ -105,13 +200,22 @@ def forecast_awareness(config: dict, project_dir: str) -> dict[str, Any]:
         ci_widths = [flat] * forecast_periods
         ci_method = 'std_proxy_smalln'
 
+    # A5/OPP-07: ESOV-модуль (Binet & Field, «The Long and the Short of It»,
+    # Fig. 31–32: рост SOM пропорционален избыточной доле голоса; в digital-эру
+    # ≈0.05 пп годового роста SOM на 1 пп ESOV, диапазон 0.05–0.07).
+    # Используем ТОЛЬКО при наличии колонок SOV/SOM в данных (канон кабинета:
+    # «иначе пропустить ESOV-модуль» — не выдумываем).
+    esov = _esov_module(df, config)
+
     result = {
         'status': 'ok',
         'model': {
             'decay_rate': round(decay, 4),
             'media_impact': round(impact, 6),
             'r_squared': round(r2, 3),
+            'media_transform': media_transform,
         },
+        'esov': esov,
         'ci_method': ci_method,
         'historical': [round(v, 1) for v in awareness.tolist()],
         'forecast': forecast_values,
@@ -171,10 +275,43 @@ def awareness_to_sales(config: dict, project_dir: str) -> dict[str, Any]:
         dy = s_curve(np.array([current_awareness + dx]), *popt)[0] - s_curve(np.array([current_awareness]), *popt)[0]
         elasticity = (dy / s_curve(np.array([current_awareness]), *popt)[0]) / (dx / current_awareness) if current_awareness > 0 else 0
 
+        # A5/OPP-07 (2026-07-03): 90% CI эластичности delta-методом из pcov
+        # curve_fit (ковариация параметров у нас УЖЕ была — но не доставлялась,
+        # эластичность выглядела точным числом). Градиент эластичности по
+        # (L, k, x0) — численно; var = gᵀ·pcov·g; z=1.645 согласован с 90%
+        # HDI остального пайплайна.
+        elasticity_ci = None
+        elasticity_ci_method = None
+        try:
+            if pcov is not None and np.all(np.isfinite(pcov)) and current_awareness > 0:
+                def _elast(params):
+                    base = s_curve(np.array([current_awareness]), *params)[0]
+                    if base <= 0:
+                        return 0.0
+                    d = (s_curve(np.array([current_awareness + dx]), *params)[0] - base)
+                    return (d / base) / (dx / current_awareness)
+
+                g = np.zeros(3)
+                for i in range(3):
+                    step = max(abs(popt[i]) * 1e-4, 1e-8)
+                    up = np.array(popt, dtype=float); up[i] += step
+                    dn = np.array(popt, dtype=float); dn[i] -= step
+                    g[i] = (_elast(up) - _elast(dn)) / (2 * step)
+                var = float(g @ pcov @ g)
+                if var >= 0 and np.isfinite(var):
+                    half = 1.645 * float(np.sqrt(var))
+                    elasticity_ci = [round(float(elasticity) - half, 3),
+                                     round(float(elasticity) + half, 3)]
+                    elasticity_ci_method = 'delta_pcov_90'
+        except Exception:  # noqa: BLE001 - honesty-контур не роняет расчёт
+            elasticity_ci = None
+
     except Exception:
         L, k, x0 = float(y.max()), 0.1, float(x.mean())
         r2 = 0.0
         elasticity = 0.0
+        elasticity_ci = None
+        elasticity_ci_method = None
 
     # Generate curve data for plotting
     x_range = np.linspace(0, min(100, x.max() * 1.5), 100)
@@ -189,6 +326,10 @@ def awareness_to_sales(config: dict, project_dir: str) -> dict[str, Any]:
             'r_squared': round(float(r2), 3),
         },
         'elasticity': round(float(elasticity), 3),
+        # A5/OPP-07: интервал эластичности (90%, delta-метод из pcov);
+        # None — когда подгонка не сошлась (честно, не константа).
+        'elasticity_ci': elasticity_ci,
+        'elasticity_ci_method': elasticity_ci_method,
         'threshold': round(float(x0 - 2 / k) if k > 0 else 0, 1),  # Point where curve starts rising
         'saturation': round(float(x0 + 2 / k) if k > 0 else 100, 1),  # Point of diminishing returns
         'current_awareness': round(float(x[-1]), 1),
