@@ -54,6 +54,20 @@
   // отчёты). Фронт НЕ раскапывает score по media-ratio.
   const mqs = $derived(mqsView(diagnostics));
 
+  // Холодный старт (G-2, 2026-07-04): при открытии сохранённого проекта
+  // restoreProjectResults гидрирует modelData.diagnostics с диска, но локальный
+  // stepState стартует 'idle' и переключается в 'trained' лишь в handleComplete
+  // (живое обучение) или из localStorage-задачи. Без этого весь блок результатов
+  // (диагностика, MQS, BacktestCard E1, ModelHistoryCard E3) остаётся скрыт —
+  // пользователь, открывший готовый проект, не видит модель и петлю доверия.
+  // Канон Оптимизации: показ реактивен от стора. Здесь — минимально: если
+  // диагностика восстановлена извне и обучение не идёт, поднять stepState.
+  $effect(() => {
+    if (stepState === 'idle' && diagnostics && !activeTaskId) {
+      stepState = 'trained';
+    }
+  });
+
   // Онбординг - запуск когда модель обучена (есть и config, и результаты на экране).
   $effect(() => {
     if (typeof window === 'undefined') return;
