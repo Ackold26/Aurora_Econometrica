@@ -92,10 +92,10 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
         .build()?;
 
     let resp = client.get(url).send().await
-        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Download failed: {e}")))?;
+        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Не удалось загрузить обновление (проверьте подключение к интернету): {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(coded_err(ErrorCode::UP002, &format!("Download returned {}", resp.status())));
+        return Err(coded_err(ErrorCode::UP002, &format!("Сервер обновлений вернул ошибку {} — повторите позже.", resp.status())));
     }
 
     let total_size = resp.content_length().unwrap_or(0);
@@ -136,9 +136,11 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
 }
 
 /// Verify SHA256 checksum of a downloaded file.
+/// B2/B3 (2026-07-03): сообщения по-русски — уходят в errorMsg блокирующего
+/// оверлея обновления, клиент должен понимать, что делать.
 pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()> {
     if expected.is_empty() {
-        anyhow::bail!("Update checksum is missing - refusing to install unverified update");
+        anyhow::bail!("Контрольная сумма обновления отсутствует в манифесте — установка непроверенного файла отклонена. Повторите позже или обратитесь в поддержку.");
     }
 
     // Strip "sha256:" prefix if present
@@ -150,7 +152,7 @@ pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()
 
     if actual != expected_hash.to_lowercase() {
         return Err(coded_err(ErrorCode::UP003, &format!(
-            "Download integrity check failed. Expected: {}..., got: {}...",
+            "Файл обновления повреждён при загрузке (контрольная сумма не совпала: ожидалась {}…, получена {}…). Повторите загрузку.",
             &expected_hash[..12.min(expected_hash.len())],
             &actual[..12]
         )));
@@ -178,7 +180,7 @@ pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()
 /// когда installer actually extracts.
 pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
     if !installer_path.exists() {
-        return Err(coded_err(ErrorCode::UP004, &format!("Installer not found: {}", installer_path.display())));
+        return Err(coded_err(ErrorCode::UP004, &format!("Файл установщика не найден: {}. Повторите загрузку обновления.", installer_path.display())));
     }
 
     info!("Applying update: {}", installer_path.display());
@@ -201,7 +203,7 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
     if !ps_status.success() {
         return Err(coded_err(
             ErrorCode::UP004,
-            "Installer launch failed (UAC denied or PowerShell error). App remains functional — please retry update.",
+            "Установщик не запустился (отказ в правах администратора). Приложение продолжает работать — повторите обновление и подтвердите запрос прав.",
         ));
     }
 
@@ -223,6 +225,12 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
 
 /// Check if an update is required based on server response (v2 online path).
 /// Returns VersionInfo built from the online auth data.
+///
+/// B3-аудит (2026-07-03): фронт эту команду НЕ вызывает — путь обязательного
+/// обновления идёт через heartbeat → checkFullUpdate → `check_update` (полный
+/// манифест С checksum). Мост оставлен для back-compat; НЕ строить на нём
+/// установку: собранный здесь VersionInfo имеет ПУСТОЙ checksum → строгий
+/// verify_checksum откажет (защита от непроверенных установок).
 pub fn check_server_update(
     current_version: &str,
     app_min_version: &str,
@@ -294,6 +302,53 @@ mod tests {
         assert!(!is_newer("0.2.0", "0.2.0"));
         assert!(!is_newer("1.0.0", "1.0.0"));
         assert!(!is_newer("v0.0.1", "0.0.1"));
+    }
+
+    // ── B3 (2026-07-03): ворота установки — verify_checksum ──────────────────
+
+    fn tmp_file_with(content: &[u8]) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "aurora-test-upd-{}.bin",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::write(&p, content).unwrap();
+        p
+    }
+
+    /// Корректная сумма проходит; форма с префиксом sha256: (как в живом
+    /// манифесте GitHub Pages/Supabase) — тоже.
+    #[test]
+    fn checksum_valid_passes_with_and_without_prefix() {
+        let p = tmp_file_with(b"aurora update payload");
+        let hash = hex::encode(sha2::Sha256::digest(b"aurora update payload"));
+        verify_checksum(&p, &hash).expect("голый hex должен проходить");
+        verify_checksum(&p, &format!("sha256:{hash}")).expect("sha256:-префикс должен проходить");
+        // Регистр не важен: expected нормализуется to_lowercase (манифест мог отдать верхний).
+        verify_checksum(&p, &hash.to_uppercase())
+            .expect("верхний регистр ожидаемой суммы должен нормализоваться и проходить");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Повреждённый файл (сумма не совпала) → отказ UP-003 с русским сообщением.
+    #[test]
+    fn checksum_mismatch_rejected_up003() {
+        let p = tmp_file_with(b"corrupted download");
+        let wrong = hex::encode(sha2::Sha256::digest(b"original payload"));
+        let err = verify_checksum(&p, &wrong).expect_err("несовпадение суммы обязано отклоняться");
+        let msg = err.to_string();
+        assert!(msg.contains("UP-003"), "Ожидался код UP-003: {msg}");
+        assert!(msg.contains("повреждён"), "Сообщение должно быть понятным по-русски: {msg}");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Пустая сумма в манифесте → отказ от установки непроверенного файла
+    /// (строгие ворота: обязательное обновление без checksum НЕ ставится).
+    #[test]
+    fn checksum_empty_refused() {
+        let p = tmp_file_with(b"whatever");
+        let err = verify_checksum(&p, "").expect_err("пустая сумма обязана отклоняться");
+        assert!(err.to_string().contains("отклонена"), "Русское сообщение: {err}");
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]
