@@ -170,7 +170,7 @@
             if (!channelEnabled[ch]) continue;
             const s = /** @type {any} */ (sel);
             updated[ch] = s.type;
-            labels.push(`${ch}: ${s.type === 'weibull' ? 'Weibull' : 'Geometric'}`);
+            labels.push(`${ch}: ${s.type === 'weibull' ? 'Вейбулл' : 'Геометрический'}`);
           }
           channelAdstock = updated;
           adstockAutoLabel = labels.join(', ');
@@ -181,9 +181,9 @@
 
   // ── Adstock dropdown options ──
   const adstockOptions = [
-    { value: 'auto', label: 'Авто (digital=мгновенный, TV=отложенный)' },
-    { value: 'geometric', label: 'Geometric (все каналы)' },
-    { value: 'weibull', label: 'Weibull (все каналы)' },
+    { value: 'auto', label: 'Авто (цифровые — мгновенный эффект, ТВ — отложенный)' },
+    { value: 'geometric', label: 'Геометрический — эффект быстро затухает (все каналы)' },
+    { value: 'weibull', label: 'Вейбулл — эффект нарастает и держится (все каналы)' },
   ];
   const currentAdstock = $derived(Object.values(channelAdstock)[0] || 'auto');
   const currentAdstockLabel = $derived(adstockOptions.find(o => o.value === currentAdstock)?.label || adstockOptions[0].label);
@@ -624,8 +624,8 @@ Weibull (плавная build-up):
             <div class="adstock-row">
               <span class="adstock-name">{ch}</span>
               <select class="config-select-sm" bind:value={channelAdstock[ch]}>
-                <option value="geometric">Geometric</option>
-                <option value="weibull">Weibull</option>
+                <option value="geometric">Геометрический (быстрое затухание)</option>
+                <option value="weibull">Вейбулл (долгий след)</option>
               </select>
             </div>
           {/each}

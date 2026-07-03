@@ -89,7 +89,7 @@
             activeTaskId = savedTaskId;
             stepState = 'training';
             isComputing.set(true);
-            computeStatus.set('Сэмплирование байесовских цепей...');
+            computeStatus.set('Обучаем модель — байесовский расчёт...');
           } else if (progress.status === 'completed') {
             const result = /** @type {any} */ (await invoke('econ_train_result', { taskId: savedTaskId }));
             handleComplete(result);
@@ -122,7 +122,7 @@
     errorMessage = null;  // clear прошлый error (stale из pipelineStepMeta/localStorage)
     setStepError(2, null); // сброс errored-статуса текущего шага, чтобы UI не показывал cached сообщение
     isComputing.set(true);
-    computeStatus.set('Сэмплирование байесовских цепей...');
+    computeStatus.set('Обучаем модель — байесовский расчёт...');
     try { localStorage.setItem(TASK_KEY, taskId); } catch { /* ignore */ }
     // Сброс downstream-шагов: при перетренировке Decompose/Optimize/Report устаревают.
     // Без этого на stepper'е оставались старые статусы (например ✕ от прошлой ошибки).

@@ -2286,7 +2286,7 @@
               <p class="split-ci-error" role="alert">{splitCiError}</p>
             {/if}
           {:else}
-            <h4 class="split-ci-title">Оптимальные доли с интервалами (90% HDI)</h4>
+            <h4 class="split-ci-title">Оптимальные доли и их разброс (интервал 90%)</h4>
             <ul class="split-ci-list">
               {#each splitCi.channels as ch (ch.name)}
                 <li>
