@@ -1676,6 +1676,130 @@ def render_closing(ctx: dict) -> str:
 
 # ─── Section registry ───────────────────────────────────────────────────────
 
+def render_trust_loop(ctx: dict) -> str:
+    """Секция «Петля доверия» (E1–E4, 2026-07-04): проверка на истории,
+    что изменилось с прошлого квартала, калибровка экспериментами,
+    сбывшиеся рекомендации. Рендерятся ТОЛЬКО живые под-блоки; при полном
+    отсутствии данных секция не выводится вовсе (и пропускается в TOC) —
+    wireframe-суррогатов нет по построению (урок B1)."""
+    trust = ctx.get("trust") or {}
+    diag = ctx.get("diagnostics") or {}
+    bt = trust.get("backtest") or {}
+    gc = trust.get("generation_compare") or {}
+    ps = trust.get("promises_summary") or {}
+    calib = diag.get("calibration") or {}
+    blocks: list[str] = []
+
+    # ── E1: проверка на истории ──
+    if bt.get("status") == "ok" and bt.get("windows"):
+        hit = bt.get("windows_hit_total")
+        n_int = bt.get("windows_with_interval") or 0
+        gran, h = bt.get("granularity"), bt.get("horizon_periods")
+        is_q = (gran == "M" and h == 3) or (gran == "W" and h == 13) or (gran == "D" and h == 90)
+        word = "кварталов" if is_q else "окон проверки"
+        rows = ""
+        for w in (bt.get("windows") or [])[:8]:
+            lo, hi = w.get("pi_low_total"), w.get("pi_high_total")
+            interval = (f"{_fmt_int(lo)} – {_fmt_int(hi)}"
+                        if lo is not None and hi is not None else "—")
+            mark = "✓" if w.get("hit_total") else ("—" if w.get("hit_total") is None else "✕")
+            rows += (
+                f'<tr><td>{escape(str(w.get("window") or "—"))}</td>'
+                f'<td class="num">{_fmt_int(w.get("actual_total"))}</td>'
+                f'<td class="num">{_fmt_int(w.get("predicted_total"))}</td>'
+                f'<td class="num">{interval}</td><td class="center">{mark}</td></tr>'
+            )
+        naive = bt.get("mape_naive_best")
+        naive_line = (
+            f' Наивный прогноз: {float(naive):.1f}%.' if naive is not None else ""
+        )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Проверка на истории</h3>
+  <p class="trust-hero">{escape(str(hit))} из {escape(str(n_int))} {word} — факт внутри 90%-интервала прогноза.</p>
+  <p class="trust-sub">Ошибка прогноза (MAPE): {float(bt.get("mape_model") or 0):.1f}%.{naive_line}
+  {escape(str(bt.get("verdict_text") or ""))}</p>
+  <table class="trust-table"><thead><tr>
+    <th>Период</th><th>Факт</th><th>Прогноз</th><th>90%-интервал</th><th>✓</th>
+  </tr></thead><tbody>{rows}</tbody></table>
+</div>""")
+
+    # ── E3: что изменилось с прошлого квартала ──
+    if gc.get("status") == "ok" and gc.get("channels"):
+        headline = (gc.get("summary") or {}).get("headline") or ""
+        rows = ""
+        for c in (gc.get("channels") or [])[:8]:
+            def _ci(v):
+                if not v or v[0] is None or v[1] is None:
+                    return ""
+                return f" [{float(v[0]):.1f}–{float(v[1]):.1f}]"
+            rows += (
+                f'<tr><td>{escape(str(c.get("name")))}</td>'
+                f'<td class="num">{float(c.get("roi_old") or 0):.1f}{_ci(c.get("roi_ci_old"))} → '
+                f'{float(c.get("roi_new") or 0):.1f}{_ci(c.get("roi_ci_new"))}</td>'
+                f'<td>{escape(str(c.get("verdict_ru") or ""))}</td></tr>'
+            )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Что изменилось с прошлого квартала</h3>
+  <p class="trust-sub">{escape(headline)}</p>
+  <table class="trust-table"><thead><tr>
+    <th>Канал</th><th>ROI: был → стал</th><th>Вердикт</th>
+  </tr></thead><tbody>{rows}</tbody></table>
+  <p class="trust-note">Обе версии модели пересчитаны на сегодняшних данных;
+  вердикт — по перекрытию интервалов неопределённости.</p>
+</div>""")
+
+    # ── E2: калибровка экспериментами ──
+    applied = calib.get("applied") or []
+    checks = calib.get("checks") or []
+    if applied:
+        lines = ""
+        for a in applied:
+            lines += (
+                f'<p class="trust-sub">Канал «{escape(str(a.get("channel")))}» '
+                f'откалиброван тестом ({escape(str(a.get("test_type")))}) '
+                f'от {escape(str(a.get("date_from")))} — вошёл в модель как наблюдение.</p>'
+            )
+        for c in checks:
+            if c.get("within_ci"):
+                continue
+            ci = c.get("model_contrib_ci90") or [None, None]
+            lines += (
+                f'<p class="trust-warn">Модель и тест расходятся по '
+                f'«{escape(str(c.get("channel")))}»: вклад модели '
+                f'{_fmt_int(c.get("model_contrib_mean"))} '
+                f'[{_fmt_int(ci[0])} – {_fmt_int(ci[1])}] против теста '
+                f'{_fmt_int(c.get("test_lift"))} — разберите период с аналитиком.</p>'
+            )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Калибровка экспериментами</h3>
+  {lines}
+</div>""")
+
+    # ── E4: сбывшиеся рекомендации ──
+    if ps.get("examples"):
+        ex_lines = ""
+        for ex in ps["examples"]:
+            cls = "trust-sub" if ex.get("status") == "kept" else "trust-warn"
+            ex_lines += (
+                f'<p class="{cls}">«{escape(str(ex.get("action_text")))}» — '
+                f'{escape(str(ex.get("status_ru")))}.</p>'
+            )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Проверка прошлых рекомендаций</h3>
+  <p class="trust-hero">Сбылось {int(ps.get("kept") or 0)} · не сбылось {int(ps.get("missed") or 0)}</p>
+  {ex_lines}
+</div>""")
+
+    if not blocks:
+        return ""
+    body = _action_title("Петля доверия: модель против факта") + "\n" + "\n".join(blocks)
+    return _section("trust", "ДОВЕРИЕ К МОДЕЛИ", body)
+
+
 SECTION_RENDERERS: tuple = (
     ('cover',     render_cover),
     ('findings',  render_at_a_glance),
@@ -1687,6 +1811,7 @@ SECTION_RENDERERS: tuple = (
     ('share',     render_share),
     ('table',     render_action_table),
     ('timeline',  render_timeline),
+    ('trust',     render_trust_loop),
     ('method',    render_methodology),
     ('sources',   render_sources),
     ('glossary',  render_glossary),

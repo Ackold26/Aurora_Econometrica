@@ -463,6 +463,15 @@ class AuroraHTMLBuilder:
         """Build TOC <li> list from strings.sections."""
         items = []
         for sid, _ in SECTION_RENDERERS:
+            # E1-E4: условная секция «Петля доверия» — в TOC только при живых
+            # данных (иначе пункт вёл бы на отсутствующий якорь).
+            if sid == "trust" and not (
+                self.data.get("backtest")
+                or self.data.get("generation_compare")
+                or self.data.get("promises_summary")
+                or (self.diagnostics.get("calibration") or {}).get("applied")
+            ):
+                continue
             label = self.strings["sections"].get(sid, {}).get("label", sid)
             items.append(f'      <li><a href="#{sid}" data-toc-target="{sid}">{security.escape(label)}</a></li>')
         return "\n".join(items)
@@ -500,6 +509,14 @@ class AuroraHTMLBuilder:
             "report_id":   self.report_id,
             "model_version": model_version,
             "brand_mark_svg": self._brand_mark_svg(),
+            # E1-E4 (2026-07-04): петля доверия — живые артефакты из адаптера
+            # (backtest / generation_compare / promises_summary; калибровка —
+            # внутри diagnostics.calibration). Пусто → секция не рендерится.
+            "trust": {
+                "backtest": self.data.get("backtest"),
+                "generation_compare": self.data.get("generation_compare"),
+                "promises_summary": self.data.get("promises_summary"),
+            },
         }
         sections_html = "\n".join(render(ctx) for _, render in SECTION_RENDERERS)
 

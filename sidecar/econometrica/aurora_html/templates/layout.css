@@ -1331,3 +1331,25 @@ sup.fn-marker {
 .ci-bracket.ci-tier-bad {
   color: var(--danger, #b8554d);
 }
+
+/* ── E1-E4 (2026-07-04): секция «Петля доверия» ─────────────────────────── */
+.section-trust .trust-block {
+  margin: 22px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border, rgba(0,0,0,0.12));
+  border-radius: 10px;
+  background: var(--surface, rgba(0,0,0,0.02));
+}
+.section-trust .trust-h { margin: 0 0 8px; font-size: 1.05rem; }
+.section-trust .trust-hero { margin: 0 0 6px; font-size: 1.35rem; font-weight: 700; }
+.section-trust .trust-sub { margin: 4px 0; font-size: 0.92rem; line-height: 1.5; }
+.section-trust .trust-note { margin: 8px 0 0; font-size: 0.82rem; opacity: 0.75; }
+.section-trust .trust-warn {
+  margin: 6px 0; font-size: 0.92rem; line-height: 1.5;
+  color: var(--warn-strong, #9a6b00);
+}
+.section-trust .trust-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.88rem; }
+.section-trust .trust-table th,
+.section-trust .trust-table td { padding: 6px 10px; border-bottom: 1px solid var(--border, rgba(0,0,0,0.10)); text-align: left; }
+.section-trust .trust-table td.num { font-variant-numeric: tabular-nums; }
+.section-trust .trust-table td.center { text-align: center; }
