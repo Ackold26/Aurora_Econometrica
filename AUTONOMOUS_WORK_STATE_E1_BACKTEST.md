@@ -91,7 +91,7 @@ coverage сверен канарейкой с пересчётом; слайд �
 |---|---|---|
 | E1-0 | Аудит backtest.py + инвентаризация + RAG + реестр + ветка | ✅ 2026-07-03 |
 | E1-1 | Движок: `run_rolling_backtest` (rolling-origin, coverage×2, naive, granularity, insufficient при N<3) + тесты с канарейкой-пересчётом | ✅ 14 тестов, 7.4с |
-| E1-2 | Доставка-1: endpoint `/compute/backtest` (+чтение сохранённого) + Rust `econ_backtest` + lib.rs | ⏳ TODO |
+| E1-2 | Доставка-1: endpoint `/compute/backtest` (+чтение сохранённого) + Rust `econ_backtest` + lib.rs | ✅ 6 тестов + cargo check |
 | E1-3 | Доставка-2: UI-карточка «Проверка на истории» (кнопка, вердикт, устаревание) | ⏳ TODO |
 | E1-4 | Доставка-3: PPTX-слайд + narrative (is_live гейт, без wireframe) + канарейка-маркеры | ⏳ TODO |
 | E1-5 | Живой зонд Kagocel (bayesian окна, реальное время) + канарейка coverage + сводный отчёт | ⏳ TODO |
@@ -159,3 +159,13 @@ coverage сверен канарейкой с пересчётом; слайд �
   vs seasonal_naive 5.32% → вердикт worse_than_naive: витрина ЧЕСТНО показала, что
   OLS с фикс. Hill на линейной синтетике проигрывает сезонному наивному — ровно
   та честность, ради которой E1 строится (модели не льстим).
+- **E1-2 (2026-07-03):** endpoint POST /compute/backtest (BacktestRequest:
+  Field-валидация horizon 1..90 / min_train 8..200 / max_windows 3..12 /
+  mode Literal → 422 на мусор; NO_MODEL/NO_DATA → 404; insufficient → 200
+  честный результат; read_only=true → сохранённая витрина мгновенно /
+  not_found по-русски). Rust: econ_backtest + отдельный BACKTEST_CLIENT
+  (3600с — 8 bayesian-окон на слабом CPU не влезали в TRAIN 900с; read_only
+  идёт через quick_client). Регистрация в lib.rs. Тесты
+  tools/test_server_backtest.py: **6 зелёных за 9.6с** (422×6 кейсов, 404×2
+  русские, insufficient-контракт, read_only not_found, боевой OLS-прогон через
+  TestClient + read_only roundtrip generated_at). cargo check: чисто.

@@ -35,7 +35,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # Ensure sidecar root is in sys.path for absolute imports (engines.*, utils.*, charts.*)
 _sidecar_root = str(Path(__file__).parent)
@@ -44,7 +44,7 @@ if _sidecar_root not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 # ── Identity & session (required by handshake protocol v1.0.9+) ──────────────
 # Session_id меняется при каждом cold start. Rust сверяет его с sidecar.json
@@ -2059,6 +2059,53 @@ def optimize_split_ci_endpoint(req: SplitCiRequest):
             'status': 'error', 'error_code': 'DATA_FILE_MISSING', 'message': str(e)})
     except Exception as e:
         logger.exception('Split-CI FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': str(e), 'type': type(e).__name__})
+
+
+class BacktestRequest(BaseModel):
+    """E1 (2026-07-03): rolling-origin проверка модели на истории
+    («модель vs факт»: coverage 90% PI, наивные бенчмарки, вердикт)."""
+    project_dir: str
+    horizon_periods: int | None = Field(default=None, ge=1, le=90)
+    min_train: int | None = Field(default=None, ge=8, le=200)
+    mode: Literal['auto', 'bayesian', 'ols'] = 'auto'
+    max_windows: int = Field(default=8, ge=3, le=12)
+    # Прочитать сохранённую витрину (models/backtest.json) без пересчёта —
+    # мгновенный путь для загрузки карточки/отчёта.
+    read_only: bool = False
+
+
+@app.post('/compute/backtest')
+def compute_backtest_endpoint(req: BacktestRequest):
+    """E1 витрина: дорого (bayesian ≈ N окон × время обучения) — в UI это
+    отдельная кнопка с честной оценкой времени, не интерактивный путь.
+    status='insufficient' — честный результат («истории недостаточно»), не сбой."""
+    try:
+        from engines.backtest import load_saved_backtest, run_rolling_backtest
+        if req.read_only:
+            saved = load_saved_backtest(req.project_dir)
+            if saved is None:
+                return JSONResponse(content={
+                    'status': 'not_found',
+                    'message': 'Проверка на истории ещё не проводилась.',
+                })
+            return JSONResponse(content=saved)
+        result = run_rolling_backtest(
+            req.project_dir,
+            horizon_periods=req.horizon_periods,
+            min_train=req.min_train,
+            mode=req.mode,
+            max_windows=req.max_windows,
+        )
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'NO_DATA')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Backtest FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error', 'message': str(e), 'type': type(e).__name__})
 

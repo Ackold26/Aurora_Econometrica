@@ -38,10 +38,16 @@ const QUICK_TIMEOUT_SECS: u64 = 60;
 /// Timeout for long-running endpoints (MCMC training)
 const TRAIN_TIMEOUT_SECS: u64 = 900; // 15 minutes
 
+/// E1 (2026-07-03): rolling-backtest переобучает модель на N окнах —
+/// на слабом CPU bayesian-окно ≈ время полного обучения (2-3 мин), 8 окон
+/// не влезают в TRAIN_TIMEOUT. Отдельный клиент с часовым потолком.
+const BACKTEST_TIMEOUT_SECS: u64 = 3600;
+
 /// Static clients - avoid TLS bootstrap + connection pool setup per request.
 static QUICK_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static TRAIN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static HEALTH_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static BACKTEST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 fn quick_client() -> &'static reqwest::Client {
     QUICK_CLIENT.get_or_init(|| reqwest::Client::builder()
@@ -58,6 +64,12 @@ fn train_client() -> &'static reqwest::Client {
 fn health_client() -> &'static reqwest::Client {
     HEALTH_CLIENT.get_or_init(|| reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
+        .build().unwrap_or_default())
+}
+
+fn backtest_client() -> &'static reqwest::Client {
+    BACKTEST_CLIENT.get_or_init(|| reqwest::Client::builder()
+        .timeout(Duration::from_secs(BACKTEST_TIMEOUT_SECS))
         .build().unwrap_or_default())
 }
 
@@ -674,6 +686,33 @@ pub async fn econ_optimize_split_ci(
         "unit_costs": unit_costs,
     });
     post_json("/optimize/split-ci", &body, train_client()).await
+}
+
+/// E1 (2026-07-03): backtest-витрина «модель vs факт» — rolling-origin
+/// проверка на удержанной истории (coverage 90% PI, наивные бенчмарки).
+/// Дорого: bayesian ≈ N окон × время обучения → backtest_client (1 час).
+/// read_only=true — мгновенное чтение сохранённой витрины (models/backtest.json).
+#[tauri::command]
+pub async fn econ_backtest(
+    project_dir: String,
+    horizon_periods: Option<i64>,
+    min_train: Option<i64>,
+    mode: Option<String>,
+    max_windows: Option<i64>,
+    read_only: Option<bool>,
+) -> Result<Value, String> {
+    let ro = read_only.unwrap_or(false);
+    info!("econ_backtest: {project_dir} read_only={ro} windows={max_windows:?}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "horizon_periods": horizon_periods,
+        "min_train": min_train,
+        "mode": mode.unwrap_or_else(|| "auto".to_string()),
+        "max_windows": max_windows.unwrap_or(8),
+        "read_only": ro,
+    });
+    let client = if ro { quick_client() } else { backtest_client() };
+    post_json("/compute/backtest", &body, client).await
 }
 
 #[tauri::command]

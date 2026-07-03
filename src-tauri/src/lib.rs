@@ -3275,6 +3275,8 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_preflight,
             // A4/OPP-04 (2026-07-03): интервалы оптимального сплита (Jin 2017)
             commands::econometrica::econ_optimize_split_ci,
+            // E1 (2026-07-03): backtest-витрина «модель vs факт» (rolling-origin)
+            commands::econometrica::econ_backtest,
             // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
             commands::econometrica::econ_safe_corridor,
             commands::econometrica::econ_optimize_inverse,
