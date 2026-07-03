@@ -53,8 +53,8 @@
 | E2-2 | Доставка: config.calibrations через TrainRequest → UI-форма «Результат эксперимента» (ConfigPanel advanced) + persist | ✅ server model_dump (Rust прозрачен), buildTrainConfig bayesian-гейт, CalibrationPanel + store per-project, 10 vitest + 15 регресс |
 | E2-3 | Отчёт: [CALIBRATED] у канала + строка «приор откалиброван тестом от <дата>» + честное расхождение (PPTX/narrative) | ✅ адаптер diagnostics.calibration → [CALIBRATED]-run в таблице каналов + строки на «Данные и качество» (расхождение within_ci=false золотом «разберите с аналитиком»); 18 PPTX-тестов + verify 43/43; svelte 0 (грабля: engine — локальное имя, в шаблоне $modelEngine) |
 | E4-1 | Движок promises.py: create_from_optimize / list / check_all + тесты (kept/missed/inconclusive, extrapolation-пометка) | ✅ 7 тестов (kept/missed с честной оговоркой «не каузальный вывод», pending со счётчиком, окончательные не пересматриваются, битый json) |
-| E4-2 | Доставка: endpoints + Rust + UI-карточка «Сбывшиеся рекомендации» (кнопка «Зафиксировать как обещание» в Optimize) | ⏳ TODO |
-| E4-3 | PPTX/narrative «Сбывшиеся рекомендации» + живой зонд (синтетика двух обновлений данных) + сводный отчёт docs/audits/E2_E4_2026_07.md | ⏳ TODO |
+| E4-2 | Доставка: endpoints + Rust + UI-карточка «Сбывшиеся рекомендации» (кнопка «Зафиксировать прогноз» в Optimize) | ✅ 5 server + 6 vitest; кнопка у what-if планирования (сценарий с CI будущего → обещание; гейт planner; экстраполяция помечена); карточка с честными бейджами |
+| E4-3 | PPTX/narrative «Сбывшиеся рекомендации» + живой зонд (синтетика двух обновлений данных) + сводный отчёт docs/audits/E2_E4_2026_07.md | ✅ строки «сбылось N, не сбылось M» + примеры (только сверенные; pending не показывается) на «Данные и качество»; живой цикл 7/7 через транспорт (kept, факт 4040 в CI, PPTX со строкой, 0 маркеров); отчёт написан. **Финальные гейты Фазы 3: python-регресс 58 · vitest 791/791 · svelte 0 · verify 43/43 · cargo чисто** |
 
 ## Находки по ходу
 —

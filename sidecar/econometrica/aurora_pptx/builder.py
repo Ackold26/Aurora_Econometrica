@@ -279,6 +279,11 @@ class AuroraPPTXBuilder:
         self.calibrated_channels = {
             str(a.get("channel")) for a in (self.calibration.get("applied") or [])
         }
+        # E4 (2026-07-03): сбывшиеся рекомендации (только сверенные kept/missed
+        # из адаптера; live-only — wireframe-режима нет).
+        self.promises_summary = (
+            self.data.get("promises_summary") if self.is_live else None
+        ) or None
         # B1-fix R-03/R-04: честное покрытие данных (n наблюдений / частота /
         # разрывы) от адаптера; None → строки рендерятся «—» или скрываются.
         self.data_coverage = self.data.get("data_coverage") or {}
@@ -3188,6 +3193,27 @@ class AuroraPPTXBuilder:
                 font=self.sans, size=10, italic=True, color=self.gold,
             )
             _hy += 0.45
+
+        # E4 (2026-07-03): сбывшиеся рекомендации — петля доверия в отчёте.
+        # Только сверенные (kept/missed); «не сбылось» показывается так же
+        # прямо, как «сбылось».
+        if self.promises_summary:
+            _ps = self.promises_summary
+            self._text(
+                slide, right_x, _hy, right_w, 0.25,
+                (f"Проверка прошлых рекомендаций: сбылось {_ps.get('kept', 0)}, "
+                 f"не сбылось {_ps.get('missed', 0)}."),
+                font=self.sans, size=10, bold=True, color=self.deep_100,
+            )
+            _hy += 0.28
+            for _ex in (_ps.get("examples") or []):
+                self._text(
+                    slide, right_x, _hy, right_w, 0.4,
+                    f"«{_ex.get('action_text')}» — {_ex.get('status_ru')}.",
+                    font=self.sans, size=9.5,
+                    color=(self.deep_100 if _ex.get('status') == 'kept' else self.gold),
+                )
+                _hy += 0.30
 
         # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
         # переобучении — та же формулировка, что в вердикте программы и письме

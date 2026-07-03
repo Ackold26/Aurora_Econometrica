@@ -754,6 +754,7 @@ def _map_pipeline_to_builder_data(
     version: str = "1.0.11",
     backtest: dict | None = None,
     generation_compare: dict | None = None,
+    promises: list[dict] | None = None,
 ) -> dict:
     """Translate Econometrica pipeline output into deliverable builder schema.
 
@@ -1045,6 +1046,28 @@ def _map_pipeline_to_builder_data(
         and generation_compare.get('channels')
     ):
         data['generation_compare'] = generation_compare
+
+    # E4 (2026-07-03): сбывшиеся рекомендации — в отчёт попадают ТОЛЬКО
+    # сверенные обещания (kept/missed): pending нечего показывать клиенту,
+    # wireframe-суррогатов нет по построению.
+    _checked = [
+        p for p in (promises or [])
+        if p.get('status') in ('kept', 'missed')
+    ]
+    if _checked:
+        data['promises_summary'] = {
+            'kept': sum(1 for p in _checked if p['status'] == 'kept'),
+            'missed': sum(1 for p in _checked if p['status'] == 'missed'),
+            'examples': [
+                {
+                    'action_text': p.get('action_text'),
+                    'status': p.get('status'),
+                    'status_ru': p.get('status_ru'),
+                    'verdict_note': p.get('verdict_note'),
+                }
+                for p in _checked[:2]
+            ],
+        }
 
     logger.info(
         f"narrative_adapter: client={client_label!r} "

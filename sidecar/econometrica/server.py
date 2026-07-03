@@ -1939,6 +1939,10 @@ def export_pptx(req: PptxExportRequest):
         # E3 (2026-07-03): сравнение поколений — тем же путём с диска.
         from engines.model_compare import load_saved_generation_compare
         generation_compare = load_saved_generation_compare(str(project_path))
+        # E4 (2026-07-03): зафиксированные прогнозы-обещания (для строк
+        # «сбылось/не сбылось» в отчёте).
+        from engines.promises import list_promises
+        promises = (list_promises(str(project_path)) or {}).get('promises') or []
 
         logger.info(
             f'PPTX inputs: model={has_model} decompose={has_decomp} '
@@ -1951,6 +1955,7 @@ def export_pptx(req: PptxExportRequest):
             req.model_data, req.decompose_data, req.optimize_data,
             output_path, scenarios=scenarios, project_id=req.project_id,
             backtest=backtest, generation_compare=generation_compare,
+            promises=promises,
         )
         logger.info(f'PPTX export OK: {result}')
         return JSONResponse(content=result)

@@ -283,6 +283,39 @@ def test_calibration_marks_delivered(live_decks, tmp_path):
     assert 'разберите период с аналитиком' in text
 
 
+def test_promises_lines_delivered(live_decks, tmp_path):
+    """E4-3: сверенные обещания (kept/missed) доезжают до отчёта; pending —
+    нет (нечего показывать), wireframe-суррогатов нет."""
+    from engines.pptx_export import build_pptx
+    p = live_decks['pipeline']
+    promises = [
+        {'status': 'kept', 'status_ru': 'сбылось',
+         'action_text': 'Бюджет 12 000 000 ₽ на Q3 по плану оптимизации',
+         'verdict_note': 'Факт попал в интервал.'},
+        {'status': 'missed', 'status_ru': 'не сбылось',
+         'action_text': 'Сдвиг 10% в TV',
+         'verdict_note': 'Факт вне интервала.'},
+        {'status': 'pending', 'status_ru': 'ожидает данных',
+         'action_text': 'Не должно попасть в отчёт'},
+    ]
+    out = str(tmp_path / 'promises.pptx')
+    res = build_pptx(p['model_data'], p['dec'], p['opt'], out, scenarios=[],
+                     project_id='e4_test', promises=promises)
+    assert res.get('status') == 'ok', res.get('message')
+    text = _extract_all_text(out)
+    assert 'сбылось 1, не сбылось 1' in text
+    assert 'Бюджет 12 000 000' in text
+    assert 'Не должно попасть в отчёт' not in text
+
+    # Без сверенных обещаний — ни следа блока
+    out2 = str(tmp_path / 'no_promises.pptx')
+    res2 = build_pptx(p['model_data'], p['dec'], p['opt'], out2, scenarios=[],
+                      project_id='e4_test',
+                      promises=[{'status': 'pending', 'action_text': 'x'}])
+    assert res2.get('status') == 'ok'
+    assert 'Проверка прошлых рекомендаций' not in _extract_all_text(out2)
+
+
 def test_backtest_slide_worse_than_naive_title(live_decks, tmp_path):
     """Нелестный вердикт выносится в заголовок слайда — честность на витрине."""
     from engines.pptx_export import build_pptx
