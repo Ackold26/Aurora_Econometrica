@@ -1540,7 +1540,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     except ImportError as e:
         return {
             'status': 'error',
-            'message': f'Пакет не установлен: {e}. Запустите pip install pymc pymc-marketing',
+            # UX-6: у клиента дистрибутив со встроенным Python — pip недоступен;
+            # отсутствие пакета = повреждённая установка. Действие для клиента —
+            # переустановка; техническая деталь остаётся для поддержки/dev.
+            'message': (
+                f'Вычислительный модуль повреждён — не хватает компонента ({e}). '
+                f'Переустановите программу. Для разработчика: pip install pymc pymc-marketing.'
+            ),
             'error_code': 'IMPORT_ERROR',
         }
     except RuntimeError as e:
@@ -1556,7 +1562,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         logger.exception("Model training failed (RuntimeError)")
         return {
             'status': 'error',
-            'message': f'Ошибка обучения модели: {msg[:300]}',
+            'message': (
+                f'Ошибка обучения модели: {msg[:300]}. '
+                f'Повторите обучение; если повторится — уменьшите число каналов '
+                f'или попробуйте режим OLS (меньше требований к данным).'
+            ),
             'error_code': 'RUNTIME_ERROR',
         }
     except AttributeError as e:
@@ -1574,13 +1584,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         logger.exception("Model training failed (AttributeError)")
         return {
             'status': 'error',
-            'message': f'Ошибка обучения модели: {msg[:300]}',
+            'message': (
+                f'Ошибка обучения модели: {msg[:300]}. '
+                f'Повторите обучение; если повторится — обратитесь в поддержку '
+                f'с кодом ATTRIBUTE_ERROR.'
+            ),
             'error_code': 'ATTRIBUTE_ERROR',
         }
     except Exception as e:
         logger.exception("Model training failed (unexpected)")
         return {
             'status': 'error',
-            'message': f'Ошибка обучения модели: {str(e)[:300]}',
+            'message': (
+                f'Ошибка обучения модели: {str(e)[:300]}. '
+                f'Повторите обучение; если повторится — проверьте данные на шаге '
+                f'«Валидация» или обратитесь в поддержку с кодом UNKNOWN_ERROR.'
+            ),
             'error_code': 'UNKNOWN_ERROR',
         }
