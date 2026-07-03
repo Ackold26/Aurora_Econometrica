@@ -251,9 +251,21 @@
   // создавалось 2 task_id, оба бежали MCMC параллельно, гонка pickle write.
   let trainInFlight = $state(false);
 
-  async function trainModel() {
+  // A3/OPP-05 (2026-07-03): preflight-гейт ДО обучения. Endpoint
+  // /compute/preflight (engine recommend + quick_proxy + prior predictive)
+  // существовал, но UI его не звал — предупреждение о ненадёжности приходило
+  // только ПОСЛЕ 5-15 минут MCMC (in-train F-13). Теперь tier ≠ reliable
+  // показывает баннер до запуска; «Обучить всё равно» — при overrideable.
+  // Fail-open: сбой самого preflight НЕ блокирует обучение (страховка F-13
+  // внутри train остаётся).
+  /** @type {any | null} */
+  let preflightResult = $state(null);
+
+  /** @param {boolean} skipPreflight */
+  async function trainModel(skipPreflight = false) {
     if (trainInFlight || $isComputing) return;
     trainInFlight = true;
+    if (skipPreflight !== true) preflightResult = null;
     const projectId = $activeProjectId;
     if (!projectId) {
       computeStatus.set('Ошибка: проект не выбран. Создайте проект на шаге Импорт.');
@@ -403,6 +415,37 @@
         disabledHolidays: get(disabledHolidays),
         useHolidays: get(useHolidays),
       });
+
+      // A3/OPP-05: preflight-гейт (tier reliable → сразу обучаем; иначе баннер).
+      // skipPreflight === true — пользователь нажал «Обучить всё равно».
+      if (skipPreflight !== true) {
+        computeStatus.set('Проверяю данные перед обучением (быстрая диагностика)...');
+        try {
+          const pf = /** @type {any} */ (await invoke('econ_preflight', {
+            projectDir,
+            filePath: dataFile,
+            mediaColumns: enabledChannels,
+            controlColumns,
+            kpiColumn: selectedKpi,
+            dateColumn: validation?.detected?.date || 'date',
+            adstockConfig: config.adstock_config ?? {},
+            modeOverride: engine === 'ols' ? 'ols' : null,
+            skipPriorPredictive: false,
+          }));
+          if (pf?.status === 'ok' && pf.overall_tier && pf.overall_tier !== 'reliable') {
+            preflightResult = pf;
+            isComputing.set(false);
+            computeStatus.set('');
+            trainInFlight = false;
+            return; // стоп до решения пользователя (баннер под кнопкой)
+          }
+        } catch (e) {
+          // Fail-open: гейт честности не должен ломать обучение;
+          // in-train preflight (F-13) остаётся страховкой.
+          console.warn('econ_preflight недоступен, продолжаем без гейта:', e);
+        }
+        computeStatus.set('Компилирую модель...');
+      }
 
       // A3: async flow for pipeline (useAsyncTraining), sync flow for cabinet (backward compat)
       // v2.1.0 (пилот 2026-05-17): сохраняем snapshot конфигурации в SSOT
@@ -673,7 +716,7 @@ Weibull (плавная build-up):
   <button
     class="run-btn"
     class:trained={modelTrained && !$isComputing}
-    onclick={trainModel}
+    onclick={() => trainModel(false)}
     disabled={$isComputing || trainInFlight || !selectedKpi || Object.values(channelEnabled).filter(Boolean).length === 0}
   >
     {#if $isComputing}
@@ -684,6 +727,43 @@ Weibull (плавная build-up):
       Запустить модель
     {/if}
   </button>
+
+  <!-- A3/OPP-05: preflight-баннер — предупреждение честности ДО обучения. -->
+  {#if preflightResult}
+    {@const _pfTier = preflightResult.overall_tier}
+    <div class="preflight-banner" class:danger={_pfTier === 'insufficient'} role="alert">
+      <strong>
+        {#if _pfTier === 'insufficient'}
+          Проверка данных: надёжной модели на этих данных не получится
+        {:else}
+          Проверка данных: модель будет ориентировочной
+        {/if}
+      </strong>
+      {#if preflightResult.warnings?.length}
+        <ul class="preflight-warnings">
+          {#each preflightResult.warnings.slice(0, 4) as w}
+            <li>{w}</li>
+          {/each}
+        </ul>
+      {/if}
+      {#if preflightResult.recommendation}
+        <p class="preflight-reco">{preflightResult.recommendation}</p>
+      {/if}
+      <div class="preflight-actions">
+        {#if preflightResult.overrideable !== false}
+          <button
+            class="btn-override"
+            onclick={() => { preflightResult = null; trainModel(true); }}
+          >
+            Обучить всё равно
+          </button>
+        {/if}
+        <button class="btn-dismiss" onclick={() => { preflightResult = null; }}>
+          Изменить настройки
+        </button>
+      </div>
+    </div>
+  {/if}
   {#if !$isComputing && enabledCount > 0}
     <p class="time-estimate">Оценка: ~{estimateMinutes} мин ({enabledCount} канал{enabledCount > 4 ? 'ов' : enabledCount > 1 ? 'а' : ''})</p>
   {/if}
@@ -707,6 +787,48 @@ Weibull (плавная build-up):
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
     border-radius: 12px;
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+  }
+
+  /* A3/OPP-05: preflight-баннер (warn = directional, danger = insufficient). */
+  .preflight-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 35%, transparent);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .preflight-banner.danger {
+    background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 35%, transparent);
+  }
+  .preflight-banner strong { color: var(--text-primary); font-size: 13px; }
+  .preflight-warnings { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+  .preflight-reco { margin: 0; font-style: italic; }
+  .preflight-actions { display: flex; gap: 8px; margin-top: 2px; }
+  .btn-override {
+    padding: 6px 12px;
+    background: var(--accent-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font: inherit;
+  }
+  .btn-dismiss {
+    padding: 6px 12px;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    font: inherit;
   }
 
   .panel-title {

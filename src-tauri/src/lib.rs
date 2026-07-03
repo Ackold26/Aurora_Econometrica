@@ -3270,6 +3270,8 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_train_cancel,
             commands::econometrica::econ_decompose,
             commands::econometrica::econ_optimize,
+            // A3/OPP-05 (2026-07-03): preflight-гейт до кнопки «Обучить»
+            commands::econometrica::econ_preflight,
             // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
             commands::econometrica::econ_safe_corridor,
             commands::econometrica::econ_optimize_inverse,

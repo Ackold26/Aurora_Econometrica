@@ -615,6 +615,40 @@ pub async fn econ_safe_corridor(
     post_json("/optimize/corridor", &body, quick_client()).await
 }
 
+/// A3/OPP-05 (2026-07-03): preflight-проверка данных ДО запуска обучения.
+/// Endpoint /compute/preflight существовал с S1-аудита (engine recommend +
+/// quick_proxy + prior_predictive → overall_tier), но не имел Rust-команды и
+/// UI — «вычисленная, но не доставленная честность» (мат-аудит F-13 закрыл
+/// in-train страховку; этот гейт показывает предупреждение ДО кнопки).
+/// prior_predictive 300 samples ≈ 5-15 c → train_client.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn econ_preflight(
+    project_dir: String,
+    file_path: String,
+    media_columns: Vec<String>,
+    control_columns: Option<Vec<String>>,
+    kpi_column: String,
+    date_column: Option<String>,
+    adstock_config: Option<Value>,
+    mode_override: Option<String>,
+    skip_prior_predictive: Option<bool>,
+) -> Result<Value, String> {
+    info!("econ_preflight: project_dir={project_dir}, channels={}", media_columns.len());
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "file_path": file_path,
+        "media_columns": media_columns,
+        "control_columns": control_columns.unwrap_or_default(),
+        "kpi_column": kpi_column,
+        "date_column": date_column.unwrap_or_else(|| "date".to_string()),
+        "adstock_config": adstock_config.unwrap_or_else(|| serde_json::json!({})),
+        "mode_override": mode_override,
+        "skip_prior_predictive": skip_prior_predictive.unwrap_or(false),
+    });
+    post_json("/compute/preflight", &body, train_client()).await
+}
+
 #[tauri::command]
 pub async fn econ_optimize_inverse(
     project_dir: String,
