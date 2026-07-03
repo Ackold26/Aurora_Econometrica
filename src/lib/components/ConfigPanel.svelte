@@ -646,7 +646,7 @@ Weibull (плавная build-up):
 
         <!-- E2 (2026-07-03): калибровка lift-тестами — только bayesian
              (у OLS нет вероятностной модели; сервер откажет честно). -->
-        {#if engine === 'bayesian'}
+        {#if $modelEngine === 'bayesian'}
           <div class="config-group">
             <CalibrationPanel
               channels={enabledChannelNames}
