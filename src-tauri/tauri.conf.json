@@ -34,7 +34,8 @@
             "help-econometrica/*",
             "../sidecar/econometrica/**/*",
             "../content-packs/*",
-            "sidecar/pptx_pipeline.py"
+            "sidecar/pptx_pipeline.py",
+            "../NOTICE.md"
         ],
         "windows": {
             "nsis": {
