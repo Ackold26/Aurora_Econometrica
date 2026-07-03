@@ -994,6 +994,76 @@ model_data.setdefault('feature_flags_used', [])
 
 ---
 
+## Trust loop E1–E4 (ROADMAP v3, 2026-07-03/04)
+
+Петля доверия «предсказание → факт → калибровка». Математика четырёх механик
+и их канон — здесь; доставка/тесты — в `docs/audits/{E1_BACKTEST,E3_LIFECYCLE,E2_E4}_2026_07.md`.
+
+### E1 Rolling-origin backtest (`engines/backtest.py::run_rolling_backtest`)
+
+- Окна без нахлёста «кварталами» гранулярности (M→3, W→13, D→90): обучение
+  на `[0..k)`, прогноз `[k..k+h)` против факта; k скользит. Канон out-of-sample:
+  Gelman BW §9.4 (CV-predictive checking > in-sample PPC), McElreath §7.5,
+  Robyn 2024 (ts_validation).
+- Главная метрика — coverage 90% PI, два разреза: per-period и per-window
+  («X из Y кварталов» — тотал окна против HDI суммы).
+- **Предиктивный интервал, не интервал средней (D-10, живой Kagocel-урок):**
+  HDI сценария = неопределённость параметров; факт содержит ε_t. Гауссова
+  квадратура: `hw_pred = √(hw_mean² + (z₉₀·σ)²)`, σ ≈ in-sample RMSE окна
+  (native); тотал окна ⊕ `√h·z₉₀·σ`. `pi_method='posterior_predictive_90'`;
+  без RMSE — честный `posterior_hdi_90_mean_only`. OLS-путь — conformal
+  (уже включает остатки). Точный вариант (σ-samples в pickle) — backlog.
+- Наивные бенчмарки: naive-last + seasonal-naive (сезон по гранулярности);
+  сравнение с ЛУЧШИМ; проигрыш → вердикт `worse_than_naive` без смягчений.
+
+### E3 Сравнение поколений + дрейф (`engines/model_compare.py`)
+
+- Поколения: авто-архив modeler'ов (`models/history/model-*.pkl` + params-снимок,
+  ротация 5; паритет OLS восстановлен F-E3-2).
+- Сравнение: обе версии считаются ОДНИМ каноническим decompose-путём
+  (additive `model_path`, `save_results=False`); семантика — «обе модели на
+  сегодняшних данных» (persistence-repair y_actual, F-E3-3).
+- Вердикт сдвига ROI per-channel — перекрытие CI поколений (Jin 2017: у
+  оценок есть дисперсия): CI не пересекаются → `shift_strong`; пересекаются
+  и |Δ|/|roi_old| < 0.15 → `stable`; иначе `shift_within_ci`. Без CI —
+  `point_only` с теми же порогами (0.15/0.5). `DECAY_SHIFT_ABS=0.15`.
+- Дрейф: прогноз архивной моделью хвоста данных новее её окна обучения
+  (predict_scenario через времянку) → MAPE хвоста против train-MAPE поколения
+  (порог `×1.5` или `+10 пп`) и наивных; хвост < 3 точек → insufficient.
+
+### E2 Калибровка lift-тестами (`utils/calibration.py` + modeler)
+
+- Канон: Robyn 2024 §2.2/§4.3 (калибровка = идентификация, MAPE.LIFT),
+  Jin 2017 (experiments as priors).
+- **Реализация — likelihood-наблюдение, не ручной приор** (β_calib зависит
+  от sat/adstock — курица-яйцо): в PyMC-модель добавляется
+  `lift_obs ~ Normal(Σ_t∈test β_i·sat_i(t), σ_test/y_std)` с
+  `observed = lift_abs/y_std`; α/γ/decay/β согласуются совместно.
+- σ_test из интервала теста: `(hi−lo)/(2·z(level))`, level ∈ {0.8, 0.9, 0.95}.
+- Честность: `pm.Deterministic(calib_contrib)` → после сэмплирования
+  `diagnostics.calibration_check` (mean/CI90 native vs lift, `within_ci`);
+  расхождение НЕ замалчивается (строка в отчёте). OLS — отказ
+  `CALIBRATION_REQUIRES_BAYESIAN`. Характеризующий тест: на синтетике
+  r≈0.97 калиброванная модель ближе к истинному вкладу.
+
+### E4 Прогнозы-обещания (`engines/promises.py`)
+
+- Обещание: ожидание тотала KPI с CI будущего периода (сценарный
+  `predicted_kpi_ci_*` в planner-режиме) + `check_after_index` = длина данных
+  на момент фиксации.
+- Сверка: факт = Σ KPI строк `[check_after : check_after+horizon]`;
+  kept/missed по CI; текст missed всегда с оговоркой «сверка прогноза, не
+  каузальный вывод». Окончательные вердикты не пересматриваются.
+
+### NaN-гигиена HTTP-швов (F-MC-1, Венарус-зонд 2026-07-04)
+
+Файловые записи санитайзились (`sanitize_nonfinite`), а HTTP-ответы
+train-семейства — нет: NaN в диагностике (вырожденный канал) валил
+сериализацию 500-кой. Ответы `/compute/train`, `/compute/train/result/{id}`,
+`/compute/decompose` теперь проходят `sanitize_nonfinite` (NaN→null).
+
+---
+
 ## Literature & industry comparison
 
 ### Where Aurora aligns с Robyn / LightweightMMM / Meridian

@@ -805,7 +805,11 @@ def train_model(req: TrainRequest):
     else:
         from engines.modeler import train_model as _train
     result = _train(config, project_dir)
-    return JSONResponse(content=result)
+    # F-MC-1 (2026-07-04, Венарус-зонд): NaN в диагностике (вырожденный канал)
+    # валил СЕРИАЛИЗАЦИЮ ответа 500-кой «Out of range float values» — файлы
+    # санитайзились (NaN→null), а HTTP-ответ нет. Класс P3 NaN-blindspot.
+    from utils.safe_io import sanitize_nonfinite
+    return JSONResponse(content=sanitize_nonfinite(result))
 
 
 class CategorizeRequest(BaseModel):
@@ -1151,7 +1155,9 @@ def train_result(task_id: str):
         if task['status'] in ('done', 'error'):
             result = task.get('result') or {'status': 'error', 'message': task.get('error', 'Unknown error')}
             task['consumed_at'] = time.time()  # Mark consumed, keep for retries
-            return result
+            # F-MC-1: NaN-safe ответ (см. /compute/train).
+            from utils.safe_io import sanitize_nonfinite
+            return sanitize_nonfinite(result)
     return {'status': 'pending'}
 
 
@@ -1170,7 +1176,9 @@ def decompose_sales(req: DecomposeRequest):
     )
     if result.get('status') != 'ok':
         logger.warning(f'/compute/decompose returned error: {result.get("message")}')
-    return JSONResponse(content=result)
+    # F-MC-1: NaN-safe ответ (файл decomposition.json уже санитайзился, ответ — нет).
+    from utils.safe_io import sanitize_nonfinite
+    return JSONResponse(content=sanitize_nonfinite(result))
 
 
 @app.post('/compute/optimize')
