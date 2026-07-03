@@ -531,6 +531,26 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     y_mean, y_std = y.mean(), max(y.std(), 1e-10)
     y_norm = (y - y_mean) / y_std
 
+    # ── E2 (2026-07-03): калибровка lift-тестами (Robyn §4.3 / Jin 2017) ────
+    # Измеренный lift эксперимента входит в модель ДОПОЛНИТЕЛЬНЫМ НАБЛЮДЕНИЕМ
+    # правдоподобия (см. цикл каналов): суммарный вклад канала за период теста
+    # ~ Normal(lift, σ_теста) в norm-шкале — adstock/насыщение/β согласуются
+    # с тестом совместно. Невалидный вход — честная ошибка ДО сэмплирования.
+    calibrations_prepared: list[dict] = []
+    if config.get('calibrations'):
+        from utils.calibration import CalibrationError, prepare_calibrations
+        try:
+            calibrations_prepared = prepare_calibrations(
+                df, config.get('calibrations'),
+                media_columns=media_cols, date_column=date_col,
+            )
+        except CalibrationError as e:
+            return {
+                'status': 'error',
+                'error_code': 'CALIBRATION_INVALID',
+                'message': str(e),
+            }
+
     # ── Мат-аудит 2026-07-02 (F-13): in-train pre-flight ────────────────────
     # Endpoint /compute/preflight (S1: quick proxy + prior predictive) существовал,
     # но НЕ подключён к UI (Rust-команды нет, фронт зовёт train напрямую) —
@@ -728,6 +748,25 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 x_safe = pm.math.maximum(x_norm, 0)
                 saturated = x_safe ** alphas[i] / (x_safe ** alphas[i] + gammas[i] ** alphas[i] + 1e-10)
                 media_effect = media_effect + media_betas[i] * saturated
+
+                # E2: наблюдения lift-тестов этого канала (Robyn MAPE.LIFT-класс).
+                # Deterministic сохраняет постериорный вклад за период теста —
+                # после сэмплирования по нему строится честная сверка
+                # calibration_check (модель vs тест).
+                for _ci_idx, _calib in enumerate(calibrations_prepared):
+                    if _calib['channel'] != col:
+                        continue
+                    _contrib_test = (
+                        media_betas[i]
+                        * saturated[_calib['idx_from']:_calib['idx_to']]
+                    ).sum()
+                    pm.Deterministic(f'calib_contrib_{_ci_idx}', _contrib_test)
+                    pm.Normal(
+                        f'lift_obs_{_ci_idx}',
+                        mu=_contrib_test,
+                        sigma=max(_calib['sigma_abs'] / y_std, 1e-6),
+                        observed=_calib['lift_abs'] / y_std,
+                    )
 
             # Likelihood
             mu = intercept + media_effect + control_effect
@@ -1496,6 +1535,40 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # предупреждение и не назовёт модель «надёжной» (подтвердить отсутствие
         # праздничного эффекта мы не можем). Бэк-компат: для старых пиклов флага нет → False.
         diagnostics['holidays_excluded'] = not use_holidays
+
+        # E2 (2026-07-03): честность калибровки — постериорный вклад канала за
+        # период теста против измеренного lift. Расхождение вне 90% CI НЕ
+        # замалчивается (within_ci=False → отчёт покажет «модель и тест
+        # расходятся»). Сбой контура не роняет обучение.
+        if calibrations_prepared:
+            _calib_checks = []
+            for _ci_idx, _calib in enumerate(calibrations_prepared):
+                try:
+                    _arr = (
+                        np.asarray(
+                            trace.posterior[f'calib_contrib_{_ci_idx}'].values,
+                            dtype=float,
+                        ).reshape(-1) * y_std
+                    )
+                    _lo, _hi = (float(v) for v in np.percentile(_arr, [5, 95]))
+                    _calib_checks.append({
+                        'channel': _calib['channel'],
+                        'test_type': _calib['test_type'],
+                        'date_from': _calib['date_from'],
+                        'date_to': _calib['date_to'],
+                        'test_lift': _calib['lift_abs'],
+                        'test_sigma': _calib['sigma_abs'],
+                        'model_contrib_mean': round(float(_arr.mean()), 2),
+                        'model_contrib_ci90': [round(_lo, 2), round(_hi, 2)],
+                        'within_ci': bool(_lo <= _calib['lift_abs'] <= _hi),
+                    })
+                except Exception as _cc_err:  # noqa: BLE001
+                    logger.warning('calibration_check %s failed: %s', _ci_idx, _cc_err)
+            diagnostics['calibration_check'] = _calib_checks
+            diagnostics['calibration_applied'] = [
+                {k: c[k] for k in ('channel', 'test_type', 'date_from', 'date_to', 'lift_abs')}
+                for c in calibrations_prepared
+            ]
 
         # latest-params.json: train-снимок (channel_params/config/mcmc + КОПИЯ
         # diagnostics). SSOT диагностики для ЧТЕНИЯ = results/model-diagnostics.json

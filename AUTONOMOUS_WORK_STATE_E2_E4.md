@@ -47,10 +47,10 @@
 | # | Задача | Статус |
 |---|---|---|
 | E24-0 | RAG + аудит лесов (зона likelihood modeler:730-735, channel_action, scenario CI) + реестр | ✅ 2026-07-03 |
-| E2-1 | Движок: utils/calibration.py (prepare+валидация) + вживление lift-наблюдений и Deterministic в modeler + calibration_check в диагностику + характеризующий тест (синтетика с зашитым lift: калиброванная ближе к истине) | ⏳ TODO |
+| E2-1 | Движок: utils/calibration.py (prepare+валидация) + вживление lift-наблюдений и Deterministic в modeler + calibration_check в диагностику + характеризующий тест (синтетика с зашитым lift: калиброванная ближе к истине) | ✅ 5 тестов за 50с (характеризующий ПРОШЁЛ на коррелированной синтетике; calibration_check доставлен; OLS-отказ; ошибки русские) |
 | E2-2 | Доставка: config.calibrations через TrainRequest → UI-форма «Результат эксперимента» (ConfigPanel advanced) + persist | ⏳ TODO |
 | E2-3 | Отчёт: [CALIBRATED] у канала + строка «приор откалиброван тестом от <дата>» + честное расхождение (PPTX/narrative) | ⏳ TODO |
-| E4-1 | Движок promises.py: create_from_optimize / list / check_all + тесты (kept/missed/inconclusive, extrapolation-пометка) | ⏳ TODO |
+| E4-1 | Движок promises.py: create_from_optimize / list / check_all + тесты (kept/missed/inconclusive, extrapolation-пометка) | ✅ 7 тестов (kept/missed с честной оговоркой «не каузальный вывод», pending со счётчиком, окончательные не пересматриваются, битый json) |
 | E4-2 | Доставка: endpoints + Rust + UI-карточка «Сбывшиеся рекомендации» (кнопка «Зафиксировать как обещание» в Optimize) | ⏳ TODO |
 | E4-3 | PPTX/narrative «Сбывшиеся рекомендации» + живой зонд (синтетика двух обновлений данных) + сводный отчёт docs/audits/E2_E4_2026_07.md | ⏳ TODO |
 
@@ -62,3 +62,21 @@
   и MAPE.LIFT; Jin 2017; Gelman BW); зона вживления найдена (modeler:703-735 —
   per-channel вклад `media_betas[i]*saturated` доступен как pt-выражение в цикле;
   likelihood на 733-735); дизайн-решения D-E2-1..5, D-E4-1..2; реестр создан.
+- **E2-1 (2026-07-03):** utils/calibration.py (prepare_calibrations: даты→индексы,
+  сплошность периода, ≥2 наблюдений, траты>0, σ из интервала по z(0.8/0.9/0.95),
+  русские CalibrationError); modeler: prepare после y_norm (CALIBRATION_INVALID
+  до сэмплирования) + в цикле каналов pm.Deterministic(calib_contrib_N) +
+  pm.Normal(lift_obs_N, mu=вклад за период теста, σ_norm, observed=lift_norm) +
+  после сэмплирования diagnostics.calibration_check (mean/CI90 native vs
+  test_lift, within_ci) и calibration_applied; ols_modeler: честный отказ
+  CALIBRATION_REQUIRES_BAYESIAN. Тесты tools/test_calibration.py **5 зелёных
+  за 50с**, включая ХАРАКТЕРИЗУЮЩИЙ (критерий ROADMAP): TV/Digital r≈0.97 →
+  некалиброванная размывает вклад; lift-тест по TV (σ=15%) подтянул полный
+  вклад TV ближе к истине (|err_calib| < |err_uncalib|, печать чисел в тесте).
+- **E4-1 (2026-07-03):** engines/promises.py: create_promise (точка отсчёта =
+  n_obs данных на момент обещания через C3-резолвер; валидации BAD_HORIZON/
+  EMPTY_ACTION/NO_DATA), list_promises, check_promises (факт = сумма KPI строк
+  ПОСЛЕ точки отсчёта за horizon; kept/missed по CI ожидания с честной
+  оговоркой «сверка прогноза, не каузальный вывод»; pending со счётчиком
+  «X из Y»; inconclusive без CI; окончательные вердикты не пересматриваются);
+  atomic promises.json. Тесты tools/test_promises.py **7 зелёных**.

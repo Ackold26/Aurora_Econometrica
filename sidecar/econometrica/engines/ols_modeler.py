@@ -100,6 +100,18 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     apply_merge_rules(df, config.get('merge_rules'))
 
     y = df[kpi_col].fillna(0).values.astype(float)
+    # E2 (2026-07-03, D-E2-4): калибровка lift-тестами живёт в правдоподобии
+    # байесовской модели — у OLS вероятностной модели вкладов нет.
+    if config.get('calibrations'):
+        return {
+            'status': 'error',
+            'error_code': 'CALIBRATION_REQUIRES_BAYESIAN',
+            'message': (
+                'Калибровка lift-тестами доступна только байесовскому режиму. '
+                'Переключите движок на Bayesian или уберите калибровки.'
+            ),
+        }
+
     n_obs = len(y)
 
     if n_obs < 8:
