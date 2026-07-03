@@ -394,6 +394,8 @@ def decompose(
     unit_costs_override: dict | None = None,
     unit_cost_inflation_pct: dict | None = None,
     kpi_unit_cost_override: float | None = None,
+    model_path: str | None = None,
+    save_results: bool = True,
 ) -> dict[str, Any]:
     """Decompose sales into baseline + channel contributions using trained model.
 
@@ -403,12 +405,16 @@ def decompose(
             Нужно, когда user изменил CPP/CPM после тренировки модели.
         kpi_unit_cost_override: v2.1.0 (ADR-021) override средней цены единицы count KPI
             для money ROI conversion. None = используем snapshot из pickle.
+        model_path: E3 (2026-07-03) - явный путь к модели (архивное поколение из
+            models/history/). None = models/latest.pkl (прежнее поведение).
+        save_results: E3 - False у сравнения поколений: расчёт по архивной модели
+            НЕ должен перетирать results/decomposition.json текущей.
 
     Returns:
         JSON with waterfall data, ROI, share of spend vs effect
     """
     project_path = Path(project_dir)
-    model_path = project_path / 'models' / 'latest.pkl'
+    model_path = Path(model_path) if model_path else project_path / 'models' / 'latest.pkl'
 
     if not model_path.exists():
         return {
@@ -1173,10 +1179,13 @@ def decompose(
     }
 
     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
-    from utils.safe_io import sanitize_nonfinite
-    results_dir = project_path / 'results'
-    results_dir.mkdir(parents=True, exist_ok=True)
-    with open(results_dir / 'decomposition.json', 'w', encoding='utf-8') as f:
-        json.dump(sanitize_nonfinite(result), f, ensure_ascii=False, indent=2)
+    # E3: save_results=False у сравнения поколений — расчёт по архивной модели
+    # не должен подменять результаты текущей.
+    if save_results:
+        from utils.safe_io import sanitize_nonfinite
+        results_dir = project_path / 'results'
+        results_dir.mkdir(parents=True, exist_ok=True)
+        with open(results_dir / 'decomposition.json', 'w', encoding='utf-8') as f:
+            json.dump(sanitize_nonfinite(result), f, ensure_ascii=False, indent=2)
 
     return result

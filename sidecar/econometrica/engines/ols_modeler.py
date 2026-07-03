@@ -429,9 +429,17 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         import shutil
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         shutil.copy2(model_path, history_dir / f'model-{ts}.pkl')
+        # F-E3-2 (2026-07-03): паритет с bayesian-тренером — архивировать и
+        # params-снимок. Без него /compute/model_history не видел OLS-поколений,
+        # а дрейф-мониторинг не мог определить окно обучения архива.
+        prev_params = models_dir / 'latest-params.json'
+        if prev_params.exists():
+            shutil.copy2(prev_params, history_dir / f'params-{ts}.json')
         archives = sorted(history_dir.glob('model-*.pkl'))
         while len(archives) > 5:
             archives[0].unlink(missing_ok=True)
+            param_f = archives[0].name.replace('model-', 'params-').replace('.pkl', '.json')
+            (history_dir / param_f).unlink(missing_ok=True)
             archives.pop(0)
 
     # v2.1.0: безопасный формат aurora-model (zip + JSON + npz).
