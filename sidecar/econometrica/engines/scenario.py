@@ -177,7 +177,14 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # single-period mediaPlan totals распределяются по forecast_periods (не
     # training_n_periods). Matches optimizer planning mode semantics - scenario
     # отражает «бюджет 2026 года», не «бюджет training horizon».
-    data_file = config_model.get('data_file')
+    # C3-N3 (2026-07-03): протухший абсолютный путь из pickle → фолбэк на файл
+    # с тем же именем в каталоге проекта; при полном отсутствии — None (мягкие
+    # ветки ниже уже умеют жить без него, с логированной деградацией).
+    try:
+        from utils.data_file_resolver import resolve_data_file
+        data_file = str(resolve_data_file(config_model.get('data_file'), project_dir))
+    except FileNotFoundError:
+        data_file = None
     forecast_periods_cfg = config.get('forecast_periods')
     training_n_periods = plan_n
     if data_file and plan_n == 1:

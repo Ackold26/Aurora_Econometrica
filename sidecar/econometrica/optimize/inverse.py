@@ -153,7 +153,12 @@ def build_proportional_forward(project_dir: str, unit_costs_override: Optional[D
     # training snapshot для Hill. Делает «текущий бюджет» goal-seek = forward.
     unit_costs = _resolve_current_unit_costs(project_dir, cfg, unit_costs_override)
 
-    data_file = cfg['data_file']
+    # C3-N3 (2026-07-03): абсолютный путь из pickle мог протухнуть (файл
+    # перемещён/другая машина) — резолвер даёт фолбэк на каталог проекта и
+    # понятную русскую ошибку вместо сырого Errno через HTTP 500 (боевая
+    # находка живого click-path на реальном Kagocel-проекте).
+    from utils.data_file_resolver import resolve_data_file
+    data_file = resolve_data_file(cfg.get('data_file'), project_dir)
     df = _pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else _pd.read_csv(data_file)
     apply_merge_rules(df, cfg.get('merge_rules'))
     n_periods = max(len(df), 1)

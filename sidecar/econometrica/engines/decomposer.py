@@ -452,7 +452,9 @@ def decompose(
     unit_costs = unit_costs_override if unit_costs_override is not None else (config.get('unit_costs', {}) or {})
 
     # Read original data for spend totals + adstock + control effects
-    data_file = config['data_file']
+    # C3-N3 (2026-07-03): протухший путь из pickle → фолбэк/понятная ошибка.
+    from utils.data_file_resolver import resolve_data_file
+    data_file = str(resolve_data_file(config.get('data_file'), project_dir))
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
     # Материализация виртуальных каналов (если были merge_rules при train)
     from utils.merge_rules import apply_merge_rules

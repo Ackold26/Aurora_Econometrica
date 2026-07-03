@@ -962,25 +962,39 @@ def preflight(req: PreflightRequest):
     })
 
 
+def _ru_problems(n: int) -> str:
+    """Склонение: 1 проблема / 2-4 проблемы / 5+ проблем."""
+    if n % 10 == 1 and n % 100 != 11:
+        return f'{n} проблема'
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f'{n} проблемы'
+    return f'{n} проблем'
+
+
 def _aggregate_recommendation(tier: str, mode: str, n_warnings: int) -> str:
-    """Build single human-readable recommendation from aggregated tier + mode."""
+    """Build single human-readable recommendation from aggregated tier + mode.
+
+    C3-полутон (2026-07-03): текст уходит в КЛИЕНТСКИЙ preflight-баннер —
+    без тех-жаргона («см. breakdown.warnings», «multicollinearity», «fragile»)
+    и с правильным склонением («1 проблем» → «1 проблема»).
+    """
     if tier == 'reliable':
         return (
             f'Данные прошли все проверки. Рекомендуемый режим обучения: '
-            f'{"Bayesian MMM" if mode == "bayesian" else "OLS (small data)"}.'
+            f'{"Bayesian MMM" if mode == "bayesian" else "OLS (малые данные)"}.'
         )
     if tier == 'directional':
         return (
-            f'Данные имеют {n_warnings} предупреждений (см. breakdown.warnings). '
-            f'Можно обучаться в режиме {"Bayesian" if mode == "bayesian" else "OLS"}, '
-            f'но используйте результаты как направление, не точную оценку.'
+            f'По данным есть предупреждения ({_ru_problems(n_warnings)} — перечислены выше). '
+            f'Обучение возможно, но используйте результаты как направление, '
+            f'а не точную оценку.'
         )
     # insufficient
     return (
-        f'Данные требуют внимания: {n_warnings} проблем (см. breakdown.warnings). '
-        f'Перед обучением рекомендуется: собрать больше данных, упростить медиа-микс, '
-        f'либо устранить multicollinearity. Можно обучить с override-предупреждением '
-        f'(результаты помечены как fragile).'
+        f'Данные требуют внимания ({_ru_problems(n_warnings)} — перечислены выше). '
+        f'Перед обучением рекомендуется: собрать больше данных, упростить медиа-микс '
+        f'либо убрать сильно связанные между собой каналы. Можно обучить и так — '
+        f'результаты будут помечены как ненадёжные.'
     )
 
 

@@ -358,7 +358,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
     # Read original data for current spend
     import pandas as pd
-    data_file = config_model['data_file']
+    # C3-N3 (2026-07-03): протухший абсолютный путь из pickle → фолбэк на
+    # каталог проекта / понятная русская ошибка (не сырой Errno в HTTP 500).
+    from utils.data_file_resolver import resolve_data_file
+    data_file = str(resolve_data_file(config_model.get('data_file'), project_dir))
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
     # Материализация виртуальных каналов (совпадает с train-time merge_rules)
     from utils.merge_rules import apply_merge_rules

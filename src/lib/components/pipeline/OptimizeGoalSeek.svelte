@@ -43,6 +43,15 @@
   // апостериорным сценариям). Уровень 0.8 фиксирован продуктово.
   let cautiousMode = $state(false);
   const CAUTIOUS_CONFIDENCE = 0.8;
+  // C3-N2: показать кнопку «Переключить в Анализ» в сообщении об ошибке
+  // (переключатель режимов отрисован только на вкладке «От бюджета»).
+  let showAnalystSwitch = $state(false);
+
+  function switchToAnalyst() {
+    planningMode.set('analyst');
+    showAnalystSwitch = false;
+    errorMessage = null;
+  }
 
   // 2026-06-07: АДАПТИВНАЯ шкала цели под РЕЗУЛЬТАТ модели. Раньше верх слайдера =
   // currentSales×1.5×1.15 (чистая эвристика, не связана с тем, что модель реально
@@ -126,11 +135,16 @@
     // → backend ищет budget в неверном масштабе. Honest reject с инструкцией
     // переключиться в analyst mode для Goal-Seek.
     if ($planningMode === 'planner') {
+      // C3-N2 (2026-07-03): прежний текст отсылал к переключателю «вверху
+      // страницы», который в goal-seek-ветке НЕ отрисован (он на вкладке
+      // «От бюджета») — пользователь оказывался в тупике. Теперь кнопка
+      // переключения прямо в сообщении (рендер ниже по showAnalystSwitch).
       errorMessage = (
-        'Goal-Seek недоступен в режиме Планирования. ' +
-        'Переключитесь на «Анализ» (вверху страницы «Оптимизация»), либо используйте ' +
-        'Forward-оптимизацию с заданным бюджетом для прогнозного горизонта.'
+        'Подбор бюджета под цель недоступен в режиме «Планирование». ' +
+        'Переключитесь в режим «Анализ» кнопкой ниже, либо используйте расчёт ' +
+        '«От бюджета» для прогнозного горизонта.'
       );
+      showAnalystSwitch = true;
       return;
     }
     busy = true;
@@ -284,6 +298,11 @@
   {#if errorMessage}
     <div class="error">
       {errorMessage}
+      {#if showAnalystSwitch}
+        <button type="button" class="btn-switch-analyst" onclick={switchToAnalyst}>
+          Переключить в режим «Анализ»
+        </button>
+      {/if}
     </div>
   {/if}
 
@@ -422,5 +441,19 @@
     border-radius: var(--radius-sm, 6px);
     font-size: 12px;
     color: var(--danger, #f87171);
+  }
+  /* C3-N2: кнопка переключения режима прямо из сообщения об ошибке. */
+  .btn-switch-analyst {
+    display: block;
+    margin-top: 8px;
+    padding: 6px 12px;
+    background: var(--accent-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font: inherit;
   }
 </style>

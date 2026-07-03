@@ -728,6 +728,16 @@ Weibull (плавная build-up):
     {/if}
   </button>
 
+  <!-- C3-N1 (2026-07-03): ранние guard-отказы trainModel (нет файла данных /
+       нет KPI / CPP-гейт физических каналов) пишут computeStatus, который
+       прежде рендерился ТОЛЬКО внутри кнопки при isComputing — ранние ветки
+       isComputing не включают → пользователь видел «мёртвую кнопку» без
+       какого-либо объяснения (найдено живым click-path на Kagocel-проекте:
+       CPP-гейт корректно блокировал TRPs-канал без стоимости, но молча). -->
+  {#if !$isComputing && $computeStatus}
+    <p class="run-status-note" role="alert">{$computeStatus}</p>
+  {/if}
+
   <!-- A3/OPP-05: preflight-баннер — предупреждение честности ДО обучения. -->
   {#if preflightResult}
     {@const _pfTier = preflightResult.overall_tier}
@@ -787,6 +797,18 @@ Weibull (плавная build-up):
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
     border-radius: 12px;
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+  }
+
+  /* C3-N1: видимая строка ранних guard-отказов под кнопкой запуска. */
+  .run-status-note {
+    margin: 8px 0 0;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 35%, transparent);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-primary);
   }
 
   /* A3/OPP-05: preflight-баннер (warn = directional, danger = insufficient). */

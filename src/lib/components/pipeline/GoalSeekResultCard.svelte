@@ -29,7 +29,13 @@
 
   /** @param {number | null | undefined} n */
   function formatPct(n) {
-    return formatDelta(n);
+    // C3-N4 (2026-07-03): движковый контракт inverse.py — delta_vs_current
+    // ВСЕГДА доля (1.096 = +109.6%). Эвристика formatDelta/formatPct
+    // «|n|>1 → уже процент» ломалась ровно при удвоении бюджета и выше:
+    // живой прогон показал «260 млн → 545 млн (+1.1%)» вместо «+109.6%».
+    if (n == null || !isFinite(n)) return '-';
+    const pct = n * 100;
+    return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
   }
 
   /** @param {number} n */
