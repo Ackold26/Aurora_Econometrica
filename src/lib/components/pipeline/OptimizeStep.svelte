@@ -39,6 +39,7 @@
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
+  import PromisesCard from '$lib/components/pipeline/PromisesCard.svelte';
   import ForecastHorizonPicker from '$lib/components/pipeline/ForecastHorizonPicker.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
@@ -1149,6 +1150,80 @@
       }
     } catch (/** @type {any} */ e) {
       whatIfError = String(e?.message || e);
+    }
+  }
+
+  // ── E4 (2026-07-03, «Зафиксировать прогноз» — формулировка Антона) ────────
+  // Прогноз планирования становится проверяемым обещанием: сценарий с CI
+  // будущего периода (predict_scenario в planner-режиме) → results/promises.json;
+  // сверка фактом — карточка «Сбывшиеся рекомендации» ниже.
+  let promiseSaving = $state(false);
+  /** @type {string | null} */
+  let promiseSuccess = $state(null);
+  /** @type {string | null} */
+  let promiseError = $state(null);
+
+  async function fixForecastPromise() {
+    if (!isPlanning || !planningPeriods) {
+      promiseError = 'Фиксация прогноза доступна в режиме «Планирование» — там прогноз строится на будущий период.';
+      return;
+    }
+    promiseSaving = true;
+    promiseError = null;
+    promiseSuccess = null;
+    try {
+      const projectId = await ensureProjectId();
+      if (!projectId) { promiseError = 'Проект не выбран.'; return; }
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+      /** @type {Record<string, number[]>} */
+      const mediaPlan = {};
+      const src = whatIfResult?.channels ?? optData?.channels ?? [];
+      for (const c of src) mediaPlan[c.name] = [Number(c.optimal_spend ?? 0)];
+      if (Object.keys(mediaPlan).length === 0) {
+        promiseError = 'Сначала выполните оптимизацию (Блок B).';
+        return;
+      }
+      const _kuc = get(valuePerCountUnit);
+      const kpiUnitCostP = get(kpiKind) === 'count' && typeof _kuc === 'number' && _kuc > 0 ? _kuc : null;
+      // Прогноз с CI будущего периода — канонический сценарный путь.
+      const sc = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir,
+        scenarioName: `promise-${Date.now().toString().slice(-6)}`,
+        mediaPlan,
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
+        kpiUnitCost: kpiUnitCostP,
+      }));
+      if (sc?.status !== 'ok') {
+        promiseError = sc?.message || 'Не удалось построить прогноз для фиксации.';
+        return;
+      }
+      const totals = sc.totals ?? {};
+      const totalMoney = Number(totals.total_spend_money ?? totals.total_spend ?? 0);
+      const created = /** @type {any} */ (await invoke('econ_promise_create', {
+        projectDir,
+        actionText: (
+          `Бюджет ${Math.round(totalMoney).toLocaleString('ru-RU')} ₽ на ` +
+          `${planningLabel ?? `${planningPeriods} периодов`} по плану оптимизации`
+        ),
+        expectedKpiTotal: Number(totals.predicted_kpi ?? 0),
+        ciLow: totals.predicted_kpi_ci_low ?? null,
+        ciHigh: totals.predicted_kpi_ci_high ?? null,
+        horizonPeriods: planningPeriods,
+        channelChanges: null,
+        extrapolationFlag: (sc.extrapolation?.severity ?? 0) > 0,
+        source: 'planning_whatif',
+      }));
+      if (created?.status === 'ok') {
+        promiseSuccess = '✓ Прогноз зафиксирован — сверится с фактом при обновлении данных';
+        setTimeout(() => { promiseSuccess = null; }, 4000);
+      } else {
+        promiseError = created?.message || 'Не удалось зафиксировать прогноз.';
+      }
+    } catch (/** @type {any} */ e) {
+      promiseError = String(e?.message || e);
+    } finally {
+      promiseSaving = false;
     }
   }
 
@@ -2601,10 +2676,29 @@
           >
             💾 Сохранить как сценарий {#if applyInflation}(с инфляцией){/if}
           </button>
+          <!-- E4: прогноз будущего периода → проверяемое обещание. Только
+               planner-режим: в «Анализе» горизонт — обучающий период, фиксация
+               «на будущее» была бы враньём. -->
+          <button
+            class="btn-save-scenario"
+            onclick={fixForecastPromise}
+            disabled={promiseSaving || !isPlanning}
+            title={isPlanning
+              ? 'Прогноз с интервалом сохранится и сверится с фактом при обновлении данных'
+              : 'Доступно в режиме «Планирование» — там прогноз строится на будущий период'}
+          >
+            📌 {promiseSaving ? 'Фиксируем…' : 'Зафиксировать прогноз'}
+          </button>
           {#if !whatIfResult && applyInflation}
             <span class="save-hint">Сохранится текущая аллокация с поправкой на медиаинфляцию следующего периода</span>
           {/if}
         </div>
+        {#if promiseSuccess}
+          <div class="inline-success" role="status">{promiseSuccess}</div>
+        {/if}
+        {#if promiseError}
+          <div class="inline-error" role="alert">{promiseError}</div>
+        {/if}
       {/if}
     </section>
   {/if}
@@ -2635,6 +2729,12 @@
         </div>
       {/if}
     </section>
+  {/if}
+
+  <!-- E4 (2026-07-03): «Сбывшиеся рекомендации» — зафиксированные прогнозы
+       и их сверка с фактом (петля доверия). -->
+  {#if channels.length > 0}
+    <PromisesCard />
   {/if}
 
   {/if}  <!-- end {#if taskMode === 'forward'} fallthrough -->

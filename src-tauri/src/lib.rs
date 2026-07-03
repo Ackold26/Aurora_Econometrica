@@ -3281,6 +3281,10 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_model_history,
             commands::econometrica::econ_generation_compare,
             commands::econometrica::econ_drift_check,
+            // E4 (2026-07-03): прогнозы-обещания («Зафиксировать прогноз»)
+            commands::econometrica::econ_promises_list,
+            commands::econometrica::econ_promise_create,
+            commands::econometrica::econ_promises_check,
             // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
             commands::econometrica::econ_safe_corridor,
             commands::econometrica::econ_optimize_inverse,

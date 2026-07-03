@@ -2211,6 +2211,77 @@ def drift_check_endpoint(req: DriftCheckRequest):
             'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
 
 
+class PromisesListRequest(BaseModel):
+    """E4 (2026-07-03): зафиксированные прогнозы-обещания проекта."""
+    project_dir: str
+
+
+class PromiseCreateRequest(BaseModel):
+    """E4: «Зафиксировать прогноз» — рекомендация становится проверяемой."""
+    project_dir: str
+    action_text: str = Field(min_length=3)
+    expected_kpi_total: float
+    ci_low: float | None = None
+    ci_high: float | None = None
+    horizon_periods: int = Field(ge=1, le=90)
+    channel_changes: dict[str, float] | None = None
+    extrapolation_flag: bool = False
+    source: str = 'optimize'
+
+
+@app.post('/compute/promises')
+def promises_list_endpoint(req: PromisesListRequest):
+    try:
+        from engines.promises import list_promises
+        return JSONResponse(content=list_promises(req.project_dir))
+    except Exception as e:
+        logger.exception('Promises list FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+@app.post('/compute/promises/create')
+def promises_create_endpoint(req: PromiseCreateRequest):
+    try:
+        from engines.promises import create_promise
+        result = create_promise(
+            req.project_dir,
+            action_text=req.action_text,
+            expected_kpi_total=req.expected_kpi_total,
+            ci_low=req.ci_low,
+            ci_high=req.ci_high,
+            horizon_periods=req.horizon_periods,
+            channel_changes=req.channel_changes,
+            extrapolation_flag=req.extrapolation_flag,
+            source=req.source,
+        )
+        if result.get('status') == 'error' and result.get('error_code') == 'NO_DATA':
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Promise create FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+@app.post('/compute/promises/check')
+def promises_check_endpoint(req: PromisesListRequest):
+    """Сверка обещаний со свежим фактом (kept/missed/pending со счётчиком)."""
+    try:
+        from engines.promises import check_promises
+        result = check_promises(req.project_dir)
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'NO_DATA')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Promises check FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
 class InverseOptimizeRequest(BaseModel):
     """v1.3.0: Goal-Seek optimization (find min budget for target sales)."""
     project_dir: str

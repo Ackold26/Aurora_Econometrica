@@ -760,6 +760,51 @@ pub async fn econ_drift_check(
     post_json("/compute/drift-check", &body, quick_client()).await
 }
 
+/// E4 (2026-07-03): прогнозы-обещания — список зафиксированных.
+#[tauri::command]
+pub async fn econ_promises_list(project_dir: String) -> Result<Value, String> {
+    info!("econ_promises_list: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/promises", &body, quick_client()).await
+}
+
+/// E4: «Зафиксировать прогноз» — рекомендация становится проверяемым обещанием.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn econ_promise_create(
+    project_dir: String,
+    action_text: String,
+    expected_kpi_total: f64,
+    ci_low: Option<f64>,
+    ci_high: Option<f64>,
+    horizon_periods: i64,
+    channel_changes: Option<Value>,
+    extrapolation_flag: Option<bool>,
+    source: Option<String>,
+) -> Result<Value, String> {
+    info!("econ_promise_create: {project_dir} horizon={horizon_periods}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "action_text": action_text,
+        "expected_kpi_total": expected_kpi_total,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "horizon_periods": horizon_periods,
+        "channel_changes": channel_changes,
+        "extrapolation_flag": extrapolation_flag.unwrap_or(false),
+        "source": source.unwrap_or_else(|| "optimize".to_string()),
+    });
+    post_json("/compute/promises/create", &body, quick_client()).await
+}
+
+/// E4: сверка обещаний со свежим фактом (kept/missed/pending).
+#[tauri::command]
+pub async fn econ_promises_check(project_dir: String) -> Result<Value, String> {
+    info!("econ_promises_check: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/promises/check", &body, quick_client()).await
+}
+
 #[tauri::command]
 pub async fn econ_optimize_inverse(
     project_dir: String,
