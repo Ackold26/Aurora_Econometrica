@@ -656,6 +656,26 @@ pub async fn econ_preflight(
     post_json("/compute/preflight", &body, train_client()).await
 }
 
+/// A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального сплита
+/// (Jin 2017) — пере-оптимизация на подвыборке posterior-draws, ~секунды →
+/// отдельная кнопка в UI, train_client.
+#[tauri::command]
+pub async fn econ_optimize_split_ci(
+    project_dir: String,
+    total_budget_money: Option<f64>,
+    n_draws: Option<i64>,
+    unit_costs: Option<Value>,
+) -> Result<Value, String> {
+    info!("econ_optimize_split_ci: {project_dir} draws={n_draws:?}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "total_budget_money": total_budget_money,
+        "n_draws": n_draws.unwrap_or(60),
+        "unit_costs": unit_costs,
+    });
+    post_json("/optimize/split-ci", &body, train_client()).await
+}
+
 #[tauri::command]
 pub async fn econ_optimize_inverse(
     project_dir: String,

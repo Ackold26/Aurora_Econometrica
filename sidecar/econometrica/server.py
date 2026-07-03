@@ -2032,6 +2032,37 @@ def optimize_corridor(req: SafeCorridorRequest):
         })
 
 
+class SplitCiRequest(BaseModel):
+    """A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального сплита
+    (Jin 2017: пере-оптимизация на подвыборке posterior-draws → HDI долей)."""
+    project_dir: str
+    total_budget_money: float | None = None  # None → текущий суммарный
+    n_draws: int = 60
+    unit_costs: dict[str, float] | None = None
+
+
+@app.post('/optimize/split-ci')
+def optimize_split_ci_endpoint(req: SplitCiRequest):
+    """Распределение оптимальных долей по posterior-draws (дорого, ~секунды —
+    отдельная кнопка в UI, не интерактивный путь)."""
+    try:
+        from optimize.split_ci import optimal_split_ci
+        result = optimal_split_ci(
+            project_dir=req.project_dir,
+            total_budget_money=req.total_budget_money,
+            n_draws=req.n_draws,
+            unit_costs_override=req.unit_costs,
+        )
+        return JSONResponse(content=result)
+    except FileNotFoundError as e:
+        return JSONResponse(status_code=200, content={
+            'status': 'error', 'error_code': 'DATA_FILE_MISSING', 'message': str(e)})
+    except Exception as e:
+        logger.exception('Split-CI FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': str(e), 'type': type(e).__name__})
+
+
 class InverseOptimizeRequest(BaseModel):
     """v1.3.0: Goal-Seek optimization (find min budget for target sales)."""
     project_dir: str

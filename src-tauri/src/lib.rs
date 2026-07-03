@@ -3273,6 +3273,8 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_optimize,
             // A3/OPP-05 (2026-07-03): preflight-гейт до кнопки «Обучить»
             commands::econometrica::econ_preflight,
+            // A4/OPP-04 (2026-07-03): интервалы оптимального сплита (Jin 2017)
+            commands::econometrica::econ_optimize_split_ci,
             // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
             commands::econometrica::econ_safe_corridor,
             commands::econometrica::econ_optimize_inverse,

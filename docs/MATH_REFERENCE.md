@@ -608,13 +608,18 @@ Optimizer оперирует с total spend per channel (scalar), Hill ожид�
 | Posterior mean | Interactive sliders, real-time UI | Fast (1 SLSQP run) | point estimate |
 | Full per-draw | Final acceptance + uncertainty band | 100-500× slower (~1000 SLSQP runs) | distribution + HDI |
 
-> **Status (мат-аудит 2026-07-02, F-05):** full per-draw режим и «UI toggle Use full
-> posterior» — **ДИЗАЙН, в optimizer.py НЕ реализованы** (grep: use_full_posterior /
-> per_draw отсутствуют). Реализовано: per-channel **mROAS CI** из posterior draws
-> (`_compute_mroas_money_samples` → `compute_ci_hdi`, optimizer.py:1297-1357).
-> CI на сам оптимальный сплит долей (канон Jin 2017: «доля A 38% [27-46%]») —
-> отсутствует; рекомендация OPP-04 в отчёте аудита. Таблица выше сохранена как
-> целевой дизайн — не выдавать за текущее поведение.
+> **Status (обновлено A4/OPP-04, 2026-07-03):** CI на оптимальный сплит долей
+> **РЕАЛИЗОВАН**: `optimize/split_ci.py::optimal_split_ci` — пере-оптимизация
+> SLSQP на подвыборке 50–100 posterior-draws → распределение оптимальных долей
+> → 90% HDI (SSOT `compute_ci_hdi`); формула отклика per-draw через
+> `evaluate_flat_allocation_response` (I8, без дублирования). Выход: «доля A
+> 38% [27–46%]» + пары каналов с перекрывающимися HDI («разница статистически
+> не выделяется», канон Jin 2017). Endpoint `/optimize/split-ci` + Rust
+> `econ_optimize_split_ci`; ~3–5 с на 60 draws → отдельная кнопка, не
+> интерактив. Тесты: `tools/test_split_ci.py` (narrow HDI≈0.05 ≪ wide≈0.40).
+> Прежний Status (F-05): full per-draw «UI toggle» в optimizer.py остаётся
+> НЕ реализованным дизайном; реализованное семейство — mROAS CI
+> (`_compute_mroas_money_samples`) + split-CI (этот блок).
 
 ### Goal-Seek (inverse) — неопределённость и честность (мат-аудит 2026-07-02)
 
