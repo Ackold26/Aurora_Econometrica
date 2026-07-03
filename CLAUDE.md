@@ -208,7 +208,7 @@ New_AI_Agency/                    # Промпты и скрипты кабин�
 CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build
 
 # Локальная редакция (M1, 152-ФЗ — только MMM-пайплайн, 0 Claude egress):
-CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build -- --no-default-features
+CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri:build:local
 ```
 Результат: `<cargo_target>/release/bundle/nsis/*-setup.exe`
 
@@ -216,8 +216,18 @@ CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build -- --no-defaul
 `claude.rs::run_claude`/`run_claude_pipeline` делают ранний bail ДО спавна Claude CLI
 (egress к Anthropic статически недостижим), а `filter_by_product` скрывает кабинет-советник
 `econometrist`. Гейт MMM-справки в Ctrl+K — по продукту (`isEconometrica`), не по advisor-кабинету.
-TODO упаковки: для сосуществования двух редакций у локальной нужен отдельный
-`productName`/`identifier` (сейчас обе = `com.aurora.econometrica`).
+
+**Упаковка двух редакций (D2, решено 2026-07-03):** локальная собирается через
+`npm run tauri:build:local` = оверлей `src-tauri/tauri.local.conf.json`
+(productName «Optimizer MMM Local», identifier `com.aurora.econometrica.local`)
++ `--no-default-features`. Редакции сосуществуют на одной машине: свои пути
+`%APPDATA%\com.aurora.econometrica[.local]` (license.json, кэш, проекты —
+изоляция ПДн локальной редакции). Канал обновлений разведён:
+`updater::update_product_key()` даёт `aurora-econometrica-gui-local` для
+локальной — публиковать ОТДЕЛЬНЫЙ манифест (регламент aurora-release-update),
+иначе локальным клиентам приедет облачный exe. Лицензия: тот же формат
+(fingerprint-based), кладётся в per-app путь локального identifier — см.
+`2_Выдача_лицензий/CLAUDE.md`.
 
 ## Тесты
 

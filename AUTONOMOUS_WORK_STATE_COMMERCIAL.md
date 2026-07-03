@@ -78,7 +78,7 @@
 | ID | Суть | Статус | Verify | Fix |
 |---|---|---|---|---|
 | D1 | «0 egress» локальной редакции — доказать сниффером, протокол для сейлов | ✅ ЗАКРЫТА (батч №15, headless по мандату Антона) | Статика: карта всех внешних адресов (sidecar = 0 внешних URL; Claude вырезан cfg-гейтом); Динамика замер А: GUI локальной редакции старт+150с = 0 внешних; замер Б: ПОЛНЫЙ пайплайн через localhost-API (validate→preflight→train JAX-NUTS→decompose→optimize→inverse c=0.8→scenario→export pptx+html) = 46 соединений, ВСЕ 127.0.0.1, внешних 0 | Протокол docs/audits/D1_ZERO_EGRESS_PROTOCOL.md (воспроизводимые шаги для сейлов + честные границы: auth/updater-пинги = метаданные, полное отключение = офлайн-Ed25519 доказан B2) |
-| D2 | Двухредакционная упаковка (identifier коллизия) — согласовать с выдачей лицензий | ⬜ | — | — |
+| D2 | Двухредакционная упаковка (identifier коллизия) — согласовать с выдачей лицензий | ✅ ЗАКРЫТА (батч №19) | json-валидность оверлея; cargo test 179 (+тест канала); cargo check --no-default-features чистый | Оверлей tauri.local.conf.json (productName «Optimizer MMM Local», identifier com.aurora.econometrica.local) + скрипт tauri:build:local + **раздельный канал обновлений** update_product_key() «-local» (иначе локальным приехал бы облачный exe с Claude — нарушение 0-egress) + CLAUDE.md продукта (TODO→решено) + инструкция в 2_Выдача_лицензий (пути per-app, формат лицензии общий). Остаток-ручное: собрать релиз локальной при следующем publish + опубликовать -local манифест (регламент aurora-release-update) |
 | D3 | Безопасность дистрибутива (NSIS, capabilities/IPC, CSP, секреты) | ⬜ | — | — |
 | D4 | Перф на 8 ГБ ноутбуке + NOTICE лицензий третьих сторон | ⬜ | — | — |
 

@@ -64,11 +64,29 @@ async fn check_github_pages(product: &str) -> Result<VersionInfo> {
     Ok(resp.json().await?)
 }
 
+/// Product-ключ канала обновлений.
+///
+/// D2 (2026-07-03, двухредакционная упаковка): локальная редакция
+/// (`--no-default-features`, identifier com.aurora.econometrica.local)
+/// обязана получать ТОЛЬКО локальные сборки — общий канал затянул бы
+/// облачный exe поверх локального (в нём живёт Claude-канал → нарушение
+/// «0 egress»). Суффикс «-local» разводит манифесты:
+///   облачная:  aurora-econometrica-gui/latest.json
+///   локальная: aurora-econometrica-gui-local/latest.json
+/// Публикация локального манифеста — регламент aurora-release-update.
+pub fn update_product_key() -> String {
+    if cfg!(feature = "cloud_advisors") {
+        env!("CARGO_PKG_NAME").to_string()
+    } else {
+        format!("{}-local", env!("CARGO_PKG_NAME"))
+    }
+}
+
 /// Check if a newer version is available.
 /// Tries Supabase first, falls back to GitHub Pages.
 /// Returns `Some(VersionInfo)` if update available, `None` if current.
 pub async fn check_for_updates(current_version: &str) -> Result<Option<VersionInfo>> {
-    let product = env!("CARGO_PKG_NAME");
+    let product = &update_product_key();
 
     let info = match check_supabase(product).await {
         Ok(info) => info,
@@ -302,6 +320,20 @@ mod tests {
         assert!(!is_newer("0.2.0", "0.2.0"));
         assert!(!is_newer("1.0.0", "1.0.0"));
         assert!(!is_newer("v0.0.1", "0.0.1"));
+    }
+
+    /// D2: канал обновлений согласован с редакцией сборки — облачная идёт
+    /// по базовому ключу, локальная по «-local» (иначе локальным клиентам
+    /// приедет облачный exe с Claude-каналом — нарушение «0 egress»).
+    #[test]
+    fn update_channel_matches_edition() {
+        let key = update_product_key();
+        if cfg!(feature = "cloud_advisors") {
+            assert_eq!(key, env!("CARGO_PKG_NAME"));
+            assert!(!key.ends_with("-local"));
+        } else {
+            assert_eq!(key, format!("{}-local", env!("CARGO_PKG_NAME")));
+        }
     }
 
     // ── B3 (2026-07-03): ворота установки — verify_checksum ──────────────────
