@@ -29,6 +29,7 @@
     planningMode,
     forecastConfig,
     forecastContext,
+    promisesVersion,
     valuePerCountUnit,
     kpiKind,
   } from '$lib/project-state.js';
@@ -1216,6 +1217,9 @@
       }));
       if (created?.status === 'ok') {
         promiseSuccess = '✓ Прогноз зафиксирован — сверится с фактом при обновлении данных';
+        // G-4: уведомить PromisesCard перечитать список (карточка не размонтируется
+        // при навигации — visibility, не {#if} — потому onMount однократен).
+        promisesVersion.update((n) => n + 1);
         setTimeout(() => { promiseSuccess = null; }, 4000);
       } else {
         promiseError = created?.message || 'Не удалось зафиксировать прогноз.';

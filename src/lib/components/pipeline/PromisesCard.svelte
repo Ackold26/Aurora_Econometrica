@@ -11,9 +11,8 @@
    * @component PromisesCard
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { activeProjectId } from '$lib/project-state.js';
+  import { activeProjectId, promisesVersion } from '$lib/project-state.js';
   import { ClipboardCheck, RefreshCw, TriangleAlert } from 'lucide-svelte';
 
   /** @type {'loading' | 'empty' | 'ready' | 'error'} */
@@ -49,7 +48,16 @@
     }
   }
 
-  onMount(() => { void reload(); });
+  // G-4 (2026-07-04): реактивная загрузка вместо однократного onMount. Карточка
+  // не размонтируется при навигации между шагами (панели скрыты через visibility),
+  // поэтому onMount отрабатывал один раз — до фиксации первого прогноза — и список
+  // оставался пустым. $effect на activeProjectId + promisesVersion перечитывает
+  // обещания при смене проекта И после каждой фиксации («Зафиксировать прогноз»).
+  $effect(() => {
+    void $activeProjectId;
+    void $promisesVersion;
+    void reload();
+  });
 
   async function checkNow() {
     checking = true;

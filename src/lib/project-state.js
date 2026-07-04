@@ -275,6 +275,16 @@ export const forecastConfig = createForecastConfigStore();
  */
 export const forecastContext = writable(null);
 
+/**
+ * G-4 (2026-07-04): счётчик-триггер обновления списка обещаний (E4).
+ * «Зафиксировать прогноз» пишет results/promises.json из OptimizeStep, а
+ * PromisesCard живёт в том же дереве и НЕ размонтируется при навигации
+ * (панели скрыты через visibility). Инкремент здесь после успешной фиксации
+ * заставляет карточку перечитать обещания реактивно, без перезагрузки проекта.
+ * @type {import('svelte/store').Writable<number>}
+ */
+export const promisesVersion = writable(0);
+
 /** @type {import('svelte/store').Writable<StepMeta[]>} Step metadata (statuses only, no data) */
 export const pipelineStepMeta = writable(defaultStepMeta());
 

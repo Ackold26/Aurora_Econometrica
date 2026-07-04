@@ -7,7 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 import { invoke } from '@tauri-apps/api/core';
-import { activeProjectId } from '$lib/project-state.js';
+import { get } from 'svelte/store';
+import { activeProjectId, promisesVersion } from '$lib/project-state.js';
 import PromisesCard from '$lib/components/pipeline/PromisesCard.svelte';
 
 function promiseFixture(overrides = {}) {
@@ -110,5 +111,32 @@ describe('PromisesCard', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('sidecar недоступен');
     });
     expect(screen.getByRole('button', { name: 'Повторить' })).toBeInTheDocument();
+  });
+
+  // G-4 (2026-07-04, живой GUI-прогон): карточка не размонтируется при навигации
+  // (панели visibility, не {#if}), потому onMount был однократным — обещание,
+  // зафиксированное ПОСЛЕ первого показа, оставалось невидимым. Реактивный $effect
+  // на promisesVersion лечит: bump после фиксации перечитывает список.
+  it('bump promisesVersion перечитывает список (обещание, созданное после монтирования)', async () => {
+    let current = [];
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      if (cmd === 'project_get_dir') return 'C:/fake/project';
+      if (cmd === 'econ_promises_list') return { status: 'ok', promises: current, total: current.length };
+      return null;
+    });
+    promisesVersion.set(0);
+    render(PromisesCard);
+    // Первый показ — обещаний ещё нет (как при первом входе на Оптимизацию).
+    await waitFor(() => {
+      expect(screen.getByText(/Прогнозов пока не зафиксировано/)).toBeInTheDocument();
+    });
+    // Пользователь жмёт «Зафиксировать прогноз»: обещание появилось на диске +
+    // OptimizeStep инкрементит версию. Карточка НЕ размонтирована.
+    current = [promiseFixture()];
+    promisesVersion.set(get(promisesVersion) + 1);
+    // Реактивно перечиталось — обещание видно без перезагрузки проекта.
+    await waitFor(() => {
+      expect(screen.getByTestId('pr-status')).toHaveTextContent('ожидает данных');
+    });
   });
 });
