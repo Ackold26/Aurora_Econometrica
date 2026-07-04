@@ -264,6 +264,31 @@ UI перевести на s.top_group из SSOT (сейчас по префик
   Гейты после фиксов: **vitest 834** (828+6) · svelte-check 0 · канарейка 3/3.
   Осознанные решения + предсуществующее — в findings-протоколе.
 
+## ✅ 5 УЛУЧШЕНИЙ ПОСЛЕ АУДИТА (по запросу Антона «реализуй все 5», 2026-07-04)
+Коммиты f84ba44 (П1/П3/П4/П5) + b82203c (П2) на origin.
+- **П1 плавная анимация раскрытия:** series.id + groupId(==top_group) +
+  universalTransition → агрегат «перетекает» в составляющие (one-to-many morph),
+  не резкая замена. `seriesIdentity()` в decomposition-view.js (+3 теста). Деградирует
+  безопасно, если движок не морфит.
+- **П5 «Развернуть/Свернуть всё»:** chip-кнопка (allExpanded $derived + toggleAll).
+- **П4 канарейка py↔js:** `decomposition-view-parity.test.js` (9) — множество+ПОРЯДОК
+  `_TOP_GROUP_ORDER` + подписи `_TOP_GROUP_DISPLAY` + fallbackTopGroup согласован с
+  `_TOP_GROUP_MAP`. Тест поймал реальный gap 'Внешние'→МЕДИА — закрыт.
+- **П3 регрессия drill-down:** юнит (seriesIdentity/planViewSeries тождество в
+  гейтах) + driver_session-сценарий `docs/e2e/T3_drilldown_driver_session.md` для
+  живого прогона (мост 9223 не бежит в CI — честно разделено).
+- **П2 двухуровневость отчётов:** timeline в PPTX+HTML свёрнут в 4 группы (паритет
+  с программой); детализация — waterfall + таблица каналов. `collapse_series_to_
+  top_groups` SSOT (7 py-тестов, тождество вкл. реальный MMX). Приёмка: PPTX 43/43
+  narrative (brand 0-регресс) · HTML 35/35 + a11y 15/15 (brand 0-регресс) ·
+  **playwright живьём**: HTML timeline рендерит 2 группы (MMX), тождество
+  613 571 910 на рендере, цвета корректны. Детали → TEST_FINDINGS.
+  ⚠️ PPTX «отдельный слайд раскрытия» НЕ делался — ломает 12-slide verify-контракт
+  + нужна визуальная проверка рендера PPTX (нет автономно). Развилка вынесена Антону.
+
+Гейты после 5 улучшений: **vitest 846** · svelte-check 0 · python
+decomposer_invariants 114 + collapse 7 + decomposition_series 13 + palette 3 · verify отчётов зелёные vs baseline.
+
 ## ⏳ ОСТАЛОСЬ — совместная визуальная live-приёмка Т3 (Антон у экрана = быстрейший верификатор)
 - **Визуальная форма echarts** (код структурно не докажет): 4 свёрнутые полосы + цвета/
   наложение, клик-drill (chips + area), сезонная %-кривая на второй оси (масштаб/читаемость),
