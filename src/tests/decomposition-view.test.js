@@ -14,6 +14,7 @@ import {
   planViewSeries,
   seasonalityPctOfBase,
   symmetricPctBound,
+  seriesIdentity,
 } from '../lib/decomposition-view.js';
 
 /** Фикстура ~формы decompose result: 3 периода, 4 группы, знакопеременная сезонность. */
@@ -231,6 +232,37 @@ describe('symmetricPctBound (А-4: симметричная %-ось)', () => {
   });
   it('кастомный step', () => {
     expect(symmetricPctBound([12], 10)).toBe(20);
+  });
+});
+
+describe('seriesIdentity (П1 анимация / П3 регрессия)', () => {
+  it('groupId == top_group; id стабилен по kind/topGroup/name', () => {
+    expect(seriesIdentity({ kind: 'group', topGroup: 'БАЗА', name: 'База' }))
+      .toEqual({ id: 'grp:БАЗА', groupId: 'БАЗА' });
+    expect(seriesIdentity({ kind: 'member', topGroup: 'БАЗА', name: 'Сезонность' }))
+      .toEqual({ id: 'mem:БАЗА:Сезонность', groupId: 'БАЗА' });
+  });
+
+  it('агрегат и все его члены несут ОДИН groupId (условие morph свёрнуто↔развёрнуто)', () => {
+    const ds = fixture();
+    const collapsed = planViewSeries(ds, new Set());
+    const expanded = planViewSeries(ds, new Set(TOP_GROUP_ORDER));
+    for (const tg of TOP_GROUP_ORDER) {
+      const aggId = collapsed.plan.filter((p) => p.topGroup === tg).map(seriesIdentity);
+      const memIds = expanded.plan.filter((p) => p.topGroup === tg).map(seriesIdentity);
+      // один агрегат на группу в свёрнутом
+      expect(aggId).toHaveLength(1);
+      // все id этой группы (агрегат + члены) делят groupId == tg
+      for (const it of [...aggId, ...memIds]) expect(it.groupId).toBe(tg);
+    }
+  });
+
+  it('id уникальны в пределах одного option (свёрнуто и развёрнуто)', () => {
+    const ds = fixture();
+    for (const exp of [new Set(), new Set(TOP_GROUP_ORDER), new Set(['МЕДИА'])]) {
+      const ids = planViewSeries(ds, exp).plan.map((p) => seriesIdentity(p).id);
+      expect(new Set(ids).size).toBe(ids.length);
+    }
   });
 });
 

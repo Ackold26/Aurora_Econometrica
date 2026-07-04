@@ -57,7 +57,7 @@ export function fallbackTopGroup(name) {
   if (nm === 'Сезонность' || nm === 'Праздники' || nm === 'База') return 'БАЗА';
   if (nm === 'Конкуренты') return 'КОНКУРЕНТЫ';
   if (nm === 'Цена' || nm === 'Погода' || nm === 'Макро-факторы' || nm === 'Категория'
-      || nm === 'Дистрибуция' || nm === 'Внешние факторы') return 'ВНЕШНИЕ ФАКТОРЫ';
+      || nm === 'Дистрибуция' || nm === 'Внешние' || nm === 'Внешние факторы') return 'ВНЕШНИЕ ФАКТОРЫ';
   return 'МЕДИА';
 }
 
@@ -212,6 +212,21 @@ export function symmetricPctBound(pct, step = 5) {
   }
   if (!(maxAbs > 0)) return step;
   return Math.ceil(maxAbs / step) * step;
+}
+
+/**
+ * Стабильная identity echarts-серии для universalTransition (П1 плавное
+ * раскрытие) и регрессии (П3). Все серии одной top_group несут ОДИН groupId →
+ * при переходе свёрнуто↔развёрнуто ECharts морфит агрегат ↔ составляющие
+ * (one-to-many divide по groupId). id уникален в пределах option (kind+topGroup+
+ * name; name члена в пределах группы уникален).
+ * @param {{kind:'group'|'member', topGroup:string, name:string}} p
+ * @returns {{ id: string, groupId: string }}
+ */
+export function seriesIdentity(p) {
+  const groupId = p.topGroup;
+  const id = p.kind === 'group' ? `grp:${p.topGroup}` : `mem:${p.topGroup}:${p.name}`;
+  return { id, groupId };
 }
 
 /**

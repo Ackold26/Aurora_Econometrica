@@ -12,6 +12,7 @@
   import {
     TOP_GROUP_ORDER, TOP_GROUP_DISPLAY, fallbackTopGroup,
     presentTopGroups, planViewSeries, seasonalityPctOfBase, symmetricPctBound,
+    seriesIdentity,
   } from '$lib/decomposition-view.js';
 
   /**
@@ -113,6 +114,15 @@
     }
     return { canonical: false, groups: /** @type {string[]} */ ([]), hasSeasonality: false };
   });
+
+  // П5: все ли присутствующие группы развёрнуты (для кнопки «Развернуть/Свернуть всё»).
+  const allExpanded = $derived(
+    viewModel.groups.length > 0 && viewModel.groups.every((g) => expanded.has(g)),
+  );
+  /** П5: развернуть все группы разом ↔ свернуть все. */
+  function toggleAll() {
+    expanded = allExpanded ? new Set() : new Set(viewModel.groups);
+  }
 
   // FIX 2026-05-02: track currently hovered series для подсветки в tooltip.
   // Plain mutable (не $state) - closure formatter reads current value без
@@ -467,7 +477,14 @@
       }
       const stack = p.side === 'negative' ? 'negative' : 'positive';
       seriesTopGroup[name] = p.topGroup;
+      // П1: id + groupId (== top_group) + universalTransition → при раскрытии
+      // агрегат «перетекает» в свои составляющие (one-to-many morph по groupId),
+      // а не резко заменяется. Деградирует безопасно, если движок не морфит.
+      const ident = seriesIdentity(p);
       allSeries.push({
+        id: ident.id,
+        groupId: ident.groupId,
+        universalTransition: { enabled: true, divideShape: 'clone' },
         name,
         type: 'line',
         stack,
@@ -487,6 +504,7 @@
     const hasPct = Array.isArray(pct) && pct.length > 0;
     if (hasPct) {
       allSeries.push({
+        id: 'seasonality-pct',
         name: SEASONALITY_PCT_NAME,
         type: 'line',
         yAxisIndex: 1,
@@ -717,6 +735,18 @@
   {#if viewModel.canonical && (viewModel.groups.length > 1 || viewModel.hasSeasonality)}
     <div class="drill-chips" role="group" aria-label="Детализация декомпозиции">
       <span class="drill-hint">Детализация:</span>
+      {#if viewModel.groups.length > 1}
+        <button
+          type="button"
+          class="chip chip-all"
+          data-drill="__all__"
+          aria-pressed={allExpanded}
+          onclick={toggleAll}
+          title={allExpanded ? 'Свернуть все группы в 4 полосы' : 'Развернуть все группы на составляющие'}
+        >
+          {allExpanded ? 'Свернуть всё' : 'Развернуть всё'}
+        </button>
+      {/if}
       {#each viewModel.groups as g (g)}
         <button
           type="button"
@@ -793,6 +823,12 @@
   .chip-caret {
     font-size: 9px;
     opacity: 0.75;
+  }
+  .chip-all {
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 35%, transparent);
+    margin-right: 2px;
   }
   .chip-season.active {
     background: color-mix(in srgb, #8b5cf6 16%, transparent);
