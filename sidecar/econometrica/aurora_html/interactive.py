@@ -710,9 +710,10 @@ def bootstrap_js(
     btn.addEventListener('click', function() {{
       TL_VIEW = (TL_VIEW === 'overview') ? 'detail' : 'overview';
       btn.textContent = (TL_VIEW === 'overview') ? 'Детально' : 'Обзор';
+      // П4: подчёркиваем тождество — переключение вида не меняет сумму продаж.
       btn.setAttribute('title', (TL_VIEW === 'overview')
-        ? 'Показать каналы и факторы по отдельности'
-        : 'Свернуть в обзор по группам');
+        ? 'Показать каналы и факторы по отдельности. Итоговая сумма продаж одинакова в обоих режимах'
+        : 'Свернуть в обзор по группам. Итоговая сумма продаж одинакова в обоих режимах');
       var chart = AURORA_CHARTS['chart-timeline'];
       if (chart) chart.setOption(buildTimelineOption(CHART_DATA.timeline), true);
     }});

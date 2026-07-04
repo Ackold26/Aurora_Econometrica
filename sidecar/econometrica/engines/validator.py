@@ -387,6 +387,30 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             })
             role = 'unused'
             confidence = 0.0
+        # Т3-плюс П1 (2026-07-04): суммарный бюджет как media задваивает вклад.
+        # Критерий ЕДИНЫЙ с фильтром таблицы каналов (_merge_channels): если после
+        # снятия медиа-токенов имени инструмента НЕ остаётся (_normalize_channel_name
+        # → None), это агрегатная колонка «Бюджет ДО НДС», а не отдельный канал.
+        # Как media она обучается отдельной серией (в MMX — 6.45% вклада) и рвёт
+        # согласованность timeline↔таблица. Понижаем до 'unused' (юзер вернёт вручную,
+        # как и в non_numeric_role) → новые модели её не обучают, состав серий сходится.
+        if role == 'media':
+            from engines.narrative_adapter import _normalize_channel_name
+            if _normalize_channel_name(col) is None:
+                warnings.append({
+                    'column': col,
+                    'type': 'total_budget_as_media',
+                    'message': (
+                        f'{col} — похоже на суммарный бюджет, а не отдельный канал '
+                        f'(после снятия слов «Бюджет / до НДС» имени инструмента не '
+                        f'осталось). Как медиа-канал он задвоит вклад и исказит ROI. '
+                        f'Роль снята; при необходимости задайте её вручную.'
+                    ),
+                    'severity': 'warning',
+                    'action': 'exclude',
+                })
+                role = 'unused'
+                confidence = 0.0
         col_info: dict[str, Any] = {
             'name': col,
             'role': role,

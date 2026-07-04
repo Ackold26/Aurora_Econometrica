@@ -13,69 +13,144 @@
     "methodology_badge_ols": "OLS MMM · closed-form · bootstrap CI"
   },
   "sections": {
-    "cover":      { "label": "Обложка",             "kicker": "MARKETING MIX MODEL REPORT" },
-    "summary":    { "label": "Резюме",              "kicker": "EXECUTIVE SUMMARY" },
-    "findings":   { "label": "Ключевые находки",    "kicker": "ОТЧЁТ ЗА 60 СЕКУНД" },
-    "divider":    { "label": "Декомпозиция",         "kicker": "АНАЛИЗ ВКЛАДОВ КАНАЛОВ" },
-    "key":        { "label": "Главный вывод",       "kicker": "КЛЮЧЕВОЙ ВЫВОД" },
-    "mroas":      { "label": "mROAS по каналам",    "kicker": "MROAS ПО КАНАЛАМ / МУЛЬТИПЛИКАТОР" },
-    "share":      { "label": "Бюджет vs эффект",    "kicker": "ДОЛЯ БЮДЖЕТА vs ДОЛЯ ЭФФЕКТА" },
-    "table":      { "label": "Портфель каналов",    "kicker": "ПОРТФЕЛЬ КАНАЛОВ" },
-    "timeline":   { "label": "Динамика",             "kicker": "ПРОДАЖИ ПО НЕДЕЛЯМ" },
-    "trust":      { "label": "Петля доверия",        "kicker": "ДОВЕРИЕ К МОДЕЛИ" },
-    "recommend":  { "label": "Рекомендация",        "kicker": "РЕКОМЕНДАЦИЯ" },
-    "method":     { "label": "Методология",         "kicker": "ПОДХОД" },
-    "sources":    { "label": "Источники · MQS",      "kicker": "КАЧЕСТВО МОДЕЛИ" },
-    "glossary":   { "label": "Глоссарий",            "kicker": "ТЕРМИНОЛОГИЯ" },
-    "closing":    { "label": "Заключение",          "kicker": "" }
+    "cover": {
+      "label": "Обложка",
+      "kicker": "MARKETING MIX MODEL REPORT"
+    },
+    "summary": {
+      "label": "Резюме",
+      "kicker": "EXECUTIVE SUMMARY"
+    },
+    "findings": {
+      "label": "Ключевые находки",
+      "kicker": "ОТЧЁТ ЗА 60 СЕКУНД"
+    },
+    "divider": {
+      "label": "Декомпозиция",
+      "kicker": "АНАЛИЗ ВКЛАДОВ КАНАЛОВ"
+    },
+    "key": {
+      "label": "Главный вывод",
+      "kicker": "КЛЮЧЕВОЙ ВЫВОД"
+    },
+    "mroas": {
+      "label": "mROAS по каналам",
+      "kicker": "MROAS ПО КАНАЛАМ / МУЛЬТИПЛИКАТОР"
+    },
+    "share": {
+      "label": "Бюджет vs эффект",
+      "kicker": "ДОЛЯ БЮДЖЕТА vs ДОЛЯ ЭФФЕКТА"
+    },
+    "table": {
+      "label": "Портфель каналов",
+      "kicker": "ПОРТФЕЛЬ КАНАЛОВ"
+    },
+    "timeline": {
+      "label": "Динамика",
+      "kicker": "ПРОДАЖИ ПО ПЕРИОДАМ"
+    },
+    "trust": {
+      "label": "Петля доверия",
+      "kicker": "ДОВЕРИЕ К МОДЕЛИ"
+    },
+    "recommend": {
+      "label": "Рекомендация",
+      "kicker": "РЕКОМЕНДАЦИЯ"
+    },
+    "method": {
+      "label": "Методология",
+      "kicker": "ПОДХОД"
+    },
+    "sources": {
+      "label": "Источники · MQS",
+      "kicker": "КАЧЕСТВО МОДЕЛИ"
+    },
+    "glossary": {
+      "label": "Глоссарий",
+      "kicker": "ТЕРМИНОЛОГИЯ"
+    },
+    "closing": {
+      "label": "Заключение",
+      "kicker": ""
+    }
   },
   "scqar": {
-    "situation":      { "label": "SITUATION",      "template": "{client} размещает {budget_mln:.0f} млн ₽ в квартал через {n_channels} активных каналов. Weighted ROI {weighted_roi:.1f}×, MQS модели {mqs:.0f}/100." },
-    "complication":   { "label": "COMPLICATION",   "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Underperformers тянут портфель вниз." },
-    "complication_fallback": { "label": "COMPLICATION", "template": "Портфель сбалансирован - резких диспропорций между бюджетом и эффектом не выявлено." },
-    "question":       { "label": "QUESTION",       "template": "Как перераспределить бюджет, чтобы поднять ROAS не снижая awareness?" },
-    "answer":         { "label": "ANSWER",         "template": "Перебалансировать {realloc:.0f} млн ₽ из {cut_source} в {scale_destination}; сократить или остановить {underperf}." },
-    "answer_no_cut":  { "label": "ANSWER",         "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт roll-over бюджета или дополнительных средств." },
-    "answer_no_scale": { "label": "ANSWER",        "template": "Сократить {cut_source} ({realloc:.0f} млн ₽) - текущая аллокация неэффективна. Нет явного канала для роста - рассмотрите расширение медиа-микса." },
-    "answer_all_hold": { "label": "ANSWER",        "template": "Сохранить текущее распределение - оптимизатор не нашёл значимого перераспределения. Возможные пути роста: расширение бюджета или новые каналы." },
-    "answer_uncertain": { "label": "ANSWER",       "template": "Недостаточно данных для уверенной рекомендации перераспределения. Расширьте период данных (≥52 недель) либо упростите модель." },
-    "recommendation": { "label": "RECOMMENDATION", "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп." }
+    "situation": {
+      "label": "SITUATION",
+      "template": "{client} размещает {budget_mln:.0f} млн ₽ в квартал через {n_channels} активных каналов. Weighted ROI {weighted_roi:.1f}×, MQS модели {mqs:.0f}/100."
+    },
+    "complication": {
+      "label": "COMPLICATION",
+      "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Underperformers тянут портфель вниз."
+    },
+    "complication_fallback": {
+      "label": "COMPLICATION",
+      "template": "Портфель сбалансирован - резких диспропорций между бюджетом и эффектом не выявлено."
+    },
+    "question": {
+      "label": "QUESTION",
+      "template": "Как перераспределить бюджет, чтобы поднять ROAS не снижая awareness?"
+    },
+    "answer": {
+      "label": "ANSWER",
+      "template": "Перебалансировать {realloc:.0f} млн ₽ из {cut_source} в {scale_destination}; сократить или остановить {underperf}."
+    },
+    "answer_no_cut": {
+      "label": "ANSWER",
+      "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт roll-over бюджета или дополнительных средств."
+    },
+    "answer_no_scale": {
+      "label": "ANSWER",
+      "template": "Сократить {cut_source} ({realloc:.0f} млн ₽) - текущая аллокация неэффективна. Нет явного канала для роста - рассмотрите расширение медиа-микса."
+    },
+    "answer_all_hold": {
+      "label": "ANSWER",
+      "template": "Сохранить текущее распределение - оптимизатор не нашёл значимого перераспределения. Возможные пути роста: расширение бюджета или новые каналы."
+    },
+    "answer_uncertain": {
+      "label": "ANSWER",
+      "template": "Недостаточно данных для уверенной рекомендации перераспределения. Расширьте период данных (≥52 недель) либо упростите модель."
+    },
+    "recommendation": {
+      "label": "RECOMMENDATION",
+      "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп."
+    }
   },
   "findings_templates": {
-    "f1_leader":        "{leader} - {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета",
+    "f1_leader": "{leader} - {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета",
     "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
-    "f2_hero":           "{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×",
-    "f2_hero_support":   "Текущий бюджет на нём {hero_spend_pct_fmt}",
-    "f3_realloc":        "Recommendation: reallocate {realloc:.0f} млн ₽ из {leader} в {hero}",
+    "f2_hero": "{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×",
+    "f2_hero_support": "Текущий бюджет на нём {hero_spend_pct_fmt}",
+    "f3_realloc": "Recommendation: reallocate {realloc:.0f} млн ₽ из {leader} в {hero}",
     "f3_realloc_support": "Ожидаемый прирост ROAS: +{lift:.1f} пп",
-    "f3_keep":           "Recommendation: сохранить текущую аллокацию по лидеру портфеля",
-    "f3_keep_support":   "Портфель близок к оптимуму по текущим данным",
-    "f4_verdicts":       "Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению",
+    "f3_keep": "Recommendation: сохранить текущую аллокацию по лидеру портфеля",
+    "f3_keep_support": "Портфель близок к оптимуму по текущим данным",
+    "f4_verdicts": "Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению",
     "f4_verdicts_support": "Из {n_channels} активных каналов - чёткий verdict по каждому",
-    "f5_mqs":             "Качество модели: MQS {mqs:.0f}/100 - {tier_label}",
+    "f5_mqs": "Качество модели: MQS {mqs:.0f}/100 - {tier_label}",
     "f5_mqs_support_excellent": "Готовность к production - можно опираться на рекомендации в планировании",
-    "f5_mqs_support_good":      "Хорошее качество - можно опираться на рекомендации с учётом диагностики",
+    "f5_mqs_support_good": "Хорошее качество - можно опираться на рекомендации с учётом диагностики",
     "f5_mqs_support_acceptable": "Приемлемо - рекомендации валидны с учётом диагностических метрик",
-    "f5_mqs_support_weak":       "Требует доработки - расширьте период данных или упростите модель",
-    "f5_mqs_support_poor":       "Ненадёжно - увеличьте период данных перед финальными решениями"
+    "f5_mqs_support_weak": "Требует доработки - расширьте период данных или упростите модель",
+    "f5_mqs_support_poor": "Ненадёжно - увеличьте период данных перед финальными решениями"
   },
   "action_titles": {
-    "s02_five":          "Пять ключевых находок по результатам моделирования",
-    "s04_takeaway":      "{leader} даёт {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета - основная точка оптимизации",
-    "s05_default":       "{leader} остаётся драйвером, но эффективность требует проверки saturation",
-    "s06_hero":          "{hero} - наиболее эффективный канал, сигнал к пересмотру аллокации",
-    "s07_dominant":      "Один канал даёт {pct_fmt} продаж - остальные рекомендованы к консолидации",
-    "s07_top_n":         "Топ-{top_n} каналов дают {pct_fmt} продаж - остальные рекомендованы к консолидации",
-    "s07_balanced":      "Все каналы портфеля активно работают - консолидация не требуется",
-    "s07_single":        "Один канал портфеля обеспечивает 100% продаж",
-    "s07_zero":          "Вклад каналов требует пересчёта - проверьте входные данные",
-    "s08_leader":        "{leader}-всплески выделяются на устойчивом baseline - медиа-активность видна по неделям",
-    "s09_scale_hero":    "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
-    "s09_hold_leader":   "Aurora рекомендует сохранить приоритет {leader} с учётом saturation",
-    "s10_methodology":   "Bayesian MMM с adstock + saturation - NUTS NumPyro, 4 chains × 2000 iter",
+    "s02_five": "Пять ключевых находок по результатам моделирования",
+    "s04_takeaway": "{leader} даёт {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета - основная точка оптимизации",
+    "s05_default": "{leader} остаётся драйвером, но эффективность требует проверки saturation",
+    "s06_hero": "{hero} - наиболее эффективный канал, сигнал к пересмотру аллокации",
+    "s07_dominant": "Один канал даёт {pct_fmt} продаж - остальные рекомендованы к консолидации",
+    "s07_top_n": "Топ-{top_n} каналов дают {pct_fmt} продаж - остальные рекомендованы к консолидации",
+    "s07_balanced": "Все каналы портфеля активно работают - консолидация не требуется",
+    "s07_single": "Один канал портфеля обеспечивает 100% продаж",
+    "s07_zero": "Вклад каналов требует пересчёта - проверьте входные данные",
+    "s08_leader": "{leader}-всплески выделяются на устойчивом baseline - медиа-активность видна во времени",
+    "s09_scale_hero": "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
+    "s09_hold_leader": "Aurora рекомендует сохранить приоритет {leader} с учётом saturation",
+    "s10_methodology": "Bayesian MMM с adstock + saturation - NUTS NumPyro, 4 chains × 2000 iter",
     "s10_methodology_ols": "OLS MMM с adstock + saturation - closed-form, bootstrap n=1000",
-    "s13_glossary":      "Терминология, необходимая для чтения отчёта",
-    "s14_closing":       "Решения, основанные на данных"
+    "s13_glossary": "Терминология, необходимая для чтения отчёта",
+    "s14_closing": "Решения, основанные на данных"
   },
   "methodology": {
     "spec_header": "СПЕЦИФИКАЦИЯ",
@@ -98,7 +173,7 @@
       "ε_t ~ Normal(0, σ) (frequentist)",
       "CI на ROI/mROAS - bootstrap n=1000"
     ],
-    "diag_header":  "ДИАГНОСТИКА",
+    "diag_header": "ДИАГНОСТИКА",
     "limits_header": "ЧТО МОДЕЛЬ НЕ УЧИТЫВАЕТ",
     "limits": [
       {
@@ -130,125 +205,221 @@
         "id": "methodology",
         "label": "Методология MMM",
         "terms": [
-          { "term": "MMM", "definition": "Marketing Mix Modeling - статистический метод декомпозиции продаж на вклад каждого канала медиа." },
-          { "term": "Bayesian inference", "definition": "Вероятностный подход: posterior distributions вместо точечных оценок." },
-          { "term": "Adstock", "definition": "Эффект переноса: медиа-вложение продолжает работать в последующие периоды. Параметр θ - скорость затухания." },
-          { "term": "Saturation (Hill)", "definition": "S-образная кривая отдачи: дополнительные вложения приносят всё меньше инкремента по мере насыщения." },
-          { "term": "NUTS", "definition": "No-U-Turn Sampler - эффективный MCMC для многомерных posteriors." },
-          { "term": "MCMC", "definition": "Markov Chain Monte Carlo - численный метод семплирования из posterior distribution." },
-          { "term": "Posterior", "definition": "Апостериорное распределение параметров модели после учёта данных." },
-          { "term": "Prior", "definition": "Априорное распределение - знания до наблюдения данных (отраслевые бенчмарки)." }
+          {
+            "term": "MMM",
+            "definition": "Marketing Mix Modeling - статистический метод декомпозиции продаж на вклад каждого канала медиа."
+          },
+          {
+            "term": "Bayesian inference",
+            "definition": "Вероятностный подход: posterior distributions вместо точечных оценок."
+          },
+          {
+            "term": "Adstock",
+            "definition": "Эффект переноса: медиа-вложение продолжает работать в последующие периоды. Параметр θ - скорость затухания."
+          },
+          {
+            "term": "Saturation (Hill)",
+            "definition": "S-образная кривая отдачи: дополнительные вложения приносят всё меньше инкремента по мере насыщения."
+          },
+          {
+            "term": "NUTS",
+            "definition": "No-U-Turn Sampler - эффективный MCMC для многомерных posteriors."
+          },
+          {
+            "term": "MCMC",
+            "definition": "Markov Chain Monte Carlo - численный метод семплирования из posterior distribution."
+          },
+          {
+            "term": "Posterior",
+            "definition": "Апостериорное распределение параметров модели после учёта данных."
+          },
+          {
+            "term": "Prior",
+            "definition": "Априорное распределение - знания до наблюдения данных (отраслевые бенчмарки)."
+          }
         ]
       },
       {
         "id": "quality",
         "label": "Качество модели",
         "terms": [
-          { "term": "MQS", "definition": "Model Quality Score - сводная метрика 0-100, учитывающая R², MAPE, R-hat, ESS." },
-          { "term": "R²", "definition": "Коэффициент детерминации - доля дисперсии, объяснённая моделью. Выше = лучше (max 1.0)." },
-          { "term": "MAPE", "definition": "Mean Absolute Percentage Error - средняя процентная ошибка прогноза." },
-          { "term": "R-hat", "definition": "Gelman-Rubin сходимость цепей MCMC. Значение <1.01 - хорошая сходимость." },
-          { "term": "ESS", "definition": "Effective Sample Size - число независимых samples из posterior. Выше = надёжнее." },
-          { "term": "Baseline", "definition": "Органический уровень продаж без медиа - то, что продаётся без рекламы." },
-          { "term": "Credible interval", "definition": "90% диапазон posterior (HDI), содержащий истинное значение с указанной вероятностью." },
-          { "term": "Weighted ROI", "definition": "ROI портфеля, взвешенный по объёму вложений каждого канала." }
+          {
+            "term": "MQS",
+            "definition": "Model Quality Score - сводная метрика 0-100, учитывающая R², MAPE, R-hat, ESS."
+          },
+          {
+            "term": "R²",
+            "definition": "Коэффициент детерминации - доля дисперсии, объяснённая моделью. Выше = лучше (max 1.0)."
+          },
+          {
+            "term": "MAPE",
+            "definition": "Mean Absolute Percentage Error - средняя процентная ошибка прогноза."
+          },
+          {
+            "term": "R-hat",
+            "definition": "Gelman-Rubin сходимость цепей MCMC. Значение <1.01 - хорошая сходимость."
+          },
+          {
+            "term": "ESS",
+            "definition": "Effective Sample Size - число независимых samples из posterior. Выше = надёжнее."
+          },
+          {
+            "term": "Baseline",
+            "definition": "Органический уровень продаж без медиа - то, что продаётся без рекламы."
+          },
+          {
+            "term": "Credible interval",
+            "definition": "90% диапазон posterior (HDI), содержащий истинное значение с указанной вероятностью."
+          },
+          {
+            "term": "Weighted ROI",
+            "definition": "ROI портфеля, взвешенный по объёму вложений каждого канала."
+          }
         ]
       },
       {
         "id": "media",
         "label": "Медиа-метрики",
         "terms": [
-          { "term": "ROI", "definition": "Return on Investment - отношение вклада в продажи к вложениям. ROI 1.5× = 1.5 рубля продаж на рубль." },
-          { "term": "mROAS", "definition": "Marginal ROAS - отдача следующего дополнительного рубля. Ключевая метрика для оптимизации." },
-          { "term": "TRP", "definition": "Target Rating Point - процент целевой аудитории, посмотревшей рекламу (TV)." },
-          { "term": "CPP", "definition": "Cost Per Point - стоимость одного TRP. Используется для нормализации TV-вложений." },
-          { "term": "Share of Voice", "definition": "Доля голоса бренда в медиаполе относительно конкурентов." },
-          { "term": "Reach & Frequency", "definition": "Охват уникальной аудитории × среднее число контактов." },
-          { "term": "Awareness", "definition": "Узнаваемость бренда - долгосрочный эффект медиа-активности." },
-          { "term": "Incremental sales", "definition": "Продажи, которые не произошли бы без медиа-активности - чистый эффект." }
+          {
+            "term": "ROI",
+            "definition": "Return on Investment - отношение вклада в продажи к вложениям. ROI 1.5× = 1.5 рубля продаж на рубль."
+          },
+          {
+            "term": "mROAS",
+            "definition": "Marginal ROAS - отдача следующего дополнительного рубля. Ключевая метрика для оптимизации."
+          },
+          {
+            "term": "TRP",
+            "definition": "Target Rating Point - процент целевой аудитории, посмотревшей рекламу (TV)."
+          },
+          {
+            "term": "CPP",
+            "definition": "Cost Per Point - стоимость одного TRP. Используется для нормализации TV-вложений."
+          },
+          {
+            "term": "Share of Voice",
+            "definition": "Доля голоса бренда в медиаполе относительно конкурентов."
+          },
+          {
+            "term": "Reach & Frequency",
+            "definition": "Охват уникальной аудитории × среднее число контактов."
+          },
+          {
+            "term": "Awareness",
+            "definition": "Узнаваемость бренда - долгосрочный эффект медиа-активности."
+          },
+          {
+            "term": "Incremental sales",
+            "definition": "Продажи, которые не произошли бы без медиа-активности - чистый эффект."
+          }
         ]
       }
     ]
   },
   "verdicts": {
-    "Scale":  "Scale",
-    "Hold":   "Hold",
-    "Watch":  "Watch",
+    "Scale": "Scale",
+    "Hold": "Hold",
+    "Watch": "Watch",
     "Reduce": "Reduce",
-    "Cut":    "Cut"
+    "Cut": "Cut"
   },
   "verdict_reasons": {
-    "Cut":    "ниже breakeven по mROAS; рекомендовано остановить или перевести в другие каналы.",
+    "Cut": "ниже breakeven по mROAS; рекомендовано остановить или перевести в другие каналы.",
     "Reduce": "saturation-bound; маржинальный возврат от дополнительного рубля ниже среднего по портфелю."
   },
   "table_headers": {
-    "channel":   "Канал",
-    "budget":    "Бюджет",
-    "contrib":   "Вклад",
-    "mroas":     "mROAS",
-    "share":     "Доля эффекта",
-    "verdict":   "Вердикт",
-    "totals":    "ИТОГО"
+    "channel": "Канал",
+    "budget": "Бюджет",
+    "contrib": "Вклад",
+    "mroas": "mROAS",
+    "share": "Доля эффекта",
+    "verdict": "Вердикт",
+    "totals": "ИТОГО"
   },
   "table_units": {
-    "budget":  "₽ млн",
+    "budget": "₽ млн",
     "contrib": "₽ млн",
-    "mroas":   "×",
-    "share":   "%"
+    "mroas": "×",
+    "share": "%"
   },
   "ui": {
     "theme": {
-      "label":   "Тема",
-      "light":   "Светлая",
-      "dark":    "Тёмная",
-      "fun":     "Тёплая"
+      "label": "Тема",
+      "light": "Светлая",
+      "dark": "Тёмная",
+      "fun": "Тёплая"
     },
     "toc": {
-      "title":   "Содержание",
-      "toggle_open":  "Открыть содержание",
+      "title": "Содержание",
+      "toggle_open": "Открыть содержание",
       "toggle_close": "Закрыть содержание"
     },
     "search": {
       "placeholder": "Поиск по отчёту",
-      "hint":        "Ctrl+K",
-      "no_results":  "Ничего не найдено"
+      "hint": "Ctrl+K",
+      "no_results": "Ничего не найдено"
     },
     "buttons": {
-      "verify":      "Проверить",
-      "copy_link":   "Копировать ссылку",
-      "copy_csv":    "Копировать в CSV",
-      "copy_png":    "Сохранить график",
+      "verify": "Проверить",
+      "copy_link": "Копировать ссылку",
+      "copy_csv": "Копировать в CSV",
+      "copy_png": "Сохранить график",
       "show_details": "Показать детали",
       "hide_details": "Скрыть детали",
       "show_shortcuts": "Горячие клавиши",
-      "close":       "Закрыть",
-      "reset":       "Сбросить"
+      "close": "Закрыть",
+      "reset": "Сбросить"
     },
     "toasts": {
-      "link_copied":    "Ссылка скопирована",
-      "csv_copied":     "Таблица скопирована",
-      "png_saved":      "График сохранён"
+      "link_copied": "Ссылка скопирована",
+      "csv_copied": "Таблица скопирована",
+      "png_saved": "График сохранён"
     },
     "shortcuts": {
-      "title":  "Горячие клавиши",
+      "title": "Горячие клавиши",
       "items": [
-        { "keys": "T",       "action": "Переключить тему" },
-        { "keys": "1-9",     "action": "Перейти к разделу" },
-        { "keys": "Ctrl+K",  "action": "Поиск по отчёту" },
-        { "keys": "↑ ↓",     "action": "Навигация TOC" },
-        { "keys": "Esc",     "action": "Закрыть панель" },
-        { "keys": "P",       "action": "Режим печати" },
-        { "keys": "C",       "action": "Копировать ссылку" },
-        { "keys": "?",       "action": "Эта справка" }
+        {
+          "keys": "T",
+          "action": "Переключить тему"
+        },
+        {
+          "keys": "1-9",
+          "action": "Перейти к разделу"
+        },
+        {
+          "keys": "Ctrl+K",
+          "action": "Поиск по отчёту"
+        },
+        {
+          "keys": "↑ ↓",
+          "action": "Навигация TOC"
+        },
+        {
+          "keys": "Esc",
+          "action": "Закрыть панель"
+        },
+        {
+          "keys": "P",
+          "action": "Режим печати"
+        },
+        {
+          "keys": "C",
+          "action": "Копировать ссылку"
+        },
+        {
+          "keys": "?",
+          "action": "Эта справка"
+        }
       ]
     },
     "verify_panel": {
       "title": "Проверка отчёта",
-      "model_version":   "Версия модели",
-      "mcmc":            "MCMC конфигурация",
-      "priors":          "Приоры",
-      "data_lineage":    "Источник данных",
-      "generated":       "Сгенерирован"
+      "model_version": "Версия модели",
+      "mcmc": "MCMC конфигурация",
+      "priors": "Приоры",
+      "data_lineage": "Источник данных",
+      "generated": "Сгенерирован"
     },
     "footer": {
       "report_id_label": "Идентификатор отчёта",
@@ -256,24 +427,24 @@
     }
   },
   "empty_states": {
-    "no_data":         "Нет данных для отображения",
-    "needs_channels":  "Требует не менее 2 каналов для сравнения",
-    "calc_pending":    "Вклад каналов требует пересчёта",
-    "no_scenarios":    "Сценарии не созданы",
-    "preview_mode":    "Preview: данные не переданы - показан пилотный отчёт"
+    "no_data": "Нет данных для отображения",
+    "needs_channels": "Требует не менее 2 каналов для сравнения",
+    "calc_pending": "Вклад каналов требует пересчёта",
+    "no_scenarios": "Сценарии не созданы",
+    "preview_mode": "Preview: данные не переданы - показан пилотный отчёт"
   },
   "source_notes": {
-    "data":       "Источник: данные клиента {data_window}; декомпозиция Bayesian MMM v{version}",
-    "data_ols":   "Источник: данные клиента {data_window}; декомпозиция OLS MMM v{version}",
-    "posterior":  "90% HDI, posterior means reported",
+    "data": "Источник: данные клиента {data_window}; декомпозиция Bayesian MMM v{version}",
+    "data_ols": "Источник: данные клиента {data_window}; декомпозиция OLS MMM v{version}",
+    "posterior": "90% HDI, posterior means reported",
     "posterior_ols": "90% HDI bootstrap (n=200), точечные оценки β",
-    "generic":    "Модель откалибрована под FMCG-бенчмарки Aurora"
+    "generic": "Модель откалибрована под FMCG-бенчмарки Aurora"
   },
   "closing": {
-    "statement":  "Решения, основанные на данных.",
-    "emphasis":   "Не на интуиции.",
-    "cta":        "Следующий шаг - применить рекомендации и сверить эффект после следующего периода данных.",
-    "narrative":  "Aurora AI помогает принимать обоснованные медиа-решения с опорой на байесовскую эконометрику.",
+    "statement": "Решения, основанные на данных.",
+    "emphasis": "Не на интуиции.",
+    "cta": "Следующий шаг - применить рекомендации и сверить эффект после следующего периода данных.",
+    "narrative": "Aurora AI помогает принимать обоснованные медиа-решения с опорой на байесовскую эконометрику.",
     "report_id_hint": "Используйте Report ID для референса при обсуждении этого отчёта."
   }
 }

@@ -233,6 +233,26 @@ class AuroraHTMLBuilder:
         )
         return bootstrap
 
+    def _period_unit(self) -> str:
+        """Русское «по <единица>» для заголовков timeline из гранулярности дат
+        (detect_granularity). Нерегулярные/пустые/низкая уверенность → нейтральное
+        «по периодам» (П2: не врать «по неделям» на месячных/квартальных данных)."""
+        ts = self.raw_decompose.get("time_series") or {}
+        dates = ts.get("dates") or ts.get("weeks") or []
+        if len(dates) < 2:
+            return "по периодам"
+        try:
+            from utils.forecast_validation import detect_granularity
+            g = detect_granularity(dates)
+            if g.get("confidence", 0.0) < 0.5:
+                return "по периодам"
+            return {
+                "D": "по дням", "W": "по неделям", "M": "по месяцам",
+                "Q": "по кварталам", "Y": "по годам",
+            }.get(g.get("granularity"), "по периодам")
+        except Exception:
+            return "по периодам"
+
     def _chart_data_json(self) -> str:
         """Full ECharts data payload, safely embedded (ensure_ascii=True).
 
@@ -535,6 +555,9 @@ class AuroraHTMLBuilder:
             "strings":     self.strings,
             "report_id":   self.report_id,
             "model_version": model_version,
+            # П2 (2026-07-04): «по <единица>» из гранулярности дат — заголовки
+            # timeline не должны врать «по неделям» на месячных данных.
+            "period_unit": self._period_unit(),
             "brand_mark_svg": self._brand_mark_svg(),
             # E1-E4 (2026-07-04): петля доверия — живые артефакты из адаптера
             # (backtest / generation_compare / promises_summary; калибровка —

@@ -98,3 +98,41 @@ class TestValidateDataNumericGate:
         tv = next(c for c in r['columns'] if c['name'] == 'tv_spend')
         assert tv['role'] == 'media'
         assert not any(w.get('type') == 'non_numeric_role' for w in r['warnings'])
+
+
+class TestValidateDataTotalBudgetGate:
+    """Т3-плюс П1: суммарный бюджет как media задваивает вклад (в MMX 6.45%) и
+    рвёт согласованность timeline↔таблица. Критерий единый с _merge_channels."""
+
+    def test_total_budget_column_demoted(self, tmp_path):
+        """Числовая колонка «Бюджет ДО НДС» (нет инструмента) → role снят + warning."""
+        df = pd.DataFrame({
+            'date': pd.date_range('2022-01-01', periods=12, freq='ME').strftime('%Y-%m-%d'),
+            'sales': range(100, 112),
+            'OLV Бюджет ДО НДС': range(10, 22),       # реальный канал
+            'Бюджет ДО НДС': range(50, 62),           # суммарный агрегат
+        })
+        f = tmp_path / 'data.xlsx'
+        df.to_excel(f, index=False)
+        r = validate_data(str(f))
+        assert r['status'] != 'error'
+        total = next(c for c in r['columns'] if c['name'] == 'Бюджет ДО НДС')
+        assert total['role'] == 'unused', f"суммарный бюджет не снят: {total['role']}"
+        assert any(
+            w['column'] == 'Бюджет ДО НДС' and w['type'] == 'total_budget_as_media'
+            for w in r['warnings']
+        ), 'нет подсказки total_budget_as_media'
+
+    def test_real_channel_with_budget_tokens_kept(self, tmp_path):
+        """«OLV Бюджет ДО НДС» — есть инструмент (OLV) → остаётся media."""
+        df = pd.DataFrame({
+            'date': pd.date_range('2022-01-01', periods=12, freq='ME').strftime('%Y-%m-%d'),
+            'sales': range(100, 112),
+            'OLV Бюджет ДО НДС': range(10, 22),
+        })
+        f = tmp_path / 'data.xlsx'
+        df.to_excel(f, index=False)
+        r = validate_data(str(f))
+        olv = next(c for c in r['columns'] if c['name'] == 'OLV Бюджет ДО НДС')
+        assert olv['role'] == 'media', f"реальный канал ошибочно снят: {olv['role']}"
+        assert not any(w.get('type') == 'total_budget_as_media' for w in r['warnings'])

@@ -1170,28 +1170,30 @@ def render_action_table(ctx: dict) -> str:
 
 
 def render_timeline(ctx: dict) -> str:
-    """Section 9: Timeline stacked area + dataZoom."""
+    """Section 9: Timeline (обзор групп / детально) + dataZoom."""
     strings = ctx["strings"]
     facts = ctx.get("facts") or {}
     kicker = strings["sections"]["timeline"]["kicker"]
+    # П2: «по <единица>» из гранулярности дат (детект в builder), fallback нейтр.
+    period_unit = ctx.get("period_unit") or "по периодам"
 
     leader = facts.get("leader_channel") if facts else None
     if leader:
         title = strings["action_titles"]["s08_leader"].format(leader=leader)
     else:
-        title = "Динамика продаж по неделям"
+        title = f"Динамика продаж {period_unit}"
 
     body = f"""
 {_action_title(title)}
 <div class="chart-container">
   <div class="chart-title-bar">
     <div>
-      <div class="chart-title">Продажи по неделям · stacked area</div>
+      <div class="chart-title">Продажи {period_unit}</div>
       <!-- Б-3 (аудит Т3+): подпись отражает двухрежимность (обзор групп ⇄ детально),
            дефолт — обзор 4 групп в паритете с программой, а не «вклад каналов». -->
       <div class="chart-subtitle">Декомпозиция по группам (обзор) или по каналам и факторам (детально). Ползунок - зум периода.</div>
     </div>
-    <button class="btn-inline" id="tl-view-toggle" title="Показать каналы и факторы по отдельности">Детально</button>
+    <button class="btn-inline" id="tl-view-toggle" title="Показать каналы и факторы по отдельности. Итоговая сумма продаж одинакова в обоих режимах">Детально</button>
     <button class="btn-inline" data-copy-chart="chart-timeline">Сохранить PNG</button>
   </div>
   <div class="chart-host" id="chart-timeline" data-chart="timeline" style="height:420px;">
