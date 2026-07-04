@@ -52,6 +52,12 @@ export function fallbackTopGroup(name) {
   if (nm.startsWith('Внешние:') || nm.startsWith('Цена:') || nm.startsWith('Погода:')
       || nm.startsWith('Макро-факторы:') || nm.startsWith('Категория:')
       || nm.startsWith('Дистрибуция:')) return 'ВНЕШНИЕ ФАКТОРЫ';
+  // Аудит Т3 (А-3): точные имена без префикса — агрегированные факторы SSOT
+  // («Сезонность» — ключ агрегации Фурье) и display-имена свёрнутых групп.
+  if (nm === 'Сезонность' || nm === 'Праздники' || nm === 'База') return 'БАЗА';
+  if (nm === 'Конкуренты') return 'КОНКУРЕНТЫ';
+  if (nm === 'Цена' || nm === 'Погода' || nm === 'Макро-факторы' || nm === 'Категория'
+      || nm === 'Дистрибуция' || nm === 'Внешние факторы') return 'ВНЕШНИЕ ФАКТОРЫ';
   return 'МЕДИА';
 }
 
@@ -187,6 +193,25 @@ export function planViewSeries(ds, expanded) {
   }
 
   return { plan, groups, n };
+}
+
+/**
+ * Симметричная граница %-оси сезонной кривой: наименьшее кратное step,
+ * покрывающее max|pct|. Симметрия min=-bound / max=+bound центрирует ноль
+ * оси — волна ±% читается вокруг нулевой линии (аудит Т3, А-4).
+ * @param {number[]|null|undefined} pct
+ * @param {number} [step]
+ * @returns {number}
+ */
+export function symmetricPctBound(pct, step = 5) {
+  const list = Array.isArray(pct) ? pct : [];
+  let maxAbs = 0;
+  for (const v of list) {
+    const n = Math.abs(Number(v));
+    if (Number.isFinite(n) && n > maxAbs) maxAbs = n;
+  }
+  if (!(maxAbs > 0)) return step;
+  return Math.ceil(maxAbs / step) * step;
 }
 
 /**

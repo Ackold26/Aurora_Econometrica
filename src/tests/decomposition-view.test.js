@@ -13,6 +13,7 @@ import {
   presentTopGroups,
   planViewSeries,
   seasonalityPctOfBase,
+  symmetricPctBound,
 } from '../lib/decomposition-view.js';
 
 /** Фикстура ~формы decompose result: 3 периода, 4 группы, знакопеременная сезонность. */
@@ -48,6 +49,19 @@ describe('fallbackTopGroup / topGroupOf', () => {
     expect(fallbackTopGroup('Категория: рынок')).toBe('ВНЕШНИЕ ФАКТОРЫ');
     expect(fallbackTopGroup('Конкуренты: X')).toBe('КОНКУРЕНТЫ');
     expect(fallbackTopGroup('TV федеральное')).toBe('МЕДИА');
+  });
+
+  it('точные имена без префикса (А-3): агрегированные факторы SSOT и display-имена групп', () => {
+    // Фурье агрегируется под ключом 'Сезонность' — имя серии БЕЗ префикса
+    expect(fallbackTopGroup('Сезонность')).toBe('БАЗА');
+    expect(fallbackTopGroup('Праздники')).toBe('БАЗА');
+    expect(fallbackTopGroup('База')).toBe('БАЗА');
+    expect(fallbackTopGroup('Конкуренты')).toBe('КОНКУРЕНТЫ');
+    expect(fallbackTopGroup('Категория')).toBe('ВНЕШНИЕ ФАКТОРЫ');
+    expect(fallbackTopGroup('Цена')).toBe('ВНЕШНИЕ ФАКТОРЫ');
+    expect(fallbackTopGroup('Внешние факторы')).toBe('ВНЕШНИЕ ФАКТОРЫ');
+    // «Медиа» и произвольные каналы — дефолт МЕДИА
+    expect(fallbackTopGroup('Медиа')).toBe('МЕДИА');
   });
 
   it('topGroupOf предпочитает поле top_group полю имени', () => {
@@ -194,6 +208,29 @@ describe('seasonalityPctOfBase', () => {
   it('чистит невалидные значения до 0', () => {
     const ds = { series: [{ name: 'Сезонность', type: 'seasonality', top_group: 'БАЗА', data: [1], pct_of_base: [10, null, 'x', -5] }] };
     expect(seasonalityPctOfBase(ds)).toEqual([10, 0, 0, -5]);
+  });
+});
+
+describe('symmetricPctBound (А-4: симметричная %-ось)', () => {
+  it('наименьшее кратное 5, покрывающее max|pct| (реальные MMX/Venarus)', () => {
+    expect(symmetricPctBound([-31.5, 41.6])).toBe(45); // MMX
+    expect(symmetricPctBound([-38.8, 61.4])).toBe(65); // Venarus
+  });
+  it('точное кратное не раздувается', () => {
+    expect(symmetricPctBound([50, -10])).toBe(50);
+    expect(symmetricPctBound([-5])).toBe(5);
+  });
+  it('малые значения → минимум step', () => {
+    expect(symmetricPctBound([1.2, -0.4])).toBe(5);
+  });
+  it('пусто/нули/мусор → step (без деления на 0 и NaN)', () => {
+    expect(symmetricPctBound([])).toBe(5);
+    expect(symmetricPctBound([0, 0])).toBe(5);
+    expect(symmetricPctBound(null)).toBe(5);
+    expect(symmetricPctBound([NaN, Infinity, -0])).toBe(5);
+  });
+  it('кастомный step', () => {
+    expect(symmetricPctBound([12], 10)).toBe(20);
   });
 });
 

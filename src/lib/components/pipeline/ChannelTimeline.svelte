@@ -11,7 +11,7 @@
   import { CHANNEL_COLORS } from '$lib/hill.js';
   import {
     TOP_GROUP_ORDER, TOP_GROUP_DISPLAY, fallbackTopGroup,
-    presentTopGroups, planViewSeries, seasonalityPctOfBase,
+    presentTopGroups, planViewSeries, seasonalityPctOfBase, symmetricPctBound,
   } from '$lib/decomposition-view.js';
 
   /**
@@ -28,7 +28,8 @@
    *   decompositionSeries?: {
    *     dates: string[],
    *     series: Array<{ name: string, role: 'baseline'|'media'|'factor',
-   *       type: string, group: string, side: 'positive'|'negative', data: number[] }>,
+   *       type: string, group: string, top_group?: string,
+   *       side: 'positive'|'negative', data: number[], pct_of_base?: number[] }>,
    *   },
    * }}
    */
@@ -337,6 +338,13 @@
           const groupLabel = TOP_GROUP_DISPLAY[groupKey] ?? groupKey;
           html += `<div style="font-weight:600;margin-top:6px;color:#94a3b8;font-size:11px">${groupLabel} · ${fmt(subtotal)} (${pct}%)</div>`;
 
+          // Аудит Т3 (А-1): свёрнутая группа приходит ОДНОЙ агрегат-серией с
+          // именем == groupLabel; заголовок уже несёт её сумму и % — дочерняя
+          // строка дублировала бы то же число («База · 990» + «База 990»).
+          const isCollapsedAggregate =
+            items.length === 1 && (items[0].p.seriesName ?? '') === groupLabel;
+          if (isCollapsedAggregate) return;
+
           // Строки каналов внутри группы
           items.forEach(({ p, cleanName }) => {
             const isActive = activeSeries && activeSeries === p.seriesName;
@@ -368,15 +376,6 @@
   }
 
   /**
-   * Аудит #12 (2026-06-07, INV-50): построить option из канонического
-   * decomposition_series — ТОГО ЖЕ источника, что у всех отчётов. baseline здесь
-   * уже уменьшен на вынесенные факторы → нет double-count положительных праздников
-   * (он был в legacy-ветке: положительные factors добавлялись поверх полного
-   * baseline). Имена серий держим в формате «{Группа}: {имя}» / «Базовый уровень»,
-   * чтобы tooltip-группировка и highlight работали как прежде.
-   * @param {{dates: string[], series: any[]}} ds
-   */
-  /**
    * Presentation одного под-компонента (member) → цвет + отображаемое имя.
    * Воспроизводит прежнюю логику: baseline blue «Базовый уровень», media из
    * CHANNEL_COLORS по порядку, factor из FACTOR_COLORS с префиксом «{Группа}: имя».
@@ -392,16 +391,24 @@
     }
     const color = FACTOR_COLORS[p.type] ?? '#94a3b8';
     const groupLabel = FACTOR_LABELS[p.type] ?? 'Внешние';
-    return { color, name: `${groupLabel}: ${p.name}` };
+    // Аудит Т3 (А-3): агрегированный фактор SSOT может называться как своя
+    // группа (Фурье → ключ «Сезонность») — префикс дал бы дубль
+    // «Сезонность: Сезонность» в легенде/highlight.
+    return { color, name: p.name === groupLabel ? groupLabel : `${groupLabel}: ${p.name}` };
   }
 
-  /** Правая ось для сезонной %-кривой (Т3.2) — центрируется вокруг 0, violet. */
-  function seasonalityAxis() {
+  /** Правая ось для сезонной %-кривой (Т3.2) — violet, симметрична вокруг 0
+   *  (аудит А-4: min=-bound/max=+bound центрируют нулевую линию — волна ±%
+   *  читается как отклонение от базы, а не смещённый диапазон по данным).
+   *  @param {number} bound симметричная граница (symmetricPctBound) */
+  function seasonalityAxis(bound) {
     return {
       type: 'value',
       position: 'right',
       name: '% к базе',
       nameTextStyle: { color: '#8b5cf6', fontSize: 10, align: 'right' },
+      min: -bound,
+      max: bound,
       axisLabel: {
         color: '#8b5cf6', fontSize: 10,
         formatter: (/** @type {number} */ v) => `${v > 0 ? '+' : ''}${v}%`,
@@ -409,6 +416,24 @@
       axisLine: { show: true, lineStyle: { color: 'rgba(139,92,246,0.35)' } },
       splitLine: { show: false },
     };
+  }
+
+  /** Аудит Т3 (А-2): текущее окно dataZoom (start/end, %) — сохраняем при
+   *  перестройке option. Toggle drill-down/тумблер пересоздают option, а
+   *  EChartBase применяет его с notMerge → без этого зум юзера сбрасывался бы
+   *  на каждый клик по chip/полосе (регрессия Т3 — до drill-down option менялся
+   *  только при смене данных). */
+  function currentZoomWindow() {
+    try {
+      if (chartRef && !chartRef.isDisposed?.()) {
+        const dz = chartRef.getOption?.()?.dataZoom;
+        const s = Array.isArray(dz) ? dz[0] : null;
+        if (s && Number.isFinite(s.start) && Number.isFinite(s.end)) {
+          return { start: s.start, end: s.end };
+        }
+      }
+    } catch { /* chart в переходном состоянии — дефолт */ }
+    return { start: 0, end: 100 };
   }
 
   /**
@@ -485,6 +510,7 @@
       },
       splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
     };
+    const zoom = currentZoomWindow();
 
     return {
       backgroundColor: 'transparent',
@@ -499,7 +525,7 @@
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
         axisTick: { show: false },
       },
-      yAxis: hasPct ? [mainYAxis, seasonalityAxis()] : mainYAxis,
+      yAxis: hasPct ? [mainYAxis, seasonalityAxis(symmetricPctBound(pct))] : mainYAxis,
       dataZoom: [
         {
           type: 'slider', bottom: 4, height: 20,
@@ -508,7 +534,8 @@
           fillerColor: 'color-mix(in srgb, var(--accent-primary) 15%, transparent)',
           handleStyle: { color: '#3b82f6' },
           textStyle: { color: '#94a3b8', fontSize: 10 },
-          start: 0, end: 100,
+          // А-2: сохраняем окно зума юзера через перестройки option (drill-toggle)
+          start: zoom.start, end: zoom.end,
         },
         { type: 'inside' },
       ],
@@ -696,6 +723,7 @@
           class="chip"
           class:active={expanded.has(g)}
           data-drill={g}
+          aria-pressed={expanded.has(g)}
           onclick={() => toggleGroup(g)}
           title={expanded.has(g) ? `Свернуть под-компоненты: ${TOP_GROUP_DISPLAY[g] ?? g}` : `Развернуть под-компоненты: ${TOP_GROUP_DISPLAY[g] ?? g}`}
         >
@@ -709,6 +737,7 @@
           class="chip chip-season"
           class:active={showSeasonalityPct}
           data-drill="seasonality-pct"
+          aria-pressed={showSeasonalityPct}
           onclick={() => { showSeasonalityPct = !showSeasonalityPct; }}
           title="Сезонная кривая ± % к базе (правая ось): «февраль +60% к базе»"
         >
