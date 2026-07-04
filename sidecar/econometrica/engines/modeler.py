@@ -579,6 +579,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 elif kind == 'control':
                     # Positive controls (distribution, trade_activity, promo) — lean positive
                     control_prior_mus.append(0.2)
+                elif kind == 'category':
+                    # Фаза Б (2026-07-04): продажи категории/рынка — spread demand.
+                    # Бренд ⊂ рынок → продажи бренда положительно связаны с объёмом
+                    # рынка (бренд «плывёт» на волне спроса). Сильнее generic control
+                    # (0.2): это реальный прокси спроса, не noise-like контроль.
+                    control_prior_mus.append(0.3)
                 else:
                     # 'unknown' kind — true fallback, uninformative zero-centered prior
                     # (data will dominate). Avoid 0.2 «lean positive» bias on unrecognized.

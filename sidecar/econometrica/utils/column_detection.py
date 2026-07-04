@@ -59,6 +59,7 @@ ColumnKind = Literal[
     'signed_macro',       # NEW v2.0.0 - macroeconomic (CPI, GDP, FX)
     'holiday',            # NEW v2.0.0 - holiday dummy
     'seasonality',        # NEW 2026-07-04 - auto-injected Fourier sin/cos harmonics
+    'category',           # NEW 2026-07-04 (Фаза Б) - продажи рынка/категории (spread demand)
     'unknown',            # unrecognized
 ]
 
@@ -300,6 +301,21 @@ HOLIDAY_PATTERNS = [
     _sep_pattern(r'9_ма(?:я|ем)?'),
 ]
 
+# Category demand — продажи ВСЕЙ категории/рынка (ОБЪЁМ, не доля). Экзогенный
+# контроль спроса (Chan & Perry §4.2.2): спрос всей категории не зависит от медиа
+# одного бренда, но задаёт волну, на которую бренд «плывёт» → сильнейший прокси
+# спроса (сильнее Фурье: реальный ряд, не гладкая аппроксимация). Детектится комбо
+# ТЕМА(категория/рынок) И ОБЪЁМ(продажи/руб/шт/...) — зеркало validator.detect_column_role
+# (Фаза Б 2026-07-04, F-AUD-5: голое «категори» ловило текстовые атрибуты). classify_column
+# использует это для prior (positive-leaning shared demand); validator — для роли UI.
+# 🔴 ПАРИТЕТ: списки синхронизированы с validator.py::_CATEGORY_THEME/_CATEGORY_VOLUME.
+_CATEGORY_THEME = ('категори', 'рынок', 'рынк', 'market', 'category')
+_CATEGORY_VOLUME = (
+    'продаж', 'объем', 'объём', 'руб', 'уп.', 'уп ', 'шт', 'спрос', 'всего',
+    'sales', 'volume', 'units', 'value', 'total', 'demand',
+)
+
+
 # Seasonality — auto-injected Fourier harmonics (season_fourier_sin_K / _cos_K).
 # Инжектятся движком (modeler) как гладкая сезонная волна спроса, семантически
 # ОТДЕЛЬНЫЙ фактор (не generic control): decomposer выносит их одной агрегированной
@@ -490,6 +506,16 @@ def classify_column(column_name: str) -> ColumnKind:
     # Holiday markers (auto-injected или user-supplied)
     if _matches_any(column_name, HOLIDAY_PATTERNS):
         return 'holiday'
+
+    # Category demand (Фаза Б, 2026-07-04): ТЕМА(категория/рынок) И ОБЪЁМ(продажи/руб/...)
+    # — экзогенный контроль спроса. Комбо-условие (не single-pattern) → не в registry
+    # export; проверяется ДО generic control/target, иначе «Продажи категории руб» ушло
+    # бы в target_monetary (по «продаж...руб»). Derived (доля рынка/SOM) сюда не доходит:
+    # validator помечает их unused → не попадают в control_cols → modeler их не видит.
+    _lower_cat = column_name.lower()
+    if (any(k in _lower_cat for k in _CATEGORY_THEME)
+            and any(v in _lower_cat for v in _CATEGORY_VOLUME)):
+        return 'category'
 
     # Positive controls (distribution, trade_activity)
     if _matches_any(column_name, CONTROL_POSITIVE_PATTERNS):

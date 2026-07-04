@@ -43,6 +43,7 @@
     signed_macro:      '#d97706', // amber-600
     holiday:           '#84cc16', // lime-500
     seasonality:       '#8b5cf6', // violet-500 — сезонность (цикл)
+    category:          '#10b981', // emerald-500 — спрос категории/рынка (Фаза Б)
     positive_control:  '#06b6d4', // cyan-500
   };
   /** @type {Record<string, string>} */
@@ -53,6 +54,7 @@
     signed_macro:      'Макро-факторы',
     holiday:           'Праздники',
     seasonality:       'Сезонность',
+    category:          'Категория',
     positive_control:  'Внешние факторы',
   };
 
@@ -221,7 +223,7 @@
           new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(v));
 
         // Prefix regex для очистки seriesName в строках групп
-        const PREFIX_RE = /^(Конкуренты|Праздники|Сезонность|Внешние|Цена|Погода|Макро-факторы):\s*/;
+        const PREFIX_RE = /^(Конкуренты|Праздники|Сезонность|Внешние|Цена|Погода|Макро-факторы|Категория):\s*/;
 
         /**
          * Классифицируем каждый элемент params по одной из 5 групп:
@@ -247,7 +249,8 @@
             name.startsWith('Внешние:') ||
             name.startsWith('Цена:') ||
             name.startsWith('Погода:') ||
-            name.startsWith('Макро-факторы:')
+            name.startsWith('Макро-факторы:') ||
+            name.startsWith('Категория:')
           ) {
             group = 'Внешние';
           } else {

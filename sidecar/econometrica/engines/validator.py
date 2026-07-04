@@ -477,6 +477,29 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'severity': 'critical',
         })
 
+    # Фаза Б (2026-07-04): подсказка загрузить продажи категории/рынка. Экзогенный
+    # контроль спроса (Chan&Perry §4.2.2) — сильнейший прокси (реальный ряд спроса,
+    # сильнее гладкого Фурье). Прицельно: показываем, когда клиент УЖЕ отслеживает
+    # рынок (есть competitor-колонка), но объёма категории нет — тогда совет релевантен
+    # (фарма / конкурентный рынок). Info-level, не блокирует.
+    try:
+        from utils.column_detection import classify_column
+        _kinds = [classify_column(str(c)) for c in df.columns]
+        if 'category' not in _kinds and 'signed_competitor' in _kinds:
+            warnings.append({
+                'column': '',
+                'type': 'suggest_category',
+                'message': (
+                    'Совет: добавьте столбец «продажи категории/рынка» (в руб. или уп.) — '
+                    'модель точнее отделит спрос от вклада рекламы (честнее ROI). '
+                    'Особенно полезно для фармы и конкурентных рынков.'
+                ),
+                'severity': 'info',
+                'action': 'add_column',
+            })
+    except Exception:
+        pass
+
     # ── Data volume check ──
     # v2.1.0 (пилот 2026-05-17, #37): SSOT ratio thresholds + texts с
     # frontend ratio-classifier.js. 5 коридоров:

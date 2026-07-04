@@ -119,6 +119,7 @@ _FACTOR_RGB = {
     'signed_macro': 'D97706',
     'holiday': '84CC16',
     'seasonality': '8B5CF6',  # violet-500 — сезонность (цикл), отдельно от внешних
+    'category': '10B981',     # emerald-500 — спрос категории/рынка (Фаза Б)
     'positive_control': '06B6D4',
 }
 

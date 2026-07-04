@@ -309,7 +309,7 @@ def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derive
 # отдельно — поведение зеркалит ChannelTimeline.svelte).
 _BREAKOUT_TYPES = frozenset({
     'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro', 'holiday',
-    'seasonality',
+    'seasonality', 'category',
 })
 _FACTOR_GROUP_LABELS = {
     'signed_competitor': 'Конкуренты',
@@ -318,6 +318,7 @@ _FACTOR_GROUP_LABELS = {
     'signed_macro': 'Макро-факторы',
     'holiday': 'Праздники',
     'seasonality': 'Сезонность',
+    'category': 'Категория',
 }
 
 # Верхний уровень 4 групп декомпозиции (решение Антона 2026-07-04): свёртка
@@ -958,6 +959,7 @@ def decompose(
                     'signed_macro': 'signed_macro',
                     'holiday': 'holiday',
                     'seasonality': 'seasonality',  # агрегируется выше (continue) — sanity
+                    'category': 'category',  # Фаза Б: продажи рынка — полоса «Категория» (ВНЕШНИЕ)
                     'control': 'positive_control',
                     'unknown': 'positive_control',  # legacy fallback
                 }

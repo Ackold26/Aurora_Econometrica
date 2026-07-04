@@ -169,6 +169,20 @@ def test_no_seasonality_no_band():
     assert all('pct_of_base' not in s for s in res['series'])
 
 
+def test_category_band_breakout_top_group():
+    """Фаза Б: фактор type='category' выносится полосой «Категория» → ВНЕШНИЕ ФАКТОРЫ."""
+    dates = ['w1', 'w2', 'w3']
+    baseline = [100.0, 100.0, 100.0]
+    channels = {'TV': [5.0, 5.0, 5.0]}
+    sfc = {'Продажи рынка руб': {'type': 'category', 'per_period': [8.0, 12.0, 10.0]}}
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    cat = next((s for s in res['series'] if s['type'] == 'category'), None)
+    assert cat is not None, 'полоса «Категория» должна быть вынесена'
+    assert cat['group'] == 'Категория'
+    assert cat['top_group'] == 'ВНЕШНИЕ ФАКТОРЫ'
+    assert cat['role'] == 'factor'
+
+
 def test_top_group_four_groups():
     """Каждая серия получает top_group ∈ 4 верхних группы (решение Антона)."""
     dates = ['w1', 'w2']
