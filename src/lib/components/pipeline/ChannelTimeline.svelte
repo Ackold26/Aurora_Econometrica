@@ -9,6 +9,10 @@
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
   import { CHANNEL_COLORS } from '$lib/hill.js';
+  import {
+    TOP_GROUP_ORDER, TOP_GROUP_DISPLAY, fallbackTopGroup,
+    presentTopGroups, planViewSeries, seasonalityPctOfBase,
+  } from '$lib/decomposition-view.js';
 
   /**
    * @type {{
@@ -58,30 +62,56 @@
     positive_control:  'Внешние факторы',
   };
 
-  // Т3-шаг (аудит 2026-07-04): tooltip группирует по 4 ВЕРХНИМ группам из SSOT
-  // (поле top_group в decomposition_series), а не по хрупкому префиксу имени серии
+  // Т3 (2026-07-04): tooltip группирует по 4 ВЕРХНИМ группам из SSOT (поле
+  // top_group в decomposition_series), а не по хрупкому префиксу имени серии
   // (раньше «Сезонность:» падала в «Медиа» — фикс cea50a6). seriesTopGroup
   // заполняется при построении option (buildCanonicalOption); formatter читает.
+  // Константы порядка/подписей и fallback вынесены в decomposition-view.js
+  // (SSOT + vitest-покрытие тождества свёртки — svelte-check контракты не ловит).
   /** @type {Record<string, string>} name серии → top_group (БАЗА/МЕДИА/ВНЕШНИЕ ФАКТОРЫ/КОНКУРЕНТЫ) */
   let seriesTopGroup = {};
-  const TOP_GROUP_ORDER = ['БАЗА', 'МЕДИА', 'ВНЕШНИЕ ФАКТОРЫ', 'КОНКУРЕНТЫ'];
-  /** @type {Record<string, string>} капс top_group → человекочитаемый заголовок tooltip */
-  const TOP_GROUP_DISPLAY = {
-    'БАЗА': 'База', 'МЕДИА': 'Медиа',
-    'ВНЕШНИЕ ФАКТОРЫ': 'Внешние факторы', 'КОНКУРЕНТЫ': 'Конкуренты',
+
+  // Т3.1 drill-down: раскрытые верхние группы (Set top_group). По умолчанию всё
+  // свёрнуто — 4 агрегированные полосы. Клик по chip/полосе разворачивает группу
+  // в под-компоненты. Тождество (свёрнутая Σ == развёрнутая) держит planViewSeries.
+  /** @type {Set<string>} */
+  let expanded = $state(new Set());
+  // Т3.2: показывать сезонную кривую ±% к базе (правая ось) — ключевая подача
+  // Антона «февраль +60% к базе» (мультипликативно, хотя модель аддитивна).
+  let showSeasonalityPct = $state(true);
+
+  // Имя серии сезонной %-кривой — маркер для tooltip/highlight (семантика %, не ₽).
+  const SEASONALITY_PCT_NAME = 'Сезонность, % к базе';
+
+  // Цвета агрегированных полос верхнего уровня (свёрнутый вид).
+  /** @type {Record<string, string>} */
+  const GROUP_COLORS = {
+    'БАЗА': '#3b82f6',             // blue (как базовая линия)
+    'МЕДИА': '#22c55e',           // green — суммарный медиа-вклад
+    'ВНЕШНИЕ ФАКТОРЫ': '#f59e0b', // amber
+    'КОНКУРЕНТЫ': '#dc2626',      // red (как конкуренты)
   };
-  /**
-   * Fallback top_group по имени серии — для legacy pickle без поля top_group
-   * (decomposition.json, сохранённый до Т2 2026-07-04) и legacy signedFactors-пути.
-   * @param {string} name
-   */
-  function fallbackTopGroup(name) {
-    if (name === 'Базовый уровень' || name.startsWith('Сезонность:') || name.startsWith('Праздники:')) return 'БАЗА';
-    if (name.startsWith('Конкуренты:')) return 'КОНКУРЕНТЫ';
-    if (name.startsWith('Внешние:') || name.startsWith('Цена:') || name.startsWith('Погода:')
-        || name.startsWith('Макро-факторы:') || name.startsWith('Категория:')) return 'ВНЕШНИЕ ФАКТОРЫ';
-    return 'МЕДИА';
+
+  /** Toggle раскрытия верхней группы. @param {string} g */
+  function toggleGroup(g) {
+    const next = new Set(expanded);
+    if (next.has(g)) next.delete(g); else next.add(g);
+    expanded = next; // reassignment → Svelte 5 reactivity
   }
+
+  // Метаданные для chips-панели (какие группы есть, есть ли сезонность) —
+  // только для canonical-пути; legacy signedFactors без drill-down.
+  const viewModel = $derived.by(() => {
+    const ds = decompositionSeries;
+    if (ds?.series?.length && ds?.dates?.length) {
+      return {
+        canonical: true,
+        groups: presentTopGroups(ds),
+        hasSeasonality: seasonalityPctOfBase(ds) != null,
+      };
+    }
+    return { canonical: false, groups: /** @type {string[]} */ ([]), hasSeasonality: false };
+  });
 
   // FIX 2026-05-02: track currently hovered series для подсветки в tooltip.
   // Plain mutable (не $state) - closure formatter reads current value без
@@ -114,6 +144,13 @@
   /** @param {any} chart */
   function handleChartInit(chart) {
     chartRef = chart;
+    // Т3.1: клик по полосе разворачивает/сворачивает её верхнюю группу (drill-down
+    // помимо chips). Клик по под-компоненту раскрытой группы — сворачивает обратно.
+    // Сезонная %-кривая помечена silent → её клики сюда не приходят.
+    chart.on('click', (/** @type {any} */ params) => {
+      const tg = seriesTopGroup[params?.seriesName];
+      if (tg && TOP_GROUP_ORDER.includes(tg)) toggleGroup(tg);
+    });
     // 2026-05-04: track активный слой через DOM mousemove + Y-coordinate matching.
     // Ранние попытки (mouseover/series, updateAxisPointer) не срабатывали для
     // stacked area: ECharts не отдаёт seriesIndex слоя под курсором - только
@@ -186,6 +223,9 @@
       let foundName = '';
       for (let i = 0; i < allSeries.length; i++) {
         const s = allSeries[i];
+        // Т3.2: сезонная %-кривая живёт на второй оси (проценты) — не часть
+        // стека, пропускаем в Y-сопоставлении слоёв.
+        if (s.name === SEASONALITY_PCT_NAME) continue;
         const v = Number(s.data?.[dataIndex] ?? 0);
         const isNeg = s.stack === 'negative';
         if (isNeg) {
@@ -243,7 +283,12 @@
       axisPointer: { type: 'cross', label: { backgroundColor: 'rgba(15,18,28,0.94)', color: '#fff' } },
       extraCssText: 'max-height:420px;overflow:auto;max-width:380px',
       formatter: (/** @type {any[]} */ params) => {
-        const total = params.reduce((s, p) => s + (p.value ?? 0), 0);
+        // Т3.2: сезонная %-кривая (вторая ось, семантика %) — отделяем от стек-полос;
+        // в total/группы/подсветку не входит, показывается своей строкой.
+        const pctPoint = params.find(p => p.seriesName === SEASONALITY_PCT_NAME);
+        const stackParams = params.filter(p => p.seriesName !== SEASONALITY_PCT_NAME);
+
+        const total = stackParams.reduce((s, p) => s + (p.value ?? 0), 0);
         const fmt = (/** @type {number} */ v) =>
           new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(v));
 
@@ -254,10 +299,11 @@
         // а не по префиксу имени. Праздники и Сезонность → под БАЗА (решение Антона);
         // Цена/Погода/Макро/Категория/Дистрибуция → ВНЕШНИЕ ФАКТОРЫ. seriesTopGroup
         // заполнен при построении option; для legacy (нет поля) — fallback по имени.
+        // В свёрнутом виде группа = одна строка-агрегат («База»), в развёрнутом — под-компоненты.
         /** @type {Map<string, Array<{p: any, cleanName: string}>>} */
         const groups = new Map(TOP_GROUP_ORDER.map(g => [g, []]));
 
-        params.forEach(p => {
+        stackParams.forEach(p => {
           const name = p.seriesName ?? '';
           const tg = seriesTopGroup[name] ?? fallbackTopGroup(name);
           const cleanName = name.replace(PREFIX_RE, '');
@@ -268,7 +314,7 @@
         let html = `<div style="color:#fff;font-weight:600;margin-bottom:6px;">${escapeHtml(params[0]?.axisValue)}</div>`;
 
         // Блок активного слоя (highlight) — сохраняем поведение из v2.0
-        const active = activeSeries ? params.find(p => p.seriesName === activeSeries) : null;
+        const active = activeSeries ? stackParams.find(p => p.seriesName === activeSeries) : null;
         if (active) {
           const aPct = total > 0 ? ((active.value / total) * 100).toFixed(1) : '0.0';
           html += `<div style="display:flex;align-items:center;gap:8px;background:linear-gradient(90deg,${active.color}33,transparent);border-left:3px solid ${active.color};padding:6px 8px;margin:0 -6px 6px -6px;border-radius:3px;">`
@@ -303,10 +349,18 @@
           });
         });
 
-        // Итог
+        // Итог (по стек-полосам)
         html += `<div style="margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.1);font-weight:600;display:flex;justify-content:space-between">`
           + `<span>Итого</span><span>${fmt(total)}</span>`
           + `</div>`;
+
+        // Т3.2: сезонность как множитель к базе — отдельной строкой (не в Итого).
+        if (pctPoint && Number.isFinite(Number(pctPoint.value))) {
+          const pv = Number(pctPoint.value);
+          html += `<div style="margin-top:4px;display:flex;justify-content:space-between;gap:10px;color:#8b5cf6;font-size:12px">`
+            + `<span>&#9679; Сезонность к базе</span><span style="font-weight:600">${pv > 0 ? '+' : ''}${pv.toFixed(1)}%</span>`
+            + `</div>`;
+        }
 
         return html;
       },
@@ -322,47 +376,121 @@
    * чтобы tooltip-группировка и highlight работали как прежде.
    * @param {{dates: string[], series: any[]}} ds
    */
+  /**
+   * Presentation одного под-компонента (member) → цвет + отображаемое имя.
+   * Воспроизводит прежнюю логику: baseline blue «Базовый уровень», media из
+   * CHANNEL_COLORS по порядку, factor из FACTOR_COLORS с префиксом «{Группа}: имя».
+   * @param {any} p PlanSeries kind='member'
+   * @param {{ i: number }} mediaIdx мутируемый счётчик медиа (порядок цветов)
+   */
+  function memberDisplay(p, mediaIdx) {
+    if (p.role === 'baseline') return { color: '#3b82f6', name: 'Базовый уровень' };
+    if (p.role === 'media') {
+      const color = CHANNEL_COLORS[(mediaIdx.i + 1) % CHANNEL_COLORS.length];
+      mediaIdx.i++;
+      return { color, name: p.name };
+    }
+    const color = FACTOR_COLORS[p.type] ?? '#94a3b8';
+    const groupLabel = FACTOR_LABELS[p.type] ?? 'Внешние';
+    return { color, name: `${groupLabel}: ${p.name}` };
+  }
+
+  /** Правая ось для сезонной %-кривой (Т3.2) — центрируется вокруг 0, violet. */
+  function seasonalityAxis() {
+    return {
+      type: 'value',
+      position: 'right',
+      name: '% к базе',
+      nameTextStyle: { color: '#8b5cf6', fontSize: 10, align: 'right' },
+      axisLabel: {
+        color: '#8b5cf6', fontSize: 10,
+        formatter: (/** @type {number} */ v) => `${v > 0 ? '+' : ''}${v}%`,
+      },
+      axisLine: { show: true, lineStyle: { color: 'rgba(139,92,246,0.35)' } },
+      splitLine: { show: false },
+    };
+  }
+
+  /**
+   * Аудит #12 (2026-06-07, INV-50) + Т3 (2026-07-04): option из канонического
+   * decomposition_series (SSOT с отчётами) через planViewSeries — свёрнутый вид
+   * 4 полос (drill-down по expanded) + сезонная %-кривая на второй оси. baseline
+   * здесь уже уменьшен на вынесенные факторы → нет double-count. Имена держим в
+   * формате «{Группа}: {имя}» / «Базовый уровень» / человекочитаемое имя группы,
+   * чтобы tooltip-группировка и highlight работали.
+   * @param {{dates: string[], series: any[]}} ds
+   */
   function buildCanonicalOption(ds) {
     const dates = ds.dates;
+    const { plan } = planViewSeries(ds, expanded);
     /** @type {any[]} */
     const allSeries = [];
     seriesTopGroup = {}; // сброс перед заполнением из текущего SSOT
-    let mediaIdx = 0;
-    for (const s of ds.series) {
+    const mediaIdx = { i: 0 };
+
+    for (const p of plan) {
       let color;
-      let name = s.name;
-      const stack = s.side === 'negative' ? 'negative' : 'positive';
-      if (s.role === 'baseline') {
-        color = '#3b82f6';
-        name = 'Базовый уровень';
-      } else if (s.role === 'media') {
-        color = CHANNEL_COLORS[(mediaIdx + 1) % CHANNEL_COLORS.length];
-        mediaIdx++;
+      let name;
+      if (p.kind === 'group') {
+        // Свёрнутая агрегированная полоса верхнего уровня.
+        color = GROUP_COLORS[p.topGroup] ?? '#94a3b8';
+        name = p.name; // человекочитаемое «База»/«Медиа»/«Внешние факторы»/«Конкуренты»
       } else {
-        color = FACTOR_COLORS[s.type] ?? '#94a3b8';
-        const groupLabel = FACTOR_LABELS[s.type] ?? s.group ?? 'Внешние';
-        name = `${groupLabel}: ${s.name}`;
+        const d = memberDisplay(p, mediaIdx);
+        color = d.color;
+        name = d.name;
       }
-      // Т3-шаг: связь name → top_group из SSOT (поле top_group каждой серии);
-      // fallback по имени для legacy pickle без поля.
-      seriesTopGroup[name] = s.top_group ?? fallbackTopGroup(name);
+      const stack = p.side === 'negative' ? 'negative' : 'positive';
+      seriesTopGroup[name] = p.topGroup;
       allSeries.push({
         name,
         type: 'line',
         stack,
-        areaStyle: { opacity: s.role === 'media' ? 0.65 : 0.6, color },
+        areaStyle: { opacity: p.kind === 'group' ? 0.55 : (p.role === 'media' ? 0.65 : 0.6), color },
         lineStyle: { width: 0 },
         symbol: 'none',
-        data: s.data,
+        data: p.data,
         itemStyle: { color },
         emphasis: { focus: 'series' },
       });
     }
+
+    // Т3.2: сезонная кривая ±% к базе — поверх стека, вторая ось, независимо от
+    // свёртки (pct_of_base из SSOT). Исключена из tooltip-total/групп/highlight
+    // как семантически иная (проценты, не ₽) — см. buildTooltipOption / highlight.
+    const pct = showSeasonalityPct ? seasonalityPctOfBase(ds) : null;
+    const hasPct = Array.isArray(pct) && pct.length > 0;
+    if (hasPct) {
+      allSeries.push({
+        name: SEASONALITY_PCT_NAME,
+        type: 'line',
+        yAxisIndex: 1,
+        data: pct,
+        symbol: 'circle',
+        symbolSize: 4,
+        smooth: true,
+        lineStyle: { width: 2, color: '#8b5cf6', type: 'dashed' },
+        itemStyle: { color: '#8b5cf6' },
+        z: 10,
+        emphasis: { disabled: true },
+        silent: true, // не участвует в highlight/click-drill
+      });
+    }
+
+    const mainYAxis = {
+      type: 'value',
+      axisLabel: {
+        color: '#94a3b8', fontSize: 11,
+        formatter: (/** @type {number} */ v) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v),
+      },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+    };
+
     return {
       backgroundColor: 'transparent',
       tooltip: buildTooltipOption(),
       legend: buildLegendOption(activeSeries),
-      grid: { left: 16, right: 16, top: 44, bottom: 56, containLabel: true },
+      grid: { left: 16, right: hasPct ? 52 : 16, top: 44, bottom: 56, containLabel: true },
       xAxis: {
         type: 'category',
         data: dates,
@@ -371,14 +499,7 @@
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
         axisTick: { show: false },
       },
-      yAxis: {
-        type: 'value',
-        axisLabel: {
-          color: '#94a3b8', fontSize: 11,
-          formatter: (/** @type {number} */ v) => v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v / 1e3).toFixed(0)}K` : String(v),
-        },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
-      },
+      yAxis: hasPct ? [mainYAxis, seasonalityAxis()] : mainYAxis,
       dataZoom: [
         {
           type: 'slider', bottom: 4, height: 20,
@@ -563,4 +684,97 @@
   });
 </script>
 
-<EChartBase {option} height="280px" onInit={handleChartInit} />
+<div class="timeline-wrap">
+  <!-- Т3.1: chips-раскрытие 4 верхних групп + тумблер сезонной %-кривой.
+       Только для canonical decomposition_series; legacy signedFactors без drill-down. -->
+  {#if viewModel.canonical && (viewModel.groups.length > 1 || viewModel.hasSeasonality)}
+    <div class="drill-chips" role="group" aria-label="Детализация декомпозиции">
+      <span class="drill-hint">Детализация:</span>
+      {#each viewModel.groups as g (g)}
+        <button
+          type="button"
+          class="chip"
+          class:active={expanded.has(g)}
+          data-drill={g}
+          onclick={() => toggleGroup(g)}
+          title={expanded.has(g) ? `Свернуть под-компоненты: ${TOP_GROUP_DISPLAY[g] ?? g}` : `Развернуть под-компоненты: ${TOP_GROUP_DISPLAY[g] ?? g}`}
+        >
+          {TOP_GROUP_DISPLAY[g] ?? g}
+          <span class="chip-caret" aria-hidden="true">{expanded.has(g) ? '▾' : '▸'}</span>
+        </button>
+      {/each}
+      {#if viewModel.hasSeasonality}
+        <button
+          type="button"
+          class="chip chip-season"
+          class:active={showSeasonalityPct}
+          data-drill="seasonality-pct"
+          onclick={() => { showSeasonalityPct = !showSeasonalityPct; }}
+          title="Сезонная кривая ± % к базе (правая ось): «февраль +60% к базе»"
+        >
+          <span class="chip-dot" aria-hidden="true"></span>
+          Сезонность, %
+        </button>
+      {/if}
+    </div>
+  {/if}
+  <EChartBase {option} height="280px" onInit={handleChartInit} />
+</div>
+
+<style>
+  .timeline-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .drill-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .drill-hint {
+    font-size: 11px;
+    color: var(--text-muted, #64748b);
+    margin-right: 2px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary, #94a3b8);
+    background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
+    border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .chip:hover {
+    color: var(--text-primary, #e2e8f0);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 45%, transparent);
+  }
+  .chip.active {
+    color: var(--text-primary, #e2e8f0);
+    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 55%, transparent);
+  }
+  .chip-caret {
+    font-size: 9px;
+    opacity: 0.75;
+  }
+  .chip-season.active {
+    background: color-mix(in srgb, #8b5cf6 16%, transparent);
+    border-color: color-mix(in srgb, #8b5cf6 55%, transparent);
+    color: #c4b5fd;
+  }
+  .chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #8b5cf6;
+    box-shadow: 0 0 6px rgba(139, 92, 246, 0.6);
+  }
+</style>
