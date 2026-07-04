@@ -206,6 +206,26 @@ classify_column-only) · modeler prior mu 0.3 (shared demand) · decomposer brea
 полоса «Категория»→ВНЕШНИЕ, тождество 0.0000%. Тесты 14+band+регресс 614+46·verify 43/43+35/35.
 Реальная ROI-честность — на файле рынка DSM/IQVIA (механика доказана).
 
+## ✅ САМОАУДИТ РАБОТЫ СЕССИИ ЗАКРЫТ (2026-07-04, коммит 685203d; область 64c2dc8..07b427d)
+Метод: гипотезы классов → зонды. **4 находки исправлены с тестами:** F-1 🔴 derived-метрики
+(«Доля рынка в руб»/«Market share value»/«SOM в руб. категория» = ТЕМА+ОБЪЁМ) падали в
+kind 'category' → positive prior 0.3 на эндогенную долю при ручном override в Roles UI —
+derived-гейт (доля/share/som/sov) + тест ×7 · F-2 🟠 vitest не гонялся за сессию → 3 golden
+buildTrainConfig красные от use_seasonality — golden обновлён + тесты флага ×3 (урок: фронт-
+изменение ⇒ vitest, svelte-check контракты не ловит) · F-3 🟡 SeasonalityControl после OLS
+вечно «Обучите модель» — ols diagnostics.seasonality {detected:False, reason:'ols_mode'} →
+честная строка · F-4 🟡 pct_of_base на вырожденной базе (<1% среднего) дал бы «+4000%» —
+относительный guard. **Закрытые гипотезы (дефекта НЕТ):** drift_check фаза t_future бит-в-бит
+(У1 закрыл М-1 и для drift) ✓ · backtest holdout фаза ✓ · seasonal-naive из жёсткой карты
+(У4 бенчмарк не трогает) ✓ · WaterfallChart факторы не рендерит ✓ · narrative текстов нет ✓ ·
+доставка diagnostics.seasonality E2E (train+restore) ✓. **Живой зонд У1×бэктест MMX:** MAPE
+14.79→11.16 (сезонный holdout-прогноз лучше), naive 9.54, 4 окна ok — У1 бэктест улучшил, не
+сломал. **Гейты: python ПОЛНЫЙ 1907 · vitest ПОЛНЫЙ 802 · cargo test 0 · svelte 0.**
+Заметки на Т3 (не дефекты): знакопеременная полоса «Сезонность» в positive area-стеке —
+решить визуально на live (вариант: % кривая отдельно, полоса в БАЗЕ) · tooltip-группировку
+UI перевести на s.top_group из SSOT (сейчас по префиксу имени — хрупко) · pct_of_base
+семантика = финальная база (residual внутри; альтернатива intercept+тренд — решение подачи).
+
 ## ⏳ ОСТАЛОСЬ ТОЛЬКО — Т3 полный UI drill-down (live-приёмка, СВЕЖИМ ЗАХОДОМ по решению Антона)
 - **Т3 drill-down:** ChannelTimeline свернуть в 4 верхние полосы (top_group) с клик-раскрытием
   под-компонентов + помесячная сезонная %-кривая (pct_of_base уже в SSOT). Готово из Т3:
