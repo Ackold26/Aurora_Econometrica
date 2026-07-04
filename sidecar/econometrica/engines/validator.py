@@ -99,6 +99,22 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
             or lower.endswith(' som') or lower.endswith(' sov')):
         return 'unused', 0.85
 
+    # Фаза Б (2026-07-04): продажи ВСЕЙ категории/рынка (ОБЪЁМ, не доля) —
+    # ЭКЗОГЕННЫЙ контроль спроса. Спрос всей категории (грипп-рынок, аллергия-
+    # рынок) не зависит от медиа одного бренда, но задаёт сезонную волну, на
+    # которую бренд «плывёт» → сильнейший прокси спроса (сильнее Фурье: реальный
+    # ряд, не гладкая аппроксимация). Приоритет над KPI: «продажи категории»
+    # содержит «продажи», но это контроль, не целевая метрика. Идёт ПОСЛЕ derived
+    # (market_share/доля рынка → unused выше, endogenous) — сюда попадает только
+    # ОБЪЁМ рынка/категории, не доля.
+    CATEGORY_KEYS = [
+        'категори', 'вся категория', 'объем рынка', 'объём рынка', 'объем категории',
+        'объём категории', 'рынок всего', 'рынок в', 'category volume',
+        'total market', 'market volume', 'market sales', 'category sales',
+    ]
+    if any(k in lower for k in CATEGORY_KEYS):
+        return 'control', 0.85
+
     # Count pattern matches per category
     kpi_matches = sum(1 for p in KPI_PATTERNS if p in lower)
     media_matches = sum(1 for p in MEDIA_PATTERNS if p in lower)
