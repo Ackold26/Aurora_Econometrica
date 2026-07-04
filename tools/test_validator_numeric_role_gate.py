@@ -162,3 +162,13 @@ class TestValidateDataTotalBudgetGate:
         )
         tv = next(c for c in r['columns'] if c['name'] == 'Total TV Бюджет')
         assert tv['role'] == 'media', f"«Total TV Бюджет» ошибочно снят: {tv['role']}"
+
+
+class TestKpiPatternsLeads:
+    """Ф-1 (аудит примеров 2026-07-05): leads/лиды/заявки — count-KPI."""
+
+    def test_leads_detected_as_kpi(self):
+        from engines.validator import detect_column_role_with_confidence as det
+        assert det('leads')[0] == 'kpi'
+        assert det('Лиды')[0] == 'kpi'
+        assert det('Заявки')[0] == 'kpi'

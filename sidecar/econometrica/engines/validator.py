@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 # Column name patterns for auto-detection
+# Ф-1 (аудит примеров 2026-07-05): leads/лиды/заявки — легитимный count-KPI
+# (недвижимость, B2B); без него synth_real_estate падал «Не найден KPI-столбец».
 KPI_PATTERNS = ['sales', 'revenue', 'market_share', 'conversions', 'units', 'volume',
+                'leads', 'лид', 'заявк',
                 'продажи', 'выручка', 'конверси', 'заказ']
 MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'views',
                   'бюджет', 'расход', 'показ', 'клик', 'визит', 'прочтен', 'просмотр',

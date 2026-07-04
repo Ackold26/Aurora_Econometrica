@@ -43,48 +43,69 @@ EXPECTED_SCHEMA = {
     'synth_fmcg_brand.xlsx': {
         'date': 'date',
         'sales_rub': 'target_monetary',
-        'tv_spend': 'monetary',
-        'digital_spend': 'monetary',
-        'ooh_trp': 'physical',
-        'performance_clicks': 'physical',
+        'tv_spend': 'monetary',           'tv_trp': 'physical',
+        'digital_spend': 'monetary',      'digital_impressions': 'physical',
+        'ooh_spend': 'monetary',          'ooh_contacts': 'physical',
+        'performance_spend': 'monetary',  'performance_clicks': 'physical',
         'competitor_trp': 'signed_competitor',
         'price_index': 'signed_price',
-        'holiday_newyear': 'holiday',
+        'category_sales': 'category',
     },
     'synth_otc_pharma.xlsx': {
         'date': 'date',
         'sales_packs': 'target_count',
-        'tv_trp': 'physical',
-        'apteka_ooh_contacts': 'physical',
-        'digital_spend': 'monetary',
-        'performance_clicks': 'physical',
+        'tv_spend': 'monetary',           'tv_trp': 'physical',
+        'apteka_spend': 'monetary',       'apteka_contacts': 'physical',
+        'digital_spend': 'monetary',      'digital_impressions': 'physical',
+        'performance_spend': 'monetary',  'performance_clicks': 'physical',
         'competitor_trp': 'signed_competitor',
         'weather_temp_low': 'signed_weather',
-        'holiday_newyear': 'holiday',
+        'category_sales': 'category',
     },
     'synth_retail_ecom.xlsx': {
         'date': 'date',
         'sales_rub': 'target_monetary',
-        'tv_spend': 'monetary',
-        'digital_spend': 'monetary',
-        'ooh_contacts': 'physical',
-        'retail_media_spend': 'monetary',
+        'tv_spend': 'monetary',            'tv_trp': 'physical',
+        'digital_spend': 'monetary',       'digital_impressions': 'physical',
+        'ooh_spend': 'monetary',           'ooh_contacts': 'physical',
+        'retail_media_spend': 'monetary',  'retail_media_impressions': 'physical',
         'promo_indicator': 'control',
         'competitor_promo': 'signed_competitor',
         'holiday_blackfriday': 'holiday',
-        'holiday_newyear': 'holiday',
     },
     'synth_real_estate.xlsx': {
         'date': 'date',
         'leads': 'target_count',
-        'tv_spend': 'monetary',
-        'ooh_contacts': 'physical',
-        'digital_spend': 'monetary',
-        'performance_clicks': 'physical',
+        'tv_spend': 'monetary',           'tv_grp': 'physical',
+        'ooh_spend': 'monetary',          'ooh_contacts': 'physical',
+        'digital_spend': 'monetary',      'digital_impressions': 'physical',
+        'performance_spend': 'monetary',  'performance_clicks': 'physical',
         'competitor_activity': 'signed_competitor',
         'macro_cpi': 'signed_macro',
-        'holiday_newyear': 'holiday',
     },
+}
+
+# ПАРЫ spend↔natural (решение Антона 2026-07-05): канал несёт бюджет И Media KPI,
+# чтобы юзер мог пройти обе модели (ROI / Эффективность). Пара by-design сильно
+# коррелирована (spend = physical × CPP_t) — исключается из анти-коллинеарной
+# проверки; в МОДЕЛЬ одновременно идёт одна колонка пары (под-шаг «Метрики каналов»).
+PAIRED_COLUMNS = {
+    'synth_fmcg_brand.xlsx': [
+        ('tv_spend', 'tv_trp'), ('digital_spend', 'digital_impressions'),
+        ('ooh_spend', 'ooh_contacts'), ('performance_spend', 'performance_clicks'),
+    ],
+    'synth_otc_pharma.xlsx': [
+        ('tv_spend', 'tv_trp'), ('apteka_spend', 'apteka_contacts'),
+        ('digital_spend', 'digital_impressions'), ('performance_spend', 'performance_clicks'),
+    ],
+    'synth_retail_ecom.xlsx': [
+        ('tv_spend', 'tv_trp'), ('digital_spend', 'digital_impressions'),
+        ('ooh_spend', 'ooh_contacts'), ('retail_media_spend', 'retail_media_impressions'),
+    ],
+    'synth_real_estate.xlsx': [
+        ('tv_spend', 'tv_grp'), ('ooh_spend', 'ooh_contacts'),
+        ('digital_spend', 'digital_impressions'), ('performance_spend', 'performance_clicks'),
+    ],
 }
 
 # Reference-leak / устаревшие имена, которые НЕ должны вернуться в sample-data.
@@ -96,6 +117,7 @@ FORBIDDEN_COLUMNS = {
     'ooh_ots', 'apteka_ooh_ots',   # 'ots' не распознаётся → unknown
     'macro_mortgage_rate',     # 'mortgage' не распознаётся → unknown
     'traffic_visits',          # старый retail-chain KPI (заменён на sales_rub e-com)
+    'holiday_newyear',         # НГ теперь авто (holiday_calendar_ru); ручная dummy = двойной учёт
 }
 
 MIN_ROWS = 36
@@ -167,9 +189,13 @@ def test_no_collinear_pairs(fname):
     for ii in range(len(numidx)):
         for jj in range(ii + 1, len(numidx)):
             i, j = numidx[ii], numidx[jj]
+            a, b = header[i], header[j]
+            declared = {frozenset(p) for p in PAIRED_COLUMNS.get(fname, [])}
+            if frozenset((a, b)) in declared:
+                continue  # пара spend↔natural одного канала — коллинеарна by design
             c = _corr([r[i] for r in data], [r[j] for r in data])
             if abs(c) >= MAX_PAIR_CORR:
-                offenders.append((header[i], header[j], round(c, 3)))
+                offenders.append((a, b, round(c, 3)))
     assert not offenders, f'{fname}: functionally-dependent/collinear pairs: {offenders}'
 
 

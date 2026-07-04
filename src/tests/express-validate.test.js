@@ -71,6 +71,22 @@ describe('buildExpressPlan — гейты (любое сомнение → шт�
     expect(p.reason).toMatch(/цену единицы/);
   });
 
+  it('ПАРА spend+TRP НЕ блокирует: uniform по ₽, физ-половина в disable', () => {
+    const paired = {
+      status: 'ok',
+      columns: [
+        ...CLEAN_RESULT.columns,
+        { name: 'tv_spend', role: 'media' },
+        { name: 'tv_trp', role: 'media' },
+      ],
+    };
+    const p = plan({ validateResult: paired });
+    expect(p.eligible).toBe(true);
+    expect(p.uniform['tv_spend']).toBe('monetary');
+    expect(p.uniform['tv_trp']).toBeUndefined();
+    expect(p.disable).toContain('tv_trp');
+  });
+
   it('физический канал (TRP) по эвристике имени → штатный путь', () => {
     const withTrp = {
       status: 'ok',

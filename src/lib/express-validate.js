@@ -16,6 +16,8 @@
  * экрана первого дня клиента нельзя катить без click-path (уроки C3).
  */
 
+import { groupChannelColumns } from '$lib/channel-pairs.js';
+
 /** Человеческие ярлыки денежных KPI (гейт допускает только их). */
 const MONETARY_LABELS = {
   sales: 'Выручка',
@@ -40,6 +42,7 @@ const MONETARY_LABELS = {
  *   kpiLabel: string,
  *   mediaChannels: string[],
  *   uniform: Record<string, 'monetary'>,
+ *   disable: string[],
  * }}
  */
 export function buildExpressPlan({
@@ -49,13 +52,14 @@ export function buildExpressPlan({
   kpiKind,
   isPhysicalChannel,
 }) {
-  /** @type {{eligible: boolean, reason: string, kpiLabel: string, mediaChannels: string[], uniform: Record<string, 'monetary'>}} */
+  /** @type {{eligible: boolean, reason: string, kpiLabel: string, mediaChannels: string[], uniform: Record<string, 'monetary'>, disable: string[]}} */
   const out = {
     eligible: false,
     reason: '',
     kpiLabel: MONETARY_LABELS[/** @type {keyof typeof MONETARY_LABELS} */ (currentKPI)] ?? currentKPI,
     mediaChannels: [],
     uniform: {},
+    disable: [],
   };
   if (!validateResult) {
     out.reason = 'нет результата валидации';
@@ -81,18 +85,41 @@ export function buildExpressPlan({
     out.reason = 'меньше двух медиа-каналов — MMM не собрать';
     return out;
   }
-  const physical = media.filter((/** @type {string} */ name) => (
-    typeof isPhysicalChannel === 'function'
-      ? isPhysicalChannel(name)
-      : /\b(?:trp|grp|ooh|показ|impress)/i.test(name)
-  ));
-  if (physical.length > 0) {
-    out.reason = `каналы в физических единицах (${physical.join(', ')}) требуют цену единицы — нужен штатный путь`;
+  // ПАРЫ (2026-07-05): канал может нести бюджет ₽ И натуральный Media KPI
+  // (tv_spend + tv_trp). Физическая колонка С ₽-парником НЕ ломает happy-path:
+  // в ROI-режиме канал идёт деньгами, физическая половина пары выключается из
+  // модели (disable) — юзер позже может переключиться на «Эффективность».
+  // Блокируют экспресс только физические колонки БЕЗ денежного парника.
+  const { byChannel } = groupChannelColumns(media);
+  /** @type {string[]} */
+  const orphanPhysical = [];
+  /** @type {string[]} */
+  const disable = [];
+  for (const base of Object.keys(byChannel)) {
+    const opts = byChannel[base];
+    if (opts.monetary.length > 0) {
+      for (const name of opts.monetary) out.uniform[name] = 'monetary';
+      disable.push(...opts.physical); // парные физ-половины — вне модели в ROI
+    } else {
+      orphanPhysical.push(...opts.physical);
+    }
+  }
+  // Страховка: непарсируемые как физические внешним классификатором.
+  if (typeof isPhysicalChannel === 'function') {
+    for (const name of Object.keys(out.uniform)) {
+      if (isPhysicalChannel(name)) {
+        delete out.uniform[name];
+        orphanPhysical.push(name);
+      }
+    }
+  }
+  if (orphanPhysical.length > 0) {
+    out.reason = `каналы в физических единицах (${orphanPhysical.join(', ')}) требуют цену единицы — нужен штатный путь`;
     return out;
   }
-  out.mediaChannels = media;
-  for (const name of media) out.uniform[name] = 'monetary';
+  out.mediaChannels = Object.keys(out.uniform);
+  out.disable = disable;
   out.eligible = true;
-  out.reason = 'happy-path: денежный KPI, чистые данные, все каналы в рублях';
+  out.reason = 'happy-path: денежный KPI, чистые данные, каждый канал покрыт рублями';
   return out;
 }

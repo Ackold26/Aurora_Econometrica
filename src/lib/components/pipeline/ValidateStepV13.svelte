@@ -40,10 +40,14 @@
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
   import { validateInsights } from '$lib/insights-rules.js';
   import { buildExpressPlan } from '$lib/express-validate.js';
+  // ПАРЫ (2026-07-05): развязка выбора «канал → ₽|физика» в per-колоночный план.
+  import { resolvePairSelection } from '$lib/channel-pairs.js';
   import {
     analysisObjective, expertMode, analysisMode,
     // H-16 (audit): Phase 1.3 persistence stores - нужны в save flow.
     unitCosts, unitCostInflation, unitCostInputMode, budgetInputs,
+    // ПАРЫ: невыбранная половина пары выключается из модели тумблером канала.
+    modelChannelEnabled,
   } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
@@ -345,6 +349,14 @@
     persistRolesConfirmed(true);
     currentPerChannel = expressPlan.uniform;
     perChannelInput.set(expressPlan.uniform);
+    // ПАРЫ: физ-половины пар (tv_trp при принятом tv_spend) — вне модели в ROI.
+    if (expressPlan.disable?.length) {
+      modelChannelEnabled.update((mapping) => {
+        const next = { ...mapping };
+        for (const col of expressPlan.disable) next[col] = false;
+        return next;
+      });
+    }
     analysisMode.set('roi');
     const m = deriveModeWithExplanation(expressPlan.uniform);
     derivedMode.set(/** @type {'roi' | 'effectiveness' | 'manual'} */ (m.mode));
@@ -504,7 +516,20 @@
 
   /** @param {Record<string, string>} selection */
   function handlePerChannelConfirm(selection) {
-    const typed = /** @type {Record<string, 'monetary' | 'physical'>} */ (selection);
+    // ПАРЫ (2026-07-05): selection приходит по БАЗАМ каналов (селектор группирует
+    // tv_spend+tv_trp в канал «tv»). Разворачиваем в per-колоночный план: выбранная
+    // сторона пары включается со своей метрикой, парная альтернатива выключается
+    // из модели тумблером — все потребители (cpp-гейт, unit_costs, train-config)
+    // остаются на именах колонок.
+    const baseSel = /** @type {Record<string, 'monetary' | 'physical'>} */ (selection);
+    const { perColumn, disable } = resolvePairSelection(availableMetricsByChannel, baseSel);
+    const typed = perColumn;
+    modelChannelEnabled.update((mapping) => {
+      const next = { ...mapping };
+      for (const col of Object.keys(perColumn)) next[col] = true;
+      for (const col of disable) next[col] = false;
+      return next;
+    });
     currentPerChannel = typed;
     perChannelInput.set(typed);
     // 3A (verified live 2026-06-03 desktop-control): Expert-путь должен соблюдать
