@@ -3,6 +3,7 @@ Scenario prediction engine.
 Predicts KPI from a custom media plan using trained model.
 """
 import json
+import logging
 import pickle
 import numpy as np
 import pandas as pd
@@ -17,6 +18,62 @@ from utils.posterior_propagation import (
     load_posterior_samples,
     per_channel_samples,
 )
+
+logger = logging.getLogger('econometrica')
+
+
+def _compute_scenario_seasonality(model_data: dict, norm: dict, n_periods: int) -> np.ndarray:
+    """У1 (2026-07-04): детерминированная будущая сезонная волна для прогноза.
+
+    Фурье-сезонность ДЕТЕРМИНИРОВАНА по t-индексу: будущие периоды продолжают
+    фазу (t_future = n_obs + i). В отличие от прочих контролей (трактуются как
+    среднее, z-score=0 → вклад 0), сезонные значения известны точно → добавляются
+    к baseline прогноза. Без этого прогноз на НЕПОЛНЫЙ цикл систематически смещён
+    (в сезон занижен, вне сезона завышен); на ПОЛНЫЙ цикл волна усредняется
+    (Σ≈0 → промис «на Год» не меняется). Историческое разложение (decomposer) уже
+    выносит сезонность полосой — прогноз должен быть с ним согласован, иначе клиент
+    видит сезон в декомпозиции, но не в прогнозе.
+
+    Нормализация z-score теми же control_means/stds, что при обучении → вклад
+    согласован с обученными β. Возвращает np.array(n_periods) в KPI-единицах
+    (нули, если Фурье в pickle нет — модели без сезонности не меняют поведение).
+    """
+    zeros = np.zeros(n_periods, dtype=float)
+    fourier_meta = model_data.get('fourier_seasonality')
+    if not fourier_meta:
+        return zeros
+    fcols = fourier_meta.get('columns') or []
+    control_cols = (model_data.get('config') or {}).get('control_columns') or []
+    control_betas_mean = norm.get('control_betas_mean') or []
+    if not fcols or not control_cols or len(control_betas_mean) != len(control_cols):
+        return zeros
+    try:
+        from utils.fourier_seasonality import generate_fourier_terms
+        n_obs = len(np.asarray(model_data.get('y_actual', []) or []))
+        if n_obs <= 0:
+            return zeros
+        period = int(fourier_meta['period'])
+        n_harm = int(fourier_meta['n_harmonics'])
+        # Генерируем Фурье на train+forecast, берём БУДУЩИЙ хвост (фаза продолжается
+        # с t=n_obs — детерминизм по t-индексу, не по датам).
+        full = generate_fourier_terms(n_obs + n_periods, period, n_harm)
+        future = full.iloc[n_obs:n_obs + n_periods]
+        y_std = float(norm.get('y_std', 1.0)) or 1.0
+        control_means = norm.get('control_means', {}) or {}
+        control_stds = norm.get('control_stds', {}) or {}
+        beta_by_col = {c: float(control_betas_mean[i]) for i, c in enumerate(control_cols)}
+        season = np.zeros(n_periods, dtype=float)
+        for fc in fcols:
+            if fc not in future.columns or fc not in beta_by_col:
+                continue
+            cm = float(control_means.get(fc, 0.0))
+            cs = float(control_stds.get(fc, 1.0)) or 1.0
+            norm_vals = (future[fc].values.astype(float) - cm) / cs
+            season += beta_by_col[fc] * norm_vals * y_std
+        return season
+    except Exception as exc:
+        logger.warning('scenario seasonality projection skipped: %s', exc)
+        return zeros
 
 
 def _safe_int_or_none(v: Any) -> int | None:
@@ -316,6 +373,12 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     y_mean = float(norm['y_mean'])
     baseline_per_period = intercept_mean * y_std + y_mean
 
+    # У1 (2026-07-04): детерминированная будущая сезонная волна (Фурье по t-индексу).
+    # Прочие контроли трактуются как среднее (z=0), но сезонность известна точно на
+    # будущих периодах → добавляется к baseline (согласование прогноза с historical
+    # декомпозицией). Нули для моделей без Фурье → поведение не меняется.
+    season_per_period = _compute_scenario_seasonality(model_data, norm, n_periods)
+
     # Predict per period using adstocked spend
     predictions = []
     channel_contributions = {col: [] for col in media_cols}
@@ -338,10 +401,14 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             channel_contributions[col].append(round(float(contribution * y_std), 0))
 
         # P1-3: predicted = baseline + media contribution (was: total_effect × y_std + y_mean)
-        predicted = baseline_per_period + total_effect * y_std
+        # У1: + детерминированная сезонность периода (0 если модель без Фурье).
+        predicted = baseline_per_period + float(season_per_period[t]) + total_effect * y_std
         predictions.append(round(float(predicted), 0))
 
-    baseline_total = baseline_per_period * n_periods
+    # У1: baseline_total включает суммарную сезонность (за полный цикл ≈0 → тождество
+    # с прежним поведением; за неполный — сезонный сдвиг базы, чтобы incremental =
+    # scenario − baseline оставался чистым медиа-вкладом, без утечки сезона в «медиа»).
+    baseline_total = baseline_per_period * n_periods + float(season_per_period.sum())
     scenario_total = sum(predictions)
     incremental_total = scenario_total - baseline_total
 
@@ -422,7 +489,11 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                     x_norm = spend_t_adstock / max(mean, 1e-10) if mean > 0 else 0
                     sat = hill_function(np.array([max(x_norm, 0)]), alpha=p['alpha'], gamma=max(p['gamma'], 1e-6))
                     cur_total_effect += p['beta'] * sat[0]
-                current_predictions.append(baseline_per_period + cur_total_effect * y_std)
+                # У1: сезонность симметрично и в current — иначе season утёк бы в
+                # current_media_total (= current_total − baseline_total) как медиа.
+                current_predictions.append(
+                    baseline_per_period + float(season_per_period[t]) + cur_total_effect * y_std
+                )
             current_total_kpi = float(sum(current_predictions))
             canonical_reconstruction_ok = True
         except Exception as _e_lift:
@@ -563,13 +634,19 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             # baseline distribution: intercept_samples × y_std + y_mean per period
             intercept_samples = np.asarray(posterior_samples['intercept'], dtype=np.float64)
             baseline_per_sample_period = intercept_samples * y_std + y_mean  # (n_samples,)
-            # predicted_kpi_samples - per period sum, then sum over periods
+            # predicted_kpi_samples - per period sum, then sum over periods.
+            # У1: + детерминированная сезонность (одинакова для всех samples → broadcast
+            # по period). Сезон входит и в baseline_total_samples ниже → incremental
+            # (predicted − baseline_total) остаётся чистым медиа, сезон не течёт в CI лифта.
             predicted_per_period_samples = (
                 baseline_per_sample_period.reshape(-1, 1)
+                + season_per_period.reshape(1, -1)
                 + total_contrib_samples * y_std
             )  # (n_samples, n_periods)
             predicted_total_samples = predicted_per_period_samples.sum(axis=1)  # (n_samples,)
-            baseline_total_samples = baseline_per_sample_period * n_periods  # (n_samples,)
+            baseline_total_samples = (
+                baseline_per_sample_period * n_periods + float(season_per_period.sum())
+            )  # (n_samples,)
             incremental_total_samples = predicted_total_samples - baseline_total_samples
 
             _, p_lo, p_hi, _m_p = compute_ci_hdi(predicted_total_samples)
