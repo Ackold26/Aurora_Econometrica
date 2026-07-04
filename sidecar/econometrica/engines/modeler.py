@@ -379,7 +379,58 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     y = df[kpi_col].values.astype(float)
     n_obs = len(y)
-    n_params = len(media_cols) + len(control_cols) + 1  # +1 for intercept
+
+    # ── Автосезонность (2026-07-04): Фурье-компонента сезонной волны ──
+    # Праздники (выше) ловят календарные ВСПЛЕСКИ; гладкую сезонную ВОЛНУ спроса
+    # (сезон гриппа/аллергии/летний спад) — Фурье-гармоники периода из
+    # detect_seasonality. Канон Prophet §3.2 (Taylor&Letham 2018) / Robyn.
+    # Гейт INV-50: ≥2 полных цикла (иначе сезонность неотличима от тренда).
+    # Мастер-флаг use_seasonality (default True). Фурье-колонки — обычные
+    # контроли: нормализуются Z-score (ниже), mean≈0 безопасно. Персистятся в
+    # model_data['fourier_seasonality'] → decomposer переинжектит бит-в-бит.
+    fourier_seasonality_meta = None
+    if config.get('use_seasonality', True):
+        try:
+            from utils.forecast_validation import detect_granularity, detect_seasonality
+            from utils.fourier_seasonality import (
+                decide_n_harmonics, generate_fourier_terms, should_inject_seasonality,
+            )
+            _season_gran = 'W'
+            if date_col in df.columns:
+                _gr = detect_granularity(df[date_col])
+                if _gr.get('confidence', 0) >= 0.4:
+                    _season_gran = _gr['granularity']
+            _season = detect_seasonality(y, granularity=_season_gran)
+            _inject, _reason = should_inject_seasonality(_season, n_obs)
+            if _inject:
+                _period = int(_season['period'])
+                _n_harm = decide_n_harmonics(_period)
+                _fdf = generate_fourier_terms(n_obs, _period, _n_harm)
+                _injected = []
+                for _fc in _fdf.columns:
+                    if _fc not in df.columns:  # preserve user-supplied (unlikely)
+                        df[_fc] = _fdf[_fc].values
+                        _injected.append(_fc)
+                        if _fc not in control_cols:
+                            control_cols.append(_fc)
+                if _injected:
+                    fourier_seasonality_meta = {
+                        'period': _period,
+                        'n_harmonics': _n_harm,
+                        'columns': _injected,
+                        'granularity': _season_gran,
+                        'autocorr': float(_season.get('autocorr', 0.0)),
+                    }
+                    logger.info(
+                        'Auto-injected Fourier seasonality: %s, K=%d harmonics '
+                        '(%d regressors)', _reason, _n_harm, len(_injected)
+                    )
+            else:
+                logger.info('Fourier seasonality skipped: %s', _reason)
+        except Exception as _season_err:
+            logger.warning('Fourier seasonality injection skipped: %s', _season_err)
+
+    n_params = len(media_cols) + len(control_cols) + 1  # +1 for intercept (incl. Fourier)
 
     # Apply adstock transformations
     from utils.adstock import apply_adstock
@@ -1485,6 +1536,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             granularity_for_season = model_data.get('training_granularity') or 'W'
             season_result = detect_seasonality(y, granularity=granularity_for_season)
             model_data['seasonality_detected'] = season_result  # dict | None
+            # Автосезонность (2026-07-04): что реально инжектировано в модель как
+            # Фурье-контроли (period/K/columns) — decomposer переинжектит бит-в-бит.
+            # None если сезонность не прошла гейт (короткий ряд / нет цикла).
+            model_data['fourier_seasonality'] = fourier_seasonality_meta
         except Exception as _phase2_persist_err:
             # Non-fatal - pre-Phase-2 fields will lazy-inferred at load time.
             logger.warning(

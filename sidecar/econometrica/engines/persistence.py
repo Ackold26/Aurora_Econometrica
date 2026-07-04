@@ -201,6 +201,10 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     model_data.setdefault('training_granularity', None)
     model_data.setdefault('train_x_norm_quantiles', None)
     model_data.setdefault('seasonality_detected', None)
+    # Автосезонность (2026-07-04): что инжектировано как Фурье-контроли (period/K/
+    # columns) — decomposer переинжектит. None для pre-фичи pickle (модели до
+    # автосезонности праздники учитывали, Фурье-волну нет — decomposer их пропустит).
+    model_data.setdefault('fourier_seasonality', None)
 
     # v1.3.0 additive fields (per ADR-017 - schema bump skipped, in-memory inject only).
     # Defaults match v1.2 behavior: monetary KPI, all channels in ₽, mode=roi, no goal-seek history.

@@ -33,22 +33,23 @@ worse_than_naive: на Kagocel/MMX backtest-витрина честно брак
   `(X_control - mean)/std` (modeler.py:457), НЕ делением на mean → Фурье (mean≈0) БЕЗОПАСНЫ.
 - **Точка инжекта найдена:** modeler.py после n_obs (381), до X_control (414). y (380),
   n_obs (381), control_cols (208) доступны; X_control (414) подхватит новые control_cols.
+- **✅ ИНЖЕКТ В ДВИЖОК ГОТОВ (коммит ниже):** modeler.py (после n_obs, мастер-флаг
+  use_seasonality, detect_granularity+detect_seasonality→should_inject→generate_fourier_terms
+  →df+control_cols, пересчёт n_params, fourier_seasonality_meta, non-fatal try) + persist
+  model_data['fourier_seasonality'] (рядом с seasonality_detected) + persistence.py setdefault
+  (backward-compat) + decomposer.py re-inject по t-индексу (не датам, после holiday-блока).
+  Синтаксис+импорт чисты.
+- **✅ ИНТЕГРАЦИОННЫЕ ТЕСТЫ 4/4** (tools/test_fourier_integration.py): годовая синтетика
+  инжектит (period 26/52, columns в pickle через load_model_with_compat), короткий ряд
+  не инжектит, decompose-паритет ok, мастер-флаг off. MCMC {chains:2,draws:80}.
+- **🔴 RED-TEAM ВСКРЫЛ ЛОЖНОЕ СРАБАТЫВАНИЕ (исправлено):** на бессезонной синтетике
+  калибровки (n=26) detect_seasonality дал ложный period=3, autocorr 0.265 > фикс.порога
+  0.2 → Фурье инжектился где не должен → test_calibrated_recovers упал. КОРЕНЬ: фикс.порог
+  0.2 ниже статзначимости. ФИКС: n-зависимый порог Bartlett `max(0.2, 1.96/√n)` (для n=26 →
+  0.384 > 0.265 → отказ). test_calibration 5/5 восстановлен; юниты Фурье 22/22 (+2 на шум/
+  масштабирование порога). Методологически честнее: сезонность должна быть СТАТЗНАЧИМА.
 
 ## ⏳ СЛЕДУЮЩЕЕ (продолжать отсюда)
-1. **Инжект Фурье в modeler.py** после строки 382 (n_params): мастер-флаг
-   `use_seasonality = config.get('use_seasonality', True)`; detect_granularity+detect_seasonality
-   на y; should_inject → generate_fourier_terms → df[col]=... + control_cols.append(col);
-   пересчитать n_params; собрать `fourier_seasonality_meta` (period, n_harmonics, columns,
-   granularity, autocorr). try/except non-fatal (как holiday).
-2. **Persist в model_data:** рядом с seasonality_detected (modeler.py:1487) сохранить
-   `model_data['fourier_seasonality'] = fourier_seasonality_meta`. Обновить persistence.py
-   (setdefault + docstring) для backward-compat старых pickle.
-3. **decomposer.py re-inject** (детерминизм, как holiday decomposer.py:482): при декомпозиции
-   переинжектить те же Фурье-колонки из fourier_seasonality_meta (generate_fourier_terms
-   по n_obs+period+K) ДО применения модели, иначе X-матрица не сойдётся.
-4. **Тесты интеграции** (tools/): (а) modeler инжектит при годовой синтетике ≥2 цикла,
-   не инжектит на коротком ряду; (б) decomposer паритет колонок; (в) fourier_seasonality
-   в pickle. Возможно tools/test_server_*.py шов.
 5. **Бэктест-доказательство на Kagocel** (живой зонд, headless sidecar :7529 или tmp/probe):
    обучить с/без сезонности → backtest вердикт до (worse_than_naive) vs после. Ожидание:
    квартальная (P=13, гейт 31≥26 ✓) улучшит; если нет — честно зафиксировать (может, Kagocel

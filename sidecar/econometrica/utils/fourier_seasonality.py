@@ -43,9 +43,12 @@ FOURIER_COL_PREFIX = 'season_fourier'
 # < 2 циклов → сезонность неотличима от тренда (Prophet требует ≥2, здесь строго).
 MIN_CYCLES_FOR_SEASONALITY = 2
 
-# Порог автокорреляции для доверия детектору (совпадает с detect_seasonality
-# default autocorr_threshold=0.2 — но требуем строго положительную: настоящая
-# циклическая повторяемость, не анти-фаза полупериода).
+# Нижний пол порога автокорреляции. Реальный порог — n-зависимый (Bartlett,
+# ниже): на коротком ряду случайная автокорреляция белого шума достигает высоких
+# значений, поэтому фиксированный 0.2 даёт ложные срабатывания (боевой случай:
+# бессезонная синтетика n=26 → ложный period=3, autocorr 0.265). Пол 0.2 держит
+# минимум даже на длинных рядах (сезонность должна быть содержательной, не только
+# статзначимой).
 MIN_AUTOCORR_FOR_INJECTION = 0.2
 
 
@@ -96,12 +99,18 @@ def should_inject_seasonality(
         return False, f'период невалиден ({period})'
     period = int(period)
 
-    # Анти-фаза (отрицательная автокорреляция) — детектор мог зацепить полупериод.
-    # Для инъекции требуем настоящую положительную циклическую повторяемость.
-    if autocorr is None or autocorr < MIN_AUTOCORR_FOR_INJECTION:
+    # n-зависимый порог значимости автокорреляции (Bartlett/95%): для белого шума
+    # ACF на лаге распределён ~N(0, 1/n), значимость 95% ⇒ |ρ| > 1.96/√n. На
+    # коротком ряду это ВЫШЕ фиксированного 0.2 — отсекает шумовые ложные периоды.
+    # Итоговый порог = max(пол 0.2, порог значимости). Анти-фаза (ρ<0) не проходит:
+    # требуем настоящую положительную циклическую повторяемость, не полупериод.
+    sig_threshold = 1.96 / np.sqrt(n_obs)
+    threshold = max(MIN_AUTOCORR_FOR_INJECTION, sig_threshold)
+    if autocorr is None or autocorr < threshold:
         return False, (
-            f'автокорреляция {autocorr} < порога {MIN_AUTOCORR_FOR_INJECTION} '
-            f'(нет уверенной положительной сезонности)'
+            f'автокорреляция {autocorr} < порога {threshold:.3f} '
+            f'(1.96/√{n_obs}={sig_threshold:.3f}, пол {MIN_AUTOCORR_FOR_INJECTION}) — '
+            f'сезонность статистически неотличима от шума'
         )
 
     needed = min_cycles * period
@@ -111,7 +120,7 @@ def should_inject_seasonality(
             f'периода {period}) — сезонность неотличима от тренда'
         )
 
-    return True, f'период {period}, ≥{min_cycles} циклов в {n_obs} набл.'
+    return True, f'период {period}, ρ={autocorr:.2f}≥{threshold:.2f}, ≥{min_cycles} циклов в {n_obs} набл.'
 
 
 def generate_fourier_terms(

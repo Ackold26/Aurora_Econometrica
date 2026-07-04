@@ -135,6 +135,25 @@ def test_gate_accepts_valid_yearly():
     assert inject is True
 
 
+def test_gate_rejects_noise_autocorr_on_short_series():
+    # Боевой случай: бессезонная синтетика n=26 дала ложный period=3, autocorr
+    # 0.265. Порог значимости 1.96/√26≈0.384 > 0.265 → отказ (шум, не сезонность).
+    inject, reason = should_inject_seasonality(
+        {'period': 3, 'autocorr': 0.265}, n_obs=26)
+    assert inject is False
+    assert 'шум' in reason or 'неотличима' in reason
+
+
+def test_significance_threshold_scales_with_n():
+    # Одна и та же autocorr 0.30: значима на длинном ряду, шум на коротком.
+    long_inject, _ = should_inject_seasonality(
+        {'period': 12, 'autocorr': 0.30}, n_obs=200)  # порог 0.2 (пол) < 0.30
+    short_inject, _ = should_inject_seasonality(
+        {'period': 12, 'autocorr': 0.30}, n_obs=36)   # порог 1.96/√36=0.327 > 0.30
+    assert long_inject is True
+    assert short_inject is False
+
+
 # ─── list_fourier_columns паритет ───────────────────────────────────────────
 
 def test_list_columns_matches_generate():

@@ -509,6 +509,29 @@ def decompose(
             )
             control_cols = [c for c in control_cols if c not in holiday_cols_to_inject]
 
+    # Автосезонность (2026-07-04): re-inject Фурье-контролей сезонной волны.
+    # modeler инжектил sin/cos гармоники периода в df при тренировке (control_cols),
+    # в исходном Excel их нет → df[control_cols] упал бы. Фурье по t-ИНДЕКСУ (не
+    # датам) — воспроизводим по длине ряда + period/K из fourier_seasonality;
+    # бит-в-бит с обучением (декомпозиция на тех же обучающих строках, тот порядок).
+    fourier_meta = model_data.get('fourier_seasonality')
+    if fourier_meta:
+        try:
+            from utils.fourier_seasonality import generate_fourier_terms
+            _fdf = generate_fourier_terms(
+                len(df), int(fourier_meta['period']), int(fourier_meta['n_harmonics'])
+            )
+            for _fc in fourier_meta.get('columns', []) or []:
+                if _fc not in df.columns and _fc in _fdf.columns:
+                    df[_fc] = _fdf[_fc].values
+        except Exception as exc:
+            logger.warning(
+                'Decomposer: re-injection Fourier seasonality failed (%s). '
+                'Убираем сезонные колонки из control_cols (β останутся, вклад 0).', exc,
+            )
+            _fcols = fourier_meta.get('columns', []) or []
+            control_cols = [c for c in control_cols if c not in _fcols]
+
     # Phase 2 audit pass 4 - per-channel inflation: customer entered current
     # cost (latest training year) + annual_inflation_pct → adjust к training-
     # period weighted average. ROI/mROAS теперь reflect actual training prices.
