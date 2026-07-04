@@ -182,11 +182,29 @@ baseline_total_samples) → сезон в scenario+current+baseline_total, incre
   (БАЗА/МЕДИА/КОНКУРЕНТЫ — competitor как 4-я полоса работает), тождество 0.0000%, полоса
   согласована с pickle. Инвариант ≥2 датасета выполнен.
 
-## ⏳ СЛЕДУЮЩЕЕ — Т3 UI drill-down (live) → Т4 отчёты (паритет через SSOT) → Т6 хвосты → У5 ночной gate
-Весь backend + надёжность + канон готовы. Осталось клиент-видимое: Т3 UI (ChannelTimeline
-4 полосы + сезонная кривая, требует dev-режима/svelte-check) + Т4 отчёты (паритет
-автоматический через SSOT top_group/pct_of_base — проверить PPTX/HTML слайд). Т6: UI-тумблер
-use_seasonality (закрыть находку У2) + подсказки + Фаза Б prior категории. У5: ночной gate.
+## ✅ Т4 ПАРИТЕТ ОТЧЁТОВ (8462928) · tooltip-fix (10ab909→...) · Т6 ТУМБЛЕР (b132842) · У5 GATE (2026-07-04)
+- **Т4** (коммит 8462928): цвет+подпись фактора «Сезонность» (violet #8b5cf6) в 3 зеркальных
+  палитрах — PPTX charts._FACTOR_RGB · HTML interactive.FACTOR_COLORS · ChannelTimeline
+  FACTOR_COLORS+LABELS. Сезонность автоматически рендерится полосой (role=factor) во всех
+  потребителях SSOT. Гейты: PPTX/HTML 60 · verify pptx 43/43 · html 35/35 · svelte 0.
+- **tooltip-fix ChannelTimeline:** «Сезонность:» падала в группу «Медиа» (баг) → теперь в
+  «База» (решение Антона: сезонность ∈ БАЗА). svelte 0.
+- **Т6 тумблер** (b132842): сквозная доставка use_seasonality (закрыта находка У2) —
+  SeasonalityControl.svelte (тумблер + строка честности «Сезонность учтена: период, ρ=X» из
+  diagnostics) · стор+гидрация+stale (project-state) · buildTrainConfig · Rust project.rs
+  (поле+update+конструкторы) · modeler diagnostics['seasonality']. Гейты: канарейка У2 4/4
+  (стережёт) · server_train_flags 4/4 · cargo check+tests OK · svelte 0.
+- **У5** (ночной gate): tools/nightly_full_gate.ps1 (UTF-8 BOM, parse OK, механика доказана)
+  против F-AUD-6.
+
+## ⏳ ОСТАЛОСЬ ТОЛЬКО — Т3 полный UI drill-down (live-приёмка) + Фаза Б prior категории (backend)
+- **Т3 drill-down:** ChannelTimeline свернуть в 4 верхние полосы (top_group) с клик-раскрытием
+  под-компонентов + помесячная сезонная %-кривая (pct_of_base уже в SSOT). Готово из Т3:
+  палитра+label+tooltip-группировка сезонности. Осталось: двухуровневое echarts-взаимодействие
+  + %-кривая — **требует ЖИВОЙ визуальной приёмки** (форма, не данные; Антон-пользователь
+  быстрейший верификатор). При автономном заходе — прочитать AVT-стандарт перед dev-прогоном.
+- **Фаза Б хвост:** prior positive-leaning для category-колонок в column_detection + подсказка
+  на Валидации «загрузите продажи категории» + доказательство decompose-с/без категории.
 
 ## ⏳ (архив плана) РЕАЛИЗАЦИЯ ОТОБРАЖЕНИЯ (recon СДЕЛАН — инфра ГОТОВА)
 **✅ RECON (2026-07-04): инфраструктура декомпозиции по группам УЖЕ существует** —
