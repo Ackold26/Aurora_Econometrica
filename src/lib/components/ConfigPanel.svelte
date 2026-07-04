@@ -7,13 +7,14 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
+  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, useSeasonality, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { buildTrainConfig } from '$lib/train-config.js';
   import { calibrations, loadCalibrations } from '$lib/calibration-store.js';
   import CalibrationPanel from '$lib/components/pipeline/CalibrationPanel.svelte';
   import { Check } from 'lucide-svelte';
   import HolidayControlsPanel from '$lib/components/pipeline/HolidayControlsPanel.svelte';
+  import SeasonalityControl from '$lib/components/pipeline/SeasonalityControl.svelte';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
 
@@ -424,6 +425,7 @@
         channelCategories: get(channelCategories),
         disabledHolidays: get(disabledHolidays),
         useHolidays: get(useHolidays),
+        useSeasonality: get(useSeasonality),
         // E2 (2026-07-03): калибровки lift-тестами (buildTrainConfig включит
         // только при bayesian и непустом списке).
         calibrations: get(calibrations),
@@ -470,6 +472,7 @@
         control: [...controlColumns],
         disabled: [...get(disabledHolidays)],  // #6: stale-детект при смене праздников
         use_holidays: get(useHolidays),  // мастер-флаг: stale-детект при вкл/выкл праздников
+        use_seasonality: get(useSeasonality),  // автосезонность: stale-детект при вкл/выкл
       });
 
       if (useAsyncTraining) {
@@ -725,6 +728,10 @@ Weibull (плавная build-up):
   {#if selectedKpi}
     <div class="holiday-controls-wrapper">
       <HolidayControlsPanel />
+    </div>
+    <!-- Автосезонность А (2026-07-04): мастер-тумблер + строка честности после обучения. -->
+    <div class="holiday-controls-wrapper">
+      <SeasonalityControl />
     </div>
   {/if}
 

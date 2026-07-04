@@ -35,6 +35,7 @@
  *   channelCategories: Record<string, string>|null|undefined,
  *   disabledHolidays: string[]|null|undefined,
  *   useHolidays: boolean|null|undefined,
+ *   useSeasonality?: boolean|null|undefined,
  *   calibrations?: Array<Record<string, any>>|null,
  * }} state
  * @returns {Record<string, any>} TrainStartRequest-shaped config
@@ -61,6 +62,7 @@ export function buildTrainConfig(state) {
     channelCategories,
     disabledHolidays,
     useHolidays,
+    useSeasonality,
   } = state;
 
   // 🔴 ЯКОРЬ (У2, 2026-07-04): каждый ключ этого объекта ДОЛЖЕН быть объявлен в
@@ -102,6 +104,11 @@ export function buildTrainConfig(state) {
     // Мастер-флаг (2026-06-13): use_holidays=False полностью отключает инъекцию
     // праздников в modeler.py → выше Ratio (степени свободы). Default true.
     use_holidays: useHolidays !== false,
+    // Автосезонность А (2026-07-04): use_seasonality=False отключает авто-детект
+    // и инъекцию Фурье-гармоник сезонной волны. Default true (гейт INV-50 сам решает,
+    // инжектить ли — по ≥2 циклам и статзначимости). Закрывает находку У2 (флаг
+    // раньше не доставлялся фронтом → всегда default). Схема: server.TrainStartRequest.
+    use_seasonality: useSeasonality !== false,
     // E2 (2026-07-03): калибровка lift-тестами — только bayesian (OLS честно
     // откажет CALIBRATION_REQUIRES_BAYESIAN) и только непустой список.
     ...(engine === 'bayesian' && Array.isArray(state.calibrations) && state.calibrations.length > 0

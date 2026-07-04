@@ -1222,6 +1222,18 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         diagnostics['y_pred_reconstruction_failed'] = y_pred_reconstruction_failed
         # #6 OVB-guardrail: per-control contraction для UI-подсказок (убрать неинформативные)
         diagnostics['per_control_contraction'] = per_control_contraction
+        # Автосезонность (2026-07-04): статус Фурье-компоненты для UI-строки честности
+        # («Сезонность учтена, период N, ρ=X» / «не обнаружена»). meta или None (гейт INV-50).
+        diagnostics['seasonality'] = (
+            {
+                'detected': True,
+                'period': int(fourier_seasonality_meta['period']),
+                'n_harmonics': int(fourier_seasonality_meta['n_harmonics']),
+                'autocorr': round(float(fourier_seasonality_meta.get('autocorr', 0.0)), 3),
+                'granularity': fourier_seasonality_meta.get('granularity', 'W'),
+            }
+            if fourier_seasonality_meta else {'detected': False}
+        )
         # Trust Level 3: hierarchical metadata for UI display.
         if use_hierarchical:
             diagnostics['hierarchical'] = {

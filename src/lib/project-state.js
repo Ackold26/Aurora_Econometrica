@@ -653,6 +653,25 @@ activeProject.subscribe((p) => {
 });
 
 /**
+ * Мастер-флаг «учитывать сезонность» (автосезонность А, 2026-07-04). ON по умолчанию.
+ * Когда True — modeler.py авто-детектит сезонную волну и инжектит Фурье-гармоники
+ * (гейт INV-50: ≥2 полных цикла + статзначимая автокорреляция). Когда False —
+ * сезонность не инжектится (проще модель, но риск списать сезонный спрос на медиа →
+ * завышенный ROI). Персистится в project.json; buildTrainConfig шлёт как `use_seasonality`.
+ * Гидрируется из activeProject; legacy-проекты без флага → true.
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const useSeasonality = writable(true);
+
+activeProject.subscribe((p) => {
+  if (p && typeof p.use_seasonality === 'boolean') {
+    useSeasonality.set(p.use_seasonality);
+  } else {
+    useSeasonality.set(true);  // default ON (нет проекта / legacy без флага)
+  }
+});
+
+/**
  * Reactive cleanup orphaned channel_categories entries при изменении media_columns
  * на frontend (post-audit fix 2026-04-27): backend project.rs уже cleanup'ит при
  * project_update, но UI store должен sync immediately для consistent badge display.
@@ -959,7 +978,7 @@ export const modelData = writable({ diagnostics: null, channelParams: null, pick
  * был null после reload → modelStaleStatus всегда stale=false → банера нет).
  */
 const LAST_TRAINED_KEY = 'aurora-last-trained-config';
-const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean} | null} */ ((() => {
+const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean, use_seasonality?: boolean} | null} */ ((() => {
   if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(LAST_TRAINED_KEY);
@@ -988,8 +1007,8 @@ if (typeof localStorage !== 'undefined') {
  * }>}
  */
 export const modelStaleStatus = derived(
-  [modelData, validateData, lastTrainedConfig, modelChannelEnabled, disabledHolidays, useHolidays],
-  ([$m, $v, $tc, $en, $dh, $uh]) => {
+  [modelData, validateData, lastTrainedConfig, modelChannelEnabled, disabledHolidays, useHolidays, useSeasonality],
+  ([$m, $v, $tc, $en, $dh, $uh, $us]) => {
     if (!$m?.diagnostics || !$tc) return { stale: false, reason: '', diff: [] };
     const cur = /** @type {any[]} */ ($v?.result?.columns || []);
     // LOAD-1 (C): defensive-net для краёв (нет ролей в project.json / окно до
@@ -1041,6 +1060,14 @@ export const modelStaleStatus = derived(
     const tUseHolidays = $tc.use_holidays !== false;
     if (($uh !== false) !== tUseHolidays) {
       diff.push(`Праздники как фактор: ${tUseHolidays ? 'учитывались' : 'нет'} → ${$uh !== false ? 'учитывать' : 'нет'}`);
+    }
+    // Мастер-флаг use_seasonality (автосезонность А) — влияет на состав модели
+    // (Фурье-гармоники). Изменение после обучения = модель устарела. Legacy
+    // snapshot без use_seasonality → true (модели до фичи; но Фурье там нет,
+    // сравнение с true не даст ложного stale, т.к. текущий стор тоже default true).
+    const tUseSeasonality = $tc.use_seasonality !== false;
+    if (($us !== false) !== tUseSeasonality) {
+      diff.push(`Сезонность: ${tUseSeasonality ? 'учитывалась' : 'нет'} → ${$us !== false ? 'учитывать' : 'нет'}`);
     }
     if (diff.length === 0) return { stale: false, reason: '', diff: [] };
     return {
