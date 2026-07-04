@@ -120,16 +120,32 @@ worse_than_naive: на Kagocel/MMX backtest-витрина честно брак
   КОНКУРЕНТЫ→ signed_competitor факторы (± двунаправленно)
 ```
 
-## ⏳ СЛЕДУЮЩЕЕ — РЕАЛИЗАЦИЯ ОТОБРАЖЕНИЯ (приоритет, направление Антона)
-Р1. **Recon decomposer:** как формируются channels/факторы, где baseline (intercept+тренд),
-    как классифицировать каждый контроль в группу (сезонность=season_fourier_* / праздники=
-    holiday_* / конкуренты=signed_competitor / внешние=цена/дистриб/категория / медиа).
-Р2. **Агрегация в 4 группы** + baseline: сумма вкладов по группе; сезонность — ПОМЕСЯЧНЫЙ ряд
-    вклада (Σβ·Фурье по t) + подача как % к базовой линии.
-Р3. **Слои UI:** топ 4 полосы → drill-down; помесячная сезонная кривая (±%).
-Р4. **PPTX/HTML** отображение декомпозиции 4-групп + сезонная кривая.
-Р5. Тесты (агрегация групп, помесячная сезонность, паритет) + доказательство.
-Возможно ADR в aurora-meta (методологическое решение с атрибуцией книг).
+## ⏳ СЛЕДУЮЩЕЕ — РЕАЛИЗАЦИЯ ОТОБРАЖЕНИЯ (приоритет; recon СДЕЛАН — инфра ГОТОВА)
+**✅ RECON (2026-07-04): инфраструктура декомпозиции по группам УЖЕ существует** —
+`decomposer.py::build_decomposition_series` (стр.322) строит полосы с полями
+{name, role∈{baseline/media/factor}, type, **group**, side, data[] помесячно} и честным
+тождеством `baseline_reduced + Σфакторы + Σмедиа == total`. `_BREAKOUT_TYPES` (310) +
+`_FACTOR_GROUP_LABELS` (313): signed_competitor→«Конкуренты», signed_price→«Цена»,
+holiday→«Праздники» и т.д. `signed_factor_contributions` (880) классифицирует контроли
+через `classify_column`→`factor_type_map` (899). **GAP: Фурье-колонки season_fourier_*
+падают в 'positive_control' (не в map) → ОСТАЮТСЯ В BASELINE, не выносятся.** Стройка НЕ
+нужна — точечная доработка (verify_existing_impl сэкономил огромно).
+
+**ТОЧНЫЙ ПЛАН (5 точек, backend-ядро):**
+Р1. `utils/column_detection.classify_column`: `season_fourier_*` → новый kind 'seasonality'
+    (сейчас unknown/control). + prior positive-symmetric.
+Р2. `decomposer.py:899 factor_type_map`: 'seasonality'→'seasonality'. **АГРЕГАЦИЯ:** 6 колонок
+    sin/cos_K объединить в ОДИН фактор «Сезонность» (Σ per_period по всем season_fourier_*),
+    не 6 полос — цикл 894 группирует по префиксу перед записью в signed_factor_contributions.
+Р3. `_BREAKOUT_TYPES` (310) += 'seasonality'; `_FACTOR_GROUP_LABELS` (313): 'seasonality'→'Сезонность'.
+Р4. **Верхний уровень 4 групп** (маппинг group→top): БАЗА{baseline,seasonality,holiday} ·
+    МЕДИА{media} · ВНЕШНИЕ{price,weather,macro,category} · КОНКУРЕНТЫ{competitor}. Добавить
+    поле 'top_group' в series ИЛИ маппинг в UI/отчётах. Сезонность помесячно как **% к
+    baseline_reduced** (подача, решение Антона).
+Р5. UI drill-down (топ 4 → раскрытие) + PPTX/HTML 4-групп + сезонная кривая. Тесты (агрегация
+    Фурье в 1 фактор, тождество сохранено, % к базе) + доказательство decompose.
+⚠️ decomposer — КРИТИЧНЫЙ (energy conservation, тождества baseline+факторы+медиа==total);
+не ломать. Тесты decomposer_invariants 163 — гейт. ADR в aurora-meta (метод-решение + атрибуция).
 
 ## ⏳ Фаза Б — категорийный контрол (частично начата)
 - **✅ Backend category-детект (коммит 5e66e81):** validator detect_column_role — «продажи
