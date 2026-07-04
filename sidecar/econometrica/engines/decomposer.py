@@ -341,6 +341,64 @@ _TOP_GROUP_MAP = {
     'Конкуренты': 'КОНКУРЕНТЫ',
 }
 
+# Порядок и человекочитаемые подписи 4 верхних групп — ЗЕРКАЛО фронта
+# (decomposition-view.js TOP_GROUP_ORDER / TOP_GROUP_DISPLAY); согласованность
+# держит канарейка decomposition-view-parity.test.js.
+_TOP_GROUP_ORDER = ('БАЗА', 'МЕДИА', 'ВНЕШНИЕ ФАКТОРЫ', 'КОНКУРЕНТЫ')
+_TOP_GROUP_DISPLAY = {
+    'БАЗА': 'База',
+    'МЕДИА': 'Медиа',
+    'ВНЕШНИЕ ФАКТОРЫ': 'Внешние факторы',
+    'КОНКУРЕНТЫ': 'Конкуренты',
+}
+
+
+def collapse_series_to_top_groups(series: list, *, eps: float = 1e-6) -> list:
+    """Свёртка канонических серий в ≤4 агрегата верхнего уровня — ЗЕРКАЛО
+    свёрнутого режима фронта (decomposition-view.js planViewSeries с пустым
+    expanded). Обзорный timeline «4 группы» для отчётов (двухуровневость Т3-плюс).
+
+    Тождество (гарантия конструкции): поэлементная сумма data всех агрегатов ==
+    сумма data всех исходных серий (свёртка НЕ меняет значения). Стек-сторона
+    агрегата (side) — по знаку суммарного вклада группы.
+
+    Args:
+        series: список серий из build_decomposition_series (у каждой top_group|group).
+    Returns:
+        list[{'top_group', 'name'(display), 'side', 'data', 'member_count'}]
+        в каноническом порядке _TOP_GROUP_ORDER (только непустые группы).
+    """
+    if not series:
+        return []
+    n = max((len(s.get('data') or []) for s in series), default=0)
+
+    buckets: dict[str, list] = {}
+    for s in series:
+        tg = s.get('top_group') or _TOP_GROUP_MAP.get(s.get('group'), 'ВНЕШНИЕ ФАКТОРЫ')
+        buckets.setdefault(tg, []).append(s)
+
+    ordered = [g for g in _TOP_GROUP_ORDER if g in buckets]
+    ordered += [g for g in buckets if g not in _TOP_GROUP_ORDER]
+
+    out = []
+    for tg in ordered:
+        members = buckets[tg]
+        agg = [0.0] * n
+        for s in members:
+            d = s.get('data') or []
+            for t in range(min(n, len(d))):
+                v = d[t]
+                agg[t] += float(v) if v is not None else 0.0
+        total = sum(agg)
+        out.append({
+            'top_group': tg,
+            'name': _TOP_GROUP_DISPLAY.get(tg, tg),
+            'side': 'negative' if total < -eps else 'positive',
+            'data': [round(v, 1) for v in agg],
+            'member_count': len(members),
+        })
+    return out
+
 
 def build_decomposition_series(
     dates: list,

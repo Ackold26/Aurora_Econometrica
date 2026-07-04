@@ -164,12 +164,16 @@ def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
     for name, values in channel_series.items():
         data.add_series(_short(name), values)
     # Вынесенные факторы — теми же полосами, что в программе (тип несёт цвет).
+    # Т3-плюс: свёрнутый обзор 4 групп передаёт explicit 'rgb' на агрегат
+    # (тип-агностично), приоритет над _FACTOR_RGB[type].
     factor_types = []
+    factor_rgbs = []
     for f in (factor_series or []):
         if not f or not f.get("data"):
             continue
         data.add_series(_short(f.get("name")), f["data"])
         factor_types.append(f.get("type"))
+        factor_rgbs.append(f.get("rgb"))
     graphic_frame = slide.shapes.add_chart(
         XL_CHART_TYPE.AREA_STACKED,
         Inches(x_in), Inches(y_in), Inches(w_in), Inches(h_in),
@@ -190,9 +194,11 @@ def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
             if i < n_ch:
                 series.format.fill.fore_color.rgb = COLOR.data.channel_colors[i % len(COLOR.data.channel_colors)]
             else:
-                ftype = factor_types[i - n_ch] if (i - n_ch) < len(factor_types) else None
+                fi = i - n_ch
+                ftype = factor_types[fi] if fi < len(factor_types) else None
+                frgb = factor_rgbs[fi] if fi < len(factor_rgbs) else None
                 series.format.fill.fore_color.rgb = RGBColor.from_string(
-                    _FACTOR_RGB.get(ftype, '94A3B8'))
+                    frgb or _FACTOR_RGB.get(ftype, '94A3B8'))
 
     # Y-axis: format in millions. Excel format string "0,," collapses 25000000 → "25"
     # (each comma divides by 1000), suffix " М" appended for "25 М" display.

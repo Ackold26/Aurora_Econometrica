@@ -2262,17 +2262,29 @@ class AuroraPPTXBuilder:
 
             factor_series = None
             if ds and ds.get("series"):
-                # Аудит #12: тот же набор, что в программе — baseline_reduced +
-                # все медиа + вынесенные signed/holiday факторы (без double-count).
+                # Т3-плюс (двухуровневость): обзорный timeline свёрнут в 4 верхние
+                # группы (БАЗА·МЕДИА·ВНЕШНИЕ·КОНКУРЕНТЫ) — паритет с новым дефолтом
+                # программы (ChannelTimeline тоже свёрнут). Детализация вкладов —
+                # в waterfall (s06) и таблице каналов (s07). Тождество свёртки ==
+                # исходных гарантирует collapse_series_to_top_groups (SSOT).
+                from engines.decomposer import collapse_series_to_top_groups
                 ser = ds["series"]
-                _base = next((s for s in ser if s.get("role") == "baseline"), None)
                 tl_dates = list(ds.get("dates") or (ts or {}).get("dates") or [])
-                tl_baseline = list(_base["data"]) if _base else list((ts or {}).get("baseline") or [])
-                channel_dict = {s["name"]: list(s["data"]) for s in ser if s.get("role") == "media"}
+                collapsed = collapse_series_to_top_groups(ser)
+                _c_base = next((c for c in collapsed if c["top_group"] == "БАЗА"), None)
+                _c_media = next((c for c in collapsed if c["top_group"] == "МЕДИА"), None)
+                tl_baseline = (
+                    list(_c_base["data"]) if _c_base
+                    else list((ts or {}).get("baseline") or [])
+                )
+                channel_dict = {_c_media["name"]: list(_c_media["data"])} if _c_media else {}
+                # ВНЕШНИЕ/КОНКУРЕНТЫ — вынесенными полосами с explicit-цветом группы
+                # (зеркалит GROUP_COLORS фронта: amber / red).
+                _GROUP_RGB = {"ВНЕШНИЕ ФАКТОРЫ": "F59E0B", "КОНКУРЕНТЫ": "DC2626"}
                 factor_series = [
-                    {"name": s.get("name"), "type": s.get("type"),
-                     "side": s.get("side"), "data": list(s.get("data") or [])}
-                    for s in ser if s.get("role") == "factor"
+                    {"name": c["name"], "type": None, "rgb": _GROUP_RGB[c["top_group"]],
+                     "side": c["side"], "data": list(c["data"])}
+                    for c in collapsed if c["top_group"] in _GROUP_RGB
                 ]
             else:
                 # Legacy fallback (нет decomposition_series): медиа-only как раньше.

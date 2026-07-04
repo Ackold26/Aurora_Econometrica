@@ -275,22 +275,27 @@ class AuroraHTMLBuilder:
             except Exception:
                 ds = {"series": []}
         _ds_series = ds.get("series") or []
-        _base = next((s for s in _ds_series if s.get("role") == "baseline"), None)
-        ts_baseline = _base.get("data") if _base else (ts.get("baseline") or [])
-        # Normalize channel keys to match self.channels names (JS lookup
-        # data.channels[channel_order[i]]).
+        # Т3-плюс (двухуровневость): обзорный timeline свёрнут в 4 верхние группы
+        # (БАЗА·МЕДИА·ВНЕШНИЕ·КОНКУРЕНТЫ) — паритет с новым дефолтом программы
+        # (ChannelTimeline тоже свёрнут). Детализация вкладов — в waterfall и
+        # share-таблице. Тождество свёртки держит collapse_series_to_top_groups (SSOT).
+        from engines.decomposer import collapse_series_to_top_groups
+        _collapsed = collapse_series_to_top_groups(_ds_series)
+        _c_base = next((c for c in _collapsed if c["top_group"] == "БАЗА"), None)
+        _c_media = next((c for c in _collapsed if c["top_group"] == "МЕДИА"), None)
+        ts_baseline = _c_base["data"] if _c_base else (ts.get("baseline") or [])
         ts_channels: dict[str, list] = {}
         ts_channel_order: list[str] = []
-        for s in _ds_series:
-            if s.get("role") != "media":
-                continue
-            norm = _normalize_channel_name(s.get("name")) or s.get("name")
-            ts_channels[norm] = s.get("data") or []
-            ts_channel_order.append(norm)
+        if _c_media:
+            ts_channels[_c_media["name"]] = _c_media["data"]
+            ts_channel_order.append(_c_media["name"])
+        # ВНЕШНИЕ/КОНКУРЕНТЫ — полосами с explicit-цветом группы (зеркалит
+        # GROUP_COLORS фронта: amber / red); JS предпочитает f.rgb типовому цвету.
+        _GROUP_HEX = {"ВНЕШНИЕ ФАКТОРЫ": "#f59e0b", "КОНКУРЕНТЫ": "#dc2626"}
         ts_factors = [
-            {"name": s.get("name"), "type": s.get("type"), "group": s.get("group"),
-             "side": s.get("side"), "data": [float(v) for v in (s.get("data") or [])]}
-            for s in _ds_series if s.get("role") == "factor"
+            {"name": c["name"], "type": None, "group": None, "rgb": _GROUP_HEX[c["top_group"]],
+             "side": c["side"], "data": [float(v) for v in c["data"]]}
+            for c in _collapsed if c["top_group"] in _GROUP_HEX
         ]
 
         # ─── Optimize comparison ───────────────────────────────────────

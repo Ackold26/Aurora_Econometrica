@@ -38,9 +38,20 @@ function pyDict(source, varName) {
   return out;
 }
 
+/** Извлечь python-кортеж строк `(...)` по имени переменной (сохраняя порядок). */
+function pyTuple(source, varName) {
+  const i = source.indexOf(`${varName} = (`);
+  if (i === -1) throw new Error(`не найден ${varName} в decomposer.py`);
+  const j = source.indexOf(')', i);
+  const block = source.slice(i, j);
+  return [...block.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+}
+
 const PY = readFileSync(DECOMPOSER_PY, 'utf-8');
 const TOP_GROUP_MAP = pyDict(PY, '_TOP_GROUP_MAP');
 const FACTOR_GROUP_LABELS = pyDict(PY, '_FACTOR_GROUP_LABELS');
+const PY_TOP_GROUP_ORDER = pyTuple(PY, '_TOP_GROUP_ORDER');
+const PY_TOP_GROUP_DISPLAY = pyDict(PY, '_TOP_GROUP_DISPLAY');
 
 describe('парсинг decomposer.py (санити — иначе паритет тривиален)', () => {
   it('_TOP_GROUP_MAP распарсен и непуст', () => {
@@ -58,6 +69,14 @@ describe('паритет множества верхних групп', () => {
     const pyGroups = new Set(Object.values(TOP_GROUP_MAP));
     const jsGroups = new Set(TOP_GROUP_ORDER);
     expect([...pyGroups].sort()).toEqual([...jsGroups].sort());
+  });
+
+  it('порядок _TOP_GROUP_ORDER py == js (стек/легенда/отчёты в одном порядке)', () => {
+    expect(PY_TOP_GROUP_ORDER).toEqual(TOP_GROUP_ORDER);
+  });
+
+  it('подписи _TOP_GROUP_DISPLAY py == js (имя агрегата в отчёте == в программе)', () => {
+    expect(PY_TOP_GROUP_DISPLAY).toEqual(TOP_GROUP_DISPLAY);
   });
 });
 

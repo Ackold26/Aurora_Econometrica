@@ -363,7 +363,9 @@ def bootstrap_js(
       seasonality: '#8b5cf6', category: '#10b981', positive_control: '#06b6d4' }};
     (data.factors || []).forEach(function(f) {{
       if (!f || !f.data || !f.data.length) return;
-      var fcolor = FACTOR_COLORS[f.type] || pal.mutedColor;
+      // Т3-плюс: свёрнутый обзор передаёт explicit f.rgb на агрегат группы
+      // (приоритет над типовым цветом); детальные факторы — по типу как прежде.
+      var fcolor = f.rgb || FACTOR_COLORS[f.type] || pal.mutedColor;
       var label = (f.group ? f.group + ': ' : '') + f.name;
       series.push({{
         name: label, type: 'line', stack: (f.side === 'negative' ? 'neg' : 'total'),
