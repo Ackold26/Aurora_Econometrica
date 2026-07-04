@@ -477,14 +477,16 @@
       }
       const stack = p.side === 'negative' ? 'negative' : 'positive';
       seriesTopGroup[name] = p.topGroup;
-      // П1: id + groupId (== top_group) + universalTransition → при раскрытии
-      // агрегат «перетекает» в свои составляющие (one-to-many morph по groupId),
-      // а не резко заменяется. Деградирует безопасно, если движок не морфит.
+      // П1 (фикс Б-1 аудита №2): морф агрегат↔члены связывается через
+      // universalTransition.seriesKey — серии с ОДНИМ seriesKey морфятся
+      // (1→N divide / N→1 combine); series-level groupId в echarts НЕ существует
+      // (есть только data-item groupId для item-drilldown) и игнорировался →
+      // анимация была обычным fade. seriesKey = top_group: агрегат и его члены
+      // делят ключ; при неизменном составе id совпадают → морф тождественный.
       const ident = seriesIdentity(p);
       allSeries.push({
         id: ident.id,
-        groupId: ident.groupId,
-        universalTransition: { enabled: true, divideShape: 'clone' },
+        universalTransition: { enabled: true, seriesKey: ident.groupId, divideShape: 'clone' },
         name,
         type: 'line',
         stack,
@@ -736,11 +738,12 @@
     <div class="drill-chips" role="group" aria-label="Детализация декомпозиции">
       <span class="drill-hint">Детализация:</span>
       {#if viewModel.groups.length > 1}
+        <!-- Б-7: без aria-pressed — лейбл сам меняется («Развернуть/Свернуть всё»);
+             pressed+смена имени = двойной противоречивый сигнал для скринридера. -->
         <button
           type="button"
           class="chip chip-all"
           data-drill="__all__"
-          aria-pressed={allExpanded}
           onclick={toggleAll}
           title={allExpanded ? 'Свернуть все группы в 4 полосы' : 'Развернуть все группы на составляющие'}
         >

@@ -144,6 +144,9 @@ def _extract_chart_data(html: str) -> dict:
 
 
 def check_html(art: dict, tmpdir: str) -> dict:
+    """Т3-плюс (аудит №2 Б-4): timeline двухрежимный. detail обязан нести ВСЕ
+    медиа+факторы (прежняя суть полноты, Аудит #12); overview — ровно агрегаты
+    SSOT-свёртки collapse_series_to_top_groups (паритет с программой)."""
     from engines.html_export import build_html
     media, factors, _ = expected_factor_set(art['decompose'])
     out = os.path.join(tmpdir, 'fidelity.html')
@@ -157,19 +160,44 @@ def check_html(art: dict, tmpdir: str) -> dict:
     except Exception as e:
         return {'pass': False, 'detail': f'CHART_DATA parse fail: {e}'}
     tl = cd.get('timeline') or {}
-    series_names = [norm(k) for k in (tl.get('channels') or {}).keys()]
-    for f in (tl.get('factors') or []):
+    det = tl.get('detail') or {}
+    ovr = tl.get('overview') or {}
+    # 1) detail: полнота каналов и факторов.
+    series_names = [norm(k) for k in (det.get('channels') or {}).keys()]
+    for f in (det.get('factors') or []):
         series_names.append(norm(f.get('name') or f.get('label') or ''))
     missing = [m for m in sorted(media | factors) if not contains_any(m, series_names)]
-    return {'pass': not missing, 'detail': f'нет: {missing}' if missing else 'ok',
+    # 2) overview: набор агрегатов == SSOT-свёртка decomposition_series.
+    detail_msgs = []
+    ds_series = ((art['decompose'].get('decomposition_series') or {}).get('series')) or []
+    if ds_series:
+        from engines.decomposer import collapse_series_to_top_groups
+        expected_groups = {norm(c['name']) for c in collapse_series_to_top_groups(ds_series)}
+        got_groups = set()
+        if ovr.get('baseline'):
+            got_groups.add(norm(ovr.get('baseline_label') or ''))
+        got_groups |= {norm(k) for k in (ovr.get('channels') or {}).keys()}
+        got_groups |= {norm(f.get('name') or '') for f in (ovr.get('factors') or [])}
+        if expected_groups != got_groups:
+            detail_msgs.append(
+                f'overview-группы разошлись: ждали {sorted(expected_groups)}, '
+                f'получили {sorted(got_groups)}')
+    if missing:
+        detail_msgs.append(f'нет в detail: {missing}')
+    ok = not missing and not any('разошлись' in m for m in detail_msgs)
+    return {'pass': ok, 'detail': '; '.join(detail_msgs) or 'ok',
             'missing': missing, 'n_series': len(series_names)}
 
 
 # ── проверка C: PPTX отчёт ────────────────────────────────────────────────
 def check_pptx(art: dict, tmpdir: str) -> dict:
+    """Т3-плюс (аудит №2 Б-4): PPTX-timeline по канону — ОБЗОР 4 верхних групп
+    (паритет с дефолтом программы), детализация вкладов живёт в waterfall и
+    таблице каналов. Проверяем: каждая группа SSOT-свёртки присутствует серией
+    среди чартов деки (старый контракт «каждый канал/фактор серией timeline»
+    устарел вместе с переходом на свёрнутый обзор)."""
     from engines.pptx_export import build_pptx
     from pptx import Presentation
-    media, factors, _ = expected_factor_set(art['decompose'])
     out = os.path.join(tmpdir, 'fidelity.pptx')
     res = build_pptx(art['model'], art['decompose'], art['optimize'], out,
                      project_id='fidelity-test')
@@ -187,11 +215,15 @@ def check_pptx(art: dict, tmpdir: str) -> dict:
                     if nm:
                         series_names.append(norm(nm))
     series_names = [s for s in series_names if s]
-    # PPTX timeline должен содержать медиа И вынесенные факторы как серии.
-    missing_media = [m for m in sorted(media) if not contains_any(m, series_names)]
-    missing_fact = [m for m in sorted(factors) if not contains_any(m, series_names)]
-    missing = missing_media + missing_fact
-    return {'pass': not missing, 'detail': f'нет: {missing}' if missing else 'ok',
+    ds_series = ((art['decompose'].get('decomposition_series') or {}).get('series')) or []
+    if not ds_series:
+        return {'pass': True, 'detail': 'нет decomposition_series (legacy) — скип',
+                'missing': [], 'n_series': len(set(series_names))}
+    from engines.decomposer import collapse_series_to_top_groups
+    expected = [norm(c['name']) for c in collapse_series_to_top_groups(ds_series)]
+    missing = [g for g in expected if not contains_any(g, series_names)]
+    return {'pass': not missing,
+            'detail': f'нет групп: {missing}' if missing else 'ok',
             'missing': missing, 'n_series': len(set(series_names))}
 
 

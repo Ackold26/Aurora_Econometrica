@@ -216,10 +216,11 @@ export function symmetricPctBound(pct, step = 5) {
 
 /**
  * Стабильная identity echarts-серии для universalTransition (П1 плавное
- * раскрытие) и регрессии (П3). Все серии одной top_group несут ОДИН groupId →
- * при переходе свёрнуто↔развёрнуто ECharts морфит агрегат ↔ составляющие
- * (one-to-many divide по groupId). id уникален в пределах option (kind+topGroup+
- * name; name члена в пределах группы уникален).
+ * раскрытие) и регрессии (П3). Все серии одной top_group несут ОДИН groupId,
+ * который компонент подставляет в `universalTransition.seriesKey` — серии с
+ * одинаковым seriesKey ECharts морфит между setOption (1→N divide / N→1
+ * combine, фикс Б-1: series-level groupId в echarts не существует). id уникален
+ * в пределах option (kind+topGroup+name; name члена в пределах группы уникален).
  * @param {{kind:'group'|'member', topGroup:string, name:string}} p
  * @returns {{ id: string, groupId: string }}
  */

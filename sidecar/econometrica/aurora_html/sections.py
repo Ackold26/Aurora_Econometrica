@@ -1187,8 +1187,11 @@ def render_timeline(ctx: dict) -> str:
   <div class="chart-title-bar">
     <div>
       <div class="chart-title">Продажи по неделям · stacked area</div>
-      <div class="chart-subtitle">Декомпозиция: baseline + вклад каналов. Перетаскивайте ползунок для зума.</div>
+      <!-- Б-3 (аудит Т3+): подпись отражает двухрежимность (обзор групп ⇄ детально),
+           дефолт — обзор 4 групп в паритете с программой, а не «вклад каналов». -->
+      <div class="chart-subtitle">Декомпозиция по группам (обзор) или по каналам и факторам (детально). Ползунок - зум периода.</div>
     </div>
+    <button class="btn-inline" id="tl-view-toggle" title="Показать каналы и факторы по отдельности">Детально</button>
     <button class="btn-inline" data-copy-chart="chart-timeline">Сохранить PNG</button>
   </div>
   <div class="chart-host" id="chart-timeline" data-chart="timeline" style="height:420px;">

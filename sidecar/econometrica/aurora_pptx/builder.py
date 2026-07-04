@@ -2239,9 +2239,21 @@ class AuroraPPTXBuilder:
             timeline_axis_label,
             font=self.sans, size=9, bold=True, color=self.deep_80,
         )
+        # Б-2 (аудит Т3+): свёртку считаем ДО подписи — подпись перечисляет
+        # ФАКТИЧЕСКИЙ состав полос («База + Медиа + … · период»), а не устаревшее
+        # «вклад каждого канала» (после П2 полосы = 4 верхние группы).
+        ds = self.decomposition_series
+        _collapsed = None
+        if ds and ds.get("series"):
+            from engines.decomposer import collapse_series_to_top_groups
+            _collapsed = collapse_series_to_top_groups(ds["series"])
+        if _collapsed:
+            _tl_sub = " + ".join(c["name"] for c in _collapsed) + f" · {period_label}"
+        else:
+            _tl_sub = f"Базовый уровень + вклад каждого канала · {period_label}"
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
-            f"Базовый уровень + вклад каждого канала · {period_label}",
+            _tl_sub,
             font=self.sans, size=9, italic=True, color=self.deep_60,
         )
         # Hairline removed per brand rule - minimize horizontal lines
@@ -2251,7 +2263,6 @@ class AuroraPPTXBuilder:
         # AREA_STACKED chart (real data, real categorical x-axis). Otherwise
         # fall back to legacy preview/wireframe mode that paints stylized
         # rectangles week-by-week (Kagocel pilot bands).
-        ds = self.decomposition_series
         if (ds and ds.get("series")) or (ts and ts.get("dates") and ts.get("baseline")):
             from .charts import make_timeline_area
 
@@ -2261,22 +2272,22 @@ class AuroraPPTXBuilder:
             chart_inner_h = 2.8
 
             factor_series = None
-            if ds and ds.get("series"):
+            baseline_label = "Baseline"
+            if _collapsed:
                 # Т3-плюс (двухуровневость): обзорный timeline свёрнут в 4 верхние
                 # группы (БАЗА·МЕДИА·ВНЕШНИЕ·КОНКУРЕНТЫ) — паритет с новым дефолтом
                 # программы (ChannelTimeline тоже свёрнут). Детализация вкладов —
                 # в waterfall (s06) и таблице каналов (s07). Тождество свёртки ==
                 # исходных гарантирует collapse_series_to_top_groups (SSOT).
-                from engines.decomposer import collapse_series_to_top_groups
-                ser = ds["series"]
                 tl_dates = list(ds.get("dates") or (ts or {}).get("dates") or [])
-                collapsed = collapse_series_to_top_groups(ser)
-                _c_base = next((c for c in collapsed if c["top_group"] == "БАЗА"), None)
-                _c_media = next((c for c in collapsed if c["top_group"] == "МЕДИА"), None)
+                _c_base = next((c for c in _collapsed if c["top_group"] == "БАЗА"), None)
+                _c_media = next((c for c in _collapsed if c["top_group"] == "МЕДИА"), None)
                 tl_baseline = (
                     list(_c_base["data"]) if _c_base
                     else list((ts or {}).get("baseline") or [])
                 )
+                if _c_base:
+                    baseline_label = _c_base["name"]  # «База» — русская легенда (Б-2)
                 channel_dict = {_c_media["name"]: list(_c_media["data"])} if _c_media else {}
                 # ВНЕШНИЕ/КОНКУРЕНТЫ — вынесенными полосами с explicit-цветом группы
                 # (зеркалит GROUP_COLORS фронта: amber / red).
@@ -2284,7 +2295,7 @@ class AuroraPPTXBuilder:
                 factor_series = [
                     {"name": c["name"], "type": None, "rgb": _GROUP_RGB[c["top_group"]],
                      "side": c["side"], "data": list(c["data"])}
-                    for c in collapsed if c["top_group"] in _GROUP_RGB
+                    for c in _collapsed if c["top_group"] in _GROUP_RGB
                 ]
             else:
                 # Legacy fallback (нет decomposition_series): медиа-only как раньше.
@@ -2305,6 +2316,7 @@ class AuroraPPTXBuilder:
                 baseline=tl_baseline,
                 channel_series=channel_dict,
                 factor_series=factor_series,
+                baseline_label=baseline_label,
             )
 
             # Source at bottom (unified position, real-data variant)

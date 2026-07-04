@@ -275,28 +275,55 @@ class AuroraHTMLBuilder:
             except Exception:
                 ds = {"series": []}
         _ds_series = ds.get("series") or []
-        # Т3-плюс (двухуровневость): обзорный timeline свёрнут в 4 верхние группы
-        # (БАЗА·МЕДИА·ВНЕШНИЕ·КОНКУРЕНТЫ) — паритет с новым дефолтом программы
-        # (ChannelTimeline тоже свёрнут). Детализация вкладов — в waterfall и
-        # share-таблице. Тождество свёртки держит collapse_series_to_top_groups (SSOT).
+        # Т3-плюс (двухуровневость, полная форма — аудит №2 Б-5): timeline несёт
+        # ДВА режима. overview — свёртка в 4 верхние группы (паритет с дефолтом
+        # программы, SSOT collapse_series_to_top_groups); detail — прежний набор
+        # Аудита #12 (reduced baseline + каждый канал + вынесенные факторы).
+        # JS-кнопка «Детально ⇄ Обзор» переключает режимы без пересборки отчёта.
         from engines.decomposer import collapse_series_to_top_groups
         _collapsed = collapse_series_to_top_groups(_ds_series)
         _c_base = next((c for c in _collapsed if c["top_group"] == "БАЗА"), None)
         _c_media = next((c for c in _collapsed if c["top_group"] == "МЕДИА"), None)
-        ts_baseline = _c_base["data"] if _c_base else (ts.get("baseline") or [])
-        ts_channels: dict[str, list] = {}
-        ts_channel_order: list[str] = []
-        if _c_media:
-            ts_channels[_c_media["name"]] = _c_media["data"]
-            ts_channel_order.append(_c_media["name"])
         # ВНЕШНИЕ/КОНКУРЕНТЫ — полосами с explicit-цветом группы (зеркалит
         # GROUP_COLORS фронта: amber / red); JS предпочитает f.rgb типовому цвету.
         _GROUP_HEX = {"ВНЕШНИЕ ФАКТОРЫ": "#f59e0b", "КОНКУРЕНТЫ": "#dc2626"}
-        ts_factors = [
-            {"name": c["name"], "type": None, "group": None, "rgb": _GROUP_HEX[c["top_group"]],
-             "side": c["side"], "data": [float(v) for v in c["data"]]}
-            for c in _collapsed if c["top_group"] in _GROUP_HEX
-        ]
+        tl_overview = {
+            "baseline_label": _c_base["name"] if _c_base else "База",
+            "baseline": [float(v) for v in (_c_base["data"] if _c_base else (ts.get("baseline") or []))],
+            "channels": (
+                {_c_media["name"]: [float(v) for v in _c_media["data"]]} if _c_media else {}
+            ),
+            "channel_order": [_c_media["name"]] if _c_media else [],
+            "factors": [
+                {"name": c["name"], "type": None, "group": None,
+                 "rgb": _GROUP_HEX[c["top_group"]],
+                 "side": c["side"], "data": [float(v) for v in c["data"]]}
+                for c in _collapsed if c["top_group"] in _GROUP_HEX
+            ],
+        }
+        # Детальный режим — тот же состав, что до свёртки (канонические серии).
+        _base = next((s for s in _ds_series if s.get("role") == "baseline"), None)
+        _det_channels: dict[str, list] = {}
+        _det_order: list[str] = []
+        for s in _ds_series:
+            if s.get("role") != "media":
+                continue
+            norm = _normalize_channel_name(s.get("name")) or s.get("name")
+            _det_channels[norm] = [float(v) for v in (s.get("data") or [])]
+            _det_order.append(norm)
+        tl_detail = {
+            "baseline_label": "Базовый уровень",
+            "baseline": [
+                float(v) for v in ((_base.get("data") if _base else None) or ts.get("baseline") or [])
+            ],
+            "channels": _det_channels,
+            "channel_order": _det_order,
+            "factors": [
+                {"name": s.get("name"), "type": s.get("type"), "group": s.get("group"),
+                 "side": s.get("side"), "data": [float(v) for v in (s.get("data") or [])]}
+                for s in _ds_series if s.get("role") == "factor"
+            ],
+        }
 
         # ─── Optimize comparison ───────────────────────────────────────
         opt_chs = self.raw_optimize.get("channels") or []
@@ -345,13 +372,8 @@ class AuroraHTMLBuilder:
             },
             "timeline": {
                 "weeks":    ts_weeks,
-                "baseline": [float(v) for v in ts_baseline],
-                "channels": {
-                    name: [float(v) for v in series]
-                    for name, series in ts_channels.items()
-                },
-                "channel_order": ts_channel_order,
-                "factors": ts_factors,
+                "overview": tl_overview,
+                "detail":   tl_detail,
             },
             "optimize": {
                 "names":   opt_names,
