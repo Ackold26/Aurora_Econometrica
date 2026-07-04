@@ -367,6 +367,15 @@ class TrainRequest(BaseModel):
     # [{channel, date_from, date_to, lift_abs, lift_low?, lift_high?,
     #   confidence_level?, sigma_abs?, test_type?}]. Только bayesian.
     calibrations: list[dict] | None = None
+    # F-AUD-1 (аудит 2026-07-04): Pydantic v2 МОЛЧА отбрасывает поля вне схемы —
+    # тумблер «Авто-праздники РФ» и opt-out слались фронтом, но терялись здесь
+    # (боевое доказательство: Кагоцел use_holidays=false в project.json, а в
+    # pickle 12 инжектированных праздников). Флаги объявлены явно; движок
+    # читает config.get(..., default) — семантика не меняется, доставка чинится.
+    use_holidays: bool = True
+    disabled_holidays: list[str] = []
+    # Автосезонность (2026-07-04): мастер-флаг Фурье-компоненты сезонной волны.
+    use_seasonality: bool = True
 
 
 class TrainStartRequest(BaseModel):
@@ -392,6 +401,10 @@ class TrainStartRequest(BaseModel):
     channel_categories: dict[str, str] = {}
     # E2 (2026-07-03): см. TrainRequest.calibrations.
     calibrations: list[dict] | None = None
+    # F-AUD-1: см. TrainRequest — async-путь (GUI) страдал той же потерей флагов.
+    use_holidays: bool = True
+    disabled_holidays: list[str] = []
+    use_seasonality: bool = True
 
 
 class DecomposeRequest(BaseModel):

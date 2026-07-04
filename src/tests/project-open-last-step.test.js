@@ -82,4 +82,24 @@ describe('G-1: открытие проекта ведёт на последни�
     // lastComplete = 2 (Model) < 3 → НЕ откатываем на 2, оставляем 3.
     expect(get(pipelineCurrentStep)).toBe(3);
   });
+
+  it('уважает сохранённую ручную позицию >0 (не утаскивает вперёд)', async () => {
+    // Аудит 2026-07-04: пользователь сознательно стоял на Валидации (1) —
+    // например, правил роли. Reload/переоткрытие НЕ должно утащить его на
+    // последний complete (4). Поднимаем только с дефолтного 0.
+    mockResults({ model: true, decompose: true, optimize: true });
+    localStorage.setItem('econ-pipeline-meta-p-g1d', JSON.stringify({
+      currentStep: 1,
+      steps: [
+        { status: 'complete', errorMessage: null }, { status: 'complete', errorMessage: null },
+        { status: 'complete', errorMessage: null }, { status: 'complete', errorMessage: null },
+        { status: 'complete', errorMessage: null }, { status: 'ready', errorMessage: null },
+      ],
+    }));
+    activeProjectId.set('p-g1d');
+    activeProject.set(/** @type {any} */ ({ id: 'p-g1d' }));
+    resetPipeline('p-g1d');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(get(pipelineCurrentStep)).toBe(1); // остался на Валидации
+  });
 });

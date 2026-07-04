@@ -124,6 +124,24 @@ def test_master_flag_disables_seasonality(tmp_path):
     assert md.get('fourier_seasonality') is None
 
 
+def test_ols_filters_fourier_from_bayesian_config(tmp_path):
+    """Аудит 2026-07-04: config байесовской модели несёт season_fourier_* в
+    control_columns; train_ols (backtest mode='ols' окна / переключение движка)
+    не инжектит Фурье и падал бы KeyError на df[control_cols]. Фильтр в OLS
+    честно исключает runtime-колонки — обучение проходит."""
+    df = _seasonal_dataset(n=40, period=52)
+    data_file = tmp_path / 'ols.xlsx'
+    df.to_excel(data_file, index=False)
+
+    cfg = _config(data_file)
+    cfg['control_columns'] = [
+        'season_fourier_sin_1', 'season_fourier_cos_1',  # из bayesian-конфига
+    ]
+    from engines.ols_modeler import train_ols
+    r = train_ols(cfg, str(tmp_path))
+    assert r.get('status') == 'ok', r.get('message')
+
+
 def test_backtest_with_seasonality_not_error(tmp_path):
     """Регресс: backtest переобучает окна через train_model; Фурье-колонки
     из config.control_columns (полной модели) НЕ должны валить окна как

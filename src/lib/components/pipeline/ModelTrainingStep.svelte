@@ -68,6 +68,17 @@
     }
   });
 
+  // Аудит 2026-07-04 (регресс G-2-фикса): обратная симметрия. Компонент не
+  // размонтируется при смене проекта (панели visibility) — переключение
+  // A(с моделью)→B(без) оставляло stepState='trained' при diagnostics=null,
+  // и ConfigPanel показывал ложное «Обучено · Перетренировать» на проекте
+  // без модели. Диагностика исчезла извне (resetPipeline) → вернуть 'idle'.
+  $effect(() => {
+    if (stepState === 'trained' && !diagnostics && !activeTaskId) {
+      stepState = 'idle';
+    }
+  });
+
   // Онбординг - запуск когда модель обучена (есть и config, и результаты на экране).
   $effect(() => {
     if (typeof window === 'undefined') return;

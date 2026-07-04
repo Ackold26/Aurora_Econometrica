@@ -107,12 +107,18 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     # содержит «продажи», но это контроль, не целевая метрика. Идёт ПОСЛЕ derived
     # (market_share/доля рынка → unused выше, endogenous) — сюда попадает только
     # ОБЪЁМ рынка/категории, не доля.
-    CATEGORY_KEYS = [
-        'категори', 'вся категория', 'объем рынка', 'объём рынка', 'объем категории',
-        'объём категории', 'рынок всего', 'рынок в', 'category volume',
-        'total market', 'market volume', 'market sales', 'category sales',
-    ]
-    if any(k in lower for k in CATEGORY_KEYS):
+    # Аудит 2026-07-04: голое «категори» ловило текстовые колонки-атрибуты
+    # («Категория», «Категория канала») → control для строкового столбца →
+    # падение обучения на astype(float). Комбинированное условие: ТЕМА
+    # (категория/рынок) И ОБЪЁМНОЕ слово (продажи/объём/руб/...) — только
+    # числовой объём рынка проходит; атрибуты-классификаторы не задеваются.
+    _CATEGORY_THEME = ('категори', 'рынок', 'рынк', 'market', 'category')
+    _CATEGORY_VOLUME = (
+        'продаж', 'объем', 'объём', 'руб', 'уп.', 'уп ', 'шт', 'спрос', 'всего',
+        'sales', 'volume', 'units', 'value', 'total', 'demand',
+    )
+    if (any(k in lower for k in _CATEGORY_THEME)
+            and any(v in lower for v in _CATEGORY_VOLUME)):
         return 'control', 0.85
 
     # Count pattern matches per category

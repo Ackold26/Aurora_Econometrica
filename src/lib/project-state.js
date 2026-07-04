@@ -1204,10 +1204,12 @@ function reconcileStepMetaFromDisk(flags) {
   // готовый проект, вести пользователя на последний ПРОЙДЕННЫЙ шаг. Иначе при
   // currentStep=0 (Импорт) stepper (monotonic visual invariant в PipelineStepper)
   // понижает все complete-шаги впереди до 'ready' — готовая работа выглядит
-  // непройденной, что принижает результат (против INV-50 честности). Догоняем
-  // позицию до факта на диске; НЕ откатываем, если пользователь уже дальше.
+  // непройденной, что принижает результат (против INV-50 честности).
+  // Аудит 2026-07-04: поднимаем ТОЛЬКО с позиции 0 (дефолт свежей меты — это
+  // и есть паразитный случай G-1). Сохранённая позиция >0 — осознанный выбор
+  // пользователя («где остановился»), reload не должен утаскивать его вперёд.
   const lastComplete = stepStatuses.findLastIndex(s => s === 'complete');
-  if (lastComplete > get(pipelineCurrentStep)) {
+  if (get(pipelineCurrentStep) === 0 && lastComplete > 0) {
     pipelineCurrentStep.set(lastComplete);
   }
 

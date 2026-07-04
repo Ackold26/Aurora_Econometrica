@@ -97,4 +97,31 @@ describe('G-2 холодный старт: восстановление моде
       { timeout: 2000 },
     );
   });
+
+  it('аудит: смена проекта (диагностика исчезла) сворачивает блок и не лжёт «Обучено»', async () => {
+    // Компонент не размонтируется при смене проекта (панели visibility) —
+    // без обратного сброса stepState залипал 'trained' и кнопка показывала
+    // «Обучено · Перетренировать» на проекте БЕЗ модели.
+    mockInvokeIdle();
+    modelData.set({
+      diagnostics: diagnosticsFixture(),
+      channelParams: null,
+      picklePath: 'C:/fake/project/models/latest.pkl',
+      normalization: null,
+    });
+    const { container } = render(ModelTrainingStep);
+    await waitFor(() => {
+      expect(container.querySelector('#model-results-anchor')).toBeTruthy();
+    }, { timeout: 2000 });
+
+    // Переключение проекта: resetPipeline сбрасывает modelData.
+    modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
+    await waitFor(() => {
+      expect(container.querySelector('#model-results-anchor')).toBeFalsy();
+    }, { timeout: 2000 });
+    // Кнопка обучения вернулась к «Запустить модель» (не ложное «Обучено»).
+    const runBtn = [...container.querySelectorAll('button')]
+      .find((b) => /Запустить модель|Обучено/.test(b.textContent || ''));
+    expect(runBtn?.textContent).toMatch(/Запустить модель/);
+  });
 });

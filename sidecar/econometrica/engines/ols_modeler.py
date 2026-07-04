@@ -92,6 +92,19 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     control_cols = config.get('control_columns', [])
     adstock_config = config.get('adstock_config', {}) or {}
 
+    # Аудит 2026-07-04: OLS-путь Фурье-сезонность не инжектит (упрощённый движок),
+    # но config байесовской модели несёт season_fourier_* в control_columns
+    # (backtest mode='ols' окна / переключение движка) — в сыром файле их нет,
+    # df[control_cols] упал бы KeyError. Фильтруем runtime-колонки честно.
+    from utils.fourier_seasonality import FOURIER_COL_PREFIX as _FOURIER_PREFIX
+    _fourier_dropped = [c for c in control_cols if str(c).startswith(_FOURIER_PREFIX)]
+    if _fourier_dropped:
+        control_cols = [c for c in control_cols if c not in _fourier_dropped]
+        logger.info(
+            'OLS: %d Фурье-контролей сезонности исключены (OLS без сезонной '
+            'компоненты; байесовский режим учитывает её).', len(_fourier_dropped),
+        )
+
     if kpi_col not in df.columns:
         return {'status': 'error', 'message': f'KPI column "{kpi_col}" not found'}
 
