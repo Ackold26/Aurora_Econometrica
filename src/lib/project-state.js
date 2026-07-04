@@ -1199,6 +1199,18 @@ function reconcileStepMetaFromDisk(flags) {
       pipelineCurrentStep.set(lastUsable);
     }
   }
+
+  // G-1 (2026-07-04, решение Антона: «открывать на последнем шаге»): открыв
+  // готовый проект, вести пользователя на последний ПРОЙДЕННЫЙ шаг. Иначе при
+  // currentStep=0 (Импорт) stepper (monotonic visual invariant в PipelineStepper)
+  // понижает все complete-шаги впереди до 'ready' — готовая работа выглядит
+  // непройденной, что принижает результат (против INV-50 честности). Догоняем
+  // позицию до факта на диске; НЕ откатываем, если пользователь уже дальше.
+  const lastComplete = stepStatuses.findLastIndex(s => s === 'complete');
+  if (lastComplete > get(pipelineCurrentStep)) {
+    pipelineCurrentStep.set(lastComplete);
+  }
+
   savePipelineMeta(get(activeProjectId), {
     currentStep: get(pipelineCurrentStep),
     steps: get(pipelineStepMeta),

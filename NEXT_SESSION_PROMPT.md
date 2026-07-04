@@ -11,15 +11,19 @@
 
 - Ветка **запушена**: `feat/econ-e1-backtest` @e274f68 (+ живой прогон: G-2, G-4) и
   `feat/econ-commercial-readiness` @83533ad. Merge/PR — решение Антона.
-- **Живой GUI-прогон (2026-07-04) вскрыл и закрыл 2 бага холодного старта:**
+- **Живой GUI-прогон (2026-07-04) вскрыл и закрыл 3 UI-бага холодного старта:**
   · **G-2** (dfc82c6): открытие сохранённого проекта → шаг «Модель» не восстанавливал
     модель, карточки E1/E3 не монтировались (гейт локального stepState). Фикс `$effect`.
   · **G-4** (e274f68): PromisesCard не обновлялась после «Зафиксировать прогноз»
     (onMount-однократность + visibility-навигация). Фикс promisesVersion-триггер.
-  · Оба — класс [[feedback_onmount_once_stale_under_visibility_nav]] (юнит не ловит).
+  · **G-1** (решение Антона A): stepper показывал готовый проект непройденным
+    (currentStep=0 + monotonic invariant). Фикс: reconcile ведёт currentStep на
+    последний complete-шаг. Живьём: открытие → на Оптимизации, весь путь зелёный.
+  · G-2/G-4 — класс [[feedback_onmount_once_stale_under_visibility_nav]] (юнит не ловит).
+  · G-3 (use_holidays) и E2 CalibrationPanel разобраны — НЕ баги.
   · PPTX/HTML проверены артефактом (13 слайдов, витрина №6, 0 wireframe; HTML trust+TOC).
   · Реестр прогона: `TEST_FINDINGS_GUI_2026_07_04.md`.
-- Гейты зелёные: python 58+ · vitest 794/794 · svelte-check 0 · verify 43/43 · cargo.
+- Гейты зелёные: python 58+ · vitest 797 · svelte-check 0 · verify 43/43 · cargo.
 - Отчёты: `docs/audits/{COMMERCIAL_READINESS,E1_BACKTEST,UX_AUDIT,E3_LIFECYCLE,E2_E4}_2026_07.md`.
 - Мат-истина дополнена: `docs/MATH_REFERENCE.md` §«Trust loop E1–E4».
 
