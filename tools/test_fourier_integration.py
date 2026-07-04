@@ -122,3 +122,26 @@ def test_master_flag_disables_seasonality(tmp_path):
 
     md = _load_pickle(tmp_path)
     assert md.get('fourier_seasonality') is None
+
+
+def test_backtest_with_seasonality_not_error(tmp_path):
+    """Регресс: backtest переобучает окна через train_model; Фурье-колонки
+    из config.control_columns (полной модели) НЕ должны валить окна как
+    «отсутствующие контроли». Инжект перенесён ДО валидации control + синхро
+    control_cols с df. Ожидание: backtest status ok, окна отработали."""
+    df = _seasonal_dataset(n=110, period=52)
+    data_file = tmp_path / 'seasonal.xlsx'
+    df.to_excel(data_file, index=False)
+
+    from engines.modeler import train_model
+    from engines.backtest import run_rolling_backtest
+    r = train_model(_config(data_file), str(tmp_path))
+    assert r.get('status') == 'ok', r.get('message')
+    # Убедимся, что Фурье реально инжектированы (иначе тест не проверяет баг).
+    assert _load_pickle(tmp_path).get('fourier_seasonality') is not None
+
+    bt = run_rolling_backtest(str(tmp_path), max_windows=3, save=False)
+    assert bt.get('status') == 'ok', (
+        f"backtest упал: {bt.get('message')} | failed={bt.get('failed_windows')}"
+    )
+    assert bt.get('n_windows', 0) >= 1
