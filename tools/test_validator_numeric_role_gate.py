@@ -172,3 +172,34 @@ class TestKpiPatternsLeads:
         assert det('leads')[0] == 'kpi'
         assert det('Лиды')[0] == 'kpi'
         assert det('Заявки')[0] == 'kpi'
+
+
+class TestPairExampleRoles:
+    """Аудит №5 (2026-07-05): роли имён парных примеров + честный short_period."""
+
+    def test_apteka_contacts_is_media(self):
+        from engines.validator import detect_column_role_with_confidence as det
+        assert det('apteka_contacts')[0] == 'media'   # Д-1
+
+    def test_promo_indicator_is_control(self):
+        from engines.validator import detect_column_role_with_confidence as det
+        assert det('promo_indicator')[0] == 'control'  # Д-2: не медиа-канал с ROI
+
+    def test_short_period_uses_date_span_not_row_count(self, tmp_path):
+        """Д-3: 36 МЕСЯЦЕВ (3 года) — предупреждения НЕТ; 6 месяцев — ЕСТЬ."""
+        import pandas as pd
+        long_df = pd.DataFrame({
+            'date': pd.date_range('2022-01-01', periods=36, freq='ME').strftime('%Y-%m-%d'),
+            'sales': range(100, 136),
+            'tv_spend': range(10, 46),
+            'digital_spend': range(5, 41),
+        })
+        f1 = tmp_path / 'long.xlsx'; long_df.to_excel(f1, index=False)
+        r1 = validate_data(str(f1))
+        assert not any(w.get('type') == 'short_period' for w in r1['warnings']), \
+            '3 года месячных данных не должны пугать «менее 1 года»'
+
+        short_df = long_df.head(6)
+        f2 = tmp_path / 'short.xlsx'; short_df.to_excel(f2, index=False)
+        r2 = validate_data(str(f2))
+        assert any(w.get('type') == 'short_period' for w in r2['warnings'])

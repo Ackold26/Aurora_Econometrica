@@ -356,6 +356,7 @@
         for (const col of expressPlan.disable) next[col] = false;
         return next;
       });
+      persistPairToggles(); // Д-6: durable, иначе ConfigPanel перетрёт развязку
     }
     analysisMode.set('roi');
     const m = deriveModeWithExplanation(expressPlan.uniform);
@@ -514,6 +515,19 @@
   // 3A (verified live 2026-06-03): флаг «physical-канал без CPP в Expert-режиме».
   let expertCppMissing = $state(false);
 
+  /** Д-6 (аудит №5): развязка пар durable — resolveChannelEnabled на шаге
+   *  Модели читает project.model_channel_enabled (persisted boolean имеет
+   *  приоритет); без записи сюда карта пересобралась бы из дефолтов и обе
+   *  колонки пары ушли бы в фит (коллинеарность). Тихий довесок, не блокирует. */
+  function persistPairToggles() {
+    const pid = get(activeProjectId);
+    if (!pid) return;
+    invoke('project_update', {
+      projectId: pid,
+      updates: { model_channel_enabled: get(modelChannelEnabled) },
+    }).catch(() => { /* silent */ });
+  }
+
   /** @param {Record<string, string>} selection */
   function handlePerChannelConfirm(selection) {
     // ПАРЫ (2026-07-05): selection приходит по БАЗАМ каналов (селектор группирует
@@ -530,6 +544,8 @@
       for (const col of disable) next[col] = false;
       return next;
     });
+    persistPairToggles(); // Д-6: без durable ConfigPanel пересоберёт карту из
+                          // project.model_channel_enabled и перетёр бы развязку
     currentPerChannel = typed;
     perChannelInput.set(typed);
     // 3A (verified live 2026-06-03 desktop-control): Expert-путь должен соблюдать
@@ -867,12 +883,39 @@
   // (project-state.js). Единственное определение CPP-гейта; тот же предикат
   // защищает chokepoint completeStep(1). channels = prop (media из validateData,
   // +page.svelte:39-45). Поведение байт-в-байт с прежним inline $derived.by.
+  // Д-7 (аудит №5): cppSatisfied оперирует ИМЕНАМИ КОЛОНОК (perChannelInput и
+  // unitCosts ключуются колонками) — после перехода channels на БАЗЫ каналов
+  // (пары) подача баз делала physical-выбор невидимым гейту (pci['tv'] пуст →
+  // детект по базе → не physical → пропуск без CPP = класс ROI-артефакта
+  // 12186×). Передаём активные model-колонки: до подтверждения — все колонки
+  // пар (поведение идентично прежнему до-парному), после — без выключенных
+  // физ/₽-половин.
+  const pairColumns = $derived(
+    Object.values(availableMetricsByChannel)
+      .flatMap((o) => [...(o?.monetary ?? []), ...(o?.physical ?? [])])
+  );
+  const activeModelColumns = $derived(
+    pairColumns.filter((c) => $modelChannelEnabled?.[c] !== false)
+  );
   const allChannelsConfigured = $derived(cppSatisfied({
-    channels,
+    channels: activeModelColumns,
     perChannelInput: $perChannelInput,
     unitCosts: $unitCosts,
     analysisMode: $analysisMode,
   }));
+
+  // Д-9/Д-10: выбранная метрика ПО БАЗЕ (из per-колоночного perChannelInput) —
+  // для сводки Manager и предвыбора radio селектора после reload.
+  const selectionByBase = $derived.by(() => {
+    /** @type {Record<string, 'monetary' | 'physical'>} */
+    const out = {};
+    const pci = $perChannelInput ?? {};
+    for (const [base, opts] of Object.entries(availableMetricsByChannel)) {
+      if ((opts?.physical ?? []).some((/** @type {string} */ c) => pci[c] === 'physical')) out[base] = 'physical';
+      else if ((opts?.monetary ?? []).some((/** @type {string} */ c) => pci[c] === 'monetary')) out[base] = 'monetary';
+    }
+    return out;
+  });
 
   // NAV-2/3A-FOOTER-BYPASS guard (2026-06-04): completeStep(1) — one-way latch (никогда не
   // ре-локает). Если Модель ('ready') разлочена, но пользователь НЕ на финальном подшаге
@@ -1253,7 +1296,8 @@
     <AppliedModeSummary
       channels={channels.map((name) => ({
         name,
-        detectedType: $perChannelInput?.[name] ?? detectChannelType(name),
+        // Д-9: выбор хранится per-колонке — показываем метрику базы из развязки.
+        detectedType: selectionByBase[name] ?? $perChannelInput?.[name] ?? detectChannelType(name),
       }))}
       channelSums={channelSums}
       excludedChannelNames={excludedMediaNames}
@@ -1291,7 +1335,7 @@
       channels={channels}
       availableMetricsByChannel={availableMetricsByChannel}
       columnStats={columnStats}
-      currentSelection={currentPerChannel}
+      currentSelection={Object.keys(selectionByBase).length ? selectionByBase : currentPerChannel}
       onConfirm={handlePerChannelConfirm}
     />
   {:else if subStep === 3}

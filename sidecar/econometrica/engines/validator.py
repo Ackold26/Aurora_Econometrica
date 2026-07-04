@@ -27,6 +27,9 @@ MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'vie
                   'ooh', 'outdoor', 'оон', 'наружн',
                   # OTS (Opportunity To See) - impression-like metric for OOH/TV
                   'ots',
+                  # Аудит примеров Д-1 (2026-07-05): контакты как Media KPI пар
+                  # (OOH/indoor/аптечные экраны) + аптечная сеть как носитель.
+                  'contact', 'контакт', 'apteka', 'аптек',
                   # TV (television) - English + Russian
                   'tv', 'television', 'тв ', 'тв_', 'тв-',
                   'promo', 'промо']
@@ -84,6 +87,12 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     COMPETITOR_KEYS = ['конкурент', 'конк.', 'конк ', 'competitor']
     if any(k in lower for k in COMPETITOR_KEYS):
         return 'control', 0.90
+
+    # Аудит примеров Д-2 (2026-07-05): *_indicator / индикатор — бинарный
+    # флаг-контрол по семантике (promo_indicator и т.п.); без override слово
+    # «promo» из MEDIA_PATTERNS утаскивало его в медиа-канал с ROI.
+    if 'indicator' in lower or 'индикатор' in lower:
+        return 'control', 0.85
 
     # BUG #3 fix (v2.0.1): derived metrics (SOM / SOV / market_share) — это
     # ratio computed from KPI (brand_sales / total_market). Использование как
@@ -575,11 +584,46 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'severity': 'warning',
             })
 
-    period_weeks = n_rows  # assume weekly
-    if period_weeks < 52:
+    # Аудит примеров Д-3 (2026-07-05): раньше n_rows считались НЕДЕЛЯМИ
+    # («36 наблюдений — менее 1 года» на 3 ГОДАХ месячных данных — ложный
+    # испуг у любого месячного клиента). Теперь длительность — по реальному
+    # диапазону дат; счёт наблюдений — второй, гранулярно-нейтральный критерий.
+    span_days = None
+    if date_col:
+        _dc = next((c for c in columns if c.get('name') == date_col), None)
+        _ds = (_dc or {}).get('date_stats') or {}
+        try:
+            _mn = pd.to_datetime(_ds.get('min_date'))
+            _mx = pd.to_datetime(_ds.get('max_date'))
+            if pd.notna(_mn) and pd.notna(_mx):
+                span_days = int((_mx - _mn).days)
+        except Exception:
+            span_days = None
+    if span_days is not None:
+        if span_days < 358:  # < ~1 года по календарю
+            warnings.append({
+                'type': 'short_period',
+                'message': (
+                    f'Период данных ~{max(span_days, 0)} дн. (< 1 года): сезонность и '
+                    f'длинные эффекты каналов не идентифицируются надёжно. '
+                    f'Рекомендуем ≥1 год, лучше ≥2 лет.'
+                ),
+                'severity': 'warning',
+            })
+        elif n_rows < 24:
+            warnings.append({
+                'type': 'short_period',
+                'message': (
+                    f'{n_rows} наблюдений — мало точек для устойчивой оценки '
+                    f'(adstock+Hill на канал). Рекомендуем ≥24 периода.'
+                ),
+                'severity': 'warning',
+            })
+    elif n_rows < 52:
+        # Нет валидной даты — консервативный старый критерий.
         warnings.append({
             'type': 'short_period',
-            'message': f'{period_weeks} наблюдений - менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
+            'message': f'{n_rows} наблюдений - менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
             'severity': 'warning',
         })
 
