@@ -368,6 +368,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
 
     diagnostics = {
         'engine': 'ols',
+        # Аудит 2026-07-04 (F-2): честный статус сезонности для UI-строки
+        # SeasonalityControl. OLS не инжектит Фурье (F-AUD-4 фильтрует) — без
+        # ключа компонент вечно показывал бы «Обучите модель, чтобы увидеть»
+        # ПОСЛЕ обучения (ложь). reason='ols_mode' → своя честная формулировка.
+        'seasonality': {'detected': False, 'reason': 'ols_mode'},
         'n_obs': n_obs,
         'n_params': p,
         'dof': dof,

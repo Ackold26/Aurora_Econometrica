@@ -41,6 +41,25 @@ class TestClassifyCategory:
     def test_not_category(self, name, expected):
         assert classify_column(name) == expected, f'{name} → {classify_column(name)}'
 
+    @pytest.mark.parametrize("name", [
+        # Аудит 2026-07-04 (F-1): derived-метрики (доля/share/SOM/SOV) = ТЕМА+ОБЪЁМ,
+        # но ЭНДОГЕННЫ (производные от KPI) — обязаны НЕ попадать в category, иначе
+        # при ручном назначении контролем в Roles UI получают positive-leaning prior.
+        'Доля рынка в руб',
+        'Доля рынка руб',
+        'Доля категории в продажах',
+        'Market share value',
+        'SOM в руб. категория',
+        'share of market total',
+        'value share категории',
+    ])
+    def test_derived_not_category(self, name):
+        got = classify_column(name)
+        assert got != 'category', (
+            f'F-1: derived-метрика {name!r} попала в category ({got}) — '
+            f'эндогенная доля получила бы positive prior'
+        )
+
 
 class TestCategorySuggestion:
     def _mk(self, tmp_path, extra_cols):

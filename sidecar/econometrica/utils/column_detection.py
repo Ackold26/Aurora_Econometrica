@@ -510,11 +510,19 @@ def classify_column(column_name: str) -> ColumnKind:
     # Category demand (Фаза Б, 2026-07-04): ТЕМА(категория/рынок) И ОБЪЁМ(продажи/руб/...)
     # — экзогенный контроль спроса. Комбо-условие (не single-pattern) → не в registry
     # export; проверяется ДО generic control/target, иначе «Продажи категории руб» ушло
-    # бы в target_monetary (по «продаж...руб»). Derived (доля рынка/SOM) сюда не доходит:
-    # validator помечает их unused → не попадают в control_cols → modeler их не видит.
+    # бы в target_monetary (по «продаж...руб»).
+    # 🔴 Аудит 2026-07-04 (F-1): derived-гейт ОБЯЗАТЕЛЕН и здесь, не только в validator.
+    # «Доля рынка в руб» / «Market share value» / «SOM в руб. категория» = ТЕМА+ОБЪЁМ →
+    # без гейта падали в category → prior mu 0.3 positive-leaning на ЭНДОГЕННУЮ
+    # производную от KPI (доля = brand/total). Авто-путь validator даёт им unused, но
+    # ручной override в Roles UI кладёт колонку в control_columns → modeler зовёт
+    # classify_column напрямую → prior-утечка. Доля/share/SOM/SOV → НЕ category
+    # (упадут в unknown → честный zero-centered prior).
     _lower_cat = column_name.lower()
+    _DERIVED_MARKERS = ('доля', 'share', 'som', 'sov')
     if (any(k in _lower_cat for k in _CATEGORY_THEME)
-            and any(v in _lower_cat for v in _CATEGORY_VOLUME)):
+            and any(v in _lower_cat for v in _CATEGORY_VOLUME)
+            and not any(d in _lower_cat for d in _DERIVED_MARKERS)):
         return 'category'
 
     # Positive controls (distribution, trade_activity)

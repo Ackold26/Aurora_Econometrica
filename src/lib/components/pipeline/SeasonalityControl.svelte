@@ -32,9 +32,10 @@
     'или сезонность заведомо отсутствует — модель станет проще. Сезонность ' +
     'учитывается только при ≥2 полных циклах в данных (иначе её нельзя оценить честно).';
 
-  // Статус после обучения: diagnostics.seasonality = {detected, period, n_harmonics, autocorr, granularity}.
+  // Статус после обучения: diagnostics.seasonality = {detected, period, n_harmonics,
+  // autocorr, granularity} | {detected:false} | {detected:false, reason:'ols_mode'}.
   const season = $derived(
-    /** @type {{detected: boolean, period?: number, n_harmonics?: number, autocorr?: number, granularity?: string} | null} */
+    /** @type {{detected: boolean, period?: number, n_harmonics?: number, autocorr?: number, granularity?: string, reason?: string} | null} */
     ($modelData?.diagnostics?.seasonality ?? null)
   );
 
@@ -92,6 +93,11 @@
         <p class="season-note detected">
           Сезонность учтена: {periodLabel(season.period ?? 0, season.granularity ?? 'W')} период{#if season.autocorr != null}, сила связи ρ={season.autocorr.toFixed(2)}{/if}.
           Сезонный спрос отделён от вклада рекламы.
+        </p>
+      {:else if season.reason === 'ols_mode'}
+        <p class="season-note none">
+          В упрощённом режиме (мало данных) сезонная компонента не используется —
+          она доступна в основном режиме обучения.
         </p>
       {:else}
         <p class="season-note none">

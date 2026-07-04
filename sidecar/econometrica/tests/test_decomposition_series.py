@@ -139,6 +139,23 @@ def test_seasonality_pct_of_base_zero_guard():
     assert season['pct_of_base'][1] == 0.0
 
 
+def test_seasonality_pct_of_base_degenerate_small_base_guard():
+    """Аудит 2026-07-04 (H3, INV-50): база, упавшая в шум (<1% среднего |base|),
+    не даёт дезинформирующих «+4000%» — период честно получает 0.0."""
+    dates = ['w1', 'w2', 'w3']
+    # base после выноса: [1000, 0.5, 1000] — w2 вырожденно мал (шумовой остаток).
+    baseline = [1020.0, 20.5, 980.0]
+    channels = {'TV': [0.0, 0.0, 0.0]}
+    sfc = {'Сезонность': {'type': 'seasonality', 'per_period': [20.0, 20.0, -20.0]}}
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    season = next(s for s in res['series'] if s['type'] == 'seasonality')
+    # w2: base=0.5 < 1%·((1000+0.5+1000)/3≈667) ≈ 6.7 → guard → 0.0 (не +4000%)
+    assert season['pct_of_base'][1] == 0.0
+    # w1/w3 — нормальные проценты (не задеты guard'ом)
+    assert season['pct_of_base'][0] == 2.0   # 100·20/1000
+    assert season['pct_of_base'][2] == -2.0  # 100·(−20)/1000
+
+
 def test_seasonality_identity_preserved():
     """Тождество base_reduced + Σфакторы + Σмедиа == исходный total с сезонностью."""
     dates = ['w1', 'w2', 'w3', 'w4']

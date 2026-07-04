@@ -403,12 +403,20 @@ def build_decomposition_series(
     # «Сезонность» относительный ряд pct_of_base[t] = 100·эффект[t]/base[t], где
     # base — ФИНАЛЬНАЯ базовая линия после выноса всех факторов (baseline_reduced
     # уже досчитан циклом выше). Подача «февраль +60% к базе» — мультипликативная,
-    # хотя модель аддитивна. Guard деления на ~0 (короткий/нулевой baseline).
+    # хотя модель аддитивна.
+    # Guard (аудит 2026-07-04, INV-50): не только ~0, но и ВЫРОЖДЕННО МАЛАЯ база —
+    # деление на базу, упавшую в шум (<1% от среднего |base| по ряду), даёт
+    # дезинформирующие «+4000% к базе». Такие периоды честно получают 0.0.
+    _base_scale = (
+        sum(abs(v) for v in baseline_reduced) / len(baseline_reduced)
+        if baseline_reduced else 0.0
+    )
+    _base_floor = max(eps, 0.01 * _base_scale)
     for b in bands:
         if b['type'] == 'seasonality':
             b['pct_of_base'] = [
                 round(b['data'][t] / baseline_reduced[t] * 100, 1)
-                if t < len(baseline_reduced) and abs(baseline_reduced[t]) > eps else 0.0
+                if t < len(baseline_reduced) and abs(baseline_reduced[t]) > _base_floor else 0.0
                 for t in range(len(b['data']))
             ]
 
