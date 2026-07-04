@@ -63,6 +63,10 @@ export function buildTrainConfig(state) {
     useHolidays,
   } = state;
 
+  // 🔴 ЯКОРЬ (У2, 2026-07-04): каждый ключ этого объекта ДОЛЖЕН быть объявлен в
+  // server.py TrainRequest И TrainStartRequest, иначе Pydantic v2 молча его
+  // отбросит (класс F-AUD-1: тумблер-декорация). При добавлении флага в обучение
+  // обнови обе схемы; канарейка tools/test_frontend_schema_parity.py это стережёт.
   return {
     project_dir: projectDir,
     data_file: dataFile,

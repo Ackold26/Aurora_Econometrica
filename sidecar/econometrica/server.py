@@ -375,6 +375,9 @@ class TrainRequest(BaseModel):
     use_holidays: bool = True
     disabled_holidays: list[str] = []
     # Автосезонность (2026-07-04): мастер-флаг Фурье-компоненты сезонной волны.
+    # 🔴 ЯКОРЬ (У2): флаги обучения обязаны быть в ОБЕИХ схемах (Train+TrainStart)
+    # И в train-config.js buildTrainConfig — иначе поле теряется (F-AUD-1).
+    # Стережёт tools/test_frontend_schema_parity.py.
     use_seasonality: bool = True
 
 
