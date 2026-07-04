@@ -125,7 +125,70 @@ worse_than_naive: на Kagocel/MMX backtest-витрина честно брак
   КОНКУРЕНТЫ→ signed_competitor факторы (± двунаправленно)
 ```
 
-## ⏳ СЛЕДУЮЩЕЕ — РЕАЛИЗАЦИЯ ОТОБРАЖЕНИЯ (приоритет; recon СДЕЛАН — инфра ГОТОВА)
+## ✅ Т1+Т2+У4 BACKEND-ЯДРО ДЕКОМПОЗИЦИИ 4-ГРУПП ГОТОВО (2026-07-04, коммит 10ab909 на origin)
+- **Т1 — Фурье → видимый фактор «Сезонность»:** `column_detection` — новый kind
+  `'seasonality'` (паттерн `season_fourier`, registry+priority, паритет-якорь с
+  FOURIER_COL_PREFIX); `modeler` — явная ветка prior mu=0.0 zero-centered (защита
+  семантики sin/cos, поведение не изменилось — else уже давал 0.0, red-team ✓);
+  `decomposer` — агрегация 2K sin/cos в ОДИН фактор «Сезонность» (ключ 'Сезонность',
+  без beta_mean), вынос полосой из baseline, `_BREAKOUT_TYPES`+='seasonality',
+  label='Сезонность'. **% к базе:** build_decomposition_series даёт `pct_of_base[]`
+  = 100·эффект/base_reduced (финальная база после выноса, guard /0).
+- **Т2 — верхний уровень 4 групп:** поле `top_group` в каждой серии (аддитивно),
+  `_TOP_GROUP_MAP`: БАЗА{База,Сезонность,Праздники}·МЕДИА·ВНЕШНИЕ{Цена,Погода,Макро,
+  Дистрибуция,Категория}·КОНКУРЕНТЫ.
+- **У4 — детектор длинного периода:** detect_seasonality предпочитает НАИБОЛЬШИЙ
+  период среди strong (autocorr≥0.8·max); fallback на сильный короткий. Не сломал
+  MMX (period 12 сохранился) и yearly-тест (==52).
+- **Red-team (8 проверок ✓):** prior не изменился · json_export/cert type='seasonality'
+  честнее · narrative прокидывает · control_kinds персист не читается логикой ·
+  decomposer_invariants синтетика без Фурье не активирует путь.
+- **✅ ДОКАЗАТЕЛЬСТВО (живой зонд `tmp/probe_decompose_4groups.py`, MMX draws 400):**
+  4 группы видны (БАЗА 514М incl. Сезонность + МЕДИА 99.6М); ОДНА полоса «Сезонность»
+  top_group=БАЗА, суммарно ≈0 (перераспределяет), размах 6.77М ₽; **волна % к базе:
+  пик май 2023 +41.6%, провал авг 2022 −31.5%** (летний спад/весенний пик — осмысленно);
+  **тождество энергосохранения 0.0000%.**
+- **✅ ГЕЙТЫ:** fourier 22+8 · forecast_validation 40 (+2 У4) · decomposition_series
+  11 (+6 новых) · decomposer_invariants 163 · смежные (decomposer_edge/rolling_backtest/
+  server_backtest/narrative/scenario_invariants/persistence_phase2/server_train_flags)
+  335 в пакете — ВСЕ passed. cargo/svelte не трогались (python-only).
+
+## ✅ У1/Т5б СЕЗОННОСТЬ В ПРОГНОЗАХ ГОТОВА (2026-07-04, коммит 477105b на origin)
+`predict_scenario` учитывает детерминированную будущую Фурье-волну (helper
+`_compute_scenario_seasonality`: Σ β·fourier(t_future=n_obs+i)·y_std к baseline,
+z-score теми же control_means/stds обучения). Проведён СИММЕТРИЧНО через point-путь
+(predicted/baseline_total/current-reconstruction) и posterior CI (per-period samples/
+baseline_total_samples) → сезон в scenario+current+baseline_total, incremental/lift =
+чистый медиа (сезон не течёт в «медиа»), но per-period прогноз и неполный цикл несут
+волну; полный цикл Σ≈0 (промис «на Год» не смещён). Нули без Фурье. **Тесты 6**
+(фаза/Σ-цикл/неполный/нет-Фурье/рассинхрон/живая волна) + гейты scenario_invariants
+174·adr020 11·promises/backtest/server 34 passed. ⚠️ **Открыто:** optimizer goal-seek
+имеет свой forward (не через predict_scenario) — сезонное согласование отдельным вопросом.
+
+## ✅ У2 КАНАРЕЙКА СХЕМ (коммит 732f160) · У3 ЧИСЛОВОЙ ГЕЙТ РОЛЕЙ (f337743) · Т5 МУЛЬТИ-КЛИЕНТ+ADR (2026-07-04)
+- **У2** (`tools/test_frontend_schema_parity.py`, 4 passed): каждый ключ buildTrainConfig ∈
+  TrainRequest И TrainStartRequest; обе схемы синхронны; мастер-флаги на обеих сторонах.
+  Якоря в train-config.js + server.py. 🔴 Находка (→Т6): buildTrainConfig НЕ шлёт
+  use_seasonality — флаг всегда default True из GUI (полный тумблер = Т6).
+- **У3** (`engines/validator._is_numeric_parseable` + гейт в validate_data; тесты 13):
+  media/control нечисловым столбцам роль снимается до 'unused'+подсказка non_numeric_role;
+  money-строки («3 836 962 ₽», двойная стратегия запятой) сохраняют роль. validator 511 passed.
+- **Т5 ADR** `aurora-meta/DECISIONS/ADR-033-econometrica-decomposition-4-groups.md` (создан;
+  коммит aurora-meta — отдельный репо, синк /sync-aurora). Атрибуция Chan&Perry/Jin/Wang&Jin/
+  Gelman/Brodersen/Prophet + 4 решения Антона.
+- **✅ Т5 МУЛЬТИ-КЛИЕНТ** (`tmp/probe_multiclient_decompose.py`, оба 31 мес): **Kagocel** —
+  Фурье НЕ инжектнулась (гейт), полоса «Сезонность» корректно отсутствует; **Venarus** —
+  годовая инжектнулась (period 12, K=3), волна −38.8%..+61.4% к базе. Оба: 4 группы
+  (БАЗА/МЕДИА/КОНКУРЕНТЫ — competitor как 4-я полоса работает), тождество 0.0000%, полоса
+  согласована с pickle. Инвариант ≥2 датасета выполнен.
+
+## ⏳ СЛЕДУЮЩЕЕ — Т3 UI drill-down (live) → Т4 отчёты (паритет через SSOT) → Т6 хвосты → У5 ночной gate
+Весь backend + надёжность + канон готовы. Осталось клиент-видимое: Т3 UI (ChannelTimeline
+4 полосы + сезонная кривая, требует dev-режима/svelte-check) + Т4 отчёты (паритет
+автоматический через SSOT top_group/pct_of_base — проверить PPTX/HTML слайд). Т6: UI-тумблер
+use_seasonality (закрыть находку У2) + подсказки + Фаза Б prior категории. У5: ночной gate.
+
+## ⏳ (архив плана) РЕАЛИЗАЦИЯ ОТОБРАЖЕНИЯ (recon СДЕЛАН — инфра ГОТОВА)
 **✅ RECON (2026-07-04): инфраструктура декомпозиции по группам УЖЕ существует** —
 `decomposer.py::build_decomposition_series` (стр.322) строит полосы с полями
 {name, role∈{baseline/media/factor}, type, **group**, side, data[] помесячно} и честным
