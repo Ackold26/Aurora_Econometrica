@@ -64,10 +64,19 @@
     new Set((result?.columns ?? []).filter(/** @param {any} c */ c => c.role === 'unused').map(/** @param {any} c */ c => c.name))
   );
 
+  // Аудит №3 В-1: типы АВТО-снижения роли (валидатор сам понизил до 'unused' и
+  // объясняет почему) — показывать ВСЕГДА, иначе фильтр «скрыть warnings
+  // исключённых колонок» прятал и причину авто-снятия (колонка уже unused с
+  // первого рендера → юзер видел исключение без объяснения; задевало и У3
+  // non_numeric_role, и П1 total_budget_as_media). Фильтр остаётся для
+  // warnings колонок, исключённых ЮЗЕРОМ (high_zeros/low_variance и т.п.).
+  const AUTO_DEMOTION_TYPES = new Set(['non_numeric_role', 'total_budget_as_media']);
+
   // Warnings filtered: hide warnings for excluded columns
   const activeWarnings = $derived(
     (result?.warnings ?? []).filter(/** @param {any} w */ w => {
       if (!w.column) return true; // general warning, always show
+      if (AUTO_DEMOTION_TYPES.has(w.type)) return true; // причина авто-снятия видима
       return !excludedColumns.has(w.column);
     })
   );

@@ -362,6 +362,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     warnings = []
 
     # ── Column detection ──
+    # П1 (аудит №3 В-3): импорт единого критерия total-budget один раз, не в цикле.
+    from engines.narrative_adapter import _normalize_channel_name
     columns = []
     date_col = None
     kpi_cols = []
@@ -395,7 +397,6 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         # согласованность timeline↔таблица. Понижаем до 'unused' (юзер вернёт вручную,
         # как и в non_numeric_role) → новые модели её не обучают, состав серий сходится.
         if role == 'media':
-            from engines.narrative_adapter import _normalize_channel_name
             if _normalize_channel_name(col) is None:
                 warnings.append({
                     'column': col,
