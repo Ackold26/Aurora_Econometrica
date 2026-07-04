@@ -140,6 +140,31 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     return 'control', round(conf, 2)
 
 
+def _is_numeric_parseable(series: 'pd.Series', threshold: float = 0.8) -> bool:
+    """У3 (2026-07-04): ≥threshold непустых значений колонки парсятся в число?
+
+    media/control-предикторы входят в матрицу X численно (modeler astype(float));
+    текстовый столбец-атрибут (напр. «Категория А/Б») с именем-ловушкой → падение
+    обучения. Этот гейт отсекает нечисловые колонки ДО назначения роли-предиктора.
+
+    Числовой dtype → True сразу. Иначе строки чистятся от денежных/разделительных
+    символов и пробуются ДВЕ стратегии запятой (для гейта важен ФАКТ парсибельности,
+    не точное значение): A — запятая = разделитель тысяч (убрать); B — запятая =
+    десятичная (→ точка). Берётся лучшая. Money-строки «3 836 962 ₽» / «3,836,962 ₽»
+    проходят; чистый текст — нет.
+    """
+    s = series.dropna()
+    if len(s) == 0:
+        return False
+    if pd.api.types.is_numeric_dtype(s):
+        return True
+    txt = s.astype(str).str.strip().str.replace(r'[\s\xa0₽$€%]', '', regex=True)
+    a = pd.to_numeric(txt.str.replace(',', '', regex=False), errors='coerce')
+    b = pd.to_numeric(txt.str.replace(',', '.', regex=False), errors='coerce')
+    frac = max(int(a.notna().sum()), int(b.notna().sum())) / len(s)
+    return frac >= threshold
+
+
 def validate_role_compatibility(
     unit_costs: dict,
     media_columns: list,
@@ -345,6 +370,23 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     for col in df.columns:
         role, confidence = detect_column_role_with_confidence(col)
+        # У3 (2026-07-04): числовой гейт ролей. media/control входят в X численно —
+        # текстовый столбец-атрибут с именем-ловушкой («Категория А/Б», «Регион»)
+        # уронил бы обучение на astype(float). Понижаем до 'unused' с подсказкой;
+        # money-строки («3 836 962 ₽») парсятся → роль сохраняется.
+        if role in ('media', 'control') and not _is_numeric_parseable(df[col]):
+            warnings.append({
+                'column': col,
+                'type': 'non_numeric_role',
+                'message': (
+                    f'{col} — столбец текстовый (не парсится в число), не может быть '
+                    f'предиктором. Роль снята; при необходимости задайте её вручную.'
+                ),
+                'severity': 'warning',
+                'action': 'exclude',
+            })
+            role = 'unused'
+            confidence = 0.0
         col_info: dict[str, Any] = {
             'name': col,
             'role': role,
