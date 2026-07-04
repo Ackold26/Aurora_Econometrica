@@ -197,7 +197,16 @@ baseline_total_samples) → сезон в scenario+current+baseline_total, incre
 - **У5** (ночной gate): tools/nightly_full_gate.ps1 (UTF-8 BOM, parse OK, механика доказана)
   против F-AUD-6.
 
-## ⏳ ОСТАЛОСЬ ТОЛЬКО — Т3 полный UI drill-down (live-приёмка) + Фаза Б prior категории (backend)
+## ✅ ФАЗА Б КАТЕГОРИЙНЫЙ КОНТРОЛЬ ГОТОВА (2026-07-04, коммит 7cc4212 на origin)
+Продажи категории/рынка = экзогенный контроль спроса (Chan&Perry, «слой 2» решения Антона,
+усиление сезонности). column_detection: kind 'category' (комбо ТЕМА+ОБЪЁМ, F-AUD-5 защищён;
+classify_column-only) · modeler prior mu 0.3 (shared demand) · decomposer breakout-полоса
+«Категория»→ВНЕШНИЕ ФАКТОРЫ · палитра emerald #10b981 (PPTX/HTML/UI)+tooltip · validate_data
+прицельная подсказка (competitor есть, category нет). **Зонд Venarus:** category детект →
+полоса «Категория»→ВНЕШНИЕ, тождество 0.0000%. Тесты 14+band+регресс 614+46·verify 43/43+35/35.
+Реальная ROI-честность — на файле рынка DSM/IQVIA (механика доказана).
+
+## ⏳ ОСТАЛОСЬ ТОЛЬКО — Т3 полный UI drill-down (live-приёмка, СВЕЖИМ ЗАХОДОМ по решению Антона)
 - **Т3 drill-down:** ChannelTimeline свернуть в 4 верхние полосы (top_group) с клик-раскрытием
   под-компонентов + помесячная сезонная %-кривая (pct_of_base уже в SSOT). Готово из Т3:
   палитра+label+tooltip-группировка сезонности. Осталось: двухуровневое echarts-взаимодействие
