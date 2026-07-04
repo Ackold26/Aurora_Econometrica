@@ -118,10 +118,15 @@ class TestValidateDataTotalBudgetGate:
         assert r['status'] != 'error'
         total = next(c for c in r['columns'] if c['name'] == 'Бюджет ДО НДС')
         assert total['role'] == 'unused', f"суммарный бюджет не снят: {total['role']}"
-        assert any(
-            w['column'] == 'Бюджет ДО НДС' and w['type'] == 'total_budget_as_media'
-            for w in r['warnings']
-        ), 'нет подсказки total_budget_as_media'
+        w = next(
+            (w for w in r['warnings']
+             if w['column'] == 'Бюджет ДО НДС' and w['type'] == 'total_budget_as_media'),
+            None,
+        )
+        assert w is not None, 'нет подсказки total_budget_as_media'
+        # Г-1 (аудит №4): роль уже снята — action НЕ 'exclude' (иначе фронт
+        # рендерит кнопку «Исключить» на уже исключённой колонке).
+        assert w['action'] == 'acknowledge', f"action={w['action']!r}"
 
     def test_real_channel_with_budget_tokens_kept(self, tmp_path):
         """«OLV Бюджет ДО НДС» — есть инструмент (OLV) → остаётся media."""

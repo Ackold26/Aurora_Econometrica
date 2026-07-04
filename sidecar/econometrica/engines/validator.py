@@ -385,7 +385,10 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                     f'предиктором. Роль снята; при необходимости задайте её вручную.'
                 ),
                 'severity': 'warning',
-                'action': 'exclude',
+                # Аудит №4 Г-1: роль УЖЕ снята валидатором — кнопка «Исключить»
+                # (action='exclude') предлагала бы сделать сделанное; 'acknowledge'
+                # рендерится нейтральной «Принять».
+                'action': 'acknowledge',
             })
             role = 'unused'
             confidence = 0.0
@@ -408,7 +411,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                         f'Роль снята; при необходимости задайте её вручную.'
                     ),
                     'severity': 'warning',
-                    'action': 'exclude',
+                    'action': 'acknowledge',  # Г-1: роль уже снята — не «Исключить»
                 })
                 role = 'unused'
                 confidence = 0.0
