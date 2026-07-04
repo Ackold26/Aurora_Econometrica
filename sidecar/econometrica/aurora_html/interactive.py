@@ -360,7 +360,7 @@ def bootstrap_js(
     // уходят в отдельный стек ниже нуля.
     var FACTOR_COLORS = {{ signed_competitor: '#dc2626', signed_price: '#ea580c',
       signed_weather: '#f59e0b', signed_macro: '#d97706', holiday: '#84cc16',
-      positive_control: '#06b6d4' }};
+      seasonality: '#8b5cf6', positive_control: '#06b6d4' }};
     (data.factors || []).forEach(function(f) {{
       if (!f || !f.data || !f.data.length) return;
       var fcolor = FACTOR_COLORS[f.type] || pal.mutedColor;

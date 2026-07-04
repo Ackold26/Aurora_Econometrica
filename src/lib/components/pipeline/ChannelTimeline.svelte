@@ -42,6 +42,7 @@
     signed_weather:    '#f59e0b', // amber-500
     signed_macro:      '#d97706', // amber-600
     holiday:           '#84cc16', // lime-500
+    seasonality:       '#8b5cf6', // violet-500 — сезонность (цикл)
     positive_control:  '#06b6d4', // cyan-500
   };
   /** @type {Record<string, string>} */
@@ -51,6 +52,7 @@
     signed_weather:    'Погода',
     signed_macro:      'Макро-факторы',
     holiday:           'Праздники',
+    seasonality:       'Сезонность',
     positive_control:  'Внешние факторы',
   };
 

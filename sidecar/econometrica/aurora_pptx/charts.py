@@ -118,6 +118,7 @@ _FACTOR_RGB = {
     'signed_weather': 'F59E0B',
     'signed_macro': 'D97706',
     'holiday': '84CC16',
+    'seasonality': '8B5CF6',  # violet-500 — сезонность (цикл), отдельно от внешних
     'positive_control': '06B6D4',
 }
 
