@@ -94,3 +94,100 @@ def test_empty_inputs_safe():
     res = build_decomposition_series([], [], {}, None)
     assert res['series'][0]['role'] == 'baseline'
     assert res['dates'] == []
+
+
+# ── Автосезонность (2026-07-04): полоса «Сезонность» + % к базе + 4 группы ──
+
+
+def test_seasonality_band_breakout_and_type():
+    """Фактор type='seasonality' выносится полосой с group='Сезонность'."""
+    dates = ['w1', 'w2', 'w3', 'w4']
+    baseline = [100.0, 100.0, 100.0, 100.0]
+    channels = {'TV': [0.0, 0.0, 0.0, 0.0]}
+    sfc = {'Сезонность': {'type': 'seasonality', 'per_period': [20.0, -10.0, 15.0, -25.0]}}
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    season = next((s for s in res['series'] if s['type'] == 'seasonality'), None)
+    assert season is not None, 'полоса «Сезонность» должна быть вынесена'
+    assert season['group'] == 'Сезонность'
+    assert season['role'] == 'factor'
+    assert season['data'] == [20.0, -10.0, 15.0, -25.0]
+
+
+def test_seasonality_pct_of_base_math():
+    """pct_of_base[t] = 100·эффект[t]/base_reduced[t] (base после выноса сезона)."""
+    dates = ['w1', 'w2']
+    baseline = [120.0, 90.0]  # включает сезонную волну
+    channels = {'TV': [0.0, 0.0]}
+    sfc = {'Сезонность': {'type': 'seasonality', 'per_period': [20.0, -10.0]}}
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    season = next(s for s in res['series'] if s['type'] == 'seasonality')
+    # base_reduced: w1 = 120-20 = 100; w2 = 90-(-10) = 100
+    # pct: w1 = 100·20/100 = +20%; w2 = 100·(-10)/100 = -10%
+    assert 'pct_of_base' in season
+    assert season['pct_of_base'] == [20.0, -10.0]
+
+
+def test_seasonality_pct_of_base_zero_guard():
+    """Деление на ~0 базу → 0.0 (без исключения/inf)."""
+    dates = ['w1', 'w2']
+    baseline = [10.0, 0.0]  # w2 base после выноса станет 0
+    channels = {'TV': [0.0, 0.0]}
+    sfc = {'Сезонность': {'type': 'seasonality', 'per_period': [5.0, 0.0]}}
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    season = next(s for s in res['series'] if s['type'] == 'seasonality')
+    # w2: per_period=0 (нулевой на этом шаге), base=0 → guard → 0.0
+    assert season['pct_of_base'][1] == 0.0
+
+
+def test_seasonality_identity_preserved():
+    """Тождество base_reduced + Σфакторы + Σмедиа == исходный total с сезонностью."""
+    dates = ['w1', 'w2', 'w3', 'w4']
+    baseline = [200.0, 230.0, 180.0, 210.0]
+    channels = {'TV': [10.0, 12.0, 8.0, 11.0]}
+    sfc = {
+        'Сезонность': {'type': 'seasonality', 'per_period': [30.0, -20.0, 25.0, -15.0]},
+        'comp': {'type': 'signed_competitor', 'per_period': [-5.0, -3.0, -8.0, -2.0]},
+    }
+    orig = [baseline[t] + channels['TV'][t] for t in range(4)]
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    got = [0.0, 0.0, 0.0, 0.0]
+    for s in res['series']:
+        for t, v in enumerate(s['data']):
+            got[t] += v
+    for t in range(4):
+        assert abs(orig[t] - got[t]) < 1e-6, f'период {t}: {orig[t]} != {got[t]}'
+
+
+def test_no_seasonality_no_band():
+    """Нет seasonality-фактора → нет полосы и нет pct_of_base у прочих серий."""
+    dates = ['w1', 'w2']
+    baseline = [100.0, 100.0]
+    channels = {'TV': [5.0, 5.0]}
+    sfc = {'comp': {'type': 'signed_competitor', 'per_period': [-3.0, -3.0]}}
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    assert all(s['type'] != 'seasonality' for s in res['series'])
+    assert all('pct_of_base' not in s for s in res['series'])
+
+
+def test_top_group_four_groups():
+    """Каждая серия получает top_group ∈ 4 верхних группы (решение Антона)."""
+    dates = ['w1', 'w2']
+    baseline = [100.0, 100.0]
+    channels = {'TV': [10.0, 10.0]}
+    sfc = {
+        'Сезонность': {'type': 'seasonality', 'per_period': [8.0, -8.0]},
+        'newyear': {'type': 'holiday', 'per_period': [0.0, 12.0]},
+        'comp': {'type': 'signed_competitor', 'per_period': [-4.0, -4.0]},
+        'price': {'type': 'signed_price', 'per_period': [3.0, 3.0]},
+    }
+    res = build_decomposition_series(dates, baseline, channels, sfc)
+    by = {s['name']: s for s in res['series']}
+    assert by['Базовый уровень']['top_group'] == 'БАЗА'
+    assert by['Сезонность']['top_group'] == 'БАЗА'
+    assert by['newyear']['top_group'] == 'БАЗА'
+    assert by['TV']['top_group'] == 'МЕДИА'
+    assert by['comp']['top_group'] == 'КОНКУРЕНТЫ'
+    assert by['price']['top_group'] == 'ВНЕШНИЕ ФАКТОРЫ'
+    # Все 4 верхние группы представлены
+    tops = {s['top_group'] for s in res['series']}
+    assert tops == {'БАЗА', 'МЕДИА', 'ВНЕШНИЕ ФАКТОРЫ', 'КОНКУРЕНТЫ'}

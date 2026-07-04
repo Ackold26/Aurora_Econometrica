@@ -309,6 +309,7 @@ def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derive
 # отдельно — поведение зеркалит ChannelTimeline.svelte).
 _BREAKOUT_TYPES = frozenset({
     'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro', 'holiday',
+    'seasonality',
 })
 _FACTOR_GROUP_LABELS = {
     'signed_competitor': 'Конкуренты',
@@ -316,6 +317,27 @@ _FACTOR_GROUP_LABELS = {
     'signed_weather': 'Погода',
     'signed_macro': 'Макро-факторы',
     'holiday': 'Праздники',
+    'seasonality': 'Сезонность',
+}
+
+# Верхний уровень 4 групп декомпозиции (решение Антона 2026-07-04): свёртка
+# per-factor групп в 4 полосы верхнего уровня для drill-down UI и отчётов.
+# БАЗА (базовая линия + сезонность + праздники) · МЕДИА · ВНЕШНИЕ ФАКТОРЫ
+# (цена/погода/макро/дистрибуция/категория) · КОНКУРЕНТЫ (отдельная 4-я полоса).
+# Методология: Jin 2017 (аддитивная декомпозиция), Wang&Jin §5.2 (конкуренты =
+# отдельные control variables), Chan&Perry §4.2.2 (сезонность = контроль спроса).
+_TOP_GROUP_MAP = {
+    'База': 'БАЗА',
+    'Сезонность': 'БАЗА',
+    'Праздники': 'БАЗА',
+    'Медиа': 'МЕДИА',
+    'Цена': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Погода': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Макро-факторы': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Дистрибуция': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Категория': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Внешние': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Конкуренты': 'КОНКУРЕНТЫ',
 }
 
 
@@ -345,8 +367,12 @@ def build_decomposition_series(
     значит наборы остаются согласованными).
 
     Returns:
-        {"dates": [...], "series": [{name, role, type, group, side, data[]}]}
+        {"dates": [...], "series": [{name, role, type, group, top_group, side, data[]}]}
         role ∈ {baseline, media, factor}; side ∈ {positive, negative}.
+        top_group ∈ {БАЗА, МЕДИА, ВНЕШНИЕ ФАКТОРЫ, КОНКУРЕНТЫ} — верхний уровень
+        4-групповой декомпозиции (решение Антона 2026-07-04) для drill-down UI/отчётов.
+        Полоса «Сезонность» дополнительно несёт pct_of_base[] (сезонность помесячно
+        в % к базовой линии — мультипликативная подача «февраль +60% к базе»).
     """
     n = len(baseline_ts or [])
     baseline_reduced = [float(v or 0) for v in (baseline_ts or [])]
@@ -372,6 +398,19 @@ def build_decomposition_series(
             'data': [round(float(v or 0), 1) for v in pp],
         })
 
+    # Помесячная сезонность как % к базе (решение Антона 2026-07-04): для полосы
+    # «Сезонность» относительный ряд pct_of_base[t] = 100·эффект[t]/base[t], где
+    # base — ФИНАЛЬНАЯ базовая линия после выноса всех факторов (baseline_reduced
+    # уже досчитан циклом выше). Подача «февраль +60% к базе» — мультипликативная,
+    # хотя модель аддитивна. Guard деления на ~0 (короткий/нулевой baseline).
+    for b in bands:
+        if b['type'] == 'seasonality':
+            b['pct_of_base'] = [
+                round(b['data'][t] / baseline_reduced[t] * 100, 1)
+                if t < len(baseline_reduced) and abs(baseline_reduced[t]) > eps else 0.0
+                for t in range(len(b['data']))
+            ]
+
     series = [{
         'name': 'Базовый уровень', 'role': 'baseline', 'type': 'baseline',
         'group': 'База', 'side': 'positive',
@@ -386,6 +425,9 @@ def build_decomposition_series(
     # Порядок стека зеркалит ChannelTimeline: media → positive bands → negative bands.
     series.extend(b for b in bands if b['side'] == 'positive')
     series.extend(b for b in bands if b['side'] == 'negative')
+    # Верхний уровень 4 групп (аддитивно — потребители старого формата не сломаются).
+    for s in series:
+        s['top_group'] = _TOP_GROUP_MAP.get(s.get('group'), 'ВНЕШНИЕ ФАКТОРЫ')
     return {'dates': list(dates or []), 'series': series}
 
 
@@ -891,10 +933,23 @@ def decompose(
         # v2.0.0: per-factor contribution breakdown using column_detection classifier
         try:
             from utils.column_detection import classify_column
+            # Use y_actual.sum() для % normalization (вне цикла — нужно и для агрегата).
+            _y_total = float(y_actual.sum()) if len(y_actual) else 0.0
+            # Аккумулятор Фурье-гармоник → ОДИН агрегированный фактор «Сезонность».
+            season_effect_agg = None
             for i, col in enumerate(control_cols):
                 col_effect = (X_control_norm[:, i] * beta_c[i]) * y_std
-                col_total = float(col_effect.sum())
                 col_kind = classify_column(col)
+                # Сезонность: 2K колонок sin/cos агрегируются в ОДИН фактор «Сезонность»
+                # (не 6 полос отдельных гармоник — они не интерпретируемы поодиночке).
+                # Суммируем эффект поэлементно; beta_mean для суммы не осмыслен (опускаем).
+                if col_kind == 'seasonality':
+                    season_effect_agg = (
+                        col_effect if season_effect_agg is None
+                        else season_effect_agg + col_effect
+                    )
+                    continue
+                col_total = float(col_effect.sum())
                 # Map kind → factor_type для UI rendering
                 factor_type_map = {
                     'signed_competitor': 'signed_competitor',
@@ -902,18 +957,28 @@ def decompose(
                     'signed_weather': 'signed_weather',
                     'signed_macro': 'signed_macro',
                     'holiday': 'holiday',
+                    'seasonality': 'seasonality',  # агрегируется выше (continue) — sanity
                     'control': 'positive_control',
                     'unknown': 'positive_control',  # legacy fallback
                 }
                 factor_type = factor_type_map.get(col_kind, 'positive_control')
-                # Use y_actual.sum() для % normalization
-                _y_total = float(y_actual.sum()) if len(y_actual) else 0.0
                 signed_factor_contributions[col] = {
                     'value': round(col_total, 1),
                     'pct': round(col_total / (_y_total + 1e-10) * 100, 1) if _y_total > 0 else 0.0,
                     'type': factor_type,
                     'beta_mean': float(beta_c[i]),
                     'per_period': [round(float(v), 1) for v in col_effect],
+                }
+            # Один агрегированный фактор «Сезонность» из всех Фурье-гармоник. Суммарное
+            # value за целое число циклов ≈ 0 (сезон перераспределяет, не добавляет) —
+            # ценность в per_period-волне и pct_of_base (build_decomposition_series).
+            if season_effect_agg is not None:
+                season_total = float(season_effect_agg.sum())
+                signed_factor_contributions['Сезонность'] = {
+                    'value': round(season_total, 1),
+                    'pct': round(season_total / (_y_total + 1e-10) * 100, 1) if _y_total > 0 else 0.0,
+                    'type': 'seasonality',
+                    'per_period': [round(float(v), 1) for v in season_effect_agg],
                 }
         except Exception as e:
             logger.warning('signed_factor_contributions computation failed: %s', e)
@@ -1191,7 +1256,8 @@ def decompose(
         # с negative bars + Report narrative.
         # Schema: { factor_col_name: { value, pct, type, beta_mean, per_period[] } }
         # type ∈ {'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro',
-        #         'holiday', 'positive_control'}
+        #         'holiday', 'seasonality', 'positive_control'}
+        # Спец-ключ 'Сезонность' (агрегат Фурье sin/cos) — без beta_mean (сумма гармоник).
         'signed_factor_contributions': signed_factor_contributions,
         # Аудит #12 (2026-06-07, INV-50): канонический набор серий timeline-
         # декомпозиции — ЕДИНЫЙ источник для программы (ChannelTimeline) и всех

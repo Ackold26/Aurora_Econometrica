@@ -58,6 +58,7 @@ ColumnKind = Literal[
     'signed_weather',     # NEW v2.0.0 - weather (signed unconstrained)
     'signed_macro',       # NEW v2.0.0 - macroeconomic (CPI, GDP, FX)
     'holiday',            # NEW v2.0.0 - holiday dummy
+    'seasonality',        # NEW 2026-07-04 - auto-injected Fourier sin/cos harmonics
     'unknown',            # unrecognized
 ]
 
@@ -299,6 +300,16 @@ HOLIDAY_PATTERNS = [
     _sep_pattern(r'9_ма(?:я|ем)?'),
 ]
 
+# Seasonality — auto-injected Fourier harmonics (season_fourier_sin_K / _cos_K).
+# Инжектятся движком (modeler) как гладкая сезонная волна спроса, семантически
+# ОТДЕЛЬНЫЙ фактор (не generic control): decomposer выносит их одной агрегированной
+# полосой «Сезонность». Prior — zero-centered (sin/cos симметричны, modeler.py).
+# 🔴 ПАРИТЕТ: префикс синхронизирован с utils/fourier_seasonality.FOURIER_COL_PREFIX
+# = 'season_fourier'. При смене префикса там — обновить паттерн здесь.
+SEASONALITY_PATTERNS = [
+    _sep_pattern(r'season_fourier'),
+]
+
 # Positive control factors - distribution, trade_activity, promo. Sign expected
 # positive (more distribution → more sales). Existing v1.3.x patterns preserved.
 CONTROL_POSITIVE_PATTERNS = [
@@ -450,16 +461,21 @@ def classify_column(column_name: str) -> ColumnKind:
 
     # v2.0.0 priority order:
     # 1. Date (наиболее однозначно)
-    # 2. Signed controls (specific patterns: competitor, price, weather, macro)
-    # 3. Holiday markers
-    # 4. Positive controls (distribution, trade_activity)
-    # 5. Target count (sales_packs, leads — before bare 'sales')
-    # 6. Target monetary (sales_rub, revenue, profit)
-    # 7. Monetary input (budget, spend, cost)
-    # 8. Physical input (impressions, clicks, TRP, GRP)
+    # 2. Seasonality (auto-injected Fourier season_fourier_* — префикс однозначен)
+    # 3. Signed controls (specific patterns: competitor, price, weather, macro)
+    # 4. Holiday markers
+    # 5. Positive controls (distribution, trade_activity)
+    # 6. Target count (sales_packs, leads — before bare 'sales')
+    # 7. Target monetary (sales_rub, revenue, profit)
+    # 8. Monetary input (budget, spend, cost)
+    # 9. Physical input (impressions, clicks, TRP, GRP)
 
     if _matches_any(column_name, DATE_PATTERNS):
         return 'date'
+
+    # Seasonality (auto-injected Fourier) — префикс однозначен, проверяем рано.
+    if _matches_any(column_name, SEASONALITY_PATTERNS):
+        return 'seasonality'
 
     # Signed controls — specific patterns checked before general monetary/physical
     if _matches_any(column_name, SIGNED_COMPETITOR_PATTERNS):
@@ -552,6 +568,7 @@ _PATTERN_KIND_REGISTRY = {
     'signed_weather': SIGNED_WEATHER_PATTERNS,
     'signed_macro': SIGNED_MACRO_PATTERNS,
     'holiday': HOLIDAY_PATTERNS,
+    'seasonality': SEASONALITY_PATTERNS,
     'control': CONTROL_POSITIVE_PATTERNS,
     'date': DATE_PATTERNS,
 }
@@ -559,6 +576,7 @@ _PATTERN_KIND_REGISTRY = {
 # Priority order matches classify_column() decision tree.
 _CLASSIFY_PRIORITY = [
     'date',
+    'seasonality',
     'signed_competitor',
     'signed_price',
     'signed_weather',

@@ -125,6 +125,14 @@ def detect_granularity(date_series, fallback: Granularity = 'W') -> dict:
 
 # ─── Seasonality detection ─────────────────────────────────────────────────
 
+# У4 (методология М-2, 2026-07-04): среди кандидатов-периодов, прошедших порог
+# значимости, предпочитаем НАИБОЛЬШИЙ период, чья автокорреляция не сильно ниже
+# максимальной (≥ этой доли от max). На медленной годовой волне короткий лаг-алиас
+# (напр. lag=4 при годовом периоде: cos(2π·4/52)≈0.886) конкурирует по автокорреляции
+# с истинным длинным периодом — осмысленные периоды (годовой, полугодовой) должны
+# выигрывать. Если длинный период ЗАМЕТНО слабее — остаёмся на max-autocorr.
+LONG_PERIOD_AUTOCORR_FRAC = 0.8
+
 
 def detect_seasonality(
     y_actual,
@@ -188,7 +196,13 @@ def detect_seasonality(
     neg = [c for c in candidates_results if c['autocorr'] <= -autocorr_threshold]
     best = None
     if pos:
-        top = max(pos, key=lambda c: c['autocorr'])
+        # У4: предпочесть НАИБОЛЬШИЙ период среди кандидатов, чья автокорреляция
+        # близка к максимальной (≥ LONG_PERIOD_AUTOCORR_FRAC·max) — осмысленные
+        # длинные периоды выигрывают у коротких лаг-алиасов; заметно более слабый
+        # длинный период не выбирается (strong гарантированно непуст: max ∈ strong).
+        max_autocorr = max(c['autocorr'] for c in pos)
+        strong = [c for c in pos if c['autocorr'] >= LONG_PERIOD_AUTOCORR_FRAC * max_autocorr]
+        top = max(strong, key=lambda c: c['lag'])
         best = {'period': top['lag'], 'autocorr': top['autocorr']}
     elif neg:
         top = max(neg, key=lambda c: -c['autocorr'])  # most negative = strongest anti

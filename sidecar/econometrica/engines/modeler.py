@@ -570,6 +570,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     control_prior_mus.append(0.0)   # unconstrained signed
                 elif kind == 'holiday':
                     control_prior_mus.append(0.0)   # holiday effect can be either sign
+                elif kind == 'seasonality':
+                    # Fourier sin/cos гармоники — симметричны вокруг 0, коэффициенты
+                    # без знакового ограничения. Zero-centered prior (как 'unknown').
+                    # Явная ветка защищает семантику: аудит 2026-07-04 подтвердил
+                    # корректность mu=0.0 для sin/cos — не давать 'lean positive' bias.
+                    control_prior_mus.append(0.0)
                 elif kind == 'control':
                     # Positive controls (distribution, trade_activity, promo) — lean positive
                     control_prior_mus.append(0.2)

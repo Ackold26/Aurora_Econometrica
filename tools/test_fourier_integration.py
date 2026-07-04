@@ -110,6 +110,48 @@ def test_decompose_parity_with_seasonality(tmp_path):
     assert d.get('status') == 'ok', d.get('message')
 
 
+def test_decompose_aggregates_fourier_into_one_seasonality_factor(tmp_path):
+    """Декомпозиция агрегирует 2K sin/cos колонок в ОДИН фактор «Сезонность»
+    (не 6 полос отдельных гармоник), выносит его полосой в decomposition_series
+    с type='seasonality', group='Сезонность', top_group='БАЗА' и pct_of_base[]."""
+    df = _seasonal_dataset(n=110, period=52)
+    data_file = tmp_path / 'seasonal.xlsx'
+    df.to_excel(data_file, index=False)
+
+    from engines.modeler import train_model
+    from engines.decomposer import decompose
+    r = train_model(_config(data_file), str(tmp_path))
+    assert r.get('status') == 'ok', r.get('message')
+    md = _load_pickle(tmp_path)
+    fs = md.get('fourier_seasonality')
+    assert fs is not None and len(fs['columns']) >= 2, 'нужны ≥2 Фурье-колонки для теста агрегации'
+
+    d = decompose(str(tmp_path), save_results=False)
+    assert d.get('status') == 'ok', d.get('message')
+
+    sfc = d['signed_factor_contributions']
+    # Агрегация: НИ ОДНА season_fourier_* колонка не выходит отдельным фактором.
+    assert not any(str(k).startswith('season_fourier') for k in sfc), (
+        f'Фурье-колонки не должны быть отдельными факторами: {list(sfc)}'
+    )
+    # Ровно один агрегированный фактор сезонности.
+    season_factors = [k for k, v in sfc.items() if isinstance(v, dict) and v.get('type') == 'seasonality']
+    assert len(season_factors) == 1, f'ожидался 1 фактор сезонности, найдено: {season_factors}'
+    season = sfc[season_factors[0]]
+    assert len(season['per_period']) == len(df), 'per_period помесячно по всему ряду'
+    assert 'beta_mean' not in season, 'beta_mean для суммы гармоник не осмыслен → опущен'
+
+    # Полоса в decomposition_series: type/group/top_group + pct_of_base волна.
+    series = d['decomposition_series']['series']
+    band = next((s for s in series if s['type'] == 'seasonality'), None)
+    assert band is not None, 'полоса «Сезонность» должна быть в decomposition_series'
+    assert band['group'] == 'Сезонность'
+    assert band['top_group'] == 'БАЗА'
+    assert 'pct_of_base' in band and len(band['pct_of_base']) == len(df)
+    # Сезонная волна ненулевая (амплитуда есть).
+    assert max(abs(v) for v in band['data']) > 0, 'сезонная волна не должна быть плоской'
+
+
 def test_master_flag_disables_seasonality(tmp_path):
     """use_seasonality=False → Фурье не инжектируется даже на годовом ряду."""
     df = _seasonal_dataset(n=110, period=52)
