@@ -258,9 +258,16 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
 # Stop-tokens stripped from channel names to leave only the media instrument.
 # Case-insensitive match; also handles Cyrillic variants. Order matters: longer
 # phrases before shorter to avoid leaving orphan fragments.
+# Т3-плюс (аудит №3, предложение 1): агрегатные слова «итого/всего/сумма/total» —
+# колонка «ИТОГО Бюджет» раньше нормализовалась в канал «ИТОГО» и проходила в
+# модель суммарной строкой (задвоение вклада). Критерий ЕДИНЫЙ для таблицы
+# (_merge_channels) и гейта валидации (validate_data total_budget_as_media);
+# ложное снятие юзер видит warning'ом (В-1) и возвращает роль вручную —
+# асимметрия рисков в пользу снятия.
 _CHANNEL_NAME_STOP_PHRASES = [
     r'ДО\s*НДС\s+до\s+АК', r'после\s*АК', r'с\s*НДС', r'без\s*НДС', r'до\s*НДС',
     r'Бюджет', r'Вклад', r'млн\s*₽?', r'руб\.?', r'Доля',
+    r'итого', r'всего', r'сумма', r'total',
 ]
 _CHANNEL_NAME_RE = re.compile(
     r'\b(?:' + '|'.join(_CHANNEL_NAME_STOP_PHRASES) + r')\b',

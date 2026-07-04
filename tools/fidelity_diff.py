@@ -221,7 +221,12 @@ def check_pptx(art: dict, tmpdir: str) -> dict:
                 'missing': [], 'n_series': len(set(series_names))}
     from engines.decomposer import collapse_series_to_top_groups
     expected = [norm(c['name']) for c in collapse_series_to_top_groups(ds_series)]
-    missing = [g for g in expected if not contains_any(g, series_names)]
+    # Аудит №3 предложение 2: группы — СТРОГОЕ равенство имён (короткие «база»/
+    # «медиа» подстрочным contains_any ловили бы ложный зелёный через случайное
+    # вхождение в имена каналов других чартов). contains_any остаётся только для
+    # детальных факторов HTML (там реальны префиксы/обрезания легенд).
+    got = set(series_names)
+    missing = [g for g in expected if g not in got]
     return {'pass': not missing,
             'detail': f'нет групп: {missing}' if missing else 'ok',
             'missing': missing, 'n_series': len(set(series_names))}

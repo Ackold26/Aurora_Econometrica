@@ -136,3 +136,24 @@ class TestValidateDataTotalBudgetGate:
         olv = next(c for c in r['columns'] if c['name'] == 'OLV Бюджет ДО НДС')
         assert olv['role'] == 'media', f"реальный канал ошибочно снят: {olv['role']}"
         assert not any(w.get('type') == 'total_budget_as_media' for w in r['warnings'])
+
+    def test_itogo_budget_demoted(self, tmp_path):
+        """Аудит №3 п.1: «ИТОГО Бюджет» (агрегатное слово) тоже снимается —
+        раньше нормализация оставляла «ИТОГО» и колонка шла в модель каналом."""
+        df = pd.DataFrame({
+            'date': pd.date_range('2022-01-01', periods=12, freq='ME').strftime('%Y-%m-%d'),
+            'sales': range(100, 112),
+            'Total TV Бюджет': range(10, 22),   # реальный канал (Total TV → TV)
+            'ИТОГО Бюджет': range(50, 62),      # агрегат
+        })
+        f = tmp_path / 'data.xlsx'
+        df.to_excel(f, index=False)
+        r = validate_data(str(f))
+        itogo = next(c for c in r['columns'] if c['name'] == 'ИТОГО Бюджет')
+        assert itogo['role'] == 'unused', f"«ИТОГО Бюджет» не снят: {itogo['role']}"
+        assert any(
+            w['column'] == 'ИТОГО Бюджет' and w['type'] == 'total_budget_as_media'
+            for w in r['warnings']
+        )
+        tv = next(c for c in r['columns'] if c['name'] == 'Total TV Бюджет')
+        assert tv['role'] == 'media', f"«Total TV Бюджет» ошибочно снят: {tv['role']}"

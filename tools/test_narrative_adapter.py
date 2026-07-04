@@ -251,6 +251,21 @@ def test_normalize_channel_name():
               _normalize_channel_name(None), None)
     assert_eq("empty string → None",
               _normalize_channel_name(""), None)
+    # Аудит №3 предложение 1: агрегатные слова итого/всего/сумма/total —
+    # суммарные колонки → None (гейт валидации + дроп из таблицы), реальные
+    # каналы с этими словами в составе имени сохраняют инструмент.
+    assert_eq("'ИТОГО Бюджет' → None (агрегат)",
+              _normalize_channel_name("ИТОГО Бюджет"), None)
+    assert_eq("'Total Бюджет' → None (агрегат)",
+              _normalize_channel_name("Total Бюджет"), None)
+    assert_eq("'Всего' → None (агрегат)",
+              _normalize_channel_name("Всего"), None)
+    assert_eq("'Сумма, млн' → None (агрегат)",
+              _normalize_channel_name("Сумма, млн"), None)
+    assert_eq("'Total TV' → 'TV' (канал цел)",
+              _normalize_channel_name("Total TV"), "TV")
+    assert_eq("'Диджитал всего' → 'Диджитал' (под-агрегат виден инструментом)",
+              _normalize_channel_name("Диджитал всего"), "Диджитал")
 
 
 def test_sanitize_project_slug():

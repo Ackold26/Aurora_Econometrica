@@ -1173,9 +1173,15 @@ def render_timeline(ctx: dict) -> str:
     """Section 9: Timeline (обзор групп / детально) + dataZoom."""
     strings = ctx["strings"]
     facts = ctx.get("facts") or {}
-    kicker = strings["sections"]["timeline"]["kicker"]
     # П2: «по <единица>» из гранулярности дат (детект в builder), fallback нейтр.
     period_unit = ctx.get("period_unit") or "по периодам"
+    # Аудит №3 предложение 4: kicker динамический («ПРОДАЖИ ПО МЕСЯЦАМ») — точнее
+    # нейтрального; TOC читает sections.label, kicker чисто визуальный. strings-
+    # ключ остаётся резервом на случай пустого period_unit.
+    kicker = (
+        f"ПРОДАЖИ {period_unit.upper()}" if period_unit
+        else strings["sections"]["timeline"]["kicker"]
+    )
 
     leader = facts.get("leader_channel") if facts else None
     if leader:
