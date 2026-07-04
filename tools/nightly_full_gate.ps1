@@ -1,22 +1,30 @@
 ﻿<#
 .SYNOPSIS
-  У5 (2026-07-04) — ночной полный прогон тестов Econometrica с логом и алертом.
+  У5 (2026-07-04) — ночной полный прогон гейтов Econometrica с логом и алертом.
 
 .DESCRIPTION
-  Против F-AUD-6: тест-инфра тихо протухла (путь Desktop переехал → 18 тестов
-  красные, полный gate был всегда красный и маскировал настоящие регрессы).
-  Скрипт-обёртка прогоняет ВЕСЬ tools/ (реальные данные подтягиваются через
-  conftest resolution chain: env AURORA_TESTDATA_DIR → D:/Docs/.../TestData →
-  Desktop), пишет лог с датой и при exit≠0 добавляет строку в ALERTS.log.
+  Три гейта в одном проходе (gate FAILED, если упал ЛЮБОЙ):
+    1. python tools/  — полный бэкенд + реальные данные (против F-AUD-6: тест-инфра
+       тихо протухла, путь Desktop переехал → красный gate маскировал регрессы).
+       Реальные данные подтягиваются через conftest resolution chain
+       (env AURORA_TESTDATA_DIR → D:/Docs/.../TestData → Desktop). Без фикстур —
+       честный SKIP, не FAIL.
+    2. vitest         — фронт-контракты (аудит 2026-07-04 / F-2: buildTrainConfig
+       «байт-в-байт» golden упал от use_seasonality, а svelte-check контракты
+       НЕ ловит — vitest обязателен при любой фронт-правке).
+    3. svelte-check   — типы/шаблоны SvelteKit (0 errors).
+  Опционально (-IncludeCargo): cargo test (медленно — компиляция Rust).
 
-  Real-data тесты без доступных фикстур честно SKIP (не FAIL) — алерт только на
-  настоящие падения.
+  Пишет общий лог с датой; при любом падении — строка в ALERTS.log + красный вывод.
 
 .PARAMETER RepoDir
   Корень репозитория Aurora_Econometrica.
 
 .PARAMETER TestDataDir
   Опционально: явный путь к папке с реальными xlsx (перекрывает conftest default).
+
+.PARAMETER IncludeCargo
+  Прогнать ещё и `cargo test` (Rust). По умолчанию off (долгая компиляция).
 
 .NOTES
   Регистрация (паттерн «Aurora Memory Reindex»):
@@ -28,7 +36,8 @@
 #>
 param(
   [string]$RepoDir = 'D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica',
-  [string]$TestDataDir = ''
+  [string]$TestDataDir = '',
+  [switch]$IncludeCargo
 )
 
 $ErrorActionPreference = 'Continue'
@@ -40,22 +49,57 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDi
 $log = Join-Path $logDir "gate_$stamp.log"
 
 Set-Location $RepoDir
-Write-Host "[nightly gate] $stamp — прогон tools/ (лог: $log)"
+Write-Host "[nightly gate] $stamp — python + vitest + svelte-check (лог: $log)"
 
-# pytest.ini уже задаёт -n 4 --dist worksteal; addopts подхватятся автоматически.
-python -m pytest tools/ -q 2>&1 | Tee-Object -FilePath $log
-$code = $LASTEXITCODE
+# Каждому гейту — своя строка сводки в общий лог + агрегированный overall-код.
+$overall = 0
+$summaries = @()
 
-$summaryMatch = Select-String -Path $log -Pattern '\d+ (passed|failed|error)' | Select-Object -Last 1
-$summary = if ($summaryMatch) { $summaryMatch.Line.Trim() } else { 'нет сводки в логе' }
+# ── 1. Python (pytest.ini задаёт -n 4 --dist worksteal автоматически) ──────
+"=== [1/3] python tools/ ($stamp) ===" | Tee-Object -FilePath $log
+python -m pytest tools/ -q 2>&1 | Tee-Object -FilePath $log -Append
+$pyCode = $LASTEXITCODE
+if ($pyCode -ne 0) { $overall = 1 }
+$pySum = (Select-String -Path $log -Pattern '\d+ (passed|failed|error)' | Select-Object -Last 1)
+$summaries += "python: exit=$pyCode $($pySum.Line.Trim())"
 
-if ($code -ne 0) {
-  $alert = "[ALERT] $stamp Nightly gate FAILED (exit=$code): $summary | лог: $log"
+# ── 2. Vitest (фронт-контракты; F-2 — svelte-check их не ловит) ────────────
+"=== [2/3] vitest ($stamp) ===" | Tee-Object -FilePath $log -Append
+$env:CI = '1'
+npx vitest run 2>&1 | Tee-Object -FilePath $log -Append
+$viCode = $LASTEXITCODE
+if ($viCode -ne 0) { $overall = 1 }
+$viSum = (Select-String -Path $log -Pattern 'Tests\s+\d+ (passed|failed)' | Select-Object -Last 1)
+$summaries += "vitest: exit=$viCode $($viSum.Line.Trim())"
+
+# ── 3. svelte-check (0 errors) ─────────────────────────────────────────────
+"=== [3/3] svelte-check ($stamp) ===" | Tee-Object -FilePath $log -Append
+npm run check 2>&1 | Tee-Object -FilePath $log -Append
+$svCode = $LASTEXITCODE
+if ($svCode -ne 0) { $overall = 1 }
+$svSum = (Select-String -Path $log -Pattern '\d+ ERRORS' | Select-Object -Last 1)
+$summaries += "svelte-check: exit=$svCode $($svSum.Line.Trim())"
+
+# ── 4. Cargo (опционально) ─────────────────────────────────────────────────
+if ($IncludeCargo) {
+  "=== [4] cargo test ($stamp) ===" | Tee-Object -FilePath $log -Append
+  $env:CARGO_TARGET_DIR = 'D:/cargo-targets/ai-agency'
+  Push-Location (Join-Path $RepoDir 'src-tauri')
+  cargo test 2>&1 | Tee-Object -FilePath $log -Append
+  $cgCode = $LASTEXITCODE
+  Pop-Location
+  if ($cgCode -ne 0) { $overall = 1 }
+  $summaries += "cargo: exit=$cgCode"
+}
+
+$summaryLine = $summaries -join ' | '
+if ($overall -ne 0) {
+  $alert = "[ALERT] $stamp Nightly gate FAILED: $summaryLine | лог: $log"
   Add-Content -Path (Join-Path $logDir 'ALERTS.log') -Value $alert
   Write-Host $alert -ForegroundColor Red
 } else {
-  Write-Host "[OK] $stamp Nightly gate passed: $summary" -ForegroundColor Green
+  Write-Host "[OK] $stamp Nightly gate passed: $summaryLine" -ForegroundColor Green
 }
 
-exit $code
+exit $overall
 

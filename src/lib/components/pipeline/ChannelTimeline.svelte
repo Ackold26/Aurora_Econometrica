@@ -58,6 +58,31 @@
     positive_control:  'Внешние факторы',
   };
 
+  // Т3-шаг (аудит 2026-07-04): tooltip группирует по 4 ВЕРХНИМ группам из SSOT
+  // (поле top_group в decomposition_series), а не по хрупкому префиксу имени серии
+  // (раньше «Сезонность:» падала в «Медиа» — фикс cea50a6). seriesTopGroup
+  // заполняется при построении option (buildCanonicalOption); formatter читает.
+  /** @type {Record<string, string>} name серии → top_group (БАЗА/МЕДИА/ВНЕШНИЕ ФАКТОРЫ/КОНКУРЕНТЫ) */
+  let seriesTopGroup = {};
+  const TOP_GROUP_ORDER = ['БАЗА', 'МЕДИА', 'ВНЕШНИЕ ФАКТОРЫ', 'КОНКУРЕНТЫ'];
+  /** @type {Record<string, string>} капс top_group → человекочитаемый заголовок tooltip */
+  const TOP_GROUP_DISPLAY = {
+    'БАЗА': 'База', 'МЕДИА': 'Медиа',
+    'ВНЕШНИЕ ФАКТОРЫ': 'Внешние факторы', 'КОНКУРЕНТЫ': 'Конкуренты',
+  };
+  /**
+   * Fallback top_group по имени серии — для legacy pickle без поля top_group
+   * (decomposition.json, сохранённый до Т2 2026-07-04) и legacy signedFactors-пути.
+   * @param {string} name
+   */
+  function fallbackTopGroup(name) {
+    if (name === 'Базовый уровень' || name.startsWith('Сезонность:') || name.startsWith('Праздники:')) return 'БАЗА';
+    if (name.startsWith('Конкуренты:')) return 'КОНКУРЕНТЫ';
+    if (name.startsWith('Внешние:') || name.startsWith('Цена:') || name.startsWith('Погода:')
+        || name.startsWith('Макро-факторы:') || name.startsWith('Категория:')) return 'ВНЕШНИЕ ФАКТОРЫ';
+    return 'МЕДИА';
+  }
+
   // FIX 2026-05-02: track currently hovered series для подсветки в tooltip.
   // Plain mutable (не $state) - closure formatter reads current value без
   // recompute derived option (иначе chart.setOption flicker'ит на каждом mouseover).
@@ -222,42 +247,21 @@
         const fmt = (/** @type {number} */ v) =>
           new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(v));
 
-        // Prefix regex для очистки seriesName в строках групп
+        // Prefix regex для очистки seriesName в строках групп (отображение под-компонента).
         const PREFIX_RE = /^(Конкуренты|Праздники|Сезонность|Внешние|Цена|Погода|Макро-факторы|Категория):\s*/;
 
-        /**
-         * Классифицируем каждый элемент params по одной из 5 групп:
-         *   'База' | 'Конкуренты' | 'Праздники' | 'Внешние' | 'Медиа'.
-         * Сезонность (решение Антона 2026-07-04) — под-компонент БАЗЫ (базовый
-         * спрос + сезонная волна), поэтому идёт в группу «База», не отдельной.
-         */
-        const GROUP_ORDER = ['База', 'Медиа', 'Конкуренты', 'Праздники', 'Внешние'];
-
+        // Т3-шаг (2026-07-04): группируем по 4 ВЕРХНИМ группам из SSOT (top_group),
+        // а не по префиксу имени. Праздники и Сезонность → под БАЗА (решение Антона);
+        // Цена/Погода/Макро/Категория/Дистрибуция → ВНЕШНИЕ ФАКТОРЫ. seriesTopGroup
+        // заполнен при построении option; для legacy (нет поля) — fallback по имени.
         /** @type {Map<string, Array<{p: any, cleanName: string}>>} */
-        const groups = new Map(GROUP_ORDER.map(g => [g, []]));
+        const groups = new Map(TOP_GROUP_ORDER.map(g => [g, []]));
 
         params.forEach(p => {
           const name = p.seriesName ?? '';
-          let group;
-          if (name === 'Базовый уровень' || name.startsWith('Сезонность:')) {
-            group = 'База';
-          } else if (name.startsWith('Конкуренты:')) {
-            group = 'Конкуренты';
-          } else if (name.startsWith('Праздники:')) {
-            group = 'Праздники';
-          } else if (
-            name.startsWith('Внешние:') ||
-            name.startsWith('Цена:') ||
-            name.startsWith('Погода:') ||
-            name.startsWith('Макро-факторы:') ||
-            name.startsWith('Категория:')
-          ) {
-            group = 'Внешние';
-          } else {
-            group = 'Медиа';
-          }
+          const tg = seriesTopGroup[name] ?? fallbackTopGroup(name);
           const cleanName = name.replace(PREFIX_RE, '');
-          groups.get(group)?.push({ p, cleanName });
+          (groups.get(tg) ?? groups.get('ВНЕШНИЕ ФАКТОРЫ'))?.push({ p, cleanName });
         });
 
         // Заголовок с датой периода
@@ -275,15 +279,16 @@
             + `</div></div>`;
         }
 
-        // Группированные строки
-        GROUP_ORDER.forEach(groupLabel => {
-          const items = groups.get(groupLabel);
+        // Группированные строки (порядок 4 верхних групп)
+        TOP_GROUP_ORDER.forEach(groupKey => {
+          const items = groups.get(groupKey);
           if (!items || items.length === 0) return;
 
           const subtotal = items.reduce((s, { p }) => s + (p.value ?? 0), 0);
           const pct = total > 0 ? ((subtotal / total) * 100).toFixed(1) : '0.0';
 
-          // Заголовок группы
+          // Заголовок группы (человекочитаемый: «Внешние факторы», не «ВНЕШНИЕ ФАКТОРЫ»)
+          const groupLabel = TOP_GROUP_DISPLAY[groupKey] ?? groupKey;
           html += `<div style="font-weight:600;margin-top:6px;color:#94a3b8;font-size:11px">${groupLabel} · ${fmt(subtotal)} (${pct}%)</div>`;
 
           // Строки каналов внутри группы
@@ -321,6 +326,7 @@
     const dates = ds.dates;
     /** @type {any[]} */
     const allSeries = [];
+    seriesTopGroup = {}; // сброс перед заполнением из текущего SSOT
     let mediaIdx = 0;
     for (const s of ds.series) {
       let color;
@@ -337,6 +343,9 @@
         const groupLabel = FACTOR_LABELS[s.type] ?? s.group ?? 'Внешние';
         name = `${groupLabel}: ${s.name}`;
       }
+      // Т3-шаг: связь name → top_group из SSOT (поле top_group каждой серии);
+      // fallback по имени для legacy pickle без поля.
+      seriesTopGroup[name] = s.top_group ?? fallbackTopGroup(name);
       allSeries.push({
         name,
         type: 'line',
@@ -392,6 +401,10 @@
       return buildCanonicalOption(decompositionSeries);
     }
     if (!timeSeries?.dates?.length) return {};
+
+    // Legacy-путь (signedFactors, старый формат без top_group): tooltip-группировка
+    // работает через fallbackTopGroup по префиксу имени серии («Группа: имя»).
+    seriesTopGroup = {};
 
     const { dates, baseline, channels } = timeSeries;
     const channelNames = Object.keys(channels);
