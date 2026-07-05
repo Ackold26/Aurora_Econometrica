@@ -5,14 +5,19 @@ Per ADR-019 §5: silent auto-injection 12 hardcoded РФ-events как dummy
 control columns. Customer customization (opt-out specific holidays, custom events)
 отложено в v2.2.0 (Quality of Life sprint).
 
-🔴 Принцип окон (решение Антона 2026-07-05): окно события = период
-ПОКУПАТЕЛЬСКОЙ ПОДГОТОВКИ (когда покупают подарки / делают закупки), а не
-календарные праздничные дни — подарки к Новому году покупают в декабре, не
-1 января; ~1-3 недели до события в зависимости от подарочного цикла. Именно
-это окно видно эконометрике в продажах. Дефиниции ниже — preshop-окна для
-gift-событий (НГ 15-31 дек, Valentine 1-14 фев, 23 февраля 15-23 фев,
-8 марта 1-8 мар, back-to-school 15 авг-1 сен); для распродаж (ЧП/Cyber
-Monday) окно = сама распродажа (покупка происходит в момент события).
+🔴 Принцип окон (решения Антона 2026-07-05, два уточнения): окно события —
+это период ПОВЫШЕННОЙ ПОКУПАТЕЛЬСКОЙ АКТИВНОСТИ, и его положение зависит
+от КЛАССА события (window_kind):
+  * 'preparation' — праздники (НГ, 8 марта, 14/23 февраля, back-to-school):
+    активность идёт ДО события — закупки подарков/товаров ~1-3 недели до
+    (подарки к НГ покупают в декабре, не 1 января). Окно = [событие − 1-3
+    недели → событие].
+  * 'sale_period' — распродажи (Чёрная пятница, Cyber Monday, новогодние
+    распродажи): активность идёт С МОМЕНТА СТАРТА распродажи и по её
+    завершении, обычно ~2-3 недели от старта. Окно = [старт → старт + N].
+  * 'calendar_period' — календарные периоды потребления (майские, короткие
+    госвыходные, школьные каникулы): активность в сам период. Окно = период.
+Именно эти окна видит эконометрика в продажах.
 
 🔴 Грануляция (аудит 2026-07-05): значение дамми = ДОЛЯ дней периода строки,
 попавших в окно (0..1), а не принадлежность точечной даты строки окну.
@@ -52,10 +57,18 @@ from typing import Dict, List, Optional
 # of November, Cyber Monday = first Monday after Black Friday, etc.).
 # Окна gift-событий — ПОДГОТОВИТЕЛЬНЫЕ (см. принцип в докстринге модуля).
 
+# window_kind (решение Антона 2026-07-05, второе уточнение):
+#   'preparation'     — активность ДО события (окно подготовки/закупок);
+#   'sale_period'     — активность ОТ старта распродажи (~2-3 недели);
+#   'calendar_period' — активность в сам календарный период.
+# У распродаж дополнительно date_range_v20 — узкие окна v2.0 (сам момент
+# события): их обязан воспроизводить mode='binary_point' для старых моделей
+# (β обучены на тех X — см. generate_holiday_dummies).
 HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_newyear_preshop',
         'category': 'gift',
+        'window_kind': 'preparation',
         'description': 'Pre-Новогодние закупки подарков (15-31 декабря)',
         'date_range': lambda year: [
             date(year, 12, d) for d in range(15, 32)
@@ -64,7 +77,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_newyear_postsale',
         'category': 'commercial',
-        'description': 'Новогодние распродажи + январские каникулы (25 дек - 8 янв)',
+        'window_kind': 'sale_period',
+        'description': 'Новогодние распродажи + январские каникулы (старт 25 дек → 8 янв)',
         'date_range': lambda year: (
             [date(year, 12, d) for d in range(25, 32)]
             + [date(year + 1, 1, d) for d in range(1, 9)]
@@ -73,7 +87,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_valentine',
         'category': 'gift',
-        'description': 'День Святого Валентина (1-14 февраля)',
+        'window_kind': 'preparation',
+        'description': 'День Святого Валентина (подготовка 1-14 февраля)',
         'date_range': lambda year: [
             date(year, 2, d) for d in range(1, 15)
         ],
@@ -81,7 +96,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_defender_day',
         'category': 'gift',
-        'description': '23 февраля shopping (15-23 февраля)',
+        'window_kind': 'preparation',
+        'description': '23 февраля (подготовка 15-23 февраля)',
         'date_range': lambda year: [
             date(year, 2, d) for d in range(15, 24)
         ],
@@ -89,7 +105,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_march8',
         'category': 'gift',
-        'description': '8 марта shopping (1-8 марта)',
+        'window_kind': 'preparation',
+        'description': '8 марта (подготовка 1-8 марта)',
         'date_range': lambda year: [
             date(year, 3, d) for d in range(1, 9)
         ],
@@ -97,6 +114,7 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_may_holidays',
         'category': 'general',
+        'window_kind': 'calendar_period',
         'description': 'Майские праздники (28 апреля - 9 мая)',
         'date_range': lambda year: (
             [date(year, 4, d) for d in range(28, 31)]
@@ -106,6 +124,7 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_russia_day',
         'category': 'general',
+        'window_kind': 'calendar_period',
         'description': 'День России (11-12 июня)',
         'date_range': lambda year: [
             date(year, 6, 11),
@@ -115,7 +134,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_back_to_school',
         'category': 'category_specific',
-        'description': 'Back-to-school (15 августа - 1 сентября)',
+        'window_kind': 'preparation',
+        'description': 'Back-to-school — подготовка к 1 сентября (15 августа - 1 сентября)',
         'date_range': lambda year: (
             [date(year, 8, d) for d in range(15, 32)]
             + [date(year, 9, 1)]
@@ -124,6 +144,7 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_unity_day',
         'category': 'general',
+        'window_kind': 'calendar_period',
         'description': 'День народного единства (3-4 ноября)',
         'date_range': lambda year: [
             date(year, 11, 3),
@@ -133,22 +154,39 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_black_friday',
         'category': 'commercial',
-        'description': 'Чёрная Пятница (последняя пятница ноября + weekend)',
-        'date_range': lambda year: _black_friday_dates(year),
+        'window_kind': 'sale_period',
+        'description': 'Чёрная Пятница — распродажный период (старт: последняя пятница ноября, ~2 недели)',
+        # Активность идёт ОТ старта распродажи (уточнение Антона): 14 дней.
+        'date_range': lambda year: _sale_window(_last_friday_of_november(year), 14),
+        # v2.0-окно (сам момент: пятница + weekend) — для binary_point.
+        'date_range_v20': lambda year: _black_friday_dates(year),
     },
     {
         'name': 'holiday_cyber_monday',
         'category': 'commercial',
-        'description': 'Cyber Monday (понедельник после Чёрной пятницы)',
-        'date_range': lambda year: [_cyber_monday_date(year)],
+        'window_kind': 'sale_period',
+        'description': 'Cyber Monday — онлайн-распродажная неделя (старт: пн после ЧП, 7 дней)',
+        # Короткая онлайн-распродажа: Cyber Week от старта (внутри ЧП-периода —
+        # перекрытие ожидаемо, помечено в EXPECTED_OVERLAPS).
+        'date_range': lambda year: _sale_window(_cyber_monday_date(year), 7),
+        # v2.0-окно (один день) — для binary_point.
+        'date_range_v20': lambda year: [_cyber_monday_date(year)],
     },
     {
         'name': 'holiday_school_breaks',
         'category': 'family',
+        'window_kind': 'calendar_period',
         'description': 'Школьные каникулы (4 окна: осенние / зимние / весенние / летние)',
         'date_range': lambda year: _school_breaks_dates(year),
     },
 ]
+
+
+def _sale_window(start: date, days: int) -> List[date]:
+    """Окно распродажи ОТ старта (уточнение Антона 2026-07-05): повышенная
+    покупательская активность идёт с момента старта распродажи и по её
+    завершении (~2-3 недели), а не до события, как у праздников."""
+    return [start + timedelta(days=i) for i in range(days)]
 
 
 def _last_friday_of_november(year: int) -> date:
@@ -291,17 +329,23 @@ def generate_holiday_dummies(
     else:
         holiday_defs = [h for h in HOLIDAY_DEFINITIONS if h['name'] in holidays]
 
-    # Build holiday date sets per holiday
+    # Build holiday date sets per holiday.
+    # binary_point (decompose моделей v2.0) обязан воспроизводить И точечную
+    # семантику, И СТАРЫЕ окна распродаж (date_range_v20) — β тех моделей
+    # обучены на тех X; новые окна sale_period существуют только в 'fraction'.
     holiday_date_sets: Dict[str, set] = {}
     for h_def in holiday_defs:
         name = h_def['name']
+        range_fn = h_def['date_range']
+        if mode == 'binary_point' and 'date_range_v20' in h_def:
+            range_fn = h_def['date_range_v20']
         dates_set: set = set()
         for year in years_in_data:
-            year_dates = h_def['date_range'](year)
+            year_dates = range_fn(year)
             dates_set.update(year_dates)
             # Also include preceding year holiday (since some span year boundary)
             try:
-                prev_year_dates = h_def['date_range'](year - 1)
+                prev_year_dates = range_fn(year - 1)
                 dates_set.update(prev_year_dates)
             except Exception:
                 pass
@@ -462,12 +506,13 @@ def list_holiday_names() -> List[str]:
 
 
 def get_holiday_metadata(holiday_name: str) -> Optional[Dict[str, str]]:
-    """Get description + category для конкретного holiday."""
+    """Get description + category + window_kind для конкретного holiday."""
     for h in HOLIDAY_DEFINITIONS:
         if h['name'] == holiday_name:
             return {
                 'name': h['name'],
                 'category': h['category'],
+                'window_kind': h.get('window_kind', 'calendar_period'),
                 'description': h['description'],
             }
     return None

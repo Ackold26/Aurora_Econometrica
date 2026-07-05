@@ -47,16 +47,39 @@ class TestMonthlyFraction:
     """Месячная грануляция: доля дней месяца в окне подготовки."""
 
     def test_black_friday_stable_every_november(self):
-        """ЧП видна КАЖДЫЙ ноябрь (раньше — флаки 2/4 лет от точечной даты)."""
+        """ЧП видна КАЖДЫЙ ноябрь и декабрь-хвост (раньше — флаки 2/4 лет).
+
+        Уточнение Антона (v2.2): ЧП — РАСПРОДАЖНЫЙ период, активность идёт
+        ОТ старта (~2 недели), не до события: окно [посл. пятница ноября, +13].
+        Ноябрь несёт старт (1-6 дней), декабрь — хвост периода.
+        """
         d = generate_holiday_dummies(MONTHLY_EOM)
         nov = _month_values(MONTHLY_EOM, d, 'holiday_black_friday', 11)
+        dec = _month_values(MONTHLY_EOM, d, 'holiday_black_friday', 12)
         assert len(nov) == 4
         assert all(v > 0 for v in nov), f'ЧП пропала в части ноябрей: {nov}'
-        # Окно 3 дня из 30 → доля ~0.1 (в годы переноса части окна на декабрь — меньше).
-        assert all(v <= 3 / 30 + 1e-9 for v in nov)
-        # Вне ноября/декабря ЧП нулевая (декабрь может получить хвост окна).
+        assert all(v > 0 for v in dec), f'хвост распродажи пропал в декабрях: {dec}'
+        # 14-дневное окно: старт = посл. пятница ноября (24-30 число) →
+        # ноябрьская часть 1-7 дней, декабрьская 7-13 дней.
+        assert all(v <= 7 / 30 + 1e-9 for v in nov)
+        assert all(v <= 13 / 31 + 1e-9 for v in dec)
+        # Вне ноября/декабря ЧП нулевая.
         for m in (1, 5, 7, 10):
             assert all(v == 0 for v in _month_values(MONTHLY_EOM, d, 'holiday_black_friday', m))
+
+    def test_sale_period_runs_from_start(self):
+        """Класс sale_period: окно ОТ старта. BF-2022: старт 25 ноя → окно
+        [25 ноя, 8 дек]: ноябрь 6/30, декабрь 8/31 (точные доли)."""
+        d = generate_holiday_dummies(MONTHLY_EOM)
+        years = pd.to_datetime(MONTHLY_EOM).dt.year
+        months = pd.to_datetime(MONTHLY_EOM).dt.month
+        bf = d['holiday_black_friday']
+        assert bf[(years == 2022) & (months == 11)].iloc[0] == pytest.approx(6 / 30, abs=1e-4)
+        assert bf[(years == 2022) & (months == 12)].iloc[0] == pytest.approx(8 / 31, abs=1e-4)
+        # Cyber Week 7 дней от старта: CM-2022 = 28 ноя → ноябрь 3/30, декабрь 4/31.
+        cm = d['holiday_cyber_monday']
+        assert cm[(years == 2022) & (months == 11)].iloc[0] == pytest.approx(3 / 30, abs=1e-4)
+        assert cm[(years == 2022) & (months == 12)].iloc[0] == pytest.approx(4 / 31, abs=1e-4)
 
     def test_previously_dead_holidays_alive(self):
         """6 праздников, вечно-нулевых на точечной дате конца месяца, теперь видны."""
@@ -111,11 +134,21 @@ class TestWeeklyDailyFraction:
         assert pre[3] == 1.0
 
     def test_daily_degenerates_to_binary(self):
-        """Дневная грануляция: fraction поэлементно равна legacy binary_point."""
+        """Дневная грануляция: fraction вырождается в 0/1; для событий БЕЗ
+        v2.0-переопределения окна значения поэлементно равны binary_point.
+        (У распродаж окна режимов РАЗНЫЕ by-design: fraction — период от
+        старта, binary_point — узкое v2.0-окно для старых моделей.)"""
+        from utils.holiday_calendar_ru import HOLIDAY_DEFINITIONS
         days = pd.Series(pd.date_range('2024-12-01', '2024-12-31', freq='D'))
         frac = generate_holiday_dummies(days)
         binary = generate_holiday_dummies(days, mode='binary_point')
-        assert (frac.values == binary.values.astype(float)).all()
+        # (а) На daily все доли целые 0/1.
+        assert set(float(v) for v in frac.values.ravel()) <= {0.0, 1.0}
+        # (б) События без date_range_v20 — идентичны между режимами.
+        same_window = [h['name'] for h in HOLIDAY_DEFINITIONS if 'date_range_v20' not in h]
+        assert len(same_window) == 10  # все, кроме ЧП и Cyber Monday
+        for col in same_window:
+            assert (frac[col].values == binary[col].values.astype(float)).all(), col
 
 
 class TestLegacyBinaryPointMode:
@@ -160,6 +193,55 @@ class TestNameDedup:
 
     def test_empty(self):
         assert user_covered_auto_holidays([]) == set()
+
+
+class TestWindowKinds:
+    """Классы окон (уточнение Антона 2026-07-05): подготовка ДО события /
+    распродажа ОТ старта / календарный период."""
+
+    def test_every_definition_has_window_kind(self):
+        from utils.holiday_calendar_ru import HOLIDAY_DEFINITIONS
+        allowed = {'preparation', 'sale_period', 'calendar_period'}
+        for h in HOLIDAY_DEFINITIONS:
+            assert h.get('window_kind') in allowed, (
+                f"{h['name']}: window_kind={h.get('window_kind')!r} вне {allowed}"
+            )
+
+    def test_expected_classification(self):
+        from utils.holiday_calendar_ru import get_holiday_metadata
+        expected = {
+            'holiday_newyear_preshop': 'preparation',
+            'holiday_valentine': 'preparation',
+            'holiday_defender_day': 'preparation',
+            'holiday_march8': 'preparation',
+            'holiday_back_to_school': 'preparation',
+            'holiday_newyear_postsale': 'sale_period',
+            'holiday_black_friday': 'sale_period',
+            'holiday_cyber_monday': 'sale_period',
+            'holiday_may_holidays': 'calendar_period',
+            'holiday_russia_day': 'calendar_period',
+            'holiday_unity_day': 'calendar_period',
+            'holiday_school_breaks': 'calendar_period',
+        }
+        for name, kind in expected.items():
+            meta = get_holiday_metadata(name)
+            assert meta is not None, name
+            assert meta['window_kind'] == kind, (
+                f'{name}: window_kind={meta["window_kind"]!r}, ожидалось {kind!r}'
+            )
+
+    def test_sale_windows_only_widen_in_fraction_mode(self):
+        """v2.0-окна распродаж (узкие) живут ТОЛЬКО в binary_point (старые
+        модели); fraction использует новые окна от старта."""
+        days = pd.Series(pd.date_range('2022-11-20', '2022-12-15', freq='D'))
+        legacy = generate_holiday_dummies(days, mode='binary_point')
+        frac = generate_holiday_dummies(days)
+        # binary_point: ровно 3 дня ЧП (25-27 ноя 2022) и 1 день CM (28 ноя).
+        assert int(legacy['holiday_black_friday'].sum()) == 3
+        assert int(legacy['holiday_cyber_monday'].sum()) == 1
+        # fraction на daily: 14 дней ЧП-периода и 7 дней Cyber Week.
+        assert int(frac['holiday_black_friday'].sum()) == 14
+        assert int(frac['holiday_cyber_monday'].sum()) == 7
 
 
 class TestCollinearityOnFraction:
