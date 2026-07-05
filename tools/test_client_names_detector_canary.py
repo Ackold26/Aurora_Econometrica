@@ -87,6 +87,50 @@ def test_detectors_not_contradicting(name, want):
     )
 
 
+class TestHolidayClientForms:
+    """Аудит №4 (2026-07-05): клиентские событийные дамми БЕЗ префикса holiday_.
+
+    Дыра Д2: `black_friday` без префикса падала в unknown→unused у ОБОИХ
+    детекторов, а углублённый дедуп при этом гасил авто-инжект → контроль
+    события терялся ПОЛНОСТЬЮ (OVB молча — хуже дубля). FIX: SSOT-предикат
+    is_holiday_like_name (те же алиасы, та же анти-ложная защита) в обоих
+    детекторах: classify→'holiday' (до generic-date: «день_россии» ловился
+    ложной датой), validator→'control'.
+    """
+
+    HOLIDAY_FORMS = [
+        'black_friday', 'blackfriday', 'чёрная_пятница', 'черная пятница',
+        'cyber_monday', 'back_to_school', 'школьные_каникулы', 'valentine',
+        '8_марта', '23_февраля', '14_февраля', '1_сентября', '9_мая',
+        'день_россии', 'день_победы', 'майские_праздники', '4_ноября',
+    ]
+
+    @pytest.mark.parametrize('name', HOLIDAY_FORMS)
+    def test_validator_gives_control(self, name):
+        assert detect_column_role(name) == 'control', (
+            f'{name!r}: событийная дамми не распознана контролом — уйдёт в '
+            f'unused, а дедуп погасит авто-инжект → контроль потерян (OVB)'
+        )
+
+    @pytest.mark.parametrize('name', HOLIDAY_FORMS)
+    def test_classify_gives_holiday(self, name):
+        assert classify_column(name) == 'holiday', (
+            f'{name!r}: classify_column дал {classify_column(name)!r} — '
+            f'prior/полоса декомпозиции разойдутся с ролью control'
+        )
+
+    @pytest.mark.parametrize('name', [
+        'валентина_план',    # имя человека — не событие (сужение алиаса Д1)
+        'день_недели',       # generic date, не праздник
+        'friday_traffic', 'monday_sales', 'школа_танцев',
+        'победа_бренд', 'россия_регион', 'сентябрь_продажи',
+    ])
+    def test_no_false_holiday(self, name):
+        assert classify_column(name) != 'holiday', (
+            f'ЛОЖНЫЙ holiday: {name!r}'
+        )
+
+
 class TestUnderscoreMacroPositive:
     """Позитивный инвариант: макро/цена в НАШЕЙ underscore-форме распознаются.
 

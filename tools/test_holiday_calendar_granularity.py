@@ -236,6 +236,7 @@ class TestNameDedup:
         'mayonnaise_sales', 'russian_market', 'community_reach', 'marchmadness_promo',
         'may_revenue', 'unity_engine_ver', 'marketing_budget', 'friday_traffic',
         'monday_sales', 'summer_promo', 'победа_бренд', 'россия_регион', 'школа_танцев',
+        'валентина_план',  # имя человека — не событие (сужение алиаса, аудит №4)
     ]
 
     @pytest.mark.parametrize('col', NON_HOLIDAY_COLUMNS)

@@ -486,6 +486,15 @@ def classify_column(column_name: str) -> ColumnKind:
     # 8. Monetary input (budget, spend, cost)
     # 9. Physical input (impressions, clicks, TRP, GRP)
 
+    # Клиентские формы событий БЕЗ префикса holiday_ (аудит №4, 2026-07-05):
+    # SSOT-алиасы календаря (black_friday / 8_марта / чёрная_пятница /
+    # день_россии) → 'holiday' ДО date-паттернов: специфичное имя события
+    # точнее generic-токена «день» ('день_россии' ловился DATE как ложная
+    # дата). Анти-ложная защита — в _alias_matches (whitelist + гейт длины).
+    from utils.holiday_calendar_ru import is_holiday_like_name
+    if is_holiday_like_name(column_name):
+        return 'holiday'
+
     if _matches_any(column_name, DATE_PATTERNS):
         return 'date'
 

@@ -139,6 +139,14 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
             and any(v in lower for v in _CATEGORY_VOLUME)):
         return 'control', 0.85
 
+    # Аудит №4 (2026-07-05): клиентские событийные дамми БЕЗ префикса holiday_
+    # (black_friday / 8_марта / чёрная_пятница) — SSOT-алиасы календаря →
+    # control. Без этого колонка падала в unknown→unused, а дедуп авто-инжекта
+    # гасил авто-дубль → контроль события терялся ПОЛНОСТЬЮ (OVB молча).
+    from utils.holiday_calendar_ru import is_holiday_like_name
+    if is_holiday_like_name(col_name):
+        return 'control', 0.85
+
     # Count pattern matches per category
     kpi_matches = sum(1 for p in KPI_PATTERNS if p in lower)
     media_matches = sum(1 for p in MEDIA_PATTERNS if p in lower)

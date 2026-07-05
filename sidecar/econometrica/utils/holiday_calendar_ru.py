@@ -422,8 +422,11 @@ _HOLIDAY_ALIASES: Dict[str, tuple] = {
         'newyear', 'новыйгод', 'newyearsale', 'newyearpostsale',
         'новогодниераспродажи', 'январскиераспродажи', 'январскиеканикулы',
     ),
+    # ⚠️ НЕ голое 'валентин': имя человека в названии колонки («Валентина_план»)
+    # дало бы ложное срабатывание — только событийные формы.
     'holiday_valentine': (
-        'valentine', 'валентин', 'деньвлюблённых', 'деньвлюбленных',
+        'valentine', 'валентинк', 'деньвалентина', 'деньсвятоговалентина',
+        'деньвлюблённых', 'деньвлюбленных',
         '14февраля', '14february', 'february14',
     ),
     'holiday_defender_day': (
@@ -477,6 +480,27 @@ def _alias_matches(alias: str, col_norm: str) -> bool:
     if len(alias) >= _MIN_SUBSTRING_ALIAS or any(ch.isdigit() for ch in alias):
         return alias in col_norm
     return alias == col_norm
+
+
+def is_holiday_like_name(name: str) -> bool:
+    """Имя колонки — событийная дамми (точное авто-имя ИЛИ курируемый алиас).
+
+    SSOT-предикат для ОБОИХ детекторов (аудит №4, 2026-07-05): клиентская
+    колонка `black_friday`/`8_марта`/`чёрная_пятница` без нашего префикса
+    обязана получить роль control (validator) и kind 'holiday' (classify) —
+    иначе она unused, а дедуп гасит авто-инжект → контроль события ТЕРЯЕТСЯ
+    полностью (хуже дубля: OVB молча). Анти-ложная защита та же, что у дедупа
+    (whitelist специфичных ядер + гейт длины _alias_matches).
+    """
+    col_norm = normalize_holiday_name(name)
+    if not col_norm:
+        return False
+    for h in HOLIDAY_DEFINITIONS:
+        if col_norm == normalize_holiday_name(h['name']):
+            return True
+        if any(_alias_matches(a, col_norm) for a in _HOLIDAY_ALIASES.get(h['name'], ())):
+            return True
+    return False
 
 
 def user_covered_auto_holidays(existing_columns: List[str]) -> set:
