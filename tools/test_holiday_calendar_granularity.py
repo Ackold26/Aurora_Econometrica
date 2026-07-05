@@ -172,7 +172,14 @@ class TestLegacyBinaryPointMode:
 
 
 class TestNameDedup:
-    """Семантический дедуп авто-инжекта с ручными holiday-колонками."""
+    """Семантический дедуп авто-инжекта с ручными holiday-колонками.
+
+    Углублён по решению Антона (2026-07-05): клиент не знает нашу конвенцию
+    префикса `holiday_` — колонки `black_friday`/`8_марта`/`valentine` тоже
+    опознаются. 🔴 Инвариант: ложное гашение (потеря контроля → OVB) опаснее
+    пропущенного → whitelist специфичных алиасов, без ложных гашений на
+    обычных колонках.
+    """
 
     @pytest.mark.parametrize('a,b', [
         ('holiday_black_friday', 'holiday_blackfriday'),
@@ -186,10 +193,73 @@ class TestNameDedup:
         covered = user_covered_auto_holidays(['date', 'sales', 'holiday_blackfriday'])
         assert covered == {'holiday_black_friday'}
 
-    def test_no_false_coverage(self):
-        """Ручная НГ-dummy иного смысла не гасит авто-окна (имена не совпадают)."""
-        covered = user_covered_auto_holidays(['holiday_newyear'])
-        assert covered == set()
+    @pytest.mark.parametrize('col,expected', [
+        # Без нашего префикса holiday_ (клиент не знает конвенцию).
+        ('black_friday', 'holiday_black_friday'),
+        ('blackfriday', 'holiday_black_friday'),
+        ('BlackFriday', 'holiday_black_friday'),
+        ('promo_black_friday_2024', 'holiday_black_friday'),   # + префикс/суффикс
+        ('cyber_monday', 'holiday_cyber_monday'),
+        ('back_to_school', 'holiday_back_to_school'),
+        ('valentine_promo', 'holiday_valentine'),
+        ('defender_day', 'holiday_defender_day'),
+        # Русские синонимы.
+        ('чёрная_пятница', 'holiday_black_friday'),
+        ('черная пятница', 'holiday_black_friday'),
+        ('день_россии', 'holiday_russia_day'),
+        ('школьные_каникулы', 'holiday_school_breaks'),
+        ('женский_день', 'holiday_march8'),
+        # Дата-формы (специфичны цифрой месяца).
+        ('8_march', 'holiday_march8'),
+        ('8марта', 'holiday_march8'),
+        ('march8_sales', 'holiday_march8'),
+        ('23_февраля', 'holiday_defender_day'),
+        ('14_февраля', 'holiday_valentine'),
+        ('4_ноября', 'holiday_unity_day'),
+        ('9_мая', 'holiday_may_holidays'),
+        ('1_сентября', 'holiday_back_to_school'),
+    ])
+    def test_covers_without_prefix_and_synonyms(self, col, expected):
+        assert expected in user_covered_auto_holidays([col]), (
+            f'{col!r} не погасил {expected}'
+        )
+
+    # 🔴 Анти-ложное-гашение: реалистичные не-праздничные колонки НЕ должны
+    # гасить ни один контроль (ложное гашение → OVB). Коварные: mayonnaise (may),
+    # russian_market (russia), community (unity), marchmadness (march).
+    NON_HOLIDAY_COLUMNS = [
+        'sales_rub', 'sales_packs', 'leads', 'tv_spend', 'tv_trp', 'tv_grp',
+        'digital_spend', 'digital_impressions', 'ooh_spend', 'ooh_contacts',
+        'performance_spend', 'performance_clicks', 'apteka_spend', 'apteka_contacts',
+        'retail_media_spend', 'competitor_trp', 'competitor_promo', 'competitor_activity',
+        'price_index', 'category_sales', 'weather_temp_low', 'macro_cpi', 'promo_indicator',
+        'mayonnaise_sales', 'russian_market', 'community_reach', 'marchmadness_promo',
+        'may_revenue', 'unity_engine_ver', 'marketing_budget', 'friday_traffic',
+        'monday_sales', 'summer_promo', 'победа_бренд', 'россия_регион', 'школа_танцев',
+    ]
+
+    @pytest.mark.parametrize('col', NON_HOLIDAY_COLUMNS)
+    def test_no_false_coverage_realistic_columns(self, col):
+        assert user_covered_auto_holidays([col]) == set(), (
+            f'ЛОЖНОЕ гашение: {col!r} погасил {user_covered_auto_holidays([col])}'
+        )
+
+    def test_exact_name_covers_exactly_one(self):
+        """Точное авто-имя покрывает РОВНО его (клиент скопировал наш шаблон)."""
+        assert user_covered_auto_holidays(['holiday_newyear_preshop']) == {'holiday_newyear_preshop'}
+
+    def test_generic_newyear_covers_both(self):
+        """Обобщённый «Новый год» (не наше точное имя) → оба НГ-окна: клиент
+        берёт весь НГ-период на себя, авто-дубли гасятся (а не плодятся)."""
+        covered = user_covered_auto_holidays(['new_year'])
+        assert covered == {'holiday_newyear_preshop', 'holiday_newyear_postsale'}
+
+    def test_ssot_every_definition_has_aliases(self):
+        """Каждое авто-событие имеет непустой набор алиасов (не забыли при
+        добавлении нового праздника)."""
+        from utils.holiday_calendar_ru import HOLIDAY_DEFINITIONS, _HOLIDAY_ALIASES
+        for h in HOLIDAY_DEFINITIONS:
+            assert _HOLIDAY_ALIASES.get(h['name']), f"нет алиасов для {h['name']}"
 
     def test_empty(self):
         assert user_covered_auto_holidays([]) == set()

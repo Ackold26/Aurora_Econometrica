@@ -384,10 +384,80 @@ def generate_holiday_dummies(
     return df
 
 
-# ─── Семантический дедуп имён (аудит 2026-07-05) ────────────────────────────
+# ─── Семантический дедуп имён (аудит 2026-07-05, углублён по решению Антона) ──
 # Дедуп авто-инжекта с ручными колонками шёл по ТОЧНОМУ имени → юзерская
 # `holiday_blackfriday` не гасила авто `holiday_black_friday`, обе уходили в
-# модель (частичный двойной учёт события). Нормализация убирает разделители.
+# модель (частичный двойной учёт события). Расширено: клиент НЕ знает нашу
+# конвенцию префикса `holiday_` и назовёт колонку `black_friday` / `blackfriday`
+# / `чёрная_пятница` / `8_марта` — их тоже надо опознать и погасить авто-дубль.
+#
+# 🔴 АСИММЕТРИЯ РИСКА (ключевой принцип дизайна): ЛОЖНОЕ гашение ОПАСНЕЕ
+# пропущенного. Пропустили → двойной учёт (оба контроля в модели, слегка
+# коллинеарны — терпимо). Ложно погасили → контроль ПОТЕРЯН → эффект праздника
+# уходит в медиа (OVB, завышенный ROI — молча). Поэтому:
+#   1. Алиасы — КУРИРУЕМЫЙ whitelist специфичных «ядер», НЕ автоген из имени.
+#      Никаких голых коротких неоднозначных слов (may/russia/unity/march) —
+#      только полные формы: не погасит mayonnaise_sales / russian_market /
+#      community_reach / marchmadness_promo.
+#   2. Дата-формы (8марта, 23февраля, 4ноября) специфичны цифрой месяца.
+#   3. _alias_matches: короткий безцифровой алиас (<5) сматчит ТОЛЬКО точным
+#      равенством норм-имён (страховка на случай будущего короткого алиаса).
+#   4. ТОЧНОЕ совпадение с авто-именем покрывает РОВНО его (не расширяется на
+#      алиасы) — клиент, скопировавший наш шаблон, получает точное намерение.
+
+_MIN_SUBSTRING_ALIAS = 5  # ниже — только точное равенство (если нет цифры)
+
+# Курируемые алиасы события БЕЗ префикса holiday_ (варианты имени + синонимы
+# RU/EN + дата-формы). ⚠️ Добавляя алиас — держи его специфичным (длинным или
+# с цифрой месяца): substring-матч на коротком слове ложно гасит контроль.
+_HOLIDAY_ALIASES: Dict[str, tuple] = {
+    # Общий `newyear`/`новыйгод` намеренно в ОБОИХ НГ-событиях: клиент, назвавший
+    # колонку обобщённо «Новый год», берёт весь НГ-период на себя → гасим оба
+    # авто-дубля (а не плодим их рядом). Точное имя авто-события этот общий
+    # алиас не задевает (см. приоритет точного совпадения в user_covered_*).
+    'holiday_newyear_preshop': (
+        'newyear', 'новыйгод', 'newyearshopping', 'newyeargifts', 'предновогодн',
+    ),
+    'holiday_newyear_postsale': (
+        'newyear', 'новыйгод', 'newyearsale', 'newyearpostsale',
+        'новогодниераспродажи', 'январскиераспродажи', 'январскиеканикулы',
+    ),
+    'holiday_valentine': (
+        'valentine', 'валентин', 'деньвлюблённых', 'деньвлюбленных',
+        '14февраля', '14february', 'february14',
+    ),
+    'holiday_defender_day': (
+        'defenderday', 'деньзащитника', '23февраля', '23february', 'february23',
+    ),
+    'holiday_march8': (
+        'march8', '8march', '8марта', 'womensday', 'internationalwomensday',
+        'женскийдень', 'международныйженскийдень',
+    ),
+    'holiday_may_holidays': (
+        'mayholidays', 'майскиепраздники', 'майские', '1мая', '9мая',
+        'деньпобеды', 'victoryday', 'labourday',
+    ),
+    'holiday_russia_day': (
+        'russiaday', 'деньроссии', '12июня', 'june12',
+    ),
+    'holiday_back_to_school': (
+        'backtoschool', 'back2school', 'ктошколе', 'кшколе', '1сентября',
+        'backtoschoolseason',
+    ),
+    'holiday_unity_day': (
+        'unityday', 'деньнародногоединства', 'народногоединства',
+        '4ноября', 'november4',
+    ),
+    'holiday_black_friday': (
+        'blackfriday', 'чёрнаяпятница', 'чернаяпятница', 'блэкфрайдей',
+    ),
+    'holiday_cyber_monday': (
+        'cybermonday', 'киберпонедельник', 'кибермонди',
+    ),
+    'holiday_school_breaks': (
+        'schoolbreaks', 'школьныеканикулы', 'каникулы',
+    ),
+}
 
 
 def normalize_holiday_name(name: str) -> str:
@@ -398,21 +468,44 @@ def normalize_holiday_name(name: str) -> str:
     return re.sub(r'[\s_\-]+', '', str(name).lower())
 
 
+def _alias_matches(alias: str, col_norm: str) -> bool:
+    """Норм-имя колонки опознаётся алиасом события.
+
+    Длинный (≥_MIN_SUBSTRING_ALIAS) или содержащий цифру алиас — substring-матч
+    (ловит префиксы/суффиксы клиента: promo_black_friday_2024). Короткий
+    безцифровой — только точное равенство (страховка от ложных гашений)."""
+    if len(alias) >= _MIN_SUBSTRING_ALIAS or any(ch.isdigit() for ch in alias):
+        return alias in col_norm
+    return alias == col_norm
+
+
 def user_covered_auto_holidays(existing_columns: List[str]) -> set:
-    """Авто-праздники, уже покрытые колонками пользователя (по норм-имени).
+    """Авто-праздники, уже покрытые колонками пользователя.
 
     Инжект обязан их пропустить: ручная колонка = источник истины пользователя,
-    авто-дубль с чуть иным написанием дал бы двойной учёт события.
+    авто-дубль (в т.ч. с иным написанием или без префикса holiday_) дал бы
+    двойной учёт события. Порядок: (1) точное совпадение норм-имени с авто-именем
+    покрывает РОВНО его; (2) иначе — курируемые алиасы (могут покрыть несколько
+    родственных событий, напр. общий «Новый год» → оба НГ-окна).
 
     Returns:
         set канонических имён авто-праздников (из HOLIDAY_DEFINITIONS),
         конфликтующих с existing_columns.
     """
-    existing_norm = {normalize_holiday_name(c) for c in existing_columns}
-    return {
-        h['name'] for h in HOLIDAY_DEFINITIONS
-        if normalize_holiday_name(h['name']) in existing_norm
-    }
+    existing_norm = {n for n in (normalize_holiday_name(c) for c in existing_columns) if n}
+    auto_norms = {normalize_holiday_name(h['name']): h['name'] for h in HOLIDAY_DEFINITIONS}
+    covered: set = set()
+    for col_norm in existing_norm:
+        # 1. Точное совпадение с авто-именем → покрывает РОВНО его.
+        if col_norm in auto_norms:
+            covered.add(auto_norms[col_norm])
+            continue
+        # 2. Иначе — курируемые алиасы (без-префиксные / синонимы / даты).
+        for h in HOLIDAY_DEFINITIONS:
+            name = h['name']
+            if any(_alias_matches(a, col_norm) for a in _HOLIDAY_ALIASES.get(name, ())):
+                covered.add(name)
+    return covered
 
 
 def detect_holiday_collinearity(
