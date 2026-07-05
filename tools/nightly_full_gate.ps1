@@ -55,30 +55,51 @@ Write-Host "[nightly gate] $stamp — python + vitest + svelte-check (лог: $l
 $overall = 0
 $summaries = @()
 
+# Урок A-8 (аудит 2026-07-05): exit-код сам по себе не вердикт — bash-пайп в
+# tail замаскировал 9 failed нулём. Здесь $LASTEXITCODE честный (Tee-Object —
+# cmdlet, код остаётся от exe), но добавлена трип-проволока на обратный класс:
+# exit=0 БЕЗ строки-сводки прогона = аномалия (упавший сбор / проглоченный
+# запуск) → gate FAILED, не молчаливый OK.
+
 # ── 1. Python (pytest.ini задаёт -n 4 --dist worksteal автоматически) ──────
 "=== [1/3] python tools/ ($stamp) ===" | Tee-Object -FilePath $log
 python -m pytest tools/ -q 2>&1 | Tee-Object -FilePath $log -Append
 $pyCode = $LASTEXITCODE
-if ($pyCode -ne 0) { $overall = 1 }
+if ($null -eq $pyCode -or $pyCode -ne 0) { $overall = 1 }
 $pySum = (Select-String -Path $log -Pattern '\d+ (passed|failed|error)' | Select-Object -Last 1)
-$summaries += "python: exit=$pyCode $($pySum.Line.Trim())"
+if ($null -eq $pySum -and $pyCode -eq 0) {
+  $overall = 1
+  $summaries += "python: exit=$pyCode НО сводка pytest не найдена (аномалия — сбор упал?)"
+} else {
+  $summaries += "python: exit=$pyCode $(if ($pySum) { $pySum.Line.Trim() } else { '(no summary)' })"
+}
 
 # ── 2. Vitest (фронт-контракты; F-2 — svelte-check их не ловит) ────────────
 "=== [2/3] vitest ($stamp) ===" | Tee-Object -FilePath $log -Append
 $env:CI = '1'
 npx vitest run 2>&1 | Tee-Object -FilePath $log -Append
 $viCode = $LASTEXITCODE
-if ($viCode -ne 0) { $overall = 1 }
+if ($null -eq $viCode -or $viCode -ne 0) { $overall = 1 }
 $viSum = (Select-String -Path $log -Pattern 'Tests\s+\d+ (passed|failed)' | Select-Object -Last 1)
-$summaries += "vitest: exit=$viCode $($viSum.Line.Trim())"
+if ($null -eq $viSum -and $viCode -eq 0) {
+  $overall = 1
+  $summaries += "vitest: exit=$viCode НО сводка Tests не найдена (аномалия)"
+} else {
+  $summaries += "vitest: exit=$viCode $(if ($viSum) { $viSum.Line.Trim() } else { '(no summary)' })"
+}
 
 # ── 3. svelte-check (0 errors) ─────────────────────────────────────────────
 "=== [3/3] svelte-check ($stamp) ===" | Tee-Object -FilePath $log -Append
 npm run check 2>&1 | Tee-Object -FilePath $log -Append
 $svCode = $LASTEXITCODE
-if ($svCode -ne 0) { $overall = 1 }
-$svSum = (Select-String -Path $log -Pattern '\d+ ERRORS' | Select-Object -Last 1)
-$summaries += "svelte-check: exit=$svCode $($svSum.Line.Trim())"
+if ($null -eq $svCode -or $svCode -ne 0) { $overall = 1 }
+$svSum = (Select-String -Path $log -Pattern '\d+ errors?' | Select-Object -Last 1)
+if ($null -eq $svSum -and $svCode -eq 0) {
+  $overall = 1
+  $summaries += "svelte-check: exit=$svCode НО сводка errors не найдена (аномалия)"
+} else {
+  $summaries += "svelte-check: exit=$svCode $(if ($svSum) { $svSum.Line.Trim() } else { '(no summary)' })"
+}
 
 # ── 4. Cargo (опционально) ─────────────────────────────────────────────────
 if ($IncludeCargo) {
