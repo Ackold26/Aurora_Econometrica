@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 # получал «не найден KPI-столбец» (рассинхрон детекторов, класс Д-1).
 KPI_PATTERNS = ['sales', 'revenue', 'market_share', 'conversions', 'units', 'volume',
                 'leads', 'лид', 'заявк', 'gmv',
+                # R1 (2026-07-05, корпус-зонд): count-KPI, что знал classify
+                # (target_count), но detect_column_role — нет → рассинхрон Д-1
+                # («sign up»/«app install» → unknown у validator). Все 3
+                # разделителя (паритет с classify). Голое 'install' НЕ
+                # добавлять (ловит «installment»/рассрочку).
+                'signup', 'sign up', 'sign-up', 'app install', 'app-install',
                 'продажи', 'выручка', 'конверси', 'заказ']
 MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'views',
                   'бюджет', 'расход', 'показ', 'клик', 'визит', 'прочтен', 'просмотр',
@@ -54,8 +60,21 @@ CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
                     'avg_price', 'unit_price', 'mean_price',
                     'cpi', 'consumer_price', 'inflation', 'ипц', 'инфляция',
                     'gdp', 'ввп', 'gdp_growth',
-                    'fx_rate', 'exchange_rate', 'usd_rub', 'eur_rub',
-                    'курс_рубля', 'курс_доллара', 'курс_евро',
+                    # R1 (2026-07-05, корпус-зонд): underscore + ПРОБЕЛ + ДЕФИС
+                    # формы (тройка-прецедент: 'тв '/'тв_'/'тв-'). validator —
+                    # плоский substring; у курс_*/usd_rub/exchange_rate НЕТ
+                    # голого фолбэка (в отличие от price/цен/gdp/cpi), потому
+                    # клиентская форма с пробелом/дефисом падала в unknown —
+                    # рассинхрон Д-1 с classify (у него все 3 разделителя через
+                    # _sep_pattern). Специфичные компаунды — голое 'курс' НЕ
+                    # добавлять (ловит «дискурс»/«экскурсия»).
+                    'fx_rate', 'fx rate', 'fx-rate',
+                    'exchange_rate', 'exchange rate', 'exchange-rate',
+                    'usd_rub', 'usd rub', 'usd-rub',
+                    'eur_rub', 'eur rub', 'eur-rub',
+                    'курс_рубля', 'курс рубля', 'курс-рубля',
+                    'курс_доллара', 'курс доллара', 'курс-доллара',
+                    'курс_евро', 'курс евро', 'курс-евро',
                     'rain', 'snow', 'precipitation', 'осадк',
                     'temp', 'температур',
                     'svok',  # ROSST industry: share_of_voice_konkurentov

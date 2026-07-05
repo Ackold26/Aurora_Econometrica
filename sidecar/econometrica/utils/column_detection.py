@@ -73,8 +73,19 @@ _END = r'(?=[_\s\-]|$)'         # followed by sep OR end of string
 
 
 def _sep_pattern(token: str) -> str:
-    """Wrap token с separator-aware boundaries для Cyrillic + underscore-prefixed names."""
-    return _SEP + token + _END
+    """Wrap token с separator-aware boundaries для Cyrillic + underscore-prefixed names.
+
+    R1 (2026-07-05, корпус-зонд): внутренний `_` СОСТАВНОГО токена
+    (`курс_доллара`, `price_index`, `usd_rub`, `sales_rub`) — тоже separator-класс
+    `[_\\s\\-]`, а не буквальный underscore. Иначе частая клиентская форма с
+    ПРОБЕЛОМ («курс доллара», «price index», «usd rub») не матчит → колонка
+    падает в unknown (а «usd rub» ещё и ловилась голым валютным маркером `usd`
+    в MONETARY → media с ROI). Границы токена уже гибкие через _SEP/_END; здесь
+    гибкость распространяется на СТЫКИ суб-токенов. Внутри паттернов `_`
+    встречается только как разделитель слов (не regex-мета/char-class) —
+    проверено по всему набору паттернов + анти-ложным корпусом коварных соседей.
+    """
+    return _SEP + token.replace('_', r'[_\s\-]') + _END
 
 
 # Money / budget / spend / cost. Matches: tv_spend, tv_budget, тв_бюджет, costs_tv,

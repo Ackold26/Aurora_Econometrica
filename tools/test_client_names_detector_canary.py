@@ -11,10 +11,14 @@
 Корпус вскрыл боем 4 пробела (исправлены): GMV и русское «период» знал только
 classify_column, не validator (рассинхрон → «не найден KPI/дата»).
 
-⚠️ Известный НЕ закрытый класс (вынесен рекомендацией Антону, НЕ баг корпуса):
-паттерны с зашитым underscore (`курс_доллара`, `индекс_цен`) не матчат
-клиентскую форму с ПРОБЕЛОМ («курс доллара»). Здесь underscore-форма проверяется
-как позитивный инвариант; пробельные формы макро в строгий корпус НЕ включены.
+✅ ЗАКРЫТО R1 (2026-07-05, корпус-зонд, рекомендация Антона): паттерны с зашитым
+underscore (`курс_доллара`, `usd_rub`, `exchange_rate`) теперь матчат клиентскую
+форму с ПРОБЕЛОМ. classify — separator-класс `[_\\s\\-]` для внутренних `_` в
+`_sep_pattern`; validator — добавлены пробельные варианты компаундам без голого
+фолбэка. Пробельные макро-формы включены в строгий корпус ниже + анти-ложный
+класс TestSeparatorFlexNoFalsePositive (дискурс/экскурсия/installment — не курс/
+install). Латентный баг: «usd rub» ловилось голым `usd` в MONETARY → media с ROI
+(теперь signed_macro раньше monetary).
 """
 from __future__ import annotations
 
@@ -56,6 +60,14 @@ CLIENT_CORPUS = {
     'Цена': 'control', 'Индекс цен': 'control', 'Средняя цена': 'control',
     'SOV конкурентов': 'control', 'Погода': 'control', 'Температура': 'control',
     'Праздники': 'control', 'Дистрибуция': 'control', 'Инфляция': 'control',
+    # ── R1 (2026-07-05): ПРОБЕЛЬНЫЕ формы макро/цены (были unknown до фикса) ──
+    'Курс доллара': 'control', 'Курс рубля': 'control', 'Курс евро': 'control',
+    'exchange rate': 'control', 'fx rate': 'control',
+    'usd rub': 'control', 'eur rub': 'control',   # был баг: classify→media
+    'Индекс цен': 'control', 'price index': 'control', 'consumer price': 'control',
+    'gdp growth': 'control',
+    # ── R1: count-KPI, что знал только classify (рассинхрон Д-1) ──────────
+    'sign up': 'kpi', 'sign-up': 'kpi', 'app install': 'kpi', 'app-install': 'kpi',
     # ── Date ─────────────────────────────────────────────────────────────
     'Дата': 'date', 'Месяц': 'date', 'Период': 'date', 'Week': 'date',
 }
@@ -132,23 +144,66 @@ class TestHolidayClientForms:
 
 
 class TestUnderscoreMacroPositive:
-    """Позитивный инвариант: макро/цена в НАШЕЙ underscore-форме распознаются.
+    """Позитивный инвариант: макро/цена и в underscore-, и в ПРОБЕЛЬНОЙ форме.
 
-    Пробельная клиентская форма («курс доллара») — известный пробел паттернов
-    (рекомендация Антону), в строгий корпус не включена. Здесь фиксируем, что
-    хотя бы underscore-форма работает — регресс её потери будет пойман."""
+    R1 (2026-07-05) закрыл пробельный пробел (рекомендация Антона): обе формы
+    распознаются. Держим оба варианта — регресс любого будет пойман. Пробельные
+    формы ТАКЖЕ проходят через classify (см. корпус выше, test_detectors_not_
+    contradicting) — здесь фиксируем роль validator для каждой формы отдельно."""
 
     @pytest.mark.parametrize('name', [
+        # underscore-форма (наши served-примеры)
         'курс_доллара', 'курс_рубля', 'usd_rub', 'exchange_rate', 'cpi', 'инфляция',
+        # ПРОБЕЛЬНАЯ клиентская форма (R1 — была unknown)
+        'курс доллара', 'курс рубля', 'usd rub', 'eur rub', 'exchange rate',
+        'fx rate',
+        # дефис — тоже разделитель
+        'курс-доллара', 'exchange-rate',
     ])
-    def test_macro_underscore_is_control(self, name):
+    def test_macro_is_control(self, name):
         assert detect_column_role(name) == 'control', (
-            f'{name!r}: макро-контроль в underscore-форме не распознан'
+            f'{name!r}: макро-контроль (underscore/пробел/дефис) не распознан'
         )
 
-    @pytest.mark.parametrize('name', ['price_index', 'индекс_цен', 'unit_price'])
-    def test_price_underscore_is_control(self, name):
+    @pytest.mark.parametrize('name', [
+        'price_index', 'индекс_цен', 'unit_price',
+        'price index', 'индекс цен', 'unit price',   # R1 пробельные
+    ])
+    def test_price_is_control(self, name):
         assert detect_column_role(name) == 'control'
+
+    @pytest.mark.parametrize('name', ['usd rub', 'eur rub', 'usd_rub'])
+    def test_currency_rate_is_macro_not_media(self, name):
+        """R1-регресс латентного бага: «usd rub» ловилось голым `usd` в MONETARY
+        → classify=monetary(media) с ROI. signed_macro должен идти РАНЬШЕ."""
+        assert classify_column(name) == 'signed_macro', (
+            f'{name!r}: курс валют классифицирован как {classify_column(name)!r} — '
+            f'уедет в media-канал с ROI (латентный баг до R1)'
+        )
+
+
+class TestSeparatorFlexNoFalsePositive:
+    """Анти-ложный корпус R1: separator-гибкость НЕ должна ловить коварных соседей.
+
+    Мутация-доказательство метода: подстрока `курс` живёт в «дискурс»/«экскурсия»,
+    `install` — в «installment»/«реинсталляция». Голые токены НЕ добавлялись
+    (только специфичные компаунды `курс доллара` / `app install`) — этот класс
+    ловит регресс, если кто-то ослабит паттерн до голого корня."""
+
+    @pytest.mark.parametrize('name', [
+        'дискурс бренда', 'экскурсия', 'дискурсивный анализ', 'экскурс в историю',
+        'installment plan', 'рассрочка', 'реинсталляция', 'installation art',
+        'usdt баланс',   # 'usd'+суффикс: граница токена держит (не monetary)
+    ])
+    def test_no_false_control_or_kpi(self, name):
+        role = detect_column_role(name)
+        assert role in ('unknown', 'unused'), (
+            f'ЛОЖНОЕ срабатывание R1: {name!r} → {role!r} (ожидался unknown/unused)'
+        )
+        kind = classify_column(name)
+        assert kind in ('unknown',), (
+            f'ЛОЖНЫЙ classify R1: {name!r} → {kind!r} (ожидался unknown)'
+        )
 
 
 if __name__ == '__main__':
