@@ -59,6 +59,40 @@ export function groupChannelColumns(mediaColumnNames) {
 }
 
 /**
+ * Ключи декларированных пар «бюджет ₽ × натуральный KPI» одного канала —
+ * для аннотации на карте корреляций (аудит 2026-07-05: пара by-design даёт
+ * r≈0.99, пугать клиента «Мультиколлинеарностью» на встроенном примере нельзя;
+ * в модель уходит одна колонка пары — риска в модели нет).
+ * @param {string[]} columnNames - имена колонок (labels матрицы корреляций).
+ * @returns {Set<string>} ключи вида 'a|||b' (обе ориентации).
+ */
+export function declaredPairKeys(columnNames) {
+  const { byChannel } = groupChannelColumns(columnNames);
+  /** @type {Set<string>} */
+  const keys = new Set();
+  for (const base of Object.keys(byChannel)) {
+    const { monetary, physical } = byChannel[base];
+    for (const m of monetary) {
+      for (const p of physical) {
+        keys.add(`${m}|||${p}`);
+        keys.add(`${p}|||${m}`);
+      }
+    }
+  }
+  return keys;
+}
+
+/**
+ * Пара колонок — декларированная пара канала?
+ * @param {Set<string>} pairKeys - из declaredPairKeys.
+ * @param {string} a
+ * @param {string} b
+ */
+export function isDeclaredPair(pairKeys, a, b) {
+  return pairKeys.has(`${a}|||${b}`);
+}
+
+/**
  * Развернуть выбор по базам в план per-колонок.
  * Для каждой базы: выбранная сторона включается (с её метрикой), противоположная
  * сторона ПАРЫ выключается из модели. База с одной стороной — включается как есть.

@@ -8,6 +8,7 @@
    */
   import { onMount } from 'svelte';
   import { TriangleAlert, Check } from 'lucide-svelte';
+  import { declaredPairKeys, isDeclaredPair } from '$lib/channel-pairs.js';
 
   /**
    * @type {{
@@ -19,6 +20,19 @@
     correlationMatrix = { labels: [], matrix: [] },
     highCorrelations = [],
   } = $props();
+
+  // Декларированные пары «бюджет ₽ × натуральный KPI» одного канала (labels
+  // матрицы = имена колонок файла). Пара by-design коррелирована r≈0.99 —
+  // не пугаем «Мультиколлинеарностью»: в модель уйдёт одна колонка пары.
+  const pairKeys = $derived(declaredPairKeys(correlationMatrix.labels ?? []));
+  /** @param {string} a @param {string} b */
+  function isPair(a, b) {
+    return isDeclaredPair(pairKeys, a, b);
+  }
+  const pairHighCount = $derived(
+    (highCorrelations ?? []).filter(h => isPair(h.col1, h.col2)).length
+  );
+  const realHighCount = $derived((highCorrelations ?? []).length - pairHighCount);
 
   /** @type {HTMLCanvasElement | null} */
   let canvas = $state(null);
@@ -92,7 +106,8 @@
         const r = matrix[i]?.[j] ?? 0;
         const x = LABEL_W + j * CELL;
         const y = LABEL_H + i * CELL;
-        const high = i !== j && isHigh(labels[i], labels[j]);
+        // Декларированная пара канала не красится danger — ожидаемая связь.
+        const high = i !== j && isHigh(labels[i], labels[j]) && !isPair(labels[i], labels[j]);
 
         ctx.fillStyle = i === j ? 'rgba(30, 41, 59, 0.6)' : rToColor(r, high);
         ctx.fillRect(x, y, CELL - 1, CELL - 1);
@@ -195,10 +210,12 @@
   {:else}
     <div class="heatmap-header">
       <h4>Корреляционная матрица</h4>
-      {#if highCorrelations.length > 0}
+      {#if realHighCount > 0}
         <span class="high-count">
-          <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {highCorrelations.length} пар с |r| > 0.8
+          <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {realHighCount} пар с |r| > 0.8{#if pairHighCount > 0} · ещё {pairHighCount} — пары каналов (ожидаемо){/if}
         </span>
+      {:else if pairHighCount > 0}
+        <span class="no-high"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {pairHighCount} пар каналов «бюджет + метрика» (ожидаемо) · прочей мультиколлинеарности нет</span>
       {:else}
         <span class="no-high"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Мультиколлинеарность не обнаружена</span>
       {/if}
@@ -225,11 +242,15 @@
             <strong>{tooltip.col1}</strong>
             <span class="tooltip-sep">×</span>
             <strong>{tooltip.col2}</strong>
-            <span class="r-val" class:r-high={Math.abs(tooltip.r) > 0.8}>
+            <span class="r-val" class:r-high={Math.abs(tooltip.r) > 0.8 && !isPair(tooltip.col1, tooltip.col2)}>
               r = {tooltip.r.toFixed(3)}
             </span>
             {#if Math.abs(tooltip.r) > 0.8}
-              <span class="r-warn">Мультиколлинеарность</span>
+              {#if isPair(tooltip.col1, tooltip.col2)}
+                <span class="r-pair">Пара канала — ожидаемо</span>
+              {:else}
+                <span class="r-warn">Мультиколлинеарность</span>
+              {/if}
             {/if}
           {/if}
         </div>
@@ -256,12 +277,17 @@
     {#if highCorrelations.length > 0}
       <div class="high-list">
         {#each highCorrelations as h}
-          <div class="high-item">
+          {@const declared = isPair(h.col1, h.col2)}
+          <div class="high-item" class:pair-expected={declared}>
             <span class="high-pair">{h.col1} × {h.col2}</span>
-            <span class="high-r" class:high-r-extreme={Math.abs(h.correlation) > 0.95}>
+            <span class="high-r" class:high-r-extreme={Math.abs(h.correlation) > 0.95 && !declared}>
               r = {h.correlation.toFixed(3)}
             </span>
-            <span class="high-risk">{h.risk}</span>
+            {#if declared}
+              <span class="high-risk pair-note">Пара канала (бюджет ₽ + натуральная метрика) — ожидаемо: в модель уйдёт одна колонка пары</span>
+            {:else}
+              <span class="high-risk">{h.risk}</span>
+            {/if}
           </div>
         {/each}
       </div>
@@ -429,6 +455,22 @@
 
   .high-risk {
     color: var(--text-muted);
+    font-style: italic;
+  }
+
+  /* Декларированная пара «бюджет ₽ + натуральная метрика» — ожидаемая связь,
+     не пугаем danger-стилем (аудит 2026-07-05). */
+  .high-item.pair-expected {
+    border-left: 2px solid color-mix(in srgb, var(--success) 45%, transparent);
+    opacity: 0.85;
+  }
+  .pair-note {
+    color: #86efac;
+    font-style: normal;
+  }
+  .r-pair {
+    font-size: 10px;
+    color: #86efac;
     font-style: italic;
   }
 </style>

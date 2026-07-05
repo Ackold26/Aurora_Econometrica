@@ -8,6 +8,8 @@ import {
   parseChannelMetric,
   groupChannelColumns,
   resolvePairSelection,
+  declaredPairKeys,
+  isDeclaredPair,
 } from '../lib/channel-pairs.js';
 
 describe('parseChannelMetric', () => {
@@ -98,5 +100,39 @@ describe('resolvePairSelection', () => {
     const { perColumn } = resolvePairSelection(byChannel, {});
     expect(perColumn['tv_spend']).toBe('monetary');
     expect(perColumn['digital_spend']).toBe('monetary');
+  });
+});
+
+describe('declaredPairKeys / isDeclaredPair (аннотация карты корреляций)', () => {
+  const labels = [
+    'date', 'sales_rub',
+    'tv_spend', 'tv_trp',
+    'digital_spend', 'digital_impressions',
+    'competitor_trp', 'price_index', 'category_sales',
+  ];
+  it('пара канала распознаётся в обе стороны', () => {
+    const keys = declaredPairKeys(labels);
+    expect(isDeclaredPair(keys, 'tv_spend', 'tv_trp')).toBe(true);
+    expect(isDeclaredPair(keys, 'tv_trp', 'tv_spend')).toBe(true);
+    expect(isDeclaredPair(keys, 'digital_spend', 'digital_impressions')).toBe(true);
+  });
+  it('кросс-канальные и непарные сочетания НЕ пары', () => {
+    const keys = declaredPairKeys(labels);
+    expect(isDeclaredPair(keys, 'tv_spend', 'digital_impressions')).toBe(false);
+    expect(isDeclaredPair(keys, 'tv_spend', 'digital_spend')).toBe(false);
+    expect(isDeclaredPair(keys, 'competitor_trp', 'tv_trp')).toBe(false);
+    expect(isDeclaredPair(keys, 'price_index', 'category_sales')).toBe(false);
+  });
+  it('KPI/контролы не образуют ложных пар (sales_rub — не парник)', () => {
+    const keys = declaredPairKeys(labels);
+    expect(isDeclaredPair(keys, 'sales_rub', 'tv_trp')).toBe(false);
+    expect(isDeclaredPair(keys, 'sales_rub', 'tv_spend')).toBe(false);
+  });
+  it('competitor_trp не пара к чьему-либо spend (у базы competitor нет ₽-стороны)', () => {
+    const keys = declaredPairKeys(['competitor_trp', 'tv_spend', 'tv_trp']);
+    expect(isDeclaredPair(keys, 'competitor_trp', 'tv_spend')).toBe(false);
+  });
+  it('пустой вход — пустой набор', () => {
+    expect(declaredPairKeys([]).size).toBe(0);
   });
 });
