@@ -506,12 +506,13 @@ details.expert li { font-size: 13px; }
 <div class="callout c-info">
   <div class="c-title">Первые четыре образца — это встроенные примеры программы</div>
   <p>FMCG, OTC-фарма, ритейл/e-com и недвижимость ниже — ровно те файлы, что грузятся кнопкой <strong>«Попробовать на примере»</strong> на шаге «Импорт». Все — <strong>48 помесячных периодов (4 года)</strong>, и каждый медиаканал дан <strong>парой колонок</strong> (бюджет ₽ + натуральная метрика, см. раздел 6) — поэтому пример можно прогнать и как <strong>ROI</strong>, и как <strong>Эффективность</strong>. Пятый образец (Pharma Rx) — учебный, не встроен. В таблицах-превью показаны не все колонки для читаемости; полный набор — списком под каждой.</p>
+  <p class="tx-ex">На шаге «Проверка» программа считает <strong>каждую</strong> колонку пары отдельной переменной (отсюда 11 переменных и Ratio ≈ 4.4), но в модель уходит <strong>одна</strong> из пары — так что фактический запас данных выше показанного Ratio.</p>
 </div>
 
 <h3>FMCG — бренд (помесячные, встроенный пример)</h3>
 <p>Национальный бренд, 48 месяцев, 4 медиаканала парами + цена, конкурент, продажи категории. Задача: <strong>ROI</strong> (по бюджетам) или <strong>Эффективность</strong> (по натуральным метрикам).</p>
 <div class="file-preview">
-<div class="file-header"><span class="fn">synth_fmcg_brand.xlsx</span><span>48 строк · 4 канала парами · Ratio 48/12 = 4</span></div>
+<div class="file-header"><span class="fn">synth_fmcg_brand.xlsx</span><span>48 строк · 4 канала парами (11 переменных) · Ratio 4.4</span></div>
 <div class="table-wrap"><table>
 <tr><th>date</th><th>sales_rub</th><th>tv_spend</th><th>tv_trp</th><th>digital_spend</th><th>digital_impressions</th><th>…</th><th>price_index</th><th>category_sales</th></tr>
 <tr><td>2022-01-31</td><td>163 700 000</td><td>18 600 000</td><td>76</td><td>9 600 000</td><td>47 500 000</td><td>…</td><td>1.00</td><td>1 035 000 000</td></tr>
@@ -527,7 +528,7 @@ details.expert li { font-size: 13px; }
 <h3>Pharma OTC — безрецептурный препарат (помесячные, встроенный пример)</h3>
 <p>Сезонная категория (простуда), 48 месяцев, аптечный канал как носитель, погода и продажи категории как фон. Задача: <strong>ROI</strong> или <strong>Эффективность</strong>.</p>
 <div class="file-preview">
-<div class="file-header"><span class="fn">synth_otc_pharma.xlsx</span><span>48 строк · 4 канала парами · Ratio 48/12 = 4</span></div>
+<div class="file-header"><span class="fn">synth_otc_pharma.xlsx</span><span>48 строк · 4 канала парами (11 переменных) · Ratio 4.4</span></div>
 <div class="table-wrap"><table>
 <tr><th>date</th><th>sales_packs</th><th>tv_spend</th><th>tv_trp</th><th>apteka_spend</th><th>apteka_contacts</th><th>…</th><th>weather_temp_low</th><th>category_sales</th></tr>
 <tr><td>2022-01-31</td><td>1 070 000</td><td>22 100 000</td><td>127</td><td>3 000 000</td><td>8 050 000</td><td>…</td><td>3</td><td>5 016 000</td></tr>
@@ -559,7 +560,7 @@ details.expert li { font-size: 13px; }
 <h3>Retail / E-commerce — онлайн-магазин (помесячные, встроенный пример)</h3>
 <p>Онлайн-магазин, 48 месяцев, retail media как отдельный канал, промо и чёрная пятница как факторы. Задача: <strong>ROI</strong> или <strong>Эффективность</strong>. KPI — выручка.</p>
 <div class="file-preview">
-<div class="file-header"><span class="fn">synth_retail_ecom.xlsx</span><span>48 строк · 4 канала парами · Ratio 48/12 = 4</span></div>
+<div class="file-header"><span class="fn">synth_retail_ecom.xlsx</span><span>48 строк · 4 канала парами (11 переменных) · Ratio 4.4</span></div>
 <div class="table-wrap"><table>
 <tr><th>date</th><th>sales_rub</th><th>tv_spend</th><th>tv_trp</th><th>retail_media_spend</th><th>retail_media_impressions</th><th>…</th><th>promo_indicator</th><th>holiday_blackfriday</th></tr>
 <tr><td>2022-01-31</td><td>1 267 500 000</td><td>35 000 000</td><td>143</td><td>12 400 000</td><td>25 500 000</td><td>…</td><td>0</td><td>0</td></tr>
@@ -575,7 +576,7 @@ details.expert li { font-size: 13px; }
 <h3>Недвижимость / B2B / Авто — длинный цикл покупки (помесячные, встроенный пример)</h3>
 <p>Решение зреет месяцами, 48 месяцев, KPI — <strong>лиды</strong> (заявки), а не мгновенные продажи. Задача: <strong>ROI</strong> по стоимости лида или <strong>Эффективность</strong>.</p>
 <div class="file-preview">
-<div class="file-header"><span class="fn">synth_real_estate.xlsx</span><span>48 строк · 4 канала парами · Ratio 48/11 ≈ 4.4</span></div>
+<div class="file-header"><span class="fn">synth_real_estate.xlsx</span><span>48 строк · 4 канала парами (10 переменных) · Ratio 4.8</span></div>
 <div class="table-wrap"><table>
 <tr><th>date</th><th>leads</th><th>tv_spend</th><th>tv_grp</th><th>ooh_spend</th><th>ooh_contacts</th><th>…</th><th>competitor_activity</th><th>macro_cpi</th></tr>
 <tr><td>2022-01-31</td><td>3 706</td><td>23 400 000</td><td>151</td><td>4 300 000</td><td>50 200 000</td><td>…</td><td>22</td><td>1.00</td></tr>
