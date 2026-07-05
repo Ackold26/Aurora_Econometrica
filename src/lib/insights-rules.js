@@ -27,6 +27,11 @@ import { pluralizeRu } from './utils/i18n.js';
 // ratio. Инсайты больше НЕ читают эти производные из diagnostics напрямую —
 // только через mqsView/ratioView, чтобы honesty-баг не вернулся N+1-м слоем.
 import { mqsView, ratioView } from './metric-views.js';
+// Аудит 2026-07-05: пары «бюджет ₽ + натуральная метрика» одного канала
+// коррелированы by-design (r≈0.99 через закупочную цену) — инсайт-слой обязан
+// говорить о них то же, что heatmap (ожидаемо, в модель идёт одна колонка),
+// а не пугать «Мультиколлинеарностью» на встроенном примере.
+import { declaredPairKeys, isDeclaredPair } from './channel-pairs.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -647,8 +652,12 @@ export function validateInsights(result, objective = 'roi') {
 
   // ── Мультиколлинеарность (корреляции) ──
   if (result.correlations) {
+    // Декларированные пары «бюджет + натуральная метрика» — не тревога
+    // (говорим то же, что CorrelationHeatmap: ожидаемо, в модель идёт одна).
+    const pairKeys = declaredPairKeys(Object.keys(result.correlations));
     const seen = new Set();
     const highCorr = [];
+    let channelPairCount = 0;
     for (const [a, row] of Object.entries(result.correlations)) {
       for (const [b, r] of Object.entries(/** @type {Record<string, number>} */ (row))) {
         if (a === b) continue;
@@ -656,12 +665,25 @@ export function validateInsights(result, objective = 'roi') {
         if (seen.has(key)) continue;
         seen.add(key);
         const absR = Math.abs(/** @type {number} */ (r));
-        if (absR > 0.85) highCorr.push({ a, b, r: absR });
+        if (absR > 0.85) {
+          if (isDeclaredPair(pairKeys, a, b)) {
+            channelPairCount += 1;
+            continue;
+          }
+          highCorr.push({ a, b, r: absR });
+        }
       }
     }
     if (highCorr.length > 0) {
       const pairs = highCorr.slice(0, 3).map(p => `${p.a} ↔ ${p.b} (r=${p.r.toFixed(2)})`).join('; ');
       out.push({ severity: 'warning', text: `Мультиколлинеарность: ${pairs}${highCorr.length > 3 ? ` и ещё ${highCorr.length - 3}` : ''}`, tip: 'Модель не сможет разделить вклады коррелирующих каналов. Решение: исключите один из пары, объедините в группу, или примите широкие доверительные интервалы.' });
+    }
+    if (channelPairCount > 0) {
+      out.push({
+        severity: 'info',
+        text: `${channelPairCount} ${pluralizeRu(channelPairCount, ['пара', 'пары', 'пар'])} «бюджет + натуральная метрика» с высокой корреляцией — ожидаемо`,
+        tip: 'Бюджет и объём одного канала связаны через закупочную цену. В модель идёт одна колонка пары (подшаг «Метрики каналов») — мультиколлинеарности в модели не будет.',
+      });
     }
   }
 
