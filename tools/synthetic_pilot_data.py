@@ -100,7 +100,10 @@ GROUND_TRUTH_RETAIL_ECOM = {
     'alpha': {'tv': 1.8, 'digital': 1.6, 'ooh': 1.5, 'retail_media': 1.7},
     'promo_coef': 0.14,
     'competitor_promo_coef': -0.12,
-    'holiday_blackfriday_coef': 0.18,   # ноябрь; НЕ в РФ-календаре → легитимная dummy
+    # ЧП: авто-календарь РФ её тоже знает (holiday_black_friday), но ручная
+    # колонка примера гасит авто-инжект (семантический дедуп имён, календарь
+    # v2.1 2026-07-05) и несёт месячный флаг события целиком.
+    'holiday_blackfriday_coef': 0.18,
     'season_amp': 0.18,          # пик декабрь (подарочный сезон)
     'season_peak_month': 12,
     'media_share_target': 0.30,  # e-com медиа-ёмкий, но база (органика+повторные) 70%
@@ -494,7 +497,8 @@ def generate_retail_ecom(seed: int = 44) -> pd.DataFrame:
     OOH ooh_contacts (37–150М, CPT 80₽) + ooh_spend;
     Retail media retail_media_impressions (16–80М, CPM 500₽) + retail_media_spend.
     Controls: promo_indicator (+), competitor_promo (−),
-    holiday_blackfriday (ноябрь; НЕ в РФ-календаре → легитимная ручная dummy).
+    holiday_blackfriday (ноябрь; авто-календарь РФ знает ЧП, но ручная колонка
+    гасит авто-инжект — семантический дедуп имён календаря v2.1).
     Сезонность: волна ±15% (пик декабрь) — авто-Фурье; НГ-dummy НЕТ (авто).
     """
     rng = np.random.default_rng(seed)
