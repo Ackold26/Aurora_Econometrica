@@ -306,11 +306,23 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     holiday_cols_injected = []
     if use_holidays and date_col in df.columns:
         try:
-            from utils.holiday_calendar_ru import generate_holiday_dummies, list_holiday_names
-            holiday_df = generate_holiday_dummies(df[date_col])
+            from utils.holiday_calendar_ru import (
+                generate_holiday_dummies, list_holiday_names, user_covered_auto_holidays,
+            )
+            # v2.1 (2026-07-05): fraction-дамми — доля дней периода строки в окне
+            # ПОДГОТОВКИ к событию (решение Антона: моделируем закупки подарков
+            # ~1-3 недели до события, не праздничные дни). На месячных данных
+            # праздники перестают быть вечно-нулевыми/флаки от точечной даты.
+            holiday_df = generate_holiday_dummies(df[date_col], mode='fraction')
+            # Семантический дедуп (аудит 2026-07-05): ручная holiday_blackfriday
+            # обязана гасить авто holiday_black_friday — сравнение по норм-имени,
+            # не по точному (иначе двойной учёт события).
+            user_covered = user_covered_auto_holidays(list(df.columns))
             for hcol in holiday_df.columns:
                 if hcol in disabled_holidays:
                     continue  # #6 opt-out: пользователь отключил этот авто-праздник
+                if hcol in user_covered:
+                    continue  # preserve user-supplied (любое написание имени)
                 if hcol not in df.columns:  # preserve user-supplied
                     df[hcol] = holiday_df[hcol].values
                     holiday_cols_injected.append(hcol)
@@ -1463,6 +1475,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # v2.0.0 (ADR-019 §5): holidays auto-injected at training time.
                 # Used для backtest exclusion (holidays known) + provenance.
                 'holiday_cols_injected': holiday_cols_injected,
+                # v2.1 (2026-07-05): режим генерации holiday-дамми на train.
+                # Decomposer re-inject обязан воспроизвести ТОТ ЖЕ режим (β
+                # согласованы с X): старые pickle без ключа → 'binary_point'.
+                'holiday_dummies_mode': 'fraction',
                 # v2.0.0: prior means used per control factor (placeholder per B4).
                 'control_prior_mus': control_prior_mus,
                 # v2.0.0 audit fix (Backend H3): zero-variance controls flagged

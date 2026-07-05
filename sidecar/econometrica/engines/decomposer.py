@@ -589,7 +589,15 @@ def decompose(
         if date_col in df.columns:
             try:
                 from utils.holiday_calendar_ru import generate_holiday_dummies
-                holiday_df = generate_holiday_dummies(df[date_col])
+                # v2.1 (2026-07-05): воспроизводим РЕЖИМ train-инжекта — β модели
+                # согласованы с теми X. Старые pickle (без ключа) обучались на
+                # binary_point; новые — на fraction (доля дней периода в окне
+                # подготовки к событию).
+                _hmode = (
+                    model_data.get('normalization', {}).get('holiday_dummies_mode')
+                    or 'binary_point'
+                )
+                holiday_df = generate_holiday_dummies(df[date_col], mode=_hmode)
                 for hcol in holiday_cols_to_inject:
                     if hcol not in df.columns and hcol in holiday_df.columns:
                         df[hcol] = holiday_df[hcol].values

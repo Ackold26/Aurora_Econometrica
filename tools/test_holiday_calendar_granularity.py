@@ -1,0 +1,178 @@
+"""Праздничный календарь v2.1 (2026-07-05): окна подготовки × грануляция периодов.
+
+Принцип (решение Антона): окно события = период ПОКУПАТЕЛЬСКОЙ ПОДГОТОВКИ
+(закупки подарков ~1-3 недели до события), а значение дамми = ДОЛЯ дней
+периода строки в этом окне — не принадлежность точечной даты строки.
+
+Класс закрываемого дефекта (аудит 2026-07-05): на месячных данных с датой
+конца месяца точечная проверка давала 6/12 вечно-нулевых праздников
+(14 февраля никогда не конец месяца) и флаки-ЧП (окно «пятница+уикенд»
+цепляет 30-е число лишь в части лет: 2022/2023 → 0, 2024/2025 → 1).
+
+Также: семантический дедуп авто-инжекта с ручными колонками (точное имя
+не гасило `holiday_blackfriday` против авто `holiday_black_friday`).
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+_SIDECAR = Path(__file__).resolve().parents[1] / 'sidecar' / 'econometrica'
+if str(_SIDECAR) not in sys.path:
+    sys.path.insert(0, str(_SIDECAR))
+
+from utils.holiday_calendar_ru import (  # noqa: E402
+    generate_holiday_dummies,
+    detect_holiday_collinearity,
+    normalize_holiday_name,
+    user_covered_auto_holidays,
+)
+
+# Месячный ряд с датой КОНЦА месяца — ровно как served-примеры программы.
+MONTHLY_EOM = pd.Series(pd.date_range('2022-01-31', periods=48, freq='ME'))
+# Тот же ряд с датой НАЧАЛА месяца.
+MONTHLY_SOM = pd.Series(pd.date_range('2022-01-01', periods=48, freq='MS'))
+
+
+def _month_values(dates: pd.Series, dummies: pd.DataFrame, col: str, month: int):
+    """Значения дамми col для всех строк заданного календарного месяца."""
+    months = pd.to_datetime(dates).dt.month
+    return dummies.loc[months == month, col].tolist()
+
+
+class TestMonthlyFraction:
+    """Месячная грануляция: доля дней месяца в окне подготовки."""
+
+    def test_black_friday_stable_every_november(self):
+        """ЧП видна КАЖДЫЙ ноябрь (раньше — флаки 2/4 лет от точечной даты)."""
+        d = generate_holiday_dummies(MONTHLY_EOM)
+        nov = _month_values(MONTHLY_EOM, d, 'holiday_black_friday', 11)
+        assert len(nov) == 4
+        assert all(v > 0 for v in nov), f'ЧП пропала в части ноябрей: {nov}'
+        # Окно 3 дня из 30 → доля ~0.1 (в годы переноса части окна на декабрь — меньше).
+        assert all(v <= 3 / 30 + 1e-9 for v in nov)
+        # Вне ноября/декабря ЧП нулевая (декабрь может получить хвост окна).
+        for m in (1, 5, 7, 10):
+            assert all(v == 0 for v in _month_values(MONTHLY_EOM, d, 'holiday_black_friday', m))
+
+    def test_previously_dead_holidays_alive(self):
+        """6 праздников, вечно-нулевых на точечной дате конца месяца, теперь видны."""
+        d = generate_holiday_dummies(MONTHLY_EOM)
+        expectations = {
+            'holiday_valentine': 2,        # 1-14 февраля
+            'holiday_defender_day': 2,     # 15-23 февраля
+            'holiday_march8': 3,           # 1-8 марта
+            'holiday_russia_day': 6,       # 11-12 июня
+            'holiday_unity_day': 11,       # 3-4 ноября
+            'holiday_cyber_monday': 11,    # пн после ЧП (обычно ноябрь)
+        }
+        for col, month in expectations.items():
+            vals = _month_values(MONTHLY_EOM, d, col, month)
+            assert any(v > 0 for v in vals), f'{col}: все нули в месяце {month}'
+
+    def test_fraction_values_exact(self):
+        """Точные доли для фиксированных окон (не-високосный 2022)."""
+        d = generate_holiday_dummies(MONTHLY_EOM)
+        y2022 = pd.to_datetime(MONTHLY_EOM).dt.year == 2022
+        months = pd.to_datetime(MONTHLY_EOM).dt.month
+        feb22 = d.loc[y2022 & (months == 2), 'holiday_valentine'].iloc[0]
+        assert feb22 == pytest.approx(14 / 28, abs=1e-4)   # всё окно в феврале
+        mar22 = d.loc[y2022 & (months == 3), 'holiday_march8'].iloc[0]
+        assert mar22 == pytest.approx(8 / 31, abs=1e-4)
+        dec22 = d.loc[y2022 & (months == 12), 'holiday_newyear_preshop'].iloc[0]
+        assert dec22 == pytest.approx(17 / 31, abs=1e-4)   # закупки подарков 15-31 дек
+        jun22 = d.loc[y2022 & (months == 6), 'holiday_russia_day'].iloc[0]
+        assert jun22 == pytest.approx(2 / 30, abs=1e-4)
+
+    def test_som_eom_invariant(self):
+        """Дата начала и конца месяца означают ОДИН месяц → одинаковые дамми."""
+        d_eom = generate_holiday_dummies(MONTHLY_EOM)
+        d_som = generate_holiday_dummies(MONTHLY_SOM)
+        pd.testing.assert_frame_equal(d_eom, d_som, check_dtype=False)
+
+    def test_values_bounded_0_1(self):
+        d = generate_holiday_dummies(MONTHLY_EOM)
+        assert (d.values >= 0).all() and (d.values <= 1).all()
+
+
+class TestWeeklyDailyFraction:
+    def test_weekly_partial_overlap(self):
+        """Неделя, частично попавшая в окно, получает долю — не 0/1 точечной даты."""
+        weeks = pd.Series(pd.date_range('2024-12-02', periods=4, freq='7D'))
+        d = generate_holiday_dummies(weeks)
+        pre = d['holiday_newyear_preshop'].tolist()
+        # 02-08 дек: 0 · 09-15 дек: 1 день (15-е) → 1/7 · 16-22 дек: все 7 → 1.0 · 23-29: 1.0
+        assert pre[0] == 0.0
+        assert pre[1] == pytest.approx(1 / 7, abs=1e-4)
+        assert pre[2] == 1.0
+        assert pre[3] == 1.0
+
+    def test_daily_degenerates_to_binary(self):
+        """Дневная грануляция: fraction поэлементно равна legacy binary_point."""
+        days = pd.Series(pd.date_range('2024-12-01', '2024-12-31', freq='D'))
+        frac = generate_holiday_dummies(days)
+        binary = generate_holiday_dummies(days, mode='binary_point')
+        assert (frac.values == binary.values.astype(float)).all()
+
+
+class TestLegacyBinaryPointMode:
+    """binary_point воспроизводит поведение v2.0 — для decompose старых моделей
+    (их β обучены на бинарных X; режим приходит из normalization.holiday_dummies_mode)."""
+
+    def test_monthly_eom_legacy_flaky_reproduced(self):
+        d = generate_holiday_dummies(MONTHLY_EOM, mode='binary_point')
+        years = pd.to_datetime(MONTHLY_EOM).dt.year
+        months = pd.to_datetime(MONTHLY_EOM).dt.month
+        bf = d['holiday_black_friday']
+        # 2022: окно 25-27 ноя, 30-е вне → 0; 2024: окно 29 ноя-1 дек, 30-е внутри → 1.
+        assert bf[(years == 2022) & (months == 11)].iloc[0] == 0
+        assert bf[(years == 2024) & (months == 11)].iloc[0] == 1
+        # Valentine на конце месяца никогда не ловится точечной датой.
+        assert (d['holiday_valentine'] == 0).all()
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError):
+            generate_holiday_dummies(MONTHLY_EOM, mode='nonsense')
+
+
+class TestNameDedup:
+    """Семантический дедуп авто-инжекта с ручными holiday-колонками."""
+
+    @pytest.mark.parametrize('a,b', [
+        ('holiday_black_friday', 'holiday_blackfriday'),
+        ('holiday_black_friday', 'Holiday Black-Friday'),
+        ('holiday_newyear_preshop', 'HOLIDAY NEWYEAR PRESHOP'),
+    ])
+    def test_normalize_equivalence(self, a, b):
+        assert normalize_holiday_name(a) == normalize_holiday_name(b)
+
+    def test_user_column_covers_auto(self):
+        covered = user_covered_auto_holidays(['date', 'sales', 'holiday_blackfriday'])
+        assert covered == {'holiday_black_friday'}
+
+    def test_no_false_coverage(self):
+        """Ручная НГ-dummy иного смысла не гасит авто-окна (имена не совпадают)."""
+        covered = user_covered_auto_holidays(['holiday_newyear'])
+        assert covered == set()
+
+    def test_empty(self):
+        assert user_covered_auto_holidays([]) == set()
+
+
+class TestCollinearityOnFraction:
+    def test_expected_overlap_detected(self):
+        """NY-postsale × school_breaks (зимние каникулы ⊂ распродаж) ловится и на
+        fraction-значениях (>0 семантика; winter break 28дек-8янв целиком в
+        postsale 25дек-8янв → overlap 100% по меньшему окну)."""
+        days = pd.Series(pd.date_range('2024-01-01', '2024-12-31', freq='D'))
+        d = generate_holiday_dummies(days)
+        warnings = detect_holiday_collinearity(d)
+        pairs = {tuple(sorted((w['holiday_a'], w['holiday_b']))) for w in warnings}
+        assert ('holiday_newyear_postsale', 'holiday_school_breaks') in pairs
+
+
+if __name__ == '__main__':
+    sys.exit(pytest.main([__file__, '-v']))

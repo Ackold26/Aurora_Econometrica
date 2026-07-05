@@ -1,13 +1,30 @@
 """
-Aurora Econometrica - РФ holiday calendar auto-injection (v2.0.0).
+Aurora Econometrica - РФ holiday calendar auto-injection (v2.1, 2026-07-05).
 
-Per ADR-019 §5: silent auto-injection 12 hardcoded РФ-events как binary dummy
+Per ADR-019 §5: silent auto-injection 12 hardcoded РФ-events как dummy
 control columns. Customer customization (opt-out specific holidays, custom events)
 отложено в v2.2.0 (Quality of Life sprint).
 
+🔴 Принцип окон (решение Антона 2026-07-05): окно события = период
+ПОКУПАТЕЛЬСКОЙ ПОДГОТОВКИ (когда покупают подарки / делают закупки), а не
+календарные праздничные дни — подарки к Новому году покупают в декабре, не
+1 января; ~1-3 недели до события в зависимости от подарочного цикла. Именно
+это окно видно эконометрике в продажах. Дефиниции ниже — preshop-окна для
+gift-событий (НГ 15-31 дек, Valentine 1-14 фев, 23 февраля 15-23 фев,
+8 марта 1-8 мар, back-to-school 15 авг-1 сен); для распродаж (ЧП/Cyber
+Monday) окно = сама распродажа (покупка происходит в момент события).
+
+🔴 Грануляция (аудит 2026-07-05): значение дамми = ДОЛЯ дней периода строки,
+попавших в окно (0..1), а не принадлежность точечной даты строки окну.
+На месячных данных с датой конца месяца точечная проверка давала 6/12
+вечно-нулевых праздников (14 февраля никогда не конец месяца) и флаки-ЧП
+(окно цепляет 30-е число в 2/4 лет). Дневная грануляция вырождается в
+прежние 0/1. Старые модели (β обучены на бинарных X) воспроизводятся через
+mode='binary_point' — decomposer выбирает по normalization.holiday_dummies_mode.
+
 12 holidays cover ~80%+ типичной РФ-сезонности для FMCG / OTC / ритейл / e-commerce.
 
-Auto-injection происходит в Studio bundle stage (data preprocessing). Model
+Auto-injection происходит в modeler (data preprocessing). Model
 подхватывает holidays как control factors через `validator.py::CONTROL_PATTERNS`
 (`holiday` pattern уже существовал). Coefficient per holiday estimated в
 Bayesian model с zero-centered Gaussian prior (unconstrained sign — некоторые
@@ -20,8 +37,10 @@ Reference:
 """
 from __future__ import annotations
 
+import re
+
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from itertools import combinations
 from typing import Dict, List, Optional
 
@@ -31,6 +50,7 @@ from typing import Dict, List, Optional
 # Each holiday: column_name, category, date predicate fn (year → list of dates).
 # Date predicates handle fixed dates + movable feasts (Black Friday = last Friday
 # of November, Cyber Monday = first Monday after Black Friday, etc.).
+# Окна gift-событий — ПОДГОТОВИТЕЛЬНЫЕ (см. принцип в докстринге модуля).
 
 HOLIDAY_DEFINITIONS = [
     {
@@ -184,19 +204,61 @@ def _school_breaks_dates(year: int) -> List[date]:
 # ─── Public API ────────────────────────────────────────────────────────────
 
 
+def _infer_step_days(dates: List[date]) -> int:
+    """Медианный шаг между соседними датами в днях (1=daily, 7=weekly, ~30=monthly).
+
+    Одна строка / пустой ряд → 1 (дневная семантика, безопасный минимум)."""
+    diffs = sorted(
+        (b - a).days for a, b in zip(dates, dates[1:])
+        if (b - a).days > 0
+    )
+    return diffs[len(diffs) // 2] if diffs else 1
+
+
+def _row_period(d: date, step_days: int) -> tuple:
+    """Границы периода строки [start, end] ВКЛЮЧИТЕЛЬНО.
+
+    Месячный шаг (28–31 дн): период = календарный месяц даты — клиенты дают
+    дату и началом (2022-01-01), и концом месяца (2022-01-31), обе означают
+    январь (инвариант: обе трактовки дают одинаковый ряд дамми).
+    Дневной шаг (≤1): период = сама дата (вырождение в прежние 0/1).
+    Иначе (недельный/прочий): [d, d+step-1] — конвенция «дата = начало
+    периода» (стандарт недельных выгрузок; при дате-конце недели окно
+    сместится на неделю — так же вела себя и точечная проверка)."""
+    if 28 <= step_days <= 31:
+        start = d.replace(day=1)
+        if d.month == 12:
+            end = date(d.year, 12, 31)
+        else:
+            end = date(d.year, d.month + 1, 1) - timedelta(days=1)
+        return start, end
+    if step_days <= 1:
+        return d, d
+    return d, d + timedelta(days=step_days - 1)
+
+
 def generate_holiday_dummies(
     date_series: pd.Series,
     holidays: Optional[List[str]] = None,
+    mode: str = 'fraction',
 ) -> pd.DataFrame:
     """Generate РФ holiday dummy DataFrame для given date series.
 
     Args:
         date_series: pandas Series of dates (datetime). Indexed by row.
+            Строка = период наблюдения; частота выводится из медианного шага дат.
         holidays: optional subset of holiday names to inject. If None — all 12.
+        mode: 'fraction' (default, v2.1) — значение = доля дней периода строки
+            в окне подготовки к событию (0..1); честно работает на месячной и
+            недельной грануляции (декабрь получает 17/31 НГ-закупок, а не 0/1
+            по точечной дате). 'binary_point' — legacy-поведение v2.0 (дата
+            строки ∈ окно → 1): для decompose моделей, обученных до v2.1
+            (β согласованы с бинарными X; см. normalization.holiday_dummies_mode).
 
     Returns:
-        DataFrame с columns = holiday names, values = 0 или 1 per row.
-        Index match input date_series.
+        DataFrame с columns = holiday names; values ∈ [0, 1] (float в
+        'fraction', int 0/1 в 'binary_point'). Index match input date_series.
+        На дневной грануляции 'fraction' совпадает с 'binary_point' по значениям.
 
     Examples:
         >>> dates = pd.Series(pd.date_range('2024-01-01', '2024-12-31', freq='D'))
@@ -207,6 +269,9 @@ def generate_holiday_dummies(
          'holiday_russia_day', 'holiday_back_to_school', 'holiday_unity_day',
          'holiday_black_friday', 'holiday_cyber_monday', 'holiday_school_breaks']
     """
+    if mode not in ('fraction', 'binary_point'):
+        raise ValueError(f"mode must be 'fraction' | 'binary_point', got {mode!r}")
+
     if not isinstance(date_series, pd.Series):
         date_series = pd.Series(date_series)
 
@@ -244,10 +309,66 @@ def generate_holiday_dummies(
 
     # Build DataFrame
     df = pd.DataFrame(index=date_series.index)
+
+    if mode == 'binary_point':
+        for name, dates_set in holiday_date_sets.items():
+            df[name] = date_series_dates.isin(dates_set).astype(int)
+        return df
+
+    # mode == 'fraction': доля дней периода строки, попавших в окно события.
+    valid_dates = [d for d in date_series_dates if d is not pd.NaT and d is not None]
+    step_days = _infer_step_days(sorted(valid_dates))
+    periods = []
+    for d in date_series_dates:
+        if d is pd.NaT or d is None:
+            periods.append(None)
+            continue
+        periods.append(_row_period(d, step_days))
+
     for name, dates_set in holiday_date_sets.items():
-        df[name] = date_series_dates.isin(dates_set).astype(int)
+        values = []
+        for period in periods:
+            if period is None:
+                values.append(0.0)
+                continue
+            start, end = period
+            period_len = (end - start).days + 1
+            overlap = sum(1 for wd in dates_set if start <= wd <= end)
+            values.append(round(overlap / period_len, 4))
+        df[name] = values
 
     return df
+
+
+# ─── Семантический дедуп имён (аудит 2026-07-05) ────────────────────────────
+# Дедуп авто-инжекта с ручными колонками шёл по ТОЧНОМУ имени → юзерская
+# `holiday_blackfriday` не гасила авто `holiday_black_friday`, обе уходили в
+# модель (частичный двойной учёт события). Нормализация убирает разделители.
+
+
+def normalize_holiday_name(name: str) -> str:
+    """Каноническая форма имени для сравнения: lower + без разделителей.
+
+    'holiday_black_friday' == 'holiday_blackfriday' == 'Holiday Black-Friday'.
+    """
+    return re.sub(r'[\s_\-]+', '', str(name).lower())
+
+
+def user_covered_auto_holidays(existing_columns: List[str]) -> set:
+    """Авто-праздники, уже покрытые колонками пользователя (по норм-имени).
+
+    Инжект обязан их пропустить: ручная колонка = источник истины пользователя,
+    авто-дубль с чуть иным написанием дал бы двойной учёт события.
+
+    Returns:
+        set канонических имён авто-праздников (из HOLIDAY_DEFINITIONS),
+        конфликтующих с existing_columns.
+    """
+    existing_norm = {normalize_holiday_name(c) for c in existing_columns}
+    return {
+        h['name'] for h in HOLIDAY_DEFINITIONS
+        if normalize_holiday_name(h['name']) in existing_norm
+    }
 
 
 def detect_holiday_collinearity(
@@ -289,9 +410,11 @@ def detect_holiday_collinearity(
     MERGE_RECOMMENDED_THRESHOLD = 0.85
 
     for h1, h2 in combinations(holiday_cols, 2):
-        overlap_count = ((holidays_df[h1] == 1) & (holidays_df[h2] == 1)).sum()
-        h1_count = max(1, holidays_df[h1].sum())
-        h2_count = max(1, holidays_df[h2].sum())
+        # Активность периода = значение > 0: работает и для legacy binary 0/1,
+        # и для fraction-долей v2.1 (0.1 «ЧП заняла 3 дня ноября» — период активен).
+        overlap_count = ((holidays_df[h1] > 0) & (holidays_df[h2] > 0)).sum()
+        h1_count = max(1, int((holidays_df[h1] > 0).sum()))
+        h2_count = max(1, int((holidays_df[h2] > 0).sum()))
         # Use smaller denominator для proportion (small holiday vs large)
         overlap_pct = overlap_count / min(h1_count, h2_count)
 
