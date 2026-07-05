@@ -15,8 +15,11 @@ logger = logging.getLogger(__name__)
 # Column name patterns for auto-detection
 # Ф-1 (аудит примеров 2026-07-05): leads/лиды/заявки — легитимный count-KPI
 # (недвижимость, B2B); без него synth_real_estate падал «Не найден KPI-столбец».
+# Канарейка клиентских имён (аудит 2026-07-05): 'gmv' знал classify_column
+# (TARGET_MONETARY), но detect_column_role — нет → клиент с колонкой «GMV»
+# получал «не найден KPI-столбец» (рассинхрон детекторов, класс Д-1).
 KPI_PATTERNS = ['sales', 'revenue', 'market_share', 'conversions', 'units', 'volume',
-                'leads', 'лид', 'заявк',
+                'leads', 'лид', 'заявк', 'gmv',
                 'продажи', 'выручка', 'конверси', 'заказ']
 MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'views',
                   'бюджет', 'расход', 'показ', 'клик', 'визит', 'прочтен', 'просмотр',
@@ -36,7 +39,10 @@ MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'vie
 # NOTE v2.0.0: 'price' removed from MEDIA_PATTERNS — moved to CONTROL_PATTERNS
 # (signed control factor per ADR-019, may be positive OR negative coefficient).
 # 'цен' also moved.
-DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
+# 'период' (рус) знал classify_column, но detect_column_role — только англ
+# 'period' → клиент с колонкой «Период» получал «не найден столбец с датами»
+# (рассинхрон детекторов, аудит канарейки 2026-07-05).
+DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц', 'период']
 CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
                     'seasonality', 'temperature', 'weather', 'holiday',
                     'som', 'sov', 'sos', 'share_of', 'share of',
