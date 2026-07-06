@@ -313,16 +313,20 @@ def _print_truth_summary(name: str, y: np.ndarray, spends: dict[str, np.ndarray]
 # ─── Dataset 1: FMCG бренд массмаркет ────────────────────────────────────────
 
 def generate_fmcg_brand(seed: int = 42) -> pd.DataFrame:
-    """FMCG бренд массмаркет — 36 months (2023-01 → 2025-12).
+    """FMCG бренд массмаркет — 48 months (2022-01 → 2025-12).
 
     Пары (physical = носитель истины, spend = physical×CPP_t):
-      TV: tv_trp (16–52 TRP, CPP 250 000₽ — панельный дефолт W25-54) + tv_spend
-      Digital OLV/дисплей: digital_impressions (15–45М, CPM 200₽) + digital_spend
-      OOH: ooh_contacts (19–62М, CPT 80₽) + ooh_spend
-      Performance: performance_clicks (40–180К, CPC 45₽) + performance_spend
+      TV: tv_trp (30–90 TRP, CPP 250 000₽ — панельный дефолт W25-54) + tv_spend
+      Digital OLV/дисплей: digital_impressions (12–40М, CPM 200₽) + digital_spend
+      OOH: ooh_contacts (18–60М, CPT 80₽) + ooh_spend
+      Performance: performance_clicks (8–30К, CPC 45₽) + performance_spend
     Target: sales_rub (₽). Controls: competitor_trp, price_index,
-    category_sales (Фаза Б). Сезонность: гладкая волна ±10% (пик декабрь) —
+    category_sales (Фаза Б). Сезонность: гладкая волна ±15% (пик декабрь) —
     авто-Фурье; НЕТ holiday-dummy (праздники РФ авто).
+
+    Субоптимальный стартовый сплит (2026-07-06): TV ~63%, performance ~4%.
+    ROI TV=2.2× vs performance=5.5× → оптимизатор должен находить lift +15-25%
+    при перераспределении TV→performance (фиксированный total budget).
     """
     rng = np.random.default_rng(seed)
     gt = GROUND_TRUTH_FMCG
@@ -331,10 +335,13 @@ def generate_fmcg_brand(seed: int = 42) -> pd.DataFrame:
     months = dates.month.to_numpy()
 
     # ── Физические ряды (носители истины; независимый флайтинг) ──────────────
-    tv_trp = _indep_channel(rng, months, 16, 52, peak_months=(11, 12, 1), peak_amp=0.40, vol=0.28, floor=4, dark_frac=0.22)
-    digital_impressions = _indep_channel(rng, months, 15e6, 45e6, vol=0.38, floor=3e6, dark_frac=0.08)
-    ooh_contacts = _indep_channel(rng, months, 19e6, 62e6, peak_months=(5, 6, 7, 8), peak_amp=0.35, vol=0.30, floor=4e6, dark_frac=0.25)
-    performance_clicks = _indep_channel(rng, months, 25_000, 90_000, peak_months=(3, 9, 10), peak_amp=0.25, vol=0.32, floor=6_000, dark_frac=0.15)
+    # Субоптимальный сплит: TV завышен (30-90 TRP), performance занижен (8-30k clicks).
+    # Реализм: 30-90 TRP/мес = нормальный крупный FMCG; 8-30k clicks = небольшой
+    # performance-бюджет (недоинвестированный канал).
+    tv_trp = _indep_channel(rng, months, 30, 90, peak_months=(11, 12, 1), peak_amp=0.40, vol=0.28, floor=8, dark_frac=0.22)
+    digital_impressions = _indep_channel(rng, months, 12e6, 40e6, vol=0.38, floor=2.5e6, dark_frac=0.08)
+    ooh_contacts = _indep_channel(rng, months, 18e6, 60e6, peak_months=(5, 6, 7, 8), peak_amp=0.35, vol=0.30, floor=3.5e6, dark_frac=0.25)
+    performance_clicks = _indep_channel(rng, months, 8_000, 30_000, peak_months=(3, 9, 10), peak_amp=0.25, vol=0.32, floor=2_000, dark_frac=0.15)
 
     # ── Пары: spend = physical × CPP_t ────────────────────────────────────────
     tv_spend = tv_trp * _cpp_series(rng, months, 250_000)
@@ -406,12 +413,16 @@ def generate_fmcg_brand(seed: int = 42) -> pd.DataFrame:
 def generate_otc_pharma(seed: int = 43) -> pd.DataFrame:
     """OTC pharma — 48 months (2022-01 → 2025-12), count-KPI (упаковки).
 
-    Пары: TV tv_trp (45–140, CPP 180 000₽ W18-44) + tv_spend;
-    Аптечные экраны apteka_contacts (1.2–6М, CPT 400₽/1000) + apteka_spend;
-    Digital digital_impressions (5–22М, CPM 200₽) + digital_spend;
-    Performance performance_clicks (60–250К, CPC 35₽) + performance_spend.
+    Пары: TV tv_trp (60–180, CPP 180 000₽ W18-44) + tv_spend;
+    Аптечные экраны apteka_contacts (3–14М, CPT 400₽/1000) + apteka_spend;
+    Digital digital_impressions (4–18М, CPM 200₽) + digital_spend;
+    Performance performance_clicks (25–100К, CPC 35₽) + performance_spend.
     Controls: competitor_trp (сильный −), weather_temp_low (+, умеренный),
     category_sales. Сезонность: простудная волна ±22% (пик январь) — авто-Фурье.
+
+    Субоптимальный стартовый сплит (2026-07-06): TV ~76%, performance ~7%.
+    ROI TV=2.6× vs performance=4.6× → оптимизатор должен находить lift +10-20%
+    при перераспределении TV→performance.
     """
     rng = np.random.default_rng(seed)
     gt = GROUND_TRUTH_OTC_PHARMA
@@ -419,10 +430,13 @@ def generate_otc_pharma(seed: int = 43) -> pd.DataFrame:
     dates = pd.date_range('2022-01-01', periods=n, freq='ME')
     months = dates.month.to_numpy()
 
-    tv_trp = _indep_channel(rng, months, 45, 140, peak_months=(10, 11, 12), peak_amp=0.35, vol=0.30, floor=8, dark_frac=0.20)
+    # Субоптимальный сплит: TV завышен (60-180 TRP), performance занижен (25-100k clicks).
+    # Реализм: 60-180 TRP/мес OTC = активная ТВ-кампания (Кагоцел-like); 25-100k clicks
+    # = недоинвестированный digital performance при доминировании ТВ.
+    tv_trp = _indep_channel(rng, months, 60, 180, peak_months=(10, 11, 12), peak_amp=0.35, vol=0.30, floor=12, dark_frac=0.20)
     apteka_contacts = _indep_channel(rng, months, 3e6, 14e6, peak_months=(1, 2, 3), peak_amp=0.30, vol=0.30, floor=6e5, dark_frac=0.25)
-    digital_impressions = _indep_channel(rng, months, 5e6, 22e6, vol=0.38, floor=1e6, dark_frac=0.08)
-    performance_clicks = _indep_channel(rng, months, 60_000, 250_000, peak_months=(9, 10), peak_amp=0.25, vol=0.32, floor=10_000, dark_frac=0.15)
+    digital_impressions = _indep_channel(rng, months, 4e6, 18e6, vol=0.38, floor=8e5, dark_frac=0.08)
+    performance_clicks = _indep_channel(rng, months, 25_000, 100_000, peak_months=(9, 10), peak_amp=0.25, vol=0.32, floor=5_000, dark_frac=0.15)
 
     tv_spend = tv_trp * _cpp_series(rng, months, 180_000)
     apteka_spend = apteka_contacts / 1000.0 * _cpp_series(rng, months, 400.0)
@@ -490,16 +504,20 @@ def generate_otc_pharma(seed: int = 43) -> pd.DataFrame:
 # ─── Dataset 3: Ритейл e-com (Ozon/WB продавец) ───────────────────────────────
 
 def generate_retail_ecom(seed: int = 44) -> pd.DataFrame:
-    """Retail e-commerce — 36 months (2023-01 → 2025-12), денежный KPI.
+    """Retail e-commerce — 48 months (2022-01 → 2025-12), денежный KPI.
 
-    Пары: TV tv_trp (160–520, CPP 250 000₽) + tv_spend;
-    Digital digital_impressions (100–300М, CPM 200₽) + digital_spend;
-    OOH ooh_contacts (37–150М, CPT 80₽) + ooh_spend;
-    Retail media retail_media_impressions (16–80М, CPM 500₽) + retail_media_spend.
+    Пары: TV tv_trp (200–600, CPP 250 000₽) + tv_spend;
+    Digital digital_impressions (80–250М, CPM 200₽) + digital_spend;
+    OOH ooh_contacts (80–260М, CPT 80₽) + ooh_spend;
+    Retail media retail_media_impressions (10–50М, CPM 500₽) + retail_media_spend.
     Controls: promo_indicator (+), competitor_promo (−),
     holiday_blackfriday (ноябрь; авто-календарь РФ знает ЧП, но ручная колонка
     гасит авто-инжект — семантический дедуп имён календаря v2.1).
     Сезонность: волна ±15% (пик декабрь) — авто-Фурье; НГ-dummy НЕТ (авто).
+
+    Субоптимальный стартовый сплит (2026-07-06): TV ~61%, retail_media ~10%.
+    ROI TV=2.0× vs retail_media=4.8× → оптимизатор должен находить lift +15-25%
+    при перераспределении TV→retail_media.
     """
     rng = np.random.default_rng(seed)
     gt = GROUND_TRUTH_RETAIL_ECOM
@@ -507,10 +525,13 @@ def generate_retail_ecom(seed: int = 44) -> pd.DataFrame:
     dates = pd.date_range('2022-01-01', periods=n, freq='ME')
     months = dates.month.to_numpy()
 
-    tv_trp = _indep_channel(rng, months, 160, 520, peak_months=(11, 12), peak_amp=0.40, vol=0.26, floor=30, dark_frac=0.20)
-    digital_impressions = _indep_channel(rng, months, 100e6, 300e6, vol=0.36, floor=25e6, dark_frac=0.08)
+    # Субоптимальный сплит: TV завышен (200-600 TRP крупный ритейл), retail_media занижен.
+    # Реализм: 200-600 TRP/мес = масштабная ТВ-кампания WB/Ozon-like; 10-50M retail_media
+    # impressions = скромные инвестиции в продвижение на платформе (недоинвестировано).
+    tv_trp = _indep_channel(rng, months, 200, 600, peak_months=(11, 12), peak_amp=0.40, vol=0.26, floor=40, dark_frac=0.20)
+    digital_impressions = _indep_channel(rng, months, 80e6, 250e6, vol=0.36, floor=20e6, dark_frac=0.08)
     ooh_contacts = _indep_channel(rng, months, 80e6, 260e6, peak_months=(8, 9), peak_amp=0.35, vol=0.30, floor=15e6, dark_frac=0.25)
-    retail_media_impressions = _indep_channel(rng, months, 16e6, 80e6, peak_months=(3, 7, 11), peak_amp=0.40, vol=0.30, floor=4e6, dark_frac=0.18)
+    retail_media_impressions = _indep_channel(rng, months, 10e6, 50e6, peak_months=(3, 7, 11), peak_amp=0.40, vol=0.30, floor=2.5e6, dark_frac=0.18)
 
     tv_spend = tv_trp * _cpp_series(rng, months, 250_000)
     digital_spend = digital_impressions / 1000.0 * _cpp_series(rng, months, 200.0)
@@ -570,15 +591,19 @@ def generate_retail_ecom(seed: int = 44) -> pd.DataFrame:
 # ─── Dataset 4: Застройщик (long sales cycle) ────────────────────────────────
 
 def generate_real_estate(seed: int = 45) -> pd.DataFrame:
-    """Застройщик / девелопер — 36 months (2023-01 → 2025-12), count-KPI (лиды).
+    """Застройщик / девелопер — 48 months (2022-01 → 2025-12), count-KPI (лиды).
 
-    Пары: TV tv_grp (67–300 GRP регион+федерал, CPP 150 000₽) + tv_spend;
-    OOH ooh_contacts (12–50М, CPT 80₽) + ooh_spend;
-    Digital digital_impressions (25–90М, CPM 200₽) + digital_spend;
-    Performance performance_clicks (60–280К, CPC 90₽ — дорогой клик ниши) +
+    Пары: TV tv_grp (90–380 GRP регион+федерал, CPP 150 000₽) + tv_spend;
+    OOH ooh_contacts (40–140М, CPT 80₽) + ooh_spend;
+    Digital digital_impressions (20–75М, CPM 200₽) + digital_spend;
+    Performance performance_clicks (25–110К, CPC 90₽ — дорогой клик ниши) +
     performance_spend.
     Controls: competitor_activity (−), macro_cpi (−).
-    Сезонность: волна ±12% (Q1 провал / пик ноябрь) — авто-Фурье; НГ-dummy НЕТ.
+    Сезонность: волна ±15% (Q1 провал / пик ноябрь) — авто-Фурье; НГ-dummy НЕТ.
+
+    Субоптимальный стартовый сплит (2026-07-06): TV ~62%, performance ~9%.
+    ROI TV=2.2× vs performance=5.0× → оптимизатор должен находить lift +15-20%
+    при перераспределении TV→performance.
     """
     rng = np.random.default_rng(seed)
     gt = GROUND_TRUTH_REAL_ESTATE
@@ -586,10 +611,14 @@ def generate_real_estate(seed: int = 45) -> pd.DataFrame:
     dates = pd.date_range('2022-01-01', periods=n, freq='ME')
     months = dates.month.to_numpy()
 
-    tv_grp = _indep_channel(rng, months, 67, 300, peak_months=(9, 10, 11), peak_amp=0.30, vol=0.30, floor=15, dark_frac=0.20)
-    ooh_contacts = _indep_channel(rng, months, 30e6, 110e6, peak_months=(4, 5), peak_amp=0.30, vol=0.30, floor=6e6, dark_frac=0.25)
-    digital_impressions = _indep_channel(rng, months, 25e6, 90e6, vol=0.38, floor=5e6, dark_frac=0.08)
-    performance_clicks = _indep_channel(rng, months, 60_000, 280_000, peak_months=(3, 9), peak_amp=0.25, vol=0.32, floor=12_000, dark_frac=0.15)
+    # Субоптимальный сплит: TV завышен (90-380 GRP), performance занижен (25-110k clicks).
+    # Реализм: 90-380 GRP/мес = активная ТВ-кампания девелопера (крупный застройщик);
+    # 25-110k performance clicks = скромный лидогенерирующий budget (недоинвестировано
+    # при доминировании TV/OOH — типичная ситуация в РФ недвижимости).
+    tv_grp = _indep_channel(rng, months, 90, 380, peak_months=(9, 10, 11), peak_amp=0.30, vol=0.30, floor=20, dark_frac=0.20)
+    ooh_contacts = _indep_channel(rng, months, 40e6, 140e6, peak_months=(4, 5), peak_amp=0.30, vol=0.30, floor=8e6, dark_frac=0.25)
+    digital_impressions = _indep_channel(rng, months, 20e6, 75e6, vol=0.38, floor=4e6, dark_frac=0.08)
+    performance_clicks = _indep_channel(rng, months, 25_000, 110_000, peak_months=(3, 9), peak_amp=0.25, vol=0.32, floor=5_000, dark_frac=0.15)
 
     tv_spend = tv_grp * _cpp_series(rng, months, 150_000)
     ooh_spend = ooh_contacts / 1000.0 * _cpp_series(rng, months, 80.0)
