@@ -147,6 +147,80 @@ def get_mcmc_params(has_compiler: bool, has_jax: bool | None = None) -> dict:
     return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'NUTS'}
 
 
+def _resolve_auto_adstock(
+    adstock_config: dict,
+    data_file: str,
+    kpi_col: str,
+    media_cols: list[str],
+    date_col: str | None = None,
+) -> None:
+    """Resolve 'auto' adstock entries in-place using BIC selector.
+
+    Mutates adstock_config: replaces 'auto' (str) or {'type': 'auto'} (dict)
+    with the BIC-selected concrete type ('geometric' or 'weibull') for each
+    media channel that requested auto-selection.
+
+    Args:
+        adstock_config: Per-channel adstock config dict — mutated in-place.
+        data_file: Path to the training data file (xlsx/csv).
+        kpi_col: KPI column name.
+        media_cols: List of media channel column names.
+        date_col: Optional date column name (passed for API consistency).
+
+    Side effects:
+        - Logs INFO for each resolved channel.
+        - Logs WARNING and falls back to 'geometric' on selector error.
+        - No-op when no channels require auto-selection.
+    """
+    # Identify channels that need auto-resolution
+    auto_channels = []
+    for ch in media_cols:
+        val = adstock_config.get(ch)
+        if val == 'auto' or (isinstance(val, dict) and val.get('type') == 'auto'):
+            auto_channels.append(ch)
+
+    if not auto_channels:
+        return  # nothing to do — skip selector call entirely
+
+    try:
+        from engines.adstock_selector import select_adstock
+        result = select_adstock(
+            file_path=data_file,
+            kpi_column=kpi_col,
+            media_columns=auto_channels,
+            date_column=date_col,
+        )
+    except Exception as exc:
+        logger.warning(
+            'adstock auto-select: selector raised exception (%s), '
+            'falling back to geometric for channels: %s',
+            exc, auto_channels,
+        )
+        for ch in auto_channels:
+            adstock_config[ch] = 'geometric'
+        return
+
+    if result.get('status') != 'ok':
+        logger.warning(
+            'adstock auto-select: selector returned status=%s (%s), '
+            'falling back to geometric for channels: %s',
+            result.get('status'), result.get('message'), auto_channels,
+        )
+        for ch in auto_channels:
+            adstock_config[ch] = 'geometric'
+        return
+
+    selections = result.get('selections', {})
+    for ch in auto_channels:
+        sel = selections.get(ch)
+        if sel and isinstance(sel, dict):
+            resolved = sel.get('type', 'geometric')
+        else:
+            resolved = 'geometric'
+        adstock_config[ch] = resolved
+        logger.info('adstock auto-resolved by BIC: %s -> %s', ch, resolved)
+
+
 def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[str, Any]:
     """Train a Bayesian MMM model.
 
@@ -209,6 +283,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     date_col = config.get('date_column', 'date')
     adstock_config = config.get('adstock_config', {})
     merge_rules = config.get('merge_rules', {}) or {}
+
+    # ─── Auto adstock resolution (NEW-1 fix) ─────────────────────────────
+    # Резолвим 'auto' / {'type': 'auto'} ДО enforce_jax_for_weibull.
+    # Это критично: если BIC выбрал 'weibull', enforce_jax должен получить
+    # конкретный тип, иначе 'auto' не пройдёт проверку на weibull→JAX.
+    # Также гарантирует, что channel_adstock_types в pickle содержит
+    # конкретный тип, а не строку 'auto' (которая ломала fallback geometric
+    # в прогнозных путях — находка приёмки П2 / NEW-1).
+    _resolve_auto_adstock(
+        adstock_config,
+        data_file=data_file,
+        kpi_col=kpi_col,
+        media_cols=media_cols,
+        date_col=date_col,
+    )
 
     # ─── KPI registry activation (v2.0 foundation, D.1) ─────────────────
     # Single source of truth для priors (sales / awareness / future KPIs).
