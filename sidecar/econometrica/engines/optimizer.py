@@ -904,16 +904,58 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     else:
         _default_anchor_enabled = False
 
-    def _safe_minimize_money(x_start: np.ndarray):
+    # P1 fix (planning-mode numerical scaling 2026-07-06):
+    # SLSQP использует внутренний абсолютный шаг eps≈1.49e-8 для численного
+    # якобиана. При переменных порядка 10⁷–10⁸ (money axis, planning budget)
+    # это даёт relative step ~1e-15 — градиент вычисляется в зоне машинного
+    # нуля, SLSQP считает функцию «плоской» и завершается nit=1 в стартовой
+    # точке (ложный KKT-оптимум ≡ пропорциональный сплит).
+    # Диагностика 2026-07-06: KKT violation=1.52e-7, uniform-grid нашла
+    # obj=-14.29 vs proportional -12.01 (+19%); с y=x/budget SLSQP сошёлся
+    # success=True nit=9 к тому же -14.29. Analyst mode не затронут (money
+    # scale там training-horizon, достаточно хорошо обусловлен при n=48).
+    #
+    # Фикс: при planning_mode нормализовать внутреннее пространство SLSQP на
+    # money_target. Снаружи всё остаётся в money-axis (result.x денормируется
+    # обратно, r.fun идентичен). Analyst mode (planning_mode=False) — без изменений.
+    _plan_scale = float(money_target) if (planning_mode and money_target > 1.0) else 1.0
+
+    def _safe_minimize_money(x_start: np.ndarray, use_bounds=bounds_money, use_constraints=constraints):
         try:
-            r = minimize(
-                _objective_fn, x_start,
-                method='SLSQP',
-                bounds=bounds_money,
-                constraints=constraints,
-                options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
-            )
-            return r
+            if _plan_scale != 1.0:
+                # Normalize: y = x / _plan_scale → переменные порядка 1.
+                y_start = x_start / _plan_scale
+                y_bounds = [(lo / _plan_scale, hi / _plan_scale) for lo, hi in use_bounds]
+                # Equality constraint в нормализованном пространстве: Σy = 1.
+                y_constraints = [{'type': 'eq', 'fun': lambda y: float(np.sum(y) - 1.0)}]
+                # Objective принимает x_money — денормируем y обратно.
+                def y_objective(y):
+                    return _objective_fn(y * _plan_scale)
+                raw = minimize(
+                    y_objective, y_start,
+                    method='SLSQP',
+                    bounds=y_bounds,
+                    constraints=y_constraints,
+                    options={'maxiter': 200, 'ftol': 1e-9, 'disp': False},
+                )
+                # Wrap result: денормировать x обратно в money-axis.
+                class _ScaledResult:
+                    def __init__(self, inner, scale):
+                        self.x = inner.x * scale
+                        self.fun = inner.fun  # objective value не зависит от масштаба
+                        self.success = inner.success
+                        self.message = inner.message
+                        self.nit = inner.nit
+                return _ScaledResult(raw, _plan_scale)
+            else:
+                r = minimize(
+                    _objective_fn, x_start,
+                    method='SLSQP',
+                    bounds=use_bounds,
+                    constraints=use_constraints,
+                    options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
+                )
+                return r
         except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
             _logger.warning(f"SLSQP attempt failed: {type(e).__name__}: {e}")
             return None
@@ -983,14 +1025,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             anchor_candidates_local = []
             for _name, x_anchor_start in anchor_starts:
                 try:
-                    r_a = minimize(
-                        _objective_fn, x_anchor_start,
-                        method='SLSQP',
-                        bounds=_default_anchor_bounds,
-                        constraints=constraints,
-                        options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
-                    )
-                    if r_a.success:
+                    # P1 fix: используем _safe_minimize_money с default_anchor_bounds
+                    # чтобы нормализация planning_mode применялась и здесь.
+                    r_a = _safe_minimize_money(x_anchor_start, use_bounds=_default_anchor_bounds)
+                    if r_a is not None and r_a.success:
                         anchor_candidates_local.append(r_a)
                 except (np.linalg.LinAlgError, ValueError, RuntimeError):
                     pass
