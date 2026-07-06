@@ -32,6 +32,7 @@ import { mqsView, ratioView } from './metric-views.js';
 // говорить о них то же, что heatmap (ожидаемо, в модель идёт одна колонка),
 // а не пугать «Мультиколлинеарностью» на встроенном примере.
 import { declaredPairKeys, isDeclaredPair } from './channel-pairs.js';
+import { DEFAULT_TRAINING_ESTIMATE } from './training-estimate.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -356,17 +357,21 @@ export function validateConfirmInsights(result, context = {}) {
   const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media').length;
   const controlCount = cols.filter(/** @param {any} c */ c => c.role === 'control').length;
   const rows = result.file?.rows ?? 0;
-  const ratio = rows > 0 && (mediaCount + controlCount) > 0 ? rows / (mediaCount + controlCount) : 0;
+  // F-A1-5: читаем эффективное число параметров из SSOT (backend /compute/validate
+  // проставляет detected.n_params_effective_pretrain = media + controls + 12 праздников
+  // + intercept). Фолбэк: user-visible media+controls (без авто-контролей).
+  const nParamsEffective = result.detected?.n_params_effective_pretrain ?? (mediaCount + controlCount);
+  const ratio = rows > 0 && nParamsEffective > 0 ? rows / nParamsEffective : 0;
 
   out.push({
     severity: 'success',
-    text: `Готово к обучению: ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? ` + ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'}` : ''}, режим **${(context.analysisMode || 'roi').toUpperCase()}**. Обучение займёт 30-60 секунд (Bayesian) или ~5 секунд (OLS fallback).`,
+    text: `Готово к обучению: ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? ` + ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'}` : ''}, режим **${(context.analysisMode || 'roi').toUpperCase()}**. Обучение займёт ${DEFAULT_TRAINING_ESTIMATE} (Bayesian) или ~5 секунд (OLS fallback).`,
   });
 
   if (ratio < 4) {
     out.push({
       severity: 'warning',
-      text: `Ratio данных ${ratio.toFixed(1)}:1 (наблюдения ÷ выбранные признаки, оценка до обучения) ниже рекомендованного 4:1. Модель обучится, но результаты с широкими диапазонами возможных значений.`,
+      text: `Ratio данных ${ratio.toFixed(1)}:1 (наблюдения ÷ выбранные признаки, оценка до обучения) ниже рекомендованного 4:1 с учётом авто-контролей (авто-праздники; сезонность может добавить ещё несколько признаков после обучения). Модель обучится, но результаты с широкими диапазонами возможных значений.`,
       tip: 'После обучения смотрите R-hat (показатель сходимости модели, < 1.05) и MQS - если < 1.05 и > 60 соответственно, модель надёжна для пилотных решений.',
     });
   }
@@ -398,7 +403,10 @@ export function validateInsights(result, objective = 'roi') {
   const mediaCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'media').length;
   const controlCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'control').length;
   const rowsCheck = result.file?.rows ?? result.detected?.rows ?? 0;
-  const paramCountCheck = mediaCount + controlCount;
+  // F-A1-5: эффективное число параметров (включая авто-контроли: 12 праздников + intercept).
+  // Backend /compute/validate проставляет detected.n_params_effective_pretrain;
+  // фолбэк — только user-visible media+controls.
+  const paramCountCheck = result.detected?.n_params_effective_pretrain ?? (mediaCount + controlCount);
   const liveRatio = rowsCheck > 0 && paramCountCheck > 0 ? rowsCheck / paramCountCheck : 0;
   /** @type {'ok'|'warning'|'error'} */
   let effectiveStatus = 'ok';
@@ -1004,11 +1012,20 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   const kpiNames = cols.filter(/** @param {any} c */ c => c.role === 'kpi').map(/** @param {any} c */ c => c.name);
   const mediaNames = activeMediaCols.map(/** @param {any} c */ c => c.name);
   const rows = validateResult.file?.rows ?? 0;
-  // v2.1.0 (RC2-AUD-04 fix): ratio считается из ТЕКУЩИХ ролей колонок
-  // (как в validateInsights), не из stale validateResult.detected.ratio
-  // (которое было посчитано один раз при первом econ_validate).
-  // Это устраняет рассогласование с SSOT validationHeaderMetrics.
-  const paramCount = mediaCount + controlCount;
+  // F-A1-5: используем эффективное число параметров (включает авто-контроли),
+  // а не только user-visible media+controls. Backend проставляет
+  // detected.n_params_effective_pretrain; учитывает активные каналы через
+  // фолбэк-формулу (activeMedia + allControls + 12 праздников + intercept).
+  // Примечание: detected.n_params_effective_pretrain считает все медиа-колонки
+  // (не фильтрует по enabledMediaNames) — при расхождении берём явный расчёт.
+  const userVisibleParams = mediaCount + controlCount;
+  const detectedEffective = validateResult.detected?.n_params_effective_pretrain;
+  // Если бэкенд знает эффективное число — используем, но пересчитываем дельту
+  // авто-контролей (12 праздников + 1 intercept) и добавляем к user-visible params.
+  const N_AUTO = 12 + 1; // праздники + intercept
+  const paramCount = detectedEffective != null
+    ? userVisibleParams + N_AUTO
+    : userVisibleParams;
   const ratio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
 
   // ── 1. Ready-state summary ──
@@ -1088,16 +1105,13 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
     tip: 'MQS - агрегированная оценка качества от 0 до 100. R² - доля объяснённой вариации KPI. R-hat — показатель сходимости байесовских цепей; если > 1.05 — увеличьте число итераций (Расширенные настройки, режим Эксперт).',
   });
 
-  // ── 7. Time estimate (educational) - v2.1.0 (пилот 2026-05-16): считаем
-  // по active каналам, не по всем media-ролям. Раньше показывал «~4 мин
-  // для 10 каналов» при 7 включённых чекбоксах.
-  // JAX/NumPyro NUTS на CPU: ~1-3 мин на 4-8 каналах при дефолтах (4×(2000+2000) samples).
-  // Формула синхронизирована с ConfigPanel.svelte estimateMinutes (JIT + ~5-10 мс/sample).
-  const estimatedMinutes = Math.max(1, Math.round(0.3 * mediaCount + 1));
+  // ── 7. Time estimate (educational) - F-A1-7: SSOT из training-estimate.js.
+  // Раньше: три разных формулы (ConfigPanel / validateConfirm / modelPreTraining)
+  // давали разные числа — нарушение INV-50. Теперь единый дефолтный диапазон.
   if (mediaCount > 5) {
     out.push({
       severity: 'info',
-      text: `Оценка времени: ~${estimatedMinutes} мин для ${mediaCount} каналов на движке JAX/NumPyro. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
+      text: `Оценка времени: ${DEFAULT_TRAINING_ESTIMATE} для ${mediaCount} каналов на движке JAX/NumPyro. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
       tip: 'Байесовский Markov Chain Monte Carlo (NUTS) проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). Первый запуск включает ~20 сек JIT-компиляции XLA - далее каждый sample занимает миллисекунды.',
     });
   }
@@ -2007,10 +2021,29 @@ export function optimizeInsights(data, ctx = {}) {
       const deltaAbs = Math.abs(c.delta).toLocaleString('ru-RU');
       return `${arrow} ${c.name}: ${sign}${c.deltaPct.toFixed(0)}% (${c.deltaPct > 0 ? '+' : '−'}${deltaAbs}₽)`;
     }).join('\n');
+
+    // F-A1-18: текст сдвигов из фактических знаков дельт (не хардкод).
+    const hasIncreases = significantChanges.some(/** @param {any} c */ c => c.deltaPct > 0);
+    const hasDecreases = significantChanges.some(/** @param {any} c */ c => c.deltaPct < 0);
+    /** @type {string} */
+    let shiftDescription;
+    if (hasIncreases && hasDecreases) {
+      // Реальная перекладка: есть и рост, и снижение
+      const fromChannels = significantChanges.filter(/** @param {any} c */ c => c.deltaPct < 0).map(/** @param {any} c */ c => c.name).slice(0, 2).join(', ');
+      const toChannels = significantChanges.filter(/** @param {any} c */ c => c.deltaPct > 0).map(/** @param {any} c */ c => c.name).slice(0, 2).join(', ');
+      shiftDescription = `Перекладка из ${fromChannels} в ${toChannels} — где каждый рубль ещё работает на полную.`;
+    } else if (hasDecreases && !hasIncreases) {
+      // Все снижаются — масштабирование вниз
+      shiftDescription = 'Масштабирование под плановый период, пропорции сохранены.';
+    } else {
+      // Все растут — наращивание
+      shiftDescription = 'Наращивание бюджета — каналы работают ниже насыщения.';
+    }
+
     out.push({
       severity: 'info',
       text: `Главные сдвиги бюджета (${significantChanges.length} канал${significantChanges.length > 4 ? 'ов' : significantChanges.length > 1 ? 'а' : ''}):`,
-      tip: lines + '\n\nПерекладка идёт из перенасыщенных каналов в недонасыщенные - где каждый рубль ещё работает на полную.',
+      tip: lines + `\n\n${shiftDescription}`,
     });
   } else if (Math.abs(lift) < 0.5) {
     out.push({

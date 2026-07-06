@@ -23,6 +23,7 @@
   // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
   // меток в Контроле качества с RatioInfoCard и sticky header.
   import { classifyRatio, severityTo3Tier } from '$lib/ratio-classifier.js';
+  import { periodUnit, periodThreshold } from '$lib/period-format.js';
   import RatioInfoCard from './RatioInfoCard.svelte';
 
   /** @typedef {'roi' | 'effectiveness' | 'mixed'} AnalysisMode */
@@ -185,7 +186,13 @@
   }
 
   // ─── Предупреждение по периоду ─────────────────────────────────────
-  const periodWarn = $derived(nObs > 0 && nObs < 52);
+  // F-A1-6: единица и порог из гранулярности, не хардкод «52 нед».
+  const granularity = $derived(
+    $validateData?.result?.detected?.date_frequency ?? 'W'
+  );
+  const granPeriodUnit = $derived(periodUnit(granularity));
+  const granPeriodThreshold = $derived(periodThreshold(granularity));
+  const periodWarn = $derived(nObs > 0 && nObs < granPeriodThreshold);
 </script>
 
 <div class="preflight-summary">
@@ -213,8 +220,8 @@
               </span>
             {/if}
             {#if periodWarn}
-              <span class="badge-warn" title="Рекомендуем ≥52 недели для надёжных результатов">
-                &lt;52 нед
+              <span class="badge-warn" title="Рекомендуем ≥{granPeriodThreshold} {granPeriodUnit} для надёжных результатов">
+                &lt;{granPeriodThreshold} {granPeriodUnit}
               </span>
             {/if}
           {:else}

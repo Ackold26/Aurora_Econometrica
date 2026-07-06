@@ -243,6 +243,13 @@
     return '';
   }
 
+  // F-A1-9 (2026-07-06): вердикт ненадёжности для плашки над денежными инсайтами.
+  // Читаем из $modelData.diagnostics.honesty_verdict — проставляется modeler.py при обучении.
+  const modelHonestyVerdict = $derived($modelData?.diagnostics?.honesty_verdict ?? null);
+  const modelIsUnreliable = $derived(
+    modelHonestyVerdict === 'unreliable' || modelHonestyVerdict === 'uncertain'
+  );
+
   // Help-tooltips для основной таблицы «Детализация по каналам».
   const CH_HELP = {
     spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
@@ -510,6 +517,17 @@
       </div>
     {/if}
 
+    <!-- F-A1-9: плашка ненадёжности над денежными инсайтами -->
+    {#if modelIsUnreliable}
+      <div class="reliability-warn-banner" role="alert">
+        <span class="reliability-warn-icon" aria-hidden="true">⚠</span>
+        <span class="reliability-warn-text">
+          Модель помечена как ориентировочная — вердикты ниже трактуйте осторожно.
+          {#if modelHonestyVerdict === 'unreliable'}Высокий R-hat или много расходящихся цепей.{:else}Узкие данные или слабый prior-coverage.{/if}
+        </span>
+      </div>
+    {/if}
+
     <!-- Insight banner -->
     {#if data.insight}
       <div class="insight-banner">
@@ -758,6 +776,29 @@
     padding-left: 18px;
     font-size: 12px;
     color: var(--text-secondary, #94a3b8);
+  }
+  /* F-A1-9: плашка ненадёжности над денежными инсайтами */
+  .reliability-warn-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
+    border-radius: 8px;
+  }
+  .reliability-warn-icon {
+    font-size: 15px;
+    flex-shrink: 0;
+    color: var(--gold, #c9a449);
+    line-height: 1.4;
+  }
+  .reliability-warn-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
   .error-text { flex: 1; font-size: 13px; color: #ef4444; }

@@ -308,6 +308,42 @@ def _table_metric_header(kpi: dict) -> tuple:
     return ("mROAS", "×")
 
 
+def _reliability_disclaimer_html(ctx: dict) -> str:
+    """F-A1-9 (2026-07-06): дисклеймер ненадёжности для клиентского HTML-отчёта.
+
+    Вызывает model_reliability_verdict на данных диагностики из ctx и рендерит
+    жёлтый баннер при unreliable/uncertain. При reliable — возвращает пустую строку.
+    Паттерн: аналогично PPTX narrative_adapter.honesty_verdict.
+    """
+    diag = ctx.get("diagnostics") or {}
+    # Приоритет: если honesty_verdict уже вычислен в diagnostics (modeler.py), читаем его.
+    # Иначе — вычисляем здесь (legacy path: старые pickles без поля).
+    verdict_str = diag.get("honesty_verdict")
+    if verdict_str is None:
+        try:
+            from utils.optimizer_honesty import model_reliability_verdict
+            _r = model_reliability_verdict(diag)
+            verdict_str = _r.get("verdict", "unknown")
+        except Exception:
+            verdict_str = "unknown"
+    if verdict_str not in ("unreliable", "uncertain"):
+        return ""
+    if verdict_str == "unreliable":
+        note = "Модель имеет высокий R-hat или много расходящихся цепей — результаты ниже ориентировочные."
+    else:
+        note = "Узкий объём данных или слабый prior-coverage — результаты ниже трактуйте осторожно."
+    return (
+        '<div class="reliability-disclaimer" role="alert" style="'
+        "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
+        "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
+        "font-size:13px;line-height:1.5;color:#e2e8f0;"
+        '">'
+        f'<strong style="color:#c9a449;">⚠ Ориентировочная модель.</strong> '
+        f'{escape(note)}'
+        '</div>'
+    )
+
+
 def _section(section_id: str, kicker: str, body: str, extra_cls: str = "") -> str:
     cls = f"section section-{section_id}" + (f" {extra_cls}" if extra_cls else "")
     k = f'<div class="section-kicker">{escape(kicker)}</div>' if kicker else ""
@@ -564,8 +600,10 @@ def render_executive_summary(ctx: dict) -> str:
         for label, body, accent in blocks
     )
 
+    # F-A1-9 (2026-07-06): дисклеймер ненадёжности перед денежными инсайтами.
+    disclaimer = _reliability_disclaimer_html(ctx)
     body = f"""
-{_action_title(title)}
+{disclaimer}{_action_title(title)}
 <div class="scqar">
 {items}
 </div>"""

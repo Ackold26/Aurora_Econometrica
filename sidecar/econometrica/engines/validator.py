@@ -583,6 +583,20 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # Labels одинаковые с frontend - юзер видит согласованный текст
     # в Validation, инсайтах и Контроле качества.
     n_predictors = len(media_cols) + len(control_cols)
+    # F-A1-5: оценочное число эффективных параметров ДО обучения.
+    # Учитывает авто-инжектируемые контроли которые пользователь не видит
+    # в таблице ролей, но которые реально раздувают n_params в модели:
+    #   - 12 праздников РФ (дефолт use_holidays=True; disabled_holidays в конфиге
+    #     не известен на этапе validate, используем дефолтные 12)
+    #   - intercept (1 параметр, всегда)
+    #   - Фурье-члены сезонности: условны (нужно ≥2 цикла + autocorr ≥ 0.2),
+    #     здесь НЕ включаем — честнее показать минимальную оценку; при обучении
+    #     фронт получит фактические данные из diagnostics.seasonality
+    # Значение проброшено в ответ как отдельное поле и читается фронтом
+    # вместо local (mediaCount + controlCount) для отображения ratio.
+    N_HOLIDAYS_DEFAULT = 12
+    N_INTERCEPT = 1
+    n_params_effective_pretrain = n_predictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT
     ratio = n_rows / max(n_predictors, 1)
     if ratio < 2:
         issues.append({
@@ -737,6 +751,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'media': media_cols,
             'control': control_cols,
             'n_predictors': n_predictors,
+            'n_params_effective_pretrain': n_params_effective_pretrain,
             'ratio': round(ratio, 1),
             'date_frequency': date_frequency,
         },

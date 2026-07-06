@@ -92,7 +92,7 @@
     const r2 = diagnostics?.metrics?.r_squared;
     const mape = diagnostics?.metrics?.mape_pct;
     return {
-      r2: r2 != null ? Number(r2).toFixed(4) : null,
+      r2: r2 != null ? Number(r2).toFixed(3) : null,
       mape: mape != null ? Number(mape).toFixed(2) : null,
     };
   });

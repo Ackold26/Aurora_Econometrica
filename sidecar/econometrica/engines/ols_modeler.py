@@ -410,6 +410,19 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         'unit_costs_snapshot': dict(unit_costs_snapshot),
     }
 
+    # F-A1-9/OLS: вердикт надёжности сразу при обучении — одинаково с Bayesian-веткой.
+    # model_reliability_verdict умеет OLS (engine='ols' → uncertain максимум, без r_hat/MCMC).
+    try:
+        from utils.optimizer_honesty import model_reliability_verdict as _mrv
+        _r = _mrv(diagnostics)
+        diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
+        _hr = [str(x) for x in (_r.get('reasons') or [])]
+        if _hr:
+            diagnostics['honesty_reasons'] = _hr[:3]
+    except Exception as _hv_err:
+        logger.warning('honesty_verdict in ols diagnostics skipped: %s', _hv_err)
+        diagnostics['honesty_verdict'] = 'unknown'
+
     report('saving', pct=90)
 
     model_data = {

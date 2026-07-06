@@ -1285,6 +1285,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         diagnostics['unit_costs_snapshot'] = dict(unit_costs_snapshot)
         diagnostics['engine'] = 'bayesian'
 
+        # F-A1-9 (2026-07-06): honesty_verdict прямо в diagnostics при обучении.
+        # Раньше вычислялся только в narrative_adapter (при PPTX) и optimizer (при оптимизации),
+        # поэтому DecomposeStep и OptimizeStep(до оптимизации) не видели вердикт.
+        # Теперь: modelData.diagnostics.honesty_verdict доступен СРАЗУ после train.
+        try:
+            from utils.optimizer_honesty import model_reliability_verdict
+            _r = model_reliability_verdict(diagnostics)
+            diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
+            _hr = [str(x) for x in (_r.get('reasons') or [])]
+            if _hr:
+                diagnostics['honesty_reasons'] = _hr[:3]
+        except Exception as _hv_err:
+            logger.warning('honesty_verdict in diagnostics skipped: %s', _hv_err)
+            diagnostics['honesty_verdict'] = 'unknown'
+
         # Extract posterior means for channel contributions
         media_beta_means = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values.tolist()
         alpha_means = trace.posterior['alphas'].mean(dim=['chain', 'draw']).values.tolist()

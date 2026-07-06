@@ -378,6 +378,12 @@
   // utils.optimizer_honesty). UI потребляет verbatim, не пере-выводит (INV-50).
   // reliable → пусто; uncertain → caveat+бенды; unreliable → refused (переброска скрыта).
   const modelReliability = $derived(optData?.model_reliability ?? null);
+  // F-A1-9 (2026-07-06): вердикт из $modelData.diagnostics (не из optData) —
+  // доступен СРАЗУ после обучения, до запуска оптимизации (optData=null).
+  const preOptimizeVerdict = $derived($modelData?.diagnostics?.honesty_verdict ?? null);
+  const preOptimizeIsUnreliable = $derived(
+    preOptimizeVerdict === 'unreliable' || preOptimizeVerdict === 'uncertain'
+  );
   const mData = $derived($modelData);
   const dData = $derived($decomposeData);
 
@@ -478,7 +484,9 @@
     miROAS:         'miROAS (Marginal ROI) - отдача от СЛЕДУЮЩЕГО вложенного рубля в канал, не средняя.\n\nРассчитывается через производную response curve в текущей точке.\n\n> 1.5× - канал недонасыщен, стоит увеличить бюджет\n0.8 - 1.5× - канал в зоне стабильной отдачи\n< 0.8× - канал перенасыщен, уменьшить бюджет (каждый рубль приносит меньше расхода)',
     responseCurves: 'Response Curves - кривые отдачи каналов от размера бюджета.\n\nX = бюджет канала, Y = вклад в KPI (продажи).\nТочка на кривой = текущая позиция (текущий бюджет канала).\nИзгиб (плато) = saturation: после этой точки каждый дополнительный рубль даёт меньше эффекта.\n\nЦель оптимизации - двигать точки вверх по кривой к более крутым участкам.',
     avgROI:         'Средний ROI = суммарный вклад медиа в продажи ÷ суммарный бюджет.\n\nИндустриальный benchmark: > 2× - отлично, 1-2× - приемлемо, < 1× - медиа в среднем не окупается.',
-    saturation:     'Светофор насыщения каналов:\n🟢 Недонасыщен (mROAS > 1.5×) - кандидат на масштабирование\n🟡 Стабилен (0.8-1.5×) - оптимальная зона\n🔴 Перенасыщен (< 0.8×) - каждый дополнительный рубль работает в убыток',
+    // F-A1-19: уточнён tooltip — «перенасыщен» только при mROAS<0.8 (saturation-driven);
+    // optimizer-driven Reduce (оптимизатор снизил долю при mROAS≥0.8) — отдельный сигнал.
+    saturation:     'Светофор насыщения каналов (по mROAS — отдача следующего рубля):\n🟢 Недонасыщен (mROAS > 1.5×) — кандидат на масштабирование\n🟡 Стабилен (0.8–1.5×) — оптимальная зона\n🔴 Перенасыщен (mROAS < 0.8×) — каждый дополнительный рубль работает в убыток\n\nВердикт «Сократить» может быть также вызван сигналом оптимизатора (снижение доли в оптимальном плане), даже если mROAS ≥ 0.8.',
   };
 
   // ── Phase 2 (Planning Mode) - derived context для всех downstream operations ──
@@ -1809,17 +1817,24 @@
     <div class="status-grid">
       <div class="status-cell">
         <div class="status-label">
-          Общий бюджет<span class="help-icon" title={HELP.totalBudget}>?</span>
+          <!-- F-A1-17: в planner-режиме уточняем что это историческое распределение -->
+          {isPlanning ? 'Историческое распределение' : 'Общий бюджет'}<span class="help-icon" title={HELP.totalBudget}>?</span>
         </div>
         <div class="status-value">{fmtBudget(currentTotalBudget)}</div>
-        <div class="status-sub">{channels.length} канал{channels.length > 4 ? 'ов' : channels.length > 1 ? 'а' : ''}</div>
+        <!-- F-A1-17: подсказка о плановом бюджете в режиме планирования -->
+        {#if isPlanning && planningBudgetMoney != null}
+          <div class="status-sub status-sub-plan">Пропорции применятся к плановому: {fmtBudget(planningBudgetMoney)}</div>
+        {:else}
+          <div class="status-sub">{channels.length} канал{channels.length > 4 ? 'ов' : channels.length > 1 ? 'а' : ''}</div>
+        {/if}
       </div>
       <div class="status-cell">
         <div class="status-label">
           Прогноз KPI<span class="help-icon" title={HELP.forecastKPI}>?</span>
         </div>
         <div class="status-value">{fmtBudget(displayKPI)}</div>
-        <div class="status-sub">за весь период анализа</div>
+        <!-- F-A1-22/Блок 5: подпись из режима планирования, не хардкод -->
+        <div class="status-sub">{planningLabel ? `за плановый период: ${planningLabel}` : 'за весь период анализа'}</div>
       </div>
       <div class="status-cell">
         <div class="status-label">
@@ -1953,6 +1968,14 @@
              optimizer math + small-data validation + UX paths).
              budgetLocked store сохранён к Day 4 default (true) - passes к
              BudgetOptimizer locked prop без визуального selector. -->
+        <!-- F-A1-9: плашка ненадёжности — видна СРАЗУ после обучения, до оптимизации -->
+        {#if preOptimizeIsUnreliable}
+          <div class="pre-optimize-reliability-warn" role="alert">
+            <span aria-hidden="true">⚠</span>
+            Модель помечена как ориентировочная — результаты оптимизации трактуйте осторожно.
+            {#if preOptimizeVerdict === 'unreliable'}Высокий R-hat или много расходящихся цепей.{:else}Узкие данные или слабый prior-coverage.{/if}
+          </div>
+        {/if}
         <button
           class="btn-run"
           onclick={runOptimize}
@@ -3460,6 +3483,11 @@
     font-size: 11px;
     color: var(--text-muted);
   }
+  /* F-A1-17: подсказка о плановом бюджете в режиме планирования */
+  .status-sub-plan {
+    color: var(--accent, #6b8fd8);
+    font-style: italic;
+  }
   .status-traffic { display: flex; gap: 10px; font-size: 14px; }
   .traffic-good, .traffic-ok, .traffic-low, .traffic-unused { display: flex; align-items: center; gap: 5px; font-weight: 600; cursor: help; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -4070,6 +4098,21 @@
   }
   .btn-run:hover:not(:disabled) { opacity: 0.85; }
   .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* F-A1-9: плашка ненадёжности перед кнопкой оптимизации */
+  .pre-optimize-reliability-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
+  }
 
   .lock-label {
     display: flex;

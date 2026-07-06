@@ -27,6 +27,7 @@
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { mqsView, ratioView } from '$lib/metric-views.js';
+  import { periodUnit, periodThreshold, ruPeriodForm } from '$lib/period-format.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
   import { TriangleAlert, ChartColumn, Globe, Check, ClipboardList } from 'lucide-svelte';
@@ -328,17 +329,8 @@
     decChannels.filter(/** @param {any} c */ c => (c.efficiency_gap ?? 0) <= -15)
   );
 
-  /** L13 (math-fix v1.4 Section C, 2026-04-29): Russian plural form для слова
-   *  «период» с правильным склонением. Pre-fix: `nPeriods > 4 ? 'ов' : 'а'`
-   *  ломалось на 1, 21, 31 (даёт «31 периодов», нужно «31 период»).
-   *  @param {number} n */
-  function ruPeriodForm(n) {
-    const mod10 = n % 10;
-    const mod100 = n % 100;
-    if (mod10 === 1 && mod100 !== 11) return `${n} период`;
-    if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return `${n} периода`;
-    return `${n} периодов`;
-  }
+  // L13 (math-fix v1.4 Section C, 2026-04-29): ruPeriodForm вынесена в
+  // $lib/period-format.js и импортируется выше (SSOT, доступна всем компонентам).
 
   /** Текст «Что такое MMM простыми словами» - адаптирован под эту модель. */
   const interpretationMMM = $derived.by(() => {

@@ -17,6 +17,7 @@
   import SeasonalityControl from '$lib/components/pipeline/SeasonalityControl.svelte';
   import AdstockPreview from '$lib/components/AdstockPreview.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
+  import { estimateTrainingTime } from '$lib/training-estimate.js';
 
   /**
    * @type {{
@@ -238,16 +239,13 @@
   $effect(() => {
     loadCalibrations($activeProjectId);
   });
-  const estimateMinutes = $derived.by(() => {
+  // F-A1-7: SSOT из training-estimate.js. Раньше формула была здесь inline,
+  // а в insights-rules — своя (0.3*mediaCount+1). Теперь оба читают одно место.
+  const trainingEstimateText = $derived.by(() => {
     const chains = showAdvanced ? mcmcChains : 4;
     const draws = showAdvanced ? mcmcDraws : 2000;
     const tune = showAdvanced ? mcmcTune : 2000;
-    const totalSamples = (draws + tune) * chains;
-    // ~5 мс базово + ~0.8 мс на каждый канал (adstock+hill трансформации)
-    const secPerSample = 0.005 + enabledCount * 0.0008;
-    const jitCompileSec = 20; // one-time cost перед sampling
-    const totalSec = totalSamples * secPerSample + jitCompileSec;
-    return Math.max(1, Math.ceil(totalSec / 60));
+    return estimateTrainingTime(enabledCount, { chains, draws, tune });
   });
 
   // Auto-warning when defaults may be slow for the current project shape.
@@ -806,7 +804,7 @@ Weibull (плавная build-up):
     </div>
   {/if}
   {#if !$isComputing && enabledCount > 0}
-    <p class="time-estimate">Оценка: ~{estimateMinutes} мин ({enabledCount} канал{enabledCount > 4 ? 'ов' : enabledCount > 1 ? 'а' : ''})</p>
+    <p class="time-estimate">Оценка: {trainingEstimateText} ({enabledCount} канал{enabledCount > 4 ? 'ов' : enabledCount > 1 ? 'а' : ''})</p>
   {/if}
   {#if heavyModelWarn && !showAdvanced}
     <p class="heavy-warn">

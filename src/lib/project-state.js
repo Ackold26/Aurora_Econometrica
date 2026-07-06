@@ -404,6 +404,7 @@ export const modelEnabledMediaNames = derived(modelChannelEnabled, ($map) => {
  *   vifStatus: 'ok'|'warn'|'bad'|'na',
  *   nObs: number,
  *   nPredictors: number,
+ *   nParamsEffectivePretrain: number,
  *   activeMedia: number,
  *   activeControls: number,
  *   periodStatus: 'ok'|'warn'|'bad',
@@ -427,6 +428,12 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
   const controlCols = cols.filter(c => c.role === 'control');
   const activeControls = controlCols.length;
   const nPredictors = activeMedia + activeControls;
+  // F-A1-5: эффективное число параметров с учётом авто-контролей (праздники + intercept).
+  // Backend проставляет detected.n_params_effective_pretrain при вызове /compute/validate;
+  // для реконструированных проектов (нет свежего validate) — пересчёт с дефолтными 12+1.
+  const nParamsEffectivePretrain = Number(
+    result.detected?.n_params_effective_pretrain ?? (nPredictors + 12 + 1)
+  );
   const ratio = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
 
   // VIF max - collinearity worst-case среди media каналов
@@ -490,6 +497,7 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
     vifStatus: maxVif == null ? /** @type {'na'} */ ('na') : tierDown(maxVif, 5, 10),
     nObs,
     nPredictors,
+    nParamsEffectivePretrain,
     activeMedia,
     activeControls,
     periodStatus: tierUp(nObs, 24, 12),
