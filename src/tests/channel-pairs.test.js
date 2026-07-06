@@ -136,3 +136,48 @@ describe('declaredPairKeys / isDeclaredPair (аннотация карты ко�
     expect(declaredPairKeys([]).size).toBe(0);
   });
 });
+
+// ─── R2 (2026-07-06): F-A1-1 — contacts-пара и русский «Контакты» ──────────
+// Дыра: ooh_contacts не попадал в physical, потому что «contacts» не был
+// в PHYSICAL_SUFFIX_RE (он был в PHYSICAL_PATTERNS Python, но не в JS).
+// contacts? уже есть в PHYSICAL_SUFFIX_RE согласно channel-pairs.js строка 19.
+// Этот тест — регрессионная ловушка: если кто-то уберёт contacts из RE,
+// ooh_contacts вернётся в unknown→monetary и счётчик «исключим» слетит.
+describe('contacts-пара (F-A1-1): ooh_spend + ooh_contacts', () => {
+  const cols = ['ooh_spend', 'ooh_contacts'];
+
+  it('ooh_contacts распознаётся как physical', () => {
+    expect(parseChannelMetric('ooh_contacts')).toEqual({ base: 'ooh', metric: 'physical' });
+  });
+  it('ooh_spend распознаётся как monetary', () => {
+    expect(parseChannelMetric('ooh_spend')).toEqual({ base: 'ooh', metric: 'monetary' });
+  });
+  it('пара группируется в один канал ooh', () => {
+    const { channels, byChannel } = groupChannelColumns(cols);
+    expect(channels).toEqual(['ooh']);
+    expect(byChannel['ooh']).toEqual({ monetary: ['ooh_spend'], physical: ['ooh_contacts'] });
+  });
+  it('ROI-выбор: spend включается, contacts исключается (disable)', () => {
+    const { byChannel } = groupChannelColumns(cols);
+    const { enable, disable } = resolvePairSelection(byChannel, { ooh: 'monetary' });
+    expect(enable).toContain('ooh_spend');
+    expect(disable).toContain('ooh_contacts');
+  });
+  it('contacts — объявленная пара spend (isDeclaredPair)', () => {
+    const keys = declaredPairKeys(cols);
+    expect(isDeclaredPair(keys, 'ooh_spend', 'ooh_contacts')).toBe(true);
+    expect(isDeclaredPair(keys, 'ooh_contacts', 'ooh_spend')).toBe(true);
+  });
+});
+
+describe('русские «Контакты» (F-A1-1 кириллица)', () => {
+  it('«Наружка Контакты» → physical (контакт[а-яё]* в PHYSICAL_SUFFIX_RE)', () => {
+    expect(parseChannelMetric('Наружка Контакты')).toMatchObject({ metric: 'physical' });
+  });
+  it('«OOH Контакты» и «OOH Бюджет» образуют пару в канале OOH', () => {
+    const { byChannel } = groupChannelColumns(['OOH Бюджет', 'OOH Контакты']);
+    expect(byChannel['OOH']).toBeDefined();
+    expect(byChannel['OOH'].monetary).toContain('OOH Бюджет');
+    expect(byChannel['OOH'].physical).toContain('OOH Контакты');
+  });
+});

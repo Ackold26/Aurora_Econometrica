@@ -206,5 +206,94 @@ class TestSeparatorFlexNoFalsePositive:
         )
 
 
+class TestCategoryCompetitorR2:
+    """R2 (2026-07-06): прилагательные формы «рыночн*» и «конкурентн*».
+
+    F-A1-2/3: «рыночные продажи» шло в TARGET_MONETARY (по 'продаж') → UI давал
+    «Альтернативная цель». Нужно category → «Оставить: контроль категории».
+    «конкурентные продажи» — аналогично signed_competitor, не KPI.
+
+    Анти-ложные: «рыночная цена» → signed_price (цена), «конкурентоспособность» →
+    не signed_competitor (суффикс «оспособность» не заканчивается на _END границе).
+    """
+
+    # ── Позитивный корпус ────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize('name', [
+        'рыночные продажи',       # прилагательная форма RU
+        'рыночных продаж руб',    # с единицей
+        'Продажи категории руб',  # классическая форма «Категория + объём»
+        'category sales',         # EN форма (category + sales)
+        'market sales value',     # EN market + volume
+    ])
+    def test_classify_category(self, name):
+        """classify_column → 'category' для объёма рынка/категории."""
+        kind = classify_column(name)
+        assert kind == 'category', (
+            f'{name!r}: classify_column={kind!r}, ожидалось category — '
+            f'UI даст «Альтернативная цель» вместо «Оставить: контроль категории»'
+        )
+
+    @pytest.mark.parametrize('name', [
+        'конкурентные продажи',      # прилагательная форма RU
+        'конкурентных продаж руб',   # с единицей
+    ])
+    def test_classify_signed_competitor(self, name):
+        """classify_column → 'signed_competitor' для конкурентного объёма."""
+        kind = classify_column(name)
+        assert kind == 'signed_competitor', (
+            f'{name!r}: classify_column={kind!r}, ожидалось signed_competitor'
+        )
+
+    @pytest.mark.parametrize('name', [
+        'рыночные продажи',
+        'Продажи категории руб',
+        'конкурентные продажи',
+    ])
+    def test_validator_control(self, name):
+        """detect_column_role → 'control' для категорийных и конкурентных объёмов."""
+        role = detect_column_role(name)
+        assert role == 'control', (
+            f'{name!r}: detect_column_role={role!r}, ожидалось control — '
+            f'UI даст неверную роль'
+        )
+
+    # ── Анти-ложные ─────────────────────────────────────────────────────────
+
+    @pytest.mark.parametrize('name,expected_kind', [
+        ('рыночная цена',         'signed_price'),     # цена — не category (нет объёма в VOLUME)
+        ('OOH Контакты',          'physical'),         # media, не category
+        ('наружка контакты',      'physical'),         # media, не category
+    ])
+    def test_no_false_category(self, name, expected_kind):
+        """Анти-ложные: имена с «рыночн*» без объёмного слова → НЕ category."""
+        kind = classify_column(name)
+        assert kind == expected_kind, (
+            f'ЛОЖНАЯ category: {name!r} → {kind!r}, ожидалось {expected_kind!r}'
+        )
+
+    def test_no_false_competitor_competitiveness(self):
+        """«конкурентоспособность» — НЕ signed_competitor (нет объёмной части)."""
+        name = 'конкурентоспособность'
+        kind = classify_column(name)
+        # Слово «конкурентоспособность» содержит «конкурентн» как подстроку,
+        # но _sep_pattern требует _END после суффикса → «оспособность» не матчит.
+        assert kind != 'signed_competitor', (
+            f'ЛОЖНЫЙ signed_competitor: {name!r} → {kind!r}'
+        )
+
+    @pytest.mark.parametrize('name', [
+        'наружка контакты',   # media-physical, не конкурент
+        'OOH Контакты',       # то же
+    ])
+    def test_ooh_contacts_is_physical_not_competitor(self, name):
+        """«наружка контакты» / «OOH Контакты» → physical (media), не signed_competitor."""
+        kind = classify_column(name)
+        assert kind == 'physical', (
+            f'{name!r}: classify_column={kind!r}, ожидалось physical — '
+            f'медиа-KPI пара OOH должна быть physical'
+        )
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

@@ -243,6 +243,10 @@ SIGNED_COMPETITOR_PATTERNS = [
     _sep_pattern(r'конкурент_(?:трп|показы|спенд|охват)'),
     _sep_pattern(r'доля_голоса_конкурент(?:ов|а)?'),
     _sep_pattern(r'svok'),  # ROSST industry term: share_of_voice_konkurentov
+    # R2 (2026-07-06): прилагательная форма «конкурентные продажи» → signed_competitor.
+    # Анти-ложное: «конкурентоспособность» НЕ должна матчить (нет объёмной части,
+    # _END не сработает на суффикс «оспособность» → проверяем канарейкой).
+    _sep_pattern(r'конкурентн(?:ые|ый|ых|ом)?'),
 ]
 
 # Price - signed unconstrained (может быть positive [premium effect, BOGO] или
@@ -320,7 +324,11 @@ HOLIDAY_PATTERNS = [
 # (Фаза Б 2026-07-04, F-AUD-5: голое «категори» ловило текстовые атрибуты). classify_column
 # использует это для prior (positive-leaning shared demand); validator — для роли UI.
 # 🔴 ПАРИТЕТ: списки синхронизированы с validator.py::_CATEGORY_THEME/_CATEGORY_VOLUME.
-_CATEGORY_THEME = ('категори', 'рынок', 'рынк', 'market', 'category')
+# R2 (2026-07-06): +рыночн* (прилагательная форма «рыночные продажи» → category);
+# маркер market-wide EN не нужен — 'market' уже есть в теме.
+# Анти-ложное: «рыночная цена» НЕ должна быть category (VOLUME='цена' не включён
+# намеренно); проверяется канарейкой TestCategoryCompetitorR2.
+_CATEGORY_THEME = ('категори', 'рынок', 'рынк', 'market', 'category', 'рыночн')
 _CATEGORY_VOLUME = (
     'продаж', 'объем', 'объём', 'руб', 'уп.', 'уп ', 'шт', 'спрос', 'всего',
     'sales', 'volume', 'units', 'value', 'total', 'demand',

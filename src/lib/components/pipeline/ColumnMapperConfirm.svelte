@@ -19,6 +19,11 @@
 
   // v2.1.0 (rc2 retry): mode-aware рекомендации требуют доступа к analysisMode.
   import { analysisMode } from '$lib/project-state.js';
+  // SSOT: pair detection + metric kind через channel-pairs.js (R2 2026-07-06,
+  // F-A1-1: локальные isMonetaryMetric/isPhysicalMetric/extractChannelRoot заменены).
+  import { parseChannelMetric, groupChannelColumns } from '$lib/channel-pairs.js';
+  // Чистые хелперы kind-based реко (вынесены для unit-тестируемости, F-A1-2/3).
+  import { kindSpecificReco } from '$lib/mapper-reco.js';
 
   const {
     columns = [],     // [{name, role, kind, stats?}]
@@ -191,73 +196,68 @@
   }
 
   /**
-   * v2.1.0 (rc2 retry): распознаёт колонку как физическую метрику
-   * (TRP / GRP / показы / клики / визиты / просмотры / охваты).
+   * SSOT-обёртка: физическая метрика медиа-канала?
+   * Делегирует в parseChannelMetric из channel-pairs.js — единый источник суффиксов.
+   * (R2 2026-07-06: заменяет локальный regex, F-A1-1 — ooh_contacts теперь physical)
    * @param {string} name
    * @returns {boolean}
    */
   function isPhysicalMetric(name) {
     if (!name) return false;
-    const upper = String(name).toUpperCase();
-    return /(^|\s|_|-|[^A-Z])(TRP|GRP|ПОКАЗ|IMPRESS|КЛИК|CLICK|ВИЗИТ|VISIT|OTS|VIEW|ПРОСМОТР|РЕЙТИНГ|REACH|ОХВАТ)/i.test(upper);
+    return parseChannelMetric(name).metric === 'physical';
   }
 
   /**
-   * v2.1.0 (rc2 retry): распознаёт колонку как денежную метрику
-   * (бюджет / спенд / ₽ / cost).
+   * SSOT-обёртка: денежная метрика медиа-канала?
+   * Делегирует в parseChannelMetric из channel-pairs.js — единый источник суффиксов.
    * @param {string} name
    * @returns {boolean}
    */
   function isMonetaryMetric(name) {
     if (!name) return false;
-    const upper = String(name).toUpperCase();
-    return /(^|\s|_|-)(БЮДЖЕТ|BUDGET|SPEND|РУБ|РУБЛ|COST|СПЕНД|РАСХОД)/i.test(upper) || /[₽]/.test(name);
+    return parseChannelMetric(name).metric === 'monetary';
   }
 
   /**
-   * v2.1.0 (rc2 retry): извлекает корневое имя канала для pair detection.
-   * «OLV Бюджет до НДС» → «OLV»; «OLV Показы» → «OLV».
+   * SSOT: корень канала для pair detection (база из channel-pairs.js).
+   * «ooh_spend» → «ooh»; «OLV Бюджет» → «OLV» (если суффикс распознан).
+   * При нераспознанном суффиксе — само имя (поведение groupChannelColumns).
    * @param {string} name
    * @returns {string}
    */
   function extractChannelRoot(name) {
     if (!name) return '';
-    const upper = String(name).toUpperCase();
-    // Известные prefix-имена каналов.
-    const knownPrefixes = ['OLV', 'BANNERS', 'BANNER', 'SOCIAL', 'PERFORMANCE', 'RETAIL', 'TV', 'ТВ', 'РАДИО', 'RADIO', 'ПРЕССА', 'PRESS', 'OOH', 'ООН', 'SEARCH', 'CONTEXT', 'DIGITAL', 'YOUTUBE', 'VK', 'OK', 'TELEGRAM', 'TG'];
-    for (const prefix of knownPrefixes) {
-      if (upper.startsWith(prefix)) return prefix;
-    }
-    // Fallback: первое слово.
-    return upper.split(/\s|_|-/)[0] || upper;
+    return parseChannelMetric(name).base;
   }
 
   /**
-   * v2.1.0 (rc2 retry): находит парную метрику для канала. Парная = другая
-   * колонка media с тем же channel root, но другой kind (monetary <-> physical).
-   *
-   * Пример: «OLV Бюджет» ↔ «OLV Показы» парные. В ROI режиме оставляем бюджет,
-   * исключаем показы (мультиколлинеарность).
+   * Находит парную метрику для канала через SSOT groupChannelColumns.
+   * Парная = другая колонка media с той же базой канала, но другим kind
+   * (monetary <-> physical). Пример: «ooh_spend» ↔ «ooh_contacts» (F-A1-1).
    *
    * @param {string} name - текущая колонка
    * @returns {{ name: string, kind: 'monetary' | 'physical' } | null}
    */
   function findPairedMetric(name) {
     if (!name) return null;
-    const selfKind = isMonetaryMetric(name) ? 'monetary' : isPhysicalMetric(name) ? 'physical' : null;
+    const selfParsed = parseChannelMetric(name);
+    const selfKind = selfParsed.metric;  // 'monetary'|'physical'|null
     if (!selfKind) return null;
-    const root = extractChannelRoot(name);
-    if (!root) return null;
-    for (const c of columns) {
-      if (!c?.name || c.name === name) continue;
-      if (c.role !== 'media') continue;
-      const otherRoot = extractChannelRoot(c.name);
-      if (otherRoot !== root) continue;
-      const otherKind = isMonetaryMetric(c.name) ? 'monetary' : isPhysicalMetric(c.name) ? 'physical' : null;
-      if (!otherKind || otherKind === selfKind) continue;
-      return { name: c.name, kind: /** @type {'monetary' | 'physical'} */ (otherKind) };
-    }
-    return null;
+    const selfBase = selfParsed.base;
+
+    // Собираем имена только media-колонок (включая текущую) и группируем.
+    const mediaNames = columns
+      .filter((/** @type {any} */ c) => c?.name && effectiveRole(c.name) === 'media')
+      .map((/** @type {any} */ c) => c.name);
+    const { byChannel } = groupChannelColumns(mediaNames);
+    const channelData = byChannel[selfBase];
+    if (!channelData) return null;
+
+    // Противоположная сторона пары.
+    const otherSide = selfKind === 'monetary' ? channelData.physical : channelData.monetary;
+    const candidate = otherSide.find(n => n !== name);
+    if (!candidate) return null;
+    return { name: candidate, kind: /** @type {'monetary' | 'physical'} */ (selfKind === 'monetary' ? 'physical' : 'monetary') };
   }
 
   /**
@@ -487,33 +487,15 @@
       return { status: 'review', label: 'Не используется', reason: 'Колонка исключена из модели. Если это намеренно - оставьте как есть.', tone: 'neutral' };
     }
 
-    // 5b. F-003 pilot (2026-05-18): KPI-like колонка (sales/выручка/leads/...)
-    // НЕ должна быть «Оставить» когда роль НЕ kpi И уже выбрана другая KPI.
-    // Customer ошибочно мог взять её как control / media. Помечаем
-    // «Альтернативная цель» чтобы навести на мысль о role review.
-    //
-    // F-003 hardening (audit 2026-05-18): conditional on existing KPI presence.
-    // Иначе legitimate control columns с именем «Продажи конкурентов» получали
-    // ложный flag «Альтернативная цель» при том что KPI ещё не выбран.
-    const kpiLikeRe = /продаж|sales|выручк|revenue|доход|profit|лид|leads|конверси|conversion|регистраций|signups|подписк|subscrib/i;
+    // 5b. F-003 / R2 (2026-07-06): SSOT kind-based реко.
+    // Делегируем в kindSpecificReco (mapper-reco.js) — чистый хелпер,
+    // покрытый unit-тестами. Закрывает F-A1-2/3 и убирает kpiLikeRe.
+    const colKind = String(col.kind ?? '');  // kind от Python backend (classify_column)
     const hasActiveKpi = columns.some(
       (/** @type {any} */ c) => effectiveRole(c.name) === 'kpi'
     );
-    if (
-      hasActiveKpi &&
-      isNumeric &&
-      role !== 'kpi' &&
-      role !== 'media' &&
-      role !== 'excluded' &&
-      kpiLikeRe.test(String(col.name || ''))
-    ) {
-      return {
-        status: 'review',
-        label: 'Альтернативная цель',
-        reason: 'Похоже на потенциальную KPI-метрику. KPI уже выбрана для другой колонки (одна KPI на проект). Если хотите моделировать эту - переназначьте роль. Иначе исключите.',
-        tone: 'warn',
-      };
-    }
+    const kindReco = kindSpecificReco(colKind, role, isNumeric, hasActiveKpi);
+    if (kindReco) return kindReco;
 
     // 6. Default: passes all checks.
     return { status: 'keep', label: 'Оставить', reason: 'Колонка подходит для выбранной роли. Никаких действий не требуется.', tone: 'ok' };

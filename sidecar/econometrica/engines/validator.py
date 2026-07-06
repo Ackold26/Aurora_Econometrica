@@ -149,11 +149,10 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     # падение обучения на astype(float). Комбинированное условие: ТЕМА
     # (категория/рынок) И ОБЪЁМНОЕ слово (продажи/объём/руб/...) — только
     # числовой объём рынка проходит; атрибуты-классификаторы не задеваются.
-    _CATEGORY_THEME = ('категори', 'рынок', 'рынк', 'market', 'category')
-    _CATEGORY_VOLUME = (
-        'продаж', 'объем', 'объём', 'руб', 'уп.', 'уп ', 'шт', 'спрос', 'всего',
-        'sales', 'volume', 'units', 'value', 'total', 'demand',
-    )
+    # 🔴 ПАРИТЕТ (R2 2026-07-06): используем SSOT-списки из column_detection,
+    # не локальные копии. Гарантирует автоматическое подхватывание новых токенов
+    # (напр. 'рыночн') без ручной синхронизации двух мест.
+    from utils.column_detection import _CATEGORY_THEME, _CATEGORY_VOLUME  # noqa: PLC0415
     if (any(k in lower for k in _CATEGORY_THEME)
             and any(v in lower for v in _CATEGORY_VOLUME)):
         return 'control', 0.85
