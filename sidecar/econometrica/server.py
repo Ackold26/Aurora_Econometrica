@@ -606,6 +606,10 @@ class PptxExportRequest(BaseModel):
     # учесть Settings override (econometrica_projects_root). Fallback на
     # вычисление из %APPDATA% если None для обратной совместимости со старым Rust.
     project_dir: str | None = None
+    # INV-50 NEW-2: явный флаг для разработчиков — разрешает wireframe-режим
+    # (builder генерирует ДЕМОНСТРАЦИОННЫЕ числа) при отсутствии decompose_data.
+    # Без флага пустой decompose_data → 400 (honest-fail, не тихая фикция).
+    allow_wireframe: bool = False
 
 
 class HtmlExportRequest(BaseModel):
@@ -615,6 +619,9 @@ class HtmlExportRequest(BaseModel):
     optimize_data: dict
     project_name: str = 'Marketing Mix Model'
     project_dir: str | None = None
+    # INV-50 NEW-2: явный флаг для разработчиков — разрешает wireframe-режим
+    # при отсутствии decompose_data (только dev-превью, числа ДЕМОНСТРАЦИОННЫЕ).
+    allow_wireframe: bool = False
 
 
 class ModelHistoryRequest(BaseModel):
@@ -1927,10 +1934,39 @@ def _resolve_project_dir(project_dir: str | None, project_id: str) -> Path:
     return Path(appdata) / identifier / 'projects' / project_id
 
 
+def _assert_decompose_present(decompose_data: dict, allow_wireframe: bool) -> None:
+    """INV-50 NEW-2: гейт честности экспорта.
+
+    Правило: пустой decompose_data без явного allow_wireframe=True —
+    это клиентский запрос без реальных результатов декомпозиции.
+    Тихо строить wireframe-документ с ВЫДУМАННЫМИ числами (builder-дефолты:
+    TRP, mROAS 1.9×, 22%) и отдавать его как результат — нарушение INV-50
+    (честность метрик) и API-гигиены.
+
+    Контракт:
+      - has_decomp=False, allow_wireframe=False → HTTPException 400
+      - has_decomp=False, allow_wireframe=True  → pass (dev wireframe)
+      - has_decomp=True,  любой флаг            → pass (live данные)
+    """
+    has_decomp = bool(decompose_data)
+    if not has_decomp and not allow_wireframe:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'Экспорт без результатов декомпозиции невозможен. '
+                'Для каркасного превью (dev) передайте allow_wireframe=true — '
+                'документ будет содержать ДЕМОНСТРАЦИОННЫЕ числа.'
+            ),
+        )
+
+
 @app.post('/export/pptx')
 def export_pptx(req: PptxExportRequest):
     """Generate branded PPTX presentation from MMM results."""
     logger.info(f'PPTX export START project_id={req.project_id}')
+    # INV-50 NEW-2: гейт до любых тяжёлых операций (создание директорий,
+    # чтение с диска). HTTPException пробрасывается напрямую FastAPI → 400.
+    _assert_decompose_present(req.decompose_data, req.allow_wireframe)
     try:
         from engines.pptx_export import build_pptx
 
@@ -1999,6 +2035,9 @@ def export_pptx(req: PptxExportRequest):
 def export_html(req: HtmlExportRequest):
     """Generate interactive standalone HTML report."""
     logger.info(f'HTML export START project_id={req.project_id}')
+    # INV-50 NEW-2: тот же класс проблемы что и /export/pptx — тихая фикция
+    # при пустом decompose_data. Гейт симметричен PPTX.
+    _assert_decompose_present(req.decompose_data, req.allow_wireframe)
     try:
         from engines.html_export import build_html
 
