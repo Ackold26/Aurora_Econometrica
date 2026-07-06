@@ -460,7 +460,8 @@
     const { plan } = planViewSeries(ds, expanded);
     /** @type {any[]} */
     const allSeries = [];
-    seriesTopGroup = {}; // сброс перед заполнением из текущего SSOT
+    /** @type {Record<string, string>} */
+    const topGroupMap = {}; // локальный — не мутирует внешний seriesTopGroup (фикс F-A1-14)
     const mediaIdx = { i: 0 };
 
     for (const p of plan) {
@@ -476,7 +477,7 @@
         name = d.name;
       }
       const stack = p.side === 'negative' ? 'negative' : 'positive';
-      seriesTopGroup[name] = p.topGroup;
+      topGroupMap[name] = p.topGroup;
       // П1 (фикс Б-1 аудита №2): морф агрегат↔члены связывается через
       // universalTransition.seriesKey — серии с ОДНИМ seriesKey морфятся
       // (1→N divide / N→1 combine); series-level groupId в echarts НЕ существует
@@ -532,7 +533,7 @@
     };
     const zoom = currentZoomWindow();
 
-    return {
+    const chartOption = {
       backgroundColor: 'transparent',
       tooltip: buildTooltipOption(),
       legend: buildLegendOption(activeSeries),
@@ -561,18 +562,38 @@
       ],
       series: allSeries,
     };
+    return { chartOption, topGroupMap };
   }
+
+  // Фикс F-A1-14: view-объект разделяет option и topGroupMap, чтобы $derived.by
+  // не имел побочного эффекта (мутации внешнего seriesTopGroup). Свежий topGroupMap
+  // синхронно применяется в $effect — tooltip-formatter читает seriesTopGroup из
+  // closure, поэтому актуальные данные доступны к первому показу tooltip.
+  const _canonicalView = $derived.by(() => {
+    // Аудит #12: предпочитаем канонический decomposition_series (SSOT с отчётами).
+    if (decompositionSeries?.series?.length && decompositionSeries?.dates?.length) {
+      return buildCanonicalOption(decompositionSeries); // { chartOption, topGroupMap }
+    }
+    return null;
+  });
+
+  // Обновляем seriesTopGroup синхронно с view, чтобы tooltip-formatter
+  // (buildTooltipOption closure) читал актуальную карту имён → top_group.
+  // Legacy-путь (нет _canonicalView) карту сбрасывает: его tooltip работает
+  // через fallbackTopGroup, а устаревшие canonical-записи не должны течь.
+  $effect(() => {
+    seriesTopGroup = _canonicalView?.topGroupMap ?? {};
+  });
 
   const option = $derived.by(() => {
     // Аудит #12: предпочитаем канонический decomposition_series (SSOT с отчётами).
-    if (decompositionSeries?.series?.length && decompositionSeries?.dates?.length) {
-      return buildCanonicalOption(decompositionSeries);
-    }
+    if (_canonicalView) return _canonicalView.chartOption;
     if (!timeSeries?.dates?.length) return {};
 
     // Legacy-путь (signedFactors, старый формат без top_group): tooltip-группировка
     // работает через fallbackTopGroup по префиксу имени серии («Группа: имя»).
-    seriesTopGroup = {};
+    // Сброс seriesTopGroup выполняет $effect выше (side-write из $derived.by
+    // запрещён — класс F-A1-14, рвёт граф реактивности Svelte 5).
 
     const { dates, baseline, channels } = timeSeries;
     const channelNames = Object.keys(channels);

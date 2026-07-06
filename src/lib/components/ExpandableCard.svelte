@@ -250,12 +250,13 @@
     flex: 1;
     min-height: 0;
     overflow: auto;
-    /* Центровка содержимого в fullscreen - чтобы график не прилипал к верху,
-       когда он меньше доступной высоты. */
+    /* Фикс F-A1-13: align-items:stretch (было center) — чтобы .overlay-content
+       занял всю высоту и EChartBase-контейнеры внутри могли растянуться через flex.
+       Прежний center сжимал .overlay-content до min-content → график не мог вырасти. */
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px 0;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 16px;
   }
 
   .overlay-content {
@@ -264,23 +265,40 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    justify-content: center;
   }
 
-  /* Увеличиваем высоту чартов в fullscreen - ~3× inline (inline 280px → fullscreen ~70vh).
-     ECharts-контейнеры имеют inline style="height:280px" → нужен !important чтобы перезаписать.
-     ResizeObserver echarts подхватит новую высоту, SVG waterfall ресайзится через viewBox.
-     Действует ТОЛЬКО в overlay, не на inline-виде на странице. */
+  /* Fullscreen: прямой потомок .overlay-content занимает всё доступное пространство
+     (flex: 1 + min-height: 0 для flex-shrink), высота — 70vh ограничение убрано чтобы
+     дать внутренним flex-детям (EChartBase-контейнер) корректно растянуться.
+     Фикс F-A1-13 (2026-07-06): прежний height:70vh !important на > * обрезал overlay
+     до высоты родителя (.timeline-wrap = 70vh), но EChartBase-контейнер (div с inline
+     style="height:280px") внутри .timeline-wrap не получал пространство → график ½
+     высоты. Теперь: flex: 1 + min-height: 0 на > *, и EChartBase-контейнеры (все div
+     с inline height) переопределяем через height: 100% чтобы ResizeObserver подхватил.
+     SVG waterfall — viewBox, растягивается сам. */
   .overlay-content :global(> *) {
     flex: 1;
-    height: 70vh !important;
-    min-height: 70vh;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
-  /* Внутри overlay даём canvas/img растянуться по ширине;
-     высоту оставляем естественную (ResizeObserver сам подхватит) */
+  /* EChartBase-контейнер (div[style] с inline height) в fullscreen: убираем жёсткий px
+     и даём flex: 1 чтобы занял оставшуюся высоту родителя (.timeline-wrap flex-column).
+     ResizeObserver в EChartBase.svelte подхватит изменение → chart.resize(). */
+  .overlay-content :global(> * div[style*="height"]) {
+    flex: 1 !important;
+    height: auto !important;
+    min-height: 200px;
+  }
+
+  /* Внутри overlay даём canvas/img растянуться по ширине */
   .overlay-body :global(canvas),
-  .overlay-body :global(img),
+  .overlay-body :global(img) {
+    max-width: 100%;
+  }
+
+  /* SVG (waterfall и др.) — viewBox, растягивается по ширине, высота естественная */
   .overlay-body :global(svg) {
     max-width: 100%;
     height: auto;
