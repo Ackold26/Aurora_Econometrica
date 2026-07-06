@@ -417,7 +417,7 @@
           <br>📅 <strong>Обучение охватывает несколько лет</strong> - задайте <em>исторический</em> темп инфляции CPP/CPM
           (по РФ типично 25–30% год к году). Программа пересчитает цену по обучающим периодам:
           текущая ÷ (1+темп)<sup>лет</sup> — со взвешенным средним по годам. 0 = цена не менялась.
-          <br><span class="hint-secondary"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в шаге «Оптимизация» (Блок D).</span>
+          <br><span class="hint-secondary"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в разделе прогноза.</span>
         {/if}
       </div>
     </div>

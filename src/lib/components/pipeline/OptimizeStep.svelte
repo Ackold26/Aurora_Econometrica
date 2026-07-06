@@ -1056,7 +1056,7 @@
       // optimal direction. Pure-frontend (без backend roundtrip) через
       // predictKPI helper, который уже работает в Block A для current KPI.
       if (!optData?.channels?.length) {
-        throw new Error('Сначала выполните оптимизацию (Блок B)');
+        throw new Error('Сначала выполните оптимизацию');
       }
       if (!Object.keys(scaledParams).length) {
         throw new Error('Параметры модели не загружены');
@@ -1189,7 +1189,7 @@
       const src = whatIfResult?.channels ?? optData?.channels ?? [];
       for (const c of src) mediaPlan[c.name] = [Number(c.optimal_spend ?? 0)];
       if (Object.keys(mediaPlan).length === 0) {
-        promiseError = 'Сначала выполните оптимизацию (Блок B).';
+        promiseError = 'Сначала выполните оптимизацию.';
         return;
       }
       const _kuc = get(valuePerCountUnit);
@@ -1792,7 +1792,7 @@
     <p class="mode-hint">
       {#if $planningMode === 'planner'}
         Подберите оптимальное распределение бюджета для будущего периода - оптимизатор переключился на планирующий режим
-        (per-period Hill summation, 3-way alignment с scenario engine).
+        — оптимизатор подбирает распределение по периодам с учётом насыщения каналов.
       {:else}
         Оптимизатор работает в обучающем масштабе времени. Доли каналов валидны для сопоставимого периода.
       {/if}
@@ -1882,7 +1882,7 @@
             <strong>{$forecastConfig.budgetMoney.toLocaleString('ru-RU')} ₽</strong>
             на <strong>{$forecastConfig.periods}</strong> периодов
             ({$forecastConfig.periodLabel ?? 'custom'}).
-            Аллокация рассчитывается per-period (3-way alignment с scenario engine).
+            Распределение рассчитывается за каждый период (согласовано со сценарным блоком).
           </div>
         </div>
       </div>
@@ -2197,7 +2197,7 @@
             <div class="limits-row" class:custom={isCustom}>
               <div class="lim-name">
                 {ch}
-                {#if isCustom}<span class="custom-mark" title="Отличается от глобальных Мин/Макс">●</span>{/if}
+                {#if isCustom}<span class="custom-mark" title="Изменено вручную – отличается от глобальных Мин/Макс">● изменено вручную</span>{/if}
               </div>
               <div class="num">
                 <input
@@ -2742,7 +2742,7 @@
       <div class="block-header">
         <span class="block-letter">D</span>
         <h3 class="block-title">Сценарный анализ</h3>
-        <span class="block-subtitle">- что будет, если изменить бюджет канала на N%?</span>
+        <span class="block-subtitle">– сохраните и сравните варианты распределения</span>
         <button
           class="btn-scenario-toggle"
           onclick={() => { playgroundOpen = !playgroundOpen; }}

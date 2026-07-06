@@ -138,7 +138,7 @@ describe('migrateV13ToV20', () => {
     const result = migrateV13ToV20({
       perChannelInput: { TV: null, Digital: null, OOH: null },
     });
-    expect(result.toastMessage).toContain('Expert mode');
+    expect(result.toastMessage).toContain('режим эксперта');
     expect(result.toastMessage).toContain('Settings');
   });
 

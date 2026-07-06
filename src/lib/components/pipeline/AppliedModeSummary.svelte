@@ -393,17 +393,17 @@
   {#if !$expertMode}
     <div class="cta-block">
       <p class="cta-text">
-        Нужен ручной выбор единиц per-канал? Включите Expert mode - появится
+        Нужен ручной выбор единиц по каждому каналу? Включите режим эксперта - появится
         полный контроль над каждым каналом.
       </p>
       <button type="button" class="btn-expert" onclick={enableExpertMode}>
-        Управлять вручную → Включить Expert mode
+        Управлять вручную → Включить режим эксперта
       </button>
     </div>
   {:else}
     <p class="expert-active-note">
       <span class="expert-label-inline">EXPERT</span>
-      Expert mode включён. Используйте PerChannelInputSelector для ручного управления.
+      Режим эксперта включён. Поканальный выбор единиц доступен ниже.
     </p>
   {/if}
 </aside>

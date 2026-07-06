@@ -141,7 +141,7 @@
         return {
           title: 'Данные не прошли проверку качества',
           message: 'Автоматический контроль качества обнаружил проблемы с данными.',
-          suggestion: 'Включите Expert mode чтобы продолжить с текущими данными без автоматических ограничений.',
+          suggestion: 'Включите режим эксперта, чтобы продолжить с текущими данными без автоматических ограничений.',
         };
     }
   });
@@ -313,7 +313,7 @@
             class="btn btn-secondary"
             onclick={handleExpertEscape}
           >
-            Продолжить в Expert mode
+            Продолжить в режиме эксперта
           </button>
           <button
             type="button"
@@ -386,7 +386,7 @@
             <Lightbulb size={16} strokeWidth={1.5} class="hint-icon" />
             <span>{content.suggestion}</span>
             <button type="button" class="hint-expert-btn" onclick={handleExpertEscape}>
-              Expert mode
+              Режим эксперта
             </button>
           </div>
         {/if}

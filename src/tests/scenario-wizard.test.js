@@ -223,13 +223,13 @@ describe('ScenarioWizard - escape banner', () => {
     expect(screen.getByText(/Мало рекламной активности/)).toBeInTheDocument();
   });
 
-  it('escape banner has «Продолжить в Expert mode» button', () => {
+  it('escape banner has «Продолжить в режиме эксперта» button', () => {
     resetWizard();
     transitionTo('WIZARD_PENDING');
     transitionTo('AUTO_DETECTING');
     transitionTo('ESCAPE', { escapeReason: 'history_short' });
     render(ScenarioWizard);
-    expect(screen.getByRole('button', { name: /Продолжить в Expert mode/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Продолжить в режиме эксперта/i })).toBeInTheDocument();
   });
 
   it('onCancel fires when «Отмена» clicked in escape banner', async () => {

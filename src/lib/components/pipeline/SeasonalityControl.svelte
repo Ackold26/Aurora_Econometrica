@@ -91,7 +91,7 @@
     {#if season}
       {#if season.detected}
         <p class="season-note detected">
-          Сезонность учтена: {periodLabel(season.period ?? 0, season.granularity ?? 'W')} период{#if season.autocorr != null}, сила связи ρ={season.autocorr.toFixed(2)}{/if}.
+          Сезонность учтена: {periodLabel(season.period ?? 0, season.granularity ?? 'W')} период{#if season.autocorr != null}, сила связи ρ=<abbr title="автокорреляция сезонного сигнала">{season.autocorr.toFixed(2)}</abbr>{/if}.
           Сезонный спрос отделён от вклада рекламы.
         </p>
       {:else if season.reason === 'ols_mode'}

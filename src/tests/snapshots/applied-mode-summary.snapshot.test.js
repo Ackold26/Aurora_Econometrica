@@ -158,7 +158,7 @@ describe('AppliedModeSummary - semantic regression (H-17)', () => {
     // CTA hidden когда expert mode active
     expect(queryByRole('button', { name: /Управлять вручную/i })).toBeNull();
     // Expert note instead
-    expect(screen.getByText(/PerChannelInputSelector/)).toBeInTheDocument();
+    expect(screen.getByText(/Поканальный выбор единиц/)).toBeInTheDocument();
   });
 
   it('case 5: Empty channels → EmptyState placeholder', () => {

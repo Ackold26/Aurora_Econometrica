@@ -406,6 +406,26 @@ class AuroraPPTXBuilder:
         except (ValueError, TypeError):
             return na
 
+    def _period_unit_label(self) -> str:
+        """Русская единица периода для заголовков timeline («по неделям» /
+        «по месяцам» / «по периодам»). Реиспользует detect_granularity из
+        aurora_html — П2-паттерн: не врать «недельной» на месячных данных."""
+        ts = (self.time_series or {}) if isinstance(self.time_series, dict) else {}
+        dates = ts.get("dates") or ts.get("weeks") or []
+        if len(dates) < 2:
+            return "по периодам"
+        try:
+            from utils.forecast_validation import detect_granularity
+            g = detect_granularity(dates)
+            if g.get("confidence", 0.0) < 0.5:
+                return "по периодам"
+            return {
+                "D": "по дням", "W": "по неделям", "M": "по месяцам",
+                "Q": "по кварталам", "Y": "по годам",
+            }.get(g.get("granularity"), "по периодам")
+        except Exception:
+            return "по периодам"
+
     def _blank(self):
         return self.prs.slides.add_slide(self.prs.slide_layouts[6])
 
@@ -1372,7 +1392,7 @@ class AuroraPPTXBuilder:
             topics=[
                 "Индивидуальные вклады каналов и ROI ранжирование",
                 "Портфельная таблица с вердиктами по каналам",
-                "Декомпозиция недельной динамики продаж",
+                f"Декомпозиция динамики продаж {self._period_unit_label()}",
             ],
         )
 
@@ -3184,7 +3204,7 @@ class AuroraPPTXBuilder:
                         else "")
             self._text(
                 slide, right_x, _hy, right_w, 0.45,
-                f"Проверка приоров: расхождение с данными{_cov_sfx} — "
+                f"Проверка приоров: расхождение с данными{_cov_sfx} – "
                 "оценки чувствительны к допущениям модели.",
                 font=self.sans, size=10, italic=True, color=self.gold,
             )
@@ -3197,7 +3217,7 @@ class AuroraPPTXBuilder:
             self._text(
                 slide, right_x, _hy, right_w, 0.25,
                 (f"Канал «{_ca.get('channel')}» откалиброван тестом "
-                 f"({_ca.get('test_type')}) от {_ca.get('date_from')} — "
+                 f"({_ca.get('test_type')}) от {_ca.get('date_from')} – "
                  f"вошёл в модель как наблюдение."),
                 font=self.sans, size=10, color=self.deep_100,
             )
@@ -3212,7 +3232,7 @@ class AuroraPPTXBuilder:
                  f"модели {self._mstr(_cc.get('model_contrib_mean'), '{:,.0f}').replace(',', ' ')} "
                  f"[{self._mstr(_ci[0], '{:,.0f}').replace(',', ' ')} – "
                  f"{self._mstr(_ci[1], '{:,.0f}').replace(',', ' ')}] против теста "
-                 f"{self._mstr(_cc.get('test_lift'), '{:,.0f}').replace(',', ' ')} — "
+                 f"{self._mstr(_cc.get('test_lift'), '{:,.0f}').replace(',', ' ')} – "
                  f"разберите период с аналитиком."),
                 font=self.sans, size=10, italic=True, color=self.gold,
             )

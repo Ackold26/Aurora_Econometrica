@@ -1312,13 +1312,13 @@ def render_recommendation(ctx: dict) -> str:
             # когда Performance - small-budget сhannel.
             action_01_text = (
                 f"{realloc:.0f} млн ₽ из {facts['cut_source_channel']} в {facts['scale_destination_channel']}. "
-                "Adstock компенсирует краткосрочный спад awareness."
+                "Остаточный эффект компенсирует краткосрочный спад охвата."
             )
         elif hero != leader and realloc >= 0.5:
             # Legacy fallback (cut_source/scale_dest unavailable)
             action_01_text = (
                 f"{realloc:.0f} млн ₽ из {leader} в {hero}. "
-                "Adstock компенсирует краткосрочный спад awareness."
+                "Остаточный эффект компенсирует краткосрочный спад охвата."
             )
         else:
             action_01_text = (
@@ -1344,8 +1344,8 @@ def render_recommendation(ctx: dict) -> str:
             else:
                 problem_clause = f"{n_saturated} канал(ов) под breakeven"
             action_02_text = (
-                f"{problem_clause} - проверить data quality, adstock decay и сравнить "
-                "с industry benchmarks перед следующей итерацией."
+                f"{problem_clause} - проверить качество данных, параметры затухания и сравнить "
+                "с отраслевыми ориентирами перед следующей итерацией."
             )
         else:
             if kpi["mode"] == "effectiveness":
@@ -1480,11 +1480,11 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
     perf_mu = priors.get('performance_mu_logit_mean') or priors.get('perf_mu_logit_mean')
     rows = []
     if n_brand:
-        rows.append(f'<li><strong>Brand:</strong> {n_brand} канал(ов), effective half-life ≈ {_half_life(brand_mu)} (long-horizon decay)</li>')
+        rows.append(f'<li><strong>Brand:</strong> {n_brand} канал(ов), период полураспада ≈ {_half_life(brand_mu)} (долгосрочный отклик)</li>')
     if n_perf:
-        rows.append(f'<li><strong>Performance:</strong> {n_perf} канал(ов), effective half-life ≈ {_half_life(perf_mu)} (short-horizon decay)</li>')
+        rows.append(f'<li><strong>Performance:</strong> {n_perf} канал(ов), период полураспада ≈ {_half_life(perf_mu)} (краткосрочный отклик)</li>')
     if n_mixed:
-        rows.append(f'<li><strong>Смешанные:</strong> {n_mixed} канал(ов), single-prior fallback</li>')
+        rows.append(f'<li><strong>Смешанные:</strong> {n_mixed} канал(ов), единый априорный параметр</li>')
 
     warning_html = ""
     rwarn = hier.get('rhat_warning')
@@ -1493,17 +1493,17 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
 
     return f"""
 <div class="brand-perf-block" style="margin-top:24px;padding:14px;background:rgba(127,90,240,0.05);border-left:3px solid rgba(127,90,240,0.5);border-radius:6px;">
-  <div class="method-col-label" style="margin-bottom:8px;">Brand vs Performance моделирование (v1.1.0)</div>
+  <div class="method-col-label" style="margin-bottom:8px;">Иерархическая модель brand/performance (v1.1.0)</div>
   <p style="font-size:12px;line-height:1.5;color:var(--text-secondary,#94a3b8);">
-    Модель разделяет каналы на brand (long-horizon decay) и performance (short-horizon decay).
-    Brand-каналы получают hierarchical prior с большей variance - отражает unknown brand-build duration.
-    Performance-каналы используют тесный prior на короткий decay.
+    Модель разделяет каналы на brand (долгосрочный отклик) и performance (краткосрочный отклик).
+    Brand-каналы получают более широкий априорный параметр — отражает неизвестную длительность накопления эффекта.
+    Performance-каналы используют тесный априорный параметр на быстрое затухание.
   </p>
   <ul style="font-size:12px;line-height:1.7;margin-top:8px;padding-left:16px;">
 {chr(10).join(rows)}
   </ul>
   <p style="font-size:11px;font-style:italic;color:var(--text-muted,#64748b);margin-top:8px;">
-    Атрибуция между brand и performance имеет fundamental uncertainty - мы используем priors based on industry norms.
+    Атрибуция между brand и performance содержит неустранимую неопределённость — используются априорные ожидания на основе отраслевых норм.
     Если категория канала вызывает сомнения, проверьте классификацию на шаге Validate.
   </p>
   {warning_html}
@@ -1808,7 +1808,7 @@ def render_trust_loop(ctx: dict) -> str:
             lines += (
                 f'<p class="trust-sub">Канал «{escape(str(a.get("channel")))}» '
                 f'откалиброван тестом ({escape(str(a.get("test_type")))}) '
-                f'от {escape(str(a.get("date_from")))} — вошёл в модель как наблюдение.</p>'
+                f'от {escape(str(a.get("date_from")))} – вошёл в модель как наблюдение.</p>'
             )
         for c in checks:
             if c.get("within_ci"):
@@ -1819,7 +1819,7 @@ def render_trust_loop(ctx: dict) -> str:
                 f'«{escape(str(c.get("channel")))}»: вклад модели '
                 f'{_fmt_int(c.get("model_contrib_mean"))} '
                 f'[{_fmt_int(ci[0])} – {_fmt_int(ci[1])}] против теста '
-                f'{_fmt_int(c.get("test_lift"))} — разберите период с аналитиком.</p>'
+                f'{_fmt_int(c.get("test_lift"))} – разберите период с аналитиком.</p>'
             )
         blocks.append(f"""
 <div class="trust-block">
@@ -1833,7 +1833,7 @@ def render_trust_loop(ctx: dict) -> str:
         for ex in ps["examples"]:
             cls = "trust-sub" if ex.get("status") == "kept" else "trust-warn"
             ex_lines += (
-                f'<p class="{cls}">«{escape(str(ex.get("action_text")))}» — '
+                f'<p class="{cls}">«{escape(str(ex.get("action_text")))}» – '
                 f'{escape(str(ex.get("status_ru")))}.</p>'
             )
         blocks.append(f"""
