@@ -32,6 +32,12 @@ vitest **988** · pytest sidecar **398** · канарейка+демо-гейт
 после успешного ретеста, через aurora-release-update (⚠️ V52: productName «Optimizer MMM» ↔
 канал апдейтера `aurora-econometrica-gui`; обе строки app_versions; локальная M1 отдельно).
 
+## 📖 Файлы для контекста (порядок чтения)
+1. `DRIFT_MAP_2026_07_06.md` — карта класса «UI мимо SSOT» (5 линз + личная верификация), базис всех фиксов.
+2. `TEST_FINDINGS_GUI_2026_07_05.md` — 22 находки приёмки с корнями/файлами (полная фактура F-A1-*, вкл. Пакет 8 F-A1-11/F-A1-4).
+3. Память: `INDEX_econometrica.md` (состояние) + feedback'и сессии: [[feedback_agent_report_requires_raw_outputs]], [[feedback_agent_gate_from_requirement_not_achieved]], [[feedback_generated_timestamp_phantom_git_drift]].
+4. Ключевой код фиксов (если ретест вскроет регресс): `engines/optimizer.py` (planning-нормализация), `ChannelTimeline.svelte` (drill), `reliability_a4.py` (prior-чекер), `insights-rules.js`/`ratio-classifier.js` (метрики).
+
 ## 🎯 ГЛАВНОЕ СЛЕД. СЕССИИ — ЖИВОЙ РЕТЕСТ (Антон у экрана)
 
 **🔴 На СВЕЖЕМ проекте + свежее обучение (НЕ MMX 0507-26 — sticky-настройки исказят,
@@ -68,7 +74,15 @@ vitest **988** · pytest sidecar **398** · канарейка+демо-гейт
 - **OLS-долг adstock**: 'auto' в OLS-пути не резолвится (ols_modeler:146/152/336/351) —
   движок деградированный, honesty уже ≤ uncertain; чинить при случае.
 - **Пакет 8** (управляемые праздники F-A1-11 + подсказка F-A1-4) — ОТДЕЛЬНЫЙ ТРЕК после
-  ретеста (решение Антона 2026-07-06). Предохранитель: выбор по паре влияние+Δratio.
+  ретеста (решение Антона 2026-07-06). Полная спека — `TEST_FINDINGS_GUI_2026_07_05.md` §F-A1-11/§F-A1-4.
+  Кратко: (а) F-A1-11 двухчастная — ДО обучения выбор праздников по паре сигналов
+  (влияние + Δratio, НЕ только ratio → иначе OVB), ПОСЛЕ — инсайт «праздники снизили ratio
+  6.9→3.0, выключите пустые» с per-праздник вкладом из декомпозиции. Инфра ГОТОВА:
+  `disabled_holidays`/`use_holidays` в `modeler.py:305,322`; фронт `ConfigPanel.svelte:473`
+  (панель «Авто-праздники РФ», сейчас в Эксперт-режиме — вынести в обычный). Дефолт =
+  авто-отбор по данным, НЕ «все 12». (б) F-A1-4 подсказка «Метрики каналов» — 3 состояния
+  (всё ₽ → «переводить нечего» · физ без ₽ → «укажите CPP/CPM» · смешанный), усилить
+  `validateMetricsInsights` в insights-rules.js. Крупный трек → кандидат в отдельное тех-задание.
 - Пересборка sidecar перед ретестом обязательна (py-правки: optimizer/modeler/validator/
   reliability_a4/sections/builder/server; в dist/_internal лежат stale-копии).
 
