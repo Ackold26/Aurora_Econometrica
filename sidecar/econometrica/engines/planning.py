@@ -9,10 +9,12 @@
   detect_media_plan_tail(df, date_col, kpi_col, media_cols) -> dict
   compute_source_hash(data_file) -> str
   load_frames(data_file, date_col, kpi_col, media_cols) -> dict
+  load_saved_forecast(project_dir) -> dict | None
 """
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -326,4 +328,105 @@ def load_frames(
         "future_df": future_df,
         "detection": detection,
         "source_hash": src_hash,
+    }
+
+
+# ─── Прогноз-план: загрузка сохранённого артефакта ──────────────────────────
+
+
+def load_saved_forecast(project_dir: str) -> dict[str, Any] | None:
+    """Прочитать сохранённый план-прогноз из results/planning.json.
+
+    Структура planning.json:
+        {
+          "variant_ids": ["v1", "v2", ...],
+          "accepted_variant": "v1" | null,
+          "disclaimers": [...]
+        }
+
+    Для каждого variant_id читается results/scenarios/<variant_id>.json:
+        {
+          "name": str,
+          "predictions": [...],
+          "predictions_ci_low": [...],
+          "predictions_ci_high": [...],
+          "total_kpi": float,
+          "total_spend_money": float,
+          "roas_money": float,
+          "disclaimers": [...],
+          "future_dates": [...],
+          "period_labels": [...]
+        }
+
+    Возвращает None если planning.json отсутствует или не загружается.
+    Возвращает None если ни один сценарий не загрузился.
+    INV-50: никаких wireframe-суррогатов — только живые данные.
+    """
+    base = Path(project_dir)
+    planning_path = base / 'results' / 'planning.json'
+
+    if not planning_path.exists():
+        return None
+
+    try:
+        with open(planning_path, encoding='utf-8') as f:
+            planning = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning('planning.json повреждён (%s) — прогноз считается отсутствующим', e)
+        return None
+
+    variant_ids: list[str] = planning.get('variant_ids') or []
+    accepted_variant: str | None = planning.get('accepted_variant')
+    plan_disclaimers: list[str] = list(planning.get('disclaimers') or [])
+
+    if not variant_ids:
+        logger.warning('planning.json: variant_ids пуст — прогноз не загружен')
+        return None
+
+    scenarios_dir = base / 'results' / 'scenarios'
+    scenarios: list[dict] = []
+    all_disclaimers: list[str] = list(plan_disclaimers)
+
+    for vid in variant_ids:
+        sc_path = scenarios_dir / f'{vid}.json'
+        if not sc_path.exists():
+            logger.warning('Сценарий %s не найден: %s', vid, sc_path)
+            continue
+        try:
+            with open(sc_path, encoding='utf-8') as f:
+                sc = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning('Сценарий %s повреждён (%s) — пропускаем', vid, e)
+            continue
+
+        sc_disclaimers: list[str] = list(sc.get('disclaimers') or [])
+        for d in sc_disclaimers:
+            if d not in all_disclaimers:
+                all_disclaimers.append(d)
+
+        scenarios.append({
+            'name': str(sc.get('name') or vid),
+            'variant_id': vid,
+            'predictions': list(sc.get('predictions') or []),
+            'ci_low': list(sc.get('predictions_ci_low') or []),
+            'ci_high': list(sc.get('predictions_ci_high') or []),
+            'total_kpi': float(sc['total_kpi']) if sc.get('total_kpi') is not None else 0.0,
+            'total_spend_money': float(sc['total_spend_money']) if sc.get('total_spend_money') is not None else 0.0,
+            'roas_money': float(sc['roas_money']) if sc.get('roas_money') is not None else 0.0,
+            'period_labels': list(sc.get('period_labels') or sc.get('future_dates') or []),
+            'disclaimers': sc_disclaimers,
+        })
+
+    if not scenarios:
+        logger.warning('planning.json: ни один сценарий не загрузился')
+        return None
+
+    return {
+        'status': 'ok',
+        'scenarios': scenarios,
+        'historical_actual': [],
+        'historical_dates': [],
+        'cutoff_index': 0,
+        'accepted_variant': accepted_variant,
+        'disclaimers': all_disclaimers,
     }

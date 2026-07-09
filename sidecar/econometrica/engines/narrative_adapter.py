@@ -762,6 +762,7 @@ def _map_pipeline_to_builder_data(
     backtest: dict | None = None,
     generation_compare: dict | None = None,
     promises: list[dict] | None = None,
+    forecast: dict | None = None,
 ) -> dict:
     """Translate Econometrica pipeline output into deliverable builder schema.
 
@@ -1076,6 +1077,12 @@ def _map_pipeline_to_builder_data(
             ],
         }
 
+    # E5 (2026-07-10): прогноз-план (results/planning.json + сценарии).
+    # Передаётся билдеру ТОЛЬКО завершённый план (status ok + сценарии) —
+    # wireframe-суррогатов нет по построению (INV-50).
+    if forecast and forecast.get('status') == 'ok' and forecast.get('scenarios'):
+        data['forecast'] = forecast
+
     logger.info(
         f"narrative_adapter: client={client_label!r} "
         f"diagnostics_keys={list(diagnostics.keys())} "
@@ -1083,6 +1090,7 @@ def _map_pipeline_to_builder_data(
         f"facts={'yes' if narrative_facts else 'fallback'} "
         f"scenarios={len(scenarios or [])} "
         f"kpi_kind={kpi_kind!r} mode={derived_mode!r} "
-        f"backtest={'yes' if data.get('backtest') else 'no'}"
+        f"backtest={'yes' if data.get('backtest') else 'no'} "
+        f"forecast={'yes' if data.get('forecast') else 'no'}"
     )
     return data

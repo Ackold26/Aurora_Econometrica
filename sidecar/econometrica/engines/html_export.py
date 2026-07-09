@@ -78,6 +78,7 @@ def build_html(
     backtest: dict | None = None,
     generation_compare: dict | None = None,
     promises: list[dict] | None = None,
+    forecast: dict | None = None,
 ) -> dict[str, Any]:
     """Build a tier-1 interactive HTML deliverable from MMM pipeline data.
 
@@ -122,6 +123,8 @@ def build_html(
             backtest=backtest,
             generation_compare=generation_compare,
             promises=promises,
+            # E5 (2026-07-10): прогноз-план.
+            forecast=forecast,
         )
 
         # Load full pickle for budget what-if if available

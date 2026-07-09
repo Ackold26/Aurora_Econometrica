@@ -304,7 +304,12 @@ class AuroraPPTXBuilder:
             _gc if (self.is_live and _gc.get("status") == "ok" and _gc.get("channels"))
             else None
         )
-        self._page_shift = int(bool(self.backtest)) + int(bool(self.gen_compare))
+        _fc = self.data.get("forecast") or {}
+        self.forecast = (
+            _fc if (self.is_live and _fc.get("status") == "ok" and _fc.get("scenarios"))
+            else None
+        )
+        self._page_shift = int(bool(self.backtest)) + int(bool(self.gen_compare)) + int(bool(self.forecast))
         if self._page_shift:
             _s = self._page_shift
             if "total_slides" not in meta:
@@ -3594,6 +3599,116 @@ class AuroraPPTXBuilder:
         )
         self._footer(slide, 6 + int(bool(self.backtest)))
 
+    def s_forecast_plan(self):
+        """E5 (2026-07-10): слайд «Прогноз на будущий период».
+
+        Сравнительная таблица сценариев бюджетного плана: имя, бюджет,
+        прогноз KPI, доверительный интервал, ROAS. Рисуется ТОЛЬКО при
+        живом results/planning.json + сценариях — wireframe-режима нет.
+        """
+        fc = self.forecast
+        slide = self._blank()
+        slide_num = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+        self._header(slide, slide_num=slide_num)
+
+        self._action_title(
+            slide, "Прогноз на будущий период",
+            show_lime=True, y=0.80, height=0.80,
+        )
+
+        left_x = self.safe
+        content_y = 1.85
+        content_w = self.w - 2 * self.safe
+
+        # Заголовок таблицы сценариев
+        self._text(
+            slide, left_x, content_y, content_w, 0.25, "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, left_x, content_y + 0.28, content_w, weight=0.75, color=self.gold)
+
+        ry = content_y + 0.55
+        scenarios = (fc.get("scenarios") or [])[:4]
+
+        # Ширины колонок
+        col_name_w = content_w * 0.28
+        col_budget_w = content_w * 0.20
+        col_kpi_w = content_w * 0.20
+        col_ci_w = content_w * 0.20
+        col_roas_w = content_w - col_name_w - col_budget_w - col_kpi_w - col_ci_w
+
+        # Строка заголовков колонок
+        for label, cx, cw in (
+            ("Сценарий", left_x, col_name_w),
+            ("Бюджет, ₽", left_x + col_name_w, col_budget_w),
+            ("Прогноз KPI", left_x + col_name_w + col_budget_w, col_kpi_w),
+            ("90%-интервал", left_x + col_name_w + col_budget_w + col_kpi_w, col_ci_w),
+            ("ROAS", left_x + col_name_w + col_budget_w + col_kpi_w + col_ci_w, col_roas_w),
+        ):
+            self._text(
+                slide, cx, ry, cw, 0.22, label,
+                font=self.sans, size=8.5, bold=True, color=self.deep_60,
+            )
+        ry += 0.32
+
+        accepted = fc.get("accepted_variant")
+        for sc in scenarios:
+            is_accepted = sc.get("variant_id") == accepted
+            row_color = self.deep_100
+
+            # CI: берём последние элементы как репрезентативные для горизонта
+            ci_low_list = sc.get("ci_low") or []
+            ci_high_list = sc.get("ci_high") or []
+            ci_low_val = ci_low_list[-1] if ci_low_list else None
+            ci_high_val = ci_high_list[-1] if ci_high_list else None
+            ci_str = (
+                f"{ci_low_val:,.0f} – {ci_high_val:,.0f}".replace(",", " ")
+                if ci_low_val is not None and ci_high_val is not None
+                else "—"
+            )
+            budget_str = (
+                f"{sc.get('total_spend_money'):,.0f}".replace(",", " ")
+                if sc.get("total_spend_money") is not None else "—"
+            )
+            kpi_str = (
+                f"{sc.get('total_kpi'):,.0f}".replace(",", " ")
+                if sc.get("total_kpi") is not None else "—"
+            )
+            roas_str = (
+                f"{sc.get('roas_money'):.2f}"
+                if sc.get("roas_money") is not None else "—"
+            )
+            name_str = str(sc.get("name") or sc.get("variant_id") or "—")
+            if is_accepted:
+                name_str = f"★ {name_str}"
+
+            for txt, cx, cw in (
+                (name_str, left_x, col_name_w),
+                (budget_str, left_x + col_name_w, col_budget_w),
+                (kpi_str, left_x + col_name_w + col_budget_w, col_kpi_w),
+                (ci_str, left_x + col_name_w + col_budget_w + col_kpi_w, col_ci_w),
+                (roas_str, left_x + col_name_w + col_budget_w + col_kpi_w + col_ci_w, col_roas_w),
+            ):
+                self._text(
+                    slide, cx, ry, cw, 0.24, txt,
+                    font=self.sans, size=9,
+                    bold=is_accepted,
+                    color=row_color,
+                )
+            self._hairline(slide, left_x, ry + 0.27, content_w, weight=0.25)
+            ry += 0.34
+
+        # Оговорки
+        disclaimers = fc.get("disclaimers") or []
+        if disclaimers:
+            disc_text = " · ".join(str(d) for d in disclaimers[:3])
+            self._text(
+                slide, left_x, 6.35, content_w, 0.5,
+                f"Оговорки: {disc_text}",
+                font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
+            )
+        self._footer(slide, slide_num)
+
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
         slide = self._blank()
@@ -3825,6 +3940,8 @@ class AuroraPPTXBuilder:
             self.s10b_backtest()
         if self.gen_compare:
             self.s10c_generation_compare()
+        if self.forecast:
+            self.s_forecast_plan()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()

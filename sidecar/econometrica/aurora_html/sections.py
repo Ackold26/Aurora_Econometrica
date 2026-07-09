@@ -1849,6 +1849,73 @@ def render_trust_loop(ctx: dict) -> str:
     return _section("trust", "ДОВЕРИЕ К МОДЕЛИ", body)
 
 
+def render_forecast_plan(ctx: dict) -> str:
+    """E5 (2026-07-10): секция «Прогноз на будущий период».
+
+    Рендерит сравнительную таблицу сценариев бюджетного плана. Возвращает ""
+    если forecast отсутствует — INV-50, wireframe-суррогатов нет.
+    """
+    fc = ctx.get("forecast") or {}
+    if not fc or fc.get("status") != "ok" or not fc.get("scenarios"):
+        return ""
+
+    scenarios = (fc.get("scenarios") or [])[:4]
+    accepted = fc.get("accepted_variant")
+
+    rows = ""
+    for sc in scenarios:
+        is_accepted = sc.get("variant_id") == accepted
+        ci_low_list = sc.get("ci_low") or []
+        ci_high_list = sc.get("ci_high") or []
+        ci_low_val = ci_low_list[-1] if ci_low_list else None
+        ci_high_val = ci_high_list[-1] if ci_high_list else None
+        ci_str = (
+            f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
+            if ci_low_val is not None and ci_high_val is not None else "—"
+        )
+        budget = sc.get("total_spend_money")
+        kpi = sc.get("total_kpi")
+        roas = sc.get("roas_money")
+        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "—"
+        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "—"
+        roas_str = f"{float(roas):.2f}" if roas is not None else "—"
+        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "—"))
+        star = "★ " if is_accepted else ""
+        bold_open = "<strong>" if is_accepted else ""
+        bold_close = "</strong>" if is_accepted else ""
+        rows += (
+            f'<tr>'
+            f'<td>{bold_open}{star}{name_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{budget_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{kpi_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{ci_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{roas_str}{bold_close}</td>'
+            f'</tr>'
+        )
+
+    disclaimers = fc.get("disclaimers") or []
+    disc_html = ""
+    if disclaimers:
+        disc_items = "".join(f"<li>{escape(str(d))}</li>" for d in disclaimers[:5])
+        disc_html = f'<ul class="trust-list">{disc_items}</ul>'
+
+    body = (
+        _action_title("Прогноз на будущий период")
+        + f"""
+<div class="trust-block">
+  <table class="trust-table">
+    <thead><tr>
+      <th>Сценарий</th><th>Бюджет, ₽</th>
+      <th>Прогноз KPI</th><th>90%-интервал</th><th>ROAS</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  {disc_html}
+</div>"""
+    )
+    return _section("forecast", "ПРОГНОЗ", body)
+
+
 SECTION_RENDERERS: tuple = (
     ('cover',     render_cover),
     ('findings',  render_at_a_glance),
@@ -1861,6 +1928,7 @@ SECTION_RENDERERS: tuple = (
     ('table',     render_action_table),
     ('timeline',  render_timeline),
     ('trust',     render_trust_loop),
+    ('forecast',  render_forecast_plan),
     ('method',    render_methodology),
     ('sources',   render_sources),
     ('glossary',  render_glossary),

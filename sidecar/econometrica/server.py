@@ -2008,19 +2008,23 @@ def export_pptx(req: PptxExportRequest):
         # «сбылось/не сбылось» в отчёте).
         from engines.promises import list_promises
         promises = (list_promises(str(project_path)) or {}).get('promises') or []
+        # E5 (2026-07-10): прогноз-план (results/planning.json + сценарии).
+        from engines.planning import load_saved_forecast
+        forecast = load_saved_forecast(str(project_path))
 
         logger.info(
             f'PPTX inputs: model={has_model} decompose={has_decomp} '
             f'optimize={has_optim} scenarios={len(scenarios)} '
             f'backtest={"yes" if backtest else "no"} '
-            f'gen_compare={"yes" if generation_compare else "no"}'
+            f'gen_compare={"yes" if generation_compare else "no"} '
+            f'forecast={"yes" if forecast else "no"}'
         )
 
         result = build_pptx(
             req.model_data, req.decompose_data, req.optimize_data,
             output_path, scenarios=scenarios, project_id=req.project_id,
             backtest=backtest, generation_compare=generation_compare,
-            promises=promises,
+            promises=promises, forecast=forecast,
         )
         logger.info(f'PPTX export OK: {result}')
         return JSONResponse(content=result)
@@ -2077,13 +2081,16 @@ def export_html(req: HtmlExportRequest):
         backtest = load_saved_backtest(str(project_path))
         generation_compare = load_saved_generation_compare(str(project_path))
         promises = (list_promises(str(project_path)) or {}).get('promises') or []
+        # E5 (2026-07-10): прогноз-план.
+        from engines.planning import load_saved_forecast
+        forecast = load_saved_forecast(str(project_path))
 
         result = build_html(
             req.model_data, decompose_for_build, req.optimize_data, output_path,
             scenarios=scenarios, project_name=req.project_name,
             project_id=req.project_id,
             backtest=backtest, generation_compare=generation_compare,
-            promises=promises,
+            promises=promises, forecast=forecast,
         )
         logger.info(f'HTML export OK: {result}')
         return JSONResponse(content=result)
