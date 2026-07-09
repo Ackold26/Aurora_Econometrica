@@ -261,6 +261,45 @@ fn read_scenarios(project_id: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Прочитать данные прогноза из project_dir/results/planning.json и scenarios/*.json.
+/// Возвращает None если файл не найден / невалидный JSON.
+fn read_forecast(project_id: &str) -> Option<Value> {
+    let project_dir = crate::commands::project::project_dir(project_id).ok()?;
+    let planning_path = project_dir.join("results").join("planning.json");
+    if !planning_path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(&planning_path).ok()?;
+    let mut planning: Value = serde_json::from_str(&content).ok()?;
+
+    // Дополнительно подгружаем сценарии из results/scenarios/ (если есть)
+    // и встраиваем как planning["scenarios"] если там пусто.
+    if planning.get("scenarios").and_then(|s| s.as_array()).map(|a| a.is_empty()).unwrap_or(true) {
+        let scenario_jsons = read_scenarios(project_id);
+        if !scenario_jsons.is_empty() {
+            planning["scenarios"] = serde_json::Value::Array(
+                scenario_jsons.into_iter().filter_map(|s| {
+                    // Адаптируем формат сценария к формату прогноза
+                    let totals = s.get("totals").cloned().unwrap_or_default();
+                    let name = s["scenario_name"].as_str()
+                        .or_else(|| s["name"].as_str())
+                        .unwrap_or("Сценарий")
+                        .to_string();
+                    Some(serde_json::json!({
+                        "name": name,
+                        "variant_id": s.get("variant_id"),
+                        "total_kpi": totals.get("predicted_kpi").and_then(|v| v.as_f64()),
+                        "total_spend_money": totals.get("total_spend_money").and_then(|v| v.as_f64()),
+                        "roas_money": totals.get("roas_money").and_then(|v| v.as_f64()),
+                    }))
+                }).collect()
+            );
+        }
+    }
+
+    Some(planning)
+}
+
 // ── Markdown report ──────────────────────────────────────────────────────────
 
 /// Build a full Markdown report from MMM pipeline data.
@@ -511,8 +550,10 @@ pub async fn econ_export_xlsx(
     // Сценарии - опциональные. Если папки нет / JSON невалиден - пустой vec,
     // лист «Сценарии» просто не добавится.
     let scenarios = read_scenarios(&project_id);
+    // Прогноз - опциональный. Лист «Прогноз» добавляется только при наличии данных.
+    let forecast = read_forecast(&project_id);
 
-    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, &project_id, &path)?;
+    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, forecast.as_ref(), &project_id, &path)?;
 
     info!("XLSX saved: {}", path.display());
     Ok(serde_json::json!({
@@ -657,6 +698,7 @@ fn build_xlsx(
     decompose: &Value,
     optimize: &Value,
     scenarios: &[Value],
+    forecast: Option<&Value>,
     project_id: &str,
     path: &PathBuf,
 ) -> Result<(), String> {
@@ -880,6 +922,7 @@ fn build_xlsx(
             ("Spend vs Effect",   "Доля бюджета vs доля эффекта"),
             ("Динамика",          "Еженедельная декомпозиция"),
             ("Оптимизация",       "Текущая vs оптимальная аллокация"),
+            ("Прогноз",           "Прогноз KPI по периодам с ДИ и медиапланом"),
             ("Сценарии",          "Сравнение сохранённых сценариев"),
             ("Данные",            "Полный временной ряд для аналитика"),
             ("Глоссарий",         "Определения терминов"),
@@ -1435,6 +1478,140 @@ fn build_xlsx(
         ws.set_column_width(3, 18.43).map_err(|e| format!("{e}"))?;
         ws.set_column_width(4, 18.43).map_err(|e| format!("{e}"))?;
         ws.set_column_width(5, 18.43).map_err(|e| format!("{e}"))?;
+    }
+
+    // ── Sheet 5.3: Прогноз (if any) ──────────────────────────
+    // Лист создаётся только при наличии planning.json / данных прогноза.
+    // Содержит: таблицу периодов + сводку сравнения вариантов.
+    if let Some(fc) = forecast {
+        let fc_scenarios = fc.get("scenarios").and_then(|s| s.as_array());
+        if fc_scenarios.map(|s| !s.is_empty()).unwrap_or(false) {
+            let ws = wb.add_worksheet();
+            ws.set_name("Прогноз").map_err(|e| format!("{e}"))?;
+            ws.set_tab_color(Color::RGB(DEEP_80));
+            apply_base_cols(ws, &base_fmt)?;
+            apply_print_setup(ws, "Прогноз")?;
+            write_brand_header(ws, "Прогноз KPI", 6)?;
+
+            // ── Секция 1: Периодическая таблица базового/принятого варианта ──
+            let accepted_id = fc.get("accepted_variant").and_then(|v| v.as_str());
+            let fc_scens = fc_scenarios.unwrap(); // safe: checked above
+
+            // Ищем принятый вариант, иначе первый
+            let base_sc = fc_scens.iter()
+                .find(|s| accepted_id.map(|id| s.get("variant_id").and_then(|v| v.as_str()) == Some(id)).unwrap_or(false))
+                .or_else(|| fc_scens.first());
+
+            let mut row: u32 = 2;
+            ws.write_with_format(row, 0, "Период", &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 1, "Прогноз KPI", &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 2, "ДИ нижн.", &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 3, "ДИ верхн.", &header_fmt).map_err(|e| format!("{e}"))?;
+            row += 1;
+
+            if let Some(sc) = base_sc {
+                let period_labels = sc.get("period_labels")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let predictions = sc.get("predictions")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let ci_low_list = sc.get("ci_low")
+                    .or_else(|| sc.get("predictions_ci_low"))
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let ci_high_list = sc.get("ci_high")
+                    .or_else(|| sc.get("predictions_ci_high"))
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+
+                let n_periods = predictions.len();
+                for t in 0..n_periods {
+                    let period_str = period_labels.get(t)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let pred = predictions.get(t).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    let ci_lo = ci_low_list.get(t).and_then(|v| v.as_f64());
+                    let ci_hi = ci_high_list.get(t).and_then(|v| v.as_f64());
+
+                    ws.write(row, 0, period_str.as_str()).map_err(|e| format!("{e}"))?;
+                    ws.write_with_format(row, 1, pred, &num_fmt).map_err(|e| format!("{e}"))?;
+                    if let Some(lo) = ci_lo {
+                        ws.write_with_format(row, 2, lo, &num_fmt).map_err(|e| format!("{e}"))?;
+                    }
+                    if let Some(hi) = ci_hi {
+                        ws.write_with_format(row, 3, hi, &num_fmt).map_err(|e| format!("{e}"))?;
+                    }
+                    row += 1;
+                }
+            }
+
+            // ── Секция 2: Сводка сравнения вариантов ──────────────────────────
+            row += 1;
+            ws.write_with_format(row, 0, "Вариант", &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 1, "Прогноз KPI", &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 2, "Бюджет, ₽", &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(row, 3, "ROAS", &header_fmt).map_err(|e| format!("{e}"))?;
+            row += 1;
+
+            for sc in fc_scens.iter().take(10) {
+                let name = sc.get("name")
+                    .or_else(|| sc.get("title"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("-");
+                let is_accepted = accepted_id.map(|id| {
+                    sc.get("variant_id").and_then(|v| v.as_str()) == Some(id)
+                }).unwrap_or(false);
+                let display_name = if is_accepted { format!("★ {name}") } else { name.to_string() };
+                let kpi = sc.get("total_kpi")
+                    .or_else(|| sc.get("predicted_kpi"))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let budget = sc.get("total_spend_money")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let roas = sc.get("roas_money").and_then(|v| v.as_f64());
+
+                let row_fmt = if is_accepted { &bold } else { &base_fmt };
+                ws.write_with_format(row, 0, display_name.as_str(), row_fmt).map_err(|e| format!("{e}"))?;
+                ws.write_with_format(row, 1, kpi, &num_fmt).map_err(|e| format!("{e}"))?;
+                ws.write_with_format(row, 2, budget, &num_fmt).map_err(|e| format!("{e}"))?;
+                if let Some(r) = roas {
+                    ws.write_with_format(row, 3, r, &roi_fmt).map_err(|e| format!("{e}"))?;
+                }
+                row += 1;
+            }
+
+            // ── Дисклеймер (gold italic) ────────────────────────────────────
+            let disclaimers = fc.get("disclaimers").and_then(|v| v.as_array());
+            if let Some(discs) = disclaimers {
+                if !discs.is_empty() {
+                    row += 1;
+                    let note_fmt = Format::new()
+                        .set_font_name("Inter")
+                        .set_font_size(9)
+                        .set_italic()
+                        .set_font_color(Color::RGB(GOLD));
+                    let disc_text: String = discs.iter()
+                        .filter_map(|d| d.as_str())
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    ws.write_with_format(row, 0, format!("⚠ {disc_text}").as_str(), &note_fmt)
+                        .map_err(|e| format!("{e}"))?;
+                }
+            }
+
+            ws.set_column_width(0, 18.0).map_err(|e| format!("{e}"))?;
+            ws.set_column_width(1, 20.0).map_err(|e| format!("{e}"))?;
+            ws.set_column_width(2, 18.0).map_err(|e| format!("{e}"))?;
+            ws.set_column_width(3, 14.0).map_err(|e| format!("{e}"))?;
+        }
     }
 
     // ── Sheet 5.5: Сценарии (if any) ─────────────────────────

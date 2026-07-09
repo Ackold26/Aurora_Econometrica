@@ -243,3 +243,75 @@ def test_html_render_forecast_multiple_scenarios():
     assert "Сценарий 3" in html
     assert "Сценарий 4" not in html
     assert "Сценарий 5" not in html
+
+
+# ─── scenarios_comparison_chart ───────────────────────────────────────────────
+
+def test_scenarios_comparison_chart_basic():
+    """scenarios_comparison_chart генерирует непустой base64 PNG для 1 сценария."""
+    from charts.generators import scenarios_comparison_chart
+    import base64
+
+    scenarios = [
+        {
+            "name": "Базовый",
+            "total_kpi": 460.0,
+            "total_spend_money": 5_000_000.0,
+            "roas_money": 0.092,
+        }
+    ]
+    result = scenarios_comparison_chart(scenarios)
+    assert result != "", "scenarios_comparison_chart вернул пустую строку для 1 сценария"
+    # Проверяем что это валидный base64
+    decoded = base64.b64decode(result)
+    assert len(decoded) > 100, "base64-строка слишком короткая, PNG невалиден"
+
+
+def test_scenarios_comparison_chart_five_or_more():
+    """При >=5 вариантах возвращается валидный base64 (горизонтальный layout)."""
+    from charts.generators import scenarios_comparison_chart
+    import base64
+
+    scenarios = [
+        {
+            "name": f"Вариант {i + 1}",
+            "total_kpi": float(400 + i * 20),
+            "total_spend_money": float(5_000_000 + i * 500_000),
+            "roas_money": round(0.08 + i * 0.01, 3),
+        }
+        for i in range(6)
+    ]
+    result = scenarios_comparison_chart(scenarios)
+    assert result != "", "scenarios_comparison_chart вернул '' для 6 вариантов"
+    decoded = base64.b64decode(result)
+    assert len(decoded) > 100, "PNG для 6 вариантов невалиден"
+
+
+def test_scenarios_comparison_chart_with_ci():
+    """График с доверительными интервалами не падает, CI берётся из predictions_ci_low/high."""
+    from charts.generators import scenarios_comparison_chart
+    import base64
+
+    scenarios = [
+        {
+            "name": "С интервалами",
+            "total_kpi": 460.0,
+            "predictions_ci_low": [90, 99, 108, 117],
+            "predictions_ci_high": [110, 121, 132, 143],
+        },
+        {
+            "name": "Без интервалов",
+            "total_kpi": 440.0,
+        },
+    ]
+    result = scenarios_comparison_chart(scenarios, kpi_label="Продажи")
+    assert result != "", "scenarios_comparison_chart упал при смешанном наличии CI"
+    base64.b64decode(result)  # не должно кидать исключение
+
+
+def test_scenarios_comparison_chart_empty_returns_empty():
+    """Пустой список сценариев возвращает пустую строку, не падает."""
+    from charts.generators import scenarios_comparison_chart
+
+    assert scenarios_comparison_chart([]) == "", "Пустой список должен возвращать ''"
+    assert scenarios_comparison_chart(None) == "", "None должен возвращать ''"
