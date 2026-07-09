@@ -165,10 +165,15 @@ def run_backtest(
             col: test_df[col].fillna(0).tolist()
             for col in config['media_columns']
         }
+        # A3 (carryover через границу окна): forecast_periods активирует planning-режим
+        # scenario → adstock-хвост train-окна переносится в первый test-период (carry-in).
+        # Test-окно идёт сразу за train → перенос математически точен. Без него первые
+        # точки окна занижены → MAPE завышен → несправедливый вердикт worse_than_naive.
         scenario_config = {
             'scenario_name': 'backtest_holdout',
             'media_plan': test_media_plan,
             'unit_costs': config.get('unit_costs', {}),
+            'forecast_periods': len(test_df),
         }
         from engines.scenario import predict_scenario
         sc = predict_scenario(scenario_config, str(train_project_dir))
@@ -659,6 +664,8 @@ def run_rolling_backtest(
                     'scenario_name': f'backtest_{window_label}',
                     'media_plan': test_media_plan,
                     'unit_costs': config.get('unit_costs', {}),
+                    # A3: carry-in adstock-хвоста train-окна в test-окно (см. holdout выше).
+                    'forecast_periods': len(test_df),
                 },
                 str(train_project_dir),
             )

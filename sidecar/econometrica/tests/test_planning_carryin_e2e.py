@@ -433,3 +433,214 @@ class TestDisclaimersPresent:
         assert result.get('future_dates') == dates, (
             f'future_dates не проброшены в result: {result.get("future_dates")}'
         )
+
+
+# ─── Усиленные тесты (posterior-фикстура + чистые сравнения) ────────────────
+#
+# Замечания к тестам выше (закрываются здесь):
+#   • CI-веер carry-in (Task 3) в OLS-тестах skip'ается — posterior отсутствует.
+#     Здесь синтезируем детерминированный posterior и проверяем СДВИГ ВЕЕРА.
+#   • carry-in доказывается чистым carry_in=True vs carry_in=False при ОДНОМ и том
+#     же плане (не planning vs historical — там мешается разная аллокация).
+#   • holiday∩fourier (A9) проверяется на самом движке: задвоенная в fourier
+#     holiday-колонка исключается из вклада.
+
+MEDIA_COLS_P = ['tv', 'digital']
+HOLIDAY_COL_P = 'holiday_newyear_preshop'
+
+
+def _make_model_with_posterior(tmp_path: Path, *, with_holiday: bool = False,
+                               with_posterior: bool = False, tv_decay: float = 0.9,
+                               n: int = 36) -> str:
+    """OLS-pickle + патч: положительный beta ТВ, высокий decay, опц. posterior/holiday.
+
+    Синтетический posterior дешевле MCMC и детерминирован. Возвращает project_dir.
+    """
+    import pickle
+    from engines.ols_modeler import train_ols
+    from engines.persistence import load_model_with_compat, write_pkl_sha256_sidecar
+
+    rng = np.random.RandomState(42)
+    dates = pd.date_range('2022-01-01', periods=n, freq='MS')
+    tv = rng.uniform(1e6, 3e6, n)
+    tv[-6:] = tv[-6:] * 5.0  # высокий хвост ТВ → carry-in ощутим
+    digital = rng.uniform(5e5, 2e6, n)
+    cols = {'date': dates, 'tv': tv, 'digital': digital}
+    control_columns: list[str] = []
+    if with_holiday:
+        holiday_ng = np.array([1.0 if d.month == 12 else 0.0 for d in dates])
+        cols[HOLIDAY_COL_P] = holiday_ng
+        control_columns = [HOLIDAY_COL_P]
+        sales = 5e6 + 0.3 * tv + 0.2 * digital + 5e5 * holiday_ng + rng.normal(0, 1e5, n)
+    else:
+        sales = 5e6 + 0.3 * tv + 0.2 * digital + rng.normal(0, 2e5, n)
+    cols['sales'] = sales
+    df = pd.DataFrame(cols)
+    data_file = tmp_path / 'data_p.xlsx'
+    df.to_excel(data_file, index=False)
+    project_dir = str(tmp_path)
+
+    r = train_ols({
+        'data_file': str(data_file), 'kpi_column': 'sales',
+        'media_columns': MEDIA_COLS_P, 'control_columns': control_columns,
+        'date_column': 'date',
+        'adstock_config': {'tv': 'geometric', 'digital': 'geometric'},
+        'unit_costs': {}, 'kpi_type': 'sales', 'kpi_unit_cost': None,
+        'merge_rules': {}, 'channel_categories': {},
+    }, project_dir)
+    assert r['status'] == 'ok', r
+
+    pkl = Path(project_dir) / 'models' / 'latest.pkl'
+    md = load_model_with_compat(pkl)
+    # Положительный beta ТВ + высокий decay → carry-in однозначно поднимает прогноз.
+    md['channel_params']['tv']['beta'] = 5.0
+    md['channel_params']['tv']['decay'] = tv_decay
+    md['channel_params']['tv']['alpha'] = 1.0
+    md['channel_params']['tv']['gamma'] = 0.5
+
+    if with_holiday:
+        norm = md['normalization']
+        # Усиливаем beta праздника, чтобы вклад был заметным (OLS мог дать малый).
+        betas = list(norm.get('control_betas_mean') or [])
+        if betas:
+            betas[0] = 2.5
+            norm['control_betas_mean'] = betas
+        norm.setdefault('control_means', {}).setdefault(HOLIDAY_COL_P, 0.1)
+        norm.setdefault('control_stds', {}).setdefault(HOLIDAY_COL_P, 0.3)
+        norm['holiday_dummies_mode'] = 'binary_point'
+
+    if with_posterior:
+        n_ch = len(MEDIA_COLS_P)
+        n_samp = 200
+        prng = np.random.RandomState(7)
+        media_betas = np.vstack([
+            prng.normal(5.0, 0.3, n_samp), prng.normal(0.5, 0.05, n_samp),
+        ]).astype(np.float32)
+        alphas = np.full((n_ch, n_samp), 1.0, dtype=np.float32)
+        gammas = np.vstack([
+            prng.uniform(0.4, 0.6, n_samp), prng.uniform(0.4, 0.6, n_samp),
+        ]).astype(np.float32)
+        adstock_decay = np.vstack([
+            np.full(n_samp, tv_decay), np.full(n_samp, 0.1),
+        ]).astype(np.float32)
+        intercept = prng.normal(
+            float(md['normalization'].get('intercept_mean', 0.0)), 0.02, n_samp
+        ).astype(np.float32)
+        md['posterior_samples'] = {
+            'media_betas': media_betas, 'alphas': alphas, 'gammas': gammas,
+            'adstock_decay': adstock_decay, 'intercept': intercept,
+            'control_betas': np.zeros((len(control_columns), n_samp), dtype=np.float32),
+            'media_columns': list(MEDIA_COLS_P), 'control_columns': control_columns,
+            'n_chains': 1, 'n_draws': n_samp,
+        }
+
+    with open(pkl, 'wb') as f:
+        pickle.dump(md, f)
+    write_pkl_sha256_sidecar(pkl)  # пересчитать integrity-хэш (иначе warn при load)
+    return project_dir
+
+
+class TestCarryInPureComparison:
+    """Чистое сравнение carry_in=True vs carry_in=False при одном плане (не
+    planning vs historical). Изолирует эффект carry-in от аллокации плана."""
+
+    def test_carryin_flag_toggles_and_raises_first_period(self, tmp_path: Path):
+        project_dir = _make_model_with_posterior(tmp_path, tv_decay=0.9)
+        from engines.scenario import predict_scenario
+
+        plan = {'tv': [2e6] * 6, 'digital': [1e6] * 6}
+        on = predict_scenario({
+            'scenario_name': 'pure_on', 'media_plan': plan,
+            'forecast_periods': 6, 'carry_in': True,
+        }, project_dir)
+        off = predict_scenario({
+            'scenario_name': 'pure_off', 'media_plan': plan,
+            'forecast_periods': 6, 'carry_in': False,
+        }, project_dir)
+
+        assert on['status'] == 'ok' and off['status'] == 'ok'
+        assert on['carry_in_applied'] is True
+        assert off['carry_in_applied'] is False, (
+            'carry_in=False должен отключать carry-in (флаг из ScenarioRequest)'
+        )
+        assert on['predictions'][0] > off['predictions'][0], (
+            f'carry-in должен поднять predictions[0]: on={on["predictions"][0]:.0f} '
+            f'off={off["predictions"][0]:.0f}'
+        )
+
+
+class TestCarryInCIFanShift:
+    """Task 3: линия И CI-веер согласованно сдвинуты вверх с carry-in.
+    Без этого линия выше веера (рассинхрон). Требует posterior → синтетический."""
+
+    def test_line_and_fan_shift_together(self, tmp_path: Path):
+        project_dir = _make_model_with_posterior(tmp_path, with_posterior=True, tv_decay=0.9)
+        from engines.scenario import predict_scenario
+
+        plan = {'tv': [2e6] * 6, 'digital': [1e6] * 6}
+        on = predict_scenario({
+            'scenario_name': 'fan_on', 'media_plan': plan,
+            'forecast_periods': 6, 'carry_in': True,
+        }, project_dir)
+        off = predict_scenario({
+            'scenario_name': 'fan_off', 'media_plan': plan,
+            'forecast_periods': 6, 'carry_in': False,
+        }, project_dir)
+
+        assert on['status'] == 'ok', on
+        assert on['predictions_ci_low'] is not None, 'posterior должен дать CI-веер'
+        assert on['predictions_ci_high'] is not None
+        assert off['predictions_ci_low'] is not None
+
+        lo0, hi0 = on['predictions_ci_low'][0], on['predictions_ci_high'][0]
+        line0 = on['predictions'][0]
+        # Линия внутри веера (допуск ±1 на округление до целых).
+        assert lo0 - 1 <= line0 <= hi0 + 1, (
+            f'predictions[0]={line0} вне веера [{lo0}, {hi0}] — линия/веер рассинхрон'
+        )
+        # Обе границы веера поднимаются с carry-in.
+        assert on['predictions_ci_low'][0] > off['predictions_ci_low'][0], (
+            'нижняя граница веера должна подняться с carry-in'
+        )
+        assert on['predictions_ci_high'][0] > off['predictions_ci_high'][0], (
+            'верхняя граница веера должна подняться с carry-in'
+        )
+
+
+class TestHolidayFourierDisjointInEngine:
+    """A9: holiday-колонка, задвоенная как fourier-колонка, исключается из вклада."""
+
+    def test_holiday_overlapping_fourier_excluded(self, tmp_path: Path):
+        import pickle
+        from engines.persistence import load_model_with_compat, write_pkl_sha256_sidecar
+        from engines.scenario import _compute_scenario_holidays
+
+        project_dir = _make_model_with_posterior(tmp_path, with_holiday=True)
+        pkl = Path(project_dir) / 'models' / 'latest.pkl'
+        md = load_model_with_compat(pkl)
+        norm = md['normalization']
+        dec_dates = [d.strftime('%Y-%m-%d')
+                     for d in pd.date_range('2026-12-07', periods=6, freq='W')]
+
+        # База: holiday-вклад ненулевой (единственный holiday-контроль активен).
+        contrib_base = _compute_scenario_holidays(md, norm, dec_dates, 6)
+        assert np.any(contrib_base != 0.0), 'декабрьский НГ-вклад должен быть ненулевым'
+
+        # Теперь задваиваем holiday-имя как fourier-колонку → должно исключиться.
+        md['fourier_seasonality'] = {'columns': [HOLIDAY_COL_P], 'terms': []}
+        with open(pkl, 'wb') as f:
+            pickle.dump(md, f)
+        write_pkl_sha256_sidecar(pkl)
+        md2 = load_model_with_compat(pkl)
+        contrib_overlap = _compute_scenario_holidays(md2, md2['normalization'], dec_dates, 6)
+        assert np.all(contrib_overlap == 0.0), (
+            'holiday-колонка, пересекающаяся с fourier, не должна давать вклад (A9)'
+        )
+
+    def test_holiday_zero_without_future_dates(self, tmp_path: Path):
+        from engines.persistence import load_model_with_compat
+        from engines.scenario import _compute_scenario_holidays
+        project_dir = _make_model_with_posterior(tmp_path, with_holiday=True)
+        md = load_model_with_compat(Path(project_dir) / 'models' / 'latest.pkl')
+        contrib = _compute_scenario_holidays(md, md['normalization'], [], 6)
+        assert np.all(contrib == 0.0), 'без future_dates holiday-вклад = нули'
