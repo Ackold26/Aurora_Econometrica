@@ -3707,6 +3707,38 @@ class AuroraPPTXBuilder:
                 f"Оговорки: {disc_text}",
                 font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
             )
+
+        # Сравнительный график вариантов (при ≥2 вариантах) — вставляем в правую
+        # часть слайда под таблицей. Таблица занимает верхние строки, график —
+        # нижнюю половину. Используем тот же PNG base64 → BytesIO паттерн
+        # что и в s13_colophon (add_picture из BytesIO объекта).
+        if len(scenarios) >= 2:
+            try:
+                import base64
+                import io
+                try:
+                    from econometrica.charts.generators import scenarios_comparison_chart
+                except ImportError:
+                    from charts.generators import scenarios_comparison_chart
+                kpi_label = self.kpi.get("target_axis") or "Прогноз KPI"
+                data_uri = scenarios_comparison_chart(scenarios, kpi_label=kpi_label)
+                if data_uri:
+                    img_bytes = base64.b64decode(data_uri)
+                    img_stream = io.BytesIO(img_bytes)
+                    # График под таблицей: слева half + отступ, снизу до footer
+                    chart_x = left_x
+                    chart_y = ry + 0.15  # чуть ниже последней строки таблицы
+                    chart_w = content_w
+                    chart_h = max(0.5, 6.0 - chart_y)
+                    if chart_h >= 0.5:
+                        slide.shapes.add_picture(
+                            img_stream,
+                            Inches(chart_x), Inches(chart_y),
+                            width=Inches(chart_w), height=Inches(chart_h),
+                        )
+            except Exception:
+                pass  # График опционален — ошибка не ломает PPTX
+
         self._footer(slide, slide_num)
 
     def s12_glossary(self):

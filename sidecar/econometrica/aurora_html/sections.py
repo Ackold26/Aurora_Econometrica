@@ -1854,6 +1854,7 @@ def render_forecast_plan(ctx: dict) -> str:
 
     Рендерит сравнительную таблицу сценариев бюджетного плана. Возвращает ""
     если forecast отсутствует — INV-50, wireframe-суррогатов нет.
+    При ≥2 вариантах добавляет сравнительный bar-chart scenarios_comparison_chart.
     """
     fc = ctx.get("forecast") or {}
     if not fc or fc.get("status") != "ok" or not fc.get("scenarios"):
@@ -1899,6 +1900,27 @@ def render_forecast_plan(ctx: dict) -> str:
         disc_items = "".join(f"<li>{escape(str(d))}</li>" for d in disclaimers[:5])
         disc_html = f'<ul class="trust-list">{disc_items}</ul>'
 
+    # Сравнительный график вариантов (только при ≥2 сценариях)
+    chart_html = ""
+    if len(scenarios) >= 2:
+        try:
+            from charts.generators import scenarios_comparison_chart
+            kpi_meta = _kpi_view(ctx)
+            kpi_label = kpi_meta.get("target_axis") or "Прогноз KPI"
+            data_uri = scenarios_comparison_chart(scenarios, kpi_label=kpi_label)
+            if data_uri:
+                chart_html = (
+                    '<div class="chart-container" style="margin-top:20px;">'
+                    '<div class="chart-title" style="margin-bottom:8px;">'
+                    'Сравнение вариантов – прогноз KPI</div>'
+                    f'<img src="data:image/png;base64,{data_uri}" '
+                    'alt="Сравнение вариантов" '
+                    'style="max-width:100%;height:auto;border-radius:6px;" />'
+                    '</div>'
+                )
+        except Exception:
+            pass  # График опционален – ошибка не ломает секцию
+
     body = (
         _action_title("Прогноз на будущий период")
         + f"""
@@ -1911,9 +1933,100 @@ def render_forecast_plan(ctx: dict) -> str:
     <tbody>{rows}</tbody>
   </table>
   {disc_html}
-</div>"""
+</div>
+{chart_html}"""
     )
     return _section("forecast", "ПРОГНОЗ", body)
+
+
+def render_retro_insights(ctx: dict) -> str:
+    """Условный блок «Что улучшить в подходе» (ретро-раздел).
+
+    Формирует список практических рекомендаций по улучшению качества модели
+    на основе honesty_verdict, honesty_reasons и диагностических показателей.
+    Возвращает пустую строку при сильной модели (honesty_verdict == "reliable")
+    или при полном отсутствии данных — INV-50, wireframe-суррогатов нет.
+    """
+    diag = ctx.get("diagnostics") or {}
+    verdict = diag.get("honesty_verdict")
+    # При reliable-модели блок не нужен
+    if verdict == "reliable":
+        return ""
+    # При полном отсутствии диагностики — тоже
+    if not diag:
+        return ""
+
+    reasons = (diag.get("honesty_reasons") or [])[:3]
+    thinness_cap = diag.get("thinness_cap")
+    ratio = diag.get("ratio")
+    preflight = diag.get("preflight") or {}
+    r_squared = diag.get("r_squared")
+    mape_pct = diag.get("mape_pct")
+
+    items: list[str] = []
+
+    # 1. Причины из honesty_reasons (уже человекочитаемые от движка)
+    for reason in reasons:
+        if reason:
+            items.append(escape(str(reason)))
+
+    # 2. Тонкость данных — рекомендация добавить историю
+    if thinness_cap is not None and ratio is not None:
+        try:
+            r = float(ratio)
+            if r < 3.0:
+                items.append(
+                    f"Мало наблюдений относительно числа параметров (отношение {r:.1f}) – "
+                    "добавьте как минимум ещё один период данных для снижения неопределённости."
+                )
+        except (TypeError, ValueError):
+            pass
+
+    # 3. Preflight-провал приоров
+    pp_status = preflight.get("prior_predictive_status")
+    if pp_status == "fail":
+        pp_cov = preflight.get("prior_predictive_coverage")
+        cov_sfx = (f" (покрытие {float(pp_cov):.0%})" if isinstance(pp_cov, (int, float)) else "")
+        items.append(
+            f"Априорные предположения расходятся с данными{cov_sfx} – "
+            "проверьте диапазоны adstock и насыщения на шаге Validate."
+        )
+
+    # 4. Низкое R² или высокий MAPE
+    if r_squared is not None:
+        try:
+            if float(r_squared) < 0.6:
+                items.append(
+                    f"R² = {float(r_squared):.2f} – модель объясняет менее 60% вариации продаж; "
+                    "рассмотрите добавление сезонных регрессоров или макропеременных."
+                )
+        except (TypeError, ValueError):
+            pass
+    if mape_pct is not None:
+        try:
+            if float(mape_pct) > 20.0:
+                items.append(
+                    f"MAPE = {float(mape_pct):.1f}% – ошибка прогноза высокая; "
+                    "проверьте выбросы и качество входных данных."
+                )
+        except (TypeError, ValueError):
+            pass
+
+    if not items:
+        return ""
+
+    items_html = "".join(f"<li>{item}</li>" for item in items)
+    body = (
+        _action_title("Что улучшить в подходе", lime=False)
+        + '\n<div class="retro-block" style="margin-top:16px;padding:16px 20px;'
+        'background:rgba(201,164,73,0.06);border:1px solid rgba(201,164,73,0.25);'
+        'border-radius:8px;">\n'
+        '  <ul class="retro-list" style="margin:0;padding-left:20px;line-height:1.7;'
+        'font-size:13px;color:var(--text-secondary,#94a3b8);">\n'
+        + items_html
+        + '\n  </ul>\n</div>'
+    )
+    return _section("retro", "РЕКОМЕНДАЦИИ ПО ДАННЫМ", body)
 
 
 SECTION_RENDERERS: tuple = (
@@ -1929,6 +2042,7 @@ SECTION_RENDERERS: tuple = (
     ('timeline',  render_timeline),
     ('trust',     render_trust_loop),
     ('forecast',  render_forecast_plan),
+    ('retro',     render_retro_insights),
     ('method',    render_methodology),
     ('sources',   render_sources),
     ('glossary',  render_glossary),

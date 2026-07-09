@@ -315,3 +315,101 @@ def test_scenarios_comparison_chart_empty_returns_empty():
 
     assert scenarios_comparison_chart([]) == "", "Пустой список должен возвращать ''"
     assert scenarios_comparison_chart(None) == "", "None должен возвращать ''"
+
+
+# ─── HTML: scenarios_comparison_chart встраивается при ≥2 вариантах ──────────
+
+def test_html_forecast_chart_present_for_two_or_more_scenarios():
+    """При ≥2 сценариях render_forecast_plan должен содержать <img> с base64 PNG."""
+    fc = copy.deepcopy(FORECAST_DATA)
+    fc["scenarios"] = [
+        {**fc["scenarios"][0], "name": "Базовый",  "variant_id": "v1", "total_kpi": 460.0},
+        {**fc["scenarios"][0], "name": "Агрессивный", "variant_id": "v2", "total_kpi": 520.0},
+    ]
+    fc["accepted_variant"] = "v1"
+    html = render_forecast_plan({"forecast": fc})
+    assert '<img' in html, "При ≥2 сценариях ожидаем <img> в HTML"
+    assert 'data:image/png;base64,' in html, "Ожидаем base64 PNG data-URI в <img>"
+
+
+def test_html_forecast_chart_absent_for_one_scenario():
+    """При одном сценарии <img> не добавляется."""
+    fc = copy.deepcopy(FORECAST_DATA)
+    assert len(fc["scenarios"]) == 1
+    html = render_forecast_plan({"forecast": fc})
+    assert html != "", "Секция должна рендериться даже при 1 сценарии"
+    assert '<img' not in html, "При 1 сценарии <img> не должен присутствовать"
+
+
+# ─── HTML: render_retro_insights ──────────────────────────────────────────────
+
+def test_retro_insights_empty_for_reliable_model():
+    """Блок «Что улучшить» пустой при reliable-модели."""
+    from aurora_html.sections import render_retro_insights
+
+    ctx = {"diagnostics": {"honesty_verdict": "reliable", "honesty_reasons": ["Всё хорошо"]}}
+    assert render_retro_insights(ctx) == "", "При reliable-модели блок должен быть пустым"
+
+
+def test_retro_insights_empty_without_diagnostics():
+    """Блок «Что улучшить» пустой при отсутствии диагностики."""
+    from aurora_html.sections import render_retro_insights
+
+    assert render_retro_insights({}) == ""
+    assert render_retro_insights({"diagnostics": {}}) == ""
+
+
+def test_retro_insights_present_for_uncertain_model():
+    """Блок «Что улучшить» появляется при uncertain-модели с reasons."""
+    from aurora_html.sections import render_retro_insights
+
+    ctx = {
+        "diagnostics": {
+            "honesty_verdict": "uncertain",
+            "honesty_reasons": ["Мало наблюдений", "Широкие интервалы"],
+            "thinness_cap": 50,
+            "ratio": 1.8,
+        }
+    }
+    html = render_retro_insights(ctx)
+    assert html != "", "При uncertain-модели блок должен присутствовать"
+    assert "Мало наблюдений" in html, "Причины honesty_reasons должны быть в тексте"
+    assert "Что улучшить" in html, "Заголовок «Что улучшить» должен быть в тексте"
+
+
+def test_retro_insights_present_for_unreliable_model():
+    """Блок «Что улучшить» появляется при unreliable-модели."""
+    from aurora_html.sections import render_retro_insights
+
+    ctx = {
+        "diagnostics": {
+            "honesty_verdict": "unreliable",
+            "honesty_reasons": ["R-hat > 1.05", "ESS < 100"],
+            "r_squared": 0.45,
+            "mape_pct": 28.0,
+        }
+    }
+    html = render_retro_insights(ctx)
+    assert html != "", "При unreliable-модели блок должен присутствовать"
+    assert "R-hat" in html
+    assert "R²" in html, "Должен быть пункт про низкий R²"
+    assert "MAPE" in html, "Должен быть пункт про высокий MAPE"
+
+
+def test_retro_insights_preflight_fail():
+    """Блок включает пункт про provail приоров при prior_predictive_status=fail."""
+    from aurora_html.sections import render_retro_insights
+
+    ctx = {
+        "diagnostics": {
+            "honesty_verdict": "uncertain",
+            "preflight": {
+                "prior_predictive_status": "fail",
+                "prior_predictive_coverage": 0.42,
+            },
+        }
+    }
+    html = render_retro_insights(ctx)
+    assert html != ""
+    assert "Априорные предположения расходятся" in html
+    assert "42%" in html
