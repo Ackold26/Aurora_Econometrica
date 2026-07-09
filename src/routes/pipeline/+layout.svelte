@@ -153,7 +153,7 @@
 
   // Справка - одна кнопка в header, контент зависит от текущего шага pipeline.
   // Index в массиве соответствует PIPELINE_STEPS. См. src-tauri/help-econometrica/*.html.
-  const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline'];
+  const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline', 'pipeline'];
   async function openStepHelp() {
     const page = HELP_PAGES[$pipelineCurrentStep] ?? 'index';
     try {
@@ -165,7 +165,7 @@
 
   function goNext() {
     const next = $pipelineCurrentStep + 1;
-    if (next < 6 && $pipelineStepMeta[next]?.status !== 'locked') {
+    if (next < 7 && $pipelineStepMeta[next]?.status !== 'locked') {
       pipelineCurrentStep.set(next);
     }
   }
@@ -322,7 +322,7 @@
   );
 
   const canGoNext = $derived(
-    $pipelineCurrentStep < 5
+    $pipelineCurrentStep < 6
     && $pipelineStepMeta[$pipelineCurrentStep + 1]?.status !== 'locked'
     && !rolesNotConfirmed
   );

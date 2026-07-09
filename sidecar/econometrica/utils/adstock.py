@@ -115,7 +115,118 @@ def apply_adstock(series: np.ndarray, adstock_type: str, params: dict | None = N
 # ─────────────────────────────────────────────────────────────────────
 
 
-def geometric_adstock_batch(raw_x: np.ndarray, decay_samples: np.ndarray) -> np.ndarray:
+def compute_geometric_carry_in(x_hist: np.ndarray, alpha: float) -> float:
+    """Вычислить carry_in для прогноза: alpha * последнее значение adstock по истории.
+
+    Форма совпадает с рекуррентным geometric: A[t] = x[t] + alpha*A[t-1].
+    carry_in = alpha * A_last(x_hist, alpha).
+
+    Args:
+        x_hist: исторический ряд трат, shape (T_hist,)
+        alpha: коэффициент затухания (0..1)
+
+    Returns:
+        float: начальный переносимый adstock для первого периода прогноза
+    """
+    x = np.asarray(x_hist, dtype=float)
+    if len(x) == 0:
+        return 0.0
+    return float(alpha) * float(geometric_adstock(x, alpha)[-1])
+
+
+def geometric_adstock_with_carryin(
+    x: np.ndarray,
+    alpha: float = 0.5,
+    carry_in: float = 0.0,
+) -> np.ndarray:
+    """Geometric adstock с начальным условием carry_in.
+
+    Рекуррентная формула: result[0] = x[0] + carry_in, result[t] = x[t] + alpha*result[t-1].
+    При carry_in == 0.0 результат байт-в-байт совпадает с geometric_adstock(x, alpha).
+
+    Args:
+        x: ряд трат/показов, shape (T,)
+        alpha: коэффициент затухания (0..1)
+        carry_in: перенесённый adstock-хвост из предыдущего периода (по умолчанию 0.0)
+
+    Returns:
+        Adstock-ряд, shape (T,)
+    """
+    result = np.zeros_like(x, dtype=float)
+    result[0] = x[0] + carry_in
+    for t in range(1, len(x)):
+        result[t] = x[t] + alpha * result[t - 1]
+    return result
+
+
+def compute_geometric_carry_in_batch(
+    x_hist: np.ndarray,
+    decay_samples: np.ndarray,
+) -> np.ndarray:
+    """Векторизованный carry_in для каждого сэмпла decay.
+
+    Для каждого сэмпла decay_samples[i]:
+        carry_in[i] = decay_samples[i] * adstock_batch(x_hist, decay_samples)[i, -1]
+
+    Args:
+        x_hist: исторический ряд трат, shape (T_hist,)
+        decay_samples: массив decay-сэмплов из апостериора, shape (n_samples,)
+
+    Returns:
+        carry_in для каждого сэмпла, shape (n_samples,)
+    """
+    decays = np.asarray(decay_samples, dtype=np.float64)
+    if len(x_hist) == 0:
+        return np.zeros(len(decays))
+    batch_hist = geometric_adstock_batch(np.asarray(x_hist, dtype=np.float64), decays)
+    # batch_hist shape (n_samples, T_hist) — берём последний столбец
+    return decays * batch_hist[:, -1]
+
+
+def apply_adstock_with_carryin(
+    x_future: np.ndarray,
+    adstock_type: str,
+    params: dict | None,
+    x_hist=None,
+) -> np.ndarray:
+    """Диспетчер adstock с переносом хвоста из истории (carry_in).
+
+    При x_hist is None или len(x_hist)==0 — fallback на обычный apply_adstock (без carry).
+    Weibull — fallback + однократный warning (carry-in для weibull не реализован).
+
+    Args:
+        x_future: будущий ряд трат, shape (T_future,)
+        adstock_type: 'geometric', 'weibull', 'noop', 'none'
+        params: параметры adstock (dict или None)
+        x_hist: исторический ряд трат для вычисления carry_in (None = без переноса)
+
+    Returns:
+        Adstock-ряд прогноза, shape (T_future,)
+    """
+    x_hist_arr = np.asarray(x_hist, dtype=float) if x_hist is not None else np.array([])
+    # fallback если истории нет
+    if len(x_hist_arr) == 0:
+        return apply_adstock(x_future, adstock_type, params)
+
+    if adstock_type in ('noop', 'none'):
+        return apply_adstock(x_future, adstock_type, params)
+
+    if adstock_type == 'weibull':
+        if 'weibull' not in _warned_unknown_types:
+            _warned_unknown_types.add('weibull')
+            logger.warning(
+                'apply_adstock_with_carryin: carry-in для weibull будет в следующей версии. '
+                'Используется apply_adstock без переноса хвоста.'
+            )
+        return apply_adstock(x_future, adstock_type, params)
+
+    # geometric (и любой неизвестный тип — через geometric default)
+    alpha = (params or {}).get('alpha', 0.5)
+    carry_in = compute_geometric_carry_in(x_hist_arr, alpha)
+    return geometric_adstock_with_carryin(np.asarray(x_future, dtype=float), alpha, carry_in)
+
+
+def geometric_adstock_batch(raw_x: np.ndarray, decay_samples: np.ndarray, carry_in=None) -> np.ndarray:
     """Vectorized geometric adstock across posterior samples.
 
     For each posterior sample i, compute geometric_adstock(raw_x, decay_samples[i]).
@@ -125,6 +236,9 @@ def geometric_adstock_batch(raw_x: np.ndarray, decay_samples: np.ndarray) -> np.
     Args:
         raw_x: 1D array of raw spend values, shape (n_periods,)
         decay_samples: 1D array of decay posterior draws, shape (n_samples,)
+        carry_in: optional 1D array of initial carry-in values, shape (n_samples,).
+            If None (default), behaviour is identical to the original (out[:, 0] = raw_x[0]).
+            If provided, out[:, 0] = raw_x[0] + carry_in — carries history tail into forecast.
 
     Returns:
         Adstocked spend, shape (n_samples, n_periods).
@@ -138,7 +252,10 @@ def geometric_adstock_batch(raw_x: np.ndarray, decay_samples: np.ndarray) -> np.
         return np.zeros((max(n_samples, 1), max(n_periods, 1)), dtype=np.float64)
 
     out = np.zeros((n_samples, n_periods), dtype=np.float64)
-    out[:, 0] = raw_x_arr[0]
+    if carry_in is None:
+        out[:, 0] = raw_x_arr[0]
+    else:
+        out[:, 0] = raw_x_arr[0] + np.asarray(carry_in, dtype=np.float64)
     for t in range(1, n_periods):
         out[:, t] = raw_x_arr[t] + decays * out[:, t - 1]
     return out

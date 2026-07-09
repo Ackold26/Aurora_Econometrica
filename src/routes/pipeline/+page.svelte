@@ -12,6 +12,7 @@
   import ModelTrainingStep from '$lib/components/pipeline/ModelTrainingStep.svelte';
   import DecomposeStep from '$lib/components/pipeline/DecomposeStep.svelte';
   import OptimizeStep from '$lib/components/pipeline/OptimizeStep.svelte';
+  import PlanningStep from '$lib/components/pipeline/PlanningStep.svelte';
   import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
   import PipelineWhyThisStep from '$lib/components/pipeline/PipelineWhyThisStep.svelte';
   import FirstRunTour from '$lib/components/FirstRunTour.svelte';
@@ -112,8 +113,13 @@
     <OptimizeStep />
   </StepWrapper>
 
-  <!-- Step 5: Report - Phase 5 -->
+  <!-- Step 5: Planning - Phase 2 planning mode -->
   <StepWrapper step={5} helpPage="pipeline">
+    <PlanningStep />
+  </StepWrapper>
+
+  <!-- Step 6: Report - Phase 5 -->
+  <StepWrapper step={6} helpPage="pipeline">
     <ReportStep />
   </StepWrapper>
 

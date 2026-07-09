@@ -65,7 +65,7 @@ export const pipelineStep = derived(pipelineState, ($s) => {
 });
 
 // ===================================================================
-// Phase 1: Visual Pipeline State Machine (6 steps)
+// Phase 1: Visual Pipeline State Machine (7 steps)
 // ===================================================================
 
 // Иконка шага — Lucide-компонент по id из $lib/step-icons.js (stepIcons[id]).
@@ -77,6 +77,7 @@ export const PIPELINE_STEPS = [
   { id: 'model',     label: 'Model',     labelRu: 'Модель' },
   { id: 'decompose', label: 'Decompose', labelRu: 'Декомпозиция' },
   { id: 'optimize',  label: 'Optimize',  labelRu: 'Оптимизация' },
+  { id: 'planning',  label: 'Planning',  labelRu: 'Планирование' },
   { id: 'report',    label: 'Report',    labelRu: 'Отчёт' },
 ];
 
@@ -95,27 +96,53 @@ const PIPELINE_META_KEY = 'econ-pipeline-meta';
 /** @returns {StepMeta[]} */
 function defaultStepMeta() {
   return [
-    { status: 'ready' },   // Import: always ready
-    { status: 'locked' },
-    { status: 'locked' },
-    { status: 'locked' },
-    { status: 'locked' },
-    { status: 'locked' },
+    { status: 'ready' },   // 0 Import: always ready
+    { status: 'locked' },  // 1 Validate
+    { status: 'locked' },  // 2 Model
+    { status: 'locked' },  // 3 Decompose
+    { status: 'locked' },  // 4 Optimize
+    { status: 'locked' },  // 5 Planning
+    { status: 'locked' },  // 6 Report
   ];
 }
 
 /**
  * A4: Load step metadata from localStorage (statuses only, no data).
+ * Migrates 6-step legacy data to 7-step format (inserts planning at index 5).
+ * Exported for testing migration logic.
  * @param {string|null} projectId
  * @returns {{ currentStep: number, steps: StepMeta[] }}
  */
-function loadPipelineMeta(projectId) {
+export function loadPipelineMeta(projectId) {
   try {
     const key = projectId ? `${PIPELINE_META_KEY}-${projectId}` : PIPELINE_META_KEY;
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.steps) && parsed.steps.length === 6) return parsed;
+      if (Array.isArray(parsed.steps)) {
+        if (parsed.steps.length === 7) {
+          // Already migrated — return as-is (idempotent).
+          return parsed;
+        }
+        if (parsed.steps.length === 6) {
+          // Migrate 6→7: insert planning (locked) at index 5, report moves to 6.
+          const migrated = [...parsed.steps];
+          migrated.splice(5, 0, { status: 'locked', errorMessage: null });
+          // A10: if user was on old step 5 (Report), remap to new index 6.
+          let currentStep = typeof parsed.currentStep === 'number' ? parsed.currentStep : 0;
+          if (currentStep === 5) currentStep = 6;
+          const result = { currentStep, steps: migrated };
+          // Persist migrated state to both keys.
+          try {
+            const globalKey = PIPELINE_META_KEY;
+            const projectKey = projectId ? `${PIPELINE_META_KEY}-${projectId}` : null;
+            const payload = JSON.stringify({ currentStep: result.currentStep, steps: result.steps.map(s => ({ status: s.status, errorMessage: s.errorMessage ?? null })) });
+            localStorage.setItem(globalKey, payload);
+            if (projectKey) localStorage.setItem(projectKey, payload);
+          } catch { /* ignore quota */ }
+          return result;
+        }
+      }
     }
   } catch { /* corrupted - use default */ }
   return { currentStep: 0, steps: defaultStepMeta() };
@@ -1092,6 +1119,12 @@ export const decomposeData = writable(null);
 /** @type {import('svelte/store').Writable<any|null>} */
 export const optimizeData = writable(null);
 
+/** @type {import('svelte/store').Writable<any|null>} Detected media plan data (Phase 2 planning step) */
+export const mediaPlanDetected = writable(null);
+
+/** @type {import('svelte/store').Writable<any|null>} Planning manifest output (Phase 2 planning step) */
+export const planningManifest = writable(null);
+
 /**
  * Восстановить данные pipeline из `results/*.json` при активации проекта.
  *
@@ -1203,10 +1236,10 @@ async function restoreProjectResults(pid) {
  * Шаг с данными → complete. Шаг без данных, но с complete-предшественником → ready.
  * Остальные → locked. Все error-статусы, не подкреплённые данными, сбрасываются.
  *
- * @param {{hasValidation: boolean, hasModel: boolean, hasDecompose: boolean, hasOptimize: boolean}} flags
+ * @param {{hasValidation: boolean, hasModel: boolean, hasDecompose: boolean, hasOptimize: boolean, hasPlanning?: boolean}} flags
  */
 function reconcileStepMetaFromDisk(flags) {
-  const { hasValidation, hasModel, hasDecompose, hasOptimize } = flags;
+  const { hasValidation, hasModel, hasDecompose, hasOptimize, hasPlanning = false } = flags;
   // Monotonic invariant: если есть данные на любом downstream шаге, все upstream
   // шаги успешно прошли (по построению pipeline). Step 0 (Import) → complete если
   // ЛЮБОЙ из validate/model/decompose/optimize отработал - без этого нельзя было.
@@ -1219,7 +1252,8 @@ function reconcileStepMetaFromDisk(flags) {
     hasModel     ? 'complete' : (hasValidation ? 'ready' : 'locked'),  // 2 - Model
     hasDecompose ? 'complete' : (hasModel ? 'ready' : 'locked'),       // 3 - Decompose
     hasOptimize  ? 'complete' : (hasDecompose ? 'ready' : 'locked'),   // 4 - Optimize
-    (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 5 - Report
+    hasOptimize  ? (hasPlanning ? 'complete' : 'ready') : 'locked',    // 5 - Planning (optional, unlocked after Optimize)
+    (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 6 - Report (does NOT depend on Planning — planning is optional)
   ]);
   pipelineStepMeta.set(stepStatuses.map(status => ({ status, errorMessage: null })));
 
@@ -1292,14 +1326,15 @@ export const reportData = writable(null);
  * A5: Reset all downstream step data and lock their statuses.
  * Call when an upstream step's input changes (re-import, config change, etc.).
  * All steps with index > fromStep are cleared and locked.
- * @param {number} fromStep - the step that changed; steps fromStep+1..5 are reset
+ * @param {number} fromStep - the step that changed; steps fromStep+1..6 are reset
  */
 export function resetDownstream(fromStep) {
   if (fromStep < 1) validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
   if (fromStep < 2) modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   if (fromStep < 3) decomposeData.set(null);
   if (fromStep < 4) optimizeData.set(null);
-  if (fromStep < 5) reportData.set(null);
+  if (fromStep < 5) planningManifest.set(null);
+  if (fromStep < 6) reportData.set(null);
 
   pipelineStepMeta.update(steps =>
     steps.map((s, i) => i <= fromStep ? s : { status: 'locked', errorMessage: null })
@@ -1419,7 +1454,7 @@ export function completeStep(step) {
   pipelineStepMeta.update(steps => {
     const copy = steps.map(s => ({ ...s }));
     copy[step] = { ...copy[step], status: 'complete', errorMessage: null };
-    if (step + 1 < 6) copy[step + 1] = { ...copy[step + 1], status: 'ready' };
+    if (step + 1 < 7) copy[step + 1] = { ...copy[step + 1], status: 'ready' };
     return copy;
   });
 
@@ -1491,6 +1526,7 @@ export function loadPipelineForProject(projectId) {
   modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   decomposeData.set(null);
   optimizeData.set(null);
+  planningManifest.set(null);
   reportData.set(null);
 }
 
@@ -1509,6 +1545,7 @@ export function resetForNewAnalysis() {
   modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   decomposeData.set(null);
   optimizeData.set(null);
+  planningManifest.set(null);
   reportData.set(null);
   chartImages.set({});
   isComputing.set(false);
