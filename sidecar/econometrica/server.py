@@ -486,6 +486,11 @@ class ScenarioRequest(BaseModel):
     unit_cost_inflation_pct: dict[str, float] | None = None
     # v2.1.0 (ADR-021): см. DecomposeRequest.kpi_unit_cost
     kpi_unit_cost: float | None = None
+    # Task 7: planning carry-in + holiday injection context.
+    # future_dates: ISO-даты будущих периодов для holiday calendar injection.
+    # carry_in: True (default) = использовать adstock carry-in из истории.
+    future_dates: list[str] | None = None
+    carry_in: bool = True
 
 
 # ──────────────────────────────────────────────────────────────────

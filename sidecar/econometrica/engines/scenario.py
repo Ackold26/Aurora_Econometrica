@@ -10,7 +10,12 @@ import pandas as pd
 from pathlib import Path
 from typing import Any
 
-from utils.adstock import apply_adstock, geometric_adstock_batch
+from utils.adstock import (
+    apply_adstock,
+    apply_adstock_with_carryin,
+    geometric_adstock_batch,
+    compute_geometric_carry_in_batch,
+)
 from utils.saturation import hill_function, hill_function_batch, hill_function_batch_2d
 from utils.posterior_propagation import (
     compute_ci_hdi,
@@ -74,6 +79,71 @@ def _compute_scenario_seasonality(model_data: dict, norm: dict, n_periods: int) 
     except Exception as exc:
         logger.warning('scenario seasonality projection skipped: %s', exc)
         return zeros
+
+
+def _compute_scenario_holidays(
+    model_data: dict,
+    norm: dict,
+    future_dates: list,
+    n_periods: int,
+) -> np.ndarray:
+    """Compute holiday contribution for future periods. Returns array shape (n_periods,).
+
+    Reads holiday betas from model_data['controls'] (если они есть как отдельный словарь)
+    или реконструирует из control_betas_mean + control_columns — тот же SSOT что decomposer.
+    Нули если future_dates пустые или holiday-колонок нет в контролях.
+    """
+    from utils.holiday_calendar_ru import generate_holiday_dummies, is_holiday_like_name
+
+    zeros = np.zeros(n_periods, dtype=float)
+    if not future_dates:
+        return zeros
+
+    config_model = model_data.get('config') or {}
+    control_cols = config_model.get('control_columns') or []
+    control_betas_raw = norm.get('control_betas_mean') or []
+
+    # Реконструируем beta по имени колонки
+    if len(control_betas_raw) != len(control_cols):
+        return zeros
+
+    fourier_meta = model_data.get('fourier_seasonality') or {}
+    fourier_cols = set(fourier_meta.get('columns') or [])
+    y_std = float(norm.get('y_std', 1.0)) or 1.0
+    control_means = norm.get('control_means') or {}
+    control_stds = norm.get('control_stds') or {}
+    holiday_mode = norm.get('holiday_dummies_mode', 'binary_point')
+
+    try:
+        date_series = pd.Series(pd.to_datetime(future_dates))
+        holiday_df = generate_holiday_dummies(date_series, mode=holiday_mode)
+    except Exception:
+        return zeros
+
+    result = np.zeros(n_periods, dtype=float)
+    beta_by_col = {c: float(control_betas_raw[i]) for i, c in enumerate(control_cols)}
+
+    for col_name, beta_val in beta_by_col.items():
+        # Должно быть holiday-like И не Фурье И присутствовать в сгенерированных дамми
+        if not is_holiday_like_name(col_name):
+            continue
+        if col_name in fourier_cols:
+            continue
+        if col_name not in holiday_df.columns:
+            continue
+        dummy = holiday_df[col_name].values.astype(float)
+        # Обрезаем или дополняем до n_periods
+        if len(dummy) < n_periods:
+            dummy = np.pad(dummy, (0, n_periods - len(dummy)))
+        else:
+            dummy = dummy[:n_periods]
+        # Z-нормировка теми же stats что при обучении
+        c_mean = float(control_means.get(col_name, 0.0))
+        c_std = float(control_stds.get(col_name, 1.0)) or 1.0
+        z_dummy = (dummy - c_mean) / c_std
+        result += beta_val * z_dummy * y_std
+
+    return result
 
 
 def _safe_int_or_none(v: Any) -> int | None:
@@ -271,33 +341,47 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         try:
             forecast_n = int(forecast_periods_cfg)
             if forecast_n >= 1:
-                # v2.1.0 (pilot E P0-2 2026-05-17): enforce horizon cap symmetrically
-                # с optimizer (см. optimizer.py:398-419). Без этого scenario engine
-                # обходил FORECAST_HORIZON_TOO_LONG safety gate через ScenarioPlayground
-                # save flow и распределял media_plan по любому n_periods.
-                try:
-                    from engines.persistence import get_kpi_type
-                    from utils.forecast_validation import get_forecast_horizon_max_multiplier
-                    _kpi_type = get_kpi_type(model_data)
-                    _max_mult = get_forecast_horizon_max_multiplier(_kpi_type)
-                    _max_horizon = int(training_n_periods * _max_mult)
-                    if forecast_n > _max_horizon:
-                        return {
-                            'status': 'error',
-                            'error_code': 'FORECAST_HORIZON_TOO_LONG',
-                            'message': (
-                                f'Период сценария ({forecast_n}) превышает '
-                                f'обучающий горизонт более чем в {_max_mult:.1f}× '
-                                f'({_max_horizon}). Допущение стационарности '
-                                f'коэффициентов нарушено. Переучите модель на '
-                                f'расширенных данных или сократите горизонт.'
-                            ),
-                        }
-                except ImportError:
-                    pass  # legacy fallback - проверка disabled
                 n_periods = forecast_n
         except (TypeError, ValueError):
             pass
+
+    # Task 5: horizon cap — применяется для ВСЕХ planning-mode случаев (plan_n любой),
+    # не только plan_n==1. До фикса: vector-plan (plan_n > 1) обходил gate.
+    # training_n_periods уже прочитана выше (из data_file либо = plan_n как fallback).
+    if forecast_periods_cfg is not None:
+        # Для plan_n > 1 training_n_periods могла остаться = plan_n (data_file не читался).
+        # Пробуем прочитать из файла если ещё не сделали.
+        _effective_training_n = training_n_periods
+        if _effective_training_n == plan_n and plan_n > 1 and data_file:
+            try:
+                _ref_df2 = (
+                    pd.read_excel(data_file)
+                    if data_file.endswith(('.xlsx', '.xls'))
+                    else pd.read_csv(data_file)
+                )
+                _effective_training_n = max(len(_ref_df2), 1)
+            except Exception:
+                pass
+        try:
+            from engines.persistence import get_kpi_type
+            from utils.forecast_validation import get_forecast_horizon_max_multiplier
+            _kpi_type = get_kpi_type(model_data)
+            _max_mult = get_forecast_horizon_max_multiplier(_kpi_type)
+            _max_horizon = int(_effective_training_n * _max_mult)
+            if n_periods > _max_horizon:
+                return {
+                    'status': 'error',
+                    'error_code': 'FORECAST_HORIZON_TOO_LONG',
+                    'message': (
+                        f'Период сценария ({n_periods}) превышает '
+                        f'обучающий горизонт более чем в {_max_mult:.1f}× '
+                        f'({_max_horizon}). Допущение стационарности '
+                        f'коэффициентов нарушено. Переучите модель на '
+                        f'расширенных данных или сократите горизонт.'
+                    ),
+                }
+        except ImportError:
+            pass  # legacy fallback — проверка disabled
 
     # P1-5 fix: apply adstock to scenario media plan matching training-time
     # transformation. Pre-fix, scenario received raw spend_t straight to Hill,
@@ -348,6 +432,37 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             except Exception:
                 kpi_kind_scenario = 'monetary'
 
+    # Task 1: загружаем исторические траты per channel (planning-mode only).
+    # Переиспользуем ту же логику что train_raw_per_channel ниже для CI-фана —
+    # читаем из data_file и масштабируем на unit_costs_snapshot_train.
+    # Кэшируем в hist_scaled: dict[str, np.ndarray] (scaled, как в training).
+    # Если data_file отсутствует или чтение провалилось → {} (carry_in disabled, без краша).
+    hist_scaled: dict[str, np.ndarray] = {}
+    carry_in_applied = False
+    _is_planning_mode = forecast_periods_cfg is not None
+    # Task 7: явный опт-аут carry-in из запроса (ScenarioRequest.carry_in, default True).
+    # carry_in=False → hist_scaled остаётся пустым → и точечный adstock (len==0), и
+    # CI-batch (col not in hist_scaled) откатываются на apply_adstock без переноса хвоста.
+    _carry_in_enabled = bool(config.get('carry_in', True))
+    if _is_planning_mode and _carry_in_enabled and data_file:
+        try:
+            from utils.merge_rules import apply_merge_rules as _amr_hist
+            _hist_df_raw = (
+                pd.read_excel(data_file)
+                if data_file.endswith(('.xlsx', '.xls'))
+                else pd.read_csv(data_file)
+            )
+            _amr_hist(_hist_df_raw, config_model.get('merge_rules'))
+            for _col in media_cols:
+                if _col in _hist_df_raw.columns:
+                    _arr_h = _hist_df_raw[_col].fillna(0).values.astype(float)
+                    _uc_h = float(unit_costs_snapshot_train.get(_col, 1.0) or 1.0)
+                    if _uc_h != 1.0 and _uc_h > 0:
+                        _arr_h = _arr_h * _uc_h
+                    hist_scaled[_col] = _arr_h
+        except Exception:
+            hist_scaled = {}
+
     for col in media_cols:
         raw_arr = np.array(media_plan.get(col, [0.0] * n_periods), dtype=float)
         # Pad / truncate to n_periods
@@ -362,7 +477,17 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         a_type = adstock_config.get(col, 'geometric')
         decay_point = channel_params.get(col, {}).get('decay')
         adstock_params_override = {'alpha': float(decay_point)} if decay_point is not None else None
-        adstocked_plan[col] = apply_adstock(scaled_arr, a_type, adstock_params_override)
+        # Task 2: carry-in ТОЛЬКО в planning-mode. Если историческая серия доступна —
+        # передаём в apply_adstock_with_carryin; иначе fallback на apply_adstock.
+        if _is_planning_mode:
+            _x_hist_col = hist_scaled.get(col, np.array([]))
+            adstocked_plan[col] = apply_adstock_with_carryin(
+                scaled_arr, a_type, adstock_params_override, x_hist=_x_hist_col
+            )
+            if len(_x_hist_col) > 0:
+                carry_in_applied = True
+        else:
+            adstocked_plan[col] = apply_adstock(scaled_arr, a_type, adstock_params_override)
 
     # P1-3 fix: baseline = intercept × y_std + y_mean per period (intercept-based
     # counterfactual), not y_mean × n_periods (which excluded model bias).
@@ -378,6 +503,18 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # будущих периодах → добавляется к baseline (согласование прогноза с historical
     # декомпозицией). Нули для моделей без Фурье → поведение не меняется.
     season_per_period = _compute_scenario_seasonality(model_data, norm, n_periods)
+
+    # Task 4: праздники РФ для planning-mode. Нули для исторического режима или
+    # при отсутствии future_dates. Не меняет поведение моделей без holiday-контролей.
+    future_dates_cfg = config.get('future_dates') or []
+    holidays_injected = False
+    if _is_planning_mode and future_dates_cfg:
+        holiday_per_period = _compute_scenario_holidays(
+            model_data, norm, future_dates_cfg, n_periods
+        )
+        holidays_injected = True
+    else:
+        holiday_per_period = np.zeros(n_periods, dtype=float)
 
     # Predict per period using adstocked spend
     predictions = []
@@ -400,15 +537,26 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             total_effect += contribution
             channel_contributions[col].append(round(float(contribution * y_std), 0))
 
-        # P1-3: predicted = baseline + media contribution (was: total_effect × y_std + y_mean)
+        # P1-3: predicted = baseline + media contribution
         # У1: + детерминированная сезонность периода (0 если модель без Фурье).
-        predicted = baseline_per_period + float(season_per_period[t]) + total_effect * y_std
+        # Task 4: + праздники РФ (0 если нет future_dates или не planning-mode).
+        predicted = (
+            baseline_per_period
+            + float(season_per_period[t])
+            + float(holiday_per_period[t])
+            + total_effect * y_std
+        )
         predictions.append(round(float(predicted), 0))
 
     # У1: baseline_total включает суммарную сезонность (за полный цикл ≈0 → тождество
     # с прежним поведением; за неполный — сезонный сдвиг базы, чтобы incremental =
     # scenario − baseline оставался чистым медиа-вкладом, без утечки сезона в «медиа»).
-    baseline_total = baseline_per_period * n_periods + float(season_per_period.sum())
+    # Task 4: праздники тоже входят в baseline_total (симметрично сезонности).
+    baseline_total = (
+        baseline_per_period * n_periods
+        + float(season_per_period.sum())
+        + float(holiday_per_period.sum())
+    )
     scenario_total = sum(predictions)
     incremental_total = scenario_total - baseline_total
 
@@ -590,7 +738,14 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                     # для Hill symmetry с training scale.
                     _uc_train_col = float(unit_costs_snapshot_train.get(col, 1.0) or 1.0)
                     _raw_for_batch = raw_plan[col] * _uc_train_col if _uc_train_col != 1.0 else raw_plan[col]
-                    x_adstock_2d = geometric_adstock_batch(_raw_for_batch, decay_samples)
+                    # Task 3: carry-in в CI batch — только в planning-mode и если история доступна.
+                    # compute_geometric_carry_in_batch возвращает (n_samples,), geometric_adstock_batch
+                    # принимает carry_in=(n_samples,) → выровненные размерности гарантированы.
+                    if _is_planning_mode and col in hist_scaled and len(hist_scaled[col]) > 0:
+                        _ci_batch = compute_geometric_carry_in_batch(hist_scaled[col], decay_samples)
+                        x_adstock_2d = geometric_adstock_batch(_raw_for_batch, decay_samples, carry_in=_ci_batch)
+                    else:
+                        x_adstock_2d = geometric_adstock_batch(_raw_for_batch, decay_samples)
                     # F1 fix (audit 2026-04-27): per-sample TRAINING adstock mean
                     # (computed from training raw spend × per-sample decay) for math
                     # consistency with in-model normalization. Pre-fix used scalar
@@ -638,14 +793,18 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             # У1: + детерминированная сезонность (одинакова для всех samples → broadcast
             # по period). Сезон входит и в baseline_total_samples ниже → incremental
             # (predicted − baseline_total) остаётся чистым медиа, сезон не течёт в CI лифта.
+            # Task 4: + праздники (тоже детерминированы → broadcast по samples).
             predicted_per_period_samples = (
                 baseline_per_sample_period.reshape(-1, 1)
                 + season_per_period.reshape(1, -1)
+                + holiday_per_period.reshape(1, -1)
                 + total_contrib_samples * y_std
             )  # (n_samples, n_periods)
             predicted_total_samples = predicted_per_period_samples.sum(axis=1)  # (n_samples,)
             baseline_total_samples = (
-                baseline_per_sample_period * n_periods + float(season_per_period.sum())
+                baseline_per_sample_period * n_periods
+                + float(season_per_period.sum())
+                + float(holiday_per_period.sum())
             )  # (n_samples,)
             incremental_total_samples = predicted_total_samples - baseline_total_samples
 
@@ -925,7 +1084,21 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         # Мат-аудит 2026-07-02 (F-04): {'severity': 0..3, 'channels': [...]} —
         # выход per-period плана за наблюдавшийся диапазон трат (p95/p99 тиры).
         'extrapolation': extrapolation,
+        # Task 6: carry-in и holiday провenance для planning-mode.
+        'carry_in_applied': carry_in_applied,
+        'future_dates': future_dates_cfg or None,
     }
+
+    # Task 6: disclaimers — только для planning-mode.
+    if _is_planning_mode:
+        _disclaimers = [
+            'Прогноз при неизменных прочих условиях: цена, дистрибуция, конкуренция приняты на историческом среднем',
+        ]
+        if carry_in_applied:
+            _disclaimers.append('Учтён остаточный медиаэффект конца истории')
+        if holidays_injected:
+            _disclaimers.append('Праздники РФ учтены по календарю')
+        result['disclaimers'] = _disclaimers
 
     # Save. NaN-safe (как decomposer.py:1174, rc10-урок 2026-06-04): NaN→null, иначе
     # Rust serde_json (read_scenarios) роняет файл. Особенно важно для per-period CI band
