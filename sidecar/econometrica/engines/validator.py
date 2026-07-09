@@ -402,6 +402,69 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                         'дата, продажи (KPI) и медиа-каналы.'),
         }
 
+    # ── Медиаплан-хвост: детекция до любой статистики ──────────────────────
+    # Если после исторических строк (KPI заполнен) идут строки будущего (KPI пуст),
+    # статистику и ratio считаем только по истории. Хвост не скрываем — возвращаем
+    # media_plan_detected и при наличии project_dir пишем media_plan.json.
+    _media_plan_detected: dict | None = None
+    try:
+        from engines.planning import detect_media_plan_tail, compute_source_hash
+        # Авто-детект колонок ролей для planning детектора (минимальный набор).
+        _date_col_hint = next(
+            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'date'),
+            None,
+        )
+        _kpi_col_hint = next(
+            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'kpi'),
+            None,
+        )
+        _media_hints = [
+            c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'media'
+        ]
+        if _date_col_hint and _kpi_col_hint:
+            _tail_result = detect_media_plan_tail(df, _date_col_hint, _kpi_col_hint, _media_hints)
+            if _tail_result.get('found'):
+                _src_hash = compute_source_hash(file_path)
+                _media_plan_detected = {
+                    'n_future_periods': _tail_result['n_future_periods'],
+                    'period_labels': _tail_result['period_labels'],
+                    'granularity': _tail_result['granularity'],
+                    'future_dates': _tail_result['future_dates'],
+                    'channels': _tail_result['channels'],
+                    'warnings': _tail_result['warnings'],
+                    'source_hash': _src_hash,
+                    'confirmed': False,
+                }
+                # Статистику считаем только по истории
+                df = _tail_result['history_df'].reset_index(drop=True)
+                n_rows = len(df)
+                # Атомарная запись media_plan.json если project_dir задан
+                if project_dir and Path(project_dir).is_absolute():
+                    try:
+                        import json as _json
+                        import tempfile as _tempfile
+                        _mp_dir = Path(project_dir) / 'results'
+                        _mp_dir.mkdir(parents=True, exist_ok=True)
+                        _mp_path = _mp_dir / 'media_plan.json'
+                        _tmp_fd, _tmp_name = _tempfile.mkstemp(
+                            dir=_mp_dir, prefix='.mp_', suffix='.tmp'
+                        )
+                        try:
+                            with open(_tmp_fd, 'w', encoding='utf-8') as _f:
+                                _json.dump(_media_plan_detected, _f, ensure_ascii=False, indent=2)
+                            import os as _os
+                            _os.replace(_tmp_name, _mp_path)
+                        except Exception:
+                            try:
+                                _os.unlink(_tmp_name)
+                            except Exception:
+                                pass
+                            raise
+                    except Exception:
+                        logger.warning('media_plan.json write failed', exc_info=True)
+    except Exception:
+        logger.warning('media_plan tail detection failed — proceeding with full df', exc_info=True)
+
     issues = []
     warnings = []
 
@@ -760,6 +823,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         'warnings': warnings,
         'high_correlations': high_correlations,
         'full_correlation_matrix': full_correlation_matrix,
+        'media_plan_detected': _media_plan_detected,
     }
 
     # Save to project dir if provided.

@@ -524,6 +524,10 @@ def run_rolling_backtest(
             }
 
     kpi_col = config['kpi_column']
+    # NaN-KPI row filter: drop media-plan tail so rolling windows only slice history.
+    # Invariant: если хвоста нет — notna() для всех строк → no-op.
+    if kpi_col in df.columns:
+        df = df[df[kpi_col].notna()].reset_index(drop=True)
     media_cols = config['media_columns']
     date_col = config.get('date_column', 'date')
     if kpi_col not in df.columns:

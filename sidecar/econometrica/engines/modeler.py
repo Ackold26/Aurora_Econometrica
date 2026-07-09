@@ -278,6 +278,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         df = pd.read_excel(data_file)
 
     kpi_col = config['kpi_column']
+    # NaN-KPI row filter: drop media-plan tail (future rows where KPI is empty).
+    # Invariant: if no tail exists, notna() == True for all rows → no-op.
+    df = df[df[kpi_col].notna()].reset_index(drop=True)
+
     media_cols = config['media_columns']
     control_cols = config.get('control_columns', [])
     date_col = config.get('date_column', 'date')

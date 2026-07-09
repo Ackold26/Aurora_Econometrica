@@ -296,16 +296,21 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         except Exception:
             pass  # merge_rules optional — fallback к raw df row count.
         kpi_series = df[kpi_col]
-        # NaN values в data_file KPI column → silently corrupt y_actual + downstream
-        # variance/mean computations. Skip repair если data_file has NaN(s) в KPI
-        # rather than introducing NaN'ы. Original pickle y_actual was finite (modeler
-        # validation passed at training time) — preserve canonical training snapshot.
+        # NaN-KPI tail filter: сравниваем только строки истории (notna KPI),
+        # иначе хвост медиаплана раздует y_actual и расхождение длин — ложный repair.
+        # Invariant: если хвоста нет — notna() для всех строк → no-op фильтра.
+        try:
+            history_mask = kpi_series.notna()
+            if history_mask.any():
+                kpi_series = kpi_series[history_mask]
+        except AttributeError:
+            pass  # non-Series fallback — defensive
         try:
             if kpi_series.isna().any():
                 _REPAIR_COUNTERS['skipped_nan_values'] += 1
                 logger.warning(
-                    'y_actual repair skipped: data_file column %r contains %d NaN values. '
-                    'Preserving pickle y_actual (length=%d) as canonical training state.',
+                    'y_actual repair skipped: data_file column %r contains %d NaN values '
+                    'even after tail filter. Preserving pickle y_actual (length=%d).',
                     kpi_col, int(kpi_series.isna().sum()), y_actual_len,
                 )
                 return

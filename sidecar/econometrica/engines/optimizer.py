@@ -367,6 +367,18 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config_model.get('merge_rules'))
 
+    # NaN-KPI row filter: drop media-plan tail before computing current_spend.
+    # Invariant: если хвоста нет — notna() для всех строк → no-op.
+    _kpi_col_opt = config_model.get('kpi_column')
+    if _kpi_col_opt and _kpi_col_opt in df.columns:
+        df = df[df[_kpi_col_opt].notna()].reset_index(drop=True)
+    else:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            'optimizer: kpi_column %r not found in data — NaN-tail filter skipped.',
+            _kpi_col_opt,
+        )
+
     # Phase 2 audit pass 4 - per-channel inflation. Apply BEFORE current_spend
     # money totals computed downstream (current_spend × unit_cost).
     inflation_pct_per_channel = config.get('unit_cost_inflation_pct')
