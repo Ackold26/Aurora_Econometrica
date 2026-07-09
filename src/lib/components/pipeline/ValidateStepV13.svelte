@@ -31,6 +31,8 @@
     validateSubStep,
     // v2.1.0 (пилот 2026-05-17): persist KPI выбор → ConfigPanel.
     chosenKpiColumn,
+    // Фаза 3 (2026-07-10): баннер обнаружения медиаплана.
+    mediaPlanDetected,
   } from '$lib/project-state.js';
   import {
     deriveModeWithExplanation,
@@ -209,6 +211,14 @@
   /** Guard против повторного запуска при reactive updates. */
   let validateAttempted = $state(false);
 
+  // ── Фаза 3: баннер медиаплана (2026-07-10) ────────────────────────────────
+  /** Локальный флаг: пользователь уже ответил на вопрос про медиаплан. */
+  let mediaPlanAnswered = $state(false);
+  /** Видимость баннера подтверждения медиаплана. */
+  const showMediaPlanBanner = $derived(
+    !mediaPlanAnswered && !!$mediaPlanDetected
+  );
+
   async function autoRunValidate() {
     const imp = get(importData);
     if (!imp?.file) {
@@ -235,6 +245,13 @@
         correlationMatrix: res.full_correlation_matrix ?? null,
         columnHistograms: null,
       });
+      // Фаза 3: записываем обнаруженный медиаплан в стор (A6 — явное подтверждение).
+      if (res.media_plan_detected) {
+        mediaPlanDetected.set(res.media_plan_detected);
+        mediaPlanAnswered = false; // сбросить если валидация перезапущена
+      } else {
+        mediaPlanDetected.set(null);
+      }
       // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): НЕ разлочиваем Модель
       // здесь. Авто-валидация показывает результаты (validateData), но Модель
       // (stepMeta[2]) остаётся locked до прохождения CPP-гейта на подшаге «Метрики каналов»
@@ -255,6 +272,22 @@
     validateError = null;
     validateAttempted = false;
     autoRunValidate();
+  }
+
+  // ── Фаза 3: обработчики баннера медиаплана ────────────────────────────────
+
+  /** Пользователь подтвердил: это медиаплан. Оставляем mediaPlanDetected в сторе.
+   *  TODO (backend): econ_confirm_media_plan — вызов Rust когда команда будет готова. */
+  function confirmMediaPlan() {
+    mediaPlanAnswered = true;
+    // Стор mediaPlanDetected уже заполнен; шаг Planning автоматически его прочитает.
+    // econ_confirm_media_plan здесь не вызываем — команда ещё не реализована.
+  }
+
+  /** Пользователь отказался: игнорировать будущие строки. */
+  function dismissMediaPlan() {
+    mediaPlanDetected.set(null);
+    mediaPlanAnswered = true;
   }
 
   /** Reactive auto-trigger - ждёт пока $importData.file populated (race
@@ -1151,6 +1184,36 @@
     <button class="back-link" onclick={goBack}>← Изменить роли колонок</button>
   {/if}
 
+  <!-- Фаза 3 (2026-07-10): баннер обнаружения медиаплана (A6 — явное подтверждение). -->
+  {#if showMediaPlanBanner}
+    {@const mp = $mediaPlanDetected}
+    <div class="media-plan-banner" role="status" aria-live="polite">
+      <div class="mp-banner-icon">📅</div>
+      <div class="mp-banner-content">
+        <p class="mp-banner-title">Найден план на будущее</p>
+        <p class="mp-banner-desc">
+          {mp.n_future_periods} {mp.granularity === 'week' ? 'недель' : 'периодов'}
+          {#if mp.period_labels?.length}
+            ({mp.period_labels[0]} – {mp.period_labels[mp.period_labels.length - 1]})
+          {/if}
+          — это ваш медиаплан?
+        </p>
+      </div>
+      <div class="mp-banner-actions">
+        <button type="button" class="mp-btn-confirm" onclick={confirmMediaPlan}>
+          Да, это медиаплан
+        </button>
+        <button type="button" class="mp-btn-dismiss" onclick={dismissMediaPlan}>
+          Нет, игнорировать
+        </button>
+      </div>
+    </div>
+  {:else if mediaPlanAnswered && !$mediaPlanDetected}
+    <div class="mp-dismissed-note">
+      Будущие строки проигнорированы — шаг «Планирование» будет недоступен.
+    </div>
+  {/if}
+
   {#if validating}
     <div class="validation-loading" role="status" aria-live="polite">
       <div class="loading-spinner" aria-hidden="true"></div>
@@ -1384,6 +1447,66 @@
        уже скроллится. Двойной scroll давал два scrollbar подряд. */
     box-sizing: border-box;
     position: relative;
+  }
+
+  /* Фаза 3: баннер медиаплана */
+  .media-plan-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-accent, #3b82f6) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-accent, #3b82f6) 30%, transparent);
+  }
+  .mp-banner-icon { font-size: 20px; flex-shrink: 0; }
+  .mp-banner-content { flex: 1; min-width: 0; }
+  .mp-banner-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    margin: 0 0 2px;
+  }
+  .mp-banner-desc {
+    font-size: 13px;
+    color: var(--text-secondary, #94a3b8);
+    margin: 0;
+  }
+  .mp-banner-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .mp-btn-confirm {
+    font-size: 13px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: none;
+    background: var(--color-accent, #3b82f6);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .mp-btn-confirm:hover { background: #2563eb; }
+  .mp-btn-dismiss {
+    font-size: 13px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-default, rgba(255,255,255,0.12));
+    background: transparent;
+    color: var(--text-secondary, #94a3b8);
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .mp-btn-dismiss:hover { background: rgba(255,255,255,0.05); }
+  .mp-dismissed-note {
+    font-size: 12px;
+    color: var(--text-tertiary, #64748b);
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 6px;
   }
   /* v2.1.0 (пилот 2026-05-16): обёртка для плавного перехода между под-шагами. */
   .substep-frame {

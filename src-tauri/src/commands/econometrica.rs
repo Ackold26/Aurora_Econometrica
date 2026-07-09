@@ -333,6 +333,10 @@ pub async fn econ_scenario(
     unit_cost_inflation_pct: Option<Value>,
     // v2.1.0 (ADR-021): money equivalents для count KPI scenario forecast.
     kpi_unit_cost: Option<f64>,
+    // planning-mode: даты будущих периодов для инжекта праздников РФ (INT-2/1c);
+    // carry_in — управление переносом adstock-хвоста истории через границу (default true).
+    future_dates: Option<Value>,
+    carry_in: Option<bool>,
 ) -> Result<Value, String> {
     info!("econ_scenario: {scenario_name}");
     let body = serde_json::json!({
@@ -345,6 +349,8 @@ pub async fn econ_scenario(
         "forecast_period_label": forecast_period_label,
         "unit_cost_inflation_pct": unit_cost_inflation_pct,
         "kpi_unit_cost": kpi_unit_cost,
+        "future_dates": future_dates,
+        "carry_in": carry_in,
     });
     post_json("/compute/scenario", &body, quick_client()).await
 }
