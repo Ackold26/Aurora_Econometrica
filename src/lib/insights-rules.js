@@ -421,13 +421,23 @@ export function validateInsights(result, objective = 'roi') {
   }
 
   // ── Общий статус ──
+  // БАГ П5-1а (2026-07-10): ratio-число НЕ дублируем здесь — конкретика по ratio
+  // идёт из блока «Объём данных vs параметры» ниже. Этот блок — только статусный
+  // success/generic-warning без числа, чтобы не было двух инсайтов с разными
+  // тональностями на одно и то же значение ratio.
   if (effectiveStatus === 'ok') {
     out.push({ severity: 'success', text: 'Данные готовы к обучению модели. Структура валидна.' });
   } else if (effectiveStatus === 'warning') {
     if (liveRatio > 0 && liveRatio < 4) {
+      // Ratio-деталь отдаём второму блоку — здесь только краткое «предупреждение»
+      // без числа (иначе дубль: тот же ratio с другой формулировкой).
+      const warnCount = Array.isArray(result.warnings) ? result.warnings.length : 0;
+      const extraWarn = warnCount > 0
+        ? ` Плюс ${warnCount} предупреждени${warnCount === 1 ? 'е' : warnCount < 5 ? 'я' : 'й'} из валидации.`
+        : '';
       out.push({
         severity: 'warning',
-        text: `Ratio ${liveRatio.toFixed(1)}:1 - ниже рекомендованного 4:1. Модель работает, но с широкими доверительными интервалами.`,
+        text: `Данные можно использовать, но с ограничениями — подробности ниже.${extraWarn}`,
         tip: 'Рекомендации по приоритету: (1) объединить парные метрики каналов, (2) конвертировать физические метрики в ₽ через CPP, (3) собрать ≥52 недели данных.',
       });
     } else {
@@ -706,14 +716,25 @@ export function validateInsights(result, objective = 'roi') {
   const VOLUME_KEYS = ['ПОКАЗ','ПРОСМОТР','КЛИК','ВИЗИТ','ПРОЧТЕН','GRP','TRP','OTS','IMPRESSION','CLICK','VIEW','VISIT','READ'];
   const COST_KEYS = ['БЮДЖЕТ','РАСХОД','ЗАТРАТ','СТОИМОСТЬ','SPEND','COST','BUDGET','РУБ'];
 
-  /** @type {Map<string, {volume: any[], cost: any[]}>} */
+  /** @type {Map<string, {volume: any[], cost: any[], displayName: string}>} */
   const channelGroups = new Map();
 
   // Canonical prefix: letters only + truncated to 6 chars (stemming - handles Russian plural vs singular, e.g. "СПЕЦПРОЕКТЫ"/"СПЕЦПРОЕКТ")
+  // Используется ТОЛЬКО как ключ группировки, НЕ для отображения (БАГ П5-2 2026-07-10).
   /** @param {string} leading */
   const canonicalPrefix = (leading) => {
     const m = leading.match(/^[А-ЯЁA-Z]+/);
     return m ? m[0].slice(0, 6) : '';
+  };
+
+  // Отображаемое имя канала: до 14 символов без обрезки букв, потом «…»
+  // Источник — исходное написание имени колонки (не uppercase).
+  /** @param {string} leading @param {string} originalName */
+  const displayPrefix = (leading, originalName) => {
+    // leading — часть имени ДО ключевого слова (в верхнем регистре)
+    // Берём соответствующую часть из оригинального имени
+    const raw = originalName.slice(0, leading.length).trimEnd().replace(/[_\-\s]+$/, '');
+    return raw.length > 14 ? raw.slice(0, 13) + '…' : raw;
   };
 
   for (const c of cols) {
@@ -722,20 +743,27 @@ export function validateInsights(result, objective = 'roi') {
     const upper = (c.name ?? '').toUpperCase();
     // Extract channel prefix: everything before the metric keyword, canonicalized
     let prefix = '';
+    let rawLeading = '';
     let type = '';
     for (const k of VOLUME_KEYS) {
       const idx = upper.indexOf(k);
-      if (idx > 0) { prefix = canonicalPrefix(upper.slice(0, idx)); type = 'volume'; break; }
+      if (idx > 0) { rawLeading = upper.slice(0, idx); prefix = canonicalPrefix(rawLeading); type = 'volume'; break; }
     }
     if (!prefix) {
       for (const k of COST_KEYS) {
         const idx = upper.indexOf(k);
-        if (idx > 0) { prefix = canonicalPrefix(upper.slice(0, idx)); type = 'cost'; break; }
+        if (idx > 0) { rawLeading = upper.slice(0, idx); prefix = canonicalPrefix(rawLeading); type = 'cost'; break; }
       }
     }
     if (!prefix) continue;
 
-    if (!channelGroups.has(prefix)) channelGroups.set(prefix, { volume: [], cost: [] });
+    if (!channelGroups.has(prefix)) {
+      channelGroups.set(prefix, {
+        volume: [],
+        cost: [],
+        displayName: displayPrefix(rawLeading, c.name ?? ''),
+      });
+    }
     const g = channelGroups.get(prefix);
     if (!g) continue;  // unreachable due к has() above, но TS narrowing requires explicit guard
     if (type === 'volume') g.volume.push(c);
@@ -744,7 +772,8 @@ export function validateInsights(result, objective = 'roi') {
 
   /** @type {Insight[]} */
   const channelRecs = [];
-  for (const [prefix, g] of channelGroups) {
+  for (const [, g] of channelGroups) {
+    const prefix = g.displayName;  // П5-2: отображаем полное имя, не обрезанный ключ
     const allCols = [...g.volume, ...g.cost];
     const allZero = allCols.every(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 90);
     const highZero = allCols.every(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 60);
@@ -813,13 +842,33 @@ export function validateInsights(result, objective = 'roi') {
   for (const [, g] of channelGroups) {
     for (const c of [...g.volume, ...g.cost]) groupedNames.add(c.name);
   }
-  const ungroupedZero = mediaCols.filter(/** @param {any} c */ c => !groupedNames.has(c.name) && (c.stats?.zeros_pct ?? 0) > 60);
-  for (const c of ungroupedZero) {
+  // БАГ А5-1 (2026-07-10): расширяем на control-колонки тоже — они тоже бывают
+  // бинарными событийными (black_friday, is_promo и т.п.) и раньше выпадали из
+  // проверки, получая текст «объединить с каналом» через result.warnings.
+  const ungroupedHighZeroCols = [
+    ...mediaCols.filter(/** @param {any} c */ c => !groupedNames.has(c.name) && (c.stats?.zeros_pct ?? 0) > 60),
+    ...controlCols.filter(/** @param {any} c */ c => !groupedNames.has(c.name) && (c.stats?.zeros_pct ?? 0) > 60),
+  ];
+  for (const c of ungroupedHighZeroCols) {
     const pct = c.stats?.zeros_pct ?? 0;
-    if (pct > 90) {
+    // Определяем событийную колонку: бинарная 0/1 (max ≤ 1) ИЛИ имя содержит
+    // типичные маркеры праздников/событий ИЛИ роль — control.
+    // Для событийных нулей — норма: это флаговые колонки, они должны быть в ~90%
+    // нулей, не нужно советовать «объединить с каналом».
+    const isBinaryEvent =
+      c.role === 'control' ||
+      (c.stats?.max != null && Number(c.stats.max) <= 1 && Number(c.stats.min ?? 0) >= 0) ||
+      /black.?friday|holiday|праздн|promo|промо|event|событ|is_|флаг/i.test(String(c.name ?? ''));
+    if (isBinaryEvent) {
+      channelRecs.push({
+        severity: 'info',
+        text: `«${c.name}» – событийная колонка (${pct.toFixed(0)}% нулей – норма для событий). Проверьте, не дублирует ли авто-праздник.`,
+        tip: 'Бинарные флаги (0/1) вроде «чёрная пятница» или «промо» в норме имеют >80% нулей – праздник бывает редко. Если аналогичный праздник уже добавлен автоматически (12 праздников РФ), удалите дубль.',
+      });
+    } else if (pct > 90) {
       channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - исключите.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
     } else {
-      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - объединить или оставить с оговоркой.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
+      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - рассмотрите объединение с похожим каналом или исключение.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
     }
   }
 
@@ -943,35 +992,37 @@ export function validateInsights(result, objective = 'roi') {
     const afterRatio = totalRows / Math.max((mediaCols.length - toExclude.length) + controlCols.length, 1);
 
     if (currentRatio < 2) {
+      // П5-1а: ratio-число НЕ дублируем — блок «Объём данных» уже его сказал.
+      // Здесь только канальный совет: сколько исключить и что станет.
       out.push({
         severity: 'error',
-        text: `Ratio ${currentRatio.toFixed(1)}:1 - критически мало. Нужно ≤${maxChannels} каналов (сейчас ${mediaCols.length}). Исключите ${toExclude.length} слабейших → ratio станет ${afterRatio.toFixed(1)}:1.`,
+        text: `Слишком много каналов: нужно ≤${maxChannels} (сейчас ${mediaCols.length}). Исключите ${toExclude.length} слабейших → ratio вырастет до ${afterRatio.toFixed(1)}:1.`,
         tip: `Будут исключены: ${toExclude.join(', ')}. Это каналы с наибольшей долей нулей, вклад которых модель не сможет оценить надёжно.`,
         action: { type: 'exclude', columns: toExclude, label: `Оптимизировать: оставить ${maxChannels} каналов` },
       });
     } else if (currentRatio < 4) {
+      // П5-1а: убираем ratio-число, фокус на канальном совете.
       out.push({
         severity: 'warning',
-        text: `Ratio ${currentRatio.toFixed(1)}:1 (рекомендуется ≥4:1). Исключите ${toExclude.length} каналов → ratio ${afterRatio.toFixed(1)}:1.`,
+        text: `Много каналов (${mediaCols.length}) — исключите ${toExclude.length} слабейших → ratio вырастет до ${afterRatio.toFixed(1)}:1.`,
         action: { type: 'exclude', columns: toExclude, label: `Оптимизировать до ${maxChannels} каналов` },
       });
     }
   }
 
   // Шаг 3: ratio ok, но есть предупреждения
+  // П5-1а: ratio-число здесь также убираем или оставляем только в «хорошем» случае.
   if (currentRatio >= 4 && mediaCols.length > 0 && kpiCols.length > 0) {
     const warnCount = out.filter(i => i.severity === 'warning').length;
     if (warnCount === 0) {
       out.push({ severity: 'success', text: `Данные готовы к моделированию. ${mediaCols.length} каналов, ratio ${currentRatio.toFixed(1)}:1. Нажмите «Далее».` });
     } else {
-      out.push({ severity: 'info', text: `Ratio ${currentRatio.toFixed(1)}:1 - допустимо. ${warnCount} предупреждений не блокируют моделирование, но могут снизить точность.` });
+      out.push({ severity: 'info', text: `${warnCount} предупреждений не блокируют моделирование, но могут снизить точность.` });
     }
   } else if (currentRatio >= 2 && currentRatio < 4 && excessChannels <= 0 && kpiCols.length > 0) {
-    out.push({
-      severity: 'warning',
-      text: `Ratio ${currentRatio.toFixed(1)}:1 - на грани. Модель посчитает, но доверительные интервалы будут широкими. Для надёжных результатов нужно ≥52 наблюдения.`,
-      tip: 'Байесовский подход (PyMC) работает лучше частотного при малых выборках, но не творит чудеса. Интерпретируйте результаты осторожно.',
-    });
+    // П5-1а: этот инсайт-дубль убираем целиком — блок «Объём данных» уже дал
+    // конкретный warning с ratio-числом и советом. Двойной warning запутывал.
+    // Ничего не добавляем.
   }
 
   return out;

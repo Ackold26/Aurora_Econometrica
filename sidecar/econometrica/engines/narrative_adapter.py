@@ -417,11 +417,11 @@ def derive_action_headline(
     media_pct = facts.get("media_contribution_pct")
     if honest and media_pct is not None:
         if slide_hint == "mroas":
-            return f"Низкая инкрементальность медиа ({media_pct:.1f}% от продаж) - проверить adstock и saturation"
+            return f"Низкая инкрементальность медиа ({media_pct:.1f}% от продаж) – проверить отложенный эффект (adstock) и насыщение"  # П8-2 П8-1
         if slide_hint == "portfolio":
-            return "Все каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
+            return "Все каналы под breakeven – рассмотреть сокращение медиа или диагностику данных"  # П8-1
         if slide_hint == "timeline":
-            return f"Медиа-вклад {media_pct:.1f}% - модель преимущественно объясняет продажи через baseline"
+            return f"Медиа-вклад {media_pct:.1f}% – модель преимущественно объясняет продажи через базовый спрос"  # П8-2 П8-1
         if slide_hint == "scqar":
             return "Перед перераспределением: диагностика низкой инкрементальности медиа"
 
@@ -500,9 +500,9 @@ def derive_action_headline(
         # строится из реального числа (доля лидера в медиа-вкладе) без обещаний.
         share = facts.get("leader_share_contrib_pct")
         if leader and share is not None:
-            return f"{leader} - {share:.0f}% медиа-вклада: контролировать динамику и признаки насыщения"
+            return f"{leader} – {share:.0f}% медиа-вклада: контролировать динамику и признаки насыщения"  # П8-1
         if leader:
-            return f"Контролировать динамику {leader} - опора медиа-вклада портфеля"
+            return f"Контролировать динамику {leader} – опора медиа-вклада портфеля"  # П8-1
         return "Динамика вкладов: базовый уровень и медиа по периодам"
 
     if slide_hint == "scqar":

@@ -630,12 +630,12 @@ def render_at_a_glance(ctx: dict) -> str:
 
         if honest and media_pct is not None and baseline_pct is not None:
             f1 = (
-                f"Медиа-вклад {_fmt_pct(media_pct)}, baseline {_fmt_pct(baseline_pct)} - "
-                f"модель преимущественно объясняет продажи через organic baseline"
+                f"Медиа-вклад {_fmt_pct(media_pct)}, базовый спрос {_fmt_pct(baseline_pct)} – "  # П8-2 П8-1
+                f"модель преимущественно объясняет продажи через organic"  # П8-2
             )
             f1_sup = (
-                f"{leader} - лидер среди медиа "
-                f"({_fmt_pct(facts.get('leader_share_contrib_pct'))} media-вклада)"
+                f"{leader} – лидер среди медиа "  # П8-1
+                f"({_fmt_pct(facts.get('leader_share_contrib_pct'))} медиа-вклада)"  # П8-2
             )
         else:
             # N1 (Phase 0.1): pre-format pct values to avoid {x:.0f} rounding
@@ -794,7 +794,7 @@ def render_at_a_glance(ctx: dict) -> str:
   <div class="chart-title-bar">
     <div>
       <div class="chart-title">Декомпозиция продаж · вклад компонент</div>
-      <div class="chart-subtitle">Baseline + вклад каналов = итоговые продажи</div>
+      <div class="chart-subtitle">Базовый спрос + вклад каналов = итоговые продажи</div>  <!-- П8-2 -->
     </div>
     <button class="btn-inline" data-copy-chart="chart-waterfall">Сохранить PNG</button>
   </div>
@@ -853,16 +853,16 @@ def render_key_message(ctx: dict) -> str:
 
         if honest and media_pct is not None and baseline_pct is not None:
             title = (
-                "Модель преимущественно отражает baseline - "
+                "Модель преимущественно отражает базовый спрос – "  # П8-2 П8-1
                 "медиа-вклад ограничен"
             )
             big = _fmt_pct(media_pct)
             big_label = "Медиа-вклад в продажи"
-            big_support = f"Baseline: {_fmt_pct(baseline_pct)} · {portfolio_phrase}"
+            big_support = f"Базовый спрос: {_fmt_pct(baseline_pct)} · {portfolio_phrase}"  # П8-2
             quote = (
-                f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
-                f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
-                "Низкий вклад медиа - проверить adstock, насыщение, качество данных."
+                f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
+                f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
+                "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
             )
         else:
             title = strings["action_titles"]["s05_default"].format(leader=leader)
@@ -876,7 +876,7 @@ def render_key_message(ctx: dict) -> str:
                     "Сигнал к reallocate части бюджета."
                 )
             else:
-                quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."
+                quote = f"{leader} – лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."  # П8-1
     else:
         title = "Главный вывод появится после обучения модели"
         big = "-"
@@ -1366,11 +1366,11 @@ def render_recommendation(ctx: dict) -> str:
             # action='Cut' channels listed → customer sees full picture.
             action_03_text = (
                 f"Перевести бюджет из {', '.join(underperf)} согласно вердиктам, "
-                "затем сверить эффект после следующего периода данных (KPI vs baseline)."
+                "затем сверить эффект после следующего периода данных (KPI против базового спроса)."
             )
         else:
             action_03_text = (
-                "Сверить эффект после следующего периода данных (KPI vs baseline) - "
+                "Сверить эффект после следующего периода данных (KPI против базового спроса) – "
                 "перезапустить MMM с обновлёнными данными для калибровки модели."
             )
 
@@ -1383,9 +1383,9 @@ def render_recommendation(ctx: dict) -> str:
     else:
         title = "Рекомендация появится после оптимизации"
         actions = [
-            ("01", "Перебалансировать бюджет.", "Из лидера в hero-канал по mROAS"),
+            ("01", "Перебалансировать бюджет.", "Из лидера в самый отзывчивый канал по mROAS"),
             ("02", "Контролировать насыщение.", "По каналам с mROAS < 1×"),
-            ("03", "Сверить прогноз с фактом.", "KPI vs baseline после применения"),
+            ("03", "Сверить прогноз с фактом.", "KPI против базового спроса после применения"),
         ]
         lift_val = 0
 
@@ -1561,7 +1561,7 @@ def render_methodology(ctx: dict) -> str:
         else _ats["s10_methodology"]
     )
     _prior_note = (
-        "Параметры adstock и насыщения: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=200 для CI."
+        "Параметры отложенного эффекта (adstock) и насыщения: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=200 для CI."  # П8-2
         if is_ols
         else meth["prior_note"]
     )

@@ -397,7 +397,7 @@ class AuroraPPTXBuilder:
         ]
         if takeaway:
             _t = takeaway if len(takeaway) <= 120 else takeaway[:117] + "…"
-            runs.append((f"  —  {_t}",
+            runs.append((f"  –  {_t}",  # П8-1: en-dash вместо em-dash в section_intro
                          {"font": self.sans, "size": 9, "italic": True, "color": self.deep_60}))
         self._rich(slide, text_x, 0.56, self.w - text_x - self.safe, 0.2, runs=runs)
 
@@ -852,8 +852,8 @@ class AuroraPPTXBuilder:
         # Honest mode: baseline-dominated → disclose actual media share, not
         # leader's share-of-media (misleading "X% sales" phrasing).
         if honest and media_pct is not None and baseline_pct is not None:
-            f1 = f"Медиа-вклад {_fmt_pct(media_pct)}, baseline {_fmt_pct(baseline_pct)} - модель объясняет продажи через organic"
-            s1 = f"{leader} - лидер среди медиа ({_fmt_pct(leader_contrib_pct)} media-вклада)" if leader_contrib_pct is not None else f"{leader} - лидер среди медиа"
+            f1 = f"Медиа-вклад {_fmt_pct(media_pct)}, базовый спрос {_fmt_pct(baseline_pct)} – модель объясняет продажи через organic"  # П8-2
+            s1 = f"{leader} – лидер среди медиа ({_fmt_pct(leader_contrib_pct)} медиа-вклада)" if leader_contrib_pct is not None else f"{leader} – лидер среди медиа"  # П8-2
         else:
             if leader_contrib_pct is not None and leader_spend_pct is not None:
                 # B1-fix R-12 (2026-07-03): leader_share_contrib_pct — доля в
@@ -1188,7 +1188,7 @@ class AuroraPPTXBuilder:
              "Предельный ROI падает на 22% относительно IV кв. 2025"),
             ("03", "Digital video - самый эффективный канал с mROAS 1.9×",
              "Текущий бюджет на нём меньше 15%"),
-            ("04", "Базовый уровень растёт на 8% год к году - кампании работают на долгосроке",
+            ("04", "Базовый уровень растёт на 8% год к году – кампании работают на долгосроке",  # П8-1
              "Бренд-эффект виден в динамике"),
             ("05", "Рекомендация: перераспределить 25 млн из TV в digital video",
              "Ожидаемый прирост ROAS: +12 пп к III-IV кв. 2026"),
@@ -1407,12 +1407,12 @@ class AuroraPPTXBuilder:
             self._render_section_divider(
                 slide_num=10,
                 takeaway=(
-                    "Линейная регрессия с adstock и Hill-насыщением - "
+                    "Линейная регрессия с отложенным эффектом (adstock) и Hill-насыщением – "  # П8-2 П8-1
                     "прозрачная математическая модель с bootstrap-интервалами"
                 ),
                 topics=[
                     "Спецификация модели и уравнение отклика",
-                    "Параметры adstock и насыщения (фиксированные)",
+                    "Параметры отложенного эффекта (adstock) и насыщения (фиксированные)",  # П8-2
                     "Диагностика OLS · closed-form · bootstrap CI",
                 ],
             )
@@ -1502,17 +1502,17 @@ class AuroraPPTXBuilder:
             if honest and media_pct is not None and baseline_pct is not None:
                 # Honest narrative: baseline-dominated model (media < 10%).
                 # Disclose this rather than leading with leader's media-share.
-                title = "Модель преимущественно отражает baseline - медиа-вклад ограничен"
+                title = "Модель преимущественно отражает базовый спрос – медиа-вклад ограничен"  # П8-2 П8-1
                 big_number = _fmt_pct(media_pct)
                 big_label = "Медиа-вклад в продажи"
                 big_support = (
-                    f"Baseline: {_fmt_pct(baseline_pct)}. {portfolio_phrase}."
-                    if portfolio_phrase else f"Baseline: {_fmt_pct(baseline_pct)}."
+                    f"Базовый спрос: {_fmt_pct(baseline_pct)}. {portfolio_phrase}."  # П8-2
+                    if portfolio_phrase else f"Базовый спрос: {_fmt_pct(baseline_pct)}."  # П8-2
                 )
                 quote_txt = (
-                    f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
-                    f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
-                    "Низкий вклад медиа - проверить adstock, насыщение, качество данных."
+                    f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
+                    f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
+                    "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
                 )
             else:
                 # Action title - leader's position statement
@@ -2716,12 +2716,12 @@ class AuroraPPTXBuilder:
                         )
                     elif scale_dest and realloc >= 1:
                         action_01_body = (
-                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ - "
+                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ – "  # П8-1
                             "за счёт roll-over бюджета или дополнительных средств."
                         )
                     elif cut_source and realloc >= 1:
                         action_01_body = (
-                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) - "
+                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) – "  # П8-1
                             "текущая аллокация неэффективна."
                         )
                     elif hero != leader and realloc >= 1:
@@ -2856,13 +2856,13 @@ class AuroraPPTXBuilder:
         # B4-2: плашка секции вместо отдельного слайда-дивайдера.
         self._section_intro(
             slide, 3, "Методология",
-            "Байесовская MMM с адстоком и Hill-насыщением - прозрачная модель с интервалами доверия",
+            "Байесовская MMM с отложенным эффектом и Hill-насыщением – прозрачная модель с интервалами доверия",  # П8-1
         )
 
         _title_text = (
-            "OLS MMM с adstock + Hill-насыщением (closed-form + bootstrap CI)"
+            "OLS MMM с отложенным эффектом (adstock) + Hill-насыщением (closed-form + bootstrap CI)"  # П8-2
             if self.is_ols
-            else "Байесовская MMM с adstock + Hill-насыщением"
+            else "Байесовская MMM с отложенным эффектом (adstock) + Hill-насыщением"  # П8-2
         )
         self._action_title(
             slide,
@@ -3020,7 +3020,7 @@ class AuroraPPTXBuilder:
             # B1-fix R-06: «12+ FMCG-проектов Aurora» — недоказуемое заявление
             # (INV-50); честная формулировка о слабоинформативных приорах.
             _bottom_note = (
-                "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные."
+                "Параметры отложенного эффекта (adstock)/насыщения: индустриальные бенчмарки OLS MMM, фиксированные."  # П8-2
                 if self.is_ols
                 else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
             )
@@ -3028,7 +3028,7 @@ class AuroraPPTXBuilder:
         else:
             # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
             _bottom_note2 = (
-                "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные."
+                "Параметры отложенного эффекта (adstock)/насыщения: индустриальные бенчмарки OLS MMM, фиксированные."  # П8-2
                 if self.is_ols
                 else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
             )

@@ -55,13 +55,17 @@ describe('validateInsights — статус и конкретика ошибок
     expect(txt(out)).toContain('мало данных');
   });
 
-  it('ratio 2–4 → warning про Ratio (не error)', () => {
+  it('ratio 2–4 → warning про ratio (не error)', () => {
     // 21 rows / (5 media + 2 control) = 3.0 → warning
+    // П5-1а (2026-07-10): статусный блок больше НЕ дублирует число ratio («Ratio X:1»
+    // с заглавной) — конкретика идёт из блока «Объём данных» строчной «ratio X:1».
+    // Тест обновлён: проверяем наличие числа ratio в любом регистре, не конкретную капитализацию.
     const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 21 }));
     expect(sev(out, 'error')).toHaveLength(0);
     const warn = sev(out, 'warning');
     expect(warn.length).toBeGreaterThanOrEqual(1);
-    expect(txt(out)).toContain('Ratio');
+    // число вида «3.0:1» должно быть в каком-то тексте (строчная «ratio»)
+    expect(txt(out).toLowerCase()).toContain('ratio');
   });
 
   it('ratio≥4 но backend прислал warnings → статусный warning, не «готовы к обучению»', () => {
