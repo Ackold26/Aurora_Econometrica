@@ -76,7 +76,7 @@
         try {
           const stripped = {
             ...option,
-            series: (option.series ?? []).map((s) => {
+            series: (option.series ?? []).map((/** @type {any} */ s) => {
               const { universalTransition, ...rest } = s ?? {};
               return rest;
             }),
