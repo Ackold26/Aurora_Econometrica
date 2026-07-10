@@ -638,8 +638,9 @@ Weibull (плавный нарастающий эффект):
             <div class="adstock-row">
               <span class="adstock-name">{ch}</span>
               <select class="config-select-sm" bind:value={channelAdstock[ch]}>
-                <option value="geometric">Геометрический (быстрое затухание)</option>
-                <option value="weibull">Вейбулл (долгий след)</option>
+                <option value="auto">Авто (подберётся при обучении)</option>
+                <option value="geometric">Геометрический – быстрое затухание</option>
+                <option value="weibull">Вейбулл – долгий след</option>
               </select>
             </div>
           {/each}

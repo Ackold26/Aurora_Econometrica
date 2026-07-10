@@ -9,6 +9,7 @@
   import { onMount } from 'svelte';
   import { TriangleAlert, Check } from 'lucide-svelte';
   import { declaredPairKeys, isDeclaredPair } from '$lib/channel-pairs.js';
+  import { abbreviateLabel } from '$lib/correlation-utils.js';
 
   /**
    * @type {{
@@ -138,7 +139,7 @@
     ctx.textBaseline = 'middle';
     for (let i = 0; i < n; i++) {
       const y = LABEL_H + i * CELL + CELL / 2;
-      const label = labels[i].length > 12 ? labels[i].slice(0, 11) + '…' : labels[i];
+      const label = abbreviateLabel(labels[i], 14, 7, 6);
       ctx.fillText(label, LABEL_W - 5, y);
     }
 
@@ -150,7 +151,7 @@
     ctx.textBaseline = 'middle';
     for (let j = 0; j < n; j++) {
       const x = LABEL_W + j * CELL + CELL / 2;
-      const label = labels[j].length > 10 ? labels[j].slice(0, 9) + '…' : labels[j];
+      const label = abbreviateLabel(labels[j], 14, 7, 6);
       ctx.save();
       ctx.translate(x, LABEL_H - 6);
       ctx.rotate(-Math.PI / 4);
