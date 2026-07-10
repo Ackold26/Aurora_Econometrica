@@ -421,6 +421,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         _media_hints = [
             c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'media'
         ]
+        # F-AVT-1 (2026-07-10, живой прогон): role-детекция по имени не ловит
+        # кириллические/нестандартные каналы («ТВ»/«Онлайн-видео» → unknown) —
+        # типичный русский клиент. Тогда channels пустой → медиаплан не читается.
+        # Fallback: media-кандидаты = числовые колонки кроме даты и KPI (в хвосте
+        # это инвестиции медиаплана). detect_media_plan_tail сам проверит заполненность.
+        if not _media_hints and _date_col_hint and _kpi_col_hint:
+            _media_hints = [
+                c for c in df.columns
+                if c not in (_date_col_hint, _kpi_col_hint)
+                and pd.api.types.is_numeric_dtype(df[c])
+            ]
         if _date_col_hint and _kpi_col_hint:
             _tail_result = detect_media_plan_tail(df, _date_col_hint, _kpi_col_hint, _media_hints)
             if _tail_result.get('found'):
