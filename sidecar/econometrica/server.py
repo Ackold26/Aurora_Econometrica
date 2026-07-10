@@ -1603,6 +1603,54 @@ def delete_scenario(req: ScenarioDeleteRequest):
 
 
 # ──────────────────────────────────────────────────────────────────
+# Planning mode: шаблон медиаплана + подтверждение
+# ──────────────────────────────────────────────────────────────────
+
+
+class MediaPlanTemplateRequest(BaseModel):
+    project_dir: str
+    n_future_periods: int = Field(default=12, ge=1, le=120)
+
+
+@app.post('/compute/media-plan-template')
+def media_plan_template_endpoint(req: MediaPlanTemplateRequest):
+    """Генерирует Excel-шаблон медиаплана: история + N пустых строк будущего.
+
+    Читает модель из models/latest.pkl, исходный файл из data_file модели,
+    строит xlsx с продолженными датами и пустыми медиа/KPI колонками.
+    Возвращает {status, path} или {status: 'error', message}.
+    """
+    from engines.planning import generate_media_plan_template
+    try:
+        result = generate_media_plan_template(req.project_dir, req.n_future_periods)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('media_plan_template: ошибка')
+        return JSONResponse(content={'status': 'error', 'message': _friendly_error(e)})
+
+
+class ConfirmMediaPlanRequest(BaseModel):
+    project_dir: str
+    confirmed: bool
+
+
+@app.post('/compute/confirm-media-plan')
+def confirm_media_plan_endpoint(req: ConfirmMediaPlanRequest):
+    """Устанавливает поле confirmed в results/media_plan.json.
+
+    При confirmed=True — медиаплан принят, False — отклонён.
+    Возвращает {status: 'ok'} или {status: 'error', message}.
+    """
+    from engines.planning import confirm_media_plan
+    try:
+        result = confirm_media_plan(req.project_dir, req.confirmed)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('confirm_media_plan: ошибка')
+        return JSONResponse(content={'status': 'error', 'message': _friendly_error(e)})
+
+
+# ──────────────────────────────────────────────────────────────────
 # Sprint 3 Pharma Causal - endpoints (M1 ship)
 # ──────────────────────────────────────────────────────────────────
 

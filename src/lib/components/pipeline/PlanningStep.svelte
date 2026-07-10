@@ -320,11 +320,37 @@
 
   // ── Скачать шаблон медиаплана ─────────────────────────────────────────────
 
+  /** @type {string | null} */
+  let templateError = $state(null);
+  /** @type {boolean} */
+  let templateLoading = $state(false);
+
   async function downloadTemplate() {
-    // TODO (backend): econ_download_media_plan_template — Rust-команда для генерации
-    // шаблона Excel с будущими строками на основе каналов текущей модели.
-    // Graceful fallback: показываем сообщение пользователю.
-    alert('Скачивание шаблона: команда бэкенда econ_download_media_plan_template ещё не реализована.');
+    const projectDir = await getProjectDir();
+    if (!projectDir) {
+      templateError = 'Не удалось определить папку проекта.';
+      return;
+    }
+    templateLoading = true;
+    templateError = null;
+    try {
+      const res = /** @type {{ status: string, path?: string, message?: string }} */ (
+        await invoke('econ_download_media_plan_template', {
+          projectDir,
+          nFuturePeriods: nFuturePeriods ?? 12,
+        })
+      );
+      if (res.status === 'ok' && res.path) {
+        // Показываем файл в проводнике (reveal_path — Windows explorer /select,<path>)
+        try { await invoke('reveal_path', { path: res.path }); } catch { /* no-op */ }
+      } else {
+        templateError = res.message || 'Не удалось создать шаблон.';
+      }
+    } catch (/** @type {any} */ e) {
+      templateError = String(e?.message || e);
+    } finally {
+      templateLoading = false;
+    }
   }
 
   // ── Вердикт: эвристика перекрытия ДИ ─────────────────────────────────────
@@ -449,11 +475,14 @@
           В файле не обнаружен медиаплан на будущее.
           Создайте вариант от оптимального распределения или загрузите шаблон.
         </p>
-        <!-- U5: скачать шаблон (TODO backend) -->
+        <!-- U5: скачать шаблон медиаплана -->
         <button type="button" class="btn-template" onclick={downloadTemplate}
-          title="Команда бэкенда econ_download_media_plan_template ещё не реализована — TODO">
-          Скачать шаблон медиаплана
+          disabled={templateLoading}>
+          {templateLoading ? 'Создаём шаблон...' : 'Скачать шаблон медиаплана'}
         </button>
+        {#if templateError}
+          <p class="template-error" role="alert">{templateError}</p>
+        {/if}
       </div>
     </section>
   {/if}

@@ -276,18 +276,30 @@
 
   // ── Фаза 3: обработчики баннера медиаплана ────────────────────────────────
 
-  /** Пользователь подтвердил: это медиаплан. Оставляем mediaPlanDetected в сторе.
-   *  TODO (backend): econ_confirm_media_plan — вызов Rust когда команда будет готова. */
-  function confirmMediaPlan() {
+  /** Пользователь подтвердил: это медиаплан. Вызывает econ_confirm_media_plan(confirmed=true). */
+  async function confirmMediaPlan() {
     mediaPlanAnswered = true;
     // Стор mediaPlanDetected уже заполнен; шаг Planning автоматически его прочитает.
-    // econ_confirm_media_plan здесь не вызываем — команда ещё не реализована.
+    const pid = get(activeProjectId);
+    if (pid) {
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
+        await invoke('econ_confirm_media_plan', { projectDir, confirmed: true });
+      } catch { /* non-fatal — store state достаточен для UI */ }
+    }
   }
 
-  /** Пользователь отказался: игнорировать будущие строки. */
-  function dismissMediaPlan() {
+  /** Пользователь отказался: игнорировать будущие строки. Вызывает econ_confirm_media_plan(confirmed=false). */
+  async function dismissMediaPlan() {
     mediaPlanDetected.set(null);
     mediaPlanAnswered = true;
+    const pid = get(activeProjectId);
+    if (pid) {
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
+        await invoke('econ_confirm_media_plan', { projectDir, confirmed: false });
+      } catch { /* non-fatal */ }
+    }
   }
 
   /** Reactive auto-trigger - ждёт пока $importData.file populated (race

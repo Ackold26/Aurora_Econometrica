@@ -430,3 +430,216 @@ def load_saved_forecast(project_dir: str) -> dict[str, Any] | None:
         'accepted_variant': accepted_variant,
         'disclaimers': all_disclaimers,
     }
+
+
+# ─── Шаблон медиаплана ───────────────────────────────────────────────────────
+
+
+def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -> dict[str, Any]:
+    """Генерирует Excel-шаблон медиаплана на основе обученной модели.
+
+    Логика:
+    1. Читает models/latest.pkl → получает media_columns, kpi_column, date_column, data_file.
+    2. Читает data_file через load_frames → историческая часть.
+    3. Строит Excel: все исторические строки как есть + n_future_periods строк будущего:
+       - даты продолжены от последней исторической с правильной гранулярностью,
+       - медиа-колонки и KPI — пустые (NaN).
+    4. Атомарная запись в <project_dir>/exports/media_plan_template.xlsx.
+    5. Возвращает {'status': 'ok', 'path': '<абс. путь к файлу>'}.
+
+    Ошибки: {'status': 'error', 'message': '...'}.
+    """
+    import tempfile
+
+    import openpyxl
+
+    base = Path(project_dir)
+    model_path = base / "models" / "latest.pkl"
+    if not model_path.exists():
+        return {"status": "error", "message": "Модель не найдена: models/latest.pkl. Сначала обучите модель."}
+
+    # F-AVT-3 (2026-07-10): модели Econometrica сохраняются кастомным pickle
+    # (persistent_id для posterior) — голый pickle.load падает на реальных моделях.
+    # Грузим через централизованный compat-хелпер (как scenario/decomposer).
+    try:
+        from engines.persistence import load_model_with_compat
+        model_obj = load_model_with_compat(model_path)
+    except Exception as e:
+        return {"status": "error", "message": f"Не удалось загрузить модель: {e}"}
+
+    # Мета-данные лежат в model_obj['config'] (реальный формат), с fallback
+    # на корень dict (упрощённые тестовые pickle) и на __dict__ (объекты).
+    if isinstance(model_obj, dict):
+        config = model_obj.get("config") if isinstance(model_obj.get("config"), dict) else model_obj
+    elif hasattr(model_obj, "__dict__"):
+        config = model_obj.__dict__
+    else:
+        config = {}
+
+    media_columns: list[str] = list(config.get("media_columns") or config.get("channel_columns") or [])
+    kpi_column: str = str(config.get("kpi_column") or config.get("target_column") or "sales")
+    date_column: str = str(config.get("date_column") or "date")
+    data_file: str | None = config.get("data_file") or config.get("file_path")
+    control_columns: list[str] = list(config.get("control_columns") or [])
+
+    if not data_file or not Path(data_file).exists():
+        # Пробуем найти data_file в project_dir
+        for ext in ("*.xlsx", "*.xls", "*.csv"):
+            candidates = list((base / "data").glob(ext)) + list(base.glob(ext))
+            if candidates:
+                data_file = str(candidates[0])
+                break
+
+    if not data_file or not Path(data_file).exists():
+        return {"status": "error", "message": "Исходный файл данных не найден. Загрузите данные снова."}
+
+    # F-AVT-3: config не всегда хранит date_column (обучение его не сохраняет) —
+    # детектим колонку даты из файла, если дефолт 'date' в нём отсутствует.
+    try:
+        _probe = (
+            pd.read_excel(data_file, nrows=0)
+            if str(data_file).endswith((".xlsx", ".xls"))
+            else pd.read_csv(data_file, nrows=0)
+        )
+        if date_column not in _probe.columns:
+            from engines.validator import detect_column_role_with_confidence as _role
+            _date_cands = [c for c in _probe.columns if _role(str(c))[0] == "date"]
+            date_column = _date_cands[0] if _date_cands else None
+    except Exception:
+        date_column = None if date_column not in ("date",) else date_column
+
+    try:
+        frames = load_frames(data_file, date_col=date_column, kpi_col=kpi_column, media_cols=media_columns or None)
+    except Exception as e:
+        return {"status": "error", "message": f"Не удалось прочитать файл данных: {e}"}
+    # Резолвим фактическую колонку даты (load_frames мог авто-детектить при None)
+    if not date_column or date_column not in frames["history_df"].columns:
+        _hist_cols = list(frames["history_df"].columns)
+        from engines.validator import detect_column_role_with_confidence as _role2
+        _dc = [c for c in _hist_cols if _role2(str(c))[0] == "date"]
+        date_column = _dc[0] if _dc else _hist_cols[0]
+
+    history_df: "pd.DataFrame" = frames["history_df"]
+    if history_df.empty:
+        return {"status": "error", "message": "Исторические данные пусты — нечего продолжать."}
+
+    # Определяем гранулярность по истории
+    from utils.forecast_validation import detect_granularity  # SSOT
+
+    gran_result = detect_granularity(history_df[date_column])
+    granularity: str = gran_result.get("granularity", "M")
+
+    # Строим будущие даты
+    last_date = pd.to_datetime(history_df[date_column].dropna().iloc[-1])
+    future_dates: list["pd.Timestamp"] = []
+    cur = last_date
+    for _ in range(n_future_periods):
+        cur = _expected_next(cur, granularity)
+        future_dates.append(cur)
+
+    # Все колонки: дата + KPI + медиа + контроли
+    all_cols = [date_column, kpi_column] + media_columns + [c for c in control_columns if c not in media_columns]
+    # Убираем дубли, сохраняем порядок
+    seen: set[str] = set()
+    ordered_cols: list[str] = []
+    for c in all_cols:
+        if c not in seen and c in history_df.columns:
+            ordered_cols.append(c)
+            seen.add(c)
+    # Добавляем колонки из истории, которые не попали
+    for c in history_df.columns:
+        if c not in seen:
+            ordered_cols.append(c)
+            seen.add(c)
+
+    # Строим Excel через openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Медиаплан"
+
+    # Заголовок
+    ws.append(ordered_cols)
+
+    # Исторические строки как есть
+    for _, row in history_df[ordered_cols].iterrows():
+        ws.append([
+            (v.date() if isinstance(v, pd.Timestamp) else (None if pd.isna(v) else v))
+            for v in row
+        ])
+
+    # Будущие строки: дата заполнена, всё остальное — пусто
+    for fd in future_dates:
+        future_row: list[Any] = []
+        for col in ordered_cols:
+            if col == date_column:
+                future_row.append(fd.date())
+            else:
+                future_row.append(None)
+        ws.append(future_row)
+
+    # Атомарная запись
+    exports_dir = base / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    out_path = exports_dir / "media_plan_template.xlsx"
+
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=exports_dir, prefix=".mpt_", suffix=".tmp")
+    try:
+        import os as _os
+        _os.close(tmp_fd)
+        wb.save(tmp_name)
+        _os.replace(tmp_name, out_path)
+    except Exception:
+        try:
+            import os as _os2
+            _os2.unlink(tmp_name)
+        except Exception:
+            pass
+        raise
+
+    logger.info("media_plan_template: записан %s (%d history + %d future)", out_path, len(history_df), n_future_periods)
+    return {"status": "ok", "path": str(out_path)}
+
+
+# ─── Подтверждение медиаплана ─────────────────────────────────────────────────
+
+
+def confirm_media_plan(project_dir: str, confirmed: bool) -> dict[str, Any]:
+    """Устанавливает поле 'confirmed' в results/media_plan.json.
+
+    Аргументы:
+        project_dir: абсолютный путь к папке проекта.
+        confirmed: True — медиаплан подтверждён, False — отклонён/проигнорирован.
+
+    Возвращает {'status': 'ok'} или {'status': 'error', 'message': '...'}.
+    Атомарная запись через tempfile.mkstemp + os.replace.
+    """
+    import os as _os
+    import tempfile
+
+    mp_path = Path(project_dir) / "results" / "media_plan.json"
+    if not mp_path.exists():
+        return {"status": "error", "message": "media_plan.json not found"}
+
+    try:
+        with open(mp_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        return {"status": "error", "message": f"Не удалось прочитать media_plan.json: {e}"}
+
+    data["confirmed"] = confirmed
+
+    mp_dir = mp_path.parent
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=mp_dir, prefix=".mp_confirm_", suffix=".tmp")
+    try:
+        with open(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        _os.replace(tmp_name, mp_path)
+    except Exception:
+        try:
+            _os.unlink(tmp_name)
+        except Exception:
+            pass
+        raise
+
+    logger.info("confirm_media_plan: confirmed=%s записан в %s", confirmed, mp_path)
+    return {"status": "ok"}

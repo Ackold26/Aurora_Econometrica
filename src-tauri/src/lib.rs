@@ -3312,6 +3312,9 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_causal_did,
             commands::econometrica::econ_causal_scm,
             commands::econometrica::econ_causal_forest,
+            // Planning mode commands (feat/econ-planning-mode)
+            commands::econometrica::econ_download_media_plan_template,
+            commands::econometrica::econ_confirm_media_plan,
             // Project management commands
             commands::project::project_list,
             commands::project::project_create,

@@ -889,6 +889,45 @@ pub async fn econ_save_kpi_settings(
     post_json("/project/save_kpi_settings", &body, quick_client()).await
 }
 
+/// Planning mode: генерация Excel-шаблона медиаплана.
+///
+/// Читает обученную модель, строит xlsx с историческими строками
+/// и N пустыми строками будущего (даты продолжены, медиа/KPI пусты).
+/// Атомарная запись в <project_dir>/exports/media_plan_template.xlsx.
+/// Возвращает {status, path} — path используется для reveal_path.
+#[tauri::command]
+pub async fn econ_download_media_plan_template(
+    project_dir: String,
+    n_future_periods: Option<i64>,
+) -> Result<Value, String> {
+    info!("econ_download_media_plan_template: {project_dir} n={n_future_periods:?}");
+    validate_project_dir(&project_dir)?;
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "n_future_periods": n_future_periods.unwrap_or(12),
+    });
+    post_json("/compute/media-plan-template", &body, quick_client()).await
+}
+
+/// Planning mode: подтверждение/отклонение медиаплана.
+///
+/// Записывает confirmed=true/false в results/media_plan.json.
+/// confirmed=true → медиаплан принят, шаг Планирования будет активен.
+/// confirmed=false → медиаплан проигнорирован.
+#[tauri::command]
+pub async fn econ_confirm_media_plan(
+    project_dir: String,
+    confirmed: bool,
+) -> Result<Value, String> {
+    info!("econ_confirm_media_plan: {project_dir} confirmed={confirmed}");
+    validate_project_dir(&project_dir)?;
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "confirmed": confirmed,
+    });
+    post_json("/compute/confirm-media-plan", &body, quick_client()).await
+}
+
 async fn parse_resp(resp: reqwest::Response, path: &str) -> Result<Value, String> {
     let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("Не удалось прочитать ответ: {e}"))?;
