@@ -169,7 +169,7 @@
   const activeDisclaimers = $derived.by(() => {
     const last = variants[variants.length - 1];
     if (last?.disclaimers?.length) return last.disclaimers;
-    return ['прогноз составлен при неизменных прочих условиях (ceteris paribus)'];
+    return ['прогноз составлен при неизменных прочих условиях: цена, дистрибуция и активность конкурентов приняты на историческом среднем'];
   });
 
   // ── Инициализация слайдеров из optimizeData ───────────────────────────────

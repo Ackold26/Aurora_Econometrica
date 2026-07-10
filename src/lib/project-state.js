@@ -1246,6 +1246,12 @@ async function restoreProjectResults(pid) {
  */
 function reconcileStepMetaFromDisk(flags) {
   const { hasValidation, hasModel, hasDecompose, hasOptimize, hasPlanning = false } = flags;
+  // Правило Антона (приёмка 2026-07-10): шаг «Планирование» активируется ТОЛЬКО
+  // когда медиаплан найден И подтверждён на Валидации; иначе он заперт, и после
+  // Оптимизации пользователь идёт сразу в Отчёт. hasPlanning (planning.json на
+  // диске) тоже разлочивает — прогноз уже строили, вход должен остаться доступным.
+  const mp = get(mediaPlanDetected);
+  const hasConfirmedPlan = Boolean(mp && (mp.confirmed ?? true) && (mp.n_future_periods ?? 0) > 0);
   // Monotonic invariant: если есть данные на любом downstream шаге, все upstream
   // шаги успешно прошли (по построению pipeline). Step 0 (Import) → complete если
   // ЛЮБОЙ из validate/model/decompose/optimize отработал - без этого нельзя было.
@@ -1258,7 +1264,9 @@ function reconcileStepMetaFromDisk(flags) {
     hasModel     ? 'complete' : (hasValidation ? 'ready' : 'locked'),  // 2 - Model
     hasDecompose ? 'complete' : (hasModel ? 'ready' : 'locked'),       // 3 - Decompose
     hasOptimize  ? 'complete' : (hasDecompose ? 'ready' : 'locked'),   // 4 - Optimize
-    hasOptimize  ? (hasPlanning ? 'complete' : 'ready') : 'locked',    // 5 - Planning (optional, unlocked after Optimize)
+    hasOptimize && (hasConfirmedPlan || hasPlanning)
+      ? (hasPlanning ? 'complete' : 'ready')
+      : 'locked',                                                      // 5 - Planning (только при подтверждённом медиаплане)
     (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 6 - Report (does NOT depend on Planning — planning is optional)
   ]);
   pipelineStepMeta.set(stepStatuses.map(status => ({ status, errorMessage: null })));
@@ -1482,6 +1490,24 @@ export function lockStep(step) {
     const copy = steps.map(s => ({ ...s }));
     if (copy[step] && copy[step].status === 'ready') {
       copy[step] = { status: 'locked', errorMessage: null };
+    }
+    return copy;
+  });
+  const pid = get(activeProjectId);
+  savePipelineMeta(pid, { currentStep: get(pipelineCurrentStep), steps: get(pipelineStepMeta) });
+}
+
+/**
+ * Unlock a locked step (→ ready). Симметрия lockStep. Нужен навигации
+ * «Оптимизация → сразу Отчёт», когда опциональное Планирование заперто
+ * (правило: активен только при подтверждённом медиаплане, 2026-07-10).
+ * @param {number} step
+ */
+export function unlockStep(step) {
+  pipelineStepMeta.update(steps => {
+    const copy = steps.map(s => ({ ...s }));
+    if (copy[step] && copy[step].status === 'locked') {
+      copy[step] = { status: 'ready', errorMessage: null };
     }
     return copy;
   });

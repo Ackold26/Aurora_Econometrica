@@ -279,7 +279,9 @@
   /** Пользователь подтвердил: это медиаплан. Вызывает econ_confirm_media_plan(confirmed=true). */
   async function confirmMediaPlan() {
     mediaPlanAnswered = true;
-    // Стор mediaPlanDetected уже заполнен; шаг Planning автоматически его прочитает.
+    // Правило 2026-07-10: Планирование активно только при ПОДТВЕРЖДЁННОМ медиаплане —
+    // ставим confirmed в стор (его читают reconcile и кнопка на Оптимизации).
+    mediaPlanDetected.update((m) => (m ? { ...m, confirmed: true } : m));
     const pid = get(activeProjectId);
     if (pid) {
       try {

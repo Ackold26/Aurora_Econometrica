@@ -572,7 +572,11 @@
   const _canonicalView = $derived.by(() => {
     // Аудит #12: предпочитаем канонический decomposition_series (SSOT с отчётами).
     if (decompositionSeries?.series?.length && decompositionSeries?.dates?.length) {
-      return buildCanonicalOption(decompositionSeries); // { chartOption, topGroupMap }
+      const built = buildCanonicalOption(decompositionSeries); // { chartOption, topGroupMap }
+      // П2-1 диагностика (2026-07-10, временная): виден ли пересчёт при клике чипа.
+      console.debug('[ChannelTimeline] rebuild: expanded=', [...expanded].join(',') || '(нет)',
+        '→ серий в option:', built?.chartOption?.series?.length ?? 0);
+      return built;
     }
     return null;
   });

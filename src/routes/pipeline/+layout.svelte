@@ -164,9 +164,13 @@
   }
 
   function goNext() {
-    const next = $pipelineCurrentStep + 1;
-    if (next < 7 && $pipelineStepMeta[next]?.status !== 'locked') {
-      pipelineCurrentStep.set(next);
+    // 2026-07-10: перескакиваем запертые шаги (опциональное Планирование заперто
+    // без подтверждённого медиаплана → «Далее» с Оптимизации ведёт сразу в Отчёт).
+    for (let next = $pipelineCurrentStep + 1; next < 7; next++) {
+      if ($pipelineStepMeta[next]?.status !== 'locked') {
+        pipelineCurrentStep.set(next);
+        return;
+      }
     }
   }
 

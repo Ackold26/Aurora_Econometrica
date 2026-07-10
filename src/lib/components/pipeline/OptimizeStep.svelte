@@ -32,6 +32,10 @@
     promisesVersion,
     valuePerCountUnit,
     kpiKind,
+    mediaPlanDetected,
+    pipelineCurrentStep,
+    lockStep,
+    unlockStep,
   } from '$lib/project-state.js';
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
@@ -1649,10 +1653,24 @@
     optimalBudgets = null;
   }
 
-  /** Confirm optimization & complete step */
+  // Правило Антона (приёмка 2026-07-10): Планирование активно ТОЛЬКО при
+  // найденном И подтверждённом медиаплане; иначе после Оптимизации — сразу Отчёт.
+  const planActive = $derived(Boolean(
+    $mediaPlanDetected && ($mediaPlanDetected.confirmed ?? true)
+    && ($mediaPlanDetected.n_future_periods ?? 0) > 0,
+  ));
+
+  /** Confirm optimization & complete step (next: Планирование при медиаплане, иначе Отчёт) */
   function confirmOptimization() {
     sessionStats.update(s => ({ ...s, scenarioCount: s.scenarioCount + 1 }));
-    completeStep(4);
+    completeStep(4); // ставит шаг 5 (Планирование) ready
+    if (planActive) {
+      pipelineCurrentStep.set(5);
+    } else {
+      lockStep(5);   // без подтверждённого медиаплана Планирование заперто
+      unlockStep(6); // Отчёт доступен сразу
+      pipelineCurrentStep.set(6);
+    }
     triggerCompletion();
   }
 
@@ -2495,7 +2513,7 @@
       <!-- Confirm -->
       <div class="confirm-row">
         <button class="btn-confirm" onclick={confirmOptimization}>
-          Подтвердить и перейти к отчёту →
+          {planActive ? 'Подтвердить и перейти к планированию →' : 'Подтвердить и перейти к отчёту →'}
         </button>
       </div>
     {:else if stepState === 'idle'}

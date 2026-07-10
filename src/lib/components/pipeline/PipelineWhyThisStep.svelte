@@ -19,7 +19,8 @@
     2: 'model',
     3: 'decompose',
     4: 'optimize',
-    5: 'report',
+    5: 'planning', // 7-шаговый пайплайн: сдвиг индексов (был report → «Зачем шаг „Отчёт"?» на Планировании)
+    6: 'report',
   };
 
   const currentStepId = $derived(stepIdMap[$pipelineCurrentStep] ?? 'validate');
