@@ -132,13 +132,13 @@ export function loadPipelineMeta(projectId) {
           let currentStep = typeof parsed.currentStep === 'number' ? parsed.currentStep : 0;
           if (currentStep === 5) currentStep = 6;
           const result = { currentStep, steps: migrated };
-          // Persist migrated state to both keys.
+          // Аудит 2026-07-10 (High): персистить ТОЛЬКО в тот ключ, из которого
+          // читали. Запись per-project payload в глобальный ключ протекала
+          // состоянием степпера одного проекта в другой/безпроектный слот.
           try {
-            const globalKey = PIPELINE_META_KEY;
-            const projectKey = projectId ? `${PIPELINE_META_KEY}-${projectId}` : null;
+            const sourceKey = projectId ? `${PIPELINE_META_KEY}-${projectId}` : PIPELINE_META_KEY;
             const payload = JSON.stringify({ currentStep: result.currentStep, steps: result.steps.map(s => ({ status: s.status, errorMessage: s.errorMessage ?? null })) });
-            localStorage.setItem(globalKey, payload);
-            if (projectKey) localStorage.setItem(projectKey, payload);
+            localStorage.setItem(sourceKey, payload);
           } catch { /* ignore quota */ }
           return result;
         }
@@ -1197,6 +1197,12 @@ async function restoreProjectResults(pid) {
     const hasModel = Boolean(r.modelDiagnostics);
     const hasDecompose = Boolean(r.decomposition);
     const hasOptimize = Boolean(r.optimization);
+    // Аудит 2026-07-10 (Critical): восстановление планирования с диска —
+    // без этого завершённый шаг деградировал в ready при каждом открытии.
+    const hasPlanning = Boolean(r.planning);
+    if (hasPlanning) planningManifest.set(r.planning);
+    if (r.mediaPlan) mediaPlanDetected.set(r.mediaPlan);
+    else mediaPlanDetected.set(null); // не тащить медиаплан чужого проекта
 
     if (hasModel) {
       modelData.update(m => ({
@@ -1224,7 +1230,7 @@ async function restoreProjectResults(pid) {
     // Иначе остаточный status='error' с прошлых сессий висит на шагах,
     // до которых пользователь ещё не дошёл (например, «Декомпозиция ❌»
     // пока работаешь на «Валидация»).
-    reconcileStepMetaFromDisk({ hasValidation, hasModel, hasDecompose, hasOptimize });
+    reconcileStepMetaFromDisk({ hasValidation, hasModel, hasDecompose, hasOptimize, hasPlanning });
   } catch (e) {
     // Silent: отсутствие results/* - норма для нового проекта.
     console.warn('restoreProjectResults skipped:', e);

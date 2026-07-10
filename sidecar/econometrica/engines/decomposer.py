@@ -574,6 +574,12 @@ def decompose(
     # Материализация виртуальных каналов (если были merge_rules при train)
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config.get('merge_rules'))
+    # Аудит 2026-07-10 (High): хвост-медиаплан (KPI пуст) искажал декомпозицию —
+    # n_periods=len(df) с хвостом при y_actual по истории; будущие траты текли
+    # в исторические вклады каналов. Файл без хвоста → no-op. Симметрично modeler.
+    _kpi_d = config.get('kpi_column')
+    if _kpi_d and _kpi_d in df.columns:
+        df = df[df[_kpi_d].notna()].reset_index(drop=True)
 
     # v2.1.0 (pilot 2026-05-16 fix B-01): re-inject holiday dummies для матча
     # с обученной моделью. modeler.py инжектирует 12 РФ holiday колонок в df

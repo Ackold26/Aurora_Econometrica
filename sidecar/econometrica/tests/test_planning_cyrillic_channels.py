@@ -57,3 +57,53 @@ def test_cyrillic_plan_feeds_scenario(tmp_path):
     assert res.get('status') == 'ok', res.get('message')
     assert res.get('carry_in_applied') is True
     assert len(res['predictions']) == 6
+
+
+def test_carryin_ignores_future_tail_in_history(tmp_path):
+    """Аудит 2026-07-10 (Critical): carry_in должен считаться от конца ИСТОРИИ,
+    а не от конца хвоста-медиаплана в data_file. Доказательство: predictions
+    проекта, обученного на файле С хвостом, байт-в-байт равны predictions
+    проекта на файле ТОЛЬКО-история (тот же план, те же даты)."""
+    import json
+    import numpy as np
+    import pandas as pd
+    from engines.validator import validate_data
+    from engines.ols_modeler import train_ols
+    from engines.scenario import predict_scenario
+
+    rng = np.random.default_rng(3)
+    n_hist, n_future = 24, 6
+    n = n_hist + n_future
+    dates = pd.date_range('2024-01-31', periods=n, freq='ME')
+    tv = rng.uniform(2e6, 5e6, n).round(-3)
+    olv = rng.uniform(1e6, 3e6, n).round(-3)
+    sales = (8e6 + 1.2 * tv + 2.0 * olv).round(-3)
+    full = pd.DataFrame({'Дата': dates, 'Продажи': sales, 'ТВ': tv, 'Онлайн-видео': olv})
+    full.loc[full.index >= n_hist, 'Продажи'] = np.nan
+
+    f_tail = tmp_path / 'with_tail.xlsx'
+    full.to_excel(f_tail, index=False)
+    f_hist = tmp_path / 'hist_only.xlsx'
+    full.iloc[:n_hist].to_excel(f_hist, index=False)
+
+    cfg_common = {'kpi_column': 'Продажи', 'media_columns': ['ТВ', 'Онлайн-видео'],
+                  'control_columns': [], 'kpi_type': 'sales', 'mode': 'ols'}
+    results = {}
+    for label, f in (('tail', f_tail), ('hist', f_hist)):
+        proj = tmp_path / f'proj_{label}'
+        proj.mkdir()
+        validate_data(str(f), str(proj))
+        train_ols({**cfg_common, 'data_file': str(f)}, str(proj))
+        mp = {'ТВ': [3e6] * n_future, 'Онлайн-видео': [1.5e6] * n_future}
+        fd = [d.strftime('%Y-%m-%d') for d in pd.date_range('2026-01-31', periods=n_future, freq='ME')]
+        r = predict_scenario({'scenario_name': f's_{label}', 'media_plan': mp,
+                              'forecast_periods': n_future, 'future_dates': fd,
+                              'carry_in': True}, str(proj))
+        assert r.get('status') == 'ok', r.get('message')
+        assert r.get('carry_in_applied') is True
+        results[label] = r['predictions']
+
+    # Модели обучены на одинаковой истории (notna-фильтр) → carry_in и predictions
+    # обязаны совпасть: хвост в data_file не должен влиять на перенос.
+    np.testing.assert_allclose(results['tail'], results['hist'], rtol=1e-9,
+        err_msg='carry_in утёк из хвоста: файл с медиапланом даёт иной прогноз, чем чистая история')

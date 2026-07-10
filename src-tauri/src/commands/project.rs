@@ -629,6 +629,10 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
         "modelDiagnostics": read_json("model-diagnostics.json"),
         "decomposition":    read_json("decomposition.json"),
         "optimization":     read_json("optimization.json"),
+        // Аудит 2026-07-10 (Critical): без этих ключей hasPlanning всегда false →
+        // завершённое Планирование деградировало в ready при каждом открытии проекта.
+        "planning":         read_json("planning.json"),
+        "mediaPlan":        read_json("media_plan.json"),
     }))
 }
 

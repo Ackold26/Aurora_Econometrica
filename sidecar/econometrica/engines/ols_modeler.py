@@ -88,6 +88,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         df = pd.read_excel(data_file)
 
     kpi_col = config['kpi_column']
+    # Аудит 2026-07-10 (High): хвост-медиаплан (KPI пуст) без фильтра уходил бы
+    # в fillna(0) → обучение на фейковых нулевых продажах при ненулевых тратах.
+    # Инвариант: файл без хвоста → no-op. Симметрично modeler.py.
+    if kpi_col in df.columns:
+        df = df[df[kpi_col].notna()].reset_index(drop=True)
     media_cols = config['media_columns']
     control_cols = config.get('control_columns', [])
     adstock_config = config.get('adstock_config', {}) or {}

@@ -38,6 +38,28 @@
 - `results/planning.json` (манифест): `{variant_ids[], accepted_variant, disclaimers[]}`; данные вариантов — в `results/scenarios/*.json`.
 - Результат сценария (planning): `predictions[]`, `predictions_ci_low/high[]`, `total_kpi`, `total_spend_money`, `roas_money`, `carry_in_applied`, `disclaimers[]`, `future_dates[]`.
 
+## Внешний аудит блока (2026-07-10, два opus-аудитора по диффу, чистый контекст) — ЗАКРЫТ
+**2 Critical + 5 High подтверждены триажом и ИСПРАВЛЕНЫ** (fix-коммит, все гейты зелёные: pytest 500 · vitest 8 · svelte 0 · cargo ok):
+- A-Crit: carry_in читал историю+хвост из data_file (перенос от конца ХВОСТА, не истории; исполняемый зонд: 4.92M vs 6.51M) → notna-фильтр в scenario + решающий тест «файл-с-хвостом == файл-только-история».
+- A-H: ols_modeler и decomposer — незакрытые потребители data_file (fillna(0)-обучение на фейковых нулях; хвост тёк в декомпозицию) → notna симметрично modeler.
+- A-H: horizon-cap тихо не срабатывал без data_file → первичный источник training_n = len(y_actual) из pickle.
+- B-Crit: project.rs НЕ читал planning/media_plan (субагент Фазы 2 заявил и не сделал — ещё одно попадание [[feedback_test_asserts_what_agent_claims]]) → ключи добавлены + hasPlanning в restore/reconcile + сброс mediaPlanDetected при смене проекта.
+- B-H: миграция localStorage писала payload проекта в глобальный ключ (кросс-проектная протечка) → persist только в исходный ключ.
+- B-H: $effect PlanningStep перетирал ввод бюджетов при ретриггере $optimizeData → guard «сеять только пустой ввод».
+
+**Medium-бэклог аудита (подтверждены, НЕ чинились — забрать в след. сессию):**
+1. holiday: валидировать len(future_dates)==n_periods (сдвиг праздников при рассинхроне).
+2. holiday_dummies_mode: дефолт scenario 'binary_point' vs modeler пишет 'fraction' — персистить режим и в OLS-путь/легаси.
+3. NaT в датах хвоста протекает в future_dates → фильтровать в detect.
+4. compute_source_hash: 512KB+size — правка дальней ячейки при равном размере не ловится → полный хэш для файлов ≤50MB.
+5. Тихий except в carry-in блоке scenario — логировать причину (наблюдаемость).
+6. goToReport помечает Планирование complete при 0 вариантов (пустой манифест) → не complete/не писать манифест.
+7. saveVariant при battом totals добавляет вариант с KPI=0 → валидировать predicted_kpi.
+8. Тест миграции не покрывает per-project ключ (`econ-pipeline-meta-<id>`).
+9. confirm/dismiss медиаплана глотают ошибку invoke → retry/индикация (диск↔UI рассинхрон confirmed).
+10. downloadTemplate: status ok без path → показать ошибку.
+11. (pre-existing, вне блока) validate_project_dir ловит только `..` — absolute вне projects-root не блокируется Rust-слоем (sidecar прикрывает; усилить allow-list'ом).
+
 ## Грабли / уроки сессии
 - carry-in форма ОБЯЗАНА совпасть с обучением (рекуррентный geometric, posterior-decay, нормировка adstock_mean_posterior) — иначе перенос в неверном масштабе (A5). Weibull carry-in — фаза 2 (только JAX-backend).
 - horizon-cap раньше жил под `plan_n==1` — обходился медиапланом-вектором (A4, закрыто).

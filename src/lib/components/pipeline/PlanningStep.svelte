@@ -177,6 +177,10 @@
   $effect(() => {
     const chs = optChannels;
     if (!chs.length) return;
+    // Аудит 2026-07-10 (High): сеять только ПУСТОЙ ввод — любой ретриггер
+    // $optimizeData (restore/reconcile/фоновое обновление) молча стирал бы
+    // правки бюджетов пользователя в слайдерах.
+    if (Object.keys(channelBudgets).length) return;
     /** @type {Record<string, number>} */
     const seed = {};
     for (const c of chs) {

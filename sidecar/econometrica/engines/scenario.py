@@ -350,18 +350,25 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     # training_n_periods уже прочитана выше (из data_file либо = plan_n как fallback).
     if forecast_periods_cfg is not None:
         # Для plan_n > 1 training_n_periods могла остаться = plan_n (data_file не читался).
-        # Пробуем прочитать из файла если ещё не сделали.
+        # Аудит 2026-07-10 (High): первичный источник training_n — len(y_actual) из
+        # pickle (история после modeler-фильтра, доступен ВСЕГДА); файл — fallback.
+        # До фикса: недоступный data_file → _effective_training_n = plan_n →
+        # cap тихо не срабатывал на вектор-плане любой длины.
         _effective_training_n = training_n_periods
-        if _effective_training_n == plan_n and plan_n > 1 and data_file:
-            try:
-                _ref_df2 = (
-                    pd.read_excel(data_file)
-                    if data_file.endswith(('.xlsx', '.xls'))
-                    else pd.read_csv(data_file)
-                )
-                _effective_training_n = max(len(_ref_df2), 1)
-            except Exception:
-                pass
+        if _effective_training_n == plan_n and plan_n > 1:
+            _y_hist = model_data.get('y_actual')
+            if _y_hist is not None and len(_y_hist) > 0:
+                _effective_training_n = max(int(len(_y_hist)), 1)
+            elif data_file:
+                try:
+                    _ref_df2 = (
+                        pd.read_excel(data_file)
+                        if data_file.endswith(('.xlsx', '.xls'))
+                        else pd.read_csv(data_file)
+                    )
+                    _effective_training_n = max(len(_ref_df2), 1)
+                except Exception:
+                    pass
         try:
             from engines.persistence import get_kpi_type
             from utils.forecast_validation import get_forecast_horizon_max_multiplier
@@ -453,6 +460,13 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 else pd.read_csv(data_file)
             )
             _amr_hist(_hist_df_raw, config_model.get('merge_rules'))
+            # Аудит 2026-07-10 (Critical): data_file может нести хвост-медиаплан
+            # (KPI пуст, инвестиции заполнены) — без фильтра carry_in считался бы
+            # от adstock ПОСЛЕДНЕЙ СТРОКИ ХВОСТА (двойной учёт будущих трат),
+            # а не конца истории. Симметрично modeler/optimizer/backtest.
+            _kpi_h = config_model.get('kpi_column')
+            if _kpi_h and _kpi_h in _hist_df_raw.columns:
+                _hist_df_raw = _hist_df_raw[_hist_df_raw[_kpi_h].notna()].reset_index(drop=True)
             for _col in media_cols:
                 if _col in _hist_df_raw.columns:
                     _arr_h = _hist_df_raw[_col].fillna(0).values.astype(float)
