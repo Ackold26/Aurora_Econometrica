@@ -494,13 +494,13 @@
     </section>
 
     <section class="section">
-      <h2 class="section-title">Модель Claude</h2>
+      <h2 class="section-title">AI-модель советников</h2>
       <p class="section-desc">Модель и уровень усилия для обработки запросов</p>
       <div class="theme-toggle-row">
         <span class="theme-label">Модель</span>
         <select class="model-select" bind:value={modelChoice} onchange={saveModelSettings}>
-          <option value="sonnet">Sonnet (быстрый, по умолчанию)</option>
-          <option value="opus">Opus (глубокий анализ)</option>
+          <option value="sonnet">Быстрая (по умолчанию)</option>
+          <option value="opus">Глубокий анализ</option>
         </select>
       </div>
       <div class="theme-toggle-row">
@@ -517,7 +517,7 @@
       <section class="section">
         <h2 class="section-title">Облачная обработка (кабинеты-советники)</h2>
         <p class="section-desc">
-          Кабинеты-советники отправляют контекст задачи в Anthropic (Claude) по вашей команде.
+          Кабинеты-советники отправляют контекст задачи на защищённый AI-сервер по вашей команде.
           MMM-анализ всегда выполняется локально. Отключение делает советников недоступными –
           расчёты продолжают работать. Включение запросит согласие на облачную обработку.
         </p>
