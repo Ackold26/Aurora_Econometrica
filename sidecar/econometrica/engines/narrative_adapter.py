@@ -264,10 +264,17 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
 # (_merge_channels) и гейта валидации (validate_data total_budget_as_media);
 # ложное снятие юзер видит warning'ом (В-1) и возвращает роль вручную —
 # асимметрия рисков в пользу снятия.
+# A6-1 (2026-07-10): добавлены английские агрегатные токены (budget/spend/media/
+# overall/grand/gross) и русские (общий/расходы/затраты). Ранее матчинг через \b
+# не работал для snake_case: в строке «total_media_budget» символ _ считается
+# словесным — \b не стоит между словом и _, поэтому \btotal\b не матчился.
+# Исправление: перед матчингом заменять _ на пробел (только для целей regex).
 _CHANNEL_NAME_STOP_PHRASES = [
     r'ДО\s*НДС\s+до\s+АК', r'после\s*АК', r'с\s*НДС', r'без\s*НДС', r'до\s*НДС',
     r'Бюджет', r'Вклад', r'млн\s*₽?', r'руб\.?', r'Доля',
     r'итого', r'всего', r'сумма', r'total',
+    r'budget', r'spend', r'media', r'overall', r'grand', r'gross',
+    r'общий', r'расходы', r'затраты',
 ]
 _CHANNEL_NAME_RE = re.compile(
     r'\b(?:' + '|'.join(_CHANNEL_NAME_STOP_PHRASES) + r')\b',
@@ -287,11 +294,20 @@ def _normalize_channel_name(raw: str | None) -> str | None:
       "Бюджет до НДС"                → None  (signals total budget column)
       "TRPs бренд (W 25-50)"         → "TRPs бренд (W 25-50)"  (parentheses kept)
       "TV"                           → "TV"
+      "tv_spend"                     → "tv"   (snake_case: _ → пробел для \b)
+      "total_media_budget"           → None   (все токены — агрегатные)
+      "olv_budget"                   → "olv"  (olv — живой канал)
+
+    A6-1 fix: regex применяется к версии строки с заменой _ → пробел, чтобы \b
+    корректно работал в snake_case именах. Результат возвращается как clean_label
+    (без подчёркиваний — они были разделителями шума, не частью имени канала).
     """
     if not raw:
         return None
-    s = str(raw)
-    cleaned = _CHANNEL_NAME_RE.sub('', s)
+    # A6-1: для целей regex-матчинга заменяем _ на пробел — иначе \b не стоит
+    # между словом и _, и токены внутри snake_case не матчатся.
+    s_match = str(raw).replace('_', ' ')
+    cleaned = _CHANNEL_NAME_RE.sub('', s_match)
     # Collapse whitespace + strip punctuation edges, but keep parentheses/
     # hyphens inside (audience quantifiers like "W 25-50" are signal).
     cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,.;:-_')
