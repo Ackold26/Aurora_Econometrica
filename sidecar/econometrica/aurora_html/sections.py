@@ -351,6 +351,43 @@ def _table_metric_header(kpi: dict) -> tuple:
     return ("mROAS", "×")
 
 
+def _lift_phrase(lift_pct: float | None, kpi: dict) -> str:
+    """KPI-aware формулировка ожидаемого прироста для HTML-отчёта.
+
+    Пласт 2 (2026-07-11): устраняет «Ожидаемый прирост ROAS» для count/effectiveness.
+    - monetary roi  → «Ожидаемый прирост ROAS: +N пп»
+    - count         → «Ожидаемый прирост результата: +N пп»
+    - effectiveness → «Ожидаемый прирост доли эффекта: +N пп»
+    - lift=None     → «Ожидаемый эффект – положительный»
+    """
+    if lift_pct is None:
+        return "Ожидаемый эффект – положительный"
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"Ожидаемый прирост доли эффекта: +{lift_pct:.1f} пп"
+    if kind == "count":
+        return f"Ожидаемый прирост результата: +{lift_pct:.1f} пп"
+    return f"Ожидаемый прирост ROAS: +{lift_pct:.1f} пп"
+
+
+def _hero_vs_leader_quote(hero: str, leader: str, kpi: dict) -> str:
+    """KPI-aware pull quote «лидер vs герой» для HTML-отчёта.
+
+    Пласт 2 (2026-07-11): устраняет «Каждый рубль» для count/effectiveness.
+    - monetary roi  → «Каждый рубль в {hero} возвращает больше, чем в {leader}.»
+    - count         → «Каждая единица результата в {hero} обходится дешевле, чем в {leader}.»
+    - effectiveness → «{hero} даёт большую долю эффекта, чем {leader}.»
+    """
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"{hero} даёт большую долю эффекта, чем {leader}."
+    if kind == "count":
+        return f"Каждая единица результата в {hero} обходится дешевле, чем в {leader}."
+    return f"Каждый рубль в {hero} возвращает больше, чем в {leader}."
+
+
 def _reliability_disclaimer_html(ctx: dict) -> str:
     """F-A1-9 (2026-07-06): дисклеймер ненадёжности для клиентского HTML-отчёта.
 
@@ -525,7 +562,15 @@ def render_executive_summary(ctx: dict) -> str:
             complication = scqar.get("complication_fallback", {}).get(
                 "template", "Портфель сбалансирован."
             )
-        question = scqar["question"]["template"]
+        # Пласт 2 (2026-07-11): KPI-aware question — для count/effectiveness «ROAS» не применим.
+        if kpi["is_legacy"]:
+            question = scqar["question"]["template"]
+        elif kpi["mode"] == "effectiveness":
+            question = "Как перераспределить бюджет, чтобы повысить долю эффекта, не снижая awareness?"
+        elif kpi["kpi_kind"] == "count":
+            question = "Как перераспределить бюджет, чтобы снизить стоимость единицы (CPU), не снижая awareness?"
+        else:
+            question = scqar["question"]["template"]
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
         # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state - SLSQP
         # вернул current allocation без binding (false convergence). Honest
@@ -758,7 +803,11 @@ def render_at_a_glance(ctx: dict) -> str:
         elif realloc >= 0.5 and hero != leader:
             f3 = strings["findings_templates"]["f3_realloc"].format(
                 realloc=realloc, leader=leader, hero=hero)
-            f3_sup = strings["findings_templates"]["f3_realloc_support"].format(lift=lift)
+            # Пласт 2 (2026-07-11): KPI-aware — для count/effectiveness «ROAS» не применим.
+            if kpi["is_legacy"]:
+                f3_sup = strings["findings_templates"]["f3_realloc_support"].format(lift=lift)
+            else:
+                f3_sup = _lift_phrase(float(lift), kpi)
         else:
             f3 = strings["findings_templates"]["f3_keep"]
             f3_sup = strings["findings_templates"]["f3_keep_support"]
@@ -914,9 +963,10 @@ def render_key_message(ctx: dict) -> str:
             big_support = f"При {_fmt_pct(spct)} доли бюджета · {portfolio_phrase}"
 
             if hero != leader:
+                # Пласт 2 (2026-07-11): KPI-aware, не хардкодить «рубль» для count/effectiveness.
                 quote = (
-                    f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                    "Сигнал к reallocate части бюджета."
+                    f"{_hero_vs_leader_quote(hero, leader, kpi)} "
+                    "Сигнал к перераспределению части бюджета."
                 )
             else:
                 quote = f"{leader} – лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."  # П8-1
@@ -1078,6 +1128,13 @@ def render_action_table(ctx: dict) -> str:
     # v1.3.2: KPI-aware main metric column (mROAS / CPU / Доля %).
     metric_col_header, metric_col_unit = _table_metric_header(kpi)
 
+    # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
+    # budget всегда «₽ млн» (затраты — деньги для любого KPI).
+    if kpi["kpi_kind"] == "count":
+        contrib_unit = kpi.get("target_unit") or "ед."
+    else:
+        contrib_unit = units["contrib"]  # «₽ млн» для monetary/effectiveness
+
     # Title branching (mirrors PPTX S7 post-audit logic)
     if channels:
         contribs = sorted((float(c.get("contribution") or 0) for c in channels), reverse=True)
@@ -1238,7 +1295,7 @@ def render_action_table(ctx: dict) -> str:
     <tr>
       <th scope="col" data-col="0" aria-sort="none">{escape(headers["channel"])}</th>
       <th scope="col" data-col="1" class="num" aria-sort="none">{escape(headers["budget"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["budget"])}</span></th>
-      <th scope="col" data-col="2" class="num" aria-sort="descending">{escape(headers["contrib"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["contrib"])}</span></th>
+      <th scope="col" data-col="2" class="num" aria-sort="descending">{escape(headers["contrib"])} <span style="font-weight:400;color:var(--text-muted);">{escape(contrib_unit)}</span></th>
       <th scope="col" data-col="3" class="num" aria-sort="none">{escape(metric_col_header)} <span style="font-weight:400;color:var(--text-muted);">{escape(metric_col_unit)}</span></th>
       <th scope="col" data-col="4" class="num" aria-sort="none">{escape(headers["share"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["share"])}</span></th>
       <th scope="col" data-col="5" aria-sort="none">{escape(headers["verdict"])}</th>

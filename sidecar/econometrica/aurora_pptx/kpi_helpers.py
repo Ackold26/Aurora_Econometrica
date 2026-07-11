@@ -204,3 +204,44 @@ def table_metric_header(kpi):
         unit = kpi.get("cpu_per_label") or "₽/ед."
         return ("CPU", unit)
     return ("mROAS", "×")
+
+
+def lift_phrase(lift_pct: float | None, kpi: dict) -> str:
+    """KPI-aware формулировка ожидаемого прироста для PPTX/HTML.
+
+    Пласт 2 (2026-07-11): устраняет «Ожидаемый прирост ROAS» для count/effectiveness.
+    - monetary roi  → «Ожидаемый прирост ROAS: +N пп»
+    - count         → «Ожидаемый прирост результата: +N пп» (прирост в единицах;
+      снижение CPU численно отличается, поэтому не приписываем ему эту величину)
+    - effectiveness → «Ожидаемый прирост доли эффекта: +N пп»
+    - lift=None     → «Ожидаемый эффект – положительный»
+    """
+    if lift_pct is None:
+        return "Ожидаемый эффект – положительный"
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"Ожидаемый прирост доли эффекта: +{lift_pct:.1f} пп"
+    if kind == "count":
+        return f"Ожидаемый прирост результата: +{lift_pct:.1f} пп"
+    # monetary roi (legacy + non-legacy)
+    return f"Ожидаемый прирост ROAS: +{lift_pct:.1f} пп"
+
+
+def hero_vs_leader_quote(hero: str, leader: str, kpi: dict) -> str:
+    """KPI-aware pull quote «лидер vs герой» для PPTX/HTML.
+
+    Пласт 2 (2026-07-11): устраняет «Каждый рубль в {hero} возвращает больше» для
+    count/effectiveness.
+    - monetary roi  → «Каждый рубль в {hero} возвращает больше, чем в {leader}.»
+    - count         → «Каждая единица результата в {hero} обходится дешевле, чем в {leader}.»
+    - effectiveness → «{hero} даёт большую долю эффекта, чем {leader}.»
+    """
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"{hero} даёт большую долю эффекта, чем {leader}."
+    if kind == "count":
+        return f"Каждая единица результата в {hero} обходится дешевле, чем в {leader}."
+    # monetary roi
+    return f"Каждый рубль в {hero} возвращает больше, чем в {leader}."

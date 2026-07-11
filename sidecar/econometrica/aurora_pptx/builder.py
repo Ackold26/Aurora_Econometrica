@@ -134,6 +134,8 @@ from .kpi_helpers import (
     weighted_summary_phrase as _weighted_summary_phrase_pptx,
     under_breakeven_phrase as _under_breakeven_phrase_pptx,
     table_metric_header as _table_metric_header_pptx,
+    lift_phrase as _lift_phrase_pptx,
+    hero_vs_leader_quote as _hero_vs_leader_quote_pptx,
 )
 
 
@@ -922,17 +924,17 @@ class AuroraPPTXBuilder:
             cut_source = f.get("cut_source_channel")
             scale_dest = f.get("scale_destination_channel")
             f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {cut_source} в {scale_dest}"
-            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         elif reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
             # Legacy fallback when cut_source/scale_destination not yet populated
             f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
-            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
             # B1-fix R-09/R-13: «+0.0 пп» — пустое обещание; при незначимом lift
             # честная формулировка вместо нулевого числа.
             if expected_lift_pct is not None and expected_lift_pct >= 0.5:
-                s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп"
+                s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi)
             else:
                 s3 = "Перераспределение не даёт ощутимого прироста - портфель у оптимума"
 
@@ -1525,10 +1527,11 @@ class AuroraPPTXBuilder:
                 else:
                     big_support = "Лидер по вкладу в продажи"
                 # Pull quote - hero outperforms leader, reallocate signal
+                # Пласт 2 (2026-07-11): KPI-aware, не хардкодить «рубль/ROAS» для count/effectiveness.
                 if hero != leader:
                     quote_txt = (
-                        f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                        "Сигнал к перераспределению части бюджета в digital."
+                        f"{_hero_vs_leader_quote_pptx(hero, leader, self.kpi)} "
+                        "Сигнал к перераспределению части бюджета."
                     )
                 else:
                     quote_txt = (
@@ -1964,9 +1967,15 @@ class AuroraPPTXBuilder:
         col_widths = [w * (table_w / total_w) for w in col_weights]
 
         # Header - v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
+        # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
         metric_col_hdr, metric_col_unit = _table_metric_header_pptx(self.kpi)
+        contrib_unit_pptx = (
+            self.kpi.get("target_unit") or "ед."
+            if self.kpi["kpi_kind"] == "count"
+            else "₽ млн"
+        )
         headers = ["Канал", "Бюджет", "Вклад", metric_col_hdr, "Доля эффекта", "Вердикт"]
-        units =   ["",      "₽ млн",  "₽ млн",  metric_col_unit, "%",             ""]
+        units =   ["",      "₽ млн",  contrib_unit_pptx,  metric_col_unit, "%",  ""]
         x = table_x
         for i, (hdr, cw) in enumerate(zip(headers, col_widths)):
             align = PP_ALIGN.LEFT if i in (0, 5) else PP_ALIGN.RIGHT
@@ -2756,8 +2765,9 @@ class AuroraPPTXBuilder:
                             " Наращивание трат сверх текущего уровня даёт убывающую отдачу "
                             "(Hill-насыщение) - отслеживать mROAS при изменениях бюджета.",
                         )
+                    # Пласт 2 (2026-07-11): KPI-aware lift fragment — для count/effectiveness «ROAS» не применим.
                     _lift_frag = (
-                        f" Ожидаемый прирост ROAS +{lift:.1f} пп - проверить фактом."
+                        f" {_lift_phrase_pptx(lift, self.kpi)} - проверить фактом."
                         if (lift is not None and lift >= 0.5)
                         else " Проверить, что фактические продажи соответствуют прогнозу модели."
                     )
