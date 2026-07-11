@@ -148,6 +148,64 @@ describe('справка о программе в контексте Аврор�
   });
 });
 
+describe('методология (RAG-библиотека узла Б) в контексте и промпте', () => {
+  /** @type {import('../tier2-context.js').MethodologyHit[]} */
+  const hits = [
+    { text: 'Jin et al. (2017): байесовская MMM с иерархическим пулингом каналов даёт более устойчивые оценки ROI при малом числе наблюдений.', source: 'Jin 2017', title: 'Bayesian Methods for Media Mix Modeling', score: 0.41 },
+  ];
+
+  it('methodology передаётся в контекст, пустой массив/undefined → null', () => {
+    const withHits = buildTier2Context({ step: STEP.DECOMPOSE, dec: decomposition, methodology: hits });
+    expect(withHits.methodology).toEqual(hits);
+
+    const withoutHits = buildTier2Context({ step: STEP.DECOMPOSE, dec: decomposition });
+    expect(withoutHits.methodology).toBeNull();
+
+    const emptyHits = buildTier2Context({ step: STEP.DECOMPOSE, dec: decomposition, methodology: [] });
+    expect(emptyHits.methodology).toBeNull();
+  });
+
+  it('промпт с methodology содержит секцию «Канон методологии» и атрибуцию source', () => {
+    const ctx = buildTier2Context({ step: STEP.DECOMPOSE, dec: decomposition, methodology: hits });
+    const prompt = buildTier2Prompt(ctx, 'Почему ROI неопределённый?');
+    expect(prompt).toContain('Канон методологии');
+    expect(prompt).toContain('«Jin 2017»');
+    expect(prompt).toContain('иерархическим пулингом каналов');
+  });
+
+  it('без methodology секции «Канон методологии» в промпте нет', () => {
+    const ctx = buildTier2Context({ step: STEP.DECOMPOSE, dec: decomposition });
+    const prompt = buildTier2Prompt(ctx, 'Почему OLV неэффективен?');
+    expect(prompt).not.toContain('Канон методологии');
+  });
+
+  it('длинный text обрезается по границе слова с «…»', () => {
+    const longText = 'слово '.repeat(200).trim(); // сильно длиннее лимита 600
+    const ctx = buildTier2Context({
+      step: STEP.DECOMPOSE,
+      dec: decomposition,
+      methodology: [{ text: longText, source: 'Long Source' }],
+    });
+    const prompt = buildTier2Prompt(ctx, 'вопрос');
+    const line = prompt.split('\n').find((l) => l.includes('«Long Source»'));
+    expect(line).toBeDefined();
+    expect(line?.endsWith('…')).toBe(true);
+    // Не обрывает слово посередине — символ перед «…» это конец «слово», не «слов».
+    expect(line?.slice(0, -1).trimEnd().endsWith('слово')).toBe(true);
+    expect(line?.length).toBeLessThan(longText.length);
+  });
+
+  it('число, встречающееся только в тексте methodology, не флагается стражем', () => {
+    const ctx = buildTier2Context({
+      step: STEP.DECOMPOSE,
+      dec: decomposition,
+      methodology: [{ text: 'Критерий сходимости требует R-hat ниже 1.01 (Vehtari 2021).', source: 'Vehtari 2021' }],
+    });
+    // 1.01 присутствует только в methodology-тексте, не в decomposition-фактах.
+    expect(findUngroundedNumbers('Порог сходимости — 1.01, по канону методологии.', ctx.grounding)).toEqual([]);
+  });
+});
+
 describe('summarizeModel — диагностика (синтетика)', () => {
   it('сводка несёт r_hat, divergences, ratio, MQS', () => {
     const mod = {

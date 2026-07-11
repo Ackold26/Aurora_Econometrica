@@ -365,6 +365,18 @@
     askAnswer = '';
     askUngrounded = [];
 
+    // Канон методологии из RAG-библиотеки узла Б — best-effort, без вопроса
+    // ответ строится по фактам модели (graceful: недоступность сервера/гейта
+    // не блокирует Tier 2, просто без цитат из первоисточников).
+    /** @type {import('$lib/tier2-context.js').MethodologyHit[] | null} */
+    let methodology = null;
+    try {
+      const r = /** @type {any} */ (await invoke('econ_rag_search', { query: askQuestion || 'интерпретация результатов MMM', k: 4 }));
+      methodology = r?.hits?.length ? r.hits : null;
+    } catch {
+      // без канона методологии — Tier 2 отвечает по фактам модели, как раньше
+    }
+
     // Контекст текущего шага: факты модели + детерминированные Tier-1 инсайты.
     const ctx = buildTier2Context({
       step: $pipelineCurrentStep,
@@ -374,6 +386,7 @@
       mod: $modelData,
       dec: $decomposeData,
       opt: $optimizeData,
+      methodology,
     });
     const prompt = buildTier2Prompt(ctx, askQuestion);
 
@@ -393,6 +406,8 @@
       }
       askAnswer = sanitizeAvroraText(text);
       // Рантайм-страж INV-50: числа в ответе должны быть в фактах модели.
+      // ctx.grounding уже несёт methodology (buildTier2Context кладёт её в
+      // jsonFacts) — нормативы канона не флагаются как выдуманные.
       askUngrounded = findUngroundedNumbers(askAnswer, ctx.grounding).map((b) => b.raw);
     } catch (e) {
       const msg = String(e);

@@ -6,7 +6,7 @@ pub mod metrics;
 pub mod session;
 pub mod sidecar_runtime;
 
-use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, updater, user_config, vault};
+use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, rag_client, updater, user_config, vault};
 use session::manager::SessionManager;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -3221,6 +3221,7 @@ fn build_app() -> Result<(), String> {
             get_raw_fingerprint,
             open_cabinet,
             econ_ask_insight,
+            rag_client::econ_rag_search,
             set_local_only,
             close_cabinet,
             send_message,

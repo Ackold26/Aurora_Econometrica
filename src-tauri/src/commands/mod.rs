@@ -13,6 +13,7 @@ pub mod online_auth;
 pub mod parser;
 pub mod pptx_processor;
 pub mod project;
+pub mod rag_client;
 pub mod report;
 pub mod updater;
 pub mod user_config;

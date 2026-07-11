@@ -133,12 +133,21 @@ function extractHonesty(opt) {
 }
 
 /**
+ * @typedef {Object} MethodologyHit
+ * @property {string} text
+ * @property {string} source
+ * @property {string} [title]
+ * @property {number} [score]
+ */
+
+/**
  * @typedef {Object} Tier2Context
  * @property {number} step
  * @property {Array<{severity:string,text:string,tip?:string}>} tier1Insights
  * @property {Record<string, any>} facts — компактная сводка для промпта
  * @property {ReturnType<typeof extractHonesty>} honesty — verbatim или null
  * @property {string} help — справочный контекст программы (карта + термины)
+ * @property {MethodologyHit[] | null} methodology — выдержки из RAG-библиотеки первоисточников
  * @property {{ jsonFacts: unknown[], insightTexts: any[] }} grounding — для guard
  */
 
@@ -152,11 +161,12 @@ function extractHonesty(opt) {
  *   question?: string,
  *   tier1Insights?: Array<{severity:string,text:string,tip?:string}>,
  *   val?: any, mod?: any, dec?: any, opt?: any,
+ *   methodology?: MethodologyHit[] | null,
  * }} input
  * @returns {Tier2Context}
  */
 export function buildTier2Context(input) {
-  const { step, question, tier1Insights = [], val, mod, dec, opt } = input;
+  const { step, question, tier1Insights = [], val, mod, dec, opt, methodology } = input;
 
   /** @type {Record<string, any>} */
   let facts = {};
@@ -199,14 +209,22 @@ export function buildTier2Context(input) {
   // они должны считаться grounded, иначе рантайм-страж ложно пометит (INV-50).
   const help = buildHelpContext({ step, question });
 
+  // Канон методологии из RAG-библиотеки первоисточников (узел Б). null/пусто —
+  // отсутствует (сервер недоступен / гейт не пройден — graceful на фронте).
+  const methodologyList =
+    Array.isArray(methodology) && methodology.length > 0 ? methodology : null;
+
   // jsonFacts — массив источников grounded-чисел: факты модели, вердикт
   // надёжности (caveat_text honesty попадает в промпт — числа должны быть
   // grounded; для optimize/report honesty ⊂ fullFacts, но включаем явно —
-  // defense-in-depth), справка. collectGroundedNumbers рекурсивно их обойдёт.
+  // defense-in-depth), справка, методология. collectGroundedNumbers рекурсивно
+  // их обойдёт — числа-нормативы из канона (например, «критерий 3σ») легитимно
+  // цитировать, страж не должен их флагать.
   /** @type {unknown[]} */
   const jsonFacts = [fullFacts];
   if (honesty) jsonFacts.push(honesty);
   if (help) jsonFacts.push(help);
+  if (methodologyList) jsonFacts.push(methodologyList);
 
   return {
     step,
@@ -214,6 +232,7 @@ export function buildTier2Context(input) {
     facts,
     honesty,
     help,
+    methodology: methodologyList,
     grounding: {
       jsonFacts,
       insightTexts: tier1Insights,
@@ -277,6 +296,24 @@ export const TIER2_SYSTEM_RULES = [
   'Отвечай кратко и по делу.',
 ].join('\n');
 
+/** Максимальная длина цитаты из библиотеки методологии в промпте (символов). */
+const METHODOLOGY_TEXT_LIMIT = 600;
+
+/**
+ * Обрезать текст до предела по границе слова, добавить «…» при обрезке.
+ * @param {string} text
+ * @param {number} limit
+ * @returns {string}
+ */
+function truncateAtWord(text, limit) {
+  const s = String(text || '');
+  if (s.length <= limit) return s;
+  const cut = s.slice(0, limit);
+  const lastSpace = cut.lastIndexOf(' ');
+  const trimmed = lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+  return `${trimmed}…`;
+}
+
 /**
  * Построить промпт для Claude из Tier-2 контекста и вопроса пользователя.
  *
@@ -292,6 +329,15 @@ export function buildTier2Prompt(context, userQuestion) {
   if (context.help) {
     parts.push('=== Справка о программе (смысл терминов и функций; числа здесь — методологические нормативы, НЕ результаты вашей модели) ===');
     parts.push(context.help);
+    parts.push('');
+  }
+
+  if (context.methodology && context.methodology.length > 0) {
+    parts.push('=== Канон методологии (выдержки из библиотеки первоисточников) ===');
+    parts.push('Правила: используй для обоснования интерпретации; цитируй с атрибуцией источника («по Jin 2017…»); числа и нормативы отсюда — методологический канон, НЕ результаты модели пользователя — не смешивай; сложные формулировки переводи на простой язык (правило 11).');
+    for (const hit of context.methodology) {
+      parts.push(`- [«${hit.source}»] ${truncateAtWord(hit.text, METHODOLOGY_TEXT_LIMIT)}`);
+    }
     parts.push('');
   }
 
