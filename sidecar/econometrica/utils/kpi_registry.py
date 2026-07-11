@@ -294,6 +294,35 @@ def list_monetary_kpi_types() -> tuple[str, ...]:
     ))
 
 
+def assert_display_registry_consistent() -> None:
+    """Проверяет согласованность KPI_REGISTRY с kpi_display_registry.json.
+
+    Гарантирует что:
+    1. Для каждого kpi_type в KPI_REGISTRY существует запись в display JSON.
+    2. kpi_kind в display JSON совпадает с KPI_REGISTRY[kpi_type].kpi_kind.
+
+    Raises:
+        AssertionError: при любом несоответствии.
+    """
+    from utils.kpi_display import get_display, all_display_types  # noqa: PLC0415
+
+    for kpi_type, config in KPI_REGISTRY.items():
+        try:
+            display = get_display(kpi_type)
+        except ValueError as exc:
+            raise AssertionError(
+                f"kpi_type='{kpi_type}' присутствует в KPI_REGISTRY, "
+                f"но отсутствует в kpi_display_registry.json: {exc}"
+            ) from exc
+
+        display_kind = display.get("kpi_kind")
+        if display_kind != config.kpi_kind:
+            raise AssertionError(
+                f"kpi_type='{kpi_type}': kpi_kind в KPI_REGISTRY='{config.kpi_kind}', "
+                f"в kpi_display_registry.json='{display_kind}'. Реестры рассинхронизированы."
+            )
+
+
 # ─── Validation на module import (fail-fast vs runtime surprise) ─────────────
 def _validate_registry() -> None:
     """Module-load-time sanity check для KPI_REGISTRY entries."""
