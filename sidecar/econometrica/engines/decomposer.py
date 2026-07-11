@@ -54,7 +54,13 @@ def _fmt_roi(r) -> str:
     return f"{r:.2f}×" if abs(r) < 1 else f"{r:.1f}×"
 
 
-def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str:
+def _build_channel_insight(
+    channels,
+    money_roi_unavailable: bool = False,
+    kpi_kind: str = 'monetary',
+    kpi_type=None,
+    derived_mode: str = 'roi',
+) -> str:
     """SSOT инсайта «лучший/худший канал» (template, 0 токенов).
 
     REC-1-GAP (2026-06-03): channels отсортированы по ROI убыв.; channels[0] —
@@ -78,14 +84,31 @@ def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str
     ROI-артефакт 50976× проходил clean и короновался, хотя движок САМ флагнул roi_max
     high-severity). Гейт на money_roi_unavailable закрывает обход независимо от имени.
 
+    KPI-aware форматирование (feat/econ-kpi-units, 2026-07-11):
+    - monetary/roi: «ROI X×» — поведение как раньше.
+    - count/roi: метка «CPU», format_metric инвертирует ratio → ₽/ед. или ₽/лид.
+    - effectiveness: «доля канала в эффекте X%», без «ROI»/«окупается».
+
     @param channels: list dict с name/roi/efficiency_gap/unit_smell, sorted by ROI desc.
     @param money_roi_unavailable: True если ROI семантически нативное отношение (count
         KPI без kpi_unit_cost) — тогда ранжирование/коронование по ROI невалидно.
+    @param kpi_kind: 'monetary' (default) | 'count' | 'effectiveness' — управляет
+        словарём и форматированием метрики.
+    @param kpi_type: конкретный тип KPI ('leads'|'sales_packs'|...) для паспортных
+        подписей (format_metric → cpu_per_label). None — backward-compat.
+    @param derived_mode: 'roi' | 'effectiveness' | 'manual' — режим расчёта.
+        'effectiveness' меняет словарь на «доля эффекта».
     @returns insight-строка (или '' если нет каналов).
     """
+    from utils.kpi_labels import format_metric  # локальный импорт — избегаем circular на уровне модуля
+
     if not channels:
         return ''
-    if money_roi_unavailable:
+
+    # Нормализуем effective_mode: effectiveness доминирует над kpi_kind
+    _eff_mode = (derived_mode == 'effectiveness')
+
+    if money_roi_unavailable and not _eff_mode:
         return (
             'Денежный ROI каналов недоступен: задайте «ценность единицы» KPI для '
             'money-оценки эффективности. Продажи определяются в основном базовым '
@@ -108,25 +131,67 @@ def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str
             'Точную оценку отдачи и сценарии перераспределения см. в шаге «Оптимизация».'
         )
     top_roi = float(top.get('roi') or 0)
-    if top_roi >= ROI_BREAKEVEN:
+
+    # Форматирование метрики и словарь зависят от режима
+    if _eff_mode:
+        # Effectiveness: доля ВКЛАДА канала в эффект (share_of_effect / contribution_pct),
+        # НЕ ROI. Ранжируем по доле, а не по roi (roi для effectiveness невалиден — прогон
+        # roi через format_metric дал бы roi×100, т.е. бессмысленные «250% доли»).
+        def _share(c):
+            return float(c.get('contribution_pct') or c.get('share_of_effect') or 0)
+        top_share_ch = max(channels, key=_share)
+        worst_share_ch = min(channels, key=_share)
         insight = (
-            f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
-            f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+            f"{top_share_ch['name']} - наибольшая доля эффекта ({_share(top_share_ch):.1f}%). "
+            f"{worst_share_ch['name']} - наименьшая доля эффекта ({_share(worst_share_ch):.1f}%)."
         )
-        if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
-            insight += (
-                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
-                f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
-                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+    elif kpi_kind == 'count':
+        # Count/CPU: метка CPU, format_metric инвертирует ratio
+        fmt_top = format_metric(top_roi, kpi_kind='count', mode='roi', kpi_type=kpi_type)
+        fmt_worst = format_metric(float(worst.get('roi') or 0), kpi_kind='count', mode='roi', kpi_type=kpi_type)
+        if top_roi >= ROI_BREAKEVEN:
+            insight = (
+                f"{top['name']} - самый эффективный канал (CPU {fmt_top}). "
+                f"{worst['name']} - наименее эффективный (CPU {fmt_worst})."
+            )
+            if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
+                insight += (
+                    f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                    f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                    f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+                )
+        else:
+            # INV-50 для count: честная формулировка без «окупается»/«ROI»
+            if money_roi_unavailable:
+                no_roi_phrase = 'стоимость привлечения выше ценности единицы'
+            else:
+                no_roi_phrase = 'относительно высокая стоимость привлечения'
+            insight = (
+                f"Каналы показывают {no_roi_phrase} (лучший - {top['name']}, "
+                f"CPU {fmt_top}). Точную оценку и сценарии перераспределения "
+                f"см. в шаге «Оптимизация»."
             )
     else:
-        # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
-        insight = (
-            f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
-            f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
-            f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
-            f"перераспределения см. в шаге «Оптимизация»."
-        )
+        # Monetary: поведение как раньше (ROI ×)
+        if top_roi >= ROI_BREAKEVEN:
+            insight = (
+                f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
+                f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+            )
+            if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
+                insight += (
+                    f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                    f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                    f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+                )
+        else:
+            # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
+            insight = (
+                f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
+                f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
+                f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
+                f"перераспределения см. в шаге «Оптимизация»."
+            )
     return insight
 
 
@@ -1209,7 +1274,13 @@ def decompose(
     # _money_roi_na (count-KPI без kpi_unit_cost) вычислен в per-channel loop выше;
     # пересчитываем явно для надёжности (loop мог не выполниться при 0 каналах).
     _insight_money_roi_na = bool(kpi_kind == 'count' and kpi_unit_cost is None)
-    insight = _build_channel_insight(channels, money_roi_unavailable=_insight_money_roi_na)
+    insight = _build_channel_insight(
+        channels,
+        money_roi_unavailable=_insight_money_roi_na,
+        kpi_kind=kpi_kind,
+        kpi_type=config.get('kpi_type'),
+        derived_mode=model_data.get('derived_mode') or 'roi',
+    )
 
     # Per-period dates
     date_col = config.get('date_column', 'date')
