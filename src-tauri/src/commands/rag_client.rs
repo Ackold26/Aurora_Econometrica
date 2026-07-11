@@ -23,6 +23,35 @@ const CORPUS: &str = "econometrics";
 /// Дефолт числа выдержек, если фронт не указал.
 const DEFAULT_K: u8 = 4;
 
+/// Транспортный инвариант (аудит 2026-07-11, M1): секрет `X-Aurora-Auth` и
+/// вопрос пользователя НЕ должны идти открытым http через сеть. Разрешаем
+/// `http://` только на loopback (SSH-туннель до узла Б); всё внешнее — только
+/// `https://`. Иначе развёртывание с прямым http-адресом узла Б отдало бы
+/// секрет и вопросы пользователя в открытом виде.
+fn validate_rag_url(base_url: &str) -> Result<(), String> {
+    let lower = base_url.trim().to_ascii_lowercase();
+    if lower.starts_with("https://") {
+        return Ok(());
+    }
+    if let Some(rest) = lower.strip_prefix("http://") {
+        let host_port = rest.split(['/', '?', '#']).next().unwrap_or("");
+        let host = if host_port.starts_with('[') {
+            host_port.split(']').next().map(|h| &h[1..]).unwrap_or("")
+        } else {
+            host_port.split(':').next().unwrap_or("")
+        };
+        if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+            return Ok(());
+        }
+        return Err(format!(
+            "[RAG-PLAINTEXT] Небезопасный адрес библиотеки «{base_url}»: http допустим только для 127.0.0.1/localhost (SSH-туннель), внешний адрес — только https"
+        ));
+    }
+    Err(format!(
+        "[RAG-URL] Непонятная схема адреса библиотеки «{base_url}» — ожидается http://127.0.0.1… или https://…"
+    ))
+}
+
 #[derive(Debug, Serialize)]
 struct SearchRequest<'a> {
     corpus: &'a str,
@@ -88,6 +117,7 @@ pub async fn econ_rag_search(
 
         let base_url = std::env::var("AURORA_RAG_URL")
             .unwrap_or_else(|_| DEFAULT_RAG_URL.to_string());
+        validate_rag_url(&base_url)?;
         let url = format!("{}/search", base_url.trim_end_matches('/'));
 
         let k = k.unwrap_or(DEFAULT_K).clamp(1, 8);
@@ -118,5 +148,38 @@ pub async fn econ_rag_search(
         resp.json::<serde_json::Value>()
             .await
             .map_err(|e| format!("[RAG-HTTP] Не удалось разобрать ответ библиотеки: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_rag_url;
+
+    #[test]
+    fn loopback_http_allowed() {
+        assert!(validate_rag_url("http://127.0.0.1:8801").is_ok());
+        assert!(validate_rag_url("http://localhost:8801").is_ok());
+        assert!(validate_rag_url("http://127.0.0.1:8801/").is_ok());
+    }
+
+    #[test]
+    fn https_allowed_anywhere() {
+        assert!(validate_rag_url("https://rag.aurora-platform.pro").is_ok());
+        assert!(validate_rag_url("https://37.27.218.187:8801").is_ok());
+    }
+
+    #[test]
+    fn plaintext_http_to_external_host_rejected() {
+        let err = validate_rag_url("http://37.27.218.187:8801").unwrap_err();
+        assert!(err.starts_with("[RAG-PLAINTEXT]"), "got: {err}");
+        assert!(validate_rag_url("http://evil.example.com/search").is_err());
+        // localhost-похожий, но внешний хост не проходит по префиксу
+        assert!(validate_rag_url("http://localhost.evil.com:8801").is_err());
+    }
+
+    #[test]
+    fn garbage_scheme_rejected() {
+        assert!(validate_rag_url("ftp://127.0.0.1").is_err());
+        assert!(validate_rag_url("127.0.0.1:8801").is_err());
     }
 }

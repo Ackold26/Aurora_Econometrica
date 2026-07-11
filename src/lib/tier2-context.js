@@ -152,20 +152,6 @@ function extractHonesty(opt) {
  */
 
 /**
- * Собрать Tier-2 контекст для текущего шага.
- * facts = компактная сводка (фокус промпта). grounding.jsonFacts = ПОЛНЫЕ
- * факты шага (богатый набор, чтобы guard не флагал легитимное цитирование).
- *
- * @param {{
- *   step: number,
- *   question?: string,
- *   tier1Insights?: Array<{severity:string,text:string,tip?:string}>,
- *   val?: any, mod?: any, dec?: any, opt?: any,
- *   methodology?: MethodologyHit[] | null,
- * }} input
- * @returns {Tier2Context}
- */
-/**
  * Убрать из артефакта оптимизации служебную телеметрию, которой нет в промпте
  * (Аврора не может её легитимно цитировать) — иначе её числа расширяют
  * поверхность СЛУЧАЙНЫХ совпадений по значащим цифрам и маскируют галлюцинации
@@ -179,6 +165,20 @@ function stripOptTelemetry(opt) {
   return rest;
 }
 
+/**
+ * Собрать Tier-2 контекст для текущего шага.
+ * facts = компактная сводка (фокус промпта). grounding.jsonFacts = ПОЛНЫЕ
+ * факты шага (богатый набор, чтобы guard не флагал легитимное цитирование).
+ *
+ * @param {{
+ *   step: number,
+ *   question?: string,
+ *   tier1Insights?: Array<{severity:string,text:string,tip?:string}>,
+ *   val?: any, mod?: any, dec?: any, opt?: any,
+ *   methodology?: MethodologyHit[] | null,
+ * }} input
+ * @returns {Tier2Context}
+ */
 export function buildTier2Context(input) {
   const { step, question, tier1Insights = [], val, mod, dec, opt, methodology } = input;
 
@@ -336,6 +336,22 @@ function truncateAtWord(text, limit) {
 }
 
 /**
+ * Нейтрализовать в тексте выдержки разделители секций промпта (аудит
+ * 2026-07-11, M1): битый OCR или скомпрометированный текст источника со
+ * строкой вида «=== Факты модели ===» иначе создал бы фальшивую секцию и
+ * переопределил структуру промпта. «===» → «≈≈≈», переносы строк → пробел
+ * (цитата всегда одна строка списка).
+ * @param {string} text
+ * @returns {string}
+ */
+function sanitizeMethodologyFragment(text) {
+  return String(text || '')
+    .replace(/={3,}/g, '≈≈≈')
+    .replace(/\s*[\r\n]+\s*/g, ' ')
+    .trim();
+}
+
+/**
  * Построить промпт для Claude из Tier-2 контекста и вопроса пользователя.
  *
  * @param {Tier2Context} context
@@ -357,7 +373,9 @@ export function buildTier2Prompt(context, userQuestion) {
     parts.push('=== Канон методологии (выдержки из библиотеки первоисточников) ===');
     parts.push('Правила: используй для обоснования интерпретации; цитируй с атрибуцией источника («по Jin 2017…»); числа и нормативы отсюда — методологический канон, НЕ результаты модели пользователя — не смешивай; сложные формулировки переводи на простой язык (правило 11).');
     for (const hit of context.methodology) {
-      parts.push(`- [«${hit.source}»] ${truncateAtWord(hit.text, METHODOLOGY_TEXT_LIMIT)}`);
+      const source = sanitizeMethodologyFragment(hit.source);
+      const text = sanitizeMethodologyFragment(hit.text);
+      parts.push(`- [«${source}»] ${truncateAtWord(text, METHODOLOGY_TEXT_LIMIT)}`);
     }
     parts.push('');
   }

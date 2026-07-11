@@ -350,8 +350,12 @@
 
   // Ответ ИИ относится к конкретному шагу пайплайна — сбрасывать при смене шага,
   // иначе пользователь видит ответ про декомпозицию на шаге оптимизации.
+  // askEpoch — монотонный токен запроса (аудит 2026-07-11, M2 JS): ответ,
+  // прилетевший ПОСЛЕ смены шага, не должен перезаписать очищенное состояние.
+  let askEpoch = 0;
   $effect(() => {
     void $pipelineCurrentStep;
+    askEpoch += 1;
     askAnswer = '';
     askError = '';
     askUngrounded = [];
@@ -360,7 +364,11 @@
   });
 
   async function askAI() {
-    if (askLoading) return;
+    // Взаимная блокировка со сценарным советником (аудит 2026-07-11, M2 Rust):
+    // оба потока идут в один кабинет econometrist через общий .pipeline_prompt.md —
+    // конкурентный вызов подменил бы промпт и PID друг друга.
+    if (askLoading || scenarioLoading) return;
+    const myEpoch = ++askEpoch;
     askError = '';
     askAnswer = '';
     askUngrounded = [];
@@ -404,12 +412,17 @@
           throw e;
         }
       }
+      if (myEpoch !== askEpoch) return; // шаг сменился в полёте — ответ устарел (M2)
       askAnswer = sanitizeAvroraText(text);
       // Рантайм-страж INV-50: числа в ответе должны быть в фактах модели.
       // ctx.grounding уже несёт methodology (buildTier2Context кладёт её в
       // jsonFacts) — нормативы канона не флагаются как выдуманные.
+      // Без ignoreBelow — осознанно (триаж аудита 2026-07-11): порог отсёк бы
+      // галлюцинации класса «в 8 раз» (правило 1 их прямо запрещает), а ложные
+      // малые числа и так замаскированы нормативами help в grounding.
       askUngrounded = findUngroundedNumbers(askAnswer, ctx.grounding).map((b) => b.raw);
     } catch (e) {
+      if (myEpoch !== askEpoch) return; // ошибка устаревшего запроса — не показывать (M2)
       const msg = String(e);
       askError = msg.includes('CONSENT')
         ? 'Нужно согласие на облачную обработку (см. настройки).'
@@ -471,7 +484,7 @@
 
   /** Шаг 1: разобрать NL-запрос в config (Аврора) → показать подтверждение. */
   async function parseScenario() {
-    if (scenarioLoading) return;
+    if (scenarioLoading || askLoading) return; // interlock с «Спросить Аврору» (M2 Rust)
     resetScenario();
     const chans = scenarioChannels();
     if (chans.length === 0) {
@@ -498,7 +511,7 @@
 
   /** Шаг 2: применить config → econ_scenario (детерминир. расчёт) → интерпретация Авророй. */
   async function runScenario() {
-    if (!scenarioConfig || scenarioLoading) return;
+    if (!scenarioConfig || scenarioLoading || askLoading) return; // interlock (M2 Rust)
     scenarioError = '';
     scenarioResult = null;
     scenarioInterpret = '';
@@ -669,12 +682,12 @@
               placeholder="Спросить Аврору…"
               bind:value={askQuestion}
               onkeydown={(e) => { if (e.key === 'Enter') askAI(); }}
-              disabled={askLoading}
+              disabled={askLoading || scenarioLoading}
             />
             <button
               class="ask-btn"
               onclick={askAI}
-              disabled={askLoading || insights.length === 0}
+              disabled={askLoading || scenarioLoading || insights.length === 0}
               title="Объяснит результат на основе фактов модели"
             >
               {askLoading ? '…' : 'Спросить'}
@@ -705,9 +718,9 @@
                 placeholder="напр. «урежь ТВ на 20%»"
                 bind:value={scenarioText}
                 onkeydown={(e) => { if (e.key === 'Enter') parseScenario(); }}
-                disabled={scenarioLoading}
+                disabled={scenarioLoading || askLoading}
               />
-              <button class="ask-btn" onclick={parseScenario} disabled={scenarioLoading || !scenarioText.trim()}>
+              <button class="ask-btn" onclick={parseScenario} disabled={scenarioLoading || askLoading || !scenarioText.trim()}>
                 {scenarioLoading ? '…' : 'Разобрать'}
               </button>
             </div>
@@ -719,7 +732,7 @@
             <div class="ask-answer">
               <p class="ask-text">{scenarioConfirm}</p>
               <div class="scenario-actions">
-                <button class="ask-btn" onclick={runScenario} disabled={scenarioLoading}>
+                <button class="ask-btn" onclick={runScenario} disabled={scenarioLoading || askLoading}>
                   {scenarioLoading ? 'Считаю…' : 'Запустить'}
                 </button>
                 <button class="tip-toggle" onclick={resetScenario} disabled={scenarioLoading}>Отмена</button>
