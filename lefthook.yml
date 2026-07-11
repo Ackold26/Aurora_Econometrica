@@ -29,3 +29,14 @@ pre-commit:
       run: |
         python tools/sync_help_lists.py
         git add src-tauri/help-econometrica/
+
+    kpi-display-drift:
+      # Фаза 4 — Гейт 3: Drift-страж паспорта KPI.
+      # Срабатывает при изменении canonical JSON реестра ИЛИ генератора ИЛИ
+      # сгенерированного JS — чтобы рассинхрон не попал в коммит.
+      # exit 1 при расхождении kpi_display_registry.json ↔ kpi-display.generated.js.
+      glob:
+        - "sidecar/econometrica/data/kpi_display_registry.json"
+        - "sidecar/econometrica/tools/sync_kpi_display.py"
+        - "src/lib/kpi/kpi-display.generated.js"
+      run: python sidecar/econometrica/tools/sync_kpi_display.py --check
