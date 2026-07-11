@@ -972,6 +972,53 @@ def _map_pipeline_to_builder_data(
     if data_coverage:
         data["data_coverage"] = data_coverage
 
+    # --- KPI kwargs для compute_channel_action (Фаза 3, пласт 1 — 2026-07-11) ---
+    # Читаем из decompose_data ДО декорирования каналов, чтобы прокинуть в action.
+    # Дублирует логику блока «v1.3.0: KPI metadata» ниже — намеренно (DRY нарушено
+    # минимально: одна переменная-группа _kpi_action_kwargs передаётся в декоратор).
+    _kpi_action_kwargs: dict = {}
+    if decompose_data:
+        _ak_kpi_kind = decompose_data.get('kpi_kind', 'monetary')
+        _ak_derived_mode = decompose_data.get('derived_mode', 'roi')
+        _ak_vpcu_raw = decompose_data.get('value_per_count_unit')
+        try:
+            _ak_vpcu = float(_ak_vpcu_raw) if _ak_vpcu_raw is not None else None
+        except (TypeError, ValueError):
+            _ak_vpcu = None
+        # money_roi_unavailable: count без vpcu ИЛИ derived_mode=effectiveness
+        # — идентично compute_roi_verdict в decomposer.py
+        _ak_mriu = (
+            (_ak_kpi_kind == 'count' and (_ak_vpcu is None or _ak_vpcu <= 0))
+            or _ak_derived_mode == 'effectiveness'
+        )
+        # Паспортные подписи для reasoning-строк
+        try:
+            from utils.kpi_labels import metric_short_label
+            _ak_metric_short = metric_short_label(
+                _ak_kpi_kind, _ak_derived_mode,
+                kpi_type=decompose_data.get('kpi_type') or None,
+            )
+        except Exception:  # noqa: BLE001
+            _ak_metric_short = 'CPU' if _ak_kpi_kind == 'count' else 'ROI'
+        try:
+            from aurora_pptx.kpi_helpers import kpi_view as _kv
+            _kpi_v = _kv({'kpi': {
+                'kpi_kind': _ak_kpi_kind,
+                'derived_mode': _ak_derived_mode,
+                'kpi_type': decompose_data.get('kpi_type') or None,
+                'labels': {},
+            }})
+            _ak_cpu_per_label = _kpi_v.get('cpu_per_label', '₽/ед.')
+        except Exception:  # noqa: BLE001
+            _ak_cpu_per_label = '₽/ед.'
+        _kpi_action_kwargs = {
+            'kpi_kind': _ak_kpi_kind,
+            'vpcu': _ak_vpcu,
+            'money_roi_unavailable': _ak_mriu,
+            'metric_short': _ak_metric_short,
+            'cpu_per_label': _ak_cpu_per_label,
+        }
+
     # --- Channels + narrative facts ---
     channels = _merge_channels(
         decompose_data.get("channels"),
@@ -982,9 +1029,11 @@ def _map_pipeline_to_builder_data(
     # math-fix v1.0.14.1, B (2026-04-28): decorate с action structured data.
     # Templates (HTML/PPTX) reads ch['action_label']/['action_reasoning'] вместо
     # генерируя свои hardcoded строки → coherence between table + commentary.
+    # Фаза 3, пласт 1 (2026-07-11): прокидываем kpi_action_kwargs → честные
+    # вердикты для count-метрик (исправляет «огульный Cut» при mROAS=0.01–0.05).
     from engines.channel_action import compute_channel_action
     for ch in channels:
-        action = compute_channel_action(ch)
+        action = compute_channel_action(ch, **_kpi_action_kwargs)
         ch["verdict"] = action.key
         ch["action"] = action.key
         ch["action_label"] = action.label_ru

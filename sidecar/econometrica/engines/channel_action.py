@@ -31,8 +31,18 @@ Public API:
   ACTION_LABEL_RU     - RU label per key
   ACTION_TONE         - tone (good/warn/bad/neutral) per key
   ACTION_PRIORITY     - sort priority per key (Scale=5, Hold=4, ..., Cut=0)
-  compute_channel_action(channel_dict) → ChannelAction
+  compute_channel_action(channel_dict, *, kpi_kind, vpcu, money_roi_unavailable,
+                         metric_short, cpu_per_label) → ChannelAction
   build_action_summary(channels) → dict с counts + top_by_action_list
+
+KPI-паспорт (Фаза 3, пласт 1 — 2026-07-11):
+  Для СЧЁТНОЙ метрики (лиды/упаковки) mROAS = units/₽ ≈ 0.01–0.05.
+  Абсолютные пороги 0.8/1.0/1.5 неприменимы к count-метрике напрямую.
+  Честное поведение:
+    • count + vpcu > 0:  eff_mroas = mroas * vpcu; decision-tree по eff_mroas.
+    • count без vpcu (money_roi_unavailable=True): деградация — только optimizer-сигнал.
+      CPU = 1/mroas отображается в reasoning, пользователю предлагается задать ценность.
+    • monetary: поведение без изменений (backward-compat).
 """
 from __future__ import annotations
 
@@ -82,7 +92,41 @@ class ChannelAction:
     confidence: str     # 'high' / 'medium' / 'low' - based on CI width
 
 
-def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
+def _metric_phrase(
+    mroas: float,
+    kpi_kind: str,
+    vpcu: float | None,
+    metric_short: str,
+    cpu_per_label: str,
+) -> str:
+    """Паспорт-aware строка для reasoning-сообщений.
+
+    monetary  → '1.23×'
+    count+vpcu → 'CPU 456 ₽/лид'
+    count без vpcu → 'CPU 456 ₽/лид (ценность единицы не задана)'
+    """
+    if kpi_kind != 'count':
+        return f'{mroas:.2f}×'
+    if mroas > 0:
+        cpu = 1.0 / mroas
+        cpu_fmt = f'{cpu:.0f}' if cpu >= 10 else f'{cpu:.1f}'
+        base = f'{metric_short} {cpu_fmt} {cpu_per_label}'
+    else:
+        base = f'{metric_short} — {cpu_per_label}'
+    if vpcu is None or vpcu <= 0:
+        return f'{base} (ценность единицы не задана)'
+    return base
+
+
+def compute_channel_action(
+    channel: dict[str, Any],
+    *,
+    kpi_kind: str = 'monetary',
+    vpcu: float | None = None,
+    money_roi_unavailable: bool = False,
+    metric_short: str = 'ROI',
+    cpu_per_label: str = '₽/ед.',
+) -> ChannelAction:
     """Single source of truth для prescriptive action label.
 
     Reads from a merged channel dict (output of narrative_adapter._merge_channels).
@@ -96,17 +140,28 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
         untrained:               True if channel had zero training variance
         spend:                   total spend (for zero-spend detection)
 
+    KPI kwargs (Фаза 3, пласт 1):
+        kpi_kind:              'monetary' | 'count'
+        vpcu:                  value_per_count_unit (₽/единица); None = не задана
+        money_roi_unavailable: True когда count-KPI без vpcu или derived_mode='effectiveness'
+        metric_short:          'ROI' | 'CPU' | 'Доля' — короткое название метрики
+        cpu_per_label:         '₽/лид' / '₽/упак.' / '₽/ед.' — единица CPU
+
     Decision tree (top to bottom - first match wins):
       1. Untrained channel                            → Uncertain (neutral tone)
       2. Zero spend                                   → Uncertain (canal не в портфеле)
-      3. CI uncertainty (width > |mROAS|)             → Uncertain
-      4. mROAS < 0.8                                  → Cut
+      3. CI uncertainty (width > |eff_mroas|)         → Uncertain
+      4. eff_mroas < 0.8                              → Cut
       5. Optimizer says optimal/current ≤ 0.95        → Reduce (signal from optimizer)
-      6. mROAS < 1.0 (near breakeven)                 → Reduce
-      7. Optimizer says optimal/current ≥ 1.05 + mROAS ≥ 1.0 → Scale (optimizer agrees)
-      8. mROAS ≥ 1.5 AND gap ≥ +5pp                   → Scale (under-invested signal)
-      9. mROAS ≥ 1.0 AND |gap| < 5pp                  → Hold (balanced)
+      6. eff_mroas < 1.0 (near breakeven)             → Reduce
+      7. Optimizer says optimal/current ≥ 1.05 + eff_mroas ≥ 1.0 → Scale
+      8. eff_mroas ≥ 1.5 AND gap ≥ +5pp               → Scale
+      9. eff_mroas ≥ 1.0 AND |gap| < 5pp              → Hold
       10. else                                        → Watch
+
+    При money_roi_unavailable=True (count без vpcu):
+      Абсолютные breakeven-пороги (шаги 4, 6, 7, 8) НЕ применяются.
+      Только optimizer-сигнал: ratio ≤ 0.95 → Reduce; ≥ 1.05 → Scale; → Watch.
     """
     # ─ Inputs ─────────────────────────────────────────────────────────
     # Track parse failures + missing-info для bad-data fallback (Watch вместо Uncertain).
@@ -163,8 +218,22 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
         ci_low = ci_high = None
     has_ci = ci_low is not None and ci_high is not None
     ci_width = (ci_high - ci_low) if has_ci else None
-    confidence = 'high' if has_ci and ci_width is not None and ci_width < abs(mroas) * 0.5 else (
-        'medium' if has_ci and ci_width is not None and ci_width < abs(mroas) else 'low'
+
+    # KPI-паспорт: вычисляем eff_mroas — то значение, которое прогоняется через
+    # decision-tree для breakeven/scale/hold порогов.
+    # monetary:        eff_mroas == mroas (без изменений)
+    # count + vpcu>0:  eff_mroas = mroas * vpcu  (переводим units/₽ → ₽/₽-эквивалент)
+    # count без vpcu:  eff_mroas НЕ используется для абсолютных breakeven-порогов
+    #                  (money_roi_unavailable=True → деградация к optimizer-only)
+    _vpcu_valid = (kpi_kind == 'count') and isinstance(vpcu, (int, float)) and vpcu > 0
+    if _vpcu_valid:
+        eff_mroas = mroas * vpcu
+    else:
+        eff_mroas = mroas
+
+    # CI confidence рассчитывается по eff_mroas для корректной relative оценки
+    confidence = 'high' if has_ci and ci_width is not None and ci_width < abs(eff_mroas) * 0.5 else (
+        'medium' if has_ci and ci_width is not None and ci_width < abs(eff_mroas) else 'low'
     )
 
     # ─ Decision tree ──────────────────────────────────────────────────
@@ -202,10 +271,11 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             confidence='low',
         )
 
-    # 3. Severe optimizer cut signal - Cut (regardless of mROAS).
+    # 3. Severe optimizer cut signal - Cut (regardless of mROAS / eff_mroas).
     # Backward compat: derive_verdict treated ratio < 0.5 as Cut even при positive mROAS -
     # это explicit «удалить канал» signal от optimizer (e.g. при money-mode redistribution
     # бюджет ушёл к другим channels с гораздо лучшим mROAS).
+    # NB: этот шаг применяется и при money_roi_unavailable — optimizer-сигнал всегда валиден.
     if cur_spend > 1e-9 and ratio < 0.5:
         return ChannelAction(
             key='Cut',
@@ -219,64 +289,109 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             confidence=confidence,
         )
 
-    # 5. Below breakeven - Cut
-    if mroas > 0 and mroas < 0.8:
+    # ─ Деградация: count без vpcu (money_roi_unavailable) ─────────────
+    # Абсолютные breakeven-пороги (4, 6, 7, 8) НЕ применяются: mROAS семантически
+    # несопоставим с порогами ₽/₽. Оставляем только optimizer-сигнал.
+    if money_roi_unavailable:
+        _metric_str = _metric_phrase(mroas, kpi_kind, vpcu, metric_short, cpu_per_label)
+        if ratio <= 0.95:
+            return ChannelAction(
+                key='Reduce',
+                label_ru=ACTION_LABEL_RU['Reduce'],
+                tone=ACTION_TONE['Reduce'],
+                reasoning=(
+                    f'{_metric_str}; Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - '
+                    f'задайте ценность единицы для оценки окупаемости'
+                ),
+                priority=ACTION_PRIORITY['Reduce'],
+                confidence=confidence,
+            )
+        if ratio >= 1.05:
+            return ChannelAction(
+                key='Scale',
+                label_ru=ACTION_LABEL_RU['Scale'],
+                tone=ACTION_TONE['Scale'],
+                reasoning=(
+                    f'{_metric_str}; Optimizer рекомендует +{(ratio - 1) * 100:.0f}% - '
+                    f'задайте ценность единицы для оценки окупаемости'
+                ),
+                priority=ACTION_PRIORITY['Scale'],
+                confidence=confidence,
+            )
+        return ChannelAction(
+            key='Watch',
+            label_ru=ACTION_LABEL_RU['Watch'],
+            tone=ACTION_TONE['Watch'],
+            reasoning=(
+                f'{_metric_str}; задайте ценность единицы для оценки окупаемости'
+            ),
+            priority=ACTION_PRIORITY['Watch'],
+            confidence=confidence,
+        )
+
+    # ─ Основная ветка (monetary ИЛИ count + vpcu) — decision-tree по eff_mroas ──
+
+    # Строка для reasoning (паспорт-aware)
+    _metric_str = _metric_phrase(eff_mroas, kpi_kind, vpcu, metric_short, cpu_per_label)
+
+    # 4/5. Below breakeven - Cut
+    if eff_mroas > 0 and eff_mroas < 0.8:
         return ChannelAction(
             key='Cut',
             label_ru=ACTION_LABEL_RU['Cut'],
             tone=ACTION_TONE['Cut'],
-            reasoning=f'mROAS {mroas:.2f}× глубоко ниже breakeven - каждый рубль приносит убыток',
+            reasoning=f'{_metric_str} глубоко ниже breakeven - каждый рубль приносит убыток',
             priority=ACTION_PRIORITY['Cut'],
             confidence=confidence,
         )
 
-    # 6. Optimizer recommends moderate reduction - Reduce (даже если mROAS > 1.0, saturation-bound)
-    if ratio <= 0.95 and mroas >= 1.0:
+    # 6a. Optimizer recommends moderate reduction - Reduce (даже если eff_mroas > 1.0, saturation-bound)
+    if ratio <= 0.95 and eff_mroas >= 1.0:
         return ChannelAction(
             key='Reduce',
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
             reasoning=(
-                f'Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - saturation, '
-                f'mROAS {mroas:.2f}× падает с ростом вложения'
+                f'Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - насыщение, '
+                f'{_metric_str} падает с ростом вложения'
             ),
             priority=ACTION_PRIORITY['Reduce'],
             confidence=confidence,
         )
 
-    # 6. Near breakeven - Reduce
-    if mroas > 0 and mroas < 1.0:
+    # 6b. Near breakeven - Reduce
+    if eff_mroas > 0 and eff_mroas < 1.0:
         return ChannelAction(
             key='Reduce',
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
-            reasoning=f'mROAS {mroas:.2f}× близок к breakeven - снизить риск',
+            reasoning=f'{_metric_str} близко к breakeven - снизить риск',
             priority=ACTION_PRIORITY['Reduce'],
             confidence=confidence,
         )
 
     # 7. Optimizer recommends growth - Scale (signal из optimizer'а сильнее эвристики)
-    if ratio >= 1.05 and mroas >= 1.0:
+    if ratio >= 1.05 and eff_mroas >= 1.0:
         return ChannelAction(
             key='Scale',
             label_ru=ACTION_LABEL_RU['Scale'],
             tone=ACTION_TONE['Scale'],
             reasoning=(
-                f'Optimizer рекомендует +{(ratio - 1) * 100:.0f}%, mROAS {mroas:.2f}× - '
+                f'Optimizer рекомендует +{(ratio - 1) * 100:.0f}%, {_metric_str} - '
                 f'недо-инвестирован'
             ),
             priority=ACTION_PRIORITY['Scale'],
             confidence=confidence,
         )
 
-    # 8. mROAS+gap heuristic для Scale (когда optimizer не двигает, но gap signal)
-    if mroas >= 1.5 and eff_gap >= 5.0:
+    # 8. eff_mroas+gap heuristic для Scale (когда optimizer не двигает, но gap signal)
+    if eff_mroas >= 1.5 and eff_gap >= 5.0:
         return ChannelAction(
             key='Scale',
             label_ru=ACTION_LABEL_RU['Scale'],
             tone=ACTION_TONE['Scale'],
             reasoning=(
-                f'mROAS {mroas:.2f}×, gap +{eff_gap:.0f}пп - канал даёт больше эффекта '
+                f'{_metric_str}, gap +{eff_gap:.0f}пп - канал даёт больше эффекта '
                 f'чем доли бюджета'
             ),
             priority=ACTION_PRIORITY['Scale'],
@@ -290,13 +405,15 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
     # CI на канал wide. Только когда optimizer не двигает + CI wide → Uncertain.
     # Без этого ordering: small N → wide CI → ВСЕ каналы Uncertain даже когда
     # optimizer нашёл clear +28% redistribution (Kagocel case).
-    if has_ci and ci_width is not None and mroas > 0 and ci_width > mroas:
+    if has_ci and ci_width is not None and eff_mroas > 0 and ci_width > eff_mroas:
+        _ci_lo_eff = ci_low * vpcu if _vpcu_valid else ci_low
+        _ci_hi_eff = ci_high * vpcu if _vpcu_valid else ci_high
         return ChannelAction(
             key='Uncertain',
             label_ru=ACTION_LABEL_RU['Uncertain'],
             tone=ACTION_TONE['Uncertain'],
             reasoning=(
-                f'CI [{ci_low:.2f}-{ci_high:.2f}] шире чем mROAS {mroas:.2f}×, '
+                f'CI [{_ci_lo_eff:.2f}-{_ci_hi_eff:.2f}] шире чем {_metric_str}, '
                 f'оптимизатор не предложил перераспределения - '
                 f'нужно больше данных для уверенной рекомендации'
             ),
@@ -304,24 +421,24 @@ def compute_channel_action(channel: dict[str, Any]) -> ChannelAction:
             confidence='low',
         )
 
-    # 10. Hold - стабильный, mROAS заметно выше breakeven (>1.1), gap не явный.
-    # Threshold tightened от 1.0 к 1.1 - mROAS=1.0 ровно на breakeven, не Hold.
-    if mroas >= 1.1 and abs(eff_gap) < 5.0:
+    # 10. Hold - стабильный, eff_mroas заметно выше breakeven (>1.1), gap не явный.
+    # Threshold tightened от 1.0 к 1.1 - eff_mroas=1.0 ровно на breakeven, не Hold.
+    if eff_mroas >= 1.1 and abs(eff_gap) < 5.0:
         return ChannelAction(
             key='Hold',
             label_ru=ACTION_LABEL_RU['Hold'],
             tone=ACTION_TONE['Hold'],
-            reasoning=f'mROAS {mroas:.2f}× стабилен, gap {eff_gap:+.0f}пп - баланс',
+            reasoning=f'{_metric_str} стабилен, gap {eff_gap:+.0f}пп - баланс',
             priority=ACTION_PRIORITY['Hold'],
             confidence=confidence,
         )
 
-    # 10. Watch - fallback (mROAS ≈ breakeven OR gap большой, нет optimizer signal)
+    # 10. Watch - fallback (eff_mroas ≈ breakeven OR gap большой, нет optimizer signal)
     return ChannelAction(
         key='Watch',
         label_ru=ACTION_LABEL_RU['Watch'],
         tone=ACTION_TONE['Watch'],
-        reasoning=f'mROAS {mroas:.2f}×, gap {eff_gap:+.0f}пп - нужен мониторинг',
+        reasoning=f'{_metric_str}, gap {eff_gap:+.0f}пп - нужен мониторинг',
         priority=ACTION_PRIORITY['Watch'],
         confidence=confidence,
     )
