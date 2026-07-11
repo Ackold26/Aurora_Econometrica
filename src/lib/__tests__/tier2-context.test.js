@@ -206,6 +206,35 @@ describe('методология (RAG-библиотека узла Б) в ко�
   });
 });
 
+describe('служебная телеметрия оптимизатора не маскирует галлюцинации (live-probe 2026-07-11)', () => {
+  const optWithTelemetry = {
+    expected_lift_pct: 5.7,
+    total_budget_money: 1000000,
+    channels: [{ name: 'ТВ', current_spend: 400000, optimal_spend: 358000, delta_pct: -10.5 }],
+    // Служебные числа SLSQP: best_objective −141.79 по 2 значащим цифрам
+    // совпадает с выдуманным «137» — до фикса маскировало галлюцинацию.
+    slsqp_diagnostics: { n_starts: 9, best_objective: -141.79413709408556 },
+    response_curves: { 'ТВ': { spend: [1, 2, 3], response: [137.2, 140.1, 142.9] } },
+  };
+
+  it('выдуманное число, случайно близкое к телеметрии, ЛОВИТСЯ стражем (OPTIMIZE)', () => {
+    const ctx = buildTier2Context({ step: STEP.OPTIMIZE, opt: optWithTelemetry });
+    const bad = findUngroundedNumbers('Продажи вырастут на 137%.', ctx.grounding);
+    expect(bad.map((b) => b.raw)).toContain('137');
+  });
+
+  it('выдуманное число ловится и на REPORT (телеметрия вырезана из grounding)', () => {
+    const ctx = buildTier2Context({ step: STEP.REPORT, opt: optWithTelemetry, dec: decomposition });
+    const bad = findUngroundedNumbers('Продажи вырастут на 137%.', ctx.grounding);
+    expect(bad.map((b) => b.raw)).toContain('137');
+  });
+
+  it('честные числа из фактов оптимизации остаются grounded', () => {
+    const ctx = buildTier2Context({ step: STEP.OPTIMIZE, opt: optWithTelemetry });
+    expect(findUngroundedNumbers('Ожидаемый прирост 5.7%, снижение ТВ на 10.5%.', ctx.grounding)).toEqual([]);
+  });
+});
+
 describe('summarizeModel — диагностика (синтетика)', () => {
   it('сводка несёт r_hat, divergences, ratio, MQS', () => {
     const mod = {

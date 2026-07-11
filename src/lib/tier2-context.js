@@ -165,6 +165,20 @@ function extractHonesty(opt) {
  * }} input
  * @returns {Tier2Context}
  */
+/**
+ * Убрать из артефакта оптимизации служебную телеметрию, которой нет в промпте
+ * (Аврора не может её легитимно цитировать) — иначе её числа расширяют
+ * поверхность СЛУЧАЙНЫХ совпадений по значащим цифрам и маскируют галлюцинации
+ * от стража (live-probe 2026-07-11: выдуманное «137%» сошлось со служебным
+ * slsqp best_objective −141.79 по 2 значащим цифрам).
+ * @param {any} opt
+ */
+function stripOptTelemetry(opt) {
+  if (!opt || typeof opt !== 'object') return opt ?? {};
+  const { slsqp_diagnostics, response_curves, ...rest } = opt;
+  return rest;
+}
+
 export function buildTier2Context(input) {
   const { step, question, tier1Insights = [], val, mod, dec, opt, methodology } = input;
 
@@ -186,7 +200,7 @@ export function buildTier2Context(input) {
       break;
     case STEP.OPTIMIZE:
       facts = summarizeOptimize(opt);
-      fullFacts = opt ?? {};
+      fullFacts = stripOptTelemetry(opt);
       honesty = extractHonesty(opt);
       break;
     case STEP.REPORT:
@@ -195,7 +209,7 @@ export function buildTier2Context(input) {
         decompose: summarizeDecompose(dec),
         optimize: summarizeOptimize(opt),
       });
-      fullFacts = { mod: mod ?? {}, dec: dec ?? {}, opt: opt ?? {} };
+      fullFacts = { mod: mod ?? {}, dec: dec ?? {}, opt: stripOptTelemetry(opt) };
       honesty = extractHonesty(opt);
       break;
     default:
