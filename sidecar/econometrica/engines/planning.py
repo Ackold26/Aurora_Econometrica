@@ -643,3 +643,67 @@ def confirm_media_plan(project_dir: str, confirmed: bool) -> dict[str, Any]:
 
     logger.info("confirm_media_plan: confirmed=%s записан в %s", confirmed, mp_path)
     return {"status": "ok"}
+
+
+# ─── Манифест прогноза-плана ──────────────────────────────────────────────────
+
+
+def save_planning_manifest(
+    project_dir: str,
+    variant_ids: list[str],
+    accepted_variant: str | None = None,
+    disclaimers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Записывает results/planning.json — манифест прогноза-плана.
+
+    Манифест связывает сохранённые сценарии (results/scenarios/<id>.json) с
+    отчётностью: PPTX/HTML/XLSX-раздел прогноза появляется только при наличии
+    planning.json с непустым variant_ids (см. load_saved_forecast). Без него
+    сценарии на диске есть, а раздел «не найден» — корень жалобы приёмки
+    2026-07-10 (P-1: авто-прогноз базового плана пишет манифест сам).
+
+    Аргументы:
+        project_dir: абсолютный путь к папке проекта.
+        variant_ids: имена сценариев (совпадают с results/scenarios/<id>.json).
+        accepted_variant: выбранный вариант для витрины; по умолчанию — первый.
+        disclaimers: оговорки прогноза (INV-50), показываются в отчёте.
+
+    Возвращает {'status': 'ok', 'accepted_variant': ...} или
+    {'status': 'error', 'message': '...'}. Атомарная запись (mkstemp + os.replace).
+    """
+    import os as _os
+    import tempfile
+
+    ids = [str(v) for v in (variant_ids or []) if v is not None and str(v) != '']
+    if not ids:
+        return {"status": "error", "message": "variant_ids пуст — нечего сохранять"}
+
+    accepted = accepted_variant if accepted_variant in ids else ids[0]
+
+    manifest = {
+        "variant_ids": ids,
+        "accepted_variant": accepted,
+        "disclaimers": list(disclaimers or []),
+    }
+
+    results_dir = Path(project_dir) / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    planning_path = results_dir / "planning.json"
+
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=results_dir, prefix=".planning_", suffix=".tmp")
+    try:
+        with open(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        _os.replace(tmp_name, planning_path)
+    except Exception:
+        try:
+            _os.unlink(tmp_name)
+        except Exception:
+            pass
+        raise
+
+    logger.info(
+        "save_planning_manifest: %d вариант(ов), accepted=%s → %s",
+        len(ids), accepted, planning_path,
+    )
+    return {"status": "ok", "accepted_variant": accepted}

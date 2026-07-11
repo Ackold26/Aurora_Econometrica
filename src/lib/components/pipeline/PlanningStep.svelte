@@ -153,6 +153,27 @@
   /** @type {string | null} */
   let saveError = $state(null);
 
+  // ── P-1: прогноз базового плана (авто при подтверждённом медиаплане) ────────
+
+  /** Имя сценария базового плана (совпадает с results/scenarios/<name>.json). */
+  const BASELINE_NAME = 'Базовый план';
+
+  /**
+   * @typedef {{
+   *   predictions: number[], ciLow: number[], ciHigh: number[],
+   *   totalKpi: number, totalSpend: number,
+   *   ciLowTotal: number | null, ciHighTotal: number | null,
+   *   dates: string[], disclaimers: string[]
+   * }} BaselineForecast
+   */
+  /** @type {BaselineForecast | null} */
+  let baselineForecast = $state(null);
+  let baselineComputing = $state(false);
+  /** @type {string | null} */
+  let baselineError = $state(null);
+  /** once-guard: source_hash файла, для которого прогноз уже построен/попытан. */
+  let baselineComputedHash = $state(/** @type {string | null} */ (null));
+
   // ── Фиксация прогноза ─────────────────────────────────────────────────────
 
   let promiseSaving = $state(false);
@@ -263,7 +284,118 @@
     } finally {
       savingVariant = false;
     }
+    // Обновляем манифест: baseline + все варианты, accepted — последний созданный.
+    if (!saveError) {
+      const lastName = variants.length ? variants[variants.length - 1].name : BASELINE_NAME;
+      await saveManifest(lastName);
+    }
   }
+
+  /**
+   * Записать results/planning.json: baseline + пользовательские варианты.
+   * Без манифеста раздел прогноза в PPTX/HTML/XLSX «не найден».
+   * @param {string} acceptedName
+   */
+  async function saveManifest(acceptedName) {
+    const projectDir = await getProjectDir();
+    if (!projectDir) return;
+    const ids = [
+      ...(baselineForecast ? [BASELINE_NAME] : []),
+      ...variants.map((v) => v.name),
+    ];
+    if (!ids.length) return;
+    try {
+      await invoke('econ_save_planning', {
+        projectDir,
+        variantIds: ids,
+        acceptedVariant: acceptedName,
+        disclaimers: baselineForecast?.disclaimers ?? [],
+      });
+    } catch (/** @type {any} */ e) {
+      console.error('[PlanningStep] econ_save_planning не записался:', e);
+    }
+  }
+
+  /**
+   * P-1: прогноз базового плана — прогоняем медиаплан из файла через модель
+   * СРАЗУ при входе (carry_in=true). Пишет scenarios/<baseline>.json + манифест,
+   * чтобы график и раздел отчёта жили без ручного создания варианта.
+   */
+  async function computeBaseline() {
+    const mp = get(mediaPlanDetected);
+    const nFut = mp?.n_future_periods ?? get(forecastConfig)?.periods ?? null;
+    if (!mp?.channels || !nFut) return;
+    // Помечаем попытку СРАЗУ (idempotent guard) — иначе $effect зациклит при ошибке.
+    baselineComputedHash = mp.source_hash ?? 'nohash';
+    baselineComputing = true;
+    baselineError = null;
+    try {
+      const projectDir = await getProjectDir();
+      if (!projectDir) { baselineError = 'Проект не выбран.'; return; }
+
+      const _kuc = get(valuePerCountUnit);
+      const kpiUnitCostP = get(kpiKind) === 'count' && typeof _kuc === 'number' && _kuc > 0 ? _kuc : null;
+      const fd = /** @type {string[]} */ (mp.future_dates ?? []);
+
+      const sc = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir,
+        scenarioName: BASELINE_NAME,
+        mediaPlan: mp.channels,
+        forecastPeriods: nFut,
+        forecastPeriodLabel: mp.period_labels?.[0] ?? null,
+        kpiUnitCost: kpiUnitCostP,
+        ...(fd.length ? { futureDates: fd } : {}),
+        carryIn: true,
+      }));
+
+      if (sc?.status !== 'ok') {
+        baselineError = sc?.message || 'Не удалось построить прогноз базового плана.';
+        return;
+      }
+
+      const totals = sc.totals ?? {};
+      let spend = 0;
+      for (const arr of Object.values(mp.channels)) {
+        for (const v of /** @type {number[]} */ (arr)) spend += Number(v) || 0;
+      }
+      baselineForecast = {
+        predictions: sc.predictions ?? [],
+        ciLow: sc.predictions_ci_low ?? [],
+        ciHigh: sc.predictions_ci_high ?? [],
+        totalKpi: Number(totals.predicted_kpi ?? 0),
+        totalSpend: spend,
+        ciLowTotal: totals.predicted_kpi_ci_low ?? null,
+        ciHighTotal: totals.predicted_kpi_ci_high ?? null,
+        dates: sc.future_dates ?? fd,
+        disclaimers: sc.disclaimers ?? [],
+      };
+
+      // Автозапись манифеста — раздел прогноза в отчёте оживает без ручного варианта.
+      await saveManifest(BASELINE_NAME);
+    } catch (/** @type {any} */ e) {
+      baselineError = String(e?.message || e);
+    } finally {
+      baselineComputing = false;
+    }
+  }
+
+  /** Повторить прогноз базового плана после ошибки. */
+  function retryBaseline() {
+    baselineComputedHash = null;
+    baselineError = null;
+    computeBaseline();
+  }
+
+  // P-1: авто-запуск прогноза базового плана при подтверждённом медиаплане.
+  // once-guard по source_hash — пересчёт только при смене файла, не при каждом
+  // ретриггере стора. При ошибке hash уже помечен → цикла нет (retry вручную).
+  $effect(() => {
+    const mp = $mediaPlanDetected;
+    if (!mp?.confirmed || !mp.channels) return;
+    const hash = mp.source_hash ?? 'nohash';
+    if (baselineComputedHash === hash || baselineComputing) return;
+    computeBaseline();
+  });
 
   // ── Удаление варианта ─────────────────────────────────────────────────────
 
@@ -395,7 +527,10 @@
 
   // ── Завершение шага ───────────────────────────────────────────────────────
 
-  function goToReport() {
+  async function goToReport() {
+    // Финальный манифест: accepted — лучший вариант (или базовый план, если
+    // вариантов не создавали). Гарантирует, что раздел прогноза в отчёте — живой.
+    await saveManifest(verdict.best?.name ?? BASELINE_NAME);
     planningManifest.set({
       variants: variants.map((v) => ({
         id: v.id,
@@ -488,6 +623,81 @@
           <p class="template-error" role="alert">{templateError}</p>
         {/if}
       </div>
+    </section>
+  {/if}
+
+  <!-- ── P-1: прогноз базового плана (авто при подтверждённом медиаплане) ─── -->
+  {#if mpData?.confirmed}
+    <section class="baseline-section">
+      <div class="baseline-header">
+        <h3 class="section-title">Прогноз базового плана</h3>
+        <p class="section-note">
+          Что произойдёт при вашем медиаплане из файла – прогноз через обученную модель.
+          Варианты ниже – это «что если» изменить план.
+        </p>
+      </div>
+
+      {#if baselineComputing}
+        <div class="baseline-loading" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          Строим прогноз базового плана…
+        </div>
+      {:else if baselineError}
+        <div class="baseline-error" role="alert">
+          <AlertTriangle size={16} />
+          <span>{baselineError}</span>
+          <button type="button" class="btn-retry" onclick={retryBaseline}>Повторить</button>
+        </div>
+      {:else if baselineForecast}
+        <div class="baseline-summary-card">
+          <div class="bsc-metric">
+            <span class="bsc-label">{kpiLabelText} за {nFuturePeriods} пер.</span>
+            <span class="bsc-value">
+              {baselineForecast.totalKpi.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}
+            </span>
+            {#if baselineForecast.ciLowTotal != null && baselineForecast.ciHighTotal != null}
+              <span class="bsc-ci">
+                интервал [{baselineForecast.ciLowTotal.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} –
+                {baselineForecast.ciHighTotal.toLocaleString('ru-RU', { maximumFractionDigits: 0 })}]
+              </span>
+            {/if}
+          </div>
+          <div class="bsc-metric">
+            <span class="bsc-label">Бюджет плана</span>
+            <span class="bsc-value">
+              {baselineForecast.totalSpend.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽
+            </span>
+          </div>
+        </div>
+
+        {#if historicalSeries}
+          <div class="chart-wrap">
+            <ContinuationChart
+              historical={historicalSeries}
+              modelFit={null}
+              scenarios={[
+                {
+                  name: BASELINE_NAME,
+                  dates: baselineForecast.dates,
+                  predictions: baselineForecast.predictions,
+                  ciLow: baselineForecast.ciLow,
+                  ciHigh: baselineForecast.ciHigh,
+                },
+                ...variants.map((v) => ({
+                  name: v.name,
+                  dates: v.dates ?? [],
+                  predictions: v.predictions ?? [],
+                  ciLow: v.ciLowSeries,
+                  ciHigh: v.ciHighSeries,
+                })),
+              ]}
+              cutoffIndex={historicalSeries.dates.length - 1}
+              kpiLabel={kpiLabelText}
+              maxScenarios={6}
+            />
+          </div>
+        {/if}
+      {/if}
     </section>
   {/if}
 
@@ -588,25 +798,8 @@
     <section class="comparison-section">
       <h3 class="section-title">Сравнение вариантов</h3>
 
-      {#if historicalSeries}
-        <div class="chart-wrap">
-          <ContinuationChart
-            historical={historicalSeries}
-            modelFit={null}
-            scenarios={variants.map((v) => ({
-              name: v.name,
-              dates: v.dates ?? [],
-              predictions: v.predictions ?? [],
-              ciLow: v.ciLowSeries,
-              ciHigh: v.ciHighSeries,
-            }))}
-            cutoffIndex={historicalSeries.dates.length - 1}
-            kpiLabel={kpiLabelText}
-            maxScenarios={5}
-          />
-        </div>
-      {/if}
-
+      <!-- График истории+прогноза — единый, в секции «Прогноз базового плана»
+           выше (baseline + варианты поверх). Здесь — табличное сравнение. -->
       {#if variants.length >= 1}
         <div class="scenario-page-wrap">
           <MultiScenarioPage
@@ -818,6 +1011,93 @@
   }
   .btn-template:hover { background: rgba(255,255,255,0.06); }
 
+  /* P-1: секция прогноза базового плана */
+  .baseline-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .baseline-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .baseline-loading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 24px;
+    font-size: 14px;
+    color: var(--text-secondary, #94a3b8);
+    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 12px;
+  }
+  .spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(59,130,246,0.25);
+    border-top-color: var(--color-accent, #3b82f6);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .baseline-error {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    font-size: 14px;
+    color: var(--color-danger, #ef4444);
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: 10px;
+  }
+  .btn-retry {
+    margin-left: auto;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--color-accent, #3b82f6);
+    background: transparent;
+    color: var(--color-accent, #3b82f6);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-retry:hover { background: rgba(59,130,246,0.1); }
+  .baseline-summary-card {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+    padding: 18px 24px;
+    background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(59,130,246,0.03));
+    border: 1px solid rgba(59,130,246,0.2);
+    border-radius: 12px;
+  }
+  .bsc-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .bsc-label {
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .bsc-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary, #e2e8f0);
+    font-variant-numeric: tabular-nums;
+  }
+  .bsc-ci {
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+    font-variant-numeric: tabular-nums;
+  }
+
   .variants-section {
     display: flex;
     flex-direction: column;
@@ -829,17 +1109,20 @@
     justify-content: space-between;
     gap: 12px;
   }
+  /* P-1: заметная btn-primary (была dashed-transparent — сливалась с фоном,
+     Антон её не находил на приёмке 2026-07-10). */
   .btn-create-variant {
     font-size: 13px;
-    padding: 8px 16px;
+    font-weight: 500;
+    padding: 9px 18px;
     border-radius: 8px;
-    border: 1px dashed var(--color-accent, #3b82f6);
-    background: transparent;
-    color: var(--color-accent, #3b82f6);
+    border: none;
+    background: var(--color-accent, #3b82f6);
+    color: #fff;
     cursor: pointer;
     transition: background 0.15s;
   }
-  .btn-create-variant:hover { background: rgba(59,130,246,0.08); }
+  .btn-create-variant:hover { background: #2563eb; }
 
   .variant-editor {
     display: flex;

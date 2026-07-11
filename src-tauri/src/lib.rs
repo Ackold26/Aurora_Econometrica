@@ -3315,6 +3315,7 @@ fn build_app() -> Result<(), String> {
             // Planning mode commands (feat/econ-planning-mode)
             commands::econometrica::econ_download_media_plan_template,
             commands::econometrica::econ_confirm_media_plan,
+            commands::econometrica::econ_save_planning,
             // Project management commands
             commands::project::project_list,
             commands::project::project_create,

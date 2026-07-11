@@ -1650,6 +1650,32 @@ def confirm_media_plan_endpoint(req: ConfirmMediaPlanRequest):
         return JSONResponse(content={'status': 'error', 'message': _friendly_error(e)})
 
 
+class PlanningSaveRequest(BaseModel):
+    project_dir: str
+    variant_ids: list[str]
+    accepted_variant: str | None = None
+    disclaimers: list[str] = Field(default_factory=list)
+
+
+@app.post('/compute/planning/save')
+def save_planning_endpoint(req: PlanningSaveRequest):
+    """Записывает results/planning.json (манифест прогноза-плана).
+
+    Без манифеста PPTX/HTML/XLSX-раздел прогноза «не найден», даже если сценарии
+    сохранены. Пишется автоматически после авто-прогноза базового плана (P-1) и
+    при фиксации вариантов.
+    """
+    from engines.planning import save_planning_manifest
+    try:
+        result = save_planning_manifest(
+            req.project_dir, req.variant_ids, req.accepted_variant, req.disclaimers,
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('save_planning_manifest: ошибка')
+        return JSONResponse(content={'status': 'error', 'message': _friendly_error(e)})
+
+
 # ──────────────────────────────────────────────────────────────────
 # Sprint 3 Pharma Causal - endpoints (M1 ship)
 # ──────────────────────────────────────────────────────────────────

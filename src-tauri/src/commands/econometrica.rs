@@ -928,6 +928,29 @@ pub async fn econ_confirm_media_plan(
     post_json("/compute/confirm-media-plan", &body, quick_client()).await
 }
 
+/// Planning mode: запись манифеста прогноза-плана в results/planning.json.
+///
+/// Связывает сохранённые сценарии (results/scenarios/*.json) с отчётностью —
+/// без манифеста PPTX/HTML/XLSX-раздел прогноза «не найден». Пишется после
+/// авто-прогноза базового плана (P-1) и при фиксации вариантов.
+#[tauri::command]
+pub async fn econ_save_planning(
+    project_dir: String,
+    variant_ids: Vec<String>,
+    accepted_variant: Option<String>,
+    disclaimers: Option<Vec<String>>,
+) -> Result<Value, String> {
+    info!("econ_save_planning: {project_dir} variants={}", variant_ids.len());
+    validate_project_dir(&project_dir)?;
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "variant_ids": variant_ids,
+        "accepted_variant": accepted_variant,
+        "disclaimers": disclaimers.unwrap_or_default(),
+    });
+    post_json("/compute/planning/save", &body, quick_client()).await
+}
+
 async fn parse_resp(resp: reqwest::Response, path: &str) -> Result<Value, String> {
     let status = resp.status();
     let text = resp.text().await.map_err(|e| format!("Не удалось прочитать ответ: {e}"))?;
