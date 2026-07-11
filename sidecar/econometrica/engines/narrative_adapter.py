@@ -264,18 +264,25 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
 # (_merge_channels) и гейта валидации (validate_data total_budget_as_media);
 # ложное снятие юзер видит warning'ом (В-1) и возвращает роль вручную —
 # асимметрия рисков в пользу снятия.
-# A6-1 (2026-07-10): добавлены английские агрегатные токены (budget/spend/media/
-# overall/grand/gross) и русские (общий/расходы/затраты). Ранее матчинг через \b
-# не работал для snake_case: в строке «total_media_budget» символ _ считается
-# словесным — \b не стоит между словом и _, поэтому \btotal\b не матчился.
-# Исправление: перед матчингом заменять _ на пробел (только для целей regex).
+# A6-1 (2026-07-10): добавлены английские агрегатные токены (budget/spend) и
+# русские (общий/расходы/затраты). Ранее матчинг через \b не работал для
+# snake_case: в строке «total_media_budget» символ _ считается словесным — \b не
+# стоит между словом и _, поэтому \btotal\b не матчился. Исправление: перед
+# матчингом заменять _ на пробел (только для целей regex).
 _CHANNEL_NAME_STOP_PHRASES = [
     r'ДО\s*НДС\s+до\s+АК', r'после\s*АК', r'с\s*НДС', r'без\s*НДС', r'до\s*НДС',
     r'Бюджет', r'Вклад', r'млн\s*₽?', r'руб\.?', r'Доля',
     r'итого', r'всего', r'сумма', r'total',
-    r'budget', r'spend', r'media', r'overall', r'grand', r'gross',
+    r'budget', r'spend',
     r'общий', r'расходы', r'затраты',
 ]
+# A6-1b (аудит 2026-07-11): 'media'/'overall'/'grand'/'gross' — квалификаторы, а
+# НЕ самостоятельные стоп-слова. В общем стоп-листе они калечили реальные имена
+# каналов: 'social_media'→'social', 'Media Radar'→'Radar', голый 'media'→None
+# (тихо, без warning). Теперь роль снимается только когда после вычистки шума
+# не осталось НИЧЕГО, кроме одного такого квалификатора (см. _normalize_channel_name):
+# 'total_media_budget'→'media'→None, но 'social media' сохраняется целиком.
+_AGGREGATE_QUALIFIERS = {'media', 'overall', 'grand', 'gross', 'медиа'}
 _CHANNEL_NAME_RE = re.compile(
     r'\b(?:' + '|'.join(_CHANNEL_NAME_STOP_PHRASES) + r')\b',
     re.IGNORECASE,
@@ -295,7 +302,8 @@ def _normalize_channel_name(raw: str | None) -> str | None:
       "TRPs бренд (W 25-50)"         → "TRPs бренд (W 25-50)"  (parentheses kept)
       "TV"                           → "TV"
       "tv_spend"                     → "tv"   (snake_case: _ → пробел для \b)
-      "total_media_budget"           → None   (все токены — агрегатные)
+      "total_media_budget"           → None   (после вычистки остался квалификатор "media")
+      "social_media"                 → "social media"  (составное имя, НЕ агрегат)
       "olv_budget"                   → "olv"  (olv — живой канал)
 
     A6-1 fix: regex применяется к версии строки с заменой _ → пробел, чтобы \b
@@ -311,7 +319,14 @@ def _normalize_channel_name(raw: str | None) -> str | None:
     # Collapse whitespace + strip punctuation edges, but keep parentheses/
     # hyphens inside (audience quantifiers like "W 25-50" are signal).
     cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,.;:-_')
-    return cleaned if cleaned else None
+    if not cleaned:
+        return None
+    # A6-1b: если после вычистки денежного/агрегатного шума остался ТОЛЬКО
+    # квалификатор ('total_media_budget'→'media', 'grand_total'→'grand') — это
+    # агрегатная колонка. Составные имена ('social media', 'Media Radar') сохраняются.
+    if cleaned.lower() in _AGGREGATE_QUALIFIERS:
+        return None
+    return cleaned
 
 
 def derive_verdict(channel: dict) -> str:

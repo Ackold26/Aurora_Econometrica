@@ -147,8 +147,8 @@
     "s08_leader": "{leader}-всплески выделяются на устойчивой базе - медиа-активность видна во времени",
     "s09_scale_hero": "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
     "s09_hold_leader": "Aurora рекомендует сохранить приоритет {leader} с учётом saturation",
-    "s10_methodology": "Bayesian MMM с adstock + saturation - NUTS NumPyro, 4 chains × 2000 iter",
-    "s10_methodology_ols": "OLS MMM с adstock + saturation - closed-form, bootstrap n=1000",
+    "s10_methodology": "Байесовская MMM с отложенным эффектом (adstock) и Hill-насыщением – NUTS NumPyro, 4 цепи × 2000 итераций",
+    "s10_methodology_ols": "OLS MMM с отложенным эффектом (adstock) и Hill-насыщением – closed-form, bootstrap n=200",
     "s13_glossary": "Терминология, необходимая для чтения отчёта",
     "s14_closing": "Решения, основанные на данных"
   },
@@ -171,7 +171,7 @@
       "   Hill function (fixed): α=1.5, γ=0.5",
       "β_i estimated via closed-form OLS",
       "ε_t ~ Normal(0, σ) (frequentist)",
-      "CI на ROI/mROAS - bootstrap n=1000"
+      "CI на ROI/mROAS – bootstrap n=200"
     ],
     "diag_header": "ДИАГНОСТИКА",
     "limits_header": "ЧТО МОДЕЛЬ НЕ УЧИТЫВАЕТ",

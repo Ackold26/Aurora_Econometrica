@@ -30,7 +30,24 @@
     if (!container) return;
     chart = echarts.init(container);
     const base = getBaseChartOption();
-    chart.setOption({ ...base, ...option });
+    // П2-1 (аудит 2026-07-11): первичный setOption ТОЖЕ под защитой. Иначе бросок при
+    // первом рендере (universalTransition/морф) падает ДО initialized=true, и реактивный
+    // $effect (условие initialized) навсегда пропускается → график немой на все обновления.
+    try {
+      chart.setOption({ ...base, ...option });
+    } catch (e) {
+      console.error('[EChartBase] initial setOption failed:', e);
+      const stripped = {
+        ...base,
+        ...option,
+        series: (option?.series ?? []).map((/** @type {any} */ s) => {
+          const { universalTransition, ...rest } = s ?? {};
+          return rest;
+        }),
+      };
+      chart.setOption(stripped);
+      console.warn('[EChartBase] initial applied without universalTransition (morph degraded)');
+    }
     onInit?.(chart);
     const ro = new ResizeObserver(() => chart?.resize());
     ro.observe(container);

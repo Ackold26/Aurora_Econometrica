@@ -25,8 +25,13 @@
  * @returns {string}
  */
 export function abbreviateLabel(label, maxLen = 14, headLen = 7, tailLen = 6) {
-  if (label.length <= maxLen) return label;
-  const head = label.slice(0, headLen);
-  const tail = label.slice(-tailLen);
+  // Аудит 2026-07-11: defensive-приведение — имя колонки теоретически может прийти
+  // не-строкой (null/число), тогда .length/.slice бросали бы. Известное ограничение:
+  // два имени с общими головой И хвостом ('perform…_spend') коллизируют — различает
+  // tooltip полного имени (в вызывающем CorrelationHeatmap).
+  const s = String(label ?? '');
+  if (s.length <= maxLen) return s;
+  const head = s.slice(0, headLen);
+  const tail = s.slice(-tailLen);
   return `${head}…${tail}`;
 }

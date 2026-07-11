@@ -108,6 +108,45 @@ class TestNotNoneForRealChannels:
         assert _normalize_channel_name('ТВ') == 'ТВ'
 
 
+# ─── Регресс A6-1b (аудит 2026-07-11): составные имена с квалификатором ───────
+# 'media'/'overall'/'grand'/'gross' — квалификаторы, НЕ самостоятельные стоп-слова.
+# Раньше 'social_media'→'social', 'Media Radar'→'Radar', голый 'media'→None.
+
+class TestCompositeNamesWithQualifier:
+    """Имя канала, где 'media'/'overall'/'gross' — часть составного имени,
+    должно сохраняться целиком (снимается только чистый агрегат)."""
+
+    def test_social_media_kept(self):
+        assert _normalize_channel_name('social_media') == 'social media'
+
+    def test_media_radar_kept(self):
+        assert _normalize_channel_name('Media Radar') == 'Media Radar'
+
+    def test_programmatic_media_kept(self):
+        assert _normalize_channel_name('programmatic_media') == 'programmatic media'
+
+    def test_overall_reach_kept(self):
+        assert _normalize_channel_name('overall_reach') == 'overall reach'
+
+    def test_gross_rating_points_kept(self):
+        assert _normalize_channel_name('gross_rating_points') == 'gross rating points'
+
+    def test_social_media_spend_stripped_to_channel(self):
+        """social_media_spend → 'social media' (spend — шум, media — часть имени)."""
+        assert _normalize_channel_name('social_media_spend') == 'social media'
+
+    def test_bare_media_is_aggregate(self):
+        """Голый 'media' без инструмента — агрегатная колонка → None."""
+        assert _normalize_channel_name('media') is None
+
+    def test_bare_overall_is_aggregate(self):
+        assert _normalize_channel_name('overall') is None
+
+    def test_media_budget_still_aggregate(self):
+        """media_budget → 'media' → квалификатор → None (регресс не ослаб)."""
+        assert _normalize_channel_name('media_budget') is None
+
+
 # ─── Интеграционный тест с validate_data ─────────────────────────────────────
 
 class TestIntegrationValidateData:

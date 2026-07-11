@@ -287,7 +287,12 @@
       try {
         const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
         await invoke('econ_confirm_media_plan', { projectDir, confirmed: true });
-      } catch { /* non-fatal — store state достаточен для UI */ }
+      } catch (e) {
+        // Аудит 2026-07-11: не глотать молча — при сбое диск (media_plan.json) остаётся
+        // confirmed:false, а стор confirmed:true → после перезагрузки reconcile запрёт
+        // Планирование, подтверждение потеряно без сигнала. Логируем для наблюдаемости.
+        console.error('[ValidateStep] econ_confirm_media_plan(true) не записался (диск↔UI рассинхрон возможен):', e);
+      }
     }
   }
 
@@ -300,7 +305,9 @@
       try {
         const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
         await invoke('econ_confirm_media_plan', { projectDir, confirmed: false });
-      } catch { /* non-fatal */ }
+      } catch (e) {
+        console.error('[ValidateStep] econ_confirm_media_plan(false) не записался:', e);
+      }
     }
   }
 

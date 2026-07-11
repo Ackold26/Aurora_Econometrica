@@ -1534,7 +1534,7 @@ def render_methodology(ctx: dict) -> str:
     # OLS guard: hide MCMC diagnostics; show method/CI labels вместо.
     if is_ols:
         diag_items.append(("Метод", "closed-form OLS"))
-        diag_items.append(("CI", "bootstrap n=1000"))
+        diag_items.append(("CI", "bootstrap n=200"))  # факт ols_bootstrap.py n_boot=200 (был n=1000, враньё R-07)
     else:
         if diag.get("r_hat_max") is not None:
             diag_items.append(("R-hat (max)", f"{float(diag['r_hat_max']):.3f}"))

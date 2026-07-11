@@ -83,7 +83,6 @@
   /** @param {any} scenario */
   function handleAccept(scenario) {
     // Сценарий уже сохранён (артефакт шага Optimize) — «принять» = выбрать и вернуться.
-    console.log('[Compare] Accept scenario:', scenario?.name);
     goto('/pipeline');
   }
 
