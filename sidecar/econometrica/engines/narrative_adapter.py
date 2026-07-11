@@ -1040,11 +1040,14 @@ def _map_pipeline_to_builder_data(
         derived_mode = decompose_data.get('derived_mode', 'roi')
         value_per_count_unit = decompose_data.get('value_per_count_unit')
         value_per_count_unit_label = decompose_data.get('value_per_count_unit_label', '')
+        # Фаза 1a: kpi_type для паспортных подписей (kpi_labels/kpi_helpers).
+        kpi_type = decompose_data.get('kpi_type') or None
     else:
         kpi_kind = 'monetary'
         derived_mode = 'roi'
         value_per_count_unit = None
         value_per_count_unit_label = ''
+        kpi_type = None
 
     try:
         from utils.kpi_labels import (
@@ -1053,11 +1056,11 @@ def _map_pipeline_to_builder_data(
             cover_metric_summary, verdict_loss_threshold_label,
         )
         kpi_labels = {
-            'metric_label': metric_label(kpi_kind, derived_mode),
-            'metric_short_label': metric_short_label(kpi_kind, derived_mode),
-            'target_unit_label': target_unit_label(kpi_kind),
-            'target_axis_label': target_axis_label(kpi_kind),
-            'methodology_label': verdict_loss_threshold_label(kpi_kind),
+            'metric_label': metric_label(kpi_kind, derived_mode, kpi_type=kpi_type),
+            'metric_short_label': metric_short_label(kpi_kind, derived_mode, kpi_type=kpi_type),
+            'target_unit_label': target_unit_label(kpi_kind, kpi_type=kpi_type),
+            'target_axis_label': target_axis_label(kpi_kind, kpi_type=kpi_type),
+            'methodology_label': verdict_loss_threshold_label(kpi_kind, kpi_type=kpi_type),
         }
     except ImportError:
         kpi_labels = {
@@ -1073,6 +1076,8 @@ def _map_pipeline_to_builder_data(
         'derived_mode': derived_mode,
         'value_per_count_unit': value_per_count_unit,
         'value_per_count_unit_label': value_per_count_unit_label,
+        # Фаза 1a: протаскиваем kpi_type для паспортных подписей в kpi_helpers/sections.
+        'kpi_type': kpi_type,
         'labels': kpi_labels,
     }
 

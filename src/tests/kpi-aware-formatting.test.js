@@ -307,3 +307,66 @@ describe('Parity with Python kpi_labels.py contract', () => {
     expect(fmtMetric(1.5, kpiView({}))).toBe('1.50×');
   });
 });
+
+
+// ── Фаза 1b: kpiType-паспорт ──────────────────────────────────────────────
+
+describe('kpiView — kpiType passport (Фаза 1b)', () => {
+  it('leads count roi: targetAxis=Лиды, metricLabel=CPU ₽/лид, metricShort=CPU', () => {
+    const v = kpiView({ kpiKind: 'count', derivedMode: 'roi', kpiType: 'leads' });
+    expect(v.targetAxis).toBe('Лиды');
+    expect(v.metricLabel).toBe('CPU, ₽/лид');
+    expect(v.metricShort).toBe('CPU');
+    expect(v.cpuPerLabel).toBe('₽/лид');
+    expect(v.kpiType).toBe('leads');
+  });
+
+  it('sales_packs effectiveness: targetAxis содержит упак и НЕ равно Продажи ₽ (баг пофикшен)', () => {
+    const v = kpiView({ kpiKind: 'count', derivedMode: 'effectiveness', kpiType: 'sales_packs' });
+    expect(v.targetAxis).toContain('упак');
+    expect(v.targetAxis).not.toBe('Продажи, ₽');
+    expect(v.metricLabel).toBe('Доля %');
+  });
+
+  it('fmtMetric count leads: 0.0125 → 80 ₽/лид (не ₽/ед.)', () => {
+    const kpi = kpiView({ kpiKind: 'count', kpiType: 'leads', derivedMode: 'roi' });
+    expect(fmtMetric(0.0125, kpi)).toBe('80 ₽/лид');
+  });
+
+  it('weightedPhrase leads: 0.0125 → CPU портфеля 80 ₽/лид', () => {
+    const kpi = kpiView({ kpiKind: 'count', kpiType: 'leads', derivedMode: 'roi' });
+    expect(weightedPhrase(0.0125, kpi)).toBe('CPU портфеля 80 ₽/лид');
+  });
+
+  it('underBreakevenPhrase leads: содержит ₽/лид', () => {
+    const kpi = kpiView({ kpiKind: 'count', kpiType: 'leads', derivedMode: 'roi', valuePerCountUnit: 80 });
+    expect(underBreakevenPhrase(kpi)).toContain('₽/лид');
+    expect(underBreakevenPhrase(kpi)).toContain('80');
+  });
+
+  it('topMetricBenchmark sales_packs: содержит ₽/упак.', () => {
+    const kpi = kpiView({ kpiKind: 'count', kpiType: 'sales_packs', derivedMode: 'roi', valuePerCountUnit: 200 });
+    expect(topMetricBenchmark(kpi)).toContain('₽/упак.');
+    expect(topMetricBenchmark(kpi)).toContain('100');
+  });
+
+  it('backward-compat: без kpiType — monetary roi ведёт себя как раньше', () => {
+    const v = kpiView({ kpiKind: 'monetary', derivedMode: 'roi' });
+    expect(v.metricLabel).toBe('ROI');
+    expect(v.metricShort).toBe('ROI');
+    expect(v.targetAxis).toBe('Продажи, ₽');
+    expect(v.kpiType).toBeNull();
+  });
+
+  it('backward-compat: без kpiType count ведёт себя как раньше (₽/ед.)', () => {
+    const kpi = kpiView({ kpiKind: 'count', derivedMode: 'roi' });
+    expect(fmtMetric(0.0125, kpi)).toBe('80 ₽/ед.');
+    expect(weightedPhrase(0.0125, kpi)).toBe('CPU портфеля 80 ₽/ед.');
+  });
+
+  it('неизвестный kpiType — graceful fallback без исключения', () => {
+    const v = kpiView({ kpiKind: 'count', derivedMode: 'roi', kpiType: 'unknown_xyz' });
+    // Не должен выбросить — fallback к kind-only
+    expect(v.metricShort).toBe('CPU');
+  });
+});

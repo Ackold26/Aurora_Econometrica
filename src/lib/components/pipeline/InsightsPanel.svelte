@@ -13,7 +13,7 @@
     pipelineCurrentStep, activeProjectId,
     importData, validateData, modelData, decomposeData, optimizeData, optimizeLiveState,
     analysisObjective, completeStep, setStepError,
-    kpiKind, derivedMode, valuePerCountUnit,
+    kpiKind, derivedMode, valuePerCountUnit, kpiType,
   } from '$lib/project-state.js';
   import { kpiView as buildKpiView } from '$lib/kpi-aware-formatting.js';
   import { recomputeResultAfterObjective } from '$lib/objective-engine.js';
@@ -244,6 +244,7 @@
       kpiKind: $kpiKind,
       derivedMode: $derivedMode,
       valuePerCountUnit: $valuePerCountUnit,
+      kpiType: $kpiType,
     });
 
     switch (step) {

@@ -147,15 +147,45 @@ _DEFAULT_KPI_LABELS = {
 }
 
 
+def _passport_html(kpi_type: str | None) -> dict | None:
+    """Загружает паспорт KPI из реестра. None при kpi_type=None или ошибке."""
+    if not kpi_type:
+        return None
+    try:
+        from utils.kpi_display import get_display
+        return get_display(kpi_type)
+    except Exception:
+        return None
+
+
 def _kpi_view(ctx: dict) -> dict:
-    """Extract KPI metadata + labels с v1.2 backward-compat fallback."""
+    """Extract KPI metadata + labels с v1.2 backward-compat fallback.
+
+    Фаза 1a: читает ctx['kpi']['kpi_type'] и перегенерирует паспортные подписи
+    через kpi_display (target_axis, target_unit, metric_label, cpu_per_label).
+    Если kpi_type отсутствует — работает как раньше (labels из pre-built dict).
+    """
     kpi = (ctx.get("kpi") or {}) if isinstance(ctx, dict) else {}
     kpi_kind = kpi.get("kpi_kind") or "monetary"
     mode = kpi.get("derived_mode") or "roi"
+    kpi_type = kpi.get("kpi_type") or None
     labels = {**_DEFAULT_KPI_LABELS, **(kpi.get("labels") or {})}
+
+    # Фаза 1a: если kpi_type известен — перегенерируем паспортные подписи из реестра.
+    P = _passport_html(kpi_type)
+    if P:
+        if P.get("result_axis_label"):
+            labels["target_axis_label"] = P["result_axis_label"]
+        if P.get("result_unit_short"):
+            labels["target_unit_label"] = P["result_unit_short"]
+        if mode != "effectiveness" and kpi_kind == "count" and P.get("cpu_per_label"):
+            labels["metric_label"] = f'CPU, {P["cpu_per_label"]}'
+            labels["metric_short_label"] = "CPU"
+
     return {
         "kpi_kind": kpi_kind,
         "mode": mode,
+        "kpi_type": kpi_type,
         "metric_label": labels["metric_label"],
         "metric_short": labels["metric_short_label"],
         "target_unit": labels["target_unit_label"],
@@ -163,6 +193,7 @@ def _kpi_view(ctx: dict) -> dict:
         "methodology_label": labels["methodology_label"],
         "vpcu": kpi.get("value_per_count_unit"),
         "vpcu_label": kpi.get("value_per_count_unit_label") or "",
+        "cpu_per_label": P["cpu_per_label"] if (P and P.get("cpu_per_label")) else "₽/ед.",
         "is_legacy": kpi_kind == "monetary" and mode == "roi",
     }
 
@@ -201,9 +232,11 @@ def _fmt_metric(value: Any, kpi: dict, fallback: str = "-") -> str:
         return f"{f:.0f}%"
     if kind == "count":
         # B4 audit fix: c.mroas / c.roi от backend = units/₽ (mathematical).
-        # Invert to CPU (₽/ед.) для user-facing display.
+        # Invert to CPU для user-facing display.
+        # Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
         if f > 0:
-            return f"{1.0 / f:.0f} ₽/ед."
+            unit = kpi.get("cpu_per_label") or "₽/ед."
+            return f"{1.0 / f:.0f} {unit}"
         return fallback
     return f"{f:.2f}×"
 
@@ -223,7 +256,7 @@ def _fmt_metric_bare(value: Any, kpi: dict, fallback: str = "-") -> str:
             return f"{f * 100:.1f}"
         return f"{f:.0f}"
     if kind == "count":
-        # B4 audit fix: invert units/₽ → CPU ₽/ед.
+        # B4 audit fix: invert units/₽ → CPU (bare, без unit suffix, для CI bracket).
         if f > 0:
             return f"{1.0 / f:.0f}"
         return fallback
@@ -278,33 +311,43 @@ def _weighted_summary_phrase(weighted_value: Any, kpi: dict) -> str:
     if kind == "count":
         if wv > 0:
             cpu = 1.0 / wv
-            return f"CPU портфеля {cpu:.0f} ₽/ед."
+            # Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
+            unit = kpi.get("cpu_per_label") or "₽/ед."
+            return f"CPU портфеля {cpu:.0f} {unit}"
         return "CPU портфеля недоступен"
     return f"ROI портфеля {wv:.2f}×"
 
 
 def _under_breakeven_phrase(kpi: dict) -> str:
-    """Описание условия 'канал убыточен' для текстов рекомендаций."""
+    """Описание условия 'канал убыточен' для текстов рекомендаций.
+
+    Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
+    """
     mode = kpi.get("mode", "roi")
     kind = kpi.get("kpi_kind", "monetary")
     if mode == "effectiveness":
         return "доля < бенчмарка"
     if kind == "count":
         vpcu = kpi.get("vpcu")
+        unit = kpi.get("cpu_per_label") or "₽/ед."
         if vpcu:
-            return f"CPU > {float(vpcu):.0f} ₽/ед. (выше ценности)"
+            return f"CPU > {float(vpcu):.0f} {unit} (выше ценности)"
         return "CPU > ценности единицы (убыточно)"
     return "mROAS < 1×"
 
 
 def _table_metric_header(kpi: dict) -> tuple:
-    """Returns (header_label, unit_label) для столбца главной метрики action_table."""
+    """Returns (header_label, unit_label) для столбца главной метрики action_table.
+
+    Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
+    """
     mode = kpi.get("mode", "roi")
     kind = kpi.get("kpi_kind", "monetary")
     if mode == "effectiveness":
         return ("Доля эффекта", "%")
     if kind == "count":
-        return ("CPU", "₽/ед.")
+        unit = kpi.get("cpu_per_label") or "₽/ед."
+        return ("CPU", unit)
     return ("mROAS", "×")
 
 

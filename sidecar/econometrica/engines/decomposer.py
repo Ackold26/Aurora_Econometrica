@@ -276,8 +276,8 @@ def _load_v13_kpi_settings(project_path) -> dict:
         return {}
 
 
-def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derived_mode_default: str = 'roi') -> dict:
-    """Выходные kpi-метаданные decompose (kpi_kind/derived_mode/value_per_count_unit).
+def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derived_mode_default: str = 'roi', kpi_type: str | None = None) -> dict:
+    """Выходные kpi-метаданные decompose (kpi_kind/derived_mode/value_per_count_unit/kpi_type).
 
     F-A (synthetic-truth аудит 2026-06-06): `v13_kpi.json` НЕ создаётся (dead-save path,
     handleContinue мёртв — см. LOAD-1) → раньше эти поля дефолтили в monetary/roi/None
@@ -294,12 +294,15 @@ def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derive
     @param kpi_unit_cost: разрешённая ₽-ценность единицы (pickle/override) или None.
     @param derived_mode_default: реальный derived_mode из pickle model_data ('roi'|
         'effectiveness'|'manual'); fallback 'roi' если отсутствует.
+    @param kpi_type: конкретный тип KPI из pickle config ('leads'|'sales_packs'|...) или None.
+        Фаза 1a: протаскивается в output для паспортных подписей (kpi_labels/kpi_helpers).
     """
     return {
         'kpi_kind': v13_kpi.get('kpi_kind', kpi_kind),
         'derived_mode': v13_kpi.get('derived_mode', derived_mode_default or 'roi'),
         'value_per_count_unit': v13_kpi.get('value_per_count_unit', kpi_unit_cost),
         'value_per_count_unit_label': v13_kpi.get('value_per_count_unit_label', ''),
+        'kpi_type': kpi_type,
     }
 
 
@@ -1279,6 +1282,7 @@ def decompose(
     _kpi_meta = _resolve_output_kpi_meta(
         v13_kpi, kpi_kind, kpi_unit_cost,
         derived_mode_default=model_data.get('derived_mode') or 'roi',
+        kpi_type=config.get('kpi_type') or None,
     )
 
     result = {
@@ -1292,6 +1296,8 @@ def decompose(
         'derived_mode': _kpi_meta['derived_mode'],
         'value_per_count_unit': _kpi_meta['value_per_count_unit'],
         'value_per_count_unit_label': _kpi_meta['value_per_count_unit_label'],
+        # Фаза 1a: конкретный тип KPI для паспортных подписей (kpi_labels/kpi_helpers).
+        'kpi_type': _kpi_meta['kpi_type'],
         'total_sales': round(total_sales, 0),
         'baseline': round(baseline_total, 0),
         'baseline_pct': round(baseline_total / total_sales * 100, 1) if total_sales else 0,
