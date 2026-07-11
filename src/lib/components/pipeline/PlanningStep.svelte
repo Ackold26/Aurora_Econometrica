@@ -85,14 +85,25 @@
   /** decays для BudgetOptimizer */
   const decays = $derived($modelData?.diagnostics?.decays ?? null);
 
-  /** Исторические данные (для ContinuationChart) */
+  /** Исторические данные (для ContinuationChart).
+   * Фикс аудита 2026-07-11: раньше читались `dData.dates`/`dData.kpi_actuals` —
+   * таких полей в decompose НЕТ (структура: `decomposition_series.{dates,series}` +
+   * `time_series.dates`), поэтому historicalSeries ВСЕГДА был null и график
+   * история→прогноз не рисовался никогда. Историческая линия KPI = сумма вкладов
+   * декомпозиции по периоду (data уже signed; `side` — только метка цвета) =
+   * модельная реконструкция факта, когерентная с прогнозом (тоже из модели). */
   const historicalSeries = $derived.by(() => {
     const dData = $decomposeData;
-    if (!dData?.dates || !dData?.kpi_actuals) return null;
-    return {
-      dates: /** @type {string[]} */ (dData.dates),
-      actuals: /** @type {number[]} */ (dData.kpi_actuals),
-    };
+    const ds = dData?.decomposition_series;
+    const dates = /** @type {string[]} */ (ds?.dates ?? dData?.time_series?.dates);
+    if (!dates?.length || !Array.isArray(ds?.series) || !ds.series.length) return null;
+    const n = dates.length;
+    const actuals = new Array(n).fill(0);
+    for (const s of ds.series) {
+      const arr = s?.data ?? [];
+      for (let i = 0; i < n; i++) actuals[i] += Number(arr[i]) || 0;
+    }
+    return { dates, actuals };
   });
 
   /** Метка KPI из типа */
