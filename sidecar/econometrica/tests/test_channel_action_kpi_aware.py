@@ -307,3 +307,22 @@ class TestEdgeCasesWithKpiKwargs:
                 assert result.key in ACTION_KEYS, (
                     f"Невалидный ключ {result.key!r} при mroas={mroas}, kwargs={kwargs}"
                 )
+
+    def test_count_vpcu_cpu_value_not_deflated(self):
+        """Регресс (аудит 2026-07-11): CPU в reasoning = 1/mroas (₽/ед.), НЕ 1/(mroas×vpcu).
+        Занижение в vpcu раз было багом (передавался eff_mroas вместо raw mroas); старые
+        тесты проверяли лишь подстроку «₽/лид», не величину числа."""
+        ch = _make_channel(
+            mroas=0.02, current_spend=1_000_000.0, optimal_spend=1_000_000.0,
+            mroas_ci_low=0.018, mroas_ci_high=0.022,
+        )
+        result = compute_channel_action(
+            ch, kpi_kind='count', vpcu=80.0, metric_short='CPU', cpu_per_label='₽/лид',
+        )
+        # Реальный CPU = 1/0.02 = 50 ₽/лид. Заниженный (баг) был 1/(0.02×80) ≈ 0.6.
+        assert '50 ₽/лид' in result.reasoning, (
+            f"CPU должен быть 50 ₽/лид (1/mroas), получили: {result.reasoning!r}"
+        )
+        assert '0.6' not in result.reasoning, (
+            f"Занижение в vpcu раз вернулось: {result.reasoning!r}"
+        )

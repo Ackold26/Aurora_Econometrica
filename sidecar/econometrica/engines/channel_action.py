@@ -107,12 +107,14 @@ def _metric_phrase(
     """
     if kpi_kind != 'count':
         return f'{mroas:.2f}×'
+    # Для count метрика ВСЕГДА CPU — не полагаемся на metric_short (его дефолт 'ROI'
+    # при прямом вызове дал бы противоречие «ROI ₽/лид»; аудит 2026-07-11).
     if mroas > 0:
         cpu = 1.0 / mroas
         cpu_fmt = f'{cpu:.0f}' if cpu >= 10 else f'{cpu:.1f}'
-        base = f'{metric_short} {cpu_fmt} {cpu_per_label}'
+        base = f'CPU {cpu_fmt} {cpu_per_label}'
     else:
-        base = f'{metric_short} — {cpu_per_label}'
+        base = f'CPU — {cpu_per_label}'
     if vpcu is None or vpcu <= 0:
         return f'{base} (ценность единицы не задана)'
     return base
@@ -331,8 +333,11 @@ def compute_channel_action(
 
     # ─ Основная ветка (monetary ИЛИ count + vpcu) — decision-tree по eff_mroas ──
 
-    # Строка для reasoning (паспорт-aware)
-    _metric_str = _metric_phrase(eff_mroas, kpi_kind, vpcu, metric_short, cpu_per_label)
+    # Строка для reasoning (паспорт-aware). ВАЖНО: CPU считается от СЫРОГО mroas
+    # (units/₽ → ₽/ед. = 1/mroas), НЕ от eff_mroas: eff_mroas = mroas×vpcu нужен только
+    # для порогов decision-tree ниже. Передача eff_mroas сюда занизила бы CPU в vpcu раз
+    # (аудит 2026-07-11). Для monetary eff_mroas == mroas, поэтому ветка не затронута.
+    _metric_str = _metric_phrase(mroas, kpi_kind, vpcu, metric_short, cpu_per_label)
 
     # 4/5. Below breakeven - Cut
     if eff_mroas > 0 and eff_mroas < 0.8:

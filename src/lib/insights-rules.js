@@ -1900,7 +1900,10 @@ export function optimizeInsights(data, ctx = {}) {
       // 842M / 1.781B = 0.47×, customer видел «0.18×» которое реально 842M /
       // 4.338B (training). Fix: показываем training spend (denominator avgROI)
       // → ratio совпадает: 0.18× = 842M / 4338M.
-      text: `${portfolioPhrase} - ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода - медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
+      // Затраты (totalSpendDec) — всегда ₽. Медиа-ВКЛАД (totalContribDec) — в единице
+      // результата: для count это штуки (лиды/упаковки), НЕ ₽ (аудит 2026-07-11) → подпись
+      // из паспорта kpi.targetUnit ('₽' для monetary, 'лид.'/'упак.' для count).
+      text: `${portfolioPhrase} - ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода - медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')} ${kpi.targetUnit || '₽'} (без baseline).`,
       tip: kpi.isLegacy
         ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться - см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× - отлично; 1-2× - приемлемо, нужно улучшать микс; < 1× - медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
         : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} - отлично; на грани с ценностью - приемлемо; выше ценности - убыточно.`,

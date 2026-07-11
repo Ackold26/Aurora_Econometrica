@@ -141,35 +141,35 @@ def _build_channel_insight(
             return float(c.get('contribution_pct') or c.get('share_of_effect') or 0)
         top_share_ch = max(channels, key=_share)
         worst_share_ch = min(channels, key=_share)
-        insight = (
-            f"{top_share_ch['name']} - наибольшая доля эффекта ({_share(top_share_ch):.1f}%). "
-            f"{worst_share_ch['name']} - наименьшая доля эффекта ({_share(worst_share_ch):.1f}%)."
-        )
+        # Guard: если поля доли не заполнены (все _share=0) или один канал — max/min
+        # схлопнулись бы в один с «0.0%» → нейтральная формулировка (аудит 2026-07-11).
+        if _share(top_share_ch) <= 0 or top_share_ch['name'] == worst_share_ch['name']:
+            insight = (
+                'Доли вклада каналов в эффект недоступны для сравнения. '
+                'Точную оценку и сценарии перераспределения см. в шаге «Оптимизация».'
+            )
+        else:
+            insight = (
+                f"{top_share_ch['name']} - наибольшая доля эффекта ({_share(top_share_ch):.1f}%). "
+                f"{worst_share_ch['name']} - наименьшая доля эффекта ({_share(worst_share_ch):.1f}%)."
+            )
     elif kpi_kind == 'count':
-        # Count/CPU: метка CPU, format_metric инвертирует ratio
+        # Count/CPU: метка CPU, format_metric инвертирует ratio (units/₽ → ₽/ед.)
         fmt_top = format_metric(top_roi, kpi_kind='count', mode='roi', kpi_type=kpi_type)
         fmt_worst = format_metric(float(worst.get('roi') or 0), kpi_kind='count', mode='roi', kpi_type=kpi_type)
-        if top_roi >= ROI_BREAKEVEN:
-            insight = (
-                f"{top['name']} - самый эффективный канал (CPU {fmt_top}). "
-                f"{worst['name']} - наименее эффективный (CPU {fmt_worst})."
-            )
-            if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
-                insight += (
-                    f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
-                    f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
-                    f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
-                )
-        else:
-            # INV-50 для count: честная формулировка без «окупается»/«ROI»
-            if money_roi_unavailable:
-                no_roi_phrase = 'стоимость привлечения выше ценности единицы'
-            else:
-                no_roi_phrase = 'относительно высокая стоимость привлечения'
-            insight = (
-                f"Каналы показывают {no_roi_phrase} (лучший - {top['name']}, "
-                f"CPU {fmt_top}). Точную оценку и сценарии перераспределения "
-                f"см. в шаге «Оптимизация»."
+        # Денежный breakeven (roi≥1.0) НЕвалиден для count: roi = units/₽ ≈ 0.01–0.05,
+        # порог 1.0 отправил бы count-каналы ВСЕГДА в негативную ветку (аудит 2026-07-11).
+        # Абсолютный вердикт окупаемости требует ценности единицы (её тут нет) → даём
+        # ОТНОСИТЕЛЬНОЕ сравнение по CPU (channels отсортированы по roi desc → top = мин CPU).
+        insight = (
+            f"{top['name']} - самая низкая стоимость единицы (CPU {fmt_top}). "
+            f"{worst['name']} - самая высокая (CPU {fmt_worst})."
+        )
+        if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
+            insight += (
+                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
             )
     else:
         # Monetary: поведение как раньше (ROI ×)
