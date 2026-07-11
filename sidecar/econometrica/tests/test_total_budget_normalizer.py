@@ -56,6 +56,20 @@ class TestNoneForAggregates:
     def test_grand_total_snake(self):
         assert _normalize_channel_name('grand_total') is None
 
+    # A6-1b (аудит 2026-07-11): двух-квалификаторные агрегаты — тоже None.
+    # Раньше проверялось только первое слово → 'gross media' проходил как канал.
+    def test_gross_media_budget_aggregate(self):
+        assert _normalize_channel_name('gross media budget') is None
+
+    def test_overall_media_budget_aggregate(self):
+        assert _normalize_channel_name('overall media budget') is None
+
+    def test_grand_media_aggregate(self):
+        assert _normalize_channel_name('grand media') is None
+
+    def test_media_overall_aggregate(self):
+        assert _normalize_channel_name('media overall') is None
+
 
 # ─── Unit-тесты: живые каналы → НЕ None ─────────────────────────────────────
 

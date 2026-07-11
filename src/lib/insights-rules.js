@@ -566,9 +566,14 @@ export function validateInsights(result, objective = 'roi') {
   }
 
   // ── Объём данных vs параметры ──
-  // Унифицированная формула rows / (media + control) - соответствует Python validator и индустриальной практике (rows-to-cols ratio).
+  // D-1 (аудит 2026-07-11): знаменатель ЕДИНЫЙ со статусным liveRatio —
+  // эффективное число параметров (media+control + авто-контроли backend: 12
+  // праздников + intercept, detected.n_params_effective_pretrain). Раньше блок
+  // считал naive media+control → ratio завышался и ПРОТИВОРЕЧИЛ статусу (статус
+  // error по эффективному ~1.9, блок info по naive ~3.7). INV-50: не завышать
+  // достаточность данных. Fallback (нет backend-поля) = media+control, как было.
   const totalRows = result.file?.rows ?? result.detected?.rows ?? 0;
-  const paramCount = mediaCols.length + controlCols.length;
+  const paramCount = paramCountCheck;
   if (totalRows > 0 && mediaCols.length > 0) {
     const ratio = totalRows / Math.max(paramCount, 1);
 
@@ -611,7 +616,7 @@ export function validateInsights(result, objective = 'roi') {
       // единственного решения). Единственная зона настоящей «невозможности».
       out.push({
         severity: 'error',
-        text: `Модель не определяется: ${paramCount} переменных при ${totalRows} наблюдениях (ratio ${ratio.toFixed(1)}:1). Параметров не меньше, чем точек данных - у модели нет единственного решения (нет степеней свободы).`,
+        text: `Модель не определяется: ${paramCount} параметров модели при ${totalRows} наблюдениях (ratio ${ratio.toFixed(1)}:1). Параметров не меньше, чем точек данных - у модели нет единственного решения (нет степеней свободы).`,
         tip: `Сначала сократите число переменных или добавьте данные: (1) объедините парные метрики каналов (бюджет + показы одного канала = одна переменная); (2) исключите ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей` : 'каналы без активности'}; (3) соберите больше истории - недельная гранулярность даёт ~${Math.round(totalRows * 4.3)} наблюдений.`,
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
       });
@@ -620,7 +625,7 @@ export function validateInsights(result, objective = 'roi') {
       // просто слабо. Не error (красный), а высокий warning (оранжевый).
       out.push({
         severity: 'warning',
-        text: `Критически мало данных: ${totalRows} наблюдений / ${paramCount} переменных (ratio ${ratio.toFixed(1)}:1). Модель обучится, но результаты - только направление (что наращивать, что сокращать), не точные цифры. Приемлемо для пилота как ориентир.`,
+        text: `Критически мало данных: ${totalRows} наблюдений / ${paramCount} параметров модели (ratio ${ratio.toFixed(1)}:1). Модель обучится, но результаты - только направление (что наращивать, что сокращать), не точные цифры. Приемлемо для пилота как ориентир.`,
         tip: `Bayesian модель обучится с информативными приорами, но доверительные интервалы будут широкими. Лучшие пути (по приоритету): (1) добавить данные - перейти на недельную гранулярность (${Math.round(totalRows * 4.3)} наблюдений) или собрать ещё ${Math.max(48 - totalRows, 12)} месяцев; (2) объединить парные метрики каналов (бюджет + показы одного канала = коллинеарность); (3) исключить ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей` : 'каналы без активности'} - только если их вклад в продажи действительно нулевой.`,
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
       });

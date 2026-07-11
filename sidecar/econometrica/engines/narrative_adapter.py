@@ -321,10 +321,15 @@ def _normalize_channel_name(raw: str | None) -> str | None:
     cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,.;:-_')
     if not cleaned:
         return None
-    # A6-1b: если после вычистки денежного/агрегатного шума остался ТОЛЬКО
-    # квалификатор ('total_media_budget'→'media', 'grand_total'→'grand') — это
-    # агрегатная колонка. Составные имена ('social media', 'Media Radar') сохраняются.
-    if cleaned.lower() in _AGGREGATE_QUALIFIERS:
+    # A6-1b (уточнено аудитом 2026-07-11): если ВСЁ, что осталось после вычистки
+    # денежного/агрегатного шума, — квалификаторы, это агрегатная колонка:
+    #   'total_media_budget'→'media'→None; 'gross media budget'→'gross media'→None;
+    #   'overall media budget'→'overall media'→None; 'grand_total'→'grand'→None.
+    # Но составное имя с реальным инструментом сохраняется целиком:
+    #   'social media'→'social media'; 'gross rating points'→'gross rating points'.
+    # (Проверка ТОЛЬКО первого слова пропускала двух-квалификаторные агрегаты →
+    # задвоение вклада total-budget-as-media.)
+    if all(w in _AGGREGATE_QUALIFIERS for w in cleaned.lower().split()):
         return None
     return cleaned
 

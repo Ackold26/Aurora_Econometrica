@@ -79,7 +79,7 @@ DEMO_GT_FMCG = {
 }
 
 DEMO_GT_OTC = {
-    # ТВ 1.4× · Онлайн-видео 3.2× · Аптечные материалы 0.7× · Врачебные визиты 4.6× · Диджитал 1.1×
+    # ТВ 1.4× · Онлайн-видео 3.2× · Аптечные материалы 0.7× · Детейлинг 4.6× · Диджитал 1.1×
     # Увеличенный ROI-разрыв сильный↔слабый (visits 4.6× vs apteka 0.7×) →
     # оптимизатору выгоднее перекладывать бюджет → устойчивый lift ≥5%.
     'roi_targets': {'tv': 1.4, 'olv': 3.2, 'apteka': 0.7, 'visits': 4.6, 'digital': 1.1},
@@ -261,7 +261,7 @@ def generate_demo_fmcg(seed: int = 142) -> pd.DataFrame:
     months_future = dates_future.month.to_numpy()
     plan_phys = _future_plan(
         rng, hist_physical, months_future,
-        strong_channels=('olv', 'performance'),   # сильные (ROI 2.8×, 3.5×) — сдвиг вверх
+        strong_channels=('olv', 'performance'),   # сильные (ROI 2.8×, 4.2×) — сдвиг вверх
         weak_channels=('ooh',),                   # слабый (ROI 0.8×) — сдвиг вниз
         peak_months=(6, 7, 8, 12),
     )
@@ -337,7 +337,7 @@ def generate_demo_otc(seed: int = 143) -> pd.DataFrame:
     }
 
     # CPP-базы: TV 180k₽/TRP (W18-44), OLV CPM 250₽, Аптечный CPT 400₽,
-    # Врачебный визит 3500₽/визит, Диджитал CPC 35₽.
+    # Детейлинг 3500₽/визит, Диджитал CPC 35₽.
     tv_spend = tv_trp * _cpp_series(rng, months, 180_000)
     olv_spend = olv_impressions / 1000.0 * _cpp_series(rng, months, 250.0)
     apteka_spend = apteka_contacts / 1000.0 * _cpp_series(rng, months, 400.0)

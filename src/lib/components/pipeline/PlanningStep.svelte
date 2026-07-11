@@ -161,7 +161,7 @@
   /**
    * @typedef {{
    *   predictions: number[], ciLow: number[], ciHigh: number[],
-   *   totalKpi: number, totalSpend: number,
+   *   totalKpi: number, totalSpend: number | null,
    *   ciLowTotal: number | null, ciHighTotal: number | null,
    *   dates: string[], disclaimers: string[]
    * }} BaselineForecast
@@ -235,7 +235,20 @@
       const _kuc = get(valuePerCountUnit);
       const kpiUnitCostP = get(kpiKind) === 'count' && typeof _kuc === 'number' && _kuc > 0 ? _kuc : null;
 
-      const scenarioName = variantDraftName || `Вариант ${variantCounter}`;
+      // B-1/A-3 (аудит 2026-07-11): имя варианта = имя файла scenarios/<name>.json
+      // И ключ манифеста planning.json. Чистим недопустимые для файла символы
+      // (иначе запись падает или манифест рассинхронится с читателем → раздел
+      // прогноза «не найден»); не даём занять имя базового плана и создать дубль.
+      const rawName = variantDraftName || `Вариант ${variantCounter}`;
+      const scenarioName = rawName.replace(/[/\\:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120);
+      if (!scenarioName || scenarioName === BASELINE_NAME) {
+        saveError = `Название пустое или занято базовым планом — выберите другое (не «${BASELINE_NAME}»).`;
+        return;
+      }
+      if (variants.some((v) => v.name === scenarioName)) {
+        saveError = `Вариант «${scenarioName}» уже существует — выберите другое название.`;
+        return;
+      }
 
       const sc = /** @type {any} */ (await invoke('econ_scenario', {
         projectDir,
@@ -354,16 +367,16 @@
       }
 
       const totals = sc.totals ?? {};
-      let spend = 0;
-      for (const arr of Object.values(mp.channels)) {
-        for (const v of /** @type {number[]} */ (arr)) spend += Number(v) || 0;
-      }
+      // A-2 (аудит 2026-07-11): «Бюджет плана, ₽» — только когда backend перевёл
+      // ВСЕ каналы в деньги (total_spend_money != null). Для физметрик (TRP/показы
+      // без CPP) сумма сырых каналов НЕ рубли — не показываем валюту (INV-50).
+      const spendMoney = totals.total_spend_money != null ? Number(totals.total_spend_money) : null;
       baselineForecast = {
         predictions: sc.predictions ?? [],
         ciLow: sc.predictions_ci_low ?? [],
         ciHigh: sc.predictions_ci_high ?? [],
         totalKpi: Number(totals.predicted_kpi ?? 0),
-        totalSpend: spend,
+        totalSpend: spendMoney,
         ciLowTotal: totals.predicted_kpi_ci_low ?? null,
         ciHighTotal: totals.predicted_kpi_ci_high ?? null,
         dates: sc.future_dates ?? fd,
@@ -392,6 +405,11 @@
   $effect(() => {
     const mp = $mediaPlanDetected;
     if (!mp?.confirmed || !mp.channels) return;
+    // A-4 (аудит 2026-07-11): PlanningStep смонтирован всегда (visibility-навигация,
+    // +page.svelte:81), а mediaPlanDetected.confirmed ставится на Валидации ДО
+    // обучения модели. Без гейта готовности модели $effect звал бы econ_scenario
+    // без pickle → ошибка на нормальном пути. Ждём обученную модель.
+    if (!$modelData?.diagnostics) return;
     const hash = mp.source_hash ?? 'nohash';
     if (baselineComputedHash === hash || baselineComputing) return;
     computeBaseline();
@@ -662,12 +680,14 @@
               </span>
             {/if}
           </div>
-          <div class="bsc-metric">
-            <span class="bsc-label">Бюджет плана</span>
-            <span class="bsc-value">
-              {baselineForecast.totalSpend.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽
-            </span>
-          </div>
+          {#if baselineForecast.totalSpend != null}
+            <div class="bsc-metric">
+              <span class="bsc-label">Бюджет плана</span>
+              <span class="bsc-value">
+                {baselineForecast.totalSpend.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} ₽
+              </span>
+            </div>
+          {/if}
         </div>
 
         {#if historicalSeries}
