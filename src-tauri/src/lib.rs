@@ -315,6 +315,56 @@ fn get_raw_fingerprint() -> Result<String, String> {
     crypto::fingerprint::get_raw_fingerprint_hex().map_err(|e| e.to_string())
 }
 
+/// Tier 2 (Claude-усилитель инсайтов MMM): inline-вопрос об уже посчитанном
+/// результате. Тонкий транспорт — готовый grounding-промпт строит фронт
+/// (`tier2-context.js`, железные правила INV-50), здесь только пересылка через
+/// ЕДИНЫЙ egress-чок-поинт `run_claude` (consent + feature-гейт наследуются;
+/// в локальной редакции 152-ФЗ команда вернёт ошибку «egress отключён»).
+///
+/// Требует открытой сессии кабинета `econometrist` (work_dir с vault) — фронт
+/// открывает его лениво при первом вопросе. Stateless (resume=None): каждый
+/// ответ строится строго на текущих фактах в промпте, без памяти прошлых
+/// вопросов — безопаснее для INV-50.
+#[tauri::command]
+async fn econ_ask_insight(
+    prompt: String,
+    state: tauri::State<'_, Arc<AppState>>,
+    app_handle: tauri::AppHandle,
+) -> Result<String, String> {
+    if prompt.trim().is_empty() {
+        return Err("[ASK-EMPTY] Пустой запрос к ИИ".to_string());
+    }
+    let cabinet_id = "econometrist";
+    let work_dir = state
+        .session_manager
+        .get_work_dir(cabinet_id)
+        .ok_or_else(|| {
+            "[ASK-NO-SESSION] Кабинет эконометриста не открыт — откройте его, чтобы спросить ИИ."
+                .to_string()
+        })?;
+
+    let user_model = app_handle
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|d| user_config::load(&d).model)
+        .unwrap_or(None);
+
+    claude::run_claude(
+        &work_dir,
+        &prompt,
+        app_handle.clone(),
+        cabinet_id.to_string(),
+        None,  // stateless — без --resume
+        state.active_pids.clone(),
+        true,  // suppress_export — inline-вопрос, не сохранять в exports
+        user_model,
+    )
+    .await
+    .map(|(_session_id, response_text)| response_text)
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn open_cabinet(
     cabinet_id: String,
@@ -1942,6 +1992,7 @@ fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::
         "cloud_advisors_enabled": claude::CLOUD_ADVISORS_ENABLED,
         "consent_required": user_config::cloud_consent_required(&config_dir),
         "terms_version": user_config::CLOUD_CONSENT_TERMS_VERSION,
+        "local_only": user_config::local_only_enabled(&config_dir),
     }))
 }
 
@@ -1970,6 +2021,17 @@ fn withdraw_cloud_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let mut config = user_config::load(&config_dir);
     config.cloud_consent = None;
+    user_config::save(&config_dir, &config)
+}
+
+/// Включить/выключить runtime-режим «только локально». Пишет `local_only` в
+/// user_config; egress-гейт `run_claude` (ensure_not_local_only) читает его и
+/// блокирует облачный ИИ, когда включено. Одна сборка, два режима.
+#[tauri::command]
+fn set_local_only(enabled: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    config.local_only = enabled;
     user_config::save(&config_dir, &config)
 }
 
@@ -3158,6 +3220,8 @@ fn build_app() -> Result<(), String> {
             get_full_machine_hash,
             get_raw_fingerprint,
             open_cabinet,
+            econ_ask_insight,
+            set_local_only,
             close_cabinet,
             send_message,
             list_inbox_files,

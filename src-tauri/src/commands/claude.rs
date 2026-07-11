@@ -101,6 +101,21 @@ fn ensure_cloud_consent(app_handle: &tauri::AppHandle) -> Result<()> {
     Ok(())
 }
 
+/// Defense-in-depth (runtime): запретить egress, если пользователь включил режим
+/// «только локально» (данные не уходят). Тот же egress-чок-поинт, что и согласие.
+/// Одна сборка, два режима: тумблер в Настройках пишет `local_only` в user_config.
+#[cfg(feature = "cloud_advisors")]
+fn ensure_not_local_only(app_handle: &tauri::AppHandle) -> Result<()> {
+    let config_dir = app_handle
+        .path()
+        .app_config_dir()
+        .map_err(|e| anyhow::anyhow!("app_config_dir: {e}"))?;
+    if crate::commands::user_config::local_only_enabled(&config_dir) {
+        anyhow::bail!("[CL-LOCAL-ONLY] Включён режим «только локально» — облачный ИИ отключён, данные не уходят на серверы");
+    }
+    Ok(())
+}
+
 /// Spawn Claude Code CLI and stream output via Tauri events.
 /// Returns (session_id, response_text) - session ID for --resume and full response text.
 #[allow(clippy::too_many_arguments)]
@@ -121,6 +136,7 @@ pub async fn run_claude(
     }
     #[cfg(feature = "cloud_advisors")]
     {
+        ensure_not_local_only(&app_handle)?;
         ensure_cloud_consent(&app_handle)?;
         let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
         Ok((sid, response_text))
@@ -143,6 +159,7 @@ pub async fn run_claude_pipeline(
     }
     #[cfg(feature = "cloud_advisors")]
     {
+        ensure_not_local_only(&app_handle)?;
         ensure_cloud_consent(&app_handle)?;
         // Pipeline phases always suppress export - final output is built by post-processor
         let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
