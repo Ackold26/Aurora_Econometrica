@@ -85,9 +85,11 @@ report6**. `$pipelineCurrentStep` = индекс PIPELINE_STEPS.
 ### Follow-up для Антона (НЕ сделано, вне worktree/скоупа)
 - **Мерж:** ветка сцеплена с econ-kpi-units + econ-planning-mode. После мержа
   `check_cabinet_drift.py --strict-pair` сработает в основном дереве — сверить.
-- **Портирование Critical в другие продукты:** промпты econometrist есть в Hub-копиях
-  (AI_APP_AGENCY, Aurora_Creative_Hub и др. — отдельные репо). Если там econometrist идёт
-  тем же путём send_message с блоком данных — та же Critical-бага; правку $ARGUMENTS надо
-  портировать отдельно (решение Антона, чужие репо).
+- **Портирование Critical — НЕ ТРЕБУЕТСЯ (решение Антона 2026-07-12):** кабинет-эконометрист
+  развивается ТОЛЬКО внутри MMM-оптимайзера (продукт Econometrica), за его пределами — не
+  развиваем. Critical завязан на гейт `$isEconometrica` (ChatPanel:697), true ровно в этом
+  продукте, и здесь он закрыт. Копии econometrist в других репо (Creative Hub, Insights Hub,
+  AI_APP_AGENCY — архив) заморожены → портирование не нужно. Hub-копии cabinet-drift —
+  информационно, не трогаем.
 - **Доставка промптов в прод:** dev берёт .md из New_AI_Agency напрямую; прод — из vault
   (content-pack). Для прод-редакции нужна пересборка content-pack (регламент релиза).
