@@ -101,11 +101,16 @@ describe('buildProjectDataBlock - decomposition: агрегаты сохране
     expect(block).toContain('Статьи');
   });
 
-  it('графические серии time_series/waterfall вырезаны (dry-probe 2026-07-12)', () => {
-    // Динамика по неделям и waterfall-диаграмма — данные для рендера графиков
-    // движком, не для текстовой интерпретации; раздували промпт и страж чисел.
+  it('графические/служебные серии вырезаны: time_series, waterfall, signed_factor_contributions, hierarchical (аудит 2026-07-12)', () => {
+    // Динамика по неделям, waterfall-диаграмма, per_period-вклады факторов
+    // (~496 поточечных чисел) и служебный конфиг иерархии — данные для рендера
+    // графиков движком, не для текстовой интерпретации; раздували промпт и
+    // засоряли страж чисел ложными grounded-совпадениями.
     expect(block).not.toContain('time_series');
     expect(block).not.toContain('waterfall');
+    expect(block).not.toContain('signed_factor_contributions');
+    expect(block).not.toContain('per_period');
+    expect(block).not.toContain('hierarchical');
   });
 
   it('channels-агрегаты (ROI/вклад по каналам) не задеты вырезкой', () => {

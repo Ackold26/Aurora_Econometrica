@@ -64,18 +64,26 @@ function stripModelTelemetry(mod) {
 }
 
 /**
- * Убрать из декомпозиции тяжёлые ГРАФИЧЕСКИЕ серии: time_series (динамика по
- * неделям × каналы) и waterfall (labels/values/types для диаграммы). Это данные
- * для рендера графиков движком; агрегаты каналов (roi, contribution_pct, spend)
- * и итоги (baseline_pct, total_sales) — на верхнем уровне и в channels[],
- * остаются. Основание — dry-probe 2026-07-12: серии раздували промпт до 25К и
- * добавляли ~250 служебных чисел в страж. Симметрично stripOptTelemetry.
+ * Убрать из декомпозиции тяжёлые ГРАФИЧЕСКИЕ/служебные серии:
+ * - time_series — динамика по неделям × каналы (для рендера графика);
+ * - waterfall — labels/values/types для диаграммы;
+ * - signed_factor_contributions — по каждому фактору per_period динамика
+ *   (~16 факторов × ~31 период ≈ 496 поточечных чисел) — серия для графика
+ *   вкладов, не для текстовой интерпретации;
+ * - hierarchical — служебный конфиг иерархии (enabled/categories/priors_summary),
+ *   без результатных чисел для цитирования.
+ * Агрегаты каналов (roi, contribution_pct, spend, ci) и итоги (baseline_pct,
+ * total_sales) — на верхнем уровне и в channels[], остаются. Медиа-вклады
+ * дублированы в channels[], поэтому вырезка факторной графики ничего
+ * цитируемого не теряет (INV-50). Основание — внешний аудит 2026-07-12:
+ * signed_factor_contributions раздувал промпт и добавлял ~496 служебных чисел
+ * в страж. Симметрично stripOptTelemetry / stripModelTelemetry.
  * @param {any} dec
  * @returns {any}
  */
 function stripDecompTelemetry(dec) {
   if (!dec || typeof dec !== 'object') return dec ?? null;
-  const { time_series, waterfall, ...rest } = dec;
+  const { time_series, waterfall, signed_factor_contributions, hierarchical, ...rest } = dec;
   return rest;
 }
 
