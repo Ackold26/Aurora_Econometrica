@@ -8,7 +8,7 @@
  *     carryover/shape был бы релевантнее вопросу «почему такой ROI»).
  *  2. Источник приходит как имя файла
  *     («Jin_2017_Bayesian_Media_Mix_Modeling_Carryover_and_Shape_Effects»),
- *     Аврора цитирует его сырым, а не «по Jin 2017…».
+ *     Аврора цитирует его сырым, а не «по работе Jin о медиамиксе…».
  *
  * buildRagQuery добавляет к вопросу домен-термины текущего шага пайплайна,
  * ДВУЯЗЫЧНО — корпус наполовину англоязычный, чисто русский запрос топит
@@ -82,6 +82,9 @@ export function buildRagQuery({ question, step, focusChannelType } = {}) {
 /**
  * Год источника: первое 19xx/20xx число в строке. Без \b — в именах файлов
  * год отделён «_», который сам входит в \w, и граница слова не срабатывает.
+ * Используется как РАЗДЕЛИТЕЛЬ «авторы_ГОД_название» — сам год в атрибуцию НЕ
+ * попадает (решение Антона 2026-07-12: даты делают источник «датированным»,
+ * методология вечна → упоминаем автора + название, без года).
  * @param {string} s
  */
 function findYear(s) {
@@ -91,15 +94,17 @@ function findYear(s) {
 
 /**
  * Превратить имя файла источника RAG-библиотеки в читаемую атрибуцию для
- * промпта («по Jin 2017…»), не в сырое имя файла. Не падает на неожиданном
- * формате — fallback возвращает исходное имя с «_» → « ».
+ * промпта («по работе Jin „Bayesian Media Mix Modeling…“»), не в сырое имя
+ * файла и БЕЗ года. Не падает на неожиданном формате — fallback возвращает
+ * исходное имя с «_» → « ».
  *
  * Примеры:
- *  - Jin_2017_Bayesian_Media_Mix_Modeling_Carryover_and_Shape_Effects → «Jin 2017»
+ *  - Jin_2017_Bayesian_Media_Mix_Modeling_Carryover_and_Shape_Effects
+ *      → «Jin, „Bayesian Media Mix Modeling Carryover and Shape Effects“»
  *  - Statistical_Rethinking_-_Richard_McElreath → «McElreath, „Statistical Rethinking“»
  *  - Bayesian_Workflow_-_Andrew_Gelman → «Gelman, „Bayesian Workflow“»
- *  - Hernan_Robins_2025_Causal_Inference_What_If → «Hernán & Robins 2025»
- *  - Chan_Perry_2017_Challenges_... → «Chan & Perry 2017»
+ *  - Hernan_Robins_2025_Causal_Inference_What_If → «Hernan & Robins, „Causal Inference What If“»
+ *  - Chan_Perry_2017_Challenges_... → «Chan & Perry, „Challenges and Opportunities“»
  *
  * @param {string} fileName
  * @returns {string}
@@ -127,15 +132,21 @@ export function humanizeSource(fileName) {
     }
 
     if (year) {
-      // Фамилии — токены-слова ДО года (Title Case, без цифр/служебных слов).
-      const beforeYear = noExt.slice(0, noExt.indexOf(year)).replace(/[_\s]+$/, '');
+      // Формат «Авторы_ГОД_Название»: год — только разделитель, в атрибуцию
+      // НЕ идёт. Авторы — до года, название — после.
+      const idx = noExt.indexOf(year);
+      const beforeYear = noExt.slice(0, idx).replace(/[_\s]+$/, '');
+      const afterYear = noExt.slice(idx + year.length).replace(/^[_\s]+/, '');
       const tokens = beforeYear.split(/_+/).filter(Boolean);
       const surnames = tokens.filter((t) => /^[A-ZА-ЯЁ][a-zа-яё]+$/.test(t));
-      if (surnames.length === 1) return `${surnames[0]} ${year}`;
-      if (surnames.length >= 2) return `${surnames.join(' & ')} ${year}`;
-      // Год есть, но фамилий перед ним не нашли — год всё равно полезная атрибуция.
-      if (tokens.length > 0) return `${tokens.join(' ')} ${year}`;
-      return year;
+      const authors = surnames.length >= 2
+        ? surnames.join(' & ')
+        : (surnames.length === 1 ? surnames[0] : tokens.join(' '));
+      const title = afterYear.replace(/_/g, ' ').trim();
+      if (authors && title) return `${authors}, «${title}»`;
+      if (authors) return authors;      // авторы есть, названия нет
+      if (title) return `«${title}»`;   // только название
+      // ни авторов, ни названия вокруг года — отдать имя без года (fallback ниже).
     }
   } catch {
     // падать нельзя — ниже fallback

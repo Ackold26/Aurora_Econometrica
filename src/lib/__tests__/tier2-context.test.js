@@ -151,7 +151,7 @@ describe('справка о программе в контексте Аврор�
 describe('методология (RAG-библиотека узла Б) в контексте и промпте', () => {
   /** @type {import('../tier2-context.js').MethodologyHit[]} */
   const hits = [
-    { text: 'Jin et al. (2017): байесовская MMM с иерархическим пулингом каналов даёт более устойчивые оценки ROI при малом числе наблюдений.', source: 'Jin 2017', title: 'Bayesian Methods for Media Mix Modeling', score: 0.41 },
+    { text: 'Байесовская MMM с иерархическим пулингом каналов даёт более устойчивые оценки ROI при малом числе наблюдений.', source: 'Jin_2017_Bayesian_Methods_for_Media_Mix_Modeling', title: 'Bayesian Methods for Media Mix Modeling', score: 0.41 },
   ];
 
   it('methodology передаётся в контекст, пустой массив/undefined → null', () => {
@@ -169,7 +169,8 @@ describe('методология (RAG-библиотека узла Б) в ко�
     const ctx = buildTier2Context({ step: STEP.DECOMPOSE, dec: decomposition, methodology: hits });
     const prompt = buildTier2Prompt(ctx, 'Почему ROI неопределённый?');
     expect(prompt).toContain('Канон методологии');
-    expect(prompt).toContain('«Jin 2017»');
+    expect(prompt).toContain('Jin, «Bayesian Methods for Media Mix Modeling»'); // автор+название, без года
+    expect(prompt).not.toContain('Jin 2017'); // год не попадает в атрибуцию
     expect(prompt).toContain('иерархическим пулингом каналов');
   });
 

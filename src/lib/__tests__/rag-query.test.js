@@ -70,8 +70,8 @@ describe('buildRagQuery — тематизация по шагу', () => {
 });
 
 describe('humanizeSource — атрибуция по имени файла', () => {
-  it('Jin_2017_... → «Jin 2017»', () => {
-    expect(humanizeSource('Jin_2017_Bayesian_Media_Mix_Modeling_Carryover_and_Shape_Effects')).toBe('Jin 2017');
+  it('Jin_2017_... → «Jin, „…“» без года', () => {
+    expect(humanizeSource('Jin_2017_Bayesian_Media_Mix_Modeling_Carryover_and_Shape_Effects')).toBe('Jin, «Bayesian Media Mix Modeling Carryover and Shape Effects»');
   });
 
   it('Statistical_Rethinking_-_Richard_McElreath → «McElreath, «Statistical Rethinking»»', () => {
@@ -82,12 +82,12 @@ describe('humanizeSource — атрибуция по имени файла', () 
     expect(humanizeSource('Bayesian_Workflow_-_Andrew_Gelman')).toBe('Gelman, «Bayesian Workflow»');
   });
 
-  it('Hernan_Robins_2025_Causal_Inference_What_If → «Hernan & Robins 2025»', () => {
-    expect(humanizeSource('Hernan_Robins_2025_Causal_Inference_What_If')).toBe('Hernan & Robins 2025');
+  it('Hernan_Robins_2025_... → «Hernan & Robins, „…“» без года', () => {
+    expect(humanizeSource('Hernan_Robins_2025_Causal_Inference_What_If')).toBe('Hernan & Robins, «Causal Inference What If»');
   });
 
-  it('Chan_Perry_2017_Challenges_... → «Chan & Perry 2017»', () => {
-    expect(humanizeSource('Chan_Perry_2017_Challenges_and_Opportunities')).toBe('Chan & Perry 2017');
+  it('Chan_Perry_2017_... → «Chan & Perry, „…“» без года', () => {
+    expect(humanizeSource('Chan_Perry_2017_Challenges_and_Opportunities')).toBe('Chan & Perry, «Challenges and Opportunities»');
   });
 
   it('неизвестный формат не падает — fallback на имя с пробелами', () => {
@@ -102,7 +102,7 @@ describe('humanizeSource — атрибуция по имени файла', () 
 });
 
 describe('buildTier2Prompt — атрибуция в промпте, не сырое имя файла', () => {
-  it('промпт содержит «Jin 2017», НЕ содержит сырое «Jin_2017_Bayesian»', () => {
+  it('промпт содержит читаемое «Jin, „…“» БЕЗ года и БЕЗ сырого «Jin_2017_Bayesian»', () => {
     const ctx = buildTier2Context({
       step: STEP.DECOMPOSE,
       tier1Insights: [],
@@ -115,8 +115,9 @@ describe('buildTier2Prompt — атрибуция в промпте, не сыр
       ],
     });
     const prompt = buildTier2Prompt(ctx, 'Почему такой carryover?');
-    expect(prompt).toContain('Jin 2017');
-    expect(prompt).not.toContain('Jin_2017_Bayesian');
+    expect(prompt).toContain('Jin, «Bayesian Media Mix Modeling Carryover and Shape Effects»');
+    expect(prompt).not.toContain('Jin_2017_Bayesian'); // не сырое имя файла
+    expect(prompt).not.toContain('Jin 2017');           // без года
   });
 });
 
