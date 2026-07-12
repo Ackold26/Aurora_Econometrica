@@ -262,7 +262,7 @@ pub fn get_commands_for_cabinet(cabinet_id: &str) -> Vec<CabinetCommand> {
         // Econometrist - консультант ПОВЕРХ pipeline.
         // Pipeline делает MMM (валидация, MCMC, оптимизация, PPTX). Кабинет осмысляет и
         // расширяет результат - не дублирует расчёты, а отвечает на вопросы «что значит»,
-        // «что делать дальше», «что собрать». Старые 7 MMM-команд (/mmm-prepare, /mmm-model,
+        // «что делать дальше», «что собрать». Старые 9 MMM-команд (/mmm-prepare, /mmm-model,
         // /mmm-decomposition, /mmm-optimize, /mmm-scenarios, /mmm-report, /mmm-full,
         // /mmm-to-doc, /mmm-to-slides) СКРЫТЫ из UI, но промпты в .claude/commands/
         // остаются - ручной ввод в поле всё ещё работает (backward compat).
