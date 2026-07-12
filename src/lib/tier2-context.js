@@ -16,6 +16,7 @@
  */
 
 import { buildHelpContext } from './program-help.js';
+import { humanizeSource } from './rag-query.js';
 
 /** Шаги пайплайна (совпадает с $pipelineCurrentStep в InsightsPanel). */
 export const STEP = /** @type {const} */ ({
@@ -371,9 +372,9 @@ export function buildTier2Prompt(context, userQuestion) {
 
   if (context.methodology && context.methodology.length > 0) {
     parts.push('=== Канон методологии (выдержки из библиотеки первоисточников) ===');
-    parts.push('Правила: используй для обоснования интерпретации; цитируй с атрибуцией источника («по Jin 2017…»); числа и нормативы отсюда — методологический канон, НЕ результаты модели пользователя — не смешивай; сложные формулировки переводи на простой язык (правило 11).');
+    parts.push('Правила: используй для обоснования интерпретации; когда опираешься на выдержку отсюда — назови источник в тексте словами («как отмечает Макэлрит…», «по Jin 2017…»), НЕ именем файла и не в квадратных скобках как служебную пометку; числа и нормативы отсюда — методологический канон, НЕ результаты модели пользователя — не смешивай; сложные формулировки переводи на простой язык (правило 11).');
     for (const hit of context.methodology) {
-      const source = sanitizeMethodologyFragment(hit.source);
+      const source = sanitizeMethodologyFragment(humanizeSource(hit.source));
       const text = sanitizeMethodologyFragment(hit.text);
       parts.push(`- [«${source}»] ${truncateAtWord(text, METHODOLOGY_TEXT_LIMIT)}`);
     }
