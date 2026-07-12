@@ -4,11 +4,13 @@
 
 ## Источники
 
-Из проекта:
-- `results/validation.json` — `detected`, `ratio`, `high_correlations`, `warnings`
-- `results/model-diagnostics.json` — MQS, smell-flags, thinness_cap
-- `results/decomposition.json` — suspicious_channels, unit_smell
-- `project.json` — media_columns, control_columns, unit_costs, data_file
+Данные проекта приложены к сообщению блоком «=== Данные проекта ===» (model-diagnostics, decomposition, optimization, project). Из него бери:
+- validation — `detected`, `ratio`, `high_correlations`, `warnings`
+- model-diagnostics — MQS, smell-flags, thinness_cap
+- decomposition — suspicious_channels, unit_smell
+- project — имя, тип KPI, unit_costs; media/control-колонки — в validation
+
+Если нужного файла в блоке нет — скажи прямо, какого шага pipeline не хватает; не выдумывай.
 
 ## Структура ответа
 

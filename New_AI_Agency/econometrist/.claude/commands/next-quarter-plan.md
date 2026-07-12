@@ -4,14 +4,14 @@
 
 ## Источники
 
-Из проекта:
-- `results/optimization.json` — оптимум и what-if из pipeline
-- `results/decomposition.json` — saturation, ROI, adstock каналов
-- `results/model-diagnostics.json` — качество, ограничения
-- `results/scenarios/*.json` — сохранённые пользователем сценарии (если есть)
-- `project.json` — media_columns, unit_costs, даты периода модели
+Данные проекта приложены к сообщению блоком «=== Данные проекта ===» (model-diagnostics, decomposition, optimization, project). Из него бери:
+- optimization — оптимум и what-if из pipeline
+- decomposition — saturation, ROI, adstock каналов
+- model-diagnostics — качество, ограничения
+- scenarios — сохранённые пользователем сценарии (если есть)
+- project — имя, тип KPI, unit_costs; списки колонок и частота дат — в validation (n_rows, date_frequency)
 
-Если optimization.json отсутствует — сначала попроси запустить шаг «Оптимизация», не строй план вслепую.
+Если данных оптимизации в блоке нет — сначала попроси запустить шаг «Оптимизация», не строй план вслепую; не выдумывай.
 
 ## Структура ответа
 

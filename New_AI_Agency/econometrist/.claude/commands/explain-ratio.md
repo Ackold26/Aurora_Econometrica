@@ -4,9 +4,11 @@
 
 ## Источники
 
-Из `%APPDATA%/aurora-econometrica-gui/projects/<id>/`:
-- `results/validation.json` — `detected.ratio`, `n_predictors`, `file.rows`, `date_frequency`
-- `results/model-diagnostics.json` — `mqs.thinness_cap`, `mqs.ratio`, `r_squared`, `mape`
+Данные проекта приложены к сообщению блоком «=== Данные проекта ===» (model-diagnostics, decomposition, optimization, project). Из него бери:
+- validation — `detected.ratio`, `n_predictors`, `file.rows`, `date_frequency`
+- model-diagnostics — `mqs.thinness_cap`, `mqs.ratio`, `r_squared`, `mape`
+
+Если нужного файла в блоке нет — скажи прямо, какого шага pipeline не хватает; не выдумывай.
 
 ## Структура ответа
 
@@ -17,7 +19,7 @@
 **2. Что это значит (3–4 строки)**
 Объясни что такое Ratio без жаргона: на каждый параметр модели должно приходиться столько-то наблюдений. Используй аналогию: «модель пытается найти N независимых сигналов в M точках — если M слишком близко к N, она запоминает шум вместо закономерностей».
 
-Зоны из методологии Aurora:
+Зоны из методологии Aurora (это порог MQS-кэпа; семантика трёх порогов Ratio — единая таблица в CLAUDE.md):
 - Ratio ≥ 6 — идеально
 - Ratio ≥ 4 — норма, cap снят
 - Ratio 2–4 — cap MQS = 70, широкие CI, thin-data warning

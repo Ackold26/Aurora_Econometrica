@@ -8,10 +8,12 @@ MMM — статистическая модель. Её прогноз може�
 
 ## Источники
 
-Из проекта:
-- `results/optimization.json` — текущее vs оптимальное распределение, lift%
-- `results/decomposition.json` — текущий ROI каналов, unit_smell
-- `project.json` — media_columns, unit_costs
+Данные проекта приложены к сообщению блоком «=== Данные проекта ===» (model-diagnostics, decomposition, optimization, project). Из него бери:
+- optimization — текущее vs оптимальное распределение, lift%
+- decomposition — текущий ROI каналов, unit_smell
+- project — unit_costs (если заданы); media-колонки — в validation
+
+Если нужного файла в блоке нет — скажи прямо, какого шага pipeline не хватает; не выдумывай.
 
 ## Структура ответа
 

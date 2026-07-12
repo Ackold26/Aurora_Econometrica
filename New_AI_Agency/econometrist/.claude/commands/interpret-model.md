@@ -4,13 +4,13 @@
 
 ## Источники данных
 
-Активный проект лежит в `%APPDATA%/aurora-econometrica-gui/projects/<id>/`. Прочитай:
-- `results/model-diagnostics.json` — MQS, R², MAPE, R-hat, divergences, ratio
-- `results/decomposition.json` — baseline/media split, вклад каналов, ROI
-- `results/optimization.json` — текущий vs оптимальный план, lift%
-- `project.json` — unit_costs и media_columns
+Данные проекта приложены к сообщению блоком «=== Данные проекта ===» (model-diagnostics, decomposition, optimization, project). Из него бери:
+- model-diagnostics — MQS, R², MAPE, R-hat, divergences, ratio
+- decomposition — baseline/media split, вклад каналов, ROI
+- optimization — текущий vs оптимальный план, lift%
+- project — имя проекта, тип KPI, unit_costs (если заданы); списки media/control-колонок — в validation
 
-Если файла нет — скажи явно какого шага pipeline не хватает и что нужно сделать, не выдумывай цифры.
+Если нужного файла в блоке нет — скажи прямо, какого шага pipeline не хватает; не выдумывай цифры и не ищи файлы сам.
 
 ## Структура ответа (1–2 экрана)
 

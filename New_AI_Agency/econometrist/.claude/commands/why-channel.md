@@ -4,15 +4,17 @@
 
 ## Что спросить у пользователя (если канал не указан явно)
 
-ОДИН вопрос: «Какой канал разобрать?» — предложи список из `results/decomposition.json`. Больше вопросов не задавать.
+ОДИН вопрос: «Какой канал разобрать?» — предложи список каналов из блока данных (decomposition). Больше вопросов не задавать.
 
 ## Источники
 
-Из `%APPDATA%/aurora-econometrica-gui/projects/<id>/`:
-- `results/decomposition.json` — ROI, contribution_pct, adstock_rate канала
-- `results/optimization.json` — miROAS, saturation point, optimal vs current spend
-- `results/model-diagnostics.json` — ratio, smell-flags
-- `project.json` — unit_costs канала
+Данные проекта приложены к сообщению блоком «=== Данные проекта ===» (model-diagnostics, decomposition, optimization, project). Из него бери:
+- decomposition — ROI, contribution_pct, adstock_rate канала
+- optimization — miROAS, saturation point, optimal vs current spend
+- model-diagnostics — ratio, smell-flags
+- project — unit_costs канала (если заданы)
+
+Если нужного файла в блоке нет — скажи прямо, какого шага pipeline не хватает; не выдумывай.
 
 ## Структура ответа
 
