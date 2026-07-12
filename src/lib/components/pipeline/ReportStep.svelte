@@ -781,7 +781,10 @@
   }
 
   function finishAnalysis() {
-    completeStep(5);
+    // Report = индекс 6 в 7-шаговой PIPELINE_STEPS (planning-mode сдвинул отчёт
+    // с 5 на 6). completeStep(5) помечал завершённым Planning, не Report, и
+    // коллизировал с PlanningStep.completeStep(5). Внешний аудит 2026-07-13.
+    completeStep(6);
     triggerCompletion();
   }
 </script>
