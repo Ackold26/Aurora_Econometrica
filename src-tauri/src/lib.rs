@@ -3533,5 +3533,79 @@ mod brief_tests {
         assert_eq!(parse_slide_selection(params), Some(vec![5]));
     }
 }
+
+#[cfg(test)]
+mod resolve_slash_tests {
+    use super::*;
+
+    /// Боевой путь консультационных команд эконометриста: фронт приклеивает блок
+    /// «=== Данные проекта ===» к сообщению, resolve_slash_command должен ДОСТАВИТЬ
+    /// его в промпт через $ARGUMENTS. Эвал-харнес шлёт message мимо send_message,
+    /// поэтому именно этот тест закрывает регрессию доставки данных (Critical
+    /// 2026-07-12: без $ARGUMENTS в шаблоне блок данных молча отбрасывался).
+    #[test]
+    fn resolve_injects_project_data_when_placeholder_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd_dir = dir.path().join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        std::fs::write(
+            cmd_dir.join("interpret-model.md"),
+            "Осмысли модель.\n\n---\n\n$ARGUMENTS",
+        )
+        .unwrap();
+
+        let message = "/interpret-model\n\n=== Данные проекта (приложены приложением) ===\n[model-diagnostics]\n{\"mqs\": 72}";
+        let resolved = resolve_slash_command(message, dir.path());
+
+        assert!(resolved.contains("=== Данные проекта"), "блок данных должен доехать до промпта");
+        assert!(resolved.contains("72"), "числа модели должны попасть в промпт");
+        assert!(resolved.contains("Осмысли модель."), "инструкция шаблона сохранена");
+        assert!(!resolved.contains("$ARGUMENTS"), "плейсхолдер должен быть заменён");
+    }
+
+    /// Контракт-документация: БЕЗ $ARGUMENTS в шаблоне arguments (блок данных)
+    /// теряется — именно так возник Critical. Тест фиксирует причину и защищает
+    /// инвариант ниже (реальные промпты обязаны содержать $ARGUMENTS).
+    #[test]
+    fn resolve_without_placeholder_drops_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd_dir = dir.path().join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        let template = "Инструкция без плейсхолдера.";
+        std::fs::write(cmd_dir.join("legacy-cmd.md"), template).unwrap();
+
+        let message = "/legacy-cmd\n\n=== Данные проекта ===\n{\"x\": 1}";
+        let resolved = resolve_slash_command(message, dir.path());
+
+        assert_eq!(resolved, template, "без $ARGUMENTS хвост сообщения отбрасывается");
+        assert!(!resolved.contains("Данные проекта"), "данные не доехали — это и был баг");
+    }
+
+    /// Регресс-детектор варианта A: каждая консультационная команда эконометриста,
+    /// получающая блок данных проекта (ECON_DATA_COMMANDS во фронте), ОБЯЗАНА иметь
+    /// $ARGUMENTS в своём .md — иначе доставка данных снова молча сломается.
+    #[test]
+    fn econometrist_consult_commands_have_arguments_placeholder() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../New_AI_Agency/econometrist/.claude/commands");
+        let commands = [
+            "interpret-model",
+            "why-channel",
+            "explain-ratio",
+            "pilot-design",
+            "next-quarter-plan",
+            "data-gaps",
+        ];
+        for cmd in commands {
+            let path = base.join(format!("{cmd}.md"));
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("не прочитать {}: {e}", path.display()));
+            assert!(
+                content.contains("$ARGUMENTS"),
+                "команда /{cmd} должна содержать $ARGUMENTS для доставки блока данных проекта",
+            );
+        }
+    }
+}
 // rebuild
 // icon refresh
