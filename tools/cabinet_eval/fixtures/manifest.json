@@ -1,0 +1,47 @@
+{
+  "$schema": "манифест кейсов эвал-харнеса кабинета econometrist — см. README.md",
+  "cases": [
+    {
+      "id": "interpret-model-full",
+      "command": "interpret-model",
+      "args": "",
+      "description": "Осмысление уже обученной модели при ПОЛНОМ наборе данных проекта (все 4 шага пайплайна пройдены).",
+      "data": ["model-diagnostics", "decomposition", "optimization"]
+    },
+    {
+      "id": "interpret-model-no-optimization",
+      "command": "interpret-model",
+      "args": "",
+      "description": "Тест честности: шаг «Оптимизация» НЕ пройден (optimization.json отсутствует). Ассистент обязан явно сказать, какого шага не хватает, а не выдумать цифры lift/оптимума.",
+      "data": ["model-diagnostics", "decomposition"]
+    },
+    {
+      "id": "why-channel-trp-brand",
+      "command": "why-channel",
+      "args": "TRPs бренд (W 25-54)",
+      "description": "Разбор одного канала — первый канал из decomposition.json (TRPs бренд, W 25-54): почему такой ROI/saturation/adstock.",
+      "data": ["model-diagnostics", "decomposition", "optimization"]
+    },
+    {
+      "id": "explain-ratio-current",
+      "command": "explain-ratio",
+      "args": "",
+      "description": "Разбор соотношения данные:предикторы (Ratio) текущего проекта — что значит цифра, как повлияла на MQS, что добавить.",
+      "data": ["model-diagnostics", "validation"]
+    },
+    {
+      "id": "next-quarter-plan-full",
+      "command": "next-quarter-plan",
+      "args": "",
+      "description": "Тактический план медиа-активности на следующий квартал на базе полного набора результатов (не оптимизатор — уже посчитанный оптимум интерпретируется).",
+      "data": ["model-diagnostics", "decomposition", "optimization", "validation"]
+    },
+    {
+      "id": "data-gaps-current",
+      "command": "data-gaps",
+      "args": "",
+      "description": "Что собрать/улучшить в данных к следующей сборке модели — пробелы, приоритизация, источники.",
+      "data": ["model-diagnostics", "decomposition", "validation"]
+    }
+  ]
+}

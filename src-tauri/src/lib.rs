@@ -6,7 +6,7 @@ pub mod metrics;
 pub mod session;
 pub mod sidecar_runtime;
 
-use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, updater, user_config, vault};
+use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, rag_client, updater, user_config, vault};
 use session::manager::SessionManager;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -313,6 +313,56 @@ fn get_full_machine_hash() -> Result<String, String> {
 #[tauri::command]
 fn get_raw_fingerprint() -> Result<String, String> {
     crypto::fingerprint::get_raw_fingerprint_hex().map_err(|e| e.to_string())
+}
+
+/// Tier 2 (Claude-усилитель инсайтов MMM): inline-вопрос об уже посчитанном
+/// результате. Тонкий транспорт — готовый grounding-промпт строит фронт
+/// (`tier2-context.js`, железные правила INV-50), здесь только пересылка через
+/// ЕДИНЫЙ egress-чок-поинт `run_claude` (consent + feature-гейт наследуются;
+/// в локальной редакции 152-ФЗ команда вернёт ошибку «egress отключён»).
+///
+/// Требует открытой сессии кабинета `econometrist` (work_dir с vault) — фронт
+/// открывает его лениво при первом вопросе. Stateless (resume=None): каждый
+/// ответ строится строго на текущих фактах в промпте, без памяти прошлых
+/// вопросов — безопаснее для INV-50.
+#[tauri::command]
+async fn econ_ask_insight(
+    prompt: String,
+    state: tauri::State<'_, Arc<AppState>>,
+    app_handle: tauri::AppHandle,
+) -> Result<String, String> {
+    if prompt.trim().is_empty() {
+        return Err("[ASK-EMPTY] Пустой запрос к ИИ".to_string());
+    }
+    let cabinet_id = "econometrist";
+    let work_dir = state
+        .session_manager
+        .get_work_dir(cabinet_id)
+        .ok_or_else(|| {
+            "[ASK-NO-SESSION] Кабинет эконометриста не открыт — откройте его, чтобы спросить ИИ."
+                .to_string()
+        })?;
+
+    let user_model = app_handle
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|d| user_config::load(&d).model)
+        .unwrap_or(None);
+
+    claude::run_claude(
+        &work_dir,
+        &prompt,
+        app_handle.clone(),
+        cabinet_id.to_string(),
+        None,  // stateless — без --resume
+        state.active_pids.clone(),
+        true,  // suppress_export — inline-вопрос, не сохранять в exports
+        user_model,
+    )
+    .await
+    .map(|(_session_id, response_text)| response_text)
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1942,6 +1992,7 @@ fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::
         "cloud_advisors_enabled": claude::CLOUD_ADVISORS_ENABLED,
         "consent_required": user_config::cloud_consent_required(&config_dir),
         "terms_version": user_config::CLOUD_CONSENT_TERMS_VERSION,
+        "local_only": user_config::local_only_enabled(&config_dir),
     }))
 }
 
@@ -1970,6 +2021,17 @@ fn withdraw_cloud_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let mut config = user_config::load(&config_dir);
     config.cloud_consent = None;
+    user_config::save(&config_dir, &config)
+}
+
+/// Включить/выключить runtime-режим «только локально». Пишет `local_only` в
+/// user_config; egress-гейт `run_claude` (ensure_not_local_only) читает его и
+/// блокирует облачный ИИ, когда включено. Одна сборка, два режима.
+#[tauri::command]
+fn set_local_only(enabled: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    config.local_only = enabled;
     user_config::save(&config_dir, &config)
 }
 
@@ -3158,6 +3220,9 @@ fn build_app() -> Result<(), String> {
             get_full_machine_hash,
             get_raw_fingerprint,
             open_cabinet,
+            econ_ask_insight,
+            rag_client::econ_rag_search,
+            set_local_only,
             close_cabinet,
             send_message,
             list_inbox_files,
@@ -3466,6 +3531,80 @@ mod brief_tests {
     fn parse_slides_single() {
         let params = "Слайды: Конкретные: 5";
         assert_eq!(parse_slide_selection(params), Some(vec![5]));
+    }
+}
+
+#[cfg(test)]
+mod resolve_slash_tests {
+    use super::*;
+
+    /// Боевой путь консультационных команд эконометриста: фронт приклеивает блок
+    /// «=== Данные проекта ===» к сообщению, resolve_slash_command должен ДОСТАВИТЬ
+    /// его в промпт через $ARGUMENTS. Эвал-харнес шлёт message мимо send_message,
+    /// поэтому именно этот тест закрывает регрессию доставки данных (Critical
+    /// 2026-07-12: без $ARGUMENTS в шаблоне блок данных молча отбрасывался).
+    #[test]
+    fn resolve_injects_project_data_when_placeholder_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd_dir = dir.path().join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        std::fs::write(
+            cmd_dir.join("interpret-model.md"),
+            "Осмысли модель.\n\n---\n\n$ARGUMENTS",
+        )
+        .unwrap();
+
+        let message = "/interpret-model\n\n=== Данные проекта (приложены приложением) ===\n[model-diagnostics]\n{\"mqs\": 72}";
+        let resolved = resolve_slash_command(message, dir.path());
+
+        assert!(resolved.contains("=== Данные проекта"), "блок данных должен доехать до промпта");
+        assert!(resolved.contains("72"), "числа модели должны попасть в промпт");
+        assert!(resolved.contains("Осмысли модель."), "инструкция шаблона сохранена");
+        assert!(!resolved.contains("$ARGUMENTS"), "плейсхолдер должен быть заменён");
+    }
+
+    /// Контракт-документация: БЕЗ $ARGUMENTS в шаблоне arguments (блок данных)
+    /// теряется — именно так возник Critical. Тест фиксирует причину и защищает
+    /// инвариант ниже (реальные промпты обязаны содержать $ARGUMENTS).
+    #[test]
+    fn resolve_without_placeholder_drops_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd_dir = dir.path().join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        let template = "Инструкция без плейсхолдера.";
+        std::fs::write(cmd_dir.join("legacy-cmd.md"), template).unwrap();
+
+        let message = "/legacy-cmd\n\n=== Данные проекта ===\n{\"x\": 1}";
+        let resolved = resolve_slash_command(message, dir.path());
+
+        assert_eq!(resolved, template, "без $ARGUMENTS хвост сообщения отбрасывается");
+        assert!(!resolved.contains("Данные проекта"), "данные не доехали — это и был баг");
+    }
+
+    /// Регресс-детектор варианта A: каждая консультационная команда эконометриста,
+    /// получающая блок данных проекта (ECON_DATA_COMMANDS во фронте), ОБЯЗАНА иметь
+    /// $ARGUMENTS в своём .md — иначе доставка данных снова молча сломается.
+    #[test]
+    fn econometrist_consult_commands_have_arguments_placeholder() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../New_AI_Agency/econometrist/.claude/commands");
+        let commands = [
+            "interpret-model",
+            "why-channel",
+            "explain-ratio",
+            "pilot-design",
+            "next-quarter-plan",
+            "data-gaps",
+        ];
+        for cmd in commands {
+            let path = base.join(format!("{cmd}.md"));
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("не прочитать {}: {e}", path.display()));
+            assert!(
+                content.contains("$ARGUMENTS"),
+                "команда /{cmd} должна содержать $ARGUMENTS для доставки блока данных проекта",
+            );
+        }
     }
 }
 // rebuild

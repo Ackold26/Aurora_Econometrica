@@ -4,11 +4,13 @@
 
 ## Источники
 
-Из проекта:
-- `results/validation.json` — `detected`, `ratio`, `high_correlations`, `warnings`
-- `results/model-diagnostics.json` — MQS, smell-flags, thinness_cap
-- `results/decomposition.json` — suspicious_channels, unit_smell
-- `project.json` — media_columns, control_columns, unit_costs, data_file
+Данные проекта приложены к сообщению блоком «=== Данные проекта ===» (model-diagnostics, decomposition, optimization, project). Из него бери:
+- validation — `detected`, `ratio`, `high_correlations`, `warnings`
+- model-diagnostics — MQS, smell-flags, thinness_cap
+- decomposition — suspicious_channels, unit_smell
+- project — имя, тип KPI, unit_costs; media/control-колонки — в validation
+
+Если нужного файла в блоке нет — скажи прямо, какого шага pipeline не хватает; не выдумывай.
 
 ## Структура ответа
 
@@ -43,6 +45,8 @@
 
 - Конкретика, не список best practices. «В вашей модели TV работает вслепую, потому что нет controls на сезон» лучше «добавьте сезонность».
 - Приоритет — по эффекту на модель, не по доступности данных.
-- Если данные уже хорошие (Ratio ≥ 6, все controls есть, unit_costs полные) — честно скажи «данные готовы, следующий шаг — пилот» и отсылай на `/pilot-design`.
+- Если данные уже хорошие (Ratio ≥ 6, все controls есть, unit_costs полные) — честно скажи «данные готовы, следующий шаг — пилот» и предложи запустить в кабинете «План пилота» (командой pilot-design; в клиентском тексте пиши название, не служебную слэш-команду).
 
-В конце: «Все задачи выполнены.»
+---
+
+$ARGUMENTS
