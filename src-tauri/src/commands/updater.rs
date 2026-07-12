@@ -123,8 +123,20 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
         .map_err(|e| coded_err(ErrorCode::UP002, &format!("Failed to create temp dir: {e}")))?;
     let temp_dir_path = temp_dir.keep();
 
-    // Extract filename from URL
-    let filename = url.rsplit('/').next().unwrap_or("update-setup.exe");
+    // Extract filename from URL — sanitize to a bare basename with a strict
+    // whitelist: a manifest-controlled download_url must never place the .exe
+    // outside temp (Windows `\`, drive letters, `..`), because apply_update
+    // runs it elevated and the checksum comes from the same manifest — so it
+    // is no barrier. (Backport of Oracle 891a80f.)
+    let raw = url.rsplit(['/', '\\']).next().unwrap_or("");
+    let filename = if !raw.is_empty()
+        && raw.ends_with(".exe")
+        && raw.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    {
+        raw
+    } else {
+        "update-setup.exe"
+    };
     let dest_path = temp_dir_path.join(filename);
 
     let mut file = tokio::fs::File::create(&dest_path).await?;
