@@ -27,7 +27,7 @@ import { getDisplay } from './kpi/kpi-display.js';
  * @property {string} [derivedMode] - 'roi' | 'effectiveness' | 'manual'
  * @property {number|null} [valuePerCountUnit] - ₽ per count unit (для count KPI)
  * @property {string} [valuePerCountUnitLabel]
- * @property {string} [kpiType] - паспортный тип KPI ('leads', 'sales_packs', 'sales', ...)
+ * @property {string|null} [kpiType] - паспортный тип KPI ('leads', 'sales_packs', 'sales', ...)
  * @property {Object} [labels] - { metricLabel, metricShortLabel, targetUnitLabel, targetAxisLabel }
  */
 
@@ -129,7 +129,9 @@ export function kpiView(input) {
   const kpiType = src.kpiType || null;
   // Merge order: defaults < derived (from kind+mode+kpiType) < explicit labels.
   const derived = deriveLabels(kpiKind, mode, kpiType);
-  const labels = { ...DEFAULT_LABELS, cpuPerLabel: '₽/ед.', ...derived, ...(src.labels || {}) };
+  // cpuPerLabel идёт из derived (deriveLabels задаёт его во всех ветках) —
+  // не дублируем явно, иначе значение перезаписывается (svelte-check).
+  const labels = { ...DEFAULT_LABELS, ...derived, ...(src.labels || {}) };
   return {
     kpiKind,
     mode,
