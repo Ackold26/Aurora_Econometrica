@@ -99,8 +99,8 @@ export const PROGRAM_OVERVIEW = [
 
 /**
  * Релевантные термины глоссария по шагу пайплайна (индексы совпадают со STEP в
- * tier2-context.js: 0 import, 1 validate, 2 model, 3 decompose, 4 optimize,
- * 5 report). Идентификаторы — ключи GLOSSARY.
+ * tier2-context.js / PIPELINE_STEPS: 0 import, 1 validate, 2 model, 3 decompose,
+ * 4 optimize, 5 planning, 6 report). Идентификаторы — ключи GLOSSARY.
  * @type {Record<number, string[]>}
  */
 export const STEP_TERMS = {
@@ -109,7 +109,8 @@ export const STEP_TERMS = {
   2: ['mcmc', 'r_hat', 'ess', 'bayesian', 'prior', 'posterior', 'nrmse', 'r_squared', 'mape', 'adstock', 'hill_saturation'],
   3: ['decomposition', 'base_sales', 'incremental', 'roi', 'roas', 'cpu', 'channel_attribution', 'sales_share'],
   4: ['mroi', 'hill_saturation', 'response_curve', 'plateau', 'diminishing_returns', 'media_mix', 'safe_corridor', 'goal_seek'],
-  5: ['decomposition', 'mroi', 'media_mix', 'scenario_whatif', 'r_squared'],
+  5: ['media_mix', 'mroi', 'scenario_whatif', 'safe_corridor', 'decomposition'],
+  6: ['decomposition', 'mroi', 'media_mix', 'scenario_whatif', 'r_squared'],
 };
 
 /** Максимум терминов в одном контексте (бюджет промпта). */

@@ -43,7 +43,7 @@
   import { isEconometrica } from '$lib/creative-store.js';
   import { cloudConsent } from '$lib/store.js';
   import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES, STEP } from '$lib/tier2-context.js';
-  import { buildRagQuery } from '$lib/rag-query.js';
+  import { buildRagQuery, detectChannelType } from '$lib/rag-query.js';
   import { findUngroundedNumbers } from '$lib/insights-grounding.js';
   import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario, findCollinearPairs, collinearityCaveat } from '$lib/scenario-advisor.js';
 
@@ -380,7 +380,11 @@
     /** @type {import('$lib/tier2-context.js').MethodologyHit[] | null} */
     let methodology = null;
     try {
-      const ragQuery = buildRagQuery({ question: askQuestion, step: $pipelineCurrentStep });
+      const ragQuery = buildRagQuery({
+        question: askQuestion,
+        step: $pipelineCurrentStep,
+        focusChannelType: detectChannelType(askQuestion),
+      });
       const r = /** @type {any} */ (await invoke('econ_rag_search', { query: ragQuery, k: 4 }));
       methodology = r?.hits?.length ? r.hits : null;
     } catch {

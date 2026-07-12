@@ -5,7 +5,7 @@
  * промпта. Интеграционный тест смыкается с buildTier2Prompt.
  */
 import { describe, it, expect } from 'vitest';
-import { buildRagQuery, humanizeSource } from '../rag-query.js';
+import { buildRagQuery, humanizeSource, detectChannelType } from '../rag-query.js';
 import { buildTier2Context, buildTier2Prompt, STEP } from '../tier2-context.js';
 
 describe('buildRagQuery — тематизация по шагу', () => {
@@ -35,16 +35,23 @@ describe('buildRagQuery — тематизация по шагу', () => {
     expect(q).toMatch(/confounder/i);
   });
 
-  it('шаг вне карты (IMPORT/REPORT/неизвестный) — fallback-термины без падения', () => {
+  it('шаг вне карты (IMPORT/неизвестный) — fallback-термины без падения', () => {
     const qImport = buildRagQuery({ question: 'Что это за файл?', step: STEP.IMPORT });
     expect(qImport).toContain('Что это за файл?');
     expect(qImport).toMatch(/marketing mix modeling|эконометрика/i);
 
-    const qReport = buildRagQuery({ question: 'Итог?', step: STEP.REPORT });
-    expect(qReport).toMatch(/MMM/);
-
     const qNoStep = buildRagQuery({ question: 'Вопрос без шага' });
     expect(qNoStep).toContain('Вопрос без шага');
+    expect(qNoStep).toMatch(/marketing mix modeling|эконометрика/i);
+  });
+
+  it('planning (5) и report (6) тематизируются, а не тонут в fallback (7-шкала, аудит 2026-07-12)', () => {
+    // Регресс: planning-mode сдвинул report 5→6 и вставил planning=5; STEP_TERMS
+    // индексировался по старой 5-шкале → на этих шагах тематизация отваливалась.
+    const qPlanning = buildRagQuery({ question: 'Как распределить бюджет?', step: STEP.PLANNING });
+    expect(qPlanning).toMatch(/планирование|media planning|медиаплан/i);
+    const qReport = buildRagQuery({ question: 'Итог?', step: STEP.REPORT });
+    expect(qReport).toMatch(/MMM/);
   });
 
   it('пустой вопрос — не падает, возвращает термины шага', () => {
@@ -99,6 +106,20 @@ describe('humanizeSource — атрибуция по имени файла', () 
     expect(() => humanizeSource('')).not.toThrow();
     expect(humanizeSource(/** @type {any} */ (undefined))).toBe('');
   });
+
+  // Края формата, найденные внешним аудитом 2026-07-12 — ложная/потерянная атрибуция.
+  it('ГОД_Автор_Название (год в начале) — фамилия не тонет в названии', () => {
+    expect(humanizeSource('2017_Jin_Bayesian_Media_Mix')).toBe('Jin, «Bayesian Media Mix»');
+  });
+
+  it('нормативный ГОСТ/ФЗ (ALL-CAPS токен) — не выдумывает ложного автора', () => {
+    expect(humanizeSource('ГОСТ_Реклама_2006_Требования')).toBe('ГОСТ Реклама 2006 Требования');
+  });
+
+  it('псевдогод из середины большего числа не раскалывает имя', () => {
+    // 2019 внутри 2019456 — не отдельный год; имя без ложной атрибуции.
+    expect(humanizeSource('Report_2019456_data')).toBe('Report 2019456 data');
+  });
 });
 
 describe('buildTier2Prompt — атрибуция в промпте, не сырое имя файла', () => {
@@ -130,5 +151,28 @@ describe('buildRagQuery — длинный вопрос не вытесняет 
     expect(out).toContain('marginal ROI');
     expect(out).toContain('насыщение');
     expect(out).toContain('diminishing returns');
+  });
+});
+
+describe('detectChannelType — тип фокус-канала из вопроса (оживление focusChannelType, аудит 2026-07-12)', () => {
+  it('охватные маркеры → reach', () => {
+    expect(detectChannelType('Почему у ТВ такой ROI?')).toBe('reach');
+    expect(detectChannelType('охватный канал перекормлен?')).toBe('reach');
+    expect(detectChannelType('что с брендовыми каналами')).toBe('reach');
+  });
+
+  it('performance-маркеры → performance', () => {
+    expect(detectChannelType('Директ снизить?')).toBe('performance');
+    expect(detectChannelType('перформанс канал эффективность')).toBe('performance');
+  });
+
+  it('неоднозначное / пустое → undefined (доп-терминов не добавляем)', () => {
+    expect(detectChannelType('Как дела с моделью?')).toBeUndefined();
+    expect(detectChannelType('')).toBeUndefined();
+    expect(detectChannelType(/** @type {any} */ (undefined))).toBeUndefined();
+  });
+
+  it('«ответ» не ловится как «тв» (границы по словам, не подстрока)', () => {
+    expect(detectChannelType('дай ответ по модели')).toBeUndefined();
   });
 });

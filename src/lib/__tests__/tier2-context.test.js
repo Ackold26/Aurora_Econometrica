@@ -248,6 +248,15 @@ describe('служебная телеметрия оптимизатора не 
     expect(bad.map((b) => b.raw)).toContain('137');
   });
 
+  it('planning (5) даёт сводку фактов, а не default-валидацию (7-шкала, аудит 2026-07-12)', () => {
+    // Регресс: planning-mode вставил planning=5 и сдвинул report 5→6; до
+    // согласования шкал buildTier2Context на report(6) уходил в default (отдавал
+    // валидацию вместо сводки). Теперь planning=5 явно = сводка model+decompose+optimize.
+    const ctx = buildTier2Context({ step: STEP.PLANNING, dec: decomposition, tier1Insights: [] });
+    expect(ctx.facts).toHaveProperty('decompose');
+    expect(ctx.facts).not.toHaveProperty('validation');
+  });
+
   it('честные числа из фактов оптимизации остаются grounded', () => {
     const ctx = buildTier2Context({ step: STEP.OPTIMIZE, opt: optWithTelemetry });
     expect(findUngroundedNumbers('Ожидаемый прирост 5.7%, снижение ТВ на 10.5%.', ctx.grounding)).toEqual([]);

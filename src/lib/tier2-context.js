@@ -25,7 +25,8 @@ export const STEP = /** @type {const} */ ({
   MODEL: 2,
   DECOMPOSE: 3,
   OPTIMIZE: 4,
-  REPORT: 5,
+  PLANNING: 5,
+  REPORT: 6,
 });
 
 /** Безопасно округлить до n знаков (null/НЕ-число → пропустить). @param {any} x @param {number} n */
@@ -204,6 +205,9 @@ export function buildTier2Context(input) {
       fullFacts = stripOptTelemetry(opt);
       honesty = extractHonesty(opt);
       break;
+    case STEP.PLANNING:
+    // Планирование квартала опирается на весь результат (модель + декомпозиция +
+    // оптимизация) — та же сводка фактов, что и на отчёте.
     case STEP.REPORT:
       facts = compact({
         model: summarizeModel(mod),

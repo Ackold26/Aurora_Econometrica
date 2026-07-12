@@ -22,7 +22,9 @@
 const QUERY_LIMIT = 400;
 
 /**
- * Домен-термины по шагу пайплайна (STEP из tier2-context.js), двуязычно.
+ * Домен-термины по шагу пайплайна, двуязычно. Индексы = 7-шаговая шкала
+ * PIPELINE_STEPS (project-state.js) / STEP (tier2-context.js): 0 import,
+ * 1 validate, 2 model, 3 decompose, 4 optimize, 5 planning, 6 report.
  * @type {Record<number, string>}
  */
 const STEP_TERMS = {
@@ -30,7 +32,8 @@ const STEP_TERMS = {
   2: 'байесовская диагностика Bayesian diagnostics convergence сходимость R-hat prior predictive check приорные распределения MCMC', // MODEL
   3: 'вклад канала adstock перенос carryover эффект saturation насыщение response curve кривая отклика decomposition декомпозиция attribution', // DECOMPOSE
   4: 'оптимизация бюджета budget allocation маржинальная отдача marginal ROI mROI saturation насыщение diminishing returns убывающая отдача', // OPTIMIZE
-  5: 'marketing mix modeling MMM интерпретация результатов декомпозиция оптимизация', // REPORT
+  5: 'планирование медиабюджета media planning квартальный медиаплан бюджетный сплит budget allocation flighting график размещения sequencing', // PLANNING
+  6: 'marketing mix modeling MMM интерпретация результатов декомпозиция оптимизация', // REPORT
 };
 
 /** Термины по умолчанию — шаг вне карты (например IMPORT=0) или не задан. */
@@ -44,6 +47,28 @@ const CHANNEL_TYPE_TERMS = {
   reach: 'охватный брендовый канал brand reach ТВ',
   performance: 'performance канал прямой отклик',
 };
+
+/** Основы слов-маркеров типа канала в тексте вопроса (startsWith по словам). */
+const REACH_STEMS = ['охват', 'бренд', 'тв', 'телевид', 'наруж', 'ooh', 'радио', 'awareness'];
+const PERF_STEMS = ['перформанс', 'performance', 'директ', 'контекст', 'ретаргет', 'поиск', 'seo', 'сео'];
+
+/**
+ * Грубо определить тип фокус-канала из текста вопроса, чтобы уточнить RAG-запрос
+ * (why-channel: «почему у ТВ такой ROI» → охватный канон; «директ дорогой» →
+ * performance-канон). Матч по основам слов (кириллический \b ненадёжен). Только
+ * явные маркеры; неоднозначное → undefined (доп-терминов не добавляем, тематизация
+ * по шагу остаётся). Это ДОБАВКА к запросу, не критичный тракт — цена ошибки мала.
+ * @param {string} [question]
+ * @returns {'reach'|'performance'|undefined}
+ */
+export function detectChannelType(question) {
+  const words = String(question || '').toLowerCase().match(/[а-яёa-z]+/g) || [];
+  const hit = (/** @type {string[]} */ stems) =>
+    words.some((w) => stems.some((s) => w.startsWith(s)));
+  if (hit(REACH_STEMS)) return 'reach';
+  if (hit(PERF_STEMS)) return 'performance';
+  return undefined;
+}
 
 /**
  * Собрать тематизированный запрос к econ_rag_search: вопрос пользователя +
@@ -88,7 +113,10 @@ export function buildRagQuery({ question, step, focusChannelType } = {}) {
  * @param {string} s
  */
 function findYear(s) {
-  const m = s.match(/(19|20)\d{2}/);
+  // Границы по цифрам (?<!\d)…(?!\d): год — отдельное 4-значное число, а не
+  // фрагмент большего (напр. «2019456» НЕ даёт псевдогод 2019). «_» не цифра,
+  // поэтому «Jin_2017_…» по-прежнему матчится.
+  const m = s.match(/(?<!\d)(19|20)\d{2}(?!\d)/);
   return m ? m[0] : null;
 }
 
@@ -137,7 +165,26 @@ export function humanizeSource(fileName) {
       const idx = noExt.indexOf(year);
       const beforeYear = noExt.slice(0, idx).replace(/[_\s]+$/, '');
       const afterYear = noExt.slice(idx + year.length).replace(/^[_\s]+/, '');
+
+      // Формат «ГОД_Автор_Название» (год в начале, до него пусто): авторы идут
+      // ПОСЛЕ года. Берём ведущую фамилию автором, остальное — название. Частичная,
+      // но не ложная атрибуция (типичный подслучай — один автор), лучше потери имени.
+      if (!beforeYear && afterYear) {
+        const at = afterYear.split(/_+/).filter(Boolean);
+        if (at.length >= 2 && /^[A-ZА-ЯЁ][a-zа-яё]+$/.test(at[0])) {
+          return `${at[0]}, «${at.slice(1).join(' ')}»`;
+        }
+      }
+
       const tokens = beforeYear.split(/_+/).filter(Boolean);
+      // Нормативный/аббревиатурный документ (ГОСТ, ФЗ, СНиП, ТР ТС): ALL-CAPS
+      // токен в позиции автора — не персона. surname-эвристику не применяем,
+      // отдаём имя целиком, чтобы «Реклама» и т.п. не стали ложным автором.
+      const hasAbbrev = tokens.some((t) => /^[A-ZА-ЯЁ]{2,}$/.test(t));
+      if (hasAbbrev) {
+        return noExt.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+
       const surnames = tokens.filter((t) => /^[A-ZА-ЯЁ][a-zа-яё]+$/.test(t));
       const authors = surnames.length >= 2
         ? surnames.join(' & ')
