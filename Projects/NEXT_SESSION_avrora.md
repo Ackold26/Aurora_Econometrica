@@ -26,19 +26,23 @@ vitest 1142 · svelte-check 0 · cargo обе редакции ok.
   (коммит `fecdb84` в kpi-units). SSOT-страж `tools/check_cabinet_drift.py` +
   эвал-харнес `tools/cabinet_eval` (6 кейсов, автогрейдеры реюз insights-grounding).
 
-## 🔴 ПЕРВЫМ ПУНКТОМ: перезапустить внешний аудит (отложен)
+## ✅ ПЕРВЫЙ ПУНКТ ВЫПОЛНЕН: внешний аудит проведён + все находки починены (2026-07-12)
 
-Wrap-up 2026-07-12: внешний Opus-аудитор по diff `1f76a14..HEAD` (кабинет S1-S4 +
-петля) **дважды завис в idle без вывода** — по правилу wrap-up внешний аудит НЕ
-выполнен, вердикт «готов к merge» НЕ выдан. Тёплый самоаудит автора прошёл 5 зон
-неуверенности, нашёл и починил 1 Medium (`21eecf5`: buildRagQuery вытеснял термины
-при длинном вопросе). Но самоаудит ≠ чистый контекст.
-- **Действие:** свежий Opus-аудитор в чистом контексте на `Projects/audit.diff`
-  (или пересобрать: `git diff 1f76a14..HEAD -- 'src/**' 'src-tauri/**' 'tools/**/*.mjs' 'tools/**/*.py'`)
-  + `Projects/handoff.md` + `CLAUDE.md`. Промпт `~/.claude/skills/wrap-up/prompts/audit/auditor.md`.
-- Если аудитор снова зависает — попробовать НЕ через Agent-name (обычный сабагент
-  без имени) или дробление diff по модулям; либо синхронный прогон.
-- ДО чистого аудита блок НЕ мержить.
+Внешний аудит запущен обычным сабагентом БЕЗ имени (Agent-name дважды зависал →
+не биться дважды вслепую) на пересобранном `Projects/audit.diff` (актуальный HEAD,
+без фикстур). Выдал 5 находок — **все 5 верифицированы лично как реальные** (детали
+`Projects/audit_verification_2026-07-12.md`, durable аудитора `audit_findings_live.md`):
+- **Critical** — данные проекта не доезжали до команд кабинета ($ARGUMENTS отсутствовал).
+- **High** — stripDecompTelemetry не дорезал signed_factor_contributions (~496 чисел).
+- **Medium-1** — рассинхрон шкал шагов STEP(5) vs PIPELINE_STEPS(7), корневой (3 таблицы).
+- **Medium-2** — humanizeSource искажал атрибуцию на краях.
+- **Low** — focusChannelType мёртвый код.
+
+**Починены все 5** (решение Антона: Critical=A `$ARGUMENTS`, Medium-1=корневой),
+каждая с регресс-тестом. Гейты: **cargo 188 · vitest 1152 · svelte-check 0**.
+Коммиты `d6a4b1a` / `68ccf5d` / `29540e7`, теги `v-avrora-audit-{critical-data-delivery,
+high-decomp-telemetry,medium-low}`. **ЛОКАЛЬНО, НЕ запушено** — push/мерж = гейт Антона.
+Follow-up (портирование Critical в Hub-копии, content-pack для прод) — в audit_verification §Follow-up.
 
 ## ОСТАЛОСЬ (три хвоста, перенесены Антоном на новую сессию)
 
