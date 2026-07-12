@@ -29,3 +29,12 @@ pre-commit:
       run: |
         python tools/sync_help_lists.py
         git add src-tauri/help-econometrica/
+
+    cabinet-drift-guard:
+      # Аудит 2026-07: кабинет econometrist копировался руками в 11 репо/
+      # worktree без единого механизма синка — правки в SSOT молча не долетали
+      # до остальных. SSOT-пара (repo/worktree) должна совпадать после мержа
+      # веток; --strict-pair явно требует этого на коммите. Hub-копии со своей
+      # легитимной SCOPE-редакцией — вне этой проверки (см. tools/check_cabinet_drift.py).
+      glob: "New_AI_Agency/econometrist/**"
+      run: python tools/check_cabinet_drift.py --strict-pair
