@@ -62,9 +62,21 @@ export function buildRagQuery({ question, step, focusChannelType } = {}) {
   const full = pieces.join(' ');
   if (full.length <= QUERY_LIMIT) return full;
 
-  const cut = full.slice(0, QUERY_LIMIT);
-  const lastSpace = cut.lastIndexOf(' ');
-  return lastSpace > 0 ? cut.slice(0, lastSpace) : cut;
+  // Обрезать ВОПРОС, а не термины: домен-термины — главная ценность запроса
+  // (ради них петля и делалась), их вытеснение длинным вопросом тихо ломает
+  // тематизацию. Гарантируем термины целиком, вопросу отдаём остаток лимита.
+  const tail = [terms, channelTerms].filter(Boolean).join(' ');
+  if (tail.length >= QUERY_LIMIT || !q) {
+    // Термины сами длиннее лимита (край) — обрежем их по слову, вопрос опустим.
+    const cut = tail.slice(0, QUERY_LIMIT);
+    const sp = cut.lastIndexOf(' ');
+    return sp > 0 ? cut.slice(0, sp) : cut;
+  }
+  const budget = QUERY_LIMIT - tail.length - 1; // −1 на разделитель
+  const qCut = q.slice(0, budget);
+  const qSp = qCut.lastIndexOf(' ');
+  const qTrimmed = qSp > 0 ? qCut.slice(0, qSp) : qCut;
+  return `${qTrimmed} ${tail}`.trim();
 }
 
 /**

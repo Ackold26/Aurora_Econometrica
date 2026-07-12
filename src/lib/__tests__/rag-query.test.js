@@ -119,3 +119,15 @@ describe('buildTier2Prompt — атрибуция в промпте, не сыр
     expect(prompt).not.toContain('Jin_2017_Bayesian');
   });
 });
+
+describe('buildRagQuery — длинный вопрос не вытесняет термины (самоаудит 2026-07-12)', () => {
+  it('при вопросе >400 символов домен-термины шага сохраняются целиком', () => {
+    const longQ = 'почему '.repeat(80).trim(); // ~560 символов
+    const out = buildRagQuery({ question: longQ, step: 4 });
+    expect(out.length).toBeLessThanOrEqual(400);
+    // Ключевые двуязычные термины OPTIMIZE должны присутствовать несмотря на длинный вопрос.
+    expect(out).toContain('marginal ROI');
+    expect(out).toContain('насыщение');
+    expect(out).toContain('diminishing returns');
+  });
+});
