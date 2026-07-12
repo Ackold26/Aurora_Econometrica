@@ -91,18 +91,26 @@ describe('buildProjectDataBlock - служебная телеметрия optimi
   });
 });
 
-describe('buildProjectDataBlock - decomposition не режется', () => {
+describe('buildProjectDataBlock - decomposition: агрегаты сохранены, графика вырезана', () => {
   const block = buildProjectDataBlock({ mod: null, dec: decomposition, opt: null, projectMeta: null });
 
-  it('числа декомпозиции присутствуют в блоке (величиной)', () => {
+  it('содержательные агрегаты присутствуют в блоке (величиной)', () => {
     // Та же фикстура, что tier2-context.test.js: baseline_pct=80.6, канал «Статьи» roi=77.49.
     expect(block).toContain('80.6');
     expect(block).toContain('77.49');
     expect(block).toContain('Статьи');
   });
 
-  it('decomposition приложен без урезки полей (raw JSON фикстуры)', () => {
-    expect(block).toContain(JSON.stringify(decomposition));
+  it('графические серии time_series/waterfall вырезаны (dry-probe 2026-07-12)', () => {
+    // Динамика по неделям и waterfall-диаграмма — данные для рендера графиков
+    // движком, не для текстовой интерпретации; раздували промпт и страж чисел.
+    expect(block).not.toContain('time_series');
+    expect(block).not.toContain('waterfall');
+  });
+
+  it('channels-агрегаты (ROI/вклад по каналам) не задеты вырезкой', () => {
+    expect(block).toContain('contribution_pct');
+    expect(block).toContain('roi');
   });
 });
 
@@ -128,5 +136,24 @@ describe('validation-секция (сверка контракта S1<->S2, 2026
     const block = buildProjectDataBlock({});
     expect(block).toContain('[validation]');
     expect(block).toContain('нет – шаг «Валидация» не пройден');
+  });
+});
+
+describe('вырезка поточечной телеметрии модели (dry-probe 2026-07-12)', () => {
+  const heavy = { engine: 'ols', metrics: { r_squared: 0.951, mape: 2.41 },
+    ols_quality: { leverage: Array(48).fill(0.2), cooks_distance: Array(48).fill(0.01) },
+    actual_vs_predicted: { actual: Array(48).fill(1e6), predicted: Array(48).fill(1e6), residual: Array(48).fill(5e5) } };
+  it('плоский model-diagnostics: массивы вырезаны, метрики остались', () => {
+    const block = buildProjectDataBlock({ mod: heavy });
+    expect(block).toContain('0.951');
+    expect(block).not.toContain('ols_quality');
+    expect(block).not.toContain('actual_vs_predicted');
+    expect(block).not.toContain('cooks_distance');
+  });
+  it('обёртка стора {diagnostics}: массивы вырезаны, metrics остались', () => {
+    const block = buildProjectDataBlock({ mod: { diagnostics: heavy, channelParams: { TV: {} } } });
+    expect(block).toContain('0.951');
+    expect(block).not.toContain('leverage');
+    expect(block).toContain('channelParams');
   });
 });

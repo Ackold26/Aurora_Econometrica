@@ -36,6 +36,50 @@ function stripOptTelemetry(opt) {
 }
 
 /**
+ * Убрать из диагностики модели тяжёлую ПОТОЧЕЧНУЮ телеметрию (по наблюдению):
+ * ols_quality (leverage/cooks_distance/vif по числу точек) и actual_vs_predicted
+ * (actual/predicted/residual). Это ~200 служебных чисел для графиков движка, не
+ * для текстовой интерпретации: они раздувают промпт (наблюдение live-dry:
+ * сообщение 25К символов) и засоряют страж чисел ложными grounded-совпадениями
+ * (тот же класс, что stripOptTelemetry). Метрики MQS/R²/MAPE/R-hat/ratio остаются.
+ * Работает на обе формы: плоский model-diagnostics И обёртку стора {diagnostics}.
+ * @param {any} mod
+ * @returns {any}
+ */
+function stripModelTelemetry(mod) {
+  if (!mod || typeof mod !== 'object') return mod ?? null;
+  const HEAVY = ['ols_quality', 'actual_vs_predicted'];
+  const drop = (/** @type {any} */ o) => {
+    if (!o || typeof o !== 'object') return o;
+    const clean = { ...o };
+    for (const k of HEAVY) delete clean[k];
+    return clean;
+  };
+  // Обёртка стора {diagnostics, channelParams, …} — чистим внутри diagnostics.
+  if (mod.diagnostics && typeof mod.diagnostics === 'object') {
+    return { ...mod, diagnostics: drop(mod.diagnostics) };
+  }
+  // Плоский model-diagnostics (фикстуры/харнес) — чистим верхний уровень.
+  return drop(mod);
+}
+
+/**
+ * Убрать из декомпозиции тяжёлые ГРАФИЧЕСКИЕ серии: time_series (динамика по
+ * неделям × каналы) и waterfall (labels/values/types для диаграммы). Это данные
+ * для рендера графиков движком; агрегаты каналов (roi, contribution_pct, spend)
+ * и итоги (baseline_pct, total_sales) — на верхнем уровне и в channels[],
+ * остаются. Основание — dry-probe 2026-07-12: серии раздували промпт до 25К и
+ * добавляли ~250 служебных чисел в страж. Симметрично stripOptTelemetry.
+ * @param {any} dec
+ * @returns {any}
+ */
+function stripDecompTelemetry(dec) {
+  if (!dec || typeof dec !== 'object') return dec ?? null;
+  const { time_series, waterfall, ...rest } = dec;
+  return rest;
+}
+
+/**
  * Отрендерить один артефакт секции: JSON компактно или «нет – шаг … не пройден».
  * @param {any} data
  * @param {string} stepLabel - название шага для сообщения об отсутствии (например «Модель»)
@@ -93,9 +137,9 @@ export function buildProjectDataBlock({ mod, dec, opt, val, projectMeta } = {}) 
     '',
     '=== Данные проекта (приложены приложением) ===',
     '[model-diagnostics]',
-    renderArtifact(mod, 'Модель'),
+    renderArtifact(mod ? stripModelTelemetry(mod) : mod, 'Модель'),
     '[decomposition]',
-    renderArtifact(dec, 'Декомпозиция'),
+    renderArtifact(dec ? stripDecompTelemetry(dec) : dec, 'Декомпозиция'),
     '[optimization]',
     renderArtifact(opt ? stripOptTelemetry(opt) : opt, 'Оптимизация'),
     '[validation]',
