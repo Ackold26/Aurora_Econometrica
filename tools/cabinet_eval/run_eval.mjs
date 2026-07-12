@@ -42,7 +42,9 @@ const RESULTS_DIR = path.join(__dirname, 'results');
 // подхватываемые Claude Code как системный промпт и slash-команды.
 const CABINET_CWD = path.resolve(__dirname, '../../New_AI_Agency/econometrist');
 
-const CLI_TIMEOUT_MS = 180_000;
+// 300с: тяжёлые кейсы с полным набором данных (next-quarter-plan-full) и
+// sonnet-латентность не укладывались в 180с (timeout-FAIL при рабочем ответе).
+const CLI_TIMEOUT_MS = 300_000;
 
 /**
  * Кейсы, для которых сверх DEFAULT_GRADERS навешивается точечный грейдер

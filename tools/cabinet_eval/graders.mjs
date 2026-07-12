@@ -30,15 +30,48 @@ import { collectGroundedNumbers, findUngroundedNumbers } from '../../src/lib/ins
  * @param {{ caseId: string, facts: unknown }} ctx
  * @returns {{ name: string, pass: boolean, details: string }}
  */
+/**
+ * Средний путь INV-50 (решение Антона 2026-07-12): производное число (сумма
+ * долей, отношение, пересчёт «≈N точек») допустимо, ЕСЛИ помечено как расчёт/
+ * оценка; методология-порог из промпта (cap MQS, зоны Ratio, покрытие CI) — не
+ * выдумка о проекте. Непомеченное негрунд-число — по-прежнему нарушение.
+ * Проверяем контекст ±45 симв вокруг каждого вхождения числа как отдельного
+ * (не подстрока большего). Обёртка НАД прод-стражем findUngroundedNumbers —
+ * сам страж не трогаем.
+ */
+const JUSTIFY_MARKERS =
+  /(≈|~|примерно|порядка|оценк|расчёт|расчет|прикид|×|\bв\s+[\d.,]+\s*раз|раза?\b|вместе|суммарно|итого|потолок|порог|\bcap\b|покрыти|на\s+уровне|зона|минимум)/i;
+
+/**
+ * @param {string} answerText
+ * @param {string} raw — строковое представление числа (напр. «208», «6.9»)
+ * @returns {boolean} есть ли рядом маркер расчёта/оценки/методологии
+ */
+function isJustifiedNumber(answerText, raw) {
+  const esc = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Границы: число не должно быть частью БОЛЬШЕГО числа (70 в «70.5»/«1,700»),
+  // но пунктуация-запятая после числа («70, диапазоны») — легитимна. Поэтому
+  // отсекаем только цифру-продолжение или «.,»+цифра, а не любую «.,».
+  const re = new RegExp(`(?<![\\d]|\\d[.,])${esc}(?![\\d]|[.,]\\d)`, 'g');
+  let m;
+  while ((m = re.exec(answerText)) !== null) {
+    const s = Math.max(0, m.index - 45);
+    const e = Math.min(answerText.length, m.index + raw.length + 45);
+    if (JUSTIFY_MARKERS.test(answerText.slice(s, e))) return true;
+  }
+  return false;
+}
+
 export function numbersGrounded(answerText, ctx) {
-  const bad = findUngroundedNumbers(answerText, { jsonFacts: ctx.facts }, { ignoreBelow: 10 });
+  const rawBad = findUngroundedNumbers(answerText, { jsonFacts: ctx.facts }, { ignoreBelow: 10 });
+  const bad = rawBad.filter((b) => !isJustifiedNumber(answerText, b.raw));
   return {
     name: 'numbers_grounded',
     pass: bad.length === 0,
     details:
       bad.length === 0
-        ? 'Все числа ответа найдены в приложенных данных проекта.'
-        : `Негрунд-числа (не найдены в фактах, INV-50): ${bad.map((b) => b.raw).join(', ')}`,
+        ? 'Числа ответа найдены в данных, либо помечены как расчёт/оценка/методология (средний путь INV-50).'
+        : `Негрунд-числа без пометки расчёта (INV-50): ${bad.map((b) => b.raw).join(', ')}`,
   };
 }
 
@@ -111,21 +144,31 @@ export function russianLanguage(answerText) {
  * @returns {{ name: string, pass: boolean, details: string }}
  */
 export function structureTakeaway(answerText) {
-  const paragraphs = answerText
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0)
-    .slice(0, 2);
+  // Ищем вывод в первых ~12 непустых строках (а не первых 2 абзацах): ответ
+  // нередко открывается 2-3 markdown-заголовками («## Разбор» / «### 1. Вердикт»),
+  // а сам вывод-строка идёт следом — узкое окно давало ложный FAIL.
+  // Заголовок-пустышка (# или bold-only строка) — не вывод; но СОДЕРЖАТЕЛЬНЫЙ
+  // буллет/пункт карточки («- Доля бюджета: ≈0% … ROI: 12186×») — вывод: многие
+  // консультационные ответы структурированы карточкой, а не прозой.
+  const lines = answerText.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 12);
+  const isHeadingLike = (l) => /^(#{1,6}\s|\*\*[^*]+\*\*\s*:?\s*$)/.test(l);
+  const contentLen = (l) => l.replace(/^[-*•]\s*|\d+[.)]\s*/, '').trim().length;
+  const takeawayLine = lines.find((l) => !isHeadingLike(l) && contentLen(l) > 0) || '';
+  // Потолок 400: насыщенный вывод-буллет («Строк: 48 · Каналов: 5 · Ratio: 5.3…»)
+  // легитимен; «стена текста» из нескольких предложений — уже не takeaway.
+  const takeawayUpfront = contentLen(takeawayLine) > 0 && takeawayLine.length < 400;
 
-  const first = paragraphs[0] || '';
-  const firstLine = first.split('\n')[0].trim();
-  const isHeadingOrList = /^(#{1,6}\s|[-*•]\s|\d+[.)]\s)/.test(firstLine);
-  const takeawayUpfront = firstLine.length > 0 && firstLine.length < 250 && !isHeadingOrList;
-
-  const hasActionBlock = /(Что сделать|Что улучшить|Что собрать|Рекомендаци|Действи|Следующий шаг|Приоритет|Стоит|Совет)/i.test(answerText);
+  // Блок действия/рекомендации — распознаём формулировки всех 6 консультационных
+  // промптов («Что с этим делать», «Что можно улучшить», «Что добавить чтобы
+  // улучшить», «Чего НЕ надо делать», «Рекомендация», «Красные флаги» и т.п.),
+  // а не узкий фиксированный список (иначе ложный FAIL при живой формулировке).
+  const hasActionBlock =
+    /(что\s+(с\s+этим\s+|можно\s+|ещё\s+)?(делать|сделать|улучшить|добавить|собрать|предпринять|изменить)|чего\s+не\s+(делать|надо)|рекомендаци|действи|следующий\s+шаг|приоритет|совет|красные\s+флаги|когда\s+(же\s+)?не\s+запускать)/i.test(
+      answerText,
+    );
 
   const pass = takeawayUpfront && hasActionBlock;
-  const details = `Вывод в начале (первая строка ${firstLine.length} симв., не заголовок/список): ${takeawayUpfront}; блок действия найден: ${hasActionBlock}.`;
+  const details = `Вывод-строка (${takeawayLine.length} симв., не заголовок/список): ${takeawayUpfront}; блок действия найден: ${hasActionBlock}.`;
   return { name: 'structure_takeaway', pass, details };
 }
 

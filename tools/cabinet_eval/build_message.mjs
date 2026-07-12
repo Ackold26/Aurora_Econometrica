@@ -88,7 +88,14 @@ export function buildFacts(caseDef) {
   /** @type {Record<string, any>} */
   const facts = {};
   if (mod !== null) facts['model-diagnostics'] = mod;
-  if (dec !== null) facts.decomposition = dec;
+  if (dec !== null) {
+    // Та же вырезка графики, что stripDecompTelemetry в buildProjectDataBlock
+    // (time_series/waterfall/signed_factor_contributions/hierarchical) — facts не
+    // должны быть шире промпта, иначе число из вырезанной серии ложно считается
+    // grounded. Симметрично вырезке optimization ниже.
+    const { time_series, waterfall, signed_factor_contributions, hierarchical, ...rest } = dec;
+    facts.decomposition = rest;
+  }
   if (opt !== null) {
     // Та же вырезка телеметрии, что buildProjectDataBlock применяет
     // внутри себя (stripOptTelemetry) — facts должны отражать именно то,
