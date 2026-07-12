@@ -1,0 +1,711 @@
+diff --git a/New_AI_Agency/econometrist/.claude/commands/data-gaps.md b/New_AI_Agency/econometrist/.claude/commands/data-gaps.md
+index 301f370..2b45eb5 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/data-gaps.md
++++ b/New_AI_Agency/econometrist/.claude/commands/data-gaps.md
+@@ -45,4 +45,8 @@
+ 
+ - Конкретика, не список best practices. «В вашей модели TV работает вслепую, потому что нет controls на сезон» лучше «добавьте сезонность».
+ - Приоритет — по эффекту на модель, не по доступности данных.
+-- Если данные уже хорошие (Ratio ≥ 6, все controls есть, unit_costs полные) — честно скажи «данные готовы, следующий шаг — пилот» и отсылай на `/pilot-design`.
++- Если данные уже хорошие (Ratio ≥ 6, все controls есть, unit_costs полные) — честно скажи «данные готовы, следующий шаг — пилот» и предложи запустить в кабинете «План пилота» (командой pilot-design; в клиентском тексте пиши название, не служебную слэш-команду).
++
++---
++
++$ARGUMENTS
+diff --git a/New_AI_Agency/econometrist/.claude/commands/explain-ratio.md b/New_AI_Agency/econometrist/.claude/commands/explain-ratio.md
+index 0a3a57a..0b27083 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/explain-ratio.md
++++ b/New_AI_Agency/econometrist/.claude/commands/explain-ratio.md
+@@ -43,3 +43,7 @@
+ - Конкретные цифры для ЭТОГО проекта, не общие слова.
+ - Если Ratio уже ≥ 6 — похвали, назови причину почему модель устойчива, и напиши что остальные рекомендации неприменимы.
+ - Если фатально мало (≤1.5) — открыто скажи «выводы модели нельзя использовать для бюджетных решений».
++
++---
++
++$ARGUMENTS
+diff --git a/New_AI_Agency/econometrist/.claude/commands/interpret-model.md b/New_AI_Agency/econometrist/.claude/commands/interpret-model.md
+index 2d130fd..3f499df 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/interpret-model.md
++++ b/New_AI_Agency/econometrist/.claude/commands/interpret-model.md
+@@ -41,3 +41,7 @@
+ - **Никаких цифр больше одного десятичного.** ROI 1.8× лучше 1.7834×.
+ - **Матрица достоверности.** ROI и lift → [MODELED]. Доли baseline/media → [STATISTICAL].
+ - **Без приукрашиваний.** Если данных мало — прямо скажи «выводы ориентировочные».
++
++---
++
++$ARGUMENTS
+diff --git a/New_AI_Agency/econometrist/.claude/commands/next-quarter-plan.md b/New_AI_Agency/econometrist/.claude/commands/next-quarter-plan.md
+index 0dd72d3..7499224 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/next-quarter-plan.md
++++ b/New_AI_Agency/econometrist/.claude/commands/next-quarter-plan.md
+@@ -48,3 +48,7 @@
+ - Плановое мышление: не один выстрел, а траектория.
+ - Каждая рекомендация — с причиной из модели, не из «обычно так делают».
+ - Если модель ненадёжна (MQS < 55) — пиши «этот квартал — для сбора данных и подготовки лучшей модели, не для крупных сдвигов».
++
++---
++
++$ARGUMENTS
+diff --git a/New_AI_Agency/econometrist/.claude/commands/pilot-design.md b/New_AI_Agency/econometrist/.claude/commands/pilot-design.md
+index 376562a..2688ab9 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/pilot-design.md
++++ b/New_AI_Agency/econometrist/.claude/commands/pilot-design.md
+@@ -51,3 +51,7 @@ MMM — статистическая модель. Её прогноз може
+ 
+ - **Никаких новых расчётов.** Опираешься только на JSON результатов pipeline.
+ - **Честность важнее энтузиазма.** Если нет условий для пилота — прямо скажи.
++
++---
++
++$ARGUMENTS
+diff --git a/New_AI_Agency/econometrist/.claude/commands/why-channel.md b/New_AI_Agency/econometrist/.claude/commands/why-channel.md
+index 25aeabe..aa65727 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/why-channel.md
++++ b/New_AI_Agency/econometrist/.claude/commands/why-channel.md
+@@ -42,5 +42,11 @@
+ ## Принципы
+ 
+ - Рассуждение, не декламация. Не повторяй цифры — объясняй их.
+-- Никаких новых расчётов. Всё берётся из JSON проекта.
++- Производные (отношение mROI/ROI, доли, разности) допустимы как консультация, но
++  помечай их как расчёт («≈», «примерно», «если …») — не выдавай вычисленное за
++  факт модели. Числа без пометки бери дословно из блока.
+ - Если канал не найден в decomposition — скажи прямо «в модели такого канала нет».
++
++---
++
++$ARGUMENTS
+diff --git a/New_AI_Agency/econometrist/CLAUDE.md b/New_AI_Agency/econometrist/CLAUDE.md
+index ac6bfb8..e138273 100644
+--- a/New_AI_Agency/econometrist/CLAUDE.md
++++ b/New_AI_Agency/econometrist/CLAUDE.md
+@@ -69,6 +69,7 @@
+ - НЕ поддерживай пустые беседы. Вежливо направляй к рабочим задачам.
+ - Если запрос вне специализации — кратко скажи, что это за пределами экспертизы, и предложи сформулировать задачу иначе.
+ - НЕ комментировать размер/сложность файла или данных. Сразу к работе.
++- НЕ писать служебные слэш-команды (`/why-channel`, `/pilot-design` и т.п.) в тексте ответа — это CLI-артефакт для пользователя. Ссылаешься на другой разбор — пиши человекочитаемое название («разбор канала», «План пилота»).
+ - Вопросов пользователю по умолчанию не задавать — всё нужное приходит в блоке данных проекта. **Исключение — `/why-channel`:** если канал не указан аргументом, задать ОДИН уточняющий вопрос (какой канал разобрать), больше не спрашивать.
+ 
+ ## Контракт данных
+@@ -89,7 +90,7 @@
+ - Не пройденный шаг приходит строкой «нет – шаг «…» не пройден» — это и есть ответ, какого шага не хватает.
+ 
+ **Правила работы с блоком:**
+-- Числа и выводы бери ТОЛЬКО из этого блока. Своих расчётов не делай.
++- Числа-факты бери из этого блока. Производные (сумма долей, отношение, пересчёт «≈N точек при недельной дискретизации», «в ~4 раза больше») допустимы как консультация, но ПОМЕЧАЙ их как расчёт — «≈», «примерно», «оценка», «если …» — и не выдавай вычисленное за факт модели. Без пометки число обязано дословно быть в блоке.
+ - Нет блока или нет конкретного файла в нём — прямо скажи, какого шага пайплайна не хватает и что запустить (валидация / модель / декомпозиция / оптимизация). Цифры не выдумывай.
+ - Файлы самостоятельно не ищи: ни `%APPDATA%`, ни рабочую папку — всё нужное уже в сообщении.
+ 
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 20f6b57..751ca60 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -3533,5 +3533,79 @@ mod brief_tests {
+         assert_eq!(parse_slide_selection(params), Some(vec![5]));
+     }
+ }
++
++#[cfg(test)]
++mod resolve_slash_tests {
++    use super::*;
++
++    /// Боевой путь консультационных команд эконометриста: фронт приклеивает блок
++    /// «=== Данные проекта ===» к сообщению, resolve_slash_command должен ДОСТАВИТЬ
++    /// его в промпт через $ARGUMENTS. Эвал-харнес шлёт message мимо send_message,
++    /// поэтому именно этот тест закрывает регрессию доставки данных (Critical
++    /// 2026-07-12: без $ARGUMENTS в шаблоне блок данных молча отбрасывался).
++    #[test]
++    fn resolve_injects_project_data_when_placeholder_present() {
++        let dir = tempfile::tempdir().unwrap();
++        let cmd_dir = dir.path().join(".claude").join("commands");
++        std::fs::create_dir_all(&cmd_dir).unwrap();
++        std::fs::write(
++            cmd_dir.join("interpret-model.md"),
++            "Осмысли модель.\n\n---\n\n$ARGUMENTS",
++        )
++        .unwrap();
++
++        let message = "/interpret-model\n\n=== Данные проекта (приложены приложением) ===\n[model-diagnostics]\n{\"mqs\": 72}";
++        let resolved = resolve_slash_command(message, dir.path());
++
++        assert!(resolved.contains("=== Данные проекта"), "блок данных должен доехать до промпта");
++        assert!(resolved.contains("72"), "числа модели должны попасть в промпт");
++        assert!(resolved.contains("Осмысли модель."), "инструкция шаблона сохранена");
++        assert!(!resolved.contains("$ARGUMENTS"), "плейсхолдер должен быть заменён");
++    }
++
++    /// Контракт-документация: БЕЗ $ARGUMENTS в шаблоне arguments (блок данных)
++    /// теряется — именно так возник Critical. Тест фиксирует причину и защищает
++    /// инвариант ниже (реальные промпты обязаны содержать $ARGUMENTS).
++    #[test]
++    fn resolve_without_placeholder_drops_arguments() {
++        let dir = tempfile::tempdir().unwrap();
++        let cmd_dir = dir.path().join(".claude").join("commands");
++        std::fs::create_dir_all(&cmd_dir).unwrap();
++        let template = "Инструкция без плейсхолдера.";
++        std::fs::write(cmd_dir.join("legacy-cmd.md"), template).unwrap();
++
++        let message = "/legacy-cmd\n\n=== Данные проекта ===\n{\"x\": 1}";
++        let resolved = resolve_slash_command(message, dir.path());
++
++        assert_eq!(resolved, template, "без $ARGUMENTS хвост сообщения отбрасывается");
++        assert!(!resolved.contains("Данные проекта"), "данные не доехали — это и был баг");
++    }
++
++    /// Регресс-детектор варианта A: каждая консультационная команда эконометриста,
++    /// получающая блок данных проекта (ECON_DATA_COMMANDS во фронте), ОБЯЗАНА иметь
++    /// $ARGUMENTS в своём .md — иначе доставка данных снова молча сломается.
++    #[test]
++    fn econometrist_consult_commands_have_arguments_placeholder() {
++        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
++            .join("../New_AI_Agency/econometrist/.claude/commands");
++        let commands = [
++            "interpret-model",
++            "why-channel",
++            "explain-ratio",
++            "pilot-design",
++            "next-quarter-plan",
++            "data-gaps",
++        ];
++        for cmd in commands {
++            let path = base.join(format!("{cmd}.md"));
++            let content = std::fs::read_to_string(&path)
++                .unwrap_or_else(|e| panic!("не прочитать {}: {e}", path.display()));
++            assert!(
++                content.contains("$ARGUMENTS"),
++                "команда /{cmd} должна содержать $ARGUMENTS для доставки блока данных проекта",
++            );
++        }
++    }
++}
+ // rebuild
+ // icon refresh
+diff --git a/src/lib/__tests__/econ-project-context.test.js b/src/lib/__tests__/econ-project-context.test.js
+index ced7268..ed847df 100644
+--- a/src/lib/__tests__/econ-project-context.test.js
++++ b/src/lib/__tests__/econ-project-context.test.js
+@@ -101,11 +101,16 @@ describe('buildProjectDataBlock - decomposition: агрегаты сохране
+     expect(block).toContain('Статьи');
+   });
+ 
+-  it('графические серии time_series/waterfall вырезаны (dry-probe 2026-07-12)', () => {
+-    // Динамика по неделям и waterfall-диаграмма — данные для рендера графиков
+-    // движком, не для текстовой интерпретации; раздували промпт и страж чисел.
++  it('графические/служебные серии вырезаны: time_series, waterfall, signed_factor_contributions, hierarchical (аудит 2026-07-12)', () => {
++    // Динамика по неделям, waterfall-диаграмма, per_period-вклады факторов
++    // (~496 поточечных чисел) и служебный конфиг иерархии — данные для рендера
++    // графиков движком, не для текстовой интерпретации; раздували промпт и
++    // засоряли страж чисел ложными grounded-совпадениями.
+     expect(block).not.toContain('time_series');
+     expect(block).not.toContain('waterfall');
++    expect(block).not.toContain('signed_factor_contributions');
++    expect(block).not.toContain('per_period');
++    expect(block).not.toContain('hierarchical');
+   });
+ 
+   it('channels-агрегаты (ROI/вклад по каналам) не задеты вырезкой', () => {
+diff --git a/src/lib/__tests__/rag-query.test.js b/src/lib/__tests__/rag-query.test.js
+index 80e2696..7f4f55f 100644
+--- a/src/lib/__tests__/rag-query.test.js
++++ b/src/lib/__tests__/rag-query.test.js
+@@ -5,7 +5,7 @@
+  * промпта. Интеграционный тест смыкается с buildTier2Prompt.
+  */
+ import { describe, it, expect } from 'vitest';
+-import { buildRagQuery, humanizeSource } from '../rag-query.js';
++import { buildRagQuery, humanizeSource, detectChannelType } from '../rag-query.js';
+ import { buildTier2Context, buildTier2Prompt, STEP } from '../tier2-context.js';
+ 
+ describe('buildRagQuery — тематизация по шагу', () => {
+@@ -35,16 +35,23 @@ describe('buildRagQuery — тематизация по шагу', () => {
+     expect(q).toMatch(/confounder/i);
+   });
+ 
+-  it('шаг вне карты (IMPORT/REPORT/неизвестный) — fallback-термины без падения', () => {
++  it('шаг вне карты (IMPORT/неизвестный) — fallback-термины без падения', () => {
+     const qImport = buildRagQuery({ question: 'Что это за файл?', step: STEP.IMPORT });
+     expect(qImport).toContain('Что это за файл?');
+     expect(qImport).toMatch(/marketing mix modeling|эконометрика/i);
+ 
+-    const qReport = buildRagQuery({ question: 'Итог?', step: STEP.REPORT });
+-    expect(qReport).toMatch(/MMM/);
+-
+     const qNoStep = buildRagQuery({ question: 'Вопрос без шага' });
+     expect(qNoStep).toContain('Вопрос без шага');
++    expect(qNoStep).toMatch(/marketing mix modeling|эконометрика/i);
++  });
++
++  it('planning (5) и report (6) тематизируются, а не тонут в fallback (7-шкала, аудит 2026-07-12)', () => {
++    // Регресс: planning-mode сдвинул report 5→6 и вставил planning=5; STEP_TERMS
++    // индексировался по старой 5-шкале → на этих шагах тематизация отваливалась.
++    const qPlanning = buildRagQuery({ question: 'Как распределить бюджет?', step: STEP.PLANNING });
++    expect(qPlanning).toMatch(/планирование|media planning|медиаплан/i);
++    const qReport = buildRagQuery({ question: 'Итог?', step: STEP.REPORT });
++    expect(qReport).toMatch(/MMM/);
+   });
+ 
+   it('пустой вопрос — не падает, возвращает термины шага', () => {
+@@ -99,6 +106,20 @@ describe('humanizeSource — атрибуция по имени файла', ()
+     expect(() => humanizeSource('')).not.toThrow();
+     expect(humanizeSource(/** @type {any} */ (undefined))).toBe('');
+   });
++
++  // Края формата, найденные внешним аудитом 2026-07-12 — ложная/потерянная атрибуция.
++  it('ГОД_Автор_Название (год в начале) — фамилия не тонет в названии', () => {
++    expect(humanizeSource('2017_Jin_Bayesian_Media_Mix')).toBe('Jin, «Bayesian Media Mix»');
++  });
++
++  it('нормативный ГОСТ/ФЗ (ALL-CAPS токен) — не выдумывает ложного автора', () => {
++    expect(humanizeSource('ГОСТ_Реклама_2006_Требования')).toBe('ГОСТ Реклама 2006 Требования');
++  });
++
++  it('псевдогод из середины большего числа не раскалывает имя', () => {
++    // 2019 внутри 2019456 — не отдельный год; имя без ложной атрибуции.
++    expect(humanizeSource('Report_2019456_data')).toBe('Report 2019456 data');
++  });
+ });
+ 
+ describe('buildTier2Prompt — атрибуция в промпте, не сырое имя файла', () => {
+@@ -132,3 +153,26 @@ describe('buildRagQuery — длинный вопрос не вытесняет
+     expect(out).toContain('diminishing returns');
+   });
+ });
++
++describe('detectChannelType — тип фокус-канала из вопроса (оживление focusChannelType, аудит 2026-07-12)', () => {
++  it('охватные маркеры → reach', () => {
++    expect(detectChannelType('Почему у ТВ такой ROI?')).toBe('reach');
++    expect(detectChannelType('охватный канал перекормлен?')).toBe('reach');
++    expect(detectChannelType('что с брендовыми каналами')).toBe('reach');
++  });
++
++  it('performance-маркеры → performance', () => {
++    expect(detectChannelType('Директ снизить?')).toBe('performance');
++    expect(detectChannelType('перформанс канал эффективность')).toBe('performance');
++  });
++
++  it('неоднозначное / пустое → undefined (доп-терминов не добавляем)', () => {
++    expect(detectChannelType('Как дела с моделью?')).toBeUndefined();
++    expect(detectChannelType('')).toBeUndefined();
++    expect(detectChannelType(/** @type {any} */ (undefined))).toBeUndefined();
++  });
++
++  it('«ответ» не ловится как «тв» (границы по словам, не подстрока)', () => {
++    expect(detectChannelType('дай ответ по модели')).toBeUndefined();
++  });
++});
+diff --git a/src/lib/__tests__/tier2-context.test.js b/src/lib/__tests__/tier2-context.test.js
+index c0dfc87..4ec7cc0 100644
+--- a/src/lib/__tests__/tier2-context.test.js
++++ b/src/lib/__tests__/tier2-context.test.js
+@@ -248,6 +248,15 @@ describe('служебная телеметрия оптимизатора не
+     expect(bad.map((b) => b.raw)).toContain('137');
+   });
+ 
++  it('planning (5) даёт сводку фактов, а не default-валидацию (7-шкала, аудит 2026-07-12)', () => {
++    // Регресс: planning-mode вставил planning=5 и сдвинул report 5→6; до
++    // согласования шкал buildTier2Context на report(6) уходил в default (отдавал
++    // валидацию вместо сводки). Теперь planning=5 явно = сводка model+decompose+optimize.
++    const ctx = buildTier2Context({ step: STEP.PLANNING, dec: decomposition, tier1Insights: [] });
++    expect(ctx.facts).toHaveProperty('decompose');
++    expect(ctx.facts).not.toHaveProperty('validation');
++  });
++
+   it('честные числа из фактов оптимизации остаются grounded', () => {
+     const ctx = buildTier2Context({ step: STEP.OPTIMIZE, opt: optWithTelemetry });
+     expect(findUngroundedNumbers('Ожидаемый прирост 5.7%, снижение ТВ на 10.5%.', ctx.grounding)).toEqual([]);
+diff --git a/src/lib/components/pipeline/InsightsPanel.svelte b/src/lib/components/pipeline/InsightsPanel.svelte
+index 0bf6ca6..a80ce0c 100644
+--- a/src/lib/components/pipeline/InsightsPanel.svelte
++++ b/src/lib/components/pipeline/InsightsPanel.svelte
+@@ -43,7 +43,7 @@
+   import { isEconometrica } from '$lib/creative-store.js';
+   import { cloudConsent } from '$lib/store.js';
+   import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES, STEP } from '$lib/tier2-context.js';
+-  import { buildRagQuery } from '$lib/rag-query.js';
++  import { buildRagQuery, detectChannelType } from '$lib/rag-query.js';
+   import { findUngroundedNumbers } from '$lib/insights-grounding.js';
+   import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario, findCollinearPairs, collinearityCaveat } from '$lib/scenario-advisor.js';
+ 
+@@ -380,7 +380,11 @@
+     /** @type {import('$lib/tier2-context.js').MethodologyHit[] | null} */
+     let methodology = null;
+     try {
+-      const ragQuery = buildRagQuery({ question: askQuestion, step: $pipelineCurrentStep });
++      const ragQuery = buildRagQuery({
++        question: askQuestion,
++        step: $pipelineCurrentStep,
++        focusChannelType: detectChannelType(askQuestion),
++      });
+       const r = /** @type {any} */ (await invoke('econ_rag_search', { query: ragQuery, k: 4 }));
+       methodology = r?.hits?.length ? r.hits : null;
+     } catch {
+diff --git a/src/lib/econ-project-context.js b/src/lib/econ-project-context.js
+index ffcd613..6e8736e 100644
+--- a/src/lib/econ-project-context.js
++++ b/src/lib/econ-project-context.js
+@@ -64,18 +64,26 @@ function stripModelTelemetry(mod) {
+ }
+ 
+ /**
+- * Убрать из декомпозиции тяжёлые ГРАФИЧЕСКИЕ серии: time_series (динамика по
+- * неделям × каналы) и waterfall (labels/values/types для диаграммы). Это данные
+- * для рендера графиков движком; агрегаты каналов (roi, contribution_pct, spend)
+- * и итоги (baseline_pct, total_sales) — на верхнем уровне и в channels[],
+- * остаются. Основание — dry-probe 2026-07-12: серии раздували промпт до 25К и
+- * добавляли ~250 служебных чисел в страж. Симметрично stripOptTelemetry.
++ * Убрать из декомпозиции тяжёлые ГРАФИЧЕСКИЕ/служебные серии:
++ * - time_series — динамика по неделям × каналы (для рендера графика);
++ * - waterfall — labels/values/types для диаграммы;
++ * - signed_factor_contributions — по каждому фактору per_period динамика
++ *   (~16 факторов × ~31 период ≈ 496 поточечных чисел) — серия для графика
++ *   вкладов, не для текстовой интерпретации;
++ * - hierarchical — служебный конфиг иерархии (enabled/categories/priors_summary),
++ *   без результатных чисел для цитирования.
++ * Агрегаты каналов (roi, contribution_pct, spend, ci) и итоги (baseline_pct,
++ * total_sales) — на верхнем уровне и в channels[], остаются. Медиа-вклады
++ * дублированы в channels[], поэтому вырезка факторной графики ничего
++ * цитируемого не теряет (INV-50). Основание — внешний аудит 2026-07-12:
++ * signed_factor_contributions раздувал промпт и добавлял ~496 служебных чисел
++ * в страж. Симметрично stripOptTelemetry / stripModelTelemetry.
+  * @param {any} dec
+  * @returns {any}
+  */
+ function stripDecompTelemetry(dec) {
+   if (!dec || typeof dec !== 'object') return dec ?? null;
+-  const { time_series, waterfall, ...rest } = dec;
++  const { time_series, waterfall, signed_factor_contributions, hierarchical, ...rest } = dec;
+   return rest;
+ }
+ 
+diff --git a/src/lib/program-help.js b/src/lib/program-help.js
+index dad9841..89c69d1 100644
+--- a/src/lib/program-help.js
++++ b/src/lib/program-help.js
+@@ -99,8 +99,8 @@ export const PROGRAM_OVERVIEW = [
+ 
+ /**
+  * Релевантные термины глоссария по шагу пайплайна (индексы совпадают со STEP в
+- * tier2-context.js: 0 import, 1 validate, 2 model, 3 decompose, 4 optimize,
+- * 5 report). Идентификаторы — ключи GLOSSARY.
++ * tier2-context.js / PIPELINE_STEPS: 0 import, 1 validate, 2 model, 3 decompose,
++ * 4 optimize, 5 planning, 6 report). Идентификаторы — ключи GLOSSARY.
+  * @type {Record<number, string[]>}
+  */
+ export const STEP_TERMS = {
+@@ -109,7 +109,8 @@ export const STEP_TERMS = {
+   2: ['mcmc', 'r_hat', 'ess', 'bayesian', 'prior', 'posterior', 'nrmse', 'r_squared', 'mape', 'adstock', 'hill_saturation'],
+   3: ['decomposition', 'base_sales', 'incremental', 'roi', 'roas', 'cpu', 'channel_attribution', 'sales_share'],
+   4: ['mroi', 'hill_saturation', 'response_curve', 'plateau', 'diminishing_returns', 'media_mix', 'safe_corridor', 'goal_seek'],
+-  5: ['decomposition', 'mroi', 'media_mix', 'scenario_whatif', 'r_squared'],
++  5: ['media_mix', 'mroi', 'scenario_whatif', 'safe_corridor', 'decomposition'],
++  6: ['decomposition', 'mroi', 'media_mix', 'scenario_whatif', 'r_squared'],
+ };
+ 
+ /** Максимум терминов в одном контексте (бюджет промпта). */
+diff --git a/src/lib/rag-query.js b/src/lib/rag-query.js
+index 6e88f39..b94eb52 100644
+--- a/src/lib/rag-query.js
++++ b/src/lib/rag-query.js
+@@ -22,7 +22,9 @@
+ const QUERY_LIMIT = 400;
+ 
+ /**
+- * Домен-термины по шагу пайплайна (STEP из tier2-context.js), двуязычно.
++ * Домен-термины по шагу пайплайна, двуязычно. Индексы = 7-шаговая шкала
++ * PIPELINE_STEPS (project-state.js) / STEP (tier2-context.js): 0 import,
++ * 1 validate, 2 model, 3 decompose, 4 optimize, 5 planning, 6 report.
+  * @type {Record<number, string>}
+  */
+ const STEP_TERMS = {
+@@ -30,7 +32,8 @@ const STEP_TERMS = {
+   2: 'байесовская диагностика Bayesian diagnostics convergence сходимость R-hat prior predictive check приорные распределения MCMC', // MODEL
+   3: 'вклад канала adstock перенос carryover эффект saturation насыщение response curve кривая отклика decomposition декомпозиция attribution', // DECOMPOSE
+   4: 'оптимизация бюджета budget allocation маржинальная отдача marginal ROI mROI saturation насыщение diminishing returns убывающая отдача', // OPTIMIZE
+-  5: 'marketing mix modeling MMM интерпретация результатов декомпозиция оптимизация', // REPORT
++  5: 'планирование медиабюджета media planning квартальный медиаплан бюджетный сплит budget allocation flighting график размещения sequencing', // PLANNING
++  6: 'marketing mix modeling MMM интерпретация результатов декомпозиция оптимизация', // REPORT
+ };
+ 
+ /** Термины по умолчанию — шаг вне карты (например IMPORT=0) или не задан. */
+@@ -45,6 +48,28 @@ const CHANNEL_TYPE_TERMS = {
+   performance: 'performance канал прямой отклик',
+ };
+ 
++/** Основы слов-маркеров типа канала в тексте вопроса (startsWith по словам). */
++const REACH_STEMS = ['охват', 'бренд', 'тв', 'телевид', 'наруж', 'ooh', 'радио', 'awareness'];
++const PERF_STEMS = ['перформанс', 'performance', 'директ', 'контекст', 'ретаргет', 'поиск', 'seo', 'сео'];
++
++/**
++ * Грубо определить тип фокус-канала из текста вопроса, чтобы уточнить RAG-запрос
++ * (why-channel: «почему у ТВ такой ROI» → охватный канон; «директ дорогой» →
++ * performance-канон). Матч по основам слов (кириллический \b ненадёжен). Только
++ * явные маркеры; неоднозначное → undefined (доп-терминов не добавляем, тематизация
++ * по шагу остаётся). Это ДОБАВКА к запросу, не критичный тракт — цена ошибки мала.
++ * @param {string} [question]
++ * @returns {'reach'|'performance'|undefined}
++ */
++export function detectChannelType(question) {
++  const words = String(question || '').toLowerCase().match(/[а-яёa-z]+/g) || [];
++  const hit = (/** @type {string[]} */ stems) =>
++    words.some((w) => stems.some((s) => w.startsWith(s)));
++  if (hit(REACH_STEMS)) return 'reach';
++  if (hit(PERF_STEMS)) return 'performance';
++  return undefined;
++}
++
+ /**
+  * Собрать тематизированный запрос к econ_rag_search: вопрос пользователя +
+  * домен-термины текущего шага (двуязычно), опционально уточнение по типу
+@@ -88,7 +113,10 @@ export function buildRagQuery({ question, step, focusChannelType } = {}) {
+  * @param {string} s
+  */
+ function findYear(s) {
+-  const m = s.match(/(19|20)\d{2}/);
++  // Границы по цифрам (?<!\d)…(?!\d): год — отдельное 4-значное число, а не
++  // фрагмент большего (напр. «2019456» НЕ даёт псевдогод 2019). «_» не цифра,
++  // поэтому «Jin_2017_…» по-прежнему матчится.
++  const m = s.match(/(?<!\d)(19|20)\d{2}(?!\d)/);
+   return m ? m[0] : null;
+ }
+ 
+@@ -137,7 +165,26 @@ export function humanizeSource(fileName) {
+       const idx = noExt.indexOf(year);
+       const beforeYear = noExt.slice(0, idx).replace(/[_\s]+$/, '');
+       const afterYear = noExt.slice(idx + year.length).replace(/^[_\s]+/, '');
++
++      // Формат «ГОД_Автор_Название» (год в начале, до него пусто): авторы идут
++      // ПОСЛЕ года. Берём ведущую фамилию автором, остальное — название. Частичная,
++      // но не ложная атрибуция (типичный подслучай — один автор), лучше потери имени.
++      if (!beforeYear && afterYear) {
++        const at = afterYear.split(/_+/).filter(Boolean);
++        if (at.length >= 2 && /^[A-ZА-ЯЁ][a-zа-яё]+$/.test(at[0])) {
++          return `${at[0]}, «${at.slice(1).join(' ')}»`;
++        }
++      }
++
+       const tokens = beforeYear.split(/_+/).filter(Boolean);
++      // Нормативный/аббревиатурный документ (ГОСТ, ФЗ, СНиП, ТР ТС): ALL-CAPS
++      // токен в позиции автора — не персона. surname-эвристику не применяем,
++      // отдаём имя целиком, чтобы «Реклама» и т.п. не стали ложным автором.
++      const hasAbbrev = tokens.some((t) => /^[A-ZА-ЯЁ]{2,}$/.test(t));
++      if (hasAbbrev) {
++        return noExt.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
++      }
++
+       const surnames = tokens.filter((t) => /^[A-ZА-ЯЁ][a-zа-яё]+$/.test(t));
+       const authors = surnames.length >= 2
+         ? surnames.join(' & ')
+diff --git a/src/lib/tier2-context.js b/src/lib/tier2-context.js
+index 99095c5..1c2c796 100644
+--- a/src/lib/tier2-context.js
++++ b/src/lib/tier2-context.js
+@@ -25,7 +25,8 @@ export const STEP = /** @type {const} */ ({
+   MODEL: 2,
+   DECOMPOSE: 3,
+   OPTIMIZE: 4,
+-  REPORT: 5,
++  PLANNING: 5,
++  REPORT: 6,
+ });
+ 
+ /** Безопасно округлить до n знаков (null/НЕ-число → пропустить). @param {any} x @param {number} n */
+@@ -204,6 +205,9 @@ export function buildTier2Context(input) {
+       fullFacts = stripOptTelemetry(opt);
+       honesty = extractHonesty(opt);
+       break;
++    case STEP.PLANNING:
++    // Планирование квартала опирается на весь результат (модель + декомпозиция +
++    // оптимизация) — та же сводка фактов, что и на отчёте.
+     case STEP.REPORT:
+       facts = compact({
+         model: summarizeModel(mod),
+diff --git a/tools/cabinet_eval/build_message.mjs b/tools/cabinet_eval/build_message.mjs
+index 81d839e..5694e00 100644
+--- a/tools/cabinet_eval/build_message.mjs
++++ b/tools/cabinet_eval/build_message.mjs
+@@ -88,7 +88,14 @@ export function buildFacts(caseDef) {
+   /** @type {Record<string, any>} */
+   const facts = {};
+   if (mod !== null) facts['model-diagnostics'] = mod;
+-  if (dec !== null) facts.decomposition = dec;
++  if (dec !== null) {
++    // Та же вырезка графики, что stripDecompTelemetry в buildProjectDataBlock
++    // (time_series/waterfall/signed_factor_contributions/hierarchical) — facts не
++    // должны быть шире промпта, иначе число из вырезанной серии ложно считается
++    // grounded. Симметрично вырезке optimization ниже.
++    const { time_series, waterfall, signed_factor_contributions, hierarchical, ...rest } = dec;
++    facts.decomposition = rest;
++  }
+   if (opt !== null) {
+     // Та же вырезка телеметрии, что buildProjectDataBlock применяет
+     // внутри себя (stripOptTelemetry) — facts должны отражать именно то,
+diff --git a/tools/cabinet_eval/graders.mjs b/tools/cabinet_eval/graders.mjs
+index d911c3b..c0d1ca7 100644
+--- a/tools/cabinet_eval/graders.mjs
++++ b/tools/cabinet_eval/graders.mjs
+@@ -30,15 +30,48 @@ import { collectGroundedNumbers, findUngroundedNumbers } from '../../src/lib/ins
+  * @param {{ caseId: string, facts: unknown }} ctx
+  * @returns {{ name: string, pass: boolean, details: string }}
+  */
++/**
++ * Средний путь INV-50 (решение Антона 2026-07-12): производное число (сумма
++ * долей, отношение, пересчёт «≈N точек») допустимо, ЕСЛИ помечено как расчёт/
++ * оценка; методология-порог из промпта (cap MQS, зоны Ratio, покрытие CI) — не
++ * выдумка о проекте. Непомеченное негрунд-число — по-прежнему нарушение.
++ * Проверяем контекст ±45 симв вокруг каждого вхождения числа как отдельного
++ * (не подстрока большего). Обёртка НАД прод-стражем findUngroundedNumbers —
++ * сам страж не трогаем.
++ */
++const JUSTIFY_MARKERS =
++  /(≈|~|примерно|порядка|оценк|расчёт|расчет|прикид|×|\bв\s+[\d.,]+\s*раз|раза?\b|вместе|суммарно|итого|потолок|порог|\bcap\b|покрыти|на\s+уровне|зона|минимум)/i;
++
++/**
++ * @param {string} answerText
++ * @param {string} raw — строковое представление числа (напр. «208», «6.9»)
++ * @returns {boolean} есть ли рядом маркер расчёта/оценки/методологии
++ */
++function isJustifiedNumber(answerText, raw) {
++  const esc = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
++  // Границы: число не должно быть частью БОЛЬШЕГО числа (70 в «70.5»/«1,700»),
++  // но пунктуация-запятая после числа («70, диапазоны») — легитимна. Поэтому
++  // отсекаем только цифру-продолжение или «.,»+цифра, а не любую «.,».
++  const re = new RegExp(`(?<![\\d]|\\d[.,])${esc}(?![\\d]|[.,]\\d)`, 'g');
++  let m;
++  while ((m = re.exec(answerText)) !== null) {
++    const s = Math.max(0, m.index - 45);
++    const e = Math.min(answerText.length, m.index + raw.length + 45);
++    if (JUSTIFY_MARKERS.test(answerText.slice(s, e))) return true;
++  }
++  return false;
++}
++
+ export function numbersGrounded(answerText, ctx) {
+-  const bad = findUngroundedNumbers(answerText, { jsonFacts: ctx.facts }, { ignoreBelow: 10 });
++  const rawBad = findUngroundedNumbers(answerText, { jsonFacts: ctx.facts }, { ignoreBelow: 10 });
++  const bad = rawBad.filter((b) => !isJustifiedNumber(answerText, b.raw));
+   return {
+     name: 'numbers_grounded',
+     pass: bad.length === 0,
+     details:
+       bad.length === 0
+-        ? 'Все числа ответа найдены в приложенных данных проекта.'
+-        : `Негрунд-числа (не найдены в фактах, INV-50): ${bad.map((b) => b.raw).join(', ')}`,
++        ? 'Числа ответа найдены в данных, либо помечены как расчёт/оценка/методология (средний путь INV-50).'
++        : `Негрунд-числа без пометки расчёта (INV-50): ${bad.map((b) => b.raw).join(', ')}`,
+   };
+ }
+ 
+@@ -111,21 +144,31 @@ export function russianLanguage(answerText) {
+  * @returns {{ name: string, pass: boolean, details: string }}
+  */
+ export function structureTakeaway(answerText) {
+-  const paragraphs = answerText
+-    .split(/\n\s*\n/)
+-    .map((p) => p.trim())
+-    .filter((p) => p.length > 0)
+-    .slice(0, 2);
+-
+-  const first = paragraphs[0] || '';
+-  const firstLine = first.split('\n')[0].trim();
+-  const isHeadingOrList = /^(#{1,6}\s|[-*•]\s|\d+[.)]\s)/.test(firstLine);
+-  const takeawayUpfront = firstLine.length > 0 && firstLine.length < 250 && !isHeadingOrList;
++  // Ищем вывод в первых ~12 непустых строках (а не первых 2 абзацах): ответ
++  // нередко открывается 2-3 markdown-заголовками («## Разбор» / «### 1. Вердикт»),
++  // а сам вывод-строка идёт следом — узкое окно давало ложный FAIL.
++  // Заголовок-пустышка (# или bold-only строка) — не вывод; но СОДЕРЖАТЕЛЬНЫЙ
++  // буллет/пункт карточки («- Доля бюджета: ≈0% … ROI: 12186×») — вывод: многие
++  // консультационные ответы структурированы карточкой, а не прозой.
++  const lines = answerText.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 12);
++  const isHeadingLike = (l) => /^(#{1,6}\s|\*\*[^*]+\*\*\s*:?\s*$)/.test(l);
++  const contentLen = (l) => l.replace(/^[-*•]\s*|\d+[.)]\s*/, '').trim().length;
++  const takeawayLine = lines.find((l) => !isHeadingLike(l) && contentLen(l) > 0) || '';
++  // Потолок 400: насыщенный вывод-буллет («Строк: 48 · Каналов: 5 · Ratio: 5.3…»)
++  // легитимен; «стена текста» из нескольких предложений — уже не takeaway.
++  const takeawayUpfront = contentLen(takeawayLine) > 0 && takeawayLine.length < 400;
+ 
+-  const hasActionBlock = /(Что сделать|Что улучшить|Что собрать|Рекомендаци|Действи|Следующий шаг|Приоритет|Стоит|Совет)/i.test(answerText);
++  // Блок действия/рекомендации — распознаём формулировки всех 6 консультационных
++  // промптов («Что с этим делать», «Что можно улучшить», «Что добавить чтобы
++  // улучшить», «Чего НЕ надо делать», «Рекомендация», «Красные флаги» и т.п.),
++  // а не узкий фиксированный список (иначе ложный FAIL при живой формулировке).
++  const hasActionBlock =
++    /(что\s+(с\s+этим\s+|можно\s+|ещё\s+)?(делать|сделать|улучшить|добавить|собрать|предпринять|изменить)|чего\s+не\s+(делать|надо)|рекомендаци|действи|следующий\s+шаг|приоритет|совет|красные\s+флаги|когда\s+(же\s+)?не\s+запускать)/i.test(
++      answerText,
++    );
+ 
+   const pass = takeawayUpfront && hasActionBlock;
+-  const details = `Вывод в начале (первая строка ${firstLine.length} симв., не заголовок/список): ${takeawayUpfront}; блок действия найден: ${hasActionBlock}.`;
++  const details = `Вывод-строка (${takeawayLine.length} симв., не заголовок/список): ${takeawayUpfront}; блок действия найден: ${hasActionBlock}.`;
+   return { name: 'structure_takeaway', pass, details };
+ }
+ 
+diff --git a/tools/cabinet_eval/run_eval.mjs b/tools/cabinet_eval/run_eval.mjs
+index 2d3b668..bfb8a66 100644
+--- a/tools/cabinet_eval/run_eval.mjs
++++ b/tools/cabinet_eval/run_eval.mjs
+@@ -42,7 +42,9 @@ const RESULTS_DIR = path.join(__dirname, 'results');
+ // подхватываемые Claude Code как системный промпт и slash-команды.
+ const CABINET_CWD = path.resolve(__dirname, '../../New_AI_Agency/econometrist');
+ 
+-const CLI_TIMEOUT_MS = 180_000;
++// 300с: тяжёлые кейсы с полным набором данных (next-quarter-plan-full) и
++// sonnet-латентность не укладывались в 180с (timeout-FAIL при рабочем ответе).
++const CLI_TIMEOUT_MS = 300_000;
+ 
+ /**
+  * Кейсы, для которых сверх DEFAULT_GRADERS навешивается точечный грейдер
+diff --git a/src/lib/kpi-aware-formatting.js b/src/lib/kpi-aware-formatting.js
+index 7d6a914..efa73c9 100644
+--- a/src/lib/kpi-aware-formatting.js
++++ b/src/lib/kpi-aware-formatting.js
+@@ -27,7 +27,7 @@ import { getDisplay } from './kpi/kpi-display.js';
+  * @property {string} [derivedMode] - 'roi' | 'effectiveness' | 'manual'
+  * @property {number|null} [valuePerCountUnit] - ₽ per count unit (для count KPI)
+  * @property {string} [valuePerCountUnitLabel]
+- * @property {string} [kpiType] - паспортный тип KPI ('leads', 'sales_packs', 'sales', ...)
++ * @property {string|null} [kpiType] - паспортный тип KPI ('leads', 'sales_packs', 'sales', ...)
+  * @property {Object} [labels] - { metricLabel, metricShortLabel, targetUnitLabel, targetAxisLabel }
+  */
+ 
+@@ -129,7 +129,9 @@ export function kpiView(input) {
+   const kpiType = src.kpiType || null;
+   // Merge order: defaults < derived (from kind+mode+kpiType) < explicit labels.
+   const derived = deriveLabels(kpiKind, mode, kpiType);
+-  const labels = { ...DEFAULT_LABELS, cpuPerLabel: '₽/ед.', ...derived, ...(src.labels || {}) };
++  // cpuPerLabel идёт из derived (deriveLabels задаёт его во всех ветках) —
++  // не дублируем явно, иначе значение перезаписывается (svelte-check).
++  const labels = { ...DEFAULT_LABELS, ...derived, ...(src.labels || {}) };
+   return {
+     kpiKind,
+     mode,
+diff --git a/src/lib/kpi/kpi-display.js b/src/lib/kpi/kpi-display.js
+index 8b0cead..845c368 100644
+--- a/src/lib/kpi/kpi-display.js
++++ b/src/lib/kpi/kpi-display.js
+@@ -19,12 +19,23 @@ export function plural(n, forms) {
+   return forms[2];
+ }
+ 
++/**
++ * Паспорт отображения KPI (из kpi_display_registry.json).
++ * @typedef {Object} KpiDisplay
++ * @property {string} kpi_kind - 'monetary' | 'count' | 'proportional'
++ * @property {string} result_axis_label
++ * @property {string} result_unit_short
++ * @property {string[]} [result_forms]
++ * @property {string|null} cpu_per_label
++ * @property {string|null} [value_field_label]
++ */
++
+ /**
+  * Возвращает паспорт отображения для типа KPI.
+  * Для 'count_custom' можно передать customForms (3 строки).
+  * @param {string} kpiType
+  * @param {string[] | null} [customForms]
+- * @returns {object}
++ * @returns {KpiDisplay}
+  */
+ export function getDisplay(kpiType, customForms = null) {
+   if (!(kpiType in KPI_DISPLAY)) {
