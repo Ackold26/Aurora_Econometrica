@@ -22,15 +22,6 @@ import { collectGroundedNumbers, findUngroundedNumbers } from '../../src/lib/ins
 // ─────────────────────────────────────────────────────────────────────────
 
 /**
- * Все числа ответа должны быть ⊆ числам приложенных данных (INV-50).
- * ignoreBelow=10 — годы/шаги/счёт мелких целых часто легитимны и
- * неотличимы от реальных данных (напр. «шаг 3», «за 2 месяца»).
- *
- * @param {string} answerText
- * @param {{ caseId: string, facts: unknown }} ctx
- * @returns {{ name: string, pass: boolean, details: string }}
- */
-/**
  * Средний путь INV-50 (решение Антона 2026-07-12): производное число (сумма
  * долей, отношение, пересчёт «≈N точек») допустимо, ЕСЛИ помечено как расчёт/
  * оценка; методология-порог из промпта (cap MQS, зоны Ratio, покрытие CI) — не
@@ -67,6 +58,14 @@ function isJustifiedNumber(answerText, raw) {
   return false;
 }
 
+/**
+ * Все числа ответа должны быть ⊆ числам приложенных данных (INV-50).
+ * ignoreBelow=10 — годы/шаги/счёт мелких целых часто легитимны и
+ * неотличимы от реальных данных (напр. «шаг 3», «за 2 месяца»).
+ * @param {string} answerText
+ * @param {{ caseId: string, facts: unknown }} ctx
+ * @returns {{ name: string, pass: boolean, details: string }}
+ */
 export function numbersGrounded(answerText, ctx) {
   const rawBad = findUngroundedNumbers(answerText, { jsonFacts: ctx.facts }, { ignoreBelow: 10 });
   const bad = rawBad.filter((b) => !isJustifiedNumber(answerText, b.raw));
@@ -156,8 +155,8 @@ export function structureTakeaway(answerText) {
   // буллет/пункт карточки («- Доля бюджета: ≈0% … ROI: 12186×») — вывод: многие
   // консультационные ответы структурированы карточкой, а не прозой.
   const lines = answerText.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 12);
-  const isHeadingLike = (l) => /^(#{1,6}\s|\*\*[^*]+\*\*\s*:?\s*$)/.test(l);
-  const contentLen = (l) => l.replace(/^[-*•]\s*|\d+[.)]\s*/, '').trim().length;
+  const isHeadingLike = (/** @type {string} */ l) => /^(#{1,6}\s|\*\*[^*]+\*\*\s*:?\s*$)/.test(l);
+  const contentLen = (/** @type {string} */ l) => l.replace(/^[-*•]\s*|\d+[.)]\s*/, '').trim().length;
   const takeawayLine = lines.find((l) => !isHeadingLike(l) && contentLen(l) > 0) || '';
   // Потолок 400: насыщенный вывод-буллет («Строк: 48 · Каналов: 5 · Ratio: 5.3…»)
   // легитимен; «стена текста» из нескольких предложений — уже не takeaway.
