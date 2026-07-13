@@ -453,6 +453,27 @@ mod tests {
         .unwrap()
     }
 
+    /// Батч 0 (2026-07-13): сервер шлёт `vault_versions` per-cabinet в /auth (Phase 5) -
+    /// проверяем, что старые клиенты (без этого поля в ответе) не падают на десериализации
+    /// (`#[serde(default)]`), а новые корректно читают карту версий.
+    #[test]
+    fn auth_response_deserializes_vault_versions() {
+        let json = r#"{"status":"ok","cabinets":["econometrist"],"app_min_version":"0.1.0",
+            "checksums":{},"vault_versions":{"econometrist":5,"media-analyst":2}}"#;
+        let resp: AuthResponse = serde_json::from_str(json).unwrap();
+        let versions = resp.vault_versions.expect("vault_versions must deserialize");
+        assert_eq!(versions.get("econometrist"), Some(&5));
+        assert_eq!(versions.get("media-analyst"), Some(&2));
+    }
+
+    /// Обратная совместимость: сервер БЕЗ vault_versions (старая версия Edge Function) -
+    /// поле обязано остаться None, а не падать на missing field.
+    #[test]
+    fn auth_response_missing_vault_versions_defaults_none() {
+        let resp = sample_response();
+        assert_eq!(resp.vault_versions, None);
+    }
+
     fn write_cache_with_age(dir: &Path, cached_at: u64) {
         let cached = CachedAuth { response: sample_response(), cached_at };
         std::fs::write(cache_path(dir), serde_json::to_string(&cached).unwrap()).unwrap();

@@ -289,7 +289,7 @@ pub fn check_server_update(
 ///   - stable (без `-`) ранжируется ВЫШЕ любого prerelease той же базы (rank = u32::MAX);
 ///   - `rc11` > `rc10` (числовой хвост тега, не лексический — иначе "rc2" > "rc10");
 ///   - база ("2.1.0") доминирует над prerelease-рангом.
-fn is_newer(remote: &str, current: &str) -> bool {
+pub(crate) fn is_newer(remote: &str, current: &str) -> bool {
     fn parse(v: &str) -> (Vec<u32>, u32) {
         let v = v.trim_start_matches('v');
         let (base, pre_rank) = match v.split_once('-') {

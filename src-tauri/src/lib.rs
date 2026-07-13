@@ -94,6 +94,28 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
                     Err(e) => warn!("Failed to download vaults: {e}"),
                 }
             }
+
+            // ── Version-based докачка (Батч 0, 2026-07-13): доставка ПРАВОК промптов
+            // существующих кабинетов. Блок выше качает только missing/undecryptable
+            // vault'ы (новые кабинеты) - обновление контента УЖЕ установленного
+            // vault'а никогда не триггерилось. Сервер шлёт vault_versions per-cabinet
+            // в /auth (Phase 5, online_auth.rs:159) - сверяем с локальными.
+            if let Some(ref server_versions) = online.vault_versions {
+                let stale: Vec<String> = content_updater::check_update_per_cabinet(&config_dir, server_versions)
+                    .files_to_update
+                    .into_iter()
+                    .filter(|f| !missing.contains(f))
+                    .collect();
+
+                if !stale.is_empty() {
+                    info!("Downloading {} vault(s) with newer prompt content...", stale.len());
+                    let checksums = serde_json::json!({});
+                    match content_updater::download_updates(&config_dir, &data_dir, product, cv, &stale, &checksums, Some(&app_handle)).await {
+                        Ok(updated) => info!("Downloaded {}/{} updated vault files", updated.len(), stale.len()),
+                        Err(e) => warn!("Failed to download versioned vault updates: {e}"),
+                    }
+                }
+            }
         }
 
         let packs_ok = _state.content_packs_verified.load(Ordering::Acquire);
@@ -2394,7 +2416,20 @@ fn has_verified_external_frontend(data_dir: &std::path::Path) -> bool {
 
     let frontend_dir = data_dir.join(format!("frontend-{}", version));
     match crypto::content_sig::verify_manifest(&frontend_dir) {
-        Ok(_) => {
+        Ok(manifest) => {
+            // Батч 0 (2026-07-13): манифест может требовать core-версию новее текущего
+            // .exe (min_core_version) - без этой проверки старый внешний OTA-бандл
+            // навсегда перекрывал бы embedded frontend после апдейта .exe с новыми
+            // промптами/JS (OTA-канал не достаёт до кода, вшитого в exe). Используем
+            // готовое semver-сравнение из updater (rc-aware, покрыто тестами).
+            let core_version = env!("CARGO_PKG_VERSION");
+            if updater::is_newer(&manifest.min_core_version, core_version) {
+                warn!(
+                    "External frontend {} requires core >= {} but running {} - using embedded",
+                    version, manifest.min_core_version, core_version
+                );
+                return false;
+            }
             info!("External frontend verified: {}", version);
             true
         }
