@@ -1,78 +1,59 @@
-# Handoff для внешнего аудитора — полировка Econometrica v2.3.1
+# Handoff — честный масштаб вклада для count-KPI (2.3.1, аудит-фиксы)
 
-База diff: `4c1afc0` (начало сессии; hook-файл base-sha сдвинулся на 67ca785 → база оценочная,
-взята по родителю первого коммита блока ea78812). HEAD: `6aa266b`.
+База diff: `aa32040` (docs-коммит до правок сессии; base-sha файл указывает на HEAD → база
+взята явно по последнему коммиту до блока). HEAD: `1255db4`. Блок = `dc01a9c` + `1255db4`.
 
-## 1. Цель блока
-Автономная «полировочная» сессия поверх уже завершённого аудита промптов кабинета econometrist.
-Три направления: (а) разблокировать CI clippy-гейт; (б) внешний diff-аудит ранее закоммиченных
-Батчей 0-5 → починка найденных дефектов; (в) сделать эвал-харнес кабинета доказанным гейтом
-качества. Код-правки хирургические, семантику существующей логики менять не должны (кроме явно
-исправляемых дефектов).
+## Цель блока
+Устранить занижение «вклада канала» в 1e6 раз для count-KPI (лиды/упаковки/регистрации)
+в отчётах Econometrica (HTML + PPTX + JS-инсайты). Корень: вклад делился на 1e6
+безусловно («₽ млн»-логика), а единица count-KPI подписывалась без «млн» → клиент видел
+«1.3 лид.» вместо «1.3 млн лид.» (занижение в миллион раз). Нарушение INV-50 (честность
+метрик). Фикс — согласованный выбор масштаба+единицы через `_contrib_scale`/`_fmt_contrib`.
 
-## 2. Ключевые инварианты
-- **INV-50 честность метрик:** прод-страж `src/lib/insights-grounding.js` НЕ трогать. `numbers_grounded`
-  в эвале — прямой импорт из него, не копия.
-- **Нулевая регрессия доставки:** правки `content_updater.rs`/`lib.rs` НЕ должны менять поведение при
-  старом сервере (без поля `vault_versions`) — только при его наличии. Fallback обязан совпадать с
-  прежним поведением (запись глобального content_version).
-- **Клиентский текст:** короткое тире «–» (U+2013), не «—» (U+2014); без англицизмов; без slash-команд.
-- **Семантическая эквивалентность clippy-правок:** `is_some_and(f)` ≡ `map_or(false, f)`; `map` ≡
-  `filter_map` только когда замыкание всегда возвращает `Some`.
-- **Линтеры-стражи должны реально падать** на нарушении (не «мёртвый обвес»): ложное «OK» опаснее
-  отсутствия проверки.
-- **JS+JSDoc, не TS**; svelte-check (checkJs) 0 ошибок.
+## Ключевые инварианты
+- **monetary/effectiveness поведение НЕ меняется:** масштаб 1e6, единица «₽ млн», формат
+  как раньше. Регрессия здесь недопустима (основной сценарий клиентов).
+- **count:** масштаб адаптивный по макс |вклад| (≥1e6→млн, ≥1e4→тыс, иначе полное число),
+  единица результата из паспорта (`target_unit`), масштаб-маркер («млн»/«тыс.») в единице.
+- **`display × scale ≈ raw`** — значение не занижено (анти-регресс тест на это).
+- **HTML ↔ PPTX mirror:** `aurora_html.sections._contrib_scale/_fmt_contrib` и
+  `aurora_pptx.kpi_helpers.contrib_scale/fmt_contrib` ОБЯЗАНЫ давать идентичный результат
+  (тест `test_html_pptx_contrib_parity`). Разделитель тысяч — `chr(0xA0)` в обоих.
+- **Итог столбца в ТОМ ЖЕ масштабе, что ячейки** (contrib_scale согласован шапка↔ячейка↔итог).
 
-## 3. Осознанные компромиссы
-- **B (per-cabinet версия) — латентная:** сервер `vault_versions` пока не шлётся (2c не реализовано),
-  блок `if let Some(online.vault_versions)` спит. Фикс клиентской записи сделан заранее, вживую в окне
-  НЕ проверялся (только юнит-тест + компиляция). Причина: активируется ровно при 2c, чинить лучше до.
-- **B: `#[allow(clippy::too_many_arguments)]`** на download_updates (8 параметров) вместо рефактора в
-  struct. Причина: все 8 — данные докачки, внутренняя функция с 4 фиксированными call-site; struct-рефактор
-  вышел бы за scope починки латентного бага.
-- **C (NFKC): channelNames НЕ санитизируются** (осталось в отчёт). Причина: риск рассинхрона матчинга
-  (LLM вернёт искажённое имя ≠ оригинал), вектор смягчён JSON.stringify; полный фикс = рефактор scenario-пути.
-- **2a: 5 test-only clippy-warnings оставлены** (внутри `#[cfg(test)]`: items_after_test_module ×3,
-  field-assign, Range::contains). Причина: CI гоняет clippy без `--all-targets` → их не видит, гейт не блокируют.
-- **Рычаг 1: полную многоитерационную эвал-петлю на живых прогонах НЕ гоняла.** Причина: недетерминированно,
-  жжёт квоту подписки; детерминированные юнит-тесты грейдеров дают гейт надёжнее.
-- **checksum vault пустой** (`json!({})` в lib.rs) — предсуществующее by-design, не трогала.
+## Осознанные компромиссы
+- **Дублирование хелперов** в HTML + PPTX модулях (не общий util): kpi_helpers импортируется
+  без aurora_tokens-зависимости (для тестов), общий модуль её потянул бы. Паритет держит тест.
+- **`total_contrib_mln` в narrative_adapter оставлен** (= raw/1e6) для обратной совместимости;
+  consumer'ы домножают обратно `tc_raw = total_contrib_mln * 1e6` — upstream не рефакторил,
+  чтобы не задеть других читателей поля.
+- **Масштаб по visible каналам** (channels[:10]) — один масштаб на столбец; при сильно
+  разнородных вкладах в топ-10 мелкие теряют точность (by-design, компактность таблицы).
 
-## 4. Зоны неуверенности (проверить прицельно)
-1. **B call-site выбор (lib.rs:92/113/311/458):** правильно ли, что 458 (missing-gate, open_cabinet
-   auto-download) передаёт `online.vault_versions.as_ref()`? `online` в scope (используется .content_version
-   рядом), но уверенности, что для впервые-скачиваемого missing-кабинета запись server-версии корректна
-   (а не должна быть fallback), нет на 100%. 311 (update_content) → `None`: команда «мёртвая» по SKEPTIC_S3,
-   но если её кто-то вызовет — per-cabinet версия не запишется совсем (fallback на content_version отработает).
-2. **B resolve_vault_version:** `content_version.trim_start_matches('c').parse().unwrap_or(0)` — корректно
-   ли для всех форматов версии сервера? Если версия придёт как «c5c6» или не-«cN» — поведение (0 → запись
-   пропускается). Проверить, что это безопасная деградация, а не потеря учёта версии.
-3. **C NFKC:** `.normalize('NFKC')` применяется к ЛЮБОМУ тексту, идущему в промпт (вопрос пользователя,
-   методология, имена каналов из tier1). Не меняет ли NFKC непреднамеренно легитимный контент — например
-   надстрочные цифры/спецсимволы в числах-фактах, которые потом сверяет grounding? Заявлено «grounding не
-   задет» (сверяет числа из JSON-фактов, не из промпта), но перепроверить, что NFKC не втягивается в путь
-   grounding-чисел.
-4. **A orphan-проверка:** `parse_legacy_command_stems` regex `/(mmm-[\w\-]+)` по всему тексту
-   LEGACY_COMMANDS.md. Ловит ровно 9 legacy сейчас, но при упоминании `/mmm-*` в новом контексте файла
-   (пример, changelog) может втянуть лишнее → пропустит реальный orphan. Оценить хрупкость SSOT-парсинга.
-5. **Рычаг 1 маркер «оцен»:** расширение `оценк`→`оцен` в JUSTIFY_MARKERS (эвал, не прод). Не снимает ли
-   ложно флаг INV-50 в эвале, если слово на «оцен» (оценивать/оценка) окажется в ±45 символов от РЕАЛЬНО
-   выдуманного числа? Компромисс точности vs полноты.
+## Зоны неуверенности
+1. **Обратное домножение `tc_raw = total_contrib_mln * 1e6`** (sections.py итог + PPTX итог):
+   float деление→умножение. Проверить, что итог не расходится с суммой ячеек на граничных
+   значениях и что для count итог в согласованном масштабе (не «₽ млн»-формате).
+2. **insights-rules.js:1566** выводит `contribution.toLocaleString` = ПОЛНОЕ число + единица
+   («вклад 1 300 000 лид.»), тогда как таблица — масштабированное («1.3 млн лид.»). Обе честны,
+   но масштаб РАЗНЫЙ между инсайтом и таблицей — возможная UX-несогласованность.
+3. **Drill-панель** (interactive.py + builder.py:mroas_details) считает масштаб per-channel
+   (по одному значению `[contribution]`), а таблица — по всем visible. Один канал в drill может
+   получить масштаб, отличный от табличного (напр. канал 5000 лидов: drill «5 000 лид.», а в
+   таблице при max 2млн столбец в «млн» → «0.0»). Проверить согласованность drill ↔ таблица.
+4. **effectiveness-режим:** `_contrib_scale` для non-count возвращает (1e6, money_unit). Убедиться,
+   что для effectiveness (доли/проценты) вклад-столбец не сломан (units["contrib"] корректен).
 
-## 5. Затронутые файлы
-- `src-tauri/src/commands/online_auth.rs` — 2a: doc-quote `>24h`→«дольше 24 ч» (docstring, 1 строка).
-- `src-tauri/src/crypto/fingerprint.rs` — 2a: 3× `map_or(false,·)`→`is_some_and(·)` (disk_is_fixed_internal).
-- `src-tauri/src/commands/report.rs` — 2a: `filter_map`→`map` (замыкание всегда Some).
-- `tools/lint_prompt_commands.py` — A: scoped `(?i:·)` на «довер…интервал» в CI_TERM_RE + CI_TERM_QUOTED_RE.
-- `tools/check_help_consistency.py` — A: двусторонняя orphan-проверка + parse_legacy_command_stems (SSOT).
-- `lefthook.yml` — A: сами линтеры + LEGACY_COMMANDS.md добавлены в glob соответствующих хуков.
-- `src/lib/tier2-context.js` — C: `.normalize('NFKC')` первой в sanitizePromptFragment.
-- `New_AI_Agency/econometrist/.claude/commands/next-quarter-plan.md` — D: секция «что собрать» из
-  «Опционально» в обязательный костяк (пункт 5); помесячная разбивка осталась единственной опциональной.
-- `src/lib/__tests__/econ-project-context.test.js` — D: тест проброса warnings/high_correlations в [validation].
-- `src-tauri/src/commands/content_updater.rs` — B: resolve_vault_version + параметр vault_versions в
-  download_updates + `#[allow(too_many_arguments)]` + юнит-тест.
-- `src-tauri/src/lib.rs` — B: 4 call-site download_updates (передача vault_versions/None).
-- `tools/cabinet_eval/graders.mjs` — Рычаг1: маркер «оценк»→«оцен»; перенос JSDoc к numbersGrounded +
-  типизация стрелок (для svelte-check).
-- `src/lib/__tests__/graders-eval.test.js` — Рычаг1: 15 юнит-тестов 6 грейдеров (позитив+негатив).
+## Затронутые файлы
+- `sidecar/econometrica/aurora_html/sections.py` — хелперы `_contrib_scale`/`_fmt_contrib` +
+  применение в шапке/ячейке/итоге/CPU-единице/заголовке графика mROAS.
+- `sidecar/econometrica/aurora_html/builder.py` — drill CHART_DATA count-aware (`contrib_display`/`label`).
+- `sidecar/econometrica/aurora_html/interactive.py` — drill JS-подпись из `contrib_label`/`display`.
+- `sidecar/econometrica/aurora_pptx/kpi_helpers.py` — mirror `contrib_scale`/`fmt_contrib`.
+- `sidecar/econometrica/aurora_pptx/builder.py` — PPTX ячейка/шапка/итог count-aware.
+- `sidecar/econometrica/engines/narrative_adapter.py` — комментарий-первопричина исправлен (логика не менялась).
+- `src/lib/insights-rules.js` — единица к вкладу в инсайте «Топ-3 драйверов».
+- `sidecar/econometrica/tests/test_report_text_kpi_aware.py` — анти-регресс тесты (значение + паритет).
+- `src-tauri/{Cargo.toml,tauri.conf.json}` — bump 2.3.1 (не логика).
+- `src-tauri/installer_hooks.nsh` — U+2014→«–» в комментариях + MessageBox (productName revert).
+- `src/lib/components/pipeline/DecomposeStep.svelte` — tooltip «Вклад» KPI-нейтральный.
