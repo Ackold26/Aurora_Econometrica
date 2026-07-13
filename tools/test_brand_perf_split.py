@@ -232,10 +232,11 @@ def test_methodology_auto_gen_block():
         }
     }
     html = _render_brand_perf_split_block(ctx_full)
-    assert 'Brand vs Performance' in html
+    # html локализован на русский (канон Aurora: клиентский текст без англицизмов).
+    assert 'brand/performance' in html  # заголовок «Иерархическая модель brand/performance»
     assert 'Brand:</strong> 2' in html
     assert 'Performance:</strong> 2' in html
-    assert 'half-life' in html
+    assert 'период полураспада' in html  # было 'half-life'
 
 
 def main():

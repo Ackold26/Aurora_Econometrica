@@ -296,13 +296,16 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         except Exception:
             pass  # merge_rules optional — fallback к raw df row count.
         kpi_series = df[kpi_col]
-        # NaN-KPI tail filter: сравниваем только строки истории (notna KPI),
-        # иначе хвост медиаплана раздует y_actual и расхождение длин — ложный repair.
-        # Invariant: если хвоста нет — notna() для всех строк → no-op фильтра.
+        # NaN-KPI tail filter: обрезаем ТОЛЬКО хвост медиаплана (trailing NaN после
+        # конца истории), иначе хвост раздул бы y_actual и дал ложный repair. Серединные
+        # NaN СОХРАНЯЕМ — их наличие = порча истории, детектируется ниже (аудит-фикс
+        # 2026-05-24). ⚠️ Прежняя notna()-маска убирала И серединные NaN → детектор
+        # порчи не срабатывал → silent corruption y_actual (регресс, чинится 2026-07-13).
+        # Invariant: хвоста нет → last_valid = конец ряда → loc[:last_valid] = no-op.
         try:
-            history_mask = kpi_series.notna()
-            if history_mask.any():
-                kpi_series = kpi_series[history_mask]
+            last_valid = kpi_series.last_valid_index()
+            if last_valid is not None:
+                kpi_series = kpi_series.loc[:last_valid]
         except AttributeError:
             pass  # non-Series fallback — defensive
         try:
