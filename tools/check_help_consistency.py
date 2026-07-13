@@ -39,6 +39,11 @@ import re
 import sys
 from pathlib import Path
 
+# CI (Windows GitHub runner) отдаёт stdout в cp1252 → русский print падает с
+# UnicodeEncodeError. Принудительно UTF-8 (переносимо: CI + lefthook + ручной запуск).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CABINET_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "cabinet.rs"
 CABINETS_JSON = REPO_ROOT / "content-packs" / "cabinets.json"

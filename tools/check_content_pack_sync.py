@@ -25,6 +25,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+# CI (Windows GitHub runner) отдаёт stdout в cp1252 → русский print падает с
+# UnicodeEncodeError. Принудительно UTF-8 (переносимо: CI + lefthook + ручной запуск).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SIGN_SCRIPT = REPO_ROOT / "tools" / "sign_content_pack.py"
 
