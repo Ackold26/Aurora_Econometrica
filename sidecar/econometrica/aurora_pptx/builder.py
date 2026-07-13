@@ -136,6 +136,8 @@ from .kpi_helpers import (
     table_metric_header as _table_metric_header_pptx,
     lift_phrase as _lift_phrase_pptx,
     hero_vs_leader_quote as _hero_vs_leader_quote_pptx,
+    contrib_scale as _contrib_scale_pptx,
+    fmt_contrib as _fmt_contrib_pptx,
 )
 
 
@@ -1001,6 +1003,11 @@ class AuroraPPTXBuilder:
         # (Pre-fix bug: flagged could include channel 15+ which has no rendered
         # row, leaving the bottom-block footnote orphaned.)
         visible = channels[:10]
+        # Масштаб+единица столбца «Вклад» — согласованно с шапкой в s07 (fix
+        # 2026-07-13, INV-50). Та же логика по тем же данным = детерминированно.
+        contrib_scale, _ = _contrib_scale_pptx(
+            self.kpi, [c.get("contribution") for c in visible]
+        )
         flagged = [c for c in visible if c.get("verdict") in ("Reduce", "Cut")][:3]
         fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
 
@@ -1013,7 +1020,7 @@ class AuroraPPTXBuilder:
             verdict = c.get("verdict", "Watch")
 
             budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
-            contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
+            contrib_str = _fmt_contrib_pptx(contrib, contrib_scale) if contrib else "0"
             # v1.3.2 audit fix (B4): KPI-aware metric cell - backend convention
             # c.mroas = mathematical units/₽; для count display invert к CPU.
             # legacy = '1.5'× / count = '80' (CPU; unit в header «₽/ед.») /
@@ -1969,10 +1976,10 @@ class AuroraPPTXBuilder:
         # Header - v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
         # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
         metric_col_hdr, metric_col_unit = _table_metric_header_pptx(self.kpi)
-        contrib_unit_pptx = (
-            self.kpi.get("target_unit") or "ед."
-            if self.kpi["kpi_kind"] == "count"
-            else "₽ млн"
+        # Единица столбца «Вклад» — согласованно с масштабом ячеек в
+        # _build_action_table_rows (fix 2026-07-13, INV-50).
+        contrib_scale_s07, contrib_unit_pptx = _contrib_scale_pptx(
+            self.kpi, [c.get("contribution") for c in (self.channels or [])[:10]]
         )
         headers = ["Канал", "Бюджет", "Вклад", metric_col_hdr, "Доля эффекта", "Вердикт"]
         units =   ["",      "₽ млн",  contrib_unit_pptx,  metric_col_unit, "%",  ""]
@@ -2115,7 +2122,7 @@ class AuroraPPTXBuilder:
         )
         if self.facts:
             tb = self.facts.get("total_budget_mln") or 0
-            tc = self.facts.get("total_contrib_mln") or 0
+            tc_raw = (self.facts.get("total_contrib_mln") or 0) * 1_000_000.0
             wr = self.facts.get("weighted_roi")
             # v1.3.2: aggregate cell adapts per KPI (× / ₽/ед. inverse / 100%).
             if wr is None:
@@ -2134,7 +2141,7 @@ class AuroraPPTXBuilder:
                 wr_cell = f"{wr:.2f}"
             totals = [
                 f"{tb:.0f}",
-                f"{tc:.0f}",
+                _fmt_contrib_pptx(tc_raw, contrib_scale_s07),
                 wr_cell,
                 "100",
             ]

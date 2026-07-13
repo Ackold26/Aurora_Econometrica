@@ -1563,7 +1563,10 @@ export function decomposeInsights(data, kpiInput = null) {
       const roi = c.roi != null ? c.roi.toFixed(2) + '×' : '-';
       const spend = c.spend?.toLocaleString('ru-RU') ?? '-';
       const contrib = c.contribution?.toLocaleString('ru-RU') ?? '-';
-      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib}`;
+      // fix 2026-07-13 (INV-50): вклад без единицы («вклад 1 300 000») не давал
+      // понять — лиды это или рубли. Единица результата из паспорта.
+      const contribUnit = kpi?.targetUnit || '₽';
+      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
     }).join('\n');
     out.push({
       severity: 'info',

@@ -1,5 +1,5 @@
 {
     "$schema": "https://schema.tauri.app/config/2",
-    "productName": "Optimizer MMM Local",
+    "productName": "Aurora AI Econometrica - MMM Optimizer Local",
     "identifier": "com.aurora.econometrica.local"
 }

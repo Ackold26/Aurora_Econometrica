@@ -709,10 +709,14 @@ def _derive_narrative_facts(
         "hero_channel": hero.get("name"),
         "n_active_channels": n_active,
         "total_budget_mln": total_spend / 1_000_000.0 if total_spend else 0.0,
-        # Пласт 2 (2026-07-11): масштаб «млн» units-neutral — одинаков для ₽ и счётных единиц.
-        # Единица отображения (₽ млн vs ед.) выбирается на стороне consumer (table header)
-        # через kpi_kind. При count kpi таблица подписывает столбец единицами результата,
-        # а не «₽ млн». Само деление на 1e6 корректно для любой метрики.
+        # Fix 2026-07-13 (INV-50): «млн» НЕ units-neutral. Прежний комментарий
+        # утверждал, что деление на 1e6 корректно для любой метрики, а единицу
+        # выбирает consumer — неверно: для count consumer подписывал «лид.» (без
+        # «млн»), а значение делилось на 1e6 → «1.3 лид.» вместо «1.3 млн лид.»
+        # (занижение в 1e6). Consumer'ы теперь берут raw вклад и масштабируют через
+        # _contrib_scale (единица ↔ масштаб вместе). total_contrib_mln оставлен
+        # (= raw/1e6) для обратной совместимости; для count consumer домножает
+        # обратно на 1e6 и форматирует через _fmt_contrib.
         "total_contrib_mln": total_contrib / 1_000_000.0 if total_contrib else 0.0,
         "weighted_roi": weighted_roi,
         "leader_share_spend_pct": (leader_spend / total_spend * 100) if total_spend > 0 else None,

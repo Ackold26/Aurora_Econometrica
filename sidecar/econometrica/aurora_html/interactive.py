@@ -551,7 +551,7 @@ def bootstrap_js(
       '<div><span class="verdict-badge verdict-' + escapeAttr(safeVerdict) + '">' + escapeHtml(verdictText) + '</span></div>' +
       '<div style="margin-top:20px;">' +
         row('Бюджет, млн ₽',       d.spend_mln.toFixed(1)) +
-        row('Вклад, млн ₽',         d.contrib_mln.toFixed(1)) +
+        row(d.contrib_label || 'Вклад, млн ₽', (d.contrib_display != null ? d.contrib_display : d.contrib_mln.toFixed(1))) +
         row('mROAS',                formatMroas(d.mroas)) +
         (d.current_spend_mln ? row('Текущий spend, млн',   d.current_spend_mln.toFixed(1)) : '') +
         (d.optimal_spend_mln ? row('Оптимальный spend, млн', d.optimal_spend_mln.toFixed(1)) : '') +

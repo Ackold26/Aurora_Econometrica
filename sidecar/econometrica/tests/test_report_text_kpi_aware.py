@@ -290,6 +290,64 @@ class TestHtmlActionTableCountKpi:
             assert th_text.strip() != "", "contrib th для count пустой"
 
 
+class TestContribScaleCountKpi:
+    """fix 2026-07-13 (INV-50): вклад count-KPI НЕ занижается в 1e6.
+
+    Регресс-гейт: старый тест 261 проверял только ЗАГОЛОВОК столбца; значение
+    ячейки делилось на 1e6 при единице без «млн» → «1.3 лид.» вместо «1.3 млн
+    лид.» (занижение в миллион раз). Здесь проверяется само ЗНАЧЕНИЕ, границы
+    масштаба и паритет HTML↔PPTX форматтеров.
+    """
+
+    def test_count_contrib_not_underscaled(self):
+        from aurora_html.sections import _contrib_scale, _fmt_contrib
+        kpi = _kpi_count()
+        scale, unit = _contrib_scale(kpi, [1_300_000])
+        shown = _fmt_contrib(1_300_000, scale)
+        shown_num = float(shown.replace(" ", "").replace(" ", ""))
+        # display × scale ≈ raw (не занижено в 1e6)
+        assert abs(shown_num * scale - 1_300_000) <= 1_300_000 * 0.05, \
+            f"вклад занижен: «{shown} {unit}» (scale {scale}) → {shown_num * scale}"
+        # старый баг: маленькое число с голой единицей результата
+        assert not (shown_num < 100 and unit == "лид"), \
+            f"баг занижения: «{shown}» с единицей «{unit}»"
+        # масштаб отражён в единице
+        assert scale == 1.0 or "млн" in unit or "тыс" in unit
+
+    def test_count_contrib_small_value_full(self):
+        """Малый count (5 000 лидов) — полное число, не «0.0 млн»."""
+        from aurora_html.sections import _contrib_scale, _fmt_contrib
+        kpi = _kpi_count()
+        scale, unit = _contrib_scale(kpi, [5000])
+        assert scale == 1.0 and unit == "лид"
+        assert _fmt_contrib(5000, scale) == "5" + chr(0xA0) + "000"
+
+    def test_monetary_contrib_unchanged(self):
+        """monetary вклад — прежнее поведение «₽ млн» (нет регрессии)."""
+        from aurora_html.sections import _contrib_scale, _fmt_contrib
+        kpi = _kpi_monetary()
+        scale, unit = _contrib_scale(kpi, [1_300_000], "₽ млн")
+        assert scale == 1_000_000.0 and unit == "₽ млн"
+        assert _fmt_contrib(1_300_000, scale) == "1.3"
+
+    def test_html_pptx_contrib_parity(self):
+        """HTML и PPTX форматтеры вклада идентичны (mirror — не разъезжаются)."""
+        from aurora_html.sections import (
+            _contrib_scale as html_scale, _fmt_contrib as html_fmt,
+        )
+        from aurora_pptx.kpi_helpers import (
+            contrib_scale as pptx_scale, fmt_contrib as pptx_fmt,
+        )
+        kpi = _kpi_count()
+        for val in (12_186_000, 1_300_000, 50_000, 5000, 0):
+            hs, hu = html_scale(kpi, [val])
+            ps, pu = pptx_scale(kpi, [val])
+            assert (hs, hu) == (ps, pu), \
+                f"scale drift @ {val}: html {(hs, hu)} vs pptx {(ps, pu)}"
+            assert html_fmt(val, hs) == pptx_fmt(val, ps), \
+                f"fmt drift @ {val}"
+
+
 class TestHtmlAtAGlanceCountKpi:
     """render_at_a_glance с count kpi: f3_realloc_support НЕ «ROAS»."""
 

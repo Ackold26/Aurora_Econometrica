@@ -47,6 +47,41 @@ def _fmt_mln(v: Any, fallback: str = "-") -> str:
         return fallback
 
 
+def _contrib_scale(kpi: dict, raw_values: Any, money_unit: str = "₽ млн") -> tuple:
+    """Масштаб и единица столбца «Вклад» (fix 2026-07-13: единица ↔ масштаб).
+
+    Корень бага: вклад канала делился на 1e6 безусловно («₽ млн»), а для count-KPI
+    единица подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
+    (занижение в 1e6, нарушение INV-50). Здесь масштаб и единица выбираются вместе.
+
+    monetary/effectiveness → (1e6, money_unit) «₽ млн».
+    count → адаптивный масштаб по макс |вклад|, единица результата из паспорта.
+    """
+    if kpi.get("kpi_kind") != "count":
+        return 1_000_000.0, money_unit
+    unit = kpi.get("target_unit") or "ед."
+    try:
+        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
+    except (TypeError, ValueError):
+        mx = 0.0
+    if mx >= 1_000_000:
+        return 1_000_000.0, f"млн {unit}"
+    if mx >= 10_000:
+        return 1_000.0, f"тыс. {unit}"
+    return 1.0, unit
+
+
+def _fmt_contrib(value: Any, scale: float, fallback: str = "-") -> str:
+    """Значение вклада в масштабе из _contrib_scale (единый форматтер для ₽ и count)."""
+    try:
+        x = float(value) / scale
+    except (TypeError, ValueError, ZeroDivisionError):
+        return fallback
+    if scale == 1.0:
+        return f"{x:,.0f}".replace(",", chr(0xA0))
+    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
+
+
 def _fmt_x(v: Any, fallback: str = "-") -> str:
     try:
         return f"{float(v):.2f}×"
@@ -1005,7 +1040,8 @@ def render_mroas(ctx: dict) -> str:
         chart_title_text = "Доля каналов в эффекте · %"
         chart_subtitle_text = "Bar chart по share of effect (доли в продажах)"
     elif kpi["kpi_kind"] == "count":
-        chart_title_text = "CPU по каналам · ₽ за единицу"
+        cpu_unit = kpi.get("cpu_per_label") or "₽ за единицу"
+        chart_title_text = f"CPU по каналам · {cpu_unit}"
         chart_subtitle_text = "Стоимость следующей единицы (incremental cost-per-unit)"
     else:
         chart_title_text = "mROAS по каналам · мультипликатор"
@@ -1128,12 +1164,9 @@ def render_action_table(ctx: dict) -> str:
     # v1.3.2: KPI-aware main metric column (mROAS / CPU / Доля %).
     metric_col_header, metric_col_unit = _table_metric_header(kpi)
 
-    # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
-    # budget всегда «₽ млн» (затраты — деньги для любого KPI).
-    if kpi["kpi_kind"] == "count":
-        contrib_unit = kpi.get("target_unit") or "ед."
-    else:
-        contrib_unit = units["contrib"]  # «₽ млн» для monetary/effectiveness
+    # contrib column масштаб+единица вычисляются ниже (после visible) через
+    # _contrib_scale: единица и масштаб выбираются согласованно (fix 2026-07-13,
+    # INV-50). budget всегда «₽ млн» (затраты — деньги для любого KPI).
 
     # Title branching (mirrors PPTX S7 post-audit logic)
     if channels:
@@ -1169,11 +1202,17 @@ def render_action_table(ctx: dict) -> str:
 
     total_contrib = sum(float(c.get("contribution") or 0) for c in visible) or 1.0
 
+    # Масштаб+единица столбца «Вклад» — согласованно (fix 2026-07-13, INV-50):
+    # для count адаптивный масштаб (млн/тыс/ед) с единицей результата из паспорта,
+    # для monetary — «₽ млн» как раньше.
+    contrib_scale, contrib_unit = _contrib_scale(
+        kpi, [c.get("contribution") for c in visible], units["contrib"]
+    )
+
     rows_html = []
     for c in visible:
         name = c.get("name") or "-"
         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
-        contrib_mln = float(c.get("contribution") or 0) / 1_000_000.0
         mroas = c.get("mroas")
         verdict = c.get("verdict") or "Watch"
         share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
@@ -1193,7 +1232,7 @@ def render_action_table(ctx: dict) -> str:
             f'<tr data-channel="{escape(name)}">'
             f'<td>{escape(name)}</td>'
             f'<td class="num" data-sort="{spend_mln:.2f}">{_fmt_mln(spend_mln)}</td>'
-            f'<td class="num" data-sort="{contrib_mln:.2f}">{_fmt_mln(contrib_mln)}</td>'
+            f'<td class="num" data-sort="{float(c.get("contribution") or 0):.2f}">{_fmt_contrib(c.get("contribution"), contrib_scale)}</td>'
             f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
             f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
@@ -1203,7 +1242,8 @@ def render_action_table(ctx: dict) -> str:
     # Totals
     if facts:
         tb = facts.get("total_budget_mln") or 0
-        tc = facts.get("total_contrib_mln") or 0
+        # raw total contrib для согласованного _fmt_contrib (total_contrib_mln = /1e6).
+        tc_raw = (facts.get("total_contrib_mln") or 0) * 1_000_000.0
         wr = facts.get("weighted_roi")
         # v1.3.2: aggregate cell - adapt unit per KPI/mode.
         if not wr:
@@ -1215,7 +1255,8 @@ def render_action_table(ctx: dict) -> str:
         elif kpi["kpi_kind"] == "count":
             try:
                 cpu = 1.0 / float(wr) if float(wr) > 0 else None
-                wr_cell = f"{cpu:.0f} ₽/ед." if cpu else "-"
+                cpu_unit = kpi.get("cpu_per_label") or "₽/ед."
+                wr_cell = f"{cpu:.0f} {cpu_unit}" if cpu else "-"
             except (TypeError, ValueError, ZeroDivisionError):
                 wr_cell = "-"
         else:
@@ -1224,7 +1265,7 @@ def render_action_table(ctx: dict) -> str:
             f'<tr class="totals-row">'
             f'<td>{escape(headers["totals"])}</td>'
             f'<td class="num">{_fmt_mln(tb)}</td>'
-            f'<td class="num">{_fmt_mln(tc)}</td>'
+            f'<td class="num">{_fmt_contrib(tc_raw, contrib_scale)}</td>'
             f'<td class="num">{wr_cell}</td>'
             f'<td class="num">100</td>'
             f'<td></td>'

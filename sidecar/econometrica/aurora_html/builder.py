@@ -23,7 +23,7 @@ from typing import Any
 from . import TEMPLATES_DIR
 from . import themes as themes_mod
 from . import security
-from .sections import SECTION_RENDERERS
+from .sections import SECTION_RENDERERS, _kpi_view, _contrib_scale, _fmt_contrib
 from .interactive import bootstrap_js
 try:
     from econometrica.engines.narrative_adapter import compute_report_id, _normalize_channel_name
@@ -266,6 +266,28 @@ class AuroraHTMLBuilder:
             reverse=True,
         )
 
+        # Drill-down вклад: count-aware масштаб+единица per channel (fix
+        # 2026-07-13, INV-50) — раньше жёстко «Вклад, млн ₽» + /1e6, что для
+        # count-KPI занижало значение в 1e6. Строка форматируется здесь (Python),
+        # JS её только показывает.
+        kpi = _kpi_view(self.data)
+        mroas_details = {}
+        for c in self.channels:
+            if not c.get("name"):
+                continue
+            contrib_raw = float(c.get("contribution") or 0)
+            c_scale, c_unit = _contrib_scale(kpi, [contrib_raw])
+            mroas_details[c.get("name")] = {
+                "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
+                "contrib_mln":  round(contrib_raw / 1e6, 2),
+                "contrib_display": _fmt_contrib(contrib_raw, c_scale),
+                "contrib_label": "Вклад, " + c_unit,
+                "mroas":        float(c.get("mroas") or 0),
+                "verdict":      c.get("verdict") or "Watch",
+                "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
+                "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
+            }
+
         # ─── Waterfall (decomposition) ─────────────────────────────────
         waterfall = self.raw_decompose.get("waterfall") or {}
         if isinstance(waterfall, dict):
@@ -373,17 +395,7 @@ class AuroraHTMLBuilder:
                 "values": [float(c.get("mroas") or 0) for c in channels_sorted_m],
                 "hero":   channels_sorted_m[0].get("name") if channels_sorted_m else None,
                 # Drill-down details per channel (for side-panel)
-                "details": {
-                    c.get("name"): {
-                        "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
-                        "contrib_mln":  round(float(c.get("contribution") or 0) / 1e6, 2),
-                        "mroas":        float(c.get("mroas") or 0),
-                        "verdict":      c.get("verdict") or "Watch",
-                        "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
-                        "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
-                    }
-                    for c in self.channels if c.get("name")
-                },
+                "details": mroas_details,
             },
             "share": {
                 "names":      [c.get("name") for c in self.channels],

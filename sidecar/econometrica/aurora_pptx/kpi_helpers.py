@@ -146,6 +146,39 @@ def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
         return base
 
 
+def contrib_scale(kpi, raw_values, money_unit="₽ млн"):
+    """Масштаб+единица столбца «Вклад» (mirror aurora_html.sections._contrib_scale).
+
+    Фикс 2026-07-13 (INV-50): вклад делился на 1e6 безусловно, а единица count-KPI
+    подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
+    (занижение в 1e6). Масштаб и единица теперь выбираются согласованно.
+    monetary/effectiveness → (1e6, money_unit); count → адаптивно по макс |вклад|.
+    """
+    if kpi.get("kpi_kind") != "count":
+        return 1_000_000.0, money_unit
+    unit = kpi.get("target_unit") or "ед."
+    try:
+        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
+    except (TypeError, ValueError):
+        mx = 0.0
+    if mx >= 1_000_000:
+        return 1_000_000.0, f"млн {unit}"
+    if mx >= 10_000:
+        return 1_000.0, f"тыс. {unit}"
+    return 1.0, unit
+
+
+def fmt_contrib(value, scale, fallback="-"):
+    """Значение вклада в масштабе contrib_scale (mirror aurora_html.sections)."""
+    try:
+        x = float(value) / scale
+    except (TypeError, ValueError, ZeroDivisionError):
+        return fallback
+    if scale == 1.0:
+        return f"{x:,.0f}".replace(",", chr(0xA0))
+    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
+
+
 def weighted_summary_phrase(weighted_value, kpi):
     """Aggregate portfolio metric phrase per kpi/mode.
 
