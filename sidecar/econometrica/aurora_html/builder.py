@@ -271,17 +271,22 @@ class AuroraHTMLBuilder:
         # count-KPI занижало значение в 1e6. Строка форматируется здесь (Python),
         # JS её только показывает.
         kpi = _kpi_view(self.data)
+        # Единый масштаб drill = как в таблице (по visible топ-10). Иначе для count-KPI
+        # клиент видит РАЗНЫЕ числа одного канала: таблица «0.0 млн лид.» ↔ drill «5 000
+        # лид.» (fix 2026-07-14, аудит: per-channel масштаб рассинхронил drill↔таблицу).
+        drill_scale, drill_unit = _contrib_scale(
+            kpi, [c.get("contribution") for c in self.channels[:10]]
+        )
         mroas_details = {}
         for c in self.channels:
             if not c.get("name"):
                 continue
             contrib_raw = float(c.get("contribution") or 0)
-            c_scale, c_unit = _contrib_scale(kpi, [contrib_raw])
             mroas_details[c.get("name")] = {
                 "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
                 "contrib_mln":  round(contrib_raw / 1e6, 2),
-                "contrib_display": _fmt_contrib(contrib_raw, c_scale),
-                "contrib_label": "Вклад, " + c_unit,
+                "contrib_display": _fmt_contrib(contrib_raw, drill_scale),
+                "contrib_label": "Вклад, " + drill_unit,
                 "mroas":        float(c.get("mroas") or 0),
                 "verdict":      c.get("verdict") or "Watch",
                 "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
