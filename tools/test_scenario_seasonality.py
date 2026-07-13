@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SIDECAR = ROOT / 'sidecar'
@@ -104,6 +105,7 @@ def _seasonal_dataset(n, period, freq='W-SUN', seed=7):
 def test_predict_scenario_carries_seasonal_wave(tmp_path):
     """Живой прогноз на Фурье-модели: per-period predictions несут сезонную волну
     (не плоские при плоском медиаплане), т.к. сезонность детерминирована."""
+    pytest.importorskip("pymc")  # MCMC-тест: CI lightweight без pymc (install-mcmc-deps=false)
     df = _seasonal_dataset(n=110, period=52)
     data_file = tmp_path / 'seasonal.xlsx'
     df.to_excel(data_file, index=False)

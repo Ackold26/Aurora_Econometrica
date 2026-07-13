@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SIDECAR = ROOT / 'sidecar'
@@ -60,6 +61,7 @@ def _load_pickle(project_dir):
 
 def test_yearly_seasonality_injected(tmp_path):
     """n=110 недель (>2 цикла периода 52) → Фурье-контроли инжектированы + в pickle."""
+    pytest.importorskip("pymc")  # MCMC-тест: CI lightweight без pymc (install-mcmc-deps=false)
     df = _seasonal_dataset(n=110, period=52)
     data_file = tmp_path / 'seasonal.xlsx'
     df.to_excel(data_file, index=False)
@@ -78,6 +80,7 @@ def test_yearly_seasonality_injected(tmp_path):
 
 def test_short_series_no_injection(tmp_path):
     """n=30 недель (<2 цикла периода 52) → Фурье НЕ инжектируется (гейт INV-50)."""
+    pytest.importorskip("pymc")  # MCMC-тест: CI lightweight без pymc
     df = _seasonal_dataset(n=30, period=52)
     data_file = tmp_path / 'short.xlsx'
     df.to_excel(data_file, index=False)
@@ -97,6 +100,7 @@ def test_short_series_no_injection(tmp_path):
 
 def test_decompose_parity_with_seasonality(tmp_path):
     """decompose на модели с Фурье не падает (re-inject колонок), status ok."""
+    pytest.importorskip("pymc")  # MCMC-тест: CI lightweight без pymc
     df = _seasonal_dataset(n=110, period=52)
     data_file = tmp_path / 'seasonal.xlsx'
     df.to_excel(data_file, index=False)
@@ -114,6 +118,7 @@ def test_decompose_aggregates_fourier_into_one_seasonality_factor(tmp_path):
     """Декомпозиция агрегирует 2K sin/cos колонок в ОДИН фактор «Сезонность»
     (не 6 полос отдельных гармоник), выносит его полосой в decomposition_series
     с type='seasonality', group='Сезонность', top_group='БАЗА' и pct_of_base[]."""
+    pytest.importorskip("pymc")  # MCMC-тест: CI lightweight без pymc
     df = _seasonal_dataset(n=110, period=52)
     data_file = tmp_path / 'seasonal.xlsx'
     df.to_excel(data_file, index=False)
@@ -154,6 +159,7 @@ def test_decompose_aggregates_fourier_into_one_seasonality_factor(tmp_path):
 
 def test_master_flag_disables_seasonality(tmp_path):
     """use_seasonality=False → Фурье не инжектируется даже на годовом ряду."""
+    pytest.importorskip("pymc")  # MCMC-тест: CI lightweight без pymc
     df = _seasonal_dataset(n=110, period=52)
     data_file = tmp_path / 'seasonal.xlsx'
     df.to_excel(data_file, index=False)
@@ -189,6 +195,7 @@ def test_backtest_with_seasonality_not_error(tmp_path):
     из config.control_columns (полной модели) НЕ должны валить окна как
     «отсутствующие контроли». Инжект перенесён ДО валидации control + синхро
     control_cols с df. Ожидание: backtest status ok, окна отработали."""
+    pytest.importorskip("pymc")  # MCMC-тест: CI lightweight без pymc
     df = _seasonal_dataset(n=110, period=52)
     data_file = tmp_path / 'seasonal.xlsx'
     df.to_excel(data_file, index=False)

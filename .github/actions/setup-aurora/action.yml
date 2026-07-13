@@ -59,7 +59,9 @@ runs:
         # pytest collection падает с ImportError ДО -m marker фильтра, делая weighted
         # test selection бесполезным. Heavy PyMC/JAX/arviz stack остаётся gated за
         # install-mcmc-deps='true' для local + occasional integration runs.
-        pip install pytest pytest-xdist pytest-asyncio httpx \
+        # filelock: sidecar импортит на уровне модуля (project-lock / persistence) →
+        # без него pytest collection падает ImportError для многих тестов ДО -m фильтра.
+        pip install pytest pytest-xdist pytest-asyncio httpx filelock \
           'numpy>=1.24.0,<3.0' 'pandas>=2.0.0' \
           scikit-learn openpyxl fastapi python-pptx
 
