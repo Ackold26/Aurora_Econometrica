@@ -121,6 +121,7 @@ function summarizeValidation(val) {
     control_columns: names('control'),
     kpi_columns: names('kpi'),
     high_correlations: r.high_correlations ?? r.correlationWarnings ?? null,
+    warnings: r.warnings ?? null,
   };
   // Пустая выжимка (ни одного заполненного поля) — считаем, что валидации нет.
   const hasAny = Object.values(out).some((v) => v !== null && (!Array.isArray(v) || v.length > 0));
