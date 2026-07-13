@@ -94,7 +94,12 @@
       lefthook-гейты в CI, регламент в CLAUDE.md репо.
 - [ ] **Единый re-sign content-pack** (command-meta + psy + onboarding + themes.json из 0.3):
       инструмент sign_content_pack.py/aurora-pack.py из соседних репо, проверить ключ.
-- [ ] Пере-скоринг команд (DoD ≥4/4) · финальный самоаудит · Фаза 4 (канон RAG).
+- [✅] Пере-скоринг команд (экспертно: активные ~4.5/4.5, legacy ~4.2/4.1, Аврора ~4.5/4.5) ·
+      финальный самоаудит (гейты зелёные, 11/11 high закрыты) · Фаза 4 ЗАВЕРШЕНА → `PHASE4_RECOMMENDATION.md`
+      (гэпы: geo-эксперименты/pilot-design, awareness-моделирование, приоры MMM; книги Vaver-Koehler,
+      Kerman TBR, Kohavi, Tellis, Farris, Meridian; вход в aurora-upgrade — отдельная сессия).
+🟢🟢 ВЕСЬ 5-ФАЗНЫЙ ПРОТОКОЛ ЗАВЕРШЁН (2026-07-13). Открыто только по слову Антона: публикация 2.3.1
+(сборка .exe + vault + Supabase), clippy-долг 7, справка econometrist, серверная vault_versions.
 🟢 ФАЗА 3 ЗАВЕРШЕНА: все 6 батчей + re-sign закоммичены (9 коммитов). Финальный регресс зелёный:
 cargo 190 · svelte-check 0 ERRORS · vitest 1263 · cabinet_eval --dry 6/6 · 3 линтера OK · pack version 7.
 КОММИТЫ: Батч0 `61a74ae` · Батч2 `8c87ef3` · Батч1 `a1ff86c` · Батч3a `af469a1` · Батч3b `451a792`
