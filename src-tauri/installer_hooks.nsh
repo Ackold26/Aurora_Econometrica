@@ -65,7 +65,7 @@ program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
   ; Явное окно успеха установки (распоряжение Антона 2026-07-02). В silent/passive
   ; режиме подавляется (IfSilent) – там app сам перезапустится по /R (onInstSuccess).
   IfSilent +2
-  MessageBox MB_ICONINFORMATION|MB_OK "Aurora AI Econometrica - MMM Optimizer успешно установлена."
+  MessageBox MB_ICONINFORMATION|MB_OK "Optimizer MMM успешно установлена."
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
