@@ -104,3 +104,13 @@ SSOT-пары `Aurora_Econometrica ↔ Aurora_Econometrica_avrora` (сверит
 6. **Живой прогон ловит проводку, юнит — функцию.** Перед релизом обязателен прогон в окне (Батч 0
    оживил доставку, но серверная часть vault_versions вне репо — правки промптов доедут только новым
    installer/vault, не OTA, пока сервер не шлёт версии).
+7. **🔴 ГЛАВНОЕ ПРИ ПУБЛИКАЦИИ: промпты кабинета в VAULT, не в content-pack — не перепутать.** Вся
+   работа сессии (аудит + канон) — в `New_AI_Agency/econometrist/CLAUDE.md` + `.claude/commands/*.md`;
+   они доезжают клиенту ТОЛЬКО пересборкой vault (`tools/vault-packer` → `research/panel.vault` → OTA)
+   + новый .exe. Content-pack re-sign (уже сделан, v7) доставляет лишь UI-МЕТУ (cabinets/psy-data/
+   onboarding/command-meta/themes — витрина). Опасность: залить только content-pack и забыть vault =
+   клиент получит исправленную витрину поверх СТАРЫХ промптов (мета обещает то, чего промпт не делает —
+   обратный overclaim, тот же класс дефекта, что чинили). При публикации 2.3.1 ОБЯЗАТЕЛЬНО: vault-packer
+   с актуальными промптами econometrist → bump vault-версии → контрольная распаковка → и ТОЛЬКО потом
+   content-pack. Проверка: распаковать собранный vault и грепнуть свежую строку (напр. C1 ESOV «доля
+   рынка (SOM)» в awareness-forecast) — она должна быть в vault, иначе промпты не попали.
