@@ -278,20 +278,20 @@ fn read_forecast(project_id: &str) -> Option<Value> {
         let scenario_jsons = read_scenarios(project_id);
         if !scenario_jsons.is_empty() {
             planning["scenarios"] = serde_json::Value::Array(
-                scenario_jsons.into_iter().filter_map(|s| {
+                scenario_jsons.into_iter().map(|s| {
                     // Адаптируем формат сценария к формату прогноза
                     let totals = s.get("totals").cloned().unwrap_or_default();
                     let name = s["scenario_name"].as_str()
                         .or_else(|| s["name"].as_str())
                         .unwrap_or("Сценарий")
                         .to_string();
-                    Some(serde_json::json!({
+                    serde_json::json!({
                         "name": name,
                         "variant_id": s.get("variant_id"),
                         "total_kpi": totals.get("predicted_kpi").and_then(|v| v.as_f64()),
                         "total_spend_money": totals.get("total_spend_money").and_then(|v| v.as_f64()),
                         "roas_money": totals.get("roas_money").and_then(|v| v.as_f64()),
-                    }))
+                    })
                 }).collect()
             );
         }

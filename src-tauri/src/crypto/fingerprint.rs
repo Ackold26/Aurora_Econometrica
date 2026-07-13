@@ -24,14 +24,14 @@ fn disk_is_fixed_internal(
     interface_type: Option<&str>,
     pnp_device_id: Option<&str>,
 ) -> bool {
-    let removable = media_type.map_or(false, |m| {
+    let removable = media_type.is_some_and(|m| {
         let m = m.to_ascii_lowercase();
         m.contains("removable") || m.contains("external")
     });
-    let hot_plug_bus = interface_type.map_or(false, |i| {
+    let hot_plug_bus = interface_type.is_some_and(|i| {
         i.eq_ignore_ascii_case("USB") || i.eq_ignore_ascii_case("1394")
     });
-    let usb_pnp = pnp_device_id.map_or(false, |p| {
+    let usb_pnp = pnp_device_id.is_some_and(|p| {
         let p = p.to_ascii_uppercase();
         p.starts_with("USBSTOR") || p.starts_with("USB\\")
     });
