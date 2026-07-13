@@ -79,6 +79,25 @@ pub fn set_vault_version(app_config_dir: &Path, cabinet_id: &str, version: u32) 
     Ok(())
 }
 
+/// Выбрать номер версии для записи в vault-versions.json после докачки кабинета.
+///
+/// Per-cabinet версия сервера (`vault_versions[cab_id]`) точнее глобального
+/// content_version: счётчики независимы, и если vault-версия кабинета численно
+/// обгоняет content_version (правка промптов без правки content-pack), запись
+/// глобального номера оставляла бы `local < server` навсегда → клиент
+/// перекачивал бы кабинет на КАЖДОМ старте. Fallback на content_version — для
+/// missing-докачки новых кабинетов и старого сервера без vault_versions (нулевая
+/// регрессия). Найдено внешним diff-аудитом Батча 0 (2026-07-13).
+fn resolve_vault_version(
+    cab_id: &str,
+    vault_versions: Option<&HashMap<String, u32>>,
+    content_version: &str,
+) -> u32 {
+    vault_versions
+        .and_then(|vv| vv.get(cab_id).copied())
+        .unwrap_or_else(|| content_version.trim_start_matches('c').parse().unwrap_or(0))
+}
+
 /// One-time migration from legacy content_version.txt to vault-versions.json.
 /// Assigns the legacy global version to all existing vault files on disk.
 /// No-op if vault-versions.json already exists.
@@ -286,6 +305,10 @@ async fn download_vault_file(
 /// Download and save all updated vault files.
 /// Returns the list of successfully updated files.
 /// If `app_handle` is provided, emits "vault-download-progress" events.
+// 8 параметров — все суть данные докачки (пути, product/version, files,
+// checksums, per-cabinet версии, app_handle); группировать в struct избыточно
+// для внутренней функции с 4 фиксированными call-site.
+#[allow(clippy::too_many_arguments)]
 pub async fn download_updates(
     app_config_dir: &Path,
     app_data_dir: &Path,
@@ -293,6 +316,7 @@ pub async fn download_updates(
     version: &str,
     files: &[String],
     checksums: &serde_json::Value,
+    vault_versions: Option<&HashMap<String, u32>>,
     app_handle: Option<&tauri::AppHandle>,
 ) -> Result<Vec<String>> {
     let fp = crate::crypto::fingerprint::get_machine_fingerprint()?;
@@ -347,10 +371,13 @@ pub async fn download_updates(
                 info!("Updated vault: {} ({} bytes plain → {} bytes encrypted)", filename, data.len(), encrypted.len());
                 updated.push(filename.clone());
 
-                // Track per-cabinet version in vault-versions.json
+                // Track per-cabinet version in vault-versions.json — номер из
+                // per-cabinet карты сервера, а не глобального content_version
+                // (см. resolve_vault_version: рассинхрон двух счётчиков иначе
+                // зациклил бы докачку кабинета на каждом старте).
                 if let Some(stem) = filename.strip_suffix(".vault") {
                     let cab_id = stem_to_cabinet_id(stem);
-                    let ver_num: u32 = version.trim_start_matches('c').parse().unwrap_or(0);
+                    let ver_num = resolve_vault_version(cab_id, vault_versions, version);
                     if ver_num > 0 {
                         if let Err(e) = set_vault_version(app_config_dir, cab_id, ver_num) {
                             warn!("Failed to record per-cabinet version for {}: {}", cab_id, e);
@@ -759,6 +786,20 @@ mod tests {
         let versions = get_vault_versions(dir.path());
         assert_eq!(versions.get("media-analyst"), Some(&7));
         assert_eq!(versions.len(), 1);
+    }
+
+    #[test]
+    fn resolve_vault_version_prefers_per_cabinet_over_global() {
+        let mut vv = HashMap::new();
+        vv.insert("econometrist".to_string(), 12u32);
+        // per-cabinet версия сервера (12) важнее глобального content_version (c6→6)
+        assert_eq!(resolve_vault_version("econometrist", Some(&vv), "c6"), 12);
+        // кабинет отсутствует в карте → fallback на content_version
+        assert_eq!(resolve_vault_version("media-analyst", Some(&vv), "c6"), 6);
+        // старый сервер без vault_versions (None) → content_version (нулевая регрессия)
+        assert_eq!(resolve_vault_version("econometrist", None, "c6"), 6);
+        // битый content_version → 0 (не паникует; запись версии тогда пропускается)
+        assert_eq!(resolve_vault_version("x", None, "cabc"), 0);
     }
 
     // ── Migration from legacy ────────────────────────────────────────────────

@@ -89,7 +89,7 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
             if !missing.is_empty() {
                 info!("Downloading {} missing vault(s) from server...", missing.len());
                 let checksums = serde_json::json!({});
-                match content_updater::download_updates(&config_dir, &data_dir, product, cv, &missing, &checksums, Some(&app_handle)).await {
+                match content_updater::download_updates(&config_dir, &data_dir, product, cv, &missing, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
                     Ok(updated) => info!("Downloaded {}/{} vault files", updated.len(), missing.len()),
                     Err(e) => warn!("Failed to download vaults: {e}"),
                 }
@@ -110,7 +110,7 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
                 if !stale.is_empty() {
                     info!("Downloading {} vault(s) with newer prompt content...", stale.len());
                     let checksums = serde_json::json!({});
-                    match content_updater::download_updates(&config_dir, &data_dir, product, cv, &stale, &checksums, Some(&app_handle)).await {
+                    match content_updater::download_updates(&config_dir, &data_dir, product, cv, &stale, &checksums, Some(server_versions), Some(&app_handle)).await {
                         Ok(updated) => info!("Downloaded {}/{} updated vault files", updated.len(), stale.len()),
                         Err(e) => warn!("Failed to download versioned vault updates: {e}"),
                     }
@@ -308,7 +308,7 @@ async fn update_content(
 ) -> Result<Vec<String>, String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-    content_updater::download_updates(&config_dir, &data_dir, &product, &version, &files, &checksums, Some(&app_handle))
+    content_updater::download_updates(&config_dir, &data_dir, &product, &version, &files, &checksums, None, Some(&app_handle))
         .await
         .map_err(|e| e.to_string())
 }
@@ -455,7 +455,7 @@ async fn open_cabinet(
             let product = online_auth::detect_product();
             let files = vec![vault_filename.clone()];
             let checksums = serde_json::json!({});
-            match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, &checksums, Some(&app_handle)).await {
+            match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
                 Ok(updated) => info!("Downloaded {} vault files from server", updated.len()),
                 Err(e) => warn!("Failed to download vault from server: {e}"),
             }
