@@ -80,7 +80,35 @@
       справка 7 шагов (Планирование поз.6 = project-state.js), «доверительный»→«правдоподобный»,
       sanitizePromptFragment на все пути инъекции, U+2014→U+2013 в промпт-литералах.
       insights-grounding.js НЕ тронут. svelte-check 0 · vitest 1263. durable IMPL_B2.md.
-- [ ] Батч 3 · [ ] Батч 4 · [ ] Батч 5
+- [✅] **Батч 3a** — ПРИНЯТ, коммит `af469a1`. mmm-to-doc честный контракт, warnings в выжимку,
+      suspicious_channels→smell_flags, next-quarter-plan разгрузка+фантомы, awareness-мета.
+      content-pack command-meta-data.json → в общий re-sign.
+- [🔄] **Батч 3b** — UI/психо (психо-фазы нейтральные, онбординг, справка). content-pack
+      psy-data.json + onboarding-data.json → re-sign.
+- [🔄] **Батч 4-active** — 8 активных команд: тире, единая шапка, «правдоподобный диапазон»,
+      explain-ratio smell_flags, edge cases awareness.
+- [🔄] **Батч 4-legacy** — 9 mmm-* + LEGACY_COMMANDS: тире, шапка, терминология, LEGACY-индекс,
+      decomposition код-шаг, report честность, full протокол провала, edge cases, monthly пороги.
+- [ ] **Батч 5** — CI-линтеры (ПОСЛЕ всех правок): lint-prompts.mjs (U+2014/термины/шапка/
+      блокировка), линтер четверного совпадения, manifest-sync, дым-эвал в CI, подключить
+      lefthook-гейты в CI, регламент в CLAUDE.md репо.
+- [ ] **Единый re-sign content-pack** (command-meta + psy + onboarding + themes.json из 0.3):
+      инструмент sign_content_pack.py/aurora-pack.py из соседних репо, проверить ключ.
+- [ ] Пере-скоринг команд (DoD ≥4/4) · финальный самоаудит · Фаза 4 (канон RAG).
+🟢 ФАЗА 3 ЗАВЕРШЕНА: все 6 батчей + re-sign закоммичены (9 коммитов). Финальный регресс зелёный:
+cargo 190 · svelte-check 0 ERRORS · vitest 1263 · cabinet_eval --dry 6/6 · 3 линтера OK · pack version 7.
+КОММИТЫ: Батч0 `61a74ae` · Батч2 `8c87ef3` · Батч1 `a1ff86c` · Батч3a `af469a1` · Батч3b `451a792`
+· Батч4-active `7ad7331` · Батч4-legacy `54ee67e` · re-sign(0.3) `5ce5547` · Батч5 `d4a8049`.
+RE-SIGN СДЕЛАН: инструмент tools/sign_content_pack.py (порт из Legal, общий Aurora-ключ
+~/.secrets/rosst_content_private.key), manifest version 5→6, все 6 паков синхронны, подпись валидна.
+🔑 ОТКРЫТИЕ: параллельная Legal-сессия сделала ТОТ ЖЕ аудит промптов сегодня → готовые
+инструменты в `../ROSST_AI_Legal_commercial/tools/` (lint_prompt_commands.py, check_help_consistency.py,
+check_content_pack_sync.py) + регламент CLAUDE.md §18 — Батч 5 их ПОРТИРУЕТ, не строит с нуля.
+NEXT после Батча 5: (1) пере-скоринг команд (DoD ≥4/4, экспертно по закрытым находкам + опц. эвал
+через `env -u ANTHROPIC_API_KEY`); (2) финальный самоаудит (тех+логич+методолог); (3) итоговый
+отчёт Антону (до/после, что доказано, остатки: clippy-долг 7, 0.2-прямой frontend, справка
+econometrist переписать, publish по слову); (4) Фаза 4 — рекомендация канона RAG-библиотеки
+(aurora-upgrade, учесть уже проиндексированное, искать методологические ГЭПЫ).
 - [ ] Пере-скоринг команд после правок (DoD: все ≥4/4).
 - [ ] Финальный самоаудит сессии (тех+логич+методолог).
 - [ ] Фаза 4 — рекомендация по канону RAG-библиотеки (отдельный инструмент aurora-upgrade).
