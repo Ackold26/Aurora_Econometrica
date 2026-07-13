@@ -137,6 +137,22 @@ describe('validation-секция (сверка контракта S1<->S2, 2026
     expect(block).not.toContain('нет – шаг «Валидация» не пройден');
   });
 
+  it('warnings и high_correlations пробрасываются в [validation] (защита от переименования поля validator.py)', () => {
+    // Регресс-страж: поля summarizeValidation берут результат движка; при
+    // переименовании (как было suspicious_channels→smell_flags) команды
+    // data-gaps/next-quarter-plan молча получали бы null. Тест ловит это.
+    const val = { result: {
+      detected: { ratio: 3.1 },
+      file: { rows: 40 },
+      columns: [{ name: 'TV', role: 'media' }],
+      warnings: ['ratio ниже 4: риск переобучения'],
+      high_correlations: [{ a: 'TV', b: 'OLV', r: 0.93 }],
+    } };
+    const block = buildProjectDataBlock({ val });
+    expect(block).toContain('ratio ниже 4: риск переобучения');
+    expect(block).toContain('0.93');
+  });
+
   it('без валидации секция честно говорит, какого шага не хватает', () => {
     const block = buildProjectDataBlock({});
     expect(block).toContain('[validation]');
