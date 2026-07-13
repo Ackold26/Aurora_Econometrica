@@ -15,7 +15,7 @@
 3. Проверь Python-зависимости и сгенерируй скрипт `exports/scripts/awareness_forecast.py`:
    - Байесовская регрессия: awareness_t = f(adstock(media)) + trend + seasonality + natural_decay
    - Adstock с длинным хвостом (Weibull) – awareness строится медленно, затухает медленно
-   - ESOV-модуль (Binet & Field): ΔSOV → Δawareness (каждые 10pp ESOV ≈ 0.5-0.7pp роста SOM/год)
+   - ESOV-модуль (справочно, разводя метрики): у Binet & Field коэффициент ESOV описывает рост ДОЛИ РЫНКА (SOM), не awareness – annual market share growth ≈ 0.05 × ESOV. Прямой канонической формулы «ESOV → awareness» в источнике нет; если связываешь ESOV с ростом awareness – помечай `[ДОПУЩЕНИЕ]` и не выдавай коэффициент доли рынка за рост знания бренда (SOM и awareness – разные метрики)
    - Natural decay: без рекламы awareness снижается ~2-5% в квартал (зависит от категории)
    - Прогноз с правдоподобным диапазоном
 4. Выполни скрипт через Bash

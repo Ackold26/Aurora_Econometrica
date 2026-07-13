@@ -189,3 +189,114 @@ CLAUDE.md кабинета econometrist из work_dir (vault) → аудит п�
 Среднее: зрелость 3.4 / эффективность 4.0. Главный риск: ответ Авроры об итогах сценария
 уходит клиенту мимо рантайм-стража INV-50 (InsightsPanel.svelte:576) + стейл MQS-шкала в
 системном промпте-множителе (CLAUDE.md:163-171).
+
+---
+
+# aurora-upgrade — срез D: ядро MMM-методологии (canon vs mmm-model/decomposition/optimize/scenarios)
+
+Дата: 2026-07-13. Продукт: Aurora Econometrica (Optimizer MMM), репо `Aurora_Econometrica_v230`
+(`com.aurora.econometrica`, действующий). Периметр: `.claude/commands/mmm-model.md`,
+`mmm-decomposition.md`, `mmm-optimize.md`, `mmm-scenarios.md`, `CLAUDE.md`, `LEGACY_COMMANDS.md`.
+Метод: двуязычный RAG-поиск (`lib_vec.py`, cats «Эконометрика и статистика») + углубление в
+прочитанный текст книг. **Вывод по гейту зрелости:** ядро зрелое — большинство аспектов задания
+(half-normal priors на β, приоры adstock/Hill по носителю, L=13 недель, Hill-unidentifiability,
+regularized horseshoe/R2D2, backdoor/collider/M-bias по McElreath, «правдоподобный диапазон» вместо
+CI, экстраполяция за диапазон трат) уже дословно процитированы в CLAUDE.md/LEGACY_COMMANDS.md с
+атрибуцией к Jin 2017 / Chan-Perry 2017 / McElreath. Найденная дельта — узкая и сконцентрирована
+в одном месте: **multi-model uncertainty** (Chan-Perry §4.3.2) не покрыт, при том что смежный
+частный случай (2 спецификации adstock) уже есть в mmm-scenarios.md:22.
+
+## [GAP] mmm-scenarios.md п.4.1 — узкая проверка устойчивости (2 adstock-спецификации) вместо полного набора правдоподобных моделей — Chan & Perry 2017
+
+**Сейчас:** mmm-scenarios.md:22 требует прогнать оптимизацию на 2 контрастных спецификациях
+(geometric vs Weibull adstock) и пометить `[МОДЕЛЬНАЯ НЕОПРЕДЕЛЁННОСТЬ]` при расхождении по
+крупнейшему каналу. Это единственная проверка на нестабильность спецификации во всём ядре D.
+
+**Канон требует больше осей вариации, не только форму adstock.** Chan & Perry 2017, §4.3.2
+«Model uncertainty» — прямой эксперимент на реальном датасете: пять одинаково правдоподобных
+моделей (R²=0.98–0.99 у всех), отличающихся НЕ формой adstock, а прокси сезонности, длиной
+окна данных, включением/исключением branded search, линейным трендом. Дословная цитата (текст
+прочитан полностью, файл `Chan_Perry_2017_Challenges_and_Opportunities_in_Media_Mix_Modeling.md`):
+
+> «Model 1 is a baseline model and each of the others is a variation of Model 1. Model 2 uses a
+> different proxy variable to capture seasonality. Model 3 only includes the most recent two years
+> in the dataset… Model 4 excludes branded search ads as an ad channel… Model 5 includes a linear
+> time variable… Each model achieves an R2 value of either 0.98 or 0.99… The models differ in their
+> sales predictions by up to 50%… Most importantly, they disagree on ad channel A, which is by far
+> the largest channel for this advertiser.»
+
+и итоговый вывод раздела:
+
+> «So despite fitting the data equally well, the models disagree on what sales are achievable under
+> different ad spends… they lead to different conclusions about the overall value of the ad channels
+> and about how budget should be allocated.»
+
+**Обоснование дельты:** высокий R² не подтверждает правильность спецификации — это ядро уже знает
+про Hill-unidentifiability (LEGACY_COMMANDS.md:63) и про экстраполяцию (Chan-Perry Fig.2), но НЕ
+переносит тот же принцип на выбор сезонного прокси / окна данных / состава каналов. Промпт
+mmm-scenarios.md проверяет только ось adstock-формы — Chan-Perry показывает, что расхождение до
+50% в прогнозе и полная смена рекомендации по крупнейшему каналу возникают именно от ЭТИХ осей
+(прокси сезонности, окно, состав каналов), которые сейчас не варьируются вовсе.
+
+**Риск/применимость:** прямое применение, тот же домен (Bayesian/regression MMM), тот же тип
+данных (недельные национальные ряды с малым числом точек). РФ-специфики нет — общая эконометрика.
+Не противоречит INV-50 (наоборот усиливает честность оценки неопределённости).
+
+**Размещение (on-demand):** `mmm-scenarios.md` п.4.1 — расширить формулировку с «2 контрастных
+спецификации (geometric vs Weibull adstock)» до «2–3 осей вариации: (а) форма adstock
+(geometric/Weibull — уже есть), (б) прокси сезонности при наличии альтернативы в данных, (в) окно
+данных (полный период vs последние 2 года) при достаточной длине ряда». Не always-on CLAUDE.md —
+это специфика одной legacy-команды, не сквозной принцип кабинета.
+
+## [CONFIRM] mmm-model.md п.4 / LEGACY_COMMANDS.md §Priors — half-normal β, priors по носителю, L=13 — Jin 2017
+
+Дословно совпадает с прочитанным текстом Jin 2017 (Section 2.1, carryover: «L = 13 is a good
+approximation to infinity as the weights are less than 10−7 beyond 13 weeks»; Section 2.2, Hill
+unidentifiability: «the parameters of βHill are essentially unidentifiable in some scenarios… when
+S=1, within a finite range, the curve can be approximated very well with a curve constructed from
+a very different set of three parameters»). Атрибуция в LEGACY_COMMANDS.md:63,67-76 точна, не
+дубль — не переносить.
+
+## [CONFIRM] mmm-model.md п.3.5 — калибровка приоров из внешнего эксперимента — Chan & Perry 2017 + Jin 2017
+
+Chan-Perry §5.1 прямо рекомендует «a strong candidate method for developing informative priors is
+by fitting category level MMMs across brands within a category using a Bayesian hierarchical
+model», а Jin 2017 (Introduction) — «prior knowledge may come from industry experience or previous
+media mix models of the same or similar advertisers». Промпт п.3.5 уже реализует именно это
+(калибровка из A/B-теста / Geo-Lift / прошлого MMM того же бренда/категории, тег `[CALIBRATED]`,
+запрет чужого рынка/периода). Точное соответствие канону — не менять.
+
+## [SHIFTED→CONFIRM] Иерархические приоры для малых данных — Wang-Jin — N/A для кабинета в текущей форме данных
+
+Wang-Jin (category data) описывает partial pooling ЧЕРЕЗ несколько брендов/каналов одной категории
+в общей иерархической модели (HCM vs FCM, category-level Φ как prior для brand-level β). Кабинет
+эконометриста получает на вход ОДИН проект/бренд за раз (контракт данных CLAUDE.md:77-95: секции
+[model-diagnostics]/[decomposition]/[optimization] на один проект) — межбрендовый pooling
+архитектурно недоступен на этом слое (движок, не промпт, был бы точкой внедрения, и это увеличение
+объёма данных на вход, а не правка формулировки промпта). Кабинет уже даёт функциональный аналог
+для тонких данных на своём уровне — regularized horseshoe/R2D2 (mmm-model.md:21, тот же мотив
+«стабильность при дефиците данных»). Не GAP уровня промпта-советника; сигнал зафиксирован как
+возможное расширение движка (out of scope для файлов D).
+
+## [CONFIRM] mmm-optimize.md — Hill saturation формулировка, K/half-saturation, S/slope — Jin 2017
+
+Промпт использует `S(x) = x^α / (x^α + γ^α)` (эквивалентная параметризация Hill(x;K,S) из Jin
+2017 eq.4 с α↔S, γ↔K) и корректно описывает α<1→C-shape / α>1→S-shape — совпадает с прочитанным
+Section 2.2 («S>1 (red curve) is convex close to zero, resulting in an S shape; S<1 (green curve)
+is more concave close to zero and flattens faster»). mROI как производная кривой отклика в точке
+текущих затрат (mmm-optimize.md:11) — стандартная и корректная трактовка marginal response.
+
+## [CONFIRM] Регуляризация приором против переобучения — McElreath — уже вшито
+
+CLAUDE.md уже цитирует McElreath на «точечная оценка отбрасывает информацию» (п.7) и
+prior-predictive check (п.3 / mmm-model.md:24) — McElreath Ch.7 («regularizing priors reduce
+overfitting during estimation») подтверждает мотив regularized horseshoe/R2D2 в mmm-model.md:21
+(«shrinkage оптимизирует предсказание и тянет коэффициенты к нулю»). Атрибуция точна.
+
+## Сводка среза D
+
+5 аспектов задания проверены. 1 GAP (multi-model uncertainty — узкая проверка расширяется на
+прокси сезонности/окно данных, Chan-Perry §4.3.2), 4 CONFIRM/SHIFTED→N/A (приоры/adstock/Hill/
+регуляризация — ядро уже цитирует канон дословно и корректно; иерархия межбрендовая — архитектурно
+недоступна на уровне промпта, не GAP файлов D). Библиотека покрывает домен полностью, докупка не
+нужна. Единственная правка на ревью Антона — расширение формулировки mmm-scenarios.md п.4.1.
