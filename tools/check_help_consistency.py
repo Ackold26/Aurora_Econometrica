@@ -44,6 +44,7 @@ CABINET_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "cabinet.rs"
 CABINETS_JSON = REPO_ROOT / "content-packs" / "cabinets.json"
 COMMAND_META_JSON = REPO_ROOT / "content-packs" / "command-meta-data.json"
 COMMANDS_DIR = REPO_ROOT / "New_AI_Agency" / "econometrist" / ".claude" / "commands"
+LEGACY_COMMANDS_MD = REPO_ROOT / "New_AI_Agency" / "econometrist" / "LEGACY_COMMANDS.md"
 CONTENT_PACKS_DIR = REPO_ROOT / "content-packs"
 
 CABINET_ID = "econometrist"
@@ -88,6 +89,19 @@ def parse_commands_from_meta() -> list:
         return []
     data = json.loads(COMMAND_META_JSON.read_text(encoding="utf-8"))
     return sorted(data.get("commands", {}).keys())
+
+
+def parse_legacy_command_stems() -> set:
+    """Стемы legacy /mmm-* команд из LEGACY_COMMANDS.md (SSOT).
+
+    Скрыты из грида (cabinet.rs их не выводит), но файлы-владельцы в
+    .claude/commands/ легитимно существуют — ручной ввод в поле работает
+    (backward compat). Нужны для orphan-проверки ниже: без них 9 legacy-файлов
+    считались бы мусором и давали ложный FAIL."""
+    if not LEGACY_COMMANDS_MD.exists():
+        return set()
+    text = LEGACY_COMMANDS_MD.read_text(encoding="utf-8")
+    return set(re.findall(r"/(mmm-[\w\-]+)", text))
 
 
 def relpath(path: Path) -> str:
@@ -150,6 +164,28 @@ def check_commands() -> tuple:
     if missing_files:
         fails.append(
             f"есть в cabinet.rs, нет файла-промпта в .claude/commands/: {', '.join(missing_files)}"
+        )
+
+    # ОБРАТНАЯ сторона (иначе «четверное совпадение» одностороннее): файл-промпт
+    # без активной команды в cabinet.rs И без записи в LEGACY_COMMANDS.md — это
+    # осиротевший .md (переименование команды/мусор), который молча попадёт в
+    # сборку vault. Legacy /mmm-* легитимны (SSOT — LEGACY_COMMANDS.md).
+    grid_stems = {c.lstrip("/") for c in rust_cmds}
+    legacy_stems = parse_legacy_command_stems()
+    file_stems = {p.stem for p in COMMANDS_DIR.glob("*.md")} if COMMANDS_DIR.exists() else set()
+    orphan_files = sorted(file_stems - grid_stems - legacy_stems)
+    if orphan_files:
+        fails.append(
+            "файл-промпт в .claude/commands/ без команды в cabinet.rs и без записи "
+            f"в LEGACY_COMMANDS.md (осиротел/переименован?): {', '.join(s + '.md' for s in orphan_files)}"
+        )
+    # Legacy задокументирована в LEGACY_COMMANDS.md, но файла-владельца нет —
+    # документация обещает промпт, которого нет (ручной ввод сломается).
+    legacy_missing = sorted(legacy_stems - file_stems)
+    if legacy_missing:
+        fails.append(
+            "команда описана в LEGACY_COMMANDS.md, но нет файла-промпта в "
+            f".claude/commands/: {', '.join(s + '.md' for s in legacy_missing)}"
         )
 
     row = {
