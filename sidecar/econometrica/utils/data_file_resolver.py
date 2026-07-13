@@ -35,16 +35,21 @@ def resolve_data_file(data_file: str | Path | None, project_dir: str | Path | No
     p = Path(data_file)
     if p.exists():
         return p
+    # basename кросс-платформенно: pickle мог сохранить путь на Windows (\),
+    # а sidecar бежать на Linux (облако) → PosixPath.name НЕ распознаёт '\' как
+    # разделитель и вернул бы ВЕСЬ путь → fallback по имени молча ломался
+    # (обнаружено CI на ubuntu-runner). Нормализуем оба разделителя.
+    name = str(data_file).replace('\\', '/').rstrip('/').rsplit('/', 1)[-1]
     if project_dir:
-        cand = Path(project_dir) / p.name
+        cand = Path(project_dir) / name
         if cand.exists():
             logger.info(
                 'data_file fallback: исходный путь протух (%s), найден файл в проекте: %s',
-                p, cand,
+                data_file, cand,
             )
             return cand
     raise FileNotFoundError(
-        f'Файл исходных данных не найден: «{p.name}» (путь: {p}). '
+        f'Файл исходных данных не найден: «{name}» (путь: {data_file}). '
         f'Файл был перемещён или удалён после обучения модели. '
         f'Верните файл на прежнее место, либо импортируйте его заново и переобучите модель.'
     )
