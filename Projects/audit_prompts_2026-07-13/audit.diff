@@ -1,0 +1,932 @@
+diff --git a/New_AI_Agency/econometrist/.claude/commands/awareness-forecast.md b/New_AI_Agency/econometrist/.claude/commands/awareness-forecast.md
+index f184586..2d5bc8c 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/awareness-forecast.md
++++ b/New_AI_Agency/econometrist/.claude/commands/awareness-forecast.md
+@@ -15,7 +15,7 @@
+ 3. Проверь Python-зависимости и сгенерируй скрипт `exports/scripts/awareness_forecast.py`:
+    - Байесовская регрессия: awareness_t = f(adstock(media)) + trend + seasonality + natural_decay
+    - Adstock с длинным хвостом (Weibull) – awareness строится медленно, затухает медленно
+-   - ESOV-модуль (Binet & Field): ΔSOV → Δawareness (каждые 10pp ESOV ≈ 0.5-0.7pp роста SOM/год)
++   - ESOV-модуль (справочно, разводя метрики): у Binet & Field коэффициент ESOV описывает рост ДОЛИ РЫНКА (SOM), не awareness – annual market share growth ≈ 0.05 × ESOV. Прямой канонической формулы «ESOV → awareness» в источнике нет; если связываешь ESOV с ростом awareness – помечай `[ДОПУЩЕНИЕ]` и не выдавай коэффициент доли рынка за рост знания бренда (SOM и awareness – разные метрики)
+    - Natural decay: без рекламы awareness снижается ~2-5% в квартал (зависит от категории)
+    - Прогноз с правдоподобным диапазоном
+ 4. Выполни скрипт через Bash
+diff --git a/New_AI_Agency/econometrist/.claude/commands/awareness-to-sales.md b/New_AI_Agency/econometrist/.claude/commands/awareness-to-sales.md
+index c5781c5..bd8acd2 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/awareness-to-sales.md
++++ b/New_AI_Agency/econometrist/.claude/commands/awareness-to-sales.md
+@@ -11,7 +11,7 @@
+    - Воронка: использовать если есть столбцы consideration/trial/preference
+    - Гранулярность: определить из интервала между датами
+    - Лаг: рассчитать автоматически через cross-correlation
+-   - Контроль: использовать price/distribution/season если есть в данных
++   - Контроль: price/distribution/season если есть в данных – отбирать по backdoor-логике (закрыть общие причины awareness и продаж), не по одному лишь наличию столбца (backdoor-процедура – в mmm-model + Red Teaming CLAUDE.md)
+ 3. Сгенерируй Python-скрипт `exports/scripts/awareness_to_sales.py`:
+    - Нелинейная зависимость: Sales = α + β₁ × f(awareness) + β₂ × price + β₃ × distribution + ε
+    - f(awareness) – логистическая/S-образная функция (порог снизу + потолок сверху)
+@@ -20,7 +20,7 @@
+    - Байесовская регрессия с правдоподобным диапазоном
+ 4. Выполни скрипт через Bash
+ 5. Результат:
+-   - **Эластичность:** «+1pp awareness = +X% продаж [правдоподобный диапазон: Y%-Z%]»
++   - **Эластичность (регрессионная ассоциация, не причинный эффект):** «+1pp awareness ≈ +X% продаж [правдоподобный диапазон: Y%-Z%]». Это оценка при контроле на price/distribution, НЕ идентифицированный причинный эффект awareness (см. «Ограничение каузальности» ниже) – не подавать как «awareness вызывает рост продаж»
+    - **S-кривая зависимости:** порог (awareness ниже которого не влияет на продажи) и потолок (выше которого прирост минимален)
+    - **Прогноз:** «Если awareness вырастет с 45% до 55%, продажи вырастут на X% [правдоподобный диапазон]»
+    - **Оптимальный уровень awareness** для текущего бюджета (точка перегиба S-кривой)
+diff --git a/New_AI_Agency/econometrist/.claude/commands/mmm-model.md b/New_AI_Agency/econometrist/.claude/commands/mmm-model.md
+index 9f28700..017d101 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/mmm-model.md
++++ b/New_AI_Agency/econometrist/.claude/commands/mmm-model.md
+@@ -15,6 +15,7 @@
+ 4. Сгенерируй Python-скрипт `exports/scripts/mmm_model.py`:
+    - Загрузка и подготовка данных (pandas)
+    - Декомпозиция временного ряда (Prophet): тренд, сезонность, праздники
++   - **Проверка остаточной стационарности** (после вычитания тренда/сезонности Prophet): прогони ADF/KPSS на остаточном ряде KPI и медиа. Prophet-тренд – гладкая детерминированная кривая, не тест на unit root; остаток может остаться интегрированным. Регрессия двух нестационарных рядов даёт ложно высокий R² без причинной связи (Neusser, spurious regression). Остаток нестационарен (unit root не отвергнут) – пометь `[ОГРАНИЧЕНИЕ: остаточная нестационарность, риск ложной регрессии]`; если ряды коинтегрированы – регрессия на уровнях осмысленна, иначе рассмотреть спецификацию в разностях
+    - Adstock-трансформация для каждого медиаканала
+    - Hill function saturation
+    - Спецификация байесовской модели (PyMC-Marketing MMM)
+diff --git a/New_AI_Agency/econometrist/.claude/commands/mmm-scenarios.md b/New_AI_Agency/econometrist/.claude/commands/mmm-scenarios.md
+index 48488ff..25c69df 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/mmm-scenarios.md
++++ b/New_AI_Agency/econometrist/.claude/commands/mmm-scenarios.md
+@@ -19,7 +19,7 @@
+    | Смешанный ROAS | | | | |
+    | ROI лучшего канала | | | | |
+ 4. **Sensitivity analysis:** насколько меняется результат, если модель ошибается на ±10% (оптимистичный / пессимистичный)
+-4.1. **Модельная неопределённость:** прогони оптимизацию на 2 контрастных спецификациях (geometric vs Weibull adstock). Если они расходятся по крупнейшему каналу – пометка `[МОДЕЛЬНАЯ НЕОПРЕДЕЛЁННОСТЬ: оптимум канала X неустойчив к спецификации]` и понизить уверенность рекомендации. (Дополняет sensitivity ±10%; достаточно 2 спецификаций, не полный ансамбль – Windows-время.)
++4.1. **Модельная неопределённость:** прогони оптимизацию на контрастных спецификациях. Варьируй НЕ только форму adstock (geometric vs Weibull), но и оси, дающие наибольшее расхождение прогноза (Chan & Perry 2017: спецификация сезонности, окно данных, состав контрольных переменных меняют рекомендацию по крупнейшему каналу до ~50% – сильнее, чем форма adstock). Если рекомендация по крупнейшему каналу неустойчива к любой из осей – пометка `[МОДЕЛЬНАЯ НЕОПРЕДЕЛЁННОСТЬ: оптимум канала X неустойчив к спецификации]` и понизить уверенность. (Дополняет sensitivity ±10%; достаточно нескольких контрастов, не полный ансамбль – Windows-время.)
+ 5. Рекомендация: какой сценарий оптимален и почему – с маркировкой уверенности [ВЫСОКАЯ] / [СРЕДНЯЯ] / [НИЗКАЯ]
+ 
+ Сохрани: `exports/mmm-scenarios-[дата].xlsx` (лист на каждый сценарий + сводный Comparison) + графики
+diff --git a/New_AI_Agency/econometrist/.claude/commands/pilot-design.md b/New_AI_Agency/econometrist/.claude/commands/pilot-design.md
+index dec0cd3..34ce57e 100644
+--- a/New_AI_Agency/econometrist/.claude/commands/pilot-design.md
++++ b/New_AI_Agency/econometrist/.claude/commands/pilot-design.md
+@@ -25,13 +25,15 @@ MMM – статистическая модель. Её прогноз може
+ **2. Параметры пилота (компактно, списком)**
+ - **Длительность:** 4–6 недель (4 если динамичная категория, 6 если TV/brand)
+ - **Бюджет пилота:** 20–30% от общего медиа-бюджета, остальные 70–80% продолжают идти по текущему плану (контрольная группа во времени)
+-- **Гео-сплит** (альтернатива): 2 региона одинакового размера – один на текущий план, другой на оптимальный. Плюсы – параллельное сравнение; минусы – нужны сопоставимые регионы
++- **Гео-сплит** (альтернатива, если есть гео-таргетинг): регионы РАНДОМНО распределить на контроль/тест со стратификацией по размеру – группировка по размеру до распределения сужает диапазон оценки эффекта ≈ на 10% (Vaver & Koehler 2011). ДО запуска оценить мощность: хватит ли числа регионов и длительности, чтобы увидеть эффект заявленного размера (ширина диапазона зависит от длины теста, доли тестовых регионов, разницы в тратах). Результат анализировать регрессией pre/test-периодов (TBR), не наивным сравнением средних. Применимо в РФ для digital (Яндекс.Директ, VK Реклама – есть гео-таргетинг); для федерального ТВ без региональных вставок метод неприменим
+ - **Метрики:** KPI модели (продажи/упаковки/SOM) понедельно, plus awareness/brand health если доступны
+ 
+ **3. Как измерять (4–5 строк)**
+ - **Что сравниваем:** KPI в пилоте vs forecast из модели при новом миксе
+ - **Статистическая значимость:** короткий пилот не даст правдоподобный диапазон уже 10%. Значимые отклонения – выше 15%, ищи такие
+ - **Чего ждать:** внутри ожидаемого правдоподобного диапазона – модель валидна, бюджет можно масштабировать. Ниже нижней границы – модель переоценила эффект, откатиться к текущему плану
++- **Контрфактуальная оценка (когда гео-сплита нет, напр. федеральное ТВ):** оцени инкрементальный эффект через синтетический контроль – модель прогнозирует, «что было бы без нового микса», по непострадавшим рядам (другие бренды категории, немедийные регионы); эффект = факт минус контрфактуал, с расширяющимся во времени правдоподобным диапазоном, значим пока кумулятивный диапазон не пересёк ноль (Brodersen 2015, CausalImpact/BSTS). Не требует рандомизации – работает и для единой нацио-кампании
++- **После пилота – замкни цикл:** передай фактический результат обратно в модель (перезапусти /mmm-model с informative prior `[CALIBRATED]` по факту пилота, mmm-model п.3.5), чтобы следующая оптимизация опиралась на подтверждённый эффект, а не только на исторические данные
+ 
+ **4. Чек-лист запуска**
+ ```
+diff --git a/New_AI_Agency/econometrist/CLAUDE.md b/New_AI_Agency/econometrist/CLAUDE.md
+index f15d0da..73bbcb6 100644
+--- a/New_AI_Agency/econometrist/CLAUDE.md
++++ b/New_AI_Agency/econometrist/CLAUDE.md
+@@ -55,6 +55,7 @@
+    - «Collider Bias» – не добавлено ли в контроли общее СЛЕДСТВИЕ рекламы и продаж? Кондиционирование на коллайдере создаёт ложную связь между его причинами (Hernán & Robins: conditioning on a collider always induces an association between its causes). Контроль на коллайдере искажает оценку ROI.
+    - «M-bias» – корреляция переменной И с медиа, И с продажами сама по себе НЕ основание для контроля; контроль может открыть ложный путь (Pearl: B only becomes a confounder when you control for it). Пример MMM: «лояльность бренда» (предшествующий аттитюд) – не включать в контроли только потому, что коррелирует с обоими.
+    - «Descendant/proxy коллайдера» – потомок или прокси коллайдера (например `brand_search` как индикатор неизмеримого интереса к категории) частично открывает коллайдерный путь; исключать наравне с самим коллайдером (McElreath).
++   - «Pretreatment ≠ безопасный контроль» – переменная, случившаяся ДО медиа-воздействия (price, distribution, search), НЕ автоматически безопасна для контроля: дотреатментный коллайдер тоже вносит selection bias (Hernán & Robins: контроль на все доступные pretreatment-ковариаты НЕ минимизирует смещение). Отбирать по графу причинности, не по одному лишь «предшествует во времени».
+ 
+ 6. **Second-Order Thinking:** Если модель показывает, что ТВ неэффективен – это реальность или Adstock неверно настроен? Если оптимизатор предлагает 0 в канале – это оптимум или артефакт модели? Каковы бизнес-последствия неправильного перераспределения бюджета на основании модели?
+ 
+@@ -145,7 +146,7 @@
+ - [ ] **bulk-ESS и tail-ESS ≥ 400** для каждого параметра. Низкий ESS при хорошем R̂ = плохое перемешивание
+ - [ ] Divergences: при наличии движок отрабатывает протокол (target_accept↑ → non-centered при иерархии → проверка funnel). Только NUTS; на Metropolis divergences не возникают
+ - [ ] **E-BFMI ≥ ~0.3** (energy diagnostic, только NUTS): низкий E-BFMI – патологичная геометрия, лечится non-centered параметризацией. На Windows-Metropolis недоступна – опора на R̂/ESS/trace
+-- [ ] Trace plots стабильны («мохнатая гусеница», нет дрейфа)
++- [ ] **Rank plots** равномерны между цепями (Vehtari et al. 2021: rank-гистограммы надёжнее визуального «мохнатая гусеница» trace plot; неравномерность = плохое перемешивание). Trace/rank – дополнительная визуальная проверка к численному rank-normalized R̂ выше
+ - [ ] Posterior predictive check: predicted vs actual совпадают
+ - [ ] R² > 0.8 · MAPE < 15%
+ - [ ] Нет каналов с отрицательным ROI (движок использует half-normal priors на медиа-β → структурно исключает)
+diff --git a/Projects/audit_prompts_2026-07-13/CANON_A.md b/Projects/audit_prompts_2026-07-13/CANON_A.md
+new file mode 100644
+index 0000000..56f8bf2
+--- /dev/null
++++ b/Projects/audit_prompts_2026-07-13/CANON_A.md
+@@ -0,0 +1,225 @@
++# Срез A — geo-эксперименты и калибровка MMM. Aurora Econometrica / econometrist
++
++Цель: найти дельту между каноном RAG-библиотеки (тема «Эконометрика и статистика») и текущими
++промптами кабинета econometrist. Правки НЕ вносятся — только находки-кандидаты на ревью Антона.
++
++Целевой репо подтверждён: `Aurora_Econometrica_v230` (identifier `com.aurora.econometrica`,
++remote `github.com/Ackold26/Aurora_Econometrica`) — действующий продукт, не архив.
++
++Прочитанные файлы кабинета: `New_AI_Agency/econometrist/.claude/commands/pilot-design.md`,
++`.../mmm-model.md`, `.../mmm-decomposition.md`, `.../CLAUDE.md` (кабинета).
++Проверка по всему кабинету (`grep -i "гео|regio|geo"`): единственное упоминание geo-подхода во всём
++кабинете — одна строка в `pilot-design.md` («Гео-сплит (альтернатива)»). Иерархической geo-модели,
++TBR-метода, CausalImpact/BSTS нет НИГДЕ (ни в mmm-model, ни в mmm-decomposition, ни в mmm-optimize,
++ни в LEGACY_COMMANDS.md).
++
++---
++
++## Аспект 1 — Дизайн geo-эксперимента (TBR, Vaver & Koehler 2011)
++
++**Тип: GAP.**
++
++**Что в промпте сейчас** (`pilot-design.md`, раздел «Параметры пилота», строка 28):
++> «Гео-сплит (альтернатива): 2 региона одинакового размера – один на текущий план, другой на
++> оптимальный. Плюсы – параллельное сравнение; минусы – нужны сопоставимые регионы»
++
++Это одна строка без метода: нет рандомизации, нет расчёта нужного числа гео, нет оценки
++статистической мощности/ширины доверительного интервала ДО запуска, нет формальной модели
++для анализа результата (просто «сравнить регионы»).
++
++**Что канон требует:**
++1. **Рандомизация гео** с возможным стратифицированием по размеру снижает ширину CI на ~10%.
++2. **Формальная TBR-модель** (Time-Based Regression, Equation 1) с pretest/test периодами для
++   анализа результата, а не наивное сравнение средних по двум регионам.
++3. **Оценка мощности эксперимента ДО запуска** — раздел 5 «Design» показывает, как из pretest-данных
++   заранее спрогнозировать ширину ROAS-интервала как функцию длины теста, test fraction и величины
++   ad spend differential, и сравнить сценарии дизайна.
++
++**Точная цитата** (прочитан весь текст книги, `Vaver_Koehler_2011...md`, разделы 2–3 и 5):
++> «The next step is to randomly assign each geo to a control or treatment condition. Randomization
++> is an important component of a successful experiment as it guards against potential hidden
++> biases... It also may be helpful to constrain this random assignment in order to better balance
++> the control and treatment geos across one or more characteristics or demographic variables. For
++> example, we have found that grouping the geos by size prior to assignment can reduce the confidence
++> interval of the ROAS measurement by 10%, or more.»
++
++> «Design is a crucial aspect of running an effective geo experiment. Before beginning a test, it is
++> helpful to understand how characteristics such as experiment length, test fraction, and magnitude
++> of ad spend differential will impact the uncertainty of the ROAS measurement. This understanding
++> allows for the design of an effective and efficient experiment... This process can be repeated
++> across a number of different scenarios to evaluate and compare designs.»
++
++Формальная модель для анализа (для справки, не для промпта дословно): `y_i,1 = β0 + β1·y_i,0 +
++β2·δ_i + ε_i`, где `δ_i` — ad spend differential (Equation 1), а ROAS = β2 с доверительным
++интервалом, сужающимся по мере накопления test-периода (Figure 2/5).
++
++**Обоснование:** пилот в текущем виде — это по сути A/B «на глаз» без строгости рандомизации и без
++предварительной оценки, хватит ли выбранных гео и длительности, чтобы вообще увидеть эффект
++заявленного размера. Кабинет уже честен про статистическую значимость («короткий пилот не даст
++правдоподобный диапазон уже 10%») — но это эмпирическое правило, не расчёт мощности. TBR даёт
++инструмент оценить ДО запуска, а не гадать постфактум.
++
++**РФ-контекст / применимость:** метод предполагает возможность geo-таргетинга рекламных кампаний
++(digital, spot TV) — в РФ доступно для digital (Яндекс.Директ, VK Реклама — есть гео-таргетинг) и
++частично для наружной/спот-ТВ. Для нацио­нальных кампаний без гео-таргетинга (федеральное ТВ без
++региональных вставок) метод неприменим — важная оговорка, которой сейчас в промпте тоже нет.
++
++**Размещение:** on-demand — это специфика ОДНОЙ команды (`pilot-design.md`), не сквозной принцип
++кабинета. В `CLAUDE.md` (always-on) не место — раздувает системный промпт консультацией,
++относящейся к одному сценарию из восьми команд.
++
++---
++
++## Аспект 2 — Калибровка MMM экспериментом (приоры / валидация модели)
++
++**Тип: GAP (частичный) — механизм есть в общей форме (п.3.5 mmm-model.md), но без geo-специфики и
++без явной связи с пилотом.**
++
++**Что в промпте сейчас** (`mmm-model.md`, п. 3.5):
++> «Калибровка priors из внешних источников. Если в inbox есть результаты A/B-теста, Geo-Lift или
++> прошлого MMM по каналу – задай informative prior на β/ROAS этого канала с центром на внешней
++> оценке (вноси как центр+разброс, не точку), тег [CALIBRATED]. Чем слабее данные канала, тем ценнее
++> informative prior. Калибруй только из релевантного эксперимента того же бренда/категории (чужой
++> рынок/период = смещение).»
++
++Механизм калибровки приоров экспериментом уже заложен и методологически корректен (центр+разброс,
++не точка; ограничение по релевантности бренда/категории). Это CONFIRM по своей сути.
++
++**Чего не хватает — GAP:** нет обратной связи «пилот (`pilot-design.md`) → калибровка модели»
++и нет формализованного объективного критерия качества калибровки (MAPE против эксперимента),
++взвешенного вместе с точностью подгонки и разумностью декомпозиции — сейчас решение о том,
++насколько сильно давить приор, полностью на усмотрение модели/кабинета, без метрики.
++
++**Что канон добавляет сверх вшитого** (Robyn / Meta 2024, раздел 3.2 Model calibration, прочитан
++полностью):
++> «Robyn allows users to set two optimization objectives in addition to minimization of NRMSE:
++> avoidance of extreme results... and minimization of calibration error, i.e., mean absolute
++> percentage error (MAPE) against estimates from experiments or vetted attribution models...
++> calibration serves as a method of identification that guides model estimations to align closer
++> with a more accurate ground truth... This adjustment moves the estimates up the "incrementality
++> spectrum," bringing them closer to RCT-based causal effect estimates.»
++
++> «Note that, by default, the weights are set equally across objectives as (1, 1, 1) for NRMSE
++> ("statistical error"), Decomp.RSSD ("business error"), and MAPE ("calibration error") respectively.»
++
++**Обоснование:** канон формализует калибровку как ОДНУ из трёх взвешиваемых целей оптимизации
++(наряду со статистической ошибкой подгонки и разумностью декомпозиции), а не только как настройку
++приора вручную. Текущий промпт делает калибровку приора, но не даёт кабинету языка «насколько
++хорошо модель совпала с экспериментом после переобучения» (MAPE.LIFT) — то есть нет шага
++ПОСЛЕ пилота: пилот прошёл → есть факт → перекалибровать/провалидировать модель этим фактом
++формальной метрикой, а не только субъективно.
++
++**Важная оговорка:** движок Aurora Econometrica детерминированный (сам считает MCMC), кабинет
++econometrist — только консультационный слой поверх готовых результатов («Сами вычисления MMM Claude
++не выполняет»). Значит, эта находка релевантна не столько тексту консультационных промптов
++econometrist, сколько ДВИЖКУ (Rust/Python sidecar) — за пределами того, что правит этот срез аудита.
++Для кабинета единственное действие — явно завершить цикл «пилот → возврат факта → предложение
++пересчитать/перекалибровать модель», чего сейчас в `pilot-design.md` нет (пилот заканчивается
++чек-листом запуска, не описывает шаг «когда пилот завершён, дай факт обратно в /mmm-model»).
++
++**Размещение:** on-demand, в `pilot-design.md` (раздел после «Чек-лист запуска» — что делать когда
++пилот завершён) + возможно короткая ссылка в описании `/mmm-model` о повторном запуске с
++CALIBRATED-приором из факта пилота. Не always-on — это шаг одного workflow, не сквозной принцип.
++
++---
++
++## Аспект 3 — Причинная оценка эффекта кампании (CausalImpact / BSTS, Brodersen 2015)
++
++**Тип: GAP.**
++
++**Что в промпте сейчас:** ничего. `pilot-design.md` предлагает сравнение «KPI в пилоте vs forecast
++из модели при новом миксе» только как содержательное правило (выше/ниже правдоподобного диапазона
++модели) — без метода, дающего контрфактуальный прогноз «что было бы без вмешательства» и
++доверительный интервал вокруг самого эффекта. `mmm-decomposition.md` и остальные команды тоже не
++содержат оценки инкрементального эффекта отдельной кампании через синтетический контроль.
++
++**Что канон даёт** (Brodersen et al. 2015, прочитан Introduction + разделы 2–3 полностью):
++> «This paper proposes to infer causal impact on the basis of a diffusion-regression state-space
++> model that predicts the counterfactual market response in a synthetic control that would have
++> occurred had no intervention taken place... state space models make it possible to (i) infer the
++> temporal evolution of attributable impact, (ii) incorporate empirical priors on the parameters in
++> a fully Bayesian treatment, and (iii) flexibly accommodate multiple sources of variation.»
++
++> «The causal impact of a treatment is the difference between the observed value of the response and
++> the (unobserved) value that would have been obtained under the alternative treatment... the causal
++> effect of interest is the difference between the observed series and the series that would have
++> been observed had the intervention not taken place.»
++
++Ключевая практическая деталь для пилота: результат — не точка, а posterior-распределение эффекта с
++расширяющимся во времени доверительным интервалом (чем дальше от начала вмешательства, тем шире),
++и авторы прямо указывают порог значимости через пересечение нуля кумулятивным интервалом:
++> «Here, the 95% credible interval of the cumulative impact crosses the zero-line about five months
++> after the intervention, at which point we would no longer declare a significant overall effect.»
++
++**Обоснование:** это ровно инструмент под задачу «прогноз→факт» из `pilot-design.md» — но нужен
++control-ряд (необработанные гео/каналы/рынки), в отличие от TBR (Vaver-Koehler) BSTS/CausalImpact НЕ
++требует случайного эксперимента и подходит даже когда гео-сплит невозможен (единая национальная
++кампания без geo-таргетинга) — это восполняет именно тот пробел, где TBR из Аспекта 1 неприменим по
++РФ-специфике (федеральное ТВ). Сейчас правило пилота «выше/ниже нижней границы правдоподобного
++диапазона» — это эвристика без формальной контрфактуальной модели и без явного учёта тренда/сезонности
++пост-фактум, то есть точность оценки инкрементального эффекта пилота ниже, чем могла бы быть.
++
++**РФ-контекст:** метод общий (эконометрика временных рядов), юрисдикционных ограничений нет; нужны
++непострадавшие control-ряды (другие бренды категории, немедийные регионы, экономические индикаторы) —
++доступность зависит от данных клиента, это ограничение практики, не канона.
++
++**Размещение:** on-demand — новый под-раздел `pilot-design.md` «Как измерять» (сейчас там короткая
++эвристика без метода) ИЛИ отдельная новая команда `/pilot-evaluate` (пост-фактум оценка пилота).
++Само наличие такого шага в принципе стоит явно перечислить в `CLAUDE.md` в списке консультационных
++команд, если решат делать отдельную команду — но сам метод и формулы не имеют смысла тащить в
++always-on.
++
++---
++
++## Аспект 4 — Geo-уровневая иерархия (Sun 2017)
++
++**Тип: GAP.**
++
++**Что в промпте сейчас:** региональная декомпозиция не поддерживается нигде в кабинете. Диагностика,
++декомпозиция и оптимизация в `mmm-model.md`/`mmm-decomposition.md`/`CLAUDE.md` — целиком
++национальный/агрегированный уровень (один временной ряд KPI, каналы, adstock). Контракт данных
++(`CLAUDE.md`, «Контракт данных») тоже не предусматривает секцию по гео в блоке «Данные проекта».
++
++**Что канон даёт** (Sun 2017, Abstract + Introduction, прочитаны полностью):
++> «Current practice usually utilizes data aggregated at a national level, which often suffers from
++> small sample size and insufficient variation in the media spend. When sub-national data is
++> available, we propose a geo-level Bayesian hierarchical media mix model (GBHMMM), and demonstrate
++> that the method generally provides estimates with tighter credible intervals compared to a model
++> with national level data alone... Under some weak conditions, the geo-level model can reduce ad
++> targeting bias.»
++
++> «The geo-level variability in the data is crucial for the geo-level model to outperform a
++> national-level model... The marketing spend at the geo level generally has a wider range than that
++> at the national level, which is critical to MMM as insufficient variation often leads to
++> extrapolation issues.»
++
++**Обоснование:** это ПРЯМОЕ попадание в существующий, уже вшитый в кабинет принцип
++«Запрет экстраполяции за наблюдаемый диапазон» (`CLAUDE.md`, п.3: «Кривую отклика нельзя достраивать
++за пределы наблюдённых затрат... Chan & Perry 2017») — Sun 2017 даёт РЕШЕНИЕ именно этой проблемы:
++если данные есть на гео-уровне, диапазон трат шире и экстраполяция требуется реже. Сейчас кабинет
++только диагностирует проблему узкого диапазона (тег [ЭКСТРАПОЛЯЦИЯ]), но не предлагает Geo-уровневую
++иерархию как выход, когда данные это позволяют. Также совпадает с тонким-рядом-смещает-кривую
++(п.3, Jin 2017) — geo-уровень увеличивает эффективный размер выборки без сбора данных за более
++длинный период.
++
++**Важная оговорка (SHIFTED-DOMAIN, не чистый GAP):** это не консультационная правка текста, а
++архитектурное расширение ДВИЖКА (сам GBHMMM — hierarchical model в PyMC, не то, что кабинет
++econometrist может «посоветовать» без данных на входе). Контракт данных кабинета сейчас в принципе
++не транспортирует гео-разрез (`decomposition`/`optimization` секции блока — только по каналам и
++времени, не по регионам). Значит находка на грани домена этого среза (промпты consultant-уровня) и
++домена движка/архитектуры данных — фиксирую как GAP уровня продукта, не как правку одного файла
++промпта.
++
++**Размещение:** если Антон решит делать региональную декомпозицию — это НЕ бюджет CLAUDE.md
++econometrist-кабинета, а отдельная фича движка (новая секция контракта данных `[geo-decomposition]`
+++ новая консультационная команда `/geo-breakdown`). Для текущего среза — фиксация пробела, не диф
++промпта.
++
++---
++
++## Сводка
++
++Разобрано 4 аспекта: 3 чистых GAP (1, 3, 4) + 1 частичный GAP при существующем CONFIRM-ядре (2).
++0 CONFLICT, 0 N/A. Наибольший рычаг — Аспект 1 (TBR-дизайн пилота) и Аспект 3 (CausalImpact пост-оценка) —
++оба закрывают дыру ровно в той команде (`pilot-design.md`), которая уже существует и уже претендует
++на эту роль, но делает её эвристически. Аспект 4 — архитектурный, не для этого среза применения.
+diff --git a/Projects/audit_prompts_2026-07-13/CANON_B.md b/Projects/audit_prompts_2026-07-13/CANON_B.md
+new file mode 100644
+index 0000000..97e2c6f
+--- /dev/null
++++ b/Projects/audit_prompts_2026-07-13/CANON_B.md
+@@ -0,0 +1,226 @@
++# Срез B — MCMC-диагностика и сходимость байесовской MMM. Aurora Econometrica / econometrist
++
++Цель: найти дельту между каноном RAG-библиотеки (тема «Эконометрика и статистика») и текущими
++промптами кабинета econometrist. Правки НЕ вносятся — только находки-кандидаты на ревью Антона.
++
++Целевой репо подтверждён: `Aurora_Econometrica_v230` (identifier `com.aurora.econometrica`) —
++действующий продукт, не архив.
++
++Прочитанные файлы кабинета: `New_AI_Agency/econometrist/CLAUDE.md` (полностью, включая
++«MMM Diagnostics Checklist» и «Model Quality Score»), `.claude/commands/mmm-model.md` (полностью,
++legacy-расчётная команда — Claude сам пишет и запускает Python/PyMC-Marketing),
++`.claude/commands/interpret-model.md` (полностью, консультационная команда без вычислений).
++
++Книги: `Betancourt_2016_Diagnosing_HMC_EBFMI_arXiv_1604.00695`,
++`Betancourt_2017_Conceptual_Introduction_to_HMC_arXiv_1701.02434`,
++`Vehtari_2021_Improved_Rhat_ESS_Convergence_arXiv_1903.08008`, `Bayesian_Workflow_-_Andrew_Gelman`.
++
++**Предварительный вывод:** кабинет — зрелый по этому срезу. R-hat 1.01/ESS≥400/E-BFMI≥0.3/
++divergences-протокол/prior+posterior predictive check уже вшиты дословно с корректной атрибуцией
++логики (не текстом цитаты, но по существу). Большинство аспектов — CONFIRM. Найдено 2 предметных GAP.
++
++---
++
++## Аспект 1 — Порог R-hat (rank-normalized, 1.01 vs старый 1.1)
++
++**Тип: CONFIRM.**
++
++**Что в промпте сейчас** (`CLAUDE.md` кабинета, MMM Diagnostics Checklist, строка 144):
++> «rank-normalized split-R̂ < 1.01 для всех параметров (Vehtari et al. 2021; на Windows-Metropolis
++> 1.01 недостижим → 1.05 минимум-приемлемый). Минимум 4 цепи»
++
++и `mmm-model.md` строка 27: «R-hat < 1.05 для всех параметров» (шаг проверки диагностики).
++
++**Канон:** Vehtari et al. 2021 действительно рекомендует rank-normalized split-R̂ < 1.01, явно
++называя это ужесточением относительно старого порога Gelman & Rubin (1992) — 1.1/1.2.
++
++**Точная цитата** (прочитан фрагмент, Section 2 «Recommendations for practice»):
++> «In Section 4, we propose modifications to R̂ based on rank-normalizing and folding the posterior
++> draws, only using the sample if R̂ < 1.01. This threshold is much tighter than the one recommended
++> by Gelman and Rubin (1992), reflecting lessons learnt over more than 25 years of use... In addition,
++> we recommend running at least four chains by default.»
++
++**Обоснование:** кабинет уже на актуальном каноне (1.01), не на устаревшем 1.1 — гипотеза
++«CONFLICT если кабинет на старом 1.1» из ТЗ не подтвердилась. Отступление до 1.05 явно и обоснованно
++привязано к техническому ограничению Windows-Metropolis (PyTensor без C-компилятора → NUTS
++недоступен/крайне медленный, см. `LEGACY_COMMANDS.md:21`) — не небрежность, а осознанный компромисс
++с оговоркой в тексте. Минимум 4 цепи тоже уже требуется явно. Не менять.
++
++**Размещение:** N/A (правки нет).
++
++---
++
++## Аспект 2 — ESS (bulk/tail, порог 400)
++
++**Тип: CONFIRM.**
++
++**Что в промпте сейчас** (`CLAUDE.md`, строка 140 и Diagnostics Checklist строка 145):
++> «Помимо R-hat учитывай bulk-ESS и tail-ESS ≥ 400 (Vehtari et al. 2021 – при ESS < 400 сам R̂
++> ненадёжен)... bulk-ESS и tail-ESS ≥ 400 для каждого параметра. Низкий ESS при хорошем R̂ = плохое
++> перемешивание»
++
++**Канон:** порог 400 — суммарный ESS по умолчательной настройке 4 цепей, ниже которого R̂
++неинформативен.
++
++**Точная цитата** (прочитан фрагмент, Section 2):
++> «...with the minimum recommended setup of four parallel chains, the total ESS should be at least
++> 400 before we expect R̂ to be useful.» Также рисунки 3/13/37 и текст: «The dashed line shows the
++> recommended threshold of 400» — bulk-ESS и tail-ESS раздельно, оба против этого порога.
++
++**Обоснование:** кабинет требует ОБА (bulk И tail), не только R-hat — это дельта сверх гипотезы ТЗ
++«только R-hat» из аспекта 2. Полное соответствие канону, формулировка «сам R̂ ненадёжен» при низком
++ESS дословно повторяет логику Vehtari. Не менять.
++
++**Размещение:** N/A (правки нет).
++
++---
++
++## Аспект 3 — Divergences / E-BFMI (несмещённость HMC)
++
++**Тип: CONFIRM.**
++
++**Что в промпте сейчас** (`CLAUDE.md` Diagnostics Checklist, строки 146–147; `mmm-model.md` строка 28):
++> «Divergences: при наличии движок отрабатывает протокол (target_accept↑ → non-centered при
++> иерархии → проверка funnel). Только NUTS; на Metropolis divergences не возникают»
++> «E-BFMI ≥ ~0.3 (energy diagnostic, только NUTS): низкий E-BFMI – патологичная геометрия, лечится
++> non-centered параметризацией. На Windows-Metropolis недоступна – опора на R̂/ESS/trace»
++
++**Канон:** порог E-BFMI 0.3 и рецепт non-centered параметризации — прямая рекомендация Betancourt.
++
++**Точная цитата** (прочитан фрагмент, Betancourt_2017, §6.2 «Diagnosing Poor Exploration»):
++> «Empirically, values of this energy Bayesian fraction of missing information below 0.3 have proven
++> problematic, although more theoretical work is needed to formalize any exact threshold.»
++
++Divergent transitions как индикатор смещения (не просто «плохая сходимость», а систематическая
++недо-выборка областей высокой кривизны) — из Betancourt_2016/2017; protokol target_accept↑ →
++non-centered — стандартная рекомендация того же корпуса (Betancourt & Girolami 2019, цитируется
++внутри Vehtari 2021 как источник для funnel-геометрии).
++
++**Обоснование:** аспект из ТЗ («проверяет ли кабинет divergences и E-BFMI как ОБЯЗАТЕЛЬНУЮ
++диагностику несмещённости») — да, оба пункта чек-листа обязательны (не опциональны), с верно
++привязанным порогом и верно описанным механизмом отказа (patalogical geometry → non-centered).
++Оговорка про Windows-Metropolis (E-BFMI недоступна вне NUTS) технически корректна и уже явно
++прописана. Не менять.
++
++**Размещение:** N/A (правки нет).
++
++---
++
++## Аспект 4 — Bayesian workflow (Gelman): predictive checks и fake-data simulation
++
++**Тип: GAP** (частичный — prior/posterior predictive check есть, SBC/fake-data parameter recovery
++отсутствует).
++
++**Что в промпте сейчас:**
++- `mmm-model.md` шаг 4.5: «Prior predictive check ДО MCMC: `pm.sample_prior_predictive()` →
++  проверь, что симулированные продажи неотрицательны и в правдоподобном бизнес-диапазоне...»
++- `mmm-model.md` шаг 6: «Posterior predictive check: predicted vs actual» + Diagnostics Checklist
++  строка 149 в CLAUDE.md: «Posterior predictive check: predicted vs actual совпадают»
++- **Нет нигде**: симуляции данных из ИЗВЕСТНЫХ параметров ДО обучения на реальных данных, проверки,
++  что модель/семплер восстанавливает эти известные параметры (parameter recovery / калибровка
++  алгоритма вывода). Grep по `mmm-model.md` и `CLAUDE.md`: ни «fake data», ни «simulation-based
++  calibration», ни «recover», ни «известные параметры» не встречаются.
++
++**Канон:** Bayesian Workflow (Gelman) выделяет это в отдельную Chapter 14 «Simulation-based
++calibration checking» — метод, качественно отличный от prior/posterior predictive check: тот
++проверяет правдоподобие данных, SBC проверяет, что САМА процедура вывода (модель + семплер) не
++смещена и корректно восстанавливает параметры, когда истина известна.
++
++**Точная цитата** (прочитан фрагмент, Chapter 14):
++> «There is a formal, and at times practical, issue when comparing the result of Bayesian inference,
++> a posterior distribution, to a single (true) parameter vector... Using a single simulated dataset
++> to test a model will not necessarily "work," even if the computational algorithm is working
++> correctly... A more comprehensive approach is simulation-based calibration checking (SBC)... the
++> model parameters are drawn from the prior; then data are simulated conditional on these parameter
++> values; then the [model is fit and posterior compared to the known truth].»
++
++Дополняющая цитата (Chapter 16, «Coding a series of models: simulated data of movie ratings»,
++итоговый принцип метода):
++> «At every step of the way, we understood our model and its inferences through fake-data
++> simulation.»
++
++**Обоснование:** это ровно тот класс ошибки, который prior/posterior predictive check НЕ ловит —
++семплер может систематически недооценивать/переоценивать конкретный параметр (например, форму
++Hill-saturation при коротком ряде — эта проблема уже описана в CLAUDE.md п.3 как «Jin 2017: занижение
++до ~40%», но диагностируется только post-hoc через оговорку, а не проверяется fake-data прогоном ДО
++работы с реальными данными клиента). Применимо именно к `mmm-model.md` — это legacy-команда, где
++Claude сам пишет Python и запускает MCMC (не консультационная роль поверх готового движка), значит
++технически может добавить шаг «прогнать пайплайн на синтетических данных с известным ROI/adstock до
++финального прогона» без выхода за рамки роли кабинета.
++
++**Риск/применимость:** полный SBC (сотни повторных прогонов с разными θ из приора) вычислительно
++дорог и избыточен для одноразового MMM-пайплайна маркетингового агентства — это инструмент авторов
++метода/пакетов, не типовой рабочий процесс консультанта на клиентских данных. Урезанная,
++соразмерная версия — ОДИН прогон fake-data recovery (не полный SBC): смоделировать продажи из
++модели с заданными коэффициентами (ROI/adstock), прогнать через тот же pipeline и проверить, что
++posterior накрывает заданные значения — это соответствует «duck test» из той же книги (Ch.12) и
++уже структурно близко к тому, что кабинет делает для prior predictive (только с фиксацией params).
++
++**Размещение:** on-demand (в `mmm-model.md`, не в CLAUDE.md) — это шаг конкретно расчётного
++пайплайна legacy-команды, не общий принцип, применимый к каждому клиентскому запросу; в always-on
++CLAUDE.md раздувать не нужно, эффект на бюджет системного промпта был бы непропорционален пользе для
++консультационных команд (7 из 8 команд в UI вообще не запускают MCMC).
++
++---
++
++## Аспект 5 (доп., не в исходном ТЗ) — Rank plots вместо trace plots
++
++**Тип: GAP.**
++
++**Что в промпте сейчас** (`CLAUDE.md` Diagnostics Checklist строка 148, Стандарт качества п.2):
++> «Trace plots стабильны («мохнатая гусеница», нет дрейфа)»
++> «Модель сходится?» – R-hat, ESS bulk/tail, trace»
++
++**Канон:** Vehtari et al. 2021 прямо предлагает rank plots ВЗАМЕН trace plots как визуальную
++диагностику по умолчанию — не дополнение, а замену с объяснённой причиной (trace plots «сжимаются
++в мохнатое пятно» на длинных цепях и теряют информативность, rank plots устойчивы к длине цепи).
++
++**Точная цитата** (прочитан фрагмент, Section 4.5 «Diagnostic visualizations»):
++> «Extending the idea of using ranks instead of the original parameter values, we propose using rank
++> plots for each chain instead of trace plots. Rank plots... are histograms of the ranked posterior
++> draws (ranked over all chains) plotted separately for each chain. If all of the chains are
++> targeting the same posterior, we expect the ranks in each chain to be uniform, whereas if one
++> chain has a different location or scale parameter, this will be reflected in the deviation from
++> uniformity... As compared to trace plots, rank plots don't tend to squeeze to a fuzzy mess when
++> used with long chains.»
++
++**Обоснование:** кабинет и Claude (при выполнении legacy-команды `mmm-model.md`) физически не
++«смотрят» на графики глазами — диагностика идёт через текстовые метрики из pickle/xlsx, а
++«стабильность trace plot» для LLM-агента без зрения на артефакт малопроверяема практически (нет
++установленного способа прочитать PNG-график и оценить дрейф надёжнее, чем числовую rank-статистику).
++Rank-based диагностика уже частично встроена (rank-normalized R̂), поэтому расширение на rank plots
++органично продолжает тот же принцип и даёт агенту численно проверяемый критерий (доля попаданий в
++равномерное распределение по бинам) вместо визуальной оценки «мохнатости», которую текстовый агент
++объективно оценить не может.
++
++**Риск/применимость:** практическая реализация не тривиальна для LLM без зрения — либо считать
++количественный тест на равномерность рангов (Cramér–von Mises / χ²) программно и печатать число, либо
++экспортировать rank-plot PNG и не полагаться на визуальную оценку самим Claude. Формулировка правки
++должна это учитывать (заменить туманное «trace plots стабильны» на конкретную проверяемую метрику),
++не просто подставить слово «rank plot» вместо «trace plot».
++
++**Размещение:** always-on (CLAUDE.md Diagnostics Checklist) — это тот же слой, где уже живёт
++R-hat/ESS/E-BFMI, правка точечная (одна строка чек-листа), нагрузка на бюджет пренебрежимая.
++
++---
++
++## Отброшено / N/A
++
++- Полный аппарат SBC (Cook/Gelman/Rubin 2006, Talts et al. 2020) с формальным p-value χ²-тестом по
++  батчу симуляций — избыточен для продукта; учтён urезанной формой в Аспекте 4.
++- MCSE (Monte Carlo standard error, Vehtari §4.4) — отдельная метрика, не запрошена в ТЗ и не
++  фигурирует в промптах; сигнал в библиотеку не требуется (Vehtari уже в корпусе), но как отдельный
++  потенциальный аспект среза не разбирался — оставлен вне бюджета ≤8 находок этого среза.
++
++---
++
++## Сводка (строка на находку, лимит ≤8)
++
++- [CONFIRM] R-hat порог — кабинет уже на 1.01/1.05-Windows, не устаревшем 1.1 — Vehtari 2021
++- [CONFIRM] ESS bulk/tail ≥400 — оба требуются явно, не только R-hat — Vehtari 2021
++- [CONFIRM] Divergences + E-BFMI≥0.3 — обязательная диагностика с верным протоколом — Betancourt 2016/2017
++- [GAP] mmm-model.md — нет fake-data parameter recovery (SBC) до обучения на реальных данных — Bayesian Workflow (Gelman), Ch.14
++- [GAP] CLAUDE.md Diagnostics Checklist — «trace plots стабильны» вместо rank plots / численного критерия — Vehtari 2021 §4.5
++
++**Итог среза B:** 5 находок (3 CONFIRM, 2 GAP), 0 CONFLICT. Кабинет методологически зрелый по
++MCMC-диагностике — оба GAP точечные и узкие (on-demand/малая always-on правка), не системный пробел.
+diff --git a/Projects/audit_prompts_2026-07-13/CANON_C.md b/Projects/audit_prompts_2026-07-13/CANON_C.md
+new file mode 100644
+index 0000000..10d8906
+--- /dev/null
++++ b/Projects/audit_prompts_2026-07-13/CANON_C.md
+@@ -0,0 +1,242 @@
++# Срез C — Awareness-моделирование, временные ряды, причинность/контроли
++
++Методолог: aurora-upgrade, срез C. Продукт: Aurora Econometrica (Optimizer MMM).
++Файл НЕ трогает промпты — только находки для ревью.
++
++Файлы среза:
++- `New_AI_Agency/econometrist/.claude/commands/awareness-forecast.md`
++- `New_AI_Agency/econometrist/.claude/commands/awareness-to-sales.md`
++- `New_AI_Agency/econometrist/.claude/commands/mmm-model.md`
++- `New_AI_Agency/econometrist/CLAUDE.md`
++
++---
++
++## Аспект 1 — Стационарность/коинтеграция временных рядов (Neusser)
++
++**Тип:** GAP
++
++**Раздел:** `mmm-model.md` шаг 4 (Python-скрипт: Prophet-декомпозиция → adstock →
++Hill saturation → PyMC-Marketing MMM), пункт 6 (проверка диагностики: R-hat,
++divergences, PPC). Также `awareness-forecast.md` шаг 3 (байесовская регрессия
++awareness_t = f(adstock(media)) + trend + seasonality + natural_decay) и
++`awareness-to-sales.md` шаг 3 (Sales = α + β₁×f(awareness) + β₂×price + β₃×distribution + ε).
++
++**Сейчас:** ни один из трёх промптов не содержит проверки стационарности рядов
++(продажи, медиа-затраты, awareness) ни до, ни после Prophet-декомпозиции тренда.
++Регрессия строится сразу на уровнях рядов через PyMC-Marketing/байесовскую
++регрессию. Diagnostics Checklist в CLAUDE.md (R-hat/ESS/divergences/PPC/R²/MAPE)
++проверяет СХОДИМОСТЬ модели, но не проверяет предпосылку регрессии на
++нестационарных уровнях.
++
++**Канон требует:** при регрессии двух интегрированных (нестационарных, unit-root)
++рядов друг на друга без коинтеграции регрессия ложная (spurious) — высокий R²
++и значимые коэффициенты возникают даже для независимых случайных блужданий.
++Neusser демонстрирует это симуляцией Монте-Карло на N=1000 независимых парах
++рядов. Решение не «просто взять первые разности» — если ряды коинтегрированы,
++регрессия на УРОВНЯХ осмысленна и первые разности теряют долгосрочную связь;
++если не коинтегрированы — нужна другая спецификация (ECM/разности).
++
++**Точная цитата:** «The spurious regression problem cannot be circumvented by
++first testing for a unit root in Yt and Xt and then running the regression in
++first differences in case of no rejection of the null hypothesis. The reason
++being that a regression in the levels of Yt and Xt may be sensible even when
++both variables are integrated. This is the case when both variables are
++cointegrated.» — *Time Series Econometrics*, Klaus Neusser.
++
++**Обоснование:** MMM-ряды (недельные продажи, медиа-бюджеты, GRP) типично трендовые
++и потенциально нестационарные (растущий бренд, растущие бюджеты по годам).
++Prophet вычитает тренд/сезонность ДО подачи в PyMC-Marketing MMM, что снижает,
++но не устраняет риск: Prophet-тренд — гладкая детерминированная кривая, а не
++тест на unit root; остаточный ряд после вычитания тренда может остаться
++интегрированным (например, при структурных сдвигах — см. фрагмент Neusser про
++supF-тест на structural breaks). Ratio-чеклист CLAUDE.md (обучение/MQS-кэп/пилот)
++контролирует ДОСТАТОЧНОСТЬ данных, но не их СТАЦИОНАРНОСТЬ — это ортогональная
++предпосылка регрессии, нигде не поименованная. Risk: ложно высокий R²/MQS на
++двух совместно растущих рядах (бюджет ТВ растёт год к году + продажи растут
++год к году — типичный кейс) может пройти Diagnostics Checklist (R²>0.8, R-hat<1.05)
++и получить тир Good/Excellent, будучи артефактом общего тренда, а не причинной
++связи. Прямое пересечение с MMM Diagnostics Checklist п. «R² > 0.8 · MAPE < 15%» —
++чек-лист не защищён от этого класса ошибки.
++
++**Размещение:** `mmm-model.md` шаг 2 или 2.1 (рядом с backdoor-проверкой) —
++добавить пункт проверки остаточного тренда/стационарности ПОСЛЕ Prophet-вычитания,
++до спецификации MMM. Либо в CLAUDE.md MMM Diagnostics Checklist — отдельный
++пункт «остаточная нестационарность после детрендирования не подтверждена».
++
++---
++
++## Аспект 2 — Awareness→sales как причинная цепь (Pearl / Hernán-Robins)
++
++**Тип:** CONFLICT (частичный — промпт содержит оговорку, но не даёт процедуры)
++
++**Раздел:** `awareness-to-sales.md` шаг 5, последний пункт «Ограничение
++каузальности» (строка 29).
++
++**Сейчас:** промпт уже помечает связь awareness→sales тегом `[ASSUMED-CAUSAL]`
++и текстом признаёт: «front-door через медиатор awareness теоретически возможен,
++но требует полной медиации эффекта media→продажи без общих неизмеримых причин —
++в MMM почти всегда нарушено (awareness и продажи делят сезонность/дистрибуцию)».
++Это качественно верная формулировка условий front-door (Pearl). Однако сама
++регрессионная спецификация в шаге 3 — прямая нелинейная регрессия
++Sales = α + β₁×f(awareness) + β₂×price + β₃×distribution + ε — не является ни
++backdoor-adjustment (нет явного перечисления путей awareness↔sales, откуда взялись
++именно price/distribution как закрывающий набор), ни front-door-процедурой
++(две подрегрессии P(M|A)·P(Y|M,A) с суммированием, как того требует формула
++front-door). То есть текст ПРИЗНАЁТ проблему идентификации, но КОД делает
++обычную множественную регрессию и выдаёт β₁ как «эластичность» без явной
++привязки к тому, какой идентификационной стратегии она соответствует.
++
++**Канон требует:** front-door формула — не «регрессия с медиатором как
++предиктором», а произведение/свёртка двух условных распределений: P(y|do(a)) =
++Σ_m P(m|a) Σ_a' P(y|m,a') P(a'), при условии что M полностью медиирует эффект A→Y
++и не делит неизмеримых причин ни с A, ни с Y. Обычная регрессия Y на A и M
++одновременно (как в шаге 3 промпта: Sales на awareness и контроли) — это НЕ
++front-door adjustment, а стандартная попытка «controlling for mediator»,
++которая при наличии общего конфаундера U между A и Y (Technical Point 7.4)
++даёт смещённую оценку.
++
++**Точная цитата:** «The causal diagram in Figure 7.14 depicts a setting in which
++the treatment A and the binary outcome Y share an unmeasured cause U, and in
++which there is a variable M that fully mediates the effect of A on Y and that
++shares no unmeasured causes with either A or Y. Under this causal structure, a
++data analyst cannot directly [identify the effect via backdoor adjustment,
++but can via front-door].» — *Causal Inference: What If*, Hernán & Robins,
++Technical Point 7.4 (см. также Pearl, *Causal Inference in Statistics: A Primer*,
++Theorem 3.3.1, Backdoor Criterion — определение блокировки путей и запрет
++кондиционирования на потомках X).
++
++**Обоснование:** промпт сам называет корректное условие (полная медиация,
++отсутствие общих неизмеримых причин) и сам констатирует, что оно «в MMM почти
++всегда нарушено» — но не делает вывод для СПЕЦИФИКАЦИИ модели. Раз front-door
++неприменим и backdoor тоже не установлен явным перечислением путей (в отличие
++от `mmm-model.md` шаг 2.1, где backdoor-проверка формализована пошагово — «(1)
++перечисли пути... (2) классифицируй... (3) выдели backdoor... (4) закрой»),
++у `awareness-to-sales.md` НЕТ аналогичной формализованной процедуры отбора
++price/distribution как контролей — они попадают в модель по эвристике
++«использовать если есть в данных» (шаг 2, строка 14), не по анализу графа.
++Итог: тег `[ASSUMED-CAUSAL]` в выводе честен, но путь ДО тега (какая именно
++регрессия дала число) не соответствует ни одной канонической identification
++strategy — риск, что число «эластичность +1pp awareness = +X% продаж» читается
++клиентом как оценка эффекта, хотя оговорка спрятана в конце промпта, а не в
++структуре скрипта.
++
++**Размещение:** `awareness-to-sales.md` шаг 2/3 — либо явный backdoor-перечень
++путей awareness↔sales (по аналогии с `mmm-model.md` 2.1) перед тем как задавать
++price/distribution как контроли, либо явное признание в результате (не только
++в конце промпта, но как заголовок вывода): «оценка НЕ идентифицирует причинный
++эффект awareness на продажи — только регрессионную ассоциацию при контроле на
++price/distribution».
++
++---
++
++## Аспект 3 — Backdoor-контроли: что канон добавляет сверх вшитого
++
++**Тип:** CONFIRM (с одним узким GAP)
++
++**Раздел:** `CLAUDE.md` п.5 Red Teaming (Collider Bias, M-bias, Descendant/proxy
++коллайдера — строки 55–57); `mmm-model.md` шаг 2.1 (формализованная
++backdoor-процедура).
++
++**Сейчас:** промпт уже содержит все три канонических паттерна из Pearl/Hernán-Robins:
++collider bias («conditioning on a collider always induces an association between
++its causes»), M-bias (пример «лояльность бренда»), descendant/proxy коллайдера
++(`brand_search`). Формулировки в CLAUDE.md почти дословно совпадают с формулой
++Hernán-Robins.
++
++**Канон требует (сверх уже вшитого):** Hernán-Robins Chapter 18 (Technical Point,
++Figure 18.6) явно разбирает ОБЩЕЕ заблуждение практиков — «commonly believed
++that an estimator that adjusts for all available pretreatment covariates will
++minimize the bias. However, this belief is wrong» — и демонстрирует, что даже
++ДОТРЕАТМЕНТНАЯ (temporally preceding) переменная L может быть коллайдером и
++внести selection bias при контроле. Это конкретно закрывает лазейку, которую
++промпт не проговаривает явно: критерий «выбирай контроли, которые случились ДО
++медиа-воздействия» (temporal precedence) — распространённая эвристика в
++MMM-практике (control только на price/distribution/season, потому что они
++«очевидно предшествуют») — САМ ПО СЕБЕ недостаточен, если такая переменная —
++коллайдер на пути между двумя другими причинами.
++
++**Точная цитата:** «it is commonly believed that an estimator that adjusts for
++all available pretreatment covariates will minimize the bias. However, this
++belief is wrong for two separate reasons. Consider the causal diagram of
++Figure 18.6 (same as Figure 7.4), which includes a pre-treatment variable L.
++Because L is a collider on a path from A to Y, adjusting for it will introduce
++selection bias» — *Causal Inference: What If*, Hernán & Robins, Chapter 18.
++
++**Обоснование:** CLAUDE.md п.5 перечисляет M-bias и collider примерами
++(«лояльность бренда», «brand_search»), но не формулирует общий тезис «temporal
++precedence ≠ безопасность контроля» — то есть Red Teaming вопросы у Claude
++корректны как ИНСТАНС-проверки, но не содержат общего предупреждения, что
++интуиция «control for everything measured before treatment» (стандартная
++практика в MMM при выборе control-столбцов — price/distribution/search обычно
++трактуют как «безопасные», потому что предшествуют) сама по себе ошибочна.
++
++**Размещение:** `CLAUDE.md` п.5, после строки 57 (Descendant/proxy) — короткое
++дополнение к Red Teaming: «pretreatment ≠ безопасный контроль» как отдельный
++пункт наравне с M-bias.
++
++---
++
++## Аспект 4 — Awareness-моделирование количественно (S-кривая охвата, ESOV)
++
++**Тип:** CONFLICT (числовое несоответствие цитируемой книге)
++
++**Раздел:** `awareness-forecast.md` шаг 3, пункт «ESOV-модуль (Binet & Field):
++ΔSOV → Δawareness (каждые 10pp ESOV ≈ 0.5-0.7pp роста SOM/год)» (строка 18).
++
++**Сейчас:** промпт цитирует Binet&Field и приводит числовой коэффициент
++«10pp ESOV ≈ 0.5-0.7pp роста SOM/год», но подписывает эффект как ΔSOV→Δawareness
++(рост ЗНАНИЯ бренда), хотя число в скобках — про SOM (Share of Market, доля
++РЫНКА), не про awareness.
++
++**Канон требует:** каноническая формула Binet&Field — «annual market share growth
++is proportional to 0.05 × ESOV» (то есть каждый 1pp ESOV ≈ 0.05pp роста SOM/год,
++что на горизонте 10pp ESOV даёт ≈0.5pp роста SOM/год — нижняя граница диапазона
++промпта верна для НИЖНЕЙ оценки, но источник — не про awareness, а прямо про
++market share). Более того, в источнике указано, что связь УСИЛИЛАСЬ в цифровую
++эпоху: «Campaigns prior to 2002 typically drove 0.03 points of annual share
++growth per point of ESOV, whereas campaigns since [2002] drove...» (более
++высокий коэффициент) — промпт даёт единую константу без разбивки по эпохе/каналу.
++
++**Точная цитата:** «Market share growth per annum is strongly related to Extra
++Share of Voice (ESOV) i.e. share of voice minus share of market... On average,
++across all categories, annual market share growth is proportional to 0.05 x
++[ESOV]» — *The Long and the Short of It*, Les Binet & Peter Field (Ten Thoughts
++from Section 2, п.1 и п.7).
++
++**Обоснование:** это не мелкая опечатка масштаба — ESOV в оригинале канона
++объясняет ДИНАМИКУ ДОЛИ РЫНКА (SOM), а не awareness. Использовать этот
++коэффициент как прокси для роста awareness — методологическая подмена: SOM и
++awareness — разные метрики с разной динамикой (SOM зависит также от
++дистрибуции, цены, промо; awareness — чисто когнитивная метрика трекинга).
++Модуль называется «ESOV-модуль: ΔSOV → Δawareness», но канон даёт ΔSOV → ΔSOM.
++Если цель шага — спрогнозировать awareness, ESOV-эвристика Binet&Field —
++не тот механизм (она про долю рынка, не про трекинг знания бренда); если цель —
++спрогнозировать SOM, то шаг находится не в том промпте (`awareness-forecast`,
++не `awareness-to-sales`) и коэффициент дан без разбивки по эре/категории,
++которую даёт сам источник.
++
++**Что канон НЕ даёт (честный N/A):** прямой количественной модели «adstock
++awareness» или явной S-кривой awareness от затрат в проверенных фрагментах
++Binet&Field/Sharp/Katz не встретилось — обе книги про эффективность в терминах
++SOM/продаж/fame, а не про построение регрессионной кривой awareness_t =
++f(adstock). Weibull-adstock и natural decay в промпте (строки 17, 19) —
++инженерное решение вне прочитанных фрагментов канона, оценить не могу
++(гейт домена → N/A по этой части).
++
++**Размещение:** `awareness-forecast.md` строка 18 — либо переименовать модуль
++в «ESOV→SOM (не awareness)» и явно развести с задачей прогноза awareness,
++либо, если удерживать связь с awareness, заменить ссылку на Binet&Field
++коэффициент SOM на признание отсутствия канонической ESOV→awareness формулы
++и пометить весь коэффициент `[ASSUMED]` вместо неявной атрибуции книге.
++
++---
++
++## Итог по срезу
++
++4 из 4 аспектов дали содержательные находки: 1 чистый GAP (стационарность),
++1 CONFLICT частичный (front-door признан текстом, но не отражён в спецификации
++регрессии), 1 CONFIRM с узким дополнением (temporal precedence ≠ безопасность),
++1 CONFLICT числовой (ESOV-коэффициент атрибутирован не той метрике). Никаких
++находок РФ-специфики/ПДн в рамках среза C не обнаружено (N/A по INV-38/50 —
++разве что INV-50 (честность метрик) косвенно усилен находкой 4: коэффициент
++выдаётся под чужим ярлыком, что противоречит «не приукрашивать/не путать метрики».
+diff --git a/Projects/audit_prompts_2026-07-13/D.md b/Projects/audit_prompts_2026-07-13/D.md
+index 710abb2..af83513 100644
+--- a/Projects/audit_prompts_2026-07-13/D.md
++++ b/Projects/audit_prompts_2026-07-13/D.md
+@@ -189,3 +189,114 @@ CLAUDE.md кабинета econometrist из work_dir (vault) → аудит п
+ Среднее: зрелость 3.4 / эффективность 4.0. Главный риск: ответ Авроры об итогах сценария
+ уходит клиенту мимо рантайм-стража INV-50 (InsightsPanel.svelte:576) + стейл MQS-шкала в
+ системном промпте-множителе (CLAUDE.md:163-171).
++
++---
++
++# aurora-upgrade — срез D: ядро MMM-методологии (canon vs mmm-model/decomposition/optimize/scenarios)
++
++Дата: 2026-07-13. Продукт: Aurora Econometrica (Optimizer MMM), репо `Aurora_Econometrica_v230`
++(`com.aurora.econometrica`, действующий). Периметр: `.claude/commands/mmm-model.md`,
++`mmm-decomposition.md`, `mmm-optimize.md`, `mmm-scenarios.md`, `CLAUDE.md`, `LEGACY_COMMANDS.md`.
++Метод: двуязычный RAG-поиск (`lib_vec.py`, cats «Эконометрика и статистика») + углубление в
++прочитанный текст книг. **Вывод по гейту зрелости:** ядро зрелое — большинство аспектов задания
++(half-normal priors на β, приоры adstock/Hill по носителю, L=13 недель, Hill-unidentifiability,
++regularized horseshoe/R2D2, backdoor/collider/M-bias по McElreath, «правдоподобный диапазон» вместо
++CI, экстраполяция за диапазон трат) уже дословно процитированы в CLAUDE.md/LEGACY_COMMANDS.md с
++атрибуцией к Jin 2017 / Chan-Perry 2017 / McElreath. Найденная дельта — узкая и сконцентрирована
++в одном месте: **multi-model uncertainty** (Chan-Perry §4.3.2) не покрыт, при том что смежный
++частный случай (2 спецификации adstock) уже есть в mmm-scenarios.md:22.
++
++## [GAP] mmm-scenarios.md п.4.1 — узкая проверка устойчивости (2 adstock-спецификации) вместо полного набора правдоподобных моделей — Chan & Perry 2017
++
++**Сейчас:** mmm-scenarios.md:22 требует прогнать оптимизацию на 2 контрастных спецификациях
++(geometric vs Weibull adstock) и пометить `[МОДЕЛЬНАЯ НЕОПРЕДЕЛЁННОСТЬ]` при расхождении по
++крупнейшему каналу. Это единственная проверка на нестабильность спецификации во всём ядре D.
++
++**Канон требует больше осей вариации, не только форму adstock.** Chan & Perry 2017, §4.3.2
++«Model uncertainty» — прямой эксперимент на реальном датасете: пять одинаково правдоподобных
++моделей (R²=0.98–0.99 у всех), отличающихся НЕ формой adstock, а прокси сезонности, длиной
++окна данных, включением/исключением branded search, линейным трендом. Дословная цитата (текст
++прочитан полностью, файл `Chan_Perry_2017_Challenges_and_Opportunities_in_Media_Mix_Modeling.md`):
++
++> «Model 1 is a baseline model and each of the others is a variation of Model 1. Model 2 uses a
++> different proxy variable to capture seasonality. Model 3 only includes the most recent two years
++> in the dataset… Model 4 excludes branded search ads as an ad channel… Model 5 includes a linear
++> time variable… Each model achieves an R2 value of either 0.98 or 0.99… The models differ in their
++> sales predictions by up to 50%… Most importantly, they disagree on ad channel A, which is by far
++> the largest channel for this advertiser.»
++
++и итоговый вывод раздела:
++
++> «So despite fitting the data equally well, the models disagree on what sales are achievable under
++> different ad spends… they lead to different conclusions about the overall value of the ad channels
++> and about how budget should be allocated.»
++
++**Обоснование дельты:** высокий R² не подтверждает правильность спецификации — это ядро уже знает
++про Hill-unidentifiability (LEGACY_COMMANDS.md:63) и про экстраполяцию (Chan-Perry Fig.2), но НЕ
++переносит тот же принцип на выбор сезонного прокси / окна данных / состава каналов. Промпт
++mmm-scenarios.md проверяет только ось adstock-формы — Chan-Perry показывает, что расхождение до
++50% в прогнозе и полная смена рекомендации по крупнейшему каналу возникают именно от ЭТИХ осей
++(прокси сезонности, окно, состав каналов), которые сейчас не варьируются вовсе.
++
++**Риск/применимость:** прямое применение, тот же домен (Bayesian/regression MMM), тот же тип
++данных (недельные национальные ряды с малым числом точек). РФ-специфики нет — общая эконометрика.
++Не противоречит INV-50 (наоборот усиливает честность оценки неопределённости).
++
++**Размещение (on-demand):** `mmm-scenarios.md` п.4.1 — расширить формулировку с «2 контрастных
++спецификации (geometric vs Weibull adstock)» до «2–3 осей вариации: (а) форма adstock
++(geometric/Weibull — уже есть), (б) прокси сезонности при наличии альтернативы в данных, (в) окно
++данных (полный период vs последние 2 года) при достаточной длине ряда». Не always-on CLAUDE.md —
++это специфика одной legacy-команды, не сквозной принцип кабинета.
++
++## [CONFIRM] mmm-model.md п.4 / LEGACY_COMMANDS.md §Priors — half-normal β, priors по носителю, L=13 — Jin 2017
++
++Дословно совпадает с прочитанным текстом Jin 2017 (Section 2.1, carryover: «L = 13 is a good
++approximation to infinity as the weights are less than 10−7 beyond 13 weeks»; Section 2.2, Hill
++unidentifiability: «the parameters of βHill are essentially unidentifiable in some scenarios… when
++S=1, within a finite range, the curve can be approximated very well with a curve constructed from
++a very different set of three parameters»). Атрибуция в LEGACY_COMMANDS.md:63,67-76 точна, не
++дубль — не переносить.
++
++## [CONFIRM] mmm-model.md п.3.5 — калибровка приоров из внешнего эксперимента — Chan & Perry 2017 + Jin 2017
++
++Chan-Perry §5.1 прямо рекомендует «a strong candidate method for developing informative priors is
++by fitting category level MMMs across brands within a category using a Bayesian hierarchical
++model», а Jin 2017 (Introduction) — «prior knowledge may come from industry experience or previous
++media mix models of the same or similar advertisers». Промпт п.3.5 уже реализует именно это
++(калибровка из A/B-теста / Geo-Lift / прошлого MMM того же бренда/категории, тег `[CALIBRATED]`,
++запрет чужого рынка/периода). Точное соответствие канону — не менять.
++
++## [SHIFTED→CONFIRM] Иерархические приоры для малых данных — Wang-Jin — N/A для кабинета в текущей форме данных
++
++Wang-Jin (category data) описывает partial pooling ЧЕРЕЗ несколько брендов/каналов одной категории
++в общей иерархической модели (HCM vs FCM, category-level Φ как prior для brand-level β). Кабинет
++эконометриста получает на вход ОДИН проект/бренд за раз (контракт данных CLAUDE.md:77-95: секции
++[model-diagnostics]/[decomposition]/[optimization] на один проект) — межбрендовый pooling
++архитектурно недоступен на этом слое (движок, не промпт, был бы точкой внедрения, и это увеличение
++объёма данных на вход, а не правка формулировки промпта). Кабинет уже даёт функциональный аналог
++для тонких данных на своём уровне — regularized horseshoe/R2D2 (mmm-model.md:21, тот же мотив
++«стабильность при дефиците данных»). Не GAP уровня промпта-советника; сигнал зафиксирован как
++возможное расширение движка (out of scope для файлов D).
++
++## [CONFIRM] mmm-optimize.md — Hill saturation формулировка, K/half-saturation, S/slope — Jin 2017
++
++Промпт использует `S(x) = x^α / (x^α + γ^α)` (эквивалентная параметризация Hill(x;K,S) из Jin
++2017 eq.4 с α↔S, γ↔K) и корректно описывает α<1→C-shape / α>1→S-shape — совпадает с прочитанным
++Section 2.2 («S>1 (red curve) is convex close to zero, resulting in an S shape; S<1 (green curve)
++is more concave close to zero and flattens faster»). mROI как производная кривой отклика в точке
++текущих затрат (mmm-optimize.md:11) — стандартная и корректная трактовка marginal response.
++
++## [CONFIRM] Регуляризация приором против переобучения — McElreath — уже вшито
++
++CLAUDE.md уже цитирует McElreath на «точечная оценка отбрасывает информацию» (п.7) и
++prior-predictive check (п.3 / mmm-model.md:24) — McElreath Ch.7 («regularizing priors reduce
++overfitting during estimation») подтверждает мотив regularized horseshoe/R2D2 в mmm-model.md:21
++(«shrinkage оптимизирует предсказание и тянет коэффициенты к нулю»). Атрибуция точна.
++
++## Сводка среза D
++
++5 аспектов задания проверены. 1 GAP (multi-model uncertainty — узкая проверка расширяется на
++прокси сезонности/окно данных, Chan-Perry §4.3.2), 4 CONFIRM/SHIFTED→N/A (приоры/adstock/Hill/
++регуляризация — ядро уже цитирует канон дословно и корректно; иерархия межбрендовая — архитектурно
++недоступна на уровне промпта, не GAP файлов D). Библиотека покрывает домен полностью, докупка не
++нужна. Единственная правка на ревью Антона — расширение формулировки mmm-scenarios.md п.4.1.
