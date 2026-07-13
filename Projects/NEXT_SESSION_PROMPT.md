@@ -44,8 +44,14 @@ sidecar FAILED. Скопировала из родителя → пересбо�
 
 ## Задачи продолжения (приоритет)
 
+### 0. 🔴🔴 ПЕРЕСОБРАТЬ installer (drill-fix после сборки) — ПЕРЕД публикацией
+⚠️ Installer `Optimizer MMM_2.3.1_x64-setup.exe` (244.7 MiB) собран ДО fix-коммита drill-масштаба
+(HIGH из wrap-up аудита). Sidecar в текущем .exe НЕ содержит drill-fix. **Пересобрать перед публикацией:**
+скопировать generated-токены из родителя (см. грабля выше) → `python build_sidecar.py` → `npm run tauri build`
+→ НОВЫЙ SHA256 (старый `6299e82e...` устарел). Смоук заново (или доверять — fix локализован в drill CHART_DATA).
+
 ### 1. 🔴 ПУБЛИКАЦИЯ 2.3.1 (ВМЕСТЕ с Антоном, НЕОБРАТИМО) — главная задача
-Installer собран+смоукнут. Публикация по `aurora-release-update` (Econometrica = fat-client, GH Releases):
+Installer пересобрать (шаг 0!) → публикация по `aurora-release-update` (Econometrica = fat-client, GH Releases):
 - **P3/5b:** залить `.exe` на **GitHub Releases `Ackold26/aurora-releases`** (>50MB → не Storage). `cp` в /tmp
   с точным именем, `gh release create`, потом `gh release view --json assets` + `curl -sI` 200.
 - **P5:** `app_versions` UPDATE (product `aurora-econometrica-gui`): version=2.3.1 + download_url(GH) +
