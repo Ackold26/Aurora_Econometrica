@@ -42,7 +42,7 @@
   // редакции с согласием и для продукта Econometrica.
   import { isEconometrica } from '$lib/creative-store.js';
   import { cloudConsent } from '$lib/store.js';
-  import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES, STEP } from '$lib/tier2-context.js';
+  import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES, STEP, sanitizePromptFragment } from '$lib/tier2-context.js';
   import { buildRagQuery, detectChannelType } from '$lib/rag-query.js';
   import { findUngroundedNumbers } from '$lib/insights-grounding.js';
   import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario, findCollinearPairs, collinearityCaveat } from '$lib/scenario-advisor.js';
@@ -475,6 +475,8 @@
   let scenarioInterpret = $state('');
   let scenarioLoading = $state(false);
   let scenarioError = $state('');
+  /** @type {string[]} негрунд-числа из интерпретации сценария (рантайм-страж INV-50, зеркалит askUngrounded) */
+  let scenarioUngrounded = $state(/** @type {string[]} */ ([]));
 
   function scenarioChannels() {
     const dec = $decomposeData;
@@ -487,6 +489,7 @@
     scenarioResult = null;
     scenarioInterpret = '';
     scenarioError = '';
+    scenarioUngrounded = [];
   }
 
   /** Шаг 1: разобрать NL-запрос в config (Аврора) → показать подтверждение. */
@@ -501,7 +504,10 @@
     const names = chans.map(/** @param {any} c */ (c) => c.name);
     scenarioLoading = true;
     try {
-      const text = await callAurora(buildScenarioParsePrompt(scenarioText, names));
+      // Нейтрализация разделителей секций промпта в сыром пользовательском
+      // вводе (аудит 2026-07-13, M1-2) — та же защита, что и для вопроса
+      // «Спросить Аврору» / tier1-инсайтов / выдержек методологии.
+      const text = await callAurora(buildScenarioParsePrompt(sanitizePromptFragment(scenarioText), names));
       const cfg = extractScenarioConfig(String(text || ''));
       if (!cfg || cfg.kind === 'unclear') {
         scenarioError = 'Не похоже на сценарий. Опишите изменение, например «урежь ТВ на 20%».';
@@ -522,6 +528,7 @@
     scenarioError = '';
     scenarioResult = null;
     scenarioInterpret = '';
+    scenarioUngrounded = [];
     if (scenarioConfig.kind !== 'scenario') {
       scenarioError = 'Оптимизация запускается на шаге «Оптимизация». Здесь — сценарии «что если».';
       return;
@@ -552,8 +559,10 @@
       scenarioResult = result;
       // Интерпретация Авророй — числа ТОЛЬКО из результата движка (INV-50).
       const t = result.totals || {};
+      // scenarioText — сырой пользовательский ввод: нейтрализация разделителей
+      // секций промпта (M1-2) перед вставкой в factLines.
       const factLines = [
-        `Запрос пользователя: ${scenarioText}`,
+        `Запрос пользователя: ${sanitizePromptFragment(scenarioText)}`,
         `Что меняется: ${scenarioConfirm}`,
         'Результат расчёта движком (ЕДИНСТВЕННЫЙ источник чисел):',
         t.lift_pct != null ? `- Прирост KPI: ${Number(t.lift_pct).toFixed(1)}%` : '',
@@ -574,6 +583,13 @@
         'Объясни кратко простым языком, что даёт этот сценарий и стоит ли его применять. Используй ТОЛЬКО числа выше.',
       ].filter(Boolean).join('\n');
       scenarioInterpret = sanitizeAvroraText(await callAurora(interpPrompt));
+      // Рантайм-страж INV-50 (зеркалит askAI): числа в интерпретации должны
+      // быть в фактах сценария — единственный источник result (totals +
+      // остальной ответ движка) плюс методологическая оговорка о
+      // коллинеарности (её r≈0.NN тоже легитимен для цитирования).
+      scenarioUngrounded = findUngroundedNumbers(scenarioInterpret, {
+        jsonFacts: [result, collinearWarn],
+      }).map((b) => b.raw);
     } catch (e) {
       scenarioError = String(e).replace(/^\[?[A-Z-]+\]?\s*/, '');
     } finally {
@@ -748,6 +764,9 @@
           {/if}
           {#if scenarioInterpret}
             <div class="ask-answer">
+              {#if scenarioUngrounded.length > 0}
+                <p class="ask-warn">⚠ Числа не сверены с моделью: {scenarioUngrounded.join(', ')}</p>
+              {/if}
               <p class="ask-text">{scenarioInterpret}</p>
               <button class="tip-toggle" onclick={() => { resetScenario(); scenarioText = ''; }}>Новый сценарий</button>
             </div>
