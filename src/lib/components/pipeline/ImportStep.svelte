@@ -76,14 +76,14 @@
   let savedSamplePath = $state('');
   let savingSample = $state(false);
 
-  /** @param {string} filename @param {string} label */
-  async function downloadSample(filename, label) {
+  /** @param {string} filename @param {string} label @param {string} [subdir] подкаталог sample-data (напр. 'planning/') */
+  async function downloadSample(filename, label, subdir = '') {
     if (savingSample) return;
     savingSample = true;
     sampleMsg = '';
     savedSamplePath = '';
     try {
-      const resp = await fetch(`/sample-data/${filename}`);
+      const resp = await fetch(`/sample-data/${subdir}${filename}`);
       if (!resp.ok) throw new Error('файл не найден в сборке');
       const bytes = Array.from(new Uint8Array(await resp.arrayBuffer()));
       const outputPath = await save({
@@ -459,6 +459,38 @@
             {/if}
           </div>
         {/if}
+      </div>
+
+      <!-- 3b. Карточка «Попробовать планирование на примере» — файлы с
+           хвостом-медиапланом: показывают весь функционал (планирование →
+           прогноз → оптимизация бюджета), а не только базовый анализ. -->
+      <div class="intro-card">
+        <div class="intro-card-header">
+          <div class="intro-card-icon">🗓</div>
+          <div class="intro-card-title">Попробовать планирование на примере</div>
+        </div>
+        <div class="intro-card-body">
+          Готовый файл с <strong>историей + медиапланом на будущее</strong> —
+          пройдите весь путь до <strong>оптимизации бюджета</strong>: модель на
+          истории, прогноз по вашему плану и рекомендация, как перераспределить
+          бюджет для роста результата.
+          <br><span class="planning-hint">Совет: на шаге «Валидация» для этих
+          категорий учёт праздников можно отключить — модель станет проще и надёжнее.</span>
+        </div>
+        <div class="sample-grid">
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG — планирование', 'planning/')}>
+            <span class="sample-icon">🛒</span>
+            <span class="sample-label">FMCG бренд · план</span>
+            <span class="sample-hint">Выручка ₽ · 2 года по неделям + медиаплан · оптимизация бюджета</span>
+          </button>
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма — планирование', 'planning/')}>
+            <span class="sample-icon">💊</span>
+            <span class="sample-label">OTC фарма · план</span>
+            <span class="sample-hint">Упаковки · 5 лет по месяцам + медиаплан · оптимизация бюджета</span>
+          </button>
+        </div>
       </div>
 
       <!-- 4. Карточка «Загрузить сохранённый проект» -->
@@ -1279,6 +1311,13 @@
   }
   .sample-hint {
     font-size: 11px;
+    color: var(--text-muted);
+  }
+  .planning-hint {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 12px;
+    font-style: italic;
     color: var(--text-muted);
   }
   .archive-msg {
